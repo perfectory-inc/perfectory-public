@@ -1,0 +1,65 @@
+# Foundation Platform lakehouse compute boundary.
+# This file must remain runnable without Foundation API or database credentials.
+
+services:
+  trino:
+    image: trinodb/trino:481@sha256:5b5e0a97f599a30a2e23c7c7061e4e4d546a914b4fad2a2a002998140ceb4006
+    container_name: foundation-platform-trino
+    profiles:
+      - lakehouse-query
+    restart: unless-stopped
+    ports:
+      - "${FOUNDATION_PLATFORM_TRINO_BIND_ADDR:-127.0.0.1}:${FOUNDATION_PLATFORM_TRINO_PORT:-18081}:8080"
+    volumes:
+      - ./infra/lakehouse/trino/catalog:/etc/trino/catalog:ro
+
+  lakehouse-target-init:
+    image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+    container_name: foundation-platform-lakehouse-target-init
+    profiles:
+      - lakehouse-batch
+    user: "${FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}:${FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}"
+    command:
+      - sh
+      - -c
+      - >
+        test -w /workspace/target/lakehouse
+    volumes:
+      - ${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-./target/lakehouse}:/workspace/target/lakehouse
+
+  spark:
+    image: apache/spark:3.5.6-scala2.12-java17-python3-ubuntu@sha256:702d82ecea50c6f8344d3df753ba26f05ffd9d1d052e180fed9c3d6c04f77730
+    container_name: foundation-platform-spark
+    restart: unless-stopped
+    profiles:
+      - lakehouse-batch
+    depends_on:
+      lakehouse-target-init:
+        condition: service_completed_successfully
+    user: "${FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}:${FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}"
+    working_dir: /workspace
+    command: ["sleep", "infinity"]
+    volumes:
+      - ./infra/lakehouse/spark:/workspace/infra/lakehouse/spark:ro
+      - ./infra/lakehouse/contracts:/workspace/infra/lakehouse/contracts:ro
+      - ${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-./target/lakehouse}:/workspace/target/lakehouse
+    environment:
+      PATH: /opt/spark/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PYSPARK_PYTHON: python3
+      FOUNDATION_PLATFORM_LAKEHOUSE_CONTRACTS_PATH: /workspace/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json
+      FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER: ${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER:-r2_data_catalog}
+      FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI: ${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI:-}
+      FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE: ${FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE:-foundation-platform}
+
+  lakehouse-control:
+    image: foundation-platform-lakehouse-control:local
+    build:
+      context: .
+      dockerfile: services/foundation-outbox-publisher/Dockerfile.lakehouse-control
+    profiles:
+      - lakehouse-control
+    user: "${FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}:${FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}"
+    working_dir: /workspace
+    volumes:
+      - ${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-./target/lakehouse}:/workspace/target/lakehouse
+      - ${FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_STATE_ROOT:-./target/remote-lakehouse}:/workspace/target/remote-lakehouse

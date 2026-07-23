@@ -1,0 +1,195 @@
+import { z } from "zod";
+
+/**
+ * Shared client/server schema. Only NEXT_PUBLIC_* values are inlined into the
+ * browser bundle.
+ */
+const optionalUrl = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().url().optional(),
+);
+
+const forbiddenPublicClientIds = new Set(["naver-maps-placeholder", "your_naver_client_id_here"]);
+const devInternalAuthSecret = "dev-internal-auth-must-be-shared";
+const devFoundationPlatformWebhookSecret = "dev-foundation-platform-webhook-secret-must-be-shared";
+const forbiddenProductionSessionSecrets = new Set([
+  "change-me-to-random-32-byte-base64-string-aaaaaaaaaa",
+  "ci-placeholder-secret-32-bytes-padding-ok",
+  "test-secret-placeholder-32-chars-x",
+]);
+const forbiddenProductionZitadelIdentifiers = new Set([
+  "ci-placeholder",
+  "demo-client",
+  "placeholder",
+  "test-client",
+  "x",
+  "your_zitadel_client_id_here",
+]);
+const isProduction = process.env.NODE_ENV === "production";
+const loopbackHostnames = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
+
+const isNotRepeatedProductionSecret = (value: string) => {
+  if (!isProduction) {
+    return true;
+  }
+  return new Set(value).size > 1;
+};
+
+const isProductionPublicUrl = (value: string) => {
+  if (!isProduction) {
+    return true;
+  }
+  const parsedUrl = new URL(value);
+  return (
+    parsedUrl.protocol === "https:" && !loopbackHostnames.has(parsedUrl.hostname.toLowerCase())
+  );
+};
+
+const productionPublicUrlMessage = "must use a public https URL in production";
+const productionRedisUrlMessage = "must use a non-loopback rediss URL in production";
+
+const requiredUrl = z.string().url();
+
+const requiredProductionPublicUrl = requiredUrl.refine(isProductionPublicUrl, {
+  message: productionPublicUrlMessage,
+});
+
+const requiredProductionRedisUrl = requiredUrl.refine(
+  (value) => {
+    if (!isProduction) {
+      return true;
+    }
+    const parsedUrl = new URL(value);
+    return (
+      parsedUrl.protocol === "rediss:" && !loopbackHostnames.has(parsedUrl.hostname.toLowerCase())
+    );
+  },
+  {
+    message: productionRedisUrlMessage,
+  },
+);
+
+const optionalProductionPublicUrl = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  requiredProductionPublicUrl.optional(),
+);
+
+const requiredPublicClientId = z
+  .string()
+  .trim()
+  .min(1)
+  .refine((value) => !forbiddenPublicClientIds.has(value), {
+    message: "must be configured explicitly",
+  });
+
+const requiredInternalAuthSecret = z
+  .string()
+  .trim()
+  .min(16)
+  .refine((value) => !isProduction || value.length >= 32, {
+    message: "must be at least 32 characters in production",
+  })
+  .refine((value) => !isProduction || value !== devInternalAuthSecret, {
+    message: "must be configured explicitly in production",
+  })
+  .refine(isNotRepeatedProductionSecret, {
+    message: "must not be a repeated character in production",
+  });
+
+const requiredFoundationPlatformWebhookSecret = z
+  .string()
+  .trim()
+  .min(16)
+  .refine((value) => !isProduction || value.length >= 32, {
+    message: "must be at least 32 characters in production",
+  })
+  .refine((value) => !isProduction || value !== devFoundationPlatformWebhookSecret, {
+    message: "must be configured explicitly in production",
+  })
+  .refine(isNotRepeatedProductionSecret, {
+    message: "must not be a repeated character in production",
+  });
+
+const requiredSessionSecret = z
+  .string()
+  .trim()
+  .min(32)
+  .refine((value) => !isProduction || !forbiddenProductionSessionSecrets.has(value), {
+    message: "must be configured explicitly in production",
+  })
+  .refine(isNotRepeatedProductionSecret, {
+    message: "must not be a repeated character in production",
+  });
+
+const requiredZitadelIdentifier = z
+  .string()
+  .trim()
+  .min(1)
+  .refine((value) => !isProduction || !forbiddenProductionZitadelIdentifiers.has(value), {
+    message: "must be configured explicitly in production",
+  });
+
+const publicApiBaseUrl = isProduction
+  ? requiredProductionPublicUrl
+  : requiredUrl.default("http://localhost:8080");
+const foundationPlatformBaseUrl = isProduction ? requiredProductionPublicUrl : optionalUrl;
+const tilesManifestUrl = isProduction ? optionalProductionPublicUrl : optionalUrl;
+
+const PublicEnvSchema = z.object({
+  NEXT_PUBLIC_API_BASE_URL: publicApiBaseUrl,
+  NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID: requiredPublicClientId,
+  NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL: foundationPlatformBaseUrl,
+  NEXT_PUBLIC_TILES_MANIFEST_URL: tilesManifestUrl,
+});
+
+/**
+ * Server-only schema. These values must never be read from browser code.
+ */
+const ServerEnvSchema = PublicEnvSchema.extend({
+  ZITADEL_ISSUER: isProduction ? requiredProductionPublicUrl : requiredUrl,
+  ZITADEL_CLIENT_ID: requiredZitadelIdentifier,
+  ZITADEL_AUDIENCE: requiredZitadelIdentifier,
+  ZITADEL_REDIRECT_URI: isProduction ? requiredProductionPublicUrl : requiredUrl,
+  REDIS_URL: isProduction ? requiredProductionRedisUrl : requiredUrl,
+  SESSION_SECRET: requiredSessionSecret,
+  // services/gongzzang-api /internal/auth/event shared secret. A mismatch yields 401
+  // responses and missing audit events. Production must source this from
+  // infrastructure secrets; local development uses the explicit dev default.
+  INTERNAL_AUTH_SECRET: isProduction
+    ? requiredInternalAuthSecret
+    : requiredInternalAuthSecret.default(devInternalAuthSecret),
+  FOUNDATION_PLATFORM_WEBHOOK_SECRET: isProduction
+    ? requiredFoundationPlatformWebhookSecret
+    : requiredFoundationPlatformWebhookSecret.default(devFoundationPlatformWebhookSecret),
+});
+
+const isServer = typeof window === "undefined";
+const Schema = isServer ? ServerEnvSchema : PublicEnvSchema;
+
+const parsed = Schema.safeParse({
+  NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
+  NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID: process.env.NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID,
+  NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL: process.env.NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL,
+  NEXT_PUBLIC_TILES_MANIFEST_URL: process.env.NEXT_PUBLIC_TILES_MANIFEST_URL,
+  ZITADEL_ISSUER: process.env.ZITADEL_ISSUER,
+  ZITADEL_CLIENT_ID: process.env.ZITADEL_CLIENT_ID,
+  ZITADEL_AUDIENCE: process.env.ZITADEL_AUDIENCE,
+  ZITADEL_REDIRECT_URI: process.env.ZITADEL_REDIRECT_URI,
+  REDIS_URL: process.env.REDIS_URL,
+  SESSION_SECRET: process.env.SESSION_SECRET,
+  INTERNAL_AUTH_SECRET: process.env.INTERNAL_AUTH_SECRET,
+  FOUNDATION_PLATFORM_WEBHOOK_SECRET: process.env.FOUNDATION_PLATFORM_WEBHOOK_SECRET,
+});
+
+if (!parsed.success) {
+  throw new Error(
+    `Invalid environment variables: ${JSON.stringify(parsed.error.flatten().fieldErrors)}`,
+  );
+}
+
+/**
+ * Server-only env export. Use secrets only from Route Handlers or Server
+ * Components.
+ */
+export const env = parsed.data as z.infer<typeof ServerEnvSchema>;
+export type Env = z.infer<typeof ServerEnvSchema>;

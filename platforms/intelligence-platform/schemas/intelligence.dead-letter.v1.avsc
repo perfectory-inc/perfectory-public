@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "namespace": "kr.perfectory.intelligence.events",
+  "name": "DeadLetterV1",
+  "doc": "Dead-letter event published to topic intelligence.dead-letter.v1. Evolution discipline: BACKWARD_TRANSITIVE. New fields must carry defaults and be appended.",
+  "fields": [
+    { "name": "event_id", "type": "string", "doc": "CloudEvents ce_id UUID." },
+    { "name": "source_topic", "type": "string", "doc": "Original Kafka topic." },
+    { "name": "source_partition", "type": "int", "doc": "Original Kafka partition." },
+    { "name": "source_offset", "type": "long", "doc": "Original Kafka offset." },
+    { "name": "source_key", "type": ["null", "string"], "default": null, "doc": "Original key when UTF-8 safe." },
+    { "name": "schema_id", "type": ["null", "int"], "default": null, "doc": "Confluent schema id when available." },
+    { "name": "event_type", "type": ["null", "string"], "default": null, "doc": "CloudEvents type when available." },
+    { "name": "trace_id", "type": ["null", "string"], "default": null, "doc": "Trace id when available." },
+    { "name": "failure_class", "type": "string", "doc": "Safe machine-readable failure class." },
+    { "name": "safe_error_message", "type": "string", "doc": "Safe operator-facing message without raw payload." },
+    {
+      "name": "occurred_at",
+      "type": { "type": "long", "logicalType": "timestamp-millis" },
+      "doc": "Dead-letter creation time in milliseconds since Unix epoch UTC."
+    }
+  ]
+}

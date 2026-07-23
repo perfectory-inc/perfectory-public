@@ -1,0 +1,160 @@
+# CI — Rust와 저장소 공통 정책 검사 (graph build 폐기, ADR-0044 역전).
+# 프런트엔드 전체 게이트는 frontend.yml이 환경 계약과 함께 단독 소유한다.
+# 일부러 뺀 것(런칭 후 필요시 재도입): release-provenance(SBOM/SLSA 첨부), tarpaulin 90% 커버리지 게이트.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "products/gongzzang/**"
+      - ".github/workflows/gongzzang-ci.yml"
+      # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
+      # toolchain pin change how THIS area is verified, so they must retrigger it.
+      # monorepo-guard `xtask-path-coverage` enforces this for every area CI.
+      - "tools/xtask/**"
+      - ".cargo/config.toml"
+      - "rust-toolchain.toml"
+  pull_request:
+    branches: [main]
+    # Intentionally unfiltered so required/gongzzang-core always reports.
+
+defaults:
+  run:
+    working-directory: products/gongzzang
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  SQLX_OFFLINE: "true"
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, test, build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
+        with:
+          toolchain: "1.96.0"
+          components: "rustfmt, clippy"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          workspaces: products/gongzzang
+      # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+the two-stage
+      # test contract. Runs from the repo root (this job defaults to the area).
+      - name: Verify (fmt, clippy, test)
+        working-directory: ${{ github.workspace }}
+        run: cargo xtask verify gongzzang
+      # Release artifact build stays in the area (not part of `verify`).
+      - run: cargo build --release
+
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
+        with:
+          toolchain: "1.96.0"
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.19.8 --locked
+      - run: cargo deny check
+
+  guardrails:
+    name: Repo guardrails
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          workspaces: products/gongzzang
+      - name: Install ripgrep
+        run: sudo apt-get update -qq && sudo apt-get install -y ripgrep
+      - name: No fake pass
+        run: bash scripts/lefthook/check-no-fake-pass.sh
+      - name: Forbidden implementation markers
+        run: bash scripts/lefthook/check-forbidden-implementation-markers.sh
+      - name: Foundation ownership boundary
+        run: bash scripts/lefthook/foundation-ownership-boundary.sh
+      - name: File size limit
+        run: bash scripts/lefthook/file-line-limit.sh
+      - name: Migration version prefixes (repo-guard)
+        run: cargo run -p repo-guard -- migration-version-prefixes
+      - name: Capability-first crate layout (repo-guard)
+        run: cargo run -p repo-guard -- capability-layout
+      # Markdown link checking moved to the monorepo-wide docs.yml gate (lychee,
+      # Phase D) — one definition covering all areas, not just gongzzang.
+
+  traffic-auth-policy-drift:
+    name: Traffic/auth policy drift
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Regenerates the six committed policy artifacts from the single registry
+    # SSOT (docs/architecture/traffic-auth-policy-registry.v1.json) and fails if
+    # any drifted. The generator shells out to Biome to format the .ts/.json
+    # outputs, so pnpm install must run first.
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          workspaces: products/gongzzang
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093  # v6.0.8 (SHA pin, ADR 0028)
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0 (SHA pin, ADR 0028)
+        with:
+          node-version: "20.19.0"
+          cache: pnpm
+          cache-dependency-path: products/gongzzang/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Regenerate traffic/auth policy artifacts
+        run: cargo run -p gongzzang-api --bin generate-traffic-auth-policy
+      - name: Fail if generated policy artifacts drifted
+        run: |
+          git diff --exit-code -- \
+            services/gongzzang-api/src/traffic_auth_policy.rs \
+            services/gongzzang-api/src/listing_marker_policy.rs \
+            apps/web/lib/api/api-proxy-client.generated.ts \
+            apps/web/lib/policies/traffic-auth-policy.generated.ts \
+            infrastructure/security/traffic-auth-edge-policy.generated.json \
+            infrastructure/security/aws-wafv2-edge-policy.generated.json
+
+  required:
+    name: required/gongzzang-core
+    if: ${{ always() }}
+    needs: [rust, cargo-deny, guardrails, traffic-auth-policy-drift]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every Gongzzang core gate
+        env:
+          REQUIRED_RESULT_RUST: ${{ needs.rust.result }}
+          REQUIRED_RESULT_CARGO_DENY: ${{ needs.cargo-deny.result }}
+          REQUIRED_RESULT_GUARDRAILS: ${{ needs.guardrails.result }}
+          REQUIRED_RESULT_TRAFFIC_AUTH_POLICY_DRIFT: ${{ needs.traffic-auth-policy-drift.result }}
+        run: bash scripts/ci/require-successful-needs.sh

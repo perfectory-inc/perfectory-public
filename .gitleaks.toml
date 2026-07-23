@@ -1,0 +1,126 @@
+# One root scan covers every monorepo area. Custom rules and exceptions are
+# repository-wide policy; path exceptions must bind an exact synthetic value.
+# https://github.com/gitleaks/gitleaks
+
+title = "perfectory monorepo gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "vworld-api-key"
+description = "V-World API key assigned to its provider field (UUID format)"
+regex = '''(?i)(?:vworld[_-]?api[_-]?key['"]?\s*(?:=|:|,|=>)\s*['"]?|https?://[^\s'"]*vworld[^\s'"]*[?&](?:key|api[_-]?key)=)([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})'''
+secretGroup = 1
+keywords = ["VWORLD", "vworld"]
+
+[[rules]]
+id = "naver-maps-credential-assignment"
+description = "Naver Maps Client ID/Secret assignment"
+regex = '''(?i)(naver[_-]?maps?[_-]?(client[_-]?id|client[_-]?secret|key))\s*=\s*['"]?([a-z0-9][a-z0-9_-]{9,39})['"]?'''
+secretGroup = 3
+
+[[rules]]
+id = "naver-maps-credential-property"
+description = "Naver Maps Client ID/Secret object property"
+regex = '''(?i)(naver[_-]?maps?[_-]?(client[_-]?id|client[_-]?secret|key))\s*:\s*['"]([a-z0-9][a-z0-9_-]{9,39})['"]'''
+secretGroup = 3
+
+[[rules]]
+id = "zitadel-key"
+description = "Zitadel API key"
+regex = '''(?i)zitadel[_-]?(api[_-]?key|secret|token).{0,5}['"]?[a-zA-Z0-9_-]{20,}['"]?'''
+
+[[rules]]
+id = "korean-data-go-kr-key"
+description = "data.go.kr serviceKey"
+regex = '''(?i)(serviceKey|odp[_-]?service[_-]?key).{0,5}['"]?[a-zA-Z0-9%+/=]{40,}['"]?'''
+
+# Never add a repository-wide path, regex, or stopword allowlist. Every
+# exception below is rule-scoped and requires an anchored path plus exact value.
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Trino OAuth URI placeholder followed by its documented S3 setting."
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^platforms/foundation-platform/infra/lakehouse/trino/templates/r2-iceberg\.properties\.template$''',
+]
+regexes = [
+  '''^FOUNDATION_PLATFORM_LAKEHOUSE_OAUTH2_SERVER_URI>\r?\nfs\.s3\.enabled=true$''',
+]
+
+[[allowlists]]
+targetRules = ["naver-maps-credential-assignment"]
+description = "Naver Maps client-ID placeholder in the checked-in environment example."
+condition = "AND"
+regexTarget = "secret"
+paths = [
+  '''^products/gongzzang/\.env\.example$''',
+]
+regexes = [
+  '''^replace_with_naver_maps_client_id$''',
+]
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Known-bad production session-secret fixture enforced by the env validator."
+condition = "AND"
+regexTarget = "secret"
+paths = [
+  '''^products/gongzzang/apps/web/lib/env\.ts$''',
+]
+regexes = [
+  '''^ci-placeholder-secret-32-bytes-padding-ok$''',
+  '''^test-secret-placeholder-32-chars-x$''',
+]
+
+[[allowlists]]
+targetRules = ["naver-maps-credential-assignment"]
+description = "Synthetic Naver client IDs used by env-validation unit tests."
+condition = "AND"
+regexTarget = "secret"
+paths = [
+  '''^products/gongzzang/apps/web/tests/unit/env\.test\.ts$''',
+]
+regexes = [
+  '''^naver-client$''',
+  '''^naver-maps-placeholder$''',
+]
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Synthetic session secret installed by the web unit-test bootstrap."
+condition = "AND"
+regexTarget = "secret"
+paths = [
+  '''^products/gongzzang/apps/web/tests/unit/setup\.ts$''',
+]
+regexes = [
+  '''^test-secret-placeholder-32-chars-x$''',
+]
+
+[[allowlists]]
+targetRules = ["naver-maps-credential-assignment"]
+description = "Synthetic Naver client ID installed by the web unit-test bootstrap."
+condition = "AND"
+regexTarget = "secret"
+paths = [
+  '''^products/gongzzang/apps/web/tests/unit/setup\.ts$''',
+]
+regexes = [
+  '''^test-naver-client$''',
+]
+
+[[allowlists]]
+targetRules = ["curl-auth-header"]
+description = "Deliberately invalid bearer token used by the walking-skeleton 401 test."
+condition = "AND"
+regexTarget = "secret"
+paths = [
+  '''^products/gongzzang/scripts/ci/walking-skeleton-e2e\.sh$''',
+]
+regexes = [
+  '''^bogus\.token$''',
+]

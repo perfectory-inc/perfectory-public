@@ -1,0 +1,82 @@
+{
+  "schema_version": "foundation-platform.webhook_receiver_contract.v1",
+  "envelope_ref": "docs/events/webhook/outbox-webhook-envelope.v1.example.json",
+  "producer": "foundation-outbox-publisher",
+  "event_type": "catalog.industrial_complex.gold_pointer.published.v1",
+  "required_headers": [
+    "x-foundation-platform-event-id",
+    "x-foundation-platform-event-type",
+    "x-foundation-platform-outbox-scope",
+    "x-foundation-platform-signature",
+    "x-foundation-platform-timestamp"
+  ],
+  "idempotency_key": "x-foundation-platform-event-id",
+  "retry_contract": {
+    "retry_on_non_2xx": true,
+    "publisher_increments_retry_count": true
+  },
+  "supported_events": [
+    {
+      "event_type": "catalog.industrial_complex.gold_pointer.published.v1",
+      "envelope_ref": "docs/events/webhook/outbox-webhook-envelope.v1.example.json",
+      "consumers": [
+        {
+          "slug": "gongzzang",
+          "required_effect": "invalidate_catalog_cache"
+        },
+        {
+          "slug": "dawneer",
+          "required_effect": "invalidate_catalog_cache"
+        }
+      ]
+    },
+    {
+      "event_type": "catalog.parcel_marker_anchor.snapshot.published.v1",
+      "envelope_ref": "docs/events/webhook/parcel-marker-anchor-snapshot-envelope.v1.example.json",
+      "consumers": [
+        {
+          "slug": "gongzzang",
+          "required_effect": "enqueue_anchor_projection_import"
+        },
+        {
+          "slug": "dawneer",
+          "required_effect": "enqueue_anchor_projection_import"
+        }
+      ]
+    }
+  ],
+  "consumers": [
+    {
+      "slug": "gongzzang",
+      "display_name": "Gongzzang",
+      "endpoint_path": "/foundation-platform/events",
+      "required_effect": "invalidate_catalog_cache",
+      "ack_contract": {
+        "accepted_status_codes": [
+          200,
+          202,
+          204
+        ],
+        "max_latency_ms": 5000,
+        "body_required": true,
+        "required_ack_status": "accepted"
+      }
+    },
+    {
+      "slug": "dawneer",
+      "display_name": "Dawneer",
+      "endpoint_path": "/foundation-platform/events",
+      "required_effect": "invalidate_catalog_cache",
+      "ack_contract": {
+        "accepted_status_codes": [
+          200,
+          202,
+          204
+        ],
+        "max_latency_ms": 5000,
+        "body_required": true,
+        "required_ack_status": "accepted"
+      }
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+# Root lefthook.
+#
+# PRINCIPLE (ADR-0005): git hooks are ADVISORY, not authoritative. CI
+# (.github/workflows/*) is the single source of truth. Hooks are a fast local
+# convenience and MUST skip — never fail — when a required host tool is absent.
+# This repo builds Rust only inside Docker, so `cargo` (and sometimes `pnpm`) may
+# not be usable on the host. A launcher alone is insufficient: `pnpm` can exist
+# without a platform Biome binary and `cargo` without rustfmt. Every direct
+# launcher hook therefore probes the concrete invoked subtool in `skip.run`.
+#
+# Area-scoped commands use `root:` so globs/tools run in that area.
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks:
+      # `gitleaks protect` was removed in v8.19; staged scan is now `git --pre-commit --staged`
+      run: gitleaks git --pre-commit --staged --redact -v --config .gitleaks.toml
+      skip:
+        - merge
+        - rebase
+        - run: "! command -v gitleaks >/dev/null 2>&1"
+    gz-biome:
+      root: "products/gongzzang/"
+      glob: "*.{ts,tsx,js,jsx,json,jsonc,css}"
+      run: pnpm biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+      skip:
+        - merge
+        - rebase
+        - run: "! (cd products/gongzzang && pnpm biome --version) >/dev/null 2>&1"
+    gz-rustfmt:
+      root: "products/gongzzang/"
+      glob: "*.rs"
+      run: cargo fmt -- {staged_files}
+      stage_fixed: true
+      skip:
+        - merge
+        - rebase
+        - run: "! (cd products/gongzzang && cargo fmt --version) >/dev/null 2>&1"
+    gz-markdownlint:
+      root: "products/gongzzang/"
+      glob: "*.md"
+      run: pnpm markdownlint-cli2 {staged_files}
+      skip:
+        - merge
+        - rebase
+        - run: "! (cd products/gongzzang && pnpm markdownlint-cli2 --version) >/dev/null 2>&1"
+    gz-panel-no-framework-import-kind:
+      root: "products/gongzzang/"
+      glob: "apps/web/lib/panel/**/*.{ts,tsx}"
+      run: bash scripts/lefthook/panel-no-framework-import-kind.sh
+    gz-panel-no-direct-codec:
+      root: "products/gongzzang/"
+      glob: "apps/web/**/*.{ts,tsx}"
+      run: bash scripts/lefthook/panel-no-direct-codec.sh
+    gz-panel-no-state-without-router:
+      root: "products/gongzzang/"
+      glob: "apps/web/stores/**/*.{ts,tsx}"
+      run: bash scripts/lefthook/panel-no-state-without-router.sh
+
+pre-push:
+  parallel: true
+  commands:
+    monorepo-guard:
+      run: bash scripts/guard/monorepo-guard.sh
+      skip: [merge, rebase]
+    gz-no-fake-pass:
+      root: "products/gongzzang/"
+      run: bash scripts/lefthook/check-no-fake-pass.sh
+      skip: [merge, rebase]
+    gz-forbidden-markers:
+      root: "products/gongzzang/"
+      run: bash scripts/lefthook/check-forbidden-implementation-markers.sh
+      skip: [merge, rebase]
+    gz-foundation-ownership-boundary:
+      root: "products/gongzzang/"
+      run: bash scripts/lefthook/foundation-ownership-boundary.sh
+      skip: [merge, rebase]
+    # Monorepo-wide internal-link check (docs 재발방지, Phase D). Covers ALL areas
+    # via lychee (Rust) in the official Docker image against the root lychee.toml
+    # SSOT — NO cargo/lychee host install needed. lychee-docs.sh skips when Docker is
+    # down. CI (.github/workflows/docs.yml) is the authoritative gate.
+    markdown-links:
+      run: bash scripts/ci/lychee-docs.sh
+      skip: [merge, rebase]

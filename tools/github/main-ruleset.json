@@ -1,0 +1,96 @@
+{
+  "name": "perfectory-public-main",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "~DEFAULT_BRANCH"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "required_linear_history"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "allowed_merge_methods": [
+          "squash"
+        ],
+        "dismiss_stale_reviews_on_push": true,
+        "dismissal_restriction": {
+          "allowed_actors": [],
+          "enabled": false
+        },
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_approving_review_count": 0,
+        "required_review_thread_resolution": true,
+        "required_reviewers": []
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {
+            "context": "required/docs",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/foundation",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/gongzzang-core",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/gongzzang-e2e",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/gongzzang-frontend",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/gongzzang-migrations",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/gongzzang-sqlx",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/identity",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/intelligence",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/repository",
+            "integration_id": 15368
+          },
+          {
+            "context": "required/secrets",
+            "integration_id": 15368
+          }
+        ],
+        "strict_required_status_checks_policy": true
+      }
+    }
+  ]
+}

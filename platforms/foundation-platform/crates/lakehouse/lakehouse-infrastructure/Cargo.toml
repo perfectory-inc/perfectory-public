@@ -1,0 +1,31 @@
+[package]
+name = "lakehouse-infrastructure"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+catalog-application = { workspace = true }
+catalog-domain = { workspace = true }
+chrono = { workspace = true }
+foundation-shared-kernel = { workspace = true }
+lakehouse-application = { workspace = true }
+lakehouse-domain = { workspace = true }
+outbound-http-infrastructure = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+wiremock = { workspace = true }

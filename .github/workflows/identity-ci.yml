@@ -1,0 +1,237 @@
+name: identity-ci
+
+on:
+  # Pull requests are intentionally unfiltered so required/identity reports.
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "platforms/identity-platform/**"
+      - ".github/workflows/identity-ci.yml"
+      # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
+      # toolchain pin change how THIS area is verified, so they must retrigger it.
+      # monorepo-guard `xtask-path-coverage` enforces this for every area CI.
+      - "tools/xtask/**"
+      - ".cargo/config.toml"
+      - "rust-toolchain.toml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: identity-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: platforms/identity-platform
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.96.0
+
+jobs:
+  rust-quality:
+    name: Identity Rust quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+      # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the
+      # one flag policy. Runs from the repo root (this workflow defaults to the area).
+      - name: Verify (fmt, clippy, test)
+        working-directory: ${{ github.workspace }}
+        run: cargo xtask verify identity
+
+  live-contracts:
+    name: Identity live database contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      identity_postgres:
+        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_DB: identity
+          POSTGRES_USER: identity_admin
+          POSTGRES_PASSWORD: identity_ci
+        ports:
+          # Fixed mapping: the `job` context is NOT available in job-level `env`
+          # (it silently evaluated to an empty port before), so the URL below
+          # must be able to hardcode the host port.
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U identity_admin -d identity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      IDENTITY_TEST_DATABASE_URL: postgres://identity_admin:identity_ci@localhost:5432/identity
+      IDENTITY_ROLE_GRANT_TEST_DATABASE_URL: postgres://identity_admin:identity_ci@localhost:5432/identity
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - name: Run live role-grant least-privilege contract
+        run: cargo +"$RUST_TOOLCHAIN" test --locked -p authorization-infrastructure --test role_grant_postgres api_role_assigns_atomically_without_staff_update_privilege -- --ignored --exact
+
+  compose-smoke:
+    name: Identity Compose smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      IDENTITY_ADMIN_PASSWORD: compose_admin_ci
+      IDENTITY_MIGRATOR_PASSWORD: compose_migrator_ci
+      IDENTITY_API_PASSWORD: compose_api_ci
+      IDENTITY_POLICY_WORKER_PASSWORD: compose_worker_ci
+      IDENTITY_PROVISIONER_PASSWORD: compose_provisioner_ci
+      IDENTITY_WORKLOAD_PRINCIPAL_BINDINGS_FILE: ./tools/identity-service-provisioner/tests/fixtures/compose-smoke-bindings.v1.json
+      IDENTITY_DB_PORT: 15432
+      IDENTITY_API_PORT: 18080
+      IDENTITY_POLICY_EVENT_ENDPOINT: http://host.docker.internal:18090/identity-events
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Build and start clean Compose stack
+        run: scripts/compose-smoke.sh -- start-all
+      - name: Wait for runtime readiness
+        run: |
+          api_container_id="$(timeout --foreground 10s docker compose ps -q identity-api)"
+          worker_container_id="$(timeout --foreground 10s docker compose ps -q identity-policy-worker)"
+          test -n "$api_container_id"
+          test -n "$worker_container_id"
+          test "$(timeout --foreground 10s docker inspect --format '{{.State.Health.Status}}' "$api_container_id")" = healthy
+          test "$(timeout --foreground 10s docker inspect --format '{{.State.Health.Status}}' "$worker_container_id")" = healthy
+      - name: Verify worker healthcheck rejects missing configuration
+        run: |
+          set +e
+          timeout --foreground 15s docker compose run --rm -T --no-deps \
+            --interactive=false \
+            -e IDENTITY_DATABASE_URL= identity-policy-worker --healthcheck
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
+            exit 1
+          fi
+      - name: Verify worker healthcheck rejects unreachable database
+        run: |
+          set +e
+          timeout --foreground 15s docker compose run --rm -T --no-deps \
+            --interactive=false \
+            -e IDENTITY_DATABASE_URL=postgres://identity_policy_worker:unused@127.0.0.1:1/identity \
+            -e IDENTITY_POLICY_REPOSITORY_TIMEOUT_MS=200 \
+            identity-policy-worker --healthcheck
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
+            exit 1
+          fi
+      - name: Verify worker healthcheck accepts migrated database
+        run: |
+          container_id="$(timeout --foreground 10s docker compose ps -q identity-policy-worker)"
+          test -n "$container_id"
+          test "$(timeout --foreground 10s docker inspect --format '{{.State.Health.Status}}' "$container_id")" = healthy
+      - name: Verify one-shot helper UIDs
+        run: scripts/compose-smoke.sh -- verify-uids
+      - name: Verify provisioner SQL privilege boundary
+        run: scripts/compose-smoke.sh -- verify-provisioner-acl
+      - name: Re-run migration chain on the same volume
+        run: scripts/compose-smoke.sh -- rerun-all
+      - name: Verify migration history and role separation
+        run: |
+          contract="$(docker compose exec -T identity-db psql -X -A -t -v ON_ERROR_STOP=1 -U identity_admin -d identity -c "
+            SELECT
+              NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_roles
+                WHERE rolname IN ('identity_migrator','identity_api','identity_policy_worker',
+                  'identity_provisioner')
+                  AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolinherit OR rolreplication OR rolbypassrls)
+              )
+              AND NOT has_database_privilege('identity_migrator', current_database(), 'CREATE')
+              AND has_schema_privilege('identity_migrator', 'identity', 'CREATE')
+              AND has_table_privilege('identity_api', 'identity.staff', 'SELECT')
+              AND NOT has_table_privilege('identity_api', 'identity.staff', 'UPDATE')
+              AND NOT has_table_privilege('identity_api', 'identity.outbox_event', 'UPDATE')
+              AND has_table_privilege('identity_policy_worker', 'identity.outbox_event', 'UPDATE')
+              AND NOT has_table_privilege('identity_policy_worker', 'identity.staff', 'SELECT')
+              AND has_table_privilege('identity_provisioner', 'identity.service_principal', 'SELECT')
+              AND has_table_privilege('identity_provisioner', 'identity.service_principal', 'INSERT')
+              AND has_table_privilege('identity_provisioner', 'identity.service_principal', 'UPDATE')
+              AND NOT has_table_privilege('identity_provisioner', 'identity.service_principal', 'DELETE')
+              AND NOT has_table_privilege('identity_provisioner', 'identity.staff', 'SELECT')
+              AND (SELECT count(*) FROM identity.service_principal) = 4
+              AND (SELECT count(*) FROM identity.service_capability_grant) = 4
+              AND NOT EXISTS (SELECT 1 FROM public._sqlx_migrations WHERE NOT success);")"
+          test "$contract" = "t"
+          # `! cmd` skips errexit entirely — a found secret on any non-final line
+          # would NOT fail the step. Explicit if/exit keeps every assertion armed.
+          if docker compose exec -T identity-api env | grep -E 'IDENTITY_(ADMIN|MIGRATOR)_PASSWORD|identity_(admin|migrator)'; then echo "admin/migrator credentials leaked into identity-api env" >&2; exit 1; fi
+          if docker compose exec -T identity-policy-worker env | grep -E 'IDENTITY_(ADMIN|MIGRATOR)_PASSWORD|identity_(admin|migrator)'; then echo "admin/migrator credentials leaked into identity-policy-worker env" >&2; exit 1; fi
+          if docker compose exec -T identity-api env | grep -E 'IDENTITY_PROVISIONER_PASSWORD|identity_provisioner'; then echo "provisioner credentials leaked into identity-api env" >&2; exit 1; fi
+          if docker compose exec -T identity-policy-worker env | grep -E 'IDENTITY_PROVISIONER_PASSWORD|identity_provisioner'; then echo "provisioner credentials leaked into identity-policy-worker env" >&2; exit 1; fi
+      - name: Clean Compose resources
+        if: always()
+        run: timeout --foreground 120s docker compose down -v --remove-orphans
+
+  contract-determinism:
+    name: Identity OpenAPI determinism
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - name: Regenerate OpenAPI contract
+        run: cargo +"$RUST_TOOLCHAIN" run --locked --quiet -p identity-api --bin export-openapi -- /tmp/identity.v1.json
+      - name: Verify deterministic contract
+        run: diff -u docs/openapi/identity.v1.json /tmp/identity.v1.json
+
+  supply-chain:
+    name: Identity supply-chain policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: platforms/identity-platform
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install cargo-deny
+        run: |
+          archive=/tmp/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz
+          tool_bin="$RUNNER_TEMP/cargo-deny/bin"
+          mkdir -p "$tool_bin"
+          curl -sSfL --output "$archive" \
+            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.8/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz
+          echo "70e769ae3872e34d45132b17040859175e11401dc12dddb0303e0b8c7d088f3f  $archive" \
+            | sha256sum --check --strict -
+          tar xzf "$archive" --strip-components=1 -C "$tool_bin" --wildcards '*/cargo-deny'
+          printf '%s\n' "$tool_bin" >> "$GITHUB_PATH"
+      - name: cargo-deny
+        run: cargo-deny --locked check
+
+  required:
+    name: required/identity
+    if: ${{ always() }}
+    needs: [rust-quality, live-contracts, compose-smoke, contract-determinism, supply-chain]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every Identity gate
+        env:
+          REQUIRED_RESULT_RUST_QUALITY: ${{ needs.rust-quality.result }}
+          REQUIRED_RESULT_LIVE_CONTRACTS: ${{ needs.live-contracts.result }}
+          REQUIRED_RESULT_COMPOSE_SMOKE: ${{ needs.compose-smoke.result }}
+          REQUIRED_RESULT_CONTRACT_DETERMINISM: ${{ needs.contract-determinism.result }}
+          REQUIRED_RESULT_SUPPLY_CHAIN: ${{ needs.supply-chain.result }}
+        run: bash scripts/ci/require-successful-needs.sh

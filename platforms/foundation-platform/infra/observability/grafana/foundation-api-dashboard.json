@@ -1,0 +1,272 @@
+{
+  "title": "Foundation Platform API",
+  "schemaVersion": 39,
+  "tags": ["foundation-platform", "api", "sss"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "API up",
+      "targets": [
+        {
+          "expr": "foundation_api_up",
+          "legendFormat": "api"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Database ready",
+      "targets": [
+        {
+          "expr": "foundation_api_database_ready",
+          "legendFormat": "database"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Lakehouse last success created",
+      "targets": [
+        {
+          "expr": "foundation_platform_lakehouse_batch_last_success_created_at_seconds",
+          "legendFormat": "{{contract}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Lakehouse last success recorded",
+      "targets": [
+        {
+          "expr": "foundation_platform_lakehouse_batch_last_success_recorded_at_seconds",
+          "legendFormat": "{{contract}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Lakehouse last success rows",
+      "targets": [
+        {
+          "expr": "foundation_platform_lakehouse_batch_last_success_row_count",
+          "legendFormat": "{{contract}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingestion last finished",
+      "targets": [
+        {
+          "expr": "foundation_platform_ingestion_run_last_finished_at_seconds",
+          "legendFormat": "{{source}} {{status}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingestion duration",
+      "targets": [
+        {
+          "expr": "foundation_platform_ingestion_run_last_duration_seconds",
+          "legendFormat": "{{source}} {{status}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingestion records seen",
+      "targets": [
+        {
+          "expr": "foundation_platform_ingestion_run_last_records_seen",
+          "legendFormat": "{{source}} {{status}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingestion objects written",
+      "targets": [
+        {
+          "expr": "foundation_platform_ingestion_run_last_objects_written",
+          "legendFormat": "{{source}} {{status}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 }
+    },
+    {
+      "type": "table",
+      "title": "Build info",
+      "targets": [
+        {
+          "expr": "foundation_api_build_info",
+          "legendFormat": "build"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Public API quota requests",
+      "targets": [
+        {
+          "expr": "foundation_platform_public_api_quota_request_total",
+          "legendFormat": "{{provider}} {{endpoint}} {{outcome}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 }
+    },
+    {
+      "type": "timeseries",
+      "title": "R2 inventory bytes",
+      "targets": [
+        {
+          "expr": "foundation_platform_r2_inventory_total_size_bytes",
+          "legendFormat": "{{source}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 }
+    },
+    {
+      "type": "timeseries",
+      "title": "R2 inventory estimated list cost",
+      "targets": [
+        {
+          "expr": "foundation_platform_r2_inventory_estimated_list_request_cost_usd",
+          "legendFormat": "{{source}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 }
+    },
+    {
+      "type": "timeseries",
+      "title": "R2 billing requests",
+      "targets": [
+        {
+          "expr": "foundation_platform_r2_billing_request_total",
+          "legendFormat": "{{bucket}} {{operation_class}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 }
+    },
+    {
+      "type": "timeseries",
+      "title": "R2 billing bytes",
+      "targets": [
+        {
+          "expr": "foundation_platform_r2_billing_usage_bytes",
+          "legendFormat": "{{bucket}} {{operation_class}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 40 }
+    },
+    {
+      "type": "timeseries",
+      "title": "R2 billing cost",
+      "targets": [
+        {
+          "expr": "foundation_platform_r2_billing_cost_usd",
+          "legendFormat": "{{bucket}} {{operation_class}} {{currency}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 40 }
+    },
+    {
+      "type": "timeseries",
+      "title": "R2 smoke requests",
+      "targets": [
+        {
+          "expr": "foundation_platform_r2_smoke_request_total",
+          "legendFormat": "{{source}} {{operation}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 }
+    },
+    {
+      "type": "timeseries",
+      "title": "R2 smoke bytes verified",
+      "targets": [
+        {
+          "expr": "foundation_platform_r2_smoke_bytes_verified",
+          "legendFormat": "{{source}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox pending events",
+      "targets": [
+        {
+          "expr": "foundation_platform_outbox_pending_event_count",
+          "legendFormat": "{{scope}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 56 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox retry events",
+      "targets": [
+        {
+          "expr": "foundation_platform_outbox_retry_event_count",
+          "legendFormat": "{{scope}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 56 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox oldest pending age",
+      "targets": [
+        {
+          "expr": "foundation_platform_outbox_oldest_pending_age_seconds",
+          "legendFormat": "{{scope}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 56 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingestion raw response bytes",
+      "targets": [
+        {
+          "expr": "foundation_platform_ingestion_run_last_raw_response_size_bytes",
+          "legendFormat": "{{source}} {{status}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 64 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Public API dependency duration",
+      "targets": [
+        {
+          "expr": "foundation_platform_public_api_dependency_request_duration_seconds",
+          "legendFormat": "{{provider}} {{endpoint}} {{outcome}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 64 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Public API dependency errors",
+      "targets": [
+        {
+          "expr": "foundation_platform_public_api_dependency_error_total",
+          "legendFormat": "{{provider}} {{endpoint}} {{error_kind}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 64 }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+.superpowers/
+.worktrees/
+worktrees/
+.playwright-mcp/
+/target/
+/.env
+/.env.*
+!/.env.example

@@ -1,0 +1,41 @@
+# lychee — monorepo-wide internal-link checker (single config SSOT).
+#
+# Replaces gongzzang's Python markdown-link checker (retired: violated the
+# Rust-only tooling rule and only covered products/gongzzang). This gate now
+# validates internal links across ALL areas — products/, platforms/, and root
+# docs — so broken relative links (moved workflows, renamed migrations,
+# relocated docs) cannot rot undetected outside gongzzang.
+#
+# Consumed by:
+#   - .github/workflows/docs.yml (authoritative CI gate, lychee-action)
+#   - cargo xtask docs           (local run via the official lychee Docker image)
+#
+# Design: OFFLINE mode. We only validate that local file paths resolve; http/https
+# are never fetched (matches the old checker's internal-links-only intent and is
+# deterministic/fast with no network flakiness).
+
+# Only check local files; block every network request.
+offline = true
+
+# Non-interactive output for CI logs.
+no_progress = true
+verbose = "info"
+
+# What to scan. Every Markdown file in the public code tree is an input; excludes
+# below prune only generated or vendored trees.
+glob_ignore_case = false
+
+# Directories that are never link-checked:
+#   - target / node_modules: build output & vendored deps, not authored docs.
+# Historical plans, reviews, and operational evidence are outside the public code
+# tree under ADR-0007, so they need no checker exception here.
+exclude_path = [
+  "target",
+  "node_modules",
+]
+
+# Fragment (#anchor) checking stays OFF (lychee's default). Heading-slug
+# generation differs across renderers and produced false positives on valid
+# links; internal-path validity is what this gate guarantees. Do NOT set
+# `include_fragments` here — as a config key it takes a mode string, and the
+# default (disabled) is exactly what we want.

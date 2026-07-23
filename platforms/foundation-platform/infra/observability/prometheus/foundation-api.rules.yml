@@ -1,0 +1,133 @@
+groups:
+  - name: foundation-api
+    rules:
+      - alert: FoundationPlatformApiScrapeDown
+        expr: foundation_api_up != 1 or absent(foundation_api_up)
+        for: 2m
+        labels:
+          severity: page
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform API metrics scrape is not healthy
+          description: foundation_api_up is missing or not equal to 1 for more than 2 minutes.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformApiDatabaseUnavailable
+        expr: foundation_api_database_ready != 1
+        for: 2m
+        labels:
+          severity: page
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform API database readiness is down
+          description: foundation_api_database_ready is not equal to 1 for more than 2 minutes.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformApiHigh5xxRate
+        expr: sum(rate(foundation_api_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(foundation_api_http_requests_total[5m])), 1) > 0.01
+        for: 5m
+        labels:
+          severity: page
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform API 5xx rate is high
+          description: More than 1 percent of Foundation Platform API requests returned 5xx status over the last 5 minutes.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformApiRequestTimeouts
+        expr: sum(rate(foundation_api_http_request_timeout_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform API request timeouts observed
+          description: Foundation Platform API returned timeout responses during the last 5 minutes.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformApiOverloadRejected
+        expr: sum(rate(foundation_api_http_overload_rejected_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform API overload rejections observed
+          description: Foundation Platform API rejected requests before route handling because an app-level overload budget was exceeded.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformApiDbPoolExhausted
+        expr: foundation_api_db_pool_idle_connections == 0 and foundation_api_db_pool_size >= foundation_api_db_pool_max_connections
+        for: 5m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform API DB pool is exhausted
+          description: Foundation Platform API PostgreSQL pool has no idle connections and has reached the configured maximum pool size.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformApiHighLatency
+        expr: histogram_quantile(0.95, sum(rate(foundation_api_http_request_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 5m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform API request latency is high
+          description: Foundation Platform API p95 request latency exceeded 1 second over the last 5 minutes.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformLakehouseBatchStale
+        expr: time() - foundation_platform_lakehouse_batch_last_success_recorded_at_seconds > 86400
+        for: 15m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform lakehouse batch is stale
+          description: Latest successful lakehouse batch audit record is older than 24 hours for at least one contract.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformIngestionRunStale
+        expr: time() - foundation_platform_ingestion_run_last_finished_at_seconds > 86400
+        for: 15m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform ingestion source is stale
+          description: Latest finished Bronze ingestion run is older than 24 hours for at least one source.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformIngestionRunFailed
+        expr: foundation_platform_ingestion_run_last_finished_at_seconds{status="failed"} > 0
+        for: 10m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform latest ingestion run failed
+          description: The latest finished Bronze ingestion run has failed status for at least one source.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformIngestionRunSlow
+        expr: foundation_platform_ingestion_run_last_duration_seconds > 3600
+        for: 10m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform latest ingestion run is slow
+          description: Latest finished Bronze ingestion run duration exceeded 3600 seconds for at least one source.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformOutboxOldestPendingStale
+        expr: foundation_platform_outbox_oldest_pending_age_seconds > 600
+        for: 10m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform outbox pending age is high
+          description: Oldest unpublished outbox event age exceeded 600 seconds for at least one scope.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformOutboxRetryBacklog
+        expr: foundation_platform_outbox_retry_event_count > 0
+        for: 10m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform outbox retry backlog is non-empty
+          description: At least one unpublished outbox event has retry_count greater than zero for 10 minutes.
+          runbook: docs/runbooks/slo-alert-policy.md

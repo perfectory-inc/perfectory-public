@@ -1,0 +1,53 @@
+{
+  "schema_version": "gongzzang.foundation_platform_catalog_api_contract_pin.v1",
+  "source_repo": "foundation-platform",
+  "source_path": "docs/openapi/catalog.v1.json",
+  "snapshot_path": "crates/foundation-platform-client/openapi/catalog.v1.json",
+  "source_sha256": "5d7af3929f6dcafb4b203037705bf3e4230b6d0fcb69ac74b3057f948f847ec8",
+  "source_schema_version": "foundation-platform.openapi.catalog.v1",
+  "consumer_slug": "gongzzang",
+  "base_env": "FOUNDATION_PLATFORM_API_BASE_URL",
+  "schemas": {
+    "pnu": {
+      "type": "string",
+      "length": 19,
+      "pattern": "^[0-9]{10}[1289][0-9]{8}$"
+    }
+  },
+  "allowed_reference_modules": ["services/gongzzang-api/src/startup.rs"],
+  "endpoints": [
+    {
+      "operation_id": "getParcelByPnu",
+      "transport_module": "crates/foundation-platform-client/src/catalog.rs",
+      "adapter_module": "services/gongzzang-api/src/foundation_parcel_lookup.rs",
+      "method": "GET",
+      "path_template": "/catalog/v1/parcels/by-pnu/{pnu}",
+      "path_pattern_literal": "catalog/v1/parcels/by-pnu/",
+      "success_shape": "object",
+      "not_found_behavior": "none",
+      "required_response_fields": ["pnu", "kind"]
+    },
+    {
+      "operation_id": "listParcelBuildingsByPnu",
+      "transport_module": "crates/foundation-platform-client/src/catalog.rs",
+      "adapter_module": "services/gongzzang-api/src/building_reader.rs",
+      "method": "GET",
+      "path_template": "/catalog/v1/parcels/by-pnu/{pnu}/buildings",
+      "path_pattern_literal": "catalog/v1/parcels/by-pnu/{}/buildings",
+      "success_shape": "array",
+      "required_response_fields": [
+        "id",
+        "parcel_id",
+        "purpose_code",
+        "structure_code",
+        "floor_area_m2",
+        "stories",
+        "below_ground_floors",
+        "has_rooftop",
+        "rooftop_usage",
+        "built_year",
+        "updated_at"
+      ]
+    }
+  ]
+}

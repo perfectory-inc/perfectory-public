@@ -1,0 +1,10 @@
+FirstInstance:
+  Org:
+    Machine:
+      Username: zitadel-admin-sa
+      Name: zitadel-admin-sa
+      MachineKey:
+        Type: 1
+      Pat:
+        ExpirationDate: "2099-01-01T00:00:00Z"
+        Path: /pat-out/pat

@@ -1,0 +1,59 @@
+[workspace]
+members = [
+    "crates/intelligence-contracts",
+    "crates/knowledge/knowledge-domain",
+    "crates/knowledge/knowledge-application",
+    "crates/knowledge/knowledge-infrastructure",
+    "crates/normalization/intelligence-normalization-domain",
+    "crates/normalization/intelligence-normalization-application",
+    "crates/normalization/intelligence-normalization-infrastructure",
+    "services/intelligence-api",
+    "services/intelligence-worker",
+    "crates/messaging/messaging-infrastructure",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license-file = "../../LICENSES/LicenseRef-Proprietary.txt"
+# Proprietary internal crates — never published to crates.io. Members inherit via
+# `publish.workspace = true` (same convention as foundation/identity platforms);
+# cargo-deny relies on this to treat them as private (licenses.private.ignore,
+# bans.allow-wildcard-paths).
+publish = false
+rust-version = "1.96.0"
+version = "0.1.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[workspace.dependencies]
+apache-avro = "0.21.0"
+async-trait = "0.1"
+axum = "0.8"
+chrono = { version = "0.4", features = ["clock", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schema_registry_converter = "4.9.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rdkafka = { version = "0.39.0", features = ["cmake-build"] }
+redis = { version = "1", features = ["tokio-comp"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio", "tls-rustls-ring", "postgres", "chrono", "uuid", "json", "migrate", "macros",
+] }
+thiserror = "2"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.18"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = "0.7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+sha2 = "0.10"
+subtle = "2"
+tower = { version = "0.5", features = ["limit", "load-shed", "timeout", "util"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+uuid = { version = "1", features = ["serde", "v4"] }

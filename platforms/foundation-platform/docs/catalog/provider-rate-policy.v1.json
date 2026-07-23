@@ -1,0 +1,185 @@
+{
+  "schema_version": "foundation-platform.provider_rate_policy.v1",
+  "status": "ready",
+  "generated_at_utc": "2026-06-02T00:00:00Z",
+  "owner": "foundation-platform",
+  "throughput_profile": "max_throughput_calibration",
+  "scope": "foundation_platform_public_provider_collection",
+  "rules": [
+    "provider_rate_policy_is_ssot",
+    "hard_caps_never_unlimited",
+    "adaptive_controller_required",
+    "quota_error_signals_required",
+    "defer_jobs_instead_of_drop"
+  ],
+  "lanes": [
+    {
+      "lane_id": "data-go-kr:building-register-open-api",
+      "provider": "data.go.kr",
+      "endpoint_groups": ["building_register_open_api"],
+      "budget": {
+        "daily_request_budget_env": "DATA_GO_KR_DAILY_REQUEST_BUDGET",
+        "request_budget_source": "operator_portal",
+        "no_unbounded_budget": true
+      },
+      "rate_window": {
+        "min_rps": 0.1,
+        "start_rps": 20.0,
+        "max_rps": 100.0,
+        "min_in_flight": 1,
+        "start_in_flight": 16,
+        "max_in_flight": 64
+      },
+      "adaptive_control": {
+        "algorithm": "aimd_token_bucket",
+        "success_window_requests": 10,
+        "additive_rps_increment": 5.0,
+        "additive_in_flight_increment": 8,
+        "multiplicative_decrease_factor": 0.5,
+        "cooldown_seconds_after_throttle": 60,
+        "latency_p95_soft_ms": 5000,
+        "latency_p95_hard_ms": 15000
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "base_delay_ms": 1000,
+        "max_delay_ms": 60000,
+        "jitter": "full"
+      },
+      "throttling_signals": {
+        "http_status_codes": [429],
+        "provider_error_codes": ["22", "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR"],
+        "body_tokens": ["LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR"]
+      },
+      "job_disposition": {
+        "on_throttle": "defer_without_drop",
+        "on_timeout": "retry_then_defer",
+        "on_quota_exhausted": "pause_lane"
+      },
+      "evidence_requirements": {
+        "write_window_decisions": true,
+        "fields": [
+          "lane_id",
+          "current_rps",
+          "current_in_flight",
+          "accept_count",
+          "throttle_count",
+          "p95_latency_ms",
+          "decision"
+        ]
+      }
+    },
+    {
+      "lane_id": "data-go-kr:real-transaction-open-api",
+      "provider": "data.go.kr",
+      "endpoint_groups": ["real_transaction_open_api"],
+      "budget": {
+        "daily_request_budget_env": "DATA_GO_KR_DAILY_REQUEST_BUDGET",
+        "request_budget_source": "operator_portal",
+        "no_unbounded_budget": true
+      },
+      "rate_window": {
+        "min_rps": 0.1,
+        "start_rps": 20.0,
+        "max_rps": 100.0,
+        "min_in_flight": 1,
+        "start_in_flight": 16,
+        "max_in_flight": 64
+      },
+      "adaptive_control": {
+        "algorithm": "aimd_token_bucket",
+        "success_window_requests": 10,
+        "additive_rps_increment": 5.0,
+        "additive_in_flight_increment": 8,
+        "multiplicative_decrease_factor": 0.5,
+        "cooldown_seconds_after_throttle": 60,
+        "latency_p95_soft_ms": 5000,
+        "latency_p95_hard_ms": 15000
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "base_delay_ms": 1000,
+        "max_delay_ms": 60000,
+        "jitter": "full"
+      },
+      "throttling_signals": {
+        "http_status_codes": [429],
+        "provider_error_codes": ["22", "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR"],
+        "body_tokens": ["LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR"]
+      },
+      "job_disposition": {
+        "on_throttle": "defer_without_drop",
+        "on_timeout": "retry_then_defer",
+        "on_quota_exhausted": "pause_lane"
+      },
+      "evidence_requirements": {
+        "write_window_decisions": true,
+        "fields": [
+          "lane_id",
+          "current_rps",
+          "current_in_flight",
+          "accept_count",
+          "throttle_count",
+          "p95_latency_ms",
+          "decision"
+        ]
+      }
+    },
+    {
+      "lane_id": "vworld:dataset-open-api",
+      "provider": "VWorld",
+      "endpoint_groups": ["vworld_dataset"],
+      "budget": {
+        "daily_request_budget_env": "VWORLD_DAILY_REQUEST_BUDGET",
+        "request_budget_source": "operator_portal",
+        "no_unbounded_budget": true
+      },
+      "rate_window": {
+        "min_rps": 0.1,
+        "start_rps": 20.0,
+        "max_rps": 100.0,
+        "min_in_flight": 1,
+        "start_in_flight": 16,
+        "max_in_flight": 64
+      },
+      "adaptive_control": {
+        "algorithm": "aimd_token_bucket",
+        "success_window_requests": 10,
+        "additive_rps_increment": 5.0,
+        "additive_in_flight_increment": 8,
+        "multiplicative_decrease_factor": 0.5,
+        "cooldown_seconds_after_throttle": 60,
+        "latency_p95_soft_ms": 5000,
+        "latency_p95_hard_ms": 15000
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "base_delay_ms": 1000,
+        "max_delay_ms": 60000,
+        "jitter": "full"
+      },
+      "throttling_signals": {
+        "http_status_codes": [429],
+        "provider_error_codes": ["OVER_REQUEST_LIMIT"],
+        "body_tokens": ["OVER_REQUEST_LIMIT"]
+      },
+      "job_disposition": {
+        "on_throttle": "defer_without_drop",
+        "on_timeout": "retry_then_defer",
+        "on_quota_exhausted": "pause_lane"
+      },
+      "evidence_requirements": {
+        "write_window_decisions": true,
+        "fields": [
+          "lane_id",
+          "current_rps",
+          "current_in_flight",
+          "accept_count",
+          "throttle_count",
+          "p95_latency_ms",
+          "decision"
+        ]
+      }
+    }
+  ]
+}

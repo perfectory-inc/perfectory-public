@@ -1,0 +1,48 @@
+{
+  "schema_version": "foundation-platform.slo_policy.v1",
+  "runbook": "docs/runbooks/slo-alert-policy.md",
+  "objectives": [
+    {
+      "id": "lakehouse-silver-industrial-complexes-freshness",
+      "scope_kind": "lakehouse_contract",
+      "scope": "silver.industrial_complexes",
+      "metric": "foundation_platform_lakehouse_batch_last_success_recorded_at_seconds",
+      "max_staleness_seconds": 86400,
+      "severity": "ticket"
+    },
+    {
+      "id": "lakehouse-gold-complex-catalog-freshness",
+      "scope_kind": "lakehouse_contract",
+      "scope": "gold.complex_catalog",
+      "metric": "foundation_platform_lakehouse_batch_last_success_recorded_at_seconds",
+      "max_staleness_seconds": 86400,
+      "severity": "ticket"
+    },
+    {
+      "id": "ingestion-vworld-cadastral-freshness",
+      "scope_kind": "ingestion_source",
+      "scope": "vworld-cadastral",
+      "metric": "foundation_platform_ingestion_run_last_finished_at_seconds",
+      "max_staleness_seconds": 86400,
+      "max_duration_seconds": 3600,
+      "severity": "ticket"
+    },
+    {
+      "id": "ingestion-data-go-kr-building-register-freshness",
+      "scope_kind": "ingestion_source",
+      "scope": "data-go-kr-building-register",
+      "metric": "foundation_platform_ingestion_run_last_finished_at_seconds",
+      "max_staleness_seconds": 86400,
+      "max_duration_seconds": 3600,
+      "severity": "ticket"
+    },
+    {
+      "id": "outbox-catalog-fanout",
+      "scope_kind": "outbox_scope",
+      "scope": "catalog",
+      "metric": "foundation_platform_outbox_oldest_pending_age_seconds",
+      "max_pending_age_seconds": 600,
+      "severity": "ticket"
+    }
+  ]
+}

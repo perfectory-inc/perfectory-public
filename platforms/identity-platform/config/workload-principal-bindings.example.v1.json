@@ -1,0 +1,21 @@
+{
+  "schema_version": "identity.workload-principal-bindings.v1",
+  "bindings": [
+    {
+      "service_slug": "gongzzang-api",
+      "zitadel_subject": "REPLACE_WITH_ZITADEL_SUBJECT_GONGZZANG_API"
+    },
+    {
+      "service_slug": "gongzzang-outbox-publisher",
+      "zitadel_subject": "REPLACE_WITH_ZITADEL_SUBJECT_GONGZZANG_OUTBOX"
+    },
+    {
+      "service_slug": "dawneer-web",
+      "zitadel_subject": "REPLACE_WITH_ZITADEL_SUBJECT_DAWNEER_WEB"
+    },
+    {
+      "service_slug": "intelligence-normalization",
+      "zitadel_subject": "REPLACE_WITH_ZITADEL_SUBJECT_INTELLIGENCE_NORMALIZATION"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+Copyright (c) 2026 Perfectory. All rights reserved.
+
+This source code and its accompanying first-party materials are proprietary.
+Except under a separate written agreement with the copyright holder, no
+permission is granted to use, reproduce, modify, translate, publish,
+distribute, sublicense, sell, deploy, publicly perform, publicly display, or
+create derivative works from them.
+
+Public availability on GitHub does not create an open-source license. Nothing
+in this notice limits the rights necessarily granted to GitHub or exercised by
+GitHub users solely through GitHub's service features under the GitHub Terms of
+Service, including viewing and forking within the service. Those service-level
+rights do not grant permission to use or distribute the software outside the
+scope of those terms.
+
+Separately identified third-party materials are excluded from this proprietary
+license and remain governed by their respective license notices.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. IN NO EVENT
+SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY ARISING FROM OR RELATED TO THE SOFTWARE OR ITS USE.

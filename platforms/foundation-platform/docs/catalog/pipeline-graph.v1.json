@@ -1,0 +1,783 @@
+{
+  "schema_version": "foundation-platform.pipeline_graph.v1",
+  "generated_at_utc": "2026-05-19T00:00:00Z",
+  "owner": "foundation-platform",
+  "viewer_policy": {
+    "canonical_store": "foundation-platform",
+    "ui_state_store": "product-viewer"
+  },
+  "nodes": [
+    {
+      "id": "industrial-complex-source",
+      "type": "source",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Industrial complex source",
+      "description": "External and seed sources for canonical industrial complex identity.",
+      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
+      "evidence_refs": [
+        "infra/db/seeds/industrial_complex_catalog_seed.example.jsonl"
+      ]
+    },
+    {
+      "id": "data-go-kr-building-register-source",
+      "type": "source",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "data.go.kr building register source",
+      "description": "Public data portal source for building register records.",
+      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
+      "evidence_refs": [
+        "foundation-outbox-publisher building-register-smoke"
+      ]
+    },
+    {
+      "id": "vworld-cadastral-source",
+      "type": "source",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "VWorld cadastral source",
+      "description": "VWorld cadastral geometry source.",
+      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
+      "evidence_refs": [
+        "infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py"
+      ]
+    },
+    {
+      "id": "vworld-land-register-source",
+      "type": "source",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "VWorld land register source",
+      "description": "VWorld NED land register attribute source.",
+      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "juso-building-footprint-source",
+      "type": "source",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "JUSO building footprint source",
+      "description": "JUSO electronic map building shape archive source.",
+      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "building-register-bronze-ingest",
+      "type": "ingest",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Building register Bronze ingest",
+      "description": "Captures raw building register payloads into Bronze object keys.",
+      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
+      "evidence_refs": [
+        "foundation-outbox-publisher building-register-smoke"
+      ],
+      "runtime_bindings": [
+        {
+          "kind": "ingestion_source",
+          "value": "data-go-kr-building-register"
+        },
+        {
+          "kind": "ingestion_source",
+          "value": "building-register"
+        }
+      ]
+    },
+    {
+      "id": "vworld-cadastral-bronze-ingest",
+      "type": "ingest",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "VWorld cadastral Bronze ingest",
+      "description": "Captures raw VWorld cadastral feature payloads into Bronze object keys.",
+      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
+      "evidence_refs": [],
+      "runtime_bindings": [
+        {
+          "kind": "ingestion_source",
+          "value": "vworld-cadastral"
+        }
+      ]
+    },
+    {
+      "id": "vworld-land-register-bronze-ingest",
+      "type": "ingest",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "VWorld land register Bronze ingest",
+      "description": "Captures raw VWorld land register responses into Bronze object keys.",
+      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
+      "evidence_refs": [],
+      "runtime_bindings": [
+        {
+          "kind": "ingestion_source",
+          "value": "vworld-land-register"
+        }
+      ]
+    },
+    {
+      "id": "juso-building-footprint-bronze-ingest",
+      "type": "ingest",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "JUSO building footprint Bronze ingest",
+      "description": "Captures raw JUSO building shape archives into immutable Bronze object keys.",
+      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
+      "evidence_refs": [],
+      "runtime_bindings": [
+        {
+          "kind": "ingestion_source",
+          "value": "juso-building-footprint"
+        }
+      ]
+    },
+    {
+      "id": "industrial-complex-bronze-object",
+      "type": "bronze_object",
+      "status": "unknown",
+      "owner": "foundation-platform",
+      "title": "Industrial complex Bronze object",
+      "description": "Immutable raw source snapshots stored in R2 Bronze layout.",
+      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "industrial-complex-bronze-to-silver",
+      "type": "silver_job",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Industrial complex Bronze to Silver",
+      "description": "Normalizes raw industrial complex snapshots into canonical Silver rows.",
+      "runbook_ref": "docs/runbooks/lakehouse-compute-engines.md",
+      "evidence_refs": [
+        "infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"
+      ]
+    },
+    {
+      "id": "silver-industrial-complexes",
+      "type": "silver_dataset",
+      "status": "blocked",
+      "owner": "foundation-platform",
+      "title": "Silver industrial complexes",
+      "description": "Canonical Silver industrial complex table; live canonical write evidence is pending.",
+      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
+      "evidence_refs": [
+        "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.industrial_complexes"
+        }
+      ]
+    },
+    {
+      "id": "industrial-complex-silver-to-gold",
+      "type": "gold_job",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Industrial complex Silver to Gold",
+      "description": "Projects Silver industrial complex rows into product-serving Gold datasets.",
+      "runbook_ref": "docs/runbooks/lakehouse-compute-engines.md",
+      "evidence_refs": [
+        "infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py"
+      ]
+    },
+    {
+      "id": "gold-complex-catalog",
+      "type": "gold_dataset",
+      "status": "blocked",
+      "owner": "foundation-platform",
+      "title": "Gold complex catalog",
+      "description": "Gold industrial complex catalog served through R2 assets and thin DB pointers.",
+      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
+      "evidence_refs": [
+        "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.complex_catalog"
+        }
+      ]
+    },
+    {
+      "id": "industrial-complex-gold-pointer-publish",
+      "type": "catalog_pointer",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Industrial complex Gold pointer publish",
+      "description": "Publishes source_record, file_asset, Gold pointer, and outbox records atomically.",
+      "runbook_ref": "docs/runbooks/iceberg-snapshot-rollback.md",
+      "evidence_refs": [
+        "foundation-outbox-publisher publish-industrial-complex-gold-pointer"
+      ]
+    },
+    {
+      "id": "catalog-read-api-smoke",
+      "type": "api_endpoint",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Catalog read API smoke",
+      "description": "Read API smoke path for foundation-platform Catalog consumers.",
+      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
+      "evidence_refs": [
+        "docs/openapi/catalog.v1.json"
+      ]
+    },
+    {
+      "id": "vworld-parcel-boundaries-handoff-to-silver",
+      "type": "silver_job",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "VWorld parcel boundaries handoff to Silver",
+      "description": "Transforms VWorld cadastral features into Silver parcel boundary handoff artifacts.",
+      "runbook_ref": "docs/runbooks/lakehouse-compute-engines.md",
+      "evidence_refs": [
+        "infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py"
+      ]
+    },
+    {
+      "id": "silver-parcel-boundaries",
+      "type": "silver_dataset",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Silver parcel boundaries",
+      "description": "Canonical parcel boundary dataset for spatial serving and product viewers.",
+      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
+      "evidence_refs": [
+        "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.parcel_boundaries"
+        }
+      ]
+    },
+    {
+      "id": "juso-building-footprint-archive-to-silver",
+      "type": "silver_job",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "JUSO building footprint archive to Silver",
+      "description": "Transforms raw JUSO building shape archives into canonical Silver building footprint rows.",
+      "runbook_ref": "docs/runbooks/lakehouse-compute-engines.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "silver-building-footprints",
+      "type": "silver_dataset",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Silver building footprints",
+      "description": "Canonical building footprint geometry dataset for spatial joins and vector tiles.",
+      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
+      "evidence_refs": [],
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_footprints"
+        }
+      ]
+    },
+    {
+      "id": "vector-tile-manifest-promote",
+      "type": "catalog_pointer",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Vector tile manifest promote",
+      "description": "Promotes static vector tile manifest versions owned by foundation-platform Catalog.",
+      "runbook_ref": "docs/runbooks/iceberg-snapshot-rollback.md",
+      "evidence_refs": [
+        "docs/catalog/pipeline-graph-control-plane.md"
+      ]
+    },
+    {
+      "id": "vector-tile-manifest-rollback",
+      "type": "catalog_pointer",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Vector tile manifest rollback",
+      "description": "Rolls back vector tile manifest current_version to previous_version.",
+      "runbook_ref": "docs/runbooks/iceberg-snapshot-rollback.md",
+      "evidence_refs": [
+        "docs/runbooks/iceberg-snapshot-rollback.md"
+      ]
+    },
+    {
+      "id": "lakehouse-quality-gate",
+      "type": "quality_gate",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Lakehouse quality gate",
+      "description": "Blocks promotion when run metrics violate configured quality rules.",
+      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
+      "evidence_refs": [
+        "docs/data-quality/lakehouse-quality-rules.v1.example.json"
+      ]
+    },
+    {
+      "id": "lakehouse-lineage-event",
+      "type": "lineage_event",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Lakehouse lineage event",
+      "description": "Publishes lineage for source, Silver, Gold, quality, and artifact links.",
+      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
+      "evidence_refs": [
+        "foundation-outbox-publisher publish-lakehouse-lineage-event"
+      ]
+    },
+    {
+      "id": "r2-inventory-audit",
+      "type": "r2_inventory",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "R2 inventory audit",
+      "description": "Audits R2 object namespace contamination and delete candidates.",
+      "runbook_ref": "docs/runbooks/r2-inventory-audit.md",
+      "evidence_refs": [
+        "scripts/r2"
+      ]
+    },
+    {
+      "id": "lakehouse-slo-policy",
+      "type": "slo_objective",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Lakehouse SLO policy",
+      "description": "Freshness, duration, pending-age, and provider quota SLO policy.",
+      "runbook_ref": "docs/runbooks/slo-alert-policy.md",
+      "evidence_refs": [
+        "docs/observability/slo-policy.v1.example.json"
+      ]
+    },
+    {
+      "id": "grafana-lakehouse-dashboard",
+      "type": "dashboard_panel",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Grafana lakehouse dashboard",
+      "description": "Operational dashboard panels for lakehouse and outbox state.",
+      "runbook_ref": "docs/runbooks/slo-alert-policy.md",
+      "evidence_refs": [
+        "infra/observability"
+      ]
+    },
+    {
+      "id": "outbox-catalog-event-fanout",
+      "type": "outbox_event",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "Catalog fanout",
+      "description": "Outbox fanout carrying Catalog changes to product receivers.",
+      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "docs/events/webhook/outbox-webhook-envelope.v1.example.json"
+      ],
+      "runtime_bindings": [
+        {
+          "kind": "outbox_scope",
+          "value": "catalog"
+        }
+      ]
+    },
+    {
+      "id": "event-fabric-registry",
+      "type": "event_fabric_registry",
+      "status": "planned",
+      "owner": "foundation-platform",
+      "title": "Event Fabric registry",
+      "description": "Adapter-ready event publishing contract for the current outbox webhook publisher and future Kafka publisher.",
+      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "docs/events/event-fabric-registry.v1.example.json"
+      ]
+    },
+    {
+      "id": "future-event-fabric-consumers",
+      "type": "missing_capability",
+      "status": "planned",
+      "owner": "foundation-platform",
+      "title": "Future Event Fabric consumers",
+      "description": "Future Search, AI, and Notification consumers for Event Fabric topics.",
+      "blocking_reason": "Future Event Fabric consumers are not part of the initial AWS launch scope.",
+      "target_state": "Future consumers subscribe through the Event Fabric contract without direct database reads.",
+      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "docs/events/event-fabric-registry.v1.example.json"
+      ]
+    },
+    {
+      "id": "gongzzang-catalog-consumer-receiver",
+      "type": "consumer_receiver",
+      "status": "unknown",
+      "owner": "foundation-platform",
+      "title": "Gongzzang Catalog consumer receiver",
+      "description": "Gongzzang-side receiver for foundation-platform Catalog outbox changes.",
+      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "docs/events/webhook"
+      ]
+    },
+    {
+      "id": "dawneer-catalog-consumer-receiver",
+      "type": "consumer_receiver",
+      "status": "unknown",
+      "owner": "foundation-platform",
+      "title": "Dawneer Catalog consumer receiver",
+      "description": "Dawneer-side receiver for foundation-platform Catalog outbox changes.",
+      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "docs/events/webhook"
+      ]
+    },
+    {
+      "id": "openlineage-production-receiver",
+      "type": "missing_capability",
+      "status": "missing",
+      "owner": "foundation-platform",
+      "title": "OpenLineage production receiver",
+      "description": "A production receiver for lineage events is not deployed yet.",
+      "blocking_reason": "No production receiver endpoint, acknowledgement, or retention evidence exists.",
+      "target_state": "Durable receiver records lineage events and exposes retention evidence.",
+      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "production-orchestrator",
+      "type": "missing_capability",
+      "status": "missing",
+      "owner": "foundation-platform",
+      "title": "Production orchestrator",
+      "description": "Production scheduling, retry, and backpressure control are not deployed yet.",
+      "blocking_reason": "No approved production orchestrator run evidence is attached.",
+      "target_state": "Durable production orchestration with retry, backpressure, run manifest, and evidence artifacts.",
+      "runbook_ref": "docs/runbooks/production-orchestrator-cutover.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "consumer-deployed-receiver-e2e",
+      "type": "missing_capability",
+      "status": "blocked",
+      "owner": "foundation-platform",
+      "title": "Deployed consumer receiver E2E",
+      "description": "Gongzzang and Dawneer deployed receiver E2E evidence is not attached yet.",
+      "blocking_reason": "No deployed receiver acknowledgement, required cache invalidation, and parcel marker anchor import enqueue evidence exists.",
+      "target_state": "Consumer receiver E2E evidence with covered_events for every supported event attached to cutover completion.",
+      "required_event_coverage": [
+        {
+          "event_type": "catalog.industrial_complex.gold_pointer.published.v1",
+          "consumers": [
+            {
+              "slug": "gongzzang",
+              "required_effect": "invalidate_catalog_cache"
+            },
+            {
+              "slug": "dawneer",
+              "required_effect": "invalidate_catalog_cache"
+            }
+          ]
+        },
+        {
+          "event_type": "catalog.parcel_marker_anchor.snapshot.published.v1",
+          "consumers": [
+            {
+              "slug": "gongzzang",
+              "required_effect": "enqueue_anchor_projection_import"
+            }
+          ]
+        }
+      ],
+      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "production-dashboard-deployment",
+      "type": "missing_capability",
+      "status": "missing",
+      "owner": "foundation-platform",
+      "title": "Production dashboard deployment",
+      "description": "Production dashboard and alert route deployment evidence is not attached yet.",
+      "blocking_reason": "No deployed dashboard URL or alert route evidence exists.",
+      "target_state": "Dashboard and alert route deployed with evidence.",
+      "runbook_ref": "docs/runbooks/slo-alert-policy.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "canonical-silver-gold-live-write",
+      "type": "missing_capability",
+      "status": "blocked",
+      "owner": "foundation-platform",
+      "title": "Canonical Silver and Gold live write",
+      "description": "Canonical Silver and Gold live write evidence is still pending.",
+      "blocking_reason": "Smoke tables are proven, but canonical table write evidence is pending.",
+      "target_state": "Canonical Silver and Gold write and readback evidence attached to cutover completion.",
+      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "postgis-mirror-and-dlq-schema",
+      "type": "missing_capability",
+      "status": "manual_approval",
+      "owner": "foundation-platform",
+      "title": "PostGIS mirror and DLQ schema",
+      "description": "Serving PostGIS mirror and persisted quarantine/DLQ schema evidence is not approved yet.",
+      "blocking_reason": "No approved migration and rebuild/load verification evidence exists.",
+      "target_state": "Serving PostGIS mirror and persisted DLQ schema are approved, rebuilt, loaded, and inspectable.",
+      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "supply-chain-release-gates",
+      "type": "missing_capability",
+      "status": "manual_approval",
+      "owner": "foundation-platform",
+      "title": "Supply chain release gates",
+      "description": "Release-blocking cargo-deny, gitleaks, SBOM, and signature evidence is not approved yet.",
+      "blocking_reason": "No approved supply-chain release gate evidence artifact is attached.",
+      "target_state": "Supply-chain tools are CI-blocking and release artifacts have SBOM and signature evidence.",
+      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
+      "evidence_refs": []
+    },
+    {
+      "id": "production-alert-routing",
+      "type": "missing_capability",
+      "status": "missing",
+      "owner": "foundation-platform",
+      "title": "Production alert routing",
+      "description": "Production alert routing for SLO violations is not deployed yet.",
+      "blocking_reason": "No alert route evidence is attached.",
+      "target_state": "Alert route is deployed and connected to SLO policy.",
+      "runbook_ref": "docs/runbooks/slo-alert-policy.md",
+      "evidence_refs": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "data-go-kr-building-register-source-to-building-register-bronze-ingest",
+      "from": "data-go-kr-building-register-source",
+      "to": "building-register-bronze-ingest",
+      "relation": "feeds"
+    },
+    {
+      "id": "vworld-cadastral-source-to-vworld-cadastral-bronze-ingest",
+      "from": "vworld-cadastral-source",
+      "to": "vworld-cadastral-bronze-ingest",
+      "relation": "feeds"
+    },
+    {
+      "id": "vworld-land-register-source-to-vworld-land-register-bronze-ingest",
+      "from": "vworld-land-register-source",
+      "to": "vworld-land-register-bronze-ingest",
+      "relation": "feeds"
+    },
+    {
+      "id": "juso-building-footprint-source-to-juso-building-footprint-bronze-ingest",
+      "from": "juso-building-footprint-source",
+      "to": "juso-building-footprint-bronze-ingest",
+      "relation": "feeds"
+    },
+    {
+      "id": "industrial-complex-source-to-industrial-complex-bronze-object",
+      "from": "industrial-complex-source",
+      "to": "industrial-complex-bronze-object",
+      "relation": "ingests"
+    },
+    {
+      "id": "industrial-complex-bronze-object-to-industrial-complex-bronze-to-silver",
+      "from": "industrial-complex-bronze-object",
+      "to": "industrial-complex-bronze-to-silver",
+      "relation": "feeds"
+    },
+    {
+      "id": "industrial-complex-bronze-to-silver-to-silver-industrial-complexes",
+      "from": "industrial-complex-bronze-to-silver",
+      "to": "silver-industrial-complexes",
+      "relation": "writes"
+    },
+    {
+      "id": "silver-industrial-complexes-to-industrial-complex-silver-to-gold",
+      "from": "silver-industrial-complexes",
+      "to": "industrial-complex-silver-to-gold",
+      "relation": "feeds"
+    },
+    {
+      "id": "industrial-complex-silver-to-gold-to-gold-complex-catalog",
+      "from": "industrial-complex-silver-to-gold",
+      "to": "gold-complex-catalog",
+      "relation": "writes"
+    },
+    {
+      "id": "gold-complex-catalog-to-lakehouse-quality-gate",
+      "from": "gold-complex-catalog",
+      "to": "lakehouse-quality-gate",
+      "relation": "validates"
+    },
+    {
+      "id": "lakehouse-quality-gate-to-industrial-complex-gold-pointer-publish",
+      "from": "lakehouse-quality-gate",
+      "to": "industrial-complex-gold-pointer-publish",
+      "relation": "publishes"
+    },
+    {
+      "id": "industrial-complex-gold-pointer-publish-to-catalog-read-api-smoke",
+      "from": "industrial-complex-gold-pointer-publish",
+      "to": "catalog-read-api-smoke",
+      "relation": "serves"
+    },
+    {
+      "id": "industrial-complex-gold-pointer-publish-to-outbox-catalog-event-fanout",
+      "from": "industrial-complex-gold-pointer-publish",
+      "to": "outbox-catalog-event-fanout",
+      "relation": "emits"
+    },
+    {
+      "id": "outbox-catalog-event-fanout-to-event-fabric-registry",
+      "from": "outbox-catalog-event-fanout",
+      "to": "event-fabric-registry",
+      "relation": "adapts"
+    },
+    {
+      "id": "event-fabric-registry-to-future-event-fabric-consumers",
+      "from": "event-fabric-registry",
+      "to": "future-event-fabric-consumers",
+      "relation": "enables"
+    },
+    {
+      "id": "outbox-catalog-event-fanout-to-gongzzang-catalog-consumer-receiver",
+      "from": "outbox-catalog-event-fanout",
+      "to": "gongzzang-catalog-consumer-receiver",
+      "relation": "consumes"
+    },
+    {
+      "id": "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver",
+      "from": "outbox-catalog-event-fanout",
+      "to": "dawneer-catalog-consumer-receiver",
+      "relation": "consumes"
+    },
+    {
+      "id": "vworld-cadastral-bronze-ingest-to-vworld-parcel-boundaries-handoff-to-silver",
+      "from": "vworld-cadastral-bronze-ingest",
+      "to": "vworld-parcel-boundaries-handoff-to-silver",
+      "relation": "feeds"
+    },
+    {
+      "id": "vworld-parcel-boundaries-handoff-to-silver-to-silver-parcel-boundaries",
+      "from": "vworld-parcel-boundaries-handoff-to-silver",
+      "to": "silver-parcel-boundaries",
+      "relation": "writes"
+    },
+    {
+      "id": "juso-building-footprint-bronze-ingest-to-juso-building-footprint-archive-to-silver",
+      "from": "juso-building-footprint-bronze-ingest",
+      "to": "juso-building-footprint-archive-to-silver",
+      "relation": "feeds"
+    },
+    {
+      "id": "juso-building-footprint-archive-to-silver-to-silver-building-footprints",
+      "from": "juso-building-footprint-archive-to-silver",
+      "to": "silver-building-footprints",
+      "relation": "writes"
+    },
+    {
+      "id": "silver-parcel-boundaries-to-vector-tile-manifest-promote",
+      "from": "silver-parcel-boundaries",
+      "to": "vector-tile-manifest-promote",
+      "relation": "promotes"
+    },
+    {
+      "id": "vector-tile-manifest-promote-to-vector-tile-manifest-rollback",
+      "from": "vector-tile-manifest-promote",
+      "to": "vector-tile-manifest-rollback",
+      "relation": "rolls_back"
+    },
+    {
+      "id": "industrial-complex-silver-to-gold-to-lakehouse-lineage-event",
+      "from": "industrial-complex-silver-to-gold",
+      "to": "lakehouse-lineage-event",
+      "relation": "emits"
+    },
+    {
+      "id": "lakehouse-lineage-event-to-openlineage-production-receiver",
+      "from": "lakehouse-lineage-event",
+      "to": "openlineage-production-receiver",
+      "relation": "emits"
+    },
+    {
+      "id": "r2-inventory-audit-to-lakehouse-slo-policy",
+      "from": "r2-inventory-audit",
+      "to": "lakehouse-slo-policy",
+      "relation": "measures"
+    },
+    {
+      "id": "lakehouse-slo-policy-to-grafana-lakehouse-dashboard",
+      "from": "lakehouse-slo-policy",
+      "to": "grafana-lakehouse-dashboard",
+      "relation": "observes"
+    },
+    {
+      "id": "lakehouse-slo-policy-to-production-alert-routing",
+      "from": "lakehouse-slo-policy",
+      "to": "production-alert-routing",
+      "relation": "alerts"
+    },
+    {
+      "id": "production-orchestrator-to-building-register-bronze-ingest",
+      "from": "production-orchestrator",
+      "to": "building-register-bronze-ingest",
+      "relation": "depends_on"
+    },
+    {
+      "id": "production-orchestrator-to-industrial-complex-silver-to-gold",
+      "from": "production-orchestrator",
+      "to": "industrial-complex-silver-to-gold",
+      "relation": "depends_on"
+    },
+    {
+      "id": "consumer-deployed-receiver-e2e-to-gongzzang-catalog-consumer-receiver",
+      "from": "consumer-deployed-receiver-e2e",
+      "to": "gongzzang-catalog-consumer-receiver",
+      "relation": "validates"
+    },
+    {
+      "id": "consumer-deployed-receiver-e2e-to-dawneer-catalog-consumer-receiver",
+      "from": "consumer-deployed-receiver-e2e",
+      "to": "dawneer-catalog-consumer-receiver",
+      "relation": "validates"
+    },
+    {
+      "id": "production-dashboard-deployment-to-grafana-lakehouse-dashboard",
+      "from": "production-dashboard-deployment",
+      "to": "grafana-lakehouse-dashboard",
+      "relation": "depends_on"
+    },
+    {
+      "id": "canonical-silver-gold-live-write-to-silver-industrial-complexes",
+      "from": "canonical-silver-gold-live-write",
+      "to": "silver-industrial-complexes",
+      "relation": "validates"
+    },
+    {
+      "id": "canonical-silver-gold-live-write-to-gold-complex-catalog",
+      "from": "canonical-silver-gold-live-write",
+      "to": "gold-complex-catalog",
+      "relation": "validates"
+    },
+    {
+      "id": "postgis-mirror-and-dlq-schema-to-silver-parcel-boundaries",
+      "from": "postgis-mirror-and-dlq-schema",
+      "to": "silver-parcel-boundaries",
+      "relation": "validates"
+    },
+    {
+      "id": "supply-chain-release-gates-to-production-orchestrator",
+      "from": "supply-chain-release-gates",
+      "to": "production-orchestrator",
+      "relation": "validates"
+    }
+  ]
+}

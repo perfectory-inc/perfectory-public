@@ -1,0 +1,88 @@
+{
+  "schema_version": "gongzzang.platform_integration.route_exposure_policy.v1",
+  "platform_naming": {
+    "decision_source": "docs/adr/0048-horizontal-platform-redefinition.md",
+    "canonical_platform_slug": "foundation-platform"
+  },
+  "repo_slug": "gongzzang",
+  "owner": "gongzzang",
+  "status": "active",
+  "surfaces": [
+    {
+      "id": "gongzzang.public_map.listing_marker_tile",
+      "exposure": "public_anonymous_proxy",
+      "policy_source": "docs/architecture/traffic-auth-policy-registry.v1.json",
+      "path_source": "API.proxy.listingMarkerTilesPrefix",
+      "required_controls": [
+        "data_minimization",
+        "rate_limit",
+        "cache",
+        "single_flight",
+        "response_budget"
+      ]
+    },
+    {
+      "id": "gongzzang.public_map.listing_marker_count",
+      "exposure": "public_anonymous_proxy",
+      "policy_source": "docs/architecture/traffic-auth-policy-registry.v1.json",
+      "path_source": "API.proxy.listingMarkerCounts",
+      "required_controls": ["data_minimization", "rate_limit", "cache", "single_flight"]
+    },
+    {
+      "id": "gongzzang.public_map.listing_marker_filter",
+      "exposure": "public_anonymous_proxy",
+      "policy_source": "docs/architecture/traffic-auth-policy-registry.v1.json",
+      "path_source": "API.proxy.listingMarkerFilters",
+      "required_controls": ["data_minimization", "rate_limit", "normalized_filter_hash"]
+    },
+    {
+      "id": "gongzzang.public_map.listing_marker_mask",
+      "exposure": "public_anonymous_proxy",
+      "policy_source": "docs/architecture/traffic-auth-policy-registry.v1.json",
+      "path_source": "LISTING_MARKER_MASK_PREFIX",
+      "required_controls": [
+        "data_minimization",
+        "rate_limit",
+        "cache",
+        "single_flight",
+        "response_budget"
+      ]
+    },
+    {
+      "id": "gongzzang.public_map.listing_marker_tombstone",
+      "exposure": "public_anonymous_proxy",
+      "policy_source": "docs/architecture/traffic-auth-policy-registry.v1.json",
+      "path_source": "API.proxy.listingMarkerTombstonesPrefix",
+      "required_controls": ["data_minimization", "rate_limit", "response_budget"]
+    },
+    {
+      "id": "gongzzang.public_map.listing_marker_delta",
+      "exposure": "public_anonymous_proxy",
+      "policy_source": "docs/architecture/traffic-auth-policy-registry.v1.json",
+      "path_source": "API.proxy.listingMarkerDeltasPrefix",
+      "required_controls": ["data_minimization", "rate_limit", "response_budget"]
+    },
+    {
+      "id": "gongzzang.foundation_platform.webhook_receiver",
+      "exposure": "foundation_platform_signed_webhook",
+      "path": "apps/web/app/foundation-platform/events/route.ts",
+      "required_controls": ["hmac_sha256_signature", "timestamp_skew_limit", "event_header_match"]
+    },
+    {
+      "id": "gongzzang.foundation_platform.catalog_http_client",
+      "exposure": "service_to_service_outbound",
+      "path": "services/gongzzang-api/src/foundation_parcel_lookup.rs",
+      "required_controls": [
+        "zitadel_workload_bearer_token_file",
+        "timeout",
+        "circuit_breaker",
+        "no_direct_database"
+      ]
+    }
+  ],
+  "forbidden_public_shapes": ["bbox", "bounds", "south", "west", "north", "east"],
+  "diagnostic_route_policy": {
+    "foundation_platform_db_backed_marker_tile": "diagnostic_reference_only",
+    "launch_runtime_source": "r2_cdn_vector_tile_manifest"
+  }
+}

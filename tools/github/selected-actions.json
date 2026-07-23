@@ -1,0 +1,9 @@
+{
+  "github_owned_allowed": true,
+  "verified_allowed": false,
+  "patterns_allowed": [
+    "Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4",
+    "dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17",
+    "pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093"
+  ]
+}

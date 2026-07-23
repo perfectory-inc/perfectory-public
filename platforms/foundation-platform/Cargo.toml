@@ -1,0 +1,130 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/foundation-shared-kernel",
+    "crates/foundation-contracts",
+    "crates/collection/collection-domain",
+    "crates/collection/collection-application",
+    "crates/collection/collection-infrastructure",
+    "crates/lakehouse/lakehouse-domain",
+    "crates/lakehouse/lakehouse-application",
+    "crates/lakehouse/lakehouse-infrastructure",
+    "crates/normalization/foundation-normalization-domain",
+    "crates/normalization/foundation-normalization-application",
+    "crates/normalization/foundation-normalization-infrastructure",
+    "crates/catalog/catalog-domain",
+    "crates/catalog/catalog-application",
+    "crates/catalog/catalog-infrastructure",
+    "crates/technical/outbound-http-infrastructure",
+    "crates/foundation-outbox",
+    "services/foundation-api",
+    "services/foundation-outbox-publisher",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.96.0"
+license-file = "../../LICENSES/LicenseRef-Proprietary.txt"
+authors = ["Perfectory"]
+publish = false
+
+# Foundation workspace for Catalog, collection, lakehouse, and spatial capabilities.
+# 자세한 아키텍처는 ../../products/gongzzang/docs/adr/0030-0033 참조.
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+unused_imports = "deny"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+
+[workspace.dependencies]
+anyhow = "1"
+base64 = "0.22"
+# 비동기·웹
+async-trait = "0.1"
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "signal"] }
+tower = { version = "0.5", features = ["limit", "timeout", "util"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
+
+# 직렬화·타입
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+futures-util = "0.3"
+bytes = "1"
+http-body = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+arrow-array = "59"
+arrow-schema = "59"
+parquet = { version = "59", default-features = false, features = ["arrow", "snap"] }
+
+# DB
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "macros",
+    "uuid",
+    "chrono",
+    "bigdecimal",
+    "json",
+    "migrate",
+] }
+
+# HTTP 클라이언트 (Zitadel JWKS / outbound)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+
+# 인증
+jsonwebtoken = "9"
+
+# 관측
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# OpenAPI 생성 (서비스 레이어)
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+
+# 테스트
+wiremock = "0.6"
+
+# 워크스페이스 내부 crate cross-reference (path 만 — version 은 publish 안 하므로 생략)
+foundation-shared-kernel  = { path = "crates/foundation-shared-kernel" }
+foundation-contracts      = { path = "crates/foundation-contracts" }
+collection-domain         = { path = "crates/collection/collection-domain" }
+collection-application    = { path = "crates/collection/collection-application" }
+collection-infrastructure = { path = "crates/collection/collection-infrastructure" }
+lakehouse-domain         = { path = "crates/lakehouse/lakehouse-domain" }
+lakehouse-application    = { path = "crates/lakehouse/lakehouse-application" }
+lakehouse-infrastructure = { path = "crates/lakehouse/lakehouse-infrastructure" }
+foundation-normalization-domain     = { path = "crates/normalization/foundation-normalization-domain" }
+foundation-normalization-application = { path = "crates/normalization/foundation-normalization-application" }
+foundation-normalization-infrastructure = { path = "crates/normalization/foundation-normalization-infrastructure" }
+catalog-domain          = { path = "crates/catalog/catalog-domain" }
+catalog-application             = { path = "crates/catalog/catalog-application" }
+catalog-infrastructure           = { path = "crates/catalog/catalog-infrastructure" }
+outbound-http-infrastructure = { path = "crates/technical/outbound-http-infrastructure" }
+foundation-outbox       = { path = "crates/foundation-outbox" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true

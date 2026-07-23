@@ -1,0 +1,15 @@
+connector.name=iceberg
+iceberg.catalog.type=jdbc
+iceberg.jdbc-catalog.driver-class=org.postgresql.Driver
+iceberg.jdbc-catalog.connection-url=jdbc:postgresql://foundation-platform-db:5432/foundation_platform?currentSchema=lakehouse_catalog
+iceberg.jdbc-catalog.connection-user=${ENV:FOUNDATION_PLATFORM_LAKEHOUSE_JDBC_USER}
+iceberg.jdbc-catalog.connection-password=${ENV:FOUNDATION_PLATFORM_LAKEHOUSE_JDBC_PASSWORD}
+iceberg.jdbc-catalog.catalog-name=foundation_platform
+iceberg.jdbc-catalog.schema-version=V1
+iceberg.jdbc-catalog.default-warehouse-dir=s3://foundation-platform-lakehouse-prod/warehouse
+fs.s3.enabled=true
+s3.region=auto
+s3.endpoint=${ENV:R2_ENDPOINT}
+s3.aws-access-key=${ENV:R2_ACCESS_KEY_ID}
+s3.aws-secret-key=${ENV:R2_SECRET_ACCESS_KEY}
+s3.path-style-access=true

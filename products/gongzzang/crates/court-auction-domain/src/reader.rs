@@ -1,0 +1,56 @@
+//! Storage-agnostic `CourtAuctionReader` port.
+
+#![allow(clippy::module_name_repetitions)]
+
+use async_trait::async_trait;
+use shared_kernel::spatial_scope::SpatialScope;
+
+use crate::entity::CourtAuction;
+use crate::errors::ReaderError;
+
+/// Read-only `CourtAuction` query port implemented by an external adapter.
+#[async_trait]
+pub trait CourtAuctionReader: Send + Sync {
+    /// 사건번호로 단건 조회.
+    ///
+    /// # Errors
+    ///
+    /// 네트워크 실패 → `Fetch`. 데이터 파싱 실패 → `Parse`.
+    async fn fetch_by_case_number(
+        &self,
+        case_number: &str,
+    ) -> Result<Option<CourtAuction>, ReaderError>;
+
+    /// 활성 경매 (`Upcoming`/`InProgress`) 목록.
+    ///
+    /// # Errors
+    ///
+    /// 네트워크 실패 → `Fetch`. 데이터 파싱 실패 → `Parse`.
+    async fn fetch_active(&self) -> Result<Vec<CourtAuction>, ReaderError>;
+
+    /// 지도 영역 내 경매 (활성 + 이력 모두 포함).
+    ///
+    /// # Errors
+    ///
+    /// 네트워크 실패 → `Fetch`. 데이터 파싱 실패 → `Parse`.
+    async fn fetch_in_scope(&self, scope: &SpatialScope) -> Result<Vec<CourtAuction>, ReaderError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `CourtAuctionReader` is dyn-compatible (object-safe).
+    #[allow(dead_code)]
+    fn assert_obj_safe(_reader: &dyn CourtAuctionReader) {}
+
+    #[allow(dead_code)]
+    async fn assert_spatial_scope_query(reader: &dyn CourtAuctionReader, scope: &SpatialScope) {
+        let _ = reader.fetch_in_scope(scope).await;
+    }
+
+    #[test]
+    fn trait_is_object_safe() {
+        // Compile-time check via above fn signature.
+    }
+}

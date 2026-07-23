@@ -1,0 +1,19 @@
+[package]
+name = "audit-log-domain"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+description = "공짱 AuditLog domain (RDS 동적 — append-only per V002 immutable trigger)"
+
+[dependencies]
+shared-kernel = { path = "../shared-kernel", version = "0.1.0" }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+
+[lints]
+workspace = true

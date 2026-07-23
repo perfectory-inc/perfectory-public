@@ -1,0 +1,28 @@
+[package]
+name = "lakehouse-application"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+catalog-domain = { workspace = true }
+chrono = { workspace = true }
+collection-domain = { workspace = true }
+foundation-normalization-domain = { workspace = true }
+foundation-shared-kernel = { workspace = true }
+lakehouse-domain = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

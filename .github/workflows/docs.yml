@@ -1,0 +1,40 @@
+# docs — monorepo-wide internal-link gate (docs 재발방지, Phase D).
+#
+# THE authoritative recurrence gate. Replaces gongzzang's Python markdown-link
+# checker (retired) with lychee (Rust), extended repo-wide: every `**/*.md` in
+# products/, platforms/, and root docs is checked, not just gongzzang's. Broken
+# relative links (moved workflows, renamed migrations, relocated docs) now fail CI
+# before they can rot.
+#
+# Runs on push[main] + every pull_request with NO path filter on purpose — a link
+# fix in area A can break a link in area B, so docs everywhere must be revalidated
+# on every change. Config is the single SSOT at the repo root: lychee.toml
+# (OFFLINE mode = internal file links only, no network).
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  link-check:
+    name: required/docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      # The repository-owned script reads the digest-pinned image SSOT and runs
+      # offline; no wrapper Action can download an unverified release binary.
+      - name: Check internal links
+        run: bash scripts/ci/lychee-docs.sh

@@ -1,0 +1,13 @@
+{
+  "rules": [
+    {
+      "id": "bronze-raw-30-days",
+      "enabled": true,
+      "prefix": "bronze/",
+      "condition": {
+        "type": "Age",
+        "maxAgeSeconds": 2592000
+      }
+    }
+  ]
+}

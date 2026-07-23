@@ -1,0 +1,7 @@
+{
+  "max_cache_size_gb": 10,
+  "max_cache_retention_days": 7,
+  "unavailable_http_status": 402,
+  "unavailable_message": "Please ensure your account has a valid payment method on file to access this service.",
+  "required_owner_plan_when_unavailable": "free"
+}

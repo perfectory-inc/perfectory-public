@@ -1,0 +1,180 @@
+# foundation-platform 로컬 개발 환경.
+#
+# 모노레포의 로컬 서비스와 동일하게 재현 가능한 Docker 환경으로 구성한다.
+# 운영 서버 진입은 별도 phase 의 결정사항 — 클라우드 벤더 선택은 그 시점에 한다.
+#
+# 포트 충돌 회피:
+#   15432 — Dawneer DB
+#   15433 — zitadel-db   (gongzzang/infra/zitadel/docker-compose.yml)
+#   18443 — zitadel       (gongzzang/infra/zitadel/docker-compose.yml)
+#   15434 — foundation-platform-db (이 파일)
+#   16379 — foundation-platform-redis (이 파일)
+#
+# Foundation reuses the local Zitadel instance for token verification during development.
+
+include:
+  - path: compose.lakehouse.yml
+  - path: compose.observability.yml
+
+services:
+  postgres:
+    image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FOUNDATION_DB_PORT:-15434}:5432"
+    environment:
+      POSTGRES_USER: foundation_admin
+      POSTGRES_PASSWORD: ${FOUNDATION_ADMIN_PASSWORD:?set FOUNDATION_ADMIN_PASSWORD}
+      POSTGRES_DB: foundation
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Initialize the Foundation database namespace.
+      - ./infra/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foundation_admin -d foundation"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Public-key-only OIDC discovery fixture for the independent Compose smoke profile.
+  foundation-oidc-smoke:
+    image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+    profiles:
+      - compose-smoke
+    restart: "no"
+    user: "65534:65534"
+    read_only: true
+    command: ["httpd", "-f", "-p", "18081", "-h", "/www"]
+    ports:
+      - "127.0.0.1:${FOUNDATION_API_PORT:-18080}:8080"
+    volumes:
+      - ./infra/compose/oidc-smoke:/www:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:18081/.well-known/openid-configuration"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  # Create bounded database roles before applying migrations.
+  foundation-bootstrap:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    restart: "no"
+    user: "70:70"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: foundation
+      PGUSER: foundation_admin
+      PGPASSWORD: ${FOUNDATION_ADMIN_PASSWORD:?set FOUNDATION_ADMIN_PASSWORD}
+      FOUNDATION_MIGRATOR_PASSWORD: ${FOUNDATION_MIGRATOR_PASSWORD:?set FOUNDATION_MIGRATOR_PASSWORD}
+      FOUNDATION_API_PASSWORD: ${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}
+    volumes:
+      - ./infra/compose/bootstrap-foundation.sql:/workspace/bootstrap-foundation.sql:ro
+    command: ["psql", "-X", "--set=ON_ERROR_STOP=1", "--file=/workspace/bootstrap-foundation.sql"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  foundation-migrate:
+    image: foundation-platform-runtime:local
+    pull_policy: never
+    restart: "no"
+    entrypoint: ["/usr/local/bin/foundation-migrate"]
+    environment:
+      FOUNDATION_MIGRATOR_DATABASE_URL: postgres://foundation_migrator:${FOUNDATION_MIGRATOR_PASSWORD:?set FOUNDATION_MIGRATOR_PASSWORD}@postgres:5432/foundation
+    depends_on:
+      foundation-bootstrap:
+        condition: service_completed_successfully
+
+  foundation-runtime-grants:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    restart: "no"
+    user: "70:70"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: foundation
+      PGUSER: foundation_migrator
+      PGPASSWORD: ${FOUNDATION_MIGRATOR_PASSWORD:?set FOUNDATION_MIGRATOR_PASSWORD}
+    volumes:
+      - ./infra/compose/grant-foundation-runtime.sql:/workspace/grant-foundation-runtime.sql:ro
+    command: ["psql", "-X", "--set=ON_ERROR_STOP=1", "--file=/workspace/grant-foundation-runtime.sql"]
+    depends_on:
+      foundation-migrate:
+        condition: service_completed_successfully
+
+  foundation-finalize:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    restart: "no"
+    user: "70:70"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: foundation
+      PGUSER: foundation_admin
+      PGPASSWORD: ${FOUNDATION_ADMIN_PASSWORD:?set FOUNDATION_ADMIN_PASSWORD}
+    volumes:
+      - ./infra/compose/finalize-foundation.sql:/workspace/finalize-foundation.sql:ro
+    command: ["psql", "-X", "--set=ON_ERROR_STOP=1", "--file=/workspace/finalize-foundation.sql"]
+    depends_on:
+      foundation-runtime-grants:
+        condition: service_completed_successfully
+
+  foundation-api:
+    image: foundation-platform-runtime:local
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: services/foundation-api/Dockerfile
+    environment: &foundation-api-environment
+      DATABASE_URL: postgres://foundation_api:${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}@postgres:5432/foundation
+      FOUNDATION_PLATFORM_API_BIND_ADDR: 0.0.0.0:8080
+      IDENTITY_API_BASE_URL: ${IDENTITY_API_BASE_URL:-https://identity.example.test}
+      ZITADEL_ISSUER_URL: ${ZITADEL_ISSUER_URL:-https://identity.example.test}
+      FOUNDATION_PLATFORM_ZITADEL_AUDIENCE: ${FOUNDATION_PLATFORM_ZITADEL_AUDIENCE:-foundation-api}
+      FOUNDATION_PLATFORM_IDENTITY_AUTHORIZATION_TIMEOUT_MS: ${FOUNDATION_PLATFORM_IDENTITY_AUTHORIZATION_TIMEOUT_MS:-2000}
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "127.0.0.1:${FOUNDATION_API_PORT:-18080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      foundation-finalize:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/foundation-api", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Readiness-only API instance sharing loopback with the public-JWKS fixture.
+  foundation-api-smoke:
+    image: foundation-platform-runtime:local
+    pull_policy: never
+    profiles:
+      - compose-smoke
+    network_mode: "service:foundation-oidc-smoke"
+    environment:
+      <<: *foundation-api-environment
+      IDENTITY_API_BASE_URL: http://127.0.0.1:18082
+      ZITADEL_ISSUER_URL: http://127.0.0.1:18081
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/foundation-api", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FOUNDATION_REDIS_PORT:-16379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
+  redis_data:

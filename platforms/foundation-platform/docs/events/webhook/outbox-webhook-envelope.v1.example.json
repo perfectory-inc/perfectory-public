@@ -1,0 +1,24 @@
+{
+  "schema_version": "foundation-platform.outbox_webhook_envelope.v1",
+  "required_headers": [
+    "x-foundation-platform-event-id",
+    "x-foundation-platform-event-type",
+    "x-foundation-platform-outbox-scope",
+    "x-foundation-platform-signature",
+    "x-foundation-platform-timestamp"
+  ],
+  "body": {
+    "event_id": "0196f0b0-3e01-7000-8000-000000000001",
+    "event_type": "catalog.industrial_complex.gold_pointer.published.v1",
+    "occurred_at": "2026-05-18T12:00:00Z",
+    "scope": "catalog",
+    "payload": {
+      "type": "catalog.industrial_complex.gold_pointer.published.v1",
+      "schema_version": 1,
+      "complex_id": "018f0000-0000-7000-8000-000000000001",
+      "current_version": "0196e7e0-3c20-7000-8000-100000000002",
+      "source_snapshot_id": "0196e7e0-3c20-7000-8000-300000000001",
+      "iceberg_snapshot_id": "987654321"
+    }
+  }
+}

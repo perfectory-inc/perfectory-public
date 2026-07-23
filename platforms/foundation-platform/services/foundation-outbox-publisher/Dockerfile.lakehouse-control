@@ -1,0 +1,25 @@
+FROM rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc AS rust-builder
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+WORKDIR /src
+
+# Toolchain pin is the base image tag (rust:1.96.0, guard-enforced); root
+# rust-toolchain.toml is outside this context, cargo uses image default 1.96.0.
+COPY Cargo.toml Cargo.lock /src/
+COPY crates /src/crates
+COPY services /src/services
+
+RUN cargo build --locked --release -p foundation-outbox-publisher
+
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+WORKDIR /workspace
+
+COPY --from=rust-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=rust-builder /src/target/release/foundation-outbox-publisher /usr/local/bin/foundation-outbox-publisher
+
+USER 10001:10001
+ENTRYPOINT ["foundation-outbox-publisher"]

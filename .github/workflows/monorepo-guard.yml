@@ -1,0 +1,25 @@
+name: monorepo-guard
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+
+concurrency:
+  group: monorepo-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: required/repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - run: bash scripts/guard/monorepo-guard.sh
+      - name: REUSE license compliance
+        run: bash scripts/ci/reuse-lint.sh

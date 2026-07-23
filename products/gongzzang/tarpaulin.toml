@@ -1,0 +1,24 @@
+# cargo-tarpaulin coverage config — sub-project 2a
+# Run: cargo tarpaulin --workspace --out Lcov --fail-under 90
+#
+# Targets shared-kernel (Plan 2a). Future sub-projects (2b/2c) extend this
+# config when they add domain crates.
+
+[default]
+features = ""
+skip-clean = true
+timeout = "120s"
+out = ["Html", "Lcov"]
+fail-under = 90
+exclude-files = [
+    "target/**",
+    "**/tests/**",
+    "_archive/**",
+    "crates/gongzzang-persistence/**",  # SQL Repository — tested via integration (Walking Skeleton T4)
+    "services/gongzzang-api/**",        # Binary entrypoint — integration smoke + manual demo
+    "services/outbox-publisher/**",      # Daemon binary entrypoint
+    "crates/outbox-publisher/**",        # Daemon lib — integration tested via services binary
+    "crates/api-health-recorder/**",     # SP7-iii binary — GitHub Actions cron 후속 (octocrab + DB record)
+    "crates/product-identity-infrastructure/src/jti_denylist.rs", # Redis integration only
+    "crates/product-identity-infrastructure/src/audit.rs", # DB integration test covers this path
+]

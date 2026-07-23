@@ -1,0 +1,19 @@
+[package]
+name = "circuit-breaker"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+description = "공짱 외부 API 호출 표준 미들웨어 — Policy + Breaker + execute"
+
+[dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time", "macros"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+
+[lints]
+workspace = true

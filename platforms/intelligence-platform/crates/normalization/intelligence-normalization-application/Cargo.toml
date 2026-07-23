@@ -1,0 +1,25 @@
+[package]
+name = "intelligence-normalization-application"
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+intelligence-contracts = { path = "../../intelligence-contracts" }
+intelligence-normalization-domain = { path = "../intelligence-normalization-domain" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+apache-avro.workspace = true
+tokio.workspace = true

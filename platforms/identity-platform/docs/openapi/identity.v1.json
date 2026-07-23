@@ -1,0 +1,552 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Identity Platform API",
+    "description": "Versioned staff identity, role assignment, and policy decision API.",
+    "contact": {
+      "name": "Perfectory",
+      "email": "engineering@perfectory.invalid"
+    },
+    "license": {
+      "name": "LicenseRef-Proprietary",
+      "identifier": "LicenseRef-Proprietary"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "crate::routes"
+        ],
+        "operationId": "live",
+        "responses": {
+          "200": {
+            "description": "Process is live",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/identity/v1/policy/decisions": {
+      "post": {
+        "tags": [
+          "crate::routes::policy"
+        ],
+        "operationId": "decide",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Typed allow or deny decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyDecisionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or unsupported JSON request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credential is invalid, expired, or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Opaque internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/identity/v1/staff/sessions/revoke": {
+      "post": {
+        "tags": [
+          "crate::routes::staff"
+        ],
+        "operationId": "revoke_session",
+        "responses": {
+          "204": {
+            "description": "Current staff session revoked"
+          },
+          "401": {
+            "description": "Credential is invalid, expired, or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Verified session was not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Opaque internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/identity/v1/staff/sessions/verify": {
+      "post": {
+        "tags": [
+          "crate::routes::staff"
+        ],
+        "operationId": "verify_session",
+        "responses": {
+          "200": {
+            "description": "Verified staff session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyStaffSessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credential is invalid, expired, or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Opaque internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/identity/v1/staff/{staff_id}/roles": {
+      "post": {
+        "tags": [
+          "crate::routes::staff"
+        ],
+        "operationId": "assign_role",
+        "parameters": [
+          {
+            "name": "staff_id",
+            "in": "path",
+            "description": "Target staff identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignStaffRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Role assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffRoleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid staff identifier or role code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credential is invalid, expired, or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Verified staff principal cannot grant roles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target staff principal does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Role is already assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Opaque internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [
+          "crate::routes"
+        ],
+        "operationId": "ready",
+        "responses": {
+          "200": {
+            "description": "Identity dependencies are ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Identity dependencies are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiErrorResponse": {
+        "type": "object",
+        "description": "Published error envelope for Identity HTTP failures.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable error code."
+          },
+          "correlation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Opaque identifier available for internal failures."
+          },
+          "message": {
+            "type": "string",
+            "description": "Safe client-facing summary."
+          }
+        }
+      },
+      "AssignStaffRoleRequest": {
+        "type": "object",
+        "description": "Request body for assigning a role to a staff principal.\n\nThe actor credential is supplied only in the `Authorization: Bearer` header.",
+        "required": [
+          "role_code"
+        ],
+        "properties": {
+          "role_code": {
+            "type": "string",
+            "description": "Role code to grant to the staff principal named in the route."
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "description": "Safe health response without configuration details.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "PolicyDecisionRequest": {
+        "type": "object",
+        "description": "Request body for evaluating a resource action against the bearer principal.\n\nThe credential is supplied only in the `Authorization: Bearer` header.",
+        "required": [
+          "resource",
+          "action",
+          "trace_id"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "Requested action within the resource namespace."
+          },
+          "resource": {
+            "type": "string",
+            "description": "Capability or resource namespace being evaluated."
+          },
+          "resource_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional resource instance identifier for instance-scoped decisions."
+          },
+          "trace_id": {
+            "type": "string",
+            "description": "Caller-provided correlation identifier for traceability."
+          }
+        }
+      },
+      "PolicyDecisionResponse": {
+        "type": "object",
+        "description": "Authorization decision evaluated for the bearer principal.",
+        "required": [
+          "principal_id",
+          "decision",
+          "reason_code",
+          "evaluated_at"
+        ],
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ResourceAction",
+            "description": "Allow or deny decision."
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC timestamp when Identity evaluated the request."
+          },
+          "principal_id": {
+            "$ref": "#/components/schemas/PrincipalId",
+            "description": "Principal whose authorization was evaluated."
+          },
+          "reason_code": {
+            "type": "string",
+            "description": "Stable machine-readable reason for the decision."
+          }
+        }
+      },
+      "PrincipalId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Stable public identifier for an authenticated Identity principal."
+      },
+      "ReadinessResponse": {
+        "type": "object",
+        "description": "Safe readiness response without connection or verifier secrets.",
+        "required": [
+          "status",
+          "database",
+          "verifier_configuration"
+        ],
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "verifier_configuration": {
+            "type": "string"
+          }
+        }
+      },
+      "ResourceAction": {
+        "type": "string",
+        "description": "Authorization decision returned by Identity Platform.",
+        "enum": [
+          "allow",
+          "deny"
+        ]
+      },
+      "StaffRoleResponse": {
+        "type": "object",
+        "description": "Response describing a role assignment made by Identity Platform.",
+        "required": [
+          "principal_id",
+          "role_code",
+          "granted_at",
+          "granted_by"
+        ],
+        "properties": {
+          "granted_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC timestamp when Identity recorded the grant."
+          },
+          "granted_by": {
+            "$ref": "#/components/schemas/PrincipalId",
+            "description": "Authenticated principal that granted the role."
+          },
+          "principal_id": {
+            "$ref": "#/components/schemas/PrincipalId",
+            "description": "Staff principal that received the role."
+          },
+          "role_code": {
+            "type": "string",
+            "description": "Granted role code."
+          }
+        }
+      },
+      "VerifyStaffSessionResponse": {
+        "type": "object",
+        "description": "Response returned after Identity verifies the bearer credential for a staff principal.",
+        "required": [
+          "principal_id",
+          "email",
+          "display_name",
+          "roles",
+          "expires_at"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "Staff display name supplied by the identity provider."
+          },
+          "email": {
+            "type": "string",
+            "description": "Staff email address supplied by the identity provider."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC timestamp when the verified credential expires."
+          },
+          "principal_id": {
+            "$ref": "#/components/schemas/PrincipalId",
+            "description": "Verified Identity principal."
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Effective role codes for the verified principal."
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

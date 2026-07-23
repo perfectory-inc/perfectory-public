@@ -1,0 +1,281 @@
+{
+  "common": {
+    "brandName": "공짱",
+    "loading": "불러오는 중이에요",
+    "error": "오류가 발생했어요",
+    "retry": "다시 시도해 주세요",
+    "notFound": "페이지를 찾을 수 없어요"
+  },
+  "notFoundPage": {
+    "title": "페이지를 찾을 수 없어요",
+    "description": "주소가 맞는지 다시 한번 확인해 주세요.",
+    "homeLink": "홈으로 돌아가기"
+  },
+  "errorPage": {
+    "title": "오류가 발생했어요",
+    "description": "잠시 후 다시 시도해 주세요. 문제가 계속되면 관리자에게 문의해 주세요.",
+    "retry": "다시 시도"
+  },
+  "errors": {
+    "network": "네트워크 연결을 확인해 주세요",
+    "server": "서버에 일시적인 문제가 있어요. 잠시 후 다시 시도해 주세요"
+  },
+  "panel": {
+    "back": "이전",
+    "breadcrumb": "경로",
+    "authRequired": "로그인이 필요해요",
+    "labels": {
+      "parcel": {
+        "summary": "필지",
+        "buildings": "건축물",
+        "listings": "이 필지의 매물"
+      },
+      "listing": {
+        "summary": "매물"
+      }
+    }
+  },
+  "map": {
+    "attribution": {
+      "parcelSourceLabel": "필지 polygon",
+      "vWorldLink": "V-World",
+      "license": "(공공누리 제1유형: 출처표시)",
+      "ariaDataSource": "데이터 출처"
+    }
+  },
+  "listingForm": {
+    "page": {
+      "title": "매물 등록",
+      "description": "매물 정보를 정확하게 입력해 주세요. 등록 후 검토 요청을 보내면 관리자가 확인해요."
+    },
+    "submitSuccess": "매물이 등록되었어요 ({id})",
+    "submitErrorFallback": "등록 중 오류가 발생했어요",
+    "contactVisibility": {
+      "public": "전체 공개",
+      "login_required": "로그인 시 공개",
+      "verified_only": "인증 사용자만"
+    },
+    "errors": {
+      "pnuFormat": "PNU 는 19자리 숫자여야 해요",
+      "priceMin": "가격은 0 보다 커야 해요",
+      "areaMin": "면적은 0 보다 커야 해요",
+      "titleRequired": "제목을 입력해 주세요",
+      "titleMax": "제목은 200자 이하여야 해요",
+      "descriptionMax": "설명은 5000자 이하여야 해요",
+      "saleDepositForbidden": "매매 거래는 보증금이 없어야 해요",
+      "saleMonthlyRentForbidden": "매매 거래는 월세가 없어야 해요",
+      "jeonseDepositRequired": "전세는 보증금이 필요해요",
+      "jeonseMonthlyRentForbidden": "전세는 월세가 없어야 해요",
+      "monthlyRentDepositRequired": "월세는 보증금이 필요해요",
+      "monthlyRentMonthlyRequired": "월세는 월세 금액이 필요해요"
+    },
+    "labels": {
+      "pnu": "PNU (필지 번호, 19자리)",
+      "listingType": "매물 유형",
+      "transactionType": "거래 유형",
+      "price": "가격 (원)",
+      "deposit": "보증금 (원)",
+      "monthlyRent": "월세 (원)",
+      "area": "면적 (㎡)",
+      "title": "제목 (≤200자)",
+      "description": "설명 (≤5000자)",
+      "contactVisibilityLabel": "연락처 공개 범위",
+      "selectPlaceholder": "선택해 주세요"
+    },
+    "submit": {
+      "idle": "매물 등록",
+      "pending": "등록 중..."
+    },
+    "photoNotice": "사진 업로드는 준비 중이에요 (SP4-iii-e 의 R2 통합 후 활성화 — FU 56)."
+  },
+  "bookmark": {
+    "added": "즐겨찾기 추가했어요",
+    "removed": "즐겨찾기 해제했어요",
+    "error": "즐겨찾기 처리 중 오류가 발생했어요",
+    "ariaAdd": "즐겨찾기 추가",
+    "ariaRemove": "즐겨찾기 해제"
+  },
+  "meta": {
+    "title": "공짱 — 산업용 부동산 정보",
+    "description": "산업용 부동산 정보 플랫폼"
+  },
+  "server": {
+    "auth": {
+      "callback": {
+        "verifyFailedTitle": "로그인 검증에 실패했어요",
+        "verifyFailedDetail": "보안을 위해 다시 로그인해 주세요.",
+        "idpUnavailableTitle": "로그인 서버에 연결할 수 없어요"
+      },
+      "refresh": {
+        "expiredTitle": "로그인 세션이 만료되었어요"
+      }
+    },
+    "proxy": {
+      "backendUnavailableTitle": "백엔드 서버에 연결할 수 없어요",
+      "retryLaterDetail": "잠시 후 다시 시도해 주세요.",
+      "rateLimitedTitle": "요청이 너무 많아요",
+      "routeNotAllowedTitle": "요청할 수 없는 경로예요",
+      "routeNotAllowedDetail": "허용된 API 경로인지 확인해 주세요.",
+      "sessionRequiredTitle": "로그인이 필요해요",
+      "sessionRequiredDetail": "로그인 후 다시 시도해 주세요.",
+      "insufficientRoleTitle": "권한이 부족해요",
+      "insufficientRoleDetail": "이 작업을 수행할 권한이 있는 계정으로 다시 시도해 주세요."
+    }
+  },
+  "notifications": {
+    "page": {
+      "title": "알림",
+      "description": "최근 365일 동안 받은 알림이에요."
+    },
+    "fallbackListingTitle": "매물",
+    "fallbackBookmarker": "한 사용자",
+    "default": "알림이 도착했어요",
+    "approved": {
+      "title": "매물 \"{title}\" 이(가) 승인됐어요",
+      "description": "이제 다른 사용자에게 공개돼요."
+    },
+    "rejected": {
+      "title": "매물 \"{title}\" 이(가) 반려됐어요",
+      "reasonPrefix": "사유: {reason}",
+      "descriptionFallback": "사유는 매물 상세에서 확인해 주세요."
+    },
+    "bookmarked": {
+      "title": "{bookmarker} 님이 \"{title}\" 를 즐겨찾기 했어요"
+    },
+    "bell": {
+      "ariaWithUnread": "미읽음 알림 {count}건",
+      "ariaIdle": "알림"
+    },
+    "list": {
+      "markReadError": "읽음 처리 중 오류가 발생했어요",
+      "markReadSuccess": "{count}건 읽음 처리 ({label})",
+      "markAll": "모두 읽음",
+      "loading": "불러오는 중...",
+      "loadError": "알림을 불러오지 못했어요.",
+      "empty": "알림이 없어요.",
+      "groupHeader": "{label} ({count})",
+      "kind": {
+        "listing_approved": "매물 승인",
+        "listing_rejected": "매물 반려",
+        "listing_bookmarked": "즐겨찾기",
+        "other": "기타"
+      }
+    }
+  },
+  "previewFloors": {
+    "unknown": "미상",
+    "none": "없음",
+    "present": "있음",
+    "rooftop": "옥탑",
+    "rooftopUse": "옥탑 용도 · {use}",
+    "floorComposition": "층 구성 · 표제부",
+    "aboveGround": "지상",
+    "belowGround": "지하",
+    "floorSuffix": "층",
+    "unitSuffix": "호",
+    "exclusiveArea": "전용 {area}",
+    "areaMismatch": "면적 미정합",
+    "titleUnavailable": "표제부 정보 없음",
+    "singleBuilding": "단일 동",
+    "stats": {
+      "parcel": "필지",
+      "building": "건물 (표제부)",
+      "unit": "호실 (전유부)",
+      "area": "전용면적 정합"
+    },
+    "header": {
+      "eyebrow": "건축물대장 · 실데이터 정합",
+      "title": "필지 데이터 정합 인스펙터",
+      "description": "표제부(층)·전유부(호)·전유공용면적(전용면적) 세 대장을 관리번호와 PNU로 이어 만든 필지 카드예요. 필지는 탭으로, 각 호실은 눌러 조인된 원본을 확인하세요. (JS 없이 동작)"
+    },
+    "connection": {
+      "title": "무엇이 연결됐나",
+      "subtitle": "세 대장 → 조인 키 → 서빙 카드",
+      "titleRegister": {
+        "name": "표제부",
+        "summary": "건물 한 채의 신분증",
+        "fields": "지상·지하 층수 · 옥탑 · 연면적"
+      },
+      "exclusiveUnit": {
+        "name": "전유부",
+        "summary": "호실 명단",
+        "fields": "동 · 호명 · 층 (구조화 칸)"
+      },
+      "exclusiveArea": {
+        "name": "전유공용면적",
+        "summary": "호실별 면적",
+        "fields": "전용면적(㎡) · 전유/공용 구분"
+      },
+      "unitAreaKey": "전유부 ↔ 면적: 관리번호(mgm_bldrgst_pk) 직결 · 100%",
+      "parcelKey": "대장 ↔ 필지: PNU (표준 11번째=1)",
+      "unitNameKey": "호명 대조: PNU + 동 + 호명"
+    },
+    "inspector": {
+      "title": "필지 인스펙터",
+      "subtitle": "탭 = 필지 · 칩 = 동 · 클릭 = 호실 상세",
+      "unitCount": "호실 {count}개",
+      "buildingCount": " · {count}개 동"
+    },
+    "footnote": "데이터 출처: 표제부·전유부·전유공용면적 (hub.go.kr, 2026-06 스냅샷) · 서빙",
+    "footnoteDetail": "· 지상/지하는 표제부, 옥탑 유무·면적·용도는 전유공용면적 옥탑 행(층구분 30)에서 정합. 데모 8필지 중 5필지 수록."
+  },
+  "panels": {
+    "parcel": {
+      "empty": "필지 정보가 없어요",
+      "errors": {
+        "loadFailed": "필지 정보를 불러오지 못했어요"
+      },
+      "summary": {
+        "landUse": "지목",
+        "zoning": "용도지역",
+        "officialPrice": "공시지가",
+        "officialPricePerM2": "{value} 원/㎡",
+        "viewBuildings": "건축물 보기",
+        "viewFloors": "층 구성 보기",
+        "viewListings": "등록 매물 보기",
+        "codeFallback": "행정코드 {code}"
+      },
+      "buildings": {
+        "title": "건축물",
+        "count": "동",
+        "none": "등록된 건축물이 없어요"
+      },
+      "floors": {
+        "title": "층 구성",
+        "buildingFallback": "건물",
+        "aboveGround": "지상 {count}층",
+        "belowGround": "지하 {count}층",
+        "rooftop": "옥탑",
+        "none": "층 정보가 없어요"
+      },
+      "listings": {
+        "title": "이 필지의 매물 ({count})",
+        "none": "이 필지에 등록된 매물이 없어요"
+      }
+    },
+    "listing": {
+      "notFound": "매물을 찾을 수 없어요",
+      "errors": {
+        "loadFailed": "매물 정보를 불러오지 못했어요"
+      },
+      "summary": {
+        "area": "면적",
+        "price": "가격",
+        "photoUnavailable": "사진을 불러오지 못했어요",
+        "type": {
+          "factory": "공장",
+          "warehouse": "창고",
+          "office": "오피스",
+          "knowledge_industry_center": "지식산업센터",
+          "industrial_land": "산업용지",
+          "logistics_center": "물류센터"
+        },
+        "transaction": {
+          "sale": "매매",
+          "monthly_rent": "월세",
+          "jeonse": "전세"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+# OCI index digests resolved from the named registry tags with
+# `docker buildx imagetools inspect` on 2026-07-23.
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.3.6@sha256:04baa40ed34edf86028396f762be802f3b6b0acaab65e9de696a3f15d54c550f
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://127.0.0.1:${INTELLIGENCE_TEST_KAFKA_HOST_PORT:-19092}
+    ports:
+      - "127.0.0.1:${INTELLIGENCE_TEST_KAFKA_HOST_PORT:-19092}:19092"
+
+  karapace:
+    image: ghcr.io/aiven-open/karapace:6.2.0@sha256:a0badfd5b6cc208b76a70dfe2db25bdae5dba5137999d2c0f472ccd3986bdb78
+    command:
+      - python3
+      - -m
+      - karapace
+    depends_on:
+      - redpanda
+    ports:
+      - "127.0.0.1:${INTELLIGENCE_TEST_KARAPACE_HOST_PORT:-18081}:8081"
+    environment:
+      KARAPACE_ADVERTISED_HOSTNAME: karapace
+      KARAPACE_BOOTSTRAP_URI: redpanda:9092
+      KARAPACE_HOST: 0.0.0.0
+      KARAPACE_PORT: 8081
+      KARAPACE_REGISTRY_HOST: 0.0.0.0
+      KARAPACE_REGISTRY_PORT: 8081
+      KARAPACE_COMPATIBILITY: BACKWARD_TRANSITIVE
+      KARAPACE_MASTER_ELECTION_STRATEGY: highest
+      KARAPACE_NAME_STRATEGY: topic_name

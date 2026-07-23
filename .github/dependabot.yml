@@ -1,0 +1,148 @@
+# Dependabot — 자동 의존성 갱신 (Round 5 P1, ADR 0028).
+#
+# **목적** (SSS supply-chain):
+# - GitHub Actions SHA pin 자동 갱신 — SHA 핀이 컨벤션(ADR-0028)이며 dependabot 이
+#   새 릴리스의 SHA + tag 주석을 PR 로 제안해 핀을 최신 상태로 유지한다.
+# - Cargo / npm 의 known CVE 자동 PR — cargo-deny 와 보완.
+# - 의존성 drift 를 *human-readable PR* 로 변환 — silent upgrade 0.
+#
+# **운영 정책**:
+# - PR open 시 lefthook + CI gate 그대로 통과해야 merge.
+# - 주간 회의에서 dependabot PR 리뷰 (별도 oncall 책임 없이 platform team).
+# - critical CVE 발견 시 dependabot 가 자동 PR — 24시간 내 응답 의무.
+#
+# 참고: NIST SSP 800-218 (SSDF), https://docs.github.com/en/code-security/dependabot
+
+version: 2
+updates:
+  # GitHub Actions — supply-chain 의 가장 큰 risk. 모든 workflow yml 의 actions 는
+  # *SHA pin* (Round 5, ADR 0028). dependabot 가 새 release 의 SHA + tag 주석 자동
+  # PR 제안 — 운영자 weekly review 에서 검토 후 merge. tag pin 으로 회귀 0 보장.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "supply-chain"
+    commit-message:
+      prefix: "chore(actions)"
+      include: scope
+
+  # npm — products/gongzzang (Next.js apps/web). pnpm catalog 사용 시 별도 검토 필요.
+  - package-ecosystem: npm
+    directory: "/products/gongzzang"
+    schedule:
+      interval: weekly
+      day: thursday
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "frontend"
+    commit-message:
+      prefix: "chore(web)"
+      include: scope
+    ignore:
+      # Next.js / React major 는 별도 sprint 검토 (breaking change).
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+
+  # Cargo workspace — products/gongzzang. cargo-deny 와 짝. dependabot 가
+  # *minor / patch* PR 자동, major 는 manual 검토 (breaking change risk).
+  - package-ecosystem: cargo
+    directory: "/products/gongzzang"
+    schedule:
+      interval: weekly
+      day: tuesday
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "chore(cargo)"
+      include: scope
+    # workspace 안 모든 crate 가 단일 PR — Cargo.lock 일관성 보장.
+    groups:
+      rust-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Cargo workspace — platforms/foundation-platform.
+  - package-ecosystem: cargo
+    directory: "/platforms/foundation-platform"
+    schedule:
+      interval: weekly
+      day: tuesday
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "chore(cargo)"
+      include: scope
+    groups:
+      rust-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Cargo workspace — platforms/identity-platform.
+  - package-ecosystem: cargo
+    directory: "/platforms/identity-platform"
+    schedule:
+      interval: weekly
+      day: tuesday
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "chore(cargo)"
+      include: scope
+    groups:
+      rust-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Cargo workspace — platforms/intelligence-platform.
+  - package-ecosystem: cargo
+    directory: "/platforms/intelligence-platform"
+    schedule:
+      interval: weekly
+      day: tuesday
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "chore(cargo)"
+      include: scope
+    groups:
+      rust-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # pip — foundation Python worker. LIMITATION: dependabot reads pyproject.toml
+  # (bare dep names), NOT the uv-generated requirements.lock that CI installs from.
+  # Lock refresh stays manual (`uv pip compile`) until a uv-aware bot exists.
+  - package-ecosystem: pip
+    directory: "/platforms/foundation-platform/services/foundation-provider-acquisition-worker"
+    schedule:
+      interval: weekly
+      day: wednesday
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(pip)"
+      include: scope

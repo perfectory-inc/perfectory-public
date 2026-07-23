@@ -1,0 +1,35 @@
+[package]
+name = "intelligence-worker"
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+apache-avro.workspace = true
+chrono.workspace = true
+intelligence-contracts = { path = "../../crates/intelligence-contracts" }
+knowledge-application = { path = "../../crates/knowledge/knowledge-application" }
+knowledge-domain = { path = "../../crates/knowledge/knowledge-domain" }
+knowledge-infrastructure = { path = "../../crates/knowledge/knowledge-infrastructure" }
+messaging-infrastructure = { path = "../../crates/messaging/messaging-infrastructure" }
+metrics.workspace = true
+intelligence-normalization-application = { path = "../../crates/normalization/intelligence-normalization-application" }
+intelligence-normalization-domain = { path = "../../crates/normalization/intelligence-normalization-domain" }
+intelligence-normalization-infrastructure = { path = "../../crates/normalization/intelligence-normalization-infrastructure" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+axum.workspace = true

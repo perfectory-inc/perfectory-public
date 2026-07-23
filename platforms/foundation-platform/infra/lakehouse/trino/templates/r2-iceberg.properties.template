@@ -1,0 +1,13 @@
+connector.name=iceberg
+iceberg.catalog.type=rest
+iceberg.rest-catalog.uri=<FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI>
+iceberg.rest-catalog.warehouse=<FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE>
+iceberg.rest-catalog.security=OAUTH2
+iceberg.rest-catalog.oauth2.token=<FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN>
+iceberg.rest-catalog.oauth2.server-uri=<FOUNDATION_PLATFORM_LAKEHOUSE_OAUTH2_SERVER_URI>
+fs.s3.enabled=true
+s3.region=auto
+s3.endpoint=<R2_ENDPOINT>
+s3.aws-access-key=<R2_ACCESS_KEY_ID>
+s3.aws-secret-key=<R2_SECRET_ACCESS_KEY>
+s3.path-style-access=true

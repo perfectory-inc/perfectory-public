@@ -1,0 +1,18 @@
+version: 2
+
+sources:
+  - name: gongzzang
+    schema: "{{ env_var('FOUNDATION_DBT_GONGZZANG_SOURCE_SCHEMA', env_var('FOUNDATION_DBT_SOURCE_SCHEMA', 'silver')) }}"
+    tables:
+      - name: court_auction_property
+        description: Gongzzang-owned court auction property Silver table.
+
+  - name: foundation
+    schema: "{{ env_var('FOUNDATION_DBT_FOUNDATION_SOURCE_SCHEMA', env_var('FOUNDATION_DBT_SOURCE_SCHEMA', 'silver')) }}"
+    tables:
+      - name: building_register_unit
+        identifier: building_register_units
+        description: Foundation canonical building register unit snapshot.
+      - name: building_register_unit_area
+        identifier: building_register_unit_areas
+        description: Foundation canonical building register unit area snapshot.

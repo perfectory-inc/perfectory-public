@@ -1,0 +1,79 @@
+{
+  "schema_version": "gongzzang.platform_integration.service_auth_policy.v1",
+  "platform_naming": {
+    "decision_source": "docs/adr/0048-horizontal-platform-redefinition.md",
+    "canonical_platform_slug": "foundation-platform",
+    "policy_final_owner_slug": "identity-platform"
+  },
+  "repo_slug": "gongzzang",
+  "owner": "gongzzang",
+  "status": "active",
+  "outbound_identities": [
+    {
+      "id": "gongzzang_api_to_foundation_api",
+      "source_service": "gongzzang-api",
+      "target_service": "foundation-api",
+      "current_method": "zitadel_workload_bearer_token_file",
+      "required_env": "FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE",
+      "production_required": true,
+      "workload_identity_token_file": {
+        "refresh_behavior": "read_before_each_request",
+        "static_token_fallback": "forbidden"
+      },
+      "authorization_policy": {
+        "default_decision": "deny",
+        "allow_source": "docs/architecture/platform-integration/allowed-call-matrix.v1.json",
+        "allowed_call_id": "gongzzang_api_to_foundation_platform_catalog_read"
+      },
+      "runtime_files": [
+        "crates/foundation-platform-client/src/lib.rs",
+        "services/gongzzang-api/src/foundation_parcel_lookup.rs",
+        "services/gongzzang-api/src/building_reader.rs",
+        "services/gongzzang-api/src/startup.rs"
+      ]
+    },
+    {
+      "id": "gongzzang_outbox_publisher_to_foundation_api",
+      "source_service": "gongzzang-outbox-publisher",
+      "target_service": "foundation-api",
+      "current_method": "zitadel_workload_bearer_token_file",
+      "required_env": "FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE",
+      "production_required": true,
+      "workload_identity_token_file": {
+        "refresh_behavior": "read_before_each_request",
+        "static_token_fallback": "forbidden"
+      },
+      "authorization_policy": {
+        "default_decision": "deny",
+        "allow_source": "docs/architecture/platform-integration/allowed-call-matrix.v1.json",
+        "allowed_call_id": "gongzzang_outbox_publisher_to_foundation_lakehouse_registry"
+      },
+      "runtime_files": [
+        "crates/foundation-platform-client/src/lib.rs",
+        "services/gongzzang-outbox-publisher/src/main.rs",
+        "services/gongzzang-outbox-publisher/src/listing_photo_lakehouse.rs",
+        "services/gongzzang-outbox-publisher/src/foundation_lakehouse_registry.rs"
+      ]
+    }
+  ],
+  "inbound_identities": [
+    {
+      "id": "foundation_outbox_to_gongzzang_webhook",
+      "source_service": "foundation-outbox-publisher",
+      "target_service": "gongzzang-web",
+      "current_method": "timestamped_hmac_sha256",
+      "required_env": "FOUNDATION_PLATFORM_WEBHOOK_SECRET",
+      "production_required": true,
+      "runtime_files": [
+        "apps/web/app/foundation-platform/events/route.ts",
+        "apps/web/lib/foundation-platform/webhook-handler.ts",
+        "apps/web/lib/env.ts"
+      ]
+    }
+  ],
+  "forbidden": [
+    "direct_foundation_platform_database",
+    "anonymous_foundation_platform_service_call_in_production",
+    "unsigned_foundation_platform_webhook_in_production"
+  ]
+}

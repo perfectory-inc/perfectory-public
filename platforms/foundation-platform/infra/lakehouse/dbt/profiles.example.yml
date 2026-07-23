@@ -1,0 +1,23 @@
+foundation_lakehouse:
+  target: local
+  outputs:
+    local:
+      type: trino
+      method: none
+      host: 127.0.0.1
+      port: 18081
+      user: foundation_dbt
+      database: foundation_platform
+      schema: silver
+      threads: 4
+      http_scheme: http
+    smoke:
+      type: trino
+      method: none
+      host: 127.0.0.1
+      port: 18082
+      user: foundation_dbt
+      database: foundation_platform
+      schema: dbt_smoke
+      threads: 4
+      http_scheme: http

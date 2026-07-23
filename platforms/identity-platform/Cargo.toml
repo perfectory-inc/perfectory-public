@@ -1,0 +1,90 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/identity-contracts",
+    "crates/identity-shared-kernel",
+    "crates/staff-identity/staff-identity-domain",
+    "crates/staff-identity/staff-identity-application",
+    "crates/staff-identity/staff-identity-infrastructure",
+    "crates/authorization/authorization-domain",
+    "crates/authorization/authorization-application",
+    "crates/authorization/authorization-infrastructure",
+    "crates/service-identity/service-identity-domain",
+    "crates/service-identity/service-identity-application",
+    "crates/service-identity/service-identity-infrastructure",
+    "services/identity-api",
+    "services/identity-policy-worker",
+    "tools/identity-database-migrator",
+    "tools/identity-service-provisioner",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.96.0"
+license-file = "../../LICENSES/LicenseRef-Proprietary.txt"
+authors = ["Perfectory"]
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+unused_imports = "deny"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = "0.8"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "macros",
+    "uuid",
+    "chrono",
+    "json",
+    "migrate",
+] }
+thiserror = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "signal"] }
+tower = { version = "0.5", features = ["limit", "timeout", "util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+wiremock = "0.6"
+
+identity-contracts = { path = "crates/identity-contracts" }
+identity-shared-kernel = { path = "crates/identity-shared-kernel" }
+staff-identity-domain = { path = "crates/staff-identity/staff-identity-domain" }
+staff-identity-application = { path = "crates/staff-identity/staff-identity-application" }
+staff-identity-infrastructure = { path = "crates/staff-identity/staff-identity-infrastructure" }
+authorization-domain = { path = "crates/authorization/authorization-domain" }
+authorization-application = { path = "crates/authorization/authorization-application" }
+authorization-infrastructure = { path = "crates/authorization/authorization-infrastructure" }
+service-identity-domain = { path = "crates/service-identity/service-identity-domain" }
+service-identity-application = { path = "crates/service-identity/service-identity-application" }
+service-identity-infrastructure = { path = "crates/service-identity/service-identity-infrastructure" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

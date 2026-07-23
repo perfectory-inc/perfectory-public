@@ -1,0 +1,40 @@
+{
+  "schema_version": "gongzzang.platform_integration.webhook_policy.v1",
+  "platform_naming": {
+    "decision_source": "docs/adr/0048-horizontal-platform-redefinition.md",
+    "canonical_platform_slug": "foundation-platform"
+  },
+  "repo_slug": "gongzzang",
+  "owner": "gongzzang",
+  "status": "active",
+  "receiver": {
+    "id": "foundation_platform_event_receiver",
+    "runtime_file": "apps/web/app/foundation-platform/events/route.ts",
+    "contract_pin": "docs/architecture/foundation-platform-webhook-receiver-contract.v1.pin.json",
+    "shared_handler": "apps/web/lib/foundation-platform/webhook-handler.ts",
+    "signature": {
+      "algorithm": "hmac_sha256",
+      "version": "v1",
+      "header": "x-foundation-platform-signature",
+      "timestamp_header": "x-foundation-platform-timestamp",
+      "max_skew_seconds": 300,
+      "signed_payload": "timestamp.body"
+    },
+    "required_headers": [
+      "x-foundation-platform-event-id",
+      "x-foundation-platform-event-type",
+      "x-foundation-platform-outbox-scope"
+    ],
+    "accepted_events": [
+      "catalog.industrial_complex.gold_pointer.published.v1",
+      "catalog.parcel_marker_anchor.snapshot.published.v1"
+    ],
+    "runtime_safety": {
+      "idempotency_key": "event_id",
+      "replay_ledger": "apps/web/lib/foundation-platform/event-inbox.ts",
+      "duplicate_policy": "ack_without_side_effects",
+      "dead_letter_queue": "redis_event_inbox_dead_letter_status",
+      "schema_compatibility": "accepted_events_must_have_zod_handler"
+    }
+  }
+}

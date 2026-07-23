@@ -1,0 +1,23 @@
+//! 공짱 인증 핵심 게이트 — Zitadel `access_token` `JWT` 검증.
+//!
+//! - [`verifier::JwtVerifier`] — `JWKS` 캐시 + 서명·exp·iss·aud 검증
+//! - [`middleware`] — Axum tower layer (`Bearer` → `Extension<AuthenticatedUser>`)
+//! - [`extractor::AuthenticatedUser`] — 핸들러용 extractor
+//! - [`role_guard::require_role`] — `UserRole` 가드 helper
+//!
+//! Contract context: `docs/adr/0005-auth-zitadel.md` and `docs/auth/README.md`.
+
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+// FU 26 — legitimate HTTP client wrapper (Zitadel JWKS fetcher).
+#![allow(clippy::disallowed_types)]
+
+pub mod audit;
+pub mod claims;
+pub mod errors;
+pub mod extractor;
+pub mod jti_denylist;
+pub mod jwks_cache;
+pub mod middleware;
+pub mod role_guard;
+pub mod verifier;

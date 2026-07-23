@@ -1,0 +1,37 @@
+[package]
+name = "gongzzang-outbox-publisher"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+description = "공짱 outbox 이벤트 발행 daemon (services)"
+
+[[bin]]
+name = "gongzzang-outbox-publisher"
+path = "src/main.rs"
+
+[dependencies]
+foundation-platform-client = { path = "../../crates/foundation-platform-client", version = "0.1.0" }
+circuit-breaker = { path = "../../crates/circuit-breaker", version = "0.1.0" }
+gongzzang-persistence = { path = "../../crates/gongzzang-persistence", version = "0.1.0" }
+outbox-event-domain = { path = "../../crates/outbox-event-domain", version = "0.1.0" }
+gongzzang-outbox = { path = "../../crates/gongzzang-outbox", version = "0.1.0" }
+shared-kernel = { path = "../../crates/shared-kernel", version = "0.1.0" }
+async-trait = { workspace = true }
+aws-config = { version = "=1.8.17", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-credential-types = "=1.2.14"
+aws-sdk-s3 = { version = "=1.133.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
+
+[lints]
+workspace = true

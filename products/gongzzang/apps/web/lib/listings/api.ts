@@ -1,0 +1,108 @@
+import { z } from "zod";
+import { apiProxyClient } from "@/lib/api/api-proxy-client.generated";
+import type { ListingFilters } from "@/lib/listings/filters";
+import { toSearchParams } from "@/lib/listings/filters";
+
+export const ListingCardSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  listing_type: z.enum([
+    "factory",
+    "warehouse",
+    "office",
+    "knowledge_industry_center",
+    "industrial_land",
+    "logistics_center",
+  ]),
+  transaction_type: z.enum(["sale", "monthly_rent", "jeonse"]),
+  price_krw: z.number().int(),
+  deposit_krw: z.number().int().nullish(),
+  monthly_rent_krw: z.number().int().nullish(),
+  area_m2: z.number(),
+  thumbnail_url: z.string().nullish(),
+  view_count: z.number().int(),
+  bookmark_count: z.number().int(),
+  is_bookmarked: z.boolean(),
+  created_at: z.string(), // ISO 8601
+});
+
+export type ListingCard = z.infer<typeof ListingCardSchema>;
+
+export const ListingsResponseSchema = z.object({
+  listings: z.array(ListingCardSchema),
+  total: z.number().int(),
+  page: z.number().int(),
+  size: z.number().int(),
+  has_next: z.boolean(),
+});
+
+export type ListingsResponse = z.infer<typeof ListingsResponseSchema>;
+
+export interface FetchListingsInput {
+  filters: ListingFilters;
+  pnu?: string;
+  page?: number;
+  size?: number;
+}
+
+export async function fetchListings(
+  input: FetchListingsInput,
+  signal?: AbortSignal,
+): Promise<ListingsResponse> {
+  const sp = toSearchParams(input.filters);
+  if (input.pnu) sp.set("pnu", input.pnu);
+  if (input.page !== undefined) sp.set("page", String(input.page));
+  if (input.size !== undefined) sp.set("size", String(input.size));
+
+  const json = await apiProxyClient.listingsCollectionRead.getJson<unknown>({
+    searchParams: sp,
+    signal,
+  });
+  return ListingsResponseSchema.parse(json);
+}
+
+// ── SP6-iii: 매물 상세 ──────────────────────────────────────────────────
+
+export const ListingPhotoSchema = z.object({
+  photo_id: z.string(),
+  r2_key: z.string(),
+  thumbnail_r2_key: z.string().nullish(),
+  caption: z.string().nullish(),
+  display_order: z.number().int(),
+  content_type: z.string(),
+});
+
+export const ListingDetailSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  parcel_pnu: z.string(),
+  listing_type: z.string(),
+  transaction_type: z.string(),
+  price_krw: z.number().int(),
+  deposit_krw: z.number().int().nullish(),
+  monthly_rent_krw: z.number().int().nullish(),
+  area_m2: z.number(),
+  title: z.string(),
+  description: z.string(),
+  status: z.string(),
+  contact_visibility: z.string(),
+  view_count: z.number().int(),
+  bookmark_count: z.number().int(),
+  is_bookmarked: z.boolean(),
+  version: z.number().int(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  expires_at: z.string().nullish(),
+  photos: z.array(ListingPhotoSchema),
+});
+
+export type ListingDetail = z.infer<typeof ListingDetailSchema>;
+
+/**
+ * `GET /listings/:id` — 매물 상세 fetch.
+ * 404 (매물 미존재 또는 RBAC 차단) → ky `HTTPError` throw.
+ */
+export async function fetchListingDetail(id: string, signal?: AbortSignal): Promise<ListingDetail> {
+  const json = await apiProxyClient.listingDetailRead.getJson<unknown>({ id }, { signal });
+  return ListingDetailSchema.parse(json);
+}

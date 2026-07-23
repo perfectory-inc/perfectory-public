@@ -1,0 +1,80 @@
+{
+  "schema_version": "foundation-platform.lakehouse_lineage_event.v1",
+  "event_type": "lakehouse.lineage.dataset_materialized.v1",
+  "occurred_at": "2026-05-18T12:00:00Z",
+  "producer": "foundation-platform.lakehouse",
+  "job_name": "industrial_complex_silver_to_gold",
+  "run_id": "spark-run-20260518-000001",
+  "run_summary_schema_version": "foundation-platform.spark_run_summary.v1",
+  "run_summary_ref": {
+    "path": "r2://foundation-platform/lakehouse/summaries/industrial_complex_silver_to_gold/2026-05-18T120000Z.json",
+    "checksum_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "input_dataset": {
+    "qualified_name": "silver.industrial_complexes",
+    "namespace": "silver",
+    "table": "industrial_complexes",
+    "storage_format": "iceberg"
+  },
+  "output_dataset": {
+    "qualified_name": "gold.complex_catalog",
+    "namespace": "gold",
+    "table": "complex_catalog",
+    "storage_format": "iceberg"
+  },
+  "source_snapshot_ids": [
+    "industrial-complex-source-snapshot-20260518"
+  ],
+  "source_snapshot_truncated": false,
+  "iceberg_snapshot": {
+    "catalog": "r2",
+    "namespace": "gold",
+    "table": "complex_catalog",
+    "snapshot_id": "918273645546372819"
+  },
+  "quality_metrics": {
+    "row_count": 2,
+    "persisted_row_count": 2,
+    "complex_id__null_count": 0,
+    "complex_name__empty_count": 0
+  },
+  "column_lineage": [
+    {
+      "output_column": "complex_id",
+      "inputs": [
+        {
+          "dataset": "silver.industrial_complexes",
+          "column": "complex_id",
+          "transform": "identity"
+        }
+      ]
+    },
+    {
+      "output_column": "complex_name",
+      "inputs": [
+        {
+          "dataset": "silver.industrial_complexes",
+          "column": "complex_name",
+          "transform": "identity"
+        }
+      ]
+    },
+    {
+      "output_column": "source_snapshot_id",
+      "inputs": [
+        {
+          "dataset": "silver.industrial_complexes",
+          "column": "source_snapshot_id",
+          "transform": "identity"
+        }
+      ]
+    }
+  ],
+  "openlineage_mapping": {
+    "event_type": "COMPLETE",
+    "job_namespace": "foundation-platform.lakehouse",
+    "job_name": "industrial_complex_silver_to_gold",
+    "input_namespace": "r2.silver",
+    "output_namespace": "r2.gold"
+  }
+}
