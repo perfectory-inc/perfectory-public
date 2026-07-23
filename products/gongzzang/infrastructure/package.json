@@ -9,7 +9,7 @@
     "preview": "pulumi preview"
   },
   "dependencies": {
-    "@pulumi/aws": "^7.31.0",
+    "@pulumi/aws": "^7.38.0",
     "@pulumi/pulumi": "^3.244.0"
   },
   "devDependencies": {
