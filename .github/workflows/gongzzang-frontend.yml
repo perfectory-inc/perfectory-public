@@ -15,6 +15,7 @@ on:
       - "products/gongzzang/pnpm-lock.yaml"
       - "products/gongzzang/biome.json"
       - "products/gongzzang/.npmrc"
+      - "scripts/tiles/vector-tile-manifest.local.json"
       - ".github/workflows/gongzzang-frontend.yml"
   pull_request:
     branches: [main]

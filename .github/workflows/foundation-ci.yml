@@ -13,7 +13,10 @@ on:
       - main
     paths:
       - "platforms/foundation-platform/**"
+      - "scripts/tiles/**"
+      - "scripts/verify/integration.sh"
       - ".github/workflows/foundation-ci.yml"
+      - ".github/workflows/gongzzang-frontend.yml"
       # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
       # toolchain pin change how THIS area is verified, so they must retrigger it.
       # monorepo-guard `xtask-path-coverage` enforces this for every area CI.
@@ -185,11 +188,8 @@ jobs:
           fi
           psql --version
 
-      - name: Install sqlx CLI
-        run: cargo install sqlx-cli --version 0.8.6 --no-default-features --features postgres,rustls --locked
-
-      - name: Run migrations
-        run: sqlx migrate run
+      - name: Run migrations through the production runner
+        run: FOUNDATION_MIGRATOR_DATABASE_URL="$DATABASE_URL" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
 
       - name: Seed local vector tile manifest
         run: psql "$DATABASE_URL" -f infra/db/seeds/local_vector_tile_manifest.sql

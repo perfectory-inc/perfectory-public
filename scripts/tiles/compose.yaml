@@ -1,0 +1,62 @@
+services:
+  postgis:
+    image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+    environment:
+      POSTGRES_DB: tiles_slice_proof
+      POSTGRES_PASSWORD: ${TILES_SLICE_POSTGRES_PASSWORD:?tiles-slice-proof must provide a disposable password}
+      POSTGRES_USER: postgres
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -h 127.0.0.1 -p 5432 -U postgres -d tiles_slice_proof
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  dynamic-martin:
+    image: ghcr.io/maplibre/martin:1.12.0@sha256:6cb9f6fbe3f3aa9d76841120ac02ba562037bd2d303f38a93e80764298a0d21f
+    command:
+      - --config
+      - /etc/martin/config.yaml
+    environment:
+      DATABASE_URL: postgresql://postgres:${TILES_SLICE_POSTGRES_PASSWORD:?tiles-slice-proof must provide a disposable password}@postgis:5432/tiles_slice_proof
+    depends_on:
+      postgis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3110:3000"
+    volumes:
+      - type: bind
+        source: ./martin-dynamic.yaml
+        target: /etc/martin/config.yaml
+        read_only: true
+      # The server itself only reads PostGIS. `docker compose run` reuses this
+      # service as the pinned martin-cp/mbtiles tool container and writes here.
+      - type: bind
+        source: ${TILES_SLICE_ARTIFACT_DIR:?set TILES_SLICE_ARTIFACT_DIR to the proof artifact directory}
+        target: /artifacts
+
+  static-martin:
+    image: ghcr.io/maplibre/martin:1.12.0@sha256:6cb9f6fbe3f3aa9d76841120ac02ba562037bd2d303f38a93e80764298a0d21f
+    profiles:
+      - static
+    command:
+      - --config
+      - /etc/martin/config.yaml
+    environment:
+      RUST_LOG: warn
+      TILES_SLICE_PMTILES_URL: ${TILES_SLICE_PMTILES_URL:-file:///artifacts/tiles-slice-proof/local/foundation-static.pmtiles}
+    ports:
+      - "127.0.0.1:3101:3000"
+    volumes:
+      - type: bind
+        source: ./martin-static.yaml
+        target: /etc/martin/config.yaml
+        read_only: true
+      - type: bind
+        source: ${TILES_SLICE_ARTIFACT_DIR:?set TILES_SLICE_ARTIFACT_DIR to the proof artifact directory}
+        target: /artifacts
+        read_only: true

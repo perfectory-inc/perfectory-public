@@ -23,6 +23,14 @@ use uuid::Uuid;
 
 type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
 
+const LOCAL_VECTOR_TILE_MANIFEST_ID: Uuid =
+    Uuid::from_u128(0x018f_0000_0000_7000_8000_0000_0003_0001);
+
+struct LocalVectorTileManifestSeed {
+    id: Uuid,
+    current_version: String,
+}
+
 static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 async fn pool() -> TestResult<Option<PgPool>> {
@@ -131,12 +139,9 @@ async fn tick_publishes_active_vector_tile_manifest_pointer_from_catalog_outbox(
         return Ok(());
     };
     cleanup_test_rows(&pool).await?;
+    let active_manifest = load_local_vector_tile_manifest_seed(&pool).await?;
     let active_snapshot = ActiveManifestSnapshot::pause(&pool).await?;
-
-    let Some(active_manifest_id) = activate_local_vector_tile_manifest_seed(&pool).await? else {
-        active_snapshot.restore(&pool).await?;
-        return Ok(());
-    };
+    activate_local_vector_tile_manifest_seed(&pool, active_manifest.id).await?;
     let event_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO catalog.outbox_event (event_id, type, payload, occurred_at, retry_count)
@@ -146,7 +151,7 @@ async fn tick_publishes_active_vector_tile_manifest_pointer_from_catalog_outbox(
     .bind("catalog.vector_tile_manifest.promoted.v1")
     .bind(json!({
         "type": "catalog.vector_tile_manifest.promoted.v1",
-        "manifest_id": active_manifest_id,
+        "manifest_id": active_manifest.id,
         "test_scope": "outbox_publish_roundtrip",
     }))
     .execute(&pool)
@@ -183,7 +188,10 @@ async fn tick_publishes_active_vector_tile_manifest_pointer_from_catalog_outbox(
 
     let body: Value = serde_json::from_slice(&request.body)?;
     assert_eq!(body["schema_version"], 1);
-    assert_eq!(body["current_version"], "dev-local");
+    assert_eq!(
+        body["current_version"].as_str(),
+        Some(active_manifest.current_version.as_str())
+    );
     assert_eq!(body["artifacts"]["parcels"]["source_layer"], "parcels");
     assert_eq!(
         body["tiles_url_template"],
@@ -412,19 +420,25 @@ async fn tick_skips_rows_that_already_hit_max_retries() -> TestResult {
     Ok(())
 }
 
-async fn activate_local_vector_tile_manifest_seed(pool: &PgPool) -> TestResult<Option<Uuid>> {
-    let manifest_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id
+async fn load_local_vector_tile_manifest_seed(
+    pool: &PgPool,
+) -> TestResult<LocalVectorTileManifestSeed> {
+    let (id, current_version): (Uuid, String) = sqlx::query_as(
+        "SELECT id, current_version
          FROM catalog.vector_tile_manifest
-         WHERE current_version = 'dev-local'",
+         WHERE id = $1",
     )
-    .fetch_optional(pool)
+    .bind(LOCAL_VECTOR_TILE_MANIFEST_ID)
+    .fetch_one(pool)
     .await?;
 
-    let Some(manifest_id) = manifest_id else {
-        return Ok(None);
-    };
+    Ok(LocalVectorTileManifestSeed {
+        id,
+        current_version,
+    })
+}
 
+async fn activate_local_vector_tile_manifest_seed(pool: &PgPool, manifest_id: Uuid) -> TestResult {
     sqlx::query(
         "UPDATE catalog.vector_tile_manifest
          SET is_active = false
@@ -435,7 +449,7 @@ async fn activate_local_vector_tile_manifest_seed(pool: &PgPool) -> TestResult<O
     .execute(pool)
     .await?;
 
-    sqlx::query(
+    let activated = sqlx::query(
         "UPDATE catalog.vector_tile_manifest
          SET is_active = true
          WHERE id = $1
@@ -444,8 +458,13 @@ async fn activate_local_vector_tile_manifest_seed(pool: &PgPool) -> TestResult<O
     .bind(manifest_id)
     .execute(pool)
     .await?;
+    assert_eq!(
+        activated.rows_affected(),
+        1,
+        "the stable local vector-tile manifest seed must be activated exactly once"
+    );
 
-    Ok(Some(manifest_id))
+    Ok(())
 }
 
 struct ActiveManifestSnapshot {

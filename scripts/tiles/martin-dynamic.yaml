@@ -1,0 +1,46 @@
+listen_addresses: 0.0.0.0:3000
+on_invalid: abort
+postgres:
+  connection_string: ${DATABASE_URL}
+  pool_size: 4
+  auto_bounds: calc
+  auto_publish: false
+  tables:
+    parcels:
+      schema: serving_postgis
+      table: tiles_slice_parcels
+      srid: 5179
+      geometry_column: geom
+      geometry_type: MULTIPOLYGON
+      layer_id: parcels
+      minzoom: 14
+      maxzoom: 16
+      properties:
+        pnu: Parcel number
+        PNU: Mapbox promoteId compatibility
+        official_complex_code: Industrial-complex code
+    parcel_anchor_aggregate:
+      schema: serving_postgis
+      table: tiles_slice_parcel_anchor_aggregate
+      srid: 4326
+      geometry_column: geom
+      geometry_type: POINT
+      layer_id: parcel_anchor_aggregate
+      minzoom: 0
+      maxzoom: 11
+      properties:
+        pnu: Representative parcel number
+        official_complex_code: Industrial-complex code
+        count: Aggregated parcel count
+    parcel_anchor:
+      schema: serving_postgis
+      table: tiles_slice_parcel_anchor
+      srid: 4326
+      geometry_column: geom
+      geometry_type: POINT
+      layer_id: parcel_anchor
+      minzoom: 12
+      maxzoom: 16
+      properties:
+        pnu: Parcel number
+        official_complex_code: Industrial-complex code

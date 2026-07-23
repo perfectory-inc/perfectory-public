@@ -18,7 +18,7 @@ VALUES
     (
         '018f0000-0000-7000-8000-000000010001',
         'gongzzang-local-dev-vector-tiles',
-        'file:///workspace/products/gongzzang/apps/web/public/dev-tiles/parcels',
+        'http://127.0.0.1:8787/dev-tiles/parcels',
         'dev-local',
         repeat('0', 64),
         'dev-tiles/parcels/metadata.json'
@@ -91,16 +91,17 @@ INSERT INTO catalog.vector_tile_manifest
 VALUES
     (
         '018f0000-0000-7000-8000-000000030001',
-        'dev-local',
-        'dev-none',
+        '019d2b87-3fd1-7e3a-8d88-0b72c8741001',
+        '019d2b87-3fd1-7e3a-8d88-0b72c8741000',
         '{object_key_prefix}/{z}/{x}/{y}.pbf',
         '018f0000-0000-7000-8000-000000020001',
         '018f0000-0000-7000-8000-000000010001',
         true,
         1
     )
-ON CONFLICT (current_version) DO UPDATE
+ON CONFLICT (id) DO UPDATE
 SET
+    current_version = EXCLUDED.current_version,
     previous_version = EXCLUDED.previous_version,
     tiles_url_template = EXCLUDED.tiles_url_template,
     manifest_file_asset_id = EXCLUDED.manifest_file_asset_id,

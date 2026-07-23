@@ -43,13 +43,7 @@ case "$AREA" in
     PG_PASS="foundation_platform_dev_2026"   # disposable CI-grade throwaway, not a secret
     PG_DB="foundation_platform"
     URL_VAR="DATABASE_URL"
-    PREPARE_SQL=(
-      migrations/20260719000001_foundation_platform_schema.sql
-      migrations/20260719000002_foundation_platform_constraints.sql
-      migrations/20260719000003_foundation_platform_indexes.sql
-      migrations/20260719000004_foundation_platform_foreign_keys.sql
-      infra/db/seeds/local_vector_tile_manifest.sql
-    )
+    SEED_SQL="infra/db/seeds/local_vector_tile_manifest.sql"
     ;;
   *)
     echo "integration: area '$AREA' is not wired yet (foundation only for now)." >&2
@@ -83,11 +77,21 @@ for _ in $(seq 1 90); do
 done
 [ "$ready" = 1 ] || { echo "integration: Postgres never became ready" >&2; exit 1; }
 
-echo "integration($AREA): applying migrations + seeds (superuser)…"
-for sql in "${PREPARE_SQL[@]}"; do
-  [ -f "$AREA_DIR/$sql" ] || { echo "integration: missing $AREA_DIR/$sql" >&2; exit 1; }
-  docker exec -i "$DB" psql -h 127.0.0.1 -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 -q -f - < "$AREA_DIR/$sql"
-done
+echo "integration($AREA): applying migrations through foundation-migrate, then the disposable seed…"
+MSYS_NO_PATHCONV=1 docker run --rm --network "$NET" \
+  -v "$REPO":/work:ro \
+  -v perfectory-cargo-registry:/usr/local/cargo/registry \
+  -v perfectory-rustup:/usr/local/rustup \
+  -v "perfectory-target-$SLUG":/work/"$AREA_DIR"/target \
+  -w /work/"$AREA_DIR" \
+  -e SQLX_OFFLINE=true \
+  -e CARGO_TERM_COLOR=always \
+  -e "FOUNDATION_MIGRATOR_DATABASE_URL=postgres://$PG_USER:$PG_PASS@$DB:5432/$PG_DB" \
+  "$RUST_TOOLCHAIN_IMAGE" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
+
+[ -f "$AREA_DIR/$SEED_SQL" ] || { echo "integration: missing $AREA_DIR/$SEED_SQL" >&2; exit 1; }
+docker exec -i "$DB" psql -X -h 127.0.0.1 -U "$PG_USER" -d "$PG_DB" \
+  -v ON_ERROR_STOP=1 -q -f - < "$AREA_DIR/$SEED_SQL"
 
 echo "integration($AREA): running DB tests via cargo xtask integration $AREA…"
 # Same image + cache volumes as cargo-verify.sh (target/ is a named volume; Windows
