@@ -132,8 +132,8 @@ importers:
         specifier: ^16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@types/navermaps':
-        specifier: ^3.7.0
-        version: 3.9.1
+        specifier: ^3.9.2
+        version: 3.9.2
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
@@ -2372,8 +2372,8 @@ packages:
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
 
-  '@types/navermaps@3.9.1':
-    resolution: {integrity: sha512-XCYtuJ0mYaXx5lBeB0iahk+sPG7Q9tLHQGR6AkGCOGwrRG8qowdG5/FIYlI7am59j/Hm4vaiR+eRZ31kTgMWjA==}
+  '@types/navermaps@3.9.2':
+    resolution: {integrity: sha512-pPO38MFRRY+2wka0VdG3U9RlwLEVBwJVYy50KtQzwxNdJVVfas8Qlv4USx3wxvly7GNX9Cew2qfjdKEmLoQPKQ==}
 
   '@types/node@25.6.0':
     resolution: {integrity: sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ==}
@@ -6548,7 +6548,7 @@ snapshots:
 
   '@types/ms@2.1.0': {}
 
-  '@types/navermaps@3.9.1':
+  '@types/navermaps@3.9.2':
     dependencies:
       '@types/geojson': 7946.0.16
 
