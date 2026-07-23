@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
@@ -79,7 +79,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
@@ -114,7 +114,7 @@ jobs:
     # any drifted. The generator shells out to Biome to format the .ts/.json
     # outputs, so pnpm install must run first.
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
