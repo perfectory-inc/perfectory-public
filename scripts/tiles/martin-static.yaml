@@ -1,0 +1,6 @@
+listen_addresses: 0.0.0.0:3000
+on_invalid: abort
+pmtiles:
+  allow_http: true
+  sources:
+    foundation_static: ${TILES_SLICE_PMTILES_URL}

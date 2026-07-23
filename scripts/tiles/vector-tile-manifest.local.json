@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "current_version": "019d2b87-3fd1-7e3a-8d88-0b72c8743001",
+  "previous_version": "019d2b87-3fd1-7e3a-8d88-0b72c8743000",
+  "tiles_url_template": "http://127.0.0.1:3101/{object_key_prefix}/{z}/{x}/{y}",
+  "published_at": "2026-07-21T00:00:00Z",
+  "artifacts": {
+    "parcels": {
+      "source_layer": "parcels",
+      "tile_min_zoom": 14,
+      "tile_max_zoom": 16,
+      "render_min_zoom": 14,
+      "render_max_zoom": 22,
+      "tilejson_object_key": "tiles-slice-proof/local/foundation-static.tilejson.json",
+      "object_key_prefix": "foundation_static",
+      "flat_tile_count": 17,
+      "flat_tile_total_bytes": 3247,
+      "lineage": {
+        "source_record_id": "019d2b87-3fd1-7e3a-8d88-0b72c8742001",
+        "manifest_file_asset_id": "019d2b87-3fd1-7e3a-8d88-0b72c8742002",
+        "tilejson_file_asset_id": "019d2b87-3fd1-7e3a-8d88-0b72c8742003",
+        "source_file_asset_ids": ["019d2b87-3fd1-7e3a-8d88-0b72c8742004"]
+      }
+    },
+    "parcel_anchor_aggregate": {
+      "source_layer": "parcel_anchor_aggregate",
+      "tile_min_zoom": 0,
+      "tile_max_zoom": 11,
+      "render_min_zoom": 0,
+      "render_max_zoom": 12,
+      "tilejson_object_key": "tiles-slice-proof/local/foundation-static.tilejson.json",
+      "object_key_prefix": "foundation_static",
+      "flat_tile_count": 17,
+      "flat_tile_total_bytes": 3247,
+      "lineage": {
+        "source_record_id": "019d2b87-3fd1-7e3a-8d88-0b72c8742001",
+        "manifest_file_asset_id": "019d2b87-3fd1-7e3a-8d88-0b72c8742002",
+        "tilejson_file_asset_id": "019d2b87-3fd1-7e3a-8d88-0b72c8742003",
+        "source_file_asset_ids": ["019d2b87-3fd1-7e3a-8d88-0b72c8742004"]
+      }
+    },
+    "parcel_anchor": {
+      "source_layer": "parcel_anchor",
+      "tile_min_zoom": 12,
+      "tile_max_zoom": 16,
+      "render_min_zoom": 12,
+      "render_max_zoom": 22,
+      "tilejson_object_key": "tiles-slice-proof/local/foundation-static.tilejson.json",
+      "object_key_prefix": "foundation_static",
+      "flat_tile_count": 17,
+      "flat_tile_total_bytes": 3247,
+      "lineage": {
+        "source_record_id": "019d2b87-3fd1-7e3a-8d88-0b72c8742001",
+        "manifest_file_asset_id": "019d2b87-3fd1-7e3a-8d88-0b72c8742002",
+        "tilejson_file_asset_id": "019d2b87-3fd1-7e3a-8d88-0b72c8742003",
+        "source_file_asset_ids": ["019d2b87-3fd1-7e3a-8d88-0b72c8742004"]
+      }
+    }
+  },
+  "x_tiles_slice_proof": {
+    "contract_status": "proof-adapter-not-adr-0036-production",
+    "storage_layout": "pmtiles",
+    "archive_object_key": "tiles-slice-proof/local/foundation-static.pmtiles",
+    "note": "Legacy flat fields count archive entries and payload bytes; they are not R2 flat-object statistics. ADR-0036 reconciliation is required before production promotion."
+  }
+}

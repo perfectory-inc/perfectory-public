@@ -1,7 +1,10 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildVectorTileSource,
+  CORE_VECTOR_TILE_LAYER,
   fetchVectorTileManifest,
   PARCEL_ANCHOR_AGGREGATE_VECTOR_TILE_LAYER,
   PARCEL_ANCHOR_VECTOR_TILE_LAYER,
@@ -107,6 +110,98 @@ describe("foundation-platform vector tile manifest consumer", () => {
       minzoom: 12,
       maxzoom: 12,
     });
+  });
+
+  it("consumes the checked Martin proof manifest without renderer-specific adaptation", () => {
+    const path = resolve(
+      process.cwd(),
+      "../../../../scripts/tiles/vector-tile-manifest.local.json",
+    );
+    const manifest = parseVectorTileManifest(JSON.parse(readFileSync(path, "utf8")));
+
+    for (const layer of [
+      CORE_VECTOR_TILE_LAYER,
+      PARCEL_ANCHOR_AGGREGATE_VECTOR_TILE_LAYER,
+      PARCEL_ANCHOR_VECTOR_TILE_LAYER,
+    ] as const) {
+      expect(manifest.artifacts[layer]?.source_layer).toBe(layer);
+      expect(buildVectorTileSource(manifest, layer).tiles).toEqual([
+        "http://127.0.0.1:3101/foundation_static/{z}/{x}/{y}",
+      ]);
+    }
+  });
+
+  it("normalizes a trailing object prefix slash at the template boundary", () => {
+    const manifest = parseVectorTileManifest({
+      ...anchorManifestFixture,
+      artifacts: {
+        ...anchorManifestFixture.artifacts,
+        parcel_anchor: {
+          ...anchorManifestFixture.artifacts.parcel_anchor,
+          object_key_prefix: `${anchorManifestFixture.artifacts.parcel_anchor.object_key_prefix}/`,
+        },
+      },
+    });
+
+    expect(buildVectorTileSource(manifest, PARCEL_ANCHOR_VECTOR_TILE_LAYER).tiles).toEqual([
+      "https://static.example.com/gold/parcel-marker-anchor-pbf/019e5f6f-1e74-74f3-b5e4-3add804b4bae/{z}/{x}/{y}.pbf",
+    ]);
+  });
+
+  it.each([
+    [
+      "absolute",
+      "https://static.example.com/{object_key_prefix}/{z}/{x}/{y}.pbf",
+      undefined,
+      "https://static.example.com/gold/example/{z}/{x}/{y}.pbf",
+    ],
+    [
+      "root-relative",
+      "/{object_key_prefix}/{z}/{x}/{y}.pbf",
+      "https://static.example.com/manifest.json",
+      "https://static.example.com/gold/example/{z}/{x}/{y}.pbf",
+    ],
+    [
+      "prefix-supplied separator",
+      "https://static.example.com/{object_key_prefix}{z}/{x}/{y}.pbf",
+      undefined,
+      "https://static.example.com/gold/example/{z}/{x}/{y}.pbf",
+    ],
+  ])("normalizes %s templates without changing separator ownership", (_, template, base, expected) => {
+    const manifest = parseVectorTileManifest({
+      ...anchorManifestFixture,
+      tiles_url_template: template,
+      artifacts: {
+        parcel_anchor: {
+          ...anchorManifestFixture.artifacts.parcel_anchor,
+          object_key_prefix: "gold/example/",
+        },
+      },
+    });
+
+    expect(
+      buildVectorTileSource(manifest, PARCEL_ANCHOR_VECTOR_TILE_LAYER, {
+        tileUrlBaseUrl: base,
+      }).tiles,
+    ).toEqual([expected]);
+  });
+
+  it("normalizes each repeated object prefix placeholder at its own boundary", () => {
+    const manifest = parseVectorTileManifest({
+      ...anchorManifestFixture,
+      tiles_url_template:
+        "https://static.example.com/{object_key_prefix}/{z}/{x}/{y}.pbf?mirror={object_key_prefix}metadata",
+      artifacts: {
+        parcel_anchor: {
+          ...anchorManifestFixture.artifacts.parcel_anchor,
+          object_key_prefix: "gold/example/",
+        },
+      },
+    });
+
+    expect(buildVectorTileSource(manifest, PARCEL_ANCHOR_VECTOR_TILE_LAYER).tiles).toEqual([
+      "https://static.example.com/gold/example/{z}/{x}/{y}.pbf?mirror=gold/example/metadata",
+    ]);
   });
 
   it("resolves root-relative public manifest tile templates against the manifest origin", async () => {

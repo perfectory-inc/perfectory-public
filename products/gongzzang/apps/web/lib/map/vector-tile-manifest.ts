@@ -198,7 +198,10 @@ function materializeTilesUrl(
   artifact: VectorTileArtifact,
   runtime: { manifestUrl?: string; tileUrlBaseUrl?: string },
 ): string {
-  const materialized = template.replaceAll("{object_key_prefix}", artifact.object_key_prefix);
+  const placeholder = "{object_key_prefix}";
+  const materialized = template
+    .replaceAll(`${placeholder}/`, `${artifact.object_key_prefix.replace(/\/+$/, "")}/`)
+    .replaceAll(placeholder, artifact.object_key_prefix);
   if (isAbsoluteHttpUrl(materialized)) return materialized;
 
   const origin = resolveTileUrlOrigin(runtime);
