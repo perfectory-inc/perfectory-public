@@ -1,0 +1,96 @@
+# === Agent scratch (worktrees, sessions) ===
+.claude/
+
+# === Env ===
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# === Node / pnpm / TS ===
+node_modules/
+.pnpm-store/
+.turbo/
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+test-results/
+playwright-report/
+
+# === Rust / Cargo ===
+target/
+target-*/
+*.rs.bk
+Cargo.lock.bak
+
+# === Logs ===
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === IDE ===
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# === Claude / 로컬 메모리 ===
+.claude/settings.local.json
+.claude/*.local.*
+CLAUDE.local.md
+AGENTS.local.md
+
+# === 빌드 산출물 / 임시 ===
+*.tgz
+*.zip
+
+# === ETL 산출물 (SP9) ===
+# Bronze 다운로드 / Gold PMTiles 빌드 결과 — R2 업로드 전 임시.
+var/
+# === Court-auction generated artifacts ===
+/scripts/court-auction/output/
+# Next.js public 에 복사되는 PMTiles (재생성 가능, R2 우선).
+apps/web/public/pmtiles/
+# SP9 ADR 0021 — dev 검증용 flat tile 디렉터리 (production 은 R2 직결, 본 prefix 미사용).
+apps/web/public/dev-tiles/
+# SP9 ADR 0019 (deprecated) — Service Worker bundle (X9 채택 후 미사용).
+apps/web/public/sw-pmtiles.js
+apps/web/public/pmtiles-worker.js
+# Playwright MCP / dev 검증 screenshot artifacts — R2 직결 + 폴리곤 시각 확인 산출물.
+.playwright-mcp/
+x9-*.png
+login-*.png
+.cache/
+.temp/
+.tmp/
+.wrangler/
+
+# === 학습용 외부 레포 (빌드 제외) ===
+reference/*/
+!reference/README.md
+
+# === 로컬 MCP 빌드 ===
+.mcp-local/
+
+# === Dev verification scripts (local 검증, CI 무관) ===
+apps/web/scripts/
+
+# === 백업 / 아카이브 ===
+_archive/
+.claude/scheduled_tasks.lock
+
+.superpowers/
+.codex/
+_drops/
+
+# Spike artifacts (Valhalla isochrone — 2026-05-11)
+.spike/

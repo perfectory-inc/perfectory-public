@@ -1,0 +1,106 @@
+name: walking-skeleton
+
+on:
+  # Required context must also be runnable for a history-free public root.
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "products/gongzzang/**"
+      - ".github/workflows/gongzzang-walking-skeleton.yml"
+  pull_request:
+    branches: [main]
+    # Intentionally unfiltered so required/gongzzang-e2e always reports.
+
+defaults:
+  run:
+    working-directory: products/gongzzang
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  POSTGRES_USER: gongzzang
+  POSTGRES_PASSWORD: ci_only_changeme
+  POSTGRES_DB: gongzzang
+
+jobs:
+  e2e:
+    name: API + Auth E2E (mock JWT mode)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+        env:
+          POSTGRES_USER: gongzzang
+          POSTGRES_PASSWORD: ci_only_changeme
+          POSTGRES_DB: gongzzang
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gongzzang"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://gongzzang:ci_only_changeme@localhost:5432/gongzzang
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          shared-key: walking-skeleton
+          workspaces: products/gongzzang
+
+      - name: Install sqlx-cli + postgres client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y curl postgresql-client python3
+          cargo install sqlx-cli --version 0.8.6 --locked --no-default-features --features postgres,rustls
+
+      # Native replacement for the deleted ci_walking_skeleton_e2e graph-build
+      # transition target (was just a wrapper around
+      # run_ci_transition_task.sh::run_walking_skeleton_e2e).
+      - name: Run walking-skeleton E2E
+        run: bash scripts/ci/walking-skeleton-e2e.sh
+
+      - name: Dump API log on failure
+        if: failure()
+        run: |
+          echo "=== gongzzang-api.log ==="
+          if [ -f /tmp/gongzzang-api.log ]; then
+            cat /tmp/gongzzang-api.log
+          else
+            echo "gongzzang-api.log missing"
+          fi
+
+  required:
+    name: required/gongzzang-e2e
+    if: ${{ always() }}
+    needs: [e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Require the walking-skeleton gate
+        env:
+          REQUIRED_RESULT_E2E: ${{ needs.e2e.result }}
+        working-directory: .
+        run: bash scripts/ci/require-successful-needs.sh

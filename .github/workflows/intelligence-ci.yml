@@ -1,0 +1,111 @@
+name: intelligence-ci
+on:
+  # Required context must also be runnable for a history-free public root.
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "platforms/intelligence-platform/**"
+      - ".github/workflows/intelligence-ci.yml"
+      # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
+      # toolchain pin change how THIS area is verified, so they must retrigger it.
+      # monorepo-guard `xtask-path-coverage` enforces this for every area CI.
+      - "tools/xtask/**"
+      - ".cargo/config.toml"
+      - "rust-toolchain.toml"
+  pull_request:
+    branches: [main]
+    # Intentionally unfiltered so required/intelligence always reports.
+defaults:
+  run:
+    working-directory: platforms/intelligence-platform
+permissions:
+  contents: read
+
+concurrency:
+  group: intelligence-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Intelligence Rust quality and integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: intelligence
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      # SSOT: read the pinned channel from the single root rust-toolchain.toml
+      # (ADR-0001 §3, ADR-0003) rather than hardcoding it. The pinned action requires
+      # an explicit `toolchain` input (it does NOT auto-read the file).
+      - id: toolchain
+        working-directory: ${{ github.workspace }}
+        run: echo "channel=$(grep -oP 'channel\s*=\s*"\K[^"]+' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17 # stable
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: platforms/intelligence-platform
+      # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the one
+      # flag policy and the native deps (cmake+libsasl2 for rdkafka). Runs from the
+      # repo root (this job defaults to the area). The DB URL stays on this step so
+      # the workspace's DB-backed tests reach the postgres service above.
+      - name: Verify (fmt, clippy, test)
+        working-directory: ${{ github.workspace }}
+        run: cargo xtask verify intelligence
+        env:
+          INTELLIGENCE_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/intelligence
+
+  supply-chain:
+    name: Intelligence supply-chain policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: platforms/intelligence-platform
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install cargo-deny
+        run: |
+          archive=/tmp/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz
+          tool_bin="$RUNNER_TEMP/cargo-deny/bin"
+          mkdir -p "$tool_bin"
+          curl -sSfL --output "$archive" \
+            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.8/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz
+          echo "70e769ae3872e34d45132b17040859175e11401dc12dddb0303e0b8c7d088f3f  $archive" \
+            | sha256sum --check --strict -
+          tar xzf "$archive" --strip-components=1 -C "$tool_bin" --wildcards '*/cargo-deny'
+          printf '%s\n' "$tool_bin" >> "$GITHUB_PATH"
+      - name: cargo-deny
+        run: cargo-deny --locked check
+
+  required:
+    name: required/intelligence
+    if: ${{ always() }}
+    needs: [rust, supply-chain]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Require every Intelligence gate
+        env:
+          REQUIRED_RESULT_RUST: ${{ needs.rust.result }}
+          REQUIRED_RESULT_SUPPLY_CHAIN: ${{ needs.supply-chain.result }}
+        working-directory: .
+        run: bash scripts/ci/require-successful-needs.sh

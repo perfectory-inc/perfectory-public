@@ -1,0 +1,22 @@
+[package]
+name = "knowledge-infrastructure"
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait.workspace = true
+knowledge-application = { path = "../knowledge-application" }
+knowledge-domain = { path = "../knowledge-domain" }
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+uuid.workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "shared-kernel"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+description = "공짱 도메인 공유 값 객체 — Pnu, Money, Area 등 BC 간 공통 타입."
+
+[dependencies]
+ulid = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+geo-types = { workspace = true }
+regex = { workspace = true }
+
+
+[lints]
+workspace = true

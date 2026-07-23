@@ -1,0 +1,111 @@
+{
+  "schema_version": "foundation-platform.public_data_bronze_lane_registry.v1",
+  "status": "ready",
+  "generated_at_utc": "2026-06-05T00:00:00Z",
+  "owner": "foundation-platform",
+  "scope": "foundation_platform_public_data_bronze_collection_lanes",
+  "default_selection": {
+    "mode": "all_enabled_include_by_default",
+    "max_concurrent_lanes_default": "auto_selected_lane_count"
+  },
+  "rules": [
+    "lane_registry_is_orchestrator_ssot",
+    "endpoint_catalog_remains_source_endpoint_ssot",
+    "runner_must_not_hardcode_lane_definitions",
+    "enabled_lanes_must_have_command_args",
+    "planned_lanes_must_not_run_by_default",
+    "manual_or_disabled_source_lanes_must_be_explicitly_declared"
+  ],
+  "non_executable_source_acquisition_lanes": [
+    {
+      "source_acquisition_lane": "manual_approval_bulk",
+      "reason": "provider manual approval or human download step is required before automation"
+    },
+    {
+      "source_acquisition_lane": "disabled_api_duplicate",
+      "reason": "authoritative bulk or provider dataset file lane replaces the duplicate API path"
+    }
+  ],
+  "lanes": [
+    {
+      "lane_id": "data-go-kr-api",
+      "status": "planned",
+      "include_by_default": false,
+      "provider": "data.go.kr",
+      "source_acquisition_lanes": ["open_api_only"],
+      "endpoint_groups": ["real_transaction_open_api"],
+      "command": "execute-national-data-collection-async",
+      "command_args": [
+        "execute-national-data-collection-async"
+      ],
+      "inner_parallel_env": "FOUNDATION_PLATFORM_NATIONAL_ASYNC_MAX_IN_FLIGHT",
+      "execution_gate": "ConfirmPublicDataBronzeLaneExecution",
+      "environment": {
+        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_PLAN_PATH": "target/audit/national-data-collection-plan-real-transaction-allops-20260604-002.json",
+        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EVENT_LOG_PATH": "target/audit/public-data-bronze-lane-real-transaction-events.jsonl",
+        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EVIDENCE_PATH": "target/audit/public-data-bronze-lane-real-transaction-evidence.json",
+        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EVIDENCE_SCAN_DIR": "target/audit",
+        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_PAGE_QUEUE": "1",
+        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_MAX_JOBS": "100",
+        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_REQUEST_CAP": "1000",
+        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EXECUTE": "1",
+        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_CONFIRM_PUBLIC_API_QUOTA_IMPACT": "1"
+      },
+      "planned_blocker": "real-transaction RTMS API is retained only for bounded parity, drift, and fallback investigation; national Bronze collection uses rt.molit.go.kr CSV export when the export covers the same provider facts",
+      "completion_claim_allowed": false,
+      "national_rollout_allowed": false
+    },
+    {
+      "lane_id": "building-hub-bulk",
+      "status": "enabled",
+      "include_by_default": true,
+      "provider": "hub.go.kr",
+      "source_acquisition_lanes": ["bulk_file"],
+      "endpoint_groups": ["building_hub_bulk"],
+      "command": "ingest-building-hub-bulk-collection",
+      "command_args": [
+        "ingest-building-hub-bulk-collection"
+      ],
+      "inner_parallel_env": "FOUNDATION_PLATFORM_BUILDING_HUB_BULK_COLLECTION_MAX_IN_FLIGHT",
+      "execution_gate": "ConfirmPublicDataBronzeLaneExecution",
+      "full_download_gate_env": "FOUNDATION_PLATFORM_BUILDING_HUB_BULK_COLLECTION_CONFIRM_FULL_DOWNLOAD",
+      "live_write_gate_env": "FOUNDATION_PLATFORM_BUILDING_HUB_BULK_LIVE_WRITE",
+      "completion_claim_allowed": false,
+      "national_rollout_allowed": false
+    },
+    {
+      "lane_id": "vworld-dataset-file",
+      "status": "enabled",
+      "include_by_default": true,
+      "provider": "VWorld",
+      "source_acquisition_lanes": ["provider_dataset_file"],
+      "endpoint_groups": ["vworld_dataset"],
+      "command": "ingest-vworld-dataset-files",
+      "command_args": [
+        "ingest-vworld-dataset-files"
+      ],
+      "inner_parallel_env": "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_IN_FLIGHT",
+      "execution_gate": "ConfirmPublicDataBronzeLaneExecution",
+      "full_download_gate_env": "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD",
+      "live_write_gate_env": "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE",
+      "completion_claim_allowed": false,
+      "national_rollout_allowed": false
+    },
+    {
+      "lane_id": "vworld-ned-open-api",
+      "status": "planned",
+      "include_by_default": false,
+      "provider": "VWorld",
+      "source_acquisition_lanes": ["open_api_only"],
+      "endpoint_groups": ["vworld_ned_open_api"],
+      "command": "ingest-vworld-ned-attribute",
+      "command_args": [
+        "ingest-vworld-ned-attribute"
+      ],
+      "inner_parallel_env": "FOUNDATION_PLATFORM_VWORLD_NED_ATTRIBUTE_MAX_IN_FLIGHT",
+      "planned_blocker": "single-batch command exists, national lane executor is not generalized yet",
+      "completion_claim_allowed": false,
+      "national_rollout_allowed": false
+    }
+  ]
+}

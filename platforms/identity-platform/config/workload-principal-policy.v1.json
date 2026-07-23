@@ -1,0 +1,29 @@
+{
+  "schema_version": "identity.workload-principal-policy.v1",
+  "principals": [
+    {
+      "service_slug": "gongzzang-api",
+      "principal_id": "018f7c6a-0000-7000-8000-000000000101",
+      "display_name": "Gongzzang API",
+      "capabilities": ["foundation.catalog:read"]
+    },
+    {
+      "service_slug": "gongzzang-outbox-publisher",
+      "principal_id": "018f7c6a-0000-7000-8000-000000000102",
+      "display_name": "Gongzzang Outbox Publisher",
+      "capabilities": ["foundation.lakehouse:write"]
+    },
+    {
+      "service_slug": "dawneer-web",
+      "principal_id": "018f7c6a-0000-7000-8000-000000000103",
+      "display_name": "Dawneer Web",
+      "capabilities": ["foundation.catalog:read"]
+    },
+    {
+      "service_slug": "intelligence-normalization",
+      "principal_id": "018f7c6a-0000-7000-8000-000000000104",
+      "display_name": "Intelligence Normalization",
+      "capabilities": ["foundation.normalization:propose"]
+    }
+  ]
+}

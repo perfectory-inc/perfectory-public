@@ -1,0 +1,115 @@
+{
+  "type": "record",
+  "namespace": "kr.perfectory.intelligence.normalization",
+  "name": "NormalizationProposalSubmissionRequestedV1",
+  "doc": "Outbox event published to topic intelligence.normalization-proposal.submission-requested.v1. Keyed on aggregate_id (= idempotency_key) so that Kafka compaction retains the latest event per proposal. Evolution discipline: BACKWARD_TRANSITIVE — new fields MUST carry defaults and be appended; breaking changes require a new .v2 file and a new topic with a parallel-run migration period. Schema registry: Karapace at C2, TopicNameStrategy (<topic>-value). Never mutate or delete a published field in this file.",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "CloudEvents ce_id — UUID v4, unique per event emission."
+    },
+    {
+      "name": "event_type",
+      "type": "string",
+      "default": "normalization-proposal.submission-requested",
+      "doc": "CloudEvents type discriminator. Fixed for this schema version."
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "default": "/intelligence-platform/normalization",
+      "doc": "CloudEvents ce_source — identifies the intelligence-platform normalization subsystem."
+    },
+    {
+      "name": "specversion",
+      "type": "string",
+      "default": "1.0",
+      "doc": "CloudEvents spec version. Always '1.0' for this schema."
+    },
+    {
+      "name": "aggregate_type",
+      "type": "string",
+      "default": "normalization-proposal",
+      "doc": "Debezium outbox aggregatetype column value. Used by CDC routing rules."
+    },
+    {
+      "name": "aggregate_id",
+      "type": "string",
+      "doc": "Debezium outbox aggregateid = idempotency_key. Kafka message key — enables log compaction per proposal."
+    },
+    {
+      "name": "idempotency_key",
+      "type": "string",
+      "doc": "Local retry deduplication key for the intelligence-platform outbox. Format: <tenant_id>:<target_kind>:<raw_record_id>:<target_schema_version>."
+    },
+    {
+      "name": "payload_fingerprint",
+      "type": "string",
+      "doc": "SHA-256 hex digest (64 lowercase hex chars) of the canonical submission JSON (serde_json with BTreeMap key ordering). Consumers can verify payload integrity on replay."
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "doc": "Tenant scoping key — matches NormalizationRequest.tenant_id."
+    },
+    {
+      "name": "product_id",
+      "type": "string",
+      "doc": "Product identifier from the trace context — e.g. 'foundation-platform'."
+    },
+    {
+      "name": "trace_id",
+      "type": "string",
+      "doc": "Distributed trace identifier propagated from the originating request."
+    },
+    {
+      "name": "raw_record_id",
+      "type": "string",
+      "doc": "Source system record identifier — opaque string used to correlate with the Bronze-tier row."
+    },
+    {
+      "name": "target_kind",
+      "type": "string",
+      "doc": "Entity kind being normalized — e.g. 'building_register_floor', 'industrial_complex'."
+    },
+    {
+      "name": "target_schema_version",
+      "type": "string",
+      "doc": "Version token for the normalization target schema — e.g. 'building_register_floor.normalized.v1'."
+    },
+    {
+      "name": "proposal_schema_version",
+      "type": "string",
+      "doc": "Version of the normalization proposal schema — e.g. 'v1'."
+    },
+    {
+      "name": "policy_id",
+      "type": "string",
+      "doc": "Normalization policy identifier — e.g. 'normalization-proposal-policy'."
+    },
+    {
+      "name": "policy_version",
+      "type": "string",
+      "doc": "Normalization policy version — e.g. 'v1'."
+    },
+    {
+      "name": "confidence",
+      "type": "double",
+      "doc": "AI model confidence score in [0.0, 1.0]. Values below the policy threshold indicate the proposal requires human review."
+    },
+    {
+      "name": "submission_json",
+      "type": "string",
+      "doc": "Full NormalizationProposalSubmission serialized as JSON. The complete payload body for downstream consumers. Consumers requiring structured access should parse this string until dedicated Avro sub-records are introduced at C2."
+    },
+    {
+      "name": "occurred_at",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Wall-clock time when the outbox record was created, in milliseconds since the Unix epoch (UTC). Used for event ordering and TTL policies."
+    }
+  ]
+}

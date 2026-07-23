@@ -1,0 +1,21 @@
+[package]
+name = "lakehouse-domain"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+foundation-shared-kernel = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }

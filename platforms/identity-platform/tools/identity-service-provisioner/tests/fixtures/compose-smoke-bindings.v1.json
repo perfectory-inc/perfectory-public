@@ -1,0 +1,21 @@
+{
+  "schema_version": "identity.workload-principal-bindings.v1",
+  "bindings": [
+    {
+      "service_slug": "gongzzang-api",
+      "zitadel_subject": "compose-smoke-synthetic-gongzzang-api"
+    },
+    {
+      "service_slug": "gongzzang-outbox-publisher",
+      "zitadel_subject": "compose-smoke-synthetic-gongzzang-outbox-publisher"
+    },
+    {
+      "service_slug": "dawneer-web",
+      "zitadel_subject": "compose-smoke-synthetic-dawneer-web"
+    },
+    {
+      "service_slug": "intelligence-normalization",
+      "zitadel_subject": "compose-smoke-synthetic-intelligence-normalization"
+    }
+  ]
+}

@@ -1,0 +1,283 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Foundation Platform Pipeline Graph API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/catalog/v1/pipeline-graph": {
+      "get": {
+        "operationId": "getPipelineGraph",
+        "summary": "Get the Foundation Platform pipeline graph registry",
+        "description": "Returns the provider-neutral pipeline graph contract owned by Foundation Platform.",
+        "tags": [
+          "Catalog"
+        ],
+        "responses": {
+          "200": {
+            "description": "Pipeline graph registry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineGraphResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Embedded registry is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineGraphErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "PipelineGraphResponse": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "generated_at_utc",
+          "owner",
+          "viewer_policy",
+          "nodes",
+          "edges",
+          "runtime"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "enum": [
+              "foundation-platform.pipeline_graph.v1"
+            ]
+          },
+          "generated_at_utc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "foundation-platform"
+            ]
+          },
+          "viewer_policy": {
+            "$ref": "#/components/schemas/PipelineGraphViewerPolicy"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PipelineGraphNode"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PipelineGraphEdge"
+            }
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/PipelineGraphRuntime"
+          }
+        }
+      },
+      "PipelineGraphViewerPolicy": {
+        "type": "object",
+        "required": [
+          "canonical_store",
+          "ui_state_store"
+        ],
+        "properties": {
+          "canonical_store": {
+            "type": "string",
+            "enum": [
+              "foundation-platform"
+            ]
+          },
+          "ui_state_store": {
+            "type": "string",
+            "enum": [
+              "product-viewer"
+            ]
+          }
+        }
+      },
+      "PipelineGraphNode": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "status",
+          "owner",
+          "title",
+          "description",
+          "evidence_refs"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "foundation-platform"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "runbook_ref": {
+            "type": "string"
+          },
+          "blocking_reason": {
+            "type": "string"
+          },
+          "target_state": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "runtime_bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PipelineGraphRuntimeBinding"
+            }
+          }
+        }
+      },
+      "PipelineGraphRuntimeBinding": {
+        "type": "object",
+        "required": [
+          "kind",
+          "value"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ingestion_source",
+              "lakehouse_contract",
+              "outbox_scope"
+            ]
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "PipelineGraphEdge": {
+        "type": "object",
+        "required": [
+          "id",
+          "from",
+          "to",
+          "relation"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "relation": {
+            "type": "string"
+          }
+        }
+      },
+      "PipelineGraphRuntime": {
+        "type": "object",
+        "required": [
+          "database_ready",
+          "nodes"
+        ],
+        "properties": {
+          "database_ready": {
+            "type": "boolean"
+          },
+          "nodes": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PipelineGraphRuntimeNode"
+            }
+          }
+        }
+      },
+      "PipelineGraphRuntimeNode": {
+        "type": "object",
+        "required": [
+          "status",
+          "reason",
+          "observed"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "running",
+              "waiting",
+              "stale",
+              "failed",
+              "blocked",
+              "manual_approval",
+              "missing",
+              "disabled",
+              "unknown"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "observed": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PipelineGraphErrorResponse": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "pipeline_graph_registry_invalid"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

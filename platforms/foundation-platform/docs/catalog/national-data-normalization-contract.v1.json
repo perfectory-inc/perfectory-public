@@ -1,0 +1,197 @@
+{
+  "schema_version": "foundation-platform.national_data_normalization_contract.v1",
+  "status": "ready",
+  "generated_at_utc": "2026-05-27T00:00:00Z",
+  "owner": "foundation-platform",
+  "full_promotion_allowed": false,
+  "strategy": {
+    "summary": "Bronze preserves raw provider responses; Silver is the canonical typed contract; Gold and indexes are derived serving products.",
+    "layers": [
+      "bronze_raw",
+      "silver_canonical",
+      "gold_serving",
+      "derived_index"
+    ],
+    "rules": [
+      "immutable_bronze_raw",
+      "request_fingerprint_ssot",
+      "explicit_silver_contract_before_promotion",
+      "quarantine_not_silent_drop",
+      "derived_indexes_reference_foundation_platform_ids"
+    ]
+  },
+  "sources": [
+    {
+      "source_slug": "vworld-cadastral",
+      "provider": "VWorld",
+      "endpoint": "ingest-vworld-cadastral",
+      "scope_authority": "administrative_spatial_scope_registry",
+      "bronze": {
+        "contract": "foundation-platform.national_bronze_object_manifest_entry.v1",
+        "raw_response_preserved": true,
+        "request_fingerprint_required": true,
+        "object_manifest_required": true
+      },
+      "silver": {
+        "contract": "silver.parcel_boundaries",
+        "status": "ready",
+        "transformer": "vworld_cadastral_r2_bronze_to_silver_handoff",
+        "identity_keys": [
+          "pnu"
+        ],
+        "lineage_fields": [
+          "source_snapshot_id",
+          "request_fingerprint_sha256",
+          "bronze_object_key",
+          "checksum_sha256"
+        ],
+        "geometry_policy": {
+          "source_srid": "EPSG:4326",
+          "working_srid": "EPSG:5179",
+          "reject_invalid_geometry": true
+        },
+        "quarantine_policy": {
+          "reject_silent_drop": true,
+          "reason_field": "quarantine_reason"
+        }
+      },
+      "derived_outputs": [
+        "parcel_marker_anchor_artifact",
+        "parcel_anchor_pbf",
+        "parcel_anchor_aggregate_pbf",
+        "vector_tile_runtime_manifest"
+      ]
+    },
+    {
+      "source_slug": "data-go-kr-building-register",
+      "provider": "data.go.kr",
+      "endpoint": "getBrTitleInfo",
+      "scope_authority": "administrative_spatial_scope_registry",
+      "bronze": {
+        "contract": "foundation-platform.national_bronze_object_manifest_entry.v1",
+        "raw_response_preserved": true,
+        "request_fingerprint_required": true,
+        "object_manifest_required": true
+      },
+      "silver": {
+        "contract": "silver.building_register_title",
+        "status": "planned",
+        "transformer": "data_go_kr_building_register_bronze_to_silver",
+        "identity_keys": [
+          "mgm_bldrgst_pk",
+          "sigungu_cd",
+          "bjdong_cd",
+          "bun",
+          "ji"
+        ],
+        "lineage_fields": [
+          "source_snapshot_id",
+          "request_fingerprint_sha256",
+          "bronze_object_key",
+          "checksum_sha256"
+        ],
+        "join_policy": {
+          "parcel_join_key": "pnu",
+          "pnu_status": "derived_when_legal_parcel_fields_are_complete",
+          "no_lat_lng_identity": true
+        },
+        "quarantine_policy": {
+          "reject_silent_drop": true,
+          "reason_field": "quarantine_reason"
+        }
+      },
+      "derived_outputs": [
+        "building_register_gold_read_model",
+        "building_parcel_join_index"
+      ]
+    },
+    {
+      "source_slug": "vworld-land-register",
+      "provider": "VWorld",
+      "endpoint": "ingest-vworld-land-register",
+      "scope_authority": "administrative_spatial_scope_registry",
+      "bronze": {
+        "contract": "foundation-platform.national_bronze_object_manifest_entry.v1",
+        "raw_response_preserved": true,
+        "request_fingerprint_required": true,
+        "object_manifest_required": true
+      },
+      "silver": {
+        "contract": "silver.land_register_attributes",
+        "status": "planned",
+        "transformer": "vworld_land_register_bronze_to_silver",
+        "identity_keys": [
+          "pnu"
+        ],
+        "lineage_fields": [
+          "source_snapshot_id",
+          "request_fingerprint_sha256",
+          "bronze_object_key",
+          "checksum_sha256"
+        ],
+        "quarantine_policy": {
+          "reject_silent_drop": true,
+          "reason_field": "quarantine_reason"
+        }
+      },
+      "derived_outputs": [
+        "parcel_attribute_gold_read_model"
+      ]
+    },
+    {
+      "source_slug": "juso-building-footprint",
+      "provider": "juso",
+      "endpoint": "electronic-map-building-shape-file",
+      "scope_authority": "juso-electronic-map-distribution",
+      "bronze": {
+        "contract": "foundation-platform.national_bronze_object_manifest_entry.v1",
+        "raw_response_preserved": true,
+        "request_fingerprint_required": true,
+        "object_manifest_required": true,
+        "payload_format": "raw_archive"
+      },
+      "silver": {
+        "contract": "silver.building_footprints",
+        "status": "planned",
+        "transformer": "juso_building_footprint_archive_to_silver",
+        "identity_keys": [
+          "bd_mgt_sn"
+        ],
+        "lineage_fields": [
+          "source_snapshot_id",
+          "request_fingerprint_sha256",
+          "bronze_object_key",
+          "checksum_sha256"
+        ],
+        "geometry_policy": {
+          "source_srid": "provider_declared",
+          "working_srid": "EPSG:5179",
+          "reject_invalid_geometry": true
+        },
+        "quarantine_policy": {
+          "reject_silent_drop": true,
+          "reason_field": "quarantine_reason"
+        }
+      },
+      "derived_outputs": [
+        "building_footprint_vector_tiles",
+        "building_parcel_spatial_join_index"
+      ]
+    }
+  ],
+  "platform_boundary": {
+    "foundation_platform_owns": [
+      "public_source_raw_capture",
+      "source_snapshot_lineage",
+      "canonical_public_catalog_entities",
+      "spatial_reference_artifacts",
+      "purpose_built_indexes"
+    ],
+    "product_services_own": [
+      "listing_price",
+      "listing_status",
+      "listing_exposure_policy",
+      "product_search_filter_semantics"
+    ]
+  }
+}

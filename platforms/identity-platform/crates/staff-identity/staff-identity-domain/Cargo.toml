@@ -1,0 +1,17 @@
+[package]
+name = "staff-identity-domain"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+identity-shared-kernel = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

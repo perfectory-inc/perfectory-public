@@ -1,0 +1,163 @@
+{
+  "schema_version": "foundation-platform.catalog_schema_contract.v1",
+  "migration_source": "migrations/*.sql",
+  "required_extensions": [
+    "postgis"
+  ],
+  "required_tables": [
+    {
+      "name": "catalog.industrial_complex",
+      "columns": [
+        "id",
+        "name",
+        "kind",
+        "primary_bjdong_code",
+        "official_complex_code",
+        "created_at",
+        "updated_at",
+        "version"
+      ]
+    },
+    {
+      "name": "catalog.manufacturer",
+      "columns": [
+        "id",
+        "primary_parcel_id",
+        "name",
+        "ksic_code",
+        "business_registration_number",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "catalog.outbox_event",
+      "columns": [
+        "event_id",
+        "type",
+        "payload",
+        "occurred_at",
+        "published_at",
+        "retry_count"
+      ]
+    },
+    {
+      "name": "catalog.source_record",
+      "columns": [
+        "id",
+        "source",
+        "source_url",
+        "external_id",
+        "captured_at",
+        "checksum_sha256",
+        "raw_object_key"
+      ]
+    },
+    {
+      "name": "catalog.ingestion_run",
+      "columns": [
+        "id",
+        "source_catalog_id",
+        "trigger",
+        "status",
+        "request_params",
+        "started_at",
+        "finished_at",
+        "logical_records_seen",
+        "objects_written"
+      ]
+    },
+    {
+      "name": "catalog.bronze_object",
+      "columns": [
+        "id",
+        "source_catalog_id",
+        "ingestion_run_id",
+        "source_record_id",
+        "object_key",
+        "checksum_sha256",
+        "content_type",
+        "size_bytes",
+        "logical_record_count"
+      ]
+    },
+    {
+      "name": "catalog.lakehouse_batch_run",
+      "columns": [
+        "id",
+        "schema_version",
+        "job_name",
+        "contract",
+        "summary_json",
+        "source_snapshot_ids",
+        "source_snapshot_truncated",
+        "row_count",
+        "persisted_row_count",
+        "recorded_at"
+      ]
+    },
+    {
+      "name": "catalog.industrial_complex_gold_pointer",
+      "columns": [
+        "complex_id",
+        "current_version",
+        "previous_version",
+        "profile_file_asset_id",
+        "spatial_locator_file_asset_id",
+        "source_record_id",
+        "source_snapshot_id",
+        "iceberg_snapshot_id",
+        "profile_row_count",
+        "profile_checksum_sha256",
+        "published_at"
+      ]
+    },
+    {
+      "name": "catalog.outbox_quarantine",
+      "columns": [
+        "id",
+        "source_outbox_table",
+        "event_id",
+        "consumer_key",
+        "event_type",
+        "payload",
+        "failure_stage",
+        "failure_code",
+        "failure_message",
+        "attempt_count",
+        "first_failed_at",
+        "last_failed_at",
+        "resolved_at",
+        "lineage"
+      ]
+    },
+    {
+      "name": "serving_postgis.parcel_boundary_mirror_rebuild_run",
+      "columns": [
+        "id",
+        "source_snapshot_id",
+        "source_table",
+        "srid",
+        "status",
+        "loaded_row_count",
+        "rejected_row_count",
+        "quality_report",
+        "started_at",
+        "finished_at"
+      ]
+    },
+    {
+      "name": "serving_postgis.parcel_boundary_mirror",
+      "columns": [
+        "pnu",
+        "rebuild_run_id",
+        "source_snapshot_id",
+        "source_table",
+        "source_object_key",
+        "geometry_checksum_sha256",
+        "properties",
+        "geom",
+        "loaded_at"
+      ]
+    }
+  ]
+}

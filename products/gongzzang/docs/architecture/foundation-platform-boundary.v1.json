@@ -1,0 +1,427 @@
+{
+  "schema_version": "gongzzang.foundation_platform_boundary.v1",
+  "platform_naming": {
+    "decision_source": "docs/adr/0048-horizontal-platform-redefinition.md",
+    "canonical_platform_slug": "foundation-platform"
+  },
+  "repo_slug": "gongzzang",
+  "phase": "final_horizontal_platform_boundaries_enforced",
+  "decision_sources": [
+    "docs/adr/0030-three-service-architecture.md",
+    "docs/adr/0031-foundation-platform-bounded-contexts.md",
+    "docs/adr/0034-catalog-ownership-handover-to-foundation-platform.md",
+    "docs/adr/0036-static-vector-tile-runtime-contract.md",
+    "docs/adr/0037-pnu-anchor-pbf-marker-tiles.md",
+    "docs/adr/0038-listing-marker-serving-index-filter-mask.md",
+    "../../platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md",
+    "../../platforms/foundation-platform/docs/adr/0008-pnu-anchor-pbf-marker-tile-contract.md"
+  ],
+  "sequencing_source": "docs/adr/0034-catalog-ownership-handover-to-foundation-platform.md",
+  "allowed_integration_contracts": [
+    {
+      "kind": "http_api",
+      "direction": "gongzzang_to_foundation_platform",
+      "purpose": "catalog published API consumption"
+    },
+    {
+      "kind": "runtime_vector_tile_manifest",
+      "direction": "gongzzang_to_foundation_platform",
+      "purpose": "public and reference map layer discovery"
+    },
+    {
+      "kind": "outbox_webhook_event",
+      "direction": "foundation_platform_to_gongzzang",
+      "purpose": "consumer cache invalidation and read-model refresh"
+    },
+    {
+      "kind": "immutable_anchor_artifact",
+      "direction": "gongzzang_to_foundation_platform",
+      "purpose": "PNU anchor read-model import"
+    },
+    {
+      "kind": "lakehouse_registry_registration",
+      "direction": "gongzzang_to_foundation_platform",
+      "purpose": "Gongzzang-owned governed lakehouse artifact registration after verified writes"
+    }
+  ],
+  "forbidden_integration_contracts": [
+    {
+      "kind": "direct_foundation_platform_database",
+      "reason": "Foundation Platform database is not a Gongzzang runtime contract; Gongzzang must use published HTTP, event, or immutable artifact contracts only"
+    },
+    {
+      "kind": "foundation_platform_listing_semantics",
+      "reason": "Listing price, status, exposure, filter, and detail semantics remain Gongzzang-owned"
+    },
+    {
+      "kind": "gongzzang_canonical_catalog_write",
+      "reason": "Catalog canonical writes move to Foundation Platform through ADR 0034"
+    },
+    {
+      "kind": "listing_owned_marker_coordinates",
+      "reason": "Marker position must come from Foundation Platform PNU anchors"
+    }
+  ],
+  "forbidden_canonical_catalog_tables": [
+    {
+      "table": "industrial_complex",
+      "owner": "foundation-platform",
+      "reason": "Canonical industrial complex facts belong to Foundation Platform Catalog"
+    },
+    {
+      "table": "parcel",
+      "owner": "foundation-platform",
+      "reason": "Canonical parcel facts belong to Foundation Platform Catalog"
+    },
+    {
+      "table": "building",
+      "owner": "foundation-platform",
+      "reason": "Canonical building register facts belong to Foundation Platform Catalog"
+    },
+    {
+      "table": "manufacturer",
+      "owner": "foundation-platform",
+      "reason": "Canonical manufacturer master data belongs to Foundation Platform Catalog"
+    }
+  ],
+  "root_env_example_contract": {
+    "required_http_env": [
+      "FOUNDATION_PLATFORM_API_BASE_URL",
+      "NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL"
+    ],
+    "required_service_auth_env": [
+      "FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE",
+      "FOUNDATION_PLATFORM_WEBHOOK_SECRET"
+    ],
+    "forbidden_env": [
+      "VWORLD_*",
+      "ODP_SERVICE_KEY",
+      "DATA_GO_KR_*",
+      "ETL_*",
+      "R2_<ENV>_*",
+      "R2_*",
+      "GEMINI_API_KEY"
+    ],
+    "reason": "Gongzzang root env examples must expose Foundation Platform through HTTP contracts only; Catalog source, ETL, and generic raw-data storage configuration belongs outside Gongzzang"
+  },
+  "path_ownership": [
+    {
+      "path": "crates/listing-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/listing-photo-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/user-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/court-auction-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/real-transaction-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/bookmark-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/search-history-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/analysis-report-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/notification-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/admin-action-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/audit-log-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/business-verification-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/featured-content-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/listing-report-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/listing-review-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/outbox-event-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/system-alert-domain",
+      "owner": "gongzzang",
+      "classification": "product_domain"
+    },
+    {
+      "path": "crates/shared-kernel",
+      "owner": "gongzzang",
+      "classification": "product_shared_kernel"
+    },
+    {
+      "path": "crates/industrial-complex-domain",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_asset"
+    },
+    {
+      "path": "crates/parcel-domain",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_asset"
+    },
+    {
+      "path": "crates/building-domain",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_asset"
+    },
+    {
+      "path": "crates/manufacturer-domain",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_asset"
+    },
+    {
+      "path": "crates/data-clients/vworld",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_etl_asset"
+    },
+    {
+      "path": "crates/data-clients/data-go-kr",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_etl_asset"
+    },
+    {
+      "path": "crates/data-clients/raw-capture",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_raw_asset"
+    },
+    {
+      "path": "crates/data-clients/r2-public-data",
+      "owner": "foundation-platform",
+      "classification": "extracted_vector_tile_data_asset"
+    },
+    {
+      "path": "crates/data-pipeline-control",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_etl_asset"
+    },
+    {
+      "path": "services/data-pipeline",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_etl_asset"
+    },
+    {
+      "path": "services/scraper-py",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_etl_asset"
+    },
+    {
+      "path": "crates/sp9-base-layer-config",
+      "owner": "foundation-platform",
+      "classification": "extracted_vector_tile_config_asset"
+    },
+    {
+      "path": "scripts/setup-dev-tippecanoe.sh",
+      "owner": "foundation-platform",
+      "classification": "extracted_vector_tile_tooling_asset"
+    },
+    {
+      "path": "services/etl-base-layer/Dockerfile.etl",
+      "owner": "foundation-platform",
+      "classification": "extracted_vector_tile_tooling_asset"
+    },
+    {
+      "path": "services/etl-base-layer/scripts",
+      "owner": "foundation-platform",
+      "classification": "extracted_vector_tile_tooling_asset"
+    },
+    {
+      "path": "docs/observability/api-drift-smoke-test.md",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_observability_asset"
+    },
+    {
+      "path": "crates/api-health-domain",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_observability_asset"
+    },
+    {
+      "path": "crates/api-health-recorder",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_observability_asset"
+    },
+    {
+      "path": "crates/gongzzang-persistence/src/api_health.rs",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_observability_asset"
+    },
+    {
+      "path": "crates/gongzzang-persistence/tests/api_health_integration.rs",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_observability_asset"
+    },
+    {
+      "path": "crates/shared-kernel/src/catalog_event.rs",
+      "owner": "foundation-platform",
+      "classification": "extracted_catalog_event_schema_asset"
+    },
+    {
+      "path": "migrations/20260719000115_parcel_marker_anchor_projection.sql",
+      "owner": "foundation-platform",
+      "classification": "gongzzang_read_model_copy"
+    },
+    {
+      "path": "migrations/20260719000116_listing_marker_projection.sql",
+      "owner": "gongzzang",
+      "classification": "serving_projection"
+    },
+    {
+      "path": "migrations/20260719000118_foundation_platform_event_inbox_anchor_import.sql",
+      "owner": "gongzzang",
+      "classification": "foundation_platform_event_inbox"
+    },
+    {
+      "path": "crates/gongzzang-persistence/src/foundation_anchor.rs",
+      "owner": "gongzzang",
+      "classification": "foundation_platform_read_model_import"
+    },
+    {
+      "path": "services/gongzzang-api/src/routes/listing_marker_tiles.rs",
+      "owner": "gongzzang",
+      "classification": "product_marker_serving"
+    },
+    {
+      "path": "services/gongzzang-api/src/foundation_anchor_import.rs",
+      "owner": "gongzzang",
+      "classification": "foundation_platform_read_model_import_contract"
+    },
+    {
+      "path": "services/gongzzang-api/src/routes/foundation_events.rs",
+      "owner": "gongzzang",
+      "classification": "foundation_platform_event_receiver"
+    },
+    {
+      "path": "services/gongzzang-api/src/bin/foundation_anchor_import.rs",
+      "owner": "gongzzang",
+      "classification": "foundation_platform_read_model_importer"
+    },
+    {
+      "path": "apps/web/app/foundation-platform/events/route.ts",
+      "owner": "gongzzang",
+      "classification": "foundation_platform_event_receiver"
+    },
+    {
+      "path": ".github/workflows/gongzzang-db-migrations.yml",
+      "owner": "gongzzang",
+      "classification": "schema_migration_smoke"
+    },
+    {
+      "path": "docs/architecture/foundation-platform-webhook-receiver-contract.v1.pin.json",
+      "owner": "foundation-platform",
+      "classification": "contract_pin_copy"
+    },
+    {
+      "path": "docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json",
+      "owner": "foundation-platform",
+      "classification": "contract_pin_copy"
+    }
+  ],
+  "allowed_transitional_dependencies": [],
+  "allowed_transitional_source_imports": [],
+  "required_ci_gates": ["scripts/lefthook/foundation-ownership-boundary.sh"],
+  "allowed_legacy_schema_tokens": [],
+  "forbidden_code_tokens": [
+    "FOUNDATION_PLATFORM_DATABASE_URL",
+    "postgres://foundation_platform",
+    "foundation-platform-db",
+    "foundation_platform_dev_2026",
+    "parcel_external_data",
+    "pipeline_schedule",
+    "pipeline_run",
+    "force_pipeline_run",
+    "api_health_check",
+    "api-health-recorder",
+    "api-drift-smoke-test",
+    "PgRawCapture",
+    "R2RawCapture",
+    "raw_capture_sync",
+    "api.vworld.kr",
+    "apis.data.go.kr",
+    "dtmk_vworld.py",
+    "vworld-cache-refresh",
+    "building-register-sync"
+  ],
+  "forbidden_active_documentation_tokens": [
+    {
+      "path": "AGENTS.md",
+      "token": "raw_response JSONB",
+      "reason": "root rules must not imply Gongzzang stores Catalog raw responses locally",
+      "exit_criteria": "AGENTS.md scopes raw lineage to Gongzzang-owned external adapters and Foundation Platform-owned Catalog"
+    },
+    {
+      "path": "docs/conventions/rust.md",
+      "token": "crates/data-clients/*",
+      "reason": "blanket data-client layer rule reintroduces Catalog client ownership",
+      "exit_criteria": "active Rust conventions distinguish Foundation Platform Catalog adapters from Gongzzang-owned clients"
+    },
+    {
+      "path": "docs/conventions/testing.md",
+      "token": "crates/data-clients/*",
+      "reason": "blanket data-client coverage row reintroduces Catalog client ownership",
+      "exit_criteria": "active testing conventions distinguish db coverage from Gongzzang-owned external adapters"
+    },
+    {
+      "path": "crates/data-clients/README.md",
+      "token": "vworld/",
+      "reason": "V-World client crate is Foundation Platform-owned after extraction",
+      "exit_criteria": "README says Catalog clients must not be recreated in Gongzzang"
+    },
+    {
+      "path": "crates/data-clients/README.md",
+      "token": "data-go-kr/",
+      "reason": "Catalog data.go.kr client crate is Foundation Platform-owned after extraction",
+      "exit_criteria": "README says Catalog clients must not be recreated in Gongzzang"
+    },
+    {
+      "path": "crates/data-clients/README.md",
+      "token": "raw_response *",
+      "reason": "Catalog raw response persistence is Foundation Platform-owned after extraction",
+      "exit_criteria": "README scopes raw lineage to the owning service or an approved Gongzzang adapter ADR"
+    }
+  ]
+}

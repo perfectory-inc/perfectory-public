@@ -1,0 +1,11 @@
+# Single monorepo toolchain pin (ADR-0001 §3). rustup discovers this file by walking
+# up from any nested workspace, so this ONE file governs all four areas.
+# We pin an exact version (not "stable") for repeatability — same rationale as
+# oxidecomputer/omicron. Area-local rust-toolchain files are FORBIDDEN: a closer
+# file would silently shadow this one (guard: scripts/guard/toolchain-consistency.sh).
+# Components: union of what all four area files declared before consolidation
+# (gongzzang added rust-analyzer + rust-src; profile=default was majority).
+[toolchain]
+channel = "1.96.0"
+profile = "default"
+components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]

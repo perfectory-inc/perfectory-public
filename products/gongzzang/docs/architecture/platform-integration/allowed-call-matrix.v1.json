@@ -1,0 +1,129 @@
+{
+  "schema_version": "gongzzang.platform_integration.allowed_call_matrix.v1",
+  "platform_naming": {
+    "decision_source": "docs/adr/0048-horizontal-platform-redefinition.md",
+    "canonical_platform_slug": "foundation-platform"
+  },
+  "repo_slug": "gongzzang",
+  "owner": "gongzzang",
+  "status": "active",
+  "default_decision": "deny",
+  "policy_model": "explicit_allow_only",
+  "allowed_calls": [
+    {
+      "id": "gongzzang_api_to_foundation_platform_catalog_read",
+      "status": "active",
+      "direction": "outbound",
+      "source_repo": "gongzzang",
+      "source_service": "gongzzang-api",
+      "target_repo": "foundation-platform",
+      "target_service": "foundation-api",
+      "protocol": "https",
+      "methods": ["GET"],
+      "allowed_surfaces": [
+        "/catalog/v1/vector-tiles/manifest",
+        "/map/v1/marker-tiles/contract",
+        "/catalog/v1/parcels/by-pnu/:pnu",
+        "/catalog/v1/parcels/by-pnu/:pnu/buildings"
+      ],
+      "traffic_policy_id": "gongzzang_api_to_foundation_catalog",
+      "service_auth_policy_id": "gongzzang_api_to_foundation_api",
+      "decision_reference": "docs/adr/0034-catalog-ownership-handover-to-foundation-platform.md",
+      "required_controls": [
+        "zitadel_workload_bearer_token_file",
+        "timeout",
+        "circuit_breaker",
+        "default_deny_authorization",
+        "no_direct_database"
+      ]
+    },
+    {
+      "id": "foundation_outbox_to_gongzzang_webhook",
+      "status": "active",
+      "direction": "inbound",
+      "source_repo": "foundation-platform",
+      "source_service": "foundation-outbox-publisher",
+      "target_repo": "gongzzang",
+      "target_service": "gongzzang-web",
+      "protocol": "https",
+      "methods": ["POST"],
+      "allowed_surfaces": ["/foundation-platform/events"],
+      "traffic_policy_id": "foundation_outbox_to_gongzzang_events",
+      "webhook_policy_id": "foundation_platform_event_receiver",
+      "service_auth_policy_id": "foundation_outbox_to_gongzzang_webhook",
+      "decision_reference": "docs/adr/0034-catalog-ownership-handover-to-foundation-platform.md",
+      "required_controls": [
+        "timestamped_hmac_sha256",
+        "timestamp_skew_limit",
+        "event_header_match",
+        "event_replay_ledger",
+        "idempotency_key_store",
+        "dead_letter_queue"
+      ]
+    },
+    {
+      "id": "dawneer_to_foundation_platform_catalog_read",
+      "status": "planned",
+      "direction": "cross_repo_reference",
+      "source_repo": "dawneer",
+      "source_service": "dawneer-web",
+      "target_repo": "foundation-platform",
+      "target_service": "foundation-api",
+      "protocol": "https",
+      "methods": ["GET"],
+      "allowed_surfaces": ["foundation-platform-catalog-read-api"],
+      "decision_reference": "docs/adr/0030-three-service-architecture.md",
+      "required_controls": ["not_yet_launched"]
+    },
+    {
+      "id": "gongzzang_outbox_publisher_to_foundation_lakehouse_registry",
+      "status": "planned",
+      "direction": "outbound",
+      "source_repo": "gongzzang",
+      "source_service": "gongzzang-outbox-publisher",
+      "target_repo": "foundation-platform",
+      "target_service": "foundation-api",
+      "protocol": "https",
+      "methods": ["GET", "POST"],
+      "allowed_surfaces": [
+        "POST /internal/lakehouse/ingestion-runs",
+        "POST /internal/lakehouse/artifacts",
+        "POST /internal/lakehouse/quality-checks",
+        "POST /internal/lakehouse/lineage",
+        "POST /internal/lakehouse/promotions",
+        "GET /internal/lakehouse/assets/{qualified_name}/active"
+      ],
+      "service_auth_policy_id": "gongzzang_outbox_publisher_to_foundation_api",
+      "decision_reference": "docs/adr/0039-service-owned-lakehouse-registry-integration.md",
+      "required_controls": [
+        "zitadel_workload_bearer_token_file",
+        "default_deny_authorization",
+        "object_checksum_verified",
+        "no_direct_database"
+      ]
+    }
+  ],
+  "prohibited_calls": [
+    {
+      "id": "gongzzang_to_foundation_platform_database",
+      "source_repo": "gongzzang",
+      "target_repo": "foundation-platform",
+      "target_surface": "database",
+      "decision": "deny"
+    },
+    {
+      "id": "dawneer_to_foundation_platform_database",
+      "source_repo": "dawneer",
+      "target_repo": "foundation-platform",
+      "target_surface": "database",
+      "decision": "deny"
+    },
+    {
+      "id": "foundation_platform_to_gongzzang_listing_write",
+      "source_repo": "foundation-platform",
+      "target_repo": "gongzzang",
+      "target_surface": "listing_semantics",
+      "decision": "deny"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+[package]
+name = "intelligence-api"
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+axum.workspace = true
+chrono.workspace = true
+intelligence-contracts = { path = "../../crates/intelligence-contracts" }
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+intelligence-normalization-application = { path = "../../crates/normalization/intelligence-normalization-application" }
+intelligence-normalization-domain = { path = "../../crates/normalization/intelligence-normalization-domain" }
+intelligence-normalization-infrastructure = { path = "../../crates/normalization/intelligence-normalization-infrastructure" }
+serde.workspace = true
+serde_json.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true

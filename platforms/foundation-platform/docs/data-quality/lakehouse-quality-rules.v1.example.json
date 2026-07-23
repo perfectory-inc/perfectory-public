@@ -1,0 +1,118 @@
+{
+  "schema_version": "foundation-platform.lakehouse_quality_rules.v1",
+  "measurement_source": "foundation-platform.spark_run_summary.v1",
+  "promotion_blocking": true,
+  "rule_sets": [
+    {
+      "table": "silver.industrial_complexes",
+      "table_contract_ref": "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json#/contracts/silver.industrial_complexes",
+      "source_job": "industrial_complex_bronze_to_silver",
+      "rules": [
+        {
+          "id": "silver-industrial-complexes-row-count",
+          "metric": "row_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "min",
+            "value": 1
+          }
+        },
+        {
+          "id": "silver-industrial-complexes-persisted-row-count",
+          "metric": "persisted_row_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "matches_row_count"
+          }
+        },
+        {
+          "id": "silver-industrial-complexes-complex-id-null",
+          "metric": "complex_id__null_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "equals",
+            "value": 0
+          }
+        },
+        {
+          "id": "silver-industrial-complexes-complex-name-empty",
+          "metric": "complex_name__empty_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "equals",
+            "value": 0
+          }
+        },
+        {
+          "id": "silver-industrial-complexes-invalid-official-area",
+          "metric": "invalid_official_area_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "equals",
+            "value": 0
+          }
+        },
+        {
+          "id": "silver-industrial-complexes-invalid-checksum",
+          "metric": "invalid_checksum_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "equals",
+            "value": 0
+          }
+        }
+      ]
+    },
+    {
+      "table": "gold.complex_catalog",
+      "table_contract_ref": "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json#/contracts/gold.complex_catalog",
+      "source_job": "industrial_complex_silver_to_gold",
+      "rules": [
+        {
+          "id": "gold-complex-catalog-row-count",
+          "metric": "row_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "min",
+            "value": 1
+          }
+        },
+        {
+          "id": "gold-complex-catalog-persisted-row-count",
+          "metric": "persisted_row_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "matches_row_count"
+          }
+        },
+        {
+          "id": "gold-complex-catalog-complex-id-null",
+          "metric": "complex_id__null_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "equals",
+            "value": 0
+          }
+        },
+        {
+          "id": "gold-complex-catalog-invalid-parcel-count",
+          "metric": "invalid_parcel_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "equals",
+            "value": 0
+          }
+        },
+        {
+          "id": "gold-complex-catalog-invalid-published-at",
+          "metric": "invalid_published_at_count",
+          "severity": "blocking",
+          "threshold": {
+            "kind": "equals",
+            "value": 0
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "artifacts": {
+    ".gitattributes": "12f83490d9118abfea02bc0f591ba8049bf52b3567989e076e28e0f601a891ad",
+    "LICENSES/OFL-1.1.txt": "85fce85e25260b03777bf10373d3bd9363b9da96d9e0ca86a280dd37ed7667a0",
+    "THIRD_PARTY_NOTICES.md": "40fc0d6d731a98ba7e0ff8d81d8480c18d9105a36869fdf96ac8285a09d0b298",
+    "products/gongzzang/apps/web/public/fonts/LICENSE-PRETENDARD.txt": "85fce85e25260b03777bf10373d3bd9363b9da96d9e0ca86a280dd37ed7667a0",
+    "products/gongzzang/apps/web/public/fonts/pretendard-v1.3.9.sha256": "7f5bcd2f7cc28bbaaae586db37f07691094048a09fc25167dfd02a88bec863de",
+    "products/gongzzang/apps/web/public/fonts/pretendardvariable-dynamic-subset.css": "bdb7c52485b4bb6a737c931be9aa26604e3513abca57c6d9c12eae739e02a4e6"
+  }
+}

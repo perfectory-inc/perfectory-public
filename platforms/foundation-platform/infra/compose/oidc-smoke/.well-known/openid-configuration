@@ -1,0 +1,9 @@
+{
+  "issuer": "http://127.0.0.1:18081",
+  "authorization_endpoint": "http://127.0.0.1:18081/authorize",
+  "token_endpoint": "http://127.0.0.1:18081/token",
+  "jwks_uri": "http://127.0.0.1:18081/jwks.json",
+  "response_types_supported": ["code"],
+  "subject_types_supported": ["public"],
+  "id_token_signing_alg_values_supported": ["RS256"]
+}

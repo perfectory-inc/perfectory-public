@@ -1,0 +1,17 @@
+# Monorepo verification SSOT (ADR-0004). Standalone workspace: not a member of any
+# area workspace, so it neither pulls them in nor is pulled in. Uses the root
+# rust-toolchain.toml pin like everything else. Dependency-free (std only) per the
+# cargo-xtask discipline (needs nothing but cargo + rustc).
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96.0"
+license-file = "../../LICENSES/LicenseRef-Proprietary.txt"
+publish = false
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[workspace]

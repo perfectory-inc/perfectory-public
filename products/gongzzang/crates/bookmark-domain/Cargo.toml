@@ -1,0 +1,21 @@
+[package]
+name = "bookmark-domain"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+description = "공짱 Bookmark domain (RDS 동적 — listing FK + external polymorphic)"
+
+[dependencies]
+shared-kernel = { path = "../shared-kernel", version = "0.1.0" }
+chrono = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

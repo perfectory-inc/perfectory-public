@@ -1,0 +1,14 @@
+[project]
+name = "foundation-platform-provider-acquisition-worker"
+version = "0.1.0"
+license = "LicenseRef-Proprietary"
+classifiers = ["Private :: Do Not Upload"]
+requires-python = ">=3.11"
+dependencies = [
+  "requests",
+  "scrapling[fetchers]",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

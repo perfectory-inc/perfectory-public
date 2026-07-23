@@ -1,0 +1,76 @@
+{
+  "schema_version": "gongzzang.platform_integration.index.v1",
+  "platform_naming": {
+    "decision_source": "docs/adr/0048-horizontal-platform-redefinition.md",
+    "canonical_platform_slug": "foundation-platform"
+  },
+  "repo_slug": "gongzzang",
+  "owner": "gongzzang",
+  "status": "active",
+  "decision_sources": [
+    "docs/adr/0030-three-service-architecture.md",
+    "docs/adr/0034-catalog-ownership-handover-to-foundation-platform.md",
+    "docs/adr/0037-pnu-anchor-pbf-marker-tiles.md",
+    "docs/adr/0038-listing-marker-serving-index-filter-mask.md",
+    "docs/adr/0039-service-owned-lakehouse-registry-integration.md",
+    "docs/adr/0028-supply-chain-sha-pin-and-cleanup-cron.md"
+  ],
+  "components": [
+    {
+      "id": "platform_integration.route_exposure",
+      "path": "docs/architecture/platform-integration/route-exposure-policy.v1.json",
+      "schema_version": "gongzzang.platform_integration.route_exposure_policy.v1"
+    },
+    {
+      "id": "platform_integration.traffic_auth",
+      "path": "docs/architecture/traffic-auth-policy-registry.v1.json",
+      "schema_version": "gongzzang.traffic_auth_policy_registry.v1"
+    },
+    {
+      "id": "platform_integration.foundation_platform_boundary",
+      "path": "docs/architecture/foundation-platform-boundary.v1.json",
+      "schema_version": "gongzzang.foundation_platform_boundary.v1"
+    },
+    {
+      "id": "platform_integration.allowed_call_matrix",
+      "path": "docs/architecture/platform-integration/allowed-call-matrix.v1.json",
+      "schema_version": "gongzzang.platform_integration.allowed_call_matrix.v1"
+    },
+    {
+      "id": "platform_integration.service_auth",
+      "path": "docs/architecture/platform-integration/service-auth-policy.v1.json",
+      "schema_version": "gongzzang.platform_integration.service_auth_policy.v1"
+    },
+    {
+      "id": "platform_integration.webhook",
+      "path": "docs/architecture/platform-integration/webhook-policy.v1.json",
+      "schema_version": "gongzzang.platform_integration.webhook_policy.v1"
+    },
+    {
+      "id": "platform_integration.supply_chain",
+      "path": "docs/architecture/platform-integration/supply-chain-policy.v1.json",
+      "schema_version": "gongzzang.platform_integration.supply_chain_policy.v1"
+    },
+    {
+      "id": "platform_integration.operations",
+      "path": "docs/architecture/platform-integration/operations-policy.v1.json",
+      "schema_version": "gongzzang.platform_integration.operations_policy.v1"
+    },
+    {
+      "id": "platform_integration.exception_policy",
+      "path": "docs/architecture/platform-integration/exception-policy.v1.json",
+      "schema_version": "gongzzang.platform_integration.exception_policy.v1"
+    },
+    {
+      "id": "platform_integration.lakehouse_registry",
+      "path": "docs/architecture/platform-integration/lakehouse-registry-policy.v1.json",
+      "schema_version": "gongzzang.platform_integration.lakehouse_registry_policy.v1"
+    }
+  ],
+  "required_ci_jobs_or_steps": [
+    "scripts/lefthook/foundation-ownership-boundary.sh",
+    "cargo run -p repo-guard -- migration-version-prefixes",
+    "gitleaks-action",
+    "cargo-deny"
+  ]
+}

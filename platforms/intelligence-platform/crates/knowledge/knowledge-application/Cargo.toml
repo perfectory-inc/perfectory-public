@@ -1,0 +1,17 @@
+[package]
+name = "knowledge-application"
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait.workspace = true
+knowledge-domain = { path = "../knowledge-domain" }
+
+[dev-dependencies]
+tokio.workspace = true

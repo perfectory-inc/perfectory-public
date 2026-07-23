@@ -1,0 +1,237 @@
+version: 2
+
+models:
+  - name: stg_gongzzang__court_auction_observation
+    description: Gongzzang-owned court auction source observations staged for Foundation entity linking.
+    columns:
+      - name: source_observation_id
+        tests: [not_null, unique]
+      - name: source_system
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["court_auction"]
+      - name: source_record_id
+        tests: [not_null]
+      - name: source_snapshot_id
+        tests: [not_null]
+
+  - name: stg_foundation__building_register_unit
+    description: Foundation building register unit snapshot staged for entity linking.
+    columns:
+      - name: building_unit_id
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+          - unique:
+              config:
+                tags: ["full_quality"]
+      - name: target_snapshot_id
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+      - name: pnu
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+
+  - name: int_entity_resolution__building_register_unit_number_collision_candidates
+    description: Full-quality diagnostic groups where one building-register unit number collapses multiple preserved unit designations within the same parcel/building/dong/floor scope.
+    columns:
+      - name: collision_scope_id
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+          - unique:
+              config:
+                tags: ["full_quality"]
+      - name: collision_family
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+          - accepted_values:
+              arguments:
+                values: ["parenthesized_suffix", "hyphenated_designation", "mixed_designation"]
+              config:
+                tags: ["full_quality"]
+      - name: unit_row_count
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+      - name: distinct_designation_count
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+
+  - name: int_entity_resolution__building_register_unit_number_collision_funnel
+    description: Full-quality diagnostic funnel that quantifies building-register unit-number collision risk before entity-link matching uses unit_number.
+    columns:
+      - name: stage_order
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+          - unique:
+              config:
+                tags: ["full_quality"]
+      - name: diagnostic_stage
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+          - unique:
+              config:
+                tags: ["full_quality"]
+          - accepted_values:
+              arguments:
+                values:
+                  - source_total
+                  - unit_number_present
+                  - unit_number_collision_groups
+                  - designation_collision_groups
+                  - hyphenated_designation_collision_groups
+                  - parenthesized_suffix_collision_groups
+              config:
+                tags: ["full_quality"]
+      - name: affected_row_count
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+
+  - name: int_entity_resolution__court_auction_building_unit_candidates
+    description: Deterministic high-confidence court auction to building unit candidates.
+    columns:
+      - name: source_observation_id
+        tests: [not_null]
+      - name: target_entity_id
+        tests: [not_null]
+      - name: confidence_band
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["high", "medium", "low", "unknown"]
+
+  - name: int_entity_resolution__court_auction_building_unit_match_funnel
+    description: Diagnostic funnel that counts where court auction observations drop out before becoming building-unit link candidates.
+    columns:
+      - name: stage_order
+        tests: [not_null, unique]
+      - name: match_stage
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              arguments:
+                values:
+                  - source_total
+                  - source_with_pnu
+                  - pnu_match
+                  - pnu_dong_match
+                  - pnu_dong_unit_label_match
+                  - pnu_dong_unit_number_match
+                  - pnu_dong_unit_number_unique
+                  - pnu_dong_unit_label_area_match
+                  - pnu_dong_unit_number_area_match
+                  - candidate_output
+      - name: source_observation_count
+        tests: [not_null]
+      - name: candidate_pair_count
+        description: Pair count is populated only for final candidate stages; broad funnel stages count source observations only.
+
+  - name: int_entity_resolution__court_auction_pnu_recovery_status
+    description: Per-observation diagnostic status for court-auction PNU recovery. This model never emits entity-link candidates.
+    columns:
+      - name: source_observation_id
+        tests:
+          - not_null
+          - unique
+      - name: exact_unit_count
+        tests: [not_null]
+      - name: flipped_unit_count
+        tests: [not_null]
+      - name: flipped_candidate_pair_count
+        tests: [not_null]
+      - name: flipped_dong_match_count
+        tests: [not_null]
+      - name: flipped_unit_number_match_count
+        tests: [not_null]
+      - name: flipped_dong_unit_number_match_count
+        tests: [not_null]
+      - name: has_address_evidence
+        tests: [not_null]
+      - name: has_coordinate_evidence
+        tests: [not_null]
+
+  - name: int_entity_resolution__court_auction_pnu_recovery_funnel
+    description: Diagnostic-only funnel that measures whether court auction observations with missing or non-matching PNU have enough evidence for recovery.
+    columns:
+      - name: stage_order
+        tests: [not_null, unique]
+      - name: recovery_stage
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              arguments:
+                values:
+                  - source_total
+                  - source_with_pnu
+                  - source_without_pnu
+                  - source_pnu_exact_match
+                  - source_pnu_exact_missing
+                  - source_pnu_11th_flip_possible
+                  - source_pnu_11th_flip_with_dong
+                  - source_pnu_11th_flip_with_unit_number
+                  - source_pnu_11th_flip_with_dong_unit_number
+                  - source_without_pnu_with_dong_name
+                  - source_without_pnu_with_unit_number
+                  - source_without_pnu_with_area
+                  - source_without_pnu_with_dong_unit_number_area
+                  - source_without_pnu_with_any_address
+                  - source_without_pnu_with_coordinates
+                  - source_without_pnu_with_address_or_coordinate
+                  - source_without_pnu_requires_address_or_coordinate_evidence
+      - name: source_observation_count
+        tests: [not_null]
+      - name: candidate_pair_count
+        tests: [not_null]
+
+  - name: silver_entity_link_assertion_candidate
+    description: Candidate entity link assertions. This model does not publish results.
+    columns:
+      - name: assertion_id
+        tests: [not_null, unique]
+      - name: source_system
+        tests: [not_null]
+      - name: target_entity_type
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["building_unit"]
+      - name: confidence_band
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["high", "medium", "low", "unknown"]
+      - name: review_state
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["not_required", "needs_review", "approved", "rejected"]
+      - name: publish_state
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["candidate", "published", "withheld", "quarantined", "superseded"]
+      - name: lineage_run_id
+        tests: [not_null]

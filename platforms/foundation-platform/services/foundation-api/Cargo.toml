@@ -1,0 +1,45 @@
+[package]
+name = "foundation-api"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+jsonwebtoken = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+utoipa = { workspace = true }
+uuid = { workspace = true }
+
+foundation-contracts       = { workspace = true }
+foundation-shared-kernel   = { workspace = true }
+catalog-application              = { workspace = true }
+catalog-domain           = { workspace = true }
+catalog-infrastructure            = { workspace = true }
+lakehouse-application             = { workspace = true }
+lakehouse-domain                  = { workspace = true }
+lakehouse-infrastructure          = { workspace = true }
+foundation-normalization-application    = { workspace = true }
+foundation-normalization-domain         = { workspace = true }
+foundation-normalization-infrastructure = { workspace = true }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+wiremock = { workspace = true }

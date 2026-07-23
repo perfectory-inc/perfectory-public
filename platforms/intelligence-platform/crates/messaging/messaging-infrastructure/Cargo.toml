@@ -1,0 +1,29 @@
+[package]
+name = "messaging-infrastructure"
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+apache-avro.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+intelligence-contracts = { path = "../../intelligence-contracts" }
+knowledge-domain = { path = "../../knowledge/knowledge-domain" }
+reqwest.workspace = true
+rdkafka.workspace = true
+schema_registry_converter.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+axum.workspace = true

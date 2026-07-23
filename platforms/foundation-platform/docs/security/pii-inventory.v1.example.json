@@ -1,0 +1,19 @@
+{
+  "schema_version": "foundation-platform.pii_inventory.example.v1",
+  "scope": "synthetic-example",
+  "columns": [
+    {
+      "source": "example.sensitive_entity.private_identifier",
+      "domain_field": "SyntheticEntity.private_identifier",
+      "classification": "sensitive_operational",
+      "data_subject": "business",
+      "masking_required": true,
+      "kms_required_before_external_exposure": true,
+      "logging_allowed": false,
+      "api_exposure": "never_raw",
+      "owner": "example-domain",
+      "required_storage": "kms_backed_before_external_exposure",
+      "notes": "Synthetic example: sensitive identifiers require masking, authorization, and approved encrypted storage."
+    }
+  ]
+}

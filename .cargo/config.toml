@@ -1,0 +1,10 @@
+# Root cargo config. Discovered by every nested area workspace via cargo's
+# parent-directory walk-up, so the `xtask` alias is available repo-wide.
+#
+# Invoke from the repository ROOT:  cargo xtask verify <area|all>
+# (`--manifest-path` is resolved relative to the caller's directory.)
+#
+# The alias only ADDS a subcommand; it does not alter `cargo build/test` for the
+# area workspaces. See docs/adr/0004-verification-ssot.md.
+[alias]
+xtask = "run --manifest-path tools/xtask/Cargo.toml --quiet --"

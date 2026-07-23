@@ -1,0 +1,94 @@
+x-foundation-recovery-environment: &foundation-recovery-environment
+  PGBACKREST_REPO1_S3_BUCKET: ${FOUNDATION_RECOVERY_R2_BUCKET:?set FOUNDATION_RECOVERY_R2_BUCKET}
+  PGBACKREST_REPO1_S3_ENDPOINT: ${FOUNDATION_RECOVERY_R2_ENDPOINT_HOST:?set FOUNDATION_RECOVERY_R2_ENDPOINT_HOST}
+  PGBACKREST_REPO1_S3_KEY: ${FOUNDATION_RECOVERY_R2_ACCESS_KEY_ID:?set FOUNDATION_RECOVERY_R2_ACCESS_KEY_ID}
+  PGBACKREST_REPO1_S3_KEY_SECRET: ${FOUNDATION_RECOVERY_R2_SECRET_ACCESS_KEY:?set FOUNDATION_RECOVERY_R2_SECRET_ACCESS_KEY}
+  PGBACKREST_REPO1_PATH: ${FOUNDATION_RECOVERY_REPOSITORY_PATH:-/postgres/foundation}
+  PGBACKREST_REPO1_CIPHER_PASS: ${FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS:?set FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS}
+
+services:
+  postgres:
+    image: foundation-postgres-recovery:local
+    build:
+      context: .
+      dockerfile: infra/postgres/Dockerfile.recovery
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --stanza=foundation archive-push %p
+      - -c
+      - archive_timeout=60s
+    environment:
+      <<: *foundation-recovery-environment
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - postgres_socket:/var/run/postgresql
+      - pgbackrest_spool:/var/spool/pgbackrest
+      - ./infra/postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - psql -U foundation_admin -d foundation -Atqc 'SELECT NOT pg_is_in_recovery()' | grep -qx t
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  foundation-backup:
+    image: foundation-postgres-recovery:local
+    profiles:
+      - recovery
+    restart: "no"
+    command: ["pgbackrest-backup", "backup", "--type=full"]
+    environment:
+      <<: *foundation-recovery-environment
+    volumes:
+      - pgdata:/var/lib/postgresql/data:ro
+      - postgres_socket:/var/run/postgresql
+      - pgbackrest_spool:/var/spool/pgbackrest
+      - ./infra/postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  foundation-restore-drill:
+    image: foundation-postgres-recovery:local
+    profiles:
+      - recovery
+    restart: "no"
+    command: ["pgbackrest-restore", "restore"]
+    environment:
+      <<: *foundation-recovery-environment
+    volumes:
+      - recovery_data:/var/lib/postgresql/data
+      - pgbackrest_restore_spool:/var/spool/pgbackrest
+      - ./infra/postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+
+  foundation-restored-postgres:
+    image: foundation-postgres-recovery:local
+    profiles:
+      - recovery
+    restart: "no"
+    environment:
+      <<: *foundation-recovery-environment
+      POSTGRES_USER: foundation_admin
+      POSTGRES_PASSWORD: ${FOUNDATION_ADMIN_PASSWORD:?set FOUNDATION_ADMIN_PASSWORD}
+      POSTGRES_DB: foundation
+    volumes:
+      - recovery_data:/var/lib/postgresql/data
+      - recovery_socket:/var/run/postgresql
+      - pgbackrest_restore_spool:/var/spool/pgbackrest
+      - ./infra/postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foundation_admin -d foundation"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  postgres_socket:
+  pgbackrest_spool:
+  pgbackrest_restore_spool:
+  recovery_data:
+  recovery_socket:

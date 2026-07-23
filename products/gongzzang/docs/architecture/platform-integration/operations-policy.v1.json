@@ -1,0 +1,113 @@
+{
+  "schema_version": "gongzzang.platform_integration.operations_policy.v1",
+  "platform_naming": {
+    "decision_source": "docs/adr/0048-horizontal-platform-redefinition.md",
+    "canonical_platform_slug": "foundation-platform"
+  },
+  "repo_slug": "gongzzang",
+  "owner": "gongzzang",
+  "status": "active",
+  "telemetry": {
+    "required_span_attributes": [
+      "service.name",
+      "peer.service",
+      "http.request.method",
+      "url.path",
+      "platform_integration.call_id",
+      "platform_integration.policy_id",
+      "platform_integration.direction",
+      "platform_integration.decision",
+      "foundation_platform.event_id",
+      "foundation_platform.event_type",
+      "correlation_id"
+    ],
+    "forbidden_attributes": [
+      "authorization",
+      "cookie",
+      "set-cookie",
+      "foundation_platform.workload_identity_token",
+      "foundation_platform_webhook_secret"
+    ]
+  },
+  "slos": [
+    {
+      "id": "gongzzang_api_to_foundation_platform_catalog_read",
+      "surface": "foundation-platform catalog read",
+      "availability_percent": 99.9,
+      "p95_latency_ms": 300,
+      "p99_latency_ms": 1000,
+      "timeout_ms": 5000,
+      "alert_policy": "foundation_platform_catalog_read_slo_burn",
+      "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
+    },
+    {
+      "id": "foundation_outbox_to_gongzzang_webhook",
+      "surface": "foundation-platform webhook receiver",
+      "availability_percent": 99.9,
+      "p95_latency_ms": 250,
+      "p99_latency_ms": 1000,
+      "duplicate_ack_success_percent": 100,
+      "dead_letter_alert_after_count": 1,
+      "alert_policy": "foundation_platform_webhook_dead_letter_or_latency",
+      "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
+    }
+  ],
+  "alerts": [
+    {
+      "id": "foundation_platform_catalog_read_slo_burn",
+      "signal": "latency_or_error_budget_burn",
+      "severity": "page",
+      "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
+    },
+    {
+      "id": "foundation_platform_catalog_circuit_open",
+      "signal": "circuit_breaker_open",
+      "severity": "page",
+      "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
+    },
+    {
+      "id": "foundation_platform_webhook_dead_letter_or_latency",
+      "signal": "dead_letter_count_or_handler_latency",
+      "severity": "page",
+      "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
+    },
+    {
+      "id": "foundation_platform_webhook_replay_surge",
+      "signal": "duplicate_event_rate",
+      "severity": "ticket",
+      "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
+    }
+  ],
+  "load_fault_tests": [
+    {
+      "id": "webhook_duplicate_burst_ack",
+      "test_file": "apps/web/tests/unit/foundation-platform-events-handler.test.ts",
+      "evidence": "acknowledges duplicate foundation-platform event bursts without repeated side effects",
+      "required": true
+    },
+    {
+      "id": "webhook_dead_letter_poison_event",
+      "test_file": "apps/web/tests/unit/foundation-platform-events-handler.test.ts",
+      "evidence": "dead_letter",
+      "required": true
+    },
+    {
+      "id": "anchor_import_processing_reclaim",
+      "test_file": "crates/gongzzang-persistence/tests/foundation_anchor_import_integration.rs",
+      "evidence": "processing_inbox_event_can_be_reclaimed_for_retry_after_worker_exit",
+      "required": true
+    },
+    {
+      "id": "catalog_circuit_breaker_timeout_fault",
+      "test_file": "crates/circuit-breaker/src/execute.rs",
+      "evidence": "execute_timeout_records_failure",
+      "required": true
+    },
+    {
+      "id": "catalog_circuit_breaker_open_fault",
+      "test_file": "crates/circuit-breaker/src/execute.rs",
+      "evidence": "execute_returns_open_when_breaker_open",
+      "required": true
+    }
+  ]
+}

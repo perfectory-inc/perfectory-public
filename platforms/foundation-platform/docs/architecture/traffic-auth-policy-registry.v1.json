@@ -1,0 +1,232 @@
+{
+  "schema_version": "foundation_platform.traffic_auth_policy_registry.v1",
+  "repo_slug": "foundation-platform",
+  "status": "active",
+  "owner": "foundation-platform",
+  "http_traffic_budget": {
+    "request_timeout_ms": 3000,
+    "max_concurrency": 128,
+    "body_limit_bytes": 1048576,
+    "env": {
+      "request_timeout_ms": "FOUNDATION_PLATFORM_HTTP_REQUEST_TIMEOUT_MS",
+      "max_concurrency": "FOUNDATION_PLATFORM_HTTP_MAX_CONCURRENCY",
+      "body_limit_bytes": "FOUNDATION_PLATFORM_HTTP_BODY_LIMIT_BYTES"
+    }
+  },
+  "public_routes": [
+    {
+      "id": "foundation_platform.public.marker_tile_contract",
+      "method": "GET",
+      "path": "/map/v1/marker-tiles/contract",
+      "handler": "catalog::get_marker_tile_contract",
+      "exposure": "public_contract",
+      "runtime_launch_allowed": true,
+      "edge_policy_required": true
+    }
+  ],
+  "diagnostic_reference_routes": [
+    {
+      "id": "foundation_platform.diagnostic.marker_tile_db_reference",
+      "method": "GET",
+      "path": "/map/v1/marker-tiles/:layer/:z/:x/:y_pbf",
+      "canonical_metric_path": "/map/v1/marker-tiles/:layer/:z/:x/:y.pbf",
+      "handler": "catalog::get_marker_tile",
+      "scope": "diagnostics_bounded_proof_admin",
+      "runtime_launch_allowed": false,
+      "production_default_enabled": false,
+      "local_default_enabled": true,
+      "env_override": "FOUNDATION_PLATFORM_DB_MARKER_TILE_REFERENCE_ENABLED",
+      "adr": "docs/adr/0008-pnu-anchor-pbf-marker-tile-contract.md"
+    }
+  ],
+  "service_identity_policies": [
+    {
+      "id": "foundation_platform.consumer.gongzzang_catalog_reads",
+      "consumer": "gongzzang",
+      "provider": "foundation-platform",
+      "allowed_surfaces": [
+        "/catalog/v1/vector-tiles/manifest",
+        "/map/v1/marker-tiles/contract",
+        "/catalog/v1/parcels/by-pnu/:pnu",
+        "/catalog/v1/parcels/by-pnu/:pnu/buildings"
+      ],
+      "allowed_service_surfaces": [
+        {
+          "method": "GET",
+          "path": "/catalog/v1/parcels/by-pnu/:pnu"
+        },
+        {
+          "method": "GET",
+          "path": "/catalog/v1/parcels/by-pnu/:pnu/buildings"
+        }
+      ],
+      "enforcement": {
+        "middleware": "service_identity::enforce_catalog_read_service_identity",
+        "default_decision": "deny",
+        "workload_identity_token_file_env": "FOUNDATION_PLATFORM_GONGZZANG_WORKLOAD_IDENTITY_TOKEN_FILE",
+        "required_env": "FOUNDATION_PLATFORM_GONGZZANG_SERVICE_TOKEN",
+        "required_headers": [
+          {
+            "name": "x-gongzzang-service-auth-policy-id",
+            "value": "gongzzang_api_to_foundation_api"
+          },
+          {
+            "name": "x-gongzzang-service-auth-source",
+            "value": "gongzzang-api"
+          },
+          {
+            "name": "x-gongzzang-service-auth-target",
+            "value": "foundation-api"
+          },
+          {
+            "name": "x-gongzzang-allowed-call-id",
+            "value": "gongzzang_api_to_foundation_platform_catalog_read"
+          }
+        ]
+      },
+      "required_boundary": "no direct foundation-platform database access from gongzzang",
+      "future_transport_auth": "mTLS or signed service token at edge/app frontdoor"
+    },
+    {
+      "id": "foundation_platform.consumer.gongzzang_lakehouse_registry_writes",
+      "consumer": "gongzzang",
+      "provider": "foundation-platform",
+      "allowed_surfaces": [
+        "POST /internal/lakehouse/artifacts"
+      ],
+      "allowed_service_surfaces": [
+        {
+          "method": "POST",
+          "path": "/internal/lakehouse/artifacts"
+        }
+      ],
+      "enforcement": {
+        "middleware": "service_identity::enforce_catalog_read_service_identity",
+        "default_decision": "deny",
+        "workload_identity_token_file_env": "FOUNDATION_PLATFORM_GONGZZANG_WORKLOAD_IDENTITY_TOKEN_FILE",
+        "required_env": "FOUNDATION_PLATFORM_GONGZZANG_SERVICE_TOKEN",
+        "required_headers": [
+          {
+            "name": "x-gongzzang-service-auth-policy-id",
+            "value": "gongzzang_worker_to_foundation_api"
+          },
+          {
+            "name": "x-gongzzang-service-auth-source",
+            "value": "gongzzang-worker"
+          },
+          {
+            "name": "x-gongzzang-service-auth-target",
+            "value": "foundation-api"
+          },
+          {
+            "name": "x-gongzzang-allowed-call-id",
+            "value": "gongzzang_pipeline_to_foundation_platform_lakehouse_registry"
+          },
+          {
+            "name": "x-gongzzang-service-auth-scope",
+            "value": "lakehouse:write"
+          }
+        ]
+      },
+      "required_boundary": "no direct foundation-platform database access from gongzzang",
+      "future_transport_auth": "mTLS or signed service token at edge/app frontdoor"
+    },
+    {
+      "id": "foundation_platform.consumer.intelligence_normalization_proposal_writes",
+      "consumer": "intelligence-platform",
+      "provider": "foundation-platform",
+      "allowed_surfaces": [
+        "POST /internal/normalization/proposals"
+      ],
+      "allowed_service_surfaces": [
+        {
+          "method": "POST",
+          "path": "/internal/normalization/proposals"
+        }
+      ],
+      "enforcement": {
+        "middleware": "service_identity::enforce_catalog_read_service_identity",
+        "default_decision": "deny",
+        "workload_identity_token_file_env": "FOUNDATION_PLATFORM_INTELLIGENCE_WORKLOAD_IDENTITY_TOKEN_FILE",
+        "required_env": "FOUNDATION_PLATFORM_INTELLIGENCE_SERVICE_TOKEN",
+        "required_headers": [
+          {
+            "name": "x-foundation-platform-service-auth-policy-id",
+            "value": "intelligence_platform_to_foundation_api"
+          },
+          {
+            "name": "x-foundation-platform-service-auth-source",
+            "value": "intelligence-platform"
+          },
+          {
+            "name": "x-foundation-platform-service-auth-target",
+            "value": "foundation-api"
+          },
+          {
+            "name": "x-foundation-platform-allowed-call-id",
+            "value": "intelligence_platform_to_foundation_platform_normalization_proposal_intake"
+          },
+          {
+            "name": "x-foundation-platform-service-auth-scope",
+            "value": "normalization:propose"
+          }
+        ]
+      },
+      "required_boundary": "no direct foundation-platform database access from intelligence-platform",
+      "future_transport_auth": "mTLS or signed service token at edge/app frontdoor"
+    },
+    {
+      "id": "foundation_platform.consumer.dawneer_catalog_reads",
+      "consumer": "dawneer",
+      "provider": "foundation-platform",
+      "allowed_surfaces": [
+        "/catalog/v1/vector-tiles/manifest",
+        "/map/v1/marker-tiles/contract",
+        "/catalog/v1/complexes/:id/anchor-summary",
+        "/catalog/v1/complexes/:id/blueprints",
+        "/catalog/v1/parcels/by-pnu/:pnu",
+        "/catalog/v1/parcels/by-pnu/:pnu/buildings"
+      ],
+      "allowed_service_surfaces": [
+        {
+          "method": "GET",
+          "path": "/catalog/v1/parcels/by-pnu/:pnu"
+        },
+        {
+          "method": "GET",
+          "path": "/catalog/v1/parcels/by-pnu/:pnu/buildings"
+        }
+      ],
+      "enforcement": {
+        "middleware": "service_identity::enforce_catalog_read_service_identity",
+        "default_decision": "deny",
+        "workload_identity_token_file_env": "FOUNDATION_PLATFORM_DAWNEER_WORKLOAD_IDENTITY_TOKEN_FILE",
+        "required_env": "FOUNDATION_PLATFORM_DAWNEER_SERVICE_TOKEN",
+        "required_headers": [
+          {
+            "name": "x-foundation-platform-service-auth-policy-id",
+            "value": "dawneer_api_to_foundation_api"
+          },
+          {
+            "name": "x-foundation-platform-service-auth-source",
+            "value": "dawneer-api"
+          },
+          {
+            "name": "x-foundation-platform-service-auth-target",
+            "value": "foundation-api"
+          },
+          {
+            "name": "x-foundation-platform-allowed-call-id",
+            "value": "dawneer_api_to_foundation_platform_catalog_read"
+          },
+          {
+            "name": "x-foundation-platform-service-auth-scope",
+            "value": "catalog:read"
+          }
+        ]
+      },
+      "required_boundary": "no direct foundation-platform database access from dawneer",
+      "future_transport_auth": "mTLS or signed service token at edge/app frontdoor"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+[package]
+name = "gongzzang-persistence"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+description = "공짱 SQLx Repository 구현체"
+
+[features]
+integration = []
+
+[dependencies]
+shared-kernel = { path = "../shared-kernel", version = "0.1.0" }
+user-domain = { path = "../user-domain", version = "0.1.0" }
+listing-domain = { path = "../listing-domain", version = "0.1.0" }
+listing-photo-domain = { path = "../listing-photo-domain", version = "0.1.0" }
+admin-action-domain = { path = "../admin-action-domain", version = "0.1.0" }
+audit-log-domain = { path = "../audit-log-domain", version = "0.1.0" }
+business-verification-domain = { path = "../business-verification-domain", version = "0.1.0" }
+listing-report-domain = { path = "../listing-report-domain", version = "0.1.0" }
+listing-review-domain = { path = "../listing-review-domain", version = "0.1.0" }
+featured-content-domain = { path = "../featured-content-domain", version = "0.1.0" }
+system-alert-domain = { path = "../system-alert-domain", version = "0.1.0" }
+outbox-event-domain = { path = "../outbox-event-domain", version = "0.1.0" }
+bookmark-domain = { path = "../bookmark-domain", version = "0.1.0" }
+search-history-domain = { path = "../search-history-domain", version = "0.1.0" }
+analysis-report-domain = { path = "../analysis-report-domain", version = "0.1.0" }
+notification-domain = { path = "../notification-domain", version = "0.1.0" }
+sqlx = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+geo-types = { workspace = true }
+serde_json = { workspace = true }
+bigdecimal = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+gongzzang-outbox = { path = "../gongzzang-outbox", version = "0.1.0" }
+async-trait = { workspace = true }
+
+[lints]
+workspace = true

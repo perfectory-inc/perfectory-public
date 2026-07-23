@@ -1,0 +1,109 @@
+name: db-migrations
+
+on:
+  # Required context must also be runnable for a history-free public root.
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "products/gongzzang/**"
+      - ".github/workflows/gongzzang-db-migrations.yml"
+  pull_request:
+    branches: [main]
+    # Intentionally unfiltered so required/gongzzang-migrations always reports.
+
+defaults:
+  run:
+    working-directory: products/gongzzang
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  POSTGRES_USER: gongzzang
+  POSTGRES_PASSWORD: ci_only_changeme
+  POSTGRES_DB: postgres
+
+jobs:
+  migrate:
+    name: Full migrations + schema invariants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+        env:
+          POSTGRES_USER: gongzzang
+          POSTGRES_PASSWORD: ci_only_changeme
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gongzzang"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://gongzzang:ci_only_changeme@localhost:5432/gongzzang_migration_smoke
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          shared-key: sqlx-cli
+          workspaces: products/gongzzang
+
+      - name: Install sqlx-cli + postgres client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          cargo install sqlx-cli --version 0.8.6 --locked --no-default-features --features postgres,rustls
+
+      - name: Wait for Postgres
+        run: |
+          for _ in {1..30}; do
+            pg_isready -h localhost -p 5432 -U gongzzang && break
+            sleep 1
+          done
+
+      # Native replacements for the deleted ci_migration_v001_full /
+      # ci_migration_v002_audit_immutable graph-build transition targets, which
+      # only invoked these same shell scripts via run_ci_transition_task.sh.
+      - name: Apply full migration chain + schema invariants
+        run: bash tests/migrations/test_v001_full.sh
+
+      - name: Apply V002 migrations + audit immutable
+        run: bash tests/migrations/test_v002_audit_immutable.sh
+
+      - name: Run persistence integration tests
+        run: cargo test -p gongzzang-persistence --features integration -- --test-threads=1
+
+  required:
+    name: required/gongzzang-migrations
+    if: ${{ always() }}
+    needs: [migrate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Require the migration gate
+        env:
+          REQUIRED_RESULT_MIGRATE: ${{ needs.migrate.result }}
+        working-directory: .
+        run: bash scripts/ci/require-successful-needs.sh

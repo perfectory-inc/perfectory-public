@@ -1,0 +1,153 @@
+services:
+  identity-db:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_DB: identity
+      POSTGRES_USER: identity_admin
+      POSTGRES_PASSWORD: ${IDENTITY_ADMIN_PASSWORD:?set IDENTITY_ADMIN_PASSWORD}
+    ports:
+      - "127.0.0.1:${IDENTITY_DB_PORT:-5432}:5432"
+    volumes:
+      - identity-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identity_admin -d identity"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  identity-bootstrap:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    restart: "no"
+    user: "70:70"
+    environment:
+      PGHOST: identity-db
+      PGDATABASE: identity
+      PGUSER: identity_admin
+      PGPASSWORD: ${IDENTITY_ADMIN_PASSWORD:?set IDENTITY_ADMIN_PASSWORD}
+      IDENTITY_MIGRATOR_PASSWORD: ${IDENTITY_MIGRATOR_PASSWORD:?set IDENTITY_MIGRATOR_PASSWORD}
+      IDENTITY_API_PASSWORD: ${IDENTITY_API_PASSWORD:?set IDENTITY_API_PASSWORD}
+      IDENTITY_POLICY_WORKER_PASSWORD: ${IDENTITY_POLICY_WORKER_PASSWORD:?set IDENTITY_POLICY_WORKER_PASSWORD}
+      IDENTITY_PROVISIONER_PASSWORD: ${IDENTITY_PROVISIONER_PASSWORD:?set IDENTITY_PROVISIONER_PASSWORD}
+    volumes:
+      - ./infra/compose/bootstrap-identity.sql:/workspace/bootstrap-identity.sql:ro
+      - ./infra/compose/normalize-identity-database-acl.sql:/workspace/normalize-identity-database-acl.sql:ro
+    command: ["psql", "-X", "--set=ON_ERROR_STOP=1", "--file=/workspace/bootstrap-identity.sql"]
+    depends_on:
+      identity-db:
+        condition: service_healthy
+
+  identity-database-migrator:
+    image: identity-platform-runtime:local
+    pull_policy: never
+    restart: "no"
+    entrypoint: ["/usr/local/bin/identity-database-migrator"]
+    environment:
+      IDENTITY_MIGRATOR_DATABASE_URL: postgres://identity_migrator:${IDENTITY_MIGRATOR_PASSWORD:?set IDENTITY_MIGRATOR_PASSWORD}@identity-db:5432/identity
+    depends_on:
+      identity-bootstrap:
+        condition: service_completed_successfully
+
+  identity-runtime-grants:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    restart: "no"
+    user: "70:70"
+    environment:
+      PGHOST: identity-db
+      PGDATABASE: identity
+      PGUSER: identity_migrator
+      PGPASSWORD: ${IDENTITY_MIGRATOR_PASSWORD:?set IDENTITY_MIGRATOR_PASSWORD}
+    volumes:
+      - ./infra/compose/grant-identity-runtime-access.sql:/workspace/grant-identity-runtime-access.sql:ro
+    command:
+      - psql
+      - -X
+      - --set=ON_ERROR_STOP=1
+      - --set=identity_api_role=identity_api
+      - --set=identity_policy_worker_role=identity_policy_worker
+      - --set=identity_provisioner_role=identity_provisioner
+      - --file=/workspace/grant-identity-runtime-access.sql
+    depends_on:
+      identity-database-migrator:
+        condition: service_completed_successfully
+
+  identity-workload-provisioner:
+    image: identity-platform-runtime:local
+    pull_policy: never
+    restart: "no"
+    entrypoint: ["/usr/local/bin/identity-service-provisioner"]
+    environment:
+      IDENTITY_PROVISIONER_DATABASE_URL: postgres://identity_provisioner:${IDENTITY_PROVISIONER_PASSWORD:?set IDENTITY_PROVISIONER_PASSWORD}@identity-db:5432/identity
+      IDENTITY_WORKLOAD_PRINCIPAL_BINDINGS: /run/identity/workload-principal-bindings.json
+    volumes:
+      - ${IDENTITY_WORKLOAD_PRINCIPAL_BINDINGS_FILE:-./config/workload-principal-bindings.example.v1.json}:/run/identity/workload-principal-bindings.json:ro
+    depends_on:
+      identity-runtime-grants:
+        condition: service_completed_successfully
+
+  identity-finalize:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    restart: "no"
+    user: "70:70"
+    environment:
+      PGHOST: identity-db
+      PGDATABASE: identity
+      PGUSER: identity_admin
+      PGPASSWORD: ${IDENTITY_ADMIN_PASSWORD:?set IDENTITY_ADMIN_PASSWORD}
+    volumes:
+      - ./infra/compose/finalize-identity.sql:/workspace/finalize-identity.sql:ro
+    command: ["psql", "-X", "--set=ON_ERROR_STOP=1", "--file=/workspace/finalize-identity.sql"]
+    depends_on:
+      identity-workload-provisioner:
+        condition: service_completed_successfully
+
+  identity-api:
+    image: identity-platform-runtime:local
+    build:
+      context: .
+      dockerfile: services/identity-api/Dockerfile
+    environment:
+      IDENTITY_DATABASE_URL: postgres://identity_api:${IDENTITY_API_PASSWORD:?set IDENTITY_API_PASSWORD}@identity-db:5432/identity
+      IDENTITY_API_BIND_ADDR: 0.0.0.0:8080
+      IDENTITY_ZITADEL_ISSUER_URL: ${IDENTITY_ZITADEL_ISSUER_URL:-https://identity.example.test}
+      IDENTITY_API_AUDIENCE: ${IDENTITY_API_AUDIENCE:-identity-api}
+      IDENTITY_BOOTSTRAP_ADMIN_ZITADEL_SUBJECT:
+      IDENTITY_BOOTSTRAP_ADMIN_EMAIL:
+      IDENTITY_BOOTSTRAP_ADMIN_DISPLAY_NAME:
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "127.0.0.1:${IDENTITY_API_PORT:-8080}:8080"
+    depends_on:
+      identity-db:
+        condition: service_healthy
+      identity-finalize:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/identity-api", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  identity-policy-worker:
+    image: identity-platform-policy-worker:local
+    build:
+      context: .
+      dockerfile: services/identity-policy-worker/Dockerfile
+    environment:
+      IDENTITY_DATABASE_URL: postgres://identity_policy_worker:${IDENTITY_POLICY_WORKER_PASSWORD:?set IDENTITY_POLICY_WORKER_PASSWORD}@identity-db:5432/identity
+      IDENTITY_POLICY_EVENT_ENDPOINT: ${IDENTITY_POLICY_EVENT_ENDPOINT:?set IDENTITY_POLICY_EVENT_ENDPOINT}
+      IDENTITY_POLICY_WORKER_ID: ${IDENTITY_POLICY_WORKER_ID:-identity-policy-worker-local}
+      RUST_LOG: ${RUST_LOG:-info}
+    depends_on:
+      identity-db:
+        condition: service_healthy
+      identity-finalize:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/identity-policy-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  identity-postgres-data:

@@ -1,0 +1,23 @@
+[Unit]
+Description=Foundation Platform encrypted PostgreSQL backup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+Environment=FOUNDATION_RECOVERY_EVIDENCE_DIR=/var/lib/foundation-platform/recovery
+EnvironmentFile=/etc/foundation-platform/recovery.env
+ExecStart=/opt/foundation-platform/current/scripts/recovery/run-postgres-backup.sh
+TimeoutStartSec=6h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/recovery
+
+[Install]
+WantedBy=multi-user.target

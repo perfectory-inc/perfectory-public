@@ -1,0 +1,8 @@
+FROM postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+
+RUN apk add --no-cache pgbackrest=2.58.0-r0
+
+COPY --chmod=0755 infra/postgres/recovery-entrypoint.sh /usr/local/bin/foundation-postgres-recovery-entrypoint
+
+ENTRYPOINT ["/usr/local/bin/foundation-postgres-recovery-entrypoint"]
+CMD ["postgres"]

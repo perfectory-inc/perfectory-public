@@ -1,0 +1,57 @@
+[package]
+name = "gongzzang-api"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+description = "Gongzzang HTTP API service"
+
+[dependencies]
+product-identity-infrastructure = { path = "../../crates/product-identity-infrastructure", version = "0.1.0" }
+foundation-platform-client = { path = "../../crates/foundation-platform-client", version = "0.1.0" }
+shared-kernel = { path = "../../crates/shared-kernel", version = "0.1.0" }
+user-domain = { path = "../../crates/user-domain", version = "0.1.0" }
+listing-domain = { path = "../../crates/listing-domain", version = "0.1.0" }
+listing-photo-domain = { path = "../../crates/listing-photo-domain", version = "0.1.0" }
+bookmark-domain = { path = "../../crates/bookmark-domain", version = "0.1.0" }
+notification-domain = { path = "../../crates/notification-domain", version = "0.1.0" }
+parcel-lookup = { path = "../../crates/parcel-lookup", version = "0.1.0" }
+gongzzang-persistence = { path = "../../crates/gongzzang-persistence", version = "0.1.0" }
+circuit-breaker = { path = "../../crates/circuit-breaker", version = "0.1.0" }
+axum = { workspace = true }
+deadpool-redis = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+tower-http = { workspace = true, features = ["trace"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+ulid = { workspace = true }
+sentry = { workspace = true }
+sentry-tracing = { workspace = true }
+subtle = "2"
+# Used by listing photo upload/download presigning.
+aws-config = { version = "=1.8.17", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-credential-types = "=1.2.14"
+aws-sdk-s3 = { version = "=1.133.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-smithy-types = "=1.4.8"
+
+[dev-dependencies]
+tempfile = "3"
+tower = "0.5"
+
+# Regenerates the traffic/auth policy artifacts from the registry SSOT.
+# Run: cargo run -p gongzzang-api --bin generate-traffic-auth-policy
+[[bin]]
+name = "generate-traffic-auth-policy"
+path = "src/bin/generate_traffic_auth_policy.rs"
+
+[lints]
+workspace = true

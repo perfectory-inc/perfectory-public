@@ -1,0 +1,36 @@
+{
+  "schema_version": "foundation-platform.event_fabric_registry.v1",
+  "status": "planned",
+  "current_publisher": "outbox_webhook",
+  "future_publishers": [
+    "kafka"
+  ],
+  "rules": [
+    "service_code_must_depend_on_event_publisher_contract_not_kafka_client",
+    "transactional_outbox_remains_source_of_publishable_events",
+    "event_id_is_idempotency_key",
+    "event_type_and_schema_version_are_stable",
+    "dlq_or_quarantine_required_before_drop",
+    "consumer_effect_ack_required_for_cutover_evidence"
+  ],
+  "topics": [
+    {
+      "event_type": "catalog.industrial_complex.gold_pointer.published.v1",
+      "future_topic": "foundation-platform.catalog.industrial-complex.v1",
+      "current_transport": "webhook",
+      "migration_policy": "dual_publish_then_consumer_cutover"
+    },
+    {
+      "event_type": "catalog.parcel_marker_anchor.snapshot.published.v1",
+      "future_topic": "foundation-platform.catalog.parcel-marker-anchor.v1",
+      "current_transport": "webhook",
+      "migration_policy": "dual_publish_then_consumer_cutover"
+    },
+    {
+      "event_type": "catalog.collection.raw_written.v1",
+      "future_topic": "foundation-platform.catalog.collection-raw-written.v1",
+      "current_transport": "webhook",
+      "migration_policy": "dual_publish_then_consumer_cutover"
+    }
+  ]
+}

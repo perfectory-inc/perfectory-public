@@ -1,0 +1,36 @@
+select
+    concat(source_system, ':', source_record_id, ':', target_entity_id, ':', match_path) as assertion_id,
+    cast(null as varchar) as assertion_group_id,
+    source_system,
+    source_record_id,
+    cast(null as varchar) as source_record_version,
+    source_snapshot_id,
+    source_observation_id,
+    target_entity_type,
+    target_entity_id,
+    target_snapshot_id,
+    match_method,
+    match_path,
+    confidence_score,
+    confidence_band,
+    json_format(cast(map(array['match_path'], array[match_path]) as json)) as evidence,
+    cast(null as varchar) as blocking_keys,
+    'court-auction-building-unit-match.v1' as rule_version,
+    cast(null as varchar) as model_name,
+    cast(null as varchar) as model_version,
+    cast(null as varchar) as model_run_id,
+    case
+        when confidence_band = 'high' then 'not_required'
+        else 'needs_review'
+    end as review_state,
+    'candidate' as publish_state,
+    cast(null as varchar) as decision_reason,
+    'dbt:int_entity_resolution__court_auction_building_unit_candidates' as created_by,
+    current_timestamp as created_at,
+    cast(null as varchar) as reviewed_by,
+    cast(null as timestamp) as reviewed_at,
+    cast(null as varchar) as published_by,
+    cast(null as timestamp) as published_at,
+    cast(null as varchar) as supersedes_assertion_id,
+    lineage_run_id
+from {{ ref('int_entity_resolution__court_auction_building_unit_candidates') }}

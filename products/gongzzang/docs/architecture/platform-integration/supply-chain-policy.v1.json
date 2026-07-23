@@ -1,0 +1,57 @@
+{
+  "schema_version": "gongzzang.platform_integration.supply_chain_policy.v1",
+  "platform_naming": {
+    "decision_source": "docs/adr/0048-horizontal-platform-redefinition.md",
+    "canonical_platform_slug": "foundation-platform"
+  },
+  "repo_slug": "gongzzang",
+  "owner": "gongzzang",
+  "status": "active",
+  "npm": {
+    "manager": "pnpm",
+    "audit_command": "pnpm audit",
+    "required_overrides": {
+      "brace-expansion": "5.0.6",
+      "postcss": "8.5.15",
+      "vite": "6.4.2"
+    }
+  },
+  "rust": {
+    "sca": "cargo-deny",
+    "config": "deny.toml",
+    "command": "cargo deny check"
+  },
+  "secret_scanning": {
+    "tool": "gitleaks",
+    "config": ".gitleaks.toml",
+    "workflow": ".github/workflows/secret-scan.yml",
+    "ci_command": "gitleaks dir . --config .gitleaks.toml --redact -v && gitleaks git . --config .gitleaks.toml --redact -v",
+    "pre_commit_command": "gitleaks git --pre-commit --staged --redact -v --config .gitleaks.toml"
+  },
+  "ci_gate": {
+    "required": true,
+    "workflow": ".github/workflows/gongzzang-ci.yml",
+    "jobs": [
+      {
+        "id": "cargo-deny",
+        "name": "cargo-deny",
+        "command": "cargo deny check"
+      }
+    ],
+    "per_pr_guards": [
+      "scripts/lefthook/foundation-ownership-boundary.sh",
+      "cargo run -p repo-guard -- migration-version-prefixes"
+    ]
+  },
+  "removed_pre_launch": {
+    "note": "Pre-launch provenance, SBOM-attestation, and production deploy-admission ceremony was removed. See ADR-0044.",
+    "adr": "docs/adr/0044-bazel-transition-reconciliation.md",
+    "no_longer_exist": [
+      "ci job supply-chain-provenance",
+      "actions/attest provenance/SBOM attestation steps",
+      "cosign release signing",
+      "standalone production deploy-admission workflow",
+      "deploy-candidate verifier scripts"
+    ]
+  }
+}

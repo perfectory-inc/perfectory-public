@@ -1,0 +1,284 @@
+name: Foundation Platform CI
+
+on:
+  # A history-free public-root push has no comparable parent for path filters;
+  # keep an explicit, auditable way to run this required context on that root.
+  workflow_dispatch:
+  # Pull requests are intentionally unfiltered. A path-filtered workflow can
+  # leave its required check pending forever when GitHub skips the workflow.
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - main
+    paths:
+      - "platforms/foundation-platform/**"
+      - ".github/workflows/foundation-ci.yml"
+      # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
+      # toolchain pin change how THIS area is verified, so they must retrigger it.
+      # monorepo-guard `xtask-path-coverage` enforces this for every area CI.
+      - "tools/xtask/**"
+      - ".cargo/config.toml"
+      - "rust-toolchain.toml"
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: platforms/foundation-platform
+
+concurrency:
+  group: foundation-platform-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER: log
+  RUST_TOOLCHAIN: "1.96.0"
+  CARGO_DENY_VERSION: "0.19.8"
+  SYFT_VERSION: "v1.44.0"
+  SYFT_LINUX_AMD64_SHA256: "0e91737aee2b5baf1d255b959630194a302335d848ff97bb07921eb6205b5f5a"
+
+jobs:
+  rust-quality:
+    name: Rust fmt, unit tests, clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+
+      # Foundation-specific: the committed Catalog OpenAPI artifact must match a
+      # fresh export (this builds+runs export-catalog-openapi, which compiles what
+      # it needs — the standalone build step is redundant with xtask clippy below).
+      - name: Verify generated Catalog OpenAPI artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --locked --quiet -p foundation-api --bin export-catalog-openapi -- /tmp/catalog.v1.json
+          cmp docs/openapi/catalog.v1.json /tmp/catalog.v1.json
+
+      # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the
+      # one flag policy. Runs from the repo root (this job defaults to the area).
+      - name: Verify (fmt, clippy, test)
+        working-directory: ${{ github.workspace }}
+        run: cargo xtask verify foundation
+
+  supply-chain:
+    name: Supply-chain release gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Install supply-chain tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          if ! command -v cargo-deny >/dev/null 2>&1; then
+            cargo install cargo-deny --version "$CARGO_DENY_VERSION" --locked
+          fi
+          if ! command -v syft >/dev/null 2>&1; then
+            version="${SYFT_VERSION#v}"
+            archive="/tmp/syft_${version}_linux_amd64.tar.gz"
+            curl -sSfL --output "$archive" \
+              "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_${version}_linux_amd64.tar.gz"
+            echo "$SYFT_LINUX_AMD64_SHA256  $archive" | sha256sum --check --strict -
+            tar xzf "$archive" -C "$HOME/.local/bin" syft
+          fi
+
+      - name: Run supply-chain tools (cargo-deny, SBOM)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/supply-chain-tools
+          cargo-deny check --hide-inclusion-graph
+          source_version="${GITHUB_SHA:-$(git rev-parse --verify HEAD)}"
+          syft "dir:." --exclude='./.git/**' --exclude='./target/**' --source-name=foundation-platform --source-version="$source_version" --output=cyclonedx-json=target/supply-chain-tools/cyclonedx-bom.json
+
+      - name: Upload supply-chain artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2 (SHA pin, ADR 0028)
+        with:
+          name: supply-chain-reports
+          # path: is relative to $GITHUB_WORKSPACE — defaults.run.working-directory does NOT apply to uses: steps
+          path: |
+            platforms/foundation-platform/target/supply-chain-tools/cyclonedx-bom.json
+          if-no-files-found: warn
+
+  postgres-integration:
+    name: Postgres integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+        ports:
+          - 5432/tcp
+        env:
+          POSTGRES_USER: foundation_platform
+          POSTGRES_PASSWORD: foundation_platform_dev_2026
+          POSTGRES_DB: foundation_platform
+        options: >-
+          --health-cmd "pg_isready -U foundation_platform -d foundation_platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+
+      - name: Set dynamic database URL
+        env:
+          POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: echo "DATABASE_URL=postgres://foundation_platform:foundation_platform_dev_2026@localhost:${POSTGRES_PORT}/foundation_platform" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Install database client
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            if command -v sudo >/dev/null 2>&1 && sudo -n true; then
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends postgresql-client
+            else
+              echo "::error::postgresql-client is missing and the GitHub-hosted runner does not provide passwordless sudo"
+              exit 1
+            fi
+          fi
+          psql --version
+
+      - name: Install sqlx CLI
+        run: cargo install sqlx-cli --version 0.8.6 --no-default-features --features postgres,rustls --locked
+
+      - name: Run migrations
+        run: sqlx migrate run
+
+      - name: Seed local vector tile manifest
+        run: psql "$DATABASE_URL" -f infra/db/seeds/local_vector_tile_manifest.sql
+
+      # The integration test COMMAND is the single SSOT in xtask (ADR-0004), the
+      # same one `scripts/verify/integration.sh foundation` runs locally against a
+      # disposable DB. DATABASE_URL (set above) is the already-provisioned database.
+      - name: Run ignored integration tests (xtask SSOT)
+        working-directory: ${{ github.workspace }}
+        run: cargo xtask integration foundation
+
+  compose-smoke:
+    name: Independent Foundation Compose smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      FOUNDATION_ADMIN_PASSWORD: compose_admin_ci
+      FOUNDATION_MIGRATOR_PASSWORD: compose_migrator_ci
+      FOUNDATION_API_PASSWORD: compose_api_ci
+      FOUNDATION_DB_PORT: 15434
+      FOUNDATION_API_PORT: 18080
+      FOUNDATION_REDIS_PORT: 16379
+      IDENTITY_API_BASE_URL: https://identity.example.test
+      ZITADEL_ISSUER_URL: http://127.0.0.1:18081
+      FOUNDATION_PLATFORM_ZITADEL_AUDIENCE: foundation-api
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+
+      - name: Build and start clean Compose stack
+        run: scripts/compose-smoke.sh -- start-api
+
+      - name: Wait for Foundation API readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id="$(timeout --foreground 10s docker compose --profile compose-smoke ps -q foundation-api-smoke)"
+          test -n "$container_id"
+          test "$(timeout --foreground 10s docker inspect --format '{{.State.Health.Status}}' "$container_id")" = healthy
+
+      - name: Verify one-shot helper UIDs
+        run: scripts/compose-smoke.sh -- verify-uids
+
+      - name: Re-run migration chain on the same volume
+        run: scripts/compose-smoke.sh -- rerun-api
+
+      - name: Verify migration and least-privilege runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          contract="$(docker compose exec -T postgres psql -X -A -t -v ON_ERROR_STOP=1 -U foundation_admin -d foundation -c "
+            SELECT
+              NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_roles
+                WHERE rolname IN ('foundation_migrator','foundation_api')
+                  AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolinherit OR rolreplication OR rolbypassrls)
+              )
+              AND has_schema_privilege('foundation_api', 'catalog', 'USAGE')
+              AND NOT has_schema_privilege('foundation_api', 'catalog', 'CREATE')
+              AND has_table_privilege('foundation_api', 'catalog.industrial_complex', 'SELECT,INSERT,UPDATE,DELETE')
+              AND NOT EXISTS (
+                SELECT 1 FROM public._sqlx_migrations
+                WHERE NOT success
+              );")"
+          test "$contract" = "t"
+          ! docker compose exec -T foundation-api env | grep -E 'FOUNDATION_(ADMIN|MIGRATOR)_PASSWORD|foundation_(admin|migrator)'
+
+      - name: Clean Compose resources
+        if: always()
+        run: timeout --foreground 120s docker compose down -v --remove-orphans
+
+  required:
+    name: required/foundation
+    if: ${{ always() }}
+    needs: [rust-quality, supply-chain, postgres-integration, compose-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Require every Foundation gate
+        env:
+          REQUIRED_RESULT_RUST_QUALITY: ${{ needs.rust-quality.result }}
+          REQUIRED_RESULT_SUPPLY_CHAIN: ${{ needs.supply-chain.result }}
+          REQUIRED_RESULT_POSTGRES_INTEGRATION: ${{ needs.postgres-integration.result }}
+          REQUIRED_RESULT_COMPOSE_SMOKE: ${{ needs.compose-smoke.result }}
+        working-directory: .
+        run: bash scripts/ci/require-successful-needs.sh

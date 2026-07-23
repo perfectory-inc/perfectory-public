@@ -1,0 +1,26 @@
+{
+  "schema_version": "foundation-platform.outbox_webhook_envelope.v1",
+  "required_headers": [
+    "x-foundation-platform-event-id",
+    "x-foundation-platform-event-type",
+    "x-foundation-platform-outbox-scope",
+    "x-foundation-platform-signature",
+    "x-foundation-platform-timestamp"
+  ],
+  "body": {
+    "event_id": "0196f0b0-3e01-7000-8000-000000000002",
+    "event_type": "catalog.parcel_marker_anchor.snapshot.published.v1",
+    "occurred_at": "2026-05-28T12:00:00Z",
+    "scope": "catalog",
+    "payload": {
+      "type": "catalog.parcel_marker_anchor.snapshot.published.v1",
+      "schema_version": 1,
+      "anchor_snapshot_id": "anchor-snapshot-20260528T120000Z",
+      "source_geometry_version": "silver.parcel_boundaries@20260528",
+      "artifact_manifest_url": "https://foundation-platform.example.com/artifacts/anchor-snapshot.json",
+      "artifact_checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "row_count": 1,
+      "published_at": "2026-05-28T12:00:00Z"
+    }
+  }
+}

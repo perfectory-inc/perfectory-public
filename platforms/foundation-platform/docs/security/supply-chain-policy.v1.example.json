@@ -1,0 +1,45 @@
+{
+  "schema_version": "foundation-platform.supply_chain_policy.v1",
+  "scope": "foundation-platform",
+  "package_managers": [
+    "cargo"
+  ],
+  "mandatory_ci_checks": [
+    "gitleaks-secret-scan",
+    "no-llm-mcp-deps",
+    "event-fabric-boundary",
+    "event-workflow-execution-boundary",
+    "file-line-limits"
+  ],
+  "required_before_cutover": [
+    {
+      "tool": "cargo-deny",
+      "purpose": "rust dependency advisory, license, source, and duplicate-version policy",
+      "status": "ci_blocking"
+    },
+    {
+      "tool": "gitleaks",
+      "purpose": "formal secret scanning beyond lightweight repository token checks",
+      "scan_scope": "release_commit",
+      "status": "ci_blocking"
+    },
+    {
+      "tool": "cyclonedx-sbom",
+      "implementation": "syft",
+      "purpose": "CycloneDX SBOM artifact generation for release and incident response",
+      "status": "ci_blocking"
+    }
+  ],
+  "sbom": {
+    "format": "CycloneDX JSON",
+    "required_for": [
+      "services/foundation-api",
+      "services/foundation-outbox-publisher"
+    ],
+    "publish_location": "release-artifacts/foundation-platform"
+  },
+  "artifact_integrity": {
+    "container_digest_required": true,
+    "signature_required_before_production": true
+  }
+}
