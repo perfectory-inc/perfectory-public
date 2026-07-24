@@ -191,7 +191,7 @@ flat tiles:
       "data_revision": "0196e7e0-3c20-7000-8000-000000000061",
       "serving_generation": 42,
       "active_release_id": "0196e7e0-3c20-7000-8000-000000000062",
-      "canonical_iceberg_snapshot_id": "2095444522288693696",
+      "canonical_iceberg_snapshot_id": "70000000000000001",
       "source": {
         "kind": "static_pmtiles",
         "martin_source_id": "parcels-0196e7e0-3c20-7000-8000-000000000062",

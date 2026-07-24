@@ -438,7 +438,7 @@ mod tests {
                         active_release_id: VectorTileReleaseId::new(Uuid::nil()),
                         data_revision: VectorTileDataRevisionId::new(Uuid::nil()),
                         serving_generation: 42,
-                        canonical_iceberg_snapshot_id: "2095444522288693696".to_owned(),
+                        canonical_iceberg_snapshot_id: "70000000000000001".to_owned(),
                     },
                 )]
                 .into_iter()
