@@ -50,6 +50,7 @@ fn contract_json(contract: &LakehouseTableContract) -> Value {
         "table_name": contract.table_name,
         "physical_format": format!("{:?}", contract.physical_format),
         "serving_role": format!("{:?}", contract.serving_role),
+        "current_row_predicate": contract.current_row_predicate,
         "columns": contract.columns.iter().map(|column| {
             serde_json::json!({
                 "name": column.name,

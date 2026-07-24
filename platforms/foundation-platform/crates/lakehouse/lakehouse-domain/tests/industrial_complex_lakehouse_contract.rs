@@ -74,6 +74,7 @@ fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_for_pnu_lookup()
     let contract = SILVER_PARCEL_BOUNDARIES;
 
     assert_eq!(contract.table_name, "silver.parcel_boundaries");
+    assert_eq!(contract.current_row_predicate, Some("valid_to_utc IS NULL"));
     assert_eq!(contract.layer, LakehouseLayer::Silver);
     assert_eq!(
         contract.physical_format,
@@ -95,6 +96,21 @@ fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_for_pnu_lookup()
     assert!(contract.partition_spec.contains(&"sigungu_code"));
     assert!(contract.partition_spec.contains(&"bucket(256, pnu)"));
     assert_eq!(contract.sort_order, &["pnu", "valid_from_utc"]);
+}
+
+#[test]
+fn only_parcel_boundaries_define_a_current_row_predicate() {
+    for contract in industrial_complex_lakehouse_contracts() {
+        if contract.table_name == SILVER_PARCEL_BOUNDARIES.table_name {
+            assert_eq!(contract.current_row_predicate, Some("valid_to_utc IS NULL"));
+        } else {
+            assert_eq!(
+                contract.current_row_predicate, None,
+                "{} must not define a current-row predicate",
+                contract.table_name
+            );
+        }
+    }
 }
 
 #[test]

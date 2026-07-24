@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:perfectory:foundation-platform:spatial-tile-wap-evidence:v1",
+  "title": "Foundation spatial tile WAP evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "logical_contract",
+    "physical_table",
+    "catalog_bucket",
+    "historical_base_snapshot",
+    "base_snapshot",
+    "historical_branch_snapshot",
+    "branch_snapshot",
+    "historical_branch_name",
+    "branch_name",
+    "result",
+    "provider",
+    "historical_base_isolation",
+    "branch_isolation",
+    "retention",
+    "fast_forward"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "foundation-platform.spatial_tile_wap_evidence.v1"
+    },
+    "logical_contract": {
+      "type": "string",
+      "const": "silver.parcel_boundaries"
+    },
+    "physical_table": {
+      "type": "string",
+      "const": "r2.tiles_slice_proof.parcel_boundaries_wap_probe"
+    },
+    "catalog_bucket": {
+      "type": "string",
+      "const": "perfectory-tiles-slice-proof"
+    },
+    "historical_base_snapshot": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "base_snapshot": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "historical_branch_snapshot": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "branch_snapshot": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "historical_branch_name": {
+      "type": "string"
+    },
+    "branch_name": {
+      "type": "string"
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "prepared",
+        "validated",
+        "fast_forwarded",
+        "probe_ok"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "const": "cloudflare-r2-data-catalog"
+    },
+    "historical_base_isolation": {
+      "type": "string",
+      "const": "ok"
+    },
+    "branch_isolation": {
+      "type": "string",
+      "const": "ok"
+    },
+    "retention": {
+      "type": "string",
+      "const": "ok"
+    },
+    "fast_forward": {
+      "type": "string",
+      "enum": [
+        "not_requested",
+        "ok"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "enum": [
+              "prepared",
+              "validated"
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ]
+      },
+      "then": {
+        "properties": {
+          "fast_forward": {
+            "const": "not_requested"
+          }
+        },
+        "required": [
+          "fast_forward"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "enum": [
+              "fast_forwarded",
+              "probe_ok"
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ]
+      },
+      "then": {
+        "properties": {
+          "fast_forward": {
+            "const": "ok"
+          }
+        },
+        "required": [
+          "fast_forward"
+        ]
+      }
+    }
+  ],
+  "x-perfectory-cross-field-invariants": [
+    {
+      "op": "equal",
+      "fields": [
+        "historical_branch_snapshot",
+        "historical_base_snapshot"
+      ]
+    },
+    {
+      "op": "all_distinct",
+      "fields": [
+        "historical_base_snapshot",
+        "base_snapshot",
+        "branch_snapshot"
+      ]
+    }
+  ],
+  "x-perfectory-branch-pair": {
+    "historical": {
+      "field": "historical_branch_name",
+      "prefix": "history_"
+    },
+    "publication": {
+      "field": "branch_name",
+      "prefix": "tile_"
+    },
+    "suffix_encoding": "lowercase_hex",
+    "suffix_length": 32,
+    "same_suffix": true
+  }
+}

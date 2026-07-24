@@ -284,17 +284,27 @@ gate; do not substitute a mock, JDBC catalog, or local metadata directory for th
 
 ```bash
 cd platforms/foundation-platform
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
+# `MSYS2_ARG_CONV_EXCL` is inert on Linux and prevents Git Bash on the
+# supported Windows host from rewriting the container-only `/tmp` path.
+MSYS2_ARG_CONV_EXCL='*' docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN \
   spark spark-submit \
+  --conf spark.jars.ivy=/tmp/.ivy2 \
   --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,org.apache.iceberg:iceberg-aws-bundle:1.6.1 \
   /workspace/infra/lakehouse/spark/jobs/spatial_tile_publication_wap.py \
   probe --namespace tiles_slice_proof --table parcel_boundaries_wap_probe
 ```
 
 Expected: `provider=cloudflare-r2-data-catalog branch_isolation=ok fast_forward=ok`.
+
+Compatibility pin: this slice uses Cloudflare's documented static catalog token plus Iceberg
+vended-credentials mode and intentionally does **not** configure `oauth2-server-uri`, because
+Cloudflare does not publish a separate endpoint for this mode. Spark's credential redaction regex and
+Iceberg `1.6.1` packages are explicit contract tests. Changing the Iceberg version, token exchange
+mode, or OAuth endpoint is blocked until the provider documents the new mode and a fresh real-provider
+probe produces schema-valid evidence.
 
 If Cloudflare's beta provider fails, stop. Record the failure and choose a conforming Iceberg REST
 Catalog provider while keeping Parquet/Iceberg data on R2; do not emulate WAP with ad-hoc object keys.

@@ -10,7 +10,8 @@ bash "$legal_gate"
 rc=0
 for g in no-subdir-github toolchain-consistency migration-naming \
          unique-package-names no-stale-sibling-paths health-route-conformance \
-         no-adhoc-cargo-lint xtask-path-coverage \
+         no-adhoc-cargo-lint foundation-parcel-current-selector-self-test \
+         foundation-parcel-current-selector xtask-path-coverage \
          lefthook-advisory-policy-self-test lefthook-advisory-policy \
          package-publication-policy-self-test public-fixture-safety-self-test \
          public-doc-boundary-self-test \

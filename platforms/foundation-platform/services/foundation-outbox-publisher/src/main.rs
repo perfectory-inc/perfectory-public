@@ -126,6 +126,7 @@ mod rt_molit_real_transaction_export_collection_plan;
 mod rt_molit_real_transaction_export_ingest;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
+mod spatial_tile_wap_command;
 mod trino_ready_wait;
 mod vworld_bronze_catalog_recovery;
 mod vworld_cadastral_ingest;
@@ -222,6 +223,7 @@ enum Command {
     InventoryVWorldDatasetFiles,
     ProbeBuildingRegisterPageCount,
     ProbeBuildingRegisterPageCountBatch,
+    ProbeSpatialTileWap,
     ProbeVWorldPageCountBatch,
     PublishIndustrialComplexGoldPointer,
     PublishLakehouseLineageEvent,
@@ -499,6 +501,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ProbeBuildingRegisterPageCountBatch => {
             Box::pin(building_register_page_count_batch::run())
         }
+        Command::ProbeSpatialTileWap => Box::pin(async { spatial_tile_wap_command::run() }),
         Command::ProbeVWorldPageCountBatch => Box::pin(vworld_page_count_batch::run()),
         Command::AbandonIngestionRun => Box::pin(ingestion_run_recovery::run()),
         Command::ReconcileBuildingRegister => Box::pin(building_register_ingest::reconcile()),
@@ -949,6 +952,7 @@ where
         Some("probe-building-register-page-count-batch") => {
             Ok(Command::ProbeBuildingRegisterPageCountBatch)
         }
+        Some("probe-spatial-tile-wap") => Ok(Command::ProbeSpatialTileWap),
         Some("probe-vworld-page-count-batch") => Ok(Command::ProbeVWorldPageCountBatch),
         Some("build-parcel-marker-anchor-pbf-artifacts") => {
             Ok(Command::BuildParcelMarkerAnchorPbfArtifacts)

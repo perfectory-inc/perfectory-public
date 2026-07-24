@@ -57,6 +57,8 @@ pub struct LakehouseTableContract {
     pub physical_format: LakehousePhysicalFormat,
     /// Serving role.
     pub serving_role: LakehouseServingRole,
+    /// Machine-readable predicate selecting the current logical row, when the table is versioned.
+    pub current_row_predicate: Option<&'static str>,
     /// Stable column contract.
     pub columns: &'static [LakehouseColumn],
     /// Iceberg partition spec expressed as stable contract text.
@@ -995,6 +997,7 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
     layer: LakehouseLayer::Silver,
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
     columns: SILVER_INDUSTRIAL_COMPLEXES_COLUMNS,
     partition_spec: &["sido_code", "bucket(32, complex_id)"],
     sort_order: &[
@@ -1017,6 +1020,7 @@ pub const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES: LakehouseTableContract = Lakehou
     layer: LakehouseLayer::Silver,
     physical_format: LakehousePhysicalFormat::GeoParquet,
     serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
     columns: SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS,
     partition_spec: &["sido_code", "bucket(32, complex_id)"],
     sort_order: &["complex_id", "boundary_kind", "valid_from_utc"],
@@ -1036,6 +1040,7 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     layer: LakehouseLayer::Silver,
     physical_format: LakehousePhysicalFormat::GeoParquet,
     serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: Some("valid_to_utc IS NULL"),
     columns: SILVER_PARCEL_BOUNDARIES_COLUMNS,
     partition_spec: &["sigungu_code", "bucket(256, pnu)"],
     sort_order: &["pnu", "valid_from_utc"],
@@ -1055,6 +1060,7 @@ pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTab
     layer: LakehouseLayer::Silver,
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
     columns: SILVER_BUILDING_REGISTER_FLOORS_COLUMNS,
     partition_spec: &["bucket(16, mgm_bldrgst_pk)"],
     sort_order: &["mgm_bldrgst_pk", "floor_index", "floor_row_id"],
@@ -1072,6 +1078,7 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
     layer: LakehouseLayer::Silver,
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
     columns: SILVER_BUILDING_REGISTER_UNITS_COLUMNS,
     partition_spec: &["bucket(256, pnu)"],
     sort_order: &[
@@ -1100,6 +1107,7 @@ pub const SILVER_BUILDING_REGISTER_UNIT_AREAS: LakehouseTableContract = Lakehous
     layer: LakehouseLayer::Silver,
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
     columns: SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS,
     partition_spec: &["bucket(32, mgm_bldrgst_pk)"],
     sort_order: &["mgm_bldrgst_pk", "area_kind", "floor_index", "area_row_id"],
@@ -1119,6 +1127,7 @@ pub const SILVER_COMPLEX_PARCEL_MEMBERSHIPS: LakehouseTableContract = LakehouseT
     layer: LakehouseLayer::Silver,
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
     columns: SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS,
     partition_spec: &["sigungu_code", "bucket(256, pnu)"],
     sort_order: &["complex_id", "pnu", "membership_kind"],
@@ -1136,6 +1145,7 @@ pub const GOLD_COMPLEX_CATALOG: LakehouseTableContract = LakehouseTableContract 
     layer: LakehouseLayer::Gold,
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
     columns: GOLD_COMPLEX_CATALOG_COLUMNS,
     partition_spec: &["sido_code"],
     sort_order: &["sigungu_code", "name", "complex_id"],
@@ -1153,6 +1163,7 @@ pub const GOLD_COMPLEX_SPATIAL_LOCATOR: LakehouseTableContract = LakehouseTableC
     layer: LakehouseLayer::Gold,
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::SpatialLocator,
+    current_row_predicate: None,
     columns: GOLD_COMPLEX_SPATIAL_LOCATOR_COLUMNS,
     partition_spec: &["spatial_key_prefix"],
     sort_order: &["spatial_key", "complex_id"],
