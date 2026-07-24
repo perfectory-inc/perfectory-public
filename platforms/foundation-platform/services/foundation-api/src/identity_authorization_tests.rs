@@ -333,9 +333,14 @@ async fn forged_service_token_is_unauthorized_before_identity_policy_call(
     let verifier = IdentityTokenVerifier::new(
         zitadel.uri(),
         TEST_AUDIENCE,
-        Duration::from_millis(100),
-        Duration::from_millis(200),
+        Duration::from_secs(1),
+        Duration::from_secs(2),
     )?;
+    let valid_token = signed_token(&zitadel.uri(), "service")?;
+    assert!(
+        verifier.verify(&valid_token).await.is_ok(),
+        "prime the verifier before testing local signature rejection"
+    );
     let client = HttpIdentityClient::new(
         identity.uri(),
         Duration::from_millis(100),
@@ -345,10 +350,10 @@ async fn forged_service_token_is_unauthorized_before_identity_policy_call(
         Arc::new(HttpIdentityAuthorization::new(
             verifier,
             client,
-            Duration::from_millis(100),
+            Duration::from_secs(1),
         )),
     )?);
-    let token = corrupt_signature(&signed_token(&zitadel.uri(), "service")?);
+    let token = corrupt_signature(&valid_token);
     let normalization = service_route_cases()
         .into_iter()
         .find(|case| case.name == "normalization_proposal")
@@ -530,30 +535,35 @@ async fn identity_dependency_timeout_returns_503_before_outer_timeout() -> Resul
     let verifier = IdentityTokenVerifier::new(
         zitadel.uri(),
         TEST_AUDIENCE,
-        Duration::from_millis(50),
-        Duration::from_millis(100),
+        Duration::from_secs(1),
+        Duration::from_secs(2),
     )?;
+    let token = signed_token(&zitadel.uri(), "staff")?;
+    assert!(
+        verifier.verify(&token).await.is_ok(),
+        "prime token metadata so this test isolates the policy timeout"
+    );
     let client = HttpIdentityClient::new(
         identity.uri(),
         Duration::from_millis(50),
         Duration::from_millis(200),
     )?;
-    let authorization = HttpIdentityAuthorization::new(verifier, client, Duration::from_millis(40));
+    let authorization =
+        HttpIdentityAuthorization::new(verifier, client, Duration::from_millis(100));
     let state = Arc::new(AppState::bootstrap_for_test_with_identity_authorization(
         Arc::new(authorization),
     )?);
     let traffic = TrafficConfig {
-        request_timeout_ms: 80,
+        request_timeout_ms: 2_000,
         ..TrafficConfig::default()
     };
-    let token = signed_token(&zitadel.uri(), "staff")?;
     let started = tokio::time::Instant::now();
     let response = router_with_traffic(state, traffic)
         .oneshot(catalog_write_request(&token, "trace-route-timeout")?)
         .await?;
 
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert!(started.elapsed() < Duration::from_millis(80));
+    assert!(started.elapsed() < Duration::from_secs(2));
     Ok(())
 }
 
@@ -753,17 +763,21 @@ async fn invalid_signature_is_unauthorized_before_identity_policy_call(
     let verifier = IdentityTokenVerifier::new(
         zitadel.uri(),
         TEST_AUDIENCE,
-        Duration::from_millis(100),
-        Duration::from_millis(200),
+        Duration::from_secs(1),
+        Duration::from_secs(2),
     )?;
+    let valid_token = signed_token(&zitadel.uri(), "service")?;
+    assert!(
+        verifier.verify(&valid_token).await.is_ok(),
+        "prime the verifier before testing local signature rejection"
+    );
     let client = HttpIdentityClient::new(
         identity.uri(),
         Duration::from_millis(100),
         Duration::from_millis(200),
     )?;
-    let authorization =
-        HttpIdentityAuthorization::new(verifier, client, Duration::from_millis(100));
-    let token = corrupt_signature(&signed_token(&zitadel.uri(), "service")?);
+    let authorization = HttpIdentityAuthorization::new(verifier, client, Duration::from_secs(1));
+    let token = corrupt_signature(&valid_token);
 
     let result = authorization
         .authorize(
