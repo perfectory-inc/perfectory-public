@@ -39,7 +39,10 @@ for auditable task tracking.
 - Modify `products/gongzzang/crates/foundation-platform-client/openapi/catalog.v1.json` — pinned
   provider-contract snapshot.
 - Modify `products/gongzzang/docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json`
-  — SHA-256 pin for the exact provider contract accepted by Gongzzang.
+  for the SHA-256 pin of the exact provider contract accepted by Gongzzang.
+- Modify
+  `products/gongzzang/docs/architecture/platform-integration/{allowed-call-matrix.v1.json,route-exposure-policy.v1.json}`
+  for the browser-direct Catalog route, exposure, and no-credential policy.
 
 ### Foundation contract and publication state
 
@@ -90,7 +93,7 @@ for auditable task tracking.
 ### Static builder, R2, and Martin
 
 - Create `platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_build.rs`.
-- Create `platforms/foundation-platform/services/foundation-outbox-publisher/src/tile_public_object_storage.rs`.
+- Create `platforms/foundation-platform/services/foundation-outbox-publisher/src/tile_derivative_object_storage.rs`.
 - Modify `platforms/foundation-platform/services/foundation-outbox-publisher/src/r2_layout.rs`.
 - Reuse `platforms/foundation-platform/crates/foundation-outbox/src/object_storage/r2.rs`; do not create another S3 client.
 - Modify `scripts/tiles/{compose.yaml,martin-dynamic.yaml,martin-static.yaml,tiles-slice-proof.sh,fixture.sql,vector-tile-manifest.local.json}`.
@@ -328,6 +331,7 @@ Only perform this task after Tasks 1 and 2 pass.
 - Modify: `platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md`
 - Modify: `platforms/foundation-platform/docs/adr/0006-lakehouse-table-format-and-serving-architecture.md`
 - Modify: `products/gongzzang/docs/adr/0036-static-vector-tile-runtime-contract.md`
+- Modify: `products/gongzzang/docs/architecture/platform-integration/route-exposure-policy.v1.json`
 - Modify: `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md`
 
 - [ ] **Step 1: Replace feature overlay language with the single-source invariant**
@@ -335,7 +339,7 @@ Only perform this task after Tasks 1 and 2 pass.
 Document:
 
 ```text
-one publication unit + one manifest generation -> exactly one complete Martin source
+(publication_unit, serving_generation) -> exactly one complete Martin source
 ```
 
 State explicitly that Martin composite, client feature tombstones, and custom MVT
@@ -370,6 +374,7 @@ Expected: PASS. On Windows linked worktrees, do not invoke WSL's `/usr/bin/git` 
 git add docs/adr/0006-object-storage-first-serving.md \
   platforms/foundation-platform/docs/adr \
   products/gongzzang/docs/adr/0036-static-vector-tile-runtime-contract.md \
+  products/gongzzang/docs/architecture/platform-integration/route-exposure-policy.v1.json \
   platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md
 git commit -m "docs: adopt single-source spatial publication"
 ```
@@ -390,12 +395,17 @@ git commit -m "docs: adopt single-source spatial publication"
 Test that:
 
 - v1 still requires `{object_key_prefix}/{z}/{x}/{y}` and flat statistics;
-- v2 has one top-level `manifest_generation`;
-- each artifact has `data_revision`, `serving_generation`, `publication_unit`,
-  `active_source`, immutable `canonical_iceberg_snapshot_id`, per-artifact
-  `tiles_url_template`, and lowercase `feature_id_property`;
+- v2 has one top-level UUID `current_version`, JavaScript-safe `manifest_generation`, exact
+  `refresh_after_seconds: 4`, publish timestamp, and non-empty `publication_units`;
+- each publication-unit value has UUID `data_revision`, JavaScript-safe `serving_generation`, UUID
+  `active_release_id`, immutable positive-decimal-string `canonical_iceberg_snapshot_id`, one closed
+  tagged `source`, non-empty `layers`, and lineage;
+- the launch fixture/enablement guard, not the reusable DTO type, contains only the `parcels` unit
+  and exactly the `parcels` MVT layer;
 - `static_pmtiles` requires immutable object key, bytes, checksum, and Martin source ID;
 - `dynamic_postgis` rejects PMTiles-only fields;
+- v2 tile URLs accept HTTPS and proof-only HTTP loopback, while a separate production publication
+  policy rejects every HTTP URL;
 - unknown schema versions are rejected.
 
 - [ ] **Step 2: Run the tests and verify the missing-v2 failure**
@@ -426,7 +436,10 @@ pub struct FeatureIdProperty(String);
 ```
 
 Keep `TilesUrlTemplate` as the v1 flat-layout type. Add a separate v2 tile URL type that requires
-`{z}`, `{x}`, and `{y}` but not `{object_key_prefix}`.
+`{z}`, `{x}`, and `{y}` but not `{object_key_prefix}`. It accepts absolute HTTPS, plus absolute HTTP
+only for `localhost` or loopback IP literals used by the Docker proof. Do not put the production
+HTTPS-only rule inside this wire parser; the production publish gate owns and tests that stricter
+policy.
 
 - [ ] **Step 4: Implement additive v2 DTOs**
 
@@ -436,10 +449,13 @@ TypeScript must both dispatch exactly on schema version `1` or `2`.
 - [ ] **Step 5: Define the additive v2 Catalog event before any application uses it**
 
 Add a `VectorTileRuntimeManifestPublishedV2` payload carrying the immutable manifest ID, global
-generation, selected releases with their canonical Iceberg snapshot IDs, and projection key. Keep
-every existing v1 enum tag and serialized byte fixture unchanged. Add round-trip and golden-byte tests
-proving old events deserialize identically and the v2 event cannot omit its generation/release/snapshot
-set. Task 9 will consume this event; it must not define a second event shape.
+generation, and selected releases with their canonical Iceberg snapshot IDs. Define the fixed
+`gold/vector-tiles/runtime-manifest.json` pointer key once as a typed shared constant and define the
+create-only `gold/vector-tiles/manifests/{manifest_id}.json` key as a typed derivation from the event
+manifest ID; do not accept either as an arbitrary event string. Keep every existing v1 enum tag and
+serialized byte fixture unchanged. Add round-trip and golden-byte tests proving old events
+deserialize identically and the v2 event cannot omit its generation/release/snapshot set. Task 9
+will consume this event; it must not define a second event shape.
 
 - [ ] **Step 6: Run the package tests**
 
@@ -495,6 +511,10 @@ The migration must create:
 ```sql
 catalog.vector_tile_publication_unit
 catalog.vector_tile_release
+catalog.vector_tile_release_layer
+catalog.vector_tile_runtime_manifest
+catalog.vector_tile_runtime_manifest_unit
+catalog.vector_tile_runtime_manifest_pointer
 catalog.vector_tile_build_job
 catalog.vector_tile_refresh_observation
 ```
@@ -503,6 +523,10 @@ Required database constraints:
 
 - unique lowercase logical `layer_id`;
 - positive per-unit `serving_generation` and global manifest generation;
+- the runtime pointer is a single checked row and references one immutable v2 manifest;
+- each immutable v2 manifest has a unique generation and one release selection per publication unit;
+- manifest-unit selections reference a release from that same unit and snapshot the serving
+  generation used by that selection;
 - every v2 release has immutable `canonical_iceberg_snapshot_id`; every build job has immutable
   `input_release_id`, `input_data_revision`, and `frozen_source_snapshot_id`, with a constraint tying
   all three to the input release;
@@ -521,9 +545,10 @@ Use a composite unique key on release `(id, data_revision, canonical_iceberg_sna
 composite foreign key from the build input triple so the snapshot binding is enforced by PostgreSQL,
 not only by Rust.
 
-Extend `catalog.vector_tile_manifest` and `catalog.vector_tile_artifact` additively with
-`schema_version`, global generation, release reference, v2 transport fields, and conditional checks.
-Make flat-only columns nullable only behind a check that requires them for schema v1/`flat_mvt`.
+Do not alter `catalog.vector_tile_manifest`, `catalog.vector_tile_artifact`, or their flat-MVT
+constraints. They are the frozen schema-v1 persistence model. V2 uses only the new normalized tables
+above. Add a migration contract test that fails if the v2 migration alters either legacy table or
+changes the existing v1 route/event/object-key bytes.
 
 - [ ] **Step 4: Add the logged complete parcel projection**
 
@@ -570,9 +595,17 @@ receives a typed version conflict. Assert the winning transaction updates:
 - immutable dynamic release;
 - unit active pointer and serving generation;
 - global immutable manifest and generation;
+- preallocated immutable-manifest `file_asset` identity whose deterministic object key is
+  `gold/vector-tiles/manifests/{manifest_id}.json`;
 - additive v2 outbox event.
 
 No partial state may remain if any insert fails.
+
+Run a second interleaving with two different units (`parcels` and `complex`) starting concurrently.
+Both commits may succeed, but each resulting manifest must contain both selections exactly once and
+the global `manifest_generation` must advance twice in order. No selection may be lost and no
+manifest may combine a half-committed unit. The test must prove the fixed lock order rather than
+accepting a database serialization failure as sufficient evidence.
 
 - [ ] **Step 2: Write the stale-build promotion test**
 
@@ -610,8 +643,12 @@ variables directly.
 - [ ] **Step 6: Implement one SQLx transaction boundary**
 
 Reuse the existing `FOR UPDATE`/CAS/outbox pattern in
-`catalog-infrastructure/src/unit_of_work.rs`. Build the complete global manifest while the rows are
-locked; never update an R2 pointer inside the transaction.
+`catalog-infrastructure/src/unit_of_work.rs`. Lock the singleton
+`vector_tile_runtime_manifest_pointer` row first, then the affected publication unit, then release
+rows. Build the complete global manifest while the pointer and unit rows are locked; every code path
+must use the fixed `runtime_manifest_pointer -> publication_unit -> release rows` order. On a typed
+serialization/CAS conflict, retry from the latest pointer; never silently drop the other unit's
+selection and never update an R2 pointer inside the database transaction.
 
 - [ ] **Step 7: Run unit and database integration tests**
 
@@ -624,7 +661,8 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 scripts/verify/integration.sh foundation
 ```
 
-Expected: exactly one concurrent writer/promoter succeeds; rollback cannot change data revision.
+Expected: exactly one same-unit concurrent writer/promoter succeeds; two different-unit writers
+serialize without losing either selection; rollback cannot change data revision.
 
 - [ ] **Step 8: Commit**
 
@@ -712,7 +750,7 @@ Static builds must not read the mutable public PostGIS mirror.
 
 **Files:**
 - Create: `platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_build.rs`
-- Create: `platforms/foundation-platform/services/foundation-outbox-publisher/src/tile_public_object_storage.rs`
+- Create: `platforms/foundation-platform/services/foundation-outbox-publisher/src/tile_derivative_object_storage.rs`
 - Modify: `platforms/foundation-platform/services/foundation-outbox-publisher/src/{main.rs,main_command_tests.rs,r2_layout.rs}`
 - Modify: `scripts/tiles/{compose.yaml,martin-dynamic.yaml,martin-static.yaml,tiles-slice-proof.sh}`
 - Test: `platforms/foundation-platform/services/foundation-api/tests/tiles_slice_harness_contract.rs`
@@ -728,12 +766,13 @@ prove none enter the archive.
 
 Require:
 
-- `FOUNDATION_TILE_PUBLIC_R2_*` configuration separate from generic/lakehouse/recovery R2 variables;
-- bucket/prefix allow-list;
+- `FOUNDATION_TILE_DERIVATIVE_R2_*` configuration separate from generic/lakehouse/recovery R2 variables;
+- dedicated private derivative-bucket allow-list;
 - create-only `If-None-Match: *`;
-- immutable UUID filename;
+- exact immutable `{publication_unit}-{release_id}.pmtiles` filename;
 - no delete or overwrite command;
-- read-only Martin credentials scoped to the same public tile prefix.
+- a separate Martin credential scoped read-only to the derivative bucket; the prefix is not an IAM
+  boundary.
 
 - [ ] **Step 3: Implement the isolated build database**
 
@@ -785,6 +824,10 @@ path, and add a contract test that a generation change changes the full tile URL
 either return `Cache-Control: no-store` for the dynamic route or mechanically prove the cache key
 includes the generation parameter. The proof must fetch the same z/x/y before and after an add/modify/
 delete transition and observe the new bytes without a purge. Static Martin keeps its immutable cache.
+The dynamic `martin_source_id` remains the stable explicit unit source (`parcels` in this slice);
+do not invent an unconfigured source ID per generation. Also prove and document that the generation
+query is only cache identity: an old dynamic URL reads the latest fully committed PostGIS projection
+and is not an addressable historical release.
 
 - [ ] **Step 6: Configure Martin remote-prefix discovery**
 
@@ -793,12 +836,14 @@ Replace the named static source with:
 ```yaml
 pmtiles:
   paths:
-    - ${FOUNDATION_TILE_PUBLIC_PMTILES_PREFIX}
+    - ${FOUNDATION_TILE_DERIVATIVE_PMTILES_PREFIX}
   reload_interval: 5s
 ```
 
 Configure R2's S3-compatible endpoint and read-only credentials through environment. In local mode,
-use a watched local directory. Keep the pinned Martin 1.12.0 digest.
+use a watched local directory. Require the uploaded filename and expected Martin source ID to equal
+`{publication_unit}-{release_id}.pmtiles` and its stem, respectively, and mechanically test that
+derivation against the pinned Martin 1.12.0 image.
 
 - [ ] **Step 7: Upload, discover, decode, then mark validated**
 
@@ -834,7 +879,12 @@ git commit -m "feat(foundation): publish immutable PMTiles releases"
 - Modify: `platforms/foundation-platform/services/foundation-api/src/state.rs`
 - Modify: `platforms/foundation-platform/crates/foundation-contracts/src/catalog.rs`
 - Modify: `platforms/foundation-platform/docs/openapi/catalog.v1.json`
+- Modify: `platforms/foundation-platform/infra/cloudflare/foundation-runtime-manifest-edge-policy.v1.json`
+- Modify: `platforms/foundation-platform/docs/architecture/traffic-auth-policy-registry.v1.json`
+- Modify: `platforms/foundation-platform/services/foundation-api/src/routes/tests/cors_and_labels.rs`
+- Test: `platforms/foundation-platform/services/foundation-api/tests/runtime_manifest_edge_policy.rs`
 - Modify: `platforms/foundation-platform/crates/foundation-outbox/src/vector_tile_manifest.rs`
+- Modify: `platforms/foundation-platform/crates/foundation-outbox/src/object_storage/{requests.rs,file.rs,r2.rs,tests.rs}`
 - Test: `platforms/foundation-platform/crates/foundation-outbox/tests/{vector_tile_manifest_pointer.rs,publish_roundtrip.rs}`
 
 - [ ] **Step 1: Write failing API tests**
@@ -847,30 +897,68 @@ Assert:
 - a per-unit activation changes global `manifest_generation`, `current_version`, and ETag;
 - response uses `Cache-Control: no-cache, must-revalidate`;
 - database manifest is visible immediately even if R2 pointer projection is delayed.
+- every manifest is written create-only to
+  `gold/vector-tiles/manifests/{current_version}.json` before the mutable v2 pointer moves;
+- retrying an immutable write accepts identical bytes/checksum but fails closed on any mismatch;
+- a delayed stale event may finish its immutable object but cannot move the mutable pointer;
+- the interleaving `publisher A reads ETag -> publisher B writes newer -> A attempts write` rejects
+  A's stale ETag and leaves or repairs the pointer to Catalog's current manifest;
 - the default-disabled v2 capability gate cannot serve v2, emit a v2 public event, or project v2 to
   R2 until explicitly enabled;
-- CORS preflight accepts `If-None-Match`, and the response exposes `ETag` to browser JavaScript.
+- the legacy `gold/manifest.json` bytes remain unchanged and still describe its parcel plus two
+  anchor artifacts; only the v2-aware Gongzzang consumer suppresses that v1 parcel artifact during
+  the bounded parcel-v2 migration;
+- CORS preflight accepts `If-None-Match`, and the response exposes `ETag` to browser JavaScript;
+- the traffic/auth registry declares the exact GET route as anonymous `public_contract`, fixes one
+  bounded canonical metric label, requires edge policy, and does not apply service identity;
+- the checked-in Cloudflare edge policy is executable deployment input: exact route expression,
+  CORS/ETag behavior, per-IP 429 rate limit, and the 64 requests/second zero-error p95 load gate;
+- the deployment contract fails if the route is enabled while that edge policy is missing, points at
+  another path, omits rate limiting, or disagrees with the traffic/auth registry;
+- 128 declared concurrent visible maps produce at most 32 requests/second, and the endpoint passes a
+  prelaunch 64 requests/second conditional-GET probe with zero errors and p95 below one second.
 
 - [ ] **Step 2: Implement the atomic read endpoint**
 
-Read the active global manifest and all artifact release descriptors from one database snapshot.
+Read the active global manifest and all publication-unit release descriptors from one database
+snapshot.
 Do not assemble part of the response from R2. Add
 `FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED=false` as a fail-closed default: while disabled, the new
 runtime endpoint does not publish v2 and the accepted v1 endpoint remains unchanged. Enable it only
 after Task 10's Gongzzang parser, provider-contract snapshot, and SHA pin have shipped.
 
 Update the existing CORS layer to allow `header::IF_NONE_MATCH` and expose `header::ETAG`; add route
-tests using a non-default allowed origin so this cannot regress silently.
+tests using a non-default allowed origin so this cannot regress silently. Register the route as an
+anonymous read-only public contract; never ship a Foundation service token to browser JavaScript.
+Apply `infra/cloudflare/foundation-runtime-manifest-edge-policy.v1.json` through the Cloudflare
+deployment adapter before enabling the route. The adapter must verify the exact path expression,
+origin allow-list binding, ETag/conditional behavior, per-IP `120 requests / 10 seconds` limit, and
+the distributed 64 requests/second probe. A registry declaration without the applied edge rule is
+not a valid launch state. The initial deployment budget is 128 concurrent visible maps. Revisit and
+load-test a higher budget before configuration or measured usage exceeds it.
 
 - [ ] **Step 3: Add the additive v2 outbox projection**
 
 Consume the v2 event defined and byte-tested in Task 4; do not define a second payload here. Keep the
-v1 projection bytes unchanged and make the publisher skip stale v2 events by active manifest
-ID/generation before writing `gold/manifest.json`. Apply the same typed, fail-closed publication
-capability used by the HTTP endpoint at both transaction-time event emission and publisher-time
-projection (defense in depth). Tests must prove that, while disabled, both HTTP and R2 keep their v1
-bytes and no v2 event exists; enabling after Task 10 allows the next transition/reconcile to publish
-the current v2 state.
+v1 projection bytes unchanged. For every event, load the exact immutable Catalog manifest and write
+`gold/vector-tiles/manifests/{manifest_id}.json` with `If-None-Match: *`; an already-existing object
+must have identical bytes/checksum. Then compare the event ID/generation with the active Catalog
+pointer and write `gold/vector-tiles/runtime-manifest.json` only if it is still active. A stale event
+therefore preserves audit history but cannot regress the mutable pointer.
+
+Make the pointer write a storage-port compare-and-swap: read the object plus opaque ETag, use
+`If-Match` for replacement or `If-None-Match: *` for bootstrap, and map `412 Precondition Failed` to
+a typed conflict. On conflict, reload Catalog and R2; retry only the currently active manifest or
+skip if the event is stale. Do not model this as `OverwriteAllowed`, and do not rely on one process
+or a pre-write database check. The file adapter must implement the same fenced semantics under a
+key-scoped lock so tests cannot pass against a weaker local substitute.
+
+The publisher must never write v2 bytes to the legacy `gold/manifest.json`. Apply the same typed,
+fail-closed publication capability used by the HTTP endpoint at both transaction-time event
+emission and publisher-time projection (defense in depth). Tests must prove that, while disabled,
+both HTTP and R2 keep their v1 bytes and no v2 event exists; enabling after Task 10 allows the next
+transition/reconcile to publish the current v2 state while the legacy v1 pointer remains
+byte-for-byte unchanged.
 
 - [ ] **Step 4: Regenerate and verify OpenAPI**
 
@@ -896,7 +984,8 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 git add platforms/foundation-platform/services/foundation-api \
   platforms/foundation-platform/crates/foundation-contracts \
   platforms/foundation-platform/crates/foundation-outbox \
-  platforms/foundation-platform/docs/openapi/catalog.v1.json
+  platforms/foundation-platform/docs/openapi/catalog.v1.json \
+  platforms/foundation-platform/docs/architecture/traffic-auth-policy-registry.v1.json
 git commit -m "feat(foundation): publish atomic tile runtime manifest"
 ```
 
@@ -914,27 +1003,37 @@ git commit -m "feat(foundation): publish atomic tile runtime manifest"
 - Create: `products/gongzzang/apps/web/tests/unit/map/foundation-vector-source-refresh.test.ts`
 - Modify: `products/gongzzang/crates/foundation-platform-client/openapi/catalog.v1.json`
 - Modify: `products/gongzzang/docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json`
+- Modify: `products/gongzzang/docs/architecture/platform-integration/allowed-call-matrix.v1.json`
+- Modify: `products/gongzzang/docs/architecture/platform-integration/route-exposure-policy.v1.json`
 
 - [ ] **Step 1: Write strict manifest fetch tests**
 
 Cover:
 
 - exact schema versions 1 and 2 accepted; version 3 rejected;
+- the existing `NEXT_PUBLIC_TILES_MANIFEST_URL` and
+  `/catalog/v1/vector-tiles/manifest` resolver remains schema-v1-only for anchors, while v2 always
+  resolves from `NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL` plus the exact
+  `/catalog/v1/vector-tiles/runtime-manifest` path;
+- a v2 parcel response suppresses only the legacy v1 parcel artifact, never either v1 anchor;
 - ETag retained and sent as `If-None-Match`;
 - 304 returns the existing manifest without reparsing;
-- v2 materializes each artifact's own tile URL;
+- v2 materializes each publication unit's own tile URL;
 - `//` cannot be produced;
-- invalid UUID/current version, source layer, identity, or generation rejects the update.
+- invalid UUID/current version, source layer, identity, generation, or
+  `refresh_after_seconds != 4` rejects the update.
 
 - [ ] **Step 2: Write atomic source-refresh tests**
 
 Use a fake mapbox bridge matching the capability selected in Task 1. Assert:
 
-- only artifacts whose per-unit generation changed are retargeted;
+- only publication units whose per-unit generation changed are retargeted;
 - parcel source retains lowercase `promoteId: "pnu"`;
 - the `parcels` v2 switch does not retarget or duplicate the existing direct legacy anchor sources;
 - no old and new source remain together;
-- a failed new source retains the last validated complete source;
+- a failed new source retains the current source descriptor; immutable static retention returns the
+  exact old release, while an old dynamic URL is explicitly tested as a non-historical route to the
+  latest committed projection;
 - cleanup stops timers and aborts fetches.
 
 - [ ] **Step 3: Consolidate the layer registry**
@@ -945,9 +1044,11 @@ until product design exists; make adding a future registry entry require no publ
 
 - [ ] **Step 4: Implement conditional polling**
 
-Poll at most every four seconds while mounted and visible, check immediately on visibility restore,
-and stop on cleanup. Use the Catalog endpoint directly for freshness; R2 remains boot/distribution
-projection only.
+Poll every four seconds while mounted and visible, with at most one in-flight request. Randomize the
+initial phase, check immediately on visibility restore, abort on hide/unmount, and use bounded
+exponential backoff after failures. Add fake-timer tests proving the steady-state ceiling is `0.25`
+requests/second per visible map and timers cannot overlap. Use the Catalog endpoint directly for
+freshness; R2 remains boot/distribution projection only.
 
 - [ ] **Step 5: Implement the proven reload strategy**
 
@@ -974,21 +1075,34 @@ before any environment enables Foundation's v2 capability gate. The existing con
 mechanical checksum guard; the Foundation flag is the fail-closed rollout gate. No intermediate task
 commit is independently deployable with v2 enabled.
 
+Add the browser-to-Foundation runtime-manifest GET to Gongzzang's explicit allowed-call matrix as an
+anonymous public contract with CORS, conditional request, timeout, bounded polling, and no service
+credential. Promote the matching route-exposure-policy entry from `planned` to `active`, and switch
+its diagnostic launch source from the legacy v1 R2/CDN manifest to the Foundation Catalog v2
+runtime endpoint in the same commit. A contract test must require the exact path, status, exposure,
+and no-credential controls to agree across both Gongzzang policy files, the Foundation
+traffic/auth registry, and OpenAPI.
+
 - [ ] **Step 8: Commit**
 
 ```bash
 git add products/gongzzang/apps/web \
   products/gongzzang/crates/foundation-platform-client/openapi/catalog.v1.json \
-  products/gongzzang/docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json
+  products/gongzzang/docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json \
+  products/gongzzang/docs/architecture/platform-integration/allowed-call-matrix.v1.json \
+  products/gongzzang/docs/architecture/platform-integration/route-exposure-policy.v1.json
 git commit -m "feat(gongzzang): refresh complete Foundation tile sources"
 ```
 
 ## Task 11: Prove the Complete State Machine End to End
 
 **Files:**
-- Modify: `scripts/tiles/{tiles-slice-proof.sh,fixture.sql,vector-tile-manifest.local.json,compose.yaml}`
+- Modify: `scripts/tiles/{tiles-slice-proof.sh,fixture.sql,compose.yaml}`
+- Create: `scripts/tiles/vector-tile-runtime-manifest-v2.local.json`
+- Preserve unchanged: `scripts/tiles/vector-tile-manifest.local.json`
 - Modify: `platforms/foundation-platform/services/foundation-api/tests/{tiles_slice_contract.rs,tiles_slice_harness_contract.rs}`
-- Modify: `platforms/foundation-platform/infra/db/seeds/local_vector_tile_manifest.sql`
+- Create: `platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql`
+- Preserve unchanged: `platforms/foundation-platform/infra/db/seeds/local_vector_tile_manifest.sql`
 - Modify: `platforms/foundation-platform/services/foundation-api/tests/local_vector_tile_seed_contract.rs`
 - Create: `products/gongzzang/apps/web/tests/probes/foundation-vector-source-publication.probe.ts`
 - Modify: `products/gongzzang/apps/web/playwright.probes.config.ts`
@@ -996,9 +1110,14 @@ git commit -m "feat(gongzzang): refresh complete Foundation tile sources"
 - [ ] **Step 1: Make the contract test fail on mixed sources**
 
 Parse manifest v2 and assert each publication unit selects exactly one release/source. Cross-check
-manifest artifact, Martin catalog source, source layer, feature ID, canonical data revision, and exact
+manifest unit, Martin catalog source, source layer, feature ID, canonical data revision, and exact
 Iceberg snapshot. Reject comma-separated/composite URLs for Foundation polygon units and require the
 `parcels` PMTiles archive to expose exactly one `parcels` vector layer.
+Allow HTTP tile templates only for the Compose services' loopback-published URLs and prove the same
+manifest is rejected by the production HTTPS publish gate.
+Load the unchanged v1 local manifest only for `parcel_anchor_aggregate` and `parcel_anchor`, and
+prove its v1 parcel artifact is suppressed once v2 parcels is active. The v2 fixture and seed are
+separate files so the proof cannot overwrite or semantically repurpose the legacy contract.
 The harness must first prove the fail-closed default does not publish v2, then opt in with
 `FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED=true` only after the Task 10 consumer/pin tests pass.
 
@@ -1160,7 +1279,7 @@ this spatial slice.
 Document:
 
 - local and real-R2 commands;
-- dedicated public static-tile bucket and read/write credential separation;
+- dedicated private serving-derivative bucket and separate write/read credentials;
 - WAP candidate retention/reconciliation;
 - dynamic edit, nightly schedule, publish-now, static promotion, and same-data rollback;
 - failure recovery without tombstones;

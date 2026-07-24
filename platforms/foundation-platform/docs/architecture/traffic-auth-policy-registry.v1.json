@@ -22,6 +22,21 @@
       "exposure": "public_contract",
       "runtime_launch_allowed": true,
       "edge_policy_required": true
+    },
+    {
+      "id": "foundation_platform.public.runtime_manifest_v2",
+      "method": "GET",
+      "path": "/catalog/v1/vector-tiles/runtime-manifest",
+      "handler": "catalog::get_vector_tile_runtime_manifest_v2",
+      "exposure": "public_contract",
+      "runtime_launch_allowed": false,
+      "edge_policy_required": true,
+      "edge_policy_config": "infra/cloudflare/foundation-runtime-manifest-edge-policy.v1.json",
+      "rate_limit_policy_id": "foundation_platform.edge.runtime_manifest_v2_per_ip",
+      "cors_policy_required": true,
+      "etag_conditional_required": true,
+      "service_identity": "none",
+      "activation_gate": "FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED"
     }
   ],
   "diagnostic_reference_routes": [

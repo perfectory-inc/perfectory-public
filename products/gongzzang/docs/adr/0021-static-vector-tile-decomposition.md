@@ -3,9 +3,16 @@
 | | |
 |---|---|
 | 작성일 | 2026-05-07 |
-| 상태 | Accepted (SSS-grade — *진짜 SSS*) |
+| 상태 | Superseded by [ADR 0036](./0036-static-vector-tile-runtime-contract.md) |
 | 선행 | [ADR 0016](./0016-medallion-base-layer-postgis-silver-pmtiles-gold.md), [ADR 0019](./0019-pmtiles-source-via-addsourcetype.md) |
 | Supersedes | [ADR 0019](./0019-pmtiles-source-via-addsourcetype.md) (PMTilesSource subclass + Service Worker transport — A2+SW spike 결과 worker uncontrolled wall, A2+Blob URL 회귀 = 영구 3 trick) |
+
+> **Historical record.** The proof that Naver's embedded mapbox-gl can consume standard
+> `{z}/{x}/{y}.pbf` URLs remains valid. The decision to decompose every PMTiles archive into
+> hundreds of thousands of public R2 objects is superseded. ADR 0036 now consumes standard MVT URLs
+> from Martin while Foundation chooses one complete PostGIS or immutable PMTiles source per
+> publication unit. Legacy manifest v1 still preserves the flat-object contract without
+> repurposing its fields.
 
 ## 결정
 
