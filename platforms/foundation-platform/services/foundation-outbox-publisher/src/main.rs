@@ -127,6 +127,7 @@ mod rt_molit_real_transaction_export_ingest;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;
+mod tile_derivative_object_storage;
 mod trino_ready_wait;
 mod vworld_bronze_catalog_recovery;
 mod vworld_cadastral_ingest;
@@ -247,6 +248,7 @@ enum Command {
     SmokeVWorldCadastral,
     VerifyLakehouseRegistry,
     VerifyR2Cleanup,
+    ValidateTileDerivativeR2,
     WaitTrinoReady,
 }
 
@@ -522,6 +524,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::SmokeVWorldCadastral => Box::pin(vworld_cadastral_smoke::run()),
         Command::VerifyLakehouseRegistry => Box::pin(lakehouse_registry_control::verify()),
         Command::VerifyR2Cleanup => Box::pin(async { r2_cleanup_verify::run() }),
+        Command::ValidateTileDerivativeR2 => {
+            Box::pin(async { tile_derivative_object_storage::validate_environment() })
+        }
         Command::WaitTrinoReady => Box::pin(async { trino_ready_wait::run() }),
     };
     future.await
@@ -1032,6 +1037,7 @@ where
         Some("smoke-vworld-cadastral") => Ok(Command::SmokeVWorldCadastral),
         Some("verify-lakehouse-registry") => Ok(Command::VerifyLakehouseRegistry),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
+        Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
         Some("wait-trino-ready") => Ok(Command::WaitTrinoReady),
         Some(other) => bail!("unknown outbox-publisher command '{other}'"),
     }

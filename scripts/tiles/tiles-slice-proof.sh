@@ -18,6 +18,7 @@ PMTILES_IMAGE="protomaps/go-pmtiles:v1.31.1@sha256:057f8e5a6c77e89b46eebd40d62d2
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
 COMPOSE_PROJECT="tiles-slice-proof-$$-${RANDOM}"
+COMPOSE_NETWORK="${COMPOSE_PROJECT}_default"
 export TILES_SLICE_POSTGRES_PASSWORD="tiles-slice-proof-${RUN_ID}"
 RUN_RELATIVE="target/tiles-slice-proof/$RUN_ID"
 ARTIFACT_DIR="$REPO_ROOT/$RUN_RELATIVE"
@@ -302,9 +303,12 @@ compose up -d postgis
 wait_for_postgres
 
 printf 'tiles-slice-proof: applying Foundation migrations through the production SQLx runner\n'
+# Windows Docker Desktop does not reliably support Linux's `--network container:<id>` namespace
+# mode (HCS_E_CONNECTION_TIMEOUT). Join the Compose bridge by its stable project network name;
+# the service DNS name `postgis` keeps the same proof topology on Linux and Windows.
 postgis_container="$(compose ps -q postgis)"
 [[ -n "$postgis_container" ]] || fail "cannot resolve the disposable PostGIS container"
-MSYS_NO_PATHCONV=1 docker run --rm --network "container:$postgis_container" \
+MSYS_NO_PATHCONV=1 docker run --rm --network "$COMPOSE_NETWORK" \
   --volume "$REPO_HOST_PATH:/work:ro" \
   --volume perfectory-cargo-registry:/usr/local/cargo/registry \
   --volume perfectory-rustup:/usr/local/rustup \
@@ -313,7 +317,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --network "container:$postgis_container" \
   --env SQLX_OFFLINE=true \
   --env CARGO_TERM_COLOR=always \
   --env RUSTUP_TOOLCHAIN=1.96.0-x86_64-unknown-linux-gnu \
-  --env "FOUNDATION_MIGRATOR_DATABASE_URL=postgres://postgres:${TILES_SLICE_POSTGRES_PASSWORD}@127.0.0.1:5432/tiles_slice_proof" \
+  --env "FOUNDATION_MIGRATOR_DATABASE_URL=postgres://postgres:${TILES_SLICE_POSTGRES_PASSWORD}@postgis:5432/tiles_slice_proof" \
   "$RUST_IMAGE" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
 for _ in 1 2; do
   compose exec -T postgis psql -X -h 127.0.0.1 -U postgres -d tiles_slice_proof \

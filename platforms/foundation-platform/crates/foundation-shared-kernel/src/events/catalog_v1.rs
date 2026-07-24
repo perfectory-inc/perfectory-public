@@ -5,8 +5,12 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
-use crate::ids::{ComplexId, ParcelId, StaffId, VectorTileManifestId};
+use crate::ids::{
+    ComplexId, ParcelId, StaffId, VectorTileDataRevisionId, VectorTileManifestId,
+    VectorTileReleaseId, VectorTileRuntimeManifestId,
+};
 use crate::pnu::Pnu;
 
 /// Union of Catalog events published through the foundation-platform outbox.
@@ -40,6 +44,9 @@ pub enum CatalogEvent {
     /// A vector tile manifest build was promoted to the active pointer.
     #[serde(rename = "catalog.vector_tile_manifest.promoted.v1")]
     VectorTileManifestPromoted(VectorTileManifestPromotedV1),
+    /// A v2 single-source spatial runtime manifest was published.
+    #[serde(rename = "catalog.vector_tile_runtime_manifest.published.v2")]
+    VectorTileRuntimeManifestPublished(VectorTileRuntimeManifestPublishedV2),
     /// Raw provider bytes for a collection job were durably written to Bronze (R2).
     ///
     /// Claim-Check notification (gongzzang ADR-0047): the raw payload stays in R2 Bronze;
@@ -48,6 +55,45 @@ pub enum CatalogEvent {
     /// running/failed/empty belongs to the separate `collection.job_status` stream, not here.
     #[serde(rename = "catalog.collection.raw_written.v1")]
     CollectionRawWritten(CollectionRawWrittenV1),
+}
+
+/// Fixed mutable pointer key for the v2 runtime manifest. The pointer is updated with a fenced
+/// ETag/CAS write; immutable manifests use the derived key below.
+pub const VECTOR_TILE_RUNTIME_MANIFEST_POINTER_KEY: &str =
+    "gold/vector-tiles/runtime-manifest.json";
+
+/// Returns the only valid immutable v2 manifest object key for an identifier.
+#[must_use]
+pub fn vector_tile_runtime_manifest_object_key(manifest_id: VectorTileRuntimeManifestId) -> String {
+    format!("gold/vector-tiles/manifests/{manifest_id}.json")
+}
+
+/// Event emitted after a complete v2 runtime manifest and its selected unit releases are durable.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VectorTileRuntimeManifestPublishedV2 {
+    /// Payload schema version. Always `2` for this event type.
+    pub schema_version: u32,
+    /// Immutable runtime manifest identifier and ETag identity.
+    pub manifest_id: VectorTileRuntimeManifestId,
+    /// Global JavaScript-safe poll generation.
+    pub manifest_generation: u64,
+    /// Selected complete source for each publication unit.
+    pub publication_units: BTreeMap<String, VectorTileRuntimeUnitSelectionV2>,
+    /// UTC timestamp when the manifest was published.
+    pub published_at: DateTime<Utc>,
+}
+
+/// Selected release and canonical lineage for one v2 publication unit.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VectorTileRuntimeUnitSelectionV2 {
+    /// Immutable release descriptor selected for serving.
+    pub active_release_id: VectorTileReleaseId,
+    /// Logical data revision represented by the release.
+    pub data_revision: VectorTileDataRevisionId,
+    /// Per-unit serving generation.
+    pub serving_generation: u64,
+    /// Canonical Iceberg snapshot represented by the release.
+    pub canonical_iceberg_snapshot_id: String,
 }
 
 /// Event emitted when an industrial complex is registered.
@@ -292,8 +338,12 @@ mod tests {
         IndustrialComplexCreatedV1, IndustrialComplexCreatedV2,
         IndustrialComplexGoldPointerPublishedV1, ParcelMarkerAnchorSnapshotPublishedV1,
         VectorTileManifestPromotedV1, VectorTileManifestRolledBackV1,
+        VectorTileRuntimeManifestPublishedV2, VectorTileRuntimeUnitSelectionV2,
     };
-    use crate::ids::{ComplexId, StaffId, VectorTileManifestId};
+    use crate::ids::{
+        ComplexId, StaffId, VectorTileDataRevisionId, VectorTileManifestId, VectorTileReleaseId,
+        VectorTileRuntimeManifestId,
+    };
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -370,6 +420,44 @@ mod tests {
         assert!(json.contains("operator_staff_id"));
         assert!(json.contains("request_id"));
         let _back: CatalogEvent = serde_json::from_str(&json)?;
+        Ok(())
+    }
+
+    #[test]
+    fn vector_tile_runtime_manifest_publish_serializes_v2_tag_and_lineage(
+    ) -> Result<(), serde_json::Error> {
+        let manifest_id = VectorTileRuntimeManifestId::new(Uuid::nil());
+        let event = CatalogEvent::VectorTileRuntimeManifestPublished(
+            VectorTileRuntimeManifestPublishedV2 {
+                schema_version: 2,
+                manifest_id,
+                manifest_generation: 108,
+                publication_units: [(
+                    "parcels".to_owned(),
+                    VectorTileRuntimeUnitSelectionV2 {
+                        active_release_id: VectorTileReleaseId::new(Uuid::nil()),
+                        data_revision: VectorTileDataRevisionId::new(Uuid::nil()),
+                        serving_generation: 42,
+                        canonical_iceberg_snapshot_id: "2095444522288693696".to_owned(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+                published_at: Utc::now(),
+            },
+        );
+        let json = serde_json::to_string(&event)?;
+        assert!(json.contains("catalog.vector_tile_runtime_manifest.published.v2"));
+        assert!(json.contains("canonical_iceberg_snapshot_id"));
+        let _back: CatalogEvent = serde_json::from_str(&json)?;
+        assert_eq!(
+            crate::events::catalog_v1::VECTOR_TILE_RUNTIME_MANIFEST_POINTER_KEY,
+            "gold/vector-tiles/runtime-manifest.json"
+        );
+        assert!(
+            crate::events::catalog_v1::vector_tile_runtime_manifest_object_key(manifest_id)
+                .ends_with(".json")
+        );
         Ok(())
     }
 

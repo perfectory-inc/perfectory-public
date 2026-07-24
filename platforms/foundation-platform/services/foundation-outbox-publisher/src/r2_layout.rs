@@ -5,6 +5,8 @@ use uuid::Uuid;
 
 pub const VECTOR_TILE_ARTIFACT_ROOT: &str = "gold/vector-tiles/artifacts";
 pub const VECTOR_TILE_MANIFEST_ROOT: &str = "gold/vector-tiles/manifests";
+/// Private immutable PMTiles derivatives. The deployment supplies the dedicated bucket.
+pub const VECTOR_TILE_DERIVATIVE_ROOT: &str = "gold/vector-tiles/releases";
 pub const PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT: &str = "gold/parcel-marker-anchors/artifacts";
 pub const BRONZE_CATALOG_RECOVERY_EVIDENCE_ROOT: &str = "control/evidence/bronze-catalog-recovery";
 
@@ -23,6 +25,23 @@ pub fn vector_tile_artifact_prefix(artifact_id: &str) -> anyhow::Result<String> 
 pub fn vector_tile_manifest_key(manifest_id: &str) -> anyhow::Result<String> {
     let manifest_id = parse_artifact_id(manifest_id, "vector tile manifest_id")?;
     Ok(format!("{VECTOR_TILE_MANIFEST_ROOT}/{manifest_id}.json"))
+}
+
+/// Returns the write-once PMTiles object key for one publication unit and release.
+pub fn vector_tile_release_key(publication_unit: &str, release_id: &str) -> anyhow::Result<String> {
+    anyhow::ensure!(
+        !publication_unit.is_empty()
+            && publication_unit.len() <= 128
+            && publication_unit == publication_unit.to_ascii_lowercase()
+            && publication_unit.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
+            }),
+        "publication unit must be a lower-case identifier"
+    );
+    let release_id = parse_artifact_id(release_id, "vector tile release_id")?;
+    Ok(format!(
+        "{VECTOR_TILE_DERIVATIVE_ROOT}/{publication_unit}-{release_id}.pmtiles"
+    ))
 }
 
 pub fn parcel_marker_anchor_artifact_prefix(artifact_id: &str) -> anyhow::Result<String> {
@@ -83,7 +102,7 @@ mod tests {
     use super::{
         bronze_catalog_recovery_evidence_key, is_bronze_catalog_recovery_evidence_key,
         parcel_marker_anchor_artifact_prefix, vector_tile_artifact_prefix,
-        vector_tile_manifest_key,
+        vector_tile_manifest_key, vector_tile_release_key,
     };
 
     const ID: &str = "018f0000-0000-7000-8000-000000000001";
@@ -102,6 +121,10 @@ mod tests {
             parcel_marker_anchor_artifact_prefix(ID)?,
             "gold/parcel-marker-anchors/artifacts/018f0000-0000-7000-8000-000000000001"
         );
+        assert_eq!(
+            vector_tile_release_key("parcels", ID)?,
+            "gold/vector-tiles/releases/parcels-018f0000-0000-7000-8000-000000000001.pmtiles"
+        );
         Ok(())
     }
 
@@ -111,6 +134,14 @@ mod tests {
             assert!(vector_tile_artifact_prefix(invalid).is_err());
             assert!(vector_tile_manifest_key(invalid).is_err());
             assert!(parcel_marker_anchor_artifact_prefix(invalid).is_err());
+            assert!(vector_tile_release_key("parcels", invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn release_key_rejects_ambiguous_or_noncanonical_units() {
+        for unit in ["Parcels", "parcels/other", "parcels,anchors", "../parcels"] {
+            assert!(vector_tile_release_key(unit, ID).is_err());
         }
     }
 

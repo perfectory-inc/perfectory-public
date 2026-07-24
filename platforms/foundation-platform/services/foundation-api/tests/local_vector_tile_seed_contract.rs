@@ -50,3 +50,17 @@ fn local_vector_tile_seed_matches_object_key_manifest_contract() {
     assert!(upsert.contains("current_version = EXCLUDED.current_version"));
     assert!(upsert.contains("previous_version = EXCLUDED.previous_version"));
 }
+
+#[test]
+fn local_v2_seed_is_additive_and_selects_one_complete_parcel_source() {
+    let seed = include_str!("../../../infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql");
+    assert!(seed.contains("catalog.vector_tile_publication_unit"));
+    assert!(seed.contains("catalog.vector_tile_release"));
+    assert!(seed.contains("source_kind, martin_source_id"));
+    assert!(seed.contains("'dynamic_postgis'"));
+    assert!(seed.contains("'parcels'"));
+    assert!(seed.contains("serving_generation=1"));
+    assert!(seed.contains("catalog.vector_tile_runtime_manifest_pointer"));
+    assert!(seed.contains("serving_postgis.parcel_boundary_publication"));
+    assert!(!seed.contains("catalog.vector_tile_manifest"));
+}

@@ -11,6 +11,7 @@ use catalog_domain::{
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
     IndustryGroupMember, Manufacturer, MarkerAnchorAlgorithm, MarkerTileRequest, Parcel,
     ParcelIndustryAssignment, ParcelKind, SpatialLayer, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{ComplexId, NoticeId, ParcelId, StaffId};
 use foundation_shared_kernel::pnu::Pnu;
@@ -334,6 +335,14 @@ pub trait CatalogRepository: Send + Sync {
     async fn get_active_vector_tile_manifest(
         &self,
     ) -> Result<Option<VectorTileManifest>, CatalogError>;
+
+    /// Loads the active strict v2 single-source runtime manifest, if enabled and published.
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when the normalized publication ledger is inconsistent or unreadable.
+    async fn get_active_vector_tile_runtime_manifest(
+        &self,
+    ) -> Result<Option<VectorTileRuntimeManifest>, CatalogError>;
 
     /// Renders a validated marker tile request as MVT/PBF bytes.
     ///

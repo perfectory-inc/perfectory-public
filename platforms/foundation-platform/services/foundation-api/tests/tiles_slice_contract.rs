@@ -171,7 +171,12 @@ fn local_manifest_and_martin_sources_cannot_drift() {
     }
     assert_eq!(
         yaml_mapping_keys(&dynamic_lines, 0),
-        BTreeSet::from(["listen_addresses", "on_invalid", "postgres"])
+        BTreeSet::from([
+            "cache_size_mb",
+            "listen_addresses",
+            "on_invalid",
+            "postgres"
+        ])
     );
     assert_eq!(
         yaml_mapping_keys(&static_lines, 0),
@@ -186,6 +191,7 @@ fn local_manifest_and_martin_sources_cannot_drift() {
         "0.0.0.0:3000"
     );
     assert_eq!(yaml_scalar(&dynamic_lines, "on_invalid", 0), "abort");
+    assert_eq!(yaml_scalar(&dynamic_lines, "cache_size_mb", 0), "0");
     assert_eq!(yaml_scalar(&static_lines, "on_invalid", 0), "abort");
     assert_eq!(
         yaml_scalar(&dynamic_lines, "connection_string", 2),
@@ -342,6 +348,29 @@ fn local_manifest_and_martin_sources_cannot_drift() {
         assert_eq!(url, "http://127.0.0.1:3101/foundation_static/{z}/{x}/{y}");
         assert!(!url.trim_start_matches("http://").contains("//"));
     }
+}
+
+#[test]
+fn v2_local_manifest_is_generation_addressed_and_keeps_dynamic_cache_disabled() {
+    let manifest = read_json("scripts/tiles/vector-tile-runtime-manifest-v2.local.json");
+    let dynamic = read_text("scripts/tiles/martin-dynamic.yaml");
+    assert_eq!(manifest["schema_version"], 2);
+    assert_eq!(manifest["refresh_after_seconds"], 4);
+    let unit = &manifest["publication_units"]["parcels"];
+    assert_eq!(unit["source"]["kind"], "dynamic_postgis");
+    assert_eq!(unit["source"]["martin_source_id"], "parcels");
+    let url = unit["source"]["tiles_url_template"]
+        .as_str()
+        .expect("v2 dynamic URL must be a string");
+    assert!(url.contains("/parcels/{z}/{x}/{y}?serving_generation=1"));
+    assert!(!url.contains(","));
+    assert_eq!(
+        unit["layers"].as_object().map(|layers| layers.len()),
+        Some(1)
+    );
+    assert_eq!(unit["layers"]["parcels"]["source_layer"], "parcels");
+    assert_eq!(unit["layers"]["parcels"]["feature_id_property"], "pnu");
+    assert!(dynamic.contains("cache_size_mb: 0"));
 }
 
 #[test]

@@ -23,6 +23,9 @@ pub mod outbound_http_error;
 /// PostgreSQL Lakehouse Registry adapters.
 pub mod lakehouse_registry;
 
+/// Provider-neutral spatial tile WAP adapter.
+pub mod spatial_tile_wap;
+
 pub use catalog_materialization::CatalogIndustrialComplexMaterializationReader;
 pub use gold_publication::{
     PgIndustrialComplexGoldPointerReader, PgLakehousePublicationUnitOfWork,
@@ -34,3 +37,4 @@ pub use lakehouse_config::{
     LakehouseCatalogConfigError, LakehouseCatalogProvider, DEFAULT_LAKEHOUSE_SMOKE_TABLE,
 };
 pub use lakehouse_registry::{PgLakehouseRegistryRepository, PgLakehouseRegistryUnitOfWork};
+pub use spatial_tile_wap::{SparkSpatialTileWap, SpatialTileWapRunner};

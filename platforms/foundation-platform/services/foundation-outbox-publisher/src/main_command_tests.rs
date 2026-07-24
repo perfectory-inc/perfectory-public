@@ -306,6 +306,15 @@ fn verify_r2_cleanup_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn derivative_r2_preflight_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "validate-tile-derivative-r2",])?,
+        Command::ValidateTileDerivativeR2
+    );
+    Ok(())
+}
+
+#[test]
 fn delete_r2_candidates_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "delete-r2-candidates"])?,

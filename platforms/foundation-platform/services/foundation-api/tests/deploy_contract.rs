@@ -814,16 +814,16 @@ fn signed_oidc_smoke_is_disposable_secret_safe_and_covers_all_boundaries() -> Te
 fn foundation_baseline_migration_set_is_complete() -> TestResult {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let migration_dir = root.join("migrations");
-    let mut migrations = fs::read_dir(migration_dir)?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("sql"))
-        .collect::<Vec<_>>();
-    migrations.sort();
-
-    assert_eq!(migrations.len(), 4, "the launch migration set changed");
+    let baseline_names = [
+        "20260719000001_foundation_platform_schema.sql",
+        "20260719000002_foundation_platform_constraints.sql",
+        "20260719000003_foundation_platform_indexes.sql",
+        "20260719000004_foundation_platform_foreign_keys.sql",
+    ];
     let mut digest = Sha256::new();
-    for path in migrations {
+    for name in baseline_names {
+        let path = migration_dir.join(name);
+        assert!(path.exists(), "baseline migration is missing: {name}");
         let name = path
             .file_name()
             .and_then(|value| value.to_str())
@@ -851,6 +851,48 @@ fn foundation_baseline_migration_set_is_complete() -> TestResult {
         "the launch migration baseline was edited without review"
     );
 
+    Ok(())
+}
+
+#[test]
+fn additive_migrations_are_allowed_without_rewriting_the_baseline() -> TestResult {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let migration = root
+        .join("migrations")
+        .join("20260724000001_spatial_tile_publication.sql");
+    assert!(migration.exists());
+    let file_name = migration
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    assert!(file_name.starts_with("20260724000001_"));
+    assert!(read_normalized_sql(&migration)?.contains("vector_tile_runtime_manifest_pointer"));
+    Ok(())
+}
+
+#[test]
+fn spatial_publication_migration_keeps_the_transition_invariants_in_sql() -> TestResult {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let migration = read_normalized_sql(
+        &root
+            .join("migrations")
+            .join("20260724000001_spatial_tile_publication.sql"),
+    )?;
+    for invariant in [
+        "vector_tile_release_source_fields_check",
+        "vector_tile_release_validation_evidence_check",
+        "vector_tile_publication_unit_fallback_revision_check",
+        "vector_tile_runtime_manifest_unit_release_binding_fkey",
+        "vector_tile_build_job_result_snapshot_check",
+        "vector_tile_runtime_manifest_pointer_singleton_check",
+    ] {
+        assert!(
+            migration.contains(invariant),
+            "missing SQL invariant: {invariant}"
+        );
+    }
+    assert!(migration.contains("source_kind = 'static_pmtiles'"));
+    assert!(migration.contains("source_kind = 'dynamic_postgis'"));
     Ok(())
 }
 

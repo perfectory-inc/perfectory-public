@@ -99,6 +99,11 @@ runner and do not duplicate SQLx's private-ledger or migration-count logic. The 
 watches the migrations directory itself, so a cached `foundation-migrate` is rebuilt when a migration
 file is added or removed, not only when an already embedded file changes.
 
+The v2 local fixture is additive: `infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql` selects
+one complete `parcels` dynamic release and never rewrites the frozen v1 seed. Its URL carries the
+serving generation (`?serving_generation=1`); Martin's dynamic cache is disabled (`cache_size_mb: 0`)
+so the query is an explicit cache identity, not a historical snapshot selector.
+
 ## Local PMTiles fallback
 
 Ensure that no R2 proof variables are exported, then run the proof twice:
@@ -216,6 +221,22 @@ scripts/tiles/tiles-slice-proof.sh
 
 The path before any query string must end in the exact `R2_TILES_OBJECT_KEY`. Setting both read
 modes, omitting both, or supplying a key outside `tiles-slice-proof/` fails before upload.
+
+For the production publisher/serving boundary, do not reuse the generic `R2_*` environment. The
+Rust preflight command is:
+
+```bash
+foundation-outbox-publisher validate-tile-derivative-r2
+```
+
+It requires `FOUNDATION_TILE_DERIVATIVE_R2_ACCOUNT_ID`, `..._ENDPOINT`, `..._BUCKET`, separate
+`..._WRITE_ACCESS_KEY_ID`/`..._WRITE_SECRET_ACCESS_KEY`, and separate Martin
+`..._READ_ACCESS_KEY_ID`/`..._READ_SECRET_ACCESS_KEY`. The bucket must be a dedicated tile/derivative
+bucket and the immutable prefix is fixed to `gold/vector-tiles/releases`. Release objects are
+derived mechanically as `gold/vector-tiles/releases/{publication_unit}-{release_id}.pmtiles`;
+callers cannot supply an arbitrary key. The publisher only uses create-only writes; Martin receives
+read-only credentials. Never use a prefix as an IAM boundary or point either credential at a
+lakehouse, Bronze, recovery, or backup bucket.
 
 The harness uploads with `If-None-Match: *`. It must never overwrite or delete an object. Before
 Martin starts, it performs a full public GET, requires the byte count and

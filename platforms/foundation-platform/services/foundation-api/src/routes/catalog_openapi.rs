@@ -10,7 +10,10 @@ use foundation_contracts::catalog::{
     PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
     RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse, UnitResponse,
     UpdateComplexRequest, UpdateParcelKindRequest, VectorTileArtifactResponse,
-    VectorTileLineageResponse, VectorTileManifestResponse,
+    VectorTileDynamicPostgisResponse, VectorTileLineageResponse, VectorTileManifestResponse,
+    VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
+    VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
+    VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
 use utoipa::openapi::info::LicenseBuilder;
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
@@ -52,6 +55,7 @@ use super::{HealthResponse, ReadinessResponse};
         super::catalog::list_industry_groups,
         super::catalog::list_parcel_industry_assignments,
         super::catalog::get_vector_tile_manifest,
+        super::catalog::get_vector_tile_runtime_manifest,
         super::catalog::get_marker_tile_contract,
         super::catalog::get_marker_tile,
         super::catalog::rebuild_parcel_marker_anchors,
@@ -92,7 +96,14 @@ use super::{HealthResponse, ReadinessResponse};
         UpdateParcelKindRequest,
         VectorTileArtifactResponse,
         VectorTileLineageResponse,
-        VectorTileManifestResponse
+        VectorTileManifestResponse,
+        VectorTileDynamicPostgisResponse,
+        VectorTilePublicationUnitResponse,
+        VectorTileRuntimeLayerResponse,
+        VectorTileRuntimeLineageResponse,
+        VectorTileRuntimeManifestResponse,
+        VectorTileRuntimeSourceResponse,
+        VectorTileStaticPmtilesResponse
     )),
     modifiers(&BearerSecurity, &CatalogLicense)
 )]

@@ -3,15 +3,19 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  buildVectorTileRuntimeSource,
   buildVectorTileSource,
   CORE_VECTOR_TILE_LAYER,
   fetchVectorTileManifest,
+  fetchVectorTileRuntimeManifest,
   PARCEL_ANCHOR_AGGREGATE_VECTOR_TILE_LAYER,
   PARCEL_ANCHOR_VECTOR_TILE_LAYER,
   parseVectorTileManifest,
+  parseVectorTileRuntimeManifest,
   resolveVectorTileAllowedOrigins,
   resolveVectorTileManifestUrl,
   resolveVectorTileRuntimeEnv,
+  resolveVectorTileRuntimeManifestUrl,
 } from "@/lib/map/vector-tile-manifest";
 
 const lineageFixture = {
@@ -274,5 +278,127 @@ describe("foundation-platform vector tile manifest consumer", () => {
     expect(manifest.artifacts.parcel_anchor?.source_layer).toBe("parcel_anchor");
     expect(source.type).toBe("vector");
     expect(source.tiles[0]).toContain("parcel-marker-anchor");
+  });
+
+  it("dispatches the strict v2 runtime manifest without object-key substitution", () => {
+    const manifest = parseVectorTileRuntimeManifest({
+      schema_version: 2,
+      current_version: "0196e7e0-3c20-7000-8000-000000000052",
+      manifest_generation: 108,
+      refresh_after_seconds: 4,
+      published_at: "2026-07-24T00:00:00Z",
+      publication_units: {
+        parcels: {
+          data_revision: "0196e7e0-3c20-7000-8000-000000000061",
+          serving_generation: 42,
+          active_release_id: "0196e7e0-3c20-7000-8000-000000000062",
+          canonical_iceberg_snapshot_id: "2095444522288693696",
+          source: {
+            kind: "static_pmtiles",
+            martin_source_id: "parcels-0196e7e0-3c20-7000-8000-000000000062",
+            tiles_url_template:
+              "https://tiles.example.com/parcels-0196e7e0-3c20-7000-8000-000000000062/{z}/{x}/{y}",
+            pmtiles_object_key:
+              "gold/vector-tiles/releases/0196e7e0-3c20-7000-8000-000000000062/parcels.pmtiles",
+            pmtiles_file_asset_id: "0196e7e0-3c20-7000-8000-000000000063",
+            pmtiles_sha256: "a".repeat(64),
+            pmtiles_bytes: 123,
+          },
+          layers: {
+            parcels: {
+              source_layer: "parcels",
+              feature_id_property: "pnu",
+              tile_min_zoom: 8,
+              tile_max_zoom: 16,
+              render_min_zoom: 10,
+              render_max_zoom: 22,
+              feature_filter_properties: { pnu: "pnu" },
+            },
+          },
+          lineage: {
+            source_record_id: "0196e7e0-3c20-7000-8000-000000000064",
+            source_file_asset_ids: ["0196e7e0-3c20-7000-8000-000000000065"],
+          },
+        },
+      },
+    });
+    expect(buildVectorTileRuntimeSource(manifest.publication_units.parcels!, "parcels")).toEqual({
+      type: "vector",
+      tiles: ["https://tiles.example.com/parcels-0196e7e0-3c20-7000-8000-000000000062/{z}/{x}/{y}"],
+      minzoom: 8,
+      maxzoom: 16,
+      promoteId: "pnu",
+    });
+  });
+
+  it("keeps v1 and v2 endpoints separate and preserves ETag on 304", async () => {
+    const env = { NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL: "https://foundation.example/" };
+    expect(resolveVectorTileRuntimeManifestUrl(env)).toBe(
+      "https://foundation.example/catalog/v1/vector-tiles/runtime-manifest",
+    );
+    expect(resolveVectorTileManifestUrl(env)).toBe(
+      "https://foundation.example/catalog/v1/vector-tiles/manifest",
+    );
+    const previous = parseVectorTileRuntimeManifest({
+      schema_version: 2,
+      current_version: "0196e7e0-3c20-7000-8000-000000000052",
+      manifest_generation: 1,
+      refresh_after_seconds: 4,
+      published_at: "2026-07-24T00:00:00Z",
+      publication_units: {
+        parcels: {
+          data_revision: "0196e7e0-3c20-7000-8000-000000000061",
+          serving_generation: 1,
+          active_release_id: "0196e7e0-3c20-7000-8000-000000000062",
+          canonical_iceberg_snapshot_id: "1",
+          source: {
+            kind: "dynamic_postgis",
+            martin_source_id: "parcels",
+            tiles_url_template: "http://127.0.0.1:3101/parcels/{z}/{x}/{y}?generation=1",
+            postgis_projection_revision: "0196e7e0-3c20-7000-8000-000000000063",
+            cache_policy: "no_store",
+          },
+          layers: {
+            parcels: {
+              source_layer: "parcels",
+              feature_id_property: "pnu",
+              tile_min_zoom: 8,
+              tile_max_zoom: 16,
+              render_min_zoom: 10,
+              render_max_zoom: 22,
+              feature_filter_properties: { pnu: "pnu" },
+            },
+          },
+          lineage: {
+            source_record_id: "0196e7e0-3c20-7000-8000-000000000064",
+            source_file_asset_ids: ["0196e7e0-3c20-7000-8000-000000000065"],
+          },
+        },
+      },
+    });
+    const result = await fetchVectorTileRuntimeManifest(
+      async (_input, init) => {
+        expect((init?.headers as Record<string, string>)["if-none-match"]).toBe('"manifest-1"');
+        return new Response(null, { status: 304 });
+      },
+      env,
+      { etag: '"manifest-1"', previous },
+    );
+    expect(result.notModified).toBe(true);
+    expect(result.manifest).toBe(previous);
+  });
+
+  it("rejects future schema, unsafe generation, and unknown URL placeholders", () => {
+    expect(() => parseVectorTileRuntimeManifest({ schema_version: 3 })).toThrow();
+    expect(() =>
+      parseVectorTileRuntimeManifest({
+        schema_version: 2,
+        current_version: "0196e7e0-3c20-7000-8000-000000000052",
+        manifest_generation: 9007199254740992,
+        refresh_after_seconds: 4,
+        published_at: "2026-07-24T00:00:00Z",
+        publication_units: {},
+      }),
+    ).toThrow();
   });
 });

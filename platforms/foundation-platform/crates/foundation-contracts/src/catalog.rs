@@ -11,6 +11,7 @@ use catalog_domain::{
     PNU_ANCHOR_PBF_MARKER_TILE_CONTRACT,
 };
 use chrono::{DateTime, Utc};
+use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -628,4 +629,175 @@ pub struct PromoteVectorTileArtifactRequest {
     pub flat_tile_total_bytes: u64,
     /// Source file assets used to build this layer.
     pub source_file_assets: Vec<PromoteFileAssetRequest>,
+}
+
+/// Foundation-owned v2 runtime manifest response.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VectorTileRuntimeManifestResponse {
+    /// Exact manifest schema version. Always `2`.
+    pub schema_version: u32,
+    /// Immutable manifest UUID and ETag identity.
+    pub current_version: Uuid,
+    /// Global JavaScript-safe poll generation.
+    pub manifest_generation: u64,
+    /// Required bounded polling interval.
+    pub refresh_after_seconds: u16,
+    /// UTC publication timestamp.
+    pub published_at: DateTime<Utc>,
+    /// Non-empty atomically switched publication units.
+    pub publication_units: BTreeMap<String, VectorTilePublicationUnitResponse>,
+}
+
+/// One v2 publication unit response.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VectorTilePublicationUnitResponse {
+    /// UUID of the logical feature set.
+    pub data_revision: Uuid,
+    /// JavaScript-safe source selection generation.
+    pub serving_generation: u64,
+    /// Immutable release descriptor UUID.
+    pub active_release_id: Uuid,
+    /// Positive decimal Iceberg snapshot id represented by the unit.
+    pub canonical_iceberg_snapshot_id: String,
+    /// Exactly one complete Martin source.
+    pub source: VectorTileRuntimeSourceResponse,
+    /// MVT layers served by this source.
+    pub layers: BTreeMap<String, VectorTileRuntimeLayerResponse>,
+    /// Source lineage.
+    pub lineage: VectorTileRuntimeLineageResponse,
+}
+
+/// Closed v2 source union.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum VectorTileRuntimeSourceResponse {
+    /// Complete dynamic PostGIS source.
+    DynamicPostgis(VectorTileDynamicPostgisResponse),
+    /// Immutable PMTiles source served by Martin.
+    StaticPmtiles(VectorTileStaticPmtilesResponse),
+}
+
+/// Dynamic PostGIS source response.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VectorTileDynamicPostgisResponse {
+    /// Stable configured Martin source name.
+    pub martin_source_id: String,
+    /// Complete Martin tile URL template.
+    pub tiles_url_template: String,
+    /// Complete PostGIS projection revision UUID.
+    pub postgis_projection_revision: Uuid,
+    /// Must be `no_store` for the dynamic source.
+    pub cache_policy: String,
+}
+
+/// Immutable PMTiles source response.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VectorTileStaticPmtilesResponse {
+    /// Release-addressed Martin source name.
+    pub martin_source_id: String,
+    /// Complete Martin tile URL template.
+    pub tiles_url_template: String,
+    /// Immutable PMTiles object key.
+    pub pmtiles_object_key: String,
+    /// File asset UUID for the PMTiles object.
+    pub pmtiles_file_asset_id: Uuid,
+    /// Lowercase SHA-256 checksum.
+    pub pmtiles_sha256: String,
+    /// PMTiles object size in bytes.
+    pub pmtiles_bytes: u64,
+}
+
+/// Layer metadata in a v2 runtime source.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VectorTileRuntimeLayerResponse {
+    /// MVT source layer name.
+    pub source_layer: String,
+    /// Canonical lower-case feature identity property.
+    pub feature_id_property: String,
+    /// Stored tile minimum zoom.
+    pub tile_min_zoom: u8,
+    /// Stored tile maximum zoom.
+    pub tile_max_zoom: u8,
+    /// Client render minimum zoom.
+    pub render_min_zoom: u8,
+    /// Client render maximum zoom.
+    pub render_max_zoom: u8,
+    /// Concrete feature properties used by client filters.
+    pub feature_filter_properties: BTreeMap<String, String>,
+}
+
+/// Lineage metadata in a v2 runtime source.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VectorTileRuntimeLineageResponse {
+    /// Source record UUID.
+    pub source_record_id: Uuid,
+    /// Source file asset UUIDs.
+    pub source_file_asset_ids: Vec<Uuid>,
+}
+
+impl VectorTileRuntimeManifestResponse {
+    /// Validates this DTO against the Catalog domain v2 invariants.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != 2 {
+            return Err("schema_version must be exactly 2".to_owned());
+        }
+        let value = serde_json::to_value(self).map_err(|error| error.to_string())?;
+        serde_json::from_value::<catalog_domain::VectorTileRuntimeManifest>(value)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+}
+
+/// Exact schema-version dispatcher for the frozen v1 and strict v2 manifests.
+#[derive(Clone, Debug)]
+pub enum VectorTileManifestDocument {
+    /// Legacy flat-object manifest.
+    V1(VectorTileManifestResponse),
+    /// Single-source runtime manifest.
+    V2(VectorTileRuntimeManifestResponse),
+}
+
+impl Serialize for VectorTileManifestDocument {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::V1(value) => value.serialize(serializer),
+            Self::V2(value) => value.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for VectorTileManifestDocument {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let version = value
+            .get("schema_version")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| serde::de::Error::custom("manifest schema_version is required"))?;
+        match version {
+            1 => serde_json::from_value::<VectorTileManifestResponse>(value)
+                .map(Self::V1)
+                .map_err(D::Error::custom),
+            2 => {
+                let manifest = serde_json::from_value::<VectorTileRuntimeManifestResponse>(value)
+                    .map_err(D::Error::custom)?;
+                manifest.validate().map_err(D::Error::custom)?;
+                Ok(Self::V2(manifest))
+            }
+            _ => Err(D::Error::custom(
+                "unsupported vector tile manifest schema_version",
+            )),
+        }
+    }
 }

@@ -27,7 +27,7 @@
       "id": "foundation_platform.public.runtime_manifest_v2",
       "method": "GET",
       "path": "/catalog/v1/vector-tiles/runtime-manifest",
-      "handler": "catalog::get_vector_tile_runtime_manifest_v2",
+      "handler": "catalog::get_vector_tile_runtime_manifest",
       "exposure": "public_contract",
       "runtime_launch_allowed": false,
       "edge_policy_required": true,

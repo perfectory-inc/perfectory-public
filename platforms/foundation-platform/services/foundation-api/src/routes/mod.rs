@@ -276,6 +276,10 @@ fn map_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
             get(catalog::get_vector_tile_manifest),
         )
         .route(
+            "/catalog/v1/vector-tiles/runtime-manifest",
+            get(catalog::get_vector_tile_runtime_manifest),
+        )
+        .route(
             "/map/v1/marker-tiles/contract",
             get(catalog::get_marker_tile_contract),
         )
@@ -919,7 +923,13 @@ fn cors_layer_from_env() -> CorsLayer {
             Method::PATCH,
             Method::OPTIONS,
         ])
-        .allow_headers([header::ACCEPT, header::AUTHORIZATION, header::CONTENT_TYPE])
+        .allow_headers([
+            header::ACCEPT,
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::IF_NONE_MATCH,
+        ])
+        .expose_headers([header::ETAG])
 }
 
 fn cors_allowed_origins_from_env() -> Vec<HeaderValue> {

@@ -136,6 +136,63 @@ pub trait LakehouseCatalog: Send + Sync {
     ) -> Result<Option<LakehouseTableSnapshot>, LakehouseError>;
 }
 
+/// Provider-neutral candidate handle for a spatial tile WAP branch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SpatialTileWapCandidate {
+    /// Immutable candidate branch or snapshot identifier.
+    pub candidate_snapshot_id: String,
+    /// Release id bound to this candidate.
+    pub release_id: Uuid,
+    /// Base snapshot from which the candidate was created.
+    pub base_snapshot_id: String,
+}
+
+/// Validated spatial tile WAP evidence returned by the provider adapter.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SpatialTileWapValidation {
+    /// Candidate branch that was validated.
+    pub candidate_snapshot_id: String,
+    /// Canonical data revision represented by the candidate.
+    pub data_revision: Uuid,
+    /// Feature row count loaded into the complete serving projection.
+    pub row_count: u64,
+    /// Evidence checksum for the validation receipt.
+    pub evidence_sha256: String,
+}
+
+/// Provider-neutral Iceberg WAP boundary for spatial tile publication.
+#[async_trait]
+pub trait SpatialTileWap: Send + Sync {
+    /// Creates an isolated candidate from the currently selected base snapshot.
+    async fn prepare_candidate(
+        &self,
+        base_snapshot_id: &str,
+        change_set: &str,
+        release_id: Uuid,
+    ) -> Result<SpatialTileWapCandidate, LakehouseError>;
+
+    /// Validates candidate isolation and complete spatial quality.
+    async fn validate_candidate(
+        &self,
+        candidate: &SpatialTileWapCandidate,
+    ) -> Result<SpatialTileWapValidation, LakehouseError>;
+
+    /// Retains the selected candidate for rollback/audit retention.
+    async fn retain_selected(
+        &self,
+        candidate: &SpatialTileWapCandidate,
+    ) -> Result<(), LakehouseError>;
+
+    /// Expires an unselected candidate after its bounded retention window.
+    async fn expire_unselected(
+        &self,
+        candidate: &SpatialTileWapCandidate,
+    ) -> Result<(), LakehouseError>;
+
+    /// Fast-forwards the provider's main pointer only along the selected ancestry.
+    async fn fast_forward_main(&self, selected_snapshot_id: &str) -> Result<(), LakehouseError>;
+}
+
 /// Audit sink for Lakehouse batch execution summaries.
 #[async_trait]
 pub trait LakehouseBatchRunAudit: Send + Sync {

@@ -1,5 +1,8 @@
 listen_addresses: 0.0.0.0:3000
 on_invalid: abort
+# Dynamic PostGIS is a mutable projection. Disable Martin's in-process tile cache so a committed
+# serving-generation change is observed without waiting for an eviction or purge.
+cache_size_mb: 0
 postgres:
   connection_string: ${DATABASE_URL}
   pool_size: 4
