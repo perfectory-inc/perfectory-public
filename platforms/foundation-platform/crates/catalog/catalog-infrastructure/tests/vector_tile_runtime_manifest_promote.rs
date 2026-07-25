@@ -127,10 +127,10 @@ impl Fixture {
         sqlx::query(
             "INSERT INTO catalog.vector_tile_release
              (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
-              source_record_id, source_kind, martin_source_id, tiles_url_template,
-              postgis_projection_revision)
+             source_record_id, source_kind, martin_source_id, tiles_url_template,
+             postgis_projection_revision)
              VALUES ($1, $2, $3, $4, $5, 'dynamic_postgis', 'cas_parcels',
-                     'https://tiles.example.test/parcels/{z}/{x}/{y}', $6)",
+                     'https://tiles.example.test/cas_parcels/{z}/{x}/{y}', $6)",
         )
         .bind(self.release_id)
         .bind(self.unit_id)
