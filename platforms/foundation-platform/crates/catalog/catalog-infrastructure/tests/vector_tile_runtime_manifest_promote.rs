@@ -104,13 +104,12 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let suffix = Uuid::new_v4().simple().to_string();
         Self {
             unit_id: Uuid::now_v7(),
             release_id: Uuid::now_v7(),
             manifest_id: Uuid::now_v7(),
             data_revision: Uuid::now_v7(),
-            snapshot_id: format!("9{}", &suffix[..10]),
+            snapshot_id: format!("9{}", Uuid::new_v4().as_u128()),
         }
     }
 
