@@ -1,6 +1,7 @@
 import {
   buildFoundationVectorSource,
   FOUNDATION_VECTOR_LAYER_REGISTRY,
+  validateFoundationVectorManifest,
 } from "@/lib/map/foundation-vector-layer-registry";
 import type { VectorTileRuntimeManifest } from "@/lib/map/vector-tile-manifest";
 
@@ -19,13 +20,14 @@ export function refreshFoundationVectorSources(
   previous: VectorTileRuntimeManifest,
   next: VectorTileRuntimeManifest,
 ): string[] {
+  validateFoundationVectorManifest(next);
   const changed: string[] = [];
   for (const [unitName, definition] of Object.entries(FOUNDATION_VECTOR_LAYER_REGISTRY)) {
     const before = previous.publication_units[unitName];
     const after = next.publication_units[unitName];
     if (!after || !before || after.serving_generation === before.serving_generation) continue;
     const source = mapbox.getSource?.(definition.sourceId);
-    const nextSource = buildFoundationVectorSource(next, unitName, definition.sourceId);
+    const nextSource = buildFoundationVectorSource(next, unitName, definition.layerName);
     if (source?.setTiles) {
       source.setTiles(nextSource.tiles);
     } else if (mapbox.addSource && !source) {
@@ -50,10 +52,13 @@ export function startFoundationVectorManifestPolling(options: {
   visible?: () => boolean;
   intervalMs?: number;
   random?: () => number;
+  initialManifest?: VectorTileRuntimeManifest;
+  initialEtag?: string;
+  startImmediately?: boolean;
 }): () => void {
   const controller = new AbortController();
-  let previous: VectorTileRuntimeManifest | undefined;
-  let etag: string | undefined;
+  let previous: VectorTileRuntimeManifest | undefined = options.initialManifest;
+  let etag: string | undefined = options.initialEtag;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let inFlight = false;
   let stopped = false;
@@ -66,7 +71,11 @@ export function startFoundationVectorManifestPolling(options: {
     if (!stopped) timer = setTimeout(run, delay);
   };
   const run = async () => {
-    if (stopped || inFlight || !visible()) return;
+    if (stopped || inFlight) return;
+    if (!visible()) {
+      schedule(base);
+      return;
+    }
     inFlight = true;
     try {
       const result = await options.fetchManifest(controller.signal, previous, etag);
@@ -85,7 +94,8 @@ export function startFoundationVectorManifestPolling(options: {
       inFlight = false;
     }
   };
-  void run();
+  if (options.startImmediately === false) schedule(base);
+  else void run();
   return () => {
     stopped = true;
     controller.abort();

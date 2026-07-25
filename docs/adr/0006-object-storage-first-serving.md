@@ -84,7 +84,7 @@ PMTiles object, and does not avoid publishing a new immutable PMTiles version.
 
 **Publication lifecycle.** Foundation owns canonical geometry and tile publication. A public edit is
 first committed through an Iceberg Write-Audit-Publish branch, projected into a complete
-generation-addressed PostGIS source, decoded through Martin, and selected with compare-and-swap.
+pointer-selected PostGIS source, decoded through Martin, and selected with compare-and-swap.
 That dynamic source becomes visible immediately after the active release commits. Approval queues a
 debounced static build; an administrator may request **Publish now** to bypass the wait. A scheduled
 retry/reconciler repairs failed jobs.
@@ -108,21 +108,16 @@ PMTiles or Martin routes. Schema v2 groups layers under publication units and ca
 - a per-unit UUID `data_revision`, JavaScript-safe `serving_generation`, immutable
   `active_release_id`, and canonical Iceberg snapshot ID encoded as a positive decimal string;
 - one tagged `source` value, `dynamic_postgis` or `static_pmtiles`, never both;
-- one version/generation-addressed Martin tile URL and the unit's complete MVT layer metadata; and
+- one stable dynamic or release-addressed static Martin tile URL and the unit's complete MVT layer metadata; and
 - transport-specific PostGIS projection or PMTiles object/checksum/size lineage.
 
 The production client dispatches exactly on schema version, validates the full manifest, and
 replaces only a unit whose `serving_generation` changed. `manifest_generation` never selects a tile
-source. Every release uses a new route/cache identity. Parcel identity converges on canonical
-lowercase `pnu`; proof-only uppercase `PNU` is not a second production contract.
-
-A dynamic generation query is a cache-busting identity, not a historical PostGIS snapshot selector.
-The stable Martin source always reads the latest completely committed projection. A client that
-keeps an already-registered dynamic source after rejecting a malformed manifest may therefore see
-newer committed geometry through that route; it is never promised old dynamic bytes. Exact rollback
-never comes from an old query string. It comes from an immutable static release, a new canonical data
-revision, or a revalidated same-data dynamic fallback whose warm projection still exactly matches
-that `data_revision`.
+source. Static releases use a new immutable Martin route/cache identity. Dynamic Martin URLs are
+stable and query-free: the `vector_tile_runtime_manifest_pointer` is the only source selector, and
+the `serving_postgis.*_current` view joins that pointer to exactly one committed `data_revision`.
+Parcel identity converges on canonical lowercase `pnu`; proof-only uppercase `PNU` is not a second
+production contract. Exact rollback is a complete pointer switch, never a cache-busting query string.
 
 The first v2 migration unit is only `parcels`. The existing schema-v1 endpoint, persistence model,
 events, `NEXT_PUBLIC_TILES_MANIFEST_URL` meaning, and `gold/manifest.json` bytes remain frozen. Those

@@ -28,6 +28,7 @@ fn compose_builds_migrates_and_runs_the_foundation_api_with_separate_roles() -> 
         "foundation-api:\n",
         "foundation_migrator:${FOUNDATION_MIGRATOR_PASSWORD:?set FOUNDATION_MIGRATOR_PASSWORD}",
         "foundation_api:${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}",
+        "FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED: ${FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED:-false}",
         "dockerfile: services/foundation-api/Dockerfile",
         "127.0.0.1:${FOUNDATION_REDIS_PORT:-16379}:6379",
         "healthcheck:\n",
@@ -885,6 +886,11 @@ fn spatial_publication_migration_keeps_the_transition_invariants_in_sql() -> Tes
         "vector_tile_runtime_manifest_unit_release_binding_fkey",
         "vector_tile_build_job_result_snapshot_check",
         "vector_tile_runtime_manifest_pointer_singleton_check",
+        "promote_vector_tile_runtime_manifest",
+        "vector tile runtime manifest compare-and-swap conflict",
+        "runtime manifest generation must increase",
+        "runtime manifest is not a complete publication",
+        "runtime manifest has a serving-generation gap",
     ] {
         assert!(
             migration.contains(invariant),
@@ -892,6 +898,19 @@ fn spatial_publication_migration_keeps_the_transition_invariants_in_sql() -> Tes
         );
     }
     assert!(migration.contains("source_kind = 'static_pmtiles'"));
+    assert!(migration.contains("non-release-addressed static PMTiles source"));
+    assert!(migration.contains("format('%s-%s', unit.unit_key, release.id)"));
+    assert!(migration.contains("the first runtime publication must be dynamic PostGIS"));
+    assert!(migration.contains("static PMTiles must use the currently selected data revision"));
+    assert!(migration.contains("vector_tile_publication_unit_key_check CHECK (unit_key ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$')"));
+    assert!(migration.contains(
+        "vector_tile_release_layer_id_check CHECK (layer_id ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$')"
+    ));
+    assert!(migration.contains("vector_tile_release_route_check"));
+    assert!(migration.contains("vector_tile_release_layer_source_layer_check"));
+    assert!(migration.contains(
+        "vector_tile_release_layer_release_source_layer_key UNIQUE (release_id, source_layer)"
+    ));
     assert!(migration.contains("source_kind = 'dynamic_postgis'"));
     Ok(())
 }

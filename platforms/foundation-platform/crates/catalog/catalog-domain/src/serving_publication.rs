@@ -5,7 +5,7 @@
 //! immutable PMTiles release.  The validation here is the domain guard used by transport DTOs and
 //! publishers; clients do not infer or merge sources.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use foundation_shared_kernel::ids::{
     FileAssetId, PostgisProjectionRevisionId, SourceRecordId, VectorTileDataRevisionId,
@@ -242,7 +242,7 @@ pub struct RuntimeTileLineage {
 pub struct DynamicPostgisSource {
     /// Stable configured Martin source name.
     pub martin_source_id: String,
-    /// Generation-addressed tile URL template.
+    /// Stable, query-free tile URL template selected by the Catalog pointer.
     pub tiles_url_template: RuntimeTilesUrlTemplate,
     /// Complete PostGIS projection revision.
     pub postgis_projection_revision: PostgisProjectionRevisionId,
@@ -419,9 +419,12 @@ impl VectorTileRuntimeManifest {
         if self.publication_units.is_empty() {
             return Err("publication_units must not be empty".to_owned());
         }
+        let mut martin_source_ids = BTreeSet::new();
         for (unit_name, unit) in &self.publication_units {
-            if unit_name.trim().is_empty() {
-                return Err("publication unit name must not be empty".to_owned());
+            if !is_martin_identifier(unit_name) {
+                return Err(format!(
+                    "publication unit {unit_name:?} must be a safe Martin identifier"
+                ));
             }
             if unit.layers.is_empty() {
                 return Err(format!("{unit_name}: layers must not be empty"));
@@ -431,9 +434,18 @@ impl VectorTileRuntimeManifest {
                     "{unit_name}: source_file_asset_ids must not be empty"
                 ));
             }
+            let mut source_layers = BTreeSet::new();
             for (layer_name, layer) in &unit.layers {
                 if layer_name.trim().is_empty() || layer.source_layer.trim().is_empty() {
                     return Err(format!("{unit_name}: layer names must not be empty"));
+                }
+                if !is_martin_identifier(layer_name)
+                    || !is_martin_identifier(&layer.source_layer)
+                    || !source_layers.insert(layer.source_layer.trim().to_owned())
+                {
+                    return Err(format!(
+                        "{unit_name}/{layer_name}: Martin layer ids must be unique safe identifiers"
+                    ));
                 }
                 if layer.tile_min_zoom > layer.tile_max_zoom
                     || layer.render_min_zoom > layer.render_max_zoom
@@ -452,22 +464,40 @@ impl VectorTileRuntimeManifest {
             }
             match &unit.source {
                 ActiveTileSource::DynamicPostgis(source) => {
-                    if source.martin_source_id.trim().is_empty()
+                    if !is_martin_identifier(&source.martin_source_id)
+                        || !martin_source_ids.insert(source.martin_source_id.trim().to_owned())
                         || source.cache_policy != "no_store"
+                        || source.tiles_url_template.as_str().contains('?')
+                        || source.tiles_url_template.as_str().contains('#')
+                        || !martin_route_matches_source_id(
+                            &source.tiles_url_template,
+                            &source.martin_source_id,
+                        )
                     {
                         return Err(format!(
-                            "{unit_name}: dynamic source must use a named source and no_store"
+                            "{unit_name}: dynamic source must use a stable Martin id, no_store, and a query-free URL"
                         ));
                     }
                 }
                 ActiveTileSource::StaticPmtiles(source) => {
-                    if source.martin_source_id.trim().is_empty()
+                    if !is_martin_identifier(&source.martin_source_id)
+                        || !martin_source_ids.insert(source.martin_source_id.trim().to_owned())
                         || source.pmtiles_object_key.trim().is_empty()
                         || source.pmtiles_bytes == 0
                         || !is_sha256(&source.pmtiles_sha256)
+                        || !martin_route_matches_source_id(
+                            &source.tiles_url_template,
+                            &source.martin_source_id,
+                        )
+                        || !static_pmtiles_identity_matches(
+                            unit_name,
+                            unit.active_release_id,
+                            &source.martin_source_id,
+                            &source.pmtiles_object_key,
+                        )
                     {
                         return Err(format!(
-                            "{unit_name}: static PMTiles metadata is incomplete"
+                            "{unit_name}: static PMTiles metadata or release-addressed Martin identity is invalid"
                         ));
                     }
                 }
@@ -475,6 +505,40 @@ impl VectorTileRuntimeManifest {
         }
         Ok(())
     }
+}
+
+fn static_pmtiles_identity_matches(
+    unit_name: &str,
+    release_id: VectorTileReleaseId,
+    martin_source_id: &str,
+    object_key: &str,
+) -> bool {
+    let filename = format!("{unit_name}-{release_id}.pmtiles");
+    object_key.rsplit('/').next() == Some(filename.as_str())
+        && martin_source_id.trim() == filename.trim_end_matches(".pmtiles")
+}
+
+fn martin_route_matches_source_id(template: &RuntimeTilesUrlTemplate, source_id: &str) -> bool {
+    template
+        .as_str()
+        .ends_with(&format!("/{source_id}/{{z}}/{{x}}/{{y}}"))
+}
+
+fn is_martin_identifier(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| byte.is_ascii_alphabetic())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_uppercase()
+                || byte.is_ascii_digit()
+                || byte == b'_'
+                || byte == b'-'
+        })
 }
 
 fn is_sha256(value: &str) -> bool {

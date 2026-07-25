@@ -323,11 +323,15 @@ for _ in 1 2; do
   compose exec -T postgis psql -X -h 127.0.0.1 -U postgres -d tiles_slice_proof \
     -v ON_ERROR_STOP=1 -q -f - < "$SCRIPT_DIR/fixture.sql"
 done
+compose exec -T postgis psql -X -h 127.0.0.1 -U postgres -d tiles_slice_proof \
+  -v ON_ERROR_STOP=1 -q -f - < "$REPO_HOST_PATH/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql"
 
 [[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.industrial_complex WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM serving_postgis.parcel_boundary_mirror WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel_marker_anchor AS anchor JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id WHERE parcel.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101' AND anchor.is_active));")" == "1|3|3|3" ]] \
   || fail "fixture row counts drifted"
-[[ "$(psql_value "SELECT concat_ws('|', count(*), min(ST_SRID(geom)), max(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.tiles_slice_parcels;")" == "3|5179|5179|t" ]] \
-  || fail "parcel view geometry contract failed"
+[[ "$(psql_value "SELECT concat_ws('|', count(*), min(ST_SRID(geom)), max(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.parcel_boundary_current;")" == "3|5179|5179|t" ]] \
+  || fail "active parcel publication view geometry contract failed"
+[[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.vector_tile_runtime_manifest_pointer WHERE singleton), (SELECT count(*) FROM serving_postgis.parcel_boundary_current), (SELECT count(*) FROM serving_postgis.parcel_boundary_publication AS publication JOIN catalog.vector_tile_runtime_manifest_unit AS manifest_unit ON manifest_unit.data_revision = publication.data_revision JOIN catalog.vector_tile_runtime_manifest_pointer AS pointer ON pointer.manifest_id = manifest_unit.manifest_id WHERE pointer.singleton));")" == "1|3|3" ]] \
+  || fail "active parcel view is not bound to the single runtime-manifest pointer"
 [[ "$(psql_value "SELECT concat_ws('|', count(*), min(ST_SRID(geom)), max(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.tiles_slice_parcel_anchor;")" == "3|4326|4326|t" ]] \
   || fail "anchor view geometry contract failed"
 [[ "$(psql_value "SELECT concat_ws('|', count(*), min(aggregate.count), max(aggregate.count), min(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.tiles_slice_parcel_anchor_aggregate AS aggregate;")" == "1|3|3|4326|t" ]] \
@@ -349,6 +353,18 @@ MBTILES_VECTOR_LAYERS="$(printf '%s' "$dynamic_tilejson_compact" \
   | sed -n 's/^.*\("vector_layers":\[.*\]\),"bounds":.*$/{\1}/p')"
 [[ -n "$MBTILES_VECTOR_LAYERS" ]] \
   || fail "dynamic Martin TileJSON is missing parseable vector_layers metadata"
+
+DYNAMIC_CATALOG_PATH="$ARTIFACT_DIR/dynamic-catalog.json"
+dynamic_catalog_status="$(clean_curl --silent --show-error --connect-timeout 5 --max-time 30 \
+  --header 'Accept: application/json' --output "$DYNAMIC_CATALOG_PATH" \
+  --write-out '%{http_code}' "http://127.0.0.1:3110/catalog")"
+[[ "$dynamic_catalog_status" == "200" && -s "$DYNAMIC_CATALOG_PATH" ]] \
+  || fail "dynamic Martin catalog request failed with HTTP $dynamic_catalog_status"
+dynamic_catalog_compact="$(tr -d '\r\n\t' < "$DYNAMIC_CATALOG_PATH")"
+for source_id in parcels parcel_anchor_aggregate parcel_anchor; do
+  printf '%s' "$dynamic_catalog_compact" | grep -q "\"$source_id\"" \
+    || fail "dynamic Martin catalog is missing configured source $source_id"
+done
 
 MSYS_NO_PATHCONV=1 docker run --rm \
   --env RUSTUP_TOOLCHAIN=1.96.0-x86_64-unknown-linux-gnu \
@@ -400,7 +416,7 @@ z14_expectations=()
 for pnu in "${PNUS[@]}"; do
   z14_expectations+=(--expect-identity "parcels|$pnu|$COMPLEX_CODE")
   z14_expectations+=(--expect-identity "parcel_anchor|$pnu|$COMPLEX_CODE")
-  z14_expectations+=(--expect-property "PNU=$pnu")
+  z14_expectations+=(--expect-property "pnu=$pnu")
 done
 mvt_assert assert "$RUN_RELATIVE/dynamic-z14.pbf" --content-encoding identity \
   --expect-layer parcels=3 --expect-layer parcel_anchor=3 "${z14_expectations[@]}"
@@ -650,6 +666,6 @@ done
 all_layer_ids="$(printf '%s' "$tilejson_compact" | grep -o '"id":"[^"]*"' | wc -l | tr -d '[:space:]')"
 [[ "$all_layer_ids" == 3 ]] || fail "TileJSON contains unexpected vector layer IDs"
 
-printf 'DYNAMIC tile OK bbox=%s decoded feature count=7 expected PNU=%s\n' "$BBOX" "${PNUS[0]}"
+printf 'DYNAMIC tile OK bbox=%s decoded feature count=7 expected pnu=%s\n' "$BBOX" "${PNUS[0]}"
 printf 'STATIC tile OK bbox=%s decoded feature count=7 MATCHING features (%s)\n' "$BBOX" "$STATIC_MODE_LABEL"
 printf 'tiles-slice-proof: artifacts retained at %s\n' "$ARTIFACT_DIR"

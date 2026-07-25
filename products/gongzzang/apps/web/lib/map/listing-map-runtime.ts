@@ -1,5 +1,13 @@
 import { MAP_LAYER_COLORS } from "@gongzzang/ui/tokens.js";
 import {
+  buildFoundationVectorSource,
+  validateFoundationVectorManifest,
+} from "@/lib/map/foundation-vector-layer-registry";
+import {
+  refreshFoundationVectorSources,
+  startFoundationVectorManifestPolling,
+} from "@/lib/map/foundation-vector-source-refresh";
+import {
   LISTING_MARKER_RENDER_MAX_ZOOM,
   LISTING_MARKER_RENDER_MIN_ZOOM,
 } from "@/lib/map/map-zoom-policy";
@@ -13,7 +21,6 @@ import {
   PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID,
 } from "@/lib/map/marker-tile-style";
 import {
-  buildVectorTileRuntimeSource,
   buildVectorTileSource,
   fetchVectorTileManifest,
   fetchVectorTileRuntimeManifest,
@@ -63,6 +70,43 @@ export async function setupMapboxRuntime(
   await setupMarkerTileLayers(mb, onParcelClick, manifest);
   await setupListingMarkerTileLayers(mb, onListingClick);
   if (isCancelled()) return;
+  if (runtimeManifest) {
+    let activeRuntimeManifest = runtimeManifest;
+    const stopRuntimeManifestPolling = startFoundationVectorManifestPolling({
+      initialManifest: runtimeManifest,
+      startImmediately: false,
+      fetchManifest: async (signal, previous, etag) => {
+        const result = await fetchVectorTileRuntimeManifest(fetch, undefined, {
+          signal,
+          previous,
+          etag,
+        });
+        return { manifest: result.manifest, etag: result.etag };
+      },
+      onManifest: (next) => {
+        try {
+          refreshFoundationVectorSources(
+            mb as unknown as Parameters<typeof refreshFoundationVectorSources>[0],
+            activeRuntimeManifest,
+            next,
+          );
+          activeRuntimeManifest = next;
+        } catch (error) {
+          logMapLayerFailure("vector-tile-runtime-manifest-refresh", error, {
+            kind: "core",
+            source: "foundation-platform",
+          });
+        }
+      },
+      onError: (error) =>
+        logMapLayerFailure("vector-tile-runtime-manifest-poll", error, {
+          kind: "core",
+          source: "foundation-platform",
+        }),
+      visible: () => typeof document === "undefined" || document.visibilityState === "visible",
+    });
+    cleanups.push(stopRuntimeManifestPolling);
+  }
   onMapboxReady(mb);
   const recovery = setupWebGlRecovery(mb);
   if (recovery) cleanups.push(recovery);
@@ -97,12 +141,13 @@ async function setupPolygonLayers(
   if (!manifest && !runtimeManifest) return;
 
   try {
+    if (runtimeManifest) validateFoundationVectorManifest(runtimeManifest);
     const runtimeUnit = runtimeManifest?.publication_units.parcels;
     const artifact = manifest ? getVectorTileArtifact(manifest, "parcels") : undefined;
     if (runtimeUnit && !mb.getSource?.("parcels")) {
       const runtimeLayer = runtimeUnit.layers.parcels;
       if (!runtimeLayer) throw new Error("v2 parcels unit is missing the parcels layer");
-      mb.addSource("parcels", buildVectorTileRuntimeSource(runtimeUnit, "parcels"));
+      mb.addSource("parcels", buildFoundationVectorSource(runtimeManifest, "parcels", "parcels"));
       mb.addLayer({
         id: "parcels-fill",
         type: "fill",

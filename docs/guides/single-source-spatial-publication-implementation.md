@@ -819,15 +819,14 @@ the PMTiles TileJSON contains exactly the `parcels` source layer.
 - [ ] **Step 5: Make mutable dynamic tiles impossible to serve from an old cache key**
 
 Set `cache: disable` on `martin-dynamic`; Martin 1.12 otherwise enables an in-process tile cache by
-default. Require every dynamic v2 URL to include the exact serving generation in its query string or
-path, and add a contract test that a generation change changes the full tile URL. At a CDN boundary,
-either return `Cache-Control: no-store` for the dynamic route or mechanically prove the cache key
-includes the generation parameter. The proof must fetch the same z/x/y before and after an add/modify/
-delete transition and observe the new bytes without a purge. Static Martin keeps its immutable cache.
-The dynamic `martin_source_id` remains the stable explicit unit source (`parcels` in this slice);
-do not invent an unconfigured source ID per generation. Also prove and document that the generation
-query is only cache identity: an old dynamic URL reads the latest fully committed PostGIS projection
-and is not an addressable historical release.
+default. Dynamic v2 URLs are stable and query-free; the Catalog runtime-manifest pointer selects the
+complete committed PostGIS revision and the source uses `no_store`. A generation change must change
+the manifest ETag and client source-selection generation, not the tile URL. At a CDN boundary,
+return `Cache-Control: no-store` for the dynamic route. The proof must fetch the same z/x/y before
+and after an add/modify/delete transition and observe the new bytes without a purge. Static Martin
+keeps its immutable cache. The dynamic `martin_source_id` remains the stable explicit unit source
+(`parcels` in this slice); do not invent an unconfigured source ID per generation. A query parameter
+must never be treated as a historical release selector.
 
 - [ ] **Step 6: Configure Martin remote-prefix discovery**
 
@@ -1160,7 +1159,8 @@ Martin services. Pass the local Foundation base URL, v2 manifest URL, and Naver 
 through `playwright.probes.config.ts`; never synthesize a production credential. The new Playwright
 spec must:
 
-1. open the real Naver-backed map with dynamic R31 and wait for a generation-addressed parcel tile;
+1. open the real Naver-backed map with dynamic R31 and wait for the Catalog manifest generation to
+   select the updated parcel source;
 2. invoke `promote-spatial-tile-build` through the harness's Rust control container while the page
    remains open;
 3. read the Catalog commit timestamp/generation from the API response or persisted evidence;
@@ -1287,7 +1287,7 @@ Document:
 - truthful statement that real R2 is unproven when credentials/evidence are absent.
 - v2 rollout order: deploy the dual-version Gongzzang consumer and exact OpenAPI pin first, then enable
   the Foundation capability gate;
-- the dynamic cache invariant (`martin-dynamic cache: disable` plus generation-addressed CDN key);
+- the dynamic cache invariant (`martin-dynamic cache: disable`, query-free route, and `no-store`);
 - the difference between prelaunch synthetic evidence and a later production RUM SLO.
 
 - [ ] **Step 7: Run deployment contract tests and commit**

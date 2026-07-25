@@ -112,6 +112,27 @@ fn compose_is_disposable_digest_pinned_and_loopback_only() {
 }
 
 #[test]
+fn production_static_martin_config_uses_private_r2_prefix_discovery() {
+    let config = read("scripts/tiles/martin-static-production.yaml");
+    require_all(
+        &config,
+        &[
+            "pmtiles:\n  aws_access_key_id: ${R2_ACCESS_KEY_ID}",
+            "  aws_secret_access_key: ${R2_SECRET_ACCESS_KEY}",
+            "  aws_region: ${R2_REGION:-auto}",
+            "  aws_endpoint_url: ${R2_S3_ENDPOINT}",
+            "  aws_virtual_hosted_style_request: false",
+            "  paths:",
+            "reload_interval:",
+            "GONGZZANG_PUBLIC_ORIGIN",
+        ],
+        "production static Martin config",
+    );
+    assert!(!config.contains("allow_http"));
+    assert!(!config.contains("pmtiles:\n  sources:"));
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
     let proof = read("scripts/tiles/tiles-slice-proof.sh");
@@ -145,6 +166,11 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "dynamic Martin composite TileJSON request failed",
             "dynamic_tilejson_compact=",
             "dynamic Martin TileJSON is missing parseable vector_layers metadata",
+            "DYNAMIC_CATALOG_PATH=",
+            "dynamic Martin catalog request failed",
+            "dynamic Martin catalog is missing configured source",
+            "local_vector_tile_runtime_manifest_v2.sql",
+            "active parcel view is not bound to the single runtime-manifest pointer",
             "validate",
             "unpack",
             "for zoom in $(seq 0 16)",
@@ -165,7 +191,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "cors_origin=",
             "\"$cors_origin\" == \"$REQUEST_ORIGIN\" || \"$cors_origin\" == \"*\"",
             "--expect-identity",
-            "--expect-property \"PNU=$pnu\"",
+            "--expect-property \"pnu=$pnu\"",
             "parcel_anchor_aggregate=1",
             "parcels=3",
             "parcel_anchor=3",

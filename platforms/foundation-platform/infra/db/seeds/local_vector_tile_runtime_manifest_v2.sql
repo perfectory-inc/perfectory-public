@@ -26,7 +26,7 @@ VALUES
         ARRAY['019d2b87-3fd1-7e3a-8d88-0b72c8742004'::uuid],
         'dynamic_postgis',
         'parcels',
-        'http://127.0.0.1:3110/parcels/{z}/{x}/{y}?serving_generation=1',
+        'http://127.0.0.1:3110/parcels/{z}/{x}/{y}',
         '019d2b87-3fd1-7e3a-8d88-0b72c8743604'
     )
 ON CONFLICT (id) DO NOTHING;
@@ -91,9 +91,8 @@ SELECT
 FROM serving_postgis.parcel_boundary_mirror AS mirror
 JOIN catalog.industrial_complex AS complex ON complex.id = mirror.complex_id
 WHERE mirror.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
-ON CONFLICT (pnu) DO UPDATE
-SET data_revision = EXCLUDED.data_revision,
-    canonical_iceberg_snapshot_id = EXCLUDED.canonical_iceberg_snapshot_id,
+ON CONFLICT (data_revision, pnu) DO UPDATE
+SET canonical_iceberg_snapshot_id = EXCLUDED.canonical_iceberg_snapshot_id,
     geom = EXCLUDED.geom,
     properties = EXCLUDED.properties,
     updated_at = now();

@@ -425,4 +425,20 @@ pub trait CatalogUnitOfWork: Send + Sync {
         &self,
         command: VectorTileManifestPromotionCommand,
     ) -> Result<VectorTileManifest, CatalogError>;
+
+    /// Compare-and-swap the normalized v2 runtime manifest pointer.
+    ///
+    /// The SQL function enforces completeness and monotonic generation in the same transaction
+    /// that changes the singleton pointer. Implementations that do not own the v2 ledger keep the
+    /// default error so existing test doubles cannot accidentally pretend to publish it.
+    async fn promote_vector_tile_runtime_manifest(
+        &self,
+        expected_manifest_id: Option<Uuid>,
+        next_manifest_id: Uuid,
+    ) -> Result<u64, CatalogError> {
+        let _ = (expected_manifest_id, next_manifest_id);
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "runtime manifest promotion is not implemented by this Catalog unit of work".to_owned(),
+        ))
+    }
 }

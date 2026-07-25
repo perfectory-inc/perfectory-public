@@ -15,11 +15,11 @@ served as Mapbox Vector Tiles through two Martin lanes.
 The proof checks representative z11 aggregate and z14 parcel/exact-anchor responses. The archive
 itself is rendered for every advertised zoom from z0 through z16, then every unpacked zoom is
 decoded to enforce aggregate-only z0-11, exact-anchor-only z12-13, and parcel-plus-exact-anchor
-z14-16 coverage. It rejects missing or extra layers, incorrect feature counts, wrong PNU/complex
+z14-16 coverage. It rejects missing or extra layers, incorrect feature counts, wrong pnu/complex
 identities, non-renderable point or polygon geometry, and any dynamic/static identity or full MVT
 byte mismatch for the representative tiles.
-The parcel layer emits canonical lowercase `pnu` plus the uppercase `PNU` compatibility alias used
-by the unchanged mapbox-gl `promoteId` configuration. Aggregate rendering ends at exclusive style
+The v2 parcel layer emits only canonical lowercase `pnu`; the legacy fixture view retains an
+uppercase `PNU` alias solely for the frozen v1 proof contract. Aggregate rendering ends at exclusive style
 zoom 12, so it remains visible through z11 without a gap before exact anchors begin at z12.
 
 The checked-in proof snapshot has been verified through the local PMTiles fallback. No
@@ -27,7 +27,7 @@ credentialed R2 result is claimed here: a real-R2 run is evidence only when it i
 dedicated test bucket and its fresh output is retained. The local run produced a 3,255-byte PMTiles
 archive (SHA-256
 `aa84be475cf46dc4194844347ab5f4cf8082a3ab1171022c96edd618aa3ad714`) and decoded seven matching
-dynamic/static features, including PNU `9999900000000000001`. No existing R2 bucket is written,
+dynamic/static features, including pnu `9999900000000000001`. No existing R2 bucket is written,
 reconfigured, or deleted by the local lane. This is still a correctness slice, not a production
 rollout or a national-scale load test.
 
@@ -55,7 +55,7 @@ keys; it is not an IAM boundary.
 The lifecycle is:
 
 1. Branch from the Catalog-selected Iceberg snapshot, write and validate the approved edit through
-   Iceberg WAP, and prepare a **complete** generation-addressed PostGIS projection for the unit.
+   Iceberg WAP, and prepare a **complete** pointer-selected PostGIS projection for the unit.
 2. Decode that exact dynamic Martin source, then atomically select it. The unit becomes visible
    immediately from one complete dynamic source.
 3. Queue a debounced static publication keyed by the publication unit. The debounce value
@@ -100,9 +100,10 @@ watches the migrations directory itself, so a cached `foundation-migrate` is reb
 file is added or removed, not only when an already embedded file changes.
 
 The v2 local fixture is additive: `infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql` selects
-one complete `parcels` dynamic release and never rewrites the frozen v1 seed. Its URL carries the
-serving generation (`?serving_generation=1`); Martin's dynamic cache is disabled (`cache_size_mb: 0`)
-so the query is an explicit cache identity, not a historical snapshot selector.
+one complete `parcels` dynamic release and never rewrites the frozen v1 seed. The stable dynamic
+Martin URL is query-free; `serving_postgis.parcel_boundary_current` follows the one runtime-manifest
+pointer to the selected `data_revision`. Martin's dynamic cache is disabled with the supported
+`cache: disable` setting.
 
 ## Local PMTiles fallback
 
@@ -122,7 +123,7 @@ scripts/tiles/tiles-slice-proof.sh
 Both runs must exit zero. The significant output is:
 
 ```text
-DYNAMIC tile OK bbox=127.1230,36.1230,127.1239,36.1239 decoded feature count=7 expected PNU=9999900000000000001
+DYNAMIC tile OK bbox=127.1230,36.1230,127.1239,36.1239 decoded feature count=7 expected pnu=9999900000000000001
 STATIC tile OK bbox=127.1230,36.1230,127.1239,36.1239 decoded feature count=7 MATCHING features (LOCAL PMTiles fallback)
 tiles-slice-proof: artifacts retained at .../target/tiles-slice-proof/<run-id>
 ```
@@ -245,7 +246,7 @@ Content` Range response. Static Martin then reads that verified remote URL and r
 feature comparison. Success contains:
 
 ```text
-DYNAMIC tile OK bbox=127.1230,36.1230,127.1239,36.1239 decoded feature count=7 expected PNU=9999900000000000001
+DYNAMIC tile OK bbox=127.1230,36.1230,127.1239,36.1239 decoded feature count=7 expected pnu=9999900000000000001
 STATIC tile OK bbox=127.1230,36.1230,127.1239,36.1239 decoded feature count=7 MATCHING features (REAL R2)
 tiles-slice-proof: artifacts retained at .../target/tiles-slice-proof/<run-id>
 ```
@@ -281,15 +282,16 @@ publication units and a tagged `DynamicPostgis`/`StaticPmtiles` source. The prod
 drift tests must implement that accepted v2 contract before production. Do not silently redefine
 schema v1.
 
-To exercise the current renderer unchanged, the parcel proof view also emits a proof-only uppercase `PNU` compatibility alias
-beside the canonical lowercase `pnu`. Production contract reconciliation
-must make identity one source of truth: change Gongzzang's `promoteId` to canonical `pnu` (or derive
-it from an explicit manifest field), then remove the uppercase alias. Do not normalize this proof
-duplication into the Foundation serving contract.
+The frozen v1 fixture view retains a proof-only uppercase `PNU` compatibility alias beside the
+canonical lowercase `pnu`. The v2 publication view and Gongzzang runtime use canonical `pnu`
+directly; this alias is not part of the v2 Martin source or production identity contract.
 
-Manifest v2 makes the Martin tile URL version-addressed. Reusing the proof URL
+Static manifest v2 routes are release-addressed. Reusing the proof URL
 `/foundation_static/{z}/{x}/{y}` for different archives would let old manifests and CDN entries
-resolve to new or stale content and would make pointer rollback non-atomic.
+resolve to new or stale content. Dynamic routes remain stable and query-free; their
+`serving_postgis.*_current` view follows the Catalog runtime-manifest pointer.
+The browser still owns one logical Mapbox source named `parcels`; a static promotion changes only
+the validated Martin URL to the source ID derived from `{publication_unit}-{release_id}.pmtiles`.
 
 ## Production promotion checklist
 
@@ -318,10 +320,11 @@ current archive or mutates an old manifest.
 6. **Use isolated credentials.** The generic lakehouse `R2_BUCKET_NAME` adapter is forbidden.
    The tile publisher has a bucket-scoped write credential; Martin has a different bucket-scoped
    read-only credential. Both are unable to access Bronze, lakehouse, or recovery buckets.
-7. **Stage Martin from private R2.** Configure Martin 1.12 `pmtiles.paths` with the derivative
-   bucket's `s3://` release prefix and the R2 S3-compatible endpoint. Fix a bounded
-   `reload_interval`. Do not use a named `pmtiles.sources` URL for scheduled discovery because
-   named sources are startup snapshots.
+7. **Stage Martin from private R2.** Deploy the checked-in
+    `scripts/tiles/martin-static-production.yaml`; inject `TILES_R2_PMTILES_PREFIX` as the
+    derivative bucket's `s3://` release prefix, the R2 S3-compatible endpoint, and a bounded
+    `reload_interval` through environment/secrets. Do not use a named `pmtiles.sources` URL for
+    scheduled discovery because named sources are startup snapshots.
 8. **Verify the production-shaped route.** Wait for the expected release-addressed Martin source,
    then verify TileJSON layer IDs, authenticated R2 reads, health/readiness, and decoded MVT through
    the public Martin/CDN hostname. The R2 bucket itself needs no public domain.
@@ -333,7 +336,10 @@ current archive or mutates an old manifest.
 11. **Compare and swap.** Only if the publication unit still selects the build's input dynamic
     release/data revision, atomically register/select `StaticPmtiles`, increment
     `serving_generation`, create a new immutable manifest UUID, increment global
-    `manifest_generation`, and emit the outbox projection event. The publisher writes the exact
+    `manifest_generation`, and emit the outbox projection event. The Catalog transaction calls
+    `catalog.promote_vector_tile_runtime_manifest(expected_manifest_id, next_manifest_id)`; this
+    database CAS rejects stale writers and incomplete manifests before changing the one runtime
+    pointer. The publisher writes the exact
     immutable manifest object create-only and verifies retry bytes before updating the active
     no-cache pointer. The pointer update uses the R2 ETag observed immediately before the write with
     `If-Match` (`If-None-Match: *` for bootstrap); `412` reloads Catalog and R2 instead of
@@ -383,7 +389,7 @@ the adapter contract, not depend directly on Martin's private endpoint names.
 - **A direct-public PMTiles experiment exceeds the zone's cacheable-object limit:** that optional
   origin path is not proven. The default private-R2/Martin path caches MVT responses, not the whole
   PMTiles object at Cloudflare edge.
-- **Static features differ:** do not promote. Check the frozen snapshot, source zooms, `count`, PNU
+- **Static features differ:** do not promote. Check the frozen snapshot, source zooms, `count`, pnu
   strings, `official_complex_code`, identity content encoding, and archive conversion.
 - **Manifest `flat_*` compatibility values differ from the rendered MBTiles:** do not replace the
   check with a sentinel or skip it. Record the deterministic logical tile count/payload bytes in

@@ -58,7 +58,7 @@ fn v2_manifest_accepts_one_complete_static_source() {
 }
 
 #[test]
-fn v2_manifest_rejects_unknown_source_and_non_loopback_http() {
+fn v2_manifest_rejects_unknown_source_and_dynamic_cache_busting_query() {
     let mut value = valid_manifest();
     value["publication_units"]["parcels"]["source"]["kind"] = json!("overlay");
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
@@ -68,10 +68,25 @@ fn v2_manifest_rejects_unknown_source_and_non_loopback_http() {
     value["publication_units"]["parcels"]["source"] = json!({
         "kind": "dynamic_postgis",
         "martin_source_id": "parcels",
-        "tiles_url_template": "http://tiles.example.com/parcels/{z}/{x}/{y}?generation=42",
+        "tiles_url_template": "http://127.0.0.1:3000/parcels/{z}/{x}/{y}",
         "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
         "cache_policy": "no_store"
     });
+    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_ok());
+
+    let mut value = valid_manifest();
+    value["publication_units"]["parcels"]["source"] = json!({
+        "kind": "dynamic_postgis",
+        "martin_source_id": "parcels",
+        "tiles_url_template": "http://127.0.0.1:3000/parcels/{z}/{x}/{y}?generation=42",
+        "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
+        "cache_policy": "no_store"
+    });
+    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
+
+    let mut value = valid_manifest();
+    value["publication_units"]["parcels"]["source"]["tiles_url_template"] =
+        serde_json::json!("http://127.0.0.1:3000/not-parcels/{z}/{x}/{y}");
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
 }
 
@@ -83,6 +98,34 @@ fn v2_manifest_rejects_javascript_unsafe_generation_and_bad_snapshot() {
 
     let mut value = valid_manifest();
     value["publication_units"]["parcels"]["canonical_iceberg_snapshot_id"] = json!("0");
+    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
+}
+
+#[test]
+fn v2_manifest_rejects_duplicate_source_ids_and_unsafe_unit_names() {
+    let mut duplicate = valid_manifest();
+    duplicate["publication_units"]["parcels"]["source"]["martin_source_id"] =
+        serde_json::json!("shared");
+    duplicate["publication_units"]["anchors"] = duplicate["publication_units"]["parcels"].clone();
+    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(duplicate).is_err());
+
+    let mut unsafe_name = valid_manifest();
+    let parcels_unit = unsafe_name["publication_units"]["parcels"].clone();
+    unsafe_name["publication_units"] = serde_json::json!({"bad/name": parcels_unit});
+    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(unsafe_name).is_err());
+}
+
+#[test]
+fn v2_manifest_rejects_static_source_identity_that_does_not_match_release_filename() {
+    let mut value = valid_manifest();
+    value["publication_units"]["parcels"]["source"]["martin_source_id"] =
+        serde_json::json!("parcels");
+    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
+
+    let mut value = valid_manifest();
+    value["publication_units"]["parcels"]["source"]["pmtiles_object_key"] = serde_json::json!(
+        "gold/vector-tiles/releases/0196e7e0-3c20-7000-8000-000000000062/parcels.pmtiles"
+    );
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
 }
 

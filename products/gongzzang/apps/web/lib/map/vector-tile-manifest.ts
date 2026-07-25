@@ -58,6 +58,11 @@ const VectorTileLineageSchema = z.object({
 });
 
 const zoomSchema = z.number().int().min(0).max(24);
+const martinIdentifierSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z][A-Za-z0-9_-]*$/, "Martin identifiers must be stable safe names");
 
 const VectorTileArtifactSchema = z
   .object({
@@ -124,7 +129,10 @@ export type VectorTileSource = {
 
 const RuntimeTileLayerSchema = z
   .object({
-    source_layer: z.string().min(1),
+    source_layer: z
+      .string()
+      .min(1)
+      .regex(/^[A-Za-z][A-Za-z0-9_-]{0,127}$/, "source_layer must be a Martin identifier"),
     feature_id_property: z
       .string()
       .min(1)
@@ -148,17 +156,26 @@ const RuntimeTileLayerSchema = z
 const DynamicPostgisSourceSchema = z
   .object({
     kind: z.literal("dynamic_postgis"),
-    martin_source_id: z.string().min(1),
+    martin_source_id: martinIdentifierSchema,
     tiles_url_template: runtimeTilesUrlTemplateSchema,
     postgis_projection_revision: uuidSchema,
     cache_policy: z.literal("no_store"),
   })
-  .strict();
+  .strict()
+  .superRefine((source, ctx) => {
+    if (/[?#]/.test(source.tiles_url_template)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "dynamic PostGIS tile URLs must not use query/hash cache selectors",
+        path: ["tiles_url_template"],
+      });
+    }
+  });
 
 const StaticPmtilesSourceSchema = z
   .object({
     kind: z.literal("static_pmtiles"),
-    martin_source_id: z.string().min(1),
+    martin_source_id: martinIdentifierSchema,
     tiles_url_template: runtimeTilesUrlTemplateSchema,
     pmtiles_object_key: z.string().min(1),
     pmtiles_file_asset_id: uuidSchema,
@@ -199,7 +216,77 @@ const VectorTileRuntimeManifestSchema = z
       .record(z.string().min(1), RuntimePublicationUnitSchema)
       .refine((units) => Object.keys(units).length > 0),
   })
-  .strict();
+  .strict()
+  .superRefine((manifest, ctx) => {
+    const sourceIds = new Set<string>();
+    for (const [unitName, unit] of Object.entries(manifest.publication_units)) {
+      if (!martinIdentifierSchema.safeParse(unitName).success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "publication unit names must be safe Martin identifiers",
+          path: ["publication_units", unitName],
+        });
+      }
+      validateRuntimePublicationUnit(unitName, unit, ctx);
+      if (sourceIds.has(unit.source.martin_source_id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Martin source ids must be globally unique",
+          path: ["publication_units", unitName, "source", "martin_source_id"],
+        });
+      } else {
+        sourceIds.add(unit.source.martin_source_id);
+      }
+    }
+  });
+
+function validateRuntimePublicationUnit(
+  unitName: string,
+  unit: z.infer<typeof RuntimePublicationUnitSchema>,
+  ctx: z.RefinementCtx,
+): void {
+  const routeSuffix = `/${unit.source.martin_source_id}/{z}/{x}/{y}`;
+  if (!unit.source.tiles_url_template.endsWith(routeSuffix)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Martin tile URL must end with its declared source id and tile placeholders",
+      path: ["publication_units", unitName, "source", "tiles_url_template"],
+    });
+  }
+  const sourceLayers = new Set<string>();
+  for (const [layerName, layer] of Object.entries(unit.layers)) {
+    if (!martinIdentifierSchema.safeParse(layerName).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "runtime layer names must be safe Martin identifiers",
+        path: ["publication_units", unitName, "layers", layerName],
+      });
+    }
+    if (sourceLayers.has(layer.source_layer)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Martin source-layer ids must be unique within a publication unit",
+        path: ["publication_units", unitName, "layers", layerName, "source_layer"],
+      });
+    } else {
+      sourceLayers.add(layer.source_layer);
+    }
+  }
+  if (unit.source.kind !== "static_pmtiles") return;
+
+  const expectedFilename = `${unitName}-${unit.active_release_id}.pmtiles`;
+  const objectFilename = unit.source.pmtiles_object_key.split("/").at(-1);
+  if (
+    objectFilename !== expectedFilename ||
+    unit.source.martin_source_id !== expectedFilename.slice(0, -".pmtiles".length)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "static PMTiles source id must equal its release-addressed filename stem",
+      path: ["publication_units", unitName, "source"],
+    });
+  }
+}
 
 export type VectorTileRuntimeManifest = z.infer<typeof VectorTileRuntimeManifestSchema>;
 export type VectorTileRuntimePublicationUnit = z.infer<typeof RuntimePublicationUnitSchema>;
@@ -294,7 +381,7 @@ export function resolveVectorTileRuntimeManifestUrl(
 export async function fetchVectorTileRuntimeManifest(
   fetcher: typeof fetch = fetch,
   env: EnvLike = resolveVectorTileRuntimeEnv(),
-  options: { etag?: string; previous?: VectorTileRuntimeManifest } = {},
+  options: { etag?: string; previous?: VectorTileRuntimeManifest; signal?: AbortSignal } = {},
 ): Promise<VectorTileRuntimeFetchResult> {
   const manifestUrl = resolveVectorTileRuntimeManifestUrl(env);
   if (!manifestUrl) {
@@ -304,7 +391,11 @@ export async function fetchVectorTileRuntimeManifest(
   }
   const headers: Record<string, string> = { accept: "application/json" };
   if (options.etag) headers["if-none-match"] = options.etag;
-  const response = await fetcher(manifestUrl, { headers, cache: "no-store" });
+  const response = await fetcher(manifestUrl, {
+    headers,
+    cache: "no-store",
+    signal: options.signal,
+  });
   if (response.status === 304) {
     if (!options.previous) throw new Error("v2 manifest returned 304 without a previous manifest");
     return { manifest: options.previous, etag: options.etag, notModified: true };

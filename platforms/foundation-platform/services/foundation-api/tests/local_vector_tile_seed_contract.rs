@@ -59,7 +59,7 @@ fn local_v2_seed_is_additive_and_selects_one_complete_parcel_source() {
     assert!(seed.contains("source_kind, martin_source_id"));
     assert!(seed.contains("'dynamic_postgis'"));
     assert!(seed.contains("'parcels'"));
-    assert!(seed.contains("serving_generation=1"));
+    assert!(seed.contains("/parcels/{z}/{x}/{y}"));
     assert!(seed.contains("catalog.vector_tile_runtime_manifest_pointer"));
     assert!(seed.contains("serving_postgis.parcel_boundary_publication"));
     assert!(!seed.contains("catalog.vector_tile_manifest"));

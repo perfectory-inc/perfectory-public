@@ -238,9 +238,9 @@ V2 scalar rules:
 - Every `source.tiles_url_template` is an absolute Martin URL containing `{z}`, `{x}`, and `{y}`
   exactly once. Production publication requires HTTPS. Parsing permits HTTP only for a loopback
   literal or `localhost` so the checked-in Docker proof needs no fake public TLS endpoint; the
-  production publish gate rejects every HTTP URL, including loopback. The URL is
-  generation-addressed for dynamic sources and release-addressed for static sources. The consumer
-  neither appends `.pbf` nor rewrites the route.
+  production publish gate rejects every HTTP URL, including loopback. Dynamic URLs are stable and
+  query-free; the Catalog runtime-manifest pointer selects the committed PostGIS revision. Static
+  URLs are release-addressed and immutable. The consumer neither appends `.pbf` nor rewrites the route.
 - `publication_units` and every unit's `layers` map are non-empty.
 - `data_revision` identifies the exact logical feature set. `serving_generation` changes whenever
   another complete release is selected, including dynamic-to-static for the same data revision.
@@ -255,22 +255,22 @@ The unit's `source` is a closed tagged union. Unknown kinds or fields fail valid
 {
   "kind": "dynamic_postgis",
   "martin_source_id": "parcels",
-  "tiles_url_template": "https://tiles.example.com/parcels/{z}/{x}/{y}?generation=42",
+  "tiles_url_template": "https://tiles.example.com/parcels/{z}/{x}/{y}",
   "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000071",
   "cache_policy": "no_store"
 }
 ```
 
-`dynamic_postgis` uses the stable explicit Martin source ID configured for the unit. Its tile URL,
-not its source ID, includes the exact `serving_generation` as a cache-key query/path component.
-Martin's in-process cache is disabled and the route is `no_store`. The generation component is not
-a historical PostGIS snapshot selector: every dynamic URL reaches the latest completely committed
-projection behind that stable source.
+`dynamic_postgis` uses the stable explicit Martin source ID configured for the unit. Its tile URL is
+query-free; the Catalog runtime-manifest pointer, not a URL parameter, selects the exact committed
+PostGIS revision. Martin's in-process cache is disabled and the route is `no_store`. The
+`serving_generation` is a manifest/source refresh token, not a historical PostGIS snapshot selector.
 
 `static_pmtiles` contains the fields shown in the v2 example. Its object key, checksum, byte size,
 and file-asset identity are required. The filename is
 `{publication_unit}-{release_id}.pmtiles`; Martin's discovered source ID is exactly that
-release-addressed filename stem, and the URL is immutable. Flat-object fields such as
+release-addressed filename stem, and the URL is immutable. Gongzzang keeps its logical Mapbox
+source ID stable while replacing only the validated tile URL. Flat-object fields such as
 `object_key_prefix`, `flat_tile_count`, and
 `flat_tile_total_bytes` are forbidden in v2.
 
@@ -346,15 +346,17 @@ Gongzzang runtime must:
    `parcels` artifact at the same time.
 3. For v2, register exactly one vector source per publication unit from that unit's tagged
    `source.tiles_url_template`.
-4. Treat v2 `parcels` plus the two legacy v1 anchor sources as core for the current map workflow;
-   treat declared optional v2 units as skippable.
+4. Treat v2 `parcels` plus the two legacy v1 anchor sources as core for the current map workflow.
+   A new v2 unit is not silently skippable: add its Foundation layer-registry entry and producer
+   parity before publishing it, otherwise the consumer fails closed and retains the last valid map.
 5. Poll the v2 endpoint every four seconds with one non-overlapping conditional request while the
    map is visible. A changed global
    `manifest_generation` triggers full validation, then only units whose `serving_generation`
    changed are replaced.
 6. Retain the currently registered source descriptor if a new manifest or source is invalid/unready.
    Static retention returns the exact immutable release. Dynamic retention remains available but may
-   read the latest committed projection; a generation query is not historical rollback. Never render
+   read the latest committed projection selected by the Catalog runtime-manifest pointer; a URL query
+   is not historical rollback. Never render
    the old and new source for one unit together.
 7. Use manifest lineage for diagnostics, source disclosure, and support reports.
 

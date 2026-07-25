@@ -14,7 +14,7 @@ CREATE TABLE catalog.vector_tile_publication_unit (
     version bigint NOT NULL DEFAULT 1,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT vector_tile_publication_unit_key_check CHECK (unit_key ~ '^[a-z0-9][a-z0-9._-]{0,127}$'),
+    CONSTRAINT vector_tile_publication_unit_key_check CHECK (unit_key ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$'),
     CONSTRAINT vector_tile_publication_unit_generation_check CHECK (serving_generation BETWEEN 1 AND 9007199254740991),
     CONSTRAINT vector_tile_publication_unit_fallback_distinct_check CHECK (fallback_release_id IS NULL OR fallback_release_id <> active_release_id),
     CONSTRAINT vector_tile_publication_unit_fallback_revision_check CHECK (fallback_release_id IS NULL OR fallback_data_revision = active_data_revision)
@@ -40,8 +40,12 @@ CREATE TABLE catalog.vector_tile_release (
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT vector_tile_release_source_kind_check CHECK (source_kind IN ('dynamic_postgis', 'static_pmtiles')),
     CONSTRAINT vector_tile_release_snapshot_check CHECK (canonical_iceberg_snapshot_id ~ '^[1-9][0-9]*$'),
-    CONSTRAINT vector_tile_release_source_id_check CHECK (btrim(martin_source_id) <> ''),
+    CONSTRAINT vector_tile_release_source_id_check CHECK (martin_source_id ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$'),
     CONSTRAINT vector_tile_release_url_check CHECK (position('{z}' in tiles_url_template) > 0 AND position('{x}' in tiles_url_template) > 0 AND position('{y}' in tiles_url_template) > 0),
+    CONSTRAINT vector_tile_release_route_check CHECK (
+        right(tiles_url_template, length(format('/%s/{z}/{x}/{y}', martin_source_id)))
+        = format('/%s/{z}/{x}/{y}', martin_source_id)
+    ),
     CONSTRAINT vector_tile_release_source_fields_check CHECK (
         (source_kind = 'dynamic_postgis' AND postgis_projection_revision IS NOT NULL AND pmtiles_object_key IS NULL AND pmtiles_file_asset_id IS NULL AND pmtiles_sha256 IS NULL AND pmtiles_bytes IS NULL)
         OR
@@ -73,11 +77,15 @@ CREATE TABLE catalog.vector_tile_release_layer (
     render_max_zoom smallint NOT NULL,
     feature_filter_properties jsonb NOT NULL DEFAULT '{}'::jsonb,
     PRIMARY KEY (release_id, layer_id),
-    CONSTRAINT vector_tile_release_layer_id_check CHECK (layer_id ~ '^[a-z0-9][a-z0-9._-]{0,127}$'),
+    CONSTRAINT vector_tile_release_layer_id_check CHECK (layer_id ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$'),
+    CONSTRAINT vector_tile_release_layer_source_layer_check CHECK (source_layer ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$'),
     CONSTRAINT vector_tile_release_layer_zoom_check CHECK (tile_min_zoom BETWEEN 0 AND 24 AND tile_max_zoom BETWEEN 0 AND 24 AND render_min_zoom BETWEEN 0 AND 24 AND render_max_zoom BETWEEN 0 AND 24 AND tile_min_zoom <= tile_max_zoom AND render_min_zoom <= render_max_zoom),
     CONSTRAINT vector_tile_release_layer_feature_id_check CHECK (feature_id_property = lower(feature_id_property) AND btrim(feature_id_property) <> ''),
     CONSTRAINT vector_tile_release_layer_filter_check CHECK (jsonb_typeof(feature_filter_properties) = 'object')
 );
+
+ALTER TABLE catalog.vector_tile_release_layer
+    ADD CONSTRAINT vector_tile_release_layer_release_source_layer_key UNIQUE (release_id, source_layer);
 
 CREATE TABLE catalog.vector_tile_runtime_manifest (
     id uuid PRIMARY KEY,
@@ -112,6 +120,180 @@ CREATE TABLE catalog.vector_tile_runtime_manifest_pointer (
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT vector_tile_runtime_manifest_pointer_singleton_check CHECK (singleton)
 );
+
+-- The only runtime switch. Builders insert and validate a complete manifest first; this function
+-- is the compare-and-swap gate that makes the immutable manifest pointer authoritative for both
+-- dynamic PostGIS and static PMTiles units. Martin's current PostGIS views join this pointer, so
+-- a URL query parameter can never select an uncommitted generation.
+CREATE OR REPLACE FUNCTION catalog.promote_vector_tile_runtime_manifest(
+    expected_manifest_id uuid,
+    next_manifest_id uuid
+)
+RETURNS bigint
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+    current_manifest_id uuid;
+    current_generation bigint;
+    next_generation bigint;
+    next_unit_count bigint;
+    publication_unit_count bigint;
+    updated_unit_count bigint;
+BEGIN
+    -- Lock the singleton relation itself so two bootstrap CAS calls cannot both observe an empty
+    -- table and race into a unique-key error without a deterministic compare-and-swap boundary.
+    LOCK TABLE catalog.vector_tile_runtime_manifest_pointer IN SHARE ROW EXCLUSIVE MODE;
+
+    SELECT manifest_id
+      INTO current_manifest_id
+      FROM catalog.vector_tile_runtime_manifest_pointer
+     WHERE singleton = true
+     FOR UPDATE;
+
+    IF (expected_manifest_id IS NULL AND current_manifest_id IS NOT NULL)
+       OR (expected_manifest_id IS NOT NULL AND current_manifest_id IS DISTINCT FROM expected_manifest_id) THEN
+        RAISE EXCEPTION 'vector tile runtime manifest compare-and-swap conflict: expected %, current %',
+            expected_manifest_id, current_manifest_id
+            USING ERRCODE = '40001';
+    END IF;
+
+    SELECT manifest_generation
+      INTO next_generation
+      FROM catalog.vector_tile_runtime_manifest
+     WHERE id = next_manifest_id;
+    IF next_generation IS NULL THEN
+        RAISE EXCEPTION 'vector tile runtime manifest % does not exist', next_manifest_id
+            USING ERRCODE = '23503';
+    END IF;
+
+    SELECT count(*)
+      INTO next_unit_count
+      FROM catalog.vector_tile_runtime_manifest_unit
+     WHERE manifest_id = next_manifest_id;
+    SELECT count(*)
+      INTO publication_unit_count
+      FROM catalog.vector_tile_publication_unit;
+    IF next_unit_count = 0 OR next_unit_count <> publication_unit_count THEN
+        RAISE EXCEPTION 'runtime manifest % is not a complete publication', next_manifest_id
+            USING ERRCODE = '23514';
+    END IF;
+
+    -- Martin discovers remote PMTiles source IDs from filename stems. Keep that derived identity
+    -- deterministic at the database promotion boundary: one unit/release has exactly one route.
+    IF EXISTS (
+        SELECT 1
+          FROM catalog.vector_tile_runtime_manifest_unit AS manifest_unit
+          JOIN catalog.vector_tile_publication_unit AS unit
+            ON unit.id = manifest_unit.publication_unit_id
+          JOIN catalog.vector_tile_release AS release
+            ON release.id = manifest_unit.release_id
+         WHERE manifest_unit.manifest_id = next_manifest_id
+           AND release.source_kind = 'static_pmtiles'
+           AND (
+               release.martin_source_id <> format('%s-%s', unit.unit_key, release.id)
+               OR right(release.pmtiles_object_key, length(format('%s.pmtiles', release.martin_source_id)))
+                  <> format('%s.pmtiles', release.martin_source_id)
+           )
+    ) THEN
+        RAISE EXCEPTION 'runtime manifest % has a non-release-addressed static PMTiles source', next_manifest_id
+            USING ERRCODE = '23514';
+    END IF;
+
+    -- The database gate repeats the domain state machine so a direct SQL caller cannot bypass it.
+    IF EXISTS (
+        SELECT 1
+          FROM catalog.vector_tile_runtime_manifest_unit AS manifest_unit
+          JOIN catalog.vector_tile_publication_unit AS unit
+            ON unit.id = manifest_unit.publication_unit_id
+          JOIN catalog.vector_tile_release AS release
+            ON release.id = manifest_unit.release_id
+         WHERE manifest_unit.manifest_id = next_manifest_id
+           AND unit.active_release_id IS NULL
+           AND release.source_kind <> 'dynamic_postgis'
+    ) THEN
+        RAISE EXCEPTION 'the first runtime publication must be dynamic PostGIS'
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+          FROM catalog.vector_tile_runtime_manifest_unit AS manifest_unit
+          JOIN catalog.vector_tile_publication_unit AS unit
+            ON unit.id = manifest_unit.publication_unit_id
+          JOIN catalog.vector_tile_release AS release
+            ON release.id = manifest_unit.release_id
+         WHERE manifest_unit.manifest_id = next_manifest_id
+           AND unit.active_release_id IS NOT NULL
+           AND release.source_kind = 'static_pmtiles'
+           AND manifest_unit.data_revision <> unit.active_data_revision
+    ) THEN
+        RAISE EXCEPTION 'static PMTiles must use the currently selected data revision'
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+          FROM catalog.vector_tile_runtime_manifest_unit AS manifest_unit
+          JOIN catalog.vector_tile_publication_unit AS unit
+            ON unit.id = manifest_unit.publication_unit_id
+         WHERE manifest_unit.manifest_id = next_manifest_id
+           AND (
+               (unit.active_release_id IS NULL AND manifest_unit.serving_generation <> 1)
+               OR
+               (unit.active_release_id IS NOT NULL
+                AND manifest_unit.serving_generation <> unit.serving_generation + 1)
+           )
+    ) THEN
+        RAISE EXCEPTION 'runtime manifest % has a serving-generation gap', next_manifest_id
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF current_manifest_id IS NOT NULL THEN
+        SELECT manifest_generation
+          INTO current_generation
+          FROM catalog.vector_tile_runtime_manifest
+         WHERE id = current_manifest_id;
+        IF next_generation <= current_generation THEN
+            RAISE EXCEPTION 'runtime manifest generation must increase: current %, next %',
+                current_generation, next_generation
+                USING ERRCODE = '40001';
+        END IF;
+    END IF;
+
+    UPDATE catalog.vector_tile_publication_unit AS unit
+       SET active_release_id = manifest_unit.release_id,
+           active_data_revision = manifest_unit.data_revision,
+           serving_generation = manifest_unit.serving_generation,
+           fallback_release_id = CASE
+               WHEN unit.fallback_data_revision = manifest_unit.data_revision
+               THEN unit.fallback_release_id
+               ELSE NULL
+           END,
+           fallback_data_revision = CASE
+               WHEN unit.fallback_data_revision = manifest_unit.data_revision
+               THEN unit.fallback_data_revision
+               ELSE NULL
+           END,
+           version = unit.version + 1,
+           updated_at = now()
+      FROM catalog.vector_tile_runtime_manifest_unit AS manifest_unit
+     WHERE manifest_unit.manifest_id = next_manifest_id
+       AND manifest_unit.publication_unit_id = unit.id;
+    GET DIAGNOSTICS updated_unit_count = ROW_COUNT;
+    IF updated_unit_count <> publication_unit_count THEN
+        RAISE EXCEPTION 'runtime manifest % does not select every publication unit', next_manifest_id
+            USING ERRCODE = '23514';
+    END IF;
+
+    INSERT INTO catalog.vector_tile_runtime_manifest_pointer (singleton, manifest_id, updated_at)
+    VALUES (true, next_manifest_id, now())
+    ON CONFLICT (singleton) DO UPDATE
+        SET manifest_id = EXCLUDED.manifest_id,
+            updated_at = EXCLUDED.updated_at;
+
+    RETURN next_generation;
+END;
+$function$;
 
 CREATE TABLE catalog.vector_tile_build_job (
     id uuid PRIMARY KEY,
@@ -148,7 +330,7 @@ CREATE TABLE catalog.vector_tile_refresh_observation (
 );
 
 CREATE TABLE serving_postgis.parcel_boundary_publication (
-    pnu character(19) PRIMARY KEY,
+    pnu character(19) NOT NULL,
     data_revision uuid NOT NULL,
     canonical_iceberg_snapshot_id text NOT NULL,
     source_record_id uuid,
@@ -168,6 +350,28 @@ CREATE TABLE serving_postgis.parcel_boundary_publication (
     CONSTRAINT parcel_boundary_publication_properties_check CHECK (jsonb_typeof(properties) = 'object')
 );
 
+ALTER TABLE serving_postgis.parcel_boundary_publication
+    ADD CONSTRAINT parcel_boundary_publication_pkey PRIMARY KEY (data_revision, pnu);
+
 CREATE INDEX parcel_boundary_publication_data_revision_idx ON serving_postgis.parcel_boundary_publication (data_revision, pnu);
 CREATE INDEX parcel_boundary_publication_complex_idx ON serving_postgis.parcel_boundary_publication (complex_id) WHERE complex_id IS NOT NULL;
 CREATE INDEX parcel_boundary_publication_geom_gix ON serving_postgis.parcel_boundary_publication USING gist (geom);
+
+-- Martin is configured against this stable view. Producers may stage multiple revisions in the
+-- base table, but only the pointer-selected revision is visible to the dynamic tile source.
+CREATE OR REPLACE VIEW serving_postgis.parcel_boundary_current AS
+SELECT
+    publication.pnu::text AS pnu,
+    publication.official_complex_code,
+    publication.geom::public.geometry(MultiPolygon, 5179) AS geom
+FROM serving_postgis.parcel_boundary_publication AS publication
+JOIN catalog.vector_tile_runtime_manifest_unit AS manifest_unit
+  ON manifest_unit.data_revision = publication.data_revision
+JOIN catalog.vector_tile_runtime_manifest_pointer AS pointer
+  ON pointer.manifest_id = manifest_unit.manifest_id
+JOIN catalog.vector_tile_publication_unit AS unit
+  ON unit.id = manifest_unit.publication_unit_id
+JOIN catalog.vector_tile_release AS release
+  ON release.id = manifest_unit.release_id
+WHERE unit.unit_key = 'parcels'
+  AND release.source_kind = 'dynamic_postgis';

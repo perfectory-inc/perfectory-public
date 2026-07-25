@@ -43,6 +43,11 @@ For every `(publication_unit, serving_generation)`:
 6. PMTiles, PostGIS, Martin caches, and the runtime manifest are projections, never independent
    authorities for canonical geometry or visibility.
 
+Dynamic Martin URLs are deliberately stable and query-free. The Catalog
+`vector_tile_runtime_manifest_pointer` is the only runtime selector; the `serving_postgis.*_current`
+views join it to the selected release's `data_revision`. Static PMTiles routes are immutable and
+release-addressed, so CDN caching cannot serve bytes from a different release under the same path.
+
 These invariants eliminate double drawing, stale resurrection, feature-level suppression garbage
 collection, and change loss during a static build.
 
@@ -99,6 +104,11 @@ tile_build_job
   status = QUEUED | BUILDING | VALIDATED | FAILED | SUPERSEDED | PROMOTED
   candidate_artifact_id
 ```
+
+The pointer is advanced only through the Catalog compare-and-swap function
+`catalog.promote_vector_tile_runtime_manifest(expected_manifest_id, next_manifest_id)`. It locks
+the singleton, requires a complete manifest and contiguous per-unit generations, updates the
+ledger's active selections, and then changes the pointer in one transaction.
 
 `BUILDING` is not a third serving source. While a static build runs, the unit continues serving its
 complete dynamic source.
@@ -163,10 +173,10 @@ Catalog.
 If PostGIS is unavailable or not caught up, the edit may be accepted as pending but must not be
 reported as publicly visible.
 
-The dynamic tile URL carries `serving_generation` as a cache-busting query/path value and is
-explicitly non-cacheable. The stable Martin source always reads the latest completely committed
-PostGIS projection; the generation value is not a historical snapshot selector. Martin's mutable
-tile cache and the CDN must not retain a deleted geometry beyond the 5-second SLO.
+The dynamic tile URL is stable, query-free, and explicitly non-cacheable. The Catalog runtime
+manifest pointer selects the complete committed PostGIS revision behind Martin's stable source;
+`serving_generation` is a manifest identity and refresh token, never a URL selector. Martin's
+mutable tile cache and the CDN must not retain a deleted geometry beyond the 5-second SLO.
 
 ### 4.2 Scheduled or operator-requested static publication
 
@@ -264,7 +274,7 @@ remains the executable contract SSOT and generates OpenAPI/TypeScript consumers:
       "source": {
         "kind": "dynamic_postgis",
         "martin_source_id": "parcels",
-        "tiles_url_template": "https://tiles.example.com/parcels/{z}/{x}/{y}?generation=42",
+        "tiles_url_template": "https://tiles.example.com/parcels/{z}/{x}/{y}",
         "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
         "cache_policy": "no_store"
       },
@@ -306,10 +316,12 @@ number: production Iceberg snapshot IDs can exceed JavaScript's safe integer ran
 `serving_generation` select its runtime. `data_revision` changes when feature content changes;
 `serving_generation` also changes for a dynamic-to-static switch of the same data.
 
-Dynamic PostGIS source IDs are stable explicit Martin configuration names. Their URL must carry the
-exact `serving_generation` in the query/path cache key and use `no_store`; creating an undeclared
-per-generation Martin source ID is forbidden. Static source IDs are instead immutable
-release-addressed PMTiles filename stems.
+Dynamic PostGIS source IDs are stable explicit Martin configuration names. Their URL is query-free
+and uses `no_store`; the Catalog pointer, not a query parameter, selects the committed revision.
+Creating an undeclared per-generation Martin source ID is forbidden. Static source IDs are instead immutable
+release-addressed PMTiles filename stems. The browser's Mapbox source identity remains the logical
+unit name (`parcels`); only the server route segment changes for a static release, and the client
+retargets the existing logical source URL after validating the filename-derived identity.
 
 Each layer declares one canonical lowercase `feature_id_property`. The PostGIS view, PMTiles
 producer, TileJSON `vector_layers[].id`, Martin source, Mapbox `promoteId`, and contract tests use
@@ -395,8 +407,9 @@ ends when the already-open map successfully loads a tile for each changed unit's
   tile; measurements must shorten the interval if that budget is missed.
 - Dynamic tiles use `no-store` at launch, or a measured cache configuration whose total origin,
   Martin, CDN, browser, and polling delay remains within 5 seconds.
-- A dynamic generation query changes cache identity only. It does not retain or address an old
-  PostGIS projection; business rollback creates a new revision.
+- Dynamic Martin URLs are query-free and use `no-store`; the runtime-manifest pointer selects the
+  complete PostGIS revision. Business rollback creates a new revision or selects a complete static
+  release; a URL query is never a historical selector.
 - A PMTiles object is never overwritten in place.
 - Promotion purges or expires only the small mutable manifest/revision pointer, not immutable tile
   objects.
