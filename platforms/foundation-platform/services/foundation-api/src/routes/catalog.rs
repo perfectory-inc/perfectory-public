@@ -609,7 +609,7 @@ pub async fn get_vector_tile_manifest(
     Ok(Json(vector_tile_manifest_response(manifest)))
 }
 
-/// Returns the atomic v2 runtime manifest with a quoted ETag and conditional GET support.
+/// Returns the atomic v2 runtime manifest with a quoted `ETag` and conditional GET support.
 #[utoipa::path(
     get,
     path = "/catalog/v1/vector-tiles/runtime-manifest",

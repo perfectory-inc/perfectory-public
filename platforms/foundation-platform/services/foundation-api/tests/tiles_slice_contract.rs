@@ -63,6 +63,7 @@ fn yaml_mapping_keys<'a>(lines: &'a [&str], indent: usize) -> BTreeSet<&'a str> 
     let keys: Vec<_> = lines
         .iter()
         .filter(|line| indentation(line) == indent)
+        .filter(|line| !line.trim_start().starts_with('#'))
         .filter_map(|line| line.trim().split_once(':').map(|(key, _)| key))
         .collect();
     let unique: BTreeSet<_> = keys.iter().copied().collect();
@@ -303,8 +304,7 @@ fn local_manifest_and_martin_sources_cannot_drift() {
         let properties = yaml_block(&source_yaml, "properties:", 6);
         let expected_properties = match source {
             "parcel_anchor_aggregate" => BTreeSet::from(["count", "official_complex_code", "pnu"]),
-            "parcels" => BTreeSet::from(["official_complex_code", "pnu"]),
-            "parcel_anchor" => BTreeSet::from(["official_complex_code", "pnu"]),
+            "parcels" | "parcel_anchor" => BTreeSet::from(["official_complex_code", "pnu"]),
             _ => unreachable!("expected_tables contains only guarded source IDs"),
         };
         assert_eq!(yaml_mapping_keys(&properties, 8), expected_properties);
@@ -372,7 +372,7 @@ fn v2_local_manifest_is_generation_addressed_and_keeps_dynamic_cache_disabled() 
         .as_str()
         .expect("v2 dynamic URL must be a string");
     assert_eq!(url, "http://127.0.0.1:3110/parcels/{z}/{x}/{y}");
-    assert!(!url.contains(","));
+    assert!(!url.contains(','));
     let source_id = unit["source"]["martin_source_id"]
         .as_str()
         .expect("v2 source id must be a string");
@@ -381,7 +381,7 @@ fn v2_local_manifest_is_generation_addressed_and_keeps_dynamic_cache_disabled() 
         "v2 source id must be declared by Martin dynamic config"
     );
     assert_eq!(
-        unit["layers"].as_object().map(|layers| layers.len()),
+        unit["layers"].as_object().map(serde_json::Map::len),
         Some(1)
     );
     assert_eq!(unit["layers"]["parcels"]["source_layer"], "parcels");

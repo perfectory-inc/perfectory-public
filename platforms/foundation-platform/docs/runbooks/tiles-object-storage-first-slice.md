@@ -8,7 +8,9 @@ served as Mapbox Vector Tiles through two Martin lanes.
 - **Dynamic:** explicit PostGIS views → Martin → MVT.
 - **Static:** the same views → `martin-cp` → MBTiles → PMTiles → Martin, using local file reads or
   proof-only R2 HTTP Range reads → MVT. Production uses Martin's authenticated S3-compatible R2
-  source described below.
+  source described below. Martin 1.12 `pmtiles.paths` is the production discovery point: it is
+  configured with the private R2 S3 endpoint and read-only credentials, and it accepts only release
+  PMTiles objects.
 - **Consumer:** the checked local manifest resolves to Martin URLs that the existing Gongzzang
   Naver Maps/mapbox-gl integration can fetch without renderer changes.
 
@@ -24,9 +26,8 @@ zoom 12, so it remains visible through z11 without a gap before exact anchors be
 
 The checked-in proof snapshot has been verified through the local PMTiles fallback. No
 credentialed R2 result is claimed here: a real-R2 run is evidence only when it is executed with the
-dedicated test bucket and its fresh output is retained. The local run produced a 3,255-byte PMTiles
-archive (SHA-256
-`aa84be475cf46dc4194844347ab5f4cf8082a3ab1171022c96edd618aa3ad714`) and decoded seven matching
+dedicated test bucket and its fresh output is retained. The local run produced a verified PMTiles
+archive and decoded seven matching
 dynamic/static features, including pnu `9999900000000000001`. No existing R2 bucket is written,
 reconfigured, or deleted by the local lane. This is still a correctness slice, not a production
 rollout or a national-scale load test.
@@ -132,7 +133,7 @@ Each run retains its local evidence below `target/tiles-slice-proof/<run-id>/`: 
 PBFs and response headers, canonical identity dumps, unpacked logical tiles, and
 `tiles-slice-proof/local/foundation-static.{mbtiles,pmtiles,tilejson.json}`. These generated files
 are proof output, not source-controlled artifacts. The deterministic proof archive contains 17
-logical MVT entries with 3,247 total logical tile-payload bytes; the checked proof manifest records
+logical MVT entries with 3,214 total logical tile-payload bytes; the checked proof manifest records
 those compatibility statistics and fails if they drift.
 
 After the proof, run the repository verification SSOT and the complete web suite:

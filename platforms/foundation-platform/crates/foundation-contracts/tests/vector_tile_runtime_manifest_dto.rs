@@ -46,14 +46,19 @@ fn valid_v2() -> serde_json::Value {
 }
 
 #[test]
-fn exact_dispatcher_parses_v2_and_round_trips() {
-    let document: VectorTileManifestDocument = serde_json::from_value(valid_v2()).unwrap();
+fn exact_dispatcher_parses_v2_and_round_trips() -> Result<(), String> {
+    let document: VectorTileManifestDocument =
+        serde_json::from_value(valid_v2()).map_err(|error| error.to_string())?;
     let VectorTileManifestDocument::V2(manifest) = &document else {
-        panic!("expected v2 manifest")
+        return Err("expected v2 manifest".to_owned());
     };
     assert_eq!(manifest.schema_version, 2);
-    manifest.validate().unwrap();
-    assert_eq!(serde_json::to_value(document).unwrap()["schema_version"], 2);
+    manifest.validate()?;
+    assert_eq!(
+        serde_json::to_value(document).map_err(|error| error.to_string())?["schema_version"],
+        2
+    );
+    Ok(())
 }
 
 #[test]
@@ -68,7 +73,9 @@ fn exact_dispatcher_fails_closed_for_unknown_version_and_invalid_v2() {
 }
 
 #[test]
-fn dto_validation_is_available_before_endpoint_publish() {
-    let value: VectorTileRuntimeManifestResponse = serde_json::from_value(valid_v2()).unwrap();
-    value.validate().unwrap();
+fn dto_validation_is_available_before_endpoint_publish() -> Result<(), String> {
+    let value: VectorTileRuntimeManifestResponse =
+        serde_json::from_value(valid_v2()).map_err(|error| error.to_string())?;
+    value.validate()?;
+    Ok(())
 }

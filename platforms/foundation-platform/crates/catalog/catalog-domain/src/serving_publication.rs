@@ -22,6 +22,10 @@ pub struct ManifestGeneration(u64);
 
 impl ManifestGeneration {
     /// Creates a valid generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `value` is zero or exceeds JavaScript's safe integer range.
     pub fn new(value: u64) -> Result<Self, String> {
         if (1..=MAX_SAFE_INTEGER).contains(&value) {
             Ok(Self(value))
@@ -53,6 +57,10 @@ pub struct ServingGeneration(u64);
 
 impl ServingGeneration {
     /// Creates a valid generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `value` is zero or exceeds JavaScript's safe integer range.
     pub fn new(value: u64) -> Result<Self, String> {
         ManifestGeneration::new(value).map(|_| Self(value))
     }
@@ -80,6 +88,10 @@ pub struct CanonicalIcebergSnapshotId(String);
 
 impl CanonicalIcebergSnapshotId {
     /// Creates a positive base-10 identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `value` is empty, zero, or contains a non-decimal character.
     pub fn new(value: String) -> Result<Self, String> {
         if !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) && value != "0" {
             Ok(Self(value))
@@ -111,6 +123,11 @@ pub struct RuntimeTilesUrlTemplate(String);
 
 impl RuntimeTilesUrlTemplate {
     /// Validates a production URL or the loopback HTTP URL used by the local proof harness.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the URL is not absolute, contains invalid placeholders, or uses
+    /// HTTP for a non-loopback host.
     pub fn new(value: String) -> Result<Self, String> {
         let scheme_end = value
             .find("://")
@@ -178,6 +195,10 @@ pub struct FeatureIdProperty(String);
 
 impl FeatureIdProperty {
     /// Creates a non-empty lower-case feature property name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `value` is empty, not lower-case, or contains an invalid character.
     pub fn new(value: String) -> Result<Self, String> {
         if !value.is_empty()
             && value == value.to_ascii_lowercase()
@@ -244,7 +265,7 @@ pub struct DynamicPostgisSource {
     pub martin_source_id: String,
     /// Stable, query-free tile URL template selected by the Catalog pointer.
     pub tiles_url_template: RuntimeTilesUrlTemplate,
-    /// Complete PostGIS projection revision.
+    /// Complete `PostGIS` projection revision.
     pub postgis_projection_revision: PostgisProjectionRevisionId,
     /// Dynamic sources are never browser-cacheable.
     pub cache_policy: String,
@@ -258,13 +279,13 @@ pub struct StaticPmtilesSource {
     pub martin_source_id: String,
     /// Release-addressed tile URL template.
     pub tiles_url_template: RuntimeTilesUrlTemplate,
-    /// Immutable PMTiles object key.
+    /// Immutable `PMTiles` object key.
     pub pmtiles_object_key: String,
-    /// File asset row for the PMTiles object.
+    /// File asset row for the `PMTiles` object.
     pub pmtiles_file_asset_id: FileAssetId,
     /// Lowercase SHA-256 checksum.
     pub pmtiles_sha256: String,
-    /// PMTiles object byte size.
+    /// `PMTiles` object byte size.
     pub pmtiles_bytes: u64,
 }
 
@@ -272,9 +293,9 @@ pub struct StaticPmtilesSource {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ActiveTileSource {
-    /// Complete dynamic PostGIS source.
+    /// Complete dynamic `PostGIS` source.
     DynamicPostgis(DynamicPostgisSource),
-    /// Immutable static PMTiles source.
+    /// Immutable static `PMTiles` source.
     StaticPmtiles(StaticPmtilesSource),
 }
 
@@ -301,9 +322,9 @@ pub struct PublicationUnit {
 /// The source kind selected by one immutable publication release.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServingSourceKind {
-    /// Complete PostGIS projection served dynamically by Martin.
+    /// Complete `PostGIS` projection served dynamically by Martin.
     DynamicPostgis,
-    /// Immutable PMTiles release served through Martin.
+    /// Immutable `PMTiles` release served through Martin.
     StaticPmtiles,
 }
 
@@ -321,10 +342,16 @@ pub struct ServingSelection {
 /// Validates the only supported publication state transitions.
 ///
 /// A first publication is always a complete dynamic source. A static release is allowed only
-/// when it was built from the currently selected data revision; this prevents an old PMTiles
+/// when it was built from the currently selected data revision; this prevents an old `PMTiles`
 /// file from being promoted after the canonical source changed. Returning to dynamic is allowed
 /// for either the same data revision (a safe fallback) or a newer revision. Every switch advances
 /// the per-unit generation exactly once.
+///
+/// # Errors
+///
+/// Returns an error when the first publication is not dynamic generation 1, when a later
+/// generation does not advance exactly once, or when a static release uses a different data
+/// revision from the currently selected one.
 pub fn validate_serving_transition(
     previous: Option<ServingSelection>,
     candidate: ServingSelection,
@@ -366,7 +393,7 @@ pub fn validate_serving_transition(
 pub struct VectorTileRuntimeManifest {
     /// Exact schema version.
     pub schema_version: u32,
-    /// Immutable manifest UUID and ETag identity.
+    /// Immutable manifest UUID and `ETag` identity.
     pub current_version: VectorTileRuntimeManifestId,
     /// Global JavaScript-safe polling generation.
     pub manifest_generation: ManifestGeneration,
@@ -409,6 +436,11 @@ impl<'de> Deserialize<'de> for VectorTileRuntimeManifest {
 
 impl VectorTileRuntimeManifest {
     /// Validates all cross-field publication invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any schema, source, layer, lineage, identity, or zoom invariant is
+    /// violated.
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 2 {
             return Err("schema_version must be exactly 2".to_owned());
@@ -455,7 +487,7 @@ impl VectorTileRuntimeManifest {
                 if layer
                     .feature_filter_properties
                     .values()
-                    .any(|property| property.is_empty())
+                    .any(String::is_empty)
                 {
                     return Err(format!(
                         "{unit_name}/{layer_name}: filter property is empty"
@@ -531,7 +563,7 @@ fn is_martin_identifier(value: &str) -> bool {
         && value
             .as_bytes()
             .first()
-            .is_some_and(|byte| byte.is_ascii_alphabetic())
+            .is_some_and(u8::is_ascii_alphabetic)
         && value.bytes().all(|byte| {
             byte.is_ascii_lowercase()
                 || byte.is_ascii_uppercase()

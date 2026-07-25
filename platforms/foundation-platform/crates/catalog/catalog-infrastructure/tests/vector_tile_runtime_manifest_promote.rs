@@ -1,4 +1,4 @@
-//! PostgreSQL tests for the v2 runtime-manifest compare-and-swap gate.
+//! `PostgreSQL` tests for the v2 runtime-manifest compare-and-swap gate.
 //!
 //! These tests are ignored unless a migrated Foundation database is available. They exercise the
 //! database function rather than duplicating its invariants in Rust, so a migration change cannot
@@ -78,12 +78,11 @@ async fn runtime_manifest_cas_rejects_stale_writer_without_switching_pointer() {
         .promote_vector_tile_runtime_manifest(Some(Uuid::now_v7()), fixture.manifest_id)
         .await
         .expect_err("stale writer must fail compare-and-swap");
-    match stale {
-        CatalogError::InvalidVectorTileRuntimeManifest(message) => {
-            assert!(message.contains("compare-and-swap"));
-        }
-        other => panic!("unexpected stale writer error: {other:?}"),
-    }
+    assert!(matches!(
+        stale,
+        CatalogError::InvalidVectorTileRuntimeManifest(message)
+            if message.contains("compare-and-swap")
+    ));
 
     let active: Uuid = sqlx::query_scalar(
         "SELECT manifest_id FROM catalog.vector_tile_runtime_manifest_pointer WHERE singleton",

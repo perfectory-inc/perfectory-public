@@ -539,6 +539,7 @@ impl CatalogRepository for PgCatalogRepository {
         row_to_vector_tile_manifest(&row, artifacts).map(Some)
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn get_active_vector_tile_runtime_manifest(
         &self,
     ) -> Result<Option<VectorTileRuntimeManifest>, CatalogError> {

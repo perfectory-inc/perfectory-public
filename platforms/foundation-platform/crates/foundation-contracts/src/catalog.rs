@@ -637,7 +637,7 @@ pub struct PromoteVectorTileArtifactRequest {
 pub struct VectorTileRuntimeManifestResponse {
     /// Exact manifest schema version. Always `2`.
     pub schema_version: u32,
-    /// Immutable manifest UUID and ETag identity.
+    /// Immutable manifest UUID and `ETag` identity.
     pub current_version: Uuid,
     /// Global JavaScript-safe poll generation.
     pub manifest_generation: u64,
@@ -673,13 +673,13 @@ pub struct VectorTilePublicationUnitResponse {
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VectorTileRuntimeSourceResponse {
-    /// Complete dynamic PostGIS source.
+    /// Complete dynamic `PostGIS` source.
     DynamicPostgis(VectorTileDynamicPostgisResponse),
-    /// Immutable PMTiles source served by Martin.
+    /// Immutable `PMTiles` source served by Martin.
     StaticPmtiles(VectorTileStaticPmtilesResponse),
 }
 
-/// Dynamic PostGIS source response.
+/// Dynamic `PostGIS` source response.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VectorTileDynamicPostgisResponse {
@@ -687,13 +687,13 @@ pub struct VectorTileDynamicPostgisResponse {
     pub martin_source_id: String,
     /// Complete Martin tile URL template.
     pub tiles_url_template: String,
-    /// Complete PostGIS projection revision UUID.
+    /// Complete `PostGIS` projection revision UUID.
     pub postgis_projection_revision: Uuid,
     /// Must be `no_store` for the dynamic source.
     pub cache_policy: String,
 }
 
-/// Immutable PMTiles source response.
+/// Immutable `PMTiles` source response.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VectorTileStaticPmtilesResponse {
@@ -701,13 +701,13 @@ pub struct VectorTileStaticPmtilesResponse {
     pub martin_source_id: String,
     /// Complete Martin tile URL template.
     pub tiles_url_template: String,
-    /// Immutable PMTiles object key.
+    /// Immutable `PMTiles` object key.
     pub pmtiles_object_key: String,
-    /// File asset UUID for the PMTiles object.
+    /// File asset UUID for the `PMTiles` object.
     pub pmtiles_file_asset_id: Uuid,
     /// Lowercase SHA-256 checksum.
     pub pmtiles_sha256: String,
-    /// PMTiles object size in bytes.
+    /// `PMTiles` object size in bytes.
     pub pmtiles_bytes: u64,
 }
 
@@ -743,6 +743,10 @@ pub struct VectorTileRuntimeLineageResponse {
 
 impl VectorTileRuntimeManifestResponse {
     /// Validates this DTO against the Catalog domain v2 invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the schema version or any nested publication invariant is invalid.
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 2 {
             return Err("schema_version must be exactly 2".to_owned());

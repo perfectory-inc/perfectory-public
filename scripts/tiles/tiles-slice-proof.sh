@@ -61,6 +61,10 @@ host_path() {
   local path="$1"
   if command -v cygpath >/dev/null 2>&1; then
     cygpath -am "$path"
+  elif [[ "${DOCKER_EXECUTABLE:-docker}" == "docker.exe" && "$path" =~ ^/mnt/([[:alpha:]])/(.*)$ ]]; then
+    printf '%s:/%s\n' "${BASH_REMATCH[1]^}" "${BASH_REMATCH[2]}"
+  elif [[ "${DOCKER_EXECUTABLE:-docker}" == "docker.exe" && "$path" =~ ^/([[:alpha:]])/(.*)$ ]]; then
+    printf '%s:/%s\n' "${BASH_REMATCH[1]^}" "${BASH_REMATCH[2]}"
   else
     printf '%s\n' "$path"
   fi
@@ -220,18 +224,45 @@ fi
 for command in docker curl sed grep find sort wc cmp tr date mkdir rm sha256sum tail head; do
   require_command "$command"
 done
-docker info >/dev/null 2>&1 || fail "Docker must be running"
+
+# Git Bash on Windows can resolve the Linux Docker CLI first. That CLI defaults to
+# /var/run/docker.sock and cannot reach Docker Desktop's named pipe; prefer docker.exe when the
+# native CLI is the first working client. Linux callers continue to use docker unchanged.
+DOCKER_EXECUTABLE=docker
+if ! command docker info >/dev/null 2>&1 || ! command docker compose version >/dev/null 2>&1; then
+  if command -v docker.exe >/dev/null 2>&1 \
+    && docker.exe info >/dev/null 2>&1 \
+    && docker.exe compose version >/dev/null 2>&1; then
+    DOCKER_EXECUTABLE=docker.exe
+  else
+    fail "Docker with Compose support must be running"
+  fi
+fi
+docker() { command "$DOCKER_EXECUTABLE" "$@"; }
 docker compose version >/dev/null 2>&1 || fail "Docker Compose is required"
 
 mkdir -p "$(dirname -- "$ARCHIVE_PATH")" "$ARTIFACT_DIR/http"
 REPO_HOST_PATH="$(host_path "$REPO_ROOT")"
 COMPOSE_FILE_HOST="$(host_path "$COMPOSE_FILE")"
 export TILES_SLICE_ARTIFACT_DIR
-TILES_SLICE_ARTIFACT_DIR="$(host_path "$ARTIFACT_DIR")"
+export TILES_SLICE_ARTIFACT_DIR="$(host_path "$ARTIFACT_DIR")"
+COMPOSE_ENV_FILE_PATH="$ARTIFACT_DIR/.compose.env"
+DOCKER_COMPOSE_ENV_FILE="$(host_path "$COMPOSE_ENV_FILE_PATH")"
+
+write_compose_env() {
+  {
+    printf 'TILES_SLICE_POSTGRES_PASSWORD=%s\n' "$TILES_SLICE_POSTGRES_PASSWORD"
+    printf 'TILES_SLICE_ARTIFACT_DIR=%s\n' "$TILES_SLICE_ARTIFACT_DIR"
+    if [[ -n "${TILES_SLICE_PMTILES_URL:-}" ]]; then
+      printf 'TILES_SLICE_PMTILES_URL=%s\n' "$TILES_SLICE_PMTILES_URL"
+    fi
+  } > "$COMPOSE_ENV_FILE_PATH"
+}
 
 compose() {
   # Scope this to Docker: exporting it globally breaks Git Bash curl /dev/null.
-  MSYS_NO_PATHCONV=1 docker compose --project-name "$COMPOSE_PROJECT" --file "$COMPOSE_FILE_HOST" "$@"
+  MSYS_NO_PATHCONV=1 docker compose --env-file "$DOCKER_COMPOSE_ENV_FILE" \
+    --project-name "$COMPOSE_PROJECT" --file "$COMPOSE_FILE_HOST" "$@"
 }
 
 clean_curl() {
@@ -247,9 +278,11 @@ cleanup() {
   trap - EXIT
   tiles_remove_http_artifacts "${RAW_RESPONSE_HEADERS[@]}" "${UNVERIFIED_RESPONSE_BODIES[@]}"
   compose --profile static down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -f -- "$COMPOSE_ENV_FILE_PATH"
   exit "$status"
 }
 trap cleanup EXIT
+write_compose_env
 
 r2_signed_curl() {
   # `printf` is a Bash builtin. Curl reads credentials from stdin, so neither the
@@ -324,7 +357,7 @@ for _ in 1 2; do
     -v ON_ERROR_STOP=1 -q -f - < "$SCRIPT_DIR/fixture.sql"
 done
 compose exec -T postgis psql -X -h 127.0.0.1 -U postgres -d tiles_slice_proof \
-  -v ON_ERROR_STOP=1 -q -f - < "$REPO_HOST_PATH/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql"
+  -v ON_ERROR_STOP=1 -q -f - < "$REPO_ROOT/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql"
 
 [[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.industrial_complex WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM serving_postgis.parcel_boundary_mirror WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel_marker_anchor AS anchor JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id WHERE parcel.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101' AND anchor.is_active));")" == "1|3|3|3" ]] \
   || fail "fixture row counts drifted"
@@ -612,6 +645,7 @@ if [[ "$R2_MODE" == true ]]; then
     printf 'content_range=%s\n' "$range_content_range"
   } > "$ARTIFACT_DIR/r2-evidence.txt"
   export TILES_SLICE_PMTILES_URL="$R2_READ_OBJECT_URL"
+  write_compose_env
 fi
 
 compose --profile static up -d static-martin

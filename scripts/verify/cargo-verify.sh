@@ -98,6 +98,13 @@ docker_args=(
   -e CARGO_TERM_COLOR=always
 )
 
+# Large workspaces can exceed a developer's Docker memory limit when Cargo
+# starts one rustc per crate. Keep the default unchanged, but allow callers to
+# cap parallelism without bypassing the verification SSOT.
+if [ -n "${CARGO_BUILD_JOBS:-}" ]; then
+  docker_args+=( -e "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS" )
+fi
+
 if [ "$clean_verify" -eq 1 ]; then
   # Cargo's build state is fresh and deleted automatically with --rm. The
   # source bind stays writable only because Docker Desktop cannot layer target

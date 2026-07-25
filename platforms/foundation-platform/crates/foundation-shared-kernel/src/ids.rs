@@ -76,7 +76,7 @@ id_newtype!(
 );
 id_newtype!(
     PostgisProjectionRevisionId,
-    "Catalog complete PostGIS serving projection revision identifier."
+    "Catalog complete `PostGIS` serving projection revision identifier."
 );
 id_newtype!(
     LakehouseStorageNamespaceId,

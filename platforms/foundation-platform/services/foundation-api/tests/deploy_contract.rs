@@ -28,7 +28,10 @@ fn compose_builds_migrates_and_runs_the_foundation_api_with_separate_roles() -> 
         "foundation-api:\n",
         "foundation_migrator:${FOUNDATION_MIGRATOR_PASSWORD:?set FOUNDATION_MIGRATOR_PASSWORD}",
         "foundation_api:${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}",
-        "FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED: ${FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED:-false}",
+        concat!(
+            "FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED: ${FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED:",
+            "-false}"
+        ),
         "dockerfile: services/foundation-api/Dockerfile",
         "127.0.0.1:${FOUNDATION_REDIS_PORT:-16379}:6379",
         "healthcheck:\n",
@@ -889,8 +892,8 @@ fn spatial_publication_migration_keeps_the_transition_invariants_in_sql() -> Tes
         "promote_vector_tile_runtime_manifest",
         "vector tile runtime manifest compare-and-swap conflict",
         "runtime manifest generation must increase",
-        "runtime manifest is not a complete publication",
-        "runtime manifest has a serving-generation gap",
+        "runtime manifest % is not a complete publication",
+        "runtime manifest % has a serving-generation gap",
     ] {
         assert!(
             migration.contains(invariant),

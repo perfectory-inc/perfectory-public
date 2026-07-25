@@ -73,7 +73,7 @@ pub fn vector_tile_runtime_manifest_object_key(manifest_id: VectorTileRuntimeMan
 pub struct VectorTileRuntimeManifestPublishedV2 {
     /// Payload schema version. Always `2` for this event type.
     pub schema_version: u32,
-    /// Immutable runtime manifest identifier and ETag identity.
+    /// Immutable runtime manifest identifier and `ETag` identity.
     pub manifest_id: VectorTileRuntimeManifestId,
     /// Global JavaScript-safe poll generation.
     pub manifest_generation: u64,
@@ -432,7 +432,7 @@ mod tests {
                 schema_version: 2,
                 manifest_id,
                 manifest_generation: 108,
-                publication_units: [(
+                publication_units: std::iter::once((
                     "parcels".to_owned(),
                     VectorTileRuntimeUnitSelectionV2 {
                         active_release_id: VectorTileReleaseId::new(Uuid::nil()),
@@ -440,8 +440,7 @@ mod tests {
                         serving_generation: 42,
                         canonical_iceberg_snapshot_id: "70000000000000001".to_owned(),
                     },
-                )]
-                .into_iter()
+                ))
                 .collect(),
                 published_at: Utc::now(),
             },
@@ -454,10 +453,11 @@ mod tests {
             crate::events::catalog_v1::VECTOR_TILE_RUNTIME_MANIFEST_POINTER_KEY,
             "gold/vector-tiles/runtime-manifest.json"
         );
-        assert!(
-            crate::events::catalog_v1::vector_tile_runtime_manifest_object_key(manifest_id)
-                .ends_with(".json")
-        );
+        assert!(std::path::Path::new(
+            &crate::events::catalog_v1::vector_tile_runtime_manifest_object_key(manifest_id)
+        )
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json")));
         Ok(())
     }
 
