@@ -244,7 +244,9 @@ done
 
 attribute_test_root="$(mktemp -d)"
 cp -- .gitattributes "$attribute_test_root/.gitattributes"
-git init -q --initial-branch=main "$attribute_test_root"
+env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+    -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    -u GIT_COMMON_DIR git init -q --initial-branch=main "$attribute_test_root"
 for exact_hashed_text in \
   .gitattributes \
   THIRD_PARTY_NOTICES.md \
@@ -252,7 +254,9 @@ for exact_hashed_text in \
   products/gongzzang/apps/web/public/fonts/LICENSE-PRETENDARD.txt \
   products/gongzzang/apps/web/public/fonts/pretendardvariable-dynamic-subset.css \
   products/gongzzang/apps/web/public/fonts/pretendard-v1.3.9.sha256; do
-  attributes="$(git -C "$attribute_test_root" check-attr text eol -- "$exact_hashed_text")"
+  attributes="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+    -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    -u GIT_COMMON_DIR git -C "$attribute_test_root" check-attr text eol -- "$exact_hashed_text")"
   if ! printf '%s\n' "$attributes" \
     | grep -Fq "$exact_hashed_text: text: auto" \
     || ! printf '%s\n' "$attributes" \
@@ -264,7 +268,9 @@ for windows_script in \
   fixture.cmd FIXTURE.CMD fixture.bat FIXTURE.BAT \
   products/gongzzang/fixture.cmd products/gongzzang/FIXTURE.CMD \
   products/gongzzang/fixture.bat products/gongzzang/FIXTURE.BAT; do
-  attributes="$(git -C "$attribute_test_root" check-attr text eol -- "$windows_script")"
+  attributes="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+    -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    -u GIT_COMMON_DIR git -C "$attribute_test_root" check-attr text eol -- "$windows_script")"
   if ! printf '%s\n' "$attributes" \
     | grep -Fq "$windows_script: text: set" \
     || ! printf '%s\n' "$attributes" \
@@ -273,7 +279,9 @@ for windows_script in \
   fi
 done
 woff2_probe="products/gongzzang/apps/web/public/fonts/attribute-probe.woff2"
-woff2_attributes="$(git -C "$attribute_test_root" check-attr text -- "$woff2_probe")"
+woff2_attributes="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+  -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  -u GIT_COMMON_DIR git -C "$attribute_test_root" check-attr text -- "$woff2_probe")"
 if ! printf '%s\n' "$woff2_attributes" \
   | grep -Fq "$woff2_probe: text: unset"; then
   fail "WOFF2 checkout attributes are not binary"

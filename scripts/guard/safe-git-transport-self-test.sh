@@ -2,6 +2,10 @@
 # Proves global and environment-injected URL rewrites cannot redirect transport,
 # while a local rewrite in a repository context fails closed.
 set -euo pipefail
+# Every repository in this transport test is temporary.  Isolate it from the
+# Git context exported by a pre-push hook.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
 cd "$(dirname "$0")/../.."
 
 transport="scripts/github/safe-git-transport.sh"

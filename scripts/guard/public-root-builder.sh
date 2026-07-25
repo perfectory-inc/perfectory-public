@@ -2,6 +2,10 @@
 # Proves that the publication helper copies only the selected tree into a new
 # parentless commit, even when the source repository has sensitive ancestry.
 set -euo pipefail
+# The builder's source/snapshot repositories are disposable self-test state.
+# Do not let a hook's exported Git context redirect their commits.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
 cd "$(dirname "$0")/../.."
 
 builder="scripts/github/build-public-root.sh"
