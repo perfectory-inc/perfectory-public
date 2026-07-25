@@ -63,6 +63,22 @@ id_newtype!(
     "Catalog vector tile artifact identifier."
 );
 id_newtype!(
+    VectorTileRuntimeManifestId,
+    "Catalog vector tile runtime manifest v2 identifier."
+);
+id_newtype!(
+    VectorTileReleaseId,
+    "Catalog immutable vector tile release identifier."
+);
+id_newtype!(
+    VectorTileDataRevisionId,
+    "Catalog logical vector tile data revision identifier."
+);
+id_newtype!(
+    PostgisProjectionRevisionId,
+    "Catalog complete `PostGIS` serving projection revision identifier."
+);
+id_newtype!(
     LakehouseStorageNamespaceId,
     "Lakehouse Registry storage namespace identifier."
 );

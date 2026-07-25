@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Proves the tracked-size guard rejects an index whose referenced blob vanished.
 set -euo pipefail
+# The size-policy fixtures are temporary repositories and must not share the
+# invoking hook's Git metadata.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
 cd "$(dirname "$0")/../.."
 
 checker="$(pwd)/scripts/guard/check-tracked-blob-sizes.sh"

@@ -1,6 +1,44 @@
 #!/usr/bin/env bash
 # Runs every monorepo guard. Each guard documents the incident it prevents.
 set -euo pipefail
+# Git for Windows exports drive-letter paths to hooks, while the repository
+# guards run under Git Bash/WSL.  Normalize that one path before any guard uses
+# `git -C`; otherwise linked worktrees resolve `.git` as a literal `C:/...`
+# child path and the guard either fails or can target the wrong index.
+normalize_git_path() {
+  local value="${1:-}"
+  if [[ "$value" =~ ^([A-Za-z]):[\\/](.*)$ ]]; then
+    if command -v wslpath >/dev/null 2>&1; then
+      wslpath -u "$value"
+      return
+    fi
+    if command -v cygpath >/dev/null 2>&1; then
+      cygpath -u "$value"
+      return
+    fi
+    local drive="${BASH_REMATCH[1],,}"
+    local rest="${BASH_REMATCH[2]//\\//}"
+    rest="${rest#/}"
+    printf '/mnt/%s/%s' "$drive" "$rest"
+  else
+    printf '%s' "$value"
+  fi
+}
+if [ -n "${GIT_DIR:-}" ]; then
+  export GIT_DIR="$(normalize_git_path "$GIT_DIR")"
+fi
+if [ -n "${GIT_WORK_TREE:-}" ]; then
+  export GIT_WORK_TREE="$(normalize_git_path "$GIT_WORK_TREE")"
+fi
+if [ -n "${GIT_COMMON_DIR:-}" ]; then
+  export GIT_COMMON_DIR="$(normalize_git_path "$GIT_COMMON_DIR")"
+fi
+if [ -n "${GIT_INDEX_FILE:-}" ]; then
+  export GIT_INDEX_FILE="$(normalize_git_path "$GIT_INDEX_FILE")"
+fi
+if [ -n "${GIT_OBJECT_DIRECTORY:-}" ]; then
+  export GIT_OBJECT_DIRECTORY="$(normalize_git_path "$GIT_OBJECT_DIRECTORY")"
+fi
 dir="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$dir/../.." && pwd -P)"
 repository_identity_gate="$root/scripts/guard/repository-identity-ci.sh"
@@ -10,7 +48,8 @@ bash "$legal_gate"
 rc=0
 for g in no-subdir-github toolchain-consistency migration-naming \
          unique-package-names no-stale-sibling-paths health-route-conformance \
-         no-adhoc-cargo-lint xtask-path-coverage \
+         no-adhoc-cargo-lint foundation-parcel-current-selector-self-test \
+         foundation-parcel-current-selector xtask-path-coverage \
          lefthook-advisory-policy-self-test lefthook-advisory-policy \
          package-publication-policy-self-test public-fixture-safety-self-test \
          public-doc-boundary-self-test \

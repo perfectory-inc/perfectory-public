@@ -1,0 +1,45 @@
+{
+  "schema_version": "foundation_platform.cloudflare.runtime_manifest_edge_policy.v1",
+  "status": "planned",
+  "provider": "cloudflare",
+  "zone_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ZONE_ID",
+  "route": {
+    "method": "GET",
+    "path": "/catalog/v1/vector-tiles/runtime-manifest",
+    "origin_service": "foundation-api",
+    "canonical_metric_path": "/catalog/v1/vector-tiles/runtime-manifest"
+  },
+  "cors": {
+    "allowed_origins_env": "FOUNDATION_PLATFORM_RUNTIME_MANIFEST_ALLOWED_ORIGINS",
+    "allow_methods": ["GET", "OPTIONS"],
+    "allow_headers": ["If-None-Match", "Content-Type"],
+    "expose_headers": ["ETag", "Cache-Control"],
+    "allow_credentials": false,
+    "max_age_seconds": 300
+  },
+  "cache": {
+    "browser": "no-cache, must-revalidate",
+    "edge": "no-cache, must-revalidate",
+    "honor_origin_etag": true,
+    "query_string_cache_key": false
+  },
+  "rate_limit": {
+    "id": "foundation_platform.edge.runtime_manifest_v2_per_ip",
+    "characteristics": ["ip.src"],
+    "period_seconds": 10,
+    "requests_per_period": 120,
+    "mitigation": "429",
+    "count_only_matching_expression": true,
+    "expression": "http.request.method eq \"GET\" and http.request.uri.path eq \"/catalog/v1/vector-tiles/runtime-manifest\""
+  },
+  "deployment_guard": {
+    "requires_origin_route_registration": true,
+    "requires_cors_preflight_probe": true,
+    "requires_etag_conditional_probe": true,
+    "requires_distributed_load_probe": true,
+    "load_probe_requests_per_second": 64,
+    "load_probe_zero_error_required": true,
+    "load_probe_p95_ms_max": 1000,
+    "browser_service_credentials_forbidden": true
+  }
+}

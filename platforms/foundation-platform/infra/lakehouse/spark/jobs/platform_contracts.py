@@ -39,6 +39,7 @@ def load_lakehouse_contract(table_name: str) -> dict[str, Any]:
     contract = contracts.get(table_name)
     if not isinstance(contract, dict):
         raise ValueError(f"lakehouse contract artifact is missing {table_name}")
+    current_row_predicate(contract)
     return contract
 
 
@@ -56,6 +57,24 @@ def required_string_column_names(contract: dict[str, Any]) -> tuple[str, ...]:
         for column in columns(contract)
         if column["required"] and column["logical_type"] == "string"
     )
+
+
+def current_row_predicate(contract: dict[str, Any]) -> str | None:
+    if "current_row_predicate" not in contract:
+        raise ValueError(
+            f"lakehouse contract {contract.get('table_name')} is missing "
+            "the current_row_predicate key"
+        )
+
+    value = contract["current_row_predicate"]
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(
+            f"lakehouse contract {contract.get('table_name')} "
+            "current_row_predicate must be null or a nonblank string"
+        )
+    return value
 
 
 def create_table_columns_sql(contract: dict[str, Any], indent: int = 12) -> str:

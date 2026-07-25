@@ -4,6 +4,7 @@
 |---|---|
 | 작성일 | 2026-05-14 |
 | 상태 | Accepted |
+| 최종 개정 | 2026-07-24 |
 | 범위 | `foundation-platform` 공통 데이터 lakehouse table format, Iceberg catalog provider, PostGIS/PMTiles/search serving 경계 |
 | 관련 ADR | [ADR 0002 - R2 Primary Object Storage](0002-r2-primary-object-storage.md), [ADR 0004 - Static Vector Tile Runtime Contract](0004-static-vector-tile-runtime-contract.md), [ADR 0005 - Object Lake Layout And Indexing](0005-object-lake-layout-and-indexing.md), [ADR 0007 - Netflix-style Lakehouse Compute Architecture](0007-netflix-style-lakehouse-compute-architecture.md) |
 
@@ -21,16 +22,20 @@ Canonical common-data store = R2 + Apache Iceberg
 Initial catalog provider = Cloudflare R2 Data Catalog
 Table files = Parquet / GeoParquet
 Spatial hot serving = PostGIS mirror
-Map runtime = static vector tile or PMTiles-derived artifact
+Map runtime = Martin over one complete PostGIS or immutable PMTiles source per publication unit
 Search serving = rebuildable search index
 ```
 
-PostGIS, PMTiles/vector tiles, Redis, search engine 은 canonical source 가 아니다. 모두 Iceberg
-snapshot 과 Gold artifacts 에서 재생성 가능한 **derived serving layer** 로 취급한다.
+PostGIS, PMTiles/vector tiles, Redis, search engine 은 canonical source 가 아니다. 모두
+Catalog-selected Iceberg snapshot 과 그 Gold projection에서 재생성 가능한 **derived serving
+layer** 로 취급한다.
 
-산업단지, 건축물, 필지 polygon 을 PMTiles 로만 제공할지, 편집 가능한 polygon workflow 를 둘지,
-수정 geometry 를 어떤 승인/승격 절차로 canonical lakehouse 에 반영할지는 이 ADR 에서 확정하지
-않는다. 이 주제는 후속 Spatial Serving And Editable Geometry ADR 에서 결정한다.
+Root ADR 0006 and Foundation ADR 0004 now define the spatial publication boundary. Canonical
+approved parcel geometry history remains the Catalog-selected `silver.parcel_boundaries` SCD2
+Iceberg snapshot on R2. Gold spatial tables, complete PostGIS projections, and immutable PMTiles are
+rebuildable derivatives. A complete PostGIS projection stays warm for immediate dynamic serving and
+QA. For one publication unit/generation, Catalog selects exactly one complete Martin source:
+PostGIS XOR PMTiles.
 
 ## 용어
 
@@ -42,7 +47,8 @@ snapshot 과 Gold artifacts 에서 재생성 가능한 **derived serving layer**
 | Iceberg | Parquet/GeoParquet 파일을 table, schema, snapshot, manifest, partition evolution 으로 관리하는 open table format |
 | Iceberg catalog | table 이름과 최신 metadata pointer, commit 을 관리하는 계층 |
 | R2 Data Catalog | Cloudflare 가 제공하는 managed Apache Iceberg REST catalog |
-| Serving layer | API latency, 지도 렌더링, 검색을 위해 canonical data 에서 파생한 인덱스나 캐시 |
+| Serving layer | API latency, 지도 렌더링, 검색을 위해 canonical data 에서 파생한 재구축 가능한 인덱스나 캐시 |
+| Selected snapshot | Catalog가 해당 publication unit의 공개 canonical revision으로 선택한 Iceberg snapshot |
 
 ## 왜 Iceberg 인가
 
@@ -185,13 +191,13 @@ PostGIS 는 사용한다. 다만 canonical public-data store 로 쓰지 않는�
 - 산업단지 boundary, 행정구역, 필지/건축물 후보 subset 의 정확 공간질의
 - `ST_Contains`, `ST_Intersects`, `ST_DWithin` 같은 hot query
 - geometry 품질 검수와 운영자 QA
-- 편집 가능한 polygon workflow 가 생길 경우 승인 전후 비교와 검수
+- 승인된 polygon 변경의 complete warm serving projection, 승인 전후 비교, 검수
 
 규칙:
 
 ```text
-PostGIS row = serving mirror or QA workspace
-Iceberg snapshot = canonical source
+PostGIS row = serving projection or QA workspace
+Catalog-selected Iceberg snapshot = canonical public source
 ```
 
 PostGIS mirror 는 다음 정보를 가져야 한다.
@@ -205,23 +211,51 @@ geometry_checksum_sha256
 loaded_at
 ```
 
-mirror 가 깨지면 Iceberg snapshot 에서 다시 만들 수 있어야 한다. PostGIS 에만 존재하는
-공통 데이터 fact 는 허용하지 않는다. 단, 후속 editable geometry ADR 이 승인한 운영자 수정 draft,
-review, approval record 는 별도 workflow table 로 둘 수 있다.
+mirror 가 깨지면 Catalog-selected Iceberg snapshot 과 감사 가능한 publication/edit ledger 에서
+다시 만들 수 있어야 한다. PostGIS 에만 존재하는 승인된 공통 데이터 fact 는 허용하지 않는다.
+운영자 draft, review, approval record 는 workflow state로 둘 수 있지만, public success는 승인
+candidate가 Iceberg WAP 검증을 통과하고 complete PostGIS generation이 준비된 뒤에만 반환한다.
+
+PostGIS is intentionally complete even while PMTiles serves public reads. Static publication removes
+steady-state tile-rendering load from PostGIS; it does not promise zero PostGIS storage. A switch back
+to dynamic must never depend on copying features out of PMTiles.
+
+## Canonical spatial publication
+
+Spatial edits use Apache Iceberg's standard Write-Audit-Publish branch flow:
+
+1. Branch from the exact Catalog-selected snapshot for the publication unit.
+2. Write add/modify/delete candidate rows on that isolated branch.
+3. Validate identity, lineage, geometry, and current-row semantics on the branch.
+4. Project the complete candidate into a generation-scoped PostGIS serving projection and verify
+   decoded Martin tiles.
+5. In one Catalog compare-and-swap, select the candidate snapshot/release and publish the new
+   manifest generation.
+6. Reconcile Iceberg `main` only along ancestry of the Catalog-selected snapshot.
+
+An unselected candidate branch cannot leak into later public history. A failed candidate remains
+isolated until bounded retention expires. Provider-specific R2 pointers must not emulate Iceberg
+branch semantics.
 
 ## 지도 Artifact 정책
 
-ADR 0004 의 `gold/manifest.json` runtime contract 는 유지한다.
+ADR 0004 의 versioned manifest runtime contract 를 유지한다.
 
 지도 렌더링용 vector tile, PMTiles, TileJSON, style helper artifact 는 canonical geometry 가 아니라
 렌더링 산출물이다. 산출물은 source Iceberg snapshot, source_record, file_asset lineage 를 가져야 한다.
 
-이 ADR 은 PMTiles 를 최종 runtime 으로 강제하지 않는다. 다음 선택은 후속 ADR 에서 결정한다.
+Legacy manifest v1 continues to describe already-published flat vector tile objects. New
+single-source publication uses v2:
 
-- flat vector tile object layout
-- PMTiles byte-range serving
-- PostGIS dynamic tile serving
-- editable polygon authoring 과 tile regeneration workflow
+- `DynamicPostgis` for a complete newly approved revision that must be visible immediately;
+- `StaticPmtiles` for a complete scheduled immutable derivative;
+- one complete source per publication unit/generation, never an overlay or tombstone composition;
+- version/generation-addressed Martin routes and immutable PMTiles object keys; and
+- a decimal-string canonical Iceberg snapshot ID so JavaScript does not lose 64-bit precision.
+
+Martin reads the dedicated private derivative R2 bucket with separate bucket-scoped read-only
+credentials through its supported S3-compatible PMTiles source. The canonical lakehouse bucket is
+not a tile origin.
 
 ## API Query 정책
 
@@ -231,7 +265,7 @@ foundation-platform API 는 대량 공공 데이터 본문을 DB row scan 으로
 
 ```text
 단건 PNU 조회:
-  DB control-plane 에서 active Gold/Iceberg snapshot pointer 확인
+  DB control-plane 에서 active Catalog-selected Silver Iceberg snapshot pointer 확인
   pnu locator 또는 Iceberg catalog 로 대상 partition/object 확인
   필요한 Parquet/GeoParquet column 만 읽어 응답
 
@@ -263,6 +297,10 @@ Silver/Gold snapshot promote 전에는 최소한 다음을 검증한다.
 - Gold projection 은 source Iceberg snapshot id 를 기록한다.
 - serving mirror 는 재생성 가능성을 증명하는 load manifest 를 가진다.
 - rollback 대상 snapshot 이 존재한다.
+- selected snapshot ancestry and WAP branch retention are valid.
+- a complete PostGIS projection is ready before dynamic selection.
+- a PMTiles release is immutable, checksummed, range-readable through Martin, and decoded before
+  static selection.
 
 ## Consumer 경계
 
@@ -296,7 +334,8 @@ Silver/Gold snapshot promote 전에는 최소한 다음을 검증한다.
 - ADR 0005 의 object lake layout 은 유지하되, Silver/Gold table format 은 Iceberg 로 수렴한다.
 - Bronze raw capture 구현은 그대로 유효하다.
 - PostGIS 는 더 중요해지지만 역할은 serving/QA mirror 로 제한된다.
-- polygon editing 과 PMTiles runtime 방식은 후속 ADR 전까지 구현 결정으로 확정하지 않는다.
+- polygon publication follows Foundation ADR 0004's complete-source state machine; PostGIS remains
+  warm while immutable PMTiles handles steady-state reads.
 - foundation-platform 의 향후 lakehouse infra 는 Iceberg REST Catalog abstraction 을 중심으로 설계한다.
 
 ## 완료 정의
@@ -305,12 +344,16 @@ Silver/Gold snapshot promote 전에는 최소한 다음을 검증한다.
 - 초기 catalog provider 가 Cloudflare R2 Data Catalog 임을 명시한다.
 - R2 Data Catalog 는 provider 이고 Iceberg 는 표준이라는 차이를 문서화한다.
 - PostGIS, PMTiles/vector tiles, search index 가 derived serving layer 임을 명시한다.
-- 산업단지/건축물/필지 polygon serving/editing 방식은 후속 ADR 로 남긴다.
+- 산업단지/건축물/필지 polygon serving/editing은 Root ADR 0006 및 Foundation ADR 0004의
+  single-source publication contract를 따른다.
 - `gongzzang` 과 `dawneer` 는 foundation-platform 공통 데이터 write owner 가 아님을 유지한다.
 
 ## 참고
 
+- [Root ADR 0006 - Object-storage-first serving](../../../../docs/adr/0006-object-storage-first-serving.md)
+- [ADR 0004 - Foundation Vector Tile Publication Contract](0004-static-vector-tile-runtime-contract.md)
 - [Lakehouse Industry Reference](../catalog/lakehouse-industry-reference.md)
 - [Apache Iceberg](https://iceberg.apache.org/)
+- [Apache Iceberg branching and WAP](https://iceberg.apache.org/docs/latest/branching/)
 - [Cloudflare R2 Data Catalog](https://developers.cloudflare.com/r2/data-catalog/)
 - [GeoParquet](https://geoparquet.org/)

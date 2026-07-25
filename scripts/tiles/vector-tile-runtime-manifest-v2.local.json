@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "current_version": "019d2b87-3fd1-7e3a-8d88-0b72c8743101",
+  "manifest_generation": 1,
+  "refresh_after_seconds": 4,
+  "published_at": "2026-07-24T00:00:00Z",
+  "publication_units": {
+    "parcels": {
+      "data_revision": "019d2b87-3fd1-7e3a-8d88-0b72c8743201",
+      "serving_generation": 1,
+      "active_release_id": "019d2b87-3fd1-7e3a-8d88-0b72c8743301",
+      "canonical_iceberg_snapshot_id": "841361364657368623",
+      "source": {
+        "kind": "dynamic_postgis",
+        "martin_source_id": "parcels",
+        "tiles_url_template": "http://127.0.0.1:3110/parcels/{z}/{x}/{y}",
+        "postgis_projection_revision": "019d2b87-3fd1-7e3a-8d88-0b72c8743401",
+        "cache_policy": "no_store"
+      },
+      "layers": {
+        "parcels": {
+          "source_layer": "parcels",
+          "feature_id_property": "pnu",
+          "tile_min_zoom": 14,
+          "tile_max_zoom": 16,
+          "render_min_zoom": 14,
+          "render_max_zoom": 22,
+          "feature_filter_properties": {"pnu": "pnu"}
+        }
+      },
+      "lineage": {
+        "source_record_id": "019d2b87-3fd1-7e3a-8d88-0b72c8743501",
+        "source_file_asset_ids": ["019d2b87-3fd1-7e3a-8d88-0b72c8743502"]
+      }
+    }
+  }
+}

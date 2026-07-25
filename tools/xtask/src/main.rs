@@ -26,8 +26,8 @@ struct Area {
     /// contract lives here, in one place — not scattered across YAML.
     two_stage_test: bool,
     /// Non-Rust tests owned by this area and required by the same authoritative
-    /// verification entrypoint. `None` means the area has no such suite.
-    python_tests: Option<PythonTests>,
+    /// verification entrypoint. Empty means the area has no such suite.
+    python_tests: &'static [PythonTests],
     /// Live-DB integration tests, if the area has any. `None` = none.
     integration: Option<Integration>,
 }
@@ -35,9 +35,16 @@ struct Area {
 struct PythonTests {
     /// Working directory relative to the area root.
     dir: &'static str,
-    /// Python module search path relative to `dir`.
-    python_path: &'static str,
-    /// Arguments following `python3 -m pytest`.
+    /// Optional Python module search path relative to `dir`.
+    python_path: Option<&'static str>,
+    /// Arguments following `python3`.
+    args: &'static [&'static str],
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct PythonCommandPlan {
+    current_dir: PathBuf,
+    python_path: Option<&'static str>,
     args: &'static [&'static str],
 }
 
@@ -61,7 +68,7 @@ const AREAS: &[Area] = &[
         dir: "products/gongzzang",
         apt_deps: &[],
         two_stage_test: true,
-        python_tests: None,
+        python_tests: &[],
         integration: None, // gongzzang-persistence smoke — to wire next.
     },
     Area {
@@ -70,11 +77,26 @@ const AREAS: &[Area] = &[
         // aws-sdk-s3's maintained default HTTPS client builds aws-lc-sys with CMake.
         apt_deps: &["cmake", "python3", "python3-pytest"],
         two_stage_test: false,
-        python_tests: Some(PythonTests {
-            dir: "services/foundation-provider-acquisition-worker",
-            python_path: "src",
-            args: &["tests", "-q"],
-        }),
+        python_tests: &[
+            PythonTests {
+                dir: "services/foundation-provider-acquisition-worker",
+                python_path: Some("src"),
+                args: &["-m", "pytest", "tests", "-q"],
+            },
+            PythonTests {
+                dir: ".",
+                python_path: None,
+                args: &[
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "infra/lakehouse/spark/tests",
+                    "-p",
+                    "test_*.py",
+                ],
+            },
+        ],
         // Foundation's DB-backed reads tests (catalog_*_reads, …) are `#[ignore]`
         // and need a migrated + seeded Postgres. scripts/verify/integration.sh
         // provisions one locally; CI's postgres-integration job provides its own.
@@ -96,7 +118,7 @@ const AREAS: &[Area] = &[
         dir: "platforms/identity-platform",
         apt_deps: &[],
         two_stage_test: false,
-        python_tests: None,
+        python_tests: &[],
         integration: None, // authorization role-grant PG tests — to wire next.
     },
     Area {
@@ -117,7 +139,7 @@ const AREAS: &[Area] = &[
             "zlib1g-dev",
         ],
         two_stage_test: false,
-        python_tests: None,
+        python_tests: &[],
         integration: None, // INTELLIGENCE_TEST_DATABASE_URL suite — to wire next.
     },
 ];
@@ -270,16 +292,26 @@ fn verify(area: &Area) {
         cargo(&dir, &["test", "--locked", "--workspace", "--all-features"]);
     }
 
-    if let Some(spec) = area.python_tests.as_ref() {
-        let python_dir = dir.join(spec.dir);
+    for plan in python_test_plans(area, &dir) {
         let mut command = Command::new("python3");
-        command
-            .current_dir(&python_dir)
-            .env("PYTHONPATH", spec.python_path)
-            .args(["-m", "pytest"])
-            .args(spec.args);
+        command.current_dir(&plan.current_dir);
+        if let Some(python_path) = plan.python_path {
+            command.env("PYTHONPATH", python_path);
+        }
+        command.args(plan.args);
         run(&mut command);
     }
+}
+
+fn python_test_plans(area: &Area, area_dir: &Path) -> Vec<PythonCommandPlan> {
+    area.python_tests
+        .iter()
+        .map(|suite| PythonCommandPlan {
+            current_dir: area_dir.join(suite.dir),
+            python_path: suite.python_path,
+            args: suite.args,
+        })
+        .collect()
 }
 
 /// Run the fast repository-structure checks before any expensive area build.
@@ -421,4 +453,39 @@ fn run(command: &mut Command) {
 fn fail_usage(message: &str) -> ! {
     eprintln!("xtask: {message}");
     exit(2);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn foundation_python_plan_preserves_provider_and_discovers_spark_tests() {
+        let area = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
+        let area_dir = Path::new("/repo/platforms/foundation-platform");
+
+        let plans = python_test_plans(area, area_dir);
+
+        assert_eq!(plans.len(), 2);
+        assert_eq!(
+            plans[0].current_dir,
+            area_dir.join("services/foundation-provider-acquisition-worker")
+        );
+        assert_eq!(plans[0].python_path, Some("src"));
+        assert_eq!(plans[0].args, &["-m", "pytest", "tests", "-q"]);
+        assert_eq!(plans[1].current_dir, area_dir);
+        assert_eq!(plans[1].python_path, None);
+        assert_eq!(
+            plans[1].args,
+            &[
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "infra/lakehouse/spark/tests",
+                "-p",
+                "test_*.py",
+            ],
+        );
+    }
 }

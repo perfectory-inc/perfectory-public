@@ -431,6 +431,34 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         tx.commit().await.map_err(map_sqlx)?;
         Ok(manifest)
     }
+
+    async fn promote_vector_tile_runtime_manifest(
+        &self,
+        expected_manifest_id: Option<Uuid>,
+        next_manifest_id: Uuid,
+    ) -> Result<u64, CatalogError> {
+        let generation: i64 =
+            sqlx::query_scalar("SELECT catalog.promote_vector_tile_runtime_manifest($1, $2)")
+                .bind(expected_manifest_id)
+                .bind(next_manifest_id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|error| match error {
+                    sqlx::Error::Database(database)
+                        if database.code().as_deref() == Some("40001") =>
+                    {
+                        CatalogError::InvalidVectorTileRuntimeManifest(
+                            database.message().to_owned(),
+                        )
+                    }
+                    other => map_sqlx(other),
+                })?;
+        u64::try_from(generation).map_err(|error| {
+            CatalogError::InvalidVectorTileRuntimeManifest(format!(
+                "promoted runtime manifest generation is invalid: {error}"
+            ))
+        })
+    }
 }
 
 async fn upsert_industrial_complexes_by_official_code(

@@ -5,6 +5,7 @@
       "table_name": "silver.industrial_complexes",
       "physical_format": "Parquet",
       "serving_role": "Canonical",
+      "current_row_predicate": null,
       "columns": [
         { "name": "complex_id", "logical_type": "string", "required": true },
         { "name": "official_complex_code", "logical_type": "string", "required": true },
@@ -42,6 +43,7 @@
       "table_name": "silver.industrial_complex_boundaries",
       "physical_format": "GeoParquet",
       "serving_role": "Canonical",
+      "current_row_predicate": null,
       "columns": [
         { "name": "boundary_id", "logical_type": "string", "required": true },
         { "name": "complex_id", "logical_type": "string", "required": true },
@@ -78,6 +80,7 @@
       "table_name": "silver.parcel_boundaries",
       "physical_format": "GeoParquet",
       "serving_role": "Canonical",
+      "current_row_predicate": "valid_to_utc IS NULL",
       "columns": [
         { "name": "boundary_id", "logical_type": "string", "required": true },
         { "name": "pnu", "logical_type": "string", "required": true },
@@ -115,6 +118,7 @@
       "table_name": "silver.building_register_floors",
       "physical_format": "Parquet",
       "serving_role": "Canonical",
+      "current_row_predicate": null,
       "columns": [
         { "name": "floor_row_id", "logical_type": "string", "required": true },
         { "name": "mgm_bldrgst_pk", "logical_type": "string", "required": true },
@@ -150,6 +154,7 @@
       "table_name": "silver.building_register_units",
       "physical_format": "Parquet",
       "serving_role": "Canonical",
+      "current_row_predicate": null,
       "columns": [
         { "name": "unit_row_id", "logical_type": "string", "required": true },
         { "name": "mgm_bldrgst_pk", "logical_type": "string", "required": true },
@@ -193,6 +198,7 @@
       "table_name": "silver.building_register_unit_areas",
       "physical_format": "Parquet",
       "serving_role": "Canonical",
+      "current_row_predicate": null,
       "columns": [
         { "name": "area_row_id", "logical_type": "string", "required": true },
         { "name": "mgm_bldrgst_pk", "logical_type": "string", "required": true },
@@ -241,6 +247,7 @@
       "table_name": "silver.complex_parcel_memberships",
       "physical_format": "Parquet",
       "serving_role": "Canonical",
+      "current_row_predicate": null,
       "columns": [
         { "name": "membership_id", "logical_type": "string", "required": true },
         { "name": "complex_id", "logical_type": "string", "required": true },
@@ -273,6 +280,7 @@
       "table_name": "gold.complex_catalog",
       "physical_format": "Parquet",
       "serving_role": "Projection",
+      "current_row_predicate": null,
       "columns": [
         { "name": "complex_id", "logical_type": "string", "required": true },
         { "name": "official_complex_code", "logical_type": "string", "required": true },
@@ -303,6 +311,7 @@
       "table_name": "gold.complex_spatial_locator",
       "physical_format": "Parquet",
       "serving_role": "SpatialLocator",
+      "current_row_predicate": null,
       "columns": [
         { "name": "spatial_key", "logical_type": "string", "required": true },
         { "name": "complex_id", "logical_type": "string", "required": true },

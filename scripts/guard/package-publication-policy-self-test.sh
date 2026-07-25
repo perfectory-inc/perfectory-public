@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Proves comments and unrelated TOML/JSON sections cannot spoof package policy.
 set -euo pipefail
+# Keep temporary publication candidates independent from the invoking Git
+# worktree and its index.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
 cd "$(dirname "$0")/../.."
 
 checker="scripts/guard/check-package-publication-policy.py"

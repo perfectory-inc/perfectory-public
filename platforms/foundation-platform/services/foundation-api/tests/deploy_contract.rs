@@ -28,6 +28,10 @@ fn compose_builds_migrates_and_runs_the_foundation_api_with_separate_roles() -> 
         "foundation-api:\n",
         "foundation_migrator:${FOUNDATION_MIGRATOR_PASSWORD:?set FOUNDATION_MIGRATOR_PASSWORD}",
         "foundation_api:${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}",
+        concat!(
+            "FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED: ${FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED:",
+            "-false}"
+        ),
         "dockerfile: services/foundation-api/Dockerfile",
         "127.0.0.1:${FOUNDATION_REDIS_PORT:-16379}:6379",
         "healthcheck:\n",
@@ -814,16 +818,16 @@ fn signed_oidc_smoke_is_disposable_secret_safe_and_covers_all_boundaries() -> Te
 fn foundation_baseline_migration_set_is_complete() -> TestResult {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let migration_dir = root.join("migrations");
-    let mut migrations = fs::read_dir(migration_dir)?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("sql"))
-        .collect::<Vec<_>>();
-    migrations.sort();
-
-    assert_eq!(migrations.len(), 4, "the launch migration set changed");
+    let baseline_names = [
+        "20260719000001_foundation_platform_schema.sql",
+        "20260719000002_foundation_platform_constraints.sql",
+        "20260719000003_foundation_platform_indexes.sql",
+        "20260719000004_foundation_platform_foreign_keys.sql",
+    ];
     let mut digest = Sha256::new();
-    for path in migrations {
+    for name in baseline_names {
+        let path = migration_dir.join(name);
+        assert!(path.exists(), "baseline migration is missing: {name}");
         let name = path
             .file_name()
             .and_then(|value| value.to_str())
@@ -851,6 +855,66 @@ fn foundation_baseline_migration_set_is_complete() -> TestResult {
         "the launch migration baseline was edited without review"
     );
 
+    Ok(())
+}
+
+#[test]
+fn additive_migrations_are_allowed_without_rewriting_the_baseline() -> TestResult {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let migration = root
+        .join("migrations")
+        .join("20260724000001_spatial_tile_publication.sql");
+    assert!(migration.exists());
+    let file_name = migration
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    assert!(file_name.starts_with("20260724000001_"));
+    assert!(read_normalized_sql(&migration)?.contains("vector_tile_runtime_manifest_pointer"));
+    Ok(())
+}
+
+#[test]
+fn spatial_publication_migration_keeps_the_transition_invariants_in_sql() -> TestResult {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let migration = read_normalized_sql(
+        &root
+            .join("migrations")
+            .join("20260724000001_spatial_tile_publication.sql"),
+    )?;
+    for invariant in [
+        "vector_tile_release_source_fields_check",
+        "vector_tile_release_validation_evidence_check",
+        "vector_tile_publication_unit_fallback_revision_check",
+        "vector_tile_runtime_manifest_unit_release_binding_fkey",
+        "vector_tile_build_job_result_snapshot_check",
+        "vector_tile_runtime_manifest_pointer_singleton_check",
+        "promote_vector_tile_runtime_manifest",
+        "vector tile runtime manifest compare-and-swap conflict",
+        "runtime manifest generation must increase",
+        "runtime manifest % is not a complete publication",
+        "runtime manifest % has a serving-generation gap",
+    ] {
+        assert!(
+            migration.contains(invariant),
+            "missing SQL invariant: {invariant}"
+        );
+    }
+    assert!(migration.contains("source_kind = 'static_pmtiles'"));
+    assert!(migration.contains("non-release-addressed static PMTiles source"));
+    assert!(migration.contains("format('%s-%s', unit.unit_key, release.id)"));
+    assert!(migration.contains("the first runtime publication must be dynamic PostGIS"));
+    assert!(migration.contains("static PMTiles must use the currently selected data revision"));
+    assert!(migration.contains("vector_tile_publication_unit_key_check CHECK (unit_key ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$')"));
+    assert!(migration.contains(
+        "vector_tile_release_layer_id_check CHECK (layer_id ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$')"
+    ));
+    assert!(migration.contains("vector_tile_release_route_check"));
+    assert!(migration.contains("vector_tile_release_layer_source_layer_check"));
+    assert!(migration.contains(
+        "vector_tile_release_layer_release_source_layer_key UNIQUE (release_id, source_layer)"
+    ));
+    assert!(migration.contains("source_kind = 'dynamic_postgis'"));
     Ok(())
 }
 

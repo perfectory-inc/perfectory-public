@@ -3,10 +3,17 @@
 | | |
 |---|---|
 | 작성일 | 2026-05-06 |
-| 상태 | Accepted |
+| 상태 | Superseded by [ADR 0036](./0036-static-vector-tile-runtime-contract.md) |
 | 결정자 | 사용자 |
 | Supersedes | [ADR 0014](./0014-base-layer-defer-pmtiles.md) (전국 base layer 보류) |
 | 컨텍스트 | 사용자가 "필지 + 행정구역(시도/시군구/읍면동/리) 모든 polygon을 지도에 표시" 요구 |
+
+**Historical record.** The Bronze/Gold and immutable-derived-artifact reasoning remains useful,
+but the PMTiles-direct-browser, no-PostGIS, two-layer lake, client-side spatial authority,
+effectively-zero-cost, and listing-JSON publication decisions are no longer current. Foundation
+now owns R2/Iceberg canonical geometry, a complete warm PostGIS serving projection, immutable
+PMTiles derivatives, and Martin publication under ADR 0036 / Foundation ADR 0004. Gongzzang's
+listing-marker runtime remains the separate Gongzzang-owned contract in ADR 0037/0038.
 
 > **변경 이력 (같은 날, 결정 진화)**
 > - 1차안: PMTiles 단독 (ADR 0014에서 보류)

@@ -112,6 +112,27 @@ fn compose_is_disposable_digest_pinned_and_loopback_only() {
 }
 
 #[test]
+fn production_static_martin_config_uses_private_r2_prefix_discovery() {
+    let config = read("scripts/tiles/martin-static-production.yaml");
+    require_all(
+        &config,
+        &[
+            "pmtiles:\n  aws_access_key_id: ${R2_ACCESS_KEY_ID}",
+            "  aws_secret_access_key: ${R2_SECRET_ACCESS_KEY}",
+            concat!("  aws_region: ${R2_REGION:", "-auto}"),
+            "  aws_endpoint_url: ${R2_S3_ENDPOINT}",
+            "  aws_virtual_hosted_style_request: false",
+            "  paths:",
+            "reload_interval:",
+            "GONGZZANG_PUBLIC_ORIGIN",
+        ],
+        "production static Martin config",
+    );
+    assert!(!config.contains("allow_http"));
+    assert!(!config.contains("pmtiles:\n  sources:"));
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
     let proof = read("scripts/tiles/tiles-slice-proof.sh");
@@ -126,6 +147,16 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
         &[
             "set -euo pipefail",
             "set +x",
+            "elif [[ \"${DOCKER_EXECUTABLE:-docker}\" == \"docker.exe\"",
+            "BASH_REMATCH[2]",
+            "DOCKER_EXECUTABLE=docker",
+            "docker.exe info",
+            "docker() { command \"$DOCKER_EXECUTABLE\" \"$@\"; }",
+            "COMPOSE_ENV_FILE_PATH=",
+            "write_compose_env()",
+            "--env-file \"$DOCKER_COMPOSE_ENV_FILE\"",
+            "rm -f -- \"$COMPOSE_ENV_FILE_PATH\"",
+            "< \"$REPO_ROOT/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql\"",
             "MSYS_NO_PATHCONV=1 docker compose",
             "MSYS_NO_PATHCONV=1 docker run",
             RUST_IMAGE,
@@ -145,6 +176,11 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "dynamic Martin composite TileJSON request failed",
             "dynamic_tilejson_compact=",
             "dynamic Martin TileJSON is missing parseable vector_layers metadata",
+            "DYNAMIC_CATALOG_PATH=",
+            "dynamic Martin catalog request failed",
+            "dynamic Martin catalog is missing configured source",
+            "local_vector_tile_runtime_manifest_v2.sql",
+            "active parcel view is not bound to the single runtime-manifest pointer",
             "validate",
             "unpack",
             "for zoom in $(seq 0 16)",
@@ -165,7 +201,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "cors_origin=",
             "\"$cors_origin\" == \"$REQUEST_ORIGIN\" || \"$cors_origin\" == \"*\"",
             "--expect-identity",
-            "--expect-property \"PNU=$pnu\"",
+            "--expect-property \"pnu=$pnu\"",
             "parcel_anchor_aggregate=1",
             "parcels=3",
             "parcel_anchor=3",
@@ -618,29 +654,35 @@ fn outbox_manifest_roundtrip_cannot_skip_a_missing_seed_or_duplicate_its_version
 }
 
 #[test]
-fn production_runbook_locks_public_bucket_and_pointer_safety() {
+fn production_runbook_locks_private_derivative_bucket_and_pointer_safety() {
     let runbook =
         read("platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md");
 
     require_all(
         &runbook,
         &[
-            "dedicated public static-tile serving bucket",
-            "bucket-scoped token",
-            "canonical/source geometry remains in separate private buckets",
-            "immutable PMTiles archive, TileJSON, and manifest",
-            "Catalog rows",
-            "verify the previous Martin route before",
-            "CAS-switch",
-            "emit the promotion outbox event in one database transaction",
-            "current generic `R2_BUCKET_NAME` publisher cannot publish static-tile pointers safely",
-            "`TilePublicObjectStorage`",
-            "`FOUNDATION_TILE_PUBLIC_R2_BUCKET`",
-            "must not retarget `R2_BUCKET_NAME`",
-            "outbox publisher writes the public R2 manifest pointer",
-            "public manifest exposes the expected version",
-            "CF-Cache-Status",
-            "Age",
+            "canonical data and serving derivatives are separate private security",
+            "Canonical/source geometry remains in the lakehouse bucket",
+            "serving-derivative bucket contains only publishable, immutable PMTiles serving releases",
+            "PostGIS is a complete warm serving projection",
+            "Catalog-selected R2/Iceberg snapshot",
+            "Martin gets a separate read-only credential",
+            "publisher gets a separate write credential",
+            "release prefix limits discovery",
+            "it is not an IAM boundary",
+            "create-only precondition",
+            "generic lakehouse `R2_BUCKET_NAME` adapter is forbidden",
+            "Martin 1.12 `pmtiles.paths`",
+            "named sources are startup snapshots",
+            "The R2 bucket itself needs no public domain",
+            "`gold/manifest.json` bytes unchanged",
+            "`gold/vector-tiles/runtime-manifest.json`",
+            "`CF-Cache-Status`/`Age` evidence",
+            "Compare and swap",
+            "emit the outbox projection event",
+            "`SUPERSEDED`",
+            "same `data_revision`",
+            "never edits a historical manifest",
             "proof-only uppercase `PNU` compatibility alias",
             "canonical lowercase `pnu`",
             "production `foundation-migrate` SQLx runner",
@@ -651,6 +693,16 @@ fn production_runbook_locks_public_bucket_and_pointer_safety() {
         ],
         "tile proof production runbook",
     );
+    for forbidden in [
+        "dedicated public static-tile serving bucket",
+        "must retarget `R2_BUCKET_NAME`",
+        "outbox publisher writes the public R2 manifest pointer",
+    ] {
+        assert!(
+            !runbook.contains(forbidden),
+            "private derivative-bucket runbook must not restore obsolete public-default wording: {forbidden}"
+        );
+    }
 }
 
 #[test]

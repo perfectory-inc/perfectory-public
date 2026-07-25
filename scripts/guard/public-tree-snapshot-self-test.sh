@@ -2,6 +2,10 @@
 # Proves the shared verification snapshot contains exactly the current
 # tracked/non-ignored candidate files and never copies Git metadata or ignores.
 set -euo pipefail
+# Synthetic source and snapshot repositories must not inherit the caller's
+# linked-worktree Git metadata.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
 cd "$(dirname "$0")/../.."
 root="$PWD"
 

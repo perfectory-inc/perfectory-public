@@ -19,6 +19,9 @@ pub mod object_key;
 pub mod pnu;
 
 pub use errors::KernelError;
-pub use ids::{BuildingId, ComplexId, ManufacturerId, ParcelId, PrincipalId, StaffId};
+pub use ids::{
+    BuildingId, ComplexId, ManufacturerId, ParcelId, PostgisProjectionRevisionId, PrincipalId,
+    StaffId, VectorTileDataRevisionId, VectorTileReleaseId, VectorTileRuntimeManifestId,
+};
 pub use object_key::{ObjectKey, ObjectKeyError, ObjectKeyPrefix};
 pub use pnu::Pnu;

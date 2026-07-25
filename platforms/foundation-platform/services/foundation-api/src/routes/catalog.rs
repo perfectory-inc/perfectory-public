@@ -22,10 +22,10 @@ use catalog_application::{
     update_complex::UpdateIndustrialComplexInput, update_parcel_kind::UpdateParcelKindInput,
 };
 use catalog_domain::{
-    Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset,
-    FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup, IndustryGroupMember,
-    Manufacturer, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, SpatialLayer,
-    VectorTileArtifact, VectorTileManifest,
+    ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
+    DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
+    IndustryGroupMember, Manufacturer, MarkerTileRequest, Parcel, ParcelIndustryAssignment,
+    ParcelKind, SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::BuildingUnitRow;
 use foundation_contracts::catalog::{
@@ -38,7 +38,10 @@ use foundation_contracts::catalog::{
     PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
     RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse, UnitResponse,
     UpdateComplexRequest, UpdateParcelKindRequest, VectorTileArtifactResponse,
-    VectorTileLineageResponse, VectorTileManifestResponse,
+    VectorTileDynamicPostgisResponse, VectorTileLineageResponse, VectorTileManifestResponse,
+    VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
+    VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
+    VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
 use foundation_shared_kernel::ids::{ComplexId, ParcelId, StaffId};
 use foundation_shared_kernel::pnu::Pnu;
@@ -61,6 +64,8 @@ const MARKER_TILE_CACHE_CONTROL: &str = "public, max-age=30";
 const FOUNDATION_PLATFORM_RUNTIME_ENV: &str = "FOUNDATION_PLATFORM_RUNTIME_ENV";
 const DB_MARKER_TILE_REFERENCE_ENABLED_ENV: &str =
     "FOUNDATION_PLATFORM_DB_MARKER_TILE_REFERENCE_ENABLED";
+const VECTOR_TILE_RUNTIME_MANIFEST_V2_ENABLED_ENV: &str =
+    "FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED";
 
 #[utoipa::path(
     post,
@@ -604,6 +609,69 @@ pub async fn get_vector_tile_manifest(
     Ok(Json(vector_tile_manifest_response(manifest)))
 }
 
+/// Returns the atomic v2 runtime manifest with a quoted `ETag` and conditional GET support.
+#[utoipa::path(
+    get,
+    path = "/catalog/v1/vector-tiles/runtime-manifest",
+    operation_id = "getVectorTileRuntimeManifest",
+    responses((status = 200, body = VectorTileRuntimeManifestResponse), (status = 304), (status = 404, description = "v2 runtime manifest is disabled or not published"))
+)]
+pub async fn get_vector_tile_runtime_manifest(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    if !vector_tile_runtime_manifest_v2_enabled() {
+        return Err(ApiError::NotFound(
+            "v2 vector tile runtime manifest is disabled".to_owned(),
+        ));
+    }
+    let manifest = state
+        .catalog_repo
+        .get_active_vector_tile_runtime_manifest()
+        .await?
+        .ok_or_else(|| ApiError::NotFound("active v2 vector tile runtime manifest".to_owned()))?;
+    let etag = format!("\"{}\"", manifest.current_version);
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
+    {
+        return Ok((
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, etag),
+                (
+                    header::CACHE_CONTROL,
+                    "no-cache, must-revalidate".to_owned(),
+                ),
+            ],
+        )
+            .into_response());
+    }
+    let body =
+        serde_json::to_vec(&vector_tile_runtime_manifest_response(manifest)).map_err(|error| {
+            ApiError::Internal(format!("failed to serialize runtime manifest: {error}"))
+        })?;
+    let etag_header = HeaderValue::from_str(&etag)
+        .map_err(|error| ApiError::Internal(format!("invalid runtime manifest ETag: {error}")))?;
+    Ok((
+        StatusCode::OK,
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-cache, must-revalidate"),
+            ),
+            (header::ETAG, etag_header),
+        ],
+        body,
+    )
+        .into_response())
+}
+
 #[utoipa::path(
     get,
     path = "/map/v1/marker-tiles/contract",
@@ -1075,6 +1143,103 @@ fn vector_tile_manifest_response(manifest: VectorTileManifest) -> VectorTileMani
     }
 }
 
+fn vector_tile_runtime_manifest_v2_enabled() -> bool {
+    std::env::var(VECTOR_TILE_RUNTIME_MANIFEST_V2_ENABLED_ENV)
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+}
+
+fn vector_tile_runtime_manifest_response(
+    manifest: VectorTileRuntimeManifest,
+) -> VectorTileRuntimeManifestResponse {
+    let publication_units = manifest
+        .publication_units
+        .into_iter()
+        .map(|(unit_key, unit)| {
+            let source = match unit.source {
+                ActiveTileSource::DynamicPostgis(source) => {
+                    VectorTileRuntimeSourceResponse::DynamicPostgis(
+                        VectorTileDynamicPostgisResponse {
+                            martin_source_id: source.martin_source_id,
+                            tiles_url_template: source.tiles_url_template.as_str().to_owned(),
+                            postgis_projection_revision: source
+                                .postgis_projection_revision
+                                .as_uuid(),
+                            cache_policy: source.cache_policy,
+                        },
+                    )
+                }
+                ActiveTileSource::StaticPmtiles(source) => {
+                    VectorTileRuntimeSourceResponse::StaticPmtiles(
+                        VectorTileStaticPmtilesResponse {
+                            martin_source_id: source.martin_source_id,
+                            tiles_url_template: source.tiles_url_template.as_str().to_owned(),
+                            pmtiles_object_key: source.pmtiles_object_key,
+                            pmtiles_file_asset_id: source.pmtiles_file_asset_id.as_uuid(),
+                            pmtiles_sha256: source.pmtiles_sha256,
+                            pmtiles_bytes: source.pmtiles_bytes,
+                        },
+                    )
+                }
+            };
+            let layers = unit
+                .layers
+                .into_iter()
+                .map(|(layer_id, layer)| {
+                    (
+                        layer_id,
+                        VectorTileRuntimeLayerResponse {
+                            source_layer: layer.source_layer,
+                            feature_id_property: layer.feature_id_property.as_str().to_owned(),
+                            tile_min_zoom: layer.tile_min_zoom,
+                            tile_max_zoom: layer.tile_max_zoom,
+                            render_min_zoom: layer.render_min_zoom,
+                            render_max_zoom: layer.render_max_zoom,
+                            feature_filter_properties: layer.feature_filter_properties,
+                        },
+                    )
+                })
+                .collect();
+            (
+                unit_key,
+                VectorTilePublicationUnitResponse {
+                    data_revision: unit.data_revision.as_uuid(),
+                    serving_generation: unit.serving_generation.value(),
+                    active_release_id: unit.active_release_id.as_uuid(),
+                    canonical_iceberg_snapshot_id: unit
+                        .canonical_iceberg_snapshot_id
+                        .as_str()
+                        .to_owned(),
+                    source,
+                    layers,
+                    lineage: VectorTileRuntimeLineageResponse {
+                        source_record_id: unit.lineage.source_record_id.as_uuid(),
+                        source_file_asset_ids: unit
+                            .lineage
+                            .source_file_asset_ids
+                            .into_iter()
+                            .map(|id| id.as_uuid())
+                            .collect(),
+                    },
+                },
+            )
+        })
+        .collect();
+    VectorTileRuntimeManifestResponse {
+        schema_version: 2,
+        current_version: manifest.current_version.as_uuid(),
+        manifest_generation: manifest.manifest_generation.value(),
+        refresh_after_seconds: manifest.refresh_after_seconds,
+        published_at: manifest.published_at,
+        publication_units,
+    }
+}
+
 fn parcel_marker_anchor_rebuild_response(
     report: catalog_application::ports::ParcelMarkerAnchorRebuildReport,
 ) -> ParcelMarkerAnchorRebuildResponse {
@@ -1234,6 +1399,7 @@ impl From<CatalogError> for ApiError {
             CatalogError::InvalidPnu(e) => Self::BadRequest(e.to_string()),
             CatalogError::InvalidVectorTileManifestRollback(msg)
             | CatalogError::InvalidVectorTileManifestPromotion(msg)
+            | CatalogError::InvalidVectorTileRuntimeManifest(msg)
             | CatalogError::InvalidIndustrialComplexInput(msg)
             | CatalogError::InvalidParcelMarkerAnchorRebuild(msg) => Self::BadRequest(msg),
             CatalogError::Infrastructure(msg) => Self::Internal(msg),

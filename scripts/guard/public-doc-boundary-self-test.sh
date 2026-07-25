@@ -2,6 +2,11 @@
 # Proves private direction notes and competitive roadmaps cannot re-enter the
 # public tracked tree without an explicit maintained-contract review marker.
 set -euo pipefail
+# Git exports repository-scoped variables while running hooks.  This test
+# intentionally creates a disposable repository; never let the hook's Git
+# context redirect those commands into the real checkout.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 checker="$root/scripts/guard/public-doc-boundary.sh"

@@ -30,6 +30,10 @@ pub enum CatalogError {
     #[error("invalid vector tile manifest promotion: {0}")]
     InvalidVectorTileManifestPromotion(String),
 
+    /// V2 single-source runtime manifest failed domain validation.
+    #[error("invalid vector tile runtime manifest: {0}")]
+    InvalidVectorTileRuntimeManifest(String),
+
     /// Industrial complex command failed domain validation.
     #[error("invalid industrial complex input: {0}")]
     InvalidIndustrialComplexInput(String),

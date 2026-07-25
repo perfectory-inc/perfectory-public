@@ -4,6 +4,7 @@
 |---|---|
 | Date | 2026-05-22 |
 | Status | Accepted |
+| Last amended | 2026-07-24 |
 | Preceded by | [ADR 0017](./0017-listing-marker-render-canvas-bitmap-stamp.md), [ADR 0018](./0018-pnu-first-identity-no-coordinates.md), [ADR 0036](./0036-static-vector-tile-runtime-contract.md) |
 | Inherits/refines | `foundation-platform` [ADR 0008 - PNU Anchor PBF Marker Tile Contract](../../../../platforms/foundation-platform/docs/adr/0008-pnu-anchor-pbf-marker-tile-contract.md) |
 
@@ -56,14 +57,14 @@ The launch runtime has three separate concerns:
 
 | Concern | Owner | Format |
 |---|---|---|
-| Parcel polygon geometry | foundation-platform Catalog | static flat `.pbf` vector tiles through ADR 0036/0004 manifest |
+| Parcel polygon geometry | foundation-platform Catalog | one complete Martin MVT source selected through ADR 0036/0004 manifest |
 | Marker anchor position | foundation-platform Catalog | PNU anchor registry |
 | Gongzzang listing marker tiles | Gongzzang market domain | dynamic PBF generated from listing rows joined to foundation-platform anchors by PNU |
 | Public/reference marker tiles | foundation-platform Catalog | real transaction, official land price, parcel-anchor, and other non-product reference layers |
 
 The map joins visually through PNU:
 
-1. Static parcel PBF gives the selectable parcel shape and `pnu` property.
+1. The selected Foundation parcel MVT source gives the selectable parcel shape and `pnu` property.
 2. Foundation Platform owns the PNU anchor coordinate.
 3. Gongzzang listing marker PBF uses `listing.parcel_pnu` plus that anchor; it does not store or
    reinterpret coordinates.
@@ -226,6 +227,6 @@ Cost:
 ## References
 
 - [ADR 0018 - PNU-first identity](./0018-pnu-first-identity-no-coordinates.md)
-- [ADR 0021 - Static vector tile decomposition](./0021-static-vector-tile-decomposition.md)
+- [ADR 0021 - Historical static vector tile decomposition](./0021-static-vector-tile-decomposition.md)
 - [ADR 0036 - Static vector tile runtime contract](./0036-static-vector-tile-runtime-contract.md)
 - [foundation-platform ADR 0008 - PNU Anchor PBF Marker Tile Contract](../../../../platforms/foundation-platform/docs/adr/0008-pnu-anchor-pbf-marker-tile-contract.md)

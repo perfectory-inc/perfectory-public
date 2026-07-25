@@ -5,6 +5,28 @@ import { plantAuthenticatedSession } from "../e2e/auth";
 
 const OUT_DIR = "var/sample";
 const MAP_BOOT_TIMEOUT_MS = 15_000;
+const SOFTWARE_RENDERER_PATTERN =
+  /SwiftShader|llvmpipe|softpipe|lavapipe|\bWARP\b|Microsoft Basic Render Driver|\bsoftware\b/i;
+
+interface ProbeMapbox {
+  addLayer?: (layer: Record<string, unknown>) => void;
+  addSource?: (id: string, source: Record<string, unknown>) => void;
+  getLayer?: (id: string) => unknown;
+  getSource?: (id: string) => unknown;
+  isSourceLoaded?: (id: string) => boolean;
+  isStyleLoaded?: () => boolean;
+  removeLayer?: (id: string) => void;
+  removeSource?: (id: string) => void;
+  triggerRepaint?: () => void;
+}
+
+type ProbeVectorSource = { setTiles?: (tiles: string[]) => void };
+type ProbeWindow = Window & { __listingMap?: { getMapbox?: () => ProbeMapbox } };
+
+const hardwareGlTest = test.extend({});
+hardwareGlTest.use({
+  launchOptions: { args: ["--enable-gpu", "--disable-software-rasterizer"] },
+});
 
 interface ViewportSpec {
   name: string;
@@ -288,5 +310,199 @@ test.describe("Naver SDK probes", () => {
     const result = await captureCadastralLayer(page);
     await writeProbeJson(testInfo, "naver-cadastral-layer.json", result);
     expect(result).toBeDefined();
+  });
+});
+
+hardwareGlTest.describe("hardware GL vector source reload", () => {
+  hardwareGlTest.beforeEach(async ({ baseURL, context }) => {
+    await plantAuthenticatedSession(context, { baseURL });
+  });
+
+  hardwareGlTest("vector source reload", async ({ page }, testInfo) => {
+    hardwareGlTest.setTimeout(120_000);
+    await openAuthenticatedListings(page);
+
+    const renderer = await page.evaluate(() => {
+      const gl = document.createElement("canvas").getContext("webgl");
+      const debugInfo = gl?.getExtension("WEBGL_debug_renderer_info");
+      return gl && debugInfo
+        ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL))
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 256)
+        : null;
+    });
+    if (!renderer || SOFTWARE_RENDERER_PATTERN.test(renderer)) {
+      throw new Error(`hardware WebGL renderer required; received ${renderer ?? "unavailable"}`);
+    }
+    await page.waitForFunction(
+      () => (window as ProbeWindow).__listingMap?.getMapbox?.()?.isStyleLoaded?.() === true,
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    const origin = new URL(page.url()).origin;
+    const suffix = `${testInfo.workerIndex}-${Date.now()}`;
+    const sourceId = `__probe-vector-reload-${suffix}`;
+    const layerId = `${sourceId}-layer`;
+    const probePath = `/__probe/vector-reload/${suffix}`;
+    const routePattern = `${origin}${probePath}/**`;
+    const tileTemplate = (generation: string) =>
+      `${origin}${probePath}/${generation}/{z}/{x}/{y}.pbf`;
+    const isTileRequest = (requestUrl: string, generation: string) => {
+      const url = new URL(requestUrl);
+      return (
+        url.origin === origin &&
+        url.pathname.startsWith(`${probePath}/${generation}/`) &&
+        /\/\d+\/\d+\/\d+\.pbf$/.test(url.pathname)
+      );
+    };
+
+    await page.route(routePattern, (route) =>
+      route.fulfill({
+        contentType: "application/x-protobuf",
+        body: Buffer.alloc(0),
+      }),
+    );
+
+    try {
+      const [firstRequest, firstResponse, sourceInspection] = await Promise.all([
+        page.waitForRequest((request) => isTileRequest(request.url(), "first"), {
+          timeout: 5_000,
+        }),
+        page.waitForResponse(
+          (response) => isTileRequest(response.url(), "first") && response.status() === 200,
+          { timeout: 5_000 },
+        ),
+        page.evaluate(
+          ({ firstTemplate, layerId, sourceId }) => {
+            const mapbox = (window as ProbeWindow).__listingMap?.getMapbox?.();
+            if (
+              !mapbox?.addSource ||
+              !mapbox.addLayer ||
+              !mapbox.getSource ||
+              !mapbox.triggerRepaint
+            ) {
+              throw new Error("live mapbox source/layer APIs are unavailable");
+            }
+            mapbox.addSource(sourceId, {
+              type: "vector",
+              tiles: [firstTemplate],
+            });
+            const source = mapbox.getSource(sourceId) as ProbeVectorSource | undefined;
+            if (!source || typeof source.setTiles !== "function") {
+              throw new Error("live vector source must expose setTiles");
+            }
+            mapbox.addLayer({
+              id: layerId,
+              type: "circle",
+              source: sourceId,
+              "source-layer": "probe",
+              layout: { visibility: "visible" },
+              paint: { "circle-color": "#2563eb", "circle-radius": 3 },
+            });
+            mapbox.triggerRepaint();
+            return { sourceExists: true, setTilesCallable: true };
+          },
+          { firstTemplate: tileTemplate("first"), layerId, sourceId },
+        ),
+      ]);
+      expect(firstRequest).toBeDefined();
+      expect(await firstResponse.finished()).toBeNull();
+      expect(sourceInspection).toEqual({ sourceExists: true, setTilesCallable: true });
+      await page.evaluate(
+        ({ deadlineMs, requiredFrames, sourceId }) =>
+          new Promise<void>((resolve, reject) => {
+            const deadlineAt = performance.now() + deadlineMs;
+            let consecutiveLoadedFrames = 0;
+            const isSourceLoaded = () =>
+              (window as ProbeWindow).__listingMap?.getMapbox?.()?.isSourceLoaded?.(sourceId) ===
+              true;
+            const rejectAtDeadline = () =>
+              reject(
+                new Error(
+                  `vector source ${sourceId} was not loaded for ${requiredFrames} consecutive animation frames within ${deadlineMs}ms`,
+                ),
+              );
+            const deadlineTimer = window.setTimeout(rejectAtDeadline, deadlineMs);
+            const checkSourceLoaded = () => {
+              if (performance.now() >= deadlineAt) {
+                window.clearTimeout(deadlineTimer);
+                rejectAtDeadline();
+                return;
+              }
+              consecutiveLoadedFrames = isSourceLoaded() ? consecutiveLoadedFrames + 1 : 0;
+              if (consecutiveLoadedFrames >= requiredFrames) {
+                window.clearTimeout(deadlineTimer);
+                resolve();
+                return;
+              }
+              requestAnimationFrame(checkSourceLoaded);
+            };
+            requestAnimationFrame(checkSourceLoaded);
+          }),
+        { deadlineMs: 5_000, requiredFrames: 3, sourceId },
+      );
+
+      const startedAt = Date.now();
+      const [secondRequest, strategy] = await Promise.all([
+        page.waitForRequest((request) => isTileRequest(request.url(), "second"), {
+          timeout: 5_000,
+        }),
+        page.evaluate(
+          ({ secondTemplate, sourceId }) => {
+            const mapbox = (window as ProbeWindow).__listingMap?.getMapbox?.();
+            const source = mapbox?.getSource?.(sourceId) as ProbeVectorSource | undefined;
+            if (!source || typeof source.setTiles !== "function" || !mapbox?.triggerRepaint) {
+              throw new Error("live vector source lost setTiles");
+            }
+            source.setTiles([secondTemplate]);
+            mapbox.triggerRepaint();
+            return "setTiles" as const;
+          },
+          { secondTemplate: tileTemplate("second"), sourceId },
+        ),
+      ]);
+      const elapsedMs = Date.now() - startedAt;
+      const evidence = { strategy, elapsedMs, renderer };
+      expect(secondRequest).toBeDefined();
+      expect(evidence.strategy).toBe("setTiles");
+      expect(evidence.elapsedMs).toBeLessThanOrEqual(5_000);
+      await testInfo.attach("vector-source-reload-evidence.json", {
+        body: JSON.stringify(evidence),
+        contentType: "application/json",
+      });
+      console.info(`[naver probe] vector source reload ${JSON.stringify(evidence)}`);
+    } finally {
+      try {
+        await page
+          .evaluate(
+            ({ layerId, sourceId }) => {
+              const mapbox = (window as ProbeWindow).__listingMap?.getMapbox?.();
+              const bestEffort = (remove: () => void) => {
+                try {
+                  remove();
+                } catch {
+                  // Cleanup must not replace the probe failure.
+                }
+              };
+              bestEffort(() => {
+                if (mapbox?.getLayer?.(layerId) && mapbox.removeLayer) {
+                  mapbox.removeLayer(layerId);
+                }
+              });
+              bestEffort(() => {
+                if (mapbox?.getSource?.(sourceId) && mapbox.removeSource) {
+                  mapbox.removeSource(sourceId);
+                }
+              });
+            },
+            { layerId, sourceId },
+          )
+          .catch(() => undefined);
+      } finally {
+        await page.unroute(routePattern).catch(() => undefined);
+      }
+    }
   });
 });

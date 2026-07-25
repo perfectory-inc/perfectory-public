@@ -26,6 +26,7 @@ from pyspark.storagelevel import StorageLevel
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
+    current_row_predicate,
     load_lakehouse_contract,
     partition_spec_sql,
     required_column_names,
@@ -43,6 +44,9 @@ RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
 RUN_SUMMARY_CONTRACT = "silver.parcel_boundaries"
 RUN_SUMMARY_INPUT_KIND = "silver_handoff_jsonl"
 TABLE_CONTRACT = load_lakehouse_contract(RUN_SUMMARY_CONTRACT)
+CURRENT_ROW_PREDICATE = current_row_predicate(TABLE_CONTRACT)
+if CURRENT_ROW_PREDICATE is None:
+    raise ValueError(f"{RUN_SUMMARY_CONTRACT} must define a current-row predicate")
 
 SILVER_COLUMNS: tuple[str, ...] = column_names(TABLE_CONTRACT)
 
@@ -322,7 +326,7 @@ def checksum_is_invalid() -> F.Column:
 
 def collect_duplicate_active_pnu_count(frame: DataFrame) -> int:
     duplicate_rows = (
-        frame.where(F.col("valid_to_utc").isNull())
+        frame.where(F.expr(CURRENT_ROW_PREDICATE))
         .groupBy("pnu")
         .count()
         .where(F.col("count") > 1)
@@ -375,7 +379,7 @@ def assert_no_duplicate_active_pnu(frame: DataFrame, metric_count: int) -> None:
         return
 
     samples = (
-        frame.where(F.col("valid_to_utc").isNull())
+        frame.where(F.expr(CURRENT_ROW_PREDICATE))
         .groupBy("pnu")
         .count()
         .where(F.col("count") > 1)

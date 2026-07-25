@@ -2,6 +2,10 @@
 # Proves frontend dependency scripts receive only a disposable candidate-tree
 # copy, never the repository worktree or host credential channels.
 set -euo pipefail
+# The synthetic source repository must own its Git context, not the invoking
+# hook's linked-worktree metadata.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
 cd "$(dirname "$0")/../.."
 
 test_root="$(mktemp -d)"

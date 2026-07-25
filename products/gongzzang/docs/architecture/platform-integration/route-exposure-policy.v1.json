@@ -78,11 +78,36 @@
         "circuit_breaker",
         "no_direct_database"
       ]
+    },
+    {
+      "id": "gongzzang.public_map.foundation_runtime_manifest_v2",
+      "status": "planned",
+      "exposure": "public_anonymous_cross_origin",
+      "method": "GET",
+      "target_service": "foundation-api",
+      "path": "/catalog/v1/vector-tiles/runtime-manifest",
+      "base_url_source": "NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL",
+      "policy_sources": [
+        "docs/architecture/platform-integration/allowed-call-matrix.v1.json",
+        "platforms/foundation-platform/docs/architecture/traffic-auth-policy-registry.v1.json"
+      ],
+      "required_controls": [
+        "cors_origin_allow_list",
+        "if_none_match",
+        "etag_exposed",
+        "edge_rate_limit_120_per_ip_per_10_seconds",
+        "non_overlapping_four_second_poll",
+        "timeout",
+        "no_browser_service_credential"
+      ],
+      "edge_policy_config": "platforms/foundation-platform/infra/cloudflare/foundation-runtime-manifest-edge-policy.v1.json"
     }
   ],
   "forbidden_public_shapes": ["bbox", "bounds", "south", "west", "north", "east"],
   "diagnostic_route_policy": {
     "foundation_platform_db_backed_marker_tile": "diagnostic_reference_only",
-    "launch_runtime_source": "r2_cdn_vector_tile_manifest"
+    "current_launch_runtime_source": "r2_cdn_vector_tile_manifest_v1",
+    "target_launch_runtime_source": "foundation_catalog_runtime_manifest_v2",
+    "target_cutover_gate": "foundation_runtime_manifest_v2_surface_active"
   }
 }

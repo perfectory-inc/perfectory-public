@@ -126,6 +126,8 @@ mod rt_molit_real_transaction_export_collection_plan;
 mod rt_molit_real_transaction_export_ingest;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
+mod spatial_tile_wap_command;
+mod tile_derivative_object_storage;
 mod trino_ready_wait;
 mod vworld_bronze_catalog_recovery;
 mod vworld_cadastral_ingest;
@@ -222,6 +224,7 @@ enum Command {
     InventoryVWorldDatasetFiles,
     ProbeBuildingRegisterPageCount,
     ProbeBuildingRegisterPageCountBatch,
+    ProbeSpatialTileWap,
     ProbeVWorldPageCountBatch,
     PublishIndustrialComplexGoldPointer,
     PublishLakehouseLineageEvent,
@@ -245,6 +248,7 @@ enum Command {
     SmokeVWorldCadastral,
     VerifyLakehouseRegistry,
     VerifyR2Cleanup,
+    ValidateTileDerivativeR2,
     WaitTrinoReady,
 }
 
@@ -499,6 +503,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ProbeBuildingRegisterPageCountBatch => {
             Box::pin(building_register_page_count_batch::run())
         }
+        Command::ProbeSpatialTileWap => Box::pin(async { spatial_tile_wap_command::run() }),
         Command::ProbeVWorldPageCountBatch => Box::pin(vworld_page_count_batch::run()),
         Command::AbandonIngestionRun => Box::pin(ingestion_run_recovery::run()),
         Command::ReconcileBuildingRegister => Box::pin(building_register_ingest::reconcile()),
@@ -519,6 +524,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::SmokeVWorldCadastral => Box::pin(vworld_cadastral_smoke::run()),
         Command::VerifyLakehouseRegistry => Box::pin(lakehouse_registry_control::verify()),
         Command::VerifyR2Cleanup => Box::pin(async { r2_cleanup_verify::run() }),
+        Command::ValidateTileDerivativeR2 => {
+            Box::pin(async { tile_derivative_object_storage::validate_environment() })
+        }
         Command::WaitTrinoReady => Box::pin(async { trino_ready_wait::run() }),
     };
     future.await
@@ -949,6 +957,7 @@ where
         Some("probe-building-register-page-count-batch") => {
             Ok(Command::ProbeBuildingRegisterPageCountBatch)
         }
+        Some("probe-spatial-tile-wap") => Ok(Command::ProbeSpatialTileWap),
         Some("probe-vworld-page-count-batch") => Ok(Command::ProbeVWorldPageCountBatch),
         Some("build-parcel-marker-anchor-pbf-artifacts") => {
             Ok(Command::BuildParcelMarkerAnchorPbfArtifacts)
@@ -1028,6 +1037,7 @@ where
         Some("smoke-vworld-cadastral") => Ok(Command::SmokeVWorldCadastral),
         Some("verify-lakehouse-registry") => Ok(Command::VerifyLakehouseRegistry),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
+        Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
         Some("wait-trino-ready") => Ok(Command::WaitTrinoReady),
         Some(other) => bail!("unknown outbox-publisher command '{other}'"),
     }

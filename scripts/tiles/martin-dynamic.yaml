@@ -1,5 +1,9 @@
 listen_addresses: 0.0.0.0:3000
 on_invalid: abort
+# Dynamic PostGIS is a mutable projection. Martin's supported cache switch is the explicit
+# `cache: disable` mapping. A numeric `cache_size_mb` key is not part of Martin 1.12's config
+# schema and would make the server reject this file (or silently leave stale tiles in place).
+cache: disable
 postgres:
   connection_string: ${DATABASE_URL}
   pool_size: 4
@@ -8,7 +12,7 @@ postgres:
   tables:
     parcels:
       schema: serving_postgis
-      table: tiles_slice_parcels
+      table: parcel_boundary_current
       srid: 5179
       geometry_column: geom
       geometry_type: MULTIPOLYGON
@@ -17,7 +21,6 @@ postgres:
       maxzoom: 16
       properties:
         pnu: Parcel number
-        PNU: Mapbox promoteId compatibility
         official_complex_code: Industrial-complex code
     parcel_anchor_aggregate:
       schema: serving_postgis

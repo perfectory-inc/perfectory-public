@@ -18,6 +18,7 @@ PMTILES_IMAGE="protomaps/go-pmtiles:v1.31.1@sha256:057f8e5a6c77e89b46eebd40d62d2
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
 COMPOSE_PROJECT="tiles-slice-proof-$$-${RANDOM}"
+COMPOSE_NETWORK="${COMPOSE_PROJECT}_default"
 export TILES_SLICE_POSTGRES_PASSWORD="tiles-slice-proof-${RUN_ID}"
 RUN_RELATIVE="target/tiles-slice-proof/$RUN_ID"
 ARTIFACT_DIR="$REPO_ROOT/$RUN_RELATIVE"
@@ -60,6 +61,10 @@ host_path() {
   local path="$1"
   if command -v cygpath >/dev/null 2>&1; then
     cygpath -am "$path"
+  elif [[ "${DOCKER_EXECUTABLE:-docker}" == "docker.exe" && "$path" =~ ^/mnt/([[:alpha:]])/(.*)$ ]]; then
+    printf '%s:/%s\n' "${BASH_REMATCH[1]^}" "${BASH_REMATCH[2]}"
+  elif [[ "${DOCKER_EXECUTABLE:-docker}" == "docker.exe" && "$path" =~ ^/([[:alpha:]])/(.*)$ ]]; then
+    printf '%s:/%s\n' "${BASH_REMATCH[1]^}" "${BASH_REMATCH[2]}"
   else
     printf '%s\n' "$path"
   fi
@@ -219,18 +224,45 @@ fi
 for command in docker curl sed grep find sort wc cmp tr date mkdir rm sha256sum tail head; do
   require_command "$command"
 done
-docker info >/dev/null 2>&1 || fail "Docker must be running"
+
+# Git Bash on Windows can resolve the Linux Docker CLI first. That CLI defaults to
+# /var/run/docker.sock and cannot reach Docker Desktop's named pipe; prefer docker.exe when the
+# native CLI is the first working client. Linux callers continue to use docker unchanged.
+DOCKER_EXECUTABLE=docker
+if ! command docker info >/dev/null 2>&1 || ! command docker compose version >/dev/null 2>&1; then
+  if command -v docker.exe >/dev/null 2>&1 \
+    && docker.exe info >/dev/null 2>&1 \
+    && docker.exe compose version >/dev/null 2>&1; then
+    DOCKER_EXECUTABLE=docker.exe
+  else
+    fail "Docker with Compose support must be running"
+  fi
+fi
+docker() { command "$DOCKER_EXECUTABLE" "$@"; }
 docker compose version >/dev/null 2>&1 || fail "Docker Compose is required"
 
 mkdir -p "$(dirname -- "$ARCHIVE_PATH")" "$ARTIFACT_DIR/http"
 REPO_HOST_PATH="$(host_path "$REPO_ROOT")"
 COMPOSE_FILE_HOST="$(host_path "$COMPOSE_FILE")"
 export TILES_SLICE_ARTIFACT_DIR
-TILES_SLICE_ARTIFACT_DIR="$(host_path "$ARTIFACT_DIR")"
+export TILES_SLICE_ARTIFACT_DIR="$(host_path "$ARTIFACT_DIR")"
+COMPOSE_ENV_FILE_PATH="$ARTIFACT_DIR/.compose.env"
+DOCKER_COMPOSE_ENV_FILE="$(host_path "$COMPOSE_ENV_FILE_PATH")"
+
+write_compose_env() {
+  {
+    printf 'TILES_SLICE_POSTGRES_PASSWORD=%s\n' "$TILES_SLICE_POSTGRES_PASSWORD"
+    printf 'TILES_SLICE_ARTIFACT_DIR=%s\n' "$TILES_SLICE_ARTIFACT_DIR"
+    if [[ -n "${TILES_SLICE_PMTILES_URL:-}" ]]; then
+      printf 'TILES_SLICE_PMTILES_URL=%s\n' "$TILES_SLICE_PMTILES_URL"
+    fi
+  } > "$COMPOSE_ENV_FILE_PATH"
+}
 
 compose() {
   # Scope this to Docker: exporting it globally breaks Git Bash curl /dev/null.
-  MSYS_NO_PATHCONV=1 docker compose --project-name "$COMPOSE_PROJECT" --file "$COMPOSE_FILE_HOST" "$@"
+  MSYS_NO_PATHCONV=1 docker compose --env-file "$DOCKER_COMPOSE_ENV_FILE" \
+    --project-name "$COMPOSE_PROJECT" --file "$COMPOSE_FILE_HOST" "$@"
 }
 
 clean_curl() {
@@ -246,9 +278,11 @@ cleanup() {
   trap - EXIT
   tiles_remove_http_artifacts "${RAW_RESPONSE_HEADERS[@]}" "${UNVERIFIED_RESPONSE_BODIES[@]}"
   compose --profile static down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -f -- "$COMPOSE_ENV_FILE_PATH"
   exit "$status"
 }
 trap cleanup EXIT
+write_compose_env
 
 r2_signed_curl() {
   # `printf` is a Bash builtin. Curl reads credentials from stdin, so neither the
@@ -302,9 +336,12 @@ compose up -d postgis
 wait_for_postgres
 
 printf 'tiles-slice-proof: applying Foundation migrations through the production SQLx runner\n'
+# Windows Docker Desktop does not reliably support Linux's `--network container:<id>` namespace
+# mode (HCS_E_CONNECTION_TIMEOUT). Join the Compose bridge by its stable project network name;
+# the service DNS name `postgis` keeps the same proof topology on Linux and Windows.
 postgis_container="$(compose ps -q postgis)"
 [[ -n "$postgis_container" ]] || fail "cannot resolve the disposable PostGIS container"
-MSYS_NO_PATHCONV=1 docker run --rm --network "container:$postgis_container" \
+MSYS_NO_PATHCONV=1 docker run --rm --network "$COMPOSE_NETWORK" \
   --volume "$REPO_HOST_PATH:/work:ro" \
   --volume perfectory-cargo-registry:/usr/local/cargo/registry \
   --volume perfectory-rustup:/usr/local/rustup \
@@ -313,17 +350,21 @@ MSYS_NO_PATHCONV=1 docker run --rm --network "container:$postgis_container" \
   --env SQLX_OFFLINE=true \
   --env CARGO_TERM_COLOR=always \
   --env RUSTUP_TOOLCHAIN=1.96.0-x86_64-unknown-linux-gnu \
-  --env "FOUNDATION_MIGRATOR_DATABASE_URL=postgres://postgres:${TILES_SLICE_POSTGRES_PASSWORD}@127.0.0.1:5432/tiles_slice_proof" \
+  --env "FOUNDATION_MIGRATOR_DATABASE_URL=postgres://postgres:${TILES_SLICE_POSTGRES_PASSWORD}@postgis:5432/tiles_slice_proof" \
   "$RUST_IMAGE" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
 for _ in 1 2; do
   compose exec -T postgis psql -X -h 127.0.0.1 -U postgres -d tiles_slice_proof \
     -v ON_ERROR_STOP=1 -q -f - < "$SCRIPT_DIR/fixture.sql"
 done
+compose exec -T postgis psql -X -h 127.0.0.1 -U postgres -d tiles_slice_proof \
+  -v ON_ERROR_STOP=1 -q -f - < "$REPO_ROOT/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql"
 
 [[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.industrial_complex WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM serving_postgis.parcel_boundary_mirror WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel_marker_anchor AS anchor JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id WHERE parcel.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101' AND anchor.is_active));")" == "1|3|3|3" ]] \
   || fail "fixture row counts drifted"
-[[ "$(psql_value "SELECT concat_ws('|', count(*), min(ST_SRID(geom)), max(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.tiles_slice_parcels;")" == "3|5179|5179|t" ]] \
-  || fail "parcel view geometry contract failed"
+[[ "$(psql_value "SELECT concat_ws('|', count(*), min(ST_SRID(geom)), max(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.parcel_boundary_current;")" == "3|5179|5179|t" ]] \
+  || fail "active parcel publication view geometry contract failed"
+[[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.vector_tile_runtime_manifest_pointer WHERE singleton), (SELECT count(*) FROM serving_postgis.parcel_boundary_current), (SELECT count(*) FROM serving_postgis.parcel_boundary_publication AS publication JOIN catalog.vector_tile_runtime_manifest_unit AS manifest_unit ON manifest_unit.data_revision = publication.data_revision JOIN catalog.vector_tile_runtime_manifest_pointer AS pointer ON pointer.manifest_id = manifest_unit.manifest_id WHERE pointer.singleton));")" == "1|3|3" ]] \
+  || fail "active parcel view is not bound to the single runtime-manifest pointer"
 [[ "$(psql_value "SELECT concat_ws('|', count(*), min(ST_SRID(geom)), max(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.tiles_slice_parcel_anchor;")" == "3|4326|4326|t" ]] \
   || fail "anchor view geometry contract failed"
 [[ "$(psql_value "SELECT concat_ws('|', count(*), min(aggregate.count), max(aggregate.count), min(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.tiles_slice_parcel_anchor_aggregate AS aggregate;")" == "1|3|3|4326|t" ]] \
@@ -345,6 +386,18 @@ MBTILES_VECTOR_LAYERS="$(printf '%s' "$dynamic_tilejson_compact" \
   | sed -n 's/^.*\("vector_layers":\[.*\]\),"bounds":.*$/{\1}/p')"
 [[ -n "$MBTILES_VECTOR_LAYERS" ]] \
   || fail "dynamic Martin TileJSON is missing parseable vector_layers metadata"
+
+DYNAMIC_CATALOG_PATH="$ARTIFACT_DIR/dynamic-catalog.json"
+dynamic_catalog_status="$(clean_curl --silent --show-error --connect-timeout 5 --max-time 30 \
+  --header 'Accept: application/json' --output "$DYNAMIC_CATALOG_PATH" \
+  --write-out '%{http_code}' "http://127.0.0.1:3110/catalog")"
+[[ "$dynamic_catalog_status" == "200" && -s "$DYNAMIC_CATALOG_PATH" ]] \
+  || fail "dynamic Martin catalog request failed with HTTP $dynamic_catalog_status"
+dynamic_catalog_compact="$(tr -d '\r\n\t' < "$DYNAMIC_CATALOG_PATH")"
+for source_id in parcels parcel_anchor_aggregate parcel_anchor; do
+  printf '%s' "$dynamic_catalog_compact" | grep -q "\"$source_id\"" \
+    || fail "dynamic Martin catalog is missing configured source $source_id"
+done
 
 MSYS_NO_PATHCONV=1 docker run --rm \
   --env RUSTUP_TOOLCHAIN=1.96.0-x86_64-unknown-linux-gnu \
@@ -396,7 +449,7 @@ z14_expectations=()
 for pnu in "${PNUS[@]}"; do
   z14_expectations+=(--expect-identity "parcels|$pnu|$COMPLEX_CODE")
   z14_expectations+=(--expect-identity "parcel_anchor|$pnu|$COMPLEX_CODE")
-  z14_expectations+=(--expect-property "PNU=$pnu")
+  z14_expectations+=(--expect-property "pnu=$pnu")
 done
 mvt_assert assert "$RUN_RELATIVE/dynamic-z14.pbf" --content-encoding identity \
   --expect-layer parcels=3 --expect-layer parcel_anchor=3 "${z14_expectations[@]}"
@@ -592,6 +645,7 @@ if [[ "$R2_MODE" == true ]]; then
     printf 'content_range=%s\n' "$range_content_range"
   } > "$ARTIFACT_DIR/r2-evidence.txt"
   export TILES_SLICE_PMTILES_URL="$R2_READ_OBJECT_URL"
+  write_compose_env
 fi
 
 compose --profile static up -d static-martin
@@ -646,6 +700,6 @@ done
 all_layer_ids="$(printf '%s' "$tilejson_compact" | grep -o '"id":"[^"]*"' | wc -l | tr -d '[:space:]')"
 [[ "$all_layer_ids" == 3 ]] || fail "TileJSON contains unexpected vector layer IDs"
 
-printf 'DYNAMIC tile OK bbox=%s decoded feature count=7 expected PNU=%s\n' "$BBOX" "${PNUS[0]}"
+printf 'DYNAMIC tile OK bbox=%s decoded feature count=7 expected pnu=%s\n' "$BBOX" "${PNUS[0]}"
 printf 'STATIC tile OK bbox=%s decoded feature count=7 MATCHING features (%s)\n' "$BBOX" "$STATIC_MODE_LABEL"
 printf 'tiles-slice-proof: artifacts retained at %s\n' "$ARTIFACT_DIR"

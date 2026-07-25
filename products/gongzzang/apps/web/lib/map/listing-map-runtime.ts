@@ -1,5 +1,13 @@
 import { MAP_LAYER_COLORS } from "@gongzzang/ui/tokens.js";
 import {
+  buildFoundationVectorSource,
+  validateFoundationVectorManifest,
+} from "@/lib/map/foundation-vector-layer-registry";
+import {
+  refreshFoundationVectorSources,
+  startFoundationVectorManifestPolling,
+} from "@/lib/map/foundation-vector-source-refresh";
+import {
   LISTING_MARKER_RENDER_MAX_ZOOM,
   LISTING_MARKER_RENDER_MIN_ZOOM,
 } from "@/lib/map/map-zoom-policy";
@@ -15,8 +23,10 @@ import {
 import {
   buildVectorTileSource,
   fetchVectorTileManifest,
+  fetchVectorTileRuntimeManifest,
   getVectorTileArtifact,
   type VectorTileManifest,
+  type VectorTileRuntimeManifest,
 } from "@/lib/map/vector-tile-manifest";
 
 export type MapboxGLLike = {
@@ -52,11 +62,51 @@ export async function setupMapboxRuntime(
   await waitForMapboxStyle(mb, isCancelled);
   if (isCancelled()) return;
 
-  const manifest = await loadFoundationPlatformVectorTileManifest();
-  await setupPolygonLayers(mb, onParcelClick, manifest);
+  const [manifest, runtimeManifest] = await Promise.all([
+    loadFoundationPlatformVectorTileManifest(),
+    loadFoundationPlatformVectorTileRuntimeManifest(),
+  ]);
+  await setupPolygonLayers(mb, onParcelClick, manifest, runtimeManifest);
   await setupMarkerTileLayers(mb, onParcelClick, manifest);
   await setupListingMarkerTileLayers(mb, onListingClick);
   if (isCancelled()) return;
+  if (runtimeManifest) {
+    let activeRuntimeManifest = runtimeManifest;
+    const stopRuntimeManifestPolling = startFoundationVectorManifestPolling({
+      initialManifest: runtimeManifest,
+      startImmediately: false,
+      fetchManifest: async (signal, previous, etag) => {
+        const result = await fetchVectorTileRuntimeManifest(fetch, undefined, {
+          signal,
+          previous,
+          etag,
+        });
+        return { manifest: result.manifest, etag: result.etag };
+      },
+      onManifest: (next) => {
+        try {
+          refreshFoundationVectorSources(
+            mb as unknown as Parameters<typeof refreshFoundationVectorSources>[0],
+            activeRuntimeManifest,
+            next,
+          );
+          activeRuntimeManifest = next;
+        } catch (error) {
+          logMapLayerFailure("vector-tile-runtime-manifest-refresh", error, {
+            kind: "core",
+            source: "foundation-platform",
+          });
+        }
+      },
+      onError: (error) =>
+        logMapLayerFailure("vector-tile-runtime-manifest-poll", error, {
+          kind: "core",
+          source: "foundation-platform",
+        }),
+      visible: () => typeof document === "undefined" || document.visibilityState === "visible",
+    });
+    cleanups.push(stopRuntimeManifestPolling);
+  }
   onMapboxReady(mb);
   const recovery = setupWebGlRecovery(mb);
   if (recovery) cleanups.push(recovery);
@@ -82,17 +132,45 @@ async function setupPolygonLayers(
   mb: MapboxGLLike,
   onParcelClick: (pnu: string) => void,
   manifest: VectorTileManifest | null,
+  runtimeManifest: VectorTileRuntimeManifest | null,
 ): Promise<void> {
   if (typeof mb.addSource !== "function" || typeof mb.addLayer !== "function") {
     console.warn("[ListingMap] mapbox addSource/addLayer unavailable; polygon layer setup skipped");
     return;
   }
-  if (!manifest) return;
+  if (!manifest && !runtimeManifest) return;
 
   try {
-    const artifact = getVectorTileArtifact(manifest, "parcels");
-    if (artifact && !mb.getSource?.("parcels")) {
-      mb.addSource("parcels", buildVectorTileSource(manifest, "parcels", { promoteId: "PNU" }));
+    if (runtimeManifest) validateFoundationVectorManifest(runtimeManifest);
+    const runtimeUnit = runtimeManifest?.publication_units.parcels;
+    const artifact = manifest ? getVectorTileArtifact(manifest, "parcels") : undefined;
+    if (runtimeUnit && !mb.getSource?.("parcels")) {
+      const runtimeLayer = runtimeUnit.layers.parcels;
+      if (!runtimeLayer) throw new Error("v2 parcels unit is missing the parcels layer");
+      mb.addSource("parcels", buildFoundationVectorSource(runtimeManifest, "parcels", "parcels"));
+      mb.addLayer({
+        id: "parcels-fill",
+        type: "fill",
+        source: "parcels",
+        "source-layer": runtimeLayer.source_layer,
+        minzoom: runtimeLayer.render_min_zoom,
+        maxzoom: runtimeLayer.render_max_zoom,
+        promoteId: runtimeLayer.feature_id_property,
+        paint: {
+          "fill-color": MAP_LAYER_COLORS.parcel.fill,
+          "fill-opacity": 0.1,
+          "fill-outline-color": MAP_LAYER_COLORS.parcel.outline,
+        },
+      });
+      if (typeof mb.on === "function") {
+        mb.on("click", "parcels-fill", (e: unknown) => {
+          const evt = e as { features?: Array<{ properties?: { pnu?: string } }> };
+          const pnu = evt.features?.[0]?.properties?.pnu;
+          if (typeof pnu === "string" && pnu.length > 0) onParcelClick(pnu);
+        });
+      }
+    } else if (artifact && manifest && !mb.getSource?.("parcels")) {
+      mb.addSource("parcels", buildVectorTileSource(manifest, "parcels", { promoteId: "pnu" }));
       mb.addLayer({
         id: "parcels-fill",
         type: "fill",
@@ -122,8 +200,9 @@ async function setupPolygonLayers(
   }
 
   try {
-    const artifact = getVectorTileArtifact(manifest, "admin");
+    const artifact = manifest ? getVectorTileArtifact(manifest, "admin") : undefined;
     if (artifact && !mb.getSource?.("admin")) {
+      if (!manifest) return;
       mb.addSource("admin", buildVectorTileSource(manifest, "admin"));
       mb.addLayer({
         id: "admin-fill",
@@ -144,8 +223,9 @@ async function setupPolygonLayers(
   }
 
   try {
-    const artifact = getVectorTileArtifact(manifest, "complex");
+    const artifact = manifest ? getVectorTileArtifact(manifest, "complex") : undefined;
     if (artifact && !mb.getSource?.("complex")) {
+      if (!manifest) return;
       mb.addSource("complex", buildVectorTileSource(manifest, "complex"));
       mb.addLayer({
         id: "complex-fill",
@@ -298,6 +378,18 @@ async function loadFoundationPlatformVectorTileManifest(): Promise<VectorTileMan
     });
     return null;
   });
+}
+
+async function loadFoundationPlatformVectorTileRuntimeManifest(): Promise<VectorTileRuntimeManifest | null> {
+  return fetchVectorTileRuntimeManifest()
+    .then((result) => result.manifest)
+    .catch((err: unknown) => {
+      logMapLayerFailure("vector-tile-runtime-manifest", err, {
+        kind: "core",
+        source: "foundation-platform",
+      });
+      return null;
+    });
 }
 
 function logMapLayerFailure(

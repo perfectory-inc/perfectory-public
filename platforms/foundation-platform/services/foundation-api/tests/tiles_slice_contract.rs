@@ -63,6 +63,7 @@ fn yaml_mapping_keys<'a>(lines: &'a [&str], indent: usize) -> BTreeSet<&'a str> 
     let keys: Vec<_> = lines
         .iter()
         .filter(|line| indentation(line) == indent)
+        .filter(|line| !line.trim_start().starts_with('#'))
         .filter_map(|line| line.trim().split_once(':').map(|(key, _)| key))
         .collect();
     let unique: BTreeSet<_> = keys.iter().copied().collect();
@@ -134,6 +135,10 @@ fn local_manifest_and_martin_sources_cannot_drift() {
     let manifest = read_json("scripts/tiles/vector-tile-manifest.local.json");
     let dynamic = read_text("scripts/tiles/martin-dynamic.yaml");
     let static_config = read_text("scripts/tiles/martin-static.yaml");
+    let production_static_config = read_text("scripts/tiles/martin-static-production.yaml");
+    let publication_migration = read_text(
+        "platforms/foundation-platform/migrations/20260724000001_spatial_tile_publication.sql",
+    );
     let flat_seed =
         read_text("platforms/foundation-platform/infra/db/seeds/local_vector_tile_manifest.sql");
 
@@ -171,7 +176,7 @@ fn local_manifest_and_martin_sources_cannot_drift() {
     }
     assert_eq!(
         yaml_mapping_keys(&dynamic_lines, 0),
-        BTreeSet::from(["listen_addresses", "on_invalid", "postgres"])
+        BTreeSet::from(["cache", "listen_addresses", "on_invalid", "postgres"])
     );
     assert_eq!(
         yaml_mapping_keys(&static_lines, 0),
@@ -186,7 +191,18 @@ fn local_manifest_and_martin_sources_cannot_drift() {
         "0.0.0.0:3000"
     );
     assert_eq!(yaml_scalar(&dynamic_lines, "on_invalid", 0), "abort");
+    assert_eq!(yaml_scalar(&dynamic_lines, "cache", 0), "disable");
+    assert!(!dynamic.contains("\ncache_size_mb:"));
     assert_eq!(yaml_scalar(&static_lines, "on_invalid", 0), "abort");
+    assert!(production_static_config.contains("pmtiles:\n  aws_access_key_id:"));
+    assert!(production_static_config.contains("\n  paths:"));
+    assert!(production_static_config.contains("reload_interval:"));
+    assert!(!production_static_config.contains("allow_http"));
+    assert!(!production_static_config.contains("sources:"));
+    assert!(publication_migration.contains("PRIMARY KEY (data_revision, pnu)"));
+    assert!(publication_migration.contains("vector_tile_runtime_manifest_pointer"));
+    assert!(publication_migration.contains("release.source_kind = 'dynamic_postgis'"));
+    assert!(publication_migration.contains("parcel_boundary_current"));
     assert_eq!(
         yaml_scalar(&dynamic_lines, "connection_string", 2),
         "${DATABASE_URL}"
@@ -227,7 +243,7 @@ fn local_manifest_and_martin_sources_cannot_drift() {
     let expected_tables = [
         (
             "parcels",
-            "tiles_slice_parcels",
+            "parcel_boundary_current",
             5179,
             "MULTIPOLYGON",
             14,
@@ -288,8 +304,7 @@ fn local_manifest_and_martin_sources_cannot_drift() {
         let properties = yaml_block(&source_yaml, "properties:", 6);
         let expected_properties = match source {
             "parcel_anchor_aggregate" => BTreeSet::from(["count", "official_complex_code", "pnu"]),
-            "parcels" => BTreeSet::from(["PNU", "official_complex_code", "pnu"]),
-            "parcel_anchor" => BTreeSet::from(["official_complex_code", "pnu"]),
+            "parcels" | "parcel_anchor" => BTreeSet::from(["official_complex_code", "pnu"]),
             _ => unreachable!("expected_tables contains only guarded source IDs"),
         };
         assert_eq!(yaml_mapping_keys(&properties, 8), expected_properties);
@@ -342,6 +357,40 @@ fn local_manifest_and_martin_sources_cannot_drift() {
         assert_eq!(url, "http://127.0.0.1:3101/foundation_static/{z}/{x}/{y}");
         assert!(!url.trim_start_matches("http://").contains("//"));
     }
+}
+
+#[test]
+fn v2_local_manifest_is_generation_addressed_and_keeps_dynamic_cache_disabled() {
+    let manifest = read_json("scripts/tiles/vector-tile-runtime-manifest-v2.local.json");
+    let dynamic = read_text("scripts/tiles/martin-dynamic.yaml");
+    assert_eq!(manifest["schema_version"], 2);
+    assert_eq!(manifest["refresh_after_seconds"], 4);
+    let unit = &manifest["publication_units"]["parcels"];
+    assert_eq!(unit["source"]["kind"], "dynamic_postgis");
+    assert_eq!(unit["source"]["martin_source_id"], "parcels");
+    let url = unit["source"]["tiles_url_template"]
+        .as_str()
+        .expect("v2 dynamic URL must be a string");
+    assert_eq!(url, "http://127.0.0.1:3110/parcels/{z}/{x}/{y}");
+    assert!(!url.contains(','));
+    let source_id = unit["source"]["martin_source_id"]
+        .as_str()
+        .expect("v2 source id must be a string");
+    assert!(
+        dynamic.contains(&format!("    {source_id}:")),
+        "v2 source id must be declared by Martin dynamic config"
+    );
+    assert_eq!(
+        unit["layers"].as_object().map(serde_json::Map::len),
+        Some(1)
+    );
+    assert_eq!(unit["layers"]["parcels"]["source_layer"], "parcels");
+    assert!(
+        dynamic.contains("      layer_id: parcels"),
+        "v2 source layer must be declared by Martin dynamic config"
+    );
+    assert_eq!(unit["layers"]["parcels"]["feature_id_property"], "pnu");
+    assert!(dynamic.contains("cache: disable"));
 }
 
 #[test]

@@ -45,6 +45,9 @@ pub mod spatial_layer;
 /// Static vector tile manifest model.
 pub mod vector_tile;
 
+/// Single-source v2 spatial serving publication model.
+pub mod serving_publication;
+
 pub use blueprint::{Blueprint, BlueprintKind, ParseBlueprintKindError};
 pub use building::Building;
 pub use digital_twin::{DigitalTwinAsset, DigitalTwinAssetKind, ParseDigitalTwinAssetKindError};
@@ -70,6 +73,12 @@ pub use marker_tile::{
 };
 pub use notice::{ComplexNotice, NoticeAttachment, NoticeType, ParseNoticeTypeError};
 pub use parcel::{Parcel, ParcelKind, ParseParcelKindError};
+pub use serving_publication::{
+    validate_serving_transition, ActiveTileSource, CanonicalIcebergSnapshotId,
+    DynamicPostgisSource, FeatureIdProperty, ManifestGeneration, PublicationUnit, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, ServingSelection,
+    ServingSourceKind, StaticPmtilesSource, VectorTileRuntimeManifest,
+};
 pub use source_record::SourceRecord;
 pub use spatial_layer::{ParseSpatialLayerKindError, SpatialLayer, SpatialLayerKind};
 pub use vector_tile::{

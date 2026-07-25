@@ -1,0 +1,25 @@
+# Production Martin static-source contract.
+#
+# The deployment injects TILES_R2_PMTILES_PREFIX as an s3:// URL and AWS-compatible read-only
+# credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION=auto, AWS_ENDPOINT_URL) at
+# runtime. No credential or bucket name is committed here. `pmtiles.paths` is intentional: Martin
+# re-lists the release prefix and hot-reloads immutable PMTiles objects. The active Catalog
+# runtime-manifest still decides which release URL the browser receives; this prefix is only the
+# private source discovery boundary.
+listen_addresses: 0.0.0.0:3000
+on_invalid: abort
+cors:
+  origin:
+    - ${GONGZZANG_PUBLIC_ORIGIN}
+# Martin's S3 settings are PMTiles options with the `aws_` prefix. R2 is S3-compatible but uses a
+# provider-specific endpoint and the `auto` signing region; path-style requests avoid rewriting
+# the account endpoint into a bucket host.
+pmtiles:
+  aws_access_key_id: ${R2_ACCESS_KEY_ID}
+  aws_secret_access_key: ${R2_SECRET_ACCESS_KEY}
+  aws_region: ${R2_REGION:-auto}
+  aws_endpoint_url: ${R2_S3_ENDPOINT}
+  aws_virtual_hosted_style_request: false
+  paths:
+    - ${TILES_R2_PMTILES_PREFIX}
+  reload_interval: ${TILES_R2_PMTILES_RELOAD_INTERVAL:-10m}

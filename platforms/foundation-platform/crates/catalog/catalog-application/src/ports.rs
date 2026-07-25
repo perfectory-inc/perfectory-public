@@ -11,6 +11,7 @@ use catalog_domain::{
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
     IndustryGroupMember, Manufacturer, MarkerAnchorAlgorithm, MarkerTileRequest, Parcel,
     ParcelIndustryAssignment, ParcelKind, SpatialLayer, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{ComplexId, NoticeId, ParcelId, StaffId};
 use foundation_shared_kernel::pnu::Pnu;
@@ -335,6 +336,14 @@ pub trait CatalogRepository: Send + Sync {
         &self,
     ) -> Result<Option<VectorTileManifest>, CatalogError>;
 
+    /// Loads the active strict v2 single-source runtime manifest, if enabled and published.
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when the normalized publication ledger is inconsistent or unreadable.
+    async fn get_active_vector_tile_runtime_manifest(
+        &self,
+    ) -> Result<Option<VectorTileRuntimeManifest>, CatalogError>;
+
     /// Renders a validated marker tile request as MVT/PBF bytes.
     ///
     /// # Errors
@@ -416,4 +425,20 @@ pub trait CatalogUnitOfWork: Send + Sync {
         &self,
         command: VectorTileManifestPromotionCommand,
     ) -> Result<VectorTileManifest, CatalogError>;
+
+    /// Compare-and-swap the normalized v2 runtime manifest pointer.
+    ///
+    /// The SQL function enforces completeness and monotonic generation in the same transaction
+    /// that changes the singleton pointer. Implementations that do not own the v2 ledger keep the
+    /// default error so existing test doubles cannot accidentally pretend to publish it.
+    async fn promote_vector_tile_runtime_manifest(
+        &self,
+        expected_manifest_id: Option<Uuid>,
+        next_manifest_id: Uuid,
+    ) -> Result<u64, CatalogError> {
+        let _ = (expected_manifest_id, next_manifest_id);
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "runtime manifest promotion is not implemented by this Catalog unit of work".to_owned(),
+        ))
+    }
 }

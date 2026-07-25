@@ -2,6 +2,10 @@
 # Proves that legal publication pins the reviewed third-party projection and
 # provenance artifacts, rather than trusting mutable notices in the candidate.
 set -euo pipefail
+# Attribute probes use disposable Git repositories; never inherit the hook's
+# repository/index variables.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
 cd "$(dirname "$0")/../.."
 
 validator="scripts/github/validate-legal-publication.sh"

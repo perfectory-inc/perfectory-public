@@ -2,6 +2,10 @@
 # Negative fixtures prove that public-fixture-safety rejects the whole class,
 # rather than only today's known sample values.
 set -euo pipefail
+# This test creates a temporary Git repository; hook-scoped Git variables must
+# never redirect its fixture commits into the real checkout.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 checker="$root/scripts/guard/public-fixture-safety.sh"

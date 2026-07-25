@@ -62,12 +62,12 @@
 | [0013](./0013-listing-search-naver-maps.md) | Listing 검색 지도 vendor — Naver Maps (SP6-ii) | Accepted |
 | [0014](./0014-base-layer-defer-pmtiles.md) | 지도 base layer (전국 필지 polygon) — 보류 (R2 PMTiles SSS 부적합) | **Superseded by 0016** |
 | [0015](./0015-v-world-acl-rearchitecture.md) | V-World ACL 재설계 — fixture-driven, layer-decomposed, envelope-aware | Accepted |
-| [0016](./0016-medallion-base-layer-postgis-silver-pmtiles-gold.md) | 지도 base layer — PMTiles 100% (Bronze raw archive + Gold PMTiles, PostGIS Silver 미도입) | Accepted |
+| [0016](./0016-medallion-base-layer-postgis-silver-pmtiles-gold.md) | 지도 base layer — historical PMTiles-direct/no-PostGIS decision | **Superseded by 0036** |
 | [0017](./0017-listing-marker-render-canvas-bitmap-stamp.md) | 매물 마커 렌더링 — Naver Marker + Canvas content + BitmapStampCache (단일 렌더 박자) | Accepted |
 | [0018](./0018-pnu-first-identity-no-coordinates.md) | 매물 정체성 — PNU-First (좌표는 매칭/검색에 사용 안 함) | Accepted |
 | [0019](./0019-pmtiles-source-via-addsourcetype.md) | PMTiles 통합 — VectorTileSource subclass + Service Worker transport | **Superseded by 0021** |
 | [0020](./0020-naver-vector-interaction-model.md) | Naver gl SDK vector 한계 + 우리 platform interaction model (probe scope = polygon-only) | Accepted |
-| [0021](./0021-static-vector-tile-decomposition.md) | PMTiles 분해 → 정적 `{z}/{x}/{y}.pbf` (mapbox-gl 표준 100%, trick 0) | Accepted |
+| [0021](./0021-static-vector-tile-decomposition.md) | Historical PMTiles decomposition to flat `{z}/{x}/{y}.pbf` | **Superseded by 0036** |
 | [0022](./0022-bronze-scraping-isolated-python-service.md) | Bronze HTML scraping = 격리 Python service (`services/scraper-py/`) + Scrapling | Accepted |
 | [0023](./0023-audit-2026-05-08-hardening.md) | Codex audit 2026-05-08 hardening — `/internal/auth/event` shared secret + production fail-fast + JTI fail-closed + structured map errors | Accepted (partial — handoff) |
 | [0024](./0024-etl-cancel-protocol-immediate-abort.md) | ETL cancel protocol — 즉시 abort + L3 staging atomicity 보호 (state machine 거부) | Accepted |
@@ -82,7 +82,7 @@
 | [0033](./0033-seven-guardrails-enforcement.md) | 7 Guardrails — cross-service 코드 리뷰 자동 강제 | Accepted |
 | [0034](./0034-catalog-ownership-handover-to-foundation-platform.md) | Historical Catalog extraction record; current owner name is Foundation Platform per ADR 0048 | Accepted (historical naming) |
 | [0035](./0035-legacy-r2-removal-and-atomic-namespace.md) | Legacy `R2_*` + `ETL_BUILD_ENV` 완전 제거 + atomic namespace 강제 (ADR 0029 backward-compat 제거) | Accepted |
-| [0036](./0036-static-vector-tile-runtime-contract.md) | Static vector tile runtime contract - Foundation-owned manifest, Gongzzang consumer only | Accepted |
+| [0036](./0036-static-vector-tile-runtime-contract.md) | Foundation vector tile runtime — exact v1/v2 dispatch, one complete Martin source per publication unit | Accepted |
 | [0037](./0037-pnu-anchor-pbf-marker-tiles.md) | PNU Anchor PBF Marker Tiles - Foundation anchor positions, Gongzzang PBF marker runtime | Accepted |
 | [0038](./0038-listing-marker-serving-index-filter-mask.md) | Listing Marker Serving Index And Filter Mask - scalable dynamic listing marker/filter serving | Accepted |
 | [0039](./0039-service-owned-lakehouse-registry-integration.md) | Service-Owned Lakehouse With Foundation Registry | Accepted |
