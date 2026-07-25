@@ -197,9 +197,9 @@ impl Fixture {
         .expect("pointer cleanup");
         sqlx::query("DELETE FROM catalog.vector_tile_runtime_manifest WHERE id = $1")
             .bind(self.manifest_id)
-        .execute(pool)
-        .await
-        .expect("manifest cleanup");
+            .execute(pool)
+            .await
+            .expect("manifest cleanup");
         sqlx::query(
             "UPDATE catalog.vector_tile_publication_unit
                 SET active_release_id = NULL,
