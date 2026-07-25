@@ -10,7 +10,17 @@ use catalog_application::ports::CatalogUnitOfWork;
 use catalog_domain::CatalogError;
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use sqlx::{PgPool, Row};
+use std::sync::OnceLock;
 use uuid::Uuid;
+
+static RUNTIME_MANIFEST_TEST_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+async fn runtime_manifest_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    RUNTIME_MANIFEST_TEST_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await
+}
 
 async fn pool() -> Option<PgPool> {
     let url = std::env::var("DATABASE_URL").ok()?;
@@ -20,6 +30,7 @@ async fn pool() -> Option<PgPool> {
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn runtime_manifest_cas_switches_one_complete_unit() {
+    let _guard = runtime_manifest_test_guard().await;
     let Some(pool) = pool().await else {
         return;
     };
@@ -64,6 +75,7 @@ async fn runtime_manifest_cas_switches_one_complete_unit() {
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn runtime_manifest_cas_rejects_stale_writer_without_switching_pointer() {
+    let _guard = runtime_manifest_test_guard().await;
     let Some(pool) = pool().await else {
         return;
     };
@@ -141,6 +153,17 @@ impl Fixture {
         .await
         .expect("release");
         sqlx::query(
+            "INSERT INTO catalog.vector_tile_release_layer
+             (release_id, layer_id, source_layer, feature_id_property,
+              tile_min_zoom, tile_max_zoom, render_min_zoom, render_max_zoom,
+              feature_filter_properties)
+             VALUES ($1, 'parcels', 'parcels', 'pnu', 14, 16, 14, 22, '{}'::jsonb)",
+        )
+        .bind(self.release_id)
+        .execute(pool)
+        .await
+        .expect("release layer");
+        sqlx::query(
             "INSERT INTO catalog.vector_tile_runtime_manifest (id, manifest_generation)
              VALUES ($1, 1)",
         )
@@ -174,9 +197,21 @@ impl Fixture {
         .expect("pointer cleanup");
         sqlx::query("DELETE FROM catalog.vector_tile_runtime_manifest WHERE id = $1")
             .bind(self.manifest_id)
-            .execute(pool)
-            .await
-            .expect("manifest cleanup");
+        .execute(pool)
+        .await
+        .expect("manifest cleanup");
+        sqlx::query(
+            "UPDATE catalog.vector_tile_publication_unit
+                SET active_release_id = NULL,
+                    active_data_revision = NULL,
+                    fallback_release_id = NULL,
+                    fallback_data_revision = NULL
+              WHERE id = $1",
+        )
+        .bind(self.unit_id)
+        .execute(pool)
+        .await
+        .expect("publication unit pointer cleanup");
         sqlx::query("DELETE FROM catalog.vector_tile_release WHERE id = $1")
             .bind(self.release_id)
             .execute(pool)
