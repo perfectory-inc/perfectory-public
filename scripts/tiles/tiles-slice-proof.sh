@@ -197,6 +197,8 @@ configure_r2_mode() {
     validate_r2_key "$R2_OBJECT_KEY"
     [[ "$R2_TILES_READ_URL" == https://* && "$R2_TILES_READ_URL" != *\#* ]] \
       || fail "R2_TILES_READ_URL must be an HTTPS URL without a fragment"
+    [[ "$R2_TILES_READ_URL" != *\?* ]] \
+      || fail "R2_TILES_READ_URL must be query-free for Martin 1.12; use R2_TILES_READ_BASE_URL or production pmtiles.paths for a private R2 object"
     local read_path="${R2_TILES_READ_URL%%\?*}"
     case "$read_path" in
       *"/$R2_OBJECT_KEY") ;;
@@ -292,7 +294,7 @@ r2_signed_curl() {
 }
 
 r2_read_curl() {
-  # The exact read URL may be presigned. Keep its query string out of argv/logs.
+  # The exact read URL is query-free. Keep the URL out of argv/logs.
   printf 'url = "%s"\n' "$R2_READ_OBJECT_URL" | clean_curl --config - "$@"
 }
 

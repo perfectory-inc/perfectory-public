@@ -181,9 +181,11 @@ other production-data bucket. The harness also reads the repository's production
 SSOT and rejects those names, but the dedicated bucket is the primary isolation boundary.
 
 This existing harness deliberately requires an HTTP(S) Range URL so it can prove the originally
-requested remote-PMTiles capability. That public/presigned read URL is proof-only. It does not
-override the production default: a private derivative bucket read by Martin through authenticated
-S3-compatible access.
+requested remote-PMTiles capability. For the Martin 1.12 proof lane, that URL must be a query-free
+public `r2.dev` URL or bound test custom domain; Martin's PMTiles resolver does not consume a
+presigned query URL as an HTTP file source. A presigned URL may still be used for an independent
+readback check, but it is not a valid Martin source. This does not override the production default:
+a private derivative bucket read by Martin through authenticated S3-compatible access.
 
 Supply all values from the environment or secret manager; never put them in a file in this
 repository:
@@ -214,18 +216,19 @@ silently selecting local fallback. The endpoint must be the account's exact R2 S
 `tiles-slice-proof/<run-id>/foundation-static.pmtiles` and appends that key to the base URL. The
 base URL must be HTTPS and contain no query or fragment.
 
-For a presigned or otherwise exact read URL, use the mutually exclusive exact-URL mode:
+For an otherwise exact, query-free read URL, use the mutually exclusive exact-URL mode:
 
 ```bash
 unset R2_TILES_READ_BASE_URL
 export R2_TILES_OBJECT_KEY='tiles-slice-proof/<unique-run-id>/foundation-static.pmtiles'
-export R2_TILES_READ_URL='<exact HTTPS read URL for that key; a presigned query is allowed>'
+export R2_TILES_READ_URL='<exact query-free HTTPS read URL for that key>'
 
 scripts/tiles/tiles-slice-proof.sh
 ```
 
-The path before any query string must end in the exact `R2_TILES_OBJECT_KEY`. Setting both read
-modes, omitting both, or supplying a key outside `tiles-slice-proof/` fails before upload.
+The path must end in the exact `R2_TILES_OBJECT_KEY`; query strings are rejected because Martin
+1.12 must receive a query-free HTTP PMTiles source. Setting both read modes, omitting both, or
+supplying a key outside `tiles-slice-proof/` fails before upload.
 
 For the production publisher/serving boundary, do not reuse the generic `R2_*` environment. The
 Rust preflight command is:
@@ -334,7 +337,7 @@ current archive or mutates an old manifest.
    and every required MVT source layer.
 5. **Create the immutable release.** Upload with a create-only precondition to the dedicated private
    serving-derivative bucket, for example
-   `gold/vector-tiles/releases/<release-uuid>/<publication-unit>-<release-uuid>.pmtiles`. Persist the immutable
+   `gold/vector-tiles/releases/<publication-unit>-<release-uuid>.pmtiles`. Persist the immutable
    release, source lineage, file assets, checksum, byte size, bounds, zooms, and layer IDs in
    Catalog. Never put canonical source data in this bucket.
 6. **Use isolated credentials.** The generic lakehouse `R2_BUCKET_NAME` adapter is forbidden.
@@ -342,9 +345,11 @@ current archive or mutates an old manifest.
    read-only credential. Both are unable to access Bronze, lakehouse, or recovery buckets.
 7. **Stage Martin from private R2.** Deploy the checked-in
     `scripts/tiles/martin-static-production.yaml`; inject `TILES_R2_PMTILES_PREFIX` as the
-    derivative bucket's `s3://` release prefix, the R2 S3-compatible endpoint, and a bounded
-    `reload_interval` through environment/secrets. Do not use a named `pmtiles.sources` URL for
-    scheduled discovery because named sources are startup snapshots.
+    derivative bucket's `s3://` release prefix, `FOUNDATION_TILE_DERIVATIVE_R2_ENDPOINT`,
+    `FOUNDATION_TILE_DERIVATIVE_R2_REGION`, and the read-only
+    `FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID` /
+     `FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY` through environment/secrets. Do not
+     use a named `pmtiles.sources` URL for scheduled discovery: named sources are startup snapshots.
 8. **Verify the production-shaped route.** Wait for the expected release-addressed Martin source,
    then verify TileJSON layer IDs, authenticated R2 reads, health/readiness, and decoded MVT through
    the public Martin/CDN hostname. The R2 bucket itself needs no public domain.

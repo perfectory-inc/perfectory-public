@@ -117,10 +117,13 @@ fn production_static_martin_config_uses_private_r2_prefix_discovery() {
     require_all(
         &config,
         &[
-            "pmtiles:\n  aws_access_key_id: ${R2_ACCESS_KEY_ID}",
-            "  aws_secret_access_key: ${R2_SECRET_ACCESS_KEY}",
-            concat!("  aws_region: ${R2_REGION:", "-auto}"),
-            "  aws_endpoint_url: ${R2_S3_ENDPOINT}",
+            "pmtiles:\n  aws_access_key_id: ${FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID}",
+            "  aws_secret_access_key: ${FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY}",
+            concat!(
+                "  aws_region: ${FOUNDATION_TILE_DERIVATIVE_R2_REGION:",
+                "-auto}"
+            ),
+            "  aws_endpoint_url: ${FOUNDATION_TILE_DERIVATIVE_R2_ENDPOINT}",
             "  aws_virtual_hosted_style_request: false",
             "  paths:",
             "reload_interval:",
@@ -128,6 +131,9 @@ fn production_static_martin_config_uses_private_r2_prefix_discovery() {
         ],
         "production static Martin config",
     );
+    assert!(!config.contains("${R2_ACCESS_KEY_ID}"));
+    assert!(!config.contains("${R2_SECRET_ACCESS_KEY}"));
+    assert!(!config.contains("${R2_S3_ENDPOINT}"));
     assert!(!config.contains("allow_http"));
     assert!(!config.contains("pmtiles:\n  sources:"));
 }
@@ -242,6 +248,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "R2_TILES_OBJECT_KEY",
             "declare -p \"$name\"",
             "validate_r2_test_bucket",
+            "must be query-free for Martin 1.12",
             "--validate-r2-config-only",
             "protected_names=\"$(repository_protected_bucket_names)\"",
             "repository protected bucket SSOT is empty",
