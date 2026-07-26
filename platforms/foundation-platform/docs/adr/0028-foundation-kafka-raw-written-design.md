@@ -82,6 +82,9 @@ Other catalog event types continue through the configured legacy fallback broadc
 Kafka is opt-in and fail-closed when enabled:
 
 - `FOUNDATION_PLATFORM_KAFKA_ENABLED` (default `false`).
+- `FOUNDATION_PLATFORM_RUNTIME_ENV` (`local`, `ci`, `staging`, or `production`) is required
+  whenever Kafka is enabled. The Kafka adapter enforces this itself so a direct library caller
+  cannot bypass the publisher's runtime boundary.
 - `FOUNDATION_PLATFORM_KAFKA_BOOTSTRAP_SERVERS` (required when enabled).
 - `FOUNDATION_PLATFORM_KAFKA_SCHEMA_REGISTRY_URL` (required when enabled).
 - `FOUNDATION_PLATFORM_KAFKA_RAW_WRITTEN_TOPIC` (default canonical topic).

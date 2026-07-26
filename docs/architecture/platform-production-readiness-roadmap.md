@@ -29,6 +29,8 @@ status: current
 - The credential-free consumer contract now decodes that Avro claim-check, verifies a Bronze
   checksum, and drops a redelivery by `event_id`; this is a boundary proof, not a production
   Silver/Gold consumer implementation.
+- Kafka enablement now requires the canonical runtime environment inside the adapter itself, so a
+  direct caller cannot omit the staging/production transport boundary.
 
 ## 우선순위 0 — 출시 전 필수 게이트
 

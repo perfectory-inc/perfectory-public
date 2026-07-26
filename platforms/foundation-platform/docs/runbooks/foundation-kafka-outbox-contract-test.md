@@ -53,6 +53,10 @@ Use `INTELLIGENCE_TEST_KAFKA_HOST_PORT`, `INTELLIGENCE_TEST_KARAPACE_HOST_PORT`,
 The script exits non-zero for missing Docker, Postgres, broker, registry, topic, schema, or test
 failures. It never turns a required-mode failure into a green skip.
 
+Kafka enablement also requires `FOUNDATION_PLATFORM_RUNTIME_ENV=local|ci|staging|production`.
+The adapter validates this before building a producer; staging and production additionally require
+non-loopback brokers, HTTPS Schema Registry, and SSL/SASL_SSL.
+
 ## CI
 
 The `kafka-integration` job in `.github/workflows/foundation-ci.yml` provisions the pinned

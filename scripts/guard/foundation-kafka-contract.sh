@@ -16,6 +16,10 @@ if [ -n "$collection_matches" ]; then
 fi
 
 adapter='platforms/foundation-platform/crates/foundation-outbox/src/kafka_broadcaster.rs'
+if ! grep -Fq 'required_env("FOUNDATION_PLATFORM_RUNTIME_ENV")' "$adapter"; then
+  echo 'FAIL foundation-kafka-contract: Kafka enablement must require the canonical runtime environment' >&2
+  fail=1
+fi
 if ! grep -Fq 'allow.auto.create.topics", "false' "$adapter"; then
   echo 'FAIL foundation-kafka-contract: Kafka producer must disable auto topic creation' >&2
   fail=1
