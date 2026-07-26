@@ -243,6 +243,22 @@ callers cannot supply an arbitrary key. The publisher only uses create-only writ
 read-only credentials. Never use a prefix as an IAM boundary or point either credential at a
 lakehouse, Bronze, recovery, or backup bucket.
 
+### Production bucket naming
+
+Use the same three-part convention as the Lakehouse buckets—`<owner-service>-<purpose>-<environment>`—but
+keep the serving derivative in its own bucket because its retention, credentials, and CDN exposure are
+different from Bronze/Silver/Gold lakehouse data. The created production bucket is:
+
+```text
+foundation-platform-tile-derivatives-prod
+```
+
+The corresponding Lakehouse bucket remains `foundation-platform-lakehouse-prod`; do not substitute it
+for the tile bucket. Future environments follow the same shape, for example
+`foundation-platform-tile-derivatives-staging` and `foundation-platform-tile-derivatives-ci`.
+Provisioning must be performed through the infrastructure/account automation and recorded here; an
+operator must not silently create a differently named bucket and only change a secret.
+
 The harness uploads with `If-None-Match: *`. It must never overwrite or delete an object. Before
 Martin starts, it performs a full public GET, requires the byte count and
 full public readback SHA-256 to equal the local archive, and separately requires an HTTP `206 Partial
