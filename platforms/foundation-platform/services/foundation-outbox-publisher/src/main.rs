@@ -59,6 +59,7 @@ mod building_register_smoke;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
 mod bulk_streaming_bronze;
+mod canonical_release_proof;
 mod canonical_silver_gold_cutover_evidence;
 mod github_actions_secret_configurator;
 mod github_cutover_artifact_fetch;
@@ -124,6 +125,7 @@ mod regional_data_serving_load_check;
 mod remote_lakehouse_job;
 mod rt_molit_real_transaction_export_collection_plan;
 mod rt_molit_real_transaction_export_ingest;
+mod runtime_environment;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;
@@ -201,6 +203,7 @@ enum Command {
     WriteOfficialAdministrativeBoundarySourceSnapshot,
     WriteBuildingRegisterPageCountPlan,
     WriteCanonicalSilverGoldCutoverEvidence,
+    WriteCanonicalReleaseProof,
     WriteNationalBronzeObjectManifest,
     WriteNationalDataCollectionRolloutApproval,
     WriteNationalDataCollectionScope,
@@ -447,6 +450,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::WriteCanonicalSilverGoldCutoverEvidence => {
             Box::pin(async { canonical_silver_gold_cutover_evidence::run() })
         }
+        Command::WriteCanonicalReleaseProof => Box::pin(async { canonical_release_proof::run() }),
         Command::WriteNationalBronzeObjectManifest => {
             Box::pin(async { national_bronze_object_manifest::run_write() })
         }
@@ -558,6 +562,9 @@ async fn run_publisher() -> anyhow::Result<()> {
 }
 
 async fn run_r2_smoke() -> anyhow::Result<()> {
+    let runtime_environment =
+        runtime_environment::RuntimeEnvironment::from_env_with_execution_context()?;
+    validate_runtime_r2_bucket(runtime_environment)?;
     let key = r2_smoke_object_key()?;
     let storage =
         R2ObjectStorage::from_env().context("failed to configure R2 object storage for smoke")?;
@@ -701,6 +708,9 @@ fn write_r2_smoke_metrics(path: &Path, report: &ObjectStorageSmokeReport) -> any
 }
 
 async fn run_r2_inventory() -> anyhow::Result<()> {
+    let runtime_environment =
+        runtime_environment::RuntimeEnvironment::from_env_with_execution_context()?;
+    validate_runtime_r2_bucket(runtime_environment)?;
     let request = r2_inventory_request()?;
     let storage = R2ObjectStorage::from_env()
         .context("failed to configure R2 object storage for inventory")?;
@@ -736,9 +746,14 @@ async fn catalog_broadcaster(
     pool: PgPool,
     fallback: Arc<dyn EventBroadcaster>,
 ) -> anyhow::Result<Arc<dyn EventBroadcaster>> {
-    let object_storage: Arc<dyn ObjectStorageService> = match object_storage_driver()?.as_str() {
+    let runtime_environment =
+        runtime_environment::RuntimeEnvironment::from_env_with_execution_context()?;
+    let object_storage_driver = object_storage_driver()?;
+    runtime_environment::validate_catalog_driver(runtime_environment, &object_storage_driver)?;
+    let object_storage: Arc<dyn ObjectStorageService> = match object_storage_driver.as_str() {
         "log" => Arc::new(LoggingObjectStorage),
         "r2" => {
+            validate_runtime_r2_bucket(runtime_environment)?;
             Arc::new(R2ObjectStorage::from_env().context("failed to configure R2 object storage")?)
         }
         driver => {
@@ -748,10 +763,15 @@ async fn catalog_broadcaster(
         }
     };
 
+    let fanout = match foundation_outbox::kafka_broadcaster::from_env(fallback.clone()).await? {
+        Some(kafka_broadcaster) => Arc::new(kafka_broadcaster) as Arc<dyn EventBroadcaster>,
+        None => fallback,
+    };
+
     Ok(Arc::new(CatalogEventBroadcaster::new(
         Arc::new(PgVectorTileManifestReader::new(pool)),
         object_storage,
-        fallback,
+        fanout,
     )))
 }
 
@@ -808,14 +828,16 @@ fn parse_webhook_endpoint_specs(raw: &str) -> anyhow::Result<Vec<(String, String
 }
 
 fn object_storage_driver() -> anyhow::Result<String> {
-    let driver = env::var("FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER")
-        .unwrap_or_else(|_| "log".to_owned())
-        .trim()
-        .to_ascii_lowercase();
-    if driver.is_empty() {
-        bail!("FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER must not be empty");
-    }
+    let driver =
+        required_env_value("FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER")?.to_ascii_lowercase();
     Ok(driver)
+}
+
+fn validate_runtime_r2_bucket(
+    runtime_environment: runtime_environment::RuntimeEnvironment,
+) -> anyhow::Result<()> {
+    let bucket = required_env_value("R2_BUCKET_NAME")?;
+    runtime_environment::validate_foundation_r2_bucket(runtime_environment, &bucket)
 }
 
 fn parse_command<I, S>(args: I) -> anyhow::Result<Command>
@@ -931,6 +953,7 @@ where
         Some("write-canonical-silver-gold-cutover-evidence") => {
             Ok(Command::WriteCanonicalSilverGoldCutoverEvidence)
         }
+        Some("write-canonical-release-proof") => Ok(Command::WriteCanonicalReleaseProof),
         Some("write-national-bronze-object-manifest") => {
             Ok(Command::WriteNationalBronzeObjectManifest)
         }

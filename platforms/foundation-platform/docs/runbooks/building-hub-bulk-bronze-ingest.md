@@ -52,10 +52,15 @@ cargo run -p foundation-outbox-publisher -- ingest-building-hub-bulk-collection
 | `FOUNDATION_PLATFORM_BUILDING_HUB_BULK_COLLECTION_MAX_JOBS` | 앞에서부터 일부 job만 실행한다. 파일 다운로드 smoke에 사용한다. |
 | `FOUNDATION_PLATFORM_BUILDING_HUB_BULK_COLLECTION_MAX_IN_FLIGHT` | 동시에 처리할 벌크 파일 job 수. 기본값은 `4`이고 `0`은 거부한다. |
 | `FOUNDATION_PLATFORM_BUILDING_HUB_BULK_COLLECTION_CONFIRM_FULL_DOWNLOAD` | 전체 plan 다운로드는 정확히 `1`일 때만 허용한다. |
+| `FOUNDATION_PLATFORM_BUILDING_HUB_BULK_JOB_BUS_MAX_ATTEMPTS` | PostgresJobBus 재시도 한도. 기본값은 `3`이고 `0`은 거부한다. |
+| `FOUNDATION_PLATFORM_BUILDING_HUB_BULK_JOB_BUS_LEASE_SECONDS` | JobBus claim lease 시간. 기본값은 `900`초이고 `0`은 거부한다. |
 
 실제 R2/DB 저장은 단일 파일 명령과 동일하게
 `FOUNDATION_PLATFORM_BUILDING_HUB_BULK_LIVE_WRITE=1`일 때만 수행한다.
 `LIVE_WRITE`가 없으면 파일은 받아서 hash/key 계획까지 만들지만 Bronze 저장은 하지 않는다.
+Live-write 경로는 동일한 PostgreSQL 연결로 `PostgresJobBus`에 job을 publish하고 claim한 뒤,
+Bronze commit 성공 시 `ack`한다. 재시도 한도를 소진한 실패는 JobBus dead-letter 상태로 남는다.
+Dry-run은 DB와 JobBus를 열지 않고 계획/evidence만 만든다.
 
 ## 필수 환경 변수
 
@@ -72,7 +77,7 @@ Live write에는 기존 Bronze 저장 설정도 필요하다.
 | 이름 | 의미 |
 |---|---|
 | `DATABASE_URL` | Bronze metadata DB |
-| `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER` | `r2` 또는 `local` |
+| `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER` | `r2` (developer/staging/production); `local` is bounded-test-only for local/CI |
 | `FOUNDATION_PLATFORM_BUILDING_HUB_BULK_LIVE_WRITE` | 실제 저장은 정확히 `1`일 때만 수행 |
 
 ## 선택 환경 변수

@@ -8,9 +8,9 @@
 
 | 정보 종류 | 진짜 SSOT | 사본 (재구성 가능) | 위반 자동 차단 |
 |---------|---------|---------|---------|
-| **사용자 데이터** | PostgreSQL `user` 테이블 | Redis 세션, 검색 인덱스 | DB 외 직접 변경 금지 (linter) |
+| **사용자 데이터** | PostgreSQL `user` 테이블 | Valkey 8 세션, 검색 인덱스 | DB 외 직접 변경 금지 (linter) |
 | **Catalog 공공 API raw 응답** | Foundation Platform object lake / lineage store | Gongzzang legacy migration ledger only | `foundation-ownership-boundary.sh` + boundary contract |
-| **Gongzzang-owned 외부 API raw 응답** | 소유 서비스별 archive/lineage contract | Redis 캐시, 분석 마트 | 소유권 ADR + boundary gate |
+| **Gongzzang-owned 외부 API raw 응답** | 소유 서비스별 archive/lineage contract | Valkey 8 캐시, 분석 마트 | 소유권 ADR + boundary gate |
 | **비즈니스 규칙** | Gongzzang-owned `crates/*-domain` Rust 코드 | 문서, 테스트 (둘 다 코드 따라옴) | 도메인 외부 비즈니스 로직 = clippy lint |
 | **API 계약** | Rust 코드 + utoipa 매크로 | `openapi.json` (자동), TS 타입 (자동, `packages/api-types`) | 생성물 재생성-diff (gongzzang-ci `Traffic/auth policy drift` job; dependency-cruiser는 미도입) |
 | **DB 스키마** | `migrations/*.sql` (`YYYYMMDDHHMMSS_<snake_case>.sql`) | Rust 타입 + `.sqlx/` prepare metadata | 수동 ALTER TABLE 금지 + Foundation Platform legacy schema ledger |

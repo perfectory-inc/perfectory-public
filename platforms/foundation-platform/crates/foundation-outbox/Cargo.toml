@@ -11,12 +11,14 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+apache-avro = { workspace = true }
 async-trait = { workspace = true }
 aws-credential-types = "1"
 aws-sdk-s3 = { version = "1", default-features = false, features = ["rt-tokio", "default-https-client"] }
 chrono = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
+rdkafka = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "macros"] }
 thiserror = { workspace = true }

@@ -78,7 +78,7 @@ pub enum ListingError {
 ## 5. async / 동시성
 
 - 런타임: `tokio` 풀 기능 (`features = ["full"]`)
-- async trait: `async-trait` crate (Rust 1.83 기준 stable async fn in trait도 OK)
+- async trait: `async-trait` crate (Rust 1.96.0 기준 stable async fn in trait 사용 가능)
 - `.await` 후 lock 보유 금지 (deadlock 위험)
 - `Arc<Mutex<T>>`보다 actor 패턴 또는 channel 선호
 

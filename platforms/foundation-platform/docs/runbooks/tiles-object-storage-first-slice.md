@@ -32,6 +32,9 @@ dynamic/static features, including pnu `9999900000000000001`. No existing R2 buc
 reconfigured, or deleted by the local lane. This is still a correctness slice, not a production
 rollout or a national-scale load test.
 
+The real-R2 branch is evidence only when it is executed with the dedicated test bucket and its fresh
+output is retained. The proof never retains an unverified PutObject response body.
+
 ## Ownership and storage model
 
 Foundation owns canonical parcel/building/complex geometry, lineage, approval, static tile builds,

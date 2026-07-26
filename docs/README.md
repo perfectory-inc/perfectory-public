@@ -20,6 +20,7 @@ status: current
 
 | 영역 | 진입점 |
 | --- | --- |
+| unified stack | [technology-stack.md](./technology-stack.md) |
 | gongzzang (product) | [products/gongzzang/docs/](../products/gongzzang/docs/README.md) |
 | foundation-platform | [platforms/foundation-platform/docs/](../platforms/foundation-platform/docs/) |
 | identity-platform | [platforms/identity-platform/docs/](../platforms/identity-platform/docs/) |

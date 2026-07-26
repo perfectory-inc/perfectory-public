@@ -30,9 +30,12 @@ load-bearing points a `foundation-platform` implementer must honor:
    Adopting Kafka later is an **adapter swap, not a rewrite**.
 2. **Two traits, not one.**
    - **`JobBus`** — collection-job *dispatch* (publish / poll / ack / nack). This is **new** and
-     Foundation Platform-private. The **first** implementation is backed by the existing **JSONL ledger**
-     (option A, no broker, no DB change); a Postgres `collection_job` table + `PostgresJobBus`
-     (option B) is a later step that **requires owner DB approval** before any migration.
+     Foundation Platform-private. The compatibility path remains the existing **JSONL ledger**
+     (option A), while option B is now implemented as the migrated `catalog.collection_job` table
+     plus `PostgresJobBus`. The adapter is contract-tested against a real disposable PostgreSQL
+     instance. The legacy data.go.kr national async executor is now fail-closed because national
+     Bronze collection is bulk-only. The active `hub.go.kr` bulk collector claims and acks through
+     `PostgresJobBus`; Kafka remains a later transport choice after its trigger is met.
    - **`RawWrittenSink`** — the **producer** seam (new, typed): a worker emits its
      `CollectionRawWrittenV1` to the sink on `ack`. Distinct from `EventBroadcaster` because
      `EventBroadcaster::publish` needs a persisted outbox `event_id`/`OutboxScope`, while the
@@ -69,8 +72,9 @@ load-bearing points a `foundation-platform` implementer must honor:
 ## Consequences
 
 - A `foundation-platform` implementer has one authoritative spec to follow; no risk of divergent designs.
-- Zero new infrastructure pre-launch — the fabric runs on the outbox/ledger already in
-  `services/foundation-outbox-publisher`.
+- The pre-launch compatibility path still runs on the outbox/ledger already in
+  `services/foundation-outbox-publisher`; the durable Postgres dispatch adapter adds one
+  migration-backed table but does not make Kafka a Bronze dependency.
 - The dispatch mechanism (Postgres → Kafka) stays swappable without a cross-repo contract change,
   because only `raw_written` is public.
 - Cost: the design SSOT is in another repo — keep this pointer in sync if ADR-0047 is revised (the

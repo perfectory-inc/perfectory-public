@@ -1,0 +1,32 @@
+{
+  "type": "record",
+  "name": "CollectionRawWrittenEnvelopeV1",
+  "namespace": "kr.perfectory.foundation.catalog",
+  "fields": [
+    {"name":"event_id","type":"string"},
+    {"name":"event_type","type":"string","default":"catalog.collection.raw_written.v1"},
+    {"name":"specversion","type":"string","default":"1.0"},
+    {"name":"source","type":"string","default":"/foundation-platform/collection"},
+    {"name":"schema_version","type":"int"},
+    {"name":"collection_snapshot_id","type":"string"},
+    {"name":"job_id","type":"string"},
+    {"name":"scope_unit_id","type":"string"},
+    {"name":"provider","type":"string"},
+    {"name":"endpoint","type":"string"},
+    {"name":"endpoint_slug","type":"string"},
+    {"name":"bronze_object_key","type":"string"},
+    {"name":"bronze_object_count","type":"long"},
+    {"name":"bronze_checksum_sha256","type":"string"},
+    {"name":"bronze_size_bytes","type":"long"},
+    {"name":"source_record_count","type":"long"},
+    {"name":"request_count","type":"long"},
+    {"name":"request_fingerprint_sha256","type":"string"},
+    {"name":"request_fingerprint_schema_version","type":"string"},
+    {"name":"license","type":["null","string"],"default":null},
+    {"name":"srid","type":["null","string"],"default":null},
+    {"name":"reused_bronze_object","type":"boolean","default":false},
+    {"name":"fetched_at_utc","type":"long"},
+    {"name":"event_occurred_at","type":"long"},
+    {"name":"outbox_occurred_at","type":"long"}
+  ]
+}

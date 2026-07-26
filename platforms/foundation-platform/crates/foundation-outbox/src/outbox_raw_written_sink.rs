@@ -7,8 +7,8 @@
 //! event today. The sink therefore introduces no new fan-out path; it only feeds the existing one.
 //!
 //! Scope (Slice 3-B): operational `raw_written` outbox publishing. It does NOT convert the
-//! collection executor to a Postgres job ledger — that (`PostgresJobBus`) and DB-backed quarantine
-//! remain Option B. The success/quarantine state of collection itself stays on the JSONL ledger.
+//! collection executor to a Postgres job ledger — the durable `PostgresJobBus` instead inserts the
+//! same row in its ack transaction, so Bronze success and notification handoff are atomic there.
 //!
 //! [`RawWrittenSink`]: crate::jobbus::RawWrittenSink
 //! [`OutboxWorker`]: crate::worker::OutboxWorker
@@ -44,7 +44,9 @@ impl OutboxRawWrittenSink {
 ///
 /// # Errors
 /// Returns [`JobBusError::Backend`] if the event cannot be serialized or carries no `type` tag.
-fn encode_outbox_row(event: &CollectionRawWrittenV1) -> Result<(String, Value), JobBusError> {
+pub(crate) fn encode_outbox_row(
+    event: &CollectionRawWrittenV1,
+) -> Result<(String, Value), JobBusError> {
     let catalog_event = CatalogEvent::CollectionRawWritten(event.clone());
     let payload = serde_json::to_value(&catalog_event)
         .map_err(|error| JobBusError::Backend(format!("raw_written encode: {error}")))?;

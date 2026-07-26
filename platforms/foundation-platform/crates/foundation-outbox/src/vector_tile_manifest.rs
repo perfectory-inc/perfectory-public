@@ -196,6 +196,7 @@ fn vector_tile_manifest_document(manifest: VectorTileManifest) -> PublishedVecto
             current_version: manifest.current_version,
             previous_version: manifest.previous_version,
             tiles_url_template: manifest.tiles_url_template.as_str().to_owned(),
+            source_snapshot_id: manifest.source_snapshot_id,
             published_at: manifest.published_at,
             artifacts,
         },
@@ -258,6 +259,7 @@ mod tests {
             published_at: now,
             manifest_file_asset_id: FileAssetId::new(Uuid::now_v7()),
             source_record_id: SourceRecordId::new(Uuid::now_v7()),
+            source_snapshot_id: "iceberg:test-snapshot".to_owned(),
             artifacts: vec![VectorTileArtifact {
                 id: VectorTileArtifactId::new(Uuid::now_v7()),
                 manifest_id,

@@ -1,15 +1,20 @@
-//! Async national data collection ledger executor.
+//! Deprecated data.go.kr API parity executor.
+//!
+//! The national Bronze policy is bulk-only. This module remains as a typed historical/parity
+//! implementation for auditability, but [`run`] fails closed so it cannot be used as a collection
+//! lane accidentally.
 
 use std::{process::Command, sync::Arc, time::Instant};
 
 use anyhow::{bail, Context};
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use collection_application::ports::BronzeIngestUnitOfWork;
 use collection_infrastructure::{
     DataGoKrBuildingRegisterClient, DataGoKrBuildingRegisterConfig, PgBronzeIngestUnitOfWork,
 };
 use foundation_outbox::{
-    CollectionJob, CollectionSuccess, ObjectStorageService, OutboxRawWrittenSink, RawWrittenSink,
+    CollectionJob, CollectionSuccess, FailureDisposition, JobBus, JobFailure, ObjectStorageService,
+    OutboxRawWrittenSink, PostgresJobBus, RawWrittenSink,
 };
 use futures_util::{stream, StreamExt};
 use serde_json::{json, Value as JsonValue};
@@ -35,7 +40,7 @@ mod plan;
 mod real_transaction;
 
 use bronze_ingest::BronzeIngestContext;
-use config::AsyncExecutorConfig;
+use config::{AsyncExecutorConfig, JobBusMode};
 use env::required_env_value;
 use events::{failed_event, started_event, succeeded_event, EventWriter};
 use evidence::{
@@ -51,7 +56,14 @@ const DEFAULT_BASE_URI: &str = "https://apis.data.go.kr/1613000/BldRgstHubServic
 const BRONZE_JSON_CONTENT_TYPE: &str = "application/json";
 const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
 
+fn reject_api_executor() -> anyhow::Result<()> {
+    bail!(
+        "national API executor is disabled by the bulk-only national collection policy; use plan-building-hub-bulk-collection and ingest-building-hub-bulk-collection"
+    );
+}
+
 pub async fn run() -> anyhow::Result<()> {
+    reject_api_executor()?;
     let config = AsyncExecutorConfig::from_env()?;
     config.validate_execution_confirmation()?;
     if config.evidence_path.exists() || config.event_log_path.exists() {
@@ -132,17 +144,42 @@ pub async fn run() -> anyhow::Result<()> {
     // (no second connection). The checksum it carries still comes from the per-job report, which is
     // sourced from the committed Bronze object's plan checksum (the same value the committer recorded
     // on the `bronze_object` row), so the event-fabric claim-check stays intact.
+    let postgres_job_bus = match config.job_bus_mode {
+        JobBusMode::Ledger => None,
+        JobBusMode::Postgres => Some(Arc::new(PostgresJobBus::new(
+            pool.clone(),
+            config.job_bus_max_attempts,
+            ChronoDuration::seconds(
+                i64::try_from(config.job_bus_lease_seconds)
+                    .context("national async JobBus lease seconds exceed i64")?,
+            ),
+        ))),
+    };
     let raw_written_outbox_enabled =
         std::env::var("FOUNDATION_PLATFORM_NATIONAL_RAW_WRITTEN_OUTBOX")
             .ok()
             .as_deref()
             == Some("1");
-    let raw_written_sink: Option<Arc<dyn RawWrittenSink>> = if raw_written_outbox_enabled {
-        Some(Arc::new(OutboxRawWrittenSink::new(pool.clone())))
-    } else {
-        None
-    };
-    let execution = if config.page_queue_enabled {
+    let raw_written_sink: Option<Arc<dyn RawWrittenSink>> =
+        if raw_written_outbox_enabled && config.job_bus_mode == JobBusMode::Ledger {
+            Some(Arc::new(OutboxRawWrittenSink::new(pool.clone())))
+        } else {
+            None
+        };
+    let execution = if let Some(job_bus) = postgres_job_bus {
+        execute_selected_jobs_postgres_jobbus(
+            selected.clone(),
+            &config,
+            &plan.compiler_input_hash,
+            Arc::clone(&client),
+            Arc::clone(&bronze),
+            event_writer.clone(),
+            Arc::clone(&real_transaction_clients),
+            job_bus,
+            rate_limiter.clone(),
+        )
+        .await?
+    } else if config.page_queue_enabled {
         execute_selected_jobs_page_queue(
             selected.clone(),
             &config,
@@ -335,6 +372,197 @@ async fn execute_selected_jobs(
             window_count,
         },
     })
+}
+
+/// Execute planned jobs through the durable Postgres JobBus. The plan remains the input SSOT, while
+/// Postgres owns the claim/lease/ack state for this explicitly selected runtime mode.
+async fn execute_selected_jobs_postgres_jobbus(
+    selected: Vec<LedgerEntry>,
+    config: &AsyncExecutorConfig,
+    compiler_input_hash: &str,
+    client: Arc<DataGoKrBuildingRegisterClient>,
+    bronze: Arc<BronzeIngestContext>,
+    event_writer: EventWriter,
+    real_transaction_clients: Arc<RealTransactionServiceApiClients>,
+    job_bus: Arc<PostgresJobBus>,
+    rate_limiter: Option<Arc<ProviderRateLimiter>>,
+) -> anyhow::Result<JobExecutionRun> {
+    if !config.adaptive_in_flight.enabled {
+        let results = execute_postgres_jobbus_window(
+            selected,
+            config.max_in_flight,
+            compiler_input_hash,
+            client,
+            bronze,
+            event_writer,
+            real_transaction_clients,
+            job_bus,
+            rate_limiter,
+        )
+        .await?;
+        return Ok(JobExecutionRun {
+            results,
+            execution_strategy: "postgres_job_window_fixed",
+            adaptive_in_flight: AdaptiveExecutionEvidence {
+                enabled: false,
+                start_in_flight: config.max_in_flight,
+                final_in_flight: config.max_in_flight,
+                max_in_flight: config.max_in_flight,
+                window_count: 1,
+            },
+        });
+    }
+
+    let mut cursor = 0_usize;
+    let mut current_in_flight = config.adaptive_in_flight.start_in_flight;
+    let mut window_count = 0_u64;
+    let mut results = Vec::new();
+    while cursor < selected.len() {
+        let end = cursor.saturating_add(current_in_flight).min(selected.len());
+        let window_entries = selected[cursor..end].to_vec();
+        let mut window_results = execute_postgres_jobbus_window(
+            window_entries,
+            current_in_flight,
+            compiler_input_hash,
+            Arc::clone(&client),
+            Arc::clone(&bronze),
+            event_writer.clone(),
+            Arc::clone(&real_transaction_clients),
+            Arc::clone(&job_bus),
+            rate_limiter.clone(),
+        )
+        .await?;
+        let window_summary = summarize_job_results(&window_results);
+        current_in_flight = config
+            .adaptive_in_flight
+            .next_in_flight(current_in_flight, &window_summary);
+        results.append(&mut window_results);
+        window_count += 1;
+        cursor = end;
+    }
+
+    Ok(JobExecutionRun {
+        results,
+        execution_strategy: "postgres_job_window_adaptive",
+        adaptive_in_flight: AdaptiveExecutionEvidence {
+            enabled: true,
+            start_in_flight: config.adaptive_in_flight.start_in_flight,
+            final_in_flight: current_in_flight,
+            max_in_flight: config.adaptive_in_flight.max_in_flight,
+            window_count,
+        },
+    })
+}
+
+async fn execute_postgres_jobbus_window(
+    entries: Vec<LedgerEntry>,
+    max_in_flight: usize,
+    compiler_input_hash: &str,
+    client: Arc<DataGoKrBuildingRegisterClient>,
+    bronze: Arc<BronzeIngestContext>,
+    event_writer: EventWriter,
+    real_transaction_clients: Arc<RealTransactionServiceApiClients>,
+    job_bus: Arc<PostgresJobBus>,
+    rate_limiter: Option<Arc<ProviderRateLimiter>>,
+) -> anyhow::Result<Vec<anyhow::Result<JobSuccessReport>>> {
+    for entry in &entries {
+        if let Err(error) = job_bus.ensure_published(to_collection_job(entry)).await {
+            return Err(anyhow::anyhow!(
+                "failed to ensure national collection job {} in Postgres JobBus: {error}",
+                entry.job_id
+            ));
+        }
+    }
+
+    Ok(stream::iter(entries)
+        .map(|entry| {
+            let state = JobExecutionState {
+                client: Arc::clone(&client),
+                bronze: Arc::clone(&bronze),
+                event_writer: event_writer.clone(),
+                compiler_input_hash: compiler_input_hash.to_owned(),
+                real_transaction_clients: Arc::clone(&real_transaction_clients),
+                raw_written_sink: None,
+                rate_limiter: rate_limiter.clone(),
+            };
+            let job_bus = Arc::clone(&job_bus);
+            async move { execute_job_with_postgres_jobbus(entry, state, job_bus).await }
+        })
+        .buffer_unordered(max_in_flight)
+        .collect::<Vec<_>>()
+        .await)
+}
+
+async fn execute_job_with_postgres_jobbus(
+    entry: LedgerEntry,
+    state: JobExecutionState,
+    job_bus: Arc<PostgresJobBus>,
+) -> anyhow::Result<JobSuccessReport> {
+    let leased = job_bus
+        .claim_job(&entry.job_id)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to claim job {}: {error}", entry.job_id))?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "job {} is already leased, completed, dead-lettered, or unavailable",
+                entry.job_id
+            )
+        })?;
+
+    state
+        .event_writer
+        .write_event(&started_event(&entry, &state.compiler_input_hash))?;
+    let fetched_at = Utc::now();
+    match execute_job_pages(&entry, &state).await {
+        Ok(report) => {
+            let success = collection_success_from_report(&report, fetched_at);
+            job_bus
+                .ack(&leased.lease, &success)
+                .await
+                .map_err(|error| anyhow::anyhow!("failed to ack job {}: {error}", entry.job_id))?;
+            state.event_writer.write_event(&succeeded_event(
+                &entry,
+                &state.compiler_input_hash,
+                &report,
+            ))?;
+            Ok(report)
+        }
+        Err(error) => {
+            let error_message = format_error_chain(error.as_ref());
+            let event_error = state
+                .event_writer
+                .write_event(&failed_event(
+                    &entry,
+                    &state.compiler_input_hash,
+                    error_message.clone(),
+                ))
+                .err();
+            let nack_error = job_bus
+                .nack(
+                    &leased.lease,
+                    &JobFailure {
+                        disposition: FailureDisposition::Retryable,
+                        code: "collection.execution".to_owned(),
+                        message: error_message,
+                    },
+                )
+                .await
+                .err();
+            if let Some(nack_error) = nack_error {
+                return Err(error.context(format!(
+                    "failed to nack national collection job {}: {nack_error}",
+                    entry.job_id
+                )));
+            }
+            if let Some(event_error) = event_error {
+                return Err(error.context(format!(
+                    "failed to record national collection failure event for {}: {event_error}",
+                    entry.job_id
+                )));
+            }
+            Err(error)
+        }
+    }
 }
 
 async fn execute_job_window(
@@ -557,7 +785,15 @@ fn raw_written_event(
     fetched_at: DateTime<Utc>,
     occurred_at: DateTime<Utc>,
 ) -> CollectionRawWrittenV1 {
-    let success = CollectionSuccess {
+    let success = collection_success_from_report(report, fetched_at);
+    success.into_raw_written(&to_collection_job(entry), occurred_at)
+}
+
+fn collection_success_from_report(
+    report: &JobSuccessReport,
+    fetched_at: DateTime<Utc>,
+) -> CollectionSuccess {
+    CollectionSuccess {
         bronze_object_key: report.last_object_key.clone(),
         // This async executor writes exactly one Bronze object per provider request and never
         // reuses, so object_count == request_count == page count. If a non-1:1 endpoint or the
@@ -571,8 +807,7 @@ fn raw_written_event(
         license: None,
         srid: None,
         fetched_at_utc: fetched_at,
-    };
-    success.into_raw_written(&to_collection_job(entry), occurred_at)
+    }
 }
 
 fn summarize_job_results(results: &[anyhow::Result<JobSuccessReport>]) -> JobExecutionSummary {
@@ -823,8 +1058,17 @@ mod tests {
     use std::collections::BTreeSet;
 
     use anyhow::anyhow;
+    use chrono::Utc;
 
     use super::{select_pending_jobs, JobSuccessReport, LedgerEntry};
+
+    #[test]
+    fn api_executor_is_disabled_for_bulk_only_national_policy() {
+        let error = super::reject_api_executor().expect_err("API executor must be fail-closed");
+        assert!(error
+            .to_string()
+            .contains("bulk-only national collection policy"));
+    }
 
     fn ledger_entry(job_id: &str, request_count_estimate: u32) -> LedgerEntry {
         LedgerEntry {
@@ -975,6 +1219,25 @@ mod tests {
         assert_eq!(summary.provider_request_count_total, 7);
         assert_eq!(summary.source_record_count, 700);
         assert_eq!(summary.bronze_total_size_bytes, 1_024);
+    }
+
+    #[test]
+    fn postgres_jobbus_success_projection_preserves_bronze_integrity_fields() {
+        let report = JobSuccessReport {
+            provider_request_count: 2,
+            source_record_count: 42,
+            bronze_size_bytes: 1_024,
+            last_object_key: "bronze/job.json".to_owned(),
+            last_checksum_sha256:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
+        };
+
+        let success = super::collection_success_from_report(&report, Utc::now());
+
+        assert_eq!(success.bronze_object_key, "bronze/job.json");
+        assert_eq!(success.bronze_checksum_sha256, report.last_checksum_sha256);
+        assert_eq!(success.request_count, 2);
+        assert_eq!(success.source_record_count, 42);
     }
 
     #[test]

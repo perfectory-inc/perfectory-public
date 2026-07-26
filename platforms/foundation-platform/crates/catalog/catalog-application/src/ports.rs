@@ -41,6 +41,8 @@ pub struct VectorTileManifestPromotionCommand {
     pub expected_current_version: String,
     /// URL template clients use to request vector tiles.
     pub tiles_url_template: String,
+    /// Immutable Gold/Iceberg snapshot that produced this tile build.
+    pub source_snapshot_id: String,
     /// Source record describing the build input.
     pub source_record: VectorTileSourceRecordCommand,
     /// File asset metadata for the manifest JSON artifact.

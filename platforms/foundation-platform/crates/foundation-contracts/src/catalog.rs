@@ -364,6 +364,8 @@ pub struct VectorTileManifestResponse {
     pub previous_version: String,
     /// URL template for vector tile requests.
     pub tiles_url_template: String,
+    /// Immutable Gold/Iceberg snapshot that produced this tile build.
+    pub source_snapshot_id: String,
     /// UTC timestamp when this manifest became active.
     pub published_at: DateTime<Utc>,
     /// Layer artifacts keyed by logical layer name, for example `parcels`.
@@ -566,6 +568,8 @@ pub struct PromoteVectorTileManifestRequest {
     pub expected_current_version: String,
     /// URL template clients use to request vector tiles.
     pub tiles_url_template: String,
+    /// Immutable Gold/Iceberg snapshot that produced this tile build.
+    pub source_snapshot_id: String,
     /// Source record describing the build input.
     pub source_record: PromoteSourceRecordRequest,
     /// File asset metadata for the manifest JSON artifact.

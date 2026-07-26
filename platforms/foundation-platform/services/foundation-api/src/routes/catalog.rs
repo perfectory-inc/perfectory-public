@@ -855,6 +855,7 @@ pub async fn promote_vector_tile_manifest(
             current_version: body.current_version,
             expected_current_version: body.expected_current_version,
             tiles_url_template: body.tiles_url_template,
+            source_snapshot_id: body.source_snapshot_id,
             source_record: source_record_command(body.source_record),
             manifest_file_asset: file_asset_command(body.manifest_file_asset),
             artifacts: body
@@ -1138,6 +1139,7 @@ fn vector_tile_manifest_response(manifest: VectorTileManifest) -> VectorTileMani
         current_version: manifest.current_version,
         previous_version: manifest.previous_version,
         tiles_url_template: manifest.tiles_url_template.as_str().to_owned(),
+        source_snapshot_id: manifest.source_snapshot_id,
         published_at: manifest.published_at,
         artifacts,
     }

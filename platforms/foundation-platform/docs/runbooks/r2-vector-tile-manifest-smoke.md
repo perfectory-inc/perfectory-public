@@ -9,7 +9,8 @@
 
 ```text
 R2_ACCOUNT_ID=
-R2_BUCKET_NAME=
+FOUNDATION_PLATFORM_RUNTIME_ENV=local|ci|staging|production
+R2_BUCKET_NAME=foundation-platform-lakehouse-dev  # local process uses the remote dev bucket
 R2_ENDPOINT=
 R2_REGION=auto
 R2_ACCESS_KEY_ID=

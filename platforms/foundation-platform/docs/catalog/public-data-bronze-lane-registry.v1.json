@@ -51,7 +51,7 @@
         "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EXECUTE": "1",
         "FOUNDATION_PLATFORM_NATIONAL_ASYNC_CONFIRM_PUBLIC_API_QUOTA_IMPACT": "1"
       },
-      "planned_blocker": "real-transaction RTMS API is retained only for bounded parity, drift, and fallback investigation; national Bronze collection uses rt.molit.go.kr CSV export when the export covers the same provider facts",
+      "planned_blocker": "legacy data.go.kr API executor is disabled by the bulk-only national policy; use rt.molit.go.kr CSV export for national Bronze when it covers the same provider facts",
       "completion_claim_allowed": false,
       "national_rollout_allowed": false
     },

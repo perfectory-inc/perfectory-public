@@ -7,11 +7,11 @@
 //! store can move JSONL ledger → Postgres → Kafka without changing callers — only an adapter is
 //! swapped, never the domain code.
 //!
-//! Durable adapters are later implementations of this same trait. A Postgres bus's [`poll`] performs
+//! Durable adapters implement this same trait. The Postgres adapter's [`poll`] performs
 //! a committed claiming `UPDATE … RETURNING` (using `FOR UPDATE SKIP LOCKED` only to stop two
 //! pollers grabbing the same row) that transitions rows to in-flight and bumps `attempt`; [`ack`]
 //! and [`nack`] are then separate statements matched by `(job_id, attempt)`, and exhausted or
-//! poison failures dead-letter into the existing `catalog.outbox_quarantine` table. The lease does
+//! poison failures dead-letter into the Postgres job row's terminal state. The lease does
 //! **not** span the `ack` call — `poll` hands back no transaction handle. A JSONL-ledger bus maps
 //! the same way (poll = planned-minus-succeeded; ack = append `job_succeeded`).
 //!
@@ -424,7 +424,8 @@ impl JobBus for InMemoryJobBus {
 
     // `_success` is intentionally discarded: this in-memory reference models lease mechanics only.
     // The success-carrying half of the contract (turning `CollectionSuccess` into a
-    // `collection.raw_written` event via a `RawWrittenSink`) is exercised by `LedgerJobBus`.
+    // `collection.raw_written` event via a `RawWrittenSink`) is exercised by the ledger adapter and
+    // the transactional Postgres adapter.
     async fn ack(&self, lease: &JobLease, _success: &CollectionSuccess) -> Result<(), JobBusError> {
         let mut state = self.lock();
         let current_attempt = state

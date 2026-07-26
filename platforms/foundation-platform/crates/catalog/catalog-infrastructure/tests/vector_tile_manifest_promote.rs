@@ -60,6 +60,7 @@ async fn promote_vector_tile_manifest_registers_assets_and_switches_active_atomi
         promoted.artifacts[0].object_key_prefix.as_str(),
         fixture.target_object_key_prefix
     );
+    assert_eq!(promoted.source_snapshot_id, fixture.source_snapshot_id);
     assert_eq!(promoted.version, 2);
 
     let active_manifest = repo
@@ -239,6 +240,7 @@ struct VectorTilePromoteFixture {
     active_artifact_id: Uuid,
     active_version: String,
     target_version: String,
+    source_snapshot_id: String,
     target_object_key_prefix: String,
     manifest_object_key: String,
     tilejson_object_key: String,
@@ -264,6 +266,7 @@ impl VectorTilePromoteFixture {
             source_object_key: format!("gold/source/{target_version}.zip"),
             active_version,
             target_version,
+            source_snapshot_id: format!("iceberg:gold-{suffix}"),
             operator_staff_id: StaffId::new(Uuid::now_v7()),
         }
     }
@@ -306,6 +309,7 @@ impl VectorTilePromoteFixture {
         VectorTileManifestPromotionCommand {
             current_version: self.target_version.clone(),
             expected_current_version: expected_current_version.to_owned(),
+            source_snapshot_id: self.source_snapshot_id.clone(),
             tiles_url_template: "https://static.example.com/{object_key_prefix}/{z}/{x}/{y}.pbf"
                 .to_owned(),
             source_record: VectorTileSourceRecordCommand {
@@ -364,10 +368,10 @@ impl VectorTilePromoteFixture {
         sqlx::query(
             "INSERT INTO catalog.vector_tile_manifest
              (id, current_version, previous_version, tiles_url_template,
-              manifest_file_asset_id, source_record_id, is_active, version)
+              source_snapshot_id, manifest_file_asset_id, source_record_id, is_active, version)
              VALUES ($1, $2, 'v-before-active',
               'https://static.example.com/{object_key_prefix}/{z}/{x}/{y}.pbf',
-              $3, $4, true, 3)",
+              'iceberg:fixture-active', $3, $4, true, 3)",
         )
         .bind(self.active_manifest_id)
         .bind(&self.active_version)

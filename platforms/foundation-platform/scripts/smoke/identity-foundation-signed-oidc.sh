@@ -1082,7 +1082,7 @@ services:
         aliases: [task9-foundation-api]
   foundation-migrate:
     image: ${foundation_runtime_image}
-  redis:
+  valkey:
     ports: !override
       - "127.0.0.1::6379"
 networks:

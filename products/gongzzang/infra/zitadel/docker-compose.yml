@@ -7,7 +7,7 @@
 # `docker buildx imagetools inspect` on 2026-07-23.
 services:
   zitadel-db:
-    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     environment:
       POSTGRES_USER: zitadel
       POSTGRES_PASSWORD: ${ZITADEL_DB_PASSWORD:?set ZITADEL_DB_PASSWORD in the untracked env file}
@@ -69,21 +69,21 @@ services:
       retries: 12
       start_period: 30s
 
-  redis:
-    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
-    command: ["redis-server", "--appendonly", "yes"]
+  valkey:
+    image: valkey/valkey:8-alpine@sha256:a038175878d66b9d274fbf8be73c0305e93798b83917647f167e18cef3c71eec
+    command: ["valkey-server", "--appendonly", "yes"]
     ports:
       - "127.0.0.1:${ZITADEL_REDIS_HOST_PORT:-6379}:6379"
     volumes:
-      - redis-data:/data
+      - valkey-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
 volumes:
   zitadel-db:
-  redis-data:
+  valkey-data:
   # PAT written by Zitadel first-boot; consumed by init-zitadel.sh
   zitadel-init-pat:

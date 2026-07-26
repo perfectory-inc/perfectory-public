@@ -1,9 +1,9 @@
 //! `hub.go.kr` bulk-file Bronze ingestion commands.
 
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::{bail, Context};
-use chrono::Utc;
+use chrono::{Duration as ChronoDuration, Utc};
 use collection_application::ports::{
     BronzeIngestRepository, BronzeIngestUnitOfWork, CompleteIngestionRunCommand,
 };
@@ -22,11 +22,15 @@ use collection_infrastructure::{
     BuildingHubBulkClient, BuildingHubBulkConfig, BuildingHubBulkDownloadRequest,
     BuildingHubBulkFileStream, PgBronzeIngestRepository, PgBronzeIngestUnitOfWork,
 };
-use foundation_outbox::ObjectStorageStreamingService;
+use foundation_outbox::{
+    CollectionJob, CollectionSuccess, FailureDisposition, JobBus, JobFailure,
+    ObjectStorageStreamingService, PostgresJobBus,
+};
 use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
 use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -109,20 +113,29 @@ pub async fn run_collection() -> anyhow::Result<()> {
                 .await
                 .context("failed to connect to database for hub.go.kr bulk collection ingest")?;
         let repo = PgBronzeIngestRepository::new(pool.clone());
-        let uow = PgBronzeIngestUnitOfWork::new(pool);
+        let uow = PgBronzeIngestUnitOfWork::new(pool.clone());
         let storage = bronze_streaming_object_storage_from_env()
             .await
             .context("failed to configure object storage for hub.go.kr bulk collection ingest")?;
+        let job_bus = Arc::new(PostgresJobBus::new(
+            pool.clone(),
+            config.job_bus_max_attempts,
+            ChronoDuration::seconds(
+                i64::try_from(config.job_bus_lease_seconds)
+                    .context("bulk JobBus lease seconds exceed i64")?,
+            ),
+        ));
         stream::iter(selected_jobs.iter().cloned().enumerate())
             .map(|(index, job)| {
                 let config = config.clone();
                 let repo = &repo;
                 let uow = &uow;
                 let storage = storage.as_ref();
+                let job_bus = Arc::clone(&job_bus);
                 async move {
                     let started_at = Utc::now();
-                    let report = match ingest_collection_job_with_adapters(
-                        &job, &config, repo, uow, storage,
+                    let report = match ingest_collection_job_with_jobbus(
+                        &job, &config, repo, uow, storage, &job_bus,
                     )
                     .await
                     {
@@ -225,6 +238,8 @@ struct BuildingHubBulkCollectionIngestConfig {
     user_agent: String,
     live_write: Option<String>,
     full_download_confirmed: bool,
+    job_bus_max_attempts: u32,
+    job_bus_lease_seconds: u64,
 }
 
 impl BuildingHubBulkCollectionIngestConfig {
@@ -262,6 +277,14 @@ impl BuildingHubBulkCollectionIngestConfig {
                 )?
                 .as_deref(),
             ),
+            job_bus_max_attempts: parse_positive_u32_env(
+                "FOUNDATION_PLATFORM_BUILDING_HUB_BULK_JOB_BUS_MAX_ATTEMPTS",
+                3,
+            )?,
+            job_bus_lease_seconds: parse_positive_u64_env(
+                "FOUNDATION_PLATFORM_BUILDING_HUB_BULK_JOB_BUS_LEASE_SECONDS",
+                900,
+            )?,
         })
     }
 }
@@ -357,6 +380,8 @@ struct BuildingHubBulkCollectionJobEvidence {
     status: String,
     object_key: Option<String>,
     size_bytes: Option<u64>,
+    checksum_sha256: Option<String>,
+    reused_bronze_object: bool,
     error_message: Option<String>,
     duration_ms: u64,
 }
@@ -413,9 +438,113 @@ async fn ingest_collection_job(
         status: "succeeded".to_owned(),
         object_key: Some(object_key),
         size_bytes,
+        checksum_sha256: None,
+        reused_bronze_object: false,
         error_message: None,
         duration_ms: elapsed_millis(started_at),
     })
+}
+
+async fn ingest_collection_job_with_jobbus<Repo, Uow, Storage>(
+    job: &BuildingHubBulkCollectionPlanJob,
+    collection_config: &BuildingHubBulkCollectionIngestConfig,
+    repo: &Repo,
+    uow: &Uow,
+    storage: &Storage,
+    job_bus: &PostgresJobBus,
+) -> anyhow::Result<BuildingHubBulkCollectionJobEvidence>
+where
+    Repo: BronzeIngestRepository + ?Sized,
+    Uow: BronzeIngestUnitOfWork + ?Sized,
+    Storage: ObjectStorageStreamingService + ?Sized,
+{
+    let bus_job = collection_job_from_plan(job)?;
+    job_bus
+        .ensure_published(bus_job.clone())
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "failed to publish bulk JobBus job {}: {error}",
+                bus_job.job_id
+            )
+        })?;
+
+    if let Some(state) = job_bus.job_state(&bus_job.job_id).await.map_err(|error| {
+        anyhow::anyhow!("failed to read bulk JobBus job {}: {error}", bus_job.job_id)
+    })? {
+        if state == "completed" {
+            return existing_collection_job_report(
+                job,
+                &collection_job_to_ingest_config(
+                    job,
+                    &collection_config.user_agent,
+                    collection_config.live_write.clone(),
+                ),
+                Utc::now(),
+                repo,
+                uow,
+            )
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "bulk JobBus job {} is completed but its Bronze object is missing",
+                    bus_job.job_id
+                )
+            });
+        }
+        if state == "dead_lettered" {
+            bail!("bulk JobBus job {} is dead-lettered", bus_job.job_id);
+        }
+    }
+
+    let leased = job_bus
+        .claim_job(&bus_job.job_id)
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "failed to claim bulk JobBus job {}: {error}",
+                bus_job.job_id
+            )
+        })?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "bulk JobBus job {} is already leased or unavailable",
+                bus_job.job_id
+            )
+        })?;
+    let started_at = Utc::now();
+    match ingest_collection_job_with_adapters(job, collection_config, repo, uow, storage).await {
+        Ok(report) => {
+            let success = collection_success_from_report(&report, started_at)?;
+            job_bus
+                .ack(&leased.lease, &success)
+                .await
+                .map_err(|error| {
+                    anyhow::anyhow!("failed to ack bulk JobBus job {}: {error}", bus_job.job_id)
+                })?;
+            Ok(report)
+        }
+        Err(error) => {
+            let failure_message = truncate_failure_message(&format!("{error:#}"));
+            let nack_result = job_bus
+                .nack(
+                    &leased.lease,
+                    &JobFailure {
+                        disposition: FailureDisposition::Retryable,
+                        code: "collection.bulk_ingest".to_owned(),
+                        message: failure_message,
+                    },
+                )
+                .await;
+            if let Err(nack_error) = nack_result {
+                return Err(error.context(format!(
+                    "failed to nack bulk JobBus job {}: {nack_error}",
+                    bus_job.job_id
+                )));
+            }
+            Err(error)
+        }
+    }
 }
 
 async fn ingest_collection_job_with_adapters<Repo, Uow, Storage>(
@@ -470,19 +599,87 @@ where
     )
     .context("failed to plan hub.go.kr bulk collection Bronze file location")?;
     let object_key = location.object_key.as_str().to_owned();
-    let size_bytes =
+    let persist_report =
         persist_bulk_file_stream_with_adapters(&config, run_id, started_at, file, uow, storage)
-            .await?
-            .size_bytes;
+            .await?;
 
     Ok(BuildingHubBulkCollectionJobEvidence {
         source_slug: job.source_slug.clone(),
         provider_file_id: job.provider_file_id.clone(),
         status: "succeeded".to_owned(),
         object_key: Some(object_key),
-        size_bytes: Some(size_bytes),
+        size_bytes: Some(persist_report.size_bytes),
+        checksum_sha256: Some(persist_report.checksum_sha256),
+        reused_bronze_object: false,
         error_message: None,
         duration_ms: elapsed_millis(started_at),
+    })
+}
+
+fn collection_job_from_plan(
+    job: &BuildingHubBulkCollectionPlanJob,
+) -> anyhow::Result<CollectionJob> {
+    let spec = json!({
+        "catalog_binding_status": job.catalog_binding_status,
+        "endpoint_slug": job.endpoint_slug,
+        "source_slug": job.source_slug,
+        "source_name": job.source_name,
+        "dataset_name": job.dataset_name,
+        "base_uri": job.base_uri,
+        "terms_url": job.terms_url,
+        "operation": job.operation,
+        "provider_file_period": job.provider_file_period,
+        "provider_file_id": job.provider_file_id,
+        "category_name": job.category_name,
+        "service_name": job.service_name,
+        "service_period_label": job.service_period_label,
+        "task_group_code": job.task_group_code,
+        "task_code": job.task_code,
+    });
+    let fingerprint = Sha256::digest(serde_json::to_vec(&spec)?);
+    let request_fingerprint_sha256 = format!("{fingerprint:x}");
+    Ok(CollectionJob {
+        job_id: format!(
+            "hub-go-kr-bulk:{}:{}:{}",
+            job.operation, job.provider_file_period, job.provider_file_id
+        ),
+        scope_unit_id: format!("source:{}", job.source_slug),
+        shard_id: format!("period:{}", job.provider_file_period),
+        provider: "hub.go.kr".to_owned(),
+        endpoint: job.operation.clone(),
+        endpoint_slug: job.endpoint_slug.clone(),
+        idempotency_key: format!("hub.go.kr:{}:{}", job.operation, job.provider_file_id),
+        request_fingerprint_sha256,
+        request_fingerprint_schema_version: "foundation-platform.bulk_request_fingerprint.v1"
+            .to_owned(),
+        collection_snapshot_id: format!("hub.go.kr:{}", job.provider_file_period),
+        spec,
+    })
+}
+
+fn collection_success_from_report(
+    report: &BuildingHubBulkCollectionJobEvidence,
+    fetched_at_utc: chrono::DateTime<Utc>,
+) -> anyhow::Result<CollectionSuccess> {
+    Ok(CollectionSuccess {
+        bronze_object_key: report
+            .object_key
+            .clone()
+            .context("bulk JobBus ack requires a Bronze object key")?,
+        bronze_object_count: 1,
+        bronze_checksum_sha256: report
+            .checksum_sha256
+            .clone()
+            .context("bulk JobBus ack requires a Bronze checksum")?,
+        bronze_size_bytes: report
+            .size_bytes
+            .context("bulk JobBus ack requires a Bronze size")?,
+        source_record_count: 0,
+        request_count: 1,
+        reused_bronze_object: report.reused_bronze_object,
+        license: None,
+        srid: None,
+        fetched_at_utc,
     })
 }
 
@@ -547,6 +744,8 @@ where
         status: "skipped_existing".to_owned(),
         object_key: Some(object.object_key.as_str().to_owned()),
         size_bytes: Some(object.size_bytes),
+        checksum_sha256: Some(object.checksum_sha256.clone()),
+        reused_bronze_object: true,
         error_message: None,
         duration_ms: elapsed_millis(started_at),
     }))
@@ -563,6 +762,8 @@ fn failed_collection_job_report(
         status: "failed".to_owned(),
         object_key: None,
         size_bytes: None,
+        checksum_sha256: None,
+        reused_bronze_object: false,
         error_message: Some(truncate_failure_message(&format!("{error:#}"))),
         duration_ms: elapsed_millis(started_at),
     }
@@ -638,6 +839,34 @@ fn parse_collection_max_in_flight(raw: Option<String>) -> anyhow::Result<usize> 
     })
     .transpose()
     .map(|value| value.unwrap_or(4))
+}
+
+fn parse_positive_u32_env(name: &str, default: u32) -> anyhow::Result<u32> {
+    let value = crate::public_data_control_support::optional_env_value(name)?
+        .map(|raw| {
+            raw.parse::<u32>()
+                .with_context(|| format!("{name} must be a positive integer"))
+        })
+        .transpose()?
+        .unwrap_or(default);
+    if value == 0 {
+        bail!("{name} must be greater than zero");
+    }
+    Ok(value)
+}
+
+fn parse_positive_u64_env(name: &str, default: u64) -> anyhow::Result<u64> {
+    let value = crate::public_data_control_support::optional_env_value(name)?
+        .map(|raw| {
+            raw.parse::<u64>()
+                .with_context(|| format!("{name} must be a positive integer"))
+        })
+        .transpose()?
+        .unwrap_or(default);
+    if value == 0 {
+        bail!("{name} must be greater than zero");
+    }
+    Ok(value)
 }
 
 fn write_collection_evidence(
@@ -729,6 +958,7 @@ struct BuildingHubBulkPersistReport {
     run_id: IngestionRunId,
     last_object_key: Option<String>,
     last_bronze_object_id: Option<BronzeObjectId>,
+    checksum_sha256: String,
     size_bytes: u64,
     logical_records_seen: u64,
     objects_written: u64,
@@ -841,6 +1071,7 @@ where
         run_id: completed.id,
         last_object_key: Some(outcome.object_key),
         last_bronze_object_id: Some(outcome.bronze_object_id),
+        checksum_sha256: outcome.checksum_sha256,
         size_bytes: outcome.size_bytes,
         logical_records_seen: completed.logical_records_seen,
         objects_written: completed.objects_written,

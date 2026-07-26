@@ -180,7 +180,7 @@ SSOT는 [docs/glossary.md](./docs/glossary.md) — 한→영 대응표 포함. �
 
 각 정보는 **한 곳에만** 존재. 사본이 있으면 그것이 사본임을 명시.
 
-- 사용자 데이터 → PostgreSQL `user` (Redis 세션은 사본)
+- 사용자 데이터 → PostgreSQL `user` (Valkey 8 세션은 Redis protocol 사본)
 - Catalog public API raw → Foundation Platform object lake / lineage store
 - Gongzzang-owned external API raw → owning module's approved archive / lineage contract
 - 비즈니스 규칙 → `crates/*-domain` Rust 코드

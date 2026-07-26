@@ -18,3 +18,6 @@ __pycache__/
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+
+# Internal agent plans/specs stay local; maintained decisions belong in docs/adr or runbooks.
+docs/superpowers/

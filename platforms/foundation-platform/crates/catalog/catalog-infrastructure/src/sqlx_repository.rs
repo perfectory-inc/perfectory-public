@@ -470,7 +470,7 @@ impl CatalogRepository for PgCatalogRepository {
     ) -> Result<Option<VectorTileManifest>, CatalogError> {
         let manifest_row = sqlx::query(
             "SELECT id, current_version, previous_version, tiles_url_template,
-                    manifest_file_asset_id, source_record_id, published_at,
+                    source_snapshot_id, manifest_file_asset_id, source_record_id, published_at,
                     created_at, updated_at, version
              FROM catalog.vector_tile_manifest
              WHERE is_active = true

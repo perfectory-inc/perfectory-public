@@ -18,6 +18,15 @@ type TestResult = Result<(), Box<dyn Error>>;
 /// Foundation workflow carries no gitleaks steps.)
 const FOUNDATION_CI_WORKFLOW: &str = "../../.github/workflows/foundation-ci.yml";
 
+// These files are the immutable launch baseline. Later schema changes are
+// append-only SQLx migrations and must not make this historical hash change.
+const FOUNDATION_BASELINE_MIGRATIONS: [&str; 4] = [
+    "20260719000001_foundation_platform_schema.sql",
+    "20260719000002_foundation_platform_constraints.sql",
+    "20260719000003_foundation_platform_indexes.sql",
+    "20260719000004_foundation_platform_foreign_keys.sql",
+];
+
 #[test]
 fn compose_builds_migrates_and_runs_the_foundation_api_with_separate_roles() -> TestResult {
     let compose = read_repo_file("docker-compose.yml")?;
@@ -818,16 +827,20 @@ fn signed_oidc_smoke_is_disposable_secret_safe_and_covers_all_boundaries() -> Te
 fn foundation_baseline_migration_set_is_complete() -> TestResult {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let migration_dir = root.join("migrations");
-    let baseline_names = [
-        "20260719000001_foundation_platform_schema.sql",
-        "20260719000002_foundation_platform_constraints.sql",
-        "20260719000003_foundation_platform_indexes.sql",
-        "20260719000004_foundation_platform_foreign_keys.sql",
-    ];
+    // SQLx remains the SSOT for the complete migration set.
+    let migrations = FOUNDATION_BASELINE_MIGRATIONS
+        .iter()
+        .map(|name| {
+            let path = migration_dir.join(name);
+            assert!(
+                path.is_file(),
+                "launch baseline migration is missing: {name}"
+            );
+            path
+        })
+        .collect::<Vec<_>>();
     let mut digest = Sha256::new();
-    for name in baseline_names {
-        let path = migration_dir.join(name);
-        assert!(path.exists(), "baseline migration is missing: {name}");
+    for path in migrations {
         let name = path
             .file_name()
             .and_then(|value| value.to_str())

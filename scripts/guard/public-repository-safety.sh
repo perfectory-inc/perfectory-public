@@ -11,7 +11,10 @@ fail() {
   rc=1
 }
 
-tracked="$(git ls-files)"
+# Inspect the candidate working tree. A path deleted in an unstaged change is no
+# longer part of the candidate and must not keep failing path-policy checks until
+# a human stages the deletion.
+tracked="$(git ls-files | while IFS= read -r path; do [ -e "$path" ] && printf '%s\n' "$path"; done)"
 
 forbidden_paths="$(printf '%s\n' "$tracked" | grep -E \
   '^\.github/CODEOWNERS$|(^|/)docs/(archive|review|superpowers|plans|specs|research|migration)(/|$)|(^|/)docs/([^/]+/)*handoff(/|$)|^products/gongzzang/(MEMORY\.md|memory/)|^products/gongzzang/docs/(KNOWN-ISSUES|followups)\.md$|^products/gongzzang/docs/sp9(/|$)|(^|/)(target|node_modules|\.pnpm-store|__pycache__|\.next|dist|coverage|\.turbo|\.cache|\.playwright-mcp)(/|$)|(^|/)platforms/foundation-platform/docs/runbooks/public-data-bronze-current-status\.md$|^platforms/foundation-platform/docs/catalog/building-register-unit-normalization-second-pass-evidence\.md$|^platforms/foundation-platform/docs/catalog/vworld/(2d-data-api|bulk-download|display-only|national-priority-catalog|ned-operations|wfs-layers)\.md$|^platforms/foundation-platform/docs/canonical-property-data-platform-pipeline-guide\.md$' \

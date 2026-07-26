@@ -1,5 +1,9 @@
 use std::path::PathBuf;
 
+use crate::public_data_control_support::optional_env_value;
+use crate::runtime_environment::{
+    validate_bronze_driver, validate_foundation_r2_bucket, RuntimeEnvironment,
+};
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use collection_application::{
@@ -14,9 +18,6 @@ use foundation_outbox::{
     object_storage::{ObjectWriteMode, PutObjectRequest},
     FileObjectStorage, ObjectStorageService, ObjectStorageStreamingService, R2ObjectStorage,
 };
-use lakehouse_domain::LakehouseOwnerService;
-
-use crate::public_data_control_support::optional_env_value;
 
 /// Thin services-layer adapter bridging the low-level [`ObjectStorageService`] port to the
 /// [`BronzeRawObjectWriter`] write seam the [`collection_application::BronzeCommitter`] depends on.
@@ -207,16 +208,11 @@ pub fn bronze_object_storage_driver_from_options(
 /// Resolves the storage driver from `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER` (the same env the
 /// real storage builders read), and for `r2` requires the full R2 environment that
 /// [`R2ObjectStorage::from_env`] needs (`R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`,
-/// `R2_SECRET_ACCESS_KEY`, and at least one of `R2_ENDPOINT` / `R2_ACCOUNT_ID`). For `r2` it ALSO
-/// asserts that `R2_BUCKET_NAME` is *exactly* the Foundation Platform production bucket
-/// ([`LakehouseOwnerService::FoundationPlatform::production_r2_bucket_name`]): presence is not enough, the
-/// bucket must be the right one. A wrong-but-present bucket would otherwise pass env-presence checks
-/// and let a direct live-write subcommand stream Bronze objects into the wrong bucket — this is the
-/// same exact-bucket gate the registry preflight (`verify_foundation_platform_r2_bucket_env`) enforces,
-/// pulled into the shared preflight so every live-write entrypoint is covered, not just the
-/// registry-gated `national-data-collection-run`. Emits one structured log line naming the resolved
-/// driver and bucket-or-local-root so an operator can confirm the target from the logs before
-/// a large provider download streams to it.
+/// `R2_SECRET_ACCESS_KEY`, and at least one of `R2_ENDPOINT` / `R2_ACCOUNT_ID`). For `r2` it also
+/// requires the bucket governed by `FOUNDATION_PLATFORM_RUNTIME_ENV`; production continues to use
+/// the lakehouse domain's exact production-bucket SSOT. A wrong-but-present bucket would otherwise
+/// pass env-presence checks and let a direct live-write subcommand stream Bronze objects into the
+/// wrong environment. The shared preflight covers every live-write entrypoint that calls it.
 ///
 /// Call this from a live-write ingest path only when live write is enabled, before the first put.
 ///
@@ -224,31 +220,28 @@ pub fn bronze_object_storage_driver_from_options(
 /// - the driver env is empty or not `r2`/`local`, or `local` is selected without
 ///   `FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT`;
 /// - the driver is `r2` and any required R2 environment variable is missing/blank;
-/// - the driver is `r2` and `R2_BUCKET_NAME` is not exactly the Foundation Platform production bucket.
+/// - `FOUNDATION_PLATFORM_RUNTIME_ENV` is missing or invalid;
+/// - the driver is `r2` and `R2_BUCKET_NAME` is not the bucket governed by that runtime environment.
 pub fn live_write_target_preflight() -> anyhow::Result<()> {
+    let runtime_environment = RuntimeEnvironment::from_env_with_execution_context()?;
     let driver = optional_env_value("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER")?;
     let local_root = optional_env_value("FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT")?;
     let resolved =
         bronze_object_storage_driver_from_options(driver.as_deref(), local_root.as_deref())?;
     let (driver_label, target) = match &resolved {
         BronzeObjectStorageDriver::R2 => {
+            validate_bronze_driver(runtime_environment, "r2")?;
             require_r2_env(&|name: &str| std::env::var(name))?;
             let bucket = std::env::var("R2_BUCKET_NAME")
                 .ok()
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "<unset>".to_owned());
-            // Presence is not enough: the bucket must be *exactly* the Foundation Platform production
-            // bucket. Without this, a direct live-write subcommand with a wrong-but-present bucket
-            // would stream Bronze objects into the wrong R2 bucket. Mirrors the registry preflight's
-            // `verify_foundation_platform_r2_bucket_env` exact-bucket check.
-            let expected = LakehouseOwnerService::FoundationPlatform.production_r2_bucket_name();
-            if bucket != expected {
-                bail!("live-write preflight: R2_BUCKET_NAME must be {expected}, got {bucket}");
-            }
+            validate_foundation_r2_bucket(runtime_environment, &bucket)?;
             ("r2", bucket)
         }
         BronzeObjectStorageDriver::Local(root) => {
+            validate_bronze_driver(runtime_environment, "local")?;
             ("local", root.to_string_lossy().replace('\\', "/"))
         }
     };
@@ -305,6 +298,10 @@ mod tests {
 
     use super::{
         live_write_target_preflight, require_r2_env, BronzeCatalogRecoveryObjectStorageReader,
+    };
+    use crate::runtime_environment::{
+        ExecutionContext, RuntimeEnvironment, EXECUTION_CONTEXT_ENV, PRELAUNCH_SHARED_ENV,
+        RUNTIME_ENVIRONMENT_ENV,
     };
 
     #[tokio::test]
@@ -413,8 +410,11 @@ mod tests {
     /// variable it touched on exit.
     #[test]
     fn live_write_target_preflight_r2_missing_env_fails_naming_the_var() {
-        const VARS: [&str; 6] = [
+        const VARS: [&str; 9] = [
             "FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER",
+            RUNTIME_ENVIRONMENT_ENV,
+            EXECUTION_CONTEXT_ENV,
+            PRELAUNCH_SHARED_ENV,
             "R2_BUCKET_NAME",
             "R2_ACCESS_KEY_ID",
             "R2_SECRET_ACCESS_KEY",
@@ -430,6 +430,9 @@ mod tests {
         for name in VARS {
             std::env::remove_var(name);
         }
+        std::env::set_var(RUNTIME_ENVIRONMENT_ENV, "production");
+        std::env::set_var(EXECUTION_CONTEXT_ENV, "developer");
+        std::env::set_var(PRELAUNCH_SHARED_ENV, "1");
         std::env::set_var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER", "r2");
         // Use the real expected bucket so the missing-credential check is the unambiguous failure
         // cause (the exact-bucket assertion runs only after the env-presence check passes).
@@ -458,8 +461,11 @@ mod tests {
     }
 
     /// The R2 env vars the full-valid preflight needs, in the order they are set/restored.
-    const PREFLIGHT_R2_VARS: [&str; 6] = [
+    const PREFLIGHT_R2_VARS: [&str; 9] = [
         "FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER",
+        RUNTIME_ENVIRONMENT_ENV,
+        EXECUTION_CONTEXT_ENV,
+        PRELAUNCH_SHARED_ENV,
         "R2_BUCKET_NAME",
         "R2_ACCESS_KEY_ID",
         "R2_SECRET_ACCESS_KEY",
@@ -470,7 +476,7 @@ mod tests {
     /// Runs `live_write_target_preflight()` with a fully valid R2 environment except that
     /// `R2_BUCKET_NAME` is set to `bucket`. Saves and restores every variable it touches under the
     /// env lock so it cannot race the other env-mutating preflight tests.
-    fn preflight_with_bucket(bucket: &str) -> anyhow::Result<()> {
+    fn preflight_with_bucket(runtime: RuntimeEnvironment, bucket: &str) -> anyhow::Result<()> {
         let _guard = super::test_support::env_lock();
         let saved: Vec<(&str, Option<String>)> = PREFLIGHT_R2_VARS
             .iter()
@@ -480,6 +486,19 @@ mod tests {
         for name in PREFLIGHT_R2_VARS {
             std::env::remove_var(name);
         }
+        std::env::set_var(RUNTIME_ENVIRONMENT_ENV, runtime.wire_name());
+        std::env::set_var(
+            EXECUTION_CONTEXT_ENV,
+            ExecutionContext::Developer.wire_name(),
+        );
+        std::env::set_var(
+            PRELAUNCH_SHARED_ENV,
+            if matches!(runtime, RuntimeEnvironment::Production) {
+                "1"
+            } else {
+                "0"
+            },
+        );
         std::env::set_var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER", "r2");
         std::env::set_var("R2_BUCKET_NAME", bucket);
         std::env::set_var("R2_ACCESS_KEY_ID", "test-access");
@@ -505,7 +524,7 @@ mod tests {
         let expected = LakehouseOwnerService::FoundationPlatform.production_r2_bucket_name();
         let wrong = "foundation-platform-bronze";
 
-        let error = preflight_with_bucket(wrong)
+        let error = preflight_with_bucket(RuntimeEnvironment::Production, wrong)
             .expect_err("a wrong-but-present R2_BUCKET_NAME must fail the preflight");
         let message = error.to_string();
         assert!(
@@ -523,8 +542,17 @@ mod tests {
     fn live_write_target_preflight_r2_correct_bucket_is_ok() {
         let expected = LakehouseOwnerService::FoundationPlatform.production_r2_bucket_name();
         assert!(
-            preflight_with_bucket(expected).is_ok(),
+            preflight_with_bucket(RuntimeEnvironment::Production, expected).is_ok(),
             "the exact Foundation Platform production bucket must pass the preflight"
+        );
+    }
+
+    #[test]
+    fn live_write_target_preflight_accepts_the_dedicated_local_r2_bucket() {
+        let expected = RuntimeEnvironment::Local.foundation_r2_bucket();
+        assert!(
+            preflight_with_bucket(RuntimeEnvironment::Local, expected).is_ok(),
+            "the local runtime must use its dedicated R2 bucket"
         );
     }
 }

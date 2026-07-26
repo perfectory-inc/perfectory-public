@@ -15,6 +15,11 @@ on:
       - "platforms/foundation-platform/**"
       - "scripts/tiles/**"
       - "scripts/verify/integration.sh"
+      - "scripts/verify/foundation-kafka-live.sh"
+      - "scripts/guard/foundation-kafka-contract.sh"
+      - "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml"
+      - "docs/technology-stack.md"
+      - "docs/adr/**"
       - ".github/workflows/foundation-ci.yml"
       - ".github/workflows/gongzzang-frontend.yml"
       # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
@@ -36,7 +41,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER: log
   RUST_TOOLCHAIN: "1.96.0"
   CARGO_DENY_VERSION: "0.19.8"
   SYFT_VERSION: "v1.44.0"
@@ -199,7 +203,79 @@ jobs:
       # disposable DB. DATABASE_URL (set above) is the already-provisioned database.
       - name: Run ignored integration tests (xtask SSOT)
         working-directory: ${{ github.workspace }}
+        env:
+          FOUNDATION_PLATFORM_RUNTIME_ENV: ci
+          FOUNDATION_PLATFORM_EXECUTION_CONTEXT: ci
         run: cargo xtask integration foundation
+
+  kafka-integration:
+    name: Kafka and Schema Registry integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+        ports:
+          - 5432/tcp
+        env:
+          POSTGRES_USER: foundation_platform
+          POSTGRES_PASSWORD: foundation_platform_dev_2026
+          POSTGRES_DB: foundation_platform
+        options: >-
+          --health-cmd "pg_isready -U foundation_platform -d foundation_platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      FOUNDATION_KAFKA_COMPOSE_PROJECT: foundation-kafka-ci-${{ github.run_id }}
+      FOUNDATION_TEST_KAFKA_REQUIRED: "1"
+      INTELLIGENCE_TEST_KAFKA_HOST_PORT: 19092
+      INTELLIGENCE_TEST_KARAPACE_HOST_PORT: 18081
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+
+      - name: Set dynamic database URL
+        env:
+          POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: echo "DATABASE_URL=postgres://foundation_platform:foundation_platform_dev_2026@localhost:${POSTGRES_PORT}/foundation_platform" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Install database client
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
+          psql --version
+
+      - name: Run migrations through the production runner
+        run: FOUNDATION_MIGRATOR_DATABASE_URL="$DATABASE_URL" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
+
+      - name: Run real Kafka/Schema Registry live gate
+        working-directory: ${{ github.workspace }}
+        env:
+          FOUNDATION_PLATFORM_RUNTIME_ENV: ci
+          FOUNDATION_PLATFORM_EXECUTION_CONTEXT: ci
+        run: bash scripts/verify/foundation-kafka-live.sh
+
+      - name: Clean Kafka compose resources
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: timeout --foreground 120s docker compose -p "$FOUNDATION_KAFKA_COMPOSE_PROJECT" -f platforms/intelligence-platform/docker/c2-event-backbone.compose.yml down -v --remove-orphans
 
   compose-smoke:
     name: Independent Foundation Compose smoke
@@ -212,6 +288,9 @@ jobs:
       FOUNDATION_DB_PORT: 15434
       FOUNDATION_API_PORT: 18080
       FOUNDATION_REDIS_PORT: 16379
+      FOUNDATION_PLATFORM_RUNTIME_ENV: ci
+      FOUNDATION_PLATFORM_EXECUTION_CONTEXT: ci
+      FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER: log
       IDENTITY_API_BASE_URL: https://identity.example.test
       ZITADEL_ISSUER_URL: http://127.0.0.1:18081
       FOUNDATION_PLATFORM_ZITADEL_AUDIENCE: foundation-api
@@ -267,7 +346,7 @@ jobs:
   required:
     name: required/foundation
     if: ${{ always() }}
-    needs: [rust-quality, supply-chain, postgres-integration, compose-smoke]
+    needs: [rust-quality, supply-chain, postgres-integration, kafka-integration, compose-smoke]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -279,6 +358,7 @@ jobs:
           REQUIRED_RESULT_RUST_QUALITY: ${{ needs.rust-quality.result }}
           REQUIRED_RESULT_SUPPLY_CHAIN: ${{ needs.supply-chain.result }}
           REQUIRED_RESULT_POSTGRES_INTEGRATION: ${{ needs.postgres-integration.result }}
+          REQUIRED_RESULT_KAFKA_INTEGRATION: ${{ needs.kafka-integration.result }}
           REQUIRED_RESULT_COMPOSE_SMOKE: ${{ needs.compose-smoke.result }}
         working-directory: .
         run: bash scripts/ci/require-successful-needs.sh

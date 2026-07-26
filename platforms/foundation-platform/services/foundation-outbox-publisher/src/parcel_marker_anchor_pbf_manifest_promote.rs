@@ -531,6 +531,7 @@ fn build_promotion_input(
         current_version: manifest.artifact_version.clone(),
         expected_current_version: config.expected_current_version.clone(),
         tiles_url_template: config.tiles_url_template.clone(),
+        source_snapshot_id: manifest.source_snapshot_id.clone(),
         source_record: VectorTileSourceRecordCommand {
             source: "foundation-platform.parcel_marker_anchor_pbf_artifact_build".to_owned(),
             source_url: None,
@@ -619,6 +620,7 @@ fn build_runtime_promotion_input(
             current_version: config.runtime_version.clone(),
             expected_current_version: config.expected_current_version.clone(),
             tiles_url_template: config.tiles_url_template.clone(),
+            source_snapshot_id: exact_manifest.source_snapshot_id.clone(),
             source_record: VectorTileSourceRecordCommand {
                 source: "foundation-platform.parcel_marker_anchor_runtime_manifest_promote"
                     .to_owned(),

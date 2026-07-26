@@ -23,13 +23,60 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::{
-    collection_job_to_ingest_config, existing_collection_job_report,
-    parse_collection_max_in_flight, persist_bulk_file_stream_with_adapters,
-    pre_download_skip_report, select_collection_jobs, BuildingHubBulkCollectionPlanJob,
+    collection_job_from_plan, collection_job_to_ingest_config, collection_success_from_report,
+    existing_collection_job_report, parse_collection_max_in_flight,
+    persist_bulk_file_stream_with_adapters, pre_download_skip_report, select_collection_jobs,
+    BuildingHubBulkCollectionJobEvidence, BuildingHubBulkCollectionPlanJob,
     BuildingHubBulkIngestConfig,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+#[test]
+fn bulk_collection_job_is_stable_and_carries_provider_file_identity() {
+    let planned = test_collection_job();
+    let first =
+        collection_job_from_plan(&planned).expect("bulk plan job should become a JobBus job");
+    let second = collection_job_from_plan(&planned).expect("same bulk plan job must be stable");
+
+    assert_eq!(first, second);
+    assert_eq!(first.provider, "hub.go.kr");
+    assert_eq!(first.endpoint, planned.operation);
+    assert_eq!(first.endpoint_slug, planned.endpoint_slug);
+    assert_eq!(first.spec["provider_file_id"], planned.provider_file_id);
+    assert_eq!(
+        first.spec["provider_file_period"],
+        planned.provider_file_period
+    );
+    assert_eq!(first.request_fingerprint_sha256.len(), 64);
+    assert!(first
+        .request_fingerprint_sha256
+        .chars()
+        .all(|character| character.is_ascii_hexdigit()));
+}
+
+#[test]
+fn bulk_collection_success_preserves_bronze_integrity_for_jobbus_ack() {
+    let report = BuildingHubBulkCollectionJobEvidence {
+        source_slug: "hubgokr__building_register_main".to_owned(),
+        provider_file_id: "OPN209912310000000008".to_owned(),
+        status: "succeeded".to_owned(),
+        object_key: Some("bronze/source=hubgokr__building_register_main/file.zip".to_owned()),
+        size_bytes: Some(42),
+        checksum_sha256: Some("a".repeat(64)),
+        reused_bronze_object: false,
+        error_message: None,
+        duration_ms: 1,
+    };
+
+    let success = collection_success_from_report(&report, Utc::now())
+        .expect("a successful bulk report must be ackable");
+    assert_eq!(success.bronze_object_key, report.object_key.unwrap());
+    assert_eq!(success.bronze_checksum_sha256, "a".repeat(64));
+    assert_eq!(success.bronze_size_bytes, 42);
+    assert_eq!(success.request_count, 1);
+    assert_eq!(success.source_record_count, 0);
+}
 
 #[tokio::test]
 async fn persist_bulk_file_stream_records_file_metadata_after_storage_write() -> TestResult {

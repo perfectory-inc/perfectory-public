@@ -351,10 +351,10 @@ impl VectorTileRollbackFixture {
         sqlx::query(
             "INSERT INTO catalog.vector_tile_manifest
              (id, current_version, previous_version, tiles_url_template,
-              manifest_file_asset_id, source_record_id, is_active, version)
+              source_snapshot_id, manifest_file_asset_id, source_record_id, is_active, version)
              VALUES ($1, $2, $3,
               'https://static.example.com/{object_key_prefix}/{z}/{x}/{y}.pbf',
-              $4, $5, $6, $7)",
+              'iceberg:fixture-manifest', $4, $5, $6, $7)",
         )
         .bind(manifest_id)
         .bind(current_version)

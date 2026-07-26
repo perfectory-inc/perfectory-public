@@ -305,7 +305,7 @@ sed '/^jobs:$/i\defaults:\n  run:\n    shell: bash' \
 expect_rejected unsafe-defaults "$test_root/unsafe-defaults"
 
 mkdir "$test_root/mutable-service"
-sed '0,/    runs-on: ubuntu-24.04/{s#    runs-on: ubuntu-24.04#    runs-on: ubuntu-24.04\n    services:\n      postgres:\n        image: postgres:16#}' \
+sed '0,/    runs-on: ubuntu-24.04/{s#    runs-on: ubuntu-24.04#    runs-on: ubuntu-24.04\n    services:\n      postgres:\n        image: postgres:17#}' \
   "$test_root/valid/example.yml" >"$test_root/mutable-service/example.yml"
 expect_rejected mutable-service-image "$test_root/mutable-service"
 

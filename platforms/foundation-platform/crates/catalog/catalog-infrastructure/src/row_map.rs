@@ -335,6 +335,7 @@ pub fn row_to_vector_tile_manifest(
             row.try_get::<Uuid, _>("source_record_id")
                 .map_err(map_sqlx)?,
         ),
+        source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
         artifacts,
         created_at: row
             .try_get::<DateTime<Utc>, _>("created_at")

@@ -152,7 +152,7 @@ Phase 1-2 검색 needs:
 | Hybrid (PostGIS Silver 추가) | $20 | $80 | $400 | $1,500 | PostGIS | 즉시 |
 | 100% 백엔드 MVT (레거시 동적 방식) | $80 | $400 | $2,000 | $8,000 | PostGIS | 즉시 |
 
-> 위는 polygon 시스템만의 추가 비용. 앱 base (RDS for listing/user/auth, Fargate, Redis) 는 셋 다 동일하며 별도.
+> 위는 polygon 시스템만의 추가 비용. 앱 base (RDS for listing/user/auth, Fargate, Valkey 8) 는 셋 다 동일하며 별도.
 
 ## 아키텍처
 

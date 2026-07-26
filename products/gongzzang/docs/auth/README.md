@@ -11,7 +11,7 @@
 - 사업자등록번호 검증 (홈택스 진위확인)
 - 공인중개사 자격 식별 (사업자 업종 코드)
 - JWT 검증 미들웨어 (Rust)
-- 세션 (Redis)
+- 세션 (Valkey 8, Redis protocol)
 
 ## 작성 예정 문서 (sub-project 3)
 - `zitadel.md` — Zitadel 운영, 커스텀 페이지
@@ -20,7 +20,7 @@
 - `webauthn.md` — Passkey
 - `rbac.md` — 권한 매트릭스 (5종 역할)
 - `business-verification.md` — 사업자/중개사 검증
-- `session.md` — Redis 세션 + 무효화
+- `session.md` — Valkey 8 세션 + 무효화 (Redis protocol)
 
 ## Frontend 통합
 
