@@ -8,7 +8,7 @@
 #   15433 — zitadel-db   (gongzzang/infra/zitadel/docker-compose.yml)
 #   18443 — zitadel       (gongzzang/infra/zitadel/docker-compose.yml)
 #   15434 — foundation-platform-db (이 파일)
-#   16379 — foundation-platform-redis (이 파일)
+#   16379 — foundation-platform-valkey (이 파일)
 #
 # Foundation reuses the local Zitadel instance for token verification during development.
 
@@ -162,20 +162,20 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+  valkey:
+    image: valkey/valkey:8-alpine@sha256:a038175878d66b9d274fbf8be73c0305e93798b83917647f167e18cef3c71eec
     restart: unless-stopped
     ports:
       - "127.0.0.1:${FOUNDATION_REDIS_PORT:-16379}:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["valkey-server", "--appendonly", "yes"]
     volumes:
-      - redis_data:/data
+      - valkey_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
 
 volumes:
   pgdata:
-  redis_data:
+  valkey_data:

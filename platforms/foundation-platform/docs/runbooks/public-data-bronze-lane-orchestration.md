@@ -39,7 +39,7 @@ endpoint catalog는 "무엇을 수집할 수 있는지"의 SSOT이고, lane regi
 |---|---|---|---|
 | `building-hub-bulk` | `hub.go.kr` | bulk file | `FOUNDATION_PLATFORM_BUILDING_HUB_BULK_COLLECTION_MAX_IN_FLIGHT` |
 | `vworld-dataset-file` | `VWorld` | provider dataset file | `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_IN_FLIGHT` |
-| `data-go-kr-api` | `data.go.kr` | API parity/fallback only | `FOUNDATION_PLATFORM_NATIONAL_ASYNC_MAX_IN_FLIGHT` |
+| `data-go-kr-api` | `data.go.kr` | disabled legacy API parity command | none; command fails closed |
 | `vworld-ned-open-api` | `VWorld` | Open API | `FOUNDATION_PLATFORM_VWORLD_NED_ATTRIBUTE_MAX_IN_FLIGHT` |
 
 현재 기본 실행 대상은 `status=enabled`이고 `include_by_default=true`인 lane이다.
@@ -107,7 +107,7 @@ cargo run -p foundation-outbox-publisher -- run-public-data-bronze-collection-la
 - bulk 전체 다운로드는 lane별 `*_CONFIRM_FULL_DOWNLOAD=1`이 필요하다.
 - R2 live write는 lane별 `*_LIVE_WRITE=1`이 필요하다.
 - orchestration evidence의 `completion_claim_allowed`와 `national_rollout_allowed`는 항상 `false`다.
-- async lane(`national_data_collection_async`)은 page-window **shard fragment**만 수집한다. pagination guard는 이 경로에서 전국 coverage를 단언하지 않으며(`ASYNC_SHARD_WINDOW_DEFERS_TO_COVERAGE_MANIFEST`), **"전국 누락 없음" 완전성은 오직 national coverage manifest(`check-national-bronze-object-manifest`)만 단언한다.** 개별 async run의 evidence를 완전성 주장으로 읽어선 안 된다.
+- legacy async lane(`national_data_collection_async`)은 data.go.kr API parity 경로이며 현재 bulk-only 정책으로 실행이 차단된다. 전국 Bronze 원천은 `building-hub-bulk`와 `vworld-dataset-file` 같은 파일 lane만 사용한다.
 
 ## 선택 실행
 

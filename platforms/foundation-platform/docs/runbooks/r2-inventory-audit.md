@@ -123,7 +123,8 @@ download guard와 secret redaction baseline 이며, Cloudflare billing API 연�
 `.env.local` 또는 process 환경에 다음 값이 필요하다.
 
 ```text
-R2_BUCKET_NAME=
+FOUNDATION_PLATFORM_RUNTIME_ENV=local|ci|staging|production
+R2_BUCKET_NAME=foundation-platform-lakehouse-dev  # local process uses the remote dev bucket
 R2_ENDPOINT=              # 또는 R2_ACCOUNT_ID
 R2_ACCOUNT_ID=
 R2_REGION=auto

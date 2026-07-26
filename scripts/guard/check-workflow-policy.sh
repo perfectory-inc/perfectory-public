@@ -242,6 +242,7 @@ for workflow in "${workflows[@]}"; do
       if (step_if == "") return
       allowed=(step_name == "Upload supply-chain artifacts" && step_if == "always()") \
         || (step_name == "Clean Compose resources" && step_if == "always()") \
+        || (step_name == "Clean Kafka compose resources" && step_if == "always()") \
         || (step_name == "Dump API log on failure" && step_if == "failure()") \
         || (step_name == "Upload Playwright report (on failure)" && step_if == "failure()")
       if (!allowed) {

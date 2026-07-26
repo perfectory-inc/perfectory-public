@@ -110,13 +110,13 @@ Spark/Trino 소유 아님:
 
 ## 개발 환경 전략
 
-기본 `docker compose up` 은 `postgres`, `redis` 만 실행한다. lakehouse compute engine 은 opt-in profile 로
+기본 `docker compose up` 은 `postgres`, `valkey` 만 실행한다. lakehouse compute engine 은 opt-in profile 로
 추가한다.
 
 ```text
 default profile:
   postgres
-  redis
+  valkey
 
 lakehouse-query profile:
   trino
@@ -125,7 +125,7 @@ lakehouse-batch profile:
   spark
 ```
 
-이렇게 하는 이유는 Spark/Trino 가 무겁기 때문이다. 평소 API 개발자는 기본 DB/Redis 만 사용하고,
+이렇게 하는 이유는 Spark/Trino 가 무겁기 때문이다. 평소 API 개발자는 기본 DB/Valkey 만 사용하고,
 lakehouse 검증이 필요한 개발자만 profile 을 켠다.
 
 ## Rejected

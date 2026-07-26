@@ -12,8 +12,8 @@
 
 | 영역 | 선택 | 결정 근거 |
 |------|------|---------|
-| 백엔드 언어 | **Rust 1.85+** | → [docs/adr/0001-language-rust-ts.md](./docs/adr/0001-language-rust-ts.md) |
-| 프론트엔드 | **Next.js 16 + React 19 + TypeScript 5.7** | → [docs/adr/0003-frontend-nextjs-react19.md](./docs/adr/0003-frontend-nextjs-react19.md) |
+| 백엔드 언어 | **Rust 1.96.0** | 모노레포 루트 `rust-toolchain.toml` 단일 기준 → [docs/adr/0001-language-rust-ts.md](./docs/adr/0001-language-rust-ts.md) |
+| 프론트엔드 | **Next.js 16 + React 19 + TypeScript 5.9.3** | 실제 workspace manifest 기준 → [docs/adr/0003-frontend-nextjs-react19.md](./docs/adr/0003-frontend-nextjs-react19.md) |
 | DB | **PostgreSQL 17 + PostGIS** | → [docs/adr/0004-db-postgres-postgis.md](./docs/adr/0004-db-postgres-postgis.md) |
 | HTTP 서버 | **Axum** + tokio | ADR-0001 |
 | ORM/SQL | **SQLx** (compile-time SQL 검증) | ADR-0001 |
@@ -114,8 +114,8 @@ crates/gongzzang-persistence → crates/{*-domain, shared-kernel, api-types} (po
 
 | 정보 | 진짜 SSOT | 사본 |
 |------|---------|------|
-| 사용자 데이터 | PostgreSQL `user` 테이블 | Redis 세션 |
-| 공공 API raw | DB `raw_response JSONB` | Redis 캐시 |
+| 사용자 데이터 | PostgreSQL `user` 테이블 | Valkey 8 세션 (Redis protocol) |
+| 공공 API raw | DB `raw_response JSONB` | Valkey 8 캐시 (Redis protocol) |
 | 비즈니스 규칙 | `crates/*-domain` Rust 코드 | 테스트, 문서 |
 | API 계약 | Rust + utoipa | `openapi.json` (자동), TS 타입 (자동) |
 | DB 스키마 | `db/migration/V*.sql` | Rust 타입 (sqlx 자동) |

@@ -721,13 +721,14 @@ async fn insert_vector_tile_manifest_row_tx(
     let manifest_insert = sqlx::query(
         "INSERT INTO catalog.vector_tile_manifest
          (id, current_version, previous_version, tiles_url_template,
-          manifest_file_asset_id, source_record_id, is_active, version)
-         VALUES ($1, $2, $3, $4, $5, $6, false, 1)",
+          source_snapshot_id, manifest_file_asset_id, source_record_id, is_active, version)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, false, 1)",
     )
     .bind(manifest_id)
     .bind(&command.current_version)
     .bind(previous_version)
     .bind(&command.tiles_url_template)
+    .bind(&command.source_snapshot_id)
     .bind(manifest_file_asset_id)
     .bind(source_record_id)
     .execute(&mut **tx)
@@ -824,6 +825,11 @@ fn validate_promotion_command(
     if command.tiles_url_template.trim().is_empty() {
         return Err(CatalogError::InvalidVectorTileManifestPromotion(
             "tiles_url_template must not be empty".to_owned(),
+        ));
+    }
+    if command.source_snapshot_id.trim().is_empty() {
+        return Err(CatalogError::InvalidVectorTileManifestPromotion(
+            "source_snapshot_id must not be empty".to_owned(),
         ));
     }
     if command.artifacts.is_empty() {
@@ -960,7 +966,7 @@ async fn load_vector_tile_manifest_by_id_tx(
 ) -> Result<VectorTileManifest, CatalogError> {
     let row = sqlx::query(
         "SELECT id, current_version, previous_version, tiles_url_template,
-                manifest_file_asset_id, source_record_id, published_at,
+                source_snapshot_id, manifest_file_asset_id, source_record_id, published_at,
                 created_at, updated_at, version
          FROM catalog.vector_tile_manifest
          WHERE id = $1",

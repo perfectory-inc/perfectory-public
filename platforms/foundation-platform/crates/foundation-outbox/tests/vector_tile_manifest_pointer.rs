@@ -272,6 +272,7 @@ fn test_manifest(
             current_version: current_version.to_owned(),
             previous_version: previous_version.to_owned(),
             tiles_url_template: "{object_key_prefix}/{z}/{x}/{y}.pbf".to_owned(),
+            source_snapshot_id: "iceberg:gold-fixture-0001".to_owned(),
             published_at: Utc::now(),
             artifacts,
         },

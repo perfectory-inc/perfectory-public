@@ -11,11 +11,11 @@ Authoritative data remains in:
 - Gongzzang Postgres for Gongzzang product records;
 - Foundation Platform for Catalog facts and PNU anchors;
 - R2/lakehouse objects for immutable media or data artifacts;
-- Redis/Valkey-compatible stores only for cache, session, rate limit, locks, and inbox deduplication.
+- Valkey 8 (Redis protocol) only for cache, session, rate limit, locks, and inbox deduplication.
 
 ## 2. Runtime Cache Uses
 
-Current Redis-compatible uses include:
+Current Valkey 8 uses include:
 
 - Next.js session storage: `apps/web/lib/session/store.ts`
 - session refresh single-flight: `apps/web/lib/session/single-flight.ts`
@@ -25,18 +25,18 @@ Current Redis-compatible uses include:
 - Rust API backend rate limit: `services/gongzzang-api/src/backend_rate_limit.rs`
 - listing marker serving cache/single-flight: `services/gongzzang-api/src/listing_marker_serving`
 
-## 3. Production Redis Requirement
+## 3. Production Valkey Requirement
 
-Rust API startup treats missing Redis differently by environment:
+Rust API startup treats missing Valkey differently by environment:
 
-- development: Redis-dependent checks may degrade or skip;
+- development: Valkey-dependent checks may degrade or skip;
 - production: missing `REDIS_URL` is fail-fast where security would otherwise fail open.
 
 Important file:
 
 - `services/gongzzang-api/src/startup.rs`
 
-Next.js env validation also requires a production-safe Redis URL.
+Next.js env validation also requires a production-safe Valkey URL (`REDIS_URL` is retained as the Redis-protocol env name).
 
 Important file:
 

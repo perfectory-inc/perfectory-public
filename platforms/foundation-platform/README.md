@@ -47,7 +47,7 @@ compose 파일 4종:
 
 | 파일 | 용도 |
 |---|---|
-| `docker-compose.yml` | 로컬 개발 (Postgres/Redis + 부트스트랩·마이그레이션·API·스모크) |
+| `docker-compose.yml` | 로컬 개발 (PostgreSQL 17/Valkey 8 + 부트스트랩·마이그레이션·API·스모크) |
 | `compose.lakehouse.yml` | lakehouse compute (Trino 등 — API/DB 자격 없이 단독 실행 가능) |
 | `compose.observability.yml` | Prometheus 등 관측성 스택 |
 | `compose.recovery.yml` | pgBackRest 백업/복구 리허설 (R2) |
@@ -63,9 +63,12 @@ bash scripts/verify/cargo-verify.sh platforms/foundation-platform
 ## 문서 라우팅
 
 - [AGENTS.md](./AGENTS.md) — AI 에이전트 규칙 (영역 경계·Bronze 설계 SSOT·Cargo 빌드 SSOT)
-- [docs/adr/](./docs/adr/) — 영역 결정 기록 (ADR 27편)
+- [docs/adr/](./docs/adr/) — 영역 결정 기록
 - [docs/openapi/catalog.v1.json](./docs/openapi/catalog.v1.json) ·
   [docs/openapi/pipeline-graph.v1.json](./docs/openapi/pipeline-graph.v1.json) — published 계약
 - [docs/runbooks/](./docs/runbooks/) — 운영 런북
+- [docs/adr/0029-runtime-environment-backend-separation.md](./docs/adr/0029-runtime-environment-backend-separation.md) — local/CI/staging/production backend boundary
+- [docs/runbooks/runtime-environment-separation.md](./docs/runbooks/runtime-environment-separation.md) — R2/Redpanda environment runbook
+- [docs/runbooks/postgres-jobbus-contract-test.md](./docs/runbooks/postgres-jobbus-contract-test.md) — real-Postgres JobBus contract test and rollout boundary
 - [루트 ADR-0007](../../docs/adr/0007-public-code-private-operations-boundary.md) — 공개 코드와
   비공개 역사·운영 증거의 경계

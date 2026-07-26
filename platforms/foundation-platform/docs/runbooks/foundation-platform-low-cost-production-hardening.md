@@ -73,7 +73,7 @@ This checks the script parses and its scenarios resolve. It does not make a capa
 Only claim capacity with evidence:
 
 ```text
-On instance type X with Postgres config Y and Redis config Z,
+On instance type X with PostgreSQL 17 config Y and Valkey 8 config Z,
 foundation-platform handled N read RPS for D duration with:
 p95 <= A ms, p99 <= B ms, error rate <= C%, no restart, no OOM, no DB saturation.
 ```
@@ -82,8 +82,8 @@ p95 <= A ms, p99 <= B ms, error rate <= C%, no restart, no OOM, no DB saturation
 
 - k6 summary JSON from `target/load`.
 - Platform logs for the same time window.
-- `/metrics` scrape for request count, error rate, latency, DB pressure, Redis state, and outbox state.
-- Deployment target details: host type, CPU, memory, Postgres limits, Redis limits, and commit SHA.
+- `/metrics` scrape for request count, error rate, latency, DB pressure, Valkey state, and outbox state.
+- Deployment target details: host type, CPU, memory, PostgreSQL limits, Valkey limits, and commit SHA.
 
 ## Process Manager Guardrails
 
@@ -114,7 +114,7 @@ repository outside the application host in R2.
 - RPO objective: at most 5 minutes. The configured 60-second archive timeout is stricter, while the
   larger objective leaves room for network and alerting delay.
 - RTO objective: at most 2 hours for the current deployment class.
-- Redis remains disposable cache/idempotency state and is not restored as canonical data.
+- Valkey remains disposable cache/idempotency state and is not restored as canonical data.
 
 Install releases under `/opt/foundation-platform/releases/<git-sha>`. The deployment entrypoint
 atomically switches `/opt/foundation-platform/current`, records the prior target in `previous`, and
@@ -179,7 +179,7 @@ development image or disable WAL archiving.
 ```bash
 cd /opt/foundation-platform/current
 sudo scripts/deploy/foundation-runtime.sh up -d --build \
-  postgres redis foundation-api alertmanager prometheus
+  postgres valkey foundation-api alertmanager prometheus
 sudo scripts/deploy/foundation-runtime.sh ps
 ```
 

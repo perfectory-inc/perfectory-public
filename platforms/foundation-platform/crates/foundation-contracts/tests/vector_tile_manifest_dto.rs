@@ -48,6 +48,7 @@ fn vector_tile_manifest_response_matches_runtime_contract_shape() -> Result<(), 
         previous_version: "0196e7e0-3c20-7000-8000-000000000041".to_owned(),
         tiles_url_template: "https://static.example.com/{object_key_prefix}/{z}/{x}/{y}.pbf"
             .to_owned(),
+        source_snapshot_id: "iceberg:gold-fixture-0001".to_owned(),
         published_at: Utc::now(),
         artifacts,
     };
@@ -147,6 +148,7 @@ fn promote_vector_tile_manifest_request_uses_object_key_contract() -> Result<(),
         expected_current_version: "0196e7e0-3c20-7000-8000-000000000042".to_owned(),
         tiles_url_template: "https://static.example.com/{object_key_prefix}/{z}/{x}/{y}.pbf"
             .to_owned(),
+        source_snapshot_id: "iceberg:gold-fixture-0001".to_owned(),
         source_record: PromoteSourceRecordRequest {
             source: "vector-tile-build".to_owned(),
             source_url: Some(

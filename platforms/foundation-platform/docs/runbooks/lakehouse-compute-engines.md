@@ -3,7 +3,7 @@
 ## 목적
 
 `foundation-platform` 의 Netflix-style lakehouse compute layer 를 로컬에서 opt-in 으로 검증한다.
-기본 개발 환경은 `postgres`, `redis` 만 실행하고, Trino/Spark 는 필요할 때 profile 로 켠다.
+기본 개발 환경은 `postgres`, `valkey` 만 실행하고, Trino/Spark 는 필요할 때 profile 로 켠다.
 
 ```text
 Trino = Iceberg SQL query smoke

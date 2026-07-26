@@ -46,7 +46,10 @@ legal_gate="$root/scripts/guard/legal-publication-ci.sh"
 bash "$repository_identity_gate"
 bash "$legal_gate"
 rc=0
-for g in no-subdir-github toolchain-consistency migration-naming \
+for g in no-subdir-github toolchain-consistency technology-version-consistency \
+         foundation-kafka-contract \
+         backend-profile-consistency backend-profile-consistency-self-test \
+         technology-version-consistency-self-test migration-naming \
          unique-package-names no-stale-sibling-paths health-route-conformance \
          no-adhoc-cargo-lint foundation-parcel-current-selector-self-test \
          foundation-parcel-current-selector xtask-path-coverage \

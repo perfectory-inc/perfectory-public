@@ -198,6 +198,8 @@ pub struct VectorTileManifest {
     pub manifest_file_asset_id: FileAssetId,
     /// Source record that describes the tile build input.
     pub source_record_id: SourceRecordId,
+    /// Immutable Gold/Iceberg snapshot that produced this tile build.
+    pub source_snapshot_id: String,
     /// Layer artifacts contained in this manifest.
     pub artifacts: Vec<VectorTileArtifact>,
     /// UTC timestamp when the manifest was created.

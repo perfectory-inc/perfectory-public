@@ -42,7 +42,10 @@ describe a multi-repo world.
    area's `migrations/` (guard: `scripts/guard/migration-naming.sh`). Pre-launch renames of
    existing files are permitted once; local databases are recreated.
 8. **OpenAPI artifacts are JSON** at `docs/openapi/<name>.v<major>.json` per area.
-9. **PostgreSQL 17** everywhere; container images SHA-pinned (inherits gongzzang ADR-0028).
+9. **PostgreSQL 17** everywhere; **Valkey 8** is the cache runtime everywhere; container
+   images are SHA-pinned (inherits gongzzang ADR-0028 and gongzzang ADR-0007). Local, CI,
+   staging, and production may vary endpoint, credentials, and capacity, but not the
+   canonical runtime major version.
 10. **Cargo package names are globally unique across the monorepo**; generic lib names take
     an `<area>-` prefix (guard: `scripts/guard/unique-package-names.sh`).
 11. **Env var prefixes:** each area namespaces its variables (`FOUNDATION_*`, `IDENTITY_*`,

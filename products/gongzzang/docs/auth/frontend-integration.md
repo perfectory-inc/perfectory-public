@@ -19,7 +19,7 @@ umask 077
     'ZITADEL_REDIS_HOST_PORT=6379'
 } > infra/zitadel/.env
 
-# 2. Zitadel + Redis dev container 시작
+# 2. Zitadel + Valkey 8 dev container 시작
 docker compose --env-file infra/zitadel/.env \
   -f infra/zitadel/docker-compose.yml up -d
 
@@ -44,6 +44,10 @@ cargo run -p gongzzang-api
 # 7. 프론트엔드 실행
 pnpm --filter=@gongzzang/web dev
 ```
+
+`zitadel-db`는 PostgreSQL 17로 통일됐다. 기존 PostgreSQL 16 개발 볼륨이 있으면
+마이그레이션 전에 백업하거나 disposable 로컬 볼륨을 새로 만들어야 한다. Valkey 세션
+볼륨은 캐시이므로 서비스명 변경 시 새 볼륨이 생겨도 인증 세션을 재로그인하면 된다.
 
 브라우저로 `http://localhost:3000/login`을 열고, 커밋되지 않은
 `infra/zitadel/.env`의 `ZITADEL_ADMIN_EMAIL`과 `ZITADEL_ADMIN_PASSWORD`로 로그인한다.
@@ -71,7 +75,7 @@ Linux/macOS 는 `docker-compose.yml` 의 ports 를 8443/5433 으로 변경 가�
 사용자 → /login → POST /api/auth/login (PKCE start, HMAC-signed tmp cookie 발급)
        → 302 → Zitadel /oauth/v2/authorize
        → 사용자 인증 → 302 → /api/auth/callback?code=&state=
-       → state CSRF 검증 (timingSafeEqual) → token exchange → Redis session 발급 (sid)
+       → state CSRF 검증 (timingSafeEqual) → token exchange → Valkey 8 session 발급 (sid)
        → Set-Cookie __Host-sid → 302 → returnTo (sanitizeReturnTo, default /profile)
 ```
 
@@ -87,10 +91,10 @@ Linux/macOS 는 `docker-compose.yml` 의 ports 를 8443/5433 으로 변경 가�
 | 증상 | 원인 후보 | 확인 방법 |
 | --- | --- | --- |
 | `/login` 누르면 401 state mismatch | tmp cookie 만료 (10분) 또는 HMAC tampered | `__Host-auth-tmp` 쿠키 존재 + verifyTempPayload 결과 확인 |
-| `/profile` 가 무한 redirect | Redis 연결 실패 → session null | `redis-cli ping`, proxy fail-closed |
-| 401 token revoked | logout 후 재사용, 또는 role 변경 직후 | `redis-cli GET jti:deny:<jti>` 확인 |
+| `/profile` 가 무한 redirect | Valkey 연결 실패 → session null | `valkey-cli ping`, proxy fail-closed |
+| 401 token revoked | logout 후 재사용, 또는 role 변경 직후 | `valkey-cli GET jti:deny:<jti>` 확인 |
 | 403 forbidden | role 이 admin/broker/operator 아님 | profile 화면에서 role 확인 |
-| 429 rate limit | login 5/min/IP, callback 10/min/IP, refresh 30/min/sid 초과 | `redis-cli ZRANGE rate:login:<ip> 0 -1 WITHSCORES` |
+| 429 rate limit | login 5/min/IP, callback 10/min/IP, refresh 30/min/sid 초과 | `valkey-cli ZRANGE rate:login:<ip> 0 -1 WITHSCORES` |
 
 ## 4. 장애 대응
 
@@ -100,7 +104,7 @@ Linux/macOS 는 `docker-compose.yml` 의 ports 를 8443/5433 으로 변경 가�
 - 만료 후 refresh 시도 → fail → frontend 가 /login redirect → Zitadel 다운 시 503 ProblemDetails (idp-unavailable)
 - 영향: 신규 로그인 + token refresh 차단. 기존 세션 처리는 가용
 
-### Redis 다운
+### Valkey 다운
 
 - frontend `getSession` fail → proxy 가 /login redirect (closed-fail, session lookup 차원)
 - backend JTI denylist check → tracing::warn! + JWT 검증 통과 (fail-open, 가용성 우선)
@@ -108,17 +112,17 @@ Linux/macOS 는 `docker-compose.yml` 의 ports 를 8443/5433 으로 변경 가�
 
 ### Postgres 다운
 
-- frontend 인증은 동작 (Zitadel + Redis 만 의존)
+- frontend 인증은 동작 (Zitadel + Valkey 만 의존)
 - backend `/me` 등 user 조회 실패 → 502 → frontend RFC 7807 응답
 
 ## 5. JTI denylist 운영
 
 ```bash
 # 특정 jti 무효화 (관리자 수동 — role 변경 시 backend 가 자동 처리)
-redis-cli SET jti:deny:<jti> 1 EX 300
+valkey-cli SET jti:deny:<jti> 1 EX 300
 
 # 활성 deny 목록
-redis-cli KEYS "jti:deny:*"
+valkey-cli KEYS "jti:deny:*"
 
 # 사용자의 모든 활성 jti (role 변경 직전 조회)
 psql -c "SELECT after_state->>'jti' FROM audit_log
@@ -134,7 +138,7 @@ psql -c "SELECT after_state->>'jti' FROM audit_log
 | `auth.login.failure_rate` | > 5% | Zitadel 또는 frontend 버그 |
 | `auth.refresh.failure_rate` | > 1% | Zitadel down 또는 refresh\_token 만료 비율 비정상 |
 | `auth.role_guard.denied` | spike | 권한 설정 오류 또는 공격 |
-| `redis.session.miss_rate` | > 0.1% | Redis 데이터 손실 또는 TTL 설정 오류 |
+| `valkey.session.miss_rate` | > 0.1% | Valkey 데이터 손실 또는 TTL 설정 오류 |
 
 ## 7. 미래 sub-project 의 자리
 
@@ -148,8 +152,8 @@ psql -c "SELECT after_state->>'jti' FROM audit_log
 | 외부 시스템 | 역할 | SSOT |
 | --- | --- | --- |
 | Zitadel | Identity (사용자 인증) | dev: docker-compose, prod: SP6-iam-infra Pulumi |
-| Redis | Active session + JTI denylist + ratelimit | dev: docker-compose, prod: SP6-iam-infra |
-| Postgres | users.role authorization, audit\_log | 기존 SP1-3 |
+| Valkey 8 (Redis protocol) | Active session + JTI denylist + ratelimit | dev: docker-compose, prod: SP6-iam-infra |
+| PostgreSQL 17 | users.role authorization, audit\_log | 기존 SP1-3 |
 
 ## 9. 현행 계약 참조
 

@@ -14,6 +14,10 @@
 - CI: 루트 `.github/workflows/` (PR은 전체 필수 게이트, `main` push는 영역별 path filter)
 - Rust 검증(로컬): `bash scripts/verify/cargo-verify.sh <area-dir>` (Docker 필요)
 
+## 기술 문서
+
+- [기술 스택 기준표](./docs/technology-stack.md) — 모노레포 전체의 기술·환경·미연결 항목
+
 ## License
 
 이 저장소는 공개 열람 가능한 **독점 소프트웨어**이며 오픈소스가 아닙니다.

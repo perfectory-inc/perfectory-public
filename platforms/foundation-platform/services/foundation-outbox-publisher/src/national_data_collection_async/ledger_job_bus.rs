@@ -6,14 +6,10 @@
 //! `collection.raw_written` claim-check event through an injected
 //! [`RawWrittenSink`](foundation_outbox::RawWrittenSink).
 //!
-//! Status: this is the ledger-backed dispatch trait impl, kept for a future FULL migration where it
-//! replaces the executor's `select_pending_jobs` + dispatch loop (toward `PostgresJobBus`, option B).
-//! It is **not** the path that 3-B used to ship operational `raw_written`: 3-B connected the producer
-//! seam directly in the async executor via `OutboxRawWrittenSink` (see `national_data_collection_async`),
-//! WITHOUT wiring this bus. So `LedgerJobBus` is still unwired (`#![allow(dead_code)]`, constructed
-//! only by tests). `from_planned` already enforces the OQ-2 request-cap quota gate (via the shared
-//! `select_pending_jobs`) so wiring it later cannot lose that gate. Postgres outbox / DB-backed
-//! quarantine remain option B.
+//! Status: this is the ledger-backed dispatch trait implementation and executable compatibility
+//! reference for the disabled legacy data.go.kr API executor. National Bronze collection is
+//! bulk-only; the active hub.go.kr bulk collector uses `PostgresJobBus` for live-write claims and
+//! acknowledgements. This module remains the compatibility adapter for the retired API executor.
 #![allow(dead_code)]
 
 use std::collections::{BTreeSet, HashMap, VecDeque};

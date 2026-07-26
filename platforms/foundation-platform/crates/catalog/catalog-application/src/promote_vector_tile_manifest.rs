@@ -23,6 +23,8 @@ pub struct PromoteVectorTileManifestInput {
     pub expected_current_version: String,
     /// URL template clients use to request vector tiles.
     pub tiles_url_template: String,
+    /// Immutable Gold/Iceberg snapshot that produced this tile build.
+    pub source_snapshot_id: String,
     /// Source record describing the build input.
     pub source_record: VectorTileSourceRecordCommand,
     /// File asset metadata for the manifest JSON artifact.
@@ -65,6 +67,7 @@ impl PromoteVectorTileManifest {
                     "expected_current_version",
                 )?,
                 tiles_url_template: input.tiles_url_template.trim().to_owned(),
+                source_snapshot_id: normalize_snapshot_id(&input.source_snapshot_id)?,
                 source_record: normalize_source_record(input.source_record)?,
                 manifest_file_asset: normalize_file_asset(input.manifest_file_asset)?,
                 artifacts: input
@@ -95,12 +98,23 @@ fn validate_promotion(input: &PromoteVectorTileManifestInput) -> Result<(), Cata
     }
     TilesUrlTemplate::parse(input.tiles_url_template.trim())
         .map_err(|error| CatalogError::InvalidVectorTileManifestPromotion(error.to_string()))?;
+    normalize_snapshot_id(&input.source_snapshot_id)?;
     if input.artifacts.is_empty() {
         return Err(CatalogError::InvalidVectorTileManifestPromotion(
             "artifacts must not be empty".to_owned(),
         ));
     }
     Ok(())
+}
+
+fn normalize_snapshot_id(raw: &str) -> Result<String, CatalogError> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err(CatalogError::InvalidVectorTileManifestPromotion(
+            "source_snapshot_id must not be empty".to_owned(),
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 fn normalize_artifact(
@@ -198,4 +212,24 @@ fn validate_checksum(raw: Option<&str>) -> Result<(), CatalogError> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_snapshot_id;
+
+    #[test]
+    fn snapshot_identity_is_trimmed_before_persistence() {
+        let value = normalize_snapshot_id("  iceberg:gold-0001  ").unwrap_or_default();
+        assert_eq!(value, "iceberg:gold-0001");
+    }
+
+    #[test]
+    fn blank_snapshot_identity_is_rejected() {
+        let message = normalize_snapshot_id("  ")
+            .err()
+            .map(|error| error.to_string())
+            .unwrap_or_default();
+        assert!(message.contains("source_snapshot_id must not be empty"));
+    }
 }

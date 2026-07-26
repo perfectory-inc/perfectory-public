@@ -26,7 +26,7 @@ Map runtime = Martin over one complete PostGIS or immutable PMTiles source per p
 Search serving = rebuildable search index
 ```
 
-PostGIS, PMTiles/vector tiles, Redis, search engine 은 canonical source 가 아니다. 모두
+PostGIS, PMTiles/vector tiles, Valkey, search engine 은 canonical source 가 아니다. 모두
 Catalog-selected Iceberg snapshot 과 그 Gold projection에서 재생성 가능한 **derived serving
 layer** 로 취급한다.
 
@@ -283,7 +283,7 @@ foundation-platform API 는 대량 공공 데이터 본문을 DB row scan 으로
 ```
 
 서비스 latency 가 Iceberg direct read 로 맞지 않는 query 는 Gold projection, PostGIS mirror,
-search index, Redis cache 로 승격한다. 이때도 canonical source 는 Iceberg snapshot 이다.
+search index, Valkey cache 로 승격한다. 이때도 canonical source 는 Iceberg snapshot 이다.
 
 ## 품질 Gate
 

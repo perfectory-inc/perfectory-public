@@ -31,7 +31,7 @@ function generateRequestId(): string {
 import { API } from "@/lib/routes";
 
 export const api = ky.create({
-  prefix: API.proxy.base,
+  prefixUrl: API.proxy.base,
   retry: {
     limit: 1,
     methods: ["get"],
@@ -39,14 +39,14 @@ export const api = ky.create({
   timeout: 10000,
   hooks: {
     beforeRequest: [
-      ({ request }) => {
+      (request) => {
         if (!request.headers.has("x-request-id")) {
           request.headers.set("x-request-id", generateRequestId());
         }
       },
     ],
     beforeError: [
-      ({ error }) => {
+      (error) => {
         if (isHTTPError(error) && error.response.status === 401) {
           // SP6-i 가 redirect 로직 추가
           console.warn("[api] 401 — login required");
@@ -63,7 +63,7 @@ export const api = ky.create({
  */
 export function createServerApi(authHeader?: string) {
   return ky.create({
-    prefix: env.NEXT_PUBLIC_API_BASE_URL,
+    prefixUrl: env.NEXT_PUBLIC_API_BASE_URL,
     timeout: 10000,
     headers: authHeader ? { Authorization: authHeader } : {},
   });

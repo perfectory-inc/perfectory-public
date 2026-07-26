@@ -12,10 +12,10 @@
 
 ## 결정
 
-- **Framework**: Next.js 16 (App Router)
-- **React**: 19
-- **TypeScript**: 5.7 strict
-- **Style**: Tailwind v4 + shadcn/ui + Radix UI
+- **Framework**: Next.js 16.2.6 (App Router)
+- **React**: 19.2.5
+- **TypeScript**: 5.9.3 strict
+- **Style**: Tailwind CSS 4.2.4 + shadcn/ui + Radix UI
 - **상태**: TanStack Query (서버) + Zustand (클라이언트)
 - **폼**: react-hook-form + zod
 - **지도**: Naver Maps SDK (한국 사용자 친숙도)

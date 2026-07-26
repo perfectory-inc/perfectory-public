@@ -10,6 +10,49 @@ use env::{
     optional_usize_env, require_flag,
 };
 
+#[cfg(test)]
+mod tests {
+    use super::JobBusMode;
+
+    #[test]
+    fn job_bus_mode_parser_accepts_only_explicit_backends() {
+        assert_eq!(JobBusMode::parse("ledger").unwrap(), JobBusMode::Ledger);
+        assert_eq!(JobBusMode::parse("postgres").unwrap(), JobBusMode::Postgres);
+        assert!(JobBusMode::parse("kafka").is_err());
+        assert!(super::validate_job_bus_mode(JobBusMode::Postgres, true).is_err());
+        assert!(super::validate_job_bus_mode(JobBusMode::Postgres, false).is_ok());
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum JobBusMode {
+    /// Legacy API parity executor's plan-ledger path; the command is currently disabled.
+    Ledger,
+    /// Legacy API parity executor's PostgreSQL dispatch path; the command is currently disabled.
+    Postgres,
+}
+
+impl JobBusMode {
+    pub(super) fn parse(raw: &str) -> anyhow::Result<Self> {
+        match raw.trim() {
+            "ledger" => Ok(Self::Ledger),
+            "postgres" => Ok(Self::Postgres),
+            other => bail!(
+                "FOUNDATION_PLATFORM_NATIONAL_ASYNC_JOB_BUS must be ledger or postgres; got '{other}'"
+            ),
+        }
+    }
+}
+
+fn validate_job_bus_mode(mode: JobBusMode, page_queue_enabled: bool) -> anyhow::Result<()> {
+    if page_queue_enabled && mode == JobBusMode::Postgres {
+        bail!(
+            "national async Postgres JobBus mode is not compatible with page-queue execution; disable FOUNDATION_PLATFORM_NATIONAL_ASYNC_PAGE_QUEUE"
+        );
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct AsyncExecutorConfig {
     pub(super) plan_path: PathBuf,
@@ -22,6 +65,9 @@ pub(super) struct AsyncExecutorConfig {
     pub(super) circuit_breaker_open_seconds: u64,
     pub(super) adaptive_in_flight: AdaptiveInFlightConfig,
     pub(super) page_queue_enabled: bool,
+    pub(super) job_bus_mode: JobBusMode,
+    pub(super) job_bus_max_attempts: u32,
+    pub(super) job_bus_lease_seconds: u64,
     pub(super) request_cap: u64,
     pub(super) base_uri: String,
 }
@@ -61,6 +107,19 @@ impl AsyncExecutorConfig {
             page_queue_enabled: optional_env_value("FOUNDATION_PLATFORM_NATIONAL_ASYNC_PAGE_QUEUE")?
                 .as_deref()
                 == Some("1"),
+            job_bus_mode: JobBusMode::parse(
+                optional_env_value("FOUNDATION_PLATFORM_NATIONAL_ASYNC_JOB_BUS")?
+                    .as_deref()
+                    .unwrap_or("ledger"),
+            )?,
+            job_bus_max_attempts: optional_u32_env(
+                "FOUNDATION_PLATFORM_NATIONAL_ASYNC_JOB_BUS_MAX_ATTEMPTS",
+            )?
+            .unwrap_or(3),
+            job_bus_lease_seconds: optional_u64_env(
+                "FOUNDATION_PLATFORM_NATIONAL_ASYNC_JOB_BUS_LEASE_SECONDS",
+            )?
+            .unwrap_or(900),
             request_cap: optional_u64_env("FOUNDATION_PLATFORM_NATIONAL_ASYNC_REQUEST_CAP")?
                 .unwrap_or(10_000),
             base_uri: optional_env_value("FOUNDATION_PLATFORM_BUILDING_REGISTER_BASE_URI")?
@@ -77,12 +136,16 @@ impl AsyncExecutorConfig {
         if self.circuit_breaker_failure_threshold == 0 || self.circuit_breaker_open_seconds == 0 {
             bail!("national async circuit breaker settings must be positive");
         }
+        if self.job_bus_max_attempts == 0 || self.job_bus_lease_seconds == 0 {
+            bail!("national async JobBus attempts and lease seconds must be positive");
+        }
         self.adaptive_in_flight.validate()?;
         if self.page_queue_enabled && self.adaptive_in_flight.enabled {
             bail!(
                 "national async page queue and adaptive job-window mode cannot be enabled together"
             );
         }
+        validate_job_bus_mode(self.job_bus_mode, self.page_queue_enabled)?;
         Ok(())
     }
 

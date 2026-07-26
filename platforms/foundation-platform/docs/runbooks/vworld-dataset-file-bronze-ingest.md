@@ -101,7 +101,7 @@ For live writes:
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | Bronze metadata database |
-| `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER` | `r2` or `local` |
+| `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER` | `r2` (developer/staging/production); `local` is bounded-test-only for local/CI |
 | `R2_BUCKET_NAME`, `R2_ENDPOINT`, `R2_REGION`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | R2 object storage |
 
 For VWorld file downloads:

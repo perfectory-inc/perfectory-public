@@ -13,8 +13,8 @@ SSS 엔터프라이즈 + 메모리 안전 + 성능 + 동시성 + 한국 시장 �
 
 ## 결정
 
-- **백엔드**: Rust 1.91.1+ (2026-05-22 amendment 3 — cargo-deny가 AWS SDK 경로의 취약 `rustls-webpki 0.101.x`를 차단해서 1.88 → 1.91.1로 상향. 원안 1.83+, amendment 1: edition2024로 1.85, amendment 2: sqlx/rustls transitive deps로 1.88)
-- **프론트엔드**: TypeScript 5.7 + Next.js 16 + React 19
+- **백엔드**: Rust 1.96.0 (모노레포 루트 toolchain SSOT; 기존 1.91.1+ 결정은 monorepo ADR 0001로 수렴)
+- **프론트엔드**: TypeScript 5.9.3 + Next.js 16 + React 19 (workspace manifest SSOT)
 
 백엔드는 모든 도메인 로직, 외부 API 통합, 데이터 처리 담당.
 Next.js는 UI 렌더링 + 얇은 BFF 프록시 (인증 검사 + Rust API 호출). 비즈니스 로직 0줄.
