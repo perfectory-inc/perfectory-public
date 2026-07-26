@@ -20,7 +20,8 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::{
-    bronze_object_storage_from_env, live_write_target_preflight, BronzeObjectStorageWriter,
+    live_write_bronze_object_storage_from_env, live_write_target_preflight,
+    BronzeObjectStorageWriter,
 };
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
@@ -334,7 +335,7 @@ async fn persist_plan(
         .await
         .context("failed to connect to database for rt.molit.go.kr export ingest")?;
     let uow = PgBronzeIngestUnitOfWork::new(pool);
-    let storage = bronze_object_storage_from_env()
+    let storage = live_write_bronze_object_storage_from_env()
         .await
         .context("failed to configure object storage for rt.molit.go.kr export ingest")?;
     let started_at = Utc::now();

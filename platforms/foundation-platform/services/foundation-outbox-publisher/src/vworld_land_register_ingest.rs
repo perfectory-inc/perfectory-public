@@ -23,7 +23,7 @@ use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::bronze_object_storage::bronze_object_storage_from_env;
+use crate::bronze_object_storage::live_write_bronze_object_storage_from_env;
 use crate::bronze_schema_profile::CandidateKeyOverride;
 use crate::page_collector::{collect_planned_pages, CollectablePage, PageCollectorLane};
 use crate::pagination_guard::assert_page_window_complete;
@@ -263,7 +263,7 @@ async fn persist_plans(
         .await
         .context("failed to connect to database for VWorld land-register ingest")?;
     let uow = PgBronzeIngestUnitOfWork::new(pool);
-    let storage = land_register_bronze_object_storage_from_env()
+    let storage = live_write_bronze_object_storage_from_env()
         .await
         .context("failed to configure object storage for VWorld land-register Bronze ingest")?;
 
@@ -289,11 +289,6 @@ struct VWorldLandRegisterPersistReport {
     last_bronze_object_id: Option<BronzeObjectId>,
     logical_records_seen: u64,
     objects_written: u64,
-}
-
-async fn land_register_bronze_object_storage_from_env(
-) -> anyhow::Result<Box<dyn ObjectStorageService>> {
-    bronze_object_storage_from_env().await
 }
 
 async fn persist_plans_with_adapters<Uow, Storage>(
@@ -535,9 +530,14 @@ fn live_write_enabled(value: Option<&str>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use crate::pagination_guard::assert_page_window_complete;
 
-    use foundation_outbox::object_storage::{ObjectWriteMode, PutObjectRequest};
+    use foundation_outbox::{
+        object_storage::{ObjectWriteMode, PutObjectRequest},
+        FileObjectStorage,
+    };
 
     use serde_json::json;
 
@@ -608,38 +608,53 @@ mod tests {
 
     #[tokio::test]
     async fn storage_configuration_accepts_local_bronze_driver() -> anyhow::Result<()> {
+        let _guard = crate::test_support::async_env_lock().await;
         let root = std::env::temp_dir().join(format!(
             "foundation-platform-vworld-land-register-bronze-{}",
             uuid::Uuid::new_v4()
         ));
+        let driver = std::env::var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER").ok();
+        let local_root = std::env::var("FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT").ok();
         std::env::set_var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER", "local");
         std::env::set_var("FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT", &root);
 
-        let storage = super::land_register_bronze_object_storage_from_env().await?;
-        storage
-            .put_object(PutObjectRequest {
-                key: "bronze/source=vworld-land-register-test/operation=ladfrlList/pnu=9999900101100010000/page-000001.json"
-                    .to_owned(),
-                body: br#"{"ok":true}"#.to_vec(),
-                content_type: "application/json".to_owned(),
-                cache_control: "no-store, max-age=0".to_owned(),
-                write_mode: ObjectWriteMode::OverwriteAllowed,
-                sha256: None,
-            })
-            .await?;
+        let result = async {
+            let storage = FileObjectStorage::new(&root)?;
+            storage
+                .put_object(PutObjectRequest {
+                    key: "bronze/source=vworld-land-register-test/operation=ladfrlList/pnu=9999900101100010000/page-000001.json"
+                        .to_owned(),
+                    body: br#"{"ok":true}"#.to_vec(),
+                    content_type: "application/json".to_owned(),
+                    cache_control: "no-store, max-age=0".to_owned(),
+                    write_mode: ObjectWriteMode::OverwriteAllowed,
+                    sha256: None,
+                })
+                .await?;
 
-        assert!(root
-            .join("bronze")
-            .join("source=vworld-land-register-test")
-            .join("operation=ladfrlList")
-            .join("pnu=9999900101100010000")
-            .join("page-000001.json")
-            .exists());
+            assert!(root
+                .join("bronze")
+                .join("source=vworld-land-register-test")
+                .join("operation=ladfrlList")
+                .join("pnu=9999900101100010000")
+                .join("page-000001.json")
+                .exists());
+            Ok(())
+        }
+        .await;
 
-        std::env::remove_var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER");
-        std::env::remove_var("FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT");
+        match driver {
+            Some(value) => {
+                std::env::set_var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER", value)
+            }
+            None => std::env::remove_var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER"),
+        }
+        match local_root {
+            Some(value) => std::env::set_var("FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT", value),
+            None => std::env::remove_var("FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT"),
+        }
         std::fs::remove_dir_all(root)?;
-        Ok(())
+        result
     }
 
     // ---- Live persist path through the BronzeCommitter (Task 3) ----
@@ -648,9 +663,6 @@ mod tests {
     // through `committer.commit_vworld_land_register_page` (CreateOnly + recoverable commit protocol),
     // so the R2-already-exists case is no longer an unconditional hard failure: a matching-checksum
     // object with a missing DB row RECOVERS, while a conflicting-checksum object fails loud.
-
-    use std::collections::BTreeMap;
-    use std::sync::Mutex;
 
     use async_trait::async_trait;
     use collection_application::plan_vworld_land_register_bronze_page;
@@ -662,6 +674,7 @@ mod tests {
     use collection_infrastructure::VWorldRequestPolicy;
     use foundation_outbox::{ObjectStorageService, PublishError};
     use foundation_shared_kernel::ids::{IngestionRunId, SourceCatalogId};
+    use std::collections::BTreeMap;
     use uuid::Uuid;
 
     use super::{

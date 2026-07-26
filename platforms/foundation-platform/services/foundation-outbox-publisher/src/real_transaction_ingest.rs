@@ -21,7 +21,7 @@ use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::bronze_object_storage::bronze_object_storage_from_env;
+use crate::bronze_object_storage::live_write_bronze_object_storage_from_env;
 use crate::bronze_schema_profile::CandidateKeyOverride;
 use crate::page_collector::{collect_planned_pages, CollectablePage, PageCollectorLane};
 use crate::pagination_guard::assert_page_window_complete;
@@ -236,7 +236,7 @@ async fn persist_plans(
         .await
         .context("failed to connect to database for real-transaction ingest")?;
     let uow = PgBronzeIngestUnitOfWork::new(pool);
-    let storage = bronze_object_storage_from_env()
+    let storage = live_write_bronze_object_storage_from_env()
         .await
         .context("failed to configure object storage for real-transaction Bronze ingest")?;
 

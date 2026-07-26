@@ -30,7 +30,7 @@ use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::bronze_object_storage::bronze_streaming_object_storage_from_env;
+use crate::bronze_object_storage::live_write_bronze_streaming_object_storage_from_env;
 use crate::bulk_streaming_bronze::BronzeStreamingObjectStorageWriter;
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
@@ -70,7 +70,7 @@ pub async fn run() -> anyhow::Result<()> {
             .context("failed to connect to database for VWorld dataset file ingest")?;
         let repo = PgBronzeIngestRepository::new(pool.clone());
         let uow = PgBronzeIngestUnitOfWork::new(pool);
-        let storage = bronze_streaming_object_storage_from_env()
+        let storage = live_write_bronze_streaming_object_storage_from_env()
             .await
             .context("failed to configure object storage for VWorld dataset file ingest")?;
         stream::iter(selected_files.into_iter().enumerate())
@@ -715,7 +715,7 @@ async fn persist_file_stream(
         .await
         .context("failed to connect to database for VWorld dataset file ingest")?;
     let uow = PgBronzeIngestUnitOfWork::new(pool);
-    let storage = bronze_streaming_object_storage_from_env()
+    let storage = live_write_bronze_streaming_object_storage_from_env()
         .await
         .context("failed to configure object storage for VWorld dataset file ingest")?;
     persist_file_stream_with_adapters(

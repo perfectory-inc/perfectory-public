@@ -72,6 +72,10 @@ accepted.
 ## Enforcement
 
 `foundation-outbox-publisher` validates the runtime environment at operational Catalog and Bronze
-live-write boundaries. The shared Bronze preflight covers every ingest command that calls it. Unit
-tests remain credential-free; protected R2/Kafka live smoke tests are separate from ordinary Cargo
-verification and must fail when explicitly required services are unavailable.
+live-write boundaries. Every Bronze write path must build its adapter through the shared
+preflighted `live_write_bronze_*_object_storage_from_env` boundary; an additional source-level
+guard rejects direct use of the unvalidated configuration builders outside the policy module.
+Callers may still run the same preflight before provider downloads so a bad target fails before
+large response bodies are streamed. Unit tests remain credential-free; protected R2/Kafka live
+smoke tests are separate from ordinary Cargo verification and must fail when explicitly required
+services are unavailable.

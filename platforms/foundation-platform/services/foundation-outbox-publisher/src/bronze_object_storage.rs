@@ -178,6 +178,25 @@ pub async fn bronze_streaming_object_storage_from_env(
     }
 }
 
+/// Builds a Bronze object-storage adapter for a live write after enforcing the shared runtime
+/// and bucket preflight. Callers may still run the preflight earlier to fail before a provider
+/// download; this second boundary protects the actual write adapter from future call-site drift.
+pub async fn live_write_bronze_object_storage_from_env(
+) -> anyhow::Result<Box<dyn ObjectStorageService>> {
+    live_write_target_preflight()?;
+    bronze_object_storage_from_env().await
+}
+
+/// Builds a streaming Bronze object-storage adapter for a live write after enforcing the shared
+/// runtime and bucket preflight. Keeping the check in the adapter boundary makes it impossible
+/// for a new streaming write path to silently select a wrong environment by omitting a manual
+/// preflight call.
+pub async fn live_write_bronze_streaming_object_storage_from_env(
+) -> anyhow::Result<Box<dyn ObjectStorageStreamingService>> {
+    live_write_target_preflight()?;
+    bronze_streaming_object_storage_from_env().await
+}
+
 pub fn bronze_object_storage_driver_from_options(
     driver: Option<&str>,
     local_root: Option<&str>,
@@ -421,7 +440,7 @@ mod tests {
             "R2_ENDPOINT",
             "R2_ACCOUNT_ID",
         ];
-        let _guard = super::test_support::env_lock();
+        let _guard = crate::test_support::env_lock();
         let saved: Vec<(&str, Option<String>)> = VARS
             .iter()
             .map(|name| (*name, std::env::var(name).ok()))
@@ -477,7 +496,7 @@ mod tests {
     /// `R2_BUCKET_NAME` is set to `bucket`. Saves and restores every variable it touches under the
     /// env lock so it cannot race the other env-mutating preflight tests.
     fn preflight_with_bucket(runtime: RuntimeEnvironment, bucket: &str) -> anyhow::Result<()> {
-        let _guard = super::test_support::env_lock();
+        let _guard = crate::test_support::env_lock();
         let saved: Vec<(&str, Option<String>)> = PREFLIGHT_R2_VARS
             .iter()
             .map(|name| (*name, std::env::var(name).ok()))
@@ -555,18 +574,46 @@ mod tests {
             "the local runtime must use its dedicated R2 bucket"
         );
     }
-}
 
-#[cfg(test)]
-mod test_support {
-    use std::sync::{Mutex, MutexGuard, OnceLock};
+    #[tokio::test]
+    async fn live_write_storage_requires_runtime_context_before_building_an_adapter() {
+        const VARS: [&str; 5] = [
+            "FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER",
+            "FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT",
+            RUNTIME_ENVIRONMENT_ENV,
+            EXECUTION_CONTEXT_ENV,
+            PRELAUNCH_SHARED_ENV,
+        ];
+        let _guard = crate::test_support::async_env_lock().await;
+        let saved: Vec<(&str, Option<String>)> = VARS
+            .iter()
+            .map(|name| (*name, std::env::var(name).ok()))
+            .collect();
 
-    /// Serializes tests that mutate process-global environment variables so they cannot race each
-    /// other (env is shared across the whole test binary).
-    pub(super) fn env_lock() -> MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        for name in VARS {
+            std::env::remove_var(name);
+        }
+        std::env::set_var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER", "local");
+        std::env::set_var(
+            "FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT",
+            "target/bronze-live-write-context-test",
+        );
+
+        let error = match super::live_write_bronze_object_storage_from_env().await {
+            Ok(_) => panic!("live storage construction must require explicit runtime context"),
+            Err(error) => error,
+        };
+
+        for (name, value) in saved {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+
+        assert!(
+            error.to_string().contains(RUNTIME_ENVIRONMENT_ENV),
+            "error must identify the missing runtime context: {error}"
+        );
     }
 }

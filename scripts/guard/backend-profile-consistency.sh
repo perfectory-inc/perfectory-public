@@ -76,6 +76,27 @@ for doc in \
   fi
 done
 
+# Every operational Bronze write must cross the shared runtime/bucket preflight at the storage
+# adapter boundary. A direct call to the read/configuration builder is an escape hatch: a future
+# ingest command could stream provider bytes while targeting an unvalidated bucket. Keep the
+# low-level builders private to their module's policy implementation and require callers to use
+# the `live_write_...` wrappers instead.
+bronze_source_dir="platforms/foundation-platform/services/foundation-outbox-publisher/src"
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  direct_bronze_builders=$(git grep -n -E '(^|[^[:alnum:]_])bronze_(streaming_)?object_storage_from_env[[:space:]]*\(' -- \
+    "$bronze_source_dir" \
+    ':(exclude)platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_object_storage.rs' || true)
+else
+  direct_bronze_builders=$(grep -R -n -E '(^|[^[:alnum:]_])bronze_(streaming_)?object_storage_from_env[[:space:]]*\(' \
+    --include='*.rs' "$bronze_source_dir" 2>/dev/null \
+    | grep -v '/bronze_object_storage\.rs:' || true)
+fi
+if [ -n "$direct_bronze_builders" ]; then
+  echo 'FAIL backend-profile: live Bronze callers must use the preflighted storage adapter' >&2
+  printf '%s\n' "$direct_bronze_builders" >&2
+  fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
   echo 'OK backend-profile-consistency'
 fi

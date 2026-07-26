@@ -34,7 +34,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::bronze_object_storage::bronze_streaming_object_storage_from_env;
+use crate::bronze_object_storage::live_write_bronze_streaming_object_storage_from_env;
 use crate::bulk_streaming_bronze::BronzeStreamingObjectStorageWriter;
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
@@ -114,7 +114,7 @@ pub async fn run_collection() -> anyhow::Result<()> {
                 .context("failed to connect to database for hub.go.kr bulk collection ingest")?;
         let repo = PgBronzeIngestRepository::new(pool.clone());
         let uow = PgBronzeIngestUnitOfWork::new(pool.clone());
-        let storage = bronze_streaming_object_storage_from_env()
+        let storage = live_write_bronze_streaming_object_storage_from_env()
             .await
             .context("failed to configure object storage for hub.go.kr bulk collection ingest")?;
         let job_bus = Arc::new(PostgresJobBus::new(
@@ -929,7 +929,7 @@ async fn persist_bulk_file_stream(
         .await
         .context("failed to connect to database for hub.go.kr bulk ingest")?;
     let uow = PgBronzeIngestUnitOfWork::new(pool);
-    let storage = bronze_streaming_object_storage_from_env()
+    let storage = live_write_bronze_streaming_object_storage_from_env()
         .await
         .context("failed to configure object storage for hub.go.kr bulk ingest")?;
     let report = persist_bulk_file_stream_with_adapters(
