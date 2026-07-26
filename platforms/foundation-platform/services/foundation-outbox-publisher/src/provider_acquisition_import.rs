@@ -31,7 +31,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use uuid::Uuid;
 
 use crate::bronze_object_storage::{
-    bronze_streaming_object_storage_from_env, live_write_target_preflight,
+    live_write_bronze_streaming_object_storage_from_env, live_write_target_preflight,
 };
 use crate::bulk_streaming_bronze::BronzeStreamingObjectStorageWriter;
 use crate::public_data_control_support::{
@@ -325,7 +325,7 @@ async fn run_replay_to_landing(replay_request_path: PathBuf, output_path: PathBu
     } else {
         None
     };
-    let storage = bronze_streaming_object_storage_from_env()
+    let storage = live_write_bronze_streaming_object_storage_from_env()
         .await
         .context("failed to create provider acquisition landing object storage")?;
     if optional_bool_env(DIRECT_TO_BRONZE_ENV)?.unwrap_or(false) {

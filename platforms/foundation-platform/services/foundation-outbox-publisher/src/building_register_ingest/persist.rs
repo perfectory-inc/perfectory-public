@@ -13,7 +13,7 @@ use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalo
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::bronze_object_storage::bronze_object_storage_from_env;
+use crate::bronze_object_storage::live_write_bronze_object_storage_from_env;
 use crate::bronze_schema_profile::CandidateKeyOverride;
 use crate::page_collector::{collect_planned_pages, CollectablePage, PageCollectorLane};
 use crate::public_data_control_support::required_env_value;
@@ -41,7 +41,7 @@ pub(super) async fn persist_plans(
         .await
         .context("failed to connect to database for building-register ingest")?;
     let uow = collection_infrastructure::PgBronzeIngestUnitOfWork::new(pool);
-    let storage = bronze_object_storage_from_env()
+    let storage = live_write_bronze_object_storage_from_env()
         .await
         .context("failed to configure object storage for building-register Bronze ingest")?;
 

@@ -92,3 +92,10 @@ Before a live collection or publisher run, verify:
 5. The R2 token is scoped to that bucket.
 6. No fixture topic, local file root, logging adapter, or process-local state is used in staging or
    production.
+
+The Bronze publisher enforces this at the write boundary as well as at command startup: every
+live object-storage adapter is constructed through the shared preflighted
+`live_write_bronze_object_storage_from_env` or
+`live_write_bronze_streaming_object_storage_from_env` helper. The backend-profile guard rejects a
+new ingest caller that bypasses those helpers. This is defense in depth for future collection
+commands; it does not replace the earlier preflight that runs before a provider download.

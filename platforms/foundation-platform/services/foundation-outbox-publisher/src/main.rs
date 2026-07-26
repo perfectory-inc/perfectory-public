@@ -74,6 +74,24 @@ mod lakehouse_registry_control;
 mod loopback_http;
 #[cfg(test)]
 mod main_tests;
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::OnceLock;
+
+    use tokio::sync::{Mutex, MutexGuard};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    /// Serializes synchronous tests that mutate process-global environment variables.
+    pub(crate) fn env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(())).blocking_lock()
+    }
+
+    /// Serializes asynchronous tests that mutate process-global environment variables.
+    pub(crate) async fn async_env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(())).lock().await
+    }
+}
 mod national_bronze_object_manifest;
 mod national_data_collection_async;
 mod national_data_collection_coverage_ledger_check;

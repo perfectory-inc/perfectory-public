@@ -24,7 +24,7 @@ use uuid::Uuid;
 use foundation_shared_kernel::events::catalog_v1::CollectionRawWrittenV1;
 use foundation_shared_kernel::ids::IngestionRunId;
 
-use crate::bronze_object_storage::bronze_object_storage_from_env;
+use crate::bronze_object_storage::live_write_bronze_object_storage_from_env;
 use crate::provider_rate_limiter::{OutcomeSignal, ProviderRateLimiter, ReserveOutcome};
 
 mod bronze_ingest;
@@ -103,7 +103,8 @@ pub async fn run() -> anyhow::Result<()> {
     // discovering a misconfigured target mid-run after pages have already been fetched.
     crate::bronze_object_storage::live_write_target_preflight()
         .context("national async collection live-write target preflight failed")?;
-    let storage: Arc<dyn ObjectStorageService> = Arc::from(bronze_object_storage_from_env().await?);
+    let storage: Arc<dyn ObjectStorageService> =
+        Arc::from(live_write_bronze_object_storage_from_env().await?);
     let event_writer = EventWriter::open(&config.event_log_path)?;
     let git_head = git_head();
     let started_at = Utc::now();

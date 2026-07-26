@@ -17,6 +17,16 @@ status: current
 - Kafka 원장(event sourcing) 전환은 기본 계획이 아니다. 특정 파생 영역에서 필요성이 증명될 때만
   별도 ADR로 결정한다.
 
+## Recent implementation slice
+
+- All Foundation Bronze live-write adapters now cross one shared runtime/bucket preflight at the
+  actual object-storage construction boundary. Callers still preflight before provider downloads,
+  while a source guard rejects direct use of the unvalidated builders in ingest code.
+- Environment-mutating publisher tests use one async-aware process-wide lock and restore ambient
+  variables, so CI configuration cannot silently change their result.
+- Kafka contract coverage now checks that retries preserve the same `event_id`/partition key and
+  that live Avro records expose the Bronze claim-check metadata without raw object bytes.
+
 ## 우선순위 0 — 출시 전 필수 게이트
 
 ### Kafka 이벤트 전달
