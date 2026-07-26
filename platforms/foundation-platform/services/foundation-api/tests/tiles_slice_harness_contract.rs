@@ -119,7 +119,10 @@ fn production_static_martin_config_uses_private_r2_prefix_discovery() {
         &[
             "pmtiles:\n  aws_access_key_id: ${FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID}",
             "  aws_secret_access_key: ${FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY}",
-            concat!("  aws_region: ${FOUNDATION_TILE_DERIVATIVE_R2_REGION:", "-auto}"),
+            concat!(
+                "  aws_region: ${FOUNDATION_TILE_DERIVATIVE_R2_REGION:",
+                "-auto}"
+            ),
             "  aws_endpoint_url: ${FOUNDATION_TILE_DERIVATIVE_R2_ENDPOINT}",
             "  aws_virtual_hosted_style_request: false",
             "  paths:",
