@@ -136,6 +136,18 @@ async fn live_kafka_outbox_roundtrip_marks_postgres_row_published() -> TestResul
     };
     assert_eq!(field(&fields, "event_id"), event_id.to_string());
     assert_eq!(field(&fields, "scope_unit_id"), scope_unit_id);
+    assert_eq!(
+        field(&fields, "bronze_object_key"),
+        "bronze/live/outbox.json"
+    );
+    assert_eq!(field(&fields, "bronze_checksum_sha256"), "c".repeat(64));
+    assert_eq!(long_field(&fields, "bronze_object_count"), 1);
+    assert!(
+        fields.iter().all(|(name, _)| {
+            name != "bronze_bytes" && name != "object_content" && name != "payload"
+        }),
+        "Kafka claim-check must not contain raw object bytes"
+    );
     consumer.commit_message(&message, CommitMode::Sync)?;
 
     sqlx::query("DELETE FROM catalog.outbox_event WHERE event_id = $1")
@@ -208,6 +220,17 @@ fn field(fields: &[(String, AvroValue)], name: &str) -> String {
         .map(|(_, value)| match value {
             AvroValue::String(value) => value.clone(),
             other => format!("{other:?}"),
+        })
+        .unwrap_or_default()
+}
+
+fn long_field(fields: &[(String, AvroValue)], name: &str) -> i64 {
+    fields
+        .iter()
+        .find(|(field_name, _)| field_name == name)
+        .and_then(|(_, value)| match value {
+            AvroValue::Long(value) => Some(*value),
+            _ => None,
         })
         .unwrap_or_default()
 }

@@ -24,6 +24,8 @@ status: current
   while a source guard rejects direct use of the unvalidated builders in ingest code.
 - Environment-mutating publisher tests use one async-aware process-wide lock and restore ambient
   variables, so CI configuration cannot silently change their result.
+- Kafka contract coverage now checks that retries preserve the same `event_id`/partition key and
+  that live Avro records expose the Bronze claim-check metadata without raw object bytes.
 
 ## 우선순위 0 — 출시 전 필수 게이트
 

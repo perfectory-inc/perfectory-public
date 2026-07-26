@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use apache_avro::Schema;
+use apache_avro::{from_avro_datum, types::Value as AvroValue, Schema};
 use async_trait::async_trait;
 use foundation_outbox::{
     EventBroadcaster, EventEnvelope, KafkaEventBroadcaster, KafkaPayloadPublisher, PublishError,
@@ -72,6 +72,61 @@ async fn raw_written_is_encoded_and_sent_to_kafka_with_scope_key() {
         drop(calls);
     }
     assert!(fallback.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn retrying_same_outbox_event_preserves_event_id_and_claim_check() {
+    let publisher = RecordingKafkaPublisher::default();
+    let calls = Arc::clone(&publisher.calls);
+    let broadcaster = KafkaEventBroadcaster::new(
+        publisher,
+        DEFAULT_RAW_WRITTEN_TOPIC,
+        Schema::parse_str(RAW_WRITTEN_AVRO_SCHEMA).unwrap(),
+        17,
+        Arc::new(RecordingFallback::default()),
+        false,
+    )
+    .unwrap();
+    let event = raw_written_event();
+
+    broadcaster.publish(&event).await.unwrap();
+    broadcaster.publish(&event).await.unwrap();
+
+    let payload = {
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(
+            calls[0].1, calls[1].1,
+            "partition key must be stable on retry"
+        );
+        assert_eq!(
+            calls[0].2, calls[1].2,
+            "event payload must be stable on retry"
+        );
+        calls[0].2.clone()
+    };
+
+    let schema = Schema::parse_str(RAW_WRITTEN_AVRO_SCHEMA).unwrap();
+    let mut datum = &payload[5..];
+    let decoded = from_avro_datum(&schema, &mut datum, None).unwrap();
+    let fields = match decoded {
+        AvroValue::Record(fields) => fields,
+        _ => Vec::new(),
+    };
+    assert!(
+        !fields.is_empty(),
+        "retry payload must decode as an Avro record"
+    );
+    assert_eq!(
+        fields
+            .iter()
+            .find(|(name, _)| name == "event_id")
+            .map(|(_, value)| value),
+        Some(&AvroValue::String(event.event_id.to_string()))
+    );
+    assert!(fields.iter().all(|(name, _)| {
+        name != "bronze_bytes" && name != "object_content" && name != "payload"
+    }));
 }
 
 #[tokio::test]
