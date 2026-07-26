@@ -74,8 +74,19 @@ const AREAS: &[Area] = &[
     Area {
         slug: "foundation",
         dir: "platforms/foundation-platform",
-        // aws-sdk-s3's maintained default HTTPS client builds aws-lc-sys with CMake.
-        apt_deps: &["cmake", "python3", "python3-pytest"],
+        // The complete workspace/all-features build includes aws-lc-sys and
+        // vendored librdkafka. Keep the native headers here (rather than relying
+        // on a developer image) so CI and the Docker verification harness share
+        // the same reproducible prerequisite contract.
+        apt_deps: &[
+            "cmake",
+            "python3",
+            "python3-pytest",
+            "libssl-dev",
+            "libsasl2-dev",
+            "libcurl4-openssl-dev",
+            "zlib1g-dev",
+        ],
         two_stage_test: false,
         python_tests: &[
             PythonTests {
