@@ -348,9 +348,8 @@ current archive or mutates an old manifest.
     derivative bucket's `s3://` release prefix, `FOUNDATION_TILE_DERIVATIVE_R2_ENDPOINT`,
     `FOUNDATION_TILE_DERIVATIVE_R2_REGION`, and the read-only
     `FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID` /
-    `FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY` through environment/secrets. Do not
-    use a named `pmtiles.sources` URL for scheduled discovery because named sources are startup
-    snapshots.
+     `FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY` through environment/secrets. Do not
+     use a named `pmtiles.sources` URL for scheduled discovery: named sources are startup snapshots.
 8. **Verify the production-shaped route.** Wait for the expected release-addressed Martin source,
    then verify TileJSON layer IDs, authenticated R2 reads, health/readiness, and decoded MVT through
    the public Martin/CDN hostname. The R2 bucket itself needs no public domain.
