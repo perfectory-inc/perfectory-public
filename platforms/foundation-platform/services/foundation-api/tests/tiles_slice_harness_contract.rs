@@ -245,6 +245,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "R2_TILES_OBJECT_KEY",
             "declare -p \"$name\"",
             "validate_r2_test_bucket",
+            "must be query-free for Martin 1.12",
             "--validate-r2-config-only",
             "protected_names=\"$(repository_protected_bucket_names)\"",
             "repository protected bucket SSOT is empty",
