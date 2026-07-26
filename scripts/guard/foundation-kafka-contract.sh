@@ -16,6 +16,10 @@ if [ -n "$collection_matches" ]; then
 fi
 
 adapter='platforms/foundation-platform/crates/foundation-outbox/src/kafka_broadcaster.rs'
+if ! grep -Fq 'required_env("FOUNDATION_PLATFORM_RUNTIME_ENV")' "$adapter"; then
+  echo 'FAIL foundation-kafka-contract: Kafka enablement must require the canonical runtime environment' >&2
+  fail=1
+fi
 if ! grep -Fq 'allow.auto.create.topics", "false' "$adapter"; then
   echo 'FAIL foundation-kafka-contract: Kafka producer must disable auto topic creation' >&2
   fail=1
@@ -61,6 +65,11 @@ for test_name in live_kafka_karapace live_kafka_outbox_roundtrip live_kafka_outa
     fail=1
   fi
 done
+if ! grep -Fq 'consumer_contract_deduplicates_event_id_and_reads_bronze_claim_check' \
+  platforms/foundation-platform/crates/foundation-outbox/tests/kafka_broadcaster_contract.rs; then
+  echo 'FAIL foundation-kafka-contract: consumer claim-check/dedup contract test is missing' >&2
+  fail=1
+fi
 for required_text in \
   'kafka-integration:' \
   'scripts/verify/foundation-kafka-live.sh' \

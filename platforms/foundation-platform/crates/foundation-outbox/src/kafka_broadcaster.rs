@@ -114,6 +114,7 @@ impl KafkaBroadcasterConfig {
             ));
         }
 
+        let runtime_environment = required_env("FOUNDATION_PLATFORM_RUNTIME_ENV")?;
         let config = Self {
             bootstrap_servers: required_env("FOUNDATION_PLATFORM_KAFKA_BOOTSTRAP_SERVERS")?,
             schema_registry_url: required_env("FOUNDATION_PLATFORM_KAFKA_SCHEMA_REGISTRY_URL")?,
@@ -154,14 +155,12 @@ impl KafkaBroadcasterConfig {
             )?,
         };
         config.validate()?;
-        if let Some(runtime_environment) = optional_env("FOUNDATION_PLATFORM_RUNTIME_ENV")? {
-            validate_runtime_target(
-                &runtime_environment,
-                &config.security_protocol,
-                &config.bootstrap_servers,
-                &config.schema_registry_url,
-            )?;
-        }
+        validate_runtime_target(
+            &runtime_environment,
+            &config.security_protocol,
+            &config.bootstrap_servers,
+            &config.schema_registry_url,
+        )?;
         Ok(Some(config))
     }
 
@@ -654,8 +653,14 @@ fn validate_runtime_target(
     bootstrap_servers: &str,
     schema_registry_url: &str,
 ) -> Result<(), PublishError> {
-    if !matches!(runtime_environment.trim(), "staging" | "production") {
-        return Ok(());
+    match runtime_environment.trim() {
+        "local" | "ci" => return Ok(()),
+        "staging" | "production" => {}
+        other => {
+            return Err(config_error(format!(
+                "FOUNDATION_PLATFORM_RUNTIME_ENV must be local, ci, staging, or production; got {other}"
+            )))
+        }
     }
 
     if !matches!(security_protocol, "SSL" | "SASL_SSL") {
@@ -747,5 +752,16 @@ mod tests {
             "https://registry.example.com",
         )
         .is_ok());
+    }
+
+    #[test]
+    fn unknown_runtime_environment_is_rejected() {
+        assert!(validate_runtime_target(
+            "prod",
+            "SASL_SSL",
+            "broker.example.com:9093",
+            "https://registry.example.com",
+        )
+        .is_err());
     }
 }
