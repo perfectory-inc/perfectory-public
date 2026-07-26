@@ -12,6 +12,15 @@ VALUES
     ('019d2b87-3fd1-7e3a-8d88-0b72c8743601', 'parcels', 1, 1)
 ON CONFLICT (id) DO NOTHING;
 
+-- The additive administrative-identity migration binds release revisions to its
+-- canonical ledger. Keep this disposable seed deterministic and lineage-backed.
+INSERT INTO catalog.administrative_boundary_revision
+    (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id, status, validated_at)
+VALUES
+    ('019d2b87-3fd1-7e3a-8d88-0b72c8743603', '841361364657368623',
+     'iceberg:tile-runtime-v2', '019d2b87-3fd1-7e3a-8d88-0b72c8742001', 'published', now())
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO catalog.vector_tile_release
     (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
      source_record_id, source_file_asset_ids, source_kind, martin_source_id,
