@@ -1,8 +1,8 @@
 # Production Martin static-source contract.
 #
-# The deployment injects TILES_R2_PMTILES_PREFIX as an s3:// URL and AWS-compatible read-only
-# credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION=auto, AWS_ENDPOINT_URL) at
-# runtime. No credential or bucket name is committed here. `pmtiles.paths` is intentional: Martin
+# The deployment injects TILES_R2_PMTILES_PREFIX as an s3:// URL and the dedicated, bucket-scoped
+# tile-derivative read-only credentials at runtime. No credential or bucket name is committed here.
+# `pmtiles.paths` is intentional: Martin
 # re-lists the release prefix and hot-reloads immutable PMTiles objects. The active Catalog
 # runtime-manifest still decides which release URL the browser receives; this prefix is only the
 # private source discovery boundary.
@@ -15,10 +15,10 @@ cors:
 # provider-specific endpoint and the `auto` signing region; path-style requests avoid rewriting
 # the account endpoint into a bucket host.
 pmtiles:
-  aws_access_key_id: ${R2_ACCESS_KEY_ID}
-  aws_secret_access_key: ${R2_SECRET_ACCESS_KEY}
-  aws_region: ${R2_REGION:-auto}
-  aws_endpoint_url: ${R2_S3_ENDPOINT}
+  aws_access_key_id: ${FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID}
+  aws_secret_access_key: ${FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY}
+  aws_region: ${FOUNDATION_TILE_DERIVATIVE_R2_REGION:-auto}
+  aws_endpoint_url: ${FOUNDATION_TILE_DERIVATIVE_R2_ENDPOINT}
   aws_virtual_hosted_style_request: false
   paths:
     - ${TILES_R2_PMTILES_PREFIX}

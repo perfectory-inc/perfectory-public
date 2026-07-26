@@ -334,7 +334,7 @@ current archive or mutates an old manifest.
    and every required MVT source layer.
 5. **Create the immutable release.** Upload with a create-only precondition to the dedicated private
    serving-derivative bucket, for example
-   `gold/vector-tiles/releases/<release-uuid>/<publication-unit>-<release-uuid>.pmtiles`. Persist the immutable
+   `gold/vector-tiles/releases/<publication-unit>-<release-uuid>.pmtiles`. Persist the immutable
    release, source lineage, file assets, checksum, byte size, bounds, zooms, and layer IDs in
    Catalog. Never put canonical source data in this bucket.
 6. **Use isolated credentials.** The generic lakehouse `R2_BUCKET_NAME` adapter is forbidden.
@@ -342,9 +342,12 @@ current archive or mutates an old manifest.
    read-only credential. Both are unable to access Bronze, lakehouse, or recovery buckets.
 7. **Stage Martin from private R2.** Deploy the checked-in
     `scripts/tiles/martin-static-production.yaml`; inject `TILES_R2_PMTILES_PREFIX` as the
-    derivative bucket's `s3://` release prefix, the R2 S3-compatible endpoint, and a bounded
-    `reload_interval` through environment/secrets. Do not use a named `pmtiles.sources` URL for
-    scheduled discovery because named sources are startup snapshots.
+    derivative bucket's `s3://` release prefix, `FOUNDATION_TILE_DERIVATIVE_R2_ENDPOINT`,
+    `FOUNDATION_TILE_DERIVATIVE_R2_REGION`, and the read-only
+    `FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID` /
+    `FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY` through environment/secrets. Do not
+    use a named `pmtiles.sources` URL for scheduled discovery because named sources are startup
+    snapshots.
 8. **Verify the production-shaped route.** Wait for the expected release-addressed Martin source,
    then verify TileJSON layer IDs, authenticated R2 reads, health/readiness, and decoded MVT through
    the public Martin/CDN hostname. The R2 bucket itself needs no public domain.
