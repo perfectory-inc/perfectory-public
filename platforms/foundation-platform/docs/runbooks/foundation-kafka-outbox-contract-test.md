@@ -21,6 +21,12 @@ The gate runs the same path used by the publisher service:
 Delivery is at-least-once. A consumer must deduplicate by `event_id`; exactly-once is not claimed.
 The Postgres outbox remains the durable source of truth and is the replay/rollback mechanism.
 
+The credential-free `kafka_broadcaster_contract` suite also exercises the consumer boundary: it
+decodes the Avro claim-check, reads a fixture Bronze object by `bronze_object_key`, verifies its
+SHA-256, and drops a redelivery with the same `event_id` without rereading the object. This is a
+contract proof, not a production Silver/Gold consumer; the downstream owner still has to implement
+the same behavior against the real R2 adapter and its durable consumer-offset/idempotency store.
+
 ## Run the complete live gate
 
 Prerequisites: Docker, `curl`, and a disposable Postgres/PostGIS database with `DATABASE_URL` set.

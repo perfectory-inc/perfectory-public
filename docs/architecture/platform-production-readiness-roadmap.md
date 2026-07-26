@@ -26,6 +26,9 @@ status: current
   variables, so CI configuration cannot silently change their result.
 - Kafka contract coverage now checks that retries preserve the same `event_id`/partition key and
   that live Avro records expose the Bronze claim-check metadata without raw object bytes.
+- The credential-free consumer contract now decodes that Avro claim-check, verifies a Bronze
+  checksum, and drops a redelivery by `event_id`; this is a boundary proof, not a production
+  Silver/Gold consumer implementation.
 
 ## 우선순위 0 — 출시 전 필수 게이트
 
@@ -34,7 +37,7 @@ status: current
 - [ ] 운영 Kafka와 Schema Registry 소유자·배포 대상 확정
 - [ ] TLS/SASL, Schema Registry HTTPS/CA, Secret Manager 주입 검증
 - [ ] `foundation-platform.catalog.collection-raw-written.v1` 토픽의 파티션·복제·보존·ACL 확정
-- [ ] 소비자가 `event_id`로 중복 제거하고 R2 claim-check를 읽는 계약 테스트 추가
+- [x] 소비자가 `event_id`로 중복 제거하고 Bronze claim-check를 읽는 계약 테스트 추가
 - [ ] 발행 지연·실패·재시도·격리·consumer lag·스키마 오류 알림 연결
 - [ ] `dual_publish_legacy=1` 관찰 기간과 Kafka 비활성화 롤백 절차 증명
 - [ ] GitHub `kafka-integration` 필수 게이트가 실제 보호 브랜치에서 통과하는지 확인

@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #![allow(missing_docs)]
 
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use apache_avro::{from_avro_datum, types::Value as AvroValue, Schema};
@@ -10,10 +11,117 @@ use foundation_outbox::{
     DEFAULT_RAW_WRITTEN_TOPIC, RAW_WRITTEN_AVRO_SCHEMA,
 };
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 type RecordedCall = (String, String, Vec<u8>);
 type RecordedCalls = Arc<Mutex<Vec<RecordedCall>>>;
+
+#[derive(Debug, PartialEq, Eq)]
+enum ConsumerDecision {
+    Applied,
+    Duplicate,
+}
+
+#[derive(Debug)]
+struct DecodedClaimCheck {
+    event_id: String,
+    bronze_object_key: String,
+    bronze_checksum_sha256: String,
+    bronze_object_count: u64,
+}
+
+/// A deliberately small consumer-side contract probe.
+///
+/// It models the two invariants every real Silver/Gold consumer must preserve:
+/// the outbox `event_id` is the at-least-once deduplication key, and the Kafka
+/// value is only a claim-check whose Bronze object must be read and verified.
+/// The production consumer is not invented here; this test makes its required
+/// boundary executable before a concrete downstream owner is selected.
+#[derive(Default)]
+struct ClaimCheckConsumerProbe {
+    objects: HashMap<String, Vec<u8>>,
+    seen_event_ids: HashSet<String>,
+    object_reads: usize,
+}
+
+impl ClaimCheckConsumerProbe {
+    fn insert_object(&mut self, object_key: String, bytes: Vec<u8>) {
+        self.objects.insert(object_key, bytes);
+    }
+
+    fn consume(&mut self, payload: &[u8]) -> Result<ConsumerDecision, String> {
+        let claim_check = decode_claim_check(payload)?;
+        if self.seen_event_ids.contains(&claim_check.event_id) {
+            return Ok(ConsumerDecision::Duplicate);
+        }
+
+        let bytes = self
+            .objects
+            .get(&claim_check.bronze_object_key)
+            .ok_or_else(|| {
+                format!(
+                    "Bronze claim-check object is missing: {}",
+                    claim_check.bronze_object_key
+                )
+            })?;
+        self.object_reads += 1;
+        let actual_checksum = format!("{:x}", Sha256::digest(bytes));
+        if actual_checksum != claim_check.bronze_checksum_sha256 {
+            return Err(format!(
+                "Bronze claim-check checksum mismatch for {}",
+                claim_check.bronze_object_key
+            ));
+        }
+        if claim_check.bronze_object_count == 0 {
+            return Err("Bronze claim-check object count must be positive".to_owned());
+        }
+
+        self.seen_event_ids.insert(claim_check.event_id);
+        Ok(ConsumerDecision::Applied)
+    }
+}
+
+fn decode_claim_check(payload: &[u8]) -> Result<DecodedClaimCheck, String> {
+    if payload.len() < 5 {
+        return Err("Confluent-Avro payload is missing its five-byte header".to_owned());
+    }
+    let schema = Schema::parse_str(RAW_WRITTEN_AVRO_SCHEMA).map_err(|error| error.to_string())?;
+    let mut datum = &payload[5..];
+    let AvroValue::Record(fields) =
+        from_avro_datum(&schema, &mut datum, None).map_err(|error| error.to_string())?
+    else {
+        return Err("raw_written payload must decode as an Avro record".to_owned());
+    };
+
+    let string_field = |name: &str| {
+        fields
+            .iter()
+            .find(|(field_name, _)| field_name == name)
+            .and_then(|(_, value)| match value {
+                AvroValue::String(value) => Some(value.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| format!("raw_written payload is missing string field {name}"))
+    };
+    let long_field = |name: &str| {
+        fields
+            .iter()
+            .find(|(field_name, _)| field_name == name)
+            .and_then(|(_, value)| match value {
+                AvroValue::Long(value) => u64::try_from(*value).ok(),
+                _ => None,
+            })
+            .ok_or_else(|| format!("raw_written payload is missing long field {name}"))
+    };
+
+    Ok(DecodedClaimCheck {
+        event_id: string_field("event_id")?,
+        bronze_object_key: string_field("bronze_object_key")?,
+        bronze_checksum_sha256: string_field("bronze_checksum_sha256")?,
+        bronze_object_count: long_field("bronze_object_count")?,
+    })
+}
 
 #[derive(Clone, Default)]
 struct RecordingKafkaPublisher {
@@ -127,6 +235,46 @@ async fn retrying_same_outbox_event_preserves_event_id_and_claim_check() {
     assert!(fields.iter().all(|(name, _)| {
         name != "bronze_bytes" && name != "object_content" && name != "payload"
     }));
+}
+
+#[tokio::test]
+async fn consumer_contract_deduplicates_event_id_and_reads_bronze_claim_check() {
+    let publisher = RecordingKafkaPublisher::default();
+    let calls = Arc::clone(&publisher.calls);
+    let broadcaster = KafkaEventBroadcaster::new(
+        publisher,
+        DEFAULT_RAW_WRITTEN_TOPIC,
+        Schema::parse_str(RAW_WRITTEN_AVRO_SCHEMA).unwrap(),
+        17,
+        Arc::new(RecordingFallback::default()),
+        false,
+    )
+    .unwrap();
+
+    let bronze_bytes = b"bronze-claim-check-fixture".to_vec();
+    let mut event = raw_written_event();
+    event.payload["bronze_checksum_sha256"] = json!(format!("{:x}", Sha256::digest(&bronze_bytes)));
+    let bronze_object_key = event.payload["bronze_object_key"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    broadcaster.publish(&event).await.unwrap();
+    let payload = calls.lock().unwrap()[0].2.clone();
+
+    let mut consumer = ClaimCheckConsumerProbe::default();
+    consumer.insert_object(bronze_object_key, bronze_bytes);
+    assert_eq!(
+        consumer.consume(&payload).unwrap(),
+        ConsumerDecision::Applied,
+        "first delivery must read and apply the Bronze claim-check"
+    );
+    assert_eq!(
+        consumer.consume(&payload).unwrap(),
+        ConsumerDecision::Duplicate,
+        "redelivery must be ignored by the stable outbox event_id"
+    );
+    assert_eq!(consumer.object_reads, 1, "duplicate must not reread Bronze");
 }
 
 #[tokio::test]
