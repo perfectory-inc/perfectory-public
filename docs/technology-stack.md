@@ -87,6 +87,10 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 
 ## 4. 현재 남은 미통합·미선정 항목
 
+전체 실행 순서와 완료 조건은
+[`platform-production-readiness-roadmap.md`](./architecture/platform-production-readiness-roadmap.md)를
+SSOT로 사용한다. 이 표는 기술 현황을, 로드맵은 실제 다음 작업과 운영 게이트를 관리한다.
+
 버전 혼용은 현재 canonical 기준으로 정리했지만 다음은 “버전 문제”가 아니라 아직 운영
 선택·배선이 끝나지 않은 항목이다.
 
