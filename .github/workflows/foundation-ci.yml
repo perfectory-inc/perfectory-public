@@ -262,6 +262,16 @@ jobs:
           fi
           psql --version
 
+      - name: Install Kafka Rust native build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep this host-side live gate on the same complete native header set
+          # declared by tools/xtask for Foundation's --all-features build.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
+
       - name: Run migrations through the production runner
         run: FOUNDATION_MIGRATOR_DATABASE_URL="$DATABASE_URL" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
 
