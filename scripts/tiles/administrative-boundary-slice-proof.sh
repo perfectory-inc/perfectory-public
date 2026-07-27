@@ -89,7 +89,7 @@ run_publisher() {
     -v perfectory-rustup:/usr/local/rustup \
     -v perfectory-target-foundation-platform:/work/platforms/foundation-platform/target \
     -w /work/platforms/foundation-platform \
-    "$@"
+    "$RUST_IMAGE" "$@"
 }
 
 docker run --rm --network "$NET" \
@@ -115,7 +115,7 @@ run_publisher \
   -e FOUNDATION_PLATFORM_OFFICIAL_ADMINISTRATIVE_BOUNDARY_SOURCE_SNAPSHOT_ID=iceberg:administrative-boundary-fixture-v1 \
   -e FOUNDATION_PLATFORM_OFFICIAL_ADMINISTRATIVE_BOUNDARY_SOURCE_PROVIDER=official-administrative-boundary-fixture \
   -e FOUNDATION_PLATFORM_OFFICIAL_ADMINISTRATIVE_BOUNDARY_SOURCE_VALID_FROM_UTC=2026-07-01T00:00:00Z \
-  "$RUST_IMAGE" cargo run --locked --quiet -p foundation-outbox-publisher -- \
+  cargo run --locked --quiet -p foundation-outbox-publisher -- \
   write-official-administrative-boundary-source-snapshot
 
 run_publisher \
@@ -125,7 +125,7 @@ run_publisher \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_SPATIAL_SCOPE_REGISTRY_SOURCE_PATH="/work/$RUN_RELATIVE/source.jsonl" \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_SPATIAL_SCOPE_REGISTRY_OUTPUT_PATH="/work/$RUN_RELATIVE/registry.jsonl" \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_SPATIAL_SCOPE_REGISTRY_EVIDENCE_PATH="/work/$RUN_RELATIVE/registry-evidence.json" \
-  "$RUST_IMAGE" cargo run --locked --quiet -p foundation-outbox-publisher -- \
+  cargo run --locked --quiet -p foundation-outbox-publisher -- \
   write-administrative-spatial-scope-registry
 
 run_publisher \
@@ -138,7 +138,7 @@ run_publisher \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_SOURCE_SNAPSHOT_ID=iceberg:administrative-boundary-fixture-v1 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_SOURCE_RECORD_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743702 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_KEY=tiles-slice-proof/administrative-boundary/fixture.geojson \
-  "$RUST_IMAGE" cargo run --locked --quiet -p foundation-outbox-publisher -- \
+  cargo run --locked --quiet -p foundation-outbox-publisher -- \
   publish-administrative-boundary-postgis
 
 run_publisher \
@@ -152,7 +152,7 @@ run_publisher \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_RELEASE_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743802 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_MANIFEST_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743805 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_TILES_URL_TEMPLATE='http://127.0.0.1:3112/admin/{z}/{x}/{y}' \
-  "$RUST_IMAGE" cargo run --locked --quiet -p foundation-outbox-publisher -- \
+  cargo run --locked --quiet -p foundation-outbox-publisher -- \
   promote-administrative-boundary-runtime
 
 docker run -d --name "$MARTIN" --network "$NET" \
