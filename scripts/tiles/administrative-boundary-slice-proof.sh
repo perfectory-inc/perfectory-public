@@ -83,13 +83,23 @@ psql_file() {
 }
 
 run_publisher() {
+  local env_values=()
+  while [[ "${1:-}" == "-e" ]]; do
+    [[ "${2:-}" == *=* ]] || {
+      printf 'run_publisher: -e requires KEY=value\n' >&2
+      exit 2
+    }
+    env_values+=("$2")
+    shift 2
+  done
+  [[ "${1:-}" == "$RUST_IMAGE" ]] && shift
   docker run --rm --network "$NET" \
     -v "$REPO_HOST_PATH:/work" \
     -v perfectory-cargo-registry:/usr/local/cargo/registry \
     -v perfectory-rustup:/usr/local/rustup \
     -v perfectory-target-foundation-platform:/work/platforms/foundation-platform/target \
     -w /work/platforms/foundation-platform \
-    "$RUST_IMAGE" "$@"
+    "$RUST_IMAGE" env "${env_values[@]}" "$@"
 }
 
 docker run --rm --network "$NET" \
@@ -170,9 +180,9 @@ done
 curl --fail --silent "http://127.0.0.1:$MARTIN_PORT/catalog" | grep -q '"admin"'
 
 TILE_RELATIVE="$RUN_RELATIVE/admin-z14.pbf"
-curl --fail --silent --show-error -H 'Accept-Encoding: identity' \
-  -o "$REPO_ROOT/$TILE_RELATIVE" \
-  "http://127.0.0.1:$MARTIN_PORT/admin/14/13977/6426"
+(cd "$REPO_ROOT" && curl --fail --silent --show-error -H 'Accept-Encoding: identity' \
+  -o "$TILE_RELATIVE" \
+  "http://127.0.0.1:$MARTIN_PORT/admin/14/13977/6426")
 
 DECODER_RELATIVE="$RUN_RELATIVE/mvt-assert"
 docker run --rm -v "$REPO_HOST_PATH:/work" -w /work "$RUST_IMAGE" \
