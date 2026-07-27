@@ -1,0 +1,26 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "EMD_CD": "99999001",
+        "EMD_NM": "Fixture Legal Dong",
+        "SIGUNGU_CD": "99999",
+        "SIGUNGU_NM": "Fixture Sigungu"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [127.1231, 36.1231],
+            [127.1235, 36.1231],
+            [127.1235, 36.1235],
+            [127.1231, 36.1235],
+            [127.1231, 36.1231]
+          ]
+        ]
+      }
+    }
+  ]
+}

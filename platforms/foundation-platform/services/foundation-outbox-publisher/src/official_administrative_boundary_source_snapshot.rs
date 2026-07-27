@@ -24,6 +24,8 @@ const DEFAULT_EVIDENCE_PATH: &str =
 const DEFAULT_SOURCE_PROVIDER: &str = "official-administrative-boundary";
 const DEFAULT_CODE_PROPERTY: &str = "EMD_CD";
 const DEFAULT_NAME_PROPERTY: &str = "EMD_NM";
+const DEFAULT_PARENT_CODE_PROPERTY: &str = "SIGUNGU_CD";
+const DEFAULT_PARENT_NAME_PROPERTY: &str = "SIGUNGU_NM";
 const FORBIDDEN_SOURCE_PROVIDERS: &[&str] = &[
     "VWorld",
     "data.go.kr",
@@ -45,6 +47,8 @@ struct WriteConfig {
     source_provider: String,
     code_property: String,
     name_property: String,
+    parent_code_property: String,
+    parent_name_property: String,
     source_srid: i64,
     valid_from_utc: String,
 }
@@ -144,6 +148,14 @@ impl WriteConfig {
                 "FOUNDATION_PLATFORM_OFFICIAL_ADMINISTRATIVE_BOUNDARY_SOURCE_NAME_PROPERTY",
                 DEFAULT_NAME_PROPERTY,
             )?,
+            parent_code_property: env_string(
+                "FOUNDATION_PLATFORM_OFFICIAL_ADMINISTRATIVE_BOUNDARY_SOURCE_PARENT_CODE_PROPERTY",
+                DEFAULT_PARENT_CODE_PROPERTY,
+            )?,
+            parent_name_property: env_string(
+                "FOUNDATION_PLATFORM_OFFICIAL_ADMINISTRATIVE_BOUNDARY_SOURCE_PARENT_NAME_PROPERTY",
+                DEFAULT_PARENT_NAME_PROPERTY,
+            )?,
             source_srid,
             valid_from_utc,
             root,
@@ -205,6 +217,8 @@ impl SourceSnapshotWriter {
             source_srid: self.config.source_srid,
             code_property: self.config.code_property.clone(),
             name_property: self.config.name_property.clone(),
+            parent_code_property: self.config.parent_code_property.clone(),
+            parent_name_property: self.config.parent_name_property.clone(),
             input_geojson_path: repo_relative_path(
                 &self.config.root,
                 &self.config.input_geojson_path,
@@ -252,6 +266,7 @@ fn build_rows(config: &WriteConfig, features: &[JsonValue]) -> anyhow::Result<Ve
     let mut legal_dong_rows = Vec::new();
     let mut sigungu_bounds_by_code: BTreeMap<String, Bounds> = BTreeMap::new();
     let mut sigungu_feature_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut sigungu_names_by_code: BTreeMap<String, String> = BTreeMap::new();
 
     for feature in features {
         if json_string(feature, "type") != "Feature" {
@@ -277,7 +292,20 @@ fn build_rows(config: &WriteConfig, features: &[JsonValue]) -> anyhow::Result<Ve
         let mut bounds = Bounds::empty();
         add_coordinate_bounds(geometry.get("coordinates"), &mut bounds);
         let bbox = Bbox::from_bounds(&bounds)?;
-        let sigungu_code = legal_dong_code[0..5].to_owned();
+        let sigungu_code = canonical_sigungu_code(
+            &json_string(properties, &config.parent_code_property),
+            &legal_dong_code,
+        )?;
+        let sigungu_name = json_string(properties, &config.parent_name_property);
+        if !sigungu_name.trim().is_empty() {
+            if let Some(existing) = sigungu_names_by_code.get(&sigungu_code) {
+                if existing != &sigungu_name {
+                    bail!("conflicting parent administrative names for {sigungu_code}");
+                }
+            } else {
+                sigungu_names_by_code.insert(sigungu_code.clone(), sigungu_name);
+            }
+        }
         sigungu_bounds_by_code
             .entry(sigungu_code.clone())
             .or_insert_with(Bounds::empty)
@@ -288,10 +316,12 @@ fn build_rows(config: &WriteConfig, features: &[JsonValue]) -> anyhow::Result<Ve
 
         legal_dong_rows.push(SourceRow {
             schema_version: SOURCE_ROW_SCHEMA_VERSION,
+            scope_unit_id: String::new(),
             scope_kind: "legal_dong".to_owned(),
             canonical_code: legal_dong_code,
             parent_scope_kind: "sigungu".to_owned(),
             parent_canonical_code: sigungu_code,
+            parent_scope_unit_id: String::new(),
             valid_from_utc: config.valid_from_utc.clone(),
             valid_to_utc: None,
             status: "active".to_owned(),
@@ -303,6 +333,7 @@ fn build_rows(config: &WriteConfig, features: &[JsonValue]) -> anyhow::Result<Ve
             geometry: Some(geometry.clone()),
             geometry_sha256: Some(json_sha256(geometry)?),
             source_feature_count: None,
+            row_checksum_sha256: String::new(),
         });
     }
 
@@ -311,10 +342,12 @@ fn build_rows(config: &WriteConfig, features: &[JsonValue]) -> anyhow::Result<Ve
     for (sigungu_code, bounds) in sigungu_bounds_by_code {
         rows.push(SourceRow {
             schema_version: SOURCE_ROW_SCHEMA_VERSION,
+            scope_unit_id: String::new(),
             scope_kind: "sigungu".to_owned(),
             canonical_code: sigungu_code.clone(),
             parent_scope_kind: String::new(),
             parent_canonical_code: String::new(),
+            parent_scope_unit_id: String::new(),
             valid_from_utc: config.valid_from_utc.clone(),
             valid_to_utc: None,
             status: "active".to_owned(),
@@ -322,13 +355,26 @@ fn build_rows(config: &WriteConfig, features: &[JsonValue]) -> anyhow::Result<Ve
             bbox: Bbox::from_bounds(&bounds)?,
             source_provider: config.source_provider.clone(),
             source_snapshot_id: config.source_snapshot_id.clone(),
-            source_name: String::new(),
+            source_name: sigungu_names_by_code
+                .get(&sigungu_code)
+                .cloned()
+                .unwrap_or_default(),
             geometry: None,
             geometry_sha256: None,
             source_feature_count: sigungu_feature_counts.get(&sigungu_code).copied(),
+            row_checksum_sha256: String::new(),
         });
     }
     rows.extend(legal_dong_rows);
+    for row in &mut rows {
+        row.scope_unit_id = scope_unit_id(&row.scope_kind, &row.canonical_code);
+        row.parent_scope_unit_id = if row.parent_scope_kind.trim().is_empty() {
+            String::new()
+        } else {
+            scope_unit_id(&row.parent_scope_kind, &row.parent_canonical_code)
+        };
+        row.row_checksum_sha256 = source_row_checksum(row);
+    }
     Ok(rows)
 }
 
@@ -341,6 +387,20 @@ fn canonical_legal_dong_code(source_code: &str) -> anyhow::Result<String> {
         return Ok(format!("{trimmed}00"));
     }
     bail!("legal_dong source code must be eight-digit EMD or ten-digit legal_dong code");
+}
+
+fn canonical_sigungu_code(source_code: &str, legal_dong_code: &str) -> anyhow::Result<String> {
+    let trimmed = source_code.trim();
+    if trimmed.is_empty() {
+        return Ok(legal_dong_code[0..5].to_owned());
+    }
+    if is_fixed_digits(trimmed, 5) {
+        return Ok(trimmed.to_owned());
+    }
+    if is_fixed_digits(trimmed, 8) || is_fixed_digits(trimmed, 10) {
+        return Ok(trimmed[0..5].to_owned());
+    }
+    bail!("parent administrative code must be five, eight, or ten digits");
 }
 
 fn add_coordinate_bounds(value: Option<&JsonValue>, bounds: &mut Bounds) {
@@ -506,10 +566,12 @@ impl Bbox {
 #[derive(Serialize)]
 struct SourceRow {
     schema_version: &'static str,
+    scope_unit_id: String,
     scope_kind: String,
     canonical_code: String,
     parent_scope_kind: String,
     parent_canonical_code: String,
+    parent_scope_unit_id: String,
     valid_from_utc: String,
     valid_to_utc: Option<String>,
     status: String,
@@ -524,6 +586,38 @@ struct SourceRow {
     geometry_sha256: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_feature_count: Option<usize>,
+    row_checksum_sha256: String,
+}
+
+fn scope_unit_id(scope_kind: &str, canonical_code: &str) -> String {
+    let kind = if scope_kind == "legal_dong" {
+        "legal-dong"
+    } else {
+        scope_kind
+    };
+    format!("scope:{kind}:{canonical_code}")
+}
+
+fn source_row_checksum(row: &SourceRow) -> String {
+    let geometry_srid = row.geometry_srid.to_string();
+    let input = [
+        row.scope_unit_id.as_str(),
+        row.scope_kind.as_str(),
+        row.canonical_code.as_str(),
+        row.parent_scope_unit_id.as_str(),
+        row.valid_from_utc.as_str(),
+        row.valid_to_utc.as_deref().unwrap_or_default(),
+        row.status.as_str(),
+        geometry_srid.as_str(),
+        row.bbox.min_x.as_str(),
+        row.bbox.min_y.as_str(),
+        row.bbox.max_x.as_str(),
+        row.bbox.max_y.as_str(),
+        row.source_provider.as_str(),
+        row.source_snapshot_id.as_str(),
+    ]
+    .join("|");
+    format!("{:x}", Sha256::digest(input.as_bytes()))
 }
 
 #[derive(Serialize)]
@@ -537,6 +631,8 @@ struct Evidence {
     source_srid: i64,
     code_property: String,
     name_property: String,
+    parent_code_property: String,
+    parent_name_property: String,
     input_geojson_path: String,
     input_geojson_sha256: String,
     output_path: String,
@@ -565,6 +661,8 @@ mod tests {
             source_provider: "official-administrative-boundary".to_owned(),
             code_property: "EMD_CD".to_owned(),
             name_property: "EMD_NM".to_owned(),
+            parent_code_property: "SIGUNGU_CD".to_owned(),
+            parent_name_property: "SIGUNGU_NM".to_owned(),
             source_srid: 4326,
             valid_from_utc: "2026-07-01T00:00:00Z".to_owned(),
         }
@@ -585,9 +683,12 @@ mod tests {
             .iter()
             .find(|row| row.scope_kind == "legal_dong")
             .unwrap();
+        assert_eq!(legal.scope_unit_id, "scope:legal-dong:9999900100");
         assert_eq!(legal.geometry_srid, 4326);
         assert_eq!(legal.parent_scope_kind, "sigungu");
         assert_eq!(legal.parent_canonical_code, "99999");
+        assert_eq!(legal.parent_scope_unit_id, "scope:sigungu:99999");
+        assert_eq!(legal.row_checksum_sha256.len(), 64);
         assert_eq!(
             legal.geometry.as_ref().and_then(|value| value.get("type")),
             Some(&JsonValue::String("Polygon".to_owned()))

@@ -169,6 +169,21 @@ unit), then calls the database CAS function. The browser can consume the v2 `adm
 existing MapLibre bridge; the legacy v1 `admin` artifact remains a fallback until that release is
 promoted.
 
+### Disposable end-to-end smoke proof
+
+When the official government boundary snapshot is not available, run the checked-in proof with a
+reserved-coordinate synthetic fixture:
+
+```bash
+bash scripts/tiles/administrative-boundary-slice-proof.sh
+```
+
+It starts disposable PostGIS and Martin containers, writes a synthetic legal-dong and sigungu
+source snapshot, validates the registry, publishes PostGIS geometry, promotes the CAS runtime
+manifest, and decodes the resulting Martin MVT. The fixture is deliberately non-official data and
+must never be promoted to production; replace it with the verified official source snapshot before
+any real release.
+
 ## Local PMTiles fallback
 
 Ensure that no R2 proof variables are exported, then run the proof twice:

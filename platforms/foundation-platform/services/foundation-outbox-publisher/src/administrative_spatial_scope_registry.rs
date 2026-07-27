@@ -340,7 +340,7 @@ fn validate_registry_rows(rows: &[JsonValue], blockers: &mut Vec<String>) {
             !is_lowercase_sha256(&checksum),
             "row_checksum_sha256 must be lowercase sha256",
         );
-        if is_lowercase_sha256(&checksum) && checksum != scope_checksum(row) {
+        if is_lowercase_sha256(&checksum) && checksum != registry_checksum_from_json(row) {
             blockers.push("row_checksum_sha256 mismatch".to_owned());
         }
         if scope_kind == "legal_dong" {
@@ -541,6 +541,7 @@ fn validate_source_row(
 ) {
     for field in [
         "schema_version",
+        "scope_unit_id",
         "scope_kind",
         "canonical_code",
         "valid_from_utc",
@@ -549,6 +550,7 @@ fn validate_source_row(
         "bbox",
         "source_provider",
         "source_snapshot_id",
+        "row_checksum_sha256",
     ] {
         add_if(
             blockers,
@@ -565,6 +567,7 @@ fn validate_source_row(
     let status = json_string(row, "status");
     let source_provider = json_string(row, "source_provider");
     let row_source_snapshot_id = json_string(row, "source_snapshot_id");
+    let row_checksum = json_string(row, "row_checksum_sha256");
     let geometry = row.get("geometry").unwrap_or(&JsonValue::Null);
     let geometry_sha256 = json_string(row, "geometry_sha256");
 
@@ -604,6 +607,14 @@ fn validate_source_row(
         row_source_snapshot_id != source_snapshot_id,
         "source_snapshot_id must match SourceSnapshotId",
     );
+    add_if(
+        blockers,
+        !is_lowercase_sha256(&row_checksum),
+        "source row_checksum_sha256 must be lowercase sha256",
+    );
+    if is_lowercase_sha256(&row_checksum) && row_checksum != scope_checksum(row) {
+        blockers.push("source row_checksum_sha256 mismatch".to_owned());
+    }
     validate_source_code(&scope_kind, &canonical_code, blockers);
 
     if scope_kind == "legal_dong" {
@@ -844,6 +855,29 @@ fn scope_checksum(row: &JsonValue) -> String {
         string_property(bbox.get("max_y")),
         json_string(row, "source_provider"),
         json_string(row, "source_snapshot_id"),
+    ]
+    .join("|");
+    sha256_hex(input.as_bytes())
+}
+
+fn registry_checksum_from_json(row: &JsonValue) -> String {
+    let bbox = row.get("bbox").unwrap_or(&JsonValue::Null);
+    let input = [
+        json_string(row, "scope_unit_id"),
+        json_string(row, "scope_kind"),
+        json_string(row, "canonical_code"),
+        json_string(row, "parent_scope_unit_id"),
+        utc_timestamp_string(row.get("valid_from_utc")),
+        utc_timestamp_string(row.get("valid_to_utc")),
+        json_string(row, "status"),
+        string_property(row.get("geometry_srid")),
+        string_property(bbox.get("min_x")),
+        string_property(bbox.get("min_y")),
+        string_property(bbox.get("max_x")),
+        string_property(bbox.get("max_y")),
+        json_string(row, "source_provider"),
+        json_string(row, "source_snapshot_id"),
+        json_string(row, "geometry_sha256"),
     ]
     .join("|");
     sha256_hex(input.as_bytes())
