@@ -113,6 +113,7 @@
 | 0410 | 지역지구구역 | building_register_closed_district_zone | `hubgokr__building_register_closed_district_zone` |
 
 ### 2.5 건물에너지 연도별 벌크 (group 05, 2 신규) - Phase 3b
+> Provider inventory checked on 2026-07-27 has no group 05 rows; 0501/0502 remain cataloged for audit but use the non-executable `provider_inventory_missing` lane until revalidated.
 | code | 한국어 | dataset_slug | 새 source_slug |
 |---|---|---|---|
 | 0501 | 지번별에너지(전기,연도별) | building_energy_yearly_electricity | `hubgokr__building_energy_yearly_electricity` |
