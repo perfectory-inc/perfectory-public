@@ -40,6 +40,8 @@ use sqlx::PgPool;
 use tokio::sync::watch;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+mod administrative_boundary_postgis_publish;
+mod administrative_boundary_runtime_promote;
 mod administrative_spatial_scope_registry;
 mod bounded_live_ingestion_gate_check;
 mod bronze_catalog_recovery_evidence;
@@ -209,6 +211,8 @@ enum Command {
     RecoverBronzeCatalog,
     CheckNationalDataCollectionRolloutApproval,
     CheckAdministrativeSpatialScopeRegistry,
+    PublishAdministrativeBoundaryPostgis,
+    PromoteAdministrativeBoundaryRuntime,
     CheckIndustrialComplexCanonicalSourceReadiness,
     CheckNationalBronzeObjectManifest,
     ConfigureGitHubActionsSecrets,
@@ -410,6 +414,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::CheckAdministrativeSpatialScopeRegistry => {
             Box::pin(async { administrative_spatial_scope_registry::check() })
+        }
+        Command::PublishAdministrativeBoundaryPostgis => {
+            Box::pin(administrative_boundary_postgis_publish::run())
+        }
+        Command::PromoteAdministrativeBoundaryRuntime => {
+            Box::pin(administrative_boundary_runtime_promote::run())
         }
         Command::CheckBoundedLiveIngestionGate => {
             Box::pin(async { bounded_live_ingestion_gate_check::run() })
@@ -928,6 +938,12 @@ where
         }
         Some("check-administrative-spatial-scope-registry") => {
             Ok(Command::CheckAdministrativeSpatialScopeRegistry)
+        }
+        Some("publish-administrative-boundary-postgis") => {
+            Ok(Command::PublishAdministrativeBoundaryPostgis)
+        }
+        Some("promote-administrative-boundary-runtime") => {
+            Ok(Command::PromoteAdministrativeBoundaryRuntime)
         }
         Some("check-bounded-live-ingestion-gate") => Ok(Command::CheckBoundedLiveIngestionGate),
         Some("check-postgis-anchor-pbf-regional-proof") => {

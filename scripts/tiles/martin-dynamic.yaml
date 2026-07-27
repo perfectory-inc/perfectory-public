@@ -22,6 +22,20 @@ postgres:
       properties:
         pnu: Parcel number
         official_complex_code: Industrial-complex code
+    admin:
+      schema: serving_postgis
+      table: administrative_unit_boundary_current
+      srid: 4326
+      geometry_column: geom
+      geometry_type: MULTIPOLYGON
+      layer_id: admin
+      minzoom: 5
+      maxzoom: 16
+      properties:
+        administrative_unit_id: Stable administrative-unit identity
+        scope_kind: Administrative scope kind
+        canonical_code: Official administrative code
+        display_name: Official administrative name
     parcel_anchor_aggregate:
       schema: serving_postgis
       table: tiles_slice_parcel_anchor_aggregate

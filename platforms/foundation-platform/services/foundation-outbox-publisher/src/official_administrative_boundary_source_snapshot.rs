@@ -66,6 +66,11 @@ impl WriteConfig {
         if source_snapshot_id.trim().is_empty() {
             bail!("SourceSnapshotId is required");
         }
+        if !source_snapshot_id.starts_with("iceberg:")
+            || source_snapshot_id.len() < "iceberg:abc".len()
+        {
+            bail!("SourceSnapshotId must use the iceberg: lineage contract");
+        }
         let valid_from_raw = env_string(
             "FOUNDATION_PLATFORM_OFFICIAL_ADMINISTRATIVE_BOUNDARY_SOURCE_VALID_FROM_UTC",
             "",
@@ -295,6 +300,8 @@ fn build_rows(config: &WriteConfig, features: &[JsonValue]) -> anyhow::Result<Ve
             source_provider: config.source_provider.clone(),
             source_snapshot_id: config.source_snapshot_id.clone(),
             source_name: json_string(properties, &config.name_property),
+            geometry: Some(geometry.clone()),
+            geometry_sha256: Some(json_sha256(geometry)?),
             source_feature_count: None,
         });
     }
@@ -316,6 +323,8 @@ fn build_rows(config: &WriteConfig, features: &[JsonValue]) -> anyhow::Result<Ve
             source_provider: config.source_provider.clone(),
             source_snapshot_id: config.source_snapshot_id.clone(),
             source_name: String::new(),
+            geometry: None,
+            geometry_sha256: None,
             source_feature_count: sigungu_feature_counts.get(&sigungu_code).copied(),
         });
     }
@@ -390,6 +399,13 @@ fn is_fixed_digits(value: &str, expected_len: usize) -> bool {
 fn file_sha256(path: &Path) -> anyhow::Result<String> {
     let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn json_sha256(value: &JsonValue) -> anyhow::Result<String> {
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(value).context("failed to serialize geometry")?)
+    ))
 }
 
 fn env_string(name: &str, default: &str) -> anyhow::Result<String> {
@@ -503,6 +519,10 @@ struct SourceRow {
     source_snapshot_id: String,
     source_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    geometry: Option<JsonValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    geometry_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source_feature_count: Option<usize>,
 }
 
@@ -529,4 +549,64 @@ struct Evidence {
     production_cutover_allowed: bool,
     national_rollout_allowed: bool,
     next_gates: Vec<&'static str>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config() -> WriteConfig {
+        WriteConfig {
+            root: PathBuf::from("."),
+            input_geojson_path: PathBuf::from("input.geojson"),
+            output_path: PathBuf::from("output.jsonl"),
+            evidence_path: PathBuf::from("evidence.json"),
+            source_snapshot_id: "iceberg:test-boundary".to_owned(),
+            source_provider: "official-administrative-boundary".to_owned(),
+            code_property: "EMD_CD".to_owned(),
+            name_property: "EMD_NM".to_owned(),
+            source_srid: 4326,
+            valid_from_utc: "2026-07-01T00:00:00Z".to_owned(),
+        }
+    }
+
+    #[test]
+    fn source_rows_retain_geometry_and_hash() -> anyhow::Result<()> {
+        let features = vec![serde_json::json!({
+            "type": "Feature",
+            "properties": {"EMD_CD": "99999001", "EMD_NM": "Fixture Legal Dong"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[127.1231, 36.1231], [127.1232, 36.1231], [127.1232, 36.1232], [127.1231, 36.1231]]]
+            }
+        })];
+        let rows = build_rows(&config(), &features)?;
+        let legal = rows
+            .iter()
+            .find(|row| row.scope_kind == "legal_dong")
+            .unwrap();
+        assert_eq!(legal.geometry_srid, 4326);
+        assert_eq!(legal.parent_scope_kind, "sigungu");
+        assert_eq!(legal.parent_canonical_code, "99999");
+        assert_eq!(
+            legal.geometry.as_ref().and_then(|value| value.get("type")),
+            Some(&JsonValue::String("Polygon".to_owned()))
+        );
+        let geometry_sha256 = legal.geometry_sha256.as_deref().unwrap();
+        assert_eq!(geometry_sha256.len(), 64);
+        assert!(geometry_sha256
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')));
+        Ok(())
+    }
+
+    #[test]
+    fn source_rows_reject_non_polygon_geometry() {
+        let features = vec![serde_json::json!({
+            "type": "Feature",
+            "properties": {"EMD_CD": "99999001", "EMD_NM": "Fixture Legal Dong"},
+            "geometry": {"type": "Point", "coordinates": [127.1231, 36.1231]}
+        })];
+        assert!(build_rows(&config(), &features).is_err());
+    }
 }

@@ -314,3 +314,85 @@ async fn temporal_aliases_are_stable_and_history_is_guarded(
     tx.rollback().await?;
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "requires disposable Postgres with Foundation migrations"]
+async fn administrative_geometry_projection_is_valid_and_append_only(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(pool) = pool().await? else {
+        return Ok(());
+    };
+    let mut tx = pool.begin().await?;
+    let unit_id = Uuid::new_v4();
+    let revision_id = Uuid::new_v4();
+    let source_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
+         VALUES ($1, 'test', $2, repeat('a', 64))",
+    )
+    .bind(source_id)
+    .bind(format!("geometry-{source_id}"))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO catalog.administrative_boundary_revision
+         (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id, status, validated_at)
+         VALUES ($1, '9001', 'iceberg:geometry-test', $2, 'validated', now())",
+    )
+    .bind(revision_id)
+    .bind(source_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO catalog.administrative_unit (id, unit_kind, stable_key)
+         VALUES ($1, 'legal_dong', $2)",
+    )
+    .bind(unit_id)
+    .bind(format!("scope:legal-dong:{unit_id}"))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO serving_postgis.administrative_unit_boundary_publication
+         (administrative_unit_id, data_revision, canonical_iceberg_snapshot_id,
+          source_snapshot_id, source_record_id, source_object_key, scope_kind,
+          canonical_code, display_name, geometry_checksum_sha256, geom, properties)
+         VALUES ($1, $2, '9001', 'iceberg:geometry-test', $3,
+                 'gold/admin-boundaries/geometry-test.geojson', 'legal_dong', '9999900101',
+                 'Geometry Fixture', repeat('a', 64),
+                 ST_Multi(ST_GeomFromText(
+                   'POLYGON((127.1231 36.1231,127.1232 36.1231,127.1232 36.1232,127.1231 36.1232,127.1231 36.1231))', 4326)),
+                 '{\"canonical_code\":\"9999900101\"}'::jsonb)",
+    )
+    .bind(unit_id)
+    .bind(revision_id)
+    .bind(source_id)
+    .execute(&mut *tx)
+    .await?;
+    let row = sqlx::query(
+        "SELECT public.st_srid(geom) AS srid, public.st_isvalid(geom) AS valid
+           FROM serving_postgis.administrative_unit_boundary_publication
+          WHERE data_revision = $1 AND administrative_unit_id = $2",
+    )
+    .bind(revision_id)
+    .bind(unit_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    assert_eq!(row.try_get::<i32, _>("srid")?, 4326);
+    assert!(row.try_get::<bool, _>("valid")?);
+
+    let direct_update = sqlx::query(
+        "UPDATE serving_postgis.administrative_unit_boundary_publication
+            SET display_name = 'tampered'
+          WHERE data_revision = $1 AND administrative_unit_id = $2",
+    )
+    .bind(revision_id)
+    .bind(unit_id)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        direct_update.is_err(),
+        "boundary projection must be append-only"
+    );
+    tx.rollback().await?;
+    Ok(())
+}

@@ -102,6 +102,12 @@ is required. Static and dynamic sources are still switched as one complete sourc
 Anchor rebuilds must carry the stable `parcel_id`; summary reads prefer that UUID and use PNU only as
 the legacy fallback, so a PNU transition cannot orphan an existing anchor.
 
-This change does not yet implement a new government-boundary geometry collector or an admin-polygon
-Martin source. Those producers must consume the canonical revision and publish a complete affected
-publication unit before the CAS gate; they must not write ad-hoc polygons directly to PostGIS.
+The official-boundary source writer now retains each Polygon/MultiPolygon and a deterministic geometry
+hash in the source JSONL. `write-administrative-spatial-scope-registry` validates that evidence, and
+`publish-administrative-boundary-postgis` materializes it into the append-only
+`serving_postgis.administrative_unit_boundary_publication` table. Martin's checked-in dynamic config
+exposes the pointer-selected `admin` view; it is empty until an `admin` dynamic release is included in
+a complete runtime-manifest CAS promotion. `promote-administrative-boundary-runtime` creates that
+release and a complete next manifest, then delegates the atomic switch to the existing CAS function.
+The publisher deliberately does not invent missing government names/parent facts. This keeps
+collection, validation, projection, and runtime promotion separate and auditable.

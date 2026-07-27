@@ -109,6 +109,66 @@ Martin URL is query-free; `serving_postgis.parcel_boundary_current` follows the 
 pointer to the selected `data_revision`. Martin's dynamic cache is disabled with the supported
 `cache: disable` setting.
 
+## Official administrative-boundary geometry path
+
+The boundary producer is intentionally separate from the tile switch:
+
+```text
+official GeoJSON (EPSG:4326)
+  -> write-official-administrative-boundary-source-snapshot
+  -> write-administrative-spatial-scope-registry
+  -> publish-administrative-boundary-postgis
+  -> complete admin dynamic release + runtime-manifest CAS
+  -> Martin /admin/{z}/{x}/{y}
+```
+
+The source writer retains Polygon/MultiPolygon geometry and its hash. The registry rejects a missing
+or changed geometry hash. The PostGIS publisher requires an existing Catalog revision, source record,
+and `status=ready` registry evidence; it appends only to
+`serving_postgis.administrative_unit_boundary_publication`, never to an ad-hoc table. It creates
+stable units using `scope:{scope-kind}:{canonical-code}` and appends official name/code facts when
+the source supplies a name. It does not fabricate sigungu/sido names from a bbox-only row.
+
+Required publisher inputs are supplied only through the environment:
+
+```bash
+export DATABASE_URL='postgres://...'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_CONFIRM=1
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_DATA_REVISION='<revision UUID>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_CANONICAL_ICEBERG_SNAPSHOT_ID='<positive decimal>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_SOURCE_SNAPSHOT_ID='iceberg:<snapshot-id>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_SOURCE_RECORD_ID='<source-record UUID>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_KEY='gold/admin-boundaries/<snapshot>.geojson'
+
+foundation-outbox-publisher publish-administrative-boundary-postgis
+```
+
+Martin is configured with the `admin` source, but the current view joins the runtime-manifest pointer.
+Therefore publishing the projection alone cannot leak an unapproved revision: an operator must create a
+complete `admin` dynamic release and promote a manifest containing every publication unit through the
+existing CAS function. The checked-in publisher performs that complete operation after the projection
+has been validated. Supply a fresh release/manifest UUID, the current manifest UUID (or leave it unset
+only for the first-ever manifest), and the real local/CDN Martin URL:
+
+```bash
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_CONFIRM=1
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_DATA_REVISION='<revision UUID>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_CANONICAL_ICEBERG_SNAPSHOT_ID='<positive decimal>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_SOURCE_RECORD_ID='<source-record UUID>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_SOURCE_FILE_ASSET_ID='<file-asset UUID>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_EXPECTED_MANIFEST_ID='<current manifest UUID>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_RELEASE_ID='<new release UUID>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_MANIFEST_ID='<new manifest UUID>'
+export FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_TILES_URL_TEMPLATE='http://127.0.0.1:3110/admin/{z}/{x}/{y}'
+
+foundation-outbox-publisher promote-administrative-boundary-runtime
+```
+
+The command builds a complete next manifest (including parcels and every other existing publication
+unit), then calls the database CAS function. The browser can consume the v2 `admin` unit with the
+existing MapLibre bridge; the legacy v1 `admin` artifact remains a fallback until that release is
+promoted.
+
 ## Local PMTiles fallback
 
 Ensure that no R2 proof variables are exported, then run the proof twice:
