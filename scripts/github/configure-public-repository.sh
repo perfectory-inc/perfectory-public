@@ -508,15 +508,14 @@ case "$mode" in
       "$bootstrap_main_policy" "$branch_firewall" "$tag_firewall"
     apply_ruleset "$branch_firewall"
     verify_ruleset "$branch_firewall"
-    api --method PUT "repos/$target/automated-security-fixes" >/dev/null
-    verify_base_settings enabled
+    verify_base_settings disabled
     verify_ruleset "$bootstrap_main_policy"
     verify_effective_ruleset_set \
       "$bootstrap_main_policy" "$branch_firewall" "$tag_firewall"
     verify_no_legacy_branch_protection
     ;;
   protect)
-    verify_base_settings enabled
+    verify_base_settings disabled
     require_expected_main
     verify_ruleset_one_of "$bootstrap_main_policy" "$main_policy"
     verify_ruleset "$branch_firewall"
@@ -531,7 +530,7 @@ case "$mode" in
     verify_no_legacy_branch_protection
     ;;
   verify)
-    verify_base_settings enabled
+    verify_base_settings disabled
     verify_ruleset "$main_policy"
     verify_ruleset "$branch_firewall"
     verify_ruleset "$tag_firewall"

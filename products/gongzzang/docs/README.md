@@ -42,7 +42,7 @@ docs/
 | [runbooks/](./runbooks/) | Foundation Platform 연동·공급망 운영 절차 | 전반 |
 | [testing/](./testing/README.md) | 단위/통합/E2E/property/mutation/load/chaos/contract | 전반 |
 | [frontend/](./frontend/README.md) | Next.js, shadcn/Radix, TanStack Query, Naver Maps, PWA, a11y | sub-project 6 |
-| [governance/](./governance/README.md) | ADR, CODEOWNERS, Changesets, Renovate, DORA, C4 | 전반 |
+| [governance/](./governance/README.md) | ADR, CODEOWNERS, Changesets, 수동 의존성 업데이트, DORA, C4 | 전반 |
 | [compliance/](./compliance/README.md) | PIPA, ISMS-P, SOC 2, audit log retention, 공공데이터 라이선스 | Phase 3+ |
 | [cost/](./cost/README.md) | Phase별 AWS 비용 추정, RI/Spot 전략 | 전반 |
 

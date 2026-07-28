@@ -230,8 +230,8 @@ Publication is a one-way, exact-tree operation. The required order is:
    a symref to `main` plus `HEAD` and `main` at the expected root SHA with no other ref. Every mismatch
    fails closed. On the fresh path, `prepublish` is followed by another sole-writer authority check
    immediately before the first explicit-URL push and `lock`. Both fresh and exact-resume paths verify
-   an independent clone before `activate`. Activation installs the final Dependabot-only non-`main`
-   firewall and enables automated security fixes while leaving the `main` update deny intact. The
+   an independent clone before `activate`. Activation installs the organization-maintainer non-`main`
+   firewall and keeps automated security fixes disabled while leaving the `main` update deny intact. The
    publisher removes the private temporary snapshot on exit and reports the root in its final
    `OK public-root-publisher mode=<fresh|resume> commit=<root-sha> ...` line; the canonical `main` ref
    may also be read after successful publication.
@@ -239,17 +239,17 @@ Publication is a one-way, exact-tree operation. The required order is:
    `verify`. `protect` confirms the expected parentless root and pinned-App green checks, atomically
    replaces the bootstrap `main` rule with the full pull-request policy, and rechecks the root SHA.
 
-The canonical repository rejects user-created non-`main` branches and every tag. Bootstrap has no
+The canonical repository rejects unauthorized non-`main` branches and every tag. Bootstrap has no
 bypass at all. After the parentless root is independently verified, `activate` grants the sole non-`main` branch
-firewall bypass to the Dependabot integration; normal feature work—including maintainer work—uses a
-fork and opens a pull request back to canonical `main`. The tag firewall has no bypass. The bootstrap
+firewall bypass to the designated organization maintainer; normal feature work uses an organization-owned
+branch and opens a pull request back to canonical `main`. The tag firewall has no bypass. The bootstrap
 `main` update deny remains active from the first push through root CI. Only final `protect` replaces it
 after the required checks have reported successfully, with expected-SHA checks on both sides.
 
 `scripts/github/import-private-feature-diff.sh` is the only supported bridge for work already present
 on a private branch. It applies the private base-to-feature tree diff to a clean named branch made from
 public `origin/main`, runs public-tree guards, and leaves changes unstaged for review. It does not copy
-commit objects. Push that reviewed branch to a fork remote, not to the canonical repository. Never add
+commit objects. Push that reviewed branch to an organization-owned remote, not a personal fork. Never add
 the public repository as a remote of the private worktree, never add or fetch a private remote inside a
 public clone, and never use alternates, bundles, grafts, replacement refs, or cherry-picks to move
 private history across the boundary.
@@ -261,7 +261,7 @@ private history across the boundary.
 - Private operational evidence remains available without making code history public.
 - Historical plans are intentionally not linkable from the public tree; maintained ADRs and code must
   carry every current contract.
-- Existing private feature work is transferred only as a reviewed tree diff onto a fork branch based
+- Existing private feature work is transferred only as a reviewed tree diff onto an organization branch based
   on public `main`, never by pushing or fetching private ancestors.
 - Before launch, billing and feature differences must be reassessed when repository visibility changes
   to private.
