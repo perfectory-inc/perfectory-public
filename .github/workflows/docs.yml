@@ -42,3 +42,7 @@ jobs:
         run: python3 scripts/catalog/render-public-data-catalog.py --check
       - name: Check generated document catalog
         run: python3 scripts/catalog/render-document-catalog.py --check
+      - name: Check document audit report
+        run: python3 scripts/catalog/audit-documentation.py --check
+      - name: Test document audit tool
+        run: python3 -m unittest scripts/catalog/test_audit_documentation.py -v

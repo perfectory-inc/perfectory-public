@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "docs/document-catalog.md"
+AUDIT_OUTPUT = ROOT / "docs/document-audit.md"
 
 DOC_SUFFIXES = {".md", ".mdx", ".rst", ".adoc", ".json", ".yaml", ".yml"}
 ROOT_DOC_NAMES = {
@@ -43,7 +44,10 @@ def tracked_paths() -> list[Path]:
         if not raw:
             continue
         path = Path(raw.decode("utf-8"))
-        if path == OUTPUT.relative_to(ROOT) or "docs/superpowers" in path.as_posix():
+        if path in {
+            OUTPUT.relative_to(ROOT),
+            AUDIT_OUTPUT.relative_to(ROOT),
+        } or "docs/superpowers" in path.as_posix():
             continue
         if not (ROOT / path).is_file():
             continue
