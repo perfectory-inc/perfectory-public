@@ -1,4 +1,11 @@
-# ADR 0007: Public code SSOT and private operations boundary
+---
+status: current
+owner: repository-maintainers
+doc_type: adr
+last_reviewed: 2026-07-28
+---
+
+# ADR 0007: 공개 코드 정본과 비공개 운영 경계
 
 - Status: Accepted
 - Date: 2026-07-23

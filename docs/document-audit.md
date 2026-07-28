@@ -8,8 +8,8 @@
 ## 요약
 
 - 감사 문서: **318개**
-- 언어 분류: **{'english': 129, 'korean': 97, 'mixed': 92}**
-- 메타데이터: **22개 정상 / 296개 누락**
+- 언어 분류: **{'english': 127, 'korean': 97, 'mixed': 94}**
+- 메타데이터: **26개 정상 / 292개 누락**
 - 중복 파일명 후보: **5개**
 
 ## 언어·메타데이터별 목록
@@ -20,12 +20,12 @@
 | `CLAUDE.md` | Monorepo | documentation | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
 | `CONTRIBUTING.md` | Monorepo | documentation | current | korean | ok | 0 |
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current | korean | ok | 12 |
-| `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | Accepted | korean | missing: status, owner, doc_type, last_reviewed | 2 |
-| `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | Accepted | korean | missing: status, owner, doc_type, last_reviewed | 2 |
+| `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | current | korean | ok | 2 |
+| `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | current | korean | ok | 2 |
 | `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 5 |
 | `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | current | korean | ok | 2 |
-| `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | Accepted | english | missing: status, owner, doc_type, last_reviewed | 4 |
-| `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | Accepted | english | missing: status, owner, doc_type, last_reviewed | 18 |
+| `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current | mixed | ok | 4 |
+| `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current | mixed | ok | 18 |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | ok | 1 |
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed | korean | ok | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 2 |

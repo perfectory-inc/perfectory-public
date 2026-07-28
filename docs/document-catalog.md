@@ -394,12 +394,12 @@ tools/github/README.md
 | `CLAUDE.md` | Monorepo | documentation | current |
 | `CONTRIBUTING.md` | Monorepo | documentation | current |
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current |
-| `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | Accepted |
-| `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | current |
+| `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | current |
 | `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current |
 | `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | current |
-| `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | Accepted |
-| `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current |
+| `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current |
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed |
 | `docs/adr/README.md` | Monorepo | README | current |
