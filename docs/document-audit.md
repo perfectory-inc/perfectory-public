@@ -8,8 +8,8 @@
 ## 요약
 
 - 감사 문서: **318개**
-- 언어 분류: **{'english': 127, 'korean': 97, 'mixed': 94}**
-- 메타데이터: **26개 정상 / 292개 누락**
+- 언어 분류: **{'english': 125, 'korean': 98, 'mixed': 95}**
+- 메타데이터: **28개 정상 / 290개 누락**
 - 중복 파일명 후보: **5개**
 
 ## 언어·메타데이터별 목록
@@ -30,11 +30,11 @@
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed | korean | ok | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 2 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | mixed | missing: status, owner, doc_type, last_reviewed | 2 |
-| `docs/architecture/platform-production-readiness-roadmap.md` | Monorepo | architecture | current | mixed | missing: owner, doc_type, last_reviewed | 2 |
-| `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | english | missing: status, owner, doc_type, last_reviewed | 4 |
+| `docs/architecture/platform-production-readiness-roadmap.md` | Monorepo | architecture | current | korean | ok | 2 |
+| `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | mixed | missing: status, owner, doc_type, last_reviewed | 4 |
 | `docs/glossary.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current | korean | ok | 1 |
-| `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | current | english | missing: status, owner, doc_type, last_reviewed | 1 |
+| `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed | mixed | ok | 1 |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 3 |

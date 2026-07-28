@@ -1,6 +1,13 @@
+---
+status: proposed
+owner: foundation
+doc_type: guide
+last_reviewed: 2026-07-28
+---
+
 <!-- public-repository-safety: reviewed-public-contract -->
 
-# Single-Source Spatial Publication Implementation Guide
+# 단일 출처 공간 데이터 공개 구현 안내서
 
 **Status:** Approved delivery sequence; implementation pending. Steps use checkbox (`- [ ]`) syntax
 for auditable task tracking.

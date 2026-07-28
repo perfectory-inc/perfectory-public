@@ -1,5 +1,8 @@
 ---
 status: current
+owner: repository-maintainers
+doc_type: architecture
+last_reviewed: 2026-07-28
 ---
 
 # Platform production-readiness roadmap
@@ -17,20 +20,20 @@ status: current
 - Kafka 원장(event sourcing) 전환은 기본 계획이 아니다. 특정 파생 영역에서 필요성이 증명될 때만
   별도 ADR로 결정한다.
 
-## Recent implementation slice
+## 최근 반영된 구현 조각
 
-- All Foundation Bronze live-write adapters now cross one shared runtime/bucket preflight at the
-  actual object-storage construction boundary. Callers still preflight before provider downloads,
-  while a source guard rejects direct use of the unvalidated builders in ingest code.
-- Environment-mutating publisher tests use one async-aware process-wide lock and restore ambient
-  variables, so CI configuration cannot silently change their result.
-- Kafka contract coverage now checks that retries preserve the same `event_id`/partition key and
-  that live Avro records expose the Bronze claim-check metadata without raw object bytes.
-- The credential-free consumer contract now decodes that Avro claim-check, verifies a Bronze
-  checksum, and drops a redelivery by `event_id`; this is a boundary proof, not a production
-  Silver/Gold consumer implementation.
-- Kafka enablement now requires the canonical runtime environment inside the adapter itself, so a
-  direct caller cannot omit the staging/production transport boundary.
+- Foundation Bronze 실시간 기록 어댑터는 객체 저장소를 실제로 만드는 경계에서 공통 런타임·버킷
+  사전 점검을 통과한다. 호출자는 공급자 다운로드 전에 다시 점검하고, 수집 코드가 검증되지 않은
+  빌더를 직접 호출하면 소스 가드가 거부한다.
+- 환경변수를 바꾸는 publisher 테스트는 비동기 프로세스 전역 잠금 하나를 사용하고 원래 값을
+  복원한다. 따라서 CI 환경 설정이 테스트 결과를 조용히 바꾸지 못한다.
+- Kafka 계약 검사는 재시도에도 같은 `event_id`와 파티션 키가 유지되는지, 실제 Avro 레코드가
+  원본 바이트가 아닌 Bronze claim-check 메타데이터를 노출하는지 확인한다.
+- 자격증명 없이 실행하는 consumer 계약은 Avro claim-check를 디코드하고 Bronze checksum을
+  검증하며 `event_id` 중복 전달을 버린다. 이것은 경계 증명이지 운영 Silver/Gold consumer 구현은
+  아니다.
+- Kafka 활성화는 어댑터 내부에서 정본 런타임 환경을 요구한다. 직접 호출자가 staging/production
+  전송 경계를 생략할 수 없다.
 
 ## 우선순위 0 — 출시 전 필수 게이트
 

@@ -1,20 +1,26 @@
 <!-- public-repository-safety: reviewed-public-contract -->
 
-# Single-Source Spatial Publication Architecture
+---
+status: current
+owner: foundation
+doc_type: architecture
+last_reviewed: 2026-07-28
+---
 
-**Status:** Approved direction; implementation pending
-**Date:** 2026-07-24
-**Scope:** Foundation-owned public/reference polygon layers consumed by Gongzzang
-**Delivery sequence:** [Single-source spatial publication implementation guide](../guides/single-source-spatial-publication-implementation.md)
+# 단일 출처 공간 데이터 공개 아키텍처
 
-Administrative code/name and PNU transitions follow the temporal identity contract in
-[Administrative Boundary and Parcel Identity Versioning](./administrative-boundary-versioning.md).
-The atomicity guarantee is per `publication_unit`: a merger affecting parcels and a future admin
-polygon unit may expose the two units on different validated revisions until one manifest promotes
-both. A producer that requires cross-unit legal simultaneity must stage both units in one complete
-manifest candidate; clients never compose partial tile sources.
-**Freshness SLO:** A public change is reflected on an already-open map within 5 seconds after its
-active release and serving generation are committed.
+**상태:** 승인된 방향, 구현 대기
+**날짜:** 2026-07-24
+**범위:** Gongzzang이 소비하는 Foundation 소유 공개·기준 폴리곤 레이어
+**구현 순서:** [단일 출처 공간 데이터 공개 구현 안내서](../guides/single-source-spatial-publication-implementation.md)
+
+행정 코드·이름과 PNU 변경은 [행정구역 경계와 필지 식별자 버전 관리 계약](./administrative-boundary-versioning.md)을
+따른다. 원자성은 `publication_unit` 단위로 보장한다. 필지와 향후 행정구역 폴리곤에 영향을 주는
+통합은 하나의 매니페스트가 두 단위를 함께 승격하기 전까지 서로 다른 검증된 리비전으로 보일 수
+있다. 여러 단위의 법적 동시성이 필요한 생산자는 두 단위를 하나의 완전한 매니페스트 후보로
+준비해야 하며, 클라이언트는 부분 타일 소스를 조합하지 않는다.
+**최신성 SLO:** 활성 릴리스와 제공 세대가 커밋된 뒤 이미 열려 있는 지도에 공개 변경이 5초 안에
+반영되어야 한다.
 
 ## 1. Decision
 

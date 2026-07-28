@@ -408,7 +408,7 @@ tools/github/README.md
 | `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current |
 | `docs/glossary.md` | Monorepo | documentation | current |
 | `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current |
-| `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | current |
+| `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current |
 | `docs/README.md` | Monorepo | README | current |
 | `docs/technology-stack.md` | Monorepo | documentation | current |
