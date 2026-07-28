@@ -53,7 +53,8 @@ describe a multi-repo world.
     uses the owning area's prefix.
 12. **Supply chain:** one root worktree secret scan (gitleaks, root `.gitleaks.toml`,
     `.github/workflows/secret-scan.yml`) and per-workspace cargo-deny (`deny.toml`) run in CI
-    for all four areas. One dependency bot: root dependabot (area-local Renovate retired).
+    for all four areas. Dependency updates are manual, reviewed changes; no dependency bot is
+    enabled until a later ADR explicitly reactivates one.
 13. **No pre-merge sibling paths** (`../<former-sibling>/...`, `<local-home>/<repo>`)
     in tracked files (guard: `scripts/guard/no-stale-sibling-paths.sh`).
 

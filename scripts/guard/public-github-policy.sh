@@ -265,8 +265,8 @@ require(branch == {
     "target": "branch",
     "enforcement": "active",
     "bypass_actors": [{
-        "actor_id": 29110,
-        "actor_type": "Integration",
+        "actor_id": 253390842,
+        "actor_type": "User",
         "bypass_mode": "always",
     }],
     "conditions": {
@@ -276,7 +276,7 @@ require(branch == {
         {"type": "creation"},
         {"type": "update"},
     ],
-}, "non-main firewall must deny humans and bypass only Dependabot App 29110")
+}, "non-main firewall must allow only the designated organization maintainer")
 
 bootstrap_branch = load("bootstrap-non-main-branch-firewall.json")
 expected_bootstrap_branch = dict(branch)
@@ -347,8 +347,9 @@ require('apply_ruleset "$branch_firewall"' in configurator
         "publication state machine must install bootstrap/final branch and tag firewalls")
 require('api --method DELETE "repos/$target/automated-security-fixes"' in configurator
         and 'verify_base_settings disabled' in configurator
-        and 'api --method PUT "repos/$target/automated-security-fixes"' in configurator,
-        "security-update branch creation must stay disabled until activation")
+        and 'api --method PUT "repos/$target/automated-security-fixes"' not in configurator
+        and 'verify_base_settings enabled' not in configurator,
+        "automated security-update branches must remain disabled")
 require("check-actions-cache-controls.sh" in configurator
         and "check-billing-budgets.sh" in configurator
         and "check-publication-authority.sh" in configurator
@@ -378,9 +379,10 @@ require("require_published_root" in lock_block
         and "apply_ruleset" not in lock_block
         and "$baseline_policy" not in configurator,
         "post-push lock must preserve the update-deny bootstrap policy")
-require(activate_block.index('apply_ruleset "$branch_firewall"')
-        < activate_block.index('automated-security-fixes'),
-        "Dependabot-only firewall must precede enabling security-update branches")
+require('apply_ruleset "$branch_firewall"' in activate_block
+        and 'verify_base_settings disabled' in activate_block
+        and 'api --method PUT "repos/$target/automated-security-fixes"' not in activate_block,
+        "activation must retain the organization maintainer branch policy and disabled security updates")
 require('verify_ruleset "$bootstrap_main_policy"' in activate_block
         and 'apply_ruleset "$main_policy"' not in activate_block,
         "activation must not weaken the update-deny main policy")

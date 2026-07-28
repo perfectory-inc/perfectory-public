@@ -3,10 +3,13 @@
 | | |
 |---|---|
 | 작성일 | 2026-05-11 |
-| 상태 | Accepted |
+| 상태 | Superseded by root ADR-0008 |
 | 선행 | [ADR 0021](./0021-static-vector-tile-decomposition.md), [ADR 0024](./0024-etl-cancel-protocol-immediate-abort.md), [ADR 0027](./0027-admin-complex-layer-source-deferred.md) |
 
-> **Handover note**: the supply-chain SHA pin policy remains active. The manifest
+> **Historical note**: this ADR records the former Dependabot policy. Dependabot and automated
+> security-fix PRs are disabled by root ADR-0008; SHA changes now use a reviewed organization PR.
+> The manifest
+> sections below are historical context only and are not current operating instructions.
 > backup cleanup cron portion is superseded by [ADR 0036](./0036-static-vector-tile-runtime-contract.md)
 > and foundation-platform ADR 0004. Gongzzang no longer promotes, rolls back, or cleans
 > up `gold/manifest.json`; foundation-platform Catalog owns that lifecycle.

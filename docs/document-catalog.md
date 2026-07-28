@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **314개**
+- 문서 파일: **315개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 160 |
 | Identity Platform | 15 |
 | Intelligence Platform | 15 |
-| Monorepo | 21 |
+| Monorepo | 22 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 89 |
+| ADR | 90 |
 | README | 95 |
 | agent rules | 5 |
 | architecture | 27 |
@@ -363,6 +363,7 @@ docs/adr/0004-verification-ssot.md
 docs/adr/0005-hooks-advisory-ci-authoritative.md
 docs/adr/0006-object-storage-first-serving.md
 docs/adr/0007-public-code-private-operations-boundary.md
+docs/adr/0008-manual-dependency-updates-and-organization-branches.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/platform-production-readiness-roadmap.md
@@ -396,6 +397,7 @@ tools/github/README.md
 | `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/platform-production-readiness-roadmap.md` | Monorepo | architecture | current |
