@@ -7,9 +7,9 @@
 
 ## 요약
 
-- 감사 문서: **317개**
-- 언어 분류: **{'english': 129, 'korean': 96, 'mixed': 92}**
-- 메타데이터: **21개 정상 / 296개 누락**
+- 감사 문서: **318개**
+- 언어 분류: **{'english': 129, 'korean': 97, 'mixed': 92}**
+- 메타데이터: **22개 정상 / 296개 누락**
 - 중복 파일명 후보: **5개**
 
 ## 언어·메타데이터별 목록
@@ -25,14 +25,15 @@
 | `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 5 |
 | `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | current | korean | ok | 2 |
 | `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | Accepted | english | missing: status, owner, doc_type, last_reviewed | 4 |
-| `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | Accepted | english | missing: status, owner, doc_type, last_reviewed | 17 |
+| `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | Accepted | english | missing: status, owner, doc_type, last_reviewed | 18 |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | ok | 1 |
-| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed | korean | ok | 1 |
+| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed | korean | ok | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 2 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | mixed | missing: status, owner, doc_type, last_reviewed | 2 |
 | `docs/architecture/platform-production-readiness-roadmap.md` | Monorepo | architecture | current | mixed | missing: owner, doc_type, last_reviewed | 2 |
 | `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | english | missing: status, owner, doc_type, last_reviewed | 4 |
 | `docs/glossary.md` | Monorepo | documentation | current | korean | ok | 2 |
+| `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current | korean | ok | 1 |
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | current | english | missing: status, owner, doc_type, last_reviewed | 1 |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/README.md` | Monorepo | README | current | korean | ok | 4 |

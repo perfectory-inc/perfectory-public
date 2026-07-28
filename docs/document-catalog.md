@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **317개**
+- 문서 파일: **318개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,7 +19,7 @@
 | Gongzzang 제품 | 160 |
 | Identity Platform | 15 |
 | Intelligence Platform | 15 |
-| Monorepo | 24 |
+| Monorepo | 25 |
 | Repository tooling | 1 |
 
 ### 유형별
@@ -32,7 +32,7 @@
 | architecture | 27 |
 | contract | 3 |
 | documentation | 42 |
-| guide | 1 |
+| guide | 2 |
 | reference | 25 |
 | runbook | 28 |
 
@@ -370,6 +370,7 @@ docs/architecture/administrative-boundary-versioning.md
 docs/architecture/platform-production-readiness-roadmap.md
 docs/architecture/single-source-spatial-publication.md
 docs/glossary.md
+docs/guides/documentation-lifecycle.md
 docs/guides/single-source-spatial-publication-implementation.md
 docs/public-data-catalog.md
 docs/README.md
@@ -406,6 +407,7 @@ tools/github/README.md
 | `docs/architecture/platform-production-readiness-roadmap.md` | Monorepo | architecture | current |
 | `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current |
 | `docs/glossary.md` | Monorepo | documentation | current |
+| `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current |
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | current |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current |
 | `docs/README.md` | Monorepo | README | current |
