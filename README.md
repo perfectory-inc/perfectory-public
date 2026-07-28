@@ -1,3 +1,10 @@
+---
+status: current
+owner: repository-maintainers
+doc_type: README
+last_reviewed: 2026-07-28
+---
+
 # perfectory
 
 산업용 부동산 제품과 수평 플랫폼을 한 저장소에서 함께 관리하는 모노레포입니다.

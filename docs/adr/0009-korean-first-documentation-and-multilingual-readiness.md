@@ -1,6 +1,7 @@
 ---
 status: proposed
 owner: repository-maintainers
+doc_type: adr
 last_reviewed: 2026-07-28
 ---
 

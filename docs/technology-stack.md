@@ -1,3 +1,10 @@
+---
+status: current
+owner: repository-maintainers
+doc_type: reference
+last_reviewed: 2026-07-28
+---
+
 # perfectory 역할별 기술 스택·환경 기준표
 
 이 문서는 모노레포에서 **무슨 역할에 어떤 기술을 쓰는지**, 그리고 그 역할이

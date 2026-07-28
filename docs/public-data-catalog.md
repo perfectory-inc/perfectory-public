@@ -1,6 +1,8 @@
 ---
 status: current
 owner: foundation-platform
+doc_type: catalog
+last_reviewed: 2026-07-28
 ---
 
 # 공공데이터 문서 안내

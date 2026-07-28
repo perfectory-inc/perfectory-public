@@ -8,8 +8,8 @@
 ## 요약
 
 - 감사 문서: **316개**
-- 언어 분류: **{'english': 136, 'korean': 88, 'mixed': 92}**
-- 메타데이터: **0개 정상 / 316개 누락**
+- 언어 분류: **{'english': 132, 'korean': 92, 'mixed': 92}**
+- 메타데이터: **9개 정상 / 307개 누락**
 - 중복 파일명 후보: **4개**
 
 ## 언어·메타데이터별 목록
@@ -17,8 +17,8 @@
 | 경로 | 소유자 | 유형 | 상태 | 언어 | 메타데이터 | 유입 링크 |
 |---|---|---|---|---|---|---:|
 | `AGENTS.md` | Monorepo | agent rules | current | korean | missing: status, owner, doc_type, last_reviewed | 7 |
-| `CLAUDE.md` | Monorepo | documentation | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
-| `CONTRIBUTING.md` | Monorepo | documentation | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
+| `CLAUDE.md` | Monorepo | documentation | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
+| `CONTRIBUTING.md` | Monorepo | documentation | current | korean | ok | 0 |
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | Accepted | english | missing: status, owner, doc_type, last_reviewed | 12 |
 | `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | Accepted | korean | missing: status, owner, doc_type, last_reviewed | 2 |
 | `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | Accepted | korean | missing: status, owner, doc_type, last_reviewed | 2 |
@@ -26,16 +26,16 @@
 | `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | Accepted | english | missing: status, owner, doc_type, last_reviewed | 2 |
 | `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | Accepted | english | missing: status, owner, doc_type, last_reviewed | 4 |
 | `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | Accepted | english | missing: status, owner, doc_type, last_reviewed | 17 |
-| `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | missing: status, owner, doc_type, last_reviewed | 1 |
-| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed | korean | missing: doc_type | 0 |
-| `docs/adr/README.md` | Monorepo | README | current | english | missing: status, owner, doc_type, last_reviewed | 2 |
+| `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | ok | 1 |
+| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed | korean | ok | 1 |
+| `docs/adr/README.md` | Monorepo | README | current | korean | ok | 2 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | mixed | missing: status, owner, doc_type, last_reviewed | 2 |
 | `docs/architecture/platform-production-readiness-roadmap.md` | Monorepo | architecture | current | mixed | missing: owner, doc_type, last_reviewed | 2 |
 | `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | english | missing: status, owner, doc_type, last_reviewed | 4 |
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | current | english | missing: status, owner, doc_type, last_reviewed | 1 |
-| `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | missing: doc_type, last_reviewed | 2 |
-| `docs/README.md` | Monorepo | README | current | korean | missing: owner, doc_type, last_reviewed | 4 |
-| `docs/technology-stack.md` | Monorepo | documentation | current | mixed | missing: status, owner, doc_type, last_reviewed | 3 |
+| `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
+| `docs/README.md` | Monorepo | README | current | korean | ok | 4 |
+| `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 3 |
 | `platforms/foundation-platform/AGENTS.md` | Foundation Platform | agent rules | current | english | missing: status, owner, doc_type, last_reviewed | 2 |
 | `platforms/foundation-platform/CLAUDE.md` | Foundation Platform | documentation | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/foundation-platform/crates/catalog/README.md` | Foundation Platform | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
@@ -328,8 +328,8 @@
 | `products/gongzzang/services/gongzzang-api/README.md` | Gongzzang 제품 | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 1 |
 | `products/gongzzang/services/gongzzang-outbox-publisher/README.md` | Gongzzang 제품 | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 0 |
 | `products/gongzzang/tests/load/README.md` | Gongzzang 제품 | README | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
-| `README.md` | Monorepo | README | current | korean | missing: status, owner, doc_type, last_reviewed | 1 |
-| `SECURITY.md` | Monorepo | documentation | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
+| `README.md` | Monorepo | README | current | korean | ok | 1 |
+| `SECURITY.md` | Monorepo | documentation | current | korean | ok | 0 |
 | `THIRD_PARTY_NOTICES.md` | Monorepo | documentation | current | english | missing: status, owner, doc_type, last_reviewed | 1 |
 | `tools/github/README.md` | Repository tooling | README | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
 

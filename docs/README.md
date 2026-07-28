@@ -1,5 +1,8 @@
 ---
 status: current
+owner: repository-maintainers
+doc_type: README
+last_reviewed: 2026-07-28
 ---
 
 # perfectory 문서 지도
