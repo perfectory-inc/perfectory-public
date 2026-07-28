@@ -242,16 +242,28 @@ impl Fixture {
             .execute(pool)
             .await
             .expect("release cleanup");
+        // The revision ledger is append-only for ordinary API sessions. Test cleanup uses the
+        // same transaction-local publisher capability as the Foundation publisher, so the guard
+        // remains enabled in production and the pool connection cannot retain the override.
+        let mut cleanup_tx = pool.begin().await.expect("cleanup transaction");
+        sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+            .execute(&mut *cleanup_tx)
+            .await
+            .expect("publisher cleanup capability");
         sqlx::query("DELETE FROM catalog.administrative_boundary_revision WHERE id = $1")
             .bind(self.data_revision)
-            .execute(pool)
+            .execute(&mut *cleanup_tx)
             .await
             .expect("administrative boundary revision cleanup");
         sqlx::query("DELETE FROM catalog.source_record WHERE id = $1")
             .bind(self.source_record_id)
-            .execute(pool)
+            .execute(&mut *cleanup_tx)
             .await
             .expect("source record cleanup");
+        cleanup_tx
+            .commit()
+            .await
+            .expect("cleanup transaction commit");
         sqlx::query("DELETE FROM catalog.vector_tile_publication_unit WHERE id = $1")
             .bind(self.unit_id)
             .execute(pool)
