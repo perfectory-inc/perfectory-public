@@ -50,6 +50,26 @@ fn duplicate_requested_source_is_rejected() {
     assert!(error.to_string().contains("duplicate"));
 }
 
+#[test]
+fn non_executable_catalog_endpoint_is_ignored_by_recovery_inventory() {
+    let report = compile_recovery_inventory(
+        endpoint_catalog_with_non_executable_gap(),
+        &["hubgokr__building_register_main".to_owned()],
+        &[inventory_item()],
+        "https://www.hub.go.kr",
+        None,
+        "2026-07-14T00:00:00Z",
+    )
+    .expect("non-executable catalog gaps must not block active recovery scope");
+
+    assert_eq!(report.status, "ready");
+    assert_eq!(report.jobs.len(), 1);
+    assert_eq!(
+        report.jobs[0].source_slug,
+        "hubgokr__building_register_main"
+    );
+}
+
 fn endpoint_catalog() -> &'static str {
     r#"{
       "schema_version": "foundation-platform.public_source_endpoint_catalog.v1",
@@ -92,6 +112,41 @@ fn endpoint_catalog() -> &'static str {
           "provider_inventory_selector": null,
           "auth_kind": "none",
           "bronze": {"source_slug": "other__unrelated"}
+        }
+      ]
+    }"#
+}
+
+fn endpoint_catalog_with_non_executable_gap() -> &'static str {
+    r#"{
+      "schema_version": "foundation-platform.public_source_endpoint_catalog.v1",
+      "status": "ready",
+      "endpoints": [
+        {
+          "endpoint_slug": "hub-building-building_register_main",
+          "provider": "hub.go.kr",
+          "group": "building_hub_bulk",
+          "display_name_ko": "Building register main",
+          "dataset_slug": "building_register_main",
+          "operation": "building_register_main",
+          "source_acquisition_lane": "bulk_file",
+          "national_collection_allowed": true,
+          "provider_inventory_selector": {"task_group_code": "03", "task_code": "0303"},
+          "auth_kind": "provider_managed_credential",
+          "bronze": {"source_slug": "hubgokr__building_register_main"}
+        },
+        {
+          "endpoint_slug": "hub-building-building_energy_yearly_electricity",
+          "provider": "hub.go.kr",
+          "group": "building_hub_bulk",
+          "display_name_ko": "Building energy yearly electricity",
+          "dataset_slug": "building_energy_yearly_electricity",
+          "operation": "building_energy_yearly_electricity",
+          "source_acquisition_lane": "provider_inventory_missing",
+          "national_collection_allowed": false,
+          "provider_inventory_selector": {"task_group_code": "05", "task_code": "0501"},
+          "auth_kind": "provider_managed_credential",
+          "bronze": {"source_slug": "hubgokr__building_energy_yearly_electricity"}
         }
       ]
     }"#
