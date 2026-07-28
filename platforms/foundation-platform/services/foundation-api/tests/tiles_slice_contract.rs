@@ -229,7 +229,15 @@ fn local_manifest_and_martin_sources_cannot_drift() {
         BTreeSet::from(["allow_http", "sources"])
     );
     let table_lines = yaml_block(&dynamic, "tables:", 2);
-    assert_eq!(yaml_mapping_keys(&table_lines, 4), BTreeSet::from(LAYERS));
+    assert_eq!(
+        yaml_mapping_keys(&table_lines, 4),
+        BTreeSet::from([
+            "admin",
+            "parcel_anchor",
+            "parcel_anchor_aggregate",
+            "parcels"
+        ])
+    );
     let static_source_lines = yaml_block(&static_config, "sources:", 2);
     assert_eq!(
         yaml_mapping_keys(&static_source_lines, 4),
@@ -241,6 +249,14 @@ fn local_manifest_and_martin_sources_cannot_drift() {
     );
 
     let expected_tables = [
+        (
+            "admin",
+            "administrative_unit_boundary_current",
+            4326,
+            "MULTIPOLYGON",
+            5,
+            16,
+        ),
         (
             "parcels",
             "parcel_boundary_current",
@@ -303,6 +319,12 @@ fn local_manifest_and_martin_sources_cannot_drift() {
         let source_yaml = source_lines.join("\n");
         let properties = yaml_block(&source_yaml, "properties:", 6);
         let expected_properties = match source {
+            "admin" => BTreeSet::from([
+                "administrative_unit_id",
+                "canonical_code",
+                "display_name",
+                "scope_kind",
+            ]),
             "parcel_anchor_aggregate" => BTreeSet::from(["count", "official_complex_code", "pnu"]),
             "parcels" | "parcel_anchor" => BTreeSet::from(["official_complex_code", "pnu"]),
             _ => unreachable!("expected_tables contains only guarded source IDs"),

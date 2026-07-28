@@ -2,6 +2,24 @@
 
 도메인별 SSOT 문서 트리. **한 폴더 = 한 도메인**, 각 폴더의 README가 인덱스.
 
+## 전체 문서 트리
+
+```text
+docs/
+├── adr/          제품 설계 결정
+├── architecture/시스템 구조·플랫폼 경계
+├── auth/         인증·인가
+├── backend/      서버 구현 규칙
+├── conventions/  코드·DB·문서 규칙
+├── data-sources/외부 데이터 사용 계약
+├── frontend/     웹·지도·접근성
+├── governance/   운영 거버넌스
+├── runbooks/     운영 절차
+└── testing/      테스트 전략
+```
+
+전체 모노레포 문서는 [자동 색인](../../../docs/document-catalog.md)에서 찾습니다.
+
 ## 학습 순서 (새로 합류한 분 기준)
 
 | # | 문서 | 내용 |
@@ -48,5 +66,5 @@ dated plan/spec/handoff/research와 운영 증거는 공개 코드 트리에 두
 
 1. 모든 .md ≤500줄. 초과 시 폴더로 분해.
 2. 모든 도메인 폴더에 `README.md` 필수.
-3. 다른 문서 참조는 명시적 Markdown 링크 (`[text](path.md)` 또는 `@AGENTS.md` 자동 import)
+3. 다른 문서 참조는 명시적 Markdown 링크 문법과 `@AGENTS.md` 자동 import를 사용
 4. 한국어 본문 + 영어 코드 식별자 (glossary 매핑 강제)

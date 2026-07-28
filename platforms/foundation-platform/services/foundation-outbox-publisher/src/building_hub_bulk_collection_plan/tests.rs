@@ -57,6 +57,63 @@ fn compile_plan_expands_one_catalog_endpoint_to_all_matching_provider_files() ->
 }
 
 #[test]
+fn compile_plan_excludes_provider_inventory_missing_endpoint() -> TestResult {
+    let catalog = r#"
+    {
+      "endpoints": [
+        {
+          "endpoint_slug": "hub-building-building_register_main",
+          "provider": "hub.go.kr",
+          "group": "building_hub_bulk",
+          "display_name_ko": "building register main",
+          "operation": "building_register_main",
+          "source_acquisition_lane": "bulk_file",
+          "national_collection_allowed": true,
+          "provider_inventory_selector": {
+            "task_group_code": "03",
+            "task_code": "0303"
+          },
+          "bronze": {
+            "source_slug": "hubgokr__building_register_main"
+          }
+        },
+        {
+          "endpoint_slug": "hub-building-building_energy_yearly_electricity",
+          "provider": "hub.go.kr",
+          "group": "building_hub_bulk",
+          "display_name_ko": "yearly electricity",
+          "operation": "building_energy_yearly_electricity",
+          "source_acquisition_lane": "provider_inventory_missing",
+          "national_collection_allowed": false,
+          "provider_inventory_selector": {
+            "task_group_code": "05",
+            "task_code": "0501"
+          },
+          "bronze": {
+            "source_slug": "hubgokr__building_energy_yearly_electricity"
+          }
+        }
+      ]
+    }
+    "#;
+
+    let report = compile_building_hub_bulk_collection_plan(
+        catalog,
+        &[inventory_item("2026-05", "OPN209912310000000004")],
+        "https://www.hub.go.kr",
+        None,
+    )?;
+
+    assert_eq!(report.endpoint_count, 1);
+    assert_eq!(report.job_count, 1);
+    assert_eq!(
+        report.jobs[0].endpoint_slug,
+        "hub-building-building_register_main"
+    );
+    Ok(())
+}
+
+#[test]
 fn compile_plan_fails_closed_on_uncataloged_provider_inventory() {
     // ADR 0014 §6/§7 (owner-confirmed): an inventory task that no cataloged endpoint covers has no
     // canonical dataset_slug, so the planner must fail closed rather than mint the old opaque

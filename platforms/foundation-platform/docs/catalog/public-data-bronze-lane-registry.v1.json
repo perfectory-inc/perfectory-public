@@ -24,6 +24,10 @@
     {
       "source_acquisition_lane": "disabled_api_duplicate",
       "reason": "authoritative bulk or provider dataset file lane replaces the duplicate API path"
+    },
+    {
+      "source_acquisition_lane": "provider_inventory_missing",
+      "reason": "provider inventory has no current row for the catalog selector; revalidate before enabling collection"
     }
   ],
   "lanes": [

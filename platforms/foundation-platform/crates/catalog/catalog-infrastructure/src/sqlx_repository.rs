@@ -75,7 +75,9 @@ impl PgCatalogRepository {
                     u.floor_label, u.exclusive_area_m2, u.usage_name, u.structure_name
              FROM catalog.building_unit u
              JOIN catalog.parcel p ON p.id = u.parcel_id
-             WHERE p.pnu = $1
+             JOIN catalog.parcel_identifier_lookup pil
+               ON pil.parcel_id = p.id
+              AND pil.identifier_value = $1
              ORDER BY u.floor_label, u.ho_name, u.id",
         )
         .bind(pnu.as_str())
@@ -150,8 +152,11 @@ impl CatalogRepository for PgCatalogRepository {
                  MAX(pma.anchor_lat)::double precision AS max_lat,
                  COUNT(*)::bigint AS anchor_count
              FROM catalog.parcel p
+             JOIN catalog.parcel_current_identifier pci
+               ON pci.parcel_id = p.id
              JOIN catalog.parcel_marker_anchor pma
-               ON pma.pnu = p.pnu
+               ON (pma.parcel_id = p.id
+                   OR (pma.parcel_id IS NULL AND pma.pnu = pci.identifier_value))
               AND pma.is_active
              WHERE p.complex_id = $1",
         )
@@ -186,8 +191,10 @@ impl CatalogRepository for PgCatalogRepository {
 
     async fn find_parcel_by_id(&self, id: ParcelId) -> Result<Option<Parcel>, CatalogError> {
         let row_opt = sqlx::query(
-            "SELECT id, complex_id, pnu, kind, area_m2, created_at, updated_at, version
-             FROM catalog.parcel
+            "SELECT p.id, p.complex_id, pci.identifier_value AS pnu, p.kind,
+                    p.area_m2, p.created_at, p.updated_at, p.version
+             FROM catalog.parcel p
+             JOIN catalog.parcel_current_identifier pci ON pci.parcel_id = p.id
              WHERE id = $1",
         )
         .bind(id.as_uuid())
@@ -200,9 +207,12 @@ impl CatalogRepository for PgCatalogRepository {
 
     async fn find_parcel_by_pnu(&self, pnu: &Pnu) -> Result<Option<Parcel>, CatalogError> {
         let row_opt = sqlx::query(
-            "SELECT id, complex_id, pnu, kind, area_m2, created_at, updated_at, version
-             FROM catalog.parcel
-             WHERE pnu = $1",
+            "SELECT p.id, p.complex_id, pci.identifier_value AS pnu, p.kind,
+                    p.area_m2, p.created_at, p.updated_at, p.version
+             FROM catalog.parcel p
+             JOIN catalog.parcel_identifier_lookup pil ON pil.parcel_id = p.id
+             JOIN catalog.parcel_current_identifier pci ON pci.parcel_id = p.id
+             WHERE pil.identifier_value = $1",
         )
         .bind(pnu.as_str())
         .fetch_optional(&self.pool)
@@ -217,10 +227,12 @@ impl CatalogRepository for PgCatalogRepository {
         complex_id: ComplexId,
     ) -> Result<Vec<Parcel>, CatalogError> {
         let rows = sqlx::query(
-            "SELECT id, complex_id, pnu, kind, area_m2, created_at, updated_at, version
-             FROM catalog.parcel
+            "SELECT p.id, p.complex_id, pci.identifier_value AS pnu, p.kind,
+                    p.area_m2, p.created_at, p.updated_at, p.version
+             FROM catalog.parcel p
+             JOIN catalog.parcel_current_identifier pci ON pci.parcel_id = p.id
              WHERE complex_id = $1
-             ORDER BY pnu",
+             ORDER BY pci.identifier_value",
         )
         .bind(complex_id.as_uuid())
         .fetch_all(&self.pool)
@@ -241,8 +253,9 @@ impl CatalogRepository for PgCatalogRepository {
                     b.built_year, b.updated_at
              FROM catalog.building b
              JOIN catalog.parcel p ON p.id = b.parcel_id
+             JOIN catalog.parcel_current_identifier pci ON pci.parcel_id = p.id
              WHERE p.complex_id = $1
-             ORDER BY p.pnu, b.updated_at DESC, b.id",
+             ORDER BY pci.identifier_value, b.updated_at DESC, b.id",
         )
         .bind(complex_id.as_uuid())
         .fetch_all(&self.pool)
@@ -260,7 +273,8 @@ impl CatalogRepository for PgCatalogRepository {
                     b.built_year, b.updated_at
              FROM catalog.building b
              JOIN catalog.parcel p ON p.id = b.parcel_id
-             WHERE p.pnu = $1
+             JOIN catalog.parcel_identifier_lookup pil ON pil.parcel_id = p.id
+             WHERE pil.identifier_value = $1
              ORDER BY b.updated_at DESC, b.id",
         )
         .bind(pnu.as_str())

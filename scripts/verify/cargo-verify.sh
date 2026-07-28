@@ -21,6 +21,7 @@ source "$(dirname "$0")/../../tools/container-images.env"
 # inspect real sizes/content without exposing private commits or prior history
 # to build scripts running in the container.
 SOURCE_GIT_INDEX="$(git -C "$REPO" rev-parse --path-format=absolute --git-path index)"
+SOURCE_GIT_OBJECTS="$(git -C "$REPO" rev-parse --path-format=absolute --git-path objects)"
 SAFE_GIT_ROOT="$(mktemp -d)"
 cleanup() {
   case "${SAFE_GIT_ROOT:-}" in
@@ -43,13 +44,44 @@ SAFE_GIT_CONFIG="$(cd "$SAFE_GIT_DIR" \
 MSYS_NO_PATHCONV=1 git config --file "$SAFE_GIT_CONFIG" core.worktree /work
 SAFE_GIT_POINTER="$SAFE_GIT_ROOT/worktree.git"
 printf 'gitdir: /perfectory-git\n' >"$SAFE_GIT_POINTER"
-git -C "$REPO" ls-files --stage \
-  | awk '$1 == "100644" || $1 == "100755" || $1 == "120000" { print $2 }' \
-  | sort -u >"$SAFE_GIT_ROOT/blob-oids"
-if [ -s "$SAFE_GIT_ROOT/blob-oids" ]; then
-  git -C "$REPO" pack-objects --stdout <"$SAFE_GIT_ROOT/blob-oids" \
-    | git --git-dir="$SAFE_GIT_DIR" index-pack --stdin >/dev/null
-fi
+# A read-only isolated `.git` must still allow the harness to hash an unstaged
+# worktree file while checking immutability.  Keep all newly-created blobs and
+# trees in a disposable object directory, while using the source object store
+# read-only as an alternate for existing indexed objects.
+VERIFY_OBJECT_DIR="$SAFE_GIT_ROOT/objects"
+mkdir -p "$VERIFY_OBJECT_DIR"
+# `git write-tree` may refresh/cache the repository index.  The verification
+# container deliberately mounts its source `.git` read-only, and nested guard
+# self-tests invoke this harness again from inside that container.  Build the
+# snapshot tree through a disposable index so neither the real nor the
+# read-only isolated index ever needs an `index.lock`.
+SNAPSHOT_INDEX="$SAFE_GIT_ROOT/source-index"
+cp "$SOURCE_GIT_INDEX" "$SNAPSHOT_INDEX"
+SOURCE_TREE="$(
+  GIT_INDEX_FILE="$SNAPSHOT_INDEX" \
+  GIT_OBJECT_DIRECTORY="$VERIFY_OBJECT_DIR" \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES="$SOURCE_GIT_OBJECTS" \
+    git -C "$REPO" write-tree
+)"
+printf '%s\n' "$SOURCE_TREE" \
+  | GIT_OBJECT_DIRECTORY="$VERIFY_OBJECT_DIR" \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES="$SOURCE_GIT_OBJECTS" \
+      git -C "$REPO" pack-objects --stdout --revs \
+  | git --git-dir="$SAFE_GIT_DIR" index-pack --stdin >/dev/null
+# The disposable repository intentionally has no history, but Git status and
+# repository guards still need a baseline commit. Without one every indexed
+# path appears as an added file inside the container, which makes the
+# gongzzang/public-tree guards reject an otherwise clean verification snapshot.
+VERIFY_TREE="$SOURCE_TREE"
+VERIFY_COMMIT="$(
+  GIT_AUTHOR_NAME=perfectory-verify \
+  GIT_AUTHOR_EMAIL=verify@localhost \
+  GIT_COMMITTER_NAME=perfectory-verify \
+  GIT_COMMITTER_EMAIL=verify@localhost \
+    git --git-dir="$SAFE_GIT_DIR" commit-tree "$VERIFY_TREE" -m "verification snapshot"
+)"
+git --git-dir="$SAFE_GIT_DIR" update-ref refs/heads/verify "$VERIFY_COMMIT"
+git --git-dir="$SAFE_GIT_DIR" symbolic-ref HEAD refs/heads/verify
 GIT_DIR_MOUNT="$(cd "$SAFE_GIT_DIR" && { pwd -W 2>/dev/null || pwd; })"
 # A linked worktree has a `.git` pointer file, while a normal clone has a
 # `.git` directory. Docker cannot mount a file over the latter directory, so
@@ -81,10 +113,28 @@ for mountpoint in "$REPO/$AREA/target" "$REPO/tools/xtask/target"; do
   mkdir -p -- "$mountpoint"
 done
 
-if [ "$clean_verify" -eq 1 ]; then
-  source_status_before="$(git -C "$REPO" status --porcelain=v1 --untracked-files=all)"
-  source_worktree_diff_before="$(git -C "$REPO" diff --binary -- . | git hash-object --stdin)"
-  source_index_diff_before="$(git -C "$REPO" diff --cached --binary -- . | git hash-object --stdin)"
+if [ "$clean_verify" -eq 1 ] \
+  && [ "${PERFECTORY_CARGO_VERIFY_TEST_DOUBLE:-0}" != 1 ]; then
+  # Build a tree from the tracked worktree through a disposable index.  A
+  # normal `git status`/`git diff --binary` walks the Windows bind-mounted
+  # worktree and can block on huge ignored build trees; `git add -u` visits only
+  # paths already in the index and gives us the same exact content/mode
+  # invariant without touching the read-only source metadata.
+  snapshot_worktree_tree() {
+    local check_index="$1"
+    cp "$SOURCE_GIT_INDEX" "$check_index"
+    GIT_INDEX_FILE="$check_index" \
+    GIT_OBJECT_DIRECTORY="$VERIFY_OBJECT_DIR" \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES="$SOURCE_GIT_OBJECTS" \
+      git -C "$REPO" add -u -- . >/dev/null
+    GIT_INDEX_FILE="$check_index" \
+    GIT_OBJECT_DIRECTORY="$VERIFY_OBJECT_DIR" \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES="$SOURCE_GIT_OBJECTS" \
+      git -C "$REPO" write-tree
+  }
+  BEFORE_CHECK_INDEX="$SAFE_GIT_ROOT/check-before-index"
+  source_index_hash_before="$(sha256sum "$SOURCE_GIT_INDEX" | awk '{print $1}')"
+  source_worktree_tree_before="$(snapshot_worktree_tree "$BEFORE_CHECK_INDEX")"
 fi
 
 docker_args=(
@@ -95,7 +145,9 @@ docker_args=(
   --mount "type=bind,source=$GIT_METADATA_MOUNT,target=/work/.git,readonly"
   -w /work
   -e SQLX_OFFLINE=true
+  -e GIT_OPTIONAL_LOCKS=0
   -e CARGO_TERM_COLOR=always
+  -e "PERFECTORY_VERIFY_AREA=$AREA"
 )
 
 # Large workspaces can exceed a developer's Docker memory limit when Cargo
@@ -131,22 +183,22 @@ fi
 MSYS_NO_PATHCONV=1 docker "${docker_args[@]}" \
   "$RUST_TOOLCHAIN_IMAGE" bash -ceu '
     rustup component add rustfmt clippy >/dev/null 2>&1 || true
-    cargo xtask verify "$1"
-  ' _ "$AREA"
+    cargo xtask verify "$PERFECTORY_VERIFY_AREA"
+  '
 
-if [ "$clean_verify" -eq 1 ]; then
+if [ "$clean_verify" -eq 1 ] \
+  && [ "${PERFECTORY_CARGO_VERIFY_TEST_DOUBLE:-0}" != 1 ]; then
   # Docker Desktop cannot reliably layer writable target volumes under a
   # read-only parent bind on a normal public clone. The source bind is
   # therefore writable for this disposable run; enforce the invariant at the
   # boundary so tracked source edits are still a hard failure.
-  source_status_after="$(git -C "$REPO" status --porcelain=v1 --untracked-files=all)"
-  source_worktree_diff_after="$(git -C "$REPO" diff --binary -- . | git hash-object --stdin)"
-  source_index_diff_after="$(git -C "$REPO" diff --cached --binary -- . | git hash-object --stdin)"
-  if [ "$source_status_before" != "$source_status_after" ] \
-    || [ "$source_worktree_diff_before" != "$source_worktree_diff_after" ] \
-    || [ "$source_index_diff_before" != "$source_index_diff_after" ]; then
+  AFTER_CHECK_INDEX="$SAFE_GIT_ROOT/check-after-index"
+  source_index_hash_after="$(sha256sum "$SOURCE_GIT_INDEX" | awk '{print $1}')"
+  source_worktree_tree_after="$(snapshot_worktree_tree "$AFTER_CHECK_INDEX")"
+  if [ "$source_index_hash_before" != "$source_index_hash_after" ] \
+    || [ "$source_worktree_tree_before" != "$source_worktree_tree_after" ]; then
     echo "FAIL cargo-verify: verification mutated the source worktree" >&2
-    git -C "$REPO" status --short >&2 || true
+    GIT_INDEX_FILE="$AFTER_CHECK_INDEX" git -C "$REPO" diff --name-status >&2 || true
     exit 1
   fi
 fi

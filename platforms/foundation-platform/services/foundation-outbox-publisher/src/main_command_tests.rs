@@ -175,6 +175,14 @@ fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Resu
             Command::WriteOfficialAdministrativeBoundarySourceSnapshot,
         ),
         (
+            "publish-administrative-boundary-postgis",
+            Command::PublishAdministrativeBoundaryPostgis,
+        ),
+        (
+            "promote-administrative-boundary-runtime",
+            Command::PromoteAdministrativeBoundaryRuntime,
+        ),
+        (
             "check-bounded-live-ingestion-gate",
             Command::CheckBoundedLiveIngestionGate,
         ),

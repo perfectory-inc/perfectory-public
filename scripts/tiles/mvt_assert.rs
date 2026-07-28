@@ -15,7 +15,8 @@ const USAGE: &str = "Usage:\n\
       --expect-layer <name>=<count> [--expect-layer ...]\n\
       [--expect-pnu <pnu>]... [--expect-complex-code <code>]...\n\
       [--expect-identity <layer>|<pnu>|<complex-code>]...\n\
-      [--expect-property <key>=<value>]...";
+      [--expect-property <key>=<value>]...\n\
+      [--expect-nonempty-layer <name>]...";
 
 #[derive(Clone, Debug, PartialEq)]
 enum PropertyValue {
@@ -115,6 +116,7 @@ impl Identity {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Expectations {
     layers: BTreeMap<String, usize>,
+    nonempty_layers: BTreeSet<String>,
     pnus: BTreeSet<String>,
     complex_codes: BTreeSet<String>,
     properties: Vec<(String, String)>,
@@ -703,7 +705,12 @@ fn quote(value: &str) -> String {
 
 fn assert_tile(tile: &Tile, expectations: &Expectations) -> Result<(), String> {
     let actual_layers = tile.layers.keys().cloned().collect::<BTreeSet<_>>();
-    let expected_layers = expectations.layers.keys().cloned().collect::<BTreeSet<_>>();
+    let expected_layers = expectations
+        .layers
+        .keys()
+        .cloned()
+        .chain(expectations.nonempty_layers.iter().cloned())
+        .collect::<BTreeSet<_>>();
     if actual_layers != expected_layers {
         return Err(format!(
             "layer set mismatch: expected {expected_layers:?}, got {actual_layers:?}"
@@ -716,6 +723,16 @@ fn assert_tile(tile: &Tile, expectations: &Expectations) -> Result<(), String> {
             return Err(format!(
                 "layer {name:?} feature count mismatch: expected {expected_count}, got {actual_count}"
             ));
+        }
+    }
+
+    for name in &expectations.nonempty_layers {
+        let layer = tile
+            .layers
+            .get(name)
+            .ok_or_else(|| format!("expected non-empty layer {name:?} is missing"))?;
+        if layer.features.is_empty() {
+            return Err(format!("expected non-empty layer {name:?} has no features"));
         }
     }
 
@@ -813,6 +830,12 @@ fn parse_expectations(arguments: &[String]) -> Result<Expectations, String> {
                     return Err(format!("duplicate --expect-layer for {name:?}"));
                 }
             }
+            "--expect-nonempty-layer" => {
+                require_nonempty(value, "layer name")?;
+                if !expectations.nonempty_layers.insert(value.clone()) {
+                    return Err(format!("duplicate --expect-nonempty-layer {value:?}"));
+                }
+            }
             "--expect-pnu" => {
                 require_nonempty(value, "PNU")?;
                 if !expectations.pnus.insert(value.clone()) {
@@ -841,7 +864,7 @@ fn parse_expectations(arguments: &[String]) -> Result<Expectations, String> {
     if !has_content_encoding {
         return Err(format!("--content-encoding identity is required\n{USAGE}"));
     }
-    if expectations.layers.is_empty() {
+    if expectations.layers.is_empty() && expectations.nonempty_layers.is_empty() {
         return Err(format!(
             "assert requires at least one --expect-layer\n{USAGE}"
         ));
@@ -1105,6 +1128,34 @@ mod tests {
     }
 
     #[test]
+    fn parse_accepts_nonempty_layer_expectation() {
+        let arguments = vec![
+            "--content-encoding".to_owned(),
+            "identity".to_owned(),
+            "--expect-nonempty-layer".to_owned(),
+            "admin".to_owned(),
+        ];
+
+        assert!(parse_expectations(&arguments).is_ok());
+    }
+
+    #[test]
+    fn nonempty_layer_assertion_checks_the_layer_without_identity_properties() {
+        let decoded = parse_tile(&sample_tile()).unwrap();
+        let arguments = vec![
+            "--content-encoding".to_owned(),
+            "identity".to_owned(),
+            "--expect-nonempty-layer".to_owned(),
+            "parcels".to_owned(),
+            "--expect-nonempty-layer".to_owned(),
+            "parcel_anchor_aggregate".to_owned(),
+        ];
+        let expectations = parse_expectations(&arguments).unwrap();
+
+        assert_tile(&decoded, &expectations).unwrap();
+    }
+
+    #[test]
     fn assertions_require_exact_layers_counts_and_identity_sets() {
         let decoded = parse_tile(&sample_tile()).unwrap();
         let expectations = Expectations {
@@ -1112,6 +1163,7 @@ mod tests {
                 ("parcel_anchor_aggregate".to_owned(), 1),
                 ("parcels".to_owned(), 2),
             ]),
+            nonempty_layers: BTreeSet::new(),
             pnus: BTreeSet::from([
                 "9999900000000000001".to_owned(),
                 "9999900000000000002".to_owned(),

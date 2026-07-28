@@ -340,8 +340,35 @@ fn validate_registry_rows(rows: &[JsonValue], blockers: &mut Vec<String>) {
             !is_lowercase_sha256(&checksum),
             "row_checksum_sha256 must be lowercase sha256",
         );
-        if is_lowercase_sha256(&checksum) && checksum != scope_checksum(row) {
+        if is_lowercase_sha256(&checksum) && checksum != registry_checksum_from_json(row) {
             blockers.push("row_checksum_sha256 mismatch".to_owned());
+        }
+        if scope_kind == "legal_dong" {
+            let geometry = row.get("geometry").unwrap_or(&JsonValue::Null);
+            let geometry_sha256 = json_string(row, "geometry_sha256");
+            add_if(
+                blockers,
+                !matches!(
+                    json_string(geometry, "type").as_str(),
+                    "Polygon" | "MultiPolygon"
+                ),
+                "legal_dong geometry must be Polygon or MultiPolygon",
+            );
+            add_if(
+                blockers,
+                !is_lowercase_sha256(&geometry_sha256),
+                "legal_dong geometry_sha256 must be lowercase sha256",
+            );
+            if is_lowercase_sha256(&geometry_sha256) {
+                let actual = serde_json::to_vec(geometry)
+                    .map(|bytes| sha256_hex(&bytes))
+                    .unwrap_or_default();
+                add_if(
+                    blockers,
+                    actual != geometry_sha256,
+                    "legal_dong geometry_sha256 mismatch",
+                );
+            }
         }
 
         let valid_from = parse_required_utc(row.get("valid_from_utc"));
@@ -514,6 +541,7 @@ fn validate_source_row(
 ) {
     for field in [
         "schema_version",
+        "scope_unit_id",
         "scope_kind",
         "canonical_code",
         "valid_from_utc",
@@ -522,6 +550,7 @@ fn validate_source_row(
         "bbox",
         "source_provider",
         "source_snapshot_id",
+        "row_checksum_sha256",
     ] {
         add_if(
             blockers,
@@ -538,6 +567,9 @@ fn validate_source_row(
     let status = json_string(row, "status");
     let source_provider = json_string(row, "source_provider");
     let row_source_snapshot_id = json_string(row, "source_snapshot_id");
+    let row_checksum = json_string(row, "row_checksum_sha256");
+    let geometry = row.get("geometry").unwrap_or(&JsonValue::Null);
+    let geometry_sha256 = json_string(row, "geometry_sha256");
 
     add_if(
         blockers,
@@ -575,7 +607,39 @@ fn validate_source_row(
         row_source_snapshot_id != source_snapshot_id,
         "source_snapshot_id must match SourceSnapshotId",
     );
+    add_if(
+        blockers,
+        !is_lowercase_sha256(&row_checksum),
+        "source row_checksum_sha256 must be lowercase sha256",
+    );
+    if is_lowercase_sha256(&row_checksum) && row_checksum != scope_checksum(row) {
+        blockers.push("source row_checksum_sha256 mismatch".to_owned());
+    }
     validate_source_code(&scope_kind, &canonical_code, blockers);
+
+    if scope_kind == "legal_dong" {
+        add_if(
+            blockers,
+            !matches!(
+                json_string(geometry, "type").as_str(),
+                "Polygon" | "MultiPolygon"
+            ),
+            "legal_dong source geometry must be Polygon or MultiPolygon",
+        );
+        add_if(
+            blockers,
+            !is_lowercase_sha256(&geometry_sha256),
+            "legal_dong geometry_sha256 must be lowercase sha256",
+        );
+        if is_lowercase_sha256(&geometry_sha256) {
+            let actual = sha256_hex(&serde_json::to_vec(geometry).unwrap_or_default());
+            add_if(
+                blockers,
+                actual != geometry_sha256,
+                "legal_dong geometry_sha256 mismatch",
+            );
+        }
+    }
 
     let has_parent_kind = !parent_scope_kind.trim().is_empty();
     let has_parent_code = !parent_canonical_code.trim().is_empty();
@@ -660,6 +724,8 @@ fn registry_row_from_source(row: &JsonValue) -> anyhow::Result<RegistryRow> {
         },
         source_provider: json_string(row, "source_provider"),
         source_snapshot_id: json_string(row, "source_snapshot_id"),
+        geometry: row.get("geometry").cloned(),
+        geometry_sha256: optional_string(row.get("geometry_sha256")),
         row_checksum_sha256: String::new(),
     };
     registry_row.row_checksum_sha256 = registry_checksum(&registry_row);
@@ -794,6 +860,29 @@ fn scope_checksum(row: &JsonValue) -> String {
     sha256_hex(input.as_bytes())
 }
 
+fn registry_checksum_from_json(row: &JsonValue) -> String {
+    let bbox = row.get("bbox").unwrap_or(&JsonValue::Null);
+    let input = [
+        json_string(row, "scope_unit_id"),
+        json_string(row, "scope_kind"),
+        json_string(row, "canonical_code"),
+        json_string(row, "parent_scope_unit_id"),
+        utc_timestamp_string(row.get("valid_from_utc")),
+        utc_timestamp_string(row.get("valid_to_utc")),
+        json_string(row, "status"),
+        string_property(row.get("geometry_srid")),
+        string_property(bbox.get("min_x")),
+        string_property(bbox.get("min_y")),
+        string_property(bbox.get("max_x")),
+        string_property(bbox.get("max_y")),
+        json_string(row, "source_provider"),
+        json_string(row, "source_snapshot_id"),
+        json_string(row, "geometry_sha256"),
+    ]
+    .join("|");
+    sha256_hex(input.as_bytes())
+}
+
 fn registry_checksum(row: &RegistryRow) -> String {
     let input = [
         row.scope_unit_id.as_str(),
@@ -810,6 +899,7 @@ fn registry_checksum(row: &RegistryRow) -> String {
         row.bbox.max_y.as_str(),
         row.source_provider.as_str(),
         row.source_snapshot_id.as_str(),
+        row.geometry_sha256.as_deref().unwrap_or_default(),
     ]
     .join("|");
     sha256_hex(input.as_bytes())
@@ -1003,6 +1093,10 @@ struct RegistryRow {
     bbox: RegistryBbox,
     source_provider: String,
     source_snapshot_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    geometry: Option<JsonValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    geometry_sha256: Option<String>,
     row_checksum_sha256: String,
 }
 

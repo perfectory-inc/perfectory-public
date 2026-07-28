@@ -5,6 +5,22 @@
 반응형 웹 + PWA. 필지·건물·산단 카탈로그 데이터는 Foundation Platform published contract로만
 소비한다 — 공공 API 직접 수집 금지 ([AGENTS.md](./AGENTS.md) §0.5/§3).
 
+## 책임 트리
+
+```text
+gongzzang/
+├── apps/web/                 B2C 웹
+├── services/gongzzang-api    제품 HTTP API
+├── services/gongzzang-outbox 이벤트 발행
+├── crates/*-domain           제품 도메인
+├── packages/                 웹 공유 패키지
+├── infrastructure/           Pulumi·Docker
+└── docs/                     제품 문서 SSOT
+```
+
+문서 지도: [Gongzzang docs](./docs/README.md) ·
+[전체 문서 색인](../../docs/document-catalog.md)
+
 ## 모노레포 내 위치
 
 perfectory 모노레포의 `products/gongzzang` 영역이다. 전 영역 공통 규칙(툴체인 단일 핀,

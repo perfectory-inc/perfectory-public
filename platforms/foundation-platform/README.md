@@ -6,6 +6,22 @@ PBF 타일)을 소유한다. perfectory 모노레포의 `platforms/foundation-pl
 제품(Gongzzang)은 published HTTP 계약/이벤트로만 소비한다. Staff/서비스 인증·인가는
 `platforms/identity-platform` 소유 — Identity DB 직접 읽기 금지, published 계약만 사용한다.
 
+## 책임 트리
+
+```text
+foundation-platform/
+├── crates/collection/       공공데이터 수집·Bronze
+├── crates/catalog/          카탈로그 원장·계약
+├── crates/lakehouse/        Silver/Gold 처리 경계
+├── crates/normalization/    Foundation 검토·적용
+├── services/foundation-api  published HTTP API
+├── services/foundation-outbox-publisher  수집·outbox 운영 CLI
+└── infra/                   DB·lakehouse·관측성 실행 구성
+```
+
+상세 문서는 [Foundation 문서 지도](./docs/README.md)와
+[전체 문서 색인](../../docs/document-catalog.md)에서 찾는다.
+
 ## Workspace
 
 Cargo workspace 18 members + Python 워커 1:

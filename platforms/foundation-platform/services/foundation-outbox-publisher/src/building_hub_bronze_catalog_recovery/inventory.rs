@@ -133,6 +133,12 @@ fn compile_recovery_inventory(
         if endpoint.provider != "hub.go.kr" || endpoint.group != "building_hub_bulk" {
             continue;
         }
+        // Recovery is executable only for enabled bulk-file lanes. Keep cataloged gaps and
+        // disabled/manual lanes visible to the catalog without treating them as recovery jobs.
+        if endpoint.source_acquisition_lane != "bulk_file" || !endpoint.national_collection_allowed
+        {
+            continue;
+        }
         validate_endpoint_contract(&endpoint)?;
         let source_slug = endpoint.bronze.source_slug.clone();
         if endpoints_by_source

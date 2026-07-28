@@ -18,6 +18,9 @@ export default defineConfig({
       "tests/unit/session/single-flight.test.ts",
     ],
     globals: true,
+    // Keep filesystem-scanning contract tests deterministic on Windows and CI runners.
+    // The default worker count can starve module imports long enough to trip Vitest's 5s timeout.
+    maxWorkers: 2,
   },
   resolve: {
     alias: {

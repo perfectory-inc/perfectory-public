@@ -168,6 +168,7 @@ change is a serving *pattern*, not a pile of new infrastructure.
 ## References
 
 - [Single-source spatial publication architecture](../architecture/single-source-spatial-publication.md)
+- [Administrative boundary and parcel identity versioning](../architecture/administrative-boundary-versioning.md)
 - [Foundation ADR 0004 - Vector tile publication contract](../../platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md)
 - GZ-ADR-0036 — vector tile runtime contract (legacy flat-object v1 and single-source v2)
 - [Martin file sources](https://github.com/maplibre/martin/blob/martin-v1.12.0/docs/content/sources-files.md)

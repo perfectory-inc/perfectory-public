@@ -1,0 +1,7 @@
+# Foundation technical infrastructure
+
+Foundation의 범용 outbound HTTP·기술 어댑터를 모아 둔 내부 인프라 경계입니다. 도메인
+정책이나 published 계약을 이 디렉터리에 정의하지 않습니다.
+
+- 영역 문서: [`docs/README.md`](../../docs/README.md)
+- 검증: `cargo test -p technical-outbound-http-infrastructure`

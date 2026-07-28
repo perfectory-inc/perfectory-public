@@ -80,11 +80,15 @@ reject_argument() {
 }
 
 clean_capture="$test_root/clean.args"
+# The fake Docker runner does not create the real writable source bind, so the
+# production tracked-tree integrity pass is intentionally not exercised by
+# this argument-capture test. Its mount contract is asserted below.
 PATH="$fake_bin:$PATH" \
   DOCKER_ARGUMENT_CAPTURE="$clean_capture" \
   DOCKER_VERIFY_BLOB_STORE=1 \
   CARGO_VERIFY_REPO="$(pwd -W 2>/dev/null || pwd)" \
   CARGO_VERIFY_BLOB_CHECKER="$(pwd)/scripts/guard/check-tracked-blob-sizes.sh" \
+  PERFECTORY_CARGO_VERIFY_TEST_DOUBLE=1 \
   PERFECTORY_CLEAN_VERIFY=1 \
   bash scripts/verify/cargo-verify.sh products/gongzzang
 

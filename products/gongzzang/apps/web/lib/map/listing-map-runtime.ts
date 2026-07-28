@@ -200,8 +200,33 @@ async function setupPolygonLayers(
   }
 
   try {
+    const runtimeAdminUnit = runtimeManifest?.publication_units.admin;
+    if (runtimeAdminUnit && !mb.getSource?.("admin")) {
+      const runtimeLayer = runtimeAdminUnit.layers.admin;
+      if (!runtimeLayer) throw new Error("v2 admin unit is missing the admin layer");
+      mb.addSource("admin", buildFoundationVectorSource(runtimeManifest, "admin", "admin"));
+      mb.addLayer({
+        id: "admin-fill",
+        type: "fill",
+        source: "admin",
+        "source-layer": runtimeLayer.source_layer,
+        minzoom: runtimeLayer.render_min_zoom,
+        maxzoom: runtimeLayer.render_max_zoom,
+        promoteId: runtimeLayer.feature_id_property,
+        paint: {
+          "fill-color": MAP_LAYER_COLORS.admin.fill,
+          "fill-opacity": 0.05,
+          "fill-outline-color": MAP_LAYER_COLORS.admin.outline,
+        },
+      });
+    }
+  } catch (err) {
+    logMapLayerFailure("admin-fill", err, { kind: "optional", source: "admin" });
+  }
+
+  try {
     const artifact = manifest ? getVectorTileArtifact(manifest, "admin") : undefined;
-    if (artifact && !mb.getSource?.("admin")) {
+    if (artifact && !runtimeManifest?.publication_units.admin && !mb.getSource?.("admin")) {
       if (!manifest) return;
       mb.addSource("admin", buildVectorTileSource(manifest, "admin"));
       mb.addLayer({

@@ -18,6 +18,7 @@ const DEFAULT_BASE_URI: &str = "https://www.hub.go.kr";
 const DEFAULT_TERMS_URL: &str = "https://www.hub.go.kr/portal/opn/lps/idx-lgcpt-pvsn-srvc-list.do";
 const DEFAULT_USER_AGENT: &str = "foundation-platform-building-hub-bulk-planner/1.0";
 const BUILDING_HUB_BULK_GROUP: &str = "building_hub_bulk";
+const PROVIDER_INVENTORY_MISSING_LANE: &str = "provider_inventory_missing";
 
 pub async fn run() -> anyhow::Result<()> {
     let config = BuildingHubBulkCollectionPlanConfig::from_env();
@@ -75,6 +76,8 @@ fn compile_building_hub_bulk_collection_plan(
         .endpoints
         .into_iter()
         .filter(|endpoint| endpoint.group == BUILDING_HUB_BULK_GROUP)
+        // Keep provider-inventory gaps visible in the catalog without emitting executable jobs.
+        .filter(|endpoint| endpoint.source_acquisition_lane != PROVIDER_INVENTORY_MISSING_LANE)
         .map(|endpoint| endpoint.into_plan_endpoint(base_uri, terms_url))
         .collect::<anyhow::Result<Vec<_>>>()?;
     if endpoints.is_empty() {

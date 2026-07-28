@@ -6,6 +6,13 @@
 **Date:** 2026-07-24
 **Scope:** Foundation-owned public/reference polygon layers consumed by Gongzzang
 **Delivery sequence:** [Single-source spatial publication implementation guide](../guides/single-source-spatial-publication-implementation.md)
+
+Administrative code/name and PNU transitions follow the temporal identity contract in
+[Administrative Boundary and Parcel Identity Versioning](./administrative-boundary-versioning.md).
+The atomicity guarantee is per `publication_unit`: a merger affecting parcels and a future admin
+polygon unit may expose the two units on different validated revisions until one manifest promotes
+both. A producer that requires cross-unit legal simultaneity must stage both units in one complete
+manifest candidate; clients never compose partial tile sources.
 **Freshness SLO:** A public change is reflected on an already-open map within 5 seconds after its
 active release and serving generation are committed.
 

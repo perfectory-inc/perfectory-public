@@ -21,6 +21,13 @@ export const FOUNDATION_VECTOR_LAYER_REGISTRY: Record<string, FoundationVectorLa
     sourceLayer: "parcels",
     promoteId: "pnu",
   },
+  admin: {
+    sourceId: "admin",
+    dynamicMartinSourceId: "admin",
+    layerName: "admin",
+    sourceLayer: "admin",
+    promoteId: "administrative_unit_id",
+  },
 };
 
 /** Builds the source descriptor using the registry's identity rather than runtime string copies. */
