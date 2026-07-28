@@ -41,6 +41,11 @@ export type MapboxGLLike = {
   setFilter?: (layerId: string, filter: unknown[]) => void;
 };
 
+type MapboxLayerApi = MapboxGLLike & {
+  addSource: NonNullable<MapboxGLLike["addSource"]>;
+  addLayer: NonNullable<MapboxGLLike["addLayer"]>;
+};
+
 const MAPBOX_POLL_INTERVAL_MS = 100;
 const MAPBOX_POLL_TIMEOUT_MS = 6_000;
 const MAPBOX_MAX_ATTEMPTS = MAPBOX_POLL_TIMEOUT_MS / MAPBOX_POLL_INTERVAL_MS;
@@ -134,7 +139,7 @@ function setupPolygonLayers(
   manifest: VectorTileManifest | null,
   runtimeManifest: VectorTileRuntimeManifest | null,
 ): void {
-  if (typeof mb.addSource !== "function" || typeof mb.addLayer !== "function") {
+  if (!hasMapboxLayerApi(mb)) {
     console.warn("[ListingMap] mapbox addSource/addLayer unavailable; polygon layer setup skipped");
     return;
   }
@@ -146,8 +151,12 @@ function setupPolygonLayers(
   setupComplexLayer(mb, manifest);
 }
 
+function hasMapboxLayerApi(mb: MapboxGLLike): mb is MapboxLayerApi {
+  return typeof mb.addSource === "function" && typeof mb.addLayer === "function";
+}
+
 function setupParcelLayers(
-  mb: MapboxGLLike,
+  mb: MapboxLayerApi,
   onParcelClick: (pnu: string) => void,
   manifest: VectorTileManifest | null,
   runtimeManifest: VectorTileRuntimeManifest | null,
@@ -219,7 +228,7 @@ function registerLegacyParcelClick(mb: MapboxGLLike, onParcelClick: (pnu: string
 }
 
 function setupRuntimeAdminLayer(
-  mb: MapboxGLLike,
+  mb: MapboxLayerApi,
   runtimeManifest: VectorTileRuntimeManifest | null,
 ): void {
   try {
@@ -249,7 +258,7 @@ function setupRuntimeAdminLayer(
 }
 
 function setupStaticAdminLayer(
-  mb: MapboxGLLike,
+  mb: MapboxLayerApi,
   manifest: VectorTileManifest | null,
   runtimeManifest: VectorTileRuntimeManifest | null,
 ): void {
@@ -281,7 +290,7 @@ function setupStaticAdminLayer(
   }
 }
 
-function setupComplexLayer(mb: MapboxGLLike, manifest: VectorTileManifest | null): void {
+function setupComplexLayer(mb: MapboxLayerApi, manifest: VectorTileManifest | null): void {
   try {
     const artifact = manifest ? getVectorTileArtifact(manifest, "complex") : undefined;
     if (manifest && artifact && !mb.getSource?.("complex")) {
