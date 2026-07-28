@@ -111,6 +111,7 @@ struct Fixture {
     release_id: Uuid,
     manifest_id: Uuid,
     data_revision: Uuid,
+    source_record_id: Uuid,
     snapshot_id: String,
 }
 
@@ -121,11 +122,34 @@ impl Fixture {
             release_id: Uuid::now_v7(),
             manifest_id: Uuid::now_v7(),
             data_revision: Uuid::now_v7(),
+            source_record_id: Uuid::now_v7(),
             snapshot_id: format!("9{}", Uuid::new_v4().as_u128()),
         }
     }
 
     async fn insert(&self, pool: &PgPool) {
+        sqlx::query(
+            "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
+             VALUES ($1, 'test', $2, repeat('a', 64))",
+        )
+        .bind(self.source_record_id)
+        .bind(format!("runtime-manifest-{}", self.source_record_id))
+        .execute(pool)
+        .await
+        .expect("source record");
+        sqlx::query(
+            "INSERT INTO catalog.administrative_boundary_revision
+             (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id,
+              status, validated_at)
+             VALUES ($1, $2, $3, $4, 'published', now())",
+        )
+        .bind(self.data_revision)
+        .bind(&self.snapshot_id)
+        .bind(format!("iceberg:runtime-manifest-{}", self.data_revision))
+        .bind(self.source_record_id)
+        .execute(pool)
+        .await
+        .expect("administrative boundary revision");
         sqlx::query(
             "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key)
              VALUES ($1, $2)",
@@ -147,7 +171,7 @@ impl Fixture {
         .bind(self.unit_id)
         .bind(self.data_revision)
         .bind(&self.snapshot_id)
-        .bind(Uuid::now_v7())
+        .bind(self.source_record_id)
         .bind(Uuid::now_v7())
         .execute(pool)
         .await
@@ -222,5 +246,21 @@ impl Fixture {
             .execute(pool)
             .await
             .expect("unit cleanup");
+        let mut tx = pool.begin().await.expect("cleanup transaction");
+        sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+            .execute(&mut *tx)
+            .await
+            .expect("enable temporal fixture cleanup");
+        sqlx::query("DELETE FROM catalog.administrative_boundary_revision WHERE id = $1")
+            .bind(self.data_revision)
+            .execute(&mut *tx)
+            .await
+            .expect("administrative boundary revision cleanup");
+        sqlx::query("DELETE FROM catalog.source_record WHERE id = $1")
+            .bind(self.source_record_id)
+            .execute(&mut *tx)
+            .await
+            .expect("source record cleanup");
+        tx.commit().await.expect("cleanup transaction commit");
     }
 }
