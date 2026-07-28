@@ -27,9 +27,15 @@ use sqlx::PgPool;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
-async fn pool() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
-    PgPool::connect(&url).await.ok()
+/// Connection for the two `#[ignore]`d live tests in this module. Both failure
+/// modes abort the test: a configured-but-unreachable database must not silently
+/// downgrade a contract test into a no-op that still reports success.
+async fn pool() -> PgPool {
+    let url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
+    PgPool::connect(&url)
+        .await
+        .expect("connect to the database in DATABASE_URL")
 }
 
 fn assert_f64_near(actual: f64, expected: f64) {
@@ -471,9 +477,7 @@ fn manufacturer_response_omits_sensitive_business_number() {
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn list_complex_blueprints_returns_catalog_dto() {
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
     let complex_id = Uuid::now_v7();
     let file_asset_id = Uuid::now_v7();
     let blueprint_id = Uuid::now_v7();
@@ -557,9 +561,7 @@ async fn list_complex_blueprints_returns_catalog_dto() {
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn vector_tile_manifest_endpoint_returns_runtime_contract() {
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
     let fixture = VectorTileApiFixture::new();
     let active_snapshot = ActiveManifestSnapshot::pause(&pool).await;
     fixture.insert(&pool).await;

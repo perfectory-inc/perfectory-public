@@ -15,12 +15,15 @@ use uuid::Uuid;
 
 const TEST_ADVISORY_LOCK_KEY: i64 = 0x6c72_6567_6973_7479;
 
-async fn pool() -> Result<Option<PgPool>, sqlx::Error> {
-    let Some(url) = std::env::var("DATABASE_URL").ok() else {
-        return Ok(None);
-    };
+/// Connection for this `#[ignore]`d live suite. A missing `DATABASE_URL` aborts
+/// the test instead of yielding `None`: these tests run only when a harness asked
+/// for them, so an absent database is a provisioning failure — not a reason to
+/// report success.
+async fn pool() -> Result<PgPool, sqlx::Error> {
+    let url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
 
-    PgPool::connect(&url).await.map(Some)
+    PgPool::connect(&url).await
 }
 
 async fn lock_registry_tests(pool: &PgPool) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
@@ -35,9 +38,7 @@ async fn lock_registry_tests(pool: &PgPool) -> Result<Transaction<'_, Postgres>,
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn registers_namespace_asset_and_active_version() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let _lock_tx = lock_registry_tests(&pool).await?;
     let repository = PgLakehouseRegistryRepository::new(pool.clone());
     let unit_of_work = PgLakehouseRegistryUnitOfWork::new(pool.clone());
@@ -117,9 +118,7 @@ async fn registers_namespace_asset_and_active_version() -> Result<(), Box<dyn st
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn records_gongzzang_media_object_set_artifact() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let _lock_tx = lock_registry_tests(&pool).await?;
     let repository = PgLakehouseRegistryRepository::new(pool.clone());
     let unit_of_work = PgLakehouseRegistryUnitOfWork::new(pool.clone());
@@ -194,9 +193,7 @@ async fn records_gongzzang_media_object_set_artifact() -> Result<(), Box<dyn std
 #[ignore = "requires local docker stack"]
 async fn artifact_retry_is_idempotent_and_checksum_conflict_fails_loud(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let _lock_tx = lock_registry_tests(&pool).await?;
     let repository = PgLakehouseRegistryRepository::new(pool.clone());
     let unit_of_work = PgLakehouseRegistryUnitOfWork::new(pool.clone());

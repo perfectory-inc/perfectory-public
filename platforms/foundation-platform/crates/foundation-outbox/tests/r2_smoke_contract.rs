@@ -162,9 +162,15 @@ fn live_r2_smoke_enabled(value: Option<&str>) -> bool {
 #[tokio::test]
 #[ignore = "requires Cloudflare R2 credentials and writes a temporary smoke object"]
 async fn r2_smoke_round_trip_writes_reads_and_deletes_a_dedicated_object() -> TestResult {
-    if !live_r2_smoke_enabled(std::env::var(LIVE_R2_SMOKE_ENV).ok().as_deref()) {
-        return Ok(());
-    }
+    // Ignored by default, so reaching this line means a harness asked for the
+    // R2 lane. Returning `Ok(())` here reported a pass for a smoke that never
+    // touched R2 — and the Postgres sweep used to reach it on every PR.
+    let opt_in = std::env::var(LIVE_R2_SMOKE_ENV).unwrap_or_default();
+    assert!(
+        live_r2_smoke_enabled(Some(opt_in.as_str())),
+        "{LIVE_R2_SMOKE_ENV}=1 is required to run the R2 live lane; \
+         `cargo xtask integration foundation r2` provisions it"
+    );
 
     let storage = R2ObjectStorage::from_env()?;
     let key = format!(
@@ -187,9 +193,11 @@ async fn r2_smoke_round_trip_writes_reads_and_deletes_a_dedicated_object() -> Te
 #[tokio::test]
 #[ignore = "requires Cloudflare R2 credentials and performs a read-only ListObjectsV2 call"]
 async fn r2_inventory_lists_root_prefix_without_mutating_objects() -> TestResult {
-    if !live_r2_smoke_enabled(std::env::var(LIVE_R2_INVENTORY_ENV).ok().as_deref()) {
-        return Ok(());
-    }
+    let opt_in = std::env::var(LIVE_R2_INVENTORY_ENV).unwrap_or_default();
+    assert!(
+        live_r2_smoke_enabled(Some(opt_in.as_str())),
+        "{LIVE_R2_INVENTORY_ENV}=1 is required to run the R2 inventory live lane"
+    );
 
     let storage = R2ObjectStorage::from_env()?;
     let request = R2InventoryRequest::new(None, Some(20))?;

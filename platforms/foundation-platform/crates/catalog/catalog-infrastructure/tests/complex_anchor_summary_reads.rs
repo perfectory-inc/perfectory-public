@@ -1,6 +1,9 @@
 //! Local PostGIS-backed complex anchor summary read tests.
 //!
-//! Skips when `DATABASE_URL` is not set or unreachable.
+//! Live-database tests: ignored by default, run by
+//! `cargo xtask integration foundation`, which refuses to start without
+//! `DATABASE_URL`. A missing or unreachable database fails the test rather than
+//! passing it — an unrun contract test must never read as a verified one.
 
 use catalog_application::ports::CatalogRepository;
 use catalog_infrastructure::PgCatalogRepository;
@@ -10,16 +13,15 @@ use uuid::Uuid;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
-async fn pool() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
-    PgPool::connect(&url).await.ok()
+async fn pool() -> TestResult<PgPool> {
+    let url = std::env::var("DATABASE_URL")?;
+    Ok(PgPool::connect(&url).await?)
 }
 
 #[tokio::test]
+#[ignore = "requires a migrated Foundation PostGIS database in DATABASE_URL"]
 async fn reads_complex_anchor_summary_from_active_pnu_anchors() -> TestResult {
-    let Some(pool) = pool().await else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let fixture = ComplexAnchorSummaryFixture::new();
     fixture.cleanup(&pool).await?;
     fixture.insert(&pool).await?;

@@ -40,14 +40,19 @@ use intelligence_normalization_domain::{
 /// ```ignore
 /// #[tokio::test]
 /// async fn postgres_adapter_passes_outbox_contract() {
-///     let url = match std::env::var("DATABASE_URL") {
-///         Ok(u) => u,
-///         Err(_) => { eprintln!("DATABASE_URL not set — skipping"); return; }
-///     };
+///     // Read the URL directly: a missing value must fail the test, never skip
+///     // it. A contract test that silently returns is reported as PASSED, which
+///     // makes "never ran" indistinguishable from "verified".
+///     let url = std::env::var("INTELLIGENCE_TEST_DATABASE_URL")
+///         .expect("INTELLIGENCE_TEST_DATABASE_URL must be set for the Postgres lane");
 ///     let adapter = PostgresWorkflowState::connect(&url).await.unwrap();
 ///     common::outbox_contract_suite(adapter).await;
 /// }
 /// ```
+///
+/// If the lane is genuinely optional, mark the test `#[ignore]` so it is listed
+/// as ignored rather than counted as a pass. `scripts/guard/no-silent-test-skip.sh`
+/// rejects the skip-and-return shape.
 ///
 /// # Clock-skew warning
 ///

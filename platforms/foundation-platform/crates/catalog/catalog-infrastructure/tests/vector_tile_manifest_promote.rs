@@ -23,24 +23,22 @@ use uuid::Uuid;
 
 static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-async fn pool() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
-    match PgPool::connect(&url).await {
-        Ok(p) => Some(p),
-        Err(e) => {
-            eprintln!("skipping - could not connect to DATABASE_URL: {e}");
-            None
-        }
-    }
+/// Connection for this `#[ignore]`d live suite. Both failure modes abort the
+/// test: a configured-but-unreachable database must not silently downgrade a
+/// contract test into a no-op that still reports success.
+async fn pool() -> PgPool {
+    let url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
+    PgPool::connect(&url)
+        .await
+        .expect("connect to the database in DATABASE_URL")
 }
 
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn promote_vector_tile_manifest_registers_assets_and_switches_active_atomically() {
     let _guard = TEST_LOCK.lock().await;
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
     let repo = PgCatalogRepository::new(pool.clone());
     let uow = PgCatalogUnitOfWork::new(pool.clone());
     let fixture = VectorTilePromoteFixture::new();
@@ -138,9 +136,7 @@ async fn promote_vector_tile_manifest_registers_assets_and_switches_active_atomi
 #[ignore = "requires local docker stack"]
 async fn promote_vector_tile_manifest_rejects_stale_expected_current_version() {
     let _guard = TEST_LOCK.lock().await;
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
     let uow = PgCatalogUnitOfWork::new(pool.clone());
     let fixture = VectorTilePromoteFixture::new();
     let active_snapshot = ActiveManifestSnapshot::pause(&pool).await;

@@ -1,6 +1,9 @@
 //! Local PostGIS-backed parcel marker anchor rebuild tests.
 //!
-//! Skips when `DATABASE_URL` is not set or unreachable.
+//! Live-database tests: ignored by default, run by
+//! `cargo xtask integration foundation`, which refuses to start without
+//! `DATABASE_URL`. A missing or unreachable database fails the test rather than
+//! passing it — an unrun contract test must never read as a verified one.
 
 use catalog_application::{RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput};
 use catalog_infrastructure::PgParcelMarkerAnchorRebuilder;
@@ -8,16 +11,15 @@ use sqlx::{PgPool, Row};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
-async fn pool() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
-    PgPool::connect(&url).await.ok()
+async fn pool() -> TestResult<PgPool> {
+    let url = std::env::var("DATABASE_URL")?;
+    Ok(PgPool::connect(&url).await?)
 }
 
 #[tokio::test]
+#[ignore = "requires a migrated Foundation PostGIS database in DATABASE_URL"]
 async fn rebuilds_active_parcel_marker_anchors_from_postgis_mirror() -> TestResult {
-    let Some(pool) = pool().await else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let fixture = ParcelMarkerAnchorRebuildFixture::new();
     fixture.cleanup(&pool).await?;
     fixture.insert_mirror(&pool).await?;

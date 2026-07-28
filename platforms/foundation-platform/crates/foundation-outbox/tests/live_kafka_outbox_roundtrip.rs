@@ -36,9 +36,7 @@ impl EventBroadcaster for NoopFallback {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL plus the pinned Redpanda+Karapace compose stack"]
 async fn live_kafka_outbox_roundtrip_marks_postgres_row_published() -> TestResult {
-    let Some((bootstrap, _registry)) = required_live_endpoints()? else {
-        return Ok(());
-    };
+    let (bootstrap, _registry) = required_live_endpoints()?;
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(value) => value,
         Err(_) if std::env::var("FOUNDATION_TEST_KAFKA_REQUIRED").as_deref() == Ok("1") => {
@@ -157,16 +155,24 @@ async fn live_kafka_outbox_roundtrip_marks_postgres_row_published() -> TestResul
     Ok(())
 }
 
-fn required_live_endpoints() -> TestResult<Option<(String, String)>> {
-    let required = std::env::var("FOUNDATION_TEST_KAFKA_REQUIRED").as_deref() == Ok("1");
-    let bootstrap = std::env::var("FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS").ok();
-    let registry = std::env::var("FOUNDATION_TEST_KARAPACE_URL").ok();
+/// Endpoints for the live Kafka lane, unconditionally required.
+///
+/// The `Ok(None)` branch this replaces made a missing broker indistinguishable
+/// from a verified round trip: the Postgres job's workspace-wide `--ignored`
+/// sweep reached this test with no Kafka and no
+/// `FOUNDATION_TEST_KAFKA_REQUIRED`, and counted it as a pass. Lanes now name
+/// their own targets, so the only callers export these endpoints.
+fn required_live_endpoints() -> TestResult<(String, String)> {
+    let bootstrap = std::env::var("FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS");
+    let registry = std::env::var("FOUNDATION_TEST_KARAPACE_URL");
     match (bootstrap, registry) {
-        (Some(bootstrap), Some(registry)) => Ok(Some((bootstrap, registry))),
-        _ if required => Err(
-            "FOUNDATION_TEST_KAFKA_REQUIRED=1 requires FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS and FOUNDATION_TEST_KARAPACE_URL".into(),
+        (Ok(bootstrap), Ok(registry)) => Ok((bootstrap, registry)),
+        _ => Err(
+            "the live Kafka lane (FOUNDATION_TEST_KAFKA_REQUIRED=1) needs both \
+             FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS and FOUNDATION_TEST_KARAPACE_URL; \
+             run scripts/verify/foundation-kafka-live.sh"
+                .into(),
         ),
-        _ => Ok(None),
     }
 }
 

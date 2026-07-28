@@ -8,20 +8,21 @@
 use sqlx::{Acquire, PgPool, Row};
 use uuid::Uuid;
 
-async fn pool() -> Result<Option<PgPool>, sqlx::Error> {
-    let Some(url) = std::env::var("DATABASE_URL").ok() else {
-        return Ok(None);
-    };
-    PgPool::connect(&url).await.map(Some)
+/// Connection for this `#[ignore]`d live suite. A missing `DATABASE_URL` aborts
+/// the test instead of yielding `None`: these tests run only when a harness asked
+/// for them, so an absent database is a provisioning failure — not a reason to
+/// report success.
+async fn pool() -> Result<PgPool, sqlx::Error> {
+    let url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
+    PgPool::connect(&url).await
 }
 
 #[tokio::test]
 #[ignore = "requires disposable Postgres with Foundation migrations"]
 async fn temporal_aliases_are_stable_and_history_is_guarded(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let mut tx = pool.begin().await?;
     let complex_id = Uuid::new_v4();
     let parcel_id = Uuid::new_v4();
@@ -319,9 +320,7 @@ async fn temporal_aliases_are_stable_and_history_is_guarded(
 #[ignore = "requires disposable Postgres with Foundation migrations"]
 async fn administrative_geometry_projection_is_valid_and_append_only(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let mut tx = pool.begin().await?;
     let unit_id = Uuid::new_v4();
     let revision_id = Uuid::new_v4();

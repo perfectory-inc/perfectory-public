@@ -19,12 +19,15 @@ const TEST_ADVISORY_LOCK_KEY: i64 = 0x6c61_6b65_686f_7573;
 const TEST_INPUT_PREFIX: &str = "/workspace/infra/lakehouse/spark/fixtures/bronze/%";
 const TEST_TARGET_PREFIX: &str = "/workspace/target/lakehouse/smoke/silver/%";
 
-async fn pool() -> Result<Option<PgPool>, sqlx::Error> {
-    let Some(url) = std::env::var("DATABASE_URL").ok() else {
-        return Ok(None);
-    };
+/// Connection for this `#[ignore]`d live suite. A missing `DATABASE_URL` aborts
+/// the test instead of yielding `None`: these tests run only when a harness asked
+/// for them, so an absent database is a provisioning failure — not a reason to
+/// report success.
+async fn pool() -> Result<PgPool, sqlx::Error> {
+    let url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
 
-    PgPool::connect(&url).await.map(Some)
+    PgPool::connect(&url).await
 }
 
 async fn lock_lakehouse_batch_run_tests(
@@ -148,9 +151,7 @@ const fn audit_command(
 #[ignore = "requires local docker stack"]
 async fn records_validated_spark_run_summary_for_lakehouse_audit(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let _lock_tx = lock_lakehouse_batch_run_tests(&pool).await?;
     clear_test_lakehouse_batch_runs(&pool).await?;
     let audit = PgLakehouseBatchRunAudit::new(pool.clone());
@@ -208,9 +209,7 @@ async fn records_validated_spark_run_summary_for_lakehouse_audit(
 #[ignore = "requires local docker stack"]
 async fn loads_latest_promotion_candidate_from_validated_audit_rows(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let _lock_tx = lock_lakehouse_batch_run_tests(&pool).await?;
     clear_test_lakehouse_batch_runs(&pool).await?;
     let audit = PgLakehouseBatchRunAudit::new(pool.clone());
@@ -263,9 +262,7 @@ async fn loads_latest_promotion_candidate_from_validated_audit_rows(
 #[ignore = "requires local docker stack"]
 async fn re_recording_an_older_batch_does_not_make_it_the_latest_candidate(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     let _lock_tx = lock_lakehouse_batch_run_tests(&pool).await?;
     clear_test_lakehouse_batch_runs(&pool).await?;
     let audit = PgLakehouseBatchRunAudit::new(pool.clone());

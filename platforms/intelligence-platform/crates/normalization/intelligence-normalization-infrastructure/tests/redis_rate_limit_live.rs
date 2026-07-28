@@ -8,12 +8,27 @@ use intelligence_normalization_infrastructure::redis_rate_limit::{
     RedisRateLimitConfig, RedisRateLimiter,
 };
 
+/// Live-Redis endpoint for this suite.
+///
+/// These tests are `#[ignore]`d, so they run only when a harness explicitly asks
+/// for them. Having been asked, a missing endpoint is a provisioning failure, not
+/// a reason to report success: an unrun contract test must never be
+/// indistinguishable from a verified one. (`RedisRateLimiter`'s token-bucket
+/// atomicity has no other executed coverage in this repository.)
+fn live_redis_url() -> String {
+    match std::env::var("INTELLIGENCE_REDIS_LIVE_TEST_URL") {
+        Ok(url) => url,
+        Err(_) => panic!(
+            "INTELLIGENCE_REDIS_LIVE_TEST_URL must be set to run the live Redis lane; \
+             provision Redis/Valkey and export it, or do not request ignored tests"
+        ),
+    }
+}
+
 #[tokio::test]
+#[ignore = "requires a live Redis/Valkey endpoint in INTELLIGENCE_REDIS_LIVE_TEST_URL"]
 async fn redis_token_bucket_denies_after_capacity_is_exhausted() {
-    let Some(url) = std::env::var("INTELLIGENCE_REDIS_LIVE_TEST_URL").ok() else {
-        eprintln!("skipping live redis test: INTELLIGENCE_REDIS_LIVE_TEST_URL not set");
-        return;
-    };
+    let url = live_redis_url();
     let limiter = RedisRateLimiter::connect(RedisRateLimitConfig {
         redis_url: url,
         key_prefix: format!("ip-test-{}", uuid::Uuid::new_v4()),
@@ -51,11 +66,9 @@ async fn redis_token_bucket_denies_after_capacity_is_exhausted() {
 }
 
 #[tokio::test]
+#[ignore = "requires a live Redis/Valkey endpoint in INTELLIGENCE_REDIS_LIVE_TEST_URL"]
 async fn redis_token_bucket_concurrent_requests_do_not_overspend_capacity() {
-    let Some(url) = std::env::var("INTELLIGENCE_REDIS_LIVE_TEST_URL").ok() else {
-        eprintln!("skipping live redis test: INTELLIGENCE_REDIS_LIVE_TEST_URL not set");
-        return;
-    };
+    let url = live_redis_url();
     let limiter = RedisRateLimiter::connect(RedisRateLimitConfig {
         redis_url: url,
         key_prefix: format!("ip-test-{}", uuid::Uuid::new_v4()),

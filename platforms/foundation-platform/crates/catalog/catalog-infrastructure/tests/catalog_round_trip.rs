@@ -25,23 +25,24 @@ use foundation_shared_kernel::ids::ComplexId;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-async fn pool() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
-    match PgPool::connect(&url).await {
-        Ok(p) => Some(p),
-        Err(e) => {
-            eprintln!("skipping — could not connect to DATABASE_URL: {e}");
-            None
-        }
-    }
+/// Connection for this `#[ignore]`d live suite.
+///
+/// Both failure modes abort the test. A database that is configured but
+/// unreachable used to return `None`, and the caller returned early — so a
+/// connectivity regression inside the integration job would silently convert
+/// these contract tests into no-ops behind a green check.
+async fn pool() -> PgPool {
+    let url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
+    PgPool::connect(&url)
+        .await
+        .expect("connect to the database in DATABASE_URL")
 }
 
 #[tokio::test]
 #[ignore = "requires local docker stack — `cargo test -- --ignored` to run"]
 async fn happy_path_uow_creates_complex_and_outbox_atomically() {
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
 
     let repo = PgCatalogRepository::new(pool.clone());
     let uow = PgCatalogUnitOfWork::new(pool.clone());
@@ -91,9 +92,7 @@ async fn happy_path_uow_creates_complex_and_outbox_atomically() {
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn rollback_path_official_code_conflict_leaves_no_partial_state() {
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
 
     let uow = PgCatalogUnitOfWork::new(pool.clone());
 
@@ -151,9 +150,7 @@ async fn rollback_path_official_code_conflict_leaves_no_partial_state() {
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn upsert_by_official_code_creates_then_updates_existing_complex() {
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
 
     let uow = PgCatalogUnitOfWork::new(pool.clone());
     let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
@@ -225,9 +222,7 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
 
     let uow = PgCatalogUnitOfWork::new(pool.clone());
     let shared_bjdong_code = random_primary_bjdong_code();

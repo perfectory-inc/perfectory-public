@@ -14,9 +14,15 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 #[tokio::test]
 #[ignore = "requires live data.go.kr service key; read-only building register lookup"]
 async fn data_go_kr_building_register_live_smoke_reads_json_envelope() -> TestResult {
-    if std::env::var(LIVE_DATA_GO_KR_SMOKE_ENV).ok().as_deref() != Some("1") {
-        return Ok(());
-    }
+    // Ignored by default: reaching this line means the data.go.kr lane was asked
+    // for. The service-key check below was already fail-loud but unreachable,
+    // because this opt-in returned success first.
+    let opt_in = std::env::var(LIVE_DATA_GO_KR_SMOKE_ENV).unwrap_or_default();
+    assert_eq!(
+        opt_in, "1",
+        "{LIVE_DATA_GO_KR_SMOKE_ENV}=1 is required to run the data.go.kr live lane; \
+         `cargo xtask integration foundation data-go-kr` provisions it"
+    );
 
     let service_key = std::env::var(DATA_GO_KR_SERVICE_KEY_ENV).map_err(|_| {
         format!("missing required environment variable: {DATA_GO_KR_SERVICE_KEY_ENV}")
