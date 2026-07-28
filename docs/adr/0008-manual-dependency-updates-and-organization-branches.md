@@ -1,3 +1,10 @@
+---
+status: current
+owner: repository-maintainers
+doc_type: adr
+last_reviewed: 2026-07-28
+---
+
 # ADR-0008 — 수동 의존성 업데이트와 조직 작업 브랜치
 
 | | |

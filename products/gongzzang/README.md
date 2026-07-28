@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang
+doc_type: README
+last_reviewed: 2026-07-28
+---
+
 # 공짱 (Gongzzang)
 
 산업용 부동산 정보 플랫폼 — 공장·창고·산업단지·지식산업센터 매물과 입지·규제 정보를

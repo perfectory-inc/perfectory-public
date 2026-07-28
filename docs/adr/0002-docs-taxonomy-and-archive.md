@@ -1,8 +1,14 @@
-# ADR 0002: Docs taxonomy and archive policy
+---
+status: current
+owner: repository-maintainers
+doc_type: adr
+last_reviewed: 2026-07-28
+---
 
-> Amended by [ADR-0007](./0007-public-code-private-operations-boundary.md): historical archive,
-> review, and handoff trees remain in the private transition archive and are not part of the public
-> canonical code tree.
+# ADR 0002: 문서 분류와 보관 정책
+
+> [ADR-0007](./0007-public-code-private-operations-boundary.md)가 개정함: 과거 보관·검토·인수인계
+> 트리는 비공개 전환 보관소에 두며 공개 정본 코드 트리에는 포함하지 않는다.
 
 - Status: Accepted
 - Date: 2026-07-20

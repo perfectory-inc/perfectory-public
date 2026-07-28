@@ -1,8 +1,15 @@
 <!-- public-repository-safety: reviewed-public-contract -->
 
-# Administrative boundary and parcel identity versioning
+---
+status: current
+owner: foundation
+doc_type: architecture
+last_reviewed: 2026-07-28
+---
 
-**Status:** Approved implementation contract
+# 행정구역 경계와 필지 식별자 버전 관리
+
+**상태:** 승인된 구현 계약
 
 This contract is subordinate to [ADR 0006](../adr/0006-object-storage-first-serving.md) and the
 [single-source spatial publication architecture](./single-source-spatial-publication.md); it defines
@@ -14,7 +21,7 @@ the identity of the land. The legal transition establishing **전남광주통합
 and [Ministry of the Interior and Safety implementation notice](https://www.mois.go.kr/frt/bbs/type010/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000008&nttId=126841)
 are the source evidence.
 
-## Invariants
+## 불변식
 
 1. `catalog.parcel.id` and `catalog.industrial_complex.id` are stable internal UUID identities.
 2. PNU, administrative code, and administrative name are effective-dated external identifiers.

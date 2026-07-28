@@ -1,6 +1,8 @@
 ---
 status: current
 owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-28
 ---
 
 # Foundation Platform 문서 지도

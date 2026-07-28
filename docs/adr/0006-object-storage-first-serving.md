@@ -1,4 +1,11 @@
-# ADR 0006: Object-storage-first serving for reference data; Postgres for personalized/transactional
+---
+status: current
+owner: repository-maintainers
+doc_type: adr
+last_reviewed: 2026-07-28
+---
+
+# ADR 0006: 기준 데이터는 객체 저장소 우선, 개인화·거래 데이터는 Postgres
 
 - Status: Accepted
 - Date: 2026-07-21

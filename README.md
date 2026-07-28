@@ -1,3 +1,10 @@
+---
+status: current
+owner: repository-maintainers
+doc_type: README
+last_reviewed: 2026-07-28
+---
+
 # perfectory
 
 산업용 부동산 제품과 수평 플랫폼을 한 저장소에서 함께 관리하는 모노레포입니다.
@@ -35,6 +42,7 @@ perfectory/
 ## 공통 기준
 
 - [기술 스택 기준표](./docs/technology-stack.md)
+- [전역 용어집](./docs/glossary.md)
 - [전역 ADR](./docs/adr/README.md)
 - [검증 SSOT](./docs/adr/0004-verification-ssot.md)
 - Rust 검증: `bash scripts/verify/cargo-verify.sh <area-dir>` (Docker 필요)
