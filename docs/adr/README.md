@@ -21,3 +21,4 @@ last_reviewed: 2026-07-28
 - [0007 — 공개 코드 단일 원천과 비공개 운영 경계](./0007-public-code-private-operations-boundary.md)
 - [0008 — 수동 의존성 업데이트와 조직 브랜치](./0008-manual-dependency-updates-and-organization-branches.md)
 - [0009 — 한글 정본 문서와 다국어 확장 준비](./0009-korean-first-documentation-and-multilingual-readiness.md)
+- [0010 — 라이브 자원 테스트 레인 (`LiveLane`)](./0010-live-resource-test-lanes.md)
