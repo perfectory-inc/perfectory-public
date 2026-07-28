@@ -4,7 +4,7 @@
 //! database function rather than duplicating its invariants in Rust, so a migration change cannot
 //! silently remove the atomic pointer switch.
 
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::too_many_lines, clippy::unwrap_used)]
 
 use catalog_application::ports::CatalogUnitOfWork;
 use catalog_domain::CatalogError;
@@ -118,11 +118,14 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         Self {
-            unit_id: Uuid::now_v7(),
-            release_id: Uuid::now_v7(),
-            manifest_id: Uuid::now_v7(),
-            data_revision: Uuid::now_v7(),
-            source_record_id: Uuid::now_v7(),
+            // These are disposable database keys. Use random v4 IDs rather than timestamp-based
+            // v7 IDs because Cargo runs ignored test binaries concurrently against one database;
+            // test identity must not depend on clock ordering or a shared v7 generator state.
+            unit_id: Uuid::new_v4(),
+            release_id: Uuid::new_v4(),
+            manifest_id: Uuid::new_v4(),
+            data_revision: Uuid::new_v4(),
+            source_record_id: Uuid::new_v4(),
             snapshot_id: format!("9{}", Uuid::new_v4().as_u128()),
         }
     }
@@ -130,7 +133,8 @@ impl Fixture {
     async fn insert(&self, pool: &PgPool) {
         sqlx::query(
             "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
-             VALUES ($1, 'test', $2, repeat('a', 64))",
+             VALUES ($1, 'test', $2, repeat('a', 64))
+             ON CONFLICT (id) DO NOTHING",
         )
         .bind(self.source_record_id)
         .bind(format!("runtime-manifest-{}", self.source_record_id))
@@ -172,7 +176,7 @@ impl Fixture {
         .bind(self.data_revision)
         .bind(&self.snapshot_id)
         .bind(self.source_record_id)
-        .bind(Uuid::now_v7())
+        .bind(Uuid::new_v4())
         .execute(pool)
         .await
         .expect("release");
@@ -246,6 +250,9 @@ impl Fixture {
             .execute(pool)
             .await
             .expect("unit cleanup");
+        // The revision ledger is append-only for ordinary API sessions. Test cleanup uses the
+        // same transaction-local publisher capability as the Foundation publisher, so the guard
+        // remains enabled in production and the pool connection cannot retain the override.
         let mut tx = pool.begin().await.expect("cleanup transaction");
         sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
             .execute(&mut *tx)
@@ -256,11 +263,8 @@ impl Fixture {
             .execute(&mut *tx)
             .await
             .expect("administrative boundary revision cleanup");
-        sqlx::query("DELETE FROM catalog.source_record WHERE id = $1")
-            .bind(self.source_record_id)
-            .execute(&mut *tx)
-            .await
-            .expect("source record cleanup");
+        // Source records are immutable lineage. Reused fixture rows are deliberately retained so
+        // a concurrent or rerun test cannot delete provenance that another fixture is using.
         tx.commit().await.expect("cleanup transaction commit");
     }
 }
