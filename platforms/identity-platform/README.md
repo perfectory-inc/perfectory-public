@@ -1,3 +1,10 @@
+---
+status: current
+owner: identity-platform
+doc_type: README
+last_reviewed: 2026-07-28
+---
+
 # Identity Platform
 
 직원(Staff)·서비스 신원의 인증과 policy decision API 를 담당하는 수평 플랫폼.

@@ -9,7 +9,7 @@
 
 - 감사 문서: **317개**
 - 언어 분류: **{'english': 129, 'korean': 96, 'mixed': 92}**
-- 메타데이터: **13개 정상 / 304개 누락**
+- 메타데이터: **21개 정상 / 296개 누락**
 - 중복 파일명 후보: **5개**
 
 ## 언어·메타데이터별 목록
@@ -109,7 +109,7 @@
 | `platforms/foundation-platform/docs/observability/slo-policy.v1.example.json` | Foundation Platform | reference | fixture | english | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/foundation-platform/docs/openapi/catalog.v1.json` | Foundation Platform | contract | current | mixed | missing: status, owner, doc_type, last_reviewed | 4 |
 | `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json` | Foundation Platform | contract | current | english | missing: status, owner, doc_type, last_reviewed | 1 |
-| `platforms/foundation-platform/docs/README.md` | Foundation Platform | README | current | korean | missing: doc_type, last_reviewed | 9 |
+| `platforms/foundation-platform/docs/README.md` | Foundation Platform | README | current | korean | ok | 9 |
 | `platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md` | Foundation Platform | runbook | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/foundation-platform/docs/runbooks/canonical-release-proof.md` | Foundation Platform | runbook | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md` | Foundation Platform | runbook | current | english | missing: status, owner, doc_type, last_reviewed | 1 |
@@ -135,7 +135,7 @@
 | `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/foundation-platform/infra/lakehouse/dbt/README.md` | Foundation Platform | README | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
-| `platforms/foundation-platform/README.md` | Foundation Platform | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 2 |
+| `platforms/foundation-platform/README.md` | Foundation Platform | README | current | mixed | ok | 2 |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/foundation-platform/services/foundation-provider-acquisition-worker/README.md` | Foundation Platform | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
@@ -149,9 +149,9 @@
 | `platforms/identity-platform/docs/adr/0001-inherit-monorepo-conventions.md` | Identity Platform | ADR | Accepted | korean | missing: status, owner, doc_type, last_reviewed | 2 |
 | `platforms/identity-platform/docs/adr/README.md` | Identity Platform | README | current | korean | missing: status, owner, doc_type, last_reviewed | 3 |
 | `platforms/identity-platform/docs/openapi/identity.v1.json` | Identity Platform | contract | current | english | missing: status, owner, doc_type, last_reviewed | 5 |
-| `platforms/identity-platform/docs/README.md` | Identity Platform | README | current | korean | missing: doc_type, last_reviewed | 7 |
+| `platforms/identity-platform/docs/README.md` | Identity Platform | README | current | korean | ok | 7 |
 | `platforms/identity-platform/docs/runbooks/workload-identity-provisioning.md` | Identity Platform | runbook | current | english | missing: status, owner, doc_type, last_reviewed | 4 |
-| `platforms/identity-platform/README.md` | Identity Platform | README | current | korean | missing: status, owner, doc_type, last_reviewed | 3 |
+| `platforms/identity-platform/README.md` | Identity Platform | README | current | korean | ok | 3 |
 | `platforms/identity-platform/services/identity-api/README.md` | Identity Platform | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/identity-platform/services/identity-policy-worker/README.md` | Identity Platform | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/intelligence-platform/AGENTS.md` | Intelligence Platform | agent rules | current | mixed | missing: status, owner, doc_type, last_reviewed | 1 |
@@ -164,8 +164,8 @@
 | `platforms/intelligence-platform/docs/adr/0002-canonical-release-rag-design.md` | Intelligence Platform | ADR | current | mixed | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/intelligence-platform/docs/adr/README.md` | Intelligence Platform | README | current | english | missing: status, owner, doc_type, last_reviewed | 2 |
 | `platforms/intelligence-platform/docs/architecture.md` | Intelligence Platform | documentation | current | mixed | missing: status, owner, doc_type, last_reviewed | 5 |
-| `platforms/intelligence-platform/docs/README.md` | Intelligence Platform | README | current | korean | missing: doc_type, last_reviewed | 7 |
-| `platforms/intelligence-platform/README.md` | Intelligence Platform | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 3 |
+| `platforms/intelligence-platform/docs/README.md` | Intelligence Platform | README | current | korean | ok | 7 |
+| `platforms/intelligence-platform/README.md` | Intelligence Platform | README | current | mixed | ok | 3 |
 | `platforms/intelligence-platform/schemas/README.md` | Intelligence Platform | README | current | english | missing: status, owner, doc_type, last_reviewed | 4 |
 | `platforms/intelligence-platform/services/intelligence-api/README.md` | Intelligence Platform | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
 | `platforms/intelligence-platform/services/intelligence-worker/README.md` | Intelligence Platform | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
@@ -308,7 +308,7 @@
 | `products/gongzzang/docs/frontend/README.md` | Gongzzang 제품 | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 2 |
 | `products/gongzzang/docs/glossary.md` | Gongzzang 제품 | documentation | current | korean | missing: status, owner, doc_type, last_reviewed | 10 |
 | `products/gongzzang/docs/governance/README.md` | Gongzzang 제품 | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 1 |
-| `products/gongzzang/docs/README.md` | Gongzzang 제품 | README | current | korean | missing: status, owner, doc_type, last_reviewed | 9 |
+| `products/gongzzang/docs/README.md` | Gongzzang 제품 | README | current | korean | ok | 9 |
 | `products/gongzzang/docs/runbooks/foundation-platform-integration-operations.md` | Gongzzang 제품 | runbook | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
 | `products/gongzzang/docs/runbooks/foundation-platform-workload-identity.md` | Gongzzang 제품 | runbook | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
 | `products/gongzzang/docs/runbooks/supply-chain-provenance-and-deploy-gate.md` | Gongzzang 제품 | runbook | current | english | missing: status, owner, doc_type, last_reviewed | 0 |
@@ -324,7 +324,7 @@
 | `products/gongzzang/packages/api-types/README.md` | Gongzzang 제품 | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
 | `products/gongzzang/packages/map/README.md` | Gongzzang 제품 | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
 | `products/gongzzang/packages/ui/README.md` | Gongzzang 제품 | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
-| `products/gongzzang/README.md` | Gongzzang 제품 | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 1 |
+| `products/gongzzang/README.md` | Gongzzang 제품 | README | current | mixed | ok | 1 |
 | `products/gongzzang/reference/README.md` | Gongzzang 제품 | README | current | korean | missing: status, owner, doc_type, last_reviewed | 0 |
 | `products/gongzzang/services/gongzzang-api/README.md` | Gongzzang 제품 | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 1 |
 | `products/gongzzang/services/gongzzang-outbox-publisher/README.md` | Gongzzang 제품 | README | current | mixed | missing: status, owner, doc_type, last_reviewed | 0 |

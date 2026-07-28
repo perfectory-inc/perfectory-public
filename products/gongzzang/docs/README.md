@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang
+doc_type: README
+last_reviewed: 2026-07-28
+---
+
 # docs/
 
 도메인별 SSOT 문서 트리. **한 폴더 = 한 도메인**, 각 폴더의 README가 인덱스.

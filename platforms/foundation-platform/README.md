@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-28
+---
+
 # Foundation Platform
 
 산업단지·필지·건물·제조사 canonical 데이터의 SSOT 플랫폼. 공공데이터 수집(collection),

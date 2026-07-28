@@ -1,6 +1,8 @@
 ---
 status: current
 owner: intelligence-platform
+doc_type: README
+last_reviewed: 2026-07-28
 ---
 
 # Intelligence Platform 문서 안내

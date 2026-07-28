@@ -1,6 +1,13 @@
+---
+status: current
+owner: intelligence-platform
+doc_type: README
+last_reviewed: 2026-07-28
+---
+
 # Intelligence Platform
 
-Rust-first implementation path for the enterprise intelligence-platform.
+기업용 Intelligence Platform의 Rust 우선 구현 경로입니다.
 
 ## 책임 트리
 
@@ -17,12 +24,10 @@ intelligence-platform/
 문서 지도: [Intelligence docs](./docs/README.md) ·
 [전체 문서 색인](../../docs/document-catalog.md)
 
-This Rust workspace is the **canonical, source-of-truth** implementation of the
-platform boundary: APIs, validation, provenance, idempotency, outbox state,
-adapters, and Foundation Platform submission. The former Python prototype was
-retired on 2026-07-08 (see `docs/adr/0001-canonical-implementation-rust.md`);
-it is no longer part of the deployable estate or the contract-reference set. The
-Foundation Platform wire contract is defined solely here and under `schemas/`.
+이 Rust workspace가 API·검증·출처·멱등성·outbox 상태·adapter·Foundation Platform 제출을
+포함한 플랫폼 경계의 **정본 구현**입니다. 이전 Python prototype은 2026-07-08에 폐기되었고
+(`docs/adr/0001-canonical-implementation-rust.md`), 더 이상 배포 대상이나 계약 참고 집합에
+포함되지 않습니다. Foundation Platform wire 계약은 이 영역과 `schemas/`에서만 정의합니다.
 
 ## Shape
 
@@ -37,12 +42,12 @@ Foundation Platform wire contract is defined solely here and under `schemas/`.
 - `services/intelligence-api`: Axum HTTP API boundary.
 - `services/intelligence-worker`: background jobs, event consumption, and outbox delivery.
 
-Apps should call intelligence-platform APIs. They should not bind directly to
-Open WebUI or model servers. Open WebUI can stay useful as a development UI for
-models, but it is not the production backend contract.
+앱은 intelligence-platform API를 호출해야 합니다. Open WebUI나 model server에 직접
+연결하지 않습니다. Open WebUI는 모델 개발 UI로 사용할 수 있지만 production backend
+계약은 아닙니다.
 
-Production code should integrate with a model runtime or gateway endpoint, not
-with the Open WebUI application endpoint. In the current local setup,
+Production 코드는 Open WebUI 애플리케이션 endpoint가 아니라 model runtime 또는 gateway
+endpoint에 연결해야 합니다. 현재 local 구성에서는
 `<model-runtime-host>:8080` is Open WebUI and requires UI/API authentication, while
 `<model-runtime-host>:11434` is the Ollama model runtime with an OpenAI-compatible API.
 `<model-runtime-host>` stands for the operator's local model-runtime machine; keep
