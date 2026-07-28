@@ -1035,8 +1035,8 @@ fn redact_sensitive_error(error: &str) -> String {
     for token in [
         "DATA_GO_KR_SERVICE_KEY",
         "VWORLD_API_KEY",
-        "R2_SECRET_ACCESS_KEY",
-        "R2_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
         "serviceKey",
     ] {
         redacted = redacted.replace(token, "[redacted]");

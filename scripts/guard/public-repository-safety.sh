@@ -68,7 +68,7 @@ fi
 bash scripts/guard/check-tracked-blob-sizes.sh || rc=1
 
 account_bindings="$(git grep -n -I -i -E \
-  'R2_ACCOUNT_ID[[:space:]]*=[[:space:]]*[0-9a-f]{32}|https://[0-9a-f]{32}\.r2\.cloudflarestorage\.com|https://pub-[0-9a-f]+\.r2\.dev' \
+  '(R2_ACCOUNT_ID|FOUNDATION_PLATFORM_R2_(LAKEHOUSE|TILE_DERIVATIVES)_ACCOUNT_ID)[[:space:]]*=[[:space:]]*[0-9a-f]{32}|https://[0-9a-f]{32}\.r2\.cloudflarestorage\.com|https://pub-[0-9a-f]+\.r2\.dev' \
   -- . 2>/dev/null || true)"
 if [ -n "$account_bindings" ]; then
   fail "account-specific Cloudflare/R2 bindings are present:\n$account_bindings"

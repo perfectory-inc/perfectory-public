@@ -78,11 +78,11 @@ R2 Bronze write:
 | variable | purpose |
 |---|---|
 | `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER` | set to `r2` |
-| `R2_BUCKET_NAME` | environment-specific Bronze bucket binding |
-| `R2_ACCOUNT_ID` | Cloudflare account ID |
-| `R2_ENDPOINT` | R2 S3 endpoint; optional when derived from the account ID |
-| `R2_ACCESS_KEY_ID` | runtime access key |
-| `R2_SECRET_ACCESS_KEY` | runtime secret key |
+| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET` | environment-specific Bronze bucket binding |
+| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID` | Cloudflare account ID |
+| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT` | R2 S3 endpoint; optional when derived from the account ID |
+| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID` | runtime access key |
+| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY` | runtime secret key |
 
 The task must fail before provider download when the live-write preflight fails. Active account,
 bucket, and secret bindings are private deployment state rather than public runbook facts.

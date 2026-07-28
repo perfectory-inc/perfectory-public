@@ -42,7 +42,7 @@ object storage를 붙이더라도 DB/API 계약을 다시 바꾸지 않아도 �
 | Object key | `objectKey`, `object_key` | `s3Key`, `s3_key` |
 | Thumbnail key | `thumbnailObjectKey`, `thumbnail_object_key` | `thumbnailS3Key`, `thumbnail_s3_key` |
 | Service interface | `ObjectStorageService` | `S3Service` |
-| Env | `R2_BUCKET_NAME`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | `S3_BUCKET_NAME`, `S3_ENDPOINT` |
+| Env | `FOUNDATION_PLATFORM_R2_<PURPOSE>_<ROLE?>_<FIELD>` | unscoped `R2_*` connection names, `S3_BUCKET_NAME`, `S3_ENDPOINT` |
 | Metric | `object_storage_operation_*` | `s3_operation_*` |
 | API query | `object_key` | `s3_key` |
 
@@ -50,24 +50,46 @@ object storage를 붙이더라도 DB/API 계약을 다시 바꾸지 않아도 �
 
 1. 서비스 전 환경에서는 legacy compatibility alias를 남기지 않는다.
 2. DB/API/DTO는 `objectKey`와 `object_key`로 바로 정리한다.
-3. 런타임 provider 설정은 `R2_*`만 공식으로 사용한다.
+3. Foundation 런타임 provider 설정은 `FOUNDATION_PLATFORM_R2_<PURPOSE>_<ROLE?>_<FIELD>`만 공식으로 사용한다. `R2_*`는 내부 스크립트 지역변수나 AWS SDK 경계에서만 허용한다.
 4. AWS SDK에 넣는 R2 credential은 AWS SES/IAM credential과 공유하지 않는다.
 5. "S3" 표현은 SDK/package 이름 또는 "S3-compatible API" 설명에만 허용한다.
 
 ## R2 credential shape
 
+목적별 연결 설정은 같은 네임스페이스를 사용한다. 버킷 이름은 환경변수 이름이 아니라
+환경변수 값이며, 운영/스테이징/개발에서는 변수 이름을 바꾸지 않고 값만 바꾼다.
+
+비밀값을 제외한 버킷·리전·prefix·필수 환경변수의 SSOT는
+[`config/r2-connections.contract.json`](../../config/r2-connections.contract.json)이다.
+`.env.example`와 `.env.local.example`은 이 계약의 사람이 복사하는 투영본이며,
+Foundation 배포 계약 테스트가 필수 키와 비밀이 아닌 기본값의 드리프트를 차단한다.
+실제 access key/secret key 값은 이 파일이나 계약 파일에 저장하지 않는다.
+
 ```text
-R2_ACCOUNT_ID=
-R2_BUCKET_NAME=
-R2_ENDPOINT=
-R2_REGION=auto
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
-R2_PUBLIC_BASE_URL=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION=auto
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL=
+FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID=
+FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET=
+FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT=
+FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION=auto
+FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX=gold/vector-tiles/releases
+FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_ACCESS_KEY_ID=
+FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_SECRET_ACCESS_KEY=
+FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID=
+FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY=
+FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET=
+FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST=
+FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BACKUP_ACCESS_KEY_ID=
+FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BACKUP_SECRET_ACCESS_KEY=
 FOUNDATION_PLATFORM_R2_SMOKE_OBJECT_KEY=gold/_smoke/foundation-platform-r2-smoke.json
 ```
 
-`R2_ENDPOINT` 명시를 권장한다. `R2_ACCOUNT_ID`만 있으면
+`..._ENDPOINT` 명시를 권장한다. `..._ACCOUNT_ID`만 있으면
 `https://<account_id>.r2.cloudflarestorage.com` 형식으로 endpoint를 만들 수 있다.
 
 ## Smoke policy

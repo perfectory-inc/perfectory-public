@@ -63,13 +63,16 @@ describe("Rust test workflow ownership", () => {
     // in the migrated PostGIS workflow — never in general CI.
     expect(generalCiWorkflow).not.toMatch(/--features integration/);
     expect(dbMigrationsWorkflow).toContain(
-      "cargo test -p gongzzang-persistence --features integration -- --test-threads=1",
+      "cargo xtask integration gongzzang postgres",
     );
 
-    // The two-stage contract's SSOT home: xtask marks gongzzang two_stage_test.
+    // The two-stage contract's SSOT home: xtask marks gongzzang's Postgres lane
+    // as feature-gated; the backend-less exclusion is derived from that lane.
     // If someone flips this off, gongzzang-persistence DB tests would run in the
     // workspace pass without a database — this assertion guards that regression.
-    expect(xtaskMain).toMatch(/slug:\s*"gongzzang"[\s\S]*?two_stage_test:\s*true/);
+    expect(xtaskMain).toMatch(
+      /slug:\s*"gongzzang"[\s\S]*?gating:\s*LaneGating::Feature\("integration"\)/,
+    );
   });
 });
 

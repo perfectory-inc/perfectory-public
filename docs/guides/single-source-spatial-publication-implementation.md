@@ -773,7 +773,7 @@ prove none enter the archive.
 
 Require:
 
-- `FOUNDATION_TILE_DERIVATIVE_R2_*` configuration separate from generic/lakehouse/recovery R2 variables;
+- `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_*` configuration separate from the Lakehouse and PostgreSQL recovery namespaces;
 - dedicated private derivative-bucket allow-list;
 - create-only `If-None-Match: *`;
 - exact immutable `{publication_unit}-{release_id}.pmtiles` filename;

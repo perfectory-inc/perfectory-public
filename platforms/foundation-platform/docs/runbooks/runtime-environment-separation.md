@@ -25,7 +25,7 @@ FOUNDATION_PLATFORM_EXECUTION_CONTEXT=developer
 FOUNDATION_PLATFORM_PRELAUNCH_SHARED=0
 FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER=r2
 FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER=r2
-R2_BUCKET_NAME=foundation-platform-lakehouse-dev
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=foundation-platform-lakehouse-dev
 ```
 
 Use a bucket-scoped R2 token. Production credentials are allowed in `.env.local` only under the
@@ -48,7 +48,7 @@ FOUNDATION_PLATFORM_EXECUTION_CONTEXT=developer
 FOUNDATION_PLATFORM_PRELAUNCH_SHARED=1
 FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER=r2
 FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER=r2
-R2_BUCKET_NAME=foundation-platform-lakehouse-prod
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=foundation-platform-lakehouse-prod
 ```
 
 The expected bucket names are:
@@ -88,7 +88,7 @@ Before a live collection or publisher run, verify:
 1. The runtime environment is explicit.
 2. The execution context is explicit; developer→production requires the pre-launch flag.
 3. Bronze and Catalog drivers are `r2` outside local/CI bounded tests.
-4. `R2_BUCKET_NAME` matches the environment-specific bucket.
+4. `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET` matches the environment-specific bucket.
 5. The R2 token is scoped to that bucket.
 6. No fixture topic, local file root, logging adapter, or process-local state is used in staging or
    production.

@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "provider": "cloudflare-r2",
+  "environment": "production",
+  "purpose": "Non-secret R2 connection metadata and environment-key contract for Foundation Platform.",
+  "connections": {
+    "lakehouse": {
+      "required_env": [
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL"
+      ],
+      "expected_values": {
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET": "foundation-platform-lakehouse-prod",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION": "auto"
+      }
+    },
+    "tile_derivatives": {
+      "required_env": [
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY"
+      ],
+      "expected_values": {
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET": "foundation-platform-tile-derivatives-prod",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION": "auto",
+        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX": "gold/vector-tiles/releases"
+      }
+    },
+    "postgres_recovery": {
+      "required_env": [
+        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET",
+        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST",
+        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BACKUP_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BACKUP_SECRET_ACCESS_KEY"
+      ],
+      "expected_values": {
+        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET": "foundation-platform-postgres-recovery-prod"
+      }
+    }
+  }
+}

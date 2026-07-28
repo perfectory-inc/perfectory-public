@@ -47,17 +47,23 @@ pub(in crate::national_data_collection_ledger_execute) fn require_env(
 pub(in crate::national_data_collection_ledger_execute) fn require_r2_env(
     values: &BTreeMap<String, String>,
 ) -> anyhow::Result<()> {
-    require_env(values, "R2_BUCKET_NAME")?;
-    require_env(values, "R2_ACCESS_KEY_ID")?;
-    require_env(values, "R2_SECRET_ACCESS_KEY")?;
+    require_env(values, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET")?;
+    require_env(
+        values,
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+    )?;
+    require_env(
+        values,
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+    )?;
     if values
-        .get("R2_ENDPOINT")
+        .get("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT")
         .is_none_or(|value| value.trim().is_empty())
         && values
-            .get("R2_ACCOUNT_ID")
+            .get("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID")
             .is_none_or(|value| value.trim().is_empty())
     {
-        bail!("Missing required R2 addressing environment variable: R2_ENDPOINT or R2_ACCOUNT_ID");
+        bail!("Missing required R2 addressing environment variable: FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT or FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID");
     }
     Ok(())
 }

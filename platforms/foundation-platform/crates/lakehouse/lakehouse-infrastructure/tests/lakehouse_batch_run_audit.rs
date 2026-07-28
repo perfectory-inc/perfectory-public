@@ -24,8 +24,8 @@ const TEST_TARGET_PREFIX: &str = "/workspace/target/lakehouse/smoke/silver/%";
 /// for them, so an absent database is a provisioning failure — not a reason to
 /// report success.
 async fn pool() -> Result<PgPool, sqlx::Error> {
-    let url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
+    let url =
+        std::env::var("DATABASE_URL").map_err(|error| sqlx::Error::Configuration(error.into()))?;
 
     PgPool::connect(&url).await
 }

@@ -44,6 +44,149 @@ fail() {
   exit 1
 }
 
+load_local_r2_env() {
+  local foundation_env="$REPO_ROOT/platforms/foundation-platform/.env.local"
+  local env_file="${TILES_SLICE_PROOF_ENV_FILE:-$foundation_env}"
+
+  # Process variables are the highest-precedence source. Canonical proof names are translated
+  # into script-local names only inside this harness; no legacy names are accepted from callers.
+  local process_source process_target process_value
+  for process_source in \
+    FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID \
+    FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID \
+    FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY \
+    FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET \
+    FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT \
+    FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_BASE_URL \
+    FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_URL \
+    FOUNDATION_PLATFORM_R2_TILE_PROOF_OBJECT_KEY; do
+    case "$process_source" in
+      FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID) process_target=R2_ACCOUNT_ID ;;
+      FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID) process_target=R2_ACCESS_KEY_ID ;;
+      FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY) process_target=R2_SECRET_ACCESS_KEY ;;
+      FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET) process_target=R2_TILES_TEST_BUCKET_NAME ;;
+      FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT) process_target=R2_ENDPOINT ;;
+      FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_BASE_URL) process_target=R2_TILES_READ_BASE_URL ;;
+      FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_URL) process_target=R2_TILES_READ_URL ;;
+      FOUNDATION_PLATFORM_R2_TILE_PROOF_OBJECT_KEY) process_target=R2_TILES_OBJECT_KEY ;;
+    esac
+    process_value="${!process_source:-}"
+    if [[ -n "$process_value" ]] && ! declare -p "$process_target" >/dev/null 2>&1; then
+      printf -v "$process_target" '%s' "$process_value"
+      export "$process_target"
+    fi
+  done
+
+  # The canonical Foundation tile-derivative connection is opt-in for this proof. It uses
+  # the publisher key only for the dedicated-prefix upload and injects Martin's read-only key
+  # into the pinned production config. The opt-in prevents an ordinary offline proof from ever
+  # writing to a real bucket by accident.
+  if [[ "${TILES_SLICE_USE_CANONICAL_TILE_R2:-0}" == "1" ]]; then
+    local canonical_source canonical_value
+    for canonical_source in \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_ACCESS_KEY_ID \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_SECRET_ACCESS_KEY \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY; do
+      canonical_value="${!canonical_source:-}"
+      [[ -n "$canonical_value" ]] || continue
+      export "$canonical_source"
+      case "$canonical_source" in
+        FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID) process_target=R2_ACCOUNT_ID ;;
+        FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT) process_target=R2_ENDPOINT ;;
+        FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET) process_target=R2_TILES_TEST_BUCKET_NAME ;;
+        FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_ACCESS_KEY_ID) process_target=R2_ACCESS_KEY_ID ;;
+        FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_SECRET_ACCESS_KEY) process_target=R2_SECRET_ACCESS_KEY ;;
+        *) process_target= ;;
+      esac
+      if [[ -n "$process_target" ]] && ! declare -p "$process_target" >/dev/null 2>&1; then
+        printf -v "$process_target" '%s' "$canonical_value"
+        export "$process_target"
+      fi
+    done
+  fi
+
+  [[ -n "$env_file" && -f "$env_file" ]] || return 0
+  [[ -r "$env_file" ]] || fail "TILES_SLICE_PROOF_ENV_FILE is not readable"
+  case "$env_file" in
+    "$foundation_env") ;;
+    "$REPO_ROOT"|"$REPO_ROOT"/*)
+      fail "TILES_SLICE_PROOF_ENV_FILE must live outside the repository"
+      ;;
+  esac
+
+  local line source_name name value loaded=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    if [[ "${TILES_SLICE_USE_CANONICAL_TILE_R2:-0}" == "1" \
+      && "$line" =~ ^[[:space:]]*(export[[:space:]]+)?(FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID|FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT|FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET|FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION|FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_ACCESS_KEY_ID|FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_SECRET_ACCESS_KEY|FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID|FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY)[[:space:]]*=[[:space:]]*(.*)[[:space:]]*$ ]]; then
+      source_name="${BASH_REMATCH[2]}"
+      if [[ "$env_file" == "$foundation_env" || "$env_file" != "$REPO_ROOT"/* ]]; then
+        value="${BASH_REMATCH[3]}"
+        case "$value" in
+          \"*\") value="${value:1:${#value}-2}" ;;
+          \'*\') value="${value:1:${#value}-2}" ;;
+        esac
+        [[ -n "$value" ]] || continue
+        printf -v "$source_name" '%s' "$value"
+        export "$source_name"
+        case "$source_name" in
+          FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID) name=R2_ACCOUNT_ID ;;
+          FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT) name=R2_ENDPOINT ;;
+          FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET) name=R2_TILES_TEST_BUCKET_NAME ;;
+          FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_ACCESS_KEY_ID) name=R2_ACCESS_KEY_ID ;;
+          FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_SECRET_ACCESS_KEY) name=R2_SECRET_ACCESS_KEY ;;
+          *) name= ;;
+        esac
+        if [[ -n "$name" ]] && ! declare -p "$name" >/dev/null 2>&1; then
+          printf -v "$name" '%s' "$value"
+          export "$name"
+        fi
+        loaded=1
+        continue
+      fi
+    fi
+    if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?(FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID|FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID|FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY|FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET|FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT|FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_BASE_URL|FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_URL|FOUNDATION_PLATFORM_R2_TILE_PROOF_OBJECT_KEY)[[:space:]]*=[[:space:]]*(.*)[[:space:]]*$ ]]; then
+      source_name="${BASH_REMATCH[2]}"
+      if [[ "$env_file" == "$foundation_env" ]]; then
+        continue
+      fi
+      value="${BASH_REMATCH[3]}"
+      case "$value" in
+        \"*\") value="${value:1:${#value}-2}" ;;
+        \'*\') value="${value:1:${#value}-2}" ;;
+      esac
+      [[ -n "$value" ]] || continue
+      case "$source_name" in
+        FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID) name=R2_ACCOUNT_ID ;;
+        FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID) name=R2_ACCESS_KEY_ID ;;
+        FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY) name=R2_SECRET_ACCESS_KEY ;;
+        FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET) name=R2_TILES_TEST_BUCKET_NAME ;;
+        FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT) name=R2_ENDPOINT ;;
+        FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_BASE_URL) name=R2_TILES_READ_BASE_URL ;;
+        FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_URL) name=R2_TILES_READ_URL ;;
+        FOUNDATION_PLATFORM_R2_TILE_PROOF_OBJECT_KEY) name=R2_TILES_OBJECT_KEY ;;
+        *) name="$source_name" ;;
+      esac
+      # Explicit process variables win; the profile file supplies only defaults.
+      if declare -p "$name" >/dev/null 2>&1; then
+        continue
+      fi
+      printf -v "$name" '%s' "$value"
+      export "$name"
+      loaded=1
+    fi
+  done < "$env_file"
+
+  if [[ "$loaded" == 1 ]]; then
+    printf 'tiles-slice-proof: loaded dedicated R2 defaults from user profile\n'
+  fi
+}
+
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
@@ -71,10 +214,13 @@ host_path() {
 }
 
 R2_MODE=false
+R2_DIRECT_MARTIN=false
 R2_READ_OBJECT_URL=""
 R2_UPLOAD_OBJECT_URL=""
 R2_OBJECT_KEY=""
 STATIC_MODE_LABEL="LOCAL PMTiles fallback"
+TILES_SLICE_MARTIN_CONFIG="/etc/martin/config.yaml"
+STATIC_SOURCE_ID="foundation_static"
 
 validate_r2_key() {
   local key="$1"
@@ -92,7 +238,7 @@ repository_protected_bucket_names() {
   [[ -f "$registry" && -f "$recovery_env" ]] || return 1
 
   registry_names="$(sed -n 's/.*=> "\([^"]*-prod\)".*/\1/p' "$registry")" || return 1
-  recovery_name="$(sed -n 's/^FOUNDATION_RECOVERY_R2_BUCKET=\([^#[:space:]]*\).*/\1/p' "$recovery_env")" \
+  recovery_name="$(sed -n 's/^FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET=\([^#[:space:]]*\).*/\1/p' "$recovery_env")" \
     || return 1
   [[ -n "$registry_names" && -n "$recovery_name" ]] || return 1
   printf '%s\n%s\n' "$registry_names" "$recovery_name"
@@ -117,6 +263,16 @@ validate_r2_test_bucket() {
     || fail "R2_TILES_TEST_BUCKET_NAME must contain tiles-slice-proof"
 }
 
+validate_r2_direct_bucket() {
+  local bucket="$1" expected contract
+  contract="$REPO_ROOT/platforms/foundation-platform/config/r2-connections.contract.json"
+  [[ -r "$contract" ]] || fail "R2 connection contract is missing"
+  expected="$(sed -n 's/.*\"FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p' "$contract" | head -n 1)"
+  [[ -n "$expected" ]] || fail "R2 tile bucket is missing from the connection contract"
+  [[ "$bucket" == "$expected" ]] \
+    || fail "canonical tile R2 mode only permits the contract bucket"
+}
+
 validate_curl_config_url() {
   local url="$1"
   case "$url" in
@@ -130,6 +286,41 @@ configure_r2_mode() {
     R2_TILES_READ_BASE_URL R2_TILES_READ_URL R2_TILES_OBJECT_KEY
   )
   local any=false name
+  case "${TILES_SLICE_USE_CANONICAL_TILE_R2:-0}" in
+    0) ;;
+    1) ;;
+    *) fail "TILES_SLICE_USE_CANONICAL_TILE_R2 must be 0 or 1" ;;
+  esac
+
+  if [[ "${TILES_SLICE_USE_CANONICAL_TILE_R2:-0}" == "1" ]]; then
+    for name in \
+      R2_ACCOUNT_ID R2_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_TILES_TEST_BUCKET_NAME \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID \
+      FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY; do
+      [[ -n "${!name:-}" ]] || fail "canonical tile R2 configuration is missing $name"
+    done
+    [[ "$R2_ENDPOINT" =~ ^https://([[:xdigit:]]{32})\.r2\.cloudflarestorage\.com$ ]] \
+      || fail "canonical tile R2 endpoint is not the standard Cloudflare S3 endpoint"
+    [[ "${R2_ACCOUNT_ID,,}" == "${BASH_REMATCH[1],,}" ]] \
+      || fail "canonical tile R2 account does not match its endpoint"
+    [[ "$R2_ACCESS_KEY_ID" =~ ^[A-Za-z0-9]+$ ]] \
+      || fail "canonical tile publisher access key contains an unsupported character"
+    [[ "$R2_SECRET_ACCESS_KEY" =~ ^[A-Za-z0-9/+=]+$ ]] \
+      || fail "canonical tile publisher secret contains an unsupported character"
+    validate_r2_direct_bucket "$R2_TILES_TEST_BUCKET_NAME"
+    R2_OBJECT_KEY="tiles-slice-proof/$RUN_ID/foundation-static.pmtiles"
+    validate_r2_key "$R2_OBJECT_KEY"
+    R2_UPLOAD_OBJECT_URL="${R2_ENDPOINT%/}/$R2_TILES_TEST_BUCKET_NAME/$R2_OBJECT_KEY"
+    export TILES_R2_PMTILES_PREFIX="s3://$R2_TILES_TEST_BUCKET_NAME/tiles-slice-proof/$RUN_ID/"
+    R2_MODE=true
+    R2_DIRECT_MARTIN=true
+    TILES_SLICE_MARTIN_CONFIG="/etc/martin/config-r2.yaml"
+    STATIC_MODE_LABEL="REAL R2 via Martin S3 origin"
+    printf 'STATIC storage mode: REAL R2 via Martin S3 origin (dedicated tiles-slice-proof/ prefix; no delete or overwrite)\n'
+    return
+  fi
+
   for name in "${relevant[@]}"; do
     if declare -p "$name" >/dev/null 2>&1; then
       any=true
@@ -216,6 +407,7 @@ configure_r2_mode() {
   printf 'STATIC storage mode: REAL R2 (dedicated tiles-slice-proof bucket + unique object; no delete or overwrite)\n'
 }
 
+load_local_r2_env
 configure_r2_mode
 
 if [[ "$VALIDATE_R2_CONFIG_ONLY" == true ]]; then
@@ -250,13 +442,37 @@ export TILES_SLICE_ARTIFACT_DIR
 export TILES_SLICE_ARTIFACT_DIR="$(host_path "$ARTIFACT_DIR")"
 COMPOSE_ENV_FILE_PATH="$ARTIFACT_DIR/.compose.env"
 DOCKER_COMPOSE_ENV_FILE="$(host_path "$COMPOSE_ENV_FILE_PATH")"
+STATIC_MARTIN_ENV_PATH="$ARTIFACT_DIR/static-martin.env"
+STATIC_MARTIN_ENV_FILE="$(host_path "$STATIC_MARTIN_ENV_PATH")"
+
+write_static_martin_env() {
+  : > "$STATIC_MARTIN_ENV_PATH"
+  if [[ "$R2_DIRECT_MARTIN" == true ]]; then
+    {
+      printf 'FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT=%s\n' \
+        "$FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT"
+      printf 'FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION=%s\n' \
+        "$FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION"
+      printf 'FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID=%s\n' \
+        "$FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID"
+      printf 'FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY=%s\n' \
+        "$FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY"
+    } > "$STATIC_MARTIN_ENV_PATH"
+  fi
+}
 
 write_compose_env() {
   {
     printf 'TILES_SLICE_POSTGRES_PASSWORD=%s\n' "$TILES_SLICE_POSTGRES_PASSWORD"
     printf 'TILES_SLICE_ARTIFACT_DIR=%s\n' "$TILES_SLICE_ARTIFACT_DIR"
+    printf 'TILES_SLICE_STATIC_ENV_FILE=%s\n' "$STATIC_MARTIN_ENV_FILE"
     if [[ -n "${TILES_SLICE_PMTILES_URL:-}" ]]; then
       printf 'TILES_SLICE_PMTILES_URL=%s\n' "$TILES_SLICE_PMTILES_URL"
+    fi
+    if [[ "$R2_DIRECT_MARTIN" == true ]]; then
+      printf 'TILES_SLICE_MARTIN_CONFIG=%s\n' "$TILES_SLICE_MARTIN_CONFIG"
+      printf 'TILES_R2_PMTILES_PREFIX=%s\n' "$TILES_R2_PMTILES_PREFIX"
+      printf 'GONGZZANG_PUBLIC_ORIGIN=%s\n' "$REQUEST_ORIGIN"
     fi
   } > "$COMPOSE_ENV_FILE_PATH"
 }
@@ -281,9 +497,11 @@ cleanup() {
   tiles_remove_http_artifacts "${RAW_RESPONSE_HEADERS[@]}" "${UNVERIFIED_RESPONSE_BODIES[@]}"
   compose --profile static down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -f -- "$COMPOSE_ENV_FILE_PATH"
+  rm -f -- "$STATIC_MARTIN_ENV_PATH"
   exit "$status"
 }
 trap cleanup EXIT
+write_static_martin_env
 write_compose_env
 
 r2_signed_curl() {
@@ -326,6 +544,28 @@ wait_for_http() {
   done
   compose ps >&2 || true
   fail "$label did not become healthy"
+}
+
+wait_for_static_source() {
+  local attempt catalog_path catalog_status
+  catalog_path="$ARTIFACT_DIR/static-catalog.json"
+  for attempt in $(seq 1 90); do
+    catalog_status="$(clean_curl --silent --show-error --connect-timeout 2 --max-time 3 \
+      --output "$catalog_path" --write-out '%{http_code}' \
+      "http://127.0.0.1:3101/catalog" || true)"
+    if [[ "$catalog_status" == "200" && -s "$catalog_path" ]]; then
+      if grep -q '"foundation-static"' "$catalog_path"; then
+        STATIC_SOURCE_ID="foundation-static"
+        return
+      fi
+      if grep -q '"foundation_static"' "$catalog_path"; then
+        STATIC_SOURCE_ID="foundation_static"
+        return
+      fi
+    fi
+    sleep 1
+  done
+  fail "static Martin did not discover a PMTiles source"
 }
 
 psql_value() {
@@ -605,58 +845,76 @@ if [[ "$R2_MODE" == true ]]; then
   [[ "$head_sha256" == "$archive_sha256" ]] \
     || fail "R2 HEAD checksum metadata differs from the local SHA-256"
 
-  readback_status="$(r2_read_curl --silent --show-error --output "$readback_path" \
-    --dump-header "$readback_headers_raw" \
-    --write-out '%{http_code}' --connect-timeout 10 --max-time 120 \
-    --header 'Accept-Encoding: identity')"
-  tiles_redact_response_headers "$readback_headers_raw" "$readback_headers"
-  [[ "$readback_status" == "200" ]] \
-    || fail "R2 public full-object readback failed with HTTP $readback_status"
-  readback_bytes="$(wc -c < "$readback_path" | tr -d '[:space:]')"
-  [[ "$readback_bytes" == "$archive_bytes" ]] \
-    || fail "R2 public readback bytes $readback_bytes != local archive bytes $archive_bytes"
-  readback_sha256="$(sha256sum "$readback_path" | sed 's/[[:space:]].*$//')"
-  [[ "$readback_sha256" == "$archive_sha256" ]] \
-    || fail "R2 public readback SHA-256 differs from the uploaded archive"
-  unset 'UNVERIFIED_RESPONSE_BODIES[0]'
+  if [[ "$R2_DIRECT_MARTIN" == true ]]; then
+    # Private R2 mode is read by Martin with its bucket-scoped read-only key. The upload/head
+    # evidence above proves the publisher path; the tile requests below prove Martin's S3 origin
+    # path and decode the same seeded features. No public URL or public bucket exposure is needed.
+    {
+      printf 'mode=REAL_R2_VIA_MARTIN_S3_ORIGIN\n'
+      printf 'bucket=%s\n' "$R2_TILES_TEST_BUCKET_NAME"
+      printf 'object_key=%s\n' "$R2_OBJECT_KEY"
+      printf 'archive_bytes=%s\n' "$archive_bytes"
+      printf 'archive_sha256=%s\n' "$archive_sha256"
+      printf 'etag=%s\n' "$head_etag"
+      printf 'martin_source_prefix=%s\n' "$TILES_R2_PMTILES_PREFIX"
+    } > "$ARTIFACT_DIR/r2-evidence.txt"
+    write_static_martin_env
+    write_compose_env
+  else
+    readback_status="$(r2_read_curl --silent --show-error --output "$readback_path" \
+      --dump-header "$readback_headers_raw" \
+      --write-out '%{http_code}' --connect-timeout 10 --max-time 120 \
+      --header 'Accept-Encoding: identity')"
+    tiles_redact_response_headers "$readback_headers_raw" "$readback_headers"
+    [[ "$readback_status" == "200" ]] \
+      || fail "R2 public full-object readback failed with HTTP $readback_status"
+    readback_bytes="$(wc -c < "$readback_path" | tr -d '[:space:]')"
+    [[ "$readback_bytes" == "$archive_bytes" ]] \
+      || fail "R2 public readback bytes $readback_bytes != local archive bytes $archive_bytes"
+    readback_sha256="$(sha256sum "$readback_path" | sed 's/[[:space:]].*$//')"
+    [[ "$readback_sha256" == "$archive_sha256" ]] \
+      || fail "R2 public readback SHA-256 differs from the uploaded archive"
+    unset 'UNVERIFIED_RESPONSE_BODIES[0]'
 
-  range_status="$(r2_read_curl --silent --show-error --output "$range_path" \
-    --dump-header "$range_headers_raw" \
-    --write-out '%{http_code}' --connect-timeout 10 --max-time 60 \
-    --header 'Range: bytes=0-511')"
-  tiles_redact_response_headers "$range_headers_raw" "$range_headers"
-  [[ "$range_status" == "206" ]] || fail "R2 read URL did not honor Range (HTTP $range_status)"
-  range_bytes="$(wc -c < "$range_path" | tr -d '[:space:]')"
-  range_content_range="$(response_header_value "$range_headers" Content-Range)"
-  [[ "$range_bytes" == "512" ]] || fail "R2 range response was not exactly 512 bytes"
-  [[ "$range_content_range" == "bytes 0-511/$archive_bytes" ]] \
-    || fail "R2 Content-Range $range_content_range != bytes 0-511/$archive_bytes"
-  head -c 512 "$readback_path" | cmp --silent - "$ARTIFACT_DIR/r2-range-proof.bin" \
-    || fail "R2 range response bytes differ from the verified archive prefix"
-  unset 'UNVERIFIED_RESPONSE_BODIES[1]'
+    range_status="$(r2_read_curl --silent --show-error --output "$range_path" \
+      --dump-header "$range_headers_raw" \
+      --write-out '%{http_code}' --connect-timeout 10 --max-time 60 \
+      --header 'Range: bytes=0-511')"
+    tiles_redact_response_headers "$range_headers_raw" "$range_headers"
+    [[ "$range_status" == "206" ]] || fail "R2 read URL did not honor Range (HTTP $range_status)"
+    range_bytes="$(wc -c < "$range_path" | tr -d '[:space:]')"
+    range_content_range="$(response_header_value "$range_headers" Content-Range)"
+    [[ "$range_bytes" == "512" ]] || fail "R2 range response was not exactly 512 bytes"
+    [[ "$range_content_range" == "bytes 0-511/$archive_bytes" ]] \
+      || fail "R2 Content-Range $range_content_range != bytes 0-511/$archive_bytes"
+    head -c 512 "$readback_path" | cmp --silent - "$ARTIFACT_DIR/r2-range-proof.bin" \
+      || fail "R2 range response bytes differ from the verified archive prefix"
+    unset 'UNVERIFIED_RESPONSE_BODIES[1]'
 
-  {
-    printf 'mode=REAL_R2\n'
-    printf 'bucket=%s\n' "$R2_TILES_TEST_BUCKET_NAME"
-    printf 'object_key=%s\n' "$R2_OBJECT_KEY"
-    printf 'archive_bytes=%s\n' "$archive_bytes"
-    printf 'archive_sha256=%s\n' "$archive_sha256"
-    printf 'public_readback_bytes=%s\n' "$readback_bytes"
-    printf 'public_readback_sha256=%s\n' "$readback_sha256"
-    printf 'etag=%s\n' "$head_etag"
-    printf 'content_range=%s\n' "$range_content_range"
-  } > "$ARTIFACT_DIR/r2-evidence.txt"
-  export TILES_SLICE_PMTILES_URL="$R2_READ_OBJECT_URL"
-  write_compose_env
+    {
+      printf 'mode=REAL_R2\n'
+      printf 'bucket=%s\n' "$R2_TILES_TEST_BUCKET_NAME"
+      printf 'object_key=%s\n' "$R2_OBJECT_KEY"
+      printf 'archive_bytes=%s\n' "$archive_bytes"
+      printf 'archive_sha256=%s\n' "$archive_sha256"
+      printf 'public_readback_bytes=%s\n' "$readback_bytes"
+      printf 'public_readback_sha256=%s\n' "$readback_sha256"
+      printf 'etag=%s\n' "$head_etag"
+      printf 'content_range=%s\n' "$range_content_range"
+    } > "$ARTIFACT_DIR/r2-evidence.txt"
+    export TILES_SLICE_PMTILES_URL="$R2_READ_OBJECT_URL"
+    write_compose_env
+  fi
 fi
 
 compose --profile static up -d static-martin
 wait_for_http "http://127.0.0.1:3101/health" "static Martin"
+wait_for_static_source
 
 STATIC_Z11="$ARTIFACT_DIR/static-z11.pbf"
 STATIC_Z14="$ARTIFACT_DIR/static-z14.pbf"
-fetch_tile "http://127.0.0.1:3101/foundation_static/11/1747/803" "$STATIC_Z11"
-fetch_tile "http://127.0.0.1:3101/foundation_static/14/13977/6426" "$STATIC_Z14"
+fetch_tile "http://127.0.0.1:3101/$STATIC_SOURCE_ID/11/1747/803" "$STATIC_Z11"
+fetch_tile "http://127.0.0.1:3101/$STATIC_SOURCE_ID/14/13977/6426" "$STATIC_Z14"
 mvt_assert assert "$RUN_RELATIVE/static-z11.pbf" --content-encoding identity \
   --expect-layer parcel_anchor_aggregate=1 \
   --expect-identity "parcel_anchor_aggregate|${PNUS[0]}|$COMPLEX_CODE" \
@@ -679,7 +937,7 @@ cmp --silent "$DYNAMIC_Z14" "$STATIC_Z14" \
 TILEJSON_PATH="$ARTIFACT_DIR/tiles-slice-proof/local/foundation-static.tilejson.json"
 tilejson_status="$(clean_curl --silent --show-error --connect-timeout 5 --max-time 30 \
   --header 'Accept: application/json' --output "$TILEJSON_PATH" \
-  --write-out '%{http_code}' "http://127.0.0.1:3101/foundation_static")"
+  --write-out '%{http_code}' "http://127.0.0.1:3101/$STATIC_SOURCE_ID")"
 [[ "$tilejson_status" == "200" && -s "$TILEJSON_PATH" ]] \
   || fail "static Martin TileJSON request failed with HTTP $tilejson_status"
 tilejson_compact="$(tr -d '\r\n\t' < "$TILEJSON_PATH")"

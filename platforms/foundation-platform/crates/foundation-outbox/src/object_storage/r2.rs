@@ -147,20 +147,23 @@ impl R2ObjectStorageConfig {
     ///
     /// Returns `PublishError` when a required R2 environment variable is missing.
     pub fn from_env() -> Result<Self, PublishError> {
-        let endpoint = optional_env("R2_ENDPOINT")?.map_or_else(
+        let endpoint = optional_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT")?.map_or_else(
             || {
-                required_env("R2_ACCOUNT_ID")
+                required_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID")
                     .map(|account_id| format!("https://{account_id}.r2.cloudflarestorage.com"))
             },
             Ok,
         )?;
 
         Ok(Self {
-            bucket_name: required_env("R2_BUCKET_NAME")?,
+            bucket_name: required_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET")?,
             endpoint,
-            region: optional_env("R2_REGION")?.unwrap_or_else(|| "auto".to_owned()),
-            access_key_id: required_env("R2_ACCESS_KEY_ID")?,
-            secret_access_key: required_env("R2_SECRET_ACCESS_KEY")?,
+            region: optional_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION")?
+                .unwrap_or_else(|| "auto".to_owned()),
+            access_key_id: required_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID")?,
+            secret_access_key: required_env(
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+            )?,
         })
     }
 }

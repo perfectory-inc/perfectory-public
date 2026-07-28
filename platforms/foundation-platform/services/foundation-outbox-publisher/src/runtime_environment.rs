@@ -263,12 +263,12 @@ pub fn validate_foundation_r2_bucket(
 ) -> anyhow::Result<()> {
     let bucket = bucket.trim();
     if bucket.is_empty() {
-        bail!("R2_BUCKET_NAME must not be empty")
+        bail!("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET must not be empty")
     }
     let expected = environment.foundation_r2_bucket();
     if bucket != expected {
         bail!(
-            "R2_BUCKET_NAME must be {expected} for runtime environment {}, got {bucket}",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET must be {expected} for runtime environment {}, got {bucket}",
             environment.wire_name()
         );
     }

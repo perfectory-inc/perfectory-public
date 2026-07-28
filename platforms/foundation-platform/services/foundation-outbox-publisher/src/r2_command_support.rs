@@ -81,21 +81,34 @@ pub fn r2_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectStorageCon
         bail!("Env file not found: {}", path.display());
     }
     let values = read_dotenv(path)?;
-    let endpoint = value_from_dotenv_or_env(&values, "R2_ENDPOINT")?.map_or_else(
-        || {
-            required_value_from_dotenv_or_env(&values, "R2_ACCOUNT_ID")
+    let endpoint = value_from_dotenv_or_env(&values, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT")?
+        .map_or_else(
+            || {
+                required_value_from_dotenv_or_env(
+                    &values,
+                    "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID",
+                )
                 .map(|account_id| format!("https://{account_id}.r2.cloudflarestorage.com"))
-        },
-        Ok,
-    )?;
+            },
+            Ok,
+        )?;
 
     Ok(R2ObjectStorageConfig {
-        bucket_name: required_value_from_dotenv_or_env(&values, "R2_BUCKET_NAME")?,
+        bucket_name: required_value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+        )?,
         endpoint,
-        region: value_from_dotenv_or_env(&values, "R2_REGION")?
+        region: value_from_dotenv_or_env(&values, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION")?
             .unwrap_or_else(|| "auto".to_owned()),
-        access_key_id: required_value_from_dotenv_or_env(&values, "R2_ACCESS_KEY_ID")?,
-        secret_access_key: required_value_from_dotenv_or_env(&values, "R2_SECRET_ACCESS_KEY")?,
+        access_key_id: required_value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+        )?,
+        secret_access_key: required_value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        )?,
     })
 }
 

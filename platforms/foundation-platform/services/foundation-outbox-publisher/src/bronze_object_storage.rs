@@ -226,8 +226,8 @@ pub fn bronze_object_storage_driver_from_options(
 ///
 /// Resolves the storage driver from `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER` (the same env the
 /// real storage builders read), and for `r2` requires the full R2 environment that
-/// [`R2ObjectStorage::from_env`] needs (`R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`,
-/// `R2_SECRET_ACCESS_KEY`, and at least one of `R2_ENDPOINT` / `R2_ACCOUNT_ID`). For `r2` it also
+/// [`R2ObjectStorage::from_env`] needs (`FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET`, `FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID`,
+/// `FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY`, and at least one of `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT` / `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID`). For `r2` it also
 /// requires the bucket governed by `FOUNDATION_PLATFORM_RUNTIME_ENV`; production continues to use
 /// the lakehouse domain's exact production-bucket SSOT. A wrong-but-present bucket would otherwise
 /// pass env-presence checks and let a direct live-write subcommand stream Bronze objects into the
@@ -240,7 +240,7 @@ pub fn bronze_object_storage_driver_from_options(
 ///   `FOUNDATION_PLATFORM_BRONZE_LOCAL_OBJECT_ROOT`;
 /// - the driver is `r2` and any required R2 environment variable is missing/blank;
 /// - `FOUNDATION_PLATFORM_RUNTIME_ENV` is missing or invalid;
-/// - the driver is `r2` and `R2_BUCKET_NAME` is not the bucket governed by that runtime environment.
+/// - the driver is `r2` and `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET` is not the bucket governed by that runtime environment.
 pub fn live_write_target_preflight() -> anyhow::Result<()> {
     let runtime_environment = RuntimeEnvironment::from_env_with_execution_context()?;
     let driver = optional_env_value("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER")?;
@@ -251,7 +251,7 @@ pub fn live_write_target_preflight() -> anyhow::Result<()> {
         BronzeObjectStorageDriver::R2 => {
             validate_bronze_driver(runtime_environment, "r2")?;
             require_r2_env(&|name: &str| std::env::var(name))?;
-            let bucket = std::env::var("R2_BUCKET_NAME")
+            let bucket = std::env::var("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET")
                 .ok()
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty())
@@ -276,7 +276,7 @@ pub fn live_write_target_preflight() -> anyhow::Result<()> {
 /// Pure R2-env validation backing [`live_write_target_preflight`], parameterized over an env lookup
 /// so it can be unit-tested deterministically without mutating process-global environment. Mirrors
 /// the national ledger-execute `require_r2_env` contract: the three R2 credential vars are all
-/// required, plus at least one of the two addressing vars (`R2_ENDPOINT` or `R2_ACCOUNT_ID`).
+/// required, plus at least one of the two addressing vars (`FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT` or `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID`).
 ///
 /// # Errors
 /// Returns the name of the first missing/blank required variable (or the addressing pair) so the
@@ -292,15 +292,21 @@ where
         lookup(name).is_ok_and(|value| !value.trim().is_empty())
     }
 
-    for name in ["R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] {
+    for name in [
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+    ] {
         if !present(lookup, name) {
             bail!("live-write preflight: missing required R2 environment variable: {name}");
         }
     }
-    if !present(lookup, "R2_ENDPOINT") && !present(lookup, "R2_ACCOUNT_ID") {
+    if !present(lookup, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT")
+        && !present(lookup, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID")
+    {
         bail!(
             "live-write preflight: missing required R2 addressing environment variable: \
-             R2_ENDPOINT or R2_ACCOUNT_ID"
+             FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT or FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID"
         );
     }
     Ok(())
@@ -360,10 +366,22 @@ mod tests {
 
     fn full_r2_env() -> BTreeMap<String, String> {
         [
-            ("R2_BUCKET_NAME", "foundation-platform-bronze"),
-            ("R2_ACCESS_KEY_ID", "test-access"),
-            ("R2_SECRET_ACCESS_KEY", "test-secret"),
-            ("R2_ENDPOINT", "https://account.r2.cloudflarestorage.com"),
+            (
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+                "foundation-platform-bronze",
+            ),
+            (
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+                "test-access",
+            ),
+            (
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+                "test-secret",
+            ),
+            (
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+                "https://account.r2.cloudflarestorage.com",
+            ),
         ]
         .into_iter()
         .map(|(name, value)| (name.to_owned(), value.to_owned()))
@@ -378,21 +396,24 @@ mod tests {
     #[test]
     fn preflight_r2_env_accepts_account_id_instead_of_endpoint() {
         let mut env = full_r2_env();
-        env.remove("R2_ENDPOINT");
-        env.insert("R2_ACCOUNT_ID".to_owned(), "test-account".to_owned());
+        env.remove("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT");
+        env.insert(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID".to_owned(),
+            "test-account".to_owned(),
+        );
         assert!(require_r2_env(&lookup_from(env)).is_ok());
     }
 
     #[test]
     fn preflight_r2_env_missing_secret_names_the_missing_var() {
         let mut env = full_r2_env();
-        env.remove("R2_SECRET_ACCESS_KEY");
+        env.remove("FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY");
 
         let error = require_r2_env(&lookup_from(env))
             .expect_err("a missing R2 credential must fail the preflight");
         let message = error.to_string();
         assert!(
-            message.contains("R2_SECRET_ACCESS_KEY"),
+            message.contains("FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY"),
             "message must name the missing var: {message}"
         );
     }
@@ -400,12 +421,17 @@ mod tests {
     #[test]
     fn preflight_r2_env_blank_bucket_is_treated_as_missing() {
         let mut env = full_r2_env();
-        env.insert("R2_BUCKET_NAME".to_owned(), "   ".to_owned());
+        env.insert(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET".to_owned(),
+            "   ".to_owned(),
+        );
 
         let error = require_r2_env(&lookup_from(env))
             .expect_err("a blank R2 bucket must fail the preflight");
         assert!(
-            error.to_string().contains("R2_BUCKET_NAME"),
+            error
+                .to_string()
+                .contains("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET"),
             "message must name the blank var: {error}"
         );
     }
@@ -413,12 +439,12 @@ mod tests {
     #[test]
     fn preflight_r2_env_without_any_addressing_var_is_rejected() {
         let mut env = full_r2_env();
-        env.remove("R2_ENDPOINT");
+        env.remove("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT");
 
         let error =
             require_r2_env(&lookup_from(env)).expect_err("R2 needs an endpoint or an account id");
         assert!(
-            error.to_string().contains("R2_ENDPOINT or R2_ACCOUNT_ID"),
+            error.to_string().contains("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT or FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID"),
             "message must name the addressing pair: {error}"
         );
     }
@@ -434,11 +460,11 @@ mod tests {
             RUNTIME_ENVIRONMENT_ENV,
             EXECUTION_CONTEXT_ENV,
             PRELAUNCH_SHARED_ENV,
-            "R2_BUCKET_NAME",
-            "R2_ACCESS_KEY_ID",
-            "R2_SECRET_ACCESS_KEY",
-            "R2_ENDPOINT",
-            "R2_ACCOUNT_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID",
         ];
         let _guard = crate::test_support::env_lock();
         let saved: Vec<(&str, Option<String>)> = VARS
@@ -456,12 +482,18 @@ mod tests {
         // Use the real expected bucket so the missing-credential check is the unambiguous failure
         // cause (the exact-bucket assertion runs only after the env-presence check passes).
         std::env::set_var(
-            "R2_BUCKET_NAME",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
             LakehouseOwnerService::FoundationPlatform.production_r2_bucket_name(),
         );
-        std::env::set_var("R2_ACCESS_KEY_ID", "test-access");
-        std::env::set_var("R2_ENDPOINT", "https://account.r2.cloudflarestorage.com");
-        // R2_SECRET_ACCESS_KEY intentionally left unset.
+        std::env::set_var(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+            "test-access",
+        );
+        std::env::set_var(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+            "https://account.r2.cloudflarestorage.com",
+        );
+        // FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY intentionally left unset.
 
         let result = live_write_target_preflight();
 
@@ -472,9 +504,11 @@ mod tests {
             }
         }
 
-        let error = result.expect_err("missing R2_SECRET_ACCESS_KEY must fail the preflight");
+        let error = result.expect_err("missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY must fail the preflight");
         assert!(
-            error.to_string().contains("R2_SECRET_ACCESS_KEY"),
+            error
+                .to_string()
+                .contains("FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY"),
             "message must name the missing var: {error}"
         );
     }
@@ -485,15 +519,15 @@ mod tests {
         RUNTIME_ENVIRONMENT_ENV,
         EXECUTION_CONTEXT_ENV,
         PRELAUNCH_SHARED_ENV,
-        "R2_BUCKET_NAME",
-        "R2_ACCESS_KEY_ID",
-        "R2_SECRET_ACCESS_KEY",
-        "R2_ENDPOINT",
-        "R2_ACCOUNT_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID",
     ];
 
     /// Runs `live_write_target_preflight()` with a fully valid R2 environment except that
-    /// `R2_BUCKET_NAME` is set to `bucket`. Saves and restores every variable it touches under the
+    /// `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET` is set to `bucket`. Saves and restores every variable it touches under the
     /// env lock so it cannot race the other env-mutating preflight tests.
     fn preflight_with_bucket(runtime: RuntimeEnvironment, bucket: &str) -> anyhow::Result<()> {
         let _guard = crate::test_support::env_lock();
@@ -519,10 +553,19 @@ mod tests {
             },
         );
         std::env::set_var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER", "r2");
-        std::env::set_var("R2_BUCKET_NAME", bucket);
-        std::env::set_var("R2_ACCESS_KEY_ID", "test-access");
-        std::env::set_var("R2_SECRET_ACCESS_KEY", "test-secret");
-        std::env::set_var("R2_ENDPOINT", "https://account.r2.cloudflarestorage.com");
+        std::env::set_var("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET", bucket);
+        std::env::set_var(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+            "test-access",
+        );
+        std::env::set_var(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+            "test-secret",
+        );
+        std::env::set_var(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+            "https://account.r2.cloudflarestorage.com",
+        );
 
         let result = live_write_target_preflight();
 
@@ -535,7 +578,7 @@ mod tests {
         result
     }
 
-    /// A wrong-but-present `R2_BUCKET_NAME` must fail the preflight, and the message must name both
+    /// A wrong-but-present `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET` must fail the preflight, and the message must name both
     /// the expected Foundation Platform production bucket and the actual wrong value. Without this gate a
     /// direct live-write subcommand could stream Bronze objects into the wrong bucket.
     #[test]
@@ -543,8 +586,9 @@ mod tests {
         let expected = LakehouseOwnerService::FoundationPlatform.production_r2_bucket_name();
         let wrong = "foundation-platform-bronze";
 
-        let error = preflight_with_bucket(RuntimeEnvironment::Production, wrong)
-            .expect_err("a wrong-but-present R2_BUCKET_NAME must fail the preflight");
+        let error = preflight_with_bucket(RuntimeEnvironment::Production, wrong).expect_err(
+            "a wrong-but-present FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET must fail the preflight",
+        );
         let message = error.to_string();
         assert!(
             message.contains(expected),

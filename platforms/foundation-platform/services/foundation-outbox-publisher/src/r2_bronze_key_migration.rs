@@ -379,21 +379,34 @@ fn r2_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectStorageConfig>
 
 fn r2_config_from_dotenv_str(raw: &str) -> anyhow::Result<R2ObjectStorageConfig> {
     let values = parse_dotenv(raw);
-    let endpoint = value_from_dotenv_or_env(&values, "R2_ENDPOINT")?.map_or_else(
-        || {
-            required_value_from_dotenv_or_env(&values, "R2_ACCOUNT_ID")
+    let endpoint = value_from_dotenv_or_env(&values, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT")?
+        .map_or_else(
+            || {
+                required_value_from_dotenv_or_env(
+                    &values,
+                    "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID",
+                )
                 .map(|account_id| format!("https://{account_id}.r2.cloudflarestorage.com"))
-        },
-        Ok,
-    )?;
+            },
+            Ok,
+        )?;
 
     Ok(R2ObjectStorageConfig {
-        bucket_name: required_value_from_dotenv_or_env(&values, "R2_BUCKET_NAME")?,
+        bucket_name: required_value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+        )?,
         endpoint,
-        region: value_from_dotenv_or_env(&values, "R2_REGION")?
+        region: value_from_dotenv_or_env(&values, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION")?
             .unwrap_or_else(|| "auto".to_owned()),
-        access_key_id: required_value_from_dotenv_or_env(&values, "R2_ACCESS_KEY_ID")?,
-        secret_access_key: required_value_from_dotenv_or_env(&values, "R2_SECRET_ACCESS_KEY")?,
+        access_key_id: required_value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+        )?,
+        secret_access_key: required_value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        )?,
     })
 }
 
@@ -516,10 +529,10 @@ mod tests {
     {
         let config = r2_config_from_dotenv_str(
             r#"
-            R2_BUCKET_NAME=unit-test-bucket
-            R2_ACCOUNT_ID=unit-test-account
-            R2_ACCESS_KEY_ID="unit-test-access"
-            R2_SECRET_ACCESS_KEY='unit-test-secret'
+            FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=unit-test-bucket
+            FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID=unit-test-account
+            FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID="unit-test-access"
+            FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY='unit-test-secret'
             "#,
         )?;
 
