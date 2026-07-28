@@ -4,7 +4,7 @@
 //! database function rather than duplicating its invariants in Rust, so a migration change cannot
 //! silently remove the atomic pointer switch.
 
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::too_many_lines, clippy::unwrap_used)]
 
 use catalog_application::ports::CatalogUnitOfWork;
 use catalog_domain::CatalogError;
@@ -118,11 +118,14 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         Self {
-            unit_id: Uuid::now_v7(),
-            release_id: Uuid::now_v7(),
-            manifest_id: Uuid::now_v7(),
-            data_revision: Uuid::now_v7(),
-            source_record_id: Uuid::now_v7(),
+            // These are disposable database keys. Use random v4 IDs rather than timestamp-based
+            // v7 IDs because Cargo runs ignored test binaries concurrently against one database;
+            // test identity must not depend on clock ordering or a shared v7 generator state.
+            unit_id: Uuid::new_v4(),
+            release_id: Uuid::new_v4(),
+            manifest_id: Uuid::new_v4(),
+            data_revision: Uuid::new_v4(),
+            source_record_id: Uuid::new_v4(),
             snapshot_id: format!("9{}", Uuid::new_v4().as_u128()),
         }
     }
@@ -195,7 +198,7 @@ impl Fixture {
         .bind(self.data_revision)
         .bind(&self.snapshot_id)
         .bind(self.source_record_id)
-        .bind(Uuid::now_v7())
+        .bind(Uuid::new_v4())
         .execute(pool)
         .await
         .expect("release");
