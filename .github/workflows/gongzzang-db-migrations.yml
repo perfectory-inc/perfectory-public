@@ -8,6 +8,12 @@ on:
     paths:
       - "products/gongzzang/**"
       - ".github/workflows/gongzzang-db-migrations.yml"
+      # Shared verification SSOT (ADR-0004/0010): this job runs the gongzzang
+      # postgres lane through xtask, so an xtask change alters what it runs and
+      # must retrigger it. monorepo-guard `xtask-path-coverage` enforces this.
+      - "tools/xtask/**"
+      - ".cargo/config.toml"
+      - "rust-toolchain.toml"
   pull_request:
     branches: [main]
     # Intentionally unfiltered so required/gongzzang-migrations always reports.
@@ -89,8 +95,17 @@ jobs:
       - name: Apply V002 migrations + audit immutable
         run: bash tests/migrations/test_v002_audit_immutable.sh
 
-      - name: Run persistence integration tests
-        run: cargo test -p gongzzang-persistence --features integration -- --test-threads=1
+      # The live-resource lane in tools/xtask is the SSOT for this command
+      # (ADR-0010). The raw `cargo test -p gongzzang-persistence --features
+      # integration` it replaces did run the suite, but it was a second, private
+      # definition of what "the gongzzang postgres suite" means: nothing tied it
+      # to the lane table, so `live-lane-completeness.sh` proved a set of targets
+      # that no CI job actually executed. Routing this step through the lane
+      # makes the proven set and the executed set the same set, and makes the
+      # lane's own gating flags exercised rather than assumed.
+      - name: Run the gongzzang postgres lane (xtask SSOT)
+        working-directory: ${{ github.workspace }}
+        run: cargo xtask integration gongzzang postgres
 
   required:
     name: required/gongzzang-migrations
