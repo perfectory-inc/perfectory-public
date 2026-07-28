@@ -12,3 +12,4 @@ sequences are frozen at their last numbers; cite them with area-prefixed IDs
 - [0005 — Hooks advisory; CI authoritative](./0005-hooks-advisory-ci-authoritative.md)
 - [0006 — Object-storage-first serving](./0006-object-storage-first-serving.md)
 - [0007 — Public code SSOT and private operations boundary](./0007-public-code-private-operations-boundary.md)
+- [0008 — Manual dependency updates and organization branches](./0008-manual-dependency-updates-and-organization-branches.md)

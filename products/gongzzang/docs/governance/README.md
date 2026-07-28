@@ -7,7 +7,7 @@
 - CODEOWNERS
 - Conventional Commits (형식 규칙 — commitlint/훅 자동 강제는 미도입, → @docs/conventions/git-and-pr.md)
 - Changesets (버전 + 릴리즈 노트)
-- 의존성 자동 업데이트 — 루트 dependabot 단일화 (area-local Renovate 는 루트 ADR-0001 §12 로 은퇴)
+- 의존성 업데이트 — 수동 검토 PR만 허용 (자동 Dependabot/Renovate 비활성화)
 - Backstage (개발자 포털, Phase 3+)
 - C4 모델 다이어그램 (Structurizr DSL)
 - DORA 메트릭 (자체 수집)
@@ -20,7 +20,7 @@
 - `codeowners.md` — 책임자 매핑
 - `commits-and-pr.md` (또는 conventions로 위임)
 - `changesets.md` — 버전 관리
-- `renovate.md` — 의존성 자동화
+- 의존성 업데이트는 루트 ADR-0008의 수동 검토 PR 절차를 따른다.
 - `backstage.md` — 개발자 포털 (Phase 3+)
 - `c4-diagrams.md` — Structurizr DSL
 - `dora-metrics.md` — 측정·시각화

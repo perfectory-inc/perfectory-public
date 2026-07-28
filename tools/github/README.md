@@ -211,7 +211,7 @@ as a publication precondition, not a later rollback plan.
    `lock` checks that remote `HEAD`/`main` equal the expected parentless root,
    that no other ref exists, and that the bootstrap update-deny policy is still
    active. Activation replaces only the zero-bypass non-`main` firewall with
-   the final Dependabot-only firewall and enables automated security fixes; the
+   the final organization-maintainer firewall and keeps automated security fixes disabled; the
    bootstrap `main` update deny remains unchanged through root CI.
 
 6. Wait for all workflows on the root commit, then enable final protection and
@@ -238,22 +238,22 @@ as a publication precondition, not a later rollback plan.
 
 `integration_id: 15368` is the GitHub Actions App and can be independently read
 from `gh api /apps/github-actions`. Bootstrap has no bypass actor. After
-`activate`, the branch-firewall bypass actor is only the Dependabot integration
-(`integration_id: 29110`). The tag firewall and final `main` ruleset have no
+`activate`, the branch-firewall bypass actor is only the designated organization maintainer
+(`user_id: 253390842`). The tag firewall and final `main` ruleset have no
 bypass actor.
 
 Bootstrap enables dependency alerts, secret scanning with push protection, and
-private vulnerability reporting. `activate` enables automated security fixes
-only after the root is locked and independently cloned. Reports use the private
+private vulnerability reporting. Automated security fixes remain disabled by policy.
+Reports use the private
 advisory channel in the root `SECURITY.md`, never a public issue.
 
 ## Feature work after publication
 
-The canonical non-`main` branch firewall means ordinary feature branches live
-in forks. Clone the canonical public repository so `origin/main` is authoritative,
-create a local branch at that exact commit, add a separate fork remote for the
-eventual push, and open a pull request from the fork. Do not weaken the firewall
-for normal development.
+The canonical non-`main` branch firewall grants the designated organization
+maintainer permission to create ordinary feature branches in the organization
+repository. Clone the canonical repository so `origin/main` is authoritative,
+create a local branch at that exact commit, push it to `origin`, and open a pull
+request back to `main`. Personal forks are not part of the maintainer workflow.
 
 For a feature that currently exists only in private history, use the existing
 tree-only bridge:
@@ -261,7 +261,6 @@ tree-only bridge:
 ```bash
 git clone https://github.com/perfectory-inc/perfectory-public.git public-clone
 git -C public-clone switch -c feature/example origin/main
-git -C public-clone remote add fork git@github.com:YOUR-FORK/perfectory-public.git
 bash scripts/github/import-private-feature-diff.sh \
   /path/to/private-perfectory PRIVATE_BASE PRIVATE_FEATURE public-clone
 git -C public-clone diff --check
@@ -270,8 +269,8 @@ git -C public-clone status --short
 
 The importer computes a binary tree diff in the private repository, applies it
 through a temporary index, runs public guards and a tree secret scan, and leaves
-the result unstaged. Review it, commit in the public clone, and push only to the
-`fork` remote. It never imports private Git objects.
+the result unstaged. Review it, commit in the public clone, and push to the
+organization `origin` remote. It never imports private Git objects.
 
 Never add the public repository as a remote of a private worktree. Never add or
 fetch a private remote in a public clone. Never use alternates, bundles, grafts,
