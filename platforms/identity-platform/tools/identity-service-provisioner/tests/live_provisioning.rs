@@ -12,9 +12,11 @@ use uuid::Uuid;
 #[ignore = "requires a migrated disposable PostgreSQL database in IDENTITY_PROVISIONER_TEST_DATABASE_URL"]
 async fn provisioning_is_idempotent_exact_and_transactional(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(database_url) = env::var("IDENTITY_PROVISIONER_TEST_DATABASE_URL") else {
-        return Ok(());
-    };
+    // Fail loud, like `role_grant_postgres` beside it. This used to return
+    // `Ok(())` when the URL was absent, so the identity Postgres lane could run
+    // it against nothing and report a pass — the "resource absent = verified"
+    // confusion ADR-0010 exists to remove, surviving inside a lane target.
+    let database_url = env::var("IDENTITY_PROVISIONER_TEST_DATABASE_URL")?;
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect(&database_url)
