@@ -51,7 +51,7 @@ print_stderr = "deny"
 [workspace.dependencies]
 anyhow = "1"
 apache-avro = "0.21.0"
-base64 = "0.22"
+base64 = "0.23"
 # 비동기·웹
 async-trait = "0.1"
 axum = "0.8"
