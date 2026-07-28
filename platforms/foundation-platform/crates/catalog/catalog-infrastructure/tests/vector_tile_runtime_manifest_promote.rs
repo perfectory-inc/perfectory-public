@@ -129,6 +129,28 @@ impl Fixture {
 
     async fn insert(&self, pool: &PgPool) {
         sqlx::query(
+            "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
+             VALUES ($1, 'test', $2, repeat('a', 64))",
+        )
+        .bind(self.source_record_id)
+        .bind(format!("runtime-manifest-{}", self.source_record_id))
+        .execute(pool)
+        .await
+        .expect("source record");
+        sqlx::query(
+            "INSERT INTO catalog.administrative_boundary_revision
+             (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id,
+              status, validated_at)
+             VALUES ($1, $2, $3, $4, 'published', now())",
+        )
+        .bind(self.data_revision)
+        .bind(&self.snapshot_id)
+        .bind(format!("iceberg:runtime-manifest-{}", self.data_revision))
+        .bind(self.source_record_id)
+        .execute(pool)
+        .await
+        .expect("administrative boundary revision");
+        sqlx::query(
             "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key)
              VALUES ($1, $2)",
         )
@@ -269,5 +291,21 @@ impl Fixture {
             .execute(pool)
             .await
             .expect("unit cleanup");
+        let mut tx = pool.begin().await.expect("cleanup transaction");
+        sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+            .execute(&mut *tx)
+            .await
+            .expect("enable temporal fixture cleanup");
+        sqlx::query("DELETE FROM catalog.administrative_boundary_revision WHERE id = $1")
+            .bind(self.data_revision)
+            .execute(&mut *tx)
+            .await
+            .expect("administrative boundary revision cleanup");
+        sqlx::query("DELETE FROM catalog.source_record WHERE id = $1")
+            .bind(self.source_record_id)
+            .execute(&mut *tx)
+            .await
+            .expect("source record cleanup");
+        tx.commit().await.expect("cleanup transaction commit");
     }
 }
