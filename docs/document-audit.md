@@ -7,10 +7,10 @@
 
 ## 요약
 
-- 감사 문서: **316개**
-- 언어 분류: **{'english': 129, 'korean': 95, 'mixed': 92}**
-- 메타데이터: **12개 정상 / 304개 누락**
-- 중복 파일명 후보: **4개**
+- 감사 문서: **317개**
+- 언어 분류: **{'english': 129, 'korean': 96, 'mixed': 92}**
+- 메타데이터: **13개 정상 / 304개 누락**
+- 중복 파일명 후보: **5개**
 
 ## 언어·메타데이터별 목록
 
@@ -32,6 +32,7 @@
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | mixed | missing: status, owner, doc_type, last_reviewed | 2 |
 | `docs/architecture/platform-production-readiness-roadmap.md` | Monorepo | architecture | current | mixed | missing: owner, doc_type, last_reviewed | 2 |
 | `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | english | missing: status, owner, doc_type, last_reviewed | 4 |
+| `docs/glossary.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | current | english | missing: status, owner, doc_type, last_reviewed | 1 |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/README.md` | Monorepo | README | current | korean | ok | 4 |
@@ -347,6 +348,9 @@
   - `platforms/identity-platform/CLAUDE.md`
   - `platforms/intelligence-platform/CLAUDE.md`
   - `products/gongzzang/CLAUDE.md`
+- `glossary.md`
+  - `docs/glossary.md`
+  - `products/gongzzang/docs/glossary.md`
 - `pipeline-graph.v1.json`
   - `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json`
   - `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json`
