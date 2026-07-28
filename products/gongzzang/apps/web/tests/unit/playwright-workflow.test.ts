@@ -62,9 +62,7 @@ describe("Rust test workflow ownership", () => {
     // The DB-integration lane needs a live PostGIS service, so it must run ONLY
     // in the migrated PostGIS workflow — never in general CI.
     expect(generalCiWorkflow).not.toMatch(/--features integration/);
-    expect(dbMigrationsWorkflow).toContain(
-      "cargo xtask integration gongzzang postgres",
-    );
+    expect(dbMigrationsWorkflow).toContain("cargo xtask integration gongzzang postgres");
 
     // The two-stage contract's SSOT home: xtask marks gongzzang's Postgres lane
     // as feature-gated; the backend-less exclusion is derived from that lane.
