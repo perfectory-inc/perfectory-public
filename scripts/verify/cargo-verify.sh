@@ -147,6 +147,7 @@ docker_args=(
   -e SQLX_OFFLINE=true
   -e GIT_OPTIONAL_LOCKS=0
   -e CARGO_TERM_COLOR=always
+  -e "PERFECTORY_VERIFY_AREA=$AREA"
 )
 
 # Large workspaces can exceed a developer's Docker memory limit when Cargo
@@ -182,8 +183,8 @@ fi
 MSYS_NO_PATHCONV=1 docker "${docker_args[@]}" \
   "$RUST_TOOLCHAIN_IMAGE" bash -ceu '
     rustup component add rustfmt clippy >/dev/null 2>&1 || true
-    cargo xtask verify "$1"
-  ' _ "$AREA"
+    cargo xtask verify "$PERFECTORY_VERIFY_AREA"
+  '
 
 if [ "$clean_verify" -eq 1 ] \
   && [ "${PERFECTORY_CARGO_VERIFY_TEST_DOUBLE:-0}" != 1 ]; then
