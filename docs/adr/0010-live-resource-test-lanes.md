@@ -44,6 +44,32 @@ Kafka·R2·lakehouse·공공API 테스트까지 함께 실행했다. 각 테스�
 타깃은 **제외가 아니라 열거**한다. 제외 목록은 누군가 테스트를 추가하면 조용히
 넓어지지만, 열거 목록은 완전성 가드와 짝지으면 같은 누락이 실패가 된다.
 
+### 게이팅 방식도 레인이 선언한다 (`LaneGating`)
+
+`#[ignore]`는 `-- --ignored`로, `#![cfg(feature = "…")]`는 `--features …`로 선택되며
+**둘은 서로의 반대**다. 첫 레인 표는 네 영역 모두에 `-- --ignored`를 붙였고, 그래서
+gongzzang 레인은 (1) `--features integration`이 없어 스위트가 빈 파일로 컴파일되고
+(2) `--ignored`가 그 안의 아무것도 고르지 못해 0개를 실행한 뒤 (3) cargo와 함께
+exit 0으로 끝났다. **이 ADR이 없애려던 결함이 레인 계층에서 그대로 재현돼 있었다.**
+게이팅을 필드로 만들면 플래그가 가정이 아니라 선언에서 따라 나온다.
+
+### 레인은 실행 개수를 되읽는다
+
+cargo는 필터가 아무것도 고르지 못해도 exit 0이다. 즉 **종료 코드는 "검증됨"과
+"선택되지 않음"을 구분하지 못한다.** nextest의 `--no-tests=fail`에 해당하는 장치가
+cargo test에는 없으므로, xtask가 stdout을 캡처해 libtest의
+`test result: ok. N passed`를 되읽고 어떤 타깃이든 `N == 0`이면 레인을 실패시킨다
+(`executed_test_count` / `lane_target_verdict`). stderr는 그대로 흘려보내 컴파일
+진행 로그는 살아 있다. 이것이 없으면 다음 플래그 실수도 같은 방식으로 숨는다.
+
+### `verify`의 2단계도 이 표에서 파생된다
+
+`--all-features`는 feature 게이팅된 스위트를 켜 버리므로, 그 패키지는 DB 없는 기본
+실행에서 제외되어야 한다. 이 사실은 이제 `Feature` 레인의 존재에서 계산된다
+(`feature_gated_packages`). 손으로 맞추던 `two_stage_test: bool`은 삭제했다 —
+**동작을 지운 것이 아니라 같은 사실의 두 번째 진술을 지운 것이다.** 그냥 지웠다면
+`verify gongzzang`이 DB 없이 라이브 스위트 20개를 실행하고 첫 연결에서 죽는다.
+
 재발 차단 가드 2종:
 
 - `scripts/guard/live-lane-completeness.sh` — 백엔드 게이팅된 모든 테스트 타깃이 정확히
@@ -86,15 +112,50 @@ Oxide omicron이 `live-tests/`를 별도 패키지로 두고 있어 유력한 �
 - 레인에 배정되지 않은 백엔드 게이팅 테스트는 CI에서 실패한다. 깜빡할 수 없다.
 - `cargo xtask integration <area>`는 이제 postgres 레인을 뜻한다. 두 호출자
   (`foundation-ci.yml`, `scripts/verify/integration.sh`) 모두 Postgres만 프로비저닝한다.
+- `gongzzang-db-migrations.yml`이 raw `cargo test -p gongzzang-persistence --features
+  integration` 대신 gongzzang postgres 레인을 실행한다. 그 잡은 이미 Postgres와 전체
+  마이그레이션 체인을 세우므로 추가 비용이 없고, `tools/xtask/**`를 paths에 넣어
+  레인 정의 변경이 그 잡을 재실행시킨다(`xtask-path-coverage`가 `integration`까지
+  강제하도록 확장).
 
 ### 남은 부채 (이 ADR로 닫히지 **않는** 것)
 
-1. **커버리지는 늘지 않았다.** 55타깃 중 실제 실행은 28개(foundation postgres 25 + kafka 3).
-   나머지 27개는 이제 "안 돎"이 보일 뿐 여전히 아무것도 검증하지 않는다. gongzzang 20개와
-   intelligence 2개는 CI 잡이 없고, R2·lakehouse는 자격증명이 없다.
-2. **gongzzang 중복.** `two_stage_test`와 `integration` feature가 레인과 공존해 같은 지식이
-   3곳에 있다. 레인이 생긴 지금 `two_stage_test`는 삭제 가능하다.
-3. **가드는 정적이다.** 두 정규식에 걸리지 않는 새로운 삼킴 방식은 통과한다. Bazel
-   샌드박스 같은 물리 차단이 아니다. Docker `--network none`이 보강 후보다.
-4. **임포트 게이트가 없다.** 이 결함군이 들어온 경로(대량 임포트)는 지금도 검사 없이 열려
+0. **초판의 커버리지 집계는 틀렸다 (정정).** 초판은 "55타깃 중 실행 28개(foundation
+   postgres 25 + kafka 3)"이며 "gongzzang 20개는 CI 잡이 없다"고 적었다. 실측하면
+   **49개가 어딘가에서 실행된다**:
+
+   | 타깃 | 실행 주체 | 상태 |
+   | --- | --- | --- |
+   | gongzzang postgres 20 | `gongzzang-db-migrations.yml` (`required/gongzzang-migrations`) | 계속 실행돼 왔다 |
+   | foundation postgres 25 | `foundation-ci.yml` postgres-integration (레인) | 실행 |
+   | foundation kafka 3 | `foundation-ci.yml` kafka-integration | 실행 |
+   | identity `role_grant_postgres` 1 | `identity-ci.yml` live-contracts (raw 명령) | 실행 |
+   | identity `live_provisioning` 1 | 없음 | **미실행** |
+   | intelligence kafka·redis 2 | 없음 | **미실행** |
+   | foundation r2·lakehouse·data-go-kr 3 | 자격증명 없음 | **미실행** |
+
+   오진의 원인은 **"레인에서 안 돈다"를 "어디서도 안 돈다"로 읽은 것**이다. 이 ADR이
+   경고한 바로 그 혼동("확인 안 함"을 "없음"으로 기록)을 ADR 자신이 저질렀다.
+   gongzzang 20개가 레인을 거치지 않고 raw 명령으로 돌고 있었을 뿐이다. 그
+   raw 명령은 이제 `cargo xtask integration gongzzang postgres`로 교체돼,
+   완전성 가드가 증명하는 집합과 CI가 실행하는 집합이 같아졌다.
+
+1. **walking-skeleton의 중복 스윕.** `scripts/ci/walking-skeleton-e2e.sh`가
+   `cargo test --workspace --features integration`으로 같은 20개를 한 번 더 돌린다.
+   이 ADR이 기각한 "쓸어담기" 형태이며, PR마다 중복 비용을 낸다. 레인 위임으로
+   대체 가능하지만 그 워크플로는 이번 변경 범위 밖이라 손대지 않았다.
+2. **`no-silent-test-skip.sh`가 놓치는 형태가 남아 있다.**
+   `let Ok(x) = env::var(..) else { return Ok(()) }`는 두 정규식(`…skip` 출력,
+   `env::var(..).ok()`) 어디에도 걸리지 않는다. identity `live_provisioning`은
+   이번에 fail-loud로 고쳤지만, `foundation-outbox/tests/publish_roundtrip.rs`의
+   `pool()`은 그대로다 — 게다가 `.map_or_else(|_| Ok(None), …)`로 **연결 실패까지**
+   "백엔드 없음"으로 강등한다. 가드 정규식 확장 + 그 파일 수정이 남은 일이다.
+3. **가드는 정적이다.** 세 번째 삼킴 방식이 나오면 또 통과한다. Bazel 샌드박스 같은
+   물리 차단이 아니다. Docker `--network none`이 보강 후보다.
+4. **레인의 게이팅 선언이 실물과 일치하는지는 정적으로 검사되지 않는다.**
+   `live-lane-completeness.sh`는 "모든 백엔드 게이팅 타깃이 어떤 레인에 속하는가"만
+   증명하고, 그 레인의 `LaneGating`이 파일의 실제 게이팅과 맞는지는 보지 않는다.
+   실행 개수 되읽기가 **실행될 때** 이를 잡지만, 한 번도 실행되지 않는 레인
+   (r2·lakehouse·data-go-kr)은 여전히 틀린 채로 있을 수 있다.
+5. **임포트 게이트가 없다.** 이 결함군이 들어온 경로(대량 임포트)는 지금도 검사 없이 열려
    있다.
