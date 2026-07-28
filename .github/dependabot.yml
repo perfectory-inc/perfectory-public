@@ -30,6 +30,11 @@ updates:
     commit-message:
       prefix: "chore(actions)"
       include: scope
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   # npm — products/gongzzang (Next.js apps/web). pnpm catalog 사용 시 별도 검토 필요.
   - package-ecosystem: npm
@@ -44,6 +49,11 @@ updates:
     commit-message:
       prefix: "chore(web)"
       include: scope
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
     ignore:
       # Next.js / React major 는 별도 sprint 검토 (breaking change).
       - dependency-name: "next"
