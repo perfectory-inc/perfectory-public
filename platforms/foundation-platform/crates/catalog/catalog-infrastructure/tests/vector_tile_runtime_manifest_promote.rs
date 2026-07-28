@@ -133,7 +133,8 @@ impl Fixture {
     async fn insert(&self, pool: &PgPool) {
         sqlx::query(
             "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
-             VALUES ($1, 'test', $2, repeat('a', 64))",
+             VALUES ($1, 'test', $2, repeat('a', 64))
+             ON CONFLICT (id) DO NOTHING",
         )
         .bind(self.source_record_id)
         .bind(format!("runtime-manifest-{}", self.source_record_id))
@@ -304,11 +305,8 @@ impl Fixture {
             .execute(&mut *tx)
             .await
             .expect("administrative boundary revision cleanup");
-        sqlx::query("DELETE FROM catalog.source_record WHERE id = $1")
-            .bind(self.source_record_id)
-            .execute(&mut *tx)
-            .await
-            .expect("source record cleanup");
+        // Source records are immutable lineage. Reused fixture rows are deliberately retained so
+        // a concurrent or rerun test cannot delete provenance that another fixture is using.
         tx.commit().await.expect("cleanup transaction commit");
     }
 }
