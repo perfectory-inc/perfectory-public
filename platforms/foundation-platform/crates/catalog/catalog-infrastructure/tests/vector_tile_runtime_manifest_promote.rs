@@ -111,6 +111,7 @@ struct Fixture {
     release_id: Uuid,
     manifest_id: Uuid,
     data_revision: Uuid,
+    source_record_id: Uuid,
     snapshot_id: String,
 }
 
@@ -121,6 +122,7 @@ impl Fixture {
             release_id: Uuid::now_v7(),
             manifest_id: Uuid::now_v7(),
             data_revision: Uuid::now_v7(),
+            source_record_id: Uuid::now_v7(),
             snapshot_id: format!("9{}", Uuid::new_v4().as_u128()),
         }
     }
@@ -136,6 +138,29 @@ impl Fixture {
         .await
         .expect("publication unit");
         sqlx::query(
+            "INSERT INTO catalog.source_record
+             (id, source, external_id, checksum_sha256)
+             VALUES ($1, 'fixture-vector-tile-cas', $2, repeat('a', 64))",
+        )
+        .bind(self.source_record_id)
+        .bind(format!("cas-{}", self.data_revision))
+        .execute(pool)
+        .await
+        .expect("source record");
+        sqlx::query(
+            "INSERT INTO catalog.administrative_boundary_revision
+             (id, canonical_iceberg_snapshot_id, source_snapshot_id,
+              source_record_id, status, validated_at)
+             VALUES ($1, $2, $3, $4, 'published', now())",
+        )
+        .bind(self.data_revision)
+        .bind(&self.snapshot_id)
+        .bind(format!("iceberg:cas-{}", self.data_revision))
+        .bind(self.source_record_id)
+        .execute(pool)
+        .await
+        .expect("administrative boundary revision");
+        sqlx::query(
             "INSERT INTO catalog.vector_tile_release
              (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
              source_record_id, source_kind, martin_source_id, tiles_url_template,
@@ -147,7 +172,7 @@ impl Fixture {
         .bind(self.unit_id)
         .bind(self.data_revision)
         .bind(&self.snapshot_id)
-        .bind(Uuid::now_v7())
+        .bind(self.source_record_id)
         .bind(Uuid::now_v7())
         .execute(pool)
         .await
@@ -217,6 +242,16 @@ impl Fixture {
             .execute(pool)
             .await
             .expect("release cleanup");
+        sqlx::query("DELETE FROM catalog.administrative_boundary_revision WHERE id = $1")
+            .bind(self.data_revision)
+            .execute(pool)
+            .await
+            .expect("administrative boundary revision cleanup");
+        sqlx::query("DELETE FROM catalog.source_record WHERE id = $1")
+            .bind(self.source_record_id)
+            .execute(pool)
+            .await
+            .expect("source record cleanup");
         sqlx::query("DELETE FROM catalog.vector_tile_publication_unit WHERE id = $1")
             .bind(self.unit_id)
             .execute(pool)
