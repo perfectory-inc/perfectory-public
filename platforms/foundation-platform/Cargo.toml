@@ -91,7 +91,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 rdkafka = { version = "0.39.0", features = ["cmake-build"] }
 
 # 인증
-jsonwebtoken = "9"
+jsonwebtoken = "11"
 
 # 관측
 tracing = "0.1"
