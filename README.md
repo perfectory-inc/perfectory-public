@@ -1,22 +1,43 @@
 # perfectory
 
-산업용 부동산 사업 모노레포. 수평 플랫폼 3개 위에 제품이 올라간다.
+산업용 부동산 제품과 수평 플랫폼을 한 저장소에서 함께 관리하는 모노레포입니다.
+이 파일은 전체 지도를 제공하고, 상세 내용은 소유 영역의 README와 문서 정본으로 연결합니다.
 
-| 영역 | 경로 | 역할 |
+## 책임 트리
+
+```text
+perfectory/
+├── products/gongzzang/                 B2C 산업용 부동산 제품
+├── platforms/foundation-platform/      공공데이터·카탈로그·레이크하우스 SSOT
+├── platforms/identity-platform/        직원·서비스 인증과 인가 정책
+├── platforms/intelligence-platform/    LLM 정규화 제안 엔진
+├── docs/                               전역 문서·ADR·기술 기준
+├── scripts/                            검증·가드·자동화
+└── .github/                            전역 CI/CD
+```
+
+## 시작 순서
+
+1. [영역 규칙](./AGENTS.md)
+2. [전역 문서 지도](./docs/README.md)
+3. [전체 문서 자동 색인](./docs/document-catalog.md)
+4. 작업 영역의 `README.md`와 `AGENTS.md`
+
+## 영역 진입점
+
+| 영역 | 코드 지도 | 문서 지도 |
 |---|---|---|
-| Gongzzang | `products/gongzzang` | B2C 산업용 부동산 정보 서비스 (Rust API + Next.js) |
-| Foundation Platform | `platforms/foundation-platform` | 산업단지·필지·건물 카탈로그 SSOT, 레이크하우스, 지도 타일 |
-| Identity Platform | `platforms/identity-platform` | 직원/서비스 인증·인가, 정책 결정 API |
-| Intelligence Platform | `platforms/intelligence-platform` | LLM 정규화 제안 엔진 (Foundation에 proposal-only) |
+| Gongzzang | [README](./products/gongzzang/README.md) | [docs](./products/gongzzang/docs/README.md) |
+| Foundation | [README](./platforms/foundation-platform/README.md) | [docs](./platforms/foundation-platform/docs/README.md) |
+| Identity | [README](./platforms/identity-platform/README.md) | [docs](./platforms/identity-platform/docs/README.md) |
+| Intelligence | [README](./platforms/intelligence-platform/README.md) | [docs](./platforms/intelligence-platform/docs/README.md) |
 
-- 규칙·컨벤션: [AGENTS.md](./AGENTS.md) → [docs/adr/0001](./docs/adr/0001-monorepo-governance-and-conventions.md)
-- 각 영역 시작점: 영역 디렉토리의 `README.md` / `AGENTS.md`
-- CI: 루트 `.github/workflows/` (PR은 전체 필수 게이트, `main` push는 영역별 path filter)
-- Rust 검증(로컬): `bash scripts/verify/cargo-verify.sh <area-dir>` (Docker 필요)
+## 공통 기준
 
-## 기술 문서
-
-- [기술 스택 기준표](./docs/technology-stack.md) — 모노레포 전체의 기술·환경·미연결 항목
+- [기술 스택 기준표](./docs/technology-stack.md)
+- [전역 ADR](./docs/adr/README.md)
+- [검증 SSOT](./docs/adr/0004-verification-ssot.md)
+- Rust 검증: `bash scripts/verify/cargo-verify.sh <area-dir>` (Docker 필요)
 
 ## License
 

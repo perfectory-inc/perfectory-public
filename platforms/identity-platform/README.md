@@ -8,6 +8,20 @@ Gongzzang)의 B2C 사용자 인증은 여기 소관이 아니다 — 각 제품�
 구성: `services/identity-api` (인증·정책 결정 API), `services/identity-policy-worker`
 (정책 반영 워커), `crates/{staff-identity, service-identity, authorization, ...}`.
 
+## 책임 트리
+
+```text
+identity-platform/
+├── crates/staff-identity/       직원 인증·세션
+├── crates/service-identity/     workload identity
+├── crates/authorization/        정책 결정
+├── services/identity-api        HTTP API
+└── services/identity-policy-worker  정책 반영 워커
+```
+
+문서 지도: [Identity docs](./docs/README.md) ·
+[전체 문서 색인](../../docs/document-catalog.md)
+
 ## Quick start
 
 ```bash

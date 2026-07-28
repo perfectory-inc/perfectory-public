@@ -38,3 +38,7 @@ jobs:
       # offline; no wrapper Action can download an unverified release binary.
       - name: Check internal links
         run: bash scripts/ci/lychee-docs.sh
+      - name: Check generated public-data catalog
+        run: python3 scripts/catalog/render-public-data-catalog.py --check
+      - name: Check generated document catalog
+        run: python3 scripts/catalog/render-document-catalog.py --check

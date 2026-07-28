@@ -2,6 +2,21 @@
 
 Rust-first implementation path for the enterprise intelligence-platform.
 
+## 책임 트리
+
+```text
+intelligence-platform/
+├── crates/normalization/       LLM 정규화 제안
+├── crates/knowledge/           지식 계약·처리
+├── crates/messaging/           Kafka·Avro·Karapace 어댑터
+├── services/intelligence-api   HTTP API
+├── services/intelligence-worker  비동기 워커
+└── schemas/                    이벤트 스키마
+```
+
+문서 지도: [Intelligence docs](./docs/README.md) ·
+[전체 문서 색인](../../docs/document-catalog.md)
+
 This Rust workspace is the **canonical, source-of-truth** implementation of the
 platform boundary: APIs, validation, provenance, idempotency, outbox state,
 adapters, and Foundation Platform submission. The former Python prototype was

@@ -1,5 +1,10 @@
 # Public Data Bronze Lane Orchestration Runbook
 
+> 데이터 목록은 [공공데이터 수집 카탈로그](../catalog/public-data-collection-catalog.md),
+> 실행 허용 여부는 [endpoint 카탈로그](../catalog/public-source-endpoint-catalog.v1.json)와
+> [레인 레지스트리](../catalog/public-data-bronze-lane-registry.v1.json)를 기준으로 합니다.
+> 이 문서는 실행 절차와 게이트만 설명합니다.
+
 ## 목적
 
 `foundation-platform`의 공공 데이터 Bronze 수집을 provider/source 성격별 lane으로 나누어 병렬 실행한다.
