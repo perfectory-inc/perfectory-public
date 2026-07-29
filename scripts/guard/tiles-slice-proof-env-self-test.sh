@@ -7,14 +7,15 @@ root="$(cd "$dir/../.." && pwd -P)"
 proof="$root/scripts/tiles/tiles-slice-proof.sh"
 home_dir="$(mktemp -d)"
 trap 'rm -rf "$home_dir"' EXIT
+fake_account='0123456789abcdef0123456789abcdef'
 
 mkdir -p "$home_dir/foundation-platform"
 printf '%s\n' \
-  "export FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID='0123456789abcdef0123456789abcdef'" \
+  "export FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID='$fake_account'" \
   "export FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID='testaccess123'" \
   "export FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY='testsecret123'" \
   "export FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET='tiles-slice-proof-ci'" \
-  "export FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT='https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com'" \
+  "export FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT='https://${fake_account}.r2.cloudflarestorage.com'" \
   "export FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_BASE_URL='https://r2.example.invalid'" \
   > "$home_dir/foundation-platform/.env.local"
 

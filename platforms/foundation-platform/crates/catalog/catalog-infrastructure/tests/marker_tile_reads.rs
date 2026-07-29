@@ -25,13 +25,15 @@ async fn reads_active_parcel_anchor_mvt_tile_without_data_cap() -> TestResult {
     fixture.cleanup(&pool).await?;
     fixture.insert(&pool).await?;
 
+    let (x, y) = fixture.tile_address(&pool, 12).await?;
+
     let repo = PgCatalogRepository::new(pool.clone());
     let tile = repo
         .get_marker_tile(MarkerTileRequest::new(
             "parcel_anchor",
             12,
-            3_494,
-            1_591,
+            x,
+            y,
             "all-active-v1",
         )?)
         .await?;
@@ -47,6 +49,8 @@ struct MarkerTileFixture {
     anchor_id: &'static str,
     pnu: &'static str,
     source_snapshot_id: &'static str,
+    longitude: f64,
+    latitude: f64,
 }
 
 impl MarkerTileFixture {
@@ -56,6 +60,8 @@ impl MarkerTileFixture {
             anchor_id: "018f0000-0000-7000-8000-00000000d001",
             pnu: "9999999999900000001",
             source_snapshot_id: "iceberg:marker-tile-read-test-0001",
+            longitude: 127.123_470,
+            latitude: 36.123_420,
         }
     }
 
@@ -79,17 +85,34 @@ impl MarkerTileFixture {
               source_geometry_checksum_sha256, computed_at_utc, activated_at_utc, is_active)
              VALUES ($1, $2, $3, $4, 'silver.parcel_boundaries',
                      'gold/parcel-boundaries/marker-tile-read-test.parquet',
-                     ST_SetSRID(ST_MakePoint(127.123470, 36.123420), 4326),
+                     ST_SetSRID(ST_MakePoint($5, $6), 4326),
                      'polylabel', 'polylabel:1', repeat('c', 64), now(), now(), true)",
         )
         .bind(self.anchor_id.parse::<uuid::Uuid>()?)
         .bind(self.pnu)
         .bind(self.run_id.parse::<uuid::Uuid>()?)
         .bind(self.source_snapshot_id)
+        .bind(self.longitude)
+        .bind(self.latitude)
         .execute(pool)
         .await?;
 
         Ok(())
+    }
+
+    async fn tile_address(&self, pool: &PgPool, zoom: i32) -> TestResult<(u32, u32)> {
+        let (x, y): (i32, i32) = sqlx::query_as(
+            "SELECT
+                 floor((($1::double precision + 180) / 360) * power(2, $3))::int,
+                 floor((1 - asinh(tan(radians($2::double precision))) / pi()) / 2
+                       * power(2, $3))::int",
+        )
+        .bind(self.longitude)
+        .bind(self.latitude)
+        .bind(zoom)
+        .fetch_one(pool)
+        .await?;
+        Ok((u32::try_from(x)?, u32::try_from(y)?))
     }
 
     async fn cleanup(&self, pool: &PgPool) -> TestResult {
