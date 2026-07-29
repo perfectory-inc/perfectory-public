@@ -91,7 +91,6 @@ jobs:
       # `identity.service_principal`. The lane runs both, so the shared database
       # has to carry the schema before either starts.
       - name: Migrate the identity contract database
-        working-directory: ${{ github.workspace }}
         run: cargo +"$RUST_TOOLCHAIN" run --locked -p identity-database-migrator
       # The lane is the SSOT for which targets run (ADR-0011). Naming a single
       # test here is how the other target stayed unexecuted while CI reported a
