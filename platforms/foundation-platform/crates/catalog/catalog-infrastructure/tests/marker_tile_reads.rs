@@ -100,8 +100,8 @@ impl MarkerTileFixture {
         Ok(())
     }
 
-    async fn tile_address(&self, pool: &PgPool, zoom: i32) -> TestResult<(i32, i32)> {
-        Ok(sqlx::query_as(
+    async fn tile_address(&self, pool: &PgPool, zoom: i32) -> TestResult<(u32, u32)> {
+        let (x, y): (i32, i32) = sqlx::query_as(
             "SELECT
                  floor((($1::double precision + 180) / 360) * power(2, $3))::int,
                  floor((1 - asinh(tan(radians($2::double precision))) / pi()) / 2
@@ -111,7 +111,8 @@ impl MarkerTileFixture {
         .bind(self.latitude)
         .bind(zoom)
         .fetch_one(pool)
-        .await?)
+        .await?;
+        Ok((u32::try_from(x)?, u32::try_from(y)?))
     }
 
     async fn cleanup(&self, pool: &PgPool) -> TestResult {
