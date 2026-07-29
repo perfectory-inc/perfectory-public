@@ -9,15 +9,17 @@ use foundation_outbox::object_storage::R2ObjectStorageConfig;
 
 use crate::r2_layout::vector_tile_release_key;
 
-const ACCOUNT_ID: &str = "FOUNDATION_TILE_DERIVATIVE_R2_ACCOUNT_ID";
-const ENDPOINT: &str = "FOUNDATION_TILE_DERIVATIVE_R2_ENDPOINT";
-const BUCKET: &str = "FOUNDATION_TILE_DERIVATIVE_R2_BUCKET";
-const REGION: &str = "FOUNDATION_TILE_DERIVATIVE_R2_REGION";
-const WRITE_ACCESS_KEY: &str = "FOUNDATION_TILE_DERIVATIVE_R2_WRITE_ACCESS_KEY_ID";
-const WRITE_SECRET_KEY: &str = "FOUNDATION_TILE_DERIVATIVE_R2_WRITE_SECRET_ACCESS_KEY";
-const READ_ACCESS_KEY: &str = "FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID";
-const READ_SECRET_KEY: &str = "FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY";
-const PREFIX: &str = "FOUNDATION_TILE_DERIVATIVE_R2_PREFIX";
+const ACCOUNT_ID: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID";
+const ENDPOINT: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT";
+const BUCKET: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET";
+const REGION: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION";
+const WRITE_ACCESS_KEY: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_ACCESS_KEY_ID";
+const WRITE_SECRET_KEY: &str =
+    "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_SECRET_ACCESS_KEY";
+const READ_ACCESS_KEY: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID";
+const READ_SECRET_KEY: &str =
+    "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY";
+const PREFIX: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX";
 const DEFAULT_PREFIX: &str = "gold/vector-tiles/releases";
 
 /// Dedicated R2 configuration for PMTiles derivative publication.
@@ -150,25 +152,28 @@ mod tests {
 
     fn valid() -> BTreeMap<&'static str, String> {
         BTreeMap::from([
-            ("FOUNDATION_TILE_DERIVATIVE_R2_ACCOUNT_ID", "a".repeat(32)),
             (
-                "FOUNDATION_TILE_DERIVATIVE_R2_BUCKET",
+                "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID",
+                "a".repeat(32),
+            ),
+            (
+                "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET",
                 "perfectory-tiles-prod".to_owned(),
             ),
             (
-                "FOUNDATION_TILE_DERIVATIVE_R2_WRITE_ACCESS_KEY_ID",
+                "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_ACCESS_KEY_ID",
                 "writer".to_owned(),
             ),
             (
-                "FOUNDATION_TILE_DERIVATIVE_R2_WRITE_SECRET_ACCESS_KEY",
+                "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PUBLISHER_SECRET_ACCESS_KEY",
                 "writer-secret".to_owned(),
             ),
             (
-                "FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID",
+                "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID",
                 "reader".to_owned(),
             ),
             (
-                "FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY",
+                "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY",
                 "reader-secret".to_owned(),
             ),
         ])
@@ -196,14 +201,14 @@ mod tests {
     fn rejects_protected_bucket_and_credential_reuse() {
         let mut values = valid();
         values.insert(
-            "FOUNDATION_TILE_DERIVATIVE_R2_BUCKET",
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET",
             "foundation-platform-lakehouse-prod".to_owned(),
         );
         assert!(TileDerivativeR2Config::from_lookup(|name| values.get(name).cloned()).is_err());
 
         let mut values = valid();
         values.insert(
-            "FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID",
             "writer".to_owned(),
         );
         assert!(TileDerivativeR2Config::from_lookup(|name| values.get(name).cloned()).is_err());

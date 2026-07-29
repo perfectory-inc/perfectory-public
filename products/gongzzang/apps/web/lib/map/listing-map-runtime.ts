@@ -41,6 +41,11 @@ export type MapboxGLLike = {
   setFilter?: (layerId: string, filter: unknown[]) => void;
 };
 
+type MapboxLayerApi = MapboxGLLike & {
+  addSource: NonNullable<MapboxGLLike["addSource"]>;
+  addLayer: NonNullable<MapboxGLLike["addLayer"]>;
+};
+
 const MAPBOX_POLL_INTERVAL_MS = 100;
 const MAPBOX_POLL_TIMEOUT_MS = 6_000;
 const MAPBOX_MAX_ATTEMPTS = MAPBOX_POLL_TIMEOUT_MS / MAPBOX_POLL_INTERVAL_MS;
@@ -128,18 +133,34 @@ async function waitForMapboxStyle(mb: MapboxGLLike, isCancelled: () => boolean):
   }
 }
 
-async function setupPolygonLayers(
+function setupPolygonLayers(
   mb: MapboxGLLike,
   onParcelClick: (pnu: string) => void,
   manifest: VectorTileManifest | null,
   runtimeManifest: VectorTileRuntimeManifest | null,
-): Promise<void> {
-  if (typeof mb.addSource !== "function" || typeof mb.addLayer !== "function") {
+): void {
+  if (!hasMapboxLayerApi(mb)) {
     console.warn("[ListingMap] mapbox addSource/addLayer unavailable; polygon layer setup skipped");
     return;
   }
   if (!manifest && !runtimeManifest) return;
 
+  setupParcelLayers(mb, onParcelClick, manifest, runtimeManifest);
+  setupRuntimeAdminLayer(mb, runtimeManifest);
+  setupStaticAdminLayer(mb, manifest, runtimeManifest);
+  setupComplexLayer(mb, manifest);
+}
+
+function hasMapboxLayerApi(mb: MapboxGLLike): mb is MapboxLayerApi {
+  return typeof mb.addSource === "function" && typeof mb.addLayer === "function";
+}
+
+function setupParcelLayers(
+  mb: MapboxLayerApi,
+  onParcelClick: (pnu: string) => void,
+  manifest: VectorTileManifest | null,
+  runtimeManifest: VectorTileRuntimeManifest | null,
+): void {
   try {
     if (runtimeManifest) validateFoundationVectorManifest(runtimeManifest);
     const runtimeUnit = runtimeManifest?.publication_units.parcels;
@@ -162,13 +183,7 @@ async function setupPolygonLayers(
           "fill-outline-color": MAP_LAYER_COLORS.parcel.outline,
         },
       });
-      if (typeof mb.on === "function") {
-        mb.on("click", "parcels-fill", (e: unknown) => {
-          const evt = e as { features?: Array<{ properties?: { pnu?: string } }> };
-          const pnu = evt.features?.[0]?.properties?.pnu;
-          if (typeof pnu === "string" && pnu.length > 0) onParcelClick(pnu);
-        });
-      }
+      registerRuntimeParcelClick(mb, onParcelClick);
     } else if (artifact && manifest && !mb.getSource?.("parcels")) {
       mb.addSource("parcels", buildVectorTileSource(manifest, "parcels", { promoteId: "pnu" }));
       mb.addLayer({
@@ -184,21 +199,38 @@ async function setupPolygonLayers(
           "fill-outline-color": MAP_LAYER_COLORS.parcel.outline,
         },
       });
-      if (typeof mb.on === "function") {
-        mb.on("click", "parcels-fill", (e: unknown) => {
-          const evt = e as { features?: Array<{ properties?: { PNU?: string; pnu?: string } }> };
-          const props = evt.features?.[0]?.properties;
-          const pnu = props?.PNU ?? props?.pnu;
-          if (typeof pnu === "string" && pnu.length > 0) {
-            onParcelClick(pnu);
-          }
-        });
-      }
+      registerLegacyParcelClick(mb, onParcelClick);
     }
   } catch (err) {
     logMapLayerFailure("parcels-fill", err, { kind: "core", source: "parcels" });
   }
+}
 
+function registerRuntimeParcelClick(mb: MapboxGLLike, onParcelClick: (pnu: string) => void): void {
+  if (typeof mb.on !== "function") return;
+  mb.on("click", "parcels-fill", (e: unknown) => {
+    const evt = e as { features?: Array<{ properties?: { pnu?: string } }> };
+    const pnu = evt.features?.[0]?.properties?.pnu;
+    if (typeof pnu === "string" && pnu.length > 0) onParcelClick(pnu);
+  });
+}
+
+function registerLegacyParcelClick(mb: MapboxGLLike, onParcelClick: (pnu: string) => void): void {
+  if (typeof mb.on !== "function") return;
+  mb.on("click", "parcels-fill", (e: unknown) => {
+    const evt = e as {
+      features?: Array<{ properties?: { PNU?: string; pnu?: string } }>;
+    };
+    const props = evt.features?.[0]?.properties;
+    const pnu = props?.PNU ?? props?.pnu;
+    if (typeof pnu === "string" && pnu.length > 0) onParcelClick(pnu);
+  });
+}
+
+function setupRuntimeAdminLayer(
+  mb: MapboxLayerApi,
+  runtimeManifest: VectorTileRuntimeManifest | null,
+): void {
   try {
     const runtimeAdminUnit = runtimeManifest?.publication_units.admin;
     if (runtimeAdminUnit && !mb.getSource?.("admin")) {
@@ -223,11 +255,21 @@ async function setupPolygonLayers(
   } catch (err) {
     logMapLayerFailure("admin-fill", err, { kind: "optional", source: "admin" });
   }
+}
 
+function setupStaticAdminLayer(
+  mb: MapboxLayerApi,
+  manifest: VectorTileManifest | null,
+  runtimeManifest: VectorTileRuntimeManifest | null,
+): void {
   try {
     const artifact = manifest ? getVectorTileArtifact(manifest, "admin") : undefined;
-    if (artifact && !runtimeManifest?.publication_units.admin && !mb.getSource?.("admin")) {
-      if (!manifest) return;
+    if (
+      manifest &&
+      artifact &&
+      !runtimeManifest?.publication_units.admin &&
+      !mb.getSource?.("admin")
+    ) {
       mb.addSource("admin", buildVectorTileSource(manifest, "admin"));
       mb.addLayer({
         id: "admin-fill",
@@ -246,11 +288,12 @@ async function setupPolygonLayers(
   } catch (err) {
     logMapLayerFailure("admin-fill", err, { kind: "optional", source: "admin" });
   }
+}
 
+function setupComplexLayer(mb: MapboxLayerApi, manifest: VectorTileManifest | null): void {
   try {
     const artifact = manifest ? getVectorTileArtifact(manifest, "complex") : undefined;
-    if (artifact && !mb.getSource?.("complex")) {
-      if (!manifest) return;
+    if (manifest && artifact && !mb.getSource?.("complex")) {
       mb.addSource("complex", buildVectorTileSource(manifest, "complex"));
       mb.addLayer({
         id: "complex-fill",

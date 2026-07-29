@@ -124,12 +124,12 @@ download guard와 secret redaction baseline 이며, Cloudflare billing API 연�
 
 ```text
 FOUNDATION_PLATFORM_RUNTIME_ENV=local|ci|staging|production
-R2_BUCKET_NAME=foundation-platform-lakehouse-dev  # local process uses the remote dev bucket
-R2_ENDPOINT=              # 또는 R2_ACCOUNT_ID
-R2_ACCOUNT_ID=
-R2_REGION=auto
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=foundation-platform-lakehouse-dev  # local process uses the remote dev bucket
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT=              # 또는 FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION=auto
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY=
 ```
 
 스크립트는 secret 값을 출력하지 않는다.

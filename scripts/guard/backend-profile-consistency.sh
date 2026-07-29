@@ -27,7 +27,7 @@ check_profile_file() {
   runtime="$(value_from_file "$file" FOUNDATION_PLATFORM_RUNTIME_ENV || true)"
   context="$(value_from_file "$file" FOUNDATION_PLATFORM_EXECUTION_CONTEXT || true)"
   acknowledgement="$(value_from_file "$file" FOUNDATION_PLATFORM_PRELAUNCH_SHARED || true)"
-  bucket="$(value_from_file "$file" R2_BUCKET_NAME || true)"
+  bucket="$(value_from_file "$file" FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET || true)"
   catalog_driver="$(value_from_file "$file" FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER || true)"
   bronze_driver="$(value_from_file "$file" FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER || true)"
 

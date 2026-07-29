@@ -69,13 +69,18 @@ async fn memory_adapter_audit_port_appends_events_in_order() {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Returns a [`PostgresWorkflowState`] connected to the test database, or
-/// `None` when `INTELLIGENCE_TEST_DATABASE_URL` is not set/empty (triggers
-/// self-skip in the caller).
-async fn pg_state_or_skip() -> Option<Arc<PostgresWorkflowState>> {
+/// Returns a [`PostgresWorkflowState`] connected to the test database.
+///
+/// `INTELLIGENCE_TEST_DATABASE_URL` is supplied by `intelligence-ci.yml` next to
+/// its Postgres service. It used to be optional here, which meant deleting that
+/// one YAML line would quietly downgrade this contract suite to a two-test
+/// in-memory no-op that still reported success. Requiring it makes such a
+/// regression a failure instead of a silent loss of coverage.
+async fn pg_state() -> Arc<PostgresWorkflowState> {
     let url = std::env::var("INTELLIGENCE_TEST_DATABASE_URL")
         .ok()
-        .filter(|u| !u.is_empty())?;
+        .filter(|u| !u.is_empty())
+        .expect("INTELLIGENCE_TEST_DATABASE_URL must be set and non-empty for the Postgres lane");
 
     let config = PostgresWorkflowStateConfig::new(url, 10)
         .expect("INTELLIGENCE_TEST_DATABASE_URL produced an invalid config");
@@ -84,7 +89,7 @@ async fn pg_state_or_skip() -> Option<Arc<PostgresWorkflowState>> {
         .await
         .expect("failed to connect to test database");
 
-    Some(Arc::new(pg))
+    Arc::new(pg)
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +103,7 @@ async fn postgres_adapter_passes_outbox_contract() {
     // record while the other contract scenario is still using it.
     let _guard = postgres_test_mutex().lock().await;
 
-    let Some(pg) = pg_state_or_skip().await else {
-        eprintln!("skipping postgres_adapter_passes_outbox_contract: INTELLIGENCE_TEST_DATABASE_URL not set");
-        return;
-    };
+    let pg = pg_state().await;
 
     // Truncate the outbox and audit tables so the suite's fixed idempotency
     // keys succeed on every run against the same database container.
@@ -126,16 +128,10 @@ async fn postgres_adapter_passes_outbox_contract() {
 async fn postgres_adapter_audit_port_appends_event() {
     let _guard = postgres_test_mutex().lock().await;
 
-    let url = match std::env::var("INTELLIGENCE_TEST_DATABASE_URL")
+    let url = std::env::var("INTELLIGENCE_TEST_DATABASE_URL")
         .ok()
         .filter(|u| !u.is_empty())
-    {
-        Some(u) => u,
-        None => {
-            eprintln!("skipping postgres_adapter_audit_port_appends_event: INTELLIGENCE_TEST_DATABASE_URL not set");
-            return;
-        }
-    };
+        .expect("INTELLIGENCE_TEST_DATABASE_URL must be set and non-empty for the Postgres lane");
 
     let config = PostgresWorkflowStateConfig::new(&url, 10)
         .expect("INTELLIGENCE_TEST_DATABASE_URL produced an invalid config");

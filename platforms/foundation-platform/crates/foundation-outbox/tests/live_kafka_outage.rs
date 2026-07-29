@@ -31,8 +31,13 @@ impl EventBroadcaster for NoopFallback {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL; deliberately targets an unreachable Kafka broker"]
 async fn live_kafka_outage_retries_then_quarantines_without_acknowledging() -> TestResult {
+    // Fail loud, like live_kafka_karapace and live_kafka_outbox_roundtrip do on
+    // their own gate. This returned `Ok(())`, so the Kafka lane — whose
+    // required_env did not list this variable — could run the outage contract
+    // against nothing and report a pass. The test is `#[ignore]`, so reaching
+    // this line means a harness deliberately asked for it.
     if std::env::var("FOUNDATION_TEST_KAFKA_REQUIRED").as_deref() != Ok("1") {
-        return Ok(());
+        return Err("FOUNDATION_TEST_KAFKA_REQUIRED=1 is required for the live outage test".into());
     }
     let database_url = std::env::var("DATABASE_URL")
         .map_err(|_| "FOUNDATION_TEST_KAFKA_REQUIRED=1 requires DATABASE_URL")?;

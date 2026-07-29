@@ -974,13 +974,23 @@ fn resolve_optional_input_path(root: &Path, path: &Path) -> PathBuf {
 }
 
 fn assert_r2_env_present(config: &ExecuteConfig) -> anyhow::Result<()> {
-    for name in ["R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] {
+    for name in [
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+    ] {
         if config.env_value(name).is_none() {
             bail!("Missing required environment variable: {name}");
         }
     }
-    if config.env_value("R2_ENDPOINT").is_none() && config.env_value("R2_ACCOUNT_ID").is_none() {
-        bail!("Missing required R2 addressing environment variable: R2_ENDPOINT or R2_ACCOUNT_ID");
+    if config
+        .env_value("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT")
+        .is_none()
+        && config
+            .env_value("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID")
+            .is_none()
+    {
+        bail!("Missing required R2 addressing environment variable: FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT or FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID");
     }
     Ok(())
 }

@@ -457,19 +457,21 @@ fn namespace_report(namespace: &LakehouseStorageNamespace) -> NamespaceReport {
 }
 
 fn verify_foundation_platform_r2_bucket_env(blockers: &mut Vec<String>) {
-    match std::env::var("R2_BUCKET_NAME") {
+    match std::env::var("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET") {
         Ok(value)
             if value.trim()
                 == LakehouseOwnerService::FoundationPlatform.production_r2_bucket_name() => {}
         Ok(value) => blockers.push(format!(
-            "R2_BUCKET_NAME must be {}, got {}",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET must be {}, got {}",
             LakehouseOwnerService::FoundationPlatform.production_r2_bucket_name(),
             value.trim()
         )),
         Err(std::env::VarError::NotPresent) => {
-            blockers.push("R2_BUCKET_NAME is missing".to_owned())
+            blockers.push("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET is missing".to_owned())
         }
-        Err(error) => blockers.push(format!("R2_BUCKET_NAME is invalid: {error}")),
+        Err(error) => blockers.push(format!(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET is invalid: {error}"
+        )),
     }
 }
 

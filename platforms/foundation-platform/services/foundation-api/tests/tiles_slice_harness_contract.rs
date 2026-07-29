@@ -34,25 +34,33 @@ fn r2_validation_output(script: &Path, bucket: &str) -> Output {
         .arg(script)
         .arg("--validate-r2-config-only");
     for name in [
-        "R2_ACCOUNT_ID",
-        "R2_ACCESS_KEY_ID",
-        "R2_SECRET_ACCESS_KEY",
-        "R2_BUCKET_NAME",
-        "R2_TILES_TEST_BUCKET_NAME",
-        "R2_ENDPOINT",
-        "R2_TILES_READ_BASE_URL",
-        "R2_TILES_READ_URL",
-        "R2_TILES_OBJECT_KEY",
+        "FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID",
+        "FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET",
+        "FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT",
+        "FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_BASE_URL",
+        "FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_URL",
+        "FOUNDATION_PLATFORM_R2_TILE_PROOF_OBJECT_KEY",
     ] {
         command.env_remove(name);
     }
     command
-        .env("R2_ACCOUNT_ID", "00000000000000000000000000000000")
-        .env("R2_ACCESS_KEY_ID", "FAKEACCESS")
-        .env("R2_SECRET_ACCESS_KEY", "FAKESECRET")
-        .env("R2_TILES_TEST_BUCKET_NAME", bucket)
         .env(
-            "R2_TILES_READ_BASE_URL",
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID",
+            "00000000000000000000000000000000",
+        )
+        .env(
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID",
+            "FAKEACCESS",
+        )
+        .env(
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY",
+            "FAKESECRET",
+        )
+        .env("FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET", bucket)
+        .env(
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_BASE_URL",
             "https://tiles-slice-proof.invalid",
         )
         .output()
@@ -95,6 +103,10 @@ fn compose_is_disposable_digest_pinned_and_loopback_only() {
             "TILES_SLICE_ARTIFACT_DIR:?",
             "TILES_SLICE_PMTILES_URL:",
             "file:///artifacts/tiles-slice-proof/local/foundation-static.pmtiles",
+            "TILES_SLICE_MARTIN_CONFIG:-/etc/martin/config.yaml",
+            "TILES_SLICE_STATIC_ENV_FILE:?set TILES_SLICE_STATIC_ENV_FILE",
+            "martin-static-production.yaml",
+            "TILES_R2_PMTILES_PREFIX",
             "RUST_LOG: warn",
             "profiles:",
             "- static",
@@ -117,13 +129,13 @@ fn production_static_martin_config_uses_private_r2_prefix_discovery() {
     require_all(
         &config,
         &[
-            "pmtiles:\n  aws_access_key_id: ${FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID}",
-            "  aws_secret_access_key: ${FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY}",
+            "pmtiles:\n  aws_access_key_id: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID}",
+            "  aws_secret_access_key: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY}",
             concat!(
-                "  aws_region: ${FOUNDATION_TILE_DERIVATIVE_R2_REGION:",
+                "  aws_region: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION:",
                 "-auto}"
             ),
-            "  aws_endpoint_url: ${FOUNDATION_TILE_DERIVATIVE_R2_ENDPOINT}",
+            "  aws_endpoint_url: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT}",
             "  aws_virtual_hosted_style_request: false",
             "  paths:",
             "reload_interval:",
@@ -131,8 +143,8 @@ fn production_static_martin_config_uses_private_r2_prefix_discovery() {
         ],
         "production static Martin config",
     );
-    assert!(!config.contains("${R2_ACCESS_KEY_ID}"));
-    assert!(!config.contains("${R2_SECRET_ACCESS_KEY}"));
+    assert!(!config.contains("${FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID}"));
+    assert!(!config.contains("${FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY}"));
     assert!(!config.contains("${R2_S3_ENDPOINT}"));
     assert!(!config.contains("allow_http"));
     assert!(!config.contains("pmtiles:\n  sources:"));
@@ -160,6 +172,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "docker() { command \"$DOCKER_EXECUTABLE\" \"$@\"; }",
             "COMPOSE_ENV_FILE_PATH=",
             "write_compose_env()",
+            "write_static_martin_env()",
             "--env-file \"$DOCKER_COMPOSE_ENV_FILE\"",
             "rm -f -- \"$COMPOSE_ENV_FILE_PATH\"",
             "< \"$REPO_ROOT/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql\"",
@@ -213,6 +226,9 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "parcel_anchor=3",
             "http://127.0.0.1:3110/health",
             "http://127.0.0.1:3101/health",
+            "wait_for_static_source",
+            "static Martin did not discover a PMTiles source",
+            "STATIC_SOURCE_ID=\"foundation_static\"",
             "http://127.0.0.1:3110/parcels,parcel_anchor_aggregate,parcel_anchor/11/1747/803",
             "http://127.0.0.1:3110/parcels,parcel_anchor_aggregate,parcel_anchor/14/13977/6426",
             "foundation_static",
@@ -231,6 +247,9 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "z14 static MVT bytes differ from dynamic",
             "LOCAL PMTiles fallback",
             "REAL R2",
+            "TILES_SLICE_USE_CANONICAL_TILE_R2",
+            "REAL R2 via Martin S3 origin",
+            "validate_r2_direct_bucket",
         ],
         "tile proof script",
     );
@@ -238,14 +257,14 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
     require_all(
         &proof,
         &[
-            "R2_ACCESS_KEY_ID",
-            "R2_SECRET_ACCESS_KEY",
-            "R2_TILES_TEST_BUCKET_NAME",
-            "R2_ACCOUNT_ID",
-            "R2_ENDPOINT",
-            "R2_TILES_READ_BASE_URL",
-            "R2_TILES_READ_URL",
-            "R2_TILES_OBJECT_KEY",
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID",
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET",
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT",
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_BASE_URL",
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_URL",
+            "FOUNDATION_PLATFORM_R2_TILE_PROOF_OBJECT_KEY",
             "declare -p \"$name\"",
             "validate_r2_test_bucket",
             "must be query-free for Martin 1.12",
@@ -254,7 +273,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "repository protected bucket SSOT is empty",
             "\"$bucket\" != *--*",
             "lakehouse_registry.rs",
-            "FOUNDATION_RECOVERY_R2_BUCKET",
+            "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET",
             "must contain tiles-slice-proof",
             "tiles-slice-proof/",
             "source \"$HTTP_EVIDENCE_HELPER\"",
@@ -372,11 +391,11 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
         "inherited xtrace must be disabled before any R2 values are inspected"
     );
     assert!(
-        !proof.contains("--user \"$R2_ACCESS_KEY_ID:$R2_SECRET_ACCESS_KEY\""),
+        !proof.contains("--user \"$FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID:$FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY\""),
         "R2 credentials must not be exposed in curl argv"
     );
     assert!(
-        !proof.contains("$R2_BUCKET_NAME"),
+        !proof.contains("$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET"),
         "the proof must never consume the generic production-capable bucket variable"
     );
     assert!(
@@ -678,7 +697,7 @@ fn production_runbook_locks_private_derivative_bucket_and_pointer_safety() {
             "release prefix limits discovery",
             "it is not an IAM boundary",
             "create-only precondition",
-            "generic lakehouse `R2_BUCKET_NAME` adapter is forbidden",
+            "canonical Lakehouse `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*` adapter is forbidden",
             "Martin 1.12 `pmtiles.paths`",
             "named sources are startup snapshots",
             "The R2 bucket itself needs no public domain",
@@ -702,7 +721,7 @@ fn production_runbook_locks_private_derivative_bucket_and_pointer_safety() {
     );
     for forbidden in [
         "dedicated public static-tile serving bucket",
-        "must retarget `R2_BUCKET_NAME`",
+        "must retarget `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET`",
         "outbox publisher writes the public R2 manifest pointer",
     ] {
         assert!(

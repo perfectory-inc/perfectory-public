@@ -40,7 +40,7 @@ class TrinoCatalogTemplateContractTest(unittest.TestCase):
         self.assertNotRegex(text, re.compile(r"cfat_[A-Za-z0-9_\\-]+"))
         self.assertNotRegex(text, re.compile(r"(?i)(password|token|secret-key|access-key)=.+[A-Za-z0-9]{12,}"))
         self.assertIn("${ENV:FOUNDATION_PLATFORM_LAKEHOUSE_JDBC_PASSWORD}", text)
-        self.assertIn("${ENV:R2_SECRET_ACCESS_KEY}", text)
+        self.assertIn("${ENV:FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY}", text)
 
     def test_dbt_readme_names_the_runtime_catalog_file(self) -> None:
         text = DBT_README.read_text(encoding="utf-8")

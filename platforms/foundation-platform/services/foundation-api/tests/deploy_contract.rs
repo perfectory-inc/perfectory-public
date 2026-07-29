@@ -496,6 +496,75 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
 }
 
 #[test]
+fn r2_connection_contract_is_the_single_non_secret_source_for_examples() -> TestResult {
+    let contract_text = read_repo_file("config/r2-connections.contract.json")?;
+    let contract: serde_json::Value = serde_json::from_str(&contract_text)?;
+    assert_eq!(contract["schema_version"], 1);
+    assert_eq!(contract["provider"], "cloudflare-r2");
+
+    let connections = contract["connections"]
+        .as_object()
+        .ok_or("R2 connection contract must contain an object of connections")?;
+    let example = read_repo_file(".env.example")?;
+    let local_example = read_repo_file(".env.local.example")?;
+
+    for (purpose, connection) in connections {
+        let required_env = connection["required_env"]
+            .as_array()
+            .ok_or_else(|| format!("R2 connection {purpose} has no required_env array"))?;
+        for key in required_env {
+            let key = key
+                .as_str()
+                .ok_or_else(|| format!("R2 connection {purpose} has a non-string env key"))?;
+            assert_eq!(
+                env_assignment_count(&example, key),
+                1,
+                ".env.example must declare {key} exactly once"
+            );
+            assert_eq!(
+                env_assignment_count(&local_example, key),
+                1,
+                ".env.local.example must declare {key} exactly once"
+            );
+        }
+
+        let expected_values = connection["expected_values"]
+            .as_object()
+            .ok_or_else(|| format!("R2 connection {purpose} has no expected_values object"))?;
+        for (key, expected) in expected_values {
+            let expected = expected.as_str().ok_or_else(|| {
+                format!("R2 connection {purpose} has a non-string value for {key}")
+            })?;
+            assert_eq!(
+                env_assignment(&example, key),
+                Some(expected),
+                ".env.example value for {key} drifted from the R2 connection contract"
+            );
+            assert_eq!(
+                env_assignment(&local_example, key),
+                Some(expected),
+                ".env.local.example value for {key} drifted from the R2 connection contract"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn env_assignment_count(contents: &str, key: &str) -> usize {
+    let prefix = format!("{key}=");
+    contents
+        .lines()
+        .filter(|line| line.starts_with(&prefix))
+        .count()
+}
+
+fn env_assignment<'a>(contents: &'a str, key: &str) -> Option<&'a str> {
+    let prefix = format!("{key}=");
+    contents.lines().find_map(|line| line.strip_prefix(&prefix))
+}
+
+#[test]
 fn postgres_recovery_contract_is_encrypted_bounded_and_rehearsable() -> TestResult {
     assert_postgres_recovery_compose_contract()?;
     assert_pgbackrest_repository_contract()?;
@@ -517,7 +586,7 @@ fn assert_postgres_recovery_compose_contract() -> TestResult {
         "foundation-restore-drill:",
         "pgdata:/var/lib/postgresql/data:ro",
         "recovery_data:/var/lib/postgresql/data",
-        "FOUNDATION_RECOVERY_R2_BUCKET",
+        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET",
         "FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS",
     ] {
         assert!(
@@ -526,6 +595,7 @@ fn assert_postgres_recovery_compose_contract() -> TestResult {
         );
     }
     assert!(!compose.contains("${R2_SECRET_ACCESS_KEY"));
+    assert!(!compose.contains("${FOUNDATION_RECOVERY_R2_"));
     assert!(!compose.contains("latest"));
 
     let dockerfile = read_repo_file("infra/postgres/Dockerfile.recovery")?;

@@ -64,7 +64,7 @@ cargo run -p foundation-outbox-publisher -- verify-lakehouse-registry
 - 3개 production namespace가 존재한다.
 - 각 namespace의 bucket과 owner service가 맞다.
 - namespace 상태가 `active`다.
-- `R2_BUCKET_NAME`은 `foundation-platform-lakehouse-prod`와 일치한다.
+- `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET`은 `foundation-platform-lakehouse-prod`와 일치한다.
 
 ## 전국 수집 전 Preflight
 

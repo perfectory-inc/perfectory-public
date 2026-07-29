@@ -33,13 +33,20 @@ struct LocalVectorTileManifestSeed {
 
 static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-async fn pool() -> TestResult<Option<PgPool>> {
-    let Ok(url) = std::env::var("DATABASE_URL") else {
-        return Ok(None);
-    };
-    PgPool::connect(&url)
-        .await
-        .map_or_else(|_| Ok(None), |pool| Ok(Some(pool)))
+/// Fail loud on a missing or unreachable database.
+///
+/// This returned `Ok(None)` twice over: once when `DATABASE_URL` was unset, and
+/// again — via `map_or_else` — when the connection itself FAILED. Every caller
+/// then returned `Ok(())`, so six `#[ignore]` contract tests reported a pass
+/// while the Postgres lane had reached no database and, worse, while a database
+/// that refused the connection looked identical to no database at all.
+///
+/// `scripts/guard/no-silent-test-skip.sh` did not see it: the shape here was a
+/// let-else, not one of the two forms the guard matched. The guard now
+/// recognises this form too.
+async fn pool() -> TestResult<PgPool> {
+    let url = std::env::var("DATABASE_URL")?;
+    Ok(PgPool::connect(&url).await?)
 }
 
 async fn cleanup_test_rows(pool: &PgPool) -> TestResult {
@@ -91,9 +98,7 @@ impl ObjectStorageService for RecordingObjectStorage {
 #[ignore = "requires local docker stack"]
 async fn tick_publishes_pending_catalog_rows_and_marks_published_at() -> TestResult {
     let _guard = TEST_LOCK.lock().await;
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     cleanup_test_rows(&pool).await?;
     let event_id = Uuid::new_v4();
 
@@ -135,9 +140,7 @@ async fn tick_publishes_pending_catalog_rows_and_marks_published_at() -> TestRes
 #[ignore = "requires local docker stack and local_vector_tile_manifest seed"]
 async fn tick_publishes_active_vector_tile_manifest_pointer_from_catalog_outbox() -> TestResult {
     let _guard = TEST_LOCK.lock().await;
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     cleanup_test_rows(&pool).await?;
     let active_manifest = load_local_vector_tile_manifest_seed(&pool).await?;
     let active_snapshot = ActiveManifestSnapshot::pause(&pool).await?;
@@ -211,9 +214,7 @@ async fn tick_publishes_active_vector_tile_manifest_pointer_from_catalog_outbox(
 #[ignore = "requires local docker stack"]
 async fn tick_delivers_catalog_event_to_webhook_and_marks_published_at() -> TestResult {
     let _guard = TEST_LOCK.lock().await;
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     cleanup_test_rows(&pool).await?;
     let server = OneShotHttpServer::spawn(202)?;
     let event_id = Uuid::new_v4();
@@ -274,9 +275,7 @@ async fn tick_delivers_catalog_event_to_webhook_and_marks_published_at() -> Test
 #[ignore = "requires local docker stack"]
 async fn tick_increments_retry_count_when_broadcaster_fails() -> TestResult {
     let _guard = TEST_LOCK.lock().await;
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     cleanup_test_rows(&pool).await?;
     let event_id = Uuid::new_v4();
 
@@ -320,9 +319,7 @@ async fn tick_increments_retry_count_when_broadcaster_fails() -> TestResult {
 #[ignore = "requires local docker stack"]
 async fn tick_persists_exhausted_catalog_event_to_quarantine() -> TestResult {
     let _guard = TEST_LOCK.lock().await;
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     cleanup_test_rows(&pool).await?;
     let event_id = Uuid::new_v4();
     let config = PublisherConfig {
@@ -380,9 +377,7 @@ async fn tick_persists_exhausted_catalog_event_to_quarantine() -> TestResult {
 #[ignore = "requires local docker stack"]
 async fn tick_skips_rows_that_already_hit_max_retries() -> TestResult {
     let _guard = TEST_LOCK.lock().await;
-    let Some(pool) = pool().await? else {
-        return Ok(());
-    };
+    let pool = pool().await?;
     cleanup_test_rows(&pool).await?;
     let event_id = Uuid::new_v4();
 

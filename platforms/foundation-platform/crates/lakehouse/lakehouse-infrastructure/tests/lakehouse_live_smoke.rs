@@ -14,9 +14,15 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 #[tokio::test]
 #[ignore = "requires live Iceberg REST/R2 Data Catalog credentials; read-only snapshot lookup"]
 async fn lakehouse_live_smoke_reads_current_snapshot_for_configured_table() -> TestResult {
-    if !live_lakehouse_smoke_enabled(std::env::var(LIVE_LAKEHOUSE_SMOKE_ENV).ok().as_deref()) {
-        return Ok(());
-    }
+    // Ignored by default: reaching this line means the lakehouse lane was asked
+    // for, so a missing opt-in is a provisioning error rather than a reason to
+    // report success for a smoke that never contacted the catalog.
+    let opt_in = std::env::var(LIVE_LAKEHOUSE_SMOKE_ENV).unwrap_or_default();
+    assert!(
+        live_lakehouse_smoke_enabled(Some(opt_in.as_str())),
+        "{LIVE_LAKEHOUSE_SMOKE_ENV}=1 is required to run the lakehouse live lane; \
+         `cargo xtask integration foundation lakehouse` provisions it"
+    );
 
     let table_name =
         std::env::var(SMOKE_TABLE_ENV).unwrap_or_else(|_| DEFAULT_LAKEHOUSE_SMOKE_TABLE.to_owned());

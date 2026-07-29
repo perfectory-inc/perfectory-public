@@ -11,6 +11,8 @@ served as Mapbox Vector Tiles through two Martin lanes.
   source described below. Martin 1.12 `pmtiles.paths` is the production discovery point: it is
   configured with the private R2 S3 endpoint and read-only credentials, and it accepts only release
   PMTiles objects.
+  The accepted real-R2 proof uses that private S3 path directly; the public HTTP Range path is only
+  an optional legacy compatibility check.
 - **Consumer:** the checked local manifest resolves to Martin URLs that the existing Gongzzang
   Naver Maps/mapbox-gl integration can fetch without renderer changes.
 
@@ -24,16 +26,13 @@ The v2 parcel layer emits only canonical lowercase `pnu`; the legacy fixture vie
 uppercase `PNU` alias solely for the frozen v1 proof contract. Aggregate rendering ends at exclusive style
 zoom 12, so it remains visible through z11 without a gap before exact anchors begin at z12.
 
-The checked-in proof snapshot has been verified through the local PMTiles fallback. No
-credentialed R2 result is claimed here: a real-R2 run is evidence only when it is executed with the
-dedicated test bucket and its fresh output is retained. The local run produced a verified PMTiles
-archive and decoded seven matching
-dynamic/static features, including pnu `9999900000000000001`. No existing R2 bucket is written,
-reconfigured, or deleted by the local lane. This is still a correctness slice, not a production
-rollout or a national-scale load test.
-
-The real-R2 branch is evidence only when it is executed with the dedicated test bucket and its fresh
-output is retained. The proof never retains an unverified PutObject response body.
+The latest real-R2 run was verified against the canonical
+`foundation-platform-tile-derivatives-prod` bucket using only the unique
+`tiles-slice-proof/<run-id>/` prefix. Martin read the private PMTiles object through its
+authenticated S3 origin and decoded seven matching dynamic/static features, including pnu
+`9999900000000000001`. Upload uses `If-None-Match: *`; the harness never overwrites or deletes an
+object. The local lane remains available for offline reproduction. This is still a correctness
+slice, not a production rollout or a national-scale load test.
 
 ## Ownership and storage model
 
@@ -248,30 +247,42 @@ artifacts only; it is never an in-place update of a local or remote PMTiles arch
 
 ## Real R2 proof mode
 
-Use a dedicated proof bucket whose name contains `tiles-slice-proof`, with a bucket-scoped token
-that can access only that bucket. Standard R2 API-token scoping is bucket-level, so the
-`tiles-slice-proof/` object prefix is a second create-only guard, not an IAM boundary. Never bind the
-proof domain or token to a Bronze, canonical, lakehouse, recovery, backup, production serving, or
-other production-data bucket. The harness also reads the repository's production/recovery bucket
-SSOT and rejects those names, but the dedicated bucket is the primary isolation boundary.
+For the canonical production-shaped proof, use the Foundation tile-derivatives bucket and a
+bucket-scoped publisher/read pair. The harness writes only a unique
+`tiles-slice-proof/<run-id>/` prefix and rejects any other bucket through the checked-in R2
+connection contract. Standard R2 API-token scoping is bucket-level, so the prefix is a second
+create-only guard, not an IAM boundary. Lakehouse, Bronze, recovery, backup, and other data buckets
+are never valid tile targets.
 
-This existing harness deliberately requires an HTTP(S) Range URL so it can prove the originally
-requested remote-PMTiles capability. For the Martin 1.12 proof lane, that URL must be a query-free
-public `r2.dev` URL or bound test custom domain; Martin's PMTiles resolver does not consume a
-presigned query URL as an HTTP file source. A presigned URL may still be used for an independent
-readback check, but it is not a valid Martin source. This does not override the production default:
-a private derivative bucket read by Martin through authenticated S3-compatible access.
+The legacy proof-only HTTP lane deliberately requires an HTTPS Range URL to prove public remote
+PMTiles reads. It is optional. The production-shaped lane is the canonical path: Martin reads the
+private derivative bucket through authenticated S3-compatible access, so no public R2 URL or R2 CORS
+policy is required.
 
 Supply all values from the environment or secret manager; never put them in a file in this
 repository:
 
+For repeatable canonical runs, the tile credentials come from the ignored
+`platforms/foundation-platform/.env.local` profile (or the normal CI secret manager). The canonical
+mode is explicit and opt-in:
+
 ```bash
-export R2_ACCOUNT_ID='<Cloudflare account ID>'
-export R2_ACCESS_KEY_ID='<R2 test access key ID>'
-export R2_SECRET_ACCESS_KEY='<R2 test secret access key>'
-export R2_TILES_TEST_BUCKET_NAME='<dedicated bucket containing tiles-slice-proof>'
-export R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-export R2_TILES_READ_BASE_URL='<HTTPS r2.dev or bound test custom-domain bucket URL>'
+TILES_SLICE_USE_CANONICAL_TILE_R2=1 scripts/tiles/tiles-slice-proof.sh --validate-r2-config-only
+TILES_SLICE_USE_CANONICAL_TILE_R2=1 scripts/tiles/tiles-slice-proof.sh
+```
+
+The script reads only the `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_*` namespace, uses the publisher
+key for the create-only upload, and injects the separate Martin read-only key into the production
+config. It never prints credential values. The older `FOUNDATION_PLATFORM_R2_TILE_PROOF_*` tuple
+remains available for the optional public HTTP readback lane.
+
+```bash
+export FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID='<Cloudflare account ID>'
+export FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID='<R2 test access key ID>'
+export FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY='<R2 test secret access key>'
+export FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET='<dedicated bucket containing tiles-slice-proof>'
+export FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT="https://${FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID}.r2.cloudflarestorage.com"
+export FOUNDATION_PLATFORM_R2_TILE_PROOF_READ_BASE_URL='<HTTPS r2.dev or bound test custom-domain bucket URL>'
 
 unset R2_TILES_READ_URL R2_TILES_OBJECT_KEY
 
@@ -312,9 +323,9 @@ Rust preflight command is:
 foundation-outbox-publisher validate-tile-derivative-r2
 ```
 
-It requires `FOUNDATION_TILE_DERIVATIVE_R2_ACCOUNT_ID`, `..._ENDPOINT`, `..._BUCKET`, separate
-`..._WRITE_ACCESS_KEY_ID`/`..._WRITE_SECRET_ACCESS_KEY`, and separate Martin
-`..._READ_ACCESS_KEY_ID`/`..._READ_SECRET_ACCESS_KEY`. The bucket must be a dedicated tile/derivative
+It requires `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID`, `..._ENDPOINT`, `..._BUCKET`, separate
+`..._PUBLISHER_ACCESS_KEY_ID`/`..._PUBLISHER_SECRET_ACCESS_KEY`, and separate Martin
+`..._MARTIN_READ_ACCESS_KEY_ID`/`..._MARTIN_READ_SECRET_ACCESS_KEY`. The bucket must be a dedicated tile/derivative
 bucket and the immutable prefix is fixed to `gold/vector-tiles/releases`. Release objects are
 derived mechanically as `gold/vector-tiles/releases/{publication_unit}-{release_id}.pmtiles`;
 callers cannot supply an arbitrary key. The publisher only uses create-only writes; Martin receives
@@ -337,26 +348,24 @@ for the tile bucket. Future environments follow the same shape, for example
 Provisioning must be performed through the infrastructure/account automation and recorded here; an
 operator must not silently create a differently named bucket and only change a secret.
 
-The harness uploads with `If-None-Match: *`. It must never overwrite or delete an object. Before
-Martin starts, it performs a full public GET, requires the byte count and
-full public readback SHA-256 to equal the local archive, and separately requires an HTTP `206 Partial
-Content` Range response. Static Martin then reads that verified remote URL and repeats the decoded
-feature comparison. Success contains:
+The canonical harness uploads with `If-None-Match: *`, performs an authenticated HEAD, and requires
+the ETag, content length, and checksum metadata to match the local archive. Static Martin then
+discovers that private R2 prefix and repeats the decoded feature comparison. The optional public
+HTTP lane additionally performs a full public readback SHA-256 comparison, a full GET, and a
+`206 Partial Content` Range check. Success contains:
 
 ```text
 DYNAMIC tile OK bbox=127.1230,36.1230,127.1239,36.1239 decoded feature count=7 expected pnu=9999900000000000001
-STATIC tile OK bbox=127.1230,36.1230,127.1239,36.1239 decoded feature count=7 MATCHING features (REAL R2)
+STATIC tile OK bbox=127.1230,36.1230,127.1239,36.1239 decoded feature count=7 MATCHING features (REAL R2 via Martin S3 origin)
 tiles-slice-proof: artifacts retained at .../target/tiles-slice-proof/<run-id>
 ```
 
 The unique proof archive is intentionally left in R2 as evidence. The harness retains only an
-allowlist of non-secret response fields (status, ETag, content length/range, and checksum metadata),
-the complete public readback after its size and SHA-256 match, the 512-byte Range body after it
-matches that verified archive prefix, and `r2-evidence.txt`. The PutObject response body is
+allowlist of non-secret response fields (status, ETag, content length, and checksum metadata), plus
+the optional public readback/Range evidence and `r2-evidence.txt`. The PutObject response body is
 discarded instead of being written to disk. Raw response headers and unverified public-readback or
-Range bodies are deleted by the EXIT cleanup on both success and failure; this prevents a redirect
-or error response from retaining a presigned URL. The evidence file records the dedicated bucket,
-exact key, local and public-readback SHA-256, both byte counts, ETag, and exact `Content-Range`.
+Range bodies are deleted by the EXIT cleanup on both success and failure. The evidence file records
+the dedicated prefix, exact key, local checksum, byte count, and ETag.
 Preserve those files with the proof timestamp and command result. The harness provides no R2 delete
 path. Any later retention cleanup is a separate, explicitly approved operation against an exact
 recorded test key; it must never target a broad prefix or any production bucket.
@@ -415,15 +424,15 @@ current archive or mutates an old manifest.
    `gold/vector-tiles/releases/<publication-unit>-<release-uuid>.pmtiles`. Persist the immutable
    release, source lineage, file assets, checksum, byte size, bounds, zooms, and layer IDs in
    Catalog. Never put canonical source data in this bucket.
-6. **Use isolated credentials.** The generic lakehouse `R2_BUCKET_NAME` adapter is forbidden.
+6. **Use isolated credentials.** The canonical Lakehouse `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*` adapter is forbidden.
    The tile publisher has a bucket-scoped write credential; Martin has a different bucket-scoped
    read-only credential. Both are unable to access Bronze, lakehouse, or recovery buckets.
 7. **Stage Martin from private R2.** Deploy the checked-in
     `scripts/tiles/martin-static-production.yaml`; inject `TILES_R2_PMTILES_PREFIX` as the
-    derivative bucket's `s3://` release prefix, `FOUNDATION_TILE_DERIVATIVE_R2_ENDPOINT`,
-    `FOUNDATION_TILE_DERIVATIVE_R2_REGION`, and the read-only
-    `FOUNDATION_TILE_DERIVATIVE_R2_READ_ACCESS_KEY_ID` /
-     `FOUNDATION_TILE_DERIVATIVE_R2_READ_SECRET_ACCESS_KEY` through environment/secrets. Do not
+    derivative bucket's `s3://` release prefix, `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT`,
+    `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION`, and the read-only
+    `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID` /
+     `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY` through environment/secrets. Do not
      use a named `pmtiles.sources` URL for scheduled discovery: named sources are startup snapshots.
 8. **Verify the production-shaped route.** Wait for the expected release-addressed Martin source,
    then verify TileJSON layer IDs, authenticated R2 reads, health/readiness, and decoded MVT through

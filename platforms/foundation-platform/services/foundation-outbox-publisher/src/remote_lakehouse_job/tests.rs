@@ -93,9 +93,9 @@ fn scalar_handoff_plan_fails_when_catalog_bucket_does_not_match_r2_bucket() {
     assert!(plan
         .remote_script
         .contains("catalog_bucket=\"${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI##*/}\""));
-    assert!(plan
-        .remote_script
-        .contains("if [ \"$catalog_bucket\" != \"$R2_BUCKET_NAME\" ]; then"));
+    assert!(plan.remote_script.contains(
+        "if [ \"$catalog_bucket\" != \"$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET\" ]; then"
+    ));
 }
 
 #[test]
@@ -339,7 +339,7 @@ fn unit_pipeline_smoke_exports_units_before_spark_write() -> anyhow::Result<()> 
     assert!(plan.remote_script.contains("amazon/aws-cli"));
     assert!(plan
         .remote_script
-        .contains("s3://$R2_BUCKET_NAME/bronze/source=${source_slug}/"));
+        .contains("s3://$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET/bronze/source=${source_slug}/"));
     assert!(plan.remote_script.contains(
         "--user \"${FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}:${FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}\""
     ));

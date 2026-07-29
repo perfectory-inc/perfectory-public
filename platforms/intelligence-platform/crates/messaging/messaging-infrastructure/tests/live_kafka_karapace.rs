@@ -18,22 +18,33 @@ use rdkafka::{
     ClientConfig, Message,
 };
 
+/// Live Redpanda + Karapace endpoints for this suite.
+///
+/// Mirrors the Foundation contract enforced by
+/// `scripts/guard/foundation-kafka-contract.sh`: these tests are `#[ignore]`d, so
+/// they run only when a harness explicitly asks for them. Having been asked, a
+/// missing endpoint is a provisioning failure, not a reason to report success —
+/// an unrun contract test must never be indistinguishable from a verified one.
+///
+/// Provision with the pinned compose stack
+/// (`infra/compose/c2-event-backbone.compose.yml`) and export both variables.
+fn live_event_backbone_endpoints() -> (String, String) {
+    let bootstrap = std::env::var("INTELLIGENCE_TEST_KAFKA_BOOTSTRAP_SERVERS");
+    let registry = std::env::var("INTELLIGENCE_TEST_KARAPACE_URL");
+    match (bootstrap, registry) {
+        (Ok(bootstrap), Ok(registry)) => (bootstrap, registry),
+        _ => panic!(
+            "INTELLIGENCE_TEST_KAFKA_BOOTSTRAP_SERVERS and INTELLIGENCE_TEST_KARAPACE_URL must \
+             both be set to run the live event-backbone lane; start the pinned Redpanda+Karapace \
+             compose stack and export them, or do not request ignored tests"
+        ),
+    }
+}
+
 #[tokio::test]
+#[ignore = "requires the pinned Redpanda+Karapace compose stack"]
 async fn live_kafka_karapace_registers_publishes_consumes_and_commits() {
-    let bootstrap = match std::env::var("INTELLIGENCE_TEST_KAFKA_BOOTSTRAP_SERVERS") {
-        Ok(value) => value,
-        Err(_) => {
-            eprintln!("skipping live Kafka test: INTELLIGENCE_TEST_KAFKA_BOOTSTRAP_SERVERS unset");
-            return;
-        }
-    };
-    let registry = match std::env::var("INTELLIGENCE_TEST_KARAPACE_URL") {
-        Ok(value) => value,
-        Err(_) => {
-            eprintln!("skipping live Karapace test: INTELLIGENCE_TEST_KARAPACE_URL unset");
-            return;
-        }
-    };
+    let (bootstrap, registry) = live_event_backbone_endpoints();
 
     let schema_str = include_str!("../../../../schemas/intelligence.dead-letter.v1.avsc");
     let schema = Schema::parse_str(schema_str).unwrap();
@@ -113,21 +124,9 @@ async fn live_kafka_karapace_registers_publishes_consumes_and_commits() {
 }
 
 #[tokio::test]
+#[ignore = "requires the pinned Redpanda+Karapace compose stack"]
 async fn live_invalid_source_payload_is_dead_lettered_before_source_offset_commit() {
-    let bootstrap = match std::env::var("INTELLIGENCE_TEST_KAFKA_BOOTSTRAP_SERVERS") {
-        Ok(value) => value,
-        Err(_) => {
-            eprintln!("skipping live Kafka test: INTELLIGENCE_TEST_KAFKA_BOOTSTRAP_SERVERS unset");
-            return;
-        }
-    };
-    let registry = match std::env::var("INTELLIGENCE_TEST_KARAPACE_URL") {
-        Ok(value) => value,
-        Err(_) => {
-            eprintln!("skipping live Karapace test: INTELLIGENCE_TEST_KARAPACE_URL unset");
-            return;
-        }
-    };
+    let (bootstrap, registry) = live_event_backbone_endpoints();
 
     let run_id = uuid::Uuid::new_v4().simple().to_string();
     let source_topic = format!("intelligence.live.invalid-source.{run_id}.v1");

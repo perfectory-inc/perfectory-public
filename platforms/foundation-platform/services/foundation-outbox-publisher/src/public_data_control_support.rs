@@ -313,10 +313,22 @@ pub const REQUIRED_SECRETS: &[(&str, &[&str])] = &[
         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
         &["ProductionOrchestrator"],
     ),
-    ("R2_BUCKET_NAME", &["ProductionOrchestrator"]),
-    ("R2_ENDPOINT", &["ProductionOrchestrator"]),
-    ("R2_ACCESS_KEY_ID", &["ProductionOrchestrator"]),
-    ("R2_SECRET_ACCESS_KEY", &["ProductionOrchestrator"]),
+    (
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+        &["ProductionOrchestrator"],
+    ),
+    (
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+        &["ProductionOrchestrator"],
+    ),
+    (
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+        &["ProductionOrchestrator"],
+    ),
+    (
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        &["ProductionOrchestrator"],
+    ),
     (
         "FOUNDATION_PLATFORM_OUTBOX_WEBHOOK_SECRET",
         &["ConsumerReceiverE2E"],

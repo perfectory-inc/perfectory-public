@@ -864,7 +864,7 @@ fn object_storage_driver() -> anyhow::Result<String> {
 fn validate_runtime_r2_bucket(
     runtime_environment: runtime_environment::RuntimeEnvironment,
 ) -> anyhow::Result<()> {
-    let bucket = required_env_value("R2_BUCKET_NAME")?;
+    let bucket = required_env_value("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET")?;
     runtime_environment::validate_foundation_r2_bucket(runtime_environment, &bucket)
 }
 

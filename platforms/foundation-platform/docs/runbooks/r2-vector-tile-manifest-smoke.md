@@ -8,17 +8,17 @@
 ## 필요한 환경변수
 
 ```text
-R2_ACCOUNT_ID=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID=
 FOUNDATION_PLATFORM_RUNTIME_ENV=local|ci|staging|production
-R2_BUCKET_NAME=foundation-platform-lakehouse-dev  # local process uses the remote dev bucket
-R2_ENDPOINT=
-R2_REGION=auto
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=foundation-platform-lakehouse-dev  # local process uses the remote dev bucket
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION=auto
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID=
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY=
 FOUNDATION_PLATFORM_R2_SMOKE_OBJECT_KEY=gold/_smoke/foundation-platform-r2-smoke.json
 ```
 
-`R2_ENDPOINT`를 지정하지 않으면 `R2_ACCOUNT_ID`로
+`FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT`를 지정하지 않으면 `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID`로
 `https://<account_id>.r2.cloudflarestorage.com` endpoint를 만든다.
 
 ## 실행

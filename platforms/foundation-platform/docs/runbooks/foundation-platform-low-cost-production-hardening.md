@@ -15,7 +15,7 @@ recovery controls for two different storage contracts:
   `bronze-raw-30-days` Bucket Lock policy to the configured lakehouse bucket and read it back before
   allowing live collection writes.
 - PostgreSQL recovery uses a physically separate bucket supplied through
-  `FOUNDATION_RECOVERY_R2_BUCKET`. Do not Bucket Lock the whole pgBackRest repository because
+  `FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET`. Do not Bucket Lock the whole pgBackRest repository because
   pgBackRest updates metadata such as `backup.info` and `archive.info`. Its controls are a dedicated
   bucket and credentials, client-side AES-256-CBC encryption, continuous WAL archiving, 35-day
   full-backup retention, and restore rehearsal.
@@ -24,11 +24,11 @@ Apply the checked-in lock declaration to the configured logical lakehouse bucket
 Cloudflare CLI and verify it immediately:
 
 ```bash
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... R2_BUCKET_NAME=... \
-  wrangler r2 bucket lock set "$R2_BUCKET_NAME" \
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=... \
+  wrangler r2 bucket lock set "$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET" \
   --file infra/cloudflare/foundation-platform-lakehouse-prod.bucket-lock.json --force
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... R2_BUCKET_NAME=... \
-  wrangler r2 bucket lock list "$R2_BUCKET_NAME"
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=... \
+  wrangler r2 bucket lock list "$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET"
 ```
 
 Do not add a lock for the pgBackRest repository unless completed backup objects and mutable repository

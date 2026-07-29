@@ -466,7 +466,7 @@ A stale event may safely finish its immutable object but cannot regress the muta
 publisher never rewrites the frozen schema-v1 `gold/manifest.json`.
 
 Before production, the publisher and Martin smoke tests must use dedicated derivative-bucket
-configuration. The generic lakehouse `R2_BUCKET_NAME` adapter and its credentials are forbidden for
+configuration. The Lakehouse `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*` adapter and its credentials are forbidden for
 tile publication. Publisher credentials are bucket-scoped write credentials; Martin credentials
 are separate bucket-scoped read-only credentials.
 

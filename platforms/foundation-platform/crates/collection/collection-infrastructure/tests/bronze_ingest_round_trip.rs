@@ -20,24 +20,22 @@ use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-async fn pool() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
-    match PgPool::connect(&url).await {
-        Ok(p) => Some(p),
-        Err(e) => {
-            eprintln!("skipping - could not connect to DATABASE_URL: {e}");
-            None
-        }
-    }
+/// Connection for this `#[ignore]`d live suite. Both failure modes abort the
+/// test: a configured-but-unreachable database must not silently downgrade a
+/// contract test into a no-op that still reports success.
+async fn pool() -> PgPool {
+    let url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
+    PgPool::connect(&url)
+        .await
+        .expect("connect to the database in DATABASE_URL")
 }
 
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 #[allow(clippy::too_many_lines)]
 async fn bronze_ingest_round_trip_preserves_source_run_object_batch_and_schema_profile() {
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
     let repo = PgBronzeIngestRepository::new(pool.clone());
     let uow = PgBronzeIngestUnitOfWork::new(pool.clone());
     let fixture = BronzeFixture::new();
@@ -192,9 +190,7 @@ async fn bronze_ingest_round_trip_preserves_source_run_object_batch_and_schema_p
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn bronze_dedupe_conflict_adopts_latest_object_key_and_run() {
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
     let repo = PgBronzeIngestRepository::new(pool.clone());
     let uow = PgBronzeIngestUnitOfWork::new(pool.clone());
     let fixture = BronzeFixture::new();
@@ -260,9 +256,7 @@ async fn bronze_dedupe_conflict_adopts_latest_object_key_and_run() {
 #[tokio::test]
 #[ignore = "requires local docker stack"]
 async fn bronze_object_key_conflict_adopts_latest_identity_without_duplicate_row() {
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
     let uow = PgBronzeIngestUnitOfWork::new(pool.clone());
     let fixture = BronzeFixture::new();
 

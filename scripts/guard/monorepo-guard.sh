@@ -49,6 +49,7 @@ rc=0
 for g in no-subdir-github toolchain-consistency technology-version-consistency \
          foundation-kafka-contract \
          backend-profile-consistency backend-profile-consistency-self-test \
+         r2-env-namespace-consistency r2-env-namespace-consistency-self-test \
          technology-version-consistency-self-test migration-naming \
          unique-package-names no-stale-sibling-paths health-route-conformance \
          no-adhoc-cargo-lint foundation-parcel-current-selector-self-test \
@@ -64,6 +65,9 @@ for g in no-subdir-github toolchain-consistency technology-version-consistency \
          third-party-artifact-policy-self-test \
          gitleaks-policy-self-test \
          actions-cache-controls-self-test billing-budgets-self-test \
+         tiles-slice-proof-env-self-test \
+         live-lane-completeness-self-test live-lane-completeness \
+         no-silent-test-skip-self-test no-silent-test-skip \
          publication-authority-self-test \
          public-github-policy public-root-builder public-root-publisher-self-test \
          import-private-feature-diff-self-test; do

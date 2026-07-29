@@ -45,16 +45,24 @@ services:
       - static
     command:
       - --config
-      - /etc/martin/config.yaml
+      - ${TILES_SLICE_MARTIN_CONFIG:-/etc/martin/config.yaml}
     environment:
       RUST_LOG: warn
+      GONGZZANG_PUBLIC_ORIGIN: ${GONGZZANG_PUBLIC_ORIGIN:-http://127.0.0.1:3000}
       TILES_SLICE_PMTILES_URL: ${TILES_SLICE_PMTILES_URL:-file:///artifacts/tiles-slice-proof/local/foundation-static.pmtiles}
+      TILES_R2_PMTILES_PREFIX: ${TILES_R2_PMTILES_PREFIX:-}
+    env_file:
+      - ${TILES_SLICE_STATIC_ENV_FILE:?set TILES_SLICE_STATIC_ENV_FILE to the ephemeral Martin environment file}
     ports:
       - "127.0.0.1:3101:3000"
     volumes:
       - type: bind
         source: ./martin-static.yaml
         target: /etc/martin/config.yaml
+        read_only: true
+      - type: bind
+        source: ./martin-static-production.yaml
+        target: /etc/martin/config-r2.yaml
         read_only: true
       - type: bind
         source: ${TILES_SLICE_ARTIFACT_DIR:?set TILES_SLICE_ARTIFACT_DIR to the proof artifact directory}

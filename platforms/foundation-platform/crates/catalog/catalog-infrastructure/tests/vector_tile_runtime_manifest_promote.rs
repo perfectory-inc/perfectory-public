@@ -22,18 +22,23 @@ async fn runtime_manifest_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
         .await
 }
 
-async fn pool() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
-    PgPool::connect(&url).await.ok()
+/// Connection for this `#[ignore]`d live suite. Both failure modes abort the
+/// test: a configured-but-unreachable database must not silently downgrade a
+/// contract test into a no-op that still reports success — this helper used to
+/// swallow the connection error without printing anything at all.
+async fn pool() -> PgPool {
+    let url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
+    PgPool::connect(&url)
+        .await
+        .expect("connect to the database in DATABASE_URL")
 }
 
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn runtime_manifest_cas_switches_one_complete_unit() {
     let _guard = runtime_manifest_test_guard().await;
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
     let fixture = Fixture::new();
     fixture.insert(&pool).await;
 
@@ -76,9 +81,7 @@ async fn runtime_manifest_cas_switches_one_complete_unit() {
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn runtime_manifest_cas_rejects_stale_writer_without_switching_pointer() {
     let _guard = runtime_manifest_test_guard().await;
-    let Some(pool) = pool().await else {
-        return;
-    };
+    let pool = pool().await;
     let fixture = Fixture::new();
     fixture.insert(&pool).await;
 
