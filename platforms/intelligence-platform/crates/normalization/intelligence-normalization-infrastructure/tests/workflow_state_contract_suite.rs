@@ -6,9 +6,9 @@
 //!
 //! # Postgres tests
 //!
-//! Postgres tests are gated on the `INTELLIGENCE_TEST_DATABASE_URL` environment
-//! variable.  When the variable is absent or empty, the tests self-skip with an
-//! `eprintln!` notice — they are never silently ignored.
+//! Postgres tests are explicit live-lane tests selected by `cargo xtask integration intelligence postgres`.
+//! They are ignored in the backend-free default suite and require
+//! `INTELLIGENCE_TEST_DATABASE_URL` in that explicit lane.
 
 // test code: panics are failures
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -97,6 +97,7 @@ async fn pg_state() -> Arc<PostgresWorkflowState> {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[ignore = "requires the Intelligence Postgres integration lane"]
 async fn postgres_adapter_passes_outbox_contract() {
     // Both Postgres tests intentionally truncate the same dedicated test
     // tables. Serialize them so the default parallel harness cannot erase a
@@ -125,6 +126,7 @@ async fn postgres_adapter_passes_outbox_contract() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[ignore = "requires the Intelligence Postgres integration lane"]
 async fn postgres_adapter_audit_port_appends_event() {
     let _guard = postgres_test_mutex().lock().await;
 

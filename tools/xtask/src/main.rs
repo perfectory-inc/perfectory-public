@@ -624,6 +624,21 @@ const AREAS: &[Area] = &[
                     test: "redis_rate_limit_live",
                 }],
             },
+            LiveLane {
+                name: "postgres",
+                required_env: &["INTELLIGENCE_TEST_DATABASE_URL"],
+                gating: LaneGating::Ignored,
+                targets: &[
+                    LaneTarget {
+                        package: "knowledge-infrastructure",
+                        test: "knowledge_source_registry_contract",
+                    },
+                    LaneTarget {
+                        package: "intelligence-normalization-infrastructure",
+                        test: "workflow_state_contract_suite",
+                    },
+                ],
+            },
         ],
     },
 ];
@@ -1250,6 +1265,41 @@ mod tests {
         // No summary at all (a build that produced no test binary) is also zero,
         // never "assume it was fine".
         assert_eq!(executed_test_count("Compiling gongzzang-persistence\n"), 0);
+
+        // The three variants of the summary line this parser must survive. Each
+        // one is a real shape libtest or cargo emits, and each would silently
+        // become 0 — i.e. a red lane on a run that was actually fine — if the
+        // parser started depending on the wrong part of the line.
+        //
+        // (a) A failing run still reports how many executed. The count must come
+        // from `N passed`, not from the `ok.` verdict, or a lane whose tests ran
+        // and failed would be reported as "executed 0 tests" and mask the real
+        // failure behind the wrong diagnosis.
+        assert_eq!(
+            executed_test_count(
+                "test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s\n"
+            ),
+            3
+        );
+        // (b) The trailing `; finished in …` is absent in some libtest paths.
+        // Nothing may be anchored to the end of the line.
+        assert_eq!(
+            executed_test_count(
+                "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+            ),
+            3
+        );
+        // (c) `CARGO_TERM_COLOR: always` is set in gongzzang-ci.yml and
+        // foundation-ci.yml, so in CI the verdict arrives wrapped in SGR escapes
+        // — the exact environment where a miscount would be most expensive. The
+        // colour lands on `ok`/`FAILED`, never on the digits, which is why
+        // reading the token before `passed` survives it.
+        assert_eq!(
+            executed_test_count(
+                "test result: \x1b[32mok\x1b[0m. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s\n"
+            ),
+            7
+        );
     }
 
     /// Executing nothing is a lane failure, not a lane pass.

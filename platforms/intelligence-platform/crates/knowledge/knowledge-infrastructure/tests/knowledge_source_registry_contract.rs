@@ -20,6 +20,7 @@ async fn memory_registry_upserts_sources_by_tenant_product_and_source() {
 }
 
 #[tokio::test]
+#[ignore = "requires the Intelligence Postgres integration lane"]
 async fn postgres_registry_upserts_sources_by_tenant_product_and_source() {
     let registry = pg_registry().await;
     let tenant_id = unique_tenant_id("pg-contract");

@@ -60,11 +60,14 @@ jobs:
           workspaces: platforms/intelligence-platform
       # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the one
       # flag policy and the native deps (cmake+libsasl2 for rdkafka). Runs from the
-      # repo root (this job defaults to the area). The DB URL stays on this step so
-      # the workspace's DB-backed tests reach the postgres service above.
+      # repo root (this job defaults to the area). The default suite is backend-free;
+      # DB-backed contracts run in the explicit Postgres lane below.
       - name: Verify (fmt, clippy, test)
         working-directory: ${{ github.workspace }}
         run: cargo xtask verify intelligence
+      - name: Run Postgres integration lane
+        working-directory: ${{ github.workspace }}
+        run: cargo xtask integration intelligence postgres
         env:
           INTELLIGENCE_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/intelligence
 
