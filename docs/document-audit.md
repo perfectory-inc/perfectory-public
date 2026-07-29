@@ -9,7 +9,7 @@
 
 - 감사 문서: **331개**
 - 언어 분류: **{'english': 115, 'korean': 123, 'mixed': 93}**
-- 메타데이터: **191개 정상 / 0개 누락 / 140개 해당 없음**
+- 메타데이터: **190개 정상 / 1개 누락 / 140개 해당 없음**
 - 중복 파일명 후보: **5개**
 - 링크·참조 위반: **0개**
 
@@ -103,7 +103,7 @@
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/catalog/provider-rate-policy.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/catalog/public-data-bronze-lane-registry.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 6 |
-| `platforms/foundation-platform/docs/catalog/public-data-collection-catalog.md` | Foundation Platform | reference | current | korean | ok | 9 |
+| `platforms/foundation-platform/docs/catalog/public-data-collection-catalog.md` | Foundation Platform | reference | current | korean | missing: status, owner, doc_type, last_reviewed | 9 |
 | `platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json` | Foundation Platform | reference | current | mixed | not applicable: machine contract | 8 |
 | `platforms/foundation-platform/docs/catalog/README.md` | Foundation Platform | README | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/catalog/source-change-detection-policy.md` | Foundation Platform | reference | current | english | ok | 1 |
