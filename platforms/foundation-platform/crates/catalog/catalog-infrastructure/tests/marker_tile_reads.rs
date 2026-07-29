@@ -60,8 +60,8 @@ impl MarkerTileFixture {
             anchor_id: "018f0000-0000-7000-8000-00000000d001",
             pnu: "9999999999900000001",
             source_snapshot_id: "iceberg:marker-tile-read-test-0001",
-            longitude: 127.123470,
-            latitude: 36.123420,
+            longitude: 127.123_470,
+            latitude: 36.123_420,
         }
     }
 
