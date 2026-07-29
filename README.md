@@ -42,6 +42,7 @@ perfectory/
 ## 공통 기준
 
 - [기술 스택 기준표](./docs/technology-stack.md)
+- [운영 준비 작업 목록](./docs/roadmap/production-readiness.md)
 - [전역 용어집](./docs/glossary.md)
 - [전역 ADR](./docs/adr/README.md)
 - [검증 SSOT](./docs/adr/0004-verification-ssot.md)

@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: runbook
+last_reviewed: 2026-07-29
+---
+
 # hub.go.kr 벌크 Bronze 수집 실행 Runbook
 
 ## 목적

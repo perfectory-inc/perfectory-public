@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # compliance/
 
 법적·규제·인증 컴플라이언스 SSOT.
@@ -15,21 +22,12 @@
 - 법적 보유 (Legal Hold)
 - 이용약관 / 개인정보처리방침 / 위치정보 동의
 
-## 작성 예정 문서 (Phase 3+ 점진)
-- `pipa.md` — 한국 개인정보보호법 매핑
-- `isms-p.md` — 인증 준비 + 추진 일정
-- `soc2.md` — SOC 2 Type II (Vanta/Drata 검토)
-- `iso-27001.md` — ISO 27001
-- `audit-log-immutable.md` — R2 bucket lock/retention 구성
-- `data-retention.md` — 영역별 보존 기간
-- `gdpr-rtbf.md` — 삭제 흐름 + 가명화
-- `public-data-licensing.md` — 데이터셋별 매트릭스
-- `legal-pages.md` — 이용약관/개인정보처리방침/위치정보 동의
-- `data-classification.md` — Public/Internal/Confidential/Restricted
+세부 컴플라이언스 문서가 필요해지면 루트 [운영 준비 작업 목록](../../../../docs/roadmap/production-readiness.md)에
+작업을 먼저 등록한 뒤 이 폴더에 정본 문서를 추가한다.
 
 ## 관련 ADR
-- → @docs/adr/0010-scope-information-platform-option-a.md (옵션 A 범위 — 컴플라이언스 부담 낮춤)
+- [ADR 0010 — 제품 범위 옵션 A](../adr/0010-scope-information-platform-option-a.md) (컴플라이언스 부담 낮춤)
 - (Phase 3+ 인증 진입 시 추가 ADR)
 
 ## 관련 컨벤션
-- → @docs/conventions/ui-writing-korean.md (사용자 동의 UI)
+- [한국어 UI 작성 컨벤션](../conventions/ui-writing-korean.md) (사용자 동의 UI)

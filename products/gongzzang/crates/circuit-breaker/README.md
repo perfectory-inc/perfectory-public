@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # crates/circuit-breaker
 
 외부 호출 표준 미들웨어 — Circuit Breaker + Retry + Timeout + Idempotency.
@@ -27,4 +34,4 @@
 - circuit open: 10초 내 5회 실패 → 30초 차단
 - fallback: 호출 adapter가 명시적으로 소유할 때만 허용
 
-→ @docs/backend/circuit-breaker.md
+→ [Circuit Breaker 컨벤션](../../docs/backend/circuit-breaker.md)

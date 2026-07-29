@@ -1,3 +1,10 @@
+---
+status: current
+owner: intelligence-platform
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # Intelligence Platform Architecture
 
 ## Ownership

@@ -32,6 +32,8 @@ docs/
 - [Bronze 수집 레인 레지스트리](./catalog/public-data-bronze-lane-registry.v1.json)
 - [공공데이터 Bronze 수집 런북](./runbooks/public-data-bronze-lane-orchestration.md)
 - [전체 모노레포 문서 색인](../../../docs/document-catalog.md)
+- [문서 유형별 진입점](./adr/README.md) · [아키텍처](./architecture/README.md) ·
+  [카탈로그](./catalog/README.md) · [런북](./runbooks/README.md)
 
 ## 문서 영역
 

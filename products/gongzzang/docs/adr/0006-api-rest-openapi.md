@@ -43,7 +43,7 @@ Rust 백엔드 ↔ Next.js 프론트 (TS) 통신. SSS 핵심 = 타입 동기화 
 
 ## 참조
 
-- → @docs/api/openapi.md (작성 예정)
-- → @docs/conventions/error-format.md
-- → @docs/api/utoipa.md
+- OpenAPI 운영 문서 (작성 예정: `docs/api/openapi.md`)
+- [에러 형식 컨벤션](../conventions/error-format.md)
+- utoipa 운영 문서 (작성 예정: `docs/api/utoipa.md`)
 - RFC 9457 (Problem Details): https://www.rfc-editor.org/rfc/rfc9457

@@ -1,3 +1,10 @@
+---
+status: current
+owner: identity-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Identity Platform ADR
 
 identity-platform 영역의 Architecture Decision Records.

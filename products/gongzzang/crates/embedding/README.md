@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # crates/embedding
 
 Phase 3+ 자리. 시맨틱 검색·유사 매물 추천을 위한 임베딩.

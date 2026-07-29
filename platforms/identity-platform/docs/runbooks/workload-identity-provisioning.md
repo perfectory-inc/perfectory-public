@@ -1,3 +1,10 @@
+---
+status: current
+owner: identity-platform
+doc_type: runbook
+last_reviewed: 2026-07-29
+---
+
 # Workload Identity Provisioning
 
 ## Purpose

@@ -1,5 +1,8 @@
 ---
 status: current
+owner: gongzzang
+doc_type: convention
+last_reviewed: 2026-07-29
 ---
 
 # 자동 강제 흐름 (Enforcement Flow)

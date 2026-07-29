@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # 코드 컨벤션
 
 > 모든 컨벤션은 *자동 강제*되어야 함. 사람이 지키는 룰은 SSS 미달.

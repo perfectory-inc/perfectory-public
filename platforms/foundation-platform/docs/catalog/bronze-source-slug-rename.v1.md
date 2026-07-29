@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: reference
+last_reviewed: 2026-07-29
+---
+
 # Bronze source slug 매핑 (v1, 참고 문서)
 
 > 전체 데이터 목록의 현재 기준은 [공공데이터 수집 카탈로그](./public-data-collection-catalog.md)와

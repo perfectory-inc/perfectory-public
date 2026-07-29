@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Foundation Lakehouse dbt
 
 This directory contains the Foundation Platform dbt project.
@@ -30,7 +37,7 @@ was not yet compatible with that runtime.
 Before dbt is installed, run:
 
 ```powershell
-python infra/lakehouse/dbt/tests/no_dbt_forbidden_responsibilities.py
+python infra/lakehouse/dbt/tests/test_no_dbt_forbidden_responsibilities.py
 python infra/lakehouse/dbt/tests/test_model_contracts.py
 ```
 

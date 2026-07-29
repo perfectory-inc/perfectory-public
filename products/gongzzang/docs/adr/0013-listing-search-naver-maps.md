@@ -56,6 +56,6 @@ SP6-ii 매물 검색 화면에서 지도를 렌더하고 매물 핀을 표시해
 
 ## 참조
 
-- → @docs/frontend/listings-search.md
-- → @docs/adr/0003-frontend-nextjs-react19.md
+- [Listing 검색 문서](../frontend/listings-search.md)
+- [ADR 0003 — Next.js·React](./0003-frontend-nextjs-react19.md)
 - Naver Cloud Platform Maps: https://www.ncloud.com/product/applicationService/maps

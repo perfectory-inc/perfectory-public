@@ -74,14 +74,30 @@ jobs:
     env:
       IDENTITY_TEST_DATABASE_URL: postgres://identity_admin:identity_ci@localhost:5432/identity
       IDENTITY_ROLE_GRANT_TEST_DATABASE_URL: postgres://identity_admin:identity_ci@localhost:5432/identity
+      # The identity postgres lane declares both URLs. Only the first was set, so
+      # the lane could never be called and a raw `cargo test` naming one test
+      # inside one of its two targets grew in its place — which is why
+      # `live_provisioning` had never executed (ADR-0010 debt #5, ADR-0011).
+      IDENTITY_PROVISIONER_TEST_DATABASE_URL: postgres://identity_admin:identity_ci@localhost:5432/identity
+      IDENTITY_MIGRATOR_DATABASE_URL: postgres://identity_admin:identity_ci@localhost:5432/identity
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
       - name: Install Rust
         run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-      - name: Run live role-grant least-privilege contract
-        run: cargo +"$RUST_TOOLCHAIN" test --locked -p authorization-infrastructure --test role_grant_postgres api_role_assigns_atomically_without_staff_update_privilege -- --ignored --exact
+      # `role_grant_postgres` creates and migrates its own throwaway database, but
+      # `live_provisioning` connects to the one it is given and writes straight to
+      # `identity.service_principal`. The lane runs both, so the shared database
+      # has to carry the schema before either starts.
+      - name: Migrate the identity contract database
+        run: cargo +"$RUST_TOOLCHAIN" run --locked -p identity-database-migrator
+      # The lane is the SSOT for which targets run (ADR-0011). Naming a single
+      # test here is how the other target stayed unexecuted while CI reported a
+      # passing live-contract job.
+      - name: Run identity live database contracts
+        working-directory: ${{ github.workspace }}
+        run: cargo +"$RUST_TOOLCHAIN" xtask integration identity postgres
 
   compose-smoke:
     name: Identity Compose smoke

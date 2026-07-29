@@ -53,6 +53,7 @@ pub(super) async fn persist_plans(
         run_id = %report.run_id,
         last_object_key = ?report.last_object_key,
         last_object_checksum_sha256 = report.last_object_checksum_sha256.as_deref().unwrap_or(""),
+        last_object_size_bytes = report.last_object_size_bytes.unwrap_or(0),
         last_bronze_object_id = ?report.last_bronze_object_id,
         logical_record_count = report.logical_records_seen,
         objects_written = report.objects_written,
@@ -68,6 +69,9 @@ pub(super) struct BuildingRegisterPersistReport {
     /// Lowercase hex sha256 of the last Bronze object written (pairs with `last_object_key`); echoed
     /// in the run summary so the parent ledger-execute event carries a real checksum, not empty.
     pub(super) last_object_checksum_sha256: Option<String>,
+    /// Exact byte size of the last Bronze object; echoed so the parent evidence cannot report a
+    /// successful R2 write with an unknown size.
+    pub(super) last_object_size_bytes: Option<u64>,
     pub(super) last_bronze_object_id: Option<BronzeObjectId>,
     pub(super) logical_records_seen: u64,
     pub(super) objects_written: u64,
@@ -133,6 +137,7 @@ where
         // The shared collection report carries the last committed object's checksum, which this lane
         // echoes in its summary so the parent ledger-execute event has a real checksum, not empty.
         last_object_checksum_sha256: report.last_object_checksum_sha256,
+        last_object_size_bytes: report.last_object_size_bytes,
         last_bronze_object_id: report.last_bronze_object_id,
         logical_records_seen: report.logical_records_seen,
         objects_written: report.objects_written,

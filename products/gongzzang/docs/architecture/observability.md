@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: architecture
+last_reviewed: 2026-07-29
+---
+
 # Observability
 
 This document maps the current Gongzzang observability surface.

@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # auth/
 
 인증·인가·세션 SSOT.
@@ -13,21 +20,15 @@
 - JWT 검증 미들웨어 (Rust)
 - 세션 (Valkey 8, Redis protocol)
 
-## 작성 예정 문서 (sub-project 3)
-- `zitadel.md` — Zitadel 운영, 커스텀 페이지
-- `social-providers.md` — Google/Kakao/Naver/Apple 통합
-- `nice-identity.md` — NICE 본인인증 흐름 + 비용
-- `webauthn.md` — Passkey
-- `rbac.md` — 권한 매트릭스 (5종 역할)
-- `business-verification.md` — 사업자/중개사 검증
-- `session.md` — Valkey 8 세션 + 무효화 (Redis protocol)
+세부 인증 문서가 필요해지면 루트 [운영 준비 작업 목록](../../../../docs/roadmap/production-readiness.md)에
+작업을 먼저 등록한 뒤 이 폴더에 정본 문서를 추가한다.
 
 ## Frontend 통합
 
 - [SP6-i Frontend Integration](./frontend-integration.md) — 로컬 개발 / 디버깅 / 장애 대응
 
 ## 관련 ADR
-- → @docs/adr/0005-auth-zitadel.md
+- [ADR 0005 — Zitadel 인증](../adr/0005-auth-zitadel.md)
 
 ## 관련 컨벤션
-- → @docs/conventions/error-format.md
+- [에러 형식 컨벤션](../conventions/error-format.md)

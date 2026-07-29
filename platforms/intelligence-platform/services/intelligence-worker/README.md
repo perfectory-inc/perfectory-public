@@ -1,3 +1,10 @@
+---
+status: current
+owner: intelligence-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # intelligence-worker
 
 정규화 작업·이벤트 소비·outbox 전달을 담당하는 백그라운드 worker입니다. 운영 이벤트

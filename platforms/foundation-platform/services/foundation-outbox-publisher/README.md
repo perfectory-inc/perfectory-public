@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # foundation-outbox-publisher
 
 Foundation 운영 CLI입니다. 국가 공공데이터 수집, Bronze ledger resume, outbox 발행,

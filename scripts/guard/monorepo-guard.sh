@@ -67,6 +67,7 @@ for g in no-subdir-github toolchain-consistency technology-version-consistency \
          actions-cache-controls-self-test billing-budgets-self-test \
          tiles-slice-proof-env-self-test \
          live-lane-completeness-self-test live-lane-completeness \
+         build-coupling-baseline-self-test build-coupling-baseline \
          no-silent-test-skip-self-test no-silent-test-skip \
          publication-authority-self-test \
          public-github-policy public-root-builder public-root-publisher-self-test \

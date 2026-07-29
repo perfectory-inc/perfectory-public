@@ -226,8 +226,8 @@ pub fn bronze_object_storage_driver_from_options(
 ///
 /// Resolves the storage driver from `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER` (the same env the
 /// real storage builders read), and for `r2` requires the full R2 environment that
-/// [`R2ObjectStorage::from_env`] needs (`FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET`, `FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID`,
-/// `FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY`, and at least one of `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT` / `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID`). For `r2` it also
+/// [`R2ObjectStorage::from_env`] needs (`FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET`, `FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID`,
+/// `FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY`, and at least one of `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT` / `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID`). For `r2` it also
 /// requires the bucket governed by `FOUNDATION_PLATFORM_RUNTIME_ENV`; production continues to use
 /// the lakehouse domain's exact production-bucket SSOT. A wrong-but-present bucket would otherwise
 /// pass env-presence checks and let a direct live-write subcommand stream Bronze objects into the
@@ -294,8 +294,8 @@ where
 
     for name in [
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
     ] {
         if !present(lookup, name) {
             bail!("live-write preflight: missing required R2 environment variable: {name}");
@@ -371,11 +371,11 @@ mod tests {
                 "foundation-platform-bronze",
             ),
             (
-                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
                 "test-access",
             ),
             (
-                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
                 "test-secret",
             ),
             (
@@ -407,13 +407,13 @@ mod tests {
     #[test]
     fn preflight_r2_env_missing_secret_names_the_missing_var() {
         let mut env = full_r2_env();
-        env.remove("FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY");
+        env.remove("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY");
 
         let error = require_r2_env(&lookup_from(env))
             .expect_err("a missing R2 credential must fail the preflight");
         let message = error.to_string();
         assert!(
-            message.contains("FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY"),
+            message.contains("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY"),
             "message must name the missing var: {message}"
         );
     }
@@ -461,8 +461,8 @@ mod tests {
             EXECUTION_CONTEXT_ENV,
             PRELAUNCH_SHARED_ENV,
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID",
         ];
@@ -486,14 +486,14 @@ mod tests {
             LakehouseOwnerService::FoundationPlatform.production_r2_bucket_name(),
         );
         std::env::set_var(
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
             "test-access",
         );
         std::env::set_var(
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
             "https://account.r2.cloudflarestorage.com",
         );
-        // FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY intentionally left unset.
+        // FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY intentionally left unset.
 
         let result = live_write_target_preflight();
 
@@ -504,11 +504,11 @@ mod tests {
             }
         }
 
-        let error = result.expect_err("missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY must fail the preflight");
+        let error = result.expect_err("missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY must fail the preflight");
         assert!(
             error
                 .to_string()
-                .contains("FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY"),
+                .contains("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY"),
             "message must name the missing var: {error}"
         );
     }
@@ -520,8 +520,8 @@ mod tests {
         EXECUTION_CONTEXT_ENV,
         PRELAUNCH_SHARED_ENV,
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID",
     ];
@@ -555,11 +555,11 @@ mod tests {
         std::env::set_var("FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER", "r2");
         std::env::set_var("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET", bucket);
         std::env::set_var(
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
             "test-access",
         );
         std::env::set_var(
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
             "test-secret",
         );
         std::env::set_var(

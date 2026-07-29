@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 REPORT = ROOT / "docs/document-audit.md"
 REQUIRED_METADATA = ("status", "owner", "doc_type", "last_reviewed")
 LEGAL_NAMES = {"LICENSE", "LICENSE.md", "LICENSE.txt", "THIRD_PARTY_NOTICES.md"}
+NARRATIVE_SUFFIXES = {".md", ".mdx", ".rst", ".adoc"}
 
 
 def load_catalog_module() -> ModuleType:
@@ -91,6 +92,31 @@ def duplicate_basenames(paths: list[Path]) -> dict[str, list[Path]]:
     }
 
 
+def metadata_status(path: Path, text: str) -> str:
+    """Return metadata audit status, respecting ADR and machine-contract rules."""
+    if path.suffix.lower() not in NARRATIVE_SUFFIXES:
+        return "not applicable: machine contract"
+    if path.name in LEGAL_NAMES:
+        return "not applicable: legal text"
+    if ".draft." in path.name.lower() or re.search(
+        r"^\s*(?:status|상태)\s*$|^\s*(?:[-|]\s*)?(?:\*\*)?(?:status|상태)(?:\*\*)?\s*[:|]\s*draft\b",
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    ):
+        return "not applicable: draft"
+    if path.name.lower() != "readme.md" and "adr" in {part.lower() for part in path.parts} and re.search(
+        r"^\s*(?:[-|]\s*)?(?:\*\*)?(?:status|상태)(?:\*\*)?\s*[:|]|^##+\s+(?:status|상태)\s*$",
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    ):
+        return "not applicable: ADR fields"
+    if path.name.lower() in {"agents.md", "claude.md"}:
+        return "not applicable: agent router"
+    frontmatter = parse_frontmatter(text)
+    missing = [key for key in REQUIRED_METADATA if key not in frontmatter]
+    return "ok" if not missing else "missing: " + ", ".join(missing)
+
+
 def local_targets(source: Path, text: str, known: set[Path]) -> list[Path]:
     targets: list[Path] = []
     for raw in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
@@ -109,6 +135,38 @@ def local_targets(source: Path, text: str, known: set[Path]) -> list[Path]:
     return targets
 
 
+def broken_local_links(source: Path, text: str) -> list[str]:
+    """Return relative Markdown links whose target does not exist."""
+    broken: list[str] = []
+    for raw in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
+        target = raw.strip().split("#", 1)[0].split("?", 1)[0]
+        if not target or target.startswith(("#", "http:", "https:", "mailto:")):
+            continue
+        candidate = (ROOT / target.lstrip("/")) if target.startswith("/") else (ROOT / source.parent / target)
+        if not candidate.exists():
+            broken.append(raw.strip())
+    return broken
+
+
+def policy_violations() -> list[tuple[Path, str]]:
+    """Find pseudo-path references and broken local Markdown links."""
+    catalog = load_catalog_module()
+    output_paths = {
+        REPORT.relative_to(ROOT),
+        catalog.OUTPUT.relative_to(ROOT),
+    }
+    paths = [path for path in catalog.tracked_paths() if path not in output_paths]
+    violations: list[tuple[Path, str]] = []
+    for path in paths:
+        text = (ROOT / path).read_text(encoding="utf-8-sig")
+        if path.name.lower() != "claude.md":
+            for match in re.finditer(r"@(?:docs/|README)", text, flags=re.IGNORECASE):
+                violations.append((path, f"비표준 문서 참조: {match.group(0)}"))
+        for target in broken_local_links(path, text):
+            violations.append((path, f"깨진 상대 링크: {target}"))
+    return violations
+
+
 def audit_rows() -> list[dict[str, object]]:
     catalog = load_catalog_module()
     output_paths = {
@@ -125,8 +183,6 @@ def audit_rows() -> list[dict[str, object]]:
         inbound.update(local_targets(path, text, known))
     rows: list[dict[str, object]] = []
     for path in paths:
-        frontmatter = parse_frontmatter(texts[path])
-        missing = [key for key in REQUIRED_METADATA if key not in frontmatter]
         rows.append(
             {
                 "path": path,
@@ -134,7 +190,7 @@ def audit_rows() -> list[dict[str, object]]:
                 "doc_type": catalog.type_for(path),
                 "status": catalog.status_for(path),
                 "language": classify_language(texts[path]),
-                "metadata": "ok" if not missing else "missing: " + ", ".join(missing),
+                "metadata": metadata_status(path, texts[path]),
                 "inbound": inbound[path],
             }
         )
@@ -143,7 +199,12 @@ def audit_rows() -> list[dict[str, object]]:
 
 def render(rows: list[dict[str, object]]) -> str:
     language_counts = Counter(str(row["language"]) for row in rows)
-    metadata_counts = Counter("ok" if row["metadata"] == "ok" else "missing" for row in rows)
+    metadata_counts = Counter(
+        "ok" if row["metadata"] == "ok" else
+        "not_applicable" if str(row["metadata"]).startswith("not applicable:") else
+        "missing"
+        for row in rows
+    )
     paths = [row["path"] for row in rows]
     duplicates = duplicate_basenames(paths)  # type: ignore[arg-type]
     lines = [
@@ -158,8 +219,9 @@ def render(rows: list[dict[str, object]]) -> str:
         "",
         f"- 감사 문서: **{len(rows)}개**",
         f"- 언어 분류: **{dict(sorted(language_counts.items()))}**",
-        f"- 메타데이터: **{metadata_counts['ok']}개 정상 / {metadata_counts['missing']}개 누락**",
+        f"- 메타데이터: **{metadata_counts['ok']}개 정상 / {metadata_counts['missing']}개 누락 / {metadata_counts['not_applicable']}개 해당 없음**",
         f"- 중복 파일명 후보: **{len(duplicates)}개**",
+        f"- 링크·참조 위반: **{len(policy_violations())}개**",
         "",
         "## 언어·메타데이터별 목록",
         "",
@@ -194,8 +256,16 @@ def render(rows: list[dict[str, object]]) -> str:
         "- `mixed`: 한글과 영문 설명이 함께 존재",
         "- 코드 블록·명령어·URL·식별자는 언어 판정에서 제외",
         "- README 파일명 중복은 영역별 진입점이므로 중복 후보에서 제외",
+        "- `CLAUDE.md`의 도구 전용 `@AGENTS.md` 지시는 허용",
         "",
     ]
+    violations = policy_violations()
+    lines += ["## 링크·참조 위반", ""]
+    if violations:
+        lines.extend(f"- `{path.as_posix()}` — {message}" for path, message in violations)
+    else:
+        lines.append("- 없음")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -215,6 +285,11 @@ def main() -> int:
     if args.check:
         if not REPORT.exists() or REPORT.read_text(encoding="utf-8") != rendered:
             print(f"stale document audit: {REPORT}", file=sys.stderr)
+            return 1
+        violations = policy_violations()
+        if violations:
+            for path, message in violations:
+                print(f"documentation policy violation: {path}: {message}", file=sys.stderr)
             return 1
         return 0
     if args.write or not args.check:

@@ -1,3 +1,10 @@
+---
+status: current
+owner: intelligence-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Architecture Decision Records (ADRs)
 
 Each ADR captures one significant, hard-to-reverse decision: its context, the decision, and the consequences. ADRs are immutable once accepted — supersede rather than edit. Number them sequentially.

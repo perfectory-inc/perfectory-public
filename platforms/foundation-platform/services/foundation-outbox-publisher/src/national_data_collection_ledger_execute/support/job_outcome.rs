@@ -33,8 +33,8 @@ pub(in crate::national_data_collection_ledger_execute) fn record_reused_job(
                 "storage_driver": reuse.storage_driver,
                 "source_record_count": reuse.source_record_count,
                 "bronze_object_key": reuse.last_object_key,
-                "bronze_checksum_sha256": "",
-                "bronze_size_bytes": 0,
+                "bronze_checksum_sha256": reuse.last_object_checksum_sha256,
+                "bronze_size_bytes": reuse.last_object_size_bytes,
                 "reused_bronze_object": true
             }),
         ),

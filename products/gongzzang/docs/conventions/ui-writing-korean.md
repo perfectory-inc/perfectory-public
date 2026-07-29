@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # UI 라이팅 (한국어 해요체)
 
 ## 1. 톤

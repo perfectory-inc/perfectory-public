@@ -39,6 +39,6 @@
 
 ## 참조
 
-- → @AGENTS.md §3 (데이터 접근 규칙)
-- → @docs/sss-charter.md
-- → @docs/adr/0011-embedding-gemini-pgvector.md
+- [Gongzzang AGENTS.md](../../AGENTS.md) §3 (데이터 접근 규칙)
+- [SSS 헌장](../sss-charter.md)
+- [ADR 0011 — Gemini·pgvector](./0011-embedding-gemini-pgvector.md)

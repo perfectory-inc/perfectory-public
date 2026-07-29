@@ -75,6 +75,14 @@ fn parses_recover_bronze_catalog_command() {
 }
 
 #[test]
+fn parses_check_r2_runtime_target_command() {
+    let command = parse_command(["foundation-outbox-publisher", "check-r2-runtime-target"])
+        .expect("R2 runtime target command should parse");
+
+    assert_eq!(command, Command::CheckR2RuntimeTarget);
+}
+
+#[test]
 fn parses_canonical_release_proof_command() {
     let command = parse_command([
         "foundation-outbox-publisher",

@@ -39,6 +39,6 @@ Next.js는 UI 렌더링 + 얇은 BFF 프록시 (인증 검사 + Rust API 호출)
 
 ## 참조
 
-- → @docs/conventions/rust.md
-- → @docs/conventions/typescript.md
-- → @docs/sss-charter.md (안전성·성능 기둥)
+- [Rust 컨벤션](../conventions/rust.md)
+- [TypeScript 컨벤션](../conventions/typescript.md)
+- [SSS 헌장](../sss-charter.md) (안전성·성능 기둥)

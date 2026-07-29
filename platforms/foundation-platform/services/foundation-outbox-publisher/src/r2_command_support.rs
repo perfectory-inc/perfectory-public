@@ -103,11 +103,11 @@ pub fn r2_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectStorageCon
             .unwrap_or_else(|| "auto".to_owned()),
         access_key_id: required_value_from_dotenv_or_env(
             &values,
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
         )?,
         secret_access_key: required_value_from_dotenv_or_env(
             &values,
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         )?,
     })
 }

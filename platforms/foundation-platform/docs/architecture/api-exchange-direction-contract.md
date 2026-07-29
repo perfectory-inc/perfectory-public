@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: architecture
+last_reviewed: 2026-07-29
+---
+
 # API Exchange Direction Contract
 
 Status: Accepted

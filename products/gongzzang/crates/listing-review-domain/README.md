@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # listing-review-domain
 
 `ListingReview` (Listing Review Queue) 도메인 (RDS 동적) crate에요.

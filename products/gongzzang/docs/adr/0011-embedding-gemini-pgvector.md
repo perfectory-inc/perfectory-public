@@ -43,7 +43,7 @@
 
 ## 참조
 
-- → @docs/data/search.md (작성 예정)
-- → @docs/adr/0010-scope-information-platform-option-a.md (옵션 A 범위)
+- 검색 데이터 문서 (작성 예정: `docs/data/search.md`)
+- [ADR 0010 — 제품 범위 옵션 A](./0010-scope-information-platform-option-a.md) (옵션 A 범위)
 - Gemini Embedding: https://ai.google.dev/gemini-api/docs/embeddings
 - pgvector: https://github.com/pgvector/pgvector

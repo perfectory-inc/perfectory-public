@@ -44,6 +44,6 @@ SSS 7 기둥 중 *추적성*과 *가시성* 필수. 모든 외부 호출 audit, 
 
 ## 참조
 
-- → @docs/observability/README.md (작성 예정)
+- [관측성 문서](../architecture/observability.md)
 - OpenTelemetry: https://opentelemetry.io
 - Grafana SLO: https://grafana.com/products/cloud/slo/

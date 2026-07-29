@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # SSS 헌장 (SSS Charter)
 
 > *하이엔드 엔터프라이즈 SSS급* 품질의 정의. **"표면적으로 잘 정리된 폴더 ≠ SSS. 근본적으로 깔끔한 시스템 = SSS."**

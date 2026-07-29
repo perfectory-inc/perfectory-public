@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # gongzzang-outbox
 
 Gongzzang 제품 이벤트를 durable outbox에서 발행하는 경계입니다. Foundation 이벤트와

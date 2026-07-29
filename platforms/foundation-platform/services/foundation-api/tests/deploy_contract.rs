@@ -596,6 +596,12 @@ fn assert_postgres_recovery_compose_contract() -> TestResult {
     }
     assert!(!compose.contains("${R2_SECRET_ACCESS_KEY"));
     assert!(!compose.contains("${FOUNDATION_RECOVERY_R2_"));
+    assert!(compose.contains("FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_ACCESS_KEY_ID"));
+    assert!(compose.contains("FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_SECRET_ACCESS_KEY"));
+    assert!(compose.contains("FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_ACCESS_KEY_ID"));
+    assert!(compose.contains("FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY"));
+    assert!(compose.contains("*foundation-recovery-writer-environment"));
+    assert!(compose.contains("*foundation-recovery-reader-environment"));
     assert!(!compose.contains("latest"));
 
     let dockerfile = read_repo_file("infra/postgres/Dockerfile.recovery")?;

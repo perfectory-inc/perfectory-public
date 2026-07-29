@@ -1,8 +1,16 @@
-x-foundation-recovery-environment: &foundation-recovery-environment
+x-foundation-recovery-writer-environment: &foundation-recovery-writer-environment
   PGBACKREST_REPO1_S3_BUCKET: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET}
   PGBACKREST_REPO1_S3_ENDPOINT: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST}
-  PGBACKREST_REPO1_S3_KEY: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BACKUP_ACCESS_KEY_ID:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BACKUP_ACCESS_KEY_ID}
-  PGBACKREST_REPO1_S3_KEY_SECRET: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BACKUP_SECRET_ACCESS_KEY:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BACKUP_SECRET_ACCESS_KEY}
+  PGBACKREST_REPO1_S3_KEY: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_ACCESS_KEY_ID:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_ACCESS_KEY_ID}
+  PGBACKREST_REPO1_S3_KEY_SECRET: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_SECRET_ACCESS_KEY:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_SECRET_ACCESS_KEY}
+  PGBACKREST_REPO1_PATH: ${FOUNDATION_RECOVERY_REPOSITORY_PATH:-/postgres/foundation}
+  PGBACKREST_REPO1_CIPHER_PASS: ${FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS:?set FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS}
+
+x-foundation-recovery-reader-environment: &foundation-recovery-reader-environment
+  PGBACKREST_REPO1_S3_BUCKET: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET}
+  PGBACKREST_REPO1_S3_ENDPOINT: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST}
+  PGBACKREST_REPO1_S3_KEY: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_ACCESS_KEY_ID:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_ACCESS_KEY_ID}
+  PGBACKREST_REPO1_S3_KEY_SECRET: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY}
   PGBACKREST_REPO1_PATH: ${FOUNDATION_RECOVERY_REPOSITORY_PATH:-/postgres/foundation}
   PGBACKREST_REPO1_CIPHER_PASS: ${FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS:?set FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS}
 
@@ -21,7 +29,7 @@ services:
       - -c
       - archive_timeout=60s
     environment:
-      <<: *foundation-recovery-environment
+      <<: *foundation-recovery-writer-environment
     volumes:
       - pgdata:/var/lib/postgresql/data
       - postgres_socket:/var/run/postgresql
@@ -42,7 +50,7 @@ services:
     restart: "no"
     command: ["pgbackrest-backup", "backup", "--type=full"]
     environment:
-      <<: *foundation-recovery-environment
+      <<: *foundation-recovery-writer-environment
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
       - postgres_socket:/var/run/postgresql
@@ -59,7 +67,7 @@ services:
     restart: "no"
     command: ["pgbackrest-restore", "restore"]
     environment:
-      <<: *foundation-recovery-environment
+      <<: *foundation-recovery-reader-environment
     volumes:
       - recovery_data:/var/lib/postgresql/data
       - pgbackrest_restore_spool:/var/spool/pgbackrest
@@ -71,7 +79,7 @@ services:
       - recovery
     restart: "no"
     environment:
-      <<: *foundation-recovery-environment
+      <<: *foundation-recovery-reader-environment
       POSTGRES_USER: foundation_admin
       POSTGRES_PASSWORD: ${FOUNDATION_ADMIN_PASSWORD:?set FOUNDATION_ADMIN_PASSWORD}
       POSTGRES_DB: foundation

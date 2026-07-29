@@ -1,3 +1,10 @@
+---
+status: current
+owner: monorepo
+doc_type: architecture
+last_reviewed: 2026-07-29
+---
+
 <!-- public-repository-safety: reviewed-public-contract -->
 
 ---

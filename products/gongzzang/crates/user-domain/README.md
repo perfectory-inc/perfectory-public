@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # user-domain
 
 공짱 `User` Aggregate (RDS 동적).
@@ -21,4 +28,4 @@
 - RBAC roles, 도메인 이벤트
 - `update_*` 메서드 (Optimistic locking)
 
-→ ADR-0001, → @docs/conventions/rust.md
+→ [ADR 0001](../../docs/adr/0001-language-rust-ts.md), [Rust 컨벤션](../../docs/conventions/rust.md)

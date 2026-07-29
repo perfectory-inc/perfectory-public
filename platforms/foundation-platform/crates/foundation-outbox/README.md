@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Foundation outbox
 
 durable outbox, R2 object writer, JobBus와 이벤트 전달 경계를 소유합니다. 메시지 발행은

@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: reference
+last_reviewed: 2026-07-29
+---
+
 # 건축물대장 층 정규화 규칙 v1
 
 상태: 초안

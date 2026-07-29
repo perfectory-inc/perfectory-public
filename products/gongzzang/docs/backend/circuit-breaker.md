@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # Circuit Breaker
 
 This document is the Gongzzang backend SSOT for protected outbound HTTP calls.

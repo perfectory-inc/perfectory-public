@@ -1,4 +1,11 @@
-﻿# V-World Source Boundary
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
+# V-World Source Boundary
 
 V-World is a Foundation Platform Catalog input source.
 

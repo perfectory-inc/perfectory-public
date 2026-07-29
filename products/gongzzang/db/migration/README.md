@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Deprecated Migration Path
 
 `db/migration/` is not the migration source of truth.

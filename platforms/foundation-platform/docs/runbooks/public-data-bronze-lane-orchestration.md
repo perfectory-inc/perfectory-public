@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: runbook
+last_reviewed: 2026-07-29
+---
+
 # Public Data Bronze Lane Orchestration Runbook
 
 > 데이터 목록은 [공공데이터 수집 카탈로그](../catalog/public-data-collection-catalog.md),

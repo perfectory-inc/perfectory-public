@@ -38,5 +38,5 @@ ADR-0001로 Rust + TypeScript 폴리글랏 결정. 두 언어를 한 레포에�
 
 ## 참조
 
-- → @docs/conventions/git-and-pr.md
+- [Git 컨벤션](../conventions/git-and-pr.md)
 - → Cargo.toml / pnpm-workspace.yaml / turbo.json

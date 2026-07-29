@@ -16,6 +16,8 @@ on:
       - "scripts/tiles/**"
       - "scripts/verify/integration.sh"
       - "scripts/verify/foundation-kafka-live.sh"
+      - "scripts/verify/foundation-r2-lakehouse-live.sh"
+      - "scripts/guard/foundation-r2-lakehouse-live-self-test.sh"
       - "scripts/guard/foundation-kafka-contract.sh"
       - "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml"
       - "docs/technology-stack.md"
@@ -80,6 +82,10 @@ jobs:
       - name: Verify (fmt, clippy, test)
         working-directory: ${{ github.workspace }}
         run: cargo xtask verify foundation
+
+      - name: Verify R2 live lane fails closed without credentials
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/guard/foundation-r2-lakehouse-live-self-test.sh
 
   supply-chain:
     name: Supply-chain release gates

@@ -221,7 +221,7 @@ fn examples_and_ci_cover_independent_bootstrap_migration_and_compose() -> TestRe
         // xtask clippy --all-targets + test --workspace --all-features compiles+checks
         // the whole workspace.
         "cargo xtask verify identity",
-        "Run live role-grant least-privilege contract",
+        "Run identity live database contracts",
         "Build and start clean Compose stack",
         "NOT has_table_privilege('identity_api', 'identity.staff', 'UPDATE')",
         "docker compose down -v --remove-orphans",

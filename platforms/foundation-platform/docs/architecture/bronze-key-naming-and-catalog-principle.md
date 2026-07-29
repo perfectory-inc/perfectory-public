@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: architecture
+last_reviewed: 2026-07-29
+---
+
 # Bronze 객체 키 네이밍 & 사람-가독성 원칙 (with 업계 출처)
 
 > 2026-06-23 정리. Bronze 객체 키를 "더 예쁘게/사람이 보기 편하게" 바꾸고 싶을 때 읽는 문서.

@@ -61,6 +61,33 @@ last_reviewed: 2026-07-28
             },
         )
 
+    def test_treats_adr_fields_as_metadata_exemption(self) -> None:
+        self.assertEqual(
+            MODULE.metadata_status(
+                Path("docs/adr/0001-example.md"),
+                "# ADR\n\n| Status | Accepted |\n",
+            ),
+            "not applicable: ADR fields",
+        )
+
+    def test_treats_machine_contracts_as_metadata_exemption(self) -> None:
+        self.assertEqual(
+            MODULE.metadata_status(Path("docs/catalog/contract.v1.json"), "{}"),
+            "not applicable: machine contract",
+        )
+
+    def test_treats_legal_text_as_metadata_exemption(self) -> None:
+        self.assertEqual(
+            MODULE.metadata_status(Path("THIRD_PARTY_NOTICES.md"), "legal text"),
+            "not applicable: legal text",
+        )
+
+    def test_treats_draft_documents_as_metadata_exemption(self) -> None:
+        self.assertEqual(
+            MODULE.metadata_status(Path("docs/catalog/rules.v1.draft.md"), "# Draft"),
+            "not applicable: draft",
+        )
+
     def test_finds_duplicate_non_readme_basenames(self) -> None:
         paths = [
             Path("platforms/foundation-platform/docs/runbooks/deploy.md"),
@@ -71,6 +98,16 @@ last_reviewed: 2026-07-28
         self.assertEqual(
             MODULE.duplicate_basenames(paths),
             {"deploy.md": paths[:2]},
+        )
+
+    def test_finds_broken_local_links(self) -> None:
+        source = Path("docs/example.md")
+        self.assertEqual(
+            MODULE.broken_local_links(
+                source,
+                "[ok](../README.md) [bad](./missing.md) [external](https://example.com)",
+            ),
+            ["./missing.md"],
         )
 
 

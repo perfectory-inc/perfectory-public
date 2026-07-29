@@ -243,6 +243,11 @@ impl Writer {
                         page_count: request_count,
                         job_source_record_count: json_u64(&event, "source_record_count", 0),
                         job_last_bronze_object_key: last_object_key.clone(),
+                        job_last_bronze_object_checksum_sha256: json_string(
+                            &event,
+                            "bronze_checksum_sha256",
+                        ),
+                        job_last_bronze_object_size_bytes: json_u64(&event, "bronze_size_bytes", 0),
                     });
                 }
             }
@@ -460,6 +465,8 @@ struct ManifestEntry {
     page_count: u64,
     job_source_record_count: u64,
     job_last_bronze_object_key: String,
+    job_last_bronze_object_checksum_sha256: String,
+    job_last_bronze_object_size_bytes: u64,
 }
 
 #[derive(Clone)]
@@ -473,6 +480,8 @@ struct ParsedEntry {
     collection_snapshot_id: String,
     page_number: u64,
     page_count: u64,
+    job_last_bronze_object_checksum_sha256: String,
+    job_last_bronze_object_size_bytes: u64,
 }
 
 #[derive(Serialize)]
@@ -660,6 +669,15 @@ fn validate_manifest_rows(rows: &[JsonValue], blockers: &mut Vec<String>) -> Vec
             collection_snapshot_id: json_string(row, "collection_snapshot_id"),
             page_number: json_u64(row, "page_number", 0),
             page_count: json_u64(row, "page_count", 0),
+            job_last_bronze_object_checksum_sha256: json_string(
+                row,
+                "job_last_bronze_object_checksum_sha256",
+            ),
+            job_last_bronze_object_size_bytes: json_u64(
+                row,
+                "job_last_bronze_object_size_bytes",
+                0,
+            ),
         };
         add_if(
             blockers,
@@ -723,6 +741,22 @@ fn validate_manifest_rows(rows: &[JsonValue], blockers: &mut Vec<String>) -> Vec
             blockers,
             json_string(row, "storage_driver") != "r2",
             format!("manifest entry storage_driver must be r2: {}", entry.job_id),
+        );
+        add_if(
+            blockers,
+            !is_lower_sha256(&entry.job_last_bronze_object_checksum_sha256),
+            format!(
+                "manifest entry job_last_bronze_object_checksum_sha256 must be lowercase SHA-256: {}",
+                entry.job_id
+            ),
+        );
+        add_if(
+            blockers,
+            entry.job_last_bronze_object_size_bytes == 0,
+            format!(
+                "manifest entry job_last_bronze_object_size_bytes must be positive: {}",
+                entry.job_id
+            ),
         );
         add_if(
             blockers,

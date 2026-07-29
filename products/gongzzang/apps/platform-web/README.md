@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # apps/platform-web
 
 > **⚠️ 스텁 (README-only 자리표시자).** 이 디렉토리에 코드는 없다.

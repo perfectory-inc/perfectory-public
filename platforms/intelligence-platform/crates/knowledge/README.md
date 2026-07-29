@@ -1,3 +1,10 @@
+---
+status: current
+owner: intelligence-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # intelligence knowledge
 
 지식 제안과 검증을 담당하는 domain·application·infrastructure 경계입니다. 검색·벡터

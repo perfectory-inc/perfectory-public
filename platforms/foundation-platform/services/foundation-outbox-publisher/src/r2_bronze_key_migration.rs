@@ -401,11 +401,11 @@ fn r2_config_from_dotenv_str(raw: &str) -> anyhow::Result<R2ObjectStorageConfig>
             .unwrap_or_else(|| "auto".to_owned()),
         access_key_id: required_value_from_dotenv_or_env(
             &values,
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
         )?,
         secret_access_key: required_value_from_dotenv_or_env(
             &values,
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         )?,
     })
 }
@@ -531,8 +531,8 @@ mod tests {
             r#"
             FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=unit-test-bucket
             FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID=unit-test-account
-            FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID="unit-test-access"
-            FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY='unit-test-secret'
+            FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID="unit-test-access"
+            FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY='unit-test-secret'
             "#,
         )?;
 

@@ -1,5 +1,8 @@
 ---
 status: current
+owner: gongzzang
+doc_type: architecture
+last_reviewed: 2026-07-29
 ---
 
 # SSS-grade Panel System Axes

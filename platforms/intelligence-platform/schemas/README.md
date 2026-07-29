@@ -1,3 +1,10 @@
+---
+status: current
+owner: intelligence-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # schemas/
 
 Avro schema files (.avsc) for events published by the intelligence-platform.

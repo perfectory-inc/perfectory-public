@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # 법제처 국가법령정보 API
 
 ## 개요

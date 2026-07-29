@@ -9,9 +9,39 @@ last_reviewed: 2026-07-28
 
 # 단일 출처 공간 데이터 공개 구현 안내서
 
-**Status:** Approved delivery sequence; implementation pending. Steps use checkbox (`- [ ]`) syntax
-for auditable task tracking.
+**Status:** 승인된 전달 순서. 진행 중 — **87단계 중 53단계 완료(2026-07-29 저장소 실측 대조)**.
+체크박스(`- [ ]`)가 감사 가능한 진행 추적 수단이다.
 **Architecture contract:** [Single-source spatial publication](../architecture/single-source-spatial-publication.md)
+
+## 진행 현황 (2026-07-29 정합 검토)
+
+각 단계가 지목한 산출물을 저장소에서 직접 확인해 대조했다. 코드가 계획과 다른 이름으로
+구현된 경우도 실물을 기준으로 판정했다.
+
+| Task | 완료 | 상태 | 근거 |
+|---|---:|---|---|
+| 1 네이버 벡터소스 리로드 | 2/4 | 프로브 존재 | `naver-sdk.probe.ts:23,467` — `setTiles` 전략·5초 상한 단언. 실행 증거는 런타임 첨부라 미커밋 |
+| 2 Iceberg WAP | 7/8 | 실 R2만 미검증 | `spatial_tile_publication_wap.py`, `spatial_tile_wap_command.rs`, `spatial_tile_wap_evidence_contract.rs`(390줄+JSON 스키마), `main.rs:151,538` |
+| 3 ADR 정합 | 5/5 | 완료 | 루트 ADR-0006, FP-ADR-0004, GZ-ADR-0036에 단일 출처·동일 데이터 롤백·prefix reload 반영 |
+| 4 Manifest v2 | 7/7 | 완료 | `serving_publication.rs`, `catalog_v1.rs:48` (`catalog.vector_tile_runtime_manifest.published.v2`) |
+| 5 발행 원장·DB 제약 | 6/6 | 완료 | `20260724000001_spatial_tile_publication.sql` — 3개 표 + CHECK 제약, `sqlx_repository.rs` 배선 |
+| 6 원자적 활성화·승격·롤백 | 3/8 | **부분** | `promote_vector_tile_manifest.rs`·`rollback_vector_tile_manifest.rs`만 존재. **빌드 생명주기 부재** |
+| 7 WAP 후보·동적 투영 | 1/6 | **부분** | `SpatialTileWapCandidate` 포트는 있음(`lakehouse-application/src/ports.rs:141`). `spatial_tile_projection.rs` 부재 |
+| 8 PMTiles 릴리스·Martin | 5/9 | **부분** | 빌드 체인은 `tiles-slice-proof.sh`(martin-cp→MBTiles→PMTiles)에 있음. **격리 빌드 DB와 Rust 명령 3종 부재** |
+| 9 런타임 매니페스트·ETag | 5/5 | 완료 | `catalog.rs:615` `/catalog/v1/vector-tiles/runtime-manifest`, OpenAPI 반영 |
+| 10 Gongzzang v2 소비자 | 8/8 | 완료 | `foundation-vector-source-refresh.ts:66` 4초 폴링+ETag. 계약 핀 `d916cddc…` 양쪽 바이트 동일 |
+| 11 상태기계 E2E | 0/8 | **미착수** | `foundation-vector-source-publication.probe.ts` 부재 |
+| 12 스케줄·레디니스·런북 | 0/7 | **미착수** | reconcile 스크립트·systemd 유닛·`spatial_tile_refresh_observation.rs` 전부 부재 |
+| 13 최종 검증·리뷰 | 4/6 | 부분 | CI에서 foundation·gongzzang 검증 완료. 전체 완료 전이라 최종 리뷰는 미완 |
+
+**부재가 확인된 CLI 명령:** `plan-spatial-tile-build`, `record-spatial-tile-build-result`,
+`promote-spatial-tile-build`, `mark-tile-layer-dynamic`, `start-vector-tile-build`,
+`rollback-tile-layer-source`, `reconcile-spatial-tile-publication`.
+존재하는 것은 `probe-spatial-tile-wap` 하나뿐이다.
+
+**남은 작업의 실질:** Task 6의 빌드 생명주기(dynamic 표시 → 빌드 시작 → 결과 기록)가 빠져 있어
+Task 8의 정지 릴리스가 원장에 기록될 경로가 없고, 그 때문에 Task 11의 E2E 증명이 성립하지 않는다.
+**Task 6 → 8 → 11 → 12 순서가 강제된다.**
 
 **Goal:** Deliver one production-shaped `parcels` vertical slice in which Foundation keeps canonical geometry on R2/Iceberg, Martin serves one complete PostGIS or PMTiles source at a time, stale builds cannot promote, and an already-open Gongzzang map observes a committed source change within five seconds.
 
@@ -128,7 +158,7 @@ proves one supported reload path.
 - Modify: `products/gongzzang/apps/web/tests/probes/naver-sdk.probe.ts`
 - Test: `products/gongzzang/apps/web/tests/probes/naver-sdk.probe.ts`
 
-- [ ] **Step 1: Add a failing probe for the preferred `setTiles` path**
+- [x] **Step 1: Add a failing probe for the preferred `setTiles` path**
 
 After registering a small vector source, inspect the actual source object and require a callable
 `setTiles` before attempting it:
@@ -145,7 +175,7 @@ expect(source).toBeDefined();
 The probe must record the first tile URL, call `setTiles([secondUrl])` when available, and observe a
 network request for `secondUrl`. Merely finding a method name is not sufficient.
 
-- [ ] **Step 2: Add bounded fallback probes**
+- [x] **Step 2: Add bounded fallback probes**
 
 If `setTiles` is absent or ineffective, test in order:
 
@@ -196,7 +226,7 @@ provider that does not implement the standard Iceberg contract.
 - Modify: `platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs`
 - Modify: `platforms/foundation-platform/services/foundation-outbox-publisher/src/main_command_tests.rs`
 
-- [ ] **Step 1: Write failing Rust-SSOT and Spark job contract tests**
+- [x] **Step 1: Write failing Rust-SSOT and Spark job contract tests**
 
 Extend the Rust contract test first: `LakehouseTableContract` has an optional machine-readable
 `current_row_predicate`; every existing contract is `None` except `SILVER_PARCEL_BOUNDARIES`, whose
@@ -220,7 +250,7 @@ Then require the Spark job to:
 - reject zero or multiple current rows for a `pnu`, and prove superseded historical rows are absent
   from the candidate's current-row read.
 
-- [ ] **Step 2: Run the tests and observe both missing-contract and missing-job failures**
+- [x] **Step 2: Run the tests and observe both missing-contract and missing-job failures**
 
 Run:
 
@@ -237,13 +267,13 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 Expected: FAIL because the Rust contract lacks the selector and
 `spatial_tile_publication_wap.py` does not exist.
 
-- [ ] **Step 3: Extend the Rust SSOT and regenerate its Spark artifact**
+- [x] **Step 3: Extend the Rust SSOT and regenerate its Spark artifact**
 
 Add the optional field to `LakehouseTableContract`, initialize it explicitly on every static contract,
 set the parcel value once in Rust, then update the JSON derived artifact. The artifact drift test is the
 mechanical guard: Python may read the JSON value but no Python or SQL file may redefine the predicate.
 
-- [ ] **Step 4: Implement the thin Spark WAP job**
+- [x] **Step 4: Implement the thin Spark WAP job**
 
 Use Iceberg SQL branch operations rather than editing metadata files:
 
@@ -256,7 +286,7 @@ CALL <catalog>.system.fast_forward('<namespace.table>', 'main', '<branch>');
 Validate identifiers before interpolation. Keep `prepare`, `validate`, and `fast-forward` as separate
 commands so a failed candidate cannot publish itself.
 
-- [ ] **Step 5: Add the Rust command wrapper**
+- [x] **Step 5: Add the Rust command wrapper**
 
 Add:
 
@@ -270,7 +300,7 @@ executes that plan; the Rust container never receives a Docker socket. A second 
 the resulting evidence JSON, rejects an unexpected table/snapshot/branch/result, and records it below
 `target/spatial-tile-publication/`. Neither plan nor evidence may contain a catalog token.
 
-- [ ] **Step 6: Run offline contract tests**
+- [x] **Step 6: Run offline contract tests**
 
 These tests prove identifier validation, SQL construction, evidence parsing, and secret redaction. They
 are not allowed to claim provider capability:
@@ -319,7 +349,7 @@ probe produces schema-valid evidence.
 If Cloudflare's beta provider fails, stop. Record the failure and choose a conforming Iceberg REST
 Catalog provider while keeping Parquet/Iceberg data on R2; do not emulate WAP with ad-hoc object keys.
 
-- [ ] **Step 8: Commit the provider-neutral capability slice**
+- [x] **Step 8: Commit the provider-neutral capability slice**
 
 ```bash
 git add platforms/foundation-platform/infra/lakehouse/spark \
@@ -341,7 +371,7 @@ Only perform this task after Tasks 1 and 2 pass.
 - Modify: `products/gongzzang/docs/architecture/platform-integration/route-exposure-policy.v1.json`
 - Modify: `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md`
 
-- [ ] **Step 1: Replace feature overlay language with the single-source invariant**
+- [x] **Step 1: Replace feature overlay language with the single-source invariant**
 
 Document:
 
@@ -352,18 +382,18 @@ Document:
 State explicitly that Martin composite, client feature tombstones, and custom MVT
 decode/filter/re-encode are not the Foundation polygon path.
 
-- [ ] **Step 2: Define the three independent versions**
+- [x] **Step 2: Define the three independent versions**
 
 - `data_revision`: canonical feature content;
 - per-unit `serving_generation`: selected release/source;
 - global `manifest_generation` and immutable `current_version`: polling/ETag.
 
-- [ ] **Step 3: Record WAP, isolated build DB, prefix hot reload, and same-data rollback**
+- [x] **Step 3: Record WAP, isolated build DB, prefix hot reload, and same-data rollback**
 
 Link the official Iceberg branching and Martin PMTiles hot-reload documentation. Document that data
 revert creates a new canonical revision; serving rollback never changes business data.
 
-- [ ] **Step 4: Run documentation and monorepo guards**
+- [x] **Step 4: Run documentation and monorepo guards**
 
 Run:
 
@@ -375,7 +405,7 @@ git diff --check
 Expected: PASS. On Windows linked worktrees, do not invoke WSL's `/usr/bin/git` against a Windows
 `.git` pointer.
 
-- [ ] **Step 5: Commit the reconciled decision**
+- [x] **Step 5: Commit the reconciled decision**
 
 ```bash
 git add docs/adr/0006-object-storage-first-serving.md \
@@ -397,7 +427,7 @@ git commit -m "docs: adopt single-source spatial publication"
 - Test: `platforms/foundation-platform/crates/catalog/catalog-domain/tests/vector_tile_manifest.rs`
 - Test: `platforms/foundation-platform/crates/foundation-contracts/tests/vector_tile_manifest_dto.rs`
 
-- [ ] **Step 1: Write failing v2 domain and DTO tests**
+- [x] **Step 1: Write failing v2 domain and DTO tests**
 
 Test that:
 
@@ -415,7 +445,7 @@ Test that:
   policy rejects every HTTP URL;
 - unknown schema versions are rejected.
 
-- [ ] **Step 2: Run the tests and verify the missing-v2 failure**
+- [x] **Step 2: Run the tests and verify the missing-v2 failure**
 
 ```bash
 . tools/container-images.env
@@ -427,7 +457,7 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 
 Expected: FAIL because the v2 types do not exist.
 
-- [ ] **Step 3: Implement the domain types**
+- [x] **Step 3: Implement the domain types**
 
 Use explicit types:
 
@@ -448,12 +478,12 @@ only for `localhost` or loopback IP literals used by the Docker proof. Do not pu
 HTTPS-only rule inside this wire parser; the production publish gate owns and tests that stricter
 policy.
 
-- [ ] **Step 4: Implement additive v2 DTOs**
+- [x] **Step 4: Implement additive v2 DTOs**
 
 Do not deserialize future versions through `z.number().min(1)`-style permissiveness. Rust and
 TypeScript must both dispatch exactly on schema version `1` or `2`.
 
-- [ ] **Step 5: Define the additive v2 Catalog event before any application uses it**
+- [x] **Step 5: Define the additive v2 Catalog event before any application uses it**
 
 Add a `VectorTileRuntimeManifestPublishedV2` payload carrying the immutable manifest ID, global
 generation, and selected releases with their canonical Iceberg snapshot IDs. Define the fixed
@@ -464,7 +494,7 @@ serialized byte fixture unchanged. Add round-trip and golden-byte tests proving 
 deserialize identically and the v2 event cannot omit its generation/release/snapshot set. Task 9
 will consume this event; it must not define a second event shape.
 
-- [ ] **Step 6: Run the package tests**
+- [x] **Step 6: Run the package tests**
 
 ```bash
 . tools/container-images.env
@@ -476,7 +506,7 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 
 Expected: PASS for both v1 compatibility and v2 validation.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add platforms/foundation-platform/crates/catalog/catalog-domain \
@@ -493,13 +523,13 @@ git commit -m "feat(foundation): define tile publication manifest v2"
 - Modify: `platforms/foundation-platform/crates/catalog/catalog-domain/src/serving_publication.rs`
 - Test: `platforms/foundation-platform/crates/catalog/catalog-domain/tests/vector_tile_manifest.rs`
 
-- [ ] **Step 1: Fix the additive-migration guard test first**
+- [x] **Step 1: Fix the additive-migration guard test first**
 
 Change the deploy contract so it hashes the four named 2026-07-19 baseline files and separately
 asserts they remain present. Remove only the assertion that the directory contains exactly four
 migrations. Add a test proving a fifth correctly named migration is permitted.
 
-- [ ] **Step 2: Write the failing state-machine tests**
+- [x] **Step 2: Write the failing state-machine tests**
 
 Cover:
 
@@ -511,7 +541,7 @@ static release A -> same-data dynamic fallback A
 static data revision A -> old data revision Z  (reject)
 ```
 
-- [ ] **Step 3: Add normalized publication tables**
+- [x] **Step 3: Add normalized publication tables**
 
 The migration must create:
 
@@ -557,13 +587,13 @@ constraints. They are the frozen schema-v1 persistence model. V2 uses only the n
 above. Add a migration contract test that fails if the v2 migration alters either legacy table or
 changes the existing v1 route/event/object-key bytes.
 
-- [ ] **Step 4: Add the logged complete parcel projection**
+- [x] **Step 4: Add the logged complete parcel projection**
 
 Create `serving_postgis.parcel_boundary_publication` as a logged serving projection with canonical
 lowercase `pnu`, `official_complex_code`, `data_revision`, and `geometry(MultiPolygon,5179)`, plus
 primary/GiST indexes. Do not remove or mutate `serving_postgis.parcel_boundary_mirror`.
 
-- [ ] **Step 5: Run migration and domain tests**
+- [x] **Step 5: Run migration and domain tests**
 
 ```bash
 scripts/verify/integration.sh foundation
@@ -572,7 +602,7 @@ scripts/verify/integration.sh foundation
 Expected: all migrations apply as the least-privilege migrator, state constraints reject invalid
 fixtures, and the existing catalog/listing paths remain intact.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add platforms/foundation-platform/migrations \
@@ -634,7 +664,7 @@ release. With the v2 capability disabled, the same activation must update intern
 but emit no v2 public event; existing v1 event/projection behavior remains byte-identical. With the
 capability enabled, exactly one v2 event is recorded in the same transaction.
 
-- [ ] **Step 4: Write the serving-rollback test**
+- [x] **Step 4: Write the serving-rollback test**
 
 Promote static release S11 and roll back to retained dynamic release R11 with the same data revision.
 Assert a fallback with a different data revision is rejected.
@@ -647,7 +677,7 @@ Every mutation command includes `expected_active_release_id`, `expected_version`
 typed `RuntimeManifestPublicationCapability`; domain/application code must not read environment
 variables directly.
 
-- [ ] **Step 6: Implement one SQLx transaction boundary**
+- [x] **Step 6: Implement one SQLx transaction boundary**
 
 Reuse the existing `FOR UPDATE`/CAS/outbox pattern in
 `catalog-infrastructure/src/unit_of_work.rs`. Lock the singleton
@@ -671,7 +701,7 @@ scripts/verify/integration.sh foundation
 Expected: exactly one same-unit concurrent writer/promoter succeeds; two different-unit writers
 serialize without losing either selection; rollback cannot change data revision.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add platforms/foundation-platform/crates/catalog/catalog-application \
@@ -702,7 +732,7 @@ that names a different snapshot.
 The public command must not commit a serving generation unless every expected parcel for the
 candidate snapshot is present, geometry is valid, and the projection reports the same data revision.
 
-- [ ] **Step 3: Implement the provider-neutral WAP port**
+- [x] **Step 3: Implement the provider-neutral WAP port**
 
 Expose only:
 
@@ -769,7 +799,7 @@ in the live database. Decode the resulting archive and assert it contains exactl
 `canonical_iceberg_snapshot_id`, never a mixture. Include superseded SCD2 rows in the frozen input and
 prove none enter the archive.
 
-- [ ] **Step 2: Write the R2 storage-boundary tests**
+- [x] **Step 2: Write the R2 storage-boundary tests**
 
 Require:
 
@@ -803,7 +833,7 @@ contract-owned current-row predicate from the exact frozen snapshot, applies exp
 and runs all zoom passes there. Reuse the proof's pinned PostGIS/Martin images. Do not grant the
 builder DDL rights on the live serving database.
 
-- [ ] **Step 4: Implement the standard OSS build chain**
+- [x] **Step 4: Implement the standard OSS build chain**
 
 ```text
 frozen PostGIS
@@ -835,7 +865,7 @@ keeps its immutable cache. The dynamic `martin_source_id` remains the stable exp
 (`parcels` in this slice); do not invent an unconfigured source ID per generation. A query parameter
 must never be treated as a historical release selector.
 
-- [ ] **Step 6: Configure Martin remote-prefix discovery**
+- [x] **Step 6: Configure Martin remote-prefix discovery**
 
 Replace the named static source with:
 
@@ -857,7 +887,7 @@ After create-only upload, poll Martin's catalog with a bounded timeout until the
 appears. Fetch representative z/x/y tiles, decode lowercase `pnu`, compare feature IDs/counts with the
 dynamic release, and only then record the static candidate as validated.
 
-- [ ] **Step 8: Run local and real-R2 proof modes**
+- [x] **Step 8: Run local and real-R2 proof modes**
 
 ```bash
 scripts/tiles/tiles-slice-proof.sh
@@ -870,7 +900,7 @@ complete test credentials, expected output includes `REAL R2`, the unique object
 evidence, and decoded matching features. Production/lakehouse/recovery buckets must be rejected before
 upload.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add platforms/foundation-platform/services/foundation-outbox-publisher \
@@ -893,7 +923,7 @@ git commit -m "feat(foundation): publish immutable PMTiles releases"
 - Modify: `platforms/foundation-platform/crates/foundation-outbox/src/object_storage/{requests.rs,file.rs,r2.rs,tests.rs}`
 - Test: `platforms/foundation-platform/crates/foundation-outbox/tests/{vector_tile_manifest_pointer.rs,publish_roundtrip.rs}`
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 Assert:
 
@@ -924,7 +954,7 @@ Assert:
 - 128 declared concurrent visible maps produce at most 32 requests/second, and the endpoint passes a
   prelaunch 64 requests/second conditional-GET probe with zero errors and p95 below one second.
 
-- [ ] **Step 2: Implement the atomic read endpoint**
+- [x] **Step 2: Implement the atomic read endpoint**
 
 Read the active global manifest and all publication-unit release descriptors from one database
 snapshot.
@@ -943,7 +973,7 @@ the distributed 64 requests/second probe. A registry declaration without the app
 not a valid launch state. The initial deployment budget is 128 concurrent visible maps. Revisit and
 load-test a higher budget before configuration or measured usage exceeds it.
 
-- [ ] **Step 3: Add the additive v2 outbox projection**
+- [x] **Step 3: Add the additive v2 outbox projection**
 
 Consume the v2 event defined and byte-tested in Task 4; do not define a second payload here. Keep the
 v1 projection bytes unchanged. For every event, load the exact immutable Catalog manifest and write
@@ -966,7 +996,7 @@ both HTTP and R2 keep their v1 bytes and no v2 event exists; enabling after Task
 transition/reconcile to publish the current v2 state while the legacy v1 pointer remains
 byte-for-byte unchanged.
 
-- [ ] **Step 4: Regenerate and verify OpenAPI**
+- [x] **Step 4: Regenerate and verify OpenAPI**
 
 ```bash
 . tools/container-images.env
@@ -979,7 +1009,7 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 
 Expected: generated artifact matches the committed OpenAPI contract test.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```bash
 . tools/container-images.env
@@ -1012,7 +1042,7 @@ git commit -m "feat(foundation): publish atomic tile runtime manifest"
 - Modify: `products/gongzzang/docs/architecture/platform-integration/allowed-call-matrix.v1.json`
 - Modify: `products/gongzzang/docs/architecture/platform-integration/route-exposure-policy.v1.json`
 
-- [ ] **Step 1: Write strict manifest fetch tests**
+- [x] **Step 1: Write strict manifest fetch tests**
 
 Cover:
 
@@ -1029,7 +1059,7 @@ Cover:
 - invalid UUID/current version, source layer, identity, generation, or
   `refresh_after_seconds != 4` rejects the update.
 
-- [ ] **Step 2: Write atomic source-refresh tests**
+- [x] **Step 2: Write atomic source-refresh tests**
 
 Use a fake mapbox bridge matching the capability selected in Task 1. Assert:
 
@@ -1042,13 +1072,13 @@ Use a fake mapbox bridge matching the capability selected in Task 1. Assert:
   latest committed projection;
 - cleanup stops timers and aborts fetches.
 
-- [ ] **Step 3: Consolidate the layer registry**
+- [x] **Step 3: Consolidate the layer registry**
 
 Move source IDs, source-layer expectations, `promoteId`, and style dependency groups into
 `foundation-vector-layer-registry.ts`. Remove runtime string duplication. Do not add a building style
 until product design exists; make adding a future registry entry require no publication-state copy.
 
-- [ ] **Step 4: Implement conditional polling**
+- [x] **Step 4: Implement conditional polling**
 
 Poll every four seconds while mounted and visible, with at most one in-flight request. Randomize the
 initial phase, check immediately on visibility restore, abort on hide/unmount, and use bounded
@@ -1056,13 +1086,13 @@ exponential backoff after failures. Add fake-timer tests proving the steady-stat
 requests/second per visible map and timers cannot overlap. Use the Catalog endpoint directly for
 freshness; R2 remains boot/distribution projection only.
 
-- [ ] **Step 5: Implement the proven reload strategy**
+- [x] **Step 5: Implement the proven reload strategy**
 
 Use only the strategy proven by Task 1. Preserve style metadata across routine static/dynamic switches;
 a manifest that changes `source_layer`, zoom, or `feature_id_property` requires full validated
 re-registration.
 
-- [ ] **Step 6: Run unit and full web tests**
+- [x] **Step 6: Run unit and full web tests**
 
 ```bash
 pnpm -C products/gongzzang/apps/web test
@@ -1071,7 +1101,7 @@ pnpm -C products/gongzzang/apps/web probe:naver --grep "vector source reload"
 
 Expected: all Vitest tests pass and the live probe observes the second tile URL within five seconds.
 
-- [ ] **Step 7: Advance the Gongzzang provider-contract pin**
+- [x] **Step 7: Advance the Gongzzang provider-contract pin**
 
 Copy the exact generated Foundation OpenAPI bytes from
 `platforms/foundation-platform/docs/openapi/catalog.v1.json` into Gongzzang's
@@ -1089,7 +1119,7 @@ runtime endpoint in the same commit. A contract test must require the exact path
 and no-credential controls to agree across both Gongzzang policy files, the Foundation
 traffic/auth registry, and OpenAPI.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add products/gongzzang/apps/web \
@@ -1320,7 +1350,7 @@ git commit -m "feat(foundation): operate spatial tile publication"
 **Files:**
 - Verify all changed files.
 
-- [ ] **Step 1: Run formatting/diff/secret checks**
+- [x] **Step 1: Run formatting/diff/secret checks**
 
 ```bash
 git diff --check
@@ -1329,7 +1359,7 @@ scripts/ci/gitleaks-scan.sh
 
 Expected: no whitespace errors or committed secrets.
 
-- [ ] **Step 2: Run Foundation verification in the pinned Rust container**
+- [x] **Step 2: Run Foundation verification in the pinned Rust container**
 
 ```bash
 . tools/container-images.env
@@ -1341,7 +1371,7 @@ scripts/verify/integration.sh foundation
 
 Expected: PASS.
 
-- [ ] **Step 3: Run Gongzzang verification in the pinned Rust container**
+- [x] **Step 3: Run Gongzzang verification in the pinned Rust container**
 
 ```bash
 . tools/container-images.env
@@ -1374,7 +1404,7 @@ features, same-data rollback, and five-second active-map refresh all pass.
 
 Require reviewers to check the architecture invariants, not just green test status.
 
-- [ ] **Step 6: Confirm a clean branch**
+- [x] **Step 6: Confirm a clean branch**
 
 ```bash
 git status --short --branch

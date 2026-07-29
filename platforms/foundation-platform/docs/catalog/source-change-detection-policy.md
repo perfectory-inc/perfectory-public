@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: reference
+last_reviewed: 2026-07-29
+---
+
 # Source Change Detection Policy
 
 Date: 2026-06-02

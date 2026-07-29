@@ -18,6 +18,7 @@ docs/
 ├── adr/                       전역 설계 결정
 ├── architecture/             모노레포 전체 구조·경계
 ├── guides/                    전역 개발 안내
+├── roadmap/                   전역 작업 목록
 ├── glossary.md                전역 용어 정본
 └── technology-stack.md        기술·버전·환경 기준
 ```
@@ -31,7 +32,7 @@ docs/
 | [전역 용어집](./glossary.md) | 문서에서 사용하는 한글 용어 정본 |
 | [ADR](./adr/README.md) | 모노레포 전역 설계 결정 |
 | [문서 운영 안내](./guides/documentation-lifecycle.md) | 문서 작성·검토·기록·번역 절차 |
-| [생산 준비 로드맵](./architecture/platform-production-readiness-roadmap.md) | 전역 출시 준비 순서 |
+| [운영 준비 작업 목록](./roadmap/production-readiness.md) | 전역 출시 준비 할 일과 완료 순서 |
 | [전체 문서 색인](./document-catalog.md) | 영역·유형·상태별 자동 생성 문서 목록 |
 
 ## 플랫폼별 문서

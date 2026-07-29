@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # 도메인 용어 사전 (Glossary)
 
 > *Ubiquitous Language* SSOT. 한국어(사용자 노출) ↔ 영어(코드) 1:1 매핑.

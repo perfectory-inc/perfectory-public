@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Foundation contracts
 
 Foundation이 외부 플랫폼에 공개하는 HTTP·이벤트·식별자 계약의 공유 타입입니다.

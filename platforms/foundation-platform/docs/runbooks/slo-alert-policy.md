@@ -1,68 +1,70 @@
-# SLO Alert Policy
+---
+status: current
+owner: foundation-platform
+doc_type: runbook
+last_reviewed: 2026-07-29
+---
 
-## Purpose
+# SLO 알림 정책
 
-Use this runbook when defining or reviewing Foundation Platform lakehouse and API SLOs. The policy links
-SLO targets to alert rules, dashboard ownership, and on-call response expectations.
+## 목적
 
-## Required Signals
+Foundation Platform lakehouse·API SLO를 정의하거나 검토할 때 이 런북을 사용한다. 이 정책은
+SLO 목표를 알림 규칙·대시보드 소유권·on-call 대응 기준에 연결한다.
 
-Track these signals before declaring an SLO production-ready:
+## 필수 신호
 
-- API liveness and readiness status.
-- Catalog read latency and error rate.
-- Ingestion run duration, row count, and validation failure count.
-- Freshness lag from source snapshot to Gold pointer publication.
-- Outbox publish lag and retry count.
-- R2 request count and storage error count.
+SLO를 운영 준비 완료로 판정하기 전에 다음 신호를 추적한다.
 
-## Initial SLO Targets
+- API liveness·readiness 상태
+- Catalog 읽기 지연·오류율
+- 수집 실행 시간·행 수·검증 실패 수
+- source snapshot부터 Gold pointer 발행까지의 freshness 지연
+- outbox 발행 지연·재시도 수
+- R2 요청 수·저장소 오류 수
 
-- API readiness: 99.9 percent of 5-minute windows return ready.
-- API 5xx rate: page when more than 1 percent of requests return 5xx over 5 minutes.
-- API request timeouts: create an operational ticket when any timeout is observed for 5 minutes.
-- API overload rejection: create an operational ticket when concurrency-limit rejections occur for
-  5 minutes.
-- DB pool exhaustion: create an operational ticket when the pool has no idle connections and is at
-  the configured maximum for 5 minutes.
-- Catalog read availability: 99.9 percent monthly.
-- Gold freshness: critical catalog tables publish within the approved max staleness window.
-- Outbox fan-out: 99 percent of publishable events delivered or quarantined within 10 minutes.
+## 초기 SLO 목표
 
-The per-contract and per-source baseline policy source lives in
-`docs/observability/slo-policy.v1.example.json`. It fixes the initial freshness, duration, and
-outbox pending-age thresholds that the dashboard and alert rules must not silently drift from.
+- API readiness: 5분 창의 99.9%가 ready를 반환
+- API 5xx 비율: 5분 동안 요청의 1%를 초과하면 page
+- API request timeout: 5분 동안 timeout이 하나라도 관찰되면 운영 티켓 생성
+- API overload 거부: concurrency-limit 거부가 5분 동안 발생하면 운영 티켓 생성
+- DB pool 고갈: idle connection이 없고 설정된 최대치인 상태가 5분이면 운영 티켓 생성
+- Catalog 읽기 가용성: 월 99.9%
+- Gold freshness: 핵심 카탈로그 테이블이 승인된 최대 staleness 창 안에 발행
+- Outbox fan-out: 발행 가능한 이벤트의 99%가 10분 안에 전달 또는 격리
 
-## Dashboard
+계약·소스별 기준 정책의 원본은 `docs/observability/slo-policy.v1.example.json`이다. 대시보드와
+알림 규칙이 조용히 바꾸면 안 되는 초기 freshness·duration·outbox pending-age 임계값을 고정한다.
 
-The dashboard must show:
+## 대시보드
 
-- current liveness and readiness state
-- active incidents
-- latest successful source snapshot id and Gold pointer
-- latest successful lakehouse batch created time, recorded time, and row count by contract
-- latest Bronze ingestion finished time, duration, records seen, objects written, and raw response
-  bytes by source
-- public API quota-impacting request count, dependency duration, and dependency error count
-- R2 smoke request count, smoke bytes verified, inventory size, estimated list request cost,
-  billing request count, billing bytes, and billing cost
-- failed validation count by job
-- alert state and owning on-call rotation
+대시보드는 다음을 보여야 한다.
 
-The baseline dashboard source lives in
-`infra/observability/grafana/foundation-api-dashboard.json`. It includes the API scrape contract,
-lakehouse freshness, Bronze ingestion raw response bytes, public API quota/dependency artifacts,
-R2 smoke, R2 inventory, and R2 billing metrics. The dashboard is an optional presentation layer;
-Prometheus alert evaluation and Alertmanager routing do not depend on Grafana being deployed.
+- 현재 liveness·readiness 상태
+- 활성 장애
+- 최근 성공 source snapshot ID와 Gold pointer
+- 계약별 최근 성공 lakehouse batch 생성 시각·기록 시각·행 수
+- 소스별 최근 Bronze 수집 종료 시각·실행 시간·확인 레코드·작성 객체·원본 응답 바이트
+- 공공 API 쿼터 영향 요청 수·의존성 시간·의존성 오류 수
+- R2 smoke 요청 수·검증한 smoke 바이트·inventory 크기·예상 list 요청 비용·billing 요청 수·
+  billing 바이트·billing 비용
+- 작업별 검증 실패 수
+- 알림 상태와 담당 on-call rotation
 
-## Alert Policy
+기준 대시보드 원본은 `infra/observability/grafana/foundation-api-dashboard.json`이다. API scrape
+계약·lakehouse freshness·Bronze 수집 원본 응답 바이트·공공 API 쿼터/의존성 산출물·R2 smoke·
+R2 inventory·R2 billing 지표를 포함한다. 대시보드는 선택적 표시 계층이며 Prometheus 알림
+평가와 Alertmanager 라우팅은 Grafana 배포 여부에 의존하지 않는다.
 
-- Page on-call for SEV1 consumer data correctness or readiness loss.
-- Alert during business hours for freshness lag, repeated provider failures, or retry backlog.
-- Create a ticket for quota burn rate, cost anomaly, or non-critical dashboard drift.
-- Every alert must include service, environment, correlation id or run id, and the first runbook link.
+## 알림 정책
 
-## Rule Source
+- SEV1 소비자 데이터 정확성 문제 또는 readiness 손실은 on-call에 page한다.
+- freshness 지연·공급자 실패 반복·재시도 backlog는 업무 시간 알림으로 보낸다.
+- 쿼터 소진 속도·비용 이상·비핵심 대시보드 drift는 티켓을 만든다.
+- 모든 알림에는 service·environment·correlation ID 또는 run ID·첫 번째 런북 링크를 넣는다.
+
+## 규칙 원본
 
 The baseline Prometheus alert rule lives in
 `infra/observability/prometheus/foundation-api.rules.yml`. `compose.observability.yml` deploys
@@ -89,11 +91,11 @@ reason. PostgreSQL pool pressure is exported as `foundation_api_db_pool_size`,
 Request latency is exported as `foundation_api_http_request_duration_seconds_bucket` by method,
 canonical route, status, and histogram bucket.
 
-The initial staleness threshold is 24 hours, the initial slow-ingestion threshold is 3600 seconds,
-the initial outbox pending-age threshold is 600 seconds, and the initial API p95 latency threshold
-is 1 second. These are baseline operational tripwires, not final business SLOs.
+초기 staleness 임계값은 24시간, 초기 느린 수집 임계값은 3600초, 초기 outbox pending-age
+임계값은 600초, 초기 API p95 지연 임계값은 1초다. 이는 기준 운영 tripwire이며 최종 비즈니스
+SLO가 아니다.
 
-## Review
+## 검토
 
-Review SLOs after every SEV1 or SEV2 incident and before enabling a new production schedule. Do not
-raise targets until the dashboard and alert history show that current targets are consistently met.
+모든 SEV1·SEV2 장애 뒤와 새 운영 스케줄을 켜기 전에 SLO를 검토한다. 대시보드와 알림 이력이
+현재 목표를 일관되게 충족한다는 증거가 생기기 전에는 목표를 높이지 않는다.

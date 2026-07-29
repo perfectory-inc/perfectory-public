@@ -1,3 +1,10 @@
+---
+status: current
+owner: identity-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # identity-shared-kernel
 
 Identity bounded context들이 공유하는 최소 식별자·오류·정책 타입입니다. 제품 도메인이나

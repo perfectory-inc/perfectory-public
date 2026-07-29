@@ -1,3 +1,10 @@
+---
+status: current
+owner: identity-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # service-identity
 
 서비스 workload identity의 발급·검증·회전을 담당합니다. 최소권한 role과 workload

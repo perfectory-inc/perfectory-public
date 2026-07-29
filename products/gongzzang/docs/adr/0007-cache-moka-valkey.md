@@ -39,6 +39,6 @@ V-World/공공데이터포털/법제처 호출 비용·레이턴시 절감. Post
 
 ## 참조
 
-- → @docs/cache-messaging/README.md (작성 예정)
-- → @docs/cache-messaging/redis-l2.md
+- 캐시·메시징 문서 (작성 예정: `docs/cache-messaging/README.md`)
+- Valkey L2 문서 (작성 예정: `docs/cache-messaging/redis-l2.md`)
 - Valkey: https://valkey.io

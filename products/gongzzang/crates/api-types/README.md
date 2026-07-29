@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # crates/api-types
 
 OpenAPI에 노출되는 모든 타입 + 에러 코드 SSOT.
@@ -21,4 +28,4 @@ OpenAPI에 노출되는 모든 타입 + 에러 코드 SSOT.
 - 필드 네이밍: `serde(rename_all = "camelCase")` (TS와 통일)
 - 응답에 `correlationId` 자동 포함 (envelope wrapper)
 
-→ ADR-0006, → @docs/conventions/error-format.md
+→ [ADR 0006](../../docs/adr/0006-api-rest-openapi.md), [에러 형식 컨벤션](../../docs/conventions/error-format.md)

@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Foundation collection
 
 공공데이터 source adapter와 Bronze 수집 계약을 소유합니다. 원시 응답 보존, 요청 지문,

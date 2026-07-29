@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # governance/
 
 거버넌스·문서·프로세스 SSOT.
@@ -5,7 +12,7 @@
 ## 책임 영역
 - ADR (Architecture Decision Records)
 - CODEOWNERS
-- Conventional Commits (형식 규칙 — commitlint/훅 자동 강제는 미도입, → @docs/conventions/git-and-pr.md)
+- Conventional Commits (형식 규칙 — commitlint/훅 자동 강제는 미도입, [Git 컨벤션](../conventions/git-and-pr.md))
 - Changesets (버전 + 릴리즈 노트)
 - 의존성 업데이트 — 수동 검토 PR만 허용 (자동 Dependabot/Renovate 비활성화)
 - Backstage (개발자 포털, Phase 3+)
@@ -15,20 +22,11 @@
 - 사고 대응 (Incident Response)
 - Postmortem (No-blame)
 
-## 작성 예정 문서 (전반)
-- `adr-process.md` — ADR 작성 룰 + 템플릿
-- `codeowners.md` — 책임자 매핑
-- `commits-and-pr.md` (또는 conventions로 위임)
-- `changesets.md` — 버전 관리
-- 의존성 업데이트는 루트 ADR-0008의 수동 검토 PR 절차를 따른다.
-- `backstage.md` — 개발자 포털 (Phase 3+)
-- `c4-diagrams.md` — Structurizr DSL
-- `dora-metrics.md` — 측정·시각화
-- `incident-response.md` — 장애 대응 흐름
-- `postmortem.md` — 사고 후 분석 템플릿
+세부 거버넌스 문서가 필요해지면 루트 [운영 준비 작업 목록](../../../../docs/roadmap/production-readiness.md)에
+작업을 먼저 등록한 뒤 이 폴더에 정본 문서를 추가한다.
 
 ## 관련 ADR
 - (모든 ADR — `docs/adr/`)
 
 ## 관련 컨벤션
-- → @docs/conventions/git-and-pr.md
+- [Git 컨벤션](../conventions/git-and-pr.md)

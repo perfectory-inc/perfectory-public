@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: runbook
+last_reviewed: 2026-07-29
+---
+
 # Foundation Platform Integration Operations Runbook
 
 ## Scope

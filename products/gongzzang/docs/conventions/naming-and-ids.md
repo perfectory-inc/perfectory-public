@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # 네이밍 + ID 컨벤션
 
 ## 1. 케이스 규칙

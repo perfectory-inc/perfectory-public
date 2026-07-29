@@ -195,6 +195,7 @@ enum Command {
     PlanRtMolitRealTransactionExports,
     PlanVWorldDatasetCollection,
     CheckBoundedLiveIngestionGate,
+    CheckR2RuntimeTarget,
     CheckPostgisAnchorPbfRegionalProof,
     CheckRegionalDataServingLoad,
     CheckSilverGoldNationalPromotionExecution,
@@ -423,6 +424,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::CheckBoundedLiveIngestionGate => {
             Box::pin(async { bounded_live_ingestion_gate_check::run() })
+        }
+        Command::CheckR2RuntimeTarget => {
+            Box::pin(async { bronze_object_storage::live_write_target_preflight() })
         }
         Command::CheckPostgisAnchorPbfRegionalProof => {
             Box::pin(async { postgis_anchor_pbf_regional_proof_check::run() })
@@ -946,6 +950,7 @@ where
             Ok(Command::PromoteAdministrativeBoundaryRuntime)
         }
         Some("check-bounded-live-ingestion-gate") => Ok(Command::CheckBoundedLiveIngestionGate),
+        Some("check-r2-runtime-target") => Ok(Command::CheckR2RuntimeTarget),
         Some("check-postgis-anchor-pbf-regional-proof") => {
             Ok(Command::CheckPostgisAnchorPbfRegionalProof)
         }

@@ -50,11 +50,11 @@ pub(in crate::national_data_collection_ledger_execute) fn require_r2_env(
     require_env(values, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET")?;
     require_env(
         values,
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
     )?;
     require_env(
         values,
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
     )?;
     if values
         .get("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT")

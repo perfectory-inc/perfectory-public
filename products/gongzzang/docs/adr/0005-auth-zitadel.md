@@ -43,6 +43,6 @@
 
 ## 참조
 
-- → @docs/auth/README.md (작성 예정)
-- → @docs/auth/zitadel.md
-- → @docs/data-sources/nice-identity.md
+- [인증 문서](../auth/README.md)
+- Zitadel 운영 문서 (작성 예정: `docs/auth/zitadel.md`)
+- [NICE 본인인증 데이터 소스](../data-sources/nice-identity.md)

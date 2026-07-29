@@ -10,6 +10,16 @@ RAON_RUNBOOK = REPO_ROOT / "docs/runbooks/provider-acquisition-fargate.md"
 
 def test_raon_runbook_keeps_runtime_neutral_security_boundary() -> None:
     runbook = RAON_RUNBOOK.read_text(encoding="utf-8")
+    # The YAML front matter carries repository metadata such as `last_reviewed`.
+    # That date is not operational evidence; apply the security-boundary scan to
+    # the public runbook body so metadata cannot create a false positive.
+    runbook_body = re.sub(
+        r"\A---\r?\n.*?\r?\n---\r?\n",
+        "",
+        runbook,
+        count=1,
+        flags=re.DOTALL,
+    )
 
     public_evidence_patterns = {
         "dated execution result": r"\b20\d{2}-\d{2}-\d{2}\b",
@@ -31,7 +41,7 @@ def test_raon_runbook_keeps_runtime_neutral_security_boundary() -> None:
     }
 
     for evidence_kind, pattern in public_evidence_patterns.items():
-        assert re.search(pattern, runbook, flags=re.IGNORECASE) is None, evidence_kind
+        assert re.search(pattern, runbook_body, flags=re.IGNORECASE) is None, evidence_kind
 
     required_contracts = [
         "Status: runtime-neutral reference; Fargate is not selected by this document",

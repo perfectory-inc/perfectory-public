@@ -62,6 +62,8 @@ pub(in crate::national_data_collection_ledger_execute) struct ReuseEntry {
     pub(in crate::national_data_collection_ledger_execute) page_count: u64,
     pub(in crate::national_data_collection_ledger_execute) source_record_count: u64,
     pub(in crate::national_data_collection_ledger_execute) last_object_key: String,
+    pub(in crate::national_data_collection_ledger_execute) last_object_checksum_sha256: String,
+    pub(in crate::national_data_collection_ledger_execute) last_object_size_bytes: u64,
 }
 
 impl ReuseEntry {
@@ -82,6 +84,11 @@ impl ReuseEntry {
             page_count: u64_prop(first, "page_count", 0),
             source_record_count: u64_prop(first, "job_source_record_count", u64::MAX),
             last_object_key: string_prop(first, "job_last_bronze_object_key"),
+            last_object_checksum_sha256: string_prop(
+                first,
+                "job_last_bronze_object_checksum_sha256",
+            ),
+            last_object_size_bytes: u64_prop(first, "job_last_bronze_object_size_bytes", 0),
         };
         entry.validate_identity()?;
         let mut seen_pages = BTreeSet::new();
@@ -148,6 +155,18 @@ impl ReuseEntry {
                 self.job_id
             );
         }
+        if !is_sha256(&self.last_object_checksum_sha256) {
+            bail!(
+                "reuse Bronze object manifest job_last_bronze_object_checksum_sha256 must be lowercase SHA-256: {}",
+                self.job_id
+            );
+        }
+        if self.last_object_size_bytes == 0 {
+            bail!(
+                "reuse Bronze object manifest job_last_bronze_object_size_bytes must be positive: {}",
+                self.job_id
+            );
+        }
         Ok(())
     }
 }
@@ -168,6 +187,9 @@ fn validate_reuse_row(entry: &ReuseEntry, row: &JsonValue) -> anyhow::Result<()>
             != entry.request_fingerprint_schema_version
         || string_prop(row, "collection_snapshot_id") != entry.collection_snapshot_id
         || u64_prop(row, "page_count", 0) != entry.page_count
+        || string_prop(row, "job_last_bronze_object_checksum_sha256")
+            != entry.last_object_checksum_sha256
+        || u64_prop(row, "job_last_bronze_object_size_bytes", 0) != entry.last_object_size_bytes
     {
         bail!(
             "reuse Bronze object manifest metadata must be stable within fingerprint: {}",
@@ -209,4 +231,54 @@ pub(in crate::national_data_collection_ledger_execute) fn validate_reuse_identit
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::ReuseEntry;
+
+    fn valid_row() -> serde_json::Value {
+        json!({
+            "request_fingerprint_schema_version": "foundation-platform.bronze_request_fingerprint.v1",
+            "request_fingerprint_sha256": "a".repeat(64),
+            "collection_snapshot_id": "snapshot-1",
+            "job_id": "job-1",
+            "scope_unit_id": "scope-1",
+            "provider": "data.go.kr",
+            "endpoint": "building-register",
+            "storage_driver": "r2",
+            "page_count": 1,
+            "job_source_record_count": 5,
+            "job_last_bronze_object_key": "bronze/source=x/page-000001.json",
+            "job_last_bronze_object_checksum_sha256": "b".repeat(64),
+            "job_last_bronze_object_size_bytes": 4096,
+            "page_number": 1,
+            "object_key": "bronze/source=x/page-000001.json"
+        })
+    }
+
+    #[test]
+    fn reuse_entry_preserves_last_bronze_integrity_metadata() {
+        let entry = ReuseEntry::from_group("a".repeat(64).as_str(), &[valid_row()])
+            .expect("valid reuse row");
+        assert_eq!(entry.last_object_checksum_sha256, "b".repeat(64));
+        assert_eq!(entry.last_object_size_bytes, 4096);
+    }
+
+    #[test]
+    fn reuse_entry_rejects_missing_last_bronze_integrity_metadata() {
+        let mut row = valid_row();
+        row.as_object_mut()
+            .expect("object")
+            .remove("job_last_bronze_object_checksum_sha256");
+        let error = match ReuseEntry::from_group("a".repeat(64).as_str(), &[row]) {
+            Ok(_) => panic!("reuse must fail closed without checksum"),
+            Err(error) => error,
+        };
+        assert!(error
+            .to_string()
+            .contains("job_last_bronze_object_checksum_sha256"));
+    }
 }

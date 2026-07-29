@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Cost model
 
 환경별 비용 산정 방법의 SSOT다. 승인 예산, 현재 지출, invoice, account별 할인율은
