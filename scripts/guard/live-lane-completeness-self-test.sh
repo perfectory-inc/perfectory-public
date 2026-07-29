@@ -28,6 +28,25 @@ const AREAS: &[Area] = &[Area {
     live_lanes: &[LiveLane {
         name: "postgres",
         required_env: &["DATABASE_URL"],
+        gating: LaneGating::Ignored,
+        targets: &[LaneTarget {
+            package: "example-persistence",
+            test: "declared_live_reads",
+        }],
+    }],
+}];
+RUST
+
+# The same table declaring the OTHER gating style for the same target. Used to
+# prove the guard compares the declaration against the source rather than
+# accepting whatever the table says.
+xtask_feature="$test_root/xtask-feature.rs"
+cat >"$xtask_feature" <<'RUST'
+const AREAS: &[Area] = &[Area {
+    live_lanes: &[LiveLane {
+        name: "postgres",
+        required_env: &["DATABASE_URL"],
+        gating: LaneGating::Feature("integration"),
         targets: &[LaneTarget {
             package: "example-persistence",
             test: "declared_live_reads",
@@ -107,5 +126,56 @@ cat >"$missing_feature/crates/example-persistence/tests/undeclared_feature_gated
 async fn writes_rows() {}
 RUST
 expect_rejected "feature-gated target absent from every lane" "$missing_feature"
+
+# --- rejected: the target IS declared, but under the wrong gating -------------
+# Membership is not correctness. `Feature("integration")` selects with
+# `--features integration` and no `--ignored`; against an `#[ignore]` source that
+# selects nothing, and cargo still exits 0. This is the shape that hid twenty
+# gongzzang tests, and the run-time count check cannot see it for the five lanes
+# that run in no CI job.
+expect_rejected_with() {
+  local label="$1" table="$2" root="$3"
+  if bash "$checker" "$table" "$root" >/dev/null 2>&1; then
+    echo "FAIL live-lane-completeness-self-test: $label should have been rejected" >&2
+    exit 1
+  fi
+}
+expect_accepted_with() {
+  local label="$1" table="$2" root="$3"
+  if ! bash "$checker" "$table" "$root" >/dev/null 2>&1; then
+    echo "FAIL live-lane-completeness-self-test: $label should have been accepted" >&2
+    exit 1
+  fi
+}
+
+# Source is `#[ignore]`, table claims Feature(...).
+expect_rejected_with "Feature declared over an #[ignore] source" "$xtask_feature" "$ok"
+
+# Source is feature-gated, table claims Ignored — the gongzzang bug exactly.
+wrong_ignored="$test_root/wrong-ignored"
+make_crate "$wrong_ignored" example-persistence
+cat >"$wrong_ignored/crates/example-persistence/tests/declared_live_reads.rs" <<'RUST'
+#![cfg(feature = "integration")]
+
+#[tokio::test]
+async fn reads_rows() {}
+RUST
+expect_rejected_with "Ignored declared over a feature-gated source" "$xtask" "$wrong_ignored"
+
+# The matching declaration for that same source must be accepted, or the rule
+# would just forbid one style rather than compare the two.
+expect_accepted_with "Feature declared over a feature-gated source" "$xtask_feature" "$wrong_ignored"
+
+# --- rejected: a lane naming a target that does not exist --------------------
+# A typo in the table is caught by cargo eventually, but only when the lane runs
+# — and five lanes never do.
+phantom="$test_root/phantom"
+make_crate "$phantom" example-persistence
+cat >"$phantom/crates/example-persistence/tests/some_other_name.rs" <<'RUST'
+#[tokio::test]
+#[ignore = "requires a live database"]
+async fn reads_rows() {}
+RUST
+expect_rejected_with "lane names a target with no source file" "$xtask" "$phantom"
 
 echo "OK live-lane-completeness-self-test"

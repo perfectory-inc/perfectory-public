@@ -88,4 +88,98 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Membership is not correctness.
+#
+# Belonging to a lane only guarantees SOME command names the target. It does not
+# guarantee the command SELECTS it. The two gating styles need opposite cargo
+# flags — `#[ignore]` needs `-- --ignored`, `#![cfg(feature = "…")]` needs
+# `--features …` — and a lane that declares the wrong one runs zero tests while
+# cargo exits 0. That is precisely what happened to gongzzang's twenty targets:
+# fully declared, provably complete, and selected by nothing.
+#
+# xtask catches this at run time by reading the executed-test count back, which
+# is the stronger check because it observes reality. But it can only fire for a
+# lane that actually runs, and five lanes (foundation r2/lakehouse/data-go-kr,
+# intelligence kafka/redis) run in no CI job at all. For those, a wrong
+# declaration would sit undetected until someone finally provisioned the backend.
+#
+# Prior art for closing this statically: rust-lang/rust PR #108905 made unknown
+# compiletest directives (`//@ ignore-<typo>`) a hard error instead of a silent
+# no-op, and uncovered 79 tests whose declared gating had never applied.
+# ---------------------------------------------------------------------------
+
+# Every discoverable test target with the gating its SOURCE actually uses.
+# Both forms are matched as attributes anchored at the start of a line, so a
+# `#[ignore]` written inside a doc comment cannot be mistaken for a real gate.
+actual_gating="$(
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    crate_dir="${file%%/tests/*}"
+    manifest="$crate_dir/Cargo.toml"
+    [ -f "$manifest" ] || continue
+    package="$(grep -m1 '^name' "$manifest" | sed 's/.*"\(.*\)".*/\1/')"
+    [ -n "$package" ] || continue
+    target="$(basename "$file" .rs)"
+    [ "$target" = "common" ] && continue
+    feature="$(
+      grep -m1 -oE '^#!\[cfg\(feature = "[^"]+"\)\]' "$file" 2>/dev/null \
+        | sed 's/.*"\(.*\)".*/\1/' || true
+    )"
+    if [ -n "$feature" ]; then
+      printf '%s\t%s\tFeature("%s")\n' "$package" "$target" "$feature"
+    elif grep -qE '^[[:space:]]*#\[ignore' "$file" 2>/dev/null; then
+      printf '%s\t%s\tIgnored\n' "$package" "$target"
+    else
+      printf '%s\t%s\tNone\n' "$package" "$target"
+    fi
+  done < <(
+    find "${scan_roots[@]}" \
+      -type d \( -name target -o -name node_modules \) -prune -o \
+      -type f -name '*.rs' -print 2>/dev/null \
+      | grep -E '/tests/[^/]+\.rs$' \
+      | sort
+  )
+)"
+
+# What the lane table CLAIMS. `gating:` precedes `targets:` in each LiveLane, so
+# a one-state pass attaches the lane's gating to each of its targets. The
+# `#[cfg(test)] mod tests` block is cut first: it constructs bare LaneTargets
+# that would otherwise inherit the last real lane's gating.
+declared_gating="$(
+  sed '/^#\[cfg(test)\]/,$d' "$xtask_src" \
+    | grep -oE 'gating: LaneGating::(Ignored|Feature\("[^"]+"\))|package: "[^"]+"|test: "[^"]+"' \
+    | awk '
+        /^gating:/  { g = $0; sub(/^gating: LaneGating::/, "", g); next }
+        /^package:/ { p = $0; sub(/^package: "/, "", p); sub(/"$/, "", p); next }
+        /^test:/    { t = $0; sub(/^test: "/, "", t); sub(/"$/, "", t)
+                      if (g != "" && p != "") print p "\t" t "\t" g }'
+)"
+
+gating_report=""
+while IFS="$(printf '\t')" read -r package target claimed; do
+  [ -n "$package" ] || continue
+  observed="$(
+    printf '%s\n' "$actual_gating" \
+      | awk -F"$(printf '\t')" -v p="$package" -v t="$target" '$1 == p && $2 == t { print $3 }'
+  )"
+  if [ -z "$observed" ]; then
+    gating_report="${gating_report}${package} --test ${target}: declared in a lane, but no such test target exists
+"
+  elif [ "$observed" != "$claimed" ]; then
+    gating_report="${gating_report}${package} --test ${target}: lane declares ${claimed}, source uses ${observed}
+"
+  fi
+done <<EOF
+$declared_gating
+EOF
+
+if [ -n "$gating_report" ]; then
+  echo "FAIL live-lane-completeness: a lane's declared gating does not match its target's source," >&2
+  echo "    so the lane's cargo flags select nothing and the run still exits 0:" >&2
+  printf '%s' "$gating_report" | sed 's/^/      /' >&2
+  echo "    Ignored needs '#[ignore]'; Feature(\"f\") needs '#![cfg(feature = \"f\")]'." >&2
+  exit 1
+fi
+
 echo "OK live-lane-completeness"

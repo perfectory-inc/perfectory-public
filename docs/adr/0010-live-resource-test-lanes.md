@@ -56,11 +56,38 @@ exit 0으로 끝났다. **이 ADR이 없애려던 결함이 레인 계층에서 
 ### 레인은 실행 개수를 되읽는다
 
 cargo는 필터가 아무것도 고르지 못해도 exit 0이다. 즉 **종료 코드는 "검증됨"과
-"선택되지 않음"을 구분하지 못한다.** nextest의 `--no-tests=fail`에 해당하는 장치가
-cargo test에는 없으므로, xtask가 stdout을 캡처해 libtest의
-`test result: ok. N passed`를 되읽고 어떤 타깃이든 `N == 0`이면 레인을 실패시킨다
+"선택되지 않음"을 구분하지 못한다.** 그래서 xtask가 stdout을 캡처해 libtest의
+`test result: ok. N passed`를 되읽고, 어떤 타깃이든 `N == 0`이면 레인을 실패시킨다
 (`executed_test_count` / `lane_target_verdict`). stderr는 그대로 흘려보내 컴파일
-진행 로그는 살아 있다. 이것이 없으면 다음 플래그 실수도 같은 방식으로 숨는다.
+진행 로그는 살아 있다.
+
+**"0개 선택 = 실패"는 우리 발명이 아니라 업계 기본값이다.**
+
+| 러너 | 장치 | 기본값 |
+| --- | --- | --- |
+| cargo-nextest | `--no-tests=fail` (exit 4 `NO_TESTS_RUN`) | 0.9.75(2024-08)에 도입, **0.9.85(2024-11-26)부터 기본** |
+| pytest | exit 5 `EXIT_NOTESTSCOLLECTED` | PR #817, **2015년부터 기본** |
+| Gradle | `failOnNoMatchingTests` / `failOnNoDiscoveredTests` | 둘 다 **기본 true** (후자는 9.0.0) |
+| Maven Surefire | `failIfNoSpecifiedTests` | **기본 true** (2.12~) |
+| CTest | `--no-tests=error` | CMake 3.26~, 스크립트 모드 기본 |
+| Go | 없음 | golang/go#64500 미해결 |
+
+Surefire의 이분법이 우리 사정과 정확히 겹친다: 필터 없는 전체 실행은 관대하게
+(`failIfNoTests` 기본 false), **명시적 필터가 아무것도 못 맞히면 하드 실패**
+(`failIfNoSpecifiedTests` 기본 true). 레인은 항상 `-p <pkg> --test <target>`이라는
+명시적 필터다.
+
+**stdout 파싱을 고른 것은 취향이 아니라 유일한 선택지다.** cargo에 이 기능이 없는
+이유가 rust-lang/cargo#6151·#11875에 적혀 있고 둘 다 `S-blocked-external`로 열려
+있다. ehuss: *"libtest에 구조화된 출력이 없어서 cargo는 필터가 아무것도 못 맞혔다는
+사실을 알 수 없다"*. epage는 제안된 `--fail-if-noop` PR을 *"libtest 소관인데 libtest는
+soft feature freeze"*라며 기각했다. 구조화 출력(rust-lang/rust#49359)은 아직 unstable
+이라 `--locked` 안정 툴체인에서 쓸 수 없다. 즉 **막힌 쪽이 cargo이고, 사람이 읽는
+요약을 되읽는 것이 현재 stable에서 가능한 유일한 방법이다.**
+
+ehuss가 #11875에서 든 반대 논거(한 타깃에서만 매칭되고 나머지 타깃은 0개를
+보고하는 경우)는 우리에게 적용되지 않는다. 레인은 타깃을 **하나씩** 지정해 호출하므로
+0개는 언제나 명확한 실패다.
 
 ### `verify`의 2단계도 이 표에서 파생된다
 
@@ -72,11 +99,20 @@ cargo test에는 없으므로, xtask가 stdout을 캡처해 libtest의
 
 재발 차단 가드 2종:
 
-- `scripts/guard/live-lane-completeness.sh` — 백엔드 게이팅된 모든 테스트 타깃이 정확히
-  하나의 레인에 속함을 증명한다. `#[ignore]`와 `#![cfg(feature = ...)]` **두 게이팅
-  방식을 모두** 인식하고, `platforms/`와 `products/`를 **모두** 스캔한다.
-- `scripts/guard/no-silent-test-skip.sh` — 자원 부재를 통과로 바꾸는 형태를 금지한다.
-  시끄러운 형태(`eprintln!("skipping …")`)와 조용한 형태(`env::var(..).ok()`) 둘 다.
+- `scripts/guard/live-lane-completeness.sh` — 두 가지를 증명한다. (1) **소속**: 백엔드
+  게이팅된 모든 테스트 타깃이 정확히 하나의 레인에 속한다. (2) **일치**: 레인이 선언한
+  `LaneGating`이 그 타깃 소스의 실제 게이팅과 같다. 소속만으로는 부족하다 — gongzzang
+  20개는 완전하게 선언돼 있었고 아무것에도 선택되지 않았다. 실행 개수 되읽기가 더 강한
+  검사지만 **레인이 실제로 돌 때만** 발동하고, 5개 레인(foundation r2·lakehouse·
+  data-go-kr, intelligence kafka·redis)은 어느 CI 잡에서도 돌지 않는다. 그 레인들에겐
+  이 정적 검사가 유일한 방어다. 선례: rust-lang/rust PR #108905가 오타난 compiletest
+  디렉티브(`//@ ignore-<typo>`)를 조용한 무효에서 하드 에러로 바꾸자 **선언한 게이팅이
+  한 번도 적용된 적 없는 테스트 79개**가 드러났다.
+- `scripts/guard/no-silent-test-skip.sh` — 자원 부재를 통과로 바꾸는 **네 가지** 형태를
+  금지한다. 시끄러운 형태(`eprintln!("skipping …")`), 조용한 형태
+  (`env::var(..).ok()`), let-else 형태, 그리고 env 프로브가 이른 **성공** 반환을
+  감싸는 형태. 마지막 둘은 앞의 두 규칙을 모두 우회했고 실제 결함 2건을 숨기고 있었다.
+  `Err` 반환은 정상이므로 걸리지 않는다 — 실행 거부는 옳은 동작이다.
 
 ## 기각한 대안: 별도 `live-tests` 패키지
 
@@ -144,18 +180,31 @@ Oxide omicron이 `live-tests/`를 별도 패키지로 두고 있어 유력한 �
    `cargo test --workspace --features integration`으로 같은 20개를 한 번 더 돌린다.
    이 ADR이 기각한 "쓸어담기" 형태이며, PR마다 중복 비용을 낸다. 레인 위임으로
    대체 가능하지만 그 워크플로는 이번 변경 범위 밖이라 손대지 않았다.
-2. **`no-silent-test-skip.sh`가 놓치는 형태가 남아 있다.**
-   `let Ok(x) = env::var(..) else { return Ok(()) }`는 두 정규식(`…skip` 출력,
-   `env::var(..).ok()`) 어디에도 걸리지 않는다. identity `live_provisioning`은
-   이번에 fail-loud로 고쳤지만, `foundation-outbox/tests/publish_roundtrip.rs`의
-   `pool()`은 그대로다 — 게다가 `.map_or_else(|_| Ok(None), …)`로 **연결 실패까지**
-   "백엔드 없음"으로 강등한다. 가드 정규식 확장 + 그 파일 수정이 남은 일이다.
-3. **가드는 정적이다.** 세 번째 삼킴 방식이 나오면 또 통과한다. Bazel 샌드박스 같은
-   물리 차단이 아니다. Docker `--network none`이 보강 후보다.
-4. **레인의 게이팅 선언이 실물과 일치하는지는 정적으로 검사되지 않는다.**
-   `live-lane-completeness.sh`는 "모든 백엔드 게이팅 타깃이 어떤 레인에 속하는가"만
-   증명하고, 그 레인의 `LaneGating`이 파일의 실제 게이팅과 맞는지는 보지 않는다.
-   실행 개수 되읽기가 **실행될 때** 이를 잡지만, 한 번도 실행되지 않는 레인
-   (r2·lakehouse·data-go-kr)은 여전히 틀린 채로 있을 수 있다.
-5. **임포트 게이트가 없다.** 이 결함군이 들어온 경로(대량 임포트)는 지금도 검사 없이 열려
+2. **전수 감사 결과: 게이팅 선언은 55개 모두 실물과 일치한다.** 55타깃을 서브모듈
+   (`mod`/`#[path]`)까지 펼쳐 실제 속성을 세어 확인했다. `Ignored` 35개는 모두 진짜
+   `#[ignore]` 속성을 1개 이상 갖고, gongzzang 20개는 모두 문자 그대로
+   `#![cfg(feature = "integration")]`이며 그 크레이트 `tests/` 전체에 `#[ignore]`가
+   0개다. 주석 속 `#[ignore]` 언급을 속성으로 오독한 파일도 없고, `[[test]]`·
+   `required-features`·`harness = false` 같은 매니페스트 함정도 없다. 다만 이 사실은
+   **지금** 참일 뿐이라 위의 정적 일치 검사로 고정했다.
+3. **`required_env`가 짧은 레인 3개를 찾아 고쳤다.** 레인의 거부 계약은 타깃이 *읽는*
+   변수를 전부 이름 대야 하는데, 연결 문자열이 아닌 **스위치**가 빠져 있었다.
+   `live_kafka_outage`는 `FOUNDATION_TEST_KAFKA_REQUIRED` 없이 `Ok(())`를 반환했고
+   (브로커 없이 통과), 나머지 kafka 2개는 `FOUNDATION_PLATFORM_KAFKA_ENABLED` 없이
+   `Err`를 반환하며, `r2_smoke_contract`의 두 번째 ignored 테스트는 저장소 어디서도
+   export하지 않는 `FOUNDATION_PLATFORM_R2_INVENTORY_LIVE_SMOKE`를 단언한다. 셋 중
+   조용한 것은 첫 번째뿐이지만, 셋 다 "약속한 거부가 발동할 수 없다"는 같은 결함이다.
+   r2는 **한 번도 돌지 않았으므로** 아무것도 알려주지 않았을 것이다.
+4. **가드는 여전히 정적이다.** 다섯 번째 삼킴 방식이 나오면 또 통과한다. Bazel
+   샌드박스 같은 물리 차단이 아니다. Bazel조차 새는 것이 알려져 있으나
+   (bazelbuild/bazel#10068·#11325 — darwin-sandbox가 네트워크를 실제로 막지 못함),
+   방향은 맞다. Docker `--network none`이 보강 후보다.
+5. **여전히 실행되지 않는 6타깃.** identity `live_provisioning`(레인 자체가 어느
+   워크플로에서도 호출되지 않는다 — identity-ci는 raw 명령으로 `role_grant_postgres`
+   하나만 돌린다), intelligence kafka·redis, foundation r2·lakehouse·data-go-kr
+   (자격증명 없음). 이제 "안 돎"이 정직하게 보이고 게이팅도 검증되지만, 커버리지는
+   그대로다.
+6. **`foundation-kafka-live.sh`가 레인을 우회한다.** raw `cargo test --locked … --
+   --ignored` 루프로 같은 3타깃을 돌린다. gongzzang에서 없앤 것과 같은 사설 사본이다.
+7. **임포트 게이트가 없다.** 이 결함군이 들어온 경로(대량 임포트)는 지금도 검사 없이 열려
    있다.

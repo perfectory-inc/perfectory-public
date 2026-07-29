@@ -94,6 +94,124 @@ async fn reads_rows() -> TestResult {
 RUST
 expect_rejected "env var swallowed by .ok() in a test file" "$no_trace"
 
+# The let-else variant evades both earlier rules: nothing is printed and `.ok()`
+# never appears. `Ok(_)` is refutable, so this is always a let-else, and its
+# diverging block is where "no backend" quietly becomes a pass. This is the exact
+# shape foundation-outbox's publish_roundtrip carried for six contract tests.
+let_else="$test_root/let-else"
+mkdir -p "$let_else/crates/example/tests"
+cat >"$let_else/crates/example/tests/publish_roundtrip.rs" <<'RUST'
+async fn pool() -> TestResult<Option<PgPool>> {
+    let Ok(url) = std::env::var("DATABASE_URL") else {
+        return Ok(None);
+    };
+    PgPool::connect(&url).await.map(Some)
+}
+RUST
+expect_rejected "let-else on env::var in a test file" "$let_else"
+
+# The conditional variant reads like an opt-in switch and behaves like a pass:
+# the probe guards an early SUCCESS return, so a harness that forgot the switch
+# gets a green test that reached no broker.
+opt_in="$test_root/opt-in-switch"
+mkdir -p "$opt_in/crates/example/tests"
+cat >"$opt_in/crates/example/tests/live_outage.rs" <<'RUST'
+#[tokio::test]
+#[ignore = "requires a live broker"]
+async fn outage_retries_then_quarantines() -> TestResult {
+    if std::env::var("EXAMPLE_TEST_KAFKA_REQUIRED").as_deref() != Ok("1") {
+        return Ok(());
+    }
+    Ok(())
+}
+RUST
+expect_rejected "env probe guarding an early success return" "$opt_in"
+
+# --- accepted: the same probe returning Err ----------------------------------
+# Only a SUCCESS return is the defect. Refusing to run is the correct behaviour
+# and must not be flagged, or the rule would push authors back toward silence.
+fail_loud_probe="$test_root/fail-loud-probe"
+mkdir -p "$fail_loud_probe/crates/example/tests"
+cat >"$fail_loud_probe/crates/example/tests/live_karapace.rs" <<'RUST'
+#[tokio::test]
+#[ignore = "requires a live broker"]
+async fn karapace_round_trip() -> TestResult {
+    if std::env::var("EXAMPLE_TEST_KAFKA_REQUIRED").as_deref() != Ok("1") {
+        return Err("EXAMPLE_TEST_KAFKA_REQUIRED=1 is required for the live test".into());
+    }
+    Ok(())
+}
+RUST
+expect_accepted "env probe that refuses to run instead of passing" "$fail_loud_probe"
+
+# --- accepted: an unrelated early return far below an env read ---------------
+# The window must not attribute a later `return Ok(())` to an earlier condition,
+# or every live test would be flagged for its final success path.
+distant_return="$test_root/distant-return"
+mkdir -p "$distant_return/crates/example/tests"
+cat >"$distant_return/crates/example/tests/live_reads.rs" <<'RUST'
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database"]
+async fn reads_rows() -> TestResult {
+    if std::env::var("EXAMPLE_MODE").as_deref() == Ok("strict") {
+        assert!(strict_invariants_hold());
+    }
+    let pool = connect().await?;
+    let _ = pool;
+    return Ok(());
+}
+RUST
+expect_accepted "later success return not attributed to an earlier probe" "$distant_return"
+
+# rustfmt is enough to defeat a line-oriented rule. Both halves of the shape get
+# pushed onto their own lines, and neither line matches on its own. This is not
+# hypothetical: intelligence's knowledge_source_registry_contract carried exactly
+# this, wrapped exactly this way, and both rules walked past it.
+wrapped_print="$test_root/wrapped-print"
+mkdir -p "$wrapped_print/crates/example/tests"
+cat >"$wrapped_print/crates/example/tests/registry_contract.rs" <<'RUST'
+#[tokio::test]
+async fn postgres_registry_upserts_sources() {
+    let Some(registry) = pg_registry_or_skip().await else {
+        eprintln!(
+            "skipping postgres_registry_upserts_sources: EXAMPLE_TEST_DATABASE_URL not set"
+        );
+        return;
+    };
+    let _ = registry;
+}
+RUST
+expect_rejected "rustfmt-wrapped eprintln! skip" "$wrapped_print"
+
+wrapped_ok="$test_root/wrapped-ok"
+mkdir -p "$wrapped_ok/crates/example/tests"
+cat >"$wrapped_ok/crates/example/tests/registry_helper.rs" <<'RUST'
+async fn pg_registry_or_skip() -> Option<Registry> {
+    let url = std::env::var("EXAMPLE_TEST_DATABASE_URL")
+        .ok()
+        .filter(|u| !u.is_empty())?;
+    Registry::connect(url).await.ok()
+}
+RUST
+expect_rejected "rustfmt-wrapped .ok() chain ending in ?" "$wrapped_ok"
+
+# --- accepted: the same wrapped chain terminated by a panic ------------------
+# `.ok().filter(..).expect(..)` reads the variable, rejects an empty value, and
+# panics when it is absent. Flagging it would push authors back toward silence,
+# which is the opposite of what this guard is for.
+wrapped_expect="$test_root/wrapped-expect"
+mkdir -p "$wrapped_expect/crates/example/tests"
+cat >"$wrapped_expect/crates/example/tests/state_contract.rs" <<'RUST'
+async fn pg_state() -> Arc<PostgresWorkflowState> {
+    let url = std::env::var("EXAMPLE_TEST_DATABASE_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+        .expect("EXAMPLE_TEST_DATABASE_URL must be set and non-empty for the Postgres lane");
+    Arc::new(PostgresWorkflowState::connect(url).await.unwrap())
+}
+RUST
+expect_accepted "wrapped chain that panics on the missing variable" "$wrapped_expect"
+
 # --- accepted: `#[ignore]`, the foundation pattern ---------------------------
 ignored="$test_root/ignored"
 mkdir -p "$ignored/crates/example/tests"

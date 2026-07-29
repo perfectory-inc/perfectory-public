@@ -21,13 +21,7 @@ async fn memory_registry_upserts_sources_by_tenant_product_and_source() {
 
 #[tokio::test]
 async fn postgres_registry_upserts_sources_by_tenant_product_and_source() {
-    let Some(registry) = pg_registry_or_skip().await else {
-        eprintln!(
-            "skipping postgres_registry_upserts_sources_by_tenant_product_and_source: INTELLIGENCE_TEST_DATABASE_URL not set"
-        );
-        return;
-    };
-
+    let registry = pg_registry().await;
     let tenant_id = unique_tenant_id("pg-contract");
     knowledge_registry_contract_suite(registry, &tenant_id).await;
 }
@@ -107,18 +101,29 @@ fn unique_tenant_id(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::new_v4())
 }
 
-async fn pg_registry_or_skip() -> Option<PostgresKnowledgeSourceRegistry> {
+/// Returns a [`PostgresKnowledgeSourceRegistry`] connected to the test database.
+///
+/// `INTELLIGENCE_TEST_DATABASE_URL` is supplied by `intelligence-ci.yml` beside
+/// its Postgres service, exactly as for `workflow_state_contract_suite`. This
+/// used to return `None`, and the caller printed a skip and returned, so a
+/// deleted YAML line — or any database-less run — reported a pass for a contract
+/// that had never been exercised.
+///
+/// Neither half was visible to `scripts/guard/no-silent-test-skip.sh`: rustfmt
+/// had wrapped the `eprintln!` away from its "skipping" string and the `.ok()`
+/// away from its `env::var`, and both rules were line-oriented. The guard now
+/// joins continuation lines before matching.
+async fn pg_registry() -> PostgresKnowledgeSourceRegistry {
     let url = std::env::var("INTELLIGENCE_TEST_DATABASE_URL")
         .ok()
-        .filter(|u| !u.is_empty())?;
+        .filter(|u| !u.is_empty())
+        .expect("INTELLIGENCE_TEST_DATABASE_URL must be set and non-empty for the Postgres lane");
 
     let config = PostgresKnowledgeSourceRegistryConfig::new(url, 10)
         .expect("INTELLIGENCE_TEST_DATABASE_URL produced an invalid config");
-    let registry = PostgresKnowledgeSourceRegistry::connect(config)
+    PostgresKnowledgeSourceRegistry::connect(config)
         .await
-        .expect("failed to connect to test database");
-
-    Some(registry)
+        .expect("failed to connect to test database")
 }
 
 fn source_event(

@@ -482,9 +482,16 @@ const AREAS: &[Area] = &[
             },
             LiveLane {
                 name: "kafka",
+                // The third is not a connection string but a mode switch that
+                // all three targets read internally; live_kafka_outage used to
+                // return Ok(()) without it, so the lane could pass having
+                // reached no broker. required_env names what the targets read,
+                // not only what they connect to.
                 required_env: &[
                     "FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS",
                     "FOUNDATION_TEST_KARAPACE_URL",
+                    "FOUNDATION_TEST_KAFKA_REQUIRED",
+                    "FOUNDATION_PLATFORM_KAFKA_ENABLED",
                 ],
                 gating: LaneGating::Ignored,
                 targets: &[
@@ -504,7 +511,14 @@ const AREAS: &[Area] = &[
             },
             LiveLane {
                 name: "r2",
-                required_env: &["FOUNDATION_PLATFORM_R2_LIVE_SMOKE"],
+                // Both ignored tests in r2_smoke_contract are selected by
+                // `--ignored`, and the second asserts on the INVENTORY switch,
+                // which nothing in the repository exports. Naming it here turns
+                // "the lane cannot work" from a surprise into a refusal.
+                required_env: &[
+                    "FOUNDATION_PLATFORM_R2_LIVE_SMOKE",
+                    "FOUNDATION_PLATFORM_R2_INVENTORY_LIVE_SMOKE",
+                ],
                 gating: LaneGating::Ignored,
                 targets: &[LaneTarget {
                     package: "foundation-outbox",
@@ -1023,13 +1037,10 @@ mod tests {
             .find(|lane| lane.name == "kafka")
             .expect("foundation must declare a kafka live lane");
 
-        assert_eq!(
-            lane.required_env,
-            &[
-                "FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS",
-                "FOUNDATION_TEST_KARAPACE_URL",
-            ]
-        );
+        // The env contract itself is asserted by
+        // `foundation_lanes_require_every_variable_their_targets_read`; this
+        // test owns only the shape of the command.
+        assert!(!lane.required_env.is_empty());
 
         let commands = lane_commands(lane);
         assert_eq!(commands.len(), lane.targets.len());
@@ -1103,6 +1114,45 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A lane must demand every variable its targets read — including the ones
+    /// that are switches rather than connection strings.
+    ///
+    /// An audit of all 55 targets found three lanes whose contract was short.
+    /// `live_kafka_outage` returned `Ok(())` without FOUNDATION_TEST_KAFKA_REQUIRED
+    /// (a pass against no broker); its two siblings return `Err` without
+    /// FOUNDATION_PLATFORM_KAFKA_ENABLED; and `r2_smoke_contract`'s second
+    /// ignored test asserts on FOUNDATION_PLATFORM_R2_INVENTORY_LIVE_SMOKE,
+    /// which nothing in the repository exports. Only the first was silent, but
+    /// all three mean the lane's promised refusal could not fire — and r2 has
+    /// never run, so nothing would have told us.
+    #[test]
+    fn foundation_lanes_require_every_variable_their_targets_read() {
+        let area = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
+        let lane = |name: &str| {
+            area.live_lanes
+                .iter()
+                .find(|lane| lane.name == name)
+                .unwrap_or_else(|| panic!("foundation must declare a {name} lane"))
+        };
+
+        assert_eq!(
+            lane("kafka").required_env,
+            &[
+                "FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS",
+                "FOUNDATION_TEST_KARAPACE_URL",
+                "FOUNDATION_TEST_KAFKA_REQUIRED",
+                "FOUNDATION_PLATFORM_KAFKA_ENABLED",
+            ]
+        );
+        assert_eq!(
+            lane("r2").required_env,
+            &[
+                "FOUNDATION_PLATFORM_R2_LIVE_SMOKE",
+                "FOUNDATION_PLATFORM_R2_INVENTORY_LIVE_SMOKE",
+            ]
+        );
     }
 
     /// `verify` is the DB-less run, so it must not switch a live suite on —
