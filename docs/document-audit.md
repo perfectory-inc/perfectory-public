@@ -8,8 +8,8 @@
 ## 요약
 
 - 감사 문서: **331개**
-- 언어 분류: **{'english': 115, 'korean': 123, 'mixed': 93}**
-- 메타데이터: **190개 정상 / 1개 누락 / 140개 해당 없음**
+- 언어 분류: **{'english': 114, 'korean': 123, 'mixed': 94}**
+- 메타데이터: **191개 정상 / 0개 누락 / 140개 해당 없음**
 - 중복 파일명 후보: **5개**
 - 링크·참조 위반: **0개**
 
@@ -41,7 +41,7 @@
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed | mixed | ok | 2 |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/README.md` | Monorepo | README | current | korean | ok | 5 |
-| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 12 |
+| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 14 |
 | `docs/roadmap/README.md` | Monorepo | README | current | korean | ok | 0 |
 | `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 3 |
 | `platforms/foundation-platform/AGENTS.md` | Foundation Platform | agent rules | current | english | not applicable: agent router | 2 |
@@ -103,10 +103,10 @@
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/catalog/provider-rate-policy.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/catalog/public-data-bronze-lane-registry.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 6 |
-| `platforms/foundation-platform/docs/catalog/public-data-collection-catalog.md` | Foundation Platform | reference | current | korean | missing: status, owner, doc_type, last_reviewed | 9 |
+| `platforms/foundation-platform/docs/catalog/public-data-collection-catalog.md` | Foundation Platform | reference | current | korean | ok | 9 |
 | `platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json` | Foundation Platform | reference | current | mixed | not applicable: machine contract | 8 |
 | `platforms/foundation-platform/docs/catalog/README.md` | Foundation Platform | README | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/catalog/source-change-detection-policy.md` | Foundation Platform | reference | current | english | ok | 1 |
+| `platforms/foundation-platform/docs/catalog/source-change-detection-policy.md` | Foundation Platform | reference | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/catalog/vworld-data-catalog-reference.md` | Foundation Platform | reference | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/catalog/vworld/README.md` | Foundation Platform | README | current | korean | ok | 2 |
 | `platforms/foundation-platform/docs/data-quality/lakehouse-quality-rules.v1.example.json` | Foundation Platform | fixture | fixture | english | not applicable: machine contract | 1 |
