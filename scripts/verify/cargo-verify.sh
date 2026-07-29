@@ -166,8 +166,13 @@ if [ "$clean_verify" -eq 1 ]; then
     --mount "type=bind,source=$REPO,target=/work"
     --mount "type=volume,target=/usr/local/cargo/registry,volume-nocopy"
     --mount "type=volume,target=/work/$AREA/target,volume-nocopy"
-    --mount "type=volume,target=/work/tools/xtask/target,volume-nocopy"
   )
+  # tools/xtask became an area in its own right (ADR-0011). When it IS the area
+  # the line above already mounts that path, and repeating it makes Docker reject
+  # the run with a duplicate mount point.
+  if [ "$AREA" != "tools/xtask" ]; then
+    docker_args+=(--mount "type=volume,target=/work/tools/xtask/target,volume-nocopy")
+  fi
 else
   # Named caches are an intentional performance optimization for ordinary
   # local/CI verification; they are never used by the publication audit.
@@ -176,8 +181,10 @@ else
     -v perfectory-cargo-registry:/usr/local/cargo/registry
     -v perfectory-rustup:/usr/local/rustup
     -v "perfectory-target-$SLUG:/work/$AREA/target"
-    -v perfectory-target-xtask:/work/tools/xtask/target
   )
+  if [ "$AREA" != "tools/xtask" ]; then
+    docker_args+=(-v perfectory-target-xtask:/work/tools/xtask/target)
+  fi
 fi
 
 MSYS_NO_PATHCONV=1 docker "${docker_args[@]}" \

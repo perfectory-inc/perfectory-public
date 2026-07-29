@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: architecture
+last_reviewed: 2026-07-29
+---
+
 # Geo Pipeline
 
 This document describes Gongzzang's current spatial data responsibilities.

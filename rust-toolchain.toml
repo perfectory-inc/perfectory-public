@@ -1,5 +1,6 @@
 # Single monorepo toolchain pin (ADR-0001 §3). rustup discovers this file by walking
-# up from any nested workspace, so this ONE file governs all four areas.
+# up from any nested workspace, so this ONE file governs every workspace in the
+# monorepo, tools/xtask included (ADR-0011 made that fifth workspace a declared area).
 # We pin an exact version (not "stable") for repeatability — same rationale as
 # oxidecomputer/omicron. Area-local rust-toolchain files are FORBIDDEN: a closer
 # file would silently shadow this one (guard: scripts/guard/toolchain-consistency.sh).

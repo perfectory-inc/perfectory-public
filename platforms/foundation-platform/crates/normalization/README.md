@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Foundation normalization
 
 Intelligence가 제출한 정규화 제안을 Foundation 원장에 검토·승인·적용하는 경계입니다.

@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Load Scenarios
 
 These k6 scenarios are operator tooling for perf/staging capacity discovery.

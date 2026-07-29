@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # V-World 수집 기능 계약
 
 이 문서는 Foundation Platform이 사용하는 V-World 논리 데이터셋의 **채널 기능**을

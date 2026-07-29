@@ -1,4 +1,11 @@
-﻿# data.go.kr Source Boundary
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
+# data.go.kr Source Boundary
 
 Catalog-related data.go.kr integrations are Foundation Platform Catalog input
 sources.

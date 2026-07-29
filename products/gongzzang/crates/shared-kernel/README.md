@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # shared-kernel
 
 공짱 도메인 공유 값 객체 (Pnu, Money, Area, BusinessNumber 등) crate예요.

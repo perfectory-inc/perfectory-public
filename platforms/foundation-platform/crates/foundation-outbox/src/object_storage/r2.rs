@@ -160,9 +160,9 @@ impl R2ObjectStorageConfig {
             endpoint,
             region: optional_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION")?
                 .unwrap_or_else(|| "auto".to_owned()),
-            access_key_id: required_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID")?,
+            access_key_id: required_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID")?,
             secret_access_key: required_env(
-                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
             )?,
         })
     }

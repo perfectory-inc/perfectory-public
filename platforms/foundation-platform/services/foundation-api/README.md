@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # foundation-api
 
 Foundation 카탈로그·원장·상태를 외부 플랫폼에 공개하는 Axum HTTP 서비스입니다.

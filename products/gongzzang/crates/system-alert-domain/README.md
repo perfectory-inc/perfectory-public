@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # system-alert-domain
 
 운영자가 확인하고 처리하는 시스템 알림을 소유하는 `SystemAlert` 도메인 crate에요.

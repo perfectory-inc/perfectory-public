@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: architecture
+last_reviewed: 2026-07-29
+---
+
 # MCP vs API
 
 This document separates developer/agent exploration paths from production runtime paths.

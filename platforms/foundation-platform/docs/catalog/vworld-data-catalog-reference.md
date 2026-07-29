@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: reference
+last_reviewed: 2026-07-29
+---
+
 # V-World 데이터 카탈로그 참고
 
 > Foundation 전체 공공데이터 목록은 [공공데이터 수집 카탈로그](./public-data-collection-catalog.md)를 먼저 봅니다.

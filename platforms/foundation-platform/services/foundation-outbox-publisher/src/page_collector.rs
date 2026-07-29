@@ -90,6 +90,8 @@ pub(crate) struct PageCollectionReport {
     pub last_object_key: Option<String>,
     /// Lowercase hex sha256 of the last committed Bronze object (pairs with `last_object_key`).
     pub last_object_checksum_sha256: Option<String>,
+    /// Exact byte size of the last committed Bronze object (pairs with `last_object_key`).
+    pub last_object_size_bytes: Option<u64>,
     pub last_bronze_object_id: Option<BronzeObjectId>,
     pub logical_records_seen: u64,
     pub objects_written: u64,
@@ -152,6 +154,7 @@ where
 
     let mut last_object_key = None;
     let mut last_object_checksum_sha256 = None;
+    let mut last_object_size_bytes = None;
     let mut last_bronze_object_id = None;
     let mut objects_written = 0;
     for page in pages {
@@ -174,6 +177,7 @@ where
                 objects_written += 1;
                 last_object_key = Some(outcome.object_key);
                 last_object_checksum_sha256 = Some(outcome.checksum_sha256);
+                last_object_size_bytes = Some(outcome.plan.size_bytes);
                 last_bronze_object_id = Some(outcome.bronze_object_id);
             }
             Err(commit_error) => {
@@ -238,6 +242,7 @@ where
         run_id: completed.id,
         last_object_key,
         last_object_checksum_sha256,
+        last_object_size_bytes,
         last_bronze_object_id,
         logical_records_seen: completed.logical_records_seen,
         objects_written: completed.objects_written,

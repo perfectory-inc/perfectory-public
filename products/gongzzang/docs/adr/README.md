@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Architecture Decision Records (ADR)
 
 모든 기술·아키텍처 결정의 영구 기록.
@@ -40,7 +47,8 @@
 - <조건 2>
 
 ## 참조
-- → @docs/...
+
+각 ADR의 관련 문서는 해당 ADR 파일 안의 상대 Markdown 링크로 연결한다.
 ```
 
 ## 인덱스

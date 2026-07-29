@@ -41,6 +41,5 @@
 
 ## 참조
 
-- → @docs/data/postgres.md (작성 예정)
-- → @docs/data/postgis.md
-- → @docs/data-sources/v-world.md
+- [Postgres·PostGIS 마이그레이션](../database/migrations.md)
+- [VWorld 데이터 소스](../data-sources/v-world.md)

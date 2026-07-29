@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # @gongzzang/ui
 
 Gongzzang 웹에서 공유하는 UI 컴포넌트와 디자인 토큰 패키지입니다. 제품별 화면 조합은

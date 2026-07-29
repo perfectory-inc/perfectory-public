@@ -24,10 +24,10 @@ use uuid::Uuid;
 
 use super::{
     collection_job_from_plan, collection_job_to_ingest_config, collection_success_from_report,
-    existing_collection_job_report, parse_collection_max_in_flight,
-    persist_bulk_file_stream_with_adapters, pre_download_skip_report, select_collection_jobs,
-    BuildingHubBulkCollectionJobEvidence, BuildingHubBulkCollectionPlanJob,
-    BuildingHubBulkIngestConfig,
+    existing_collection_job_report, mark_unacknowledged_live_reports_as_failed,
+    parse_collection_max_in_flight, persist_bulk_file_stream_with_adapters,
+    pre_download_skip_report, select_collection_jobs, BuildingHubBulkCollectionJobEvidence,
+    BuildingHubBulkCollectionPlanJob, BuildingHubBulkIngestConfig,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -65,6 +65,7 @@ fn bulk_collection_success_preserves_bronze_integrity_for_jobbus_ack() {
         size_bytes: Some(42),
         checksum_sha256: Some("a".repeat(64)),
         reused_bronze_object: false,
+        job_bus_acknowledged: false,
         error_message: None,
         duration_ms: 1,
     };
@@ -76,6 +77,30 @@ fn bulk_collection_success_preserves_bronze_integrity_for_jobbus_ack() {
     assert_eq!(success.bronze_size_bytes, 42);
     assert_eq!(success.request_count, 1);
     assert_eq!(success.source_record_count, 0);
+}
+
+#[test]
+fn live_collection_marks_success_without_postgres_jobbus_ack_as_failed() {
+    let mut reports = vec![BuildingHubBulkCollectionJobEvidence {
+        source_slug: "hubgokr__building_register_main".to_owned(),
+        provider_file_id: "OPN209912310000000008".to_owned(),
+        status: "succeeded".to_owned(),
+        object_key: Some("bronze/source=hubgokr__building_register_main/file.zip".to_owned()),
+        size_bytes: Some(42),
+        checksum_sha256: Some("a".repeat(64)),
+        reused_bronze_object: false,
+        job_bus_acknowledged: false,
+        error_message: None,
+        duration_ms: 1,
+    }];
+
+    let marked = mark_unacknowledged_live_reports_as_failed(&mut reports, true);
+    assert_eq!(marked, 1);
+    assert_eq!(reports[0].status, "failed");
+    assert!(reports[0]
+        .error_message
+        .as_deref()
+        .is_some_and(|message| message.contains("PostgresJobBus ack")));
 }
 
 #[tokio::test]
@@ -321,6 +346,20 @@ fn select_collection_jobs_rejects_duplicate_partition_identities() -> TestResult
     let error = select_collection_jobs(&jobs, None)
         .err()
         .ok_or("duplicate partition identities must be rejected")?;
+    assert!(
+        error.to_string().contains("duplicate partition identity"),
+        "unexpected error: {error}"
+    );
+    Ok(())
+}
+
+#[test]
+fn select_collection_jobs_rejects_duplicates_outside_max_jobs() -> TestResult {
+    let jobs = vec![test_collection_job(), test_collection_job()];
+
+    let error = select_collection_jobs(&jobs, Some(1))
+        .err()
+        .ok_or("duplicate identities outside the selected prefix must be rejected")?;
     assert!(
         error.to_string().contains("duplicate partition identity"),
         "unexpected error: {error}"

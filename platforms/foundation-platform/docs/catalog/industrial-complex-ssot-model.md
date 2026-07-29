@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: reference
+last_reviewed: 2026-07-29
+---
+
 # Industrial Complex SSOT Model
 
 | 항목 | 내용 |

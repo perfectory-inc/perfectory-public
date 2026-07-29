@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # services/gongzzang-outbox-publisher
 
 공짱 outbox 이벤트 발행 daemon. SP4-i.

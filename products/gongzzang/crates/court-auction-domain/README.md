@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # court-auction-domain
 
 `CourtAuction` Aggregate와 reader port를 정의하는 storage-agnostic read-only domain

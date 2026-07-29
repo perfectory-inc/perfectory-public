@@ -11,15 +11,32 @@ concurrency:
   group: monorepo-guard-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.96.0
+
 jobs:
   guard:
     name: required/repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - run: bash scripts/guard/monorepo-guard.sh
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+      # `verify` runs the repository guard first and then the area's own
+      # fmt/clippy/test, so this one command replaces the previous bare
+      # `bash scripts/guard/monorepo-guard.sh` rather than running beside it —
+      # invoking both would execute the 57-guard sweep twice in one job.
+      #
+      # `tooling` is tools/xtask, the fifth Cargo workspace. Until ADR-0011 no
+      # area declared it, so `verify` never entered it and its ten unit tests ran
+      # nowhere. This workflow is the right home: it has no `paths:` filter, so an
+      # xtask change can never fail to retrigger it (xtask-path-coverage.sh treats
+      # an unfiltered workflow as covered by construction).
+      - name: Repository guard and harness verification
+        run: cargo xtask verify tooling
       - name: REUSE license compliance
         run: bash scripts/ci/reuse-lint.sh

@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: runbook
+last_reviewed: 2026-07-29
+---
+
 # Outbox Webhook Fan-Out Runbook
 
 `foundation-outbox-publisher` can deliver non-manifest Catalog events and Staff Identity events to HTTP webhook endpoints. This is for consumer cache invalidation in Gongzzang and Dawneer, and for Gongzzang's parcel marker anchor import enqueue path. Vector tile manifest promote/rollback events still publish the canonical R2 pointer first.

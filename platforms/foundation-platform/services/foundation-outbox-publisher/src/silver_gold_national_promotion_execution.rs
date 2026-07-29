@@ -976,8 +976,8 @@ fn resolve_optional_input_path(root: &Path, path: &Path) -> PathBuf {
 fn assert_r2_env_present(config: &ExecuteConfig) -> anyhow::Result<()> {
     for name in [
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
     ] {
         if config.env_value(name).is_none() {
             bail!("Missing required environment variable: {name}");

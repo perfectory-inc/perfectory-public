@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # 마이그레이션 운영 가이드
 
 PostgreSQL 17 + PostGIS 3.5 마이그레이션 운영을 위한 실무 안내예요.

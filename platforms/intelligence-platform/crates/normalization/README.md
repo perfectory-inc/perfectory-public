@@ -1,3 +1,10 @@
+---
+status: current
+owner: intelligence-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # intelligence normalization
 
 LLM을 이용해 정규화 proposal을 생성하고 Foundation에 제출하는 계층입니다. canonical

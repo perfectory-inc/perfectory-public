@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: architecture
+last_reviewed: 2026-07-29
+---
+
 # AI 주도 유지보수 운영 모델
 
 > **목적**: 비기술 소유자(유지보수를 직접 못 함)를 위해, **시스템과 AI 에이전트가

@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # crates/product-identity-infrastructure
 
 공짱 인증 핵심 게이트 — Zitadel access_token JWT 검증 + first-sign-in 자동 생성.

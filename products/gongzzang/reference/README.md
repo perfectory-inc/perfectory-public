@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # reference/
 
 외부 오픈소스 코드 학습 자료. **빌드 산출물에 포함되지 않음** (.gitignore).

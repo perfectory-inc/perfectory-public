@@ -283,6 +283,8 @@ fn check_coverage(config: &CheckConfig) -> anyhow::Result<CheckReport> {
         national_rollout_allowed: false,
         evidence_limitations: vec![
             "coverage_ledger_only".to_owned(),
+            "requires_r2_key_checksum_and_size_in_success_evidence".to_owned(),
+            "does_not_requery_r2_or_postgres_after_evidence".to_owned(),
             "does_not_promote_silver_gold_national_tables".to_owned(),
             "does_not_approve_production_cutover".to_owned(),
             "does_not_mark_national_rollout_complete".to_owned(),
@@ -770,11 +772,7 @@ fn inspect_succeeded_event(
     if bronze_object_key.trim().is_empty() {
         state.raw_response_preserved_all = false;
     }
-    add_if(
-        blockers,
-        string_property(event, "storage_driver").trim().is_empty(),
-        &format!("succeeded event storage_driver is required: {job_id}"),
-    );
+    validate_bronze_evidence(event, &job_id, blockers);
 
     if let Some(row) = planned_row {
         let bucket = bucket_for_planned(provider_buckets, row);
@@ -786,6 +784,36 @@ fn inspect_succeeded_event(
         }
         bucket.selected_job_count += 1;
     }
+}
+
+fn validate_bronze_evidence(event: &JsonValue, job_id: &str, blockers: &mut Vec<String>) {
+    let storage_driver = string_property(event, "storage_driver");
+    add_if(
+        blockers,
+        storage_driver != "r2",
+        &format!("succeeded event storage_driver must be r2: {job_id}"),
+    );
+
+    let object_key = string_property(event, "bronze_object_key");
+    add_if(
+        blockers,
+        !object_key.starts_with("bronze/"),
+        &format!("succeeded event bronze_object_key must be a Bronze key: {job_id}"),
+    );
+
+    let checksum = string_property(event, "bronze_checksum_sha256");
+    add_if(
+        blockers,
+        !is_lowercase_sha256(&checksum),
+        &format!("succeeded event bronze_checksum_sha256 must be lowercase SHA-256: {job_id}"),
+    );
+
+    let size_bytes = i64_property(event, "bronze_size_bytes", -1);
+    add_if(
+        blockers,
+        size_bytes <= 0,
+        &format!("succeeded event bronze_size_bytes must be positive: {job_id}"),
+    );
 }
 
 fn read_jsonl_file(
@@ -909,6 +937,53 @@ fn is_lowercase_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::validate_bronze_evidence;
+
+    #[test]
+    fn bronze_evidence_requires_r2_key_checksum_and_size() {
+        let mut blockers = Vec::new();
+        validate_bronze_evidence(
+            &json!({
+                "storage_driver": "r2",
+                "bronze_object_key": "bronze/source=x/page-000001.json",
+                "bronze_checksum_sha256": "a".repeat(64),
+                "bronze_size_bytes": 1,
+            }),
+            "job-1",
+            &mut blockers,
+        );
+        assert!(blockers.is_empty(), "unexpected blockers: {blockers:?}");
+    }
+
+    #[test]
+    fn bronze_evidence_blocks_missing_integrity_fields() {
+        let mut blockers = Vec::new();
+        validate_bronze_evidence(
+            &json!({
+                "storage_driver": "local",
+                "bronze_object_key": "target/bronze/job.json",
+            }),
+            "job-1",
+            &mut blockers,
+        );
+        assert_eq!(blockers.len(), 4);
+        assert!(blockers.iter().any(|item| item.contains("storage_driver")));
+        assert!(blockers
+            .iter()
+            .any(|item| item.contains("bronze_object_key")));
+        assert!(blockers
+            .iter()
+            .any(|item| item.contains("bronze_checksum_sha256")));
+        assert!(blockers
+            .iter()
+            .any(|item| item.contains("bronze_size_bytes")));
+    }
 }
 
 fn wildcard_matches(pattern: &str, value: &str) -> bool {

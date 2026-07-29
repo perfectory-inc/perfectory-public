@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # infrastructure/
 
 Pulumi (TypeScript) IaC. AWS Seoul + Cloudflare 무료 활용. sub-project 8에서 본격 작성.

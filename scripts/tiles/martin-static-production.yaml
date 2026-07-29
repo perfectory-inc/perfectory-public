@@ -15,8 +15,8 @@ cors:
 # provider-specific endpoint and the `auto` signing region; path-style requests avoid rewriting
 # the account endpoint into a bucket host.
 pmtiles:
-  aws_access_key_id: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID}
-  aws_secret_access_key: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY}
+  aws_access_key_id: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_ACCESS_KEY_ID}
+  aws_secret_access_key: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_SECRET_ACCESS_KEY}
   aws_region: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION:-auto}
   aws_endpoint_url: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT}
   aws_virtual_hosted_style_request: false

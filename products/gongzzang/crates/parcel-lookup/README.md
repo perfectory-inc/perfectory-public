@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # parcel-lookup
 
 제품 화면에서 필지 식별자를 조회하는 애플리케이션 경계입니다. canonical 필지 데이터는

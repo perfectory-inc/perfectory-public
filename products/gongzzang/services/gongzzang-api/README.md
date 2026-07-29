@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # services/gongzzang-api
 
 공짱 HTTP API 서버 (Axum). `app.rs`가 도메인 라우트와 헬스 라우트

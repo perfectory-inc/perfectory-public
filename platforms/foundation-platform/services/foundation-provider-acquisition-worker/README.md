@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # foundation-provider-acquisition-worker
 
 제공기관 파일을 확보하는 Python worker입니다. Rust 수집·원장 경계와 분리된 원천 확보

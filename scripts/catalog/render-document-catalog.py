@@ -80,24 +80,32 @@ def type_for(path: Path) -> str:
         return "agent rules"
     if name == "readme.md":
         return "README"
-    if "adr" in parts:
-        return "ADR"
-    if "runbooks" in parts:
-        return "runbook"
-    if "architecture" in parts:
-        return "architecture"
-    if "guides" in parts:
-        return "guide"
-    if "openapi" in parts or "schemas" in parts or "contracts" in parts:
-        return "contract"
-    if any(part in parts for part in {"catalog", "reference", "data-quality", "db", "events", "observability", "security"}):
-        return "reference"
     if ".example." in name:
         return "fixture"
     if ".draft." in name:
         return "draft"
     if ".proof." in name or "evidence" in name:
         return "evidence"
+    if "adr" in parts:
+        return "ADR"
+    if "runbooks" in parts:
+        return "runbook"
+    if "architecture" in parts:
+        return "architecture"
+    if "roadmap" in parts:
+        return "roadmap"
+    if "guides" in parts:
+        return "guide"
+    if "conventions" in parts:
+        return "convention"
+    if "governance" in parts:
+        return "governance"
+    if "compliance" in parts:
+        return "compliance"
+    if "openapi" in parts or "schemas" in parts or "contracts" in parts:
+        return "contract"
+    if any(part in parts for part in {"catalog", "reference", "data-quality", "db", "events", "observability", "security"}):
+        return "reference"
     return "documentation"
 
 

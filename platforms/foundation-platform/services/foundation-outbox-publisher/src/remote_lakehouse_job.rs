@@ -781,12 +781,12 @@ if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET:-}}\" ]; then
   echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET in remote lakehouse env file' >&2
   exit 2
 fi
-if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID:-}}\" ]; then
-  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID in remote lakehouse env file' >&2
+if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID:-}}\" ]; then
+  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID in remote lakehouse env file' >&2
   exit 2
 fi
-if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY:-}}\" ]; then
-  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY in remote lakehouse env file' >&2
+if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY:-}}\" ]; then
+  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY in remote lakehouse env file' >&2
   exit 2
 fi
 if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT:-}}\" ]; then
@@ -811,8 +811,8 @@ stage_bronze_object() {{
   source_object=\"$2\"
   docker run --rm \\
     --user \"${{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}}:${{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}}\" \\
-    -e AWS_ACCESS_KEY_ID=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID}}\" \\
-    -e AWS_SECRET_ACCESS_KEY=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY}}\" \\
+    -e AWS_ACCESS_KEY_ID=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}}\" \\
+    -e AWS_SECRET_ACCESS_KEY=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}}\" \\
     -e AWS_DEFAULT_REGION=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION:-auto}}\" \\
     -v \"$PWD/target/lakehouse/bronze/source=${{source_slug}}:/stage\" \\
     amazon/aws-cli:2.17.62 s3 sync \\
@@ -952,12 +952,12 @@ if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET:-}}\" ]; then
   echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET in remote lakehouse env file' >&2
   exit 2
 fi
-if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID:-}}\" ]; then
-  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID in remote lakehouse env file' >&2
+if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID:-}}\" ]; then
+  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID in remote lakehouse env file' >&2
   exit 2
 fi
-if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY:-}}\" ]; then
-  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY in remote lakehouse env file' >&2
+if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY:-}}\" ]; then
+  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY in remote lakehouse env file' >&2
   exit 2
 fi
 if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT:-}}\" ]; then
@@ -975,8 +975,8 @@ docker run --rm --entrypoint sh \\
   -c \"mkdir -p \\\"/lakehouse/bronze/source={source_slug}\\\" /lakehouse/silver_handoff && chown -R \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" \\\"/lakehouse/bronze/source={source_slug}\\\" && chown \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" /lakehouse /lakehouse/silver_handoff\"
 docker run --rm \\
   --user \"${{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}}:${{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}}\" \\
-  -e AWS_ACCESS_KEY_ID=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID}}\" \\
-  -e AWS_SECRET_ACCESS_KEY=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY}}\" \\
+  -e AWS_ACCESS_KEY_ID=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}}\" \\
+  -e AWS_SECRET_ACCESS_KEY=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}}\" \\
   -e AWS_DEFAULT_REGION=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION:-auto}}\" \\
   -v \"$PWD/target/lakehouse/bronze/source={source_slug}:/stage\" \\
   amazon/aws-cli:2.17.62 s3 sync \\
@@ -1227,8 +1227,8 @@ iceberg.rest-catalog.oauth2.server-uri=${{FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_
 fs.s3.enabled=true
 s3.region=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION:-auto}}
 s3.endpoint=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT}}
-s3.aws-access-key=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID}}
-s3.aws-secret-key=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY}}
+s3.aws-access-key=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}}
+s3.aws-secret-key=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}}
 s3.path-style-access=true
 TRINO_CATALOG
   chmod 600 'infra/lakehouse/trino/catalog/r2.properties'

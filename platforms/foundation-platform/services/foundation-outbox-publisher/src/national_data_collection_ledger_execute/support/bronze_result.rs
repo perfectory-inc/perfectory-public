@@ -8,7 +8,8 @@ use anyhow::bail;
 use serde_json::Value as JsonValue;
 
 use super::{
-    safe_runner_error_message, sha256_hex, string_prop, strip_utf8_bom, u64_prop, value_at,
+    is_sha256, safe_runner_error_message, sha256_hex, string_prop, strip_utf8_bom, u64_prop,
+    value_at,
 };
 
 pub(in crate::national_data_collection_ledger_execute) struct BronzeResult {
@@ -112,16 +113,20 @@ pub(in crate::national_data_collection_ledger_execute) fn parse_r2_run_summary(
             u64::MAX,
         ));
         let objects_written = u64_prop(fields, "objects_written", 0);
-        if !object_key.is_empty() && record_count != u64::MAX && objects_written > 0 {
+        let checksum_sha256 = string_prop(fields, "last_object_checksum_sha256");
+        let size_bytes = u64_prop(fields, "last_object_size_bytes", 0);
+        if !object_key.is_empty()
+            && record_count != u64::MAX
+            && objects_written > 0
+            && size_bytes > 0
+            && is_sha256(&checksum_sha256)
+        {
             return Ok(BronzeResult {
                 object_key,
                 record_count,
                 request_count: objects_written,
-                size_bytes: 0,
-                // The child ingest echoes the last object's producer-computed sha256 in its run
-                // summary (Slice 2d); empty only if an older child omitted it (then re-derivable
-                // from bronze_object, which always has it).
-                checksum_sha256: string_prop(fields, "last_object_checksum_sha256"),
+                size_bytes,
+                checksum_sha256,
             });
         }
     }
@@ -178,7 +183,7 @@ mod tests {
         let checksum = "a".repeat(64);
         let line = format!(
             "{{\"last_object_key\":\"bronze/source=datagokr__building_register_main/sigungu=11680/bjdong=10300/page-000001.json\",\
-             \"logical_record_count\":5,\"objects_written\":1,\
+             \"logical_record_count\":5,\"objects_written\":1,\"last_object_size_bytes\":4096,\
              \"last_object_checksum_sha256\":\"{checksum}\"}}"
         );
         let result = parse_r2_run_summary(&[line])?;
@@ -193,14 +198,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_r2_run_summary_tolerates_missing_checksum() -> TestResult {
-        // Backward-compatible: an older child without the field still parses (empty, re-derivable).
-        let line =
-            "{\"last_object_key\":\"bronze/source=datagokr__building_register_main/sigungu=11680/bjdong=10300/page-000001.json\",\
-                     \"logical_record_count\":5,\"objects_written\":1}"
-                .to_owned();
-        let result = parse_r2_run_summary(&[line])?;
-        assert!(result.checksum_sha256.is_empty());
-        Ok(())
+    fn parse_r2_run_summary_rejects_missing_size_and_checksum() {
+        let error = match parse_r2_run_summary(&[
+            "{\"last_object_key\":\"bronze/source=x/page-000001.json\",\
+             \"logical_record_count\":5,\"objects_written\":1}"
+                .to_owned(),
+        ]) {
+            Ok(_) => panic!("R2 evidence without integrity metadata must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("parseable Bronze write summary"));
     }
 }

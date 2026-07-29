@@ -166,10 +166,11 @@ pub async fn run_collection() -> anyhow::Result<()> {
             .await
     };
     indexed_job_reports.sort_by_key(|(index, _)| *index);
-    let job_reports = indexed_job_reports
+    let mut job_reports = indexed_job_reports
         .into_iter()
         .map(|(_, report)| report)
         .collect::<Vec<_>>();
+    mark_unacknowledged_live_reports_as_failed(&mut job_reports, live_write);
 
     let failed_job_count = job_reports
         .iter()
@@ -382,6 +383,9 @@ struct BuildingHubBulkCollectionJobEvidence {
     size_bytes: Option<u64>,
     checksum_sha256: Option<String>,
     reused_bronze_object: bool,
+    /// True only after the PostgresJobBus ack transaction committed the collection job and outbox
+    /// claim-check event. Live collection evidence cannot report success without this flag.
+    job_bus_acknowledged: bool,
     error_message: Option<String>,
     duration_ms: u64,
 }
@@ -440,6 +444,7 @@ async fn ingest_collection_job(
         size_bytes,
         checksum_sha256: None,
         reused_bronze_object: false,
+        job_bus_acknowledged: false,
         error_message: None,
         duration_ms: elapsed_millis(started_at),
     })
@@ -473,7 +478,7 @@ where
         anyhow::anyhow!("failed to read bulk JobBus job {}: {error}", bus_job.job_id)
     })? {
         if state == "completed" {
-            return existing_collection_job_report(
+            let mut report = existing_collection_job_report(
                 job,
                 &collection_job_to_ingest_config(
                     job,
@@ -490,7 +495,9 @@ where
                     "bulk JobBus job {} is completed but its Bronze object is missing",
                     bus_job.job_id
                 )
-            });
+            })?;
+            report.job_bus_acknowledged = true;
+            return Ok(report);
         }
         if state == "dead_lettered" {
             bail!("bulk JobBus job {} is dead-lettered", bus_job.job_id);
@@ -522,6 +529,8 @@ where
                 .map_err(|error| {
                     anyhow::anyhow!("failed to ack bulk JobBus job {}: {error}", bus_job.job_id)
                 })?;
+            let mut report = report;
+            report.job_bus_acknowledged = true;
             Ok(report)
         }
         Err(error) => {
@@ -611,6 +620,7 @@ where
         size_bytes: Some(persist_report.size_bytes),
         checksum_sha256: Some(persist_report.checksum_sha256),
         reused_bronze_object: false,
+        job_bus_acknowledged: false,
         error_message: None,
         duration_ms: elapsed_millis(started_at),
     })
@@ -746,6 +756,7 @@ where
         size_bytes: Some(object.size_bytes),
         checksum_sha256: Some(object.checksum_sha256.clone()),
         reused_bronze_object: true,
+        job_bus_acknowledged: false,
         error_message: None,
         duration_ms: elapsed_millis(started_at),
     }))
@@ -764,9 +775,31 @@ fn failed_collection_job_report(
         size_bytes: None,
         checksum_sha256: None,
         reused_bronze_object: false,
+        job_bus_acknowledged: false,
         error_message: Some(truncate_failure_message(&format!("{error:#}"))),
         duration_ms: elapsed_millis(started_at),
     }
+}
+
+fn mark_unacknowledged_live_reports_as_failed(
+    reports: &mut [BuildingHubBulkCollectionJobEvidence],
+    live_write: bool,
+) -> usize {
+    if !live_write {
+        return 0;
+    }
+    let mut marked = 0;
+    for report in reports {
+        if matches!(report.status.as_str(), "succeeded" | "skipped_existing")
+            && !report.job_bus_acknowledged
+        {
+            report.status = "failed".to_owned();
+            report.error_message =
+                Some("live collection succeeded without a committed PostgresJobBus ack".to_owned());
+            marked += 1;
+        }
+    }
+    marked
 }
 
 fn collection_job_to_ingest_config(
@@ -806,12 +839,10 @@ fn select_collection_jobs(
     if jobs.is_empty() {
         bail!("hub.go.kr bulk collection plan contains no jobs");
     }
-    let end = max_jobs.unwrap_or(jobs.len()).min(jobs.len());
-    let selected = &jobs[..end];
-    // Duplicate partition identities would race the skip-resume check once jobs run through
-    // buffer_unordered (check-then-write without a DB claim), so refuse them up front.
+    // Validate the complete plan before applying max_jobs. A bounded run must not hide a
+    // duplicate later in the plan and make a future unbounded run race its skip-resume check.
     let mut seen = std::collections::HashSet::new();
-    for job in selected {
+    for job in jobs {
         if !seen.insert((
             job.source_slug.as_str(),
             job.operation.as_str(),
@@ -827,7 +858,8 @@ fn select_collection_jobs(
             );
         }
     }
-    Ok(selected)
+    let end = max_jobs.unwrap_or(jobs.len()).min(jobs.len());
+    Ok(&jobs[..end])
 }
 
 fn parse_collection_max_in_flight(raw: Option<String>) -> anyhow::Result<usize> {

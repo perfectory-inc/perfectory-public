@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # testing/
 
 테스트 전략·도구·커버리지 SSOT.
@@ -15,19 +22,11 @@
 - 시각 회귀 (Lost Pixel + Storybook)
 - 커버리지 임계값 (도메인 90%+)
 
-## 작성 예정 문서 (전반)
-- `unit.md` — cargo test + Vitest 패턴
-- `integration.md` — Testcontainers + sqlx::test
-- `contract-pact.md` — Pact 양쪽 검증
-- `property-based.md` — proptest
-- `mutation.md` — cargo-mutants 운영
-- `e2e.md` — Playwright + data-testid 컨벤션
-- `load.md` — k6 시나리오
-- `chaos.md` — Chaos Mesh (Phase 4+)
-- `visual-regression.md` — Lost Pixel + Chromatic 비교
+세부 테스트 문서가 필요해지면 루트 [운영 준비 작업 목록](../../../../docs/roadmap/production-readiness.md)에
+작업을 먼저 등록한 뒤 이 폴더에 정본 문서를 추가한다.
 
 ## 관련 ADR
 - (도입 시 ADR 작성)
 
 ## 관련 컨벤션
-- → @docs/conventions/testing.md
+- [테스트 컨벤션](../conventions/testing.md)

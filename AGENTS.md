@@ -57,3 +57,8 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 - `scripts/guard/monorepo-guard.sh` 가 위 규칙을 기계 검사한다(CI + pre-push).
 - **검증 SSOT**: `cargo xtask verify <area>` 하나를 로컬 하네스와 CI가 똑같이 부른다([ADR-0004](./docs/adr/0004-verification-ssot.md)). 워크플로우에 raw `cargo clippy/fmt` 금지.
 - **훅은 조언, CI가 권위**([ADR-0005](./docs/adr/0005-hooks-advisory-ci-authoritative.md)): git 훅은 빠른 로컬 편의일 뿐 권위 게이트가 아니다. host 도구(cargo/pnpm)가 없으면 훅은 실패가 아니라 **skip**한다. 무거운/툴체인 검사의 권위는 CI에 있다.
+
+## 작업 목록 SSOT
+
+- `AGENTS.md`에는 작업 내용을 복제하지 않는다. 운영 출시 작업은 [루트 README](./README.md)의 문서 지도에서 연결한 단일 TODO/로드맵을 따른다.
+- 새 작업을 시작하는 AI 에이전트는 [루트 README](./README.md) → [문서 지도](./docs/README.md) → 연결된 문서의 미완료 항목 순서로 읽는다.

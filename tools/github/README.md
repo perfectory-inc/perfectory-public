@@ -1,3 +1,10 @@
+---
+status: current
+owner: repository-tooling
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Public GitHub repository policy
 
 This directory is the desired-state SSOT for `perfectory-inc/perfectory-public`.

@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: runbook
+last_reviewed: 2026-07-29
+---
+
 # Canonical release proof
 
 이 명령은 이미 수집된 Bronze가 만든 Silver·Gold 결과와 타일 manifest가 같은 원본

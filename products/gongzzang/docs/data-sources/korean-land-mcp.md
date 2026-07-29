@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # korean-land-mcp (에이전트 경로)
 
 - 소스: https://github.com/UrbanWatcherKr/korean-land-mcp

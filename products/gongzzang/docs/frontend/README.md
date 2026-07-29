@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Frontend (apps/web) — SP6-foundation
 
 > **목적**: 공짱 frontend 인프라. 모든 SP6-i ~ v 화면이 의존하는 foundation.

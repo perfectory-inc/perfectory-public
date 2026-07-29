@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # foundation-platform-client
 
 Gongzzang이 Foundation published HTTP 계약을 소비하는 클라이언트입니다. 공공데이터

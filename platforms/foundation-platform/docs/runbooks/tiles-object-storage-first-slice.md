@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: runbook
+last_reviewed: 2026-07-29
+---
+
 # Object-storage-first tile slice
 
 ## Scope and evidence status
@@ -431,8 +438,8 @@ current archive or mutates an old manifest.
     `scripts/tiles/martin-static-production.yaml`; inject `TILES_R2_PMTILES_PREFIX` as the
     derivative bucket's `s3://` release prefix, `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT`,
     `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION`, and the read-only
-    `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID` /
-     `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY` through environment/secrets. Do not
+    `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_ACCESS_KEY_ID` /
+     `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_SECRET_ACCESS_KEY` through environment/secrets. Do not
      use a named `pmtiles.sources` URL for scheduled discovery: named sources are startup snapshots.
 8. **Verify the production-shaped route.** Wait for the expected release-addressed Martin source,
    then verify TileJSON layer IDs, authenticated R2 reads, health/readiness, and decoded MVT through

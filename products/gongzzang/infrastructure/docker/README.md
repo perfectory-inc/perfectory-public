@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # 로컬 Docker Compose 인프라
 
 로컬 개발용 PostgreSQL 17 + PostGIS 3.5 + Valkey 8 컨테이너예요.

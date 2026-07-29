@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # featured-content-domain
 
 홈페이지 추천, 광고, 스폰서 노출을 소유하는 `FeaturedContent` 도메인 crate에요.

@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: runbook
+last_reviewed: 2026-07-29
+---
+
 # Provider Acquisition Headless Replay Runbook
 
 Status: runtime-neutral reference; Fargate is not selected by this document
@@ -81,8 +88,8 @@ R2 Bronze write:
 | `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET` | environment-specific Bronze bucket binding |
 | `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID` | Cloudflare account ID |
 | `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT` | R2 S3 endpoint; optional when derived from the account ID |
-| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID` | runtime access key |
-| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY` | runtime secret key |
+| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID` | runtime access key |
+| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY` | runtime secret key |
 
 The task must fail before provider download when the live-write preflight fails. Active account,
 bucket, and secret bindings are private deployment state rather than public runbook facts.

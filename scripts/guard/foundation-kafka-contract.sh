@@ -59,9 +59,14 @@ for test_file in \
 done
 
 workflow='.github/workflows/foundation-ci.yml'
+# The lane table is where these three target names live (ADR-0011). The harness
+# used to repeat them in its own loop, so this check read the copy rather than the
+# original and would have stayed green if the two drifted. Reading the lane means
+# a target removed from the lane fails here, which is the failure worth having.
+lane_table='tools/xtask/src/main.rs'
 for test_name in live_kafka_karapace live_kafka_outbox_roundtrip live_kafka_outage; do
-  if ! grep -Fq "$test_name" scripts/verify/foundation-kafka-live.sh; then
-    echo "FAIL foundation-kafka-contract: CI harness does not run $test_name" >&2
+  if ! grep -Fq "\"$test_name\"" "$lane_table"; then
+    echo "FAIL foundation-kafka-contract: kafka lane does not declare $test_name" >&2
     fail=1
   fi
 done
@@ -87,7 +92,7 @@ for required_text in \
   'compose down -v --remove-orphans' \
   'rpk topic create' \
   'FOUNDATION_TEST_KAFKA_REQUIRED=1' \
-  'cargo test --locked'; do
+  'cargo xtask integration foundation kafka'; do
   if ! grep -Fq "$required_text" "$harness"; then
     echo "FAIL foundation-kafka-contract: live harness is missing $required_text" >&2
     fail=1

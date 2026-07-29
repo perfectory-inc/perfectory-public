@@ -1,3 +1,10 @@
+---
+status: current
+owner: intelligence-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # intelligence-contracts
 
 Intelligence API와 Foundation 제출 경계의 proposal·provenance·idempotency 계약을

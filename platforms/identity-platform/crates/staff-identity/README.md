@@ -1,3 +1,10 @@
+---
+status: current
+owner: identity-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # staff-identity
 
 직원 로그인·세션·staff subject 연결을 담당합니다. 제품 B2C 인증은 이 crate의 책임이

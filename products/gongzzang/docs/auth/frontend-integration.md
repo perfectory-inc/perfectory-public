@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # Frontend Auth Integration — 운영 SSOT
 
 > SP6-i 의 운영 가이드. 디버깅·장애 대응·로컬 개발 절차의 단일 출처.

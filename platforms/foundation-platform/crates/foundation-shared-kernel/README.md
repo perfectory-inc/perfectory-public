@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Foundation shared kernel
 
 Foundation 내부 bounded context가 공유하는 최소 타입·오류·식별자만 제공합니다. 도메인

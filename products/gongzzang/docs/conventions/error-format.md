@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
 # 에러 형식 컨벤션 (RFC 9457 Problem Details)
 
 ## 1. 표준

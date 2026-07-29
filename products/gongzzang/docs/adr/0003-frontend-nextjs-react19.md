@@ -44,6 +44,6 @@
 
 ## 참조
 
-- → @docs/frontend/README.md
-- → @docs/data-sources/naver-maps.md
-- → @docs/conventions/typescript.md
+- [Frontend 문서](../frontend/README.md)
+- [Naver Maps 데이터 소스](../data-sources/naver-maps.md)
+- [TypeScript 컨벤션](../conventions/typescript.md)

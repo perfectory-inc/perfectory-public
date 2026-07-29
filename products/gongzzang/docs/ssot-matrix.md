@@ -1,4 +1,11 @@
-﻿# SSOT 매트릭스
+---
+status: current
+owner: gongzzang-제품
+doc_type: documentation
+last_reviewed: 2026-07-29
+---
+
+# SSOT 매트릭스
 
 > 정보별 진짜 SSOT(Single Source of Truth)와 그것의 사본, 그리고 SSOT 위반을 자동 차단하는 룰.
 

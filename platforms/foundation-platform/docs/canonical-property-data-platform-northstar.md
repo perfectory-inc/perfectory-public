@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: reference
+last_reviewed: 2026-07-29
+---
+
 # 캐노니컬 부동산 데이터 플랫폼 — 북극성 (North Star)
 
 Status: reference / index. 이 문서는 결정이 아니라 **전체 지도이자 색인**이다.

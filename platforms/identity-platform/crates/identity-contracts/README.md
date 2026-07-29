@@ -1,3 +1,10 @@
+---
+status: current
+owner: identity-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # identity-contracts
 
 Identity API와 다른 플랫폼 사이의 published HTTP·정책 계약 타입입니다. 호환성 없는

@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Foundation technical infrastructure
 
 Foundation의 범용 outbound HTTP·기술 어댑터를 모아 둔 내부 인프라 경계입니다. 도메인

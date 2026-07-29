@@ -77,14 +77,18 @@ export FOUNDATION_PLATFORM_KAFKA_RAW_WRITTEN_TOPIC="$TOPIC"
 export FOUNDATION_PLATFORM_RUNTIME_ENV="${FOUNDATION_PLATFORM_RUNTIME_ENV:-ci}"
 export FOUNDATION_PLATFORM_EXECUTION_CONTEXT="${FOUNDATION_PLATFORM_EXECUTION_CONTEXT:-ci}"
 
-run_test_host() {
-  local test_name="$1"
-  (cd "$ROOT/platforms/foundation-platform" && \
-    cargo test --locked -p foundation-outbox --test "$test_name" -- --ignored --nocapture)
+# The lane owns WHICH targets run (ADR-0011). This script owns the stack they run
+# against: compose up, readiness, topic creation, credentials, teardown. It used
+# to also keep its own copy of the three target names, so the set the completeness
+# guard proved and the set this harness executed were two statements of one fact.
+# Dropping `--nocapture` is deliberate: ADR-0010 debt #9 records that the
+# executed-count parser can be inflated by test-written stdout, and the lane does
+# not pass that flag.
+run_lane_host() {
+  (cd "$ROOT" && cargo xtask integration foundation kafka)
 }
 
-run_test_container() {
-  local test_name="$1"
+run_lane_container() {
   local container_database_url="${FOUNDATION_KAFKA_TEST_CONTAINER_DATABASE_URL:-$DATABASE_URL}"
   # A developer commonly exposes disposable Postgres on localhost. From the Rust container,
   # Docker Desktop exposes that host as host.docker.internal. Container-network URLs can be
@@ -102,7 +106,8 @@ run_test_container() {
     -v perfectory-cargo-registry:/usr/local/cargo/registry \
     -v perfectory-rustup:/usr/local/rustup \
     -v perfectory-target-foundation:/work/platforms/foundation-platform/target \
-    -w /work/platforms/foundation-platform \
+    -v perfectory-target-xtask:/work/tools/xtask/target \
+    -w /work \
     -e SQLX_OFFLINE=true \
     -e CARGO_TERM_COLOR=always \
     -e DATABASE_URL="$container_database_url" \
@@ -118,17 +123,14 @@ run_test_container() {
     "$RUST_TOOLCHAIN_IMAGE" bash -c \
     'apt-get update -qq && apt-get install -y -qq cmake >/dev/null && \
      PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-     cargo test --locked -p foundation-outbox --test "$1" -- --ignored --nocapture' \
-    _ "$test_name"
+     cargo xtask integration foundation kafka'
 }
 
-for test_name in live_kafka_karapace live_kafka_outbox_roundtrip live_kafka_outage; do
-  echo "foundation-kafka-live: running $test_name"
-  if command -v cargo >/dev/null 2>&1; then
-    run_test_host "$test_name"
-  else
-    run_test_container "$test_name"
-  fi
-done
+echo "foundation-kafka-live: running the foundation kafka lane"
+if command -v cargo >/dev/null 2>&1; then
+  run_lane_host
+else
+  run_lane_container
+fi
 
 echo "foundation-kafka-live: PASS (Kafka, Karapace, Postgres outbox, and outage contracts)"

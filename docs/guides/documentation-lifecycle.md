@@ -19,10 +19,17 @@ last_reviewed: 2026-07-28
 | 개발자가 어떻게 실행하는가? | `docs/guides/` 또는 영역의 `docs/guides/` | 안내서 |
 | 장애·배포·복구를 어떻게 하는가? | 영역의 `docs/runbooks/` | 운영 런북 |
 | 값·스키마·목록을 어디서 조회하는가? | 영역의 `docs/reference/` 또는 `docs/catalog/` | 조회 문서 |
+| 앞으로 무엇을 할 것인가? | 루트 `docs/roadmap/` | 작업 목록 |
 | 기계가 읽는 계약은 무엇인가? | `openapi/`, `contracts/`, `schemas/` | 기계 계약 |
 
 루트와 영역의 `README.md`는 지도를 제공한다. 설명을 복사하지 말고 정본으로 연결한다.
 같은 규칙을 두 문서에 쓰면 어느 쪽이 최신인지 알 수 없게 되므로 중복을 만들지 않는다.
+
+## 배치 예외
+
+기본 분류와 달리 `catalog/`, `openapi/`, `schemas/`, `events/`, `db/`처럼 코드·CI가
+직접 읽는 계약 경로는 소유 영역의 고정 경로를 유지한다. 이런 파일은 이름이나 위치를
+바꾸지 않고 README와 자동 색인에서 역할만 명확히 한다.
 
 ## 문서 변경 절차
 
@@ -38,9 +45,11 @@ last_reviewed: 2026-07-28
 
 3. 기존 문서를 옮기기 전에 코드·CI·링크가 경로를 직접 참조하는지 확인한다. 계약 파일,
    생성 산출물, 법률 원문은 임의로 이름을 바꾸거나 삭제하지 않는다.
-4. 변경은 조직 저장소의 작업 브랜치에서 사람의 PR로 검토한다. `main`에는 직접 커밋하지
-   않는다. PR은 문서 diff, 링크, 자동 색인, 감사 보고서 검사를 통과해야 한다.
-5. 병합 후 `python3 scripts/catalog/audit-documentation.py --write`와
+4. 미완료 작업은 README·ADR에 임시로 적지 않고 [운영 준비 작업 목록](../roadmap/production-readiness.md)에
+   기록한다. 결정이 완료되면 ADR, 실행 절차가 완료되면 runbook으로 승격한다.
+5. 변경은 조직 저장소의 작업 브랜치에서 사람의 PR로 검토한다. `main`에는 직접 커밋하지
+  않는다. PR은 문서 diff, 링크, 자동 색인, 감사 보고서 검사를 통과해야 한다.
+6. 병합 후 `python3 scripts/catalog/audit-documentation.py --write`와
    `python3 scripts/catalog/render-document-catalog.py --write`로 생성 문서를 갱신한다.
 
 ## 기록과 번역

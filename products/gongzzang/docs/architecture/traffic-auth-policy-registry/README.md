@@ -1,3 +1,10 @@
+---
+status: current
+owner: gongzzang-제품
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # traffic-auth-policy-registry/
 
 > 이 폴더의 split fragment JSON 들은 제거되었습니다. 단일 SSOT 는 상위

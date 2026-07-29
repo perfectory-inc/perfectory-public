@@ -22,3 +22,4 @@ last_reviewed: 2026-07-28
 - [0008 — 수동 의존성 업데이트와 조직 브랜치](./0008-manual-dependency-updates-and-organization-branches.md)
 - [0009 — 한글 정본 문서와 다국어 확장 준비](./0009-korean-first-documentation-and-multilingual-readiness.md)
 - [0010 — 라이브 자원 테스트 레인 (`LiveLane`)](./0010-live-resource-test-lanes.md)
+- [0011 — 테스트 실행 집합 완전성](./0011-test-execution-set-completeness.md)

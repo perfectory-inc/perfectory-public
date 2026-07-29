@@ -86,6 +86,41 @@ struct LaneTarget {
     test: &'static str,
 }
 
+/// A test-shaped npm script that no workflow invokes ON PURPOSE.
+///
+/// `LiveLane.required_env` lets a Rust suite say "I need a backend CI does not
+/// have" instead of quietly not running. TypeScript needed the same sentence.
+/// Without it the completeness check has only two answers — invoked, or a
+/// failure — and a script that legitimately cannot run on a GitHub-hosted runner
+/// would force either a red CI or an exception list. Exception lists widen in
+/// silence; a declaration carrying its own reason does not.
+///
+/// `requires` is prose on purpose: it is read by a human deciding whether the
+/// constraint still holds, and its presence is what makes adding an entry a
+/// visible, arguable change rather than a one-word suppression.
+struct LocalOnlyScript {
+    /// Repository-relative path of the declaring `package.json`.
+    manifest: &'static str,
+    /// The `scripts` key.
+    script: &'static str,
+    /// The resource a GitHub-hosted runner cannot provide.
+    requires: &'static str,
+}
+
+/// Scripts deliberately outside CI, with the resource that keeps them out.
+///
+/// `scripts/guard/live-lane-completeness.sh` accepts a test-shaped script when a
+/// workflow invokes it OR it appears here. Anything else fails.
+const LOCAL_ONLY_SCRIPTS: &[LocalOnlyScript] = &[LocalOnlyScript {
+    manifest: "products/gongzzang/apps/web/package.json",
+    script: "probe:naver",
+    // The vector-source reload probe launches Chromium with `--enable-gpu
+    // --disable-software-rasterizer` (tests/probes/naver-sdk.probe.ts) and drives
+    // the real Naver SDK. A GitHub-hosted runner has no GPU, so the probe is a
+    // local capability check whose evidence is attached to the run, not a gate.
+    requires: "hardware GL and the live Naver Maps SDK",
+}];
+
 /// The cargo invocation for each target in a lane — one per target, mirroring
 /// the loop `scripts/verify/foundation-kafka-live.sh` already runs.
 ///
@@ -215,6 +250,19 @@ struct PythonTests {
     python_path: Option<&'static str>,
     /// Arguments following `python3`.
     args: &'static [&'static str],
+    /// Discovery roots (area-relative) this suite is responsible for.
+    ///
+    /// `dir`/`args` say HOW the suite runs; `covers` says WHAT it claims. Without
+    /// the second statement there is nothing to check the first against, and that
+    /// silence is where four Python files (26 tests) sat unrun while CI stayed
+    /// green — one of them asserting `assertIn(X)` and `assertNotIn(S)` with
+    /// `S ⊂ X`, so it could never have passed had it ever run (ADR-0011).
+    ///
+    /// `scripts/guard/live-lane-completeness.sh` proves every discovered
+    /// `test_*.py`/`*_test.py` under `platforms`/`products` sits beneath exactly
+    /// one of these roots. Zero means the file runs nowhere; more than one means
+    /// ownership is ambiguous.
+    covers: &'static [&'static str],
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -344,6 +392,7 @@ const AREAS: &[Area] = &[
                 dir: "services/foundation-provider-acquisition-worker",
                 python_path: Some("src"),
                 args: &["-m", "pytest", "tests", "-q"],
+                covers: &["services/foundation-provider-acquisition-worker/tests"],
             },
             PythonTests {
                 dir: ".",
@@ -357,6 +406,39 @@ const AREAS: &[Area] = &[
                     "-p",
                     "test_*.py",
                 ],
+                covers: &["infra/lakehouse/spark/tests"],
+            },
+            // The two suites below belonged to no runner until ADR-0011. The dbt
+            // contract tests had never executed at all: not in a workflow, not in
+            // `lefthook.yml`, not here. Twenty-five of their twenty-six assertions
+            // pass; the twenty-sixth cannot, and nobody could have known.
+            PythonTests {
+                dir: ".",
+                python_path: None,
+                args: &[
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "infra/lakehouse/dbt/tests",
+                    "-p",
+                    "test_*.py",
+                ],
+                covers: &["infra/lakehouse/dbt/tests"],
+            },
+            PythonTests {
+                dir: ".",
+                python_path: None,
+                args: &[
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "services/foundation-api/tests",
+                    "-p",
+                    "test_*.py",
+                ],
+                covers: &["services/foundation-api/tests"],
             },
         ],
         // Foundation's DB-backed reads tests (catalog_*_reads, …) are `#[ignore]`
@@ -518,6 +600,13 @@ const AREAS: &[Area] = &[
                 required_env: &[
                     "FOUNDATION_PLATFORM_R2_LIVE_SMOKE",
                     "FOUNDATION_PLATFORM_R2_INVENTORY_LIVE_SMOKE",
+                    "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+                    "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+                    "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+                    "FOUNDATION_PLATFORM_RUNTIME_ENV",
+                    "FOUNDATION_PLATFORM_EXECUTION_CONTEXT",
+                    "FOUNDATION_PLATFORM_R2_LIVE_SMOKE_BUCKET",
+                    "FOUNDATION_PLATFORM_R2_LIVE_WRITE_CONFIRM",
                 ],
                 gating: LaneGating::Ignored,
                 targets: &[LaneTarget {
@@ -527,7 +616,13 @@ const AREAS: &[Area] = &[
             },
             LiveLane {
                 name: "lakehouse",
-                required_env: &["FOUNDATION_PLATFORM_LAKEHOUSE_LIVE_SMOKE"],
+                required_env: &[
+                    "FOUNDATION_PLATFORM_LAKEHOUSE_LIVE_SMOKE",
+                    "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER",
+                    "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
+                    "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
+                    "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
+                ],
                 gating: LaneGating::Ignored,
                 targets: &[LaneTarget {
                     package: "lakehouse-infrastructure",
@@ -640,6 +735,24 @@ const AREAS: &[Area] = &[
                 ],
             },
         ],
+    },
+    // The harness itself. Five Cargo workspaces exist in this repository and this
+    // was the one no area declared, so `verify` never entered it and its ten unit
+    // tests ran nowhere — among them the tests proving that a lane which selects
+    // zero tests is a failure, and that the libtest summary parser reads what
+    // actually ran. The mechanism guaranteeing every other suite runs was the one
+    // suite nothing guaranteed (ADR-0011).
+    //
+    // ADR-0010 already found the neighbouring half of this: an xtask change
+    // retriggered no area CI, fixed by `scripts/guard/xtask-path-coverage.sh`.
+    // That made the workflows *rerun* on an xtask change; it did not make any of
+    // them *test* xtask. A path filter is not coverage.
+    Area {
+        slug: "tooling",
+        dir: "tools/xtask",
+        apt_deps: &[],
+        python_tests: &[],
+        live_lanes: &[],
     },
 ];
 
@@ -783,15 +896,110 @@ fn verify(area: &Area) {
         cargo(&dir, &command);
     }
 
-    for plan in python_test_plans(area, &dir) {
-        let mut command = Command::new("python3");
-        command.current_dir(&plan.current_dir);
-        if let Some(python_path) = plan.python_path {
-            command.env("PYTHONPATH", python_path);
+    // A covers root that points at nothing is a claim no one can honour. The
+    // shell guard proves every discovered file is claimed; it cannot prove a
+    // claim still resolves, so a directory rename would leave the declaration
+    // pointing into space while the guard stayed green.
+    for suite in area.python_tests {
+        for root in suite.covers {
+            let claimed = dir.join(root);
+            if !claimed.is_dir() {
+                eprintln!(
+                    "xtask: FAILED: {} python suite '{}' claims covers root '{}', \
+                     which is not a directory under {}. Fix the declaration or \
+                     restore the tree.",
+                    area.slug,
+                    suite.dir,
+                    root,
+                    dir.display()
+                );
+                exit(1);
+            }
         }
-        command.args(plan.args);
-        run(&mut command);
     }
+
+    for (suite, plan) in area.python_tests.iter().zip(python_test_plans(area, &dir)) {
+        let output = python_capturing_output(&plan);
+        if executed_python_test_count(&output) == 0 {
+            eprintln!(
+                "xtask: FAILED: {} python suite '{}' executed 0 tests. Check the \
+                 covers roots and the discovery pattern.",
+                area.slug, suite.dir
+            );
+            exit(1);
+        }
+    }
+}
+
+/// unittest reports `Ran N tests` on stderr; pytest reports `N passed` on stdout.
+/// Both are read the same way and for the same reason as libtest's summary — see
+/// [`executed_test_count`]. Parsing failure sums to zero, which fails closed.
+fn executed_python_test_count(output: &str) -> usize {
+    let mut total = 0usize;
+    for line in output.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("Ran ") {
+            if let Some(parsed) = rest
+                .split_whitespace()
+                .next()
+                .and_then(|token| token.parse::<usize>().ok())
+            {
+                total += parsed;
+                continue;
+            }
+        }
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        if let Some(index) = tokens
+            .iter()
+            .position(|token| token.trim_end_matches(',') == "passed")
+        {
+            if let Some(parsed) = index
+                .checked_sub(1)
+                .and_then(|previous| tokens.get(previous))
+                .and_then(|token| token.parse::<usize>().ok())
+            {
+                total += parsed;
+            }
+        }
+    }
+    total
+}
+
+/// Runs a Python suite and returns both streams joined.
+///
+/// [`cargo_capturing_stdout`] can inherit stderr because libtest writes its
+/// summary to stdout. unittest does not: `Ran N tests` goes to stderr, so the
+/// same choice here would discard the only signal a unittest suite emits.
+///
+/// The readback is not redundant with the runner's own exit code. Measured on
+/// this repository: `unittest discover` matching nothing exits 5 under the host's
+/// Python 3.13 but exits 0 and prints `OK` under the 3.11.2 in the pinned
+/// verification image. The verdict would depend on where the command ran, which
+/// is the local/CI split ADR-0004 exists to remove.
+fn python_capturing_output(plan: &PythonCommandPlan) -> String {
+    let mut command = Command::new("python3");
+    command
+        .current_dir(&plan.current_dir)
+        .args(plan.args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    if let Some(python_path) = plan.python_path {
+        command.env("PYTHONPATH", python_path);
+    }
+    let rendered = format!("{command:?}");
+    let output = command.output().unwrap_or_else(|error| {
+        eprintln!("xtask: could not spawn {rendered}: {error}");
+        exit(1);
+    });
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    print!("{stdout}");
+    eprint!("{stderr}");
+    if !output.status.success() {
+        eprintln!("xtask: FAILED ({}): {rendered}", output.status);
+        exit(output.status.code().unwrap_or(1));
+    }
+    format!("{stdout}{stderr}")
 }
 
 fn python_test_plans(area: &Area, area_dir: &Path) -> Vec<PythonCommandPlan> {
@@ -808,7 +1016,41 @@ fn python_test_plans(area: &Area, area_dir: &Path) -> Vec<PythonCommandPlan> {
 /// Run the fast repository-structure checks before any expensive area build.
 /// This keeps publication, licensing, and workflow safety in the same authoritative
 /// `cargo xtask verify <area>` entrypoint as compile/test policy.
+/// A local-only declaration outlives the script it excuses unless something
+/// checks. A stale entry is worse than no entry: it silently pre-approves a name
+/// someone may reuse later for a script that genuinely belongs in CI.
+fn validate_local_only_scripts() {
+    let root = repo_root();
+    for entry in LOCAL_ONLY_SCRIPTS {
+        let manifest = root.join(entry.manifest);
+        let Ok(text) = std::fs::read_to_string(&manifest) else {
+            eprintln!(
+                "xtask: FAILED: local-only declaration names {}, which cannot be read.",
+                entry.manifest
+            );
+            exit(1);
+        };
+        if !text.contains(&format!("\"{}\"", entry.script)) {
+            eprintln!(
+                "xtask: FAILED: {} no longer declares a '{}' script. Remove the \
+                 local-only entry rather than leaving it to pre-approve that name.",
+                entry.manifest, entry.script
+            );
+            exit(1);
+        }
+        if entry.requires.trim().is_empty() {
+            eprintln!(
+                "xtask: FAILED: local-only script '{}' must state the resource that \
+                 keeps it out of CI.",
+                entry.script
+            );
+            exit(1);
+        }
+    }
+}
+
 fn repository_guard() {
+    validate_local_only_scripts();
     let root = repo_root();
     run(Command::new("bash")
         .current_dir(&root)
@@ -1166,6 +1408,13 @@ mod tests {
             &[
                 "FOUNDATION_PLATFORM_R2_LIVE_SMOKE",
                 "FOUNDATION_PLATFORM_R2_INVENTORY_LIVE_SMOKE",
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+                "FOUNDATION_PLATFORM_RUNTIME_ENV",
+                "FOUNDATION_PLATFORM_EXECUTION_CONTEXT",
+                "FOUNDATION_PLATFORM_R2_LIVE_SMOKE_BUCKET",
+                "FOUNDATION_PLATFORM_R2_LIVE_WRITE_CONFIRM",
             ]
         );
     }
@@ -1336,7 +1585,7 @@ mod tests {
 
         let plans = python_test_plans(area, area_dir);
 
-        assert_eq!(plans.len(), 2);
+        assert_eq!(plans.len(), 4);
         assert_eq!(
             plans[0].current_dir,
             area_dir.join("services/foundation-provider-acquisition-worker")
@@ -1357,5 +1606,155 @@ mod tests {
                 "test_*.py",
             ],
         );
+        // The two suites ADR-0011 adopted. Naming their discovery roots here keeps
+        // the assertion honest about *which* trees the harness took responsibility
+        // for, not merely how many commands it emits.
+        assert_eq!(
+            plans[2].args,
+            &[
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "infra/lakehouse/dbt/tests",
+                "-p",
+                "test_*.py",
+            ],
+        );
+        assert_eq!(
+            plans[3].args,
+            &[
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "services/foundation-api/tests",
+                "-p",
+                "test_*.py",
+            ],
+        );
+    }
+
+    /// A suite that claims nothing cannot be checked for completeness, and an
+    /// unchecked claim is how four Python files ran nowhere (ADR-0011). The
+    /// shell guard proves the claims cover every discovered file; this proves
+    /// no suite ships without making one.
+    #[test]
+    fn every_python_suite_declares_the_roots_it_covers() {
+        for area in AREAS {
+            for suite in area.python_tests {
+                assert!(
+                    !suite.covers.is_empty(),
+                    "{} python suite '{}' declares no covers root",
+                    area.slug,
+                    suite.dir
+                );
+                for root in suite.covers {
+                    assert!(
+                        !root.starts_with('/') && !root.ends_with('/'),
+                        "{} python suite '{}' covers root {root:?} must be a \
+                         bare area-relative path; the guard matches on \"/<root>/\"",
+                        area.slug,
+                        suite.dir
+                    );
+                }
+            }
+        }
+    }
+
+    /// `covers` states what a suite is responsible for; `args` states what it
+    /// runs. Joining `dir` with each argument and normalising away `.` lets the
+    /// two declaration shapes in use — a suite rooted in its own subdirectory
+    /// with relative arguments, and one rooted at the area with area-relative
+    /// arguments — be compared as the same path.
+    fn suite_runs_covered_root(suite: &PythonTests, root: &str) -> bool {
+        let normalise = |value: &Path| -> PathBuf {
+            value
+                .components()
+                .filter(|component| !matches!(component, std::path::Component::CurDir))
+                .collect()
+        };
+        let target = normalise(Path::new(root));
+        suite
+            .args
+            .iter()
+            .any(|argument| normalise(&Path::new(suite.dir).join(argument)) == target)
+    }
+
+    /// The claim and the command must name the same tree. Without this a suite
+    /// could declare responsibility for one directory and run another: the
+    /// completeness guard would report every file claimed, the runner would exit
+    /// 0, and the claimed tree would still run nowhere. That is the exact shape
+    /// this ADR exists to remove, one level in.
+    #[test]
+    fn every_python_suite_runs_the_roots_it_claims() {
+        for area in AREAS {
+            for suite in area.python_tests {
+                for root in suite.covers {
+                    assert!(
+                        suite_runs_covered_root(suite, root),
+                        "{} python suite '{}' claims {root:?} but its arguments {:?} \
+                         do not name that tree",
+                        area.slug,
+                        suite.dir,
+                        suite.args
+                    );
+                }
+            }
+        }
+    }
+
+    /// The runners disagree with each other about zero tests, and one of them
+    /// disagrees with itself across versions: `unittest discover` matching
+    /// nothing exits 5 on Python 3.13 and 0 on the 3.11.2 in the pinned image.
+    /// Reading the count makes the verdict the same everywhere.
+    #[test]
+    fn executed_python_test_count_reads_both_runner_summaries() {
+        assert_eq!(
+            executed_python_test_count("Ran 17 tests in 0.009s\n\nOK\n"),
+            17
+        );
+        assert_eq!(
+            executed_python_test_count("16 passed, 1 skipped in 0.12s\n"),
+            16
+        );
+        // The shape this exists to catch: nothing selected, runner content.
+        assert_eq!(
+            executed_python_test_count("Ran 0 tests in 0.000s\n\nOK\n"),
+            0
+        );
+        // No summary at all is zero, never "assume it was fine".
+        assert_eq!(executed_python_test_count("collecting ...\n"), 0);
+    }
+
+    #[test]
+    fn suite_root_matching_normalises_both_declaration_shapes() {
+        // Rooted in its own subdirectory, arguments relative to it.
+        let nested = PythonTests {
+            dir: "services/worker",
+            python_path: Some("src"),
+            args: &["-m", "pytest", "tests", "-q"],
+            covers: &["services/worker/tests"],
+        };
+        assert!(suite_runs_covered_root(&nested, "services/worker/tests"));
+        assert!(!suite_runs_covered_root(&nested, "services/worker/other"));
+
+        // Rooted at the area, arguments already area-relative.
+        let flat = PythonTests {
+            dir: ".",
+            python_path: None,
+            args: &[
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "infra/checks",
+                "-p",
+                "test_*.py",
+            ],
+            covers: &["infra/checks"],
+        };
+        assert!(suite_runs_covered_root(&flat, "infra/checks"));
+        assert!(!suite_runs_covered_root(&flat, "infra/other"));
     }
 }

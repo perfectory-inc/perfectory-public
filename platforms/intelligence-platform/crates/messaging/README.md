@@ -1,3 +1,10 @@
+---
+status: current
+owner: intelligence-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # intelligence messaging
 
 Kafka·Avro·Karapace 어댑터와 이벤트 계약 테스트를 담당합니다. C2 이벤트 백본은 선택적

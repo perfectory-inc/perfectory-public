@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Foundation lakehouse
 
 Bronze 이후 Silver/Gold 데이터 처리의 도메인·애플리케이션·인프라 경계입니다. Iceberg,

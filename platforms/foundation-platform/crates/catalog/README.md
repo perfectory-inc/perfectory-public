@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-07-29
+---
+
 # Foundation catalog
 
 Foundation의 필지·건물·산업단지 카탈로그 원장 경계입니다. 도메인·애플리케이션·인프라

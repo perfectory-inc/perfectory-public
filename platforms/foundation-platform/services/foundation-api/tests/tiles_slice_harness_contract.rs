@@ -129,8 +129,8 @@ fn production_static_martin_config_uses_private_r2_prefix_discovery() {
     require_all(
         &config,
         &[
-            "pmtiles:\n  aws_access_key_id: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_ACCESS_KEY_ID}",
-            "  aws_secret_access_key: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_MARTIN_READ_SECRET_ACCESS_KEY}",
+            "pmtiles:\n  aws_access_key_id: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_ACCESS_KEY_ID}",
+            "  aws_secret_access_key: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_SECRET_ACCESS_KEY}",
             concat!(
                 "  aws_region: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION:",
                 "-auto}"
@@ -143,8 +143,8 @@ fn production_static_martin_config_uses_private_r2_prefix_discovery() {
         ],
         "production static Martin config",
     );
-    assert!(!config.contains("${FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID}"));
-    assert!(!config.contains("${FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY}"));
+    assert!(!config.contains("${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}"));
+    assert!(!config.contains("${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}"));
     assert!(!config.contains("${R2_S3_ENDPOINT}"));
     assert!(!config.contains("allow_http"));
     assert!(!config.contains("pmtiles:\n  sources:"));
@@ -391,7 +391,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
         "inherited xtrace must be disabled before any R2 values are inspected"
     );
     assert!(
-        !proof.contains("--user \"$FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_ACCESS_KEY_ID:$FOUNDATION_PLATFORM_R2_LAKEHOUSE_RUNTIME_SECRET_ACCESS_KEY\""),
+        !proof.contains("--user \"$FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID:$FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY\""),
         "R2 credentials must not be exposed in curl argv"
     );
     assert!(
