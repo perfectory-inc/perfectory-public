@@ -18,7 +18,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use catalog_application::ports::{
     CatalogUnitOfWork, MarkTileLayerDynamicCommand, PromoteTileLayerStaticCommand,
-    RecordVectorTileBuildResultCommand, RollbackTileLayerSourceCommand,
+    PublishedRuntimeManifest, RecordVectorTileBuildResultCommand, RollbackTileLayerSourceCommand,
     StartVectorTileBuildCommand, UpsertIndustrialComplexCommand,
     VectorTileManifestPromotionCommand, VectorTileManifestRollbackCommand,
 };
@@ -256,12 +256,14 @@ catalog_unit_of_work_double!(RecordingUnitOfWork {
     async fn mark_tile_layer_dynamic(
         &self,
         command: MarkTileLayerDynamicCommand,
-    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+    ) -> Result<PublishedRuntimeManifest, CatalogError> {
         self.activations
             .lock()
             .map_err(poisoned)?
             .push(command.clone());
-        published_manifest(&command)
+        // Always `Published`: this double records commands, it does not model the ledger. A double
+        // that replayed would let a use-case test pass while the real replay path was untested.
+        published_manifest(&command).map(PublishedRuntimeManifest::Published)
     }
 
     async fn start_vector_tile_build(

@@ -94,7 +94,14 @@ async fn activation_is_normalized_before_it_reaches_the_unit_of_work() -> Result
         vec!["parcels"],
         "layer keys must be trimmed, not carried through padded"
     );
-    assert!(manifest.publication_units.contains_key("parcels"));
+    assert!(
+        !manifest.was_replayed(),
+        "a first activation is published, not replayed"
+    );
+    assert!(manifest
+        .manifest()
+        .publication_units
+        .contains_key("parcels"));
     Ok(())
 }
 

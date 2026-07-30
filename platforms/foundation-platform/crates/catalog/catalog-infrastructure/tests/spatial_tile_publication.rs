@@ -14,12 +14,16 @@ mod support;
 use std::{collections::BTreeMap, sync::Arc};
 
 use catalog_application::{
-    ports::{CatalogUnitOfWork, MarkTileLayerDynamicCommand, RuntimeManifestPublicationCapability},
+    ports::{
+        CatalogUnitOfWork, MarkTileLayerDynamicCommand, PublishedRuntimeManifest,
+        RuntimeManifestPublicationCapability,
+    },
     MarkTileLayerDynamic,
 };
 use catalog_domain::{
     ActiveTileSource, CanonicalIcebergSnapshotId, CatalogError, FeatureIdProperty,
     RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
+    VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use foundation_shared_kernel::events::catalog_v1::vector_tile_runtime_manifest_object_key;
@@ -165,6 +169,16 @@ async fn a_first_activation_publishes_a_complete_dynamic_manifest() -> TestResul
             outbox_types(&pool).await?,
             vec![RUNTIME_MANIFEST_PUBLISHED_V2]
         );
+
+        // The mutation, its outbox event and its ledger row are one transaction. The recorded event id
+        // is what makes that assertable rather than merely intended.
+        let emitted: Vec<Uuid> = sqlx::query_scalar("SELECT event_id FROM catalog.outbox_event")
+            .fetch_all(&pool)
+            .await?;
+        assert_eq!(
+            ledger_outbox_event_id(&pool, &format!("activate-parcels-{revision}")).await?,
+            emitted.first().copied()
+        );
         Ok(())
     })
     .await
@@ -197,7 +211,7 @@ async fn a_stale_observation_loses_the_compare_and_swap_and_moves_nothing() -> T
 
         // A repeated first-publication claim against a unit that has published.
         let repeated_first_claim = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
-            .execute(activation_command(
+            .attempt(activation_command(
                 "parcels",
                 next_revision,
                 NEXT_SNAPSHOT,
@@ -218,7 +232,7 @@ async fn a_stale_observation_loses_the_compare_and_swap_and_moves_nothing() -> T
         // The right release at the wrong generation. The release id alone is not the state: a
         // same-revision rollback re-activates a preserved release, so one id can be active twice.
         let stale_generation = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
-            .execute(activation_command(
+            .attempt(activation_command(
                 "parcels",
                 next_revision,
                 NEXT_SNAPSHOT,
@@ -396,14 +410,14 @@ async fn two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner(
         let left_writer = use_case(&pool, capability);
         let right_writer = use_case(&pool, capability);
         let (left, right) = tokio::join!(
-            left_writer.execute(activation_command(
+            left_writer.attempt(activation_command(
                 "parcels",
                 left_revision,
                 NEXT_SNAPSHOT,
                 source_record_id,
                 Some((observed, observed_generation)),
             )?),
-            right_writer.execute(activation_command(
+            right_writer.attempt(activation_command(
                 "parcels",
                 right_revision,
                 FOURTH_SNAPSHOT,
@@ -429,6 +443,9 @@ async fn two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner(
             "the loser must learn its observation is stale, not that the database serialized: {loser:?}"
         );
 
+        // Both commands carry distinct idempotency keys (derived from their distinct revisions), so
+        // the winner published rather than being answered from the ledger.
+        let winner = expect_published(winner)?;
         assert_eq!(winner.manifest_generation.value(), 2);
         assert_eq!(
             published_unit(&winner, "parcels")?.serving_generation.value(),
@@ -516,11 +533,11 @@ async fn two_edits_to_different_units_both_commit_and_advance_the_global_generat
         let parcels_writer = use_case(&pool, capability);
         let complex_writer = use_case(&pool, capability);
         let (parcels_result, complex_result) = tokio::join!(
-            parcels_writer.execute(switch_parcels),
-            complex_writer.execute(switch_complex),
+            parcels_writer.attempt(switch_parcels),
+            complex_writer.attempt(switch_complex),
         );
-        let parcels_published = parcels_result?;
-        let complex_published = complex_result?;
+        let parcels_published = expect_published(parcels_result?)?;
+        let complex_published = expect_published(complex_result?)?;
 
         // Which one wins the lock is not fixed, so order the two results by what the database
         // decided instead of assuming it.
@@ -606,7 +623,7 @@ async fn an_unpublished_neighbour_refuses_the_activation_by_name() -> TestResult
         let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
 
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
-            .execute(activation_command(
+            .attempt(activation_command(
                 "parcels",
                 revision,
                 PARCELS_SNAPSHOT,
@@ -642,7 +659,7 @@ async fn an_unknown_publication_unit_is_refused() -> TestResult {
         let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
 
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
-            .execute(activation_command(
+            .attempt(activation_command(
                 "parcels",
                 revision,
                 PARCELS_SNAPSHOT,
@@ -665,17 +682,22 @@ async fn an_unknown_publication_unit_is_refused() -> TestResult {
     .await
 }
 
-/// A replayed activation writes nothing at all — not a partial anything.
+/// Re-publishing one revision after observing it writes nothing at all — not a partial anything.
 ///
-/// The retry passes the compare-and-swap because it carries the state the first one produced, and
-/// then collides with `vector_tile_release_unit_revision_snapshot_kind_key`: the unit already has a
-/// dynamic release for exactly this revision and snapshot. Everything written before the collision —
-/// the release attempt, the manifest row, its `file_asset`, the manifest unit rows — has to
-/// disappear with it, which is the property the whole transaction exists for.
+/// Deliberately *not* a replay, and the name used to say otherwise. A client retry resends the
+/// identical body, so its `expected_active_release_id` is still `None`, and the compare-and-swap
+/// refuses it before any row is written — that path is
+/// `a_stale_observation_loses_the_compare_and_swap_and_moves_nothing`. What this covers is the other
+/// shape: a caller that re-read the state and asks to publish the *same* revision again. That one
+/// passes the compare-and-swap and then collides with
+/// `vector_tile_release_unit_revision_snapshot_kind_key`, which is the only case where the
+/// transaction has already written a release, a manifest, its `file_asset` and the manifest unit rows
+/// before failing. All of it has to disappear together, which is the property the transaction exists
+/// for and the reason this test is worth having under an honest name.
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
-async fn a_replayed_activation_leaves_no_partial_state() -> TestResult {
-    run_in_disposable_database("tile_replayed_activation", |pool| async move {
+async fn re_publishing_one_revision_after_observing_it_leaves_no_partial_state() -> TestResult {
+    run_in_disposable_database("tile_republish_revision", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
@@ -692,8 +714,14 @@ async fn a_replayed_activation_leaves_no_partial_state() -> TestResult {
         let active_release_id = published_unit(&published, "parcels")?.active_release_id;
         let file_assets_before = file_asset_count(&pool).await?;
 
+        // A *new* key deliberately: the same key would be caught by the idempotency ledger before any
+        // row is written, which is the right behaviour and the wrong test — nothing would have been
+        // written to roll back. A fresh key is a genuinely new request that happens to target a
+        // revision already published, which is the only way to reach the uniqueness key with writes
+        // already in the transaction.
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
-            .execute(activation_command(
+            .attempt(activation_command_with_key(
+                "republish-parcels-under-a-new-key",
                 "parcels",
                 revision,
                 PARCELS_SNAPSHOT,
@@ -726,6 +754,198 @@ async fn a_replayed_activation_leaves_no_partial_state() -> TestResult {
         assert_eq!(
             outbox_types(&pool).await?,
             vec![RUNTIME_MANIFEST_PUBLISHED_V2]
+        );
+        Ok(())
+    })
+    .await
+}
+
+/// A true retry: the identical body under the identical key is answered from the ledger.
+///
+/// This is the case Step 5 asks for and the one nothing covered before — the earlier "replay" test
+/// sent a different body. Identical means identical, `expected_active_release_id: None` included, even
+/// though that observation is now stale: a retry does not get to re-observe, and the ledger answers
+/// before the compare-and-swap is ever evaluated.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn an_identical_retry_is_answered_from_the_ledger_and_writes_nothing() -> TestResult {
+    run_in_disposable_database("tile_true_replay", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let source_record_id = seed_source_record(&pool).await?;
+        seed_publication_unit(&pool, "parcels").await?;
+        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let command = || {
+            activation_command_with_key(
+                "retry-me",
+                "parcels",
+                revision,
+                PARCELS_SNAPSHOT,
+                source_record_id,
+                None,
+            )
+        };
+
+        let first = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
+            .execute(command()?)
+            .await?;
+        let manifests_before = manifest_count(&pool).await?;
+        let releases_before = release_count(&pool).await?;
+        let assets_before = file_asset_count(&pool).await?;
+
+        let retried = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
+            .attempt(command()?)
+            .await?;
+
+        assert!(
+            retried.was_replayed(),
+            "an identical retry must be answered from the ledger, not re-executed"
+        );
+        let replayed = retried.into_manifest();
+        assert_eq!(
+            replayed.current_version, first.current_version,
+            "the retry must return the manifest the first call published"
+        );
+        assert_eq!(
+            replayed.manifest_generation.value(),
+            first.manifest_generation.value()
+        );
+        // Byte-identical, not merely equal-looking: the reply is re-derived from immutable rows, so a
+        // drift in how it is rebuilt would show up here rather than in production on someone's retry.
+        assert_eq!(
+            serde_json::to_string(&replayed)?,
+            serde_json::to_string(&first)?
+        );
+
+        assert_eq!(manifest_count(&pool).await?, manifests_before);
+        assert_eq!(release_count(&pool).await?, releases_before);
+        assert_eq!(file_asset_count(&pool).await?, assets_before);
+        assert_eq!(
+            outbox_types(&pool).await?,
+            vec![RUNTIME_MANIFEST_PUBLISHED_V2],
+            "a replay must not announce a second time"
+        );
+        assert_eq!(ledger_row_count(&pool).await?, 1);
+        Ok(())
+    })
+    .await
+}
+
+/// The same key carrying a different request is a key reuse, not a retry.
+///
+/// Answering it with the earlier outcome would report a publication the caller never asked for. The
+/// refusal has to be its own error: the caller's fix is to mint a new key, which is a different action
+/// from "re-read state and retry" and from "resend the identical body".
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn an_idempotency_key_reused_for_a_different_request_is_refused() -> TestResult {
+    run_in_disposable_database("tile_key_reuse", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let source_record_id = seed_source_record(&pool).await?;
+        seed_publication_unit(&pool, "parcels").await?;
+        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let next_revision = seed_data_revision(&pool, NEXT_SNAPSHOT, source_record_id).await?;
+
+        let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
+            .execute(activation_command_with_key(
+                "reused-key",
+                "parcels",
+                revision,
+                PARCELS_SNAPSHOT,
+                source_record_id,
+                None,
+            )?)
+            .await?;
+        let manifests_before = manifest_count(&pool).await?;
+
+        let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
+            .attempt(activation_command_with_key(
+                "reused-key",
+                "parcels",
+                next_revision,
+                NEXT_SNAPSHOT,
+                source_record_id,
+                Some((
+                    published_unit(&published, "parcels")?.active_release_id,
+                    ServingGeneration::new(1)?,
+                )),
+            )?)
+            .await
+            .expect_err("a key already spent on another request must not answer this one");
+        assert!(
+            matches!(
+                &error,
+                CatalogError::MutationIdempotencyKeyReused { idempotency_key, command_kind }
+                    if idempotency_key == "reused-key" && command_kind == "mark_tile_layer_dynamic"
+            ),
+            "got: {error:?}"
+        );
+
+        assert_eq!(
+            active_pointer(&pool).await?,
+            published.current_version.as_uuid()
+        );
+        assert_eq!(manifest_count(&pool).await?, manifests_before);
+        assert_eq!(ledger_row_count(&pool).await?, 1);
+        Ok(())
+    })
+    .await
+}
+
+/// A key held by an uncommitted transaction answers "contended", not an opaque server error.
+///
+/// This exists because the reasoning behind it is not self-evident and was flagged as needing proof
+/// rather than argument: that `lock_timeout` bounds the wait an `ON CONFLICT DO NOTHING` insert
+/// performs on a conflicting row's transaction. Without that bound the wait runs into the pool's
+/// 2500ms `statement_timeout`, arrives as an infrastructure failure, and is served as a 500 with the
+/// reason redacted — hiding the one action that resolves it.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_key_held_by_an_uncommitted_transaction_answers_contended() -> TestResult {
+    run_in_disposable_database("tile_key_contended", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let source_record_id = seed_source_record(&pool).await?;
+        seed_publication_unit(&pool, "parcels").await?;
+        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+
+        // Hold the key from a transaction that never commits. `outcome_manifest_id` may name a
+        // manifest that does not exist because the foreign key is deferred to commit time, and this
+        // transaction is rolled back — which is also a small proof that the deferral works.
+        let mut holder = pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO catalog.catalog_mutation_idempotency
+             (idempotency_key, command_kind, request_fingerprint_sha256,
+              request_fingerprint_schema_version, outcome_manifest_id, operator_staff_id)
+             VALUES ('contended-key', 'mark_tile_layer_dynamic', repeat('a', 64), 'test.v1', $1, $2)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(OPERATOR_STAFF_ID)
+        .execute(&mut *holder)
+        .await?;
+
+        let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
+            .attempt(activation_command_with_key(
+                "contended-key",
+                "parcels",
+                revision,
+                PARCELS_SNAPSHOT,
+                source_record_id,
+                None,
+            )?)
+            .await
+            .expect_err("a key held by an uncommitted transaction cannot be claimed");
+        assert!(
+            matches!(
+                &error,
+                CatalogError::MutationContended { idempotency_key } if idempotency_key == "contended-key"
+            ),
+            "the wait must be bounded and named, not reported as an infrastructure failure: {error:?}"
+        );
+
+        holder.rollback().await?;
+        assert_eq!(
+            ledger_row_count(&pool).await?,
+            0,
+            "the holder rolled back, so its claim and its dangling manifest reference are gone"
         );
         Ok(())
     })
@@ -778,6 +998,13 @@ async fn publication_capability_off_records_the_activation_without_the_public_ev
             outbox_types(&pool).await?.is_empty(),
             "publication is off, so no public v2 event may be emitted"
         );
+        // Recorded as null rather than left unstated: a later retry under the same key replays this
+        // outcome and still announces nothing, even if the capability is on by then. Flipping the flag
+        // does not retro-announce — the operator has to publish a new manifest.
+        assert_eq!(
+            ledger_outbox_event_id(&pool, &format!("activate-parcels-{revision}")).await?,
+            None
+        );
         Ok(())
     })
     .await
@@ -809,18 +1036,70 @@ async fn the_default_unit_of_work_does_not_publish_the_v2_event() -> TestResult 
     .await
 }
 
+/// Fixed operator identity. Inside the request fingerprint, so it must not vary per call.
+const OPERATOR_STAFF_ID: Uuid = Uuid::from_u128(0x019d_2b87_3fd1_7e3a_8d88_0b72_c874_3777);
+
+/// A satellite identifier derived from a revision, so rebuilding one command twice yields one request.
+///
+/// Distinct `slot` values keep the derived ids from colliding with each other or with the revision.
+const fn derived_id(revision: Uuid, slot: u128) -> Uuid {
+    Uuid::from_u128(revision.as_u128() ^ (slot << 96))
+}
+
 const PARCELS_SNAPSHOT: &str = "841361364657368623";
 const COMPLEX_SNAPSHOT: &str = "841361364657368624";
 const NEXT_SNAPSHOT: &str = "841361364657368625";
 const FOURTH_SNAPSHOT: &str = "841361364657368626";
 
-fn use_case(
-    pool: &PgPool,
-    capability: RuntimeManifestPublicationCapability,
-) -> MarkTileLayerDynamic {
-    MarkTileLayerDynamic::new(Arc::new(
-        PgCatalogUnitOfWork::new(pool.clone()).with_runtime_manifest_publication(capability),
-    ))
+/// The activation use case, with the two ways a test wants to call it.
+///
+/// `execute` asserts the outcome is a fresh publication and hands back the manifest, so every test
+/// that means "publish this" also states that it was not answered from the idempotency ledger. That
+/// matters because a replay returns a *valid* manifest: a regression that started replaying would
+/// otherwise compare equal in most of these assertions and pass.
+///
+/// `attempt` returns the outcome untouched, for the tests whose subject is the refusal or the replay.
+struct Activator {
+    use_case: MarkTileLayerDynamic,
+}
+
+impl Activator {
+    async fn execute(
+        &self,
+        command: MarkTileLayerDynamicCommand,
+    ) -> TestResult<VectorTileRuntimeManifest> {
+        expect_published(self.use_case.execute(command).await?)
+    }
+
+    async fn attempt(
+        &self,
+        command: MarkTileLayerDynamicCommand,
+    ) -> Result<PublishedRuntimeManifest, CatalogError> {
+        self.use_case.execute(command).await
+    }
+}
+
+/// Asserts an outcome is a fresh publication and returns its manifest.
+///
+/// A replay returns a *valid* manifest, so most assertions in this file would compare equal against
+/// one. Stating the expectation is what makes a regression that started replaying fail loudly.
+fn expect_published(outcome: PublishedRuntimeManifest) -> TestResult<VectorTileRuntimeManifest> {
+    match outcome {
+        PublishedRuntimeManifest::Published(manifest) => Ok(manifest),
+        PublishedRuntimeManifest::Replayed(manifest) => Err(format!(
+            "expected a fresh publication; the ledger replayed manifest generation {}",
+            manifest.manifest_generation.value()
+        )
+        .into()),
+    }
+}
+
+fn use_case(pool: &PgPool, capability: RuntimeManifestPublicationCapability) -> Activator {
+    Activator {
+        use_case: MarkTileLayerDynamic::new(Arc::new(
+            PgCatalogUnitOfWork::new(pool.clone()).with_runtime_manifest_publication(capability),
+        )),
+    }
 }
 
 fn published_unit<'manifest>(
@@ -833,7 +1112,30 @@ fn published_unit<'manifest>(
         .ok_or_else(|| format!("{unit_key} is missing from the published manifest").into())
 }
 
+/// A command whose idempotency key is derived from its content.
+///
+/// Content-derived keys are the pattern a caller with no key store would use, and they make every
+/// test in this file that targets a distinct revision carry a distinct key without saying so. The
+/// tests whose subject *is* the key use [`activation_command_with_key`].
 fn activation_command(
+    unit_key: &str,
+    data_revision: Uuid,
+    snapshot: &str,
+    source_record_id: Uuid,
+    expected: Option<(VectorTileReleaseId, ServingGeneration)>,
+) -> TestResult<MarkTileLayerDynamicCommand> {
+    activation_command_with_key(
+        &format!("activate-{unit_key}-{data_revision}"),
+        unit_key,
+        data_revision,
+        snapshot,
+        source_record_id,
+        expected,
+    )
+}
+
+fn activation_command_with_key(
+    idempotency_key: &str,
     unit_key: &str,
     data_revision: Uuid,
     snapshot: &str,
@@ -846,7 +1148,11 @@ fn activation_command(
         expected_serving_generation: expected.map(|(_, generation)| generation),
         data_revision: VectorTileDataRevisionId::new(data_revision),
         canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId::new(snapshot.to_owned())?,
-        postgis_projection_revision: PostgisProjectionRevisionId::new(Uuid::new_v4()),
+        // Derived from the data revision, not random. Both of these are inside the request
+        // fingerprint, so a fresh id per call would make two calls that are meant to be the same
+        // request compare as different ones — which is how this line was found: the true-retry test
+        // was refused as a key reuse until the fixture stopped inventing values.
+        postgis_projection_revision: PostgisProjectionRevisionId::new(derived_id(data_revision, 1)),
         martin_source_id: unit_key.to_owned(),
         tiles_url_template: RuntimeTilesUrlTemplate::new(format!(
             "https://tiles.example.test/{unit_key}/{{z}}/{{x}}/{{y}}"
@@ -865,10 +1171,12 @@ fn activation_command(
         )]),
         lineage: RuntimeTileLineage {
             source_record_id: SourceRecordId::new(source_record_id),
-            source_file_asset_ids: vec![FileAssetId::new(Uuid::new_v4())],
+            source_file_asset_ids: vec![FileAssetId::new(derived_id(data_revision, 2))],
         },
-        idempotency_key: format!("activate-{unit_key}-{data_revision}"),
-        operator_staff_id: StaffId::new(Uuid::new_v4()),
+        idempotency_key: idempotency_key.to_owned(),
+        // A fixed operator: `operator_staff_id` is inside the request fingerprint, so a random one per
+        // call would make every same-key comparison a mismatch and hide the replay path entirely.
+        operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
     })
 }
 
@@ -948,6 +1256,24 @@ async fn file_asset_count(pool: &PgPool) -> TestResult<i64> {
             .fetch_one(pool)
             .await?,
     )
+}
+
+async fn ledger_row_count(pool: &PgPool) -> TestResult<i64> {
+    Ok(
+        sqlx::query_scalar("SELECT count(*) FROM catalog.catalog_mutation_idempotency")
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
+/// The outbox event id the ledger row records, if the capability let one be emitted.
+async fn ledger_outbox_event_id(pool: &PgPool, key: &str) -> TestResult<Option<Uuid>> {
+    Ok(sqlx::query_scalar(
+        "SELECT outbox_event_id FROM catalog.catalog_mutation_idempotency WHERE idempotency_key = $1",
+    )
+    .bind(key)
+    .fetch_one(pool)
+    .await?)
 }
 
 async fn outbox_types(pool: &PgPool) -> TestResult<Vec<String>> {
