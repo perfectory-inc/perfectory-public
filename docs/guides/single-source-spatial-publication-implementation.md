@@ -724,6 +724,24 @@ typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다�
 > 다섯 개 application 명령의 port 메서드는 모두 **기본 구현이 에러**인 상태이며, 그것이
 > 미구현을 조용한 성공으로 바꾸지 않는 이유다.
 
+> **구현 제약 (2026-07-30 확인):** SQL 함수를 읽어 보면 이 단계의 일이 예상보다 적고, 대신
+> 예상하지 못한 제약이 하나 있다.
+>
+> `catalog.promote_vector_tile_runtime_manifest`가 이미 pointer CAS, 완전성
+> (`next_unit_count = publication_unit_count`), 첫 발행은 dynamic, static은 현재 리비전,
+> serving generation ±1, 전역 generation 증가, 그리고 unit pointer 갱신(+fallback 보존/삭제)을
+> 모두 수행한다. Rust 트랜잭션이 할 일은 release·layer·manifest·manifest_unit 행을 쓰고 이
+> 함수를 호출한 뒤 outbox event를 넣는 것이다.
+>
+> 제약: **한 단위만 바꿔도 매니페스트는 모든 publication unit을 선택해야 한다.** 함수가
+> `next_unit_count <> publication_unit_count`를 거부하므로, 활성화 트랜잭션은 현재 pointer의
+> manifest_unit 행을 읽어 나머지 단위의 선택을 그대로 이어받아야 한다. Step 1이 요구하는
+> "selection이 사라지거나 half-committed unit을 합친 manifest가 나오면 안 된다"가 이 제약이다.
+>
+> `fallback_release_id`는 함수가 **보존하거나 지울 뿐 설정하지 않는다.** 정적 승격은 함수 호출
+> *전에* 이전 release id를 읽어 두고, 호출 *후에* fallback을 직접 써야 한다 — 호출 후에는
+> `active_release_id`가 이미 새 release다.
+
 - [ ] **Step 7: Run unit and database integration tests**
 
 ```bash
