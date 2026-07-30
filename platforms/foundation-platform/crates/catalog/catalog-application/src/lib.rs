@@ -18,6 +18,9 @@ pub mod industrial_complex_patch;
 /// Use case for importing source-side industrial-complex seed rows into Catalog.
 pub mod import_industrial_complex_catalog_seed;
 
+/// Use case for activating a complete dynamic `PostGIS` tile source for one publication unit.
+pub mod mark_tile_layer_dynamic;
+
 /// Outbound ports implemented by Catalog infrastructure.
 pub mod ports;
 
@@ -44,6 +47,7 @@ pub use import_industrial_complex_catalog_seed::{
     ImportIndustrialComplexCatalogSeed, ImportIndustrialComplexCatalogSeedInput,
     ImportIndustrialComplexCatalogSeedReport, IndustrialComplexCatalogSeedRow,
 };
+pub use mark_tile_layer_dynamic::MarkTileLayerDynamic;
 pub use promote_vector_tile_manifest::{PromoteVectorTileManifest, PromoteVectorTileManifestInput};
 pub use rebuild_parcel_marker_anchors::{
     RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput,

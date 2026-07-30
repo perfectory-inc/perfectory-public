@@ -7,13 +7,17 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use catalog_domain::{
-    Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexMutation, ComplexNotice,
-    DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
-    IndustryGroupMember, Manufacturer, MarkerAnchorAlgorithm, MarkerTileRequest, Parcel,
-    ParcelIndustryAssignment, ParcelKind, SpatialLayer, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError, ComplexAnchorSummary,
+    ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset, IndustrialComplex,
+    IndustrialComplexKind, IndustryGroup, IndustryGroupMember, Manufacturer, MarkerAnchorAlgorithm,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
+    VectorTileManifest, VectorTileRuntimeManifest,
 };
-use foundation_shared_kernel::ids::{ComplexId, NoticeId, ParcelId, StaffId};
+use foundation_shared_kernel::ids::{
+    ComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId, VectorTileDataRevisionId,
+    VectorTileReleaseId,
+};
 use foundation_shared_kernel::pnu::Pnu;
 use uuid::Uuid;
 
@@ -99,6 +103,61 @@ pub struct VectorTileManifestPromotionCommand {
     pub operator_staff_id: StaffId,
     /// Optional request id used for idempotency and trace correlation.
     pub request_id: Option<String>,
+}
+
+/// Command for activating a complete dynamic `PostGIS` source for one publication unit.
+///
+/// This is the v2 publication entry point: every unit starts dynamic, and a static release may
+/// only ever replace a dynamic one built from the same data revision. The expectations are carried
+/// on the command rather than read inside the transaction so that two concurrent edits starting
+/// from the same observed state cannot both win — the loser sees a version conflict instead of
+/// silently overwriting.
+///
+/// The expectations are deliberately per-unit and there is no expected global manifest version.
+/// A global check would be stricter than the invariant requires: two edits to *different* units
+/// are not in conflict, and the guide requires both to commit with the global generation advancing
+/// twice in order. The global manifest is therefore rebuilt from the locked pointer at commit time
+/// rather than compared against a value the caller read earlier.
+#[derive(Clone, Debug)]
+pub struct MarkTileLayerDynamicCommand {
+    /// Publication unit being switched, for example `parcels`.
+    pub unit_key: String,
+    /// Release the caller observed as active, or `None` for a first publication.
+    ///
+    /// `None` is a claim that the unit has never published, not an instruction to skip the check.
+    /// The implementation refuses it when a release already exists.
+    pub expected_active_release_id: Option<VectorTileReleaseId>,
+    /// Serving generation the caller observed, or `None` for a first publication.
+    ///
+    /// Paired with `expected_active_release_id`: one present without the other describes a state
+    /// that cannot exist, so the use case refuses the mixed form rather than guessing.
+    ///
+    /// It is not redundant with the release id. A same-data rollback re-activates a *preserved*
+    /// dynamic release, so one release id can be the active one at two different generations; the
+    /// release alone would not tell those two states apart.
+    pub expected_serving_generation: Option<ServingGeneration>,
+    /// Logical content revision this activation publishes.
+    pub data_revision: VectorTileDataRevisionId,
+    /// Immutable Iceberg snapshot the projection was built from.
+    pub canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId,
+    /// Complete `PostGIS` projection revision backing the dynamic source.
+    pub postgis_projection_revision: PostgisProjectionRevisionId,
+    /// Configured Martin source name.
+    pub martin_source_id: String,
+    /// Query-free tile URL template the Catalog pointer publishes.
+    pub tiles_url_template: RuntimeTilesUrlTemplate,
+    /// Complete layer set for this unit, keyed exactly as the published manifest keys it.
+    ///
+    /// An empty set is refused: a unit that serves no layer is not a publication. `cache_policy`
+    /// is absent by design — a dynamic source is never browser-cacheable, so the use case writes
+    /// the single permitted value instead of accepting one.
+    pub layers: BTreeMap<String, RuntimeTileLayer>,
+    /// Audit lineage for the projection input.
+    pub lineage: RuntimeTileLineage,
+    /// Caller-chosen key that makes a retried activation return the first outcome.
+    pub idempotency_key: String,
+    /// Staff operator that requested the activation.
+    pub operator_staff_id: StaffId,
 }
 
 /// Source record command embedded in vector tile promote operations.
@@ -487,6 +546,31 @@ pub trait CatalogUnitOfWork: Send + Sync {
         let _ = (expected_manifest_id, next_manifest_id);
         Err(CatalogError::InvalidVectorTileRuntimeManifest(
             "runtime manifest promotion is not implemented by this Catalog unit of work".to_owned(),
+        ))
+    }
+
+    /// Activates a complete dynamic `PostGIS` source for one publication unit.
+    ///
+    /// One transaction writes the projection rows, the immutable dynamic release, the unit's active
+    /// pointer and serving generation, the new global manifest and its generation, and the additive
+    /// v2 outbox event. A partial activation is never visible: if any write fails the pointer does
+    /// not move.
+    ///
+    /// The default is an error for the same reason the runtime-manifest promotion above is: a test
+    /// double that inherited a silent success would report a publication that never happened.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the observed release or generation is stale, when the unit is
+    /// absent, when the layer set is empty, or when persistence and outbox writes fail.
+    async fn mark_tile_layer_dynamic(
+        &self,
+        command: MarkTileLayerDynamicCommand,
+    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "dynamic tile layer activation is not implemented by this Catalog unit of work"
+                .to_owned(),
         ))
     }
 }
