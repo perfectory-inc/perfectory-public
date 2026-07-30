@@ -1405,6 +1405,13 @@ impl From<CatalogError> for ApiError {
             CatalogError::MutationContended { idempotency_key } => Self::Conflict(format!(
                 "idempotency key {idempotency_key} is in use by another request; retry with the same key"
             )),
+            CatalogError::MutationFingerprintVersionChanged {
+                idempotency_key,
+                recorded,
+                current,
+            } => Self::Conflict(format!(
+                "idempotency key {idempotency_key} was recorded under request fingerprint {recorded}; this deployment computes {current}, so the two cannot be compared. Use a new key."
+            )),
             CatalogError::InvalidPnu(e) => Self::BadRequest(e.to_string()),
             CatalogError::InvalidVectorTileManifestRollback(msg)
             | CatalogError::InvalidVectorTileManifestPromotion(msg)

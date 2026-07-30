@@ -34,8 +34,16 @@ v2 공개 명령 다섯 개가 모두 `idempotency_key`를 들고 다니는데, 
 ### 1. `catalog.catalog_mutation_idempotency` 하나를 둔다
 
 컬럼 어휘는 `collection_job`을 **그대로 베낀다** — 같은 이름, 같은 CHECK 형태, 그리고 같은
-`*_schema_version` 개념. 네 번째 방언을 만들지 않는다. `request_fingerprint_schema_version`은
-지문 알고리즘을 나중에 바꿔도 기존 키가 거짓 불일치를 내지 않게 하는 유일한 장치다.
+`*_schema_version` 개념. 네 번째 방언을 만들지 않는다.
+
+> **정정 (2026-07-31):** 이 문단은 처음에 `request_fingerprint_schema_version`이 "지문 알고리즘을
+> 바꿔도 기존 키가 거짓 불일치를 내지 않게 하는 장치"라고 썼다. 그렇지 않았다 — 그 컬럼은 INSERT에만
+> 쓰이고 **다시 읽히지 않아서**, 인코딩을 바꾸면 저장된 키 전부가 `MutationIdempotencyKeyReused`로
+> 거부됐다. 지금은 claim이 digest보다 **먼저** 그 값을 읽어 비교하고, 다르면 전용
+> `MutationFingerprintVersionChanged`를 낸다. 정확한 효과는 이것이다: 인코딩 변경을 **투명하게
+> 만들지는 않는다**(옛 키는 여전히 다시 발급해야 한다). 대신 거절이 *왜* 났는지를 말해 준다 —
+> 호출자 잘못이 아니라 배포의 인코딩이 바뀐 것이다. 투명한 재생을 원하면 이름이 아니라 **옛 인코딩
+> 자체**를 저장해야 하며, 그것은 별개의 결정이다.
 
 키는 PK다. `collection_job`의 결함이 정확히 "키에 유일성이 없다"였다.
 

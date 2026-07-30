@@ -76,6 +76,25 @@ pub enum CatalogError {
         command_kind: String,
     },
 
+    /// The stored key was fingerprinted by a different algorithm version than this deployment uses.
+    ///
+    /// Separate from [`CatalogError::MutationIdempotencyKeyReused`] because the cause is different
+    /// and the operator needs to know which. Nothing is wrong with the request: two digests produced
+    /// by different encodings are incomparable, so this deployment can prove neither that the request
+    /// is the same nor that it differs. Reporting it as a key reuse would send someone looking for a
+    /// caller bug that does not exist.
+    #[error(
+        "idempotency key was fingerprinted by another algorithm version (idempotency_key={idempotency_key}, recorded={recorded}, current={current})"
+    )]
+    MutationFingerprintVersionChanged {
+        /// Key whose stored fingerprint cannot be compared.
+        idempotency_key: String,
+        /// Fingerprint algorithm version the key was recorded under.
+        recorded: String,
+        /// Fingerprint algorithm version this deployment computes.
+        current: String,
+    },
+
     /// Another transaction holds the same idempotency key and did not finish in time.
     ///
     /// Retryable, and the reason it needs its own variant: the underlying `55P03`/`57014` would

@@ -23,7 +23,7 @@ use catalog_application::{
 use catalog_domain::{
     ActiveTileSource, CanonicalIcebergSnapshotId, CatalogError, FeatureIdProperty,
     RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
-    VectorTileRuntimeManifest,
+    VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use foundation_shared_kernel::events::catalog_v1::vector_tile_runtime_manifest_object_key;
@@ -891,6 +891,62 @@ async fn an_idempotency_key_reused_for_a_different_request_is_refused() -> TestR
     .await
 }
 
+/// A key recorded under another fingerprint encoding says so, instead of blaming the caller.
+///
+/// The version column is read before the digest is compared, because comparing digests from two
+/// encodings is meaningless. Without this the operator gets "you reused a key" for a request they
+/// never changed, and goes looking for a caller bug that does not exist. Note what it does *not* buy:
+/// the key still has to be re-minted — making it replay would mean storing the old encoding, not its
+/// name.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_key_recorded_under_another_fingerprint_version_is_named_as_such() -> TestResult {
+    run_in_disposable_database("tile_fingerprint_version", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let source_record_id = seed_source_record(&pool).await?;
+        seed_publication_unit(&pool, "parcels").await?;
+        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+
+        // A key left by a deployment that computed fingerprints differently. The digest is
+        // irrelevant — it is never reached.
+        sqlx::query(
+            "INSERT INTO catalog.catalog_mutation_idempotency
+             (idempotency_key, command_kind, request_fingerprint_sha256,
+              request_fingerprint_schema_version, outcome_manifest_id, operator_staff_id)
+             VALUES ('older-encoding', 'mark_tile_layer_dynamic', repeat('a', 64),
+                     'foundation-platform.catalog_mutation_fingerprint.v0', $1, $2)",
+        )
+        .bind(seed_bare_manifest(&pool).await?)
+        .bind(OPERATOR_STAFF_ID)
+        .execute(&pool)
+        .await?;
+
+        let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
+            .attempt(activation_command_with_key(
+                "older-encoding",
+                "parcels",
+                revision,
+                PARCELS_SNAPSHOT,
+                source_record_id,
+                None,
+            )?)
+            .await
+            .expect_err("a fingerprint from another encoding cannot be compared");
+        assert!(
+            matches!(
+                &error,
+                CatalogError::MutationFingerprintVersionChanged { idempotency_key, recorded, current }
+                    if idempotency_key == "older-encoding"
+                        && recorded == "foundation-platform.catalog_mutation_fingerprint.v0"
+                        && current == CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION
+            ),
+            "the refusal must name the encoding change rather than blame the caller: {error:?}"
+        );
+        Ok(())
+    })
+    .await
+}
+
 /// A key held by an uncommitted transaction answers "contended", not an opaque server error.
 ///
 /// This exists because the reasoning behind it is not self-evident and was flagged as needing proof
@@ -1256,6 +1312,20 @@ async fn file_asset_count(pool: &PgPool) -> TestResult<i64> {
             .fetch_one(pool)
             .await?,
     )
+}
+
+/// A manifest row with no units, only to satisfy the ledger's deferred foreign key.
+async fn seed_bare_manifest(pool: &PgPool) -> TestResult<Uuid> {
+    let manifest_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_runtime_manifest (id, manifest_generation)
+         SELECT $1, coalesce(max(manifest_generation), 0) + 1
+         FROM catalog.vector_tile_runtime_manifest",
+    )
+    .bind(manifest_id)
+    .execute(pool)
+    .await?;
+    Ok(manifest_id)
 }
 
 async fn ledger_row_count(pool: &PgPool) -> TestResult<i64> {

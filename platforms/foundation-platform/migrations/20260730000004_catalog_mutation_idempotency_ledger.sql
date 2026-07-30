@@ -16,8 +16,14 @@
 --
 -- This table is the one definition for the keyed publication commands. It deliberately copies
 -- collection_job's column vocabulary rather than inventing a fourth: same names, same CHECK shapes,
--- and the same `*_schema_version` idea, which is what lets the fingerprint algorithm change later
--- without turning every stored key into a false mismatch.
+-- and the same `*_schema_version` idea.
+--
+-- What that version column does, precisely, because the first version of this comment overstated it:
+-- it is read back on every claim and compared before the digest is. Two digests produced by
+-- different encodings say nothing about each other, so a mismatch is reported as its own condition
+-- rather than as a key reuse — the caller did nothing wrong, the deployment's encoding changed. It
+-- does NOT make an encoding change transparent: keys recorded under an older version still have to
+-- be re-minted. Making them replay would require storing the old encoding, not just its name.
 --
 -- Scope, stated so the "one ledger" claim is not read wider than it is:
 --

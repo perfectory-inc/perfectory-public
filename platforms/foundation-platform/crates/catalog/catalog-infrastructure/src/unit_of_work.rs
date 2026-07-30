@@ -632,7 +632,8 @@ async fn claim_mutation_key_tx(
     }
 
     let recorded = sqlx::query(
-        "SELECT command_kind, request_fingerprint_sha256, outcome_manifest_id
+        "SELECT command_kind, request_fingerprint_sha256, request_fingerprint_schema_version,
+                outcome_manifest_id
          FROM catalog.catalog_mutation_idempotency
          WHERE idempotency_key = $1",
     )
@@ -647,6 +648,20 @@ async fn claim_mutation_key_tx(
             idempotency_key: command.idempotency_key.clone(),
         });
     };
+
+    // Read before the digest is compared, because it decides whether comparing is meaningful at all.
+    // Two digests from different encodings say nothing about each other, and reporting that as a key
+    // reuse would blame the caller for a deployment change.
+    let recorded_version: String = recorded
+        .try_get("request_fingerprint_schema_version")
+        .map_err(map_sqlx)?;
+    if recorded_version.trim() != CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION {
+        return Err(CatalogError::MutationFingerprintVersionChanged {
+            idempotency_key: command.idempotency_key.clone(),
+            recorded: recorded_version,
+            current: CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION.to_owned(),
+        });
+    }
 
     let recorded_fingerprint: String = recorded
         .try_get("request_fingerprint_sha256")
