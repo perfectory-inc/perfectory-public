@@ -42,6 +42,9 @@ pub mod update_complex;
 /// Use case for updating a parcel kind.
 pub mod update_parcel_kind;
 
+/// Use cases for the static vector tile build lifecycle.
+pub mod vector_tile_build_lifecycle;
+
 pub use archive_complex::{ArchiveIndustrialComplex, ArchiveIndustrialComplexInput};
 pub use import_industrial_complex_catalog_seed::{
     ImportIndustrialComplexCatalogSeed, ImportIndustrialComplexCatalogSeedInput,
@@ -58,3 +61,4 @@ pub use rollback_vector_tile_manifest::{
 };
 pub use update_complex::{UpdateIndustrialComplex, UpdateIndustrialComplexInput};
 pub use update_parcel_kind::{UpdateParcelKind, UpdateParcelKindInput};
+pub use vector_tile_build_lifecycle::VectorTileBuildLifecycle;

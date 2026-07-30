@@ -5,10 +5,17 @@
 //! publication ledger.
 //!
 //! The division of labour with the unit of work is deliberate. This layer decides everything the
-//! command alone determines — whether publication is permitted, text normalisation, and the
-//! coherence of the observed-state pair. It decides nothing that depends on state it cannot see:
-//! the next serving generation, the new release identity, and the state-machine transition all
-//! belong to the transaction that holds the row locks.
+//! command alone determines — text normalisation and the coherence of the observed-state pair. It
+//! decides nothing that depends on state it cannot see: the next serving generation, the new
+//! release identity, and the state-machine transition all belong to the transaction that holds the
+//! row locks.
+//!
+//! [`RuntimeManifestPublicationCapability`](crate::ports::RuntimeManifestPublicationCapability) is
+//! deliberately *not* consulted here. It gates the v2 outbox event, which the transaction writes: a
+//! deployment with publication off still records the activation in the internal ledger and simply
+//! emits no public v2 event, so v1 behaviour stays byte-identical while v2 rolls out. Refusing the
+//! activation at this layer would make that impossible, and would answer one deployment decision in
+//! a second place — the thing an injected capability type exists to prevent.
 //!
 //! There is no separate input struct. The sibling use cases have one because their transport input
 //! is loose text that they parse into a command; this command is already expressed in validated
@@ -18,46 +25,31 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use catalog_domain::{CatalogError, RuntimeTileLayer, VectorTileRuntimeManifest};
 
-use crate::ports::{
-    CatalogUnitOfWork, MarkTileLayerDynamicCommand, RuntimeManifestPublicationCapability,
-};
+use crate::ports::{CatalogUnitOfWork, MarkTileLayerDynamicCommand};
 
 /// Activates a complete dynamic `PostGIS` source through the Catalog unit of work.
 pub struct MarkTileLayerDynamic {
     uow: Arc<dyn CatalogUnitOfWork>,
-    publication: RuntimeManifestPublicationCapability,
 }
 
 impl MarkTileLayerDynamic {
-    /// Creates a use case instance backed by the given unit of work and publication capability.
-    ///
-    /// The capability is injected rather than read from the environment here so that one
-    /// deployment decision cannot be answered differently by two call sites.
+    /// Creates a use case instance backed by the given Catalog unit of work.
     #[must_use]
-    pub const fn new(
-        uow: Arc<dyn CatalogUnitOfWork>,
-        publication: RuntimeManifestPublicationCapability,
-    ) -> Self {
-        Self { uow, publication }
+    pub const fn new(uow: Arc<dyn CatalogUnitOfWork>) -> Self {
+        Self { uow }
     }
 
     /// Activates the complete dynamic source described by the command.
     ///
     /// # Errors
     ///
-    /// Returns `CatalogError` when publication is not permitted for this deployment, when required
-    /// text is empty, when the observed release and generation are not both present or both
-    /// absent, when the layer set is empty or names one layer twice, or when the transaction
-    /// refuses the transition or its writes fail.
+    /// Returns `CatalogError` when required text is empty, when the observed release and generation
+    /// are not both present or both absent, when the layer set is empty or names one layer twice, or
+    /// when the transaction refuses the transition or its writes fail.
     pub async fn execute(
         &self,
         command: MarkTileLayerDynamicCommand,
     ) -> Result<VectorTileRuntimeManifest, CatalogError> {
-        if !self.publication.is_enabled() {
-            return Err(invalid(
-                "v2 runtime manifest publication is disabled for this deployment",
-            ));
-        }
         self.uow
             .mark_tile_layer_dynamic(normalize_command(command)?)
             .await

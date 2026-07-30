@@ -1,10 +1,11 @@
 //! Contract tests for the single-source v2 spatial publication manifest.
 
 use catalog_domain::{
-    validate_build_promotion, validate_build_snapshot_binding, validate_serving_transition,
-    BuildEvidenceDigest, CanonicalIcebergSnapshotId, ServingGeneration, ServingSelection,
-    ServingSourceKind, VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict,
-    VectorTileBuildStatus, VectorTileRuntimeManifest,
+    validate_build_promotion, validate_build_result_report, validate_build_snapshot_binding,
+    validate_serving_transition, BuildEvidenceDigest, CanonicalIcebergSnapshotId,
+    ServingGeneration, ServingSelection, ServingSourceKind, VectorTileBuildOutcome,
+    VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict, VectorTileBuildStatus,
+    VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{VectorTileDataRevisionId, VectorTileReleaseId};
 use serde_json::json;
@@ -318,5 +319,55 @@ fn evidence_digest_accepts_only_lowercase_hex_of_exactly_sha256_length() -> Resu
     // so accepting either here would only move the failure to the insert.
     assert!(BuildEvidenceDigest::new("A".repeat(64)).is_err());
     assert!(BuildEvidenceDigest::new("g".repeat(64)).is_err());
+    Ok(())
+}
+
+#[test]
+fn a_build_can_only_report_the_two_outcomes_it_owns() -> Result<(), String> {
+    let validated = VectorTileBuildOutcome::Validated(BuildEvidenceDigest::new("a".repeat(64))?);
+    assert_eq!(validated.status(), VectorTileBuildStatus::Validated);
+
+    let failed = VectorTileBuildOutcome::Failed("tippecanoe exited 1".to_owned());
+    assert_eq!(failed.status(), VectorTileBuildStatus::Failed);
+
+    // Neither outcome maps to a status the promotion decision owns. `promoted` and `superseded`
+    // are unreachable from a build's own report by construction, which is the point of the type.
+    for owned in [validated.status(), failed.status()] {
+        assert!(!matches!(
+            owned,
+            VectorTileBuildStatus::Promoted | VectorTileBuildStatus::Superseded
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn a_terminal_build_cannot_be_reported_again() -> Result<(), String> {
+    let outcome = VectorTileBuildOutcome::Validated(BuildEvidenceDigest::new("b".repeat(64))?);
+
+    // A running attempt may report; it has not been acted on yet.
+    validate_build_result_report(VectorTileBuildStatus::Planned, &outcome)?;
+    validate_build_result_report(VectorTileBuildStatus::Running, &outcome)?;
+
+    // Each terminal status was already acted on: `promoted` moved the pointer, `superseded`
+    // recorded that the unit moved past this revision, `failed` closed the attempt.
+    for terminal in [
+        VectorTileBuildStatus::Promoted,
+        VectorTileBuildStatus::Superseded,
+        VectorTileBuildStatus::Failed,
+    ] {
+        let message = validate_build_result_report(terminal, &outcome)
+            .err()
+            .unwrap_or_default();
+        assert!(
+            message.contains(terminal.as_str()),
+            "refusal must name the terminal status, got: {message}"
+        );
+    }
+
+    // `validated` is not terminal: a validated build is still awaiting a promotion decision, and
+    // re-reporting it with fresh evidence is a retry of the same attempt, not a rewrite of a
+    // decision. Refusing it here would strand builds that revalidate.
+    validate_build_result_report(VectorTileBuildStatus::Validated, &outcome)?;
     Ok(())
 }

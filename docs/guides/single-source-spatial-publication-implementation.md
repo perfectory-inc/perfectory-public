@@ -695,6 +695,14 @@ environment variable 금지는 서술이 아니라 `scripts/guard/no-env-access-
 집행한다. 레포의 `*-domain`·`*-application` 크레이트 36개 모두가 현재 0건이므로 예외 목록 없이
 그 상태를 고정했다.
 
+`RuntimeManifestPublicationCapability`가 무엇을 막는지도 못 박아 둔다. **admission이 아니라
+v2 outbox event를 막는다.** Step 3이 요구하는 대로 capability가 꺼진 배포도 activation을 내부
+원장에 기록하고 public v2 event만 내보내지 않으며, 그래야 v1 동작이 byte-identical하게 남는다.
+따라서 use case는 이 capability를 보지 않는다 — use case에서 거부하면 그 요구를 만족할 수 없고,
+하나의 배포 결정을 두 곳에서 답하게 되어 주입 타입을 도입한 이유가 사라진다. 결정은 event를
+쓰는 곳, 즉 transaction이 소유한다. 정적 빌드 원장은 내부 기록이므로 애초에 대상이 아니다.
+API의 v2 매니페스트 조회 라우트가 같은 capability로 404를 내는 것은 별개의 읽기 게이트다.
+
 - [x] **Step 6: Implement one SQLx transaction boundary**
 
 기존 `catalog-infrastructure/src/unit_of_work.rs`의 `FOR UPDATE`/CAS/outbox pattern을 재사용한다.

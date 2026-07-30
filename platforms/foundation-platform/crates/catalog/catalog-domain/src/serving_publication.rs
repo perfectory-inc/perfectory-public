@@ -489,6 +489,58 @@ impl BuildEvidenceDigest {
     }
 }
 
+/// What one build attempt is allowed to report about itself.
+///
+/// Of the six [`VectorTileBuildStatus`] values only two are outcomes a running build can produce.
+/// `planned` and `running` are set when the build starts, and `promoted` and `superseded` are the
+/// promotion decision's to make — a build that could write its own `promoted` row would publish
+/// itself without the active-release check that [`validate_build_promotion`] exists to perform. So
+/// the reporting command carries this type rather than a status, and that bypass is unrepresentable.
+///
+/// `result_snapshot_id` is deliberately absent. The database requires it to equal the build's
+/// frozen snapshot, so a caller-supplied copy could only ever agree or be wrong.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum VectorTileBuildOutcome {
+    /// Artifacts were produced and validated. Carries the evidence they were validated against.
+    Validated(BuildEvidenceDigest),
+    /// The attempt could not produce validated artifacts. Carries the operator-facing reason.
+    Failed(String),
+}
+
+impl VectorTileBuildOutcome {
+    /// The status this outcome records.
+    #[must_use]
+    pub const fn status(&self) -> VectorTileBuildStatus {
+        match self {
+            Self::Validated(_) => VectorTileBuildStatus::Validated,
+            Self::Failed(_) => VectorTileBuildStatus::Failed,
+        }
+    }
+}
+
+/// Rejects a result reported against a build that has already reached a terminal state.
+///
+/// A terminal build's row is evidence of a decision that was already acted on: `promoted` moved the
+/// pointer, `superseded` recorded that the unit had moved on, `failed` closed the attempt.
+/// Overwriting any of them would make the ledger disagree with what was served.
+///
+/// # Errors
+///
+/// Returns an error when the observed status is terminal.
+pub fn validate_build_result_report(
+    observed: VectorTileBuildStatus,
+    outcome: &VectorTileBuildOutcome,
+) -> Result<(), String> {
+    if observed.is_terminal() {
+        return Err(format!(
+            "build already reached the terminal status {}; it cannot be reported as {}",
+            observed.as_str(),
+            outcome.status().as_str()
+        ));
+    }
+    Ok(())
+}
+
 /// The state a promotion decision is made against.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VectorTileBuildPromotionInput {

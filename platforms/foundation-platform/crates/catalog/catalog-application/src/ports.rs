@@ -12,11 +12,11 @@ use catalog_domain::{
     IndustrialComplexKind, IndustryGroup, IndustryGroupMember, Manufacturer, MarkerAnchorAlgorithm,
     MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, RuntimeTileLayer,
     RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
-    VectorTileManifest, VectorTileRuntimeManifest,
+    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
-    ComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId, VectorTileDataRevisionId,
-    VectorTileReleaseId,
+    ComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId, VectorTileBuildJobId,
+    VectorTileDataRevisionId, VectorTileReleaseId,
 };
 use foundation_shared_kernel::pnu::Pnu;
 use uuid::Uuid;
@@ -157,6 +157,43 @@ pub struct MarkTileLayerDynamicCommand {
     /// Caller-chosen key that makes a retried activation return the first outcome.
     pub idempotency_key: String,
     /// Staff operator that requested the activation.
+    pub operator_staff_id: StaffId,
+}
+
+/// Command for recording a static build attempt against one publication unit.
+///
+/// Starting a build is a ledger write, not a side effect of running one: the row fixes which
+/// release and which frozen snapshot the artifacts must correspond to, so a build that later
+/// reports different inputs can be refused instead of trusted.
+#[derive(Clone, Debug)]
+pub struct StartVectorTileBuildCommand {
+    /// Publication unit the build targets.
+    pub unit_key: String,
+    /// Release the build takes as its input.
+    pub input_release_id: VectorTileReleaseId,
+    /// Logical content revision that release represents.
+    pub input_data_revision: VectorTileDataRevisionId,
+    /// Immutable Iceberg snapshot the build freezes.
+    ///
+    /// The transaction checks it against the snapshot pinned on `input_release_id`. A build that
+    /// claims a different snapshot from the release it names is either pointed at the wrong release
+    /// or reporting the wrong snapshot, and afterwards the two cannot be told apart.
+    pub frozen_source_snapshot_id: CanonicalIcebergSnapshotId,
+    /// Caller-chosen key that makes a retried start return the first build rather than a second.
+    pub idempotency_key: String,
+    /// Staff operator that requested the build.
+    pub operator_staff_id: StaffId,
+}
+
+/// Command for recording what one static build attempt produced.
+#[derive(Clone, Debug)]
+pub struct RecordVectorTileBuildResultCommand {
+    /// Build being reported.
+    pub build_job_id: VectorTileBuildJobId,
+    /// What the attempt produced. Only `validated` and `failed` are expressible; see
+    /// [`VectorTileBuildOutcome`].
+    pub outcome: VectorTileBuildOutcome,
+    /// Staff operator that reported the result.
     pub operator_staff_id: StaffId,
 }
 
@@ -570,6 +607,43 @@ pub trait CatalogUnitOfWork: Send + Sync {
         let _ = command;
         Err(CatalogError::InvalidVectorTileRuntimeManifest(
             "dynamic tile layer activation is not implemented by this Catalog unit of work"
+                .to_owned(),
+        ))
+    }
+
+    /// Records a static build attempt and returns its ledger identity.
+    ///
+    /// The transaction refuses a build whose claimed frozen snapshot is not the one pinned on its
+    /// input release, and returns the existing build for a repeated idempotency key rather than
+    /// opening a second attempt against the same inputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the unit or release is absent, when the claimed snapshot does not
+    /// match the release, or when the write fails.
+    async fn start_vector_tile_build(
+        &self,
+        command: StartVectorTileBuildCommand,
+    ) -> Result<VectorTileBuildJobId, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "static build start is not implemented by this Catalog unit of work".to_owned(),
+        ))
+    }
+
+    /// Records what a static build attempt produced.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the build is absent, when it has already reached a terminal
+    /// status, or when the write fails.
+    async fn record_vector_tile_build_result(
+        &self,
+        command: RecordVectorTileBuildResultCommand,
+    ) -> Result<(), CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "static build result recording is not implemented by this Catalog unit of work"
                 .to_owned(),
         ))
     }
