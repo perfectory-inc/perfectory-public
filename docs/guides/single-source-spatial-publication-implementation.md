@@ -764,22 +764,25 @@ typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다�
 >   다시 읽으면 그 사이 다른 승격이 끼어들 수 있으므로, 본문을 `&mut sqlx::PgConnection`을 받는
 >   함수로 먼저 추출해 두 호출처가 같은 정의를 쓰게 한다. **이것이 트랜잭션보다 앞선 작업이다.**
 
-> **Increment C 결과 (2026-07-30):** `mark_tile_layer_dynamic` 하나를 세로로 뚫었다. 리더 추출,
-> 트랜잭션, `catalog-infrastructure/tests/spatial_tile_publication.rs`(단위별 disposable DB 8개)까지
-> 완료. 남은 네 명령(`start_vector_tile_build`, `record_vector_tile_build_result`,
+> **Increment C·D 결과 (2026-07-30):** `mark_tile_layer_dynamic` 하나를 세로로 뚫고, 뚫는 과정에서
+> 드러난 게이트 결함을 고쳤다. 리더 추출, 트랜잭션,
+> `catalog-infrastructure/tests/spatial_tile_publication.rs`(단위별 disposable DB 10개)까지 완료.
+> 남은 네 명령(`start_vector_tile_build`, `record_vector_tile_build_result`,
 > `promote_tile_layer_static`, `rollback_tile_layer_source`)은 여전히 port 기본 구현이 에러다.
 >
 > 뚫어 보고 드러난 것 세 가지 — 계획이 예상한 것과 다르다.
 >
-> 1. **`serving_generation`은 단위별로 독립하지 않는다.** 게이트의 gap 검사는 매니페스트가 선택한
->    **모든** 단위에 대해 `manifest_unit.serving_generation = unit.serving_generation + 1`을 요구한다.
->    따라서 한 단위만 바꾸는 발행도 이어받은 단위들의 serving generation을 함께 올린다. Step 1이
->    요구한 "서로 다른 두 단위를 동시에 시작해 둘 다 commit"은 현재 게이트에서 성립하지 않는다 —
->    나중 트랜잭션의 `expected_serving_generation`이 앞선 발행에 의해 이미 낡기 때문이다.
->    Step 5의 "전역 version 대신 단위별 generation" 결정은 CAS 키에 대해서는 맞지만, generation이
->    단위별로 **독립적으로 증가한다**는 뜻은 아니다. 게이트를 바꿀지 Step 1을 정정할지는 미결이다.
->    근거: `spatial_tile_publication.rs`의
->    `activating_one_unit_carries_every_other_unit_into_the_new_manifest`가 이 값을 단정한다.
+> 1. **게이트가 `serving_generation`의 의미를 어기고 있었고, 고쳤다.** gap 검사가 매니페스트에
+>    선택된 **모든** 단위에 `unit.serving_generation + 1`을 요구했으므로, 한 단위만 바꾸는 발행이
+>    이어받은 단위들의 세대까지 올렸다. 그러면 FP-ADR-0004의 단위별 폴링이 정보를 잃고, Step 1의
+>    "서로 다른 두 단위가 둘 다 commit"이 성립하지 않는다 — 나중 writer의
+>    `expected_serving_generation`이 자기와 무관한 발행에 의해 낡기 때문이다.
+>    `20260730000003_serving_generation_tracks_one_unit_source_selection.sql`이 규칙을 전이별로
+>    좁혔다: 첫 발행은 `1`, release가 바뀌면 `+1`, release를 재선택하면 **유지**.
+>    근거: [ADR-0014](../adr/0014-serving-generation-tracks-one-unit-source-selection.md).
+>    마이그레이션을 빼면 `activating_one_unit_carries_every_other_unit_into_the_new_manifest`와
+>    `two_edits_to_different_units_both_commit_and_advance_the_global_generation_in_order`가
+>    `has a serving-generation gap`으로 실패한다 — 음성 대조로 확인했다.
 > 2. **두 번째 publication unit은 "시드 후 즉시 활성화" 순서만 가능하다.** 단위를 추가하고 발행하지
 >    않은 채 두면 다른 어떤 단위의 활성화도 완전성 검사에서 실패한다. 시드가 단위를 만들고 활성화가
 >    첫 발행을 하는 순서가 강제된다.
@@ -788,6 +791,15 @@ typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다�
 >    충돌 자체가 생길 수 없다(같은 락을 SQL 함수도 잡으므로 모든 pointer 이동이 이 락에서 직렬화된다).
 >    남는 충돌은 호출자의 관찰이 낡은 경우뿐이고, 그것은 retry하면 안 된다 — 호출자가 보지 못한 상태
 >    위에 덮어쓰게 된다. retry를 대기로 바꾼 것이므로 lost-update 창이 없다.
+>
+> **Step 1의 두 interleaving은 이제 테스트가 있다.** 같은 단위 경합은
+> `two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner`(정확히 하나 commit, 패자는
+> typed `VectorTileServingStateConflict`), 서로 다른 단위 경합은
+> `two_edits_to_different_units_both_commit_and_advance_the_global_generation_in_order`(둘 다 commit,
+> 각 매니페스트에 두 selection이 정확히 한 번, 전역 generation 순서대로 두 번 증가)가 담당한다.
+> 후자는 database serialization failure가 아니라 **나중 매니페스트가 앞선 writer의 새 release를
+> 이어받았다는 사실**로 lock order를 증명한다. Step 1이 여전히 미완인 이유는 완전한 PostGIS
+> projection 행 단정이 남았기 때문이며, 그 행을 쓰는 것은 Task 7 Step 4다.
 >
 > 미해결(범위 밖): **`idempotency_key`를 저장할 자리가 스키마에 없다.** `vector_tile_build_job`은
 > `(publication_unit_id, idempotency_key)`를 갖지만 활성화용 원장은 없다. 현재는
