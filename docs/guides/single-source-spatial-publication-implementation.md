@@ -802,10 +802,18 @@ typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다�
 > projection 행 단정이 남았기 때문이며, 그 행을 쓰는 것은 Task 7 Step 4다.
 >
 > 미해결(범위 밖): **`idempotency_key`를 저장할 자리가 스키마에 없다.** `vector_tile_build_job`은
-> `(publication_unit_id, idempotency_key)`를 갖지만 활성화용 원장은 없다. 현재는
-> `vector_tile_release_unit_revision_snapshot_kind_key`가 재시도를 **거부**하므로 이중 발행은 불가능
-> 하고(`a_replayed_activation_leaves_no_partial_state`가 단정), Step 5가 요구한 "재시도가 첫 결과를
-> 돌려준다"는 아직 아니다. 추가 마이그레이션 + ADR이 필요하다.
+> `(publication_unit_id, idempotency_key)`를 갖지만 활성화용 원장은 없다. Step 5가 요구한 "재시도가
+> 첫 결과를 돌려준다"는 아직 아니며, 추가 마이그레이션 + ADR이 필요하다.
+>
+> > **정정 (2026-07-30):** 이 단락은 처음에 "release 유니크 키가 재시도를 거부한다"고 썼고 근거로
+> > `a_replayed_activation_leaves_no_partial_state`를 들었다. 둘 다 틀렸다. 동일한 본문의 재시도는
+> > `expected_active_release_id`가 여전히 `None`이므로 **CAS**가 거부한다 —
+> > `a_stale_observation_loses_the_compare_and_swap_and_moves_nothing`의 첫 분기가 그것이다. 그
+> > 테스트는 첫 호출에 `None`, 두 번째에 `Some((release, 1))`을 보내므로 **본문이 다른 요청**이었고,
+> > 재시도를 시험한 적이 없다. 지금은
+> > `re_publishing_one_revision_after_observing_it_leaves_no_partial_state`로 이름을 고쳤고, 그것이
+> > 실제로 덮는 것은 "관찰을 갱신해 같은 리비전을 다시 발행하려는 시도"다. 이중 발행이 불가능하다는
+> > 결론 자체는 유지되지만 막는 주체가 다르다.
 
 - [ ] **Step 7: Run unit and database integration tests**
 
