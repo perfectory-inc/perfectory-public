@@ -84,29 +84,50 @@ fn administrative_boundary_docs_define_revisioned_merge_and_static_promotion() {
     let spatial_publication =
         read_repo_text("docs/architecture/single-source-spatial-publication.md");
 
-    for phrase in [
-        "stable internal UUID",
-        "PNU",
-        "effective-dated",
+    // Anchors are section headings and technical identifiers — the two things the Korean-first
+    // documentation policy keeps verbatim. This list used to be English prose ("stable internal
+    // UUID", "old identifier", "publisher function"); the Korean-first migration translated those
+    // sentences and the test then failed for a policy-mandated edit rather than for a missing
+    // contract. Rewording a sentence must not fail this test. Deleting a mechanism must.
+    for anchor in [
+        "## 불변식",
+        "## 통합·대체·분할 처리",
+        "catalog.administrative_unit_transition",
+        "catalog.parcel_identifier_lookup",
+        "effective_period",
         "data_revision",
-        "전남광주통합특별시",
-        "dynamic",
+        "PNU",
         "PMTiles",
-        "old identifier",
-        "new identifier",
-        "rename",
-        "publisher function",
+        "전남광주통합특별시",
+        // The three transition kinds are the merge/replace/split model itself, and the absent
+        // `renamed` self-edge is what distinguishes a rename from a transition.
+        "merged_into",
+        "replaced_by",
+        "split_from",
+        // A build frozen against a revision that stopped being current is superseded, not retried.
+        "superseded",
     ] {
         assert!(
-            architecture.contains(phrase),
-            "administrative boundary architecture must define {phrase:?}"
+            architecture.contains(anchor),
+            "administrative boundary architecture must still define {anchor:?}"
         );
     }
 
-    assert!(spatial_publication.contains("one complete active tile source"));
-    assert!(
-        spatial_publication.contains("stale static build cannot replace a newer dynamic revision")
-    );
+    for anchor in [
+        "## 4. 공개 상태 모델",
+        "## 4.4 Rollback",
+        "publication unit",
+        "`DYNAMIC`",
+        "`STATIC`",
+        "active_release_id",
+        "serving_generation",
+        "superseded",
+    ] {
+        assert!(
+            spatial_publication.contains(anchor),
+            "single-source spatial publication must still define {anchor:?}"
+        );
+    }
 }
 
 #[test]
