@@ -17,6 +17,52 @@ use foundation_shared_kernel::ids::{ComplexId, NoticeId, ParcelId, StaffId};
 use foundation_shared_kernel::pnu::Pnu;
 use uuid::Uuid;
 
+/// Whether this deployment may publish the v2 runtime manifest.
+///
+/// The switch used to be read from the process environment inside the request handler, which made
+/// it untestable without mutating global state and put a deployment decision in the middle of a
+/// per-request code path. As an injected type it is read once at startup and passed down, so the
+/// same decision cannot be answered differently by two call sites.
+///
+/// Absent or unrecognised means disabled. A publication capability that defaulted to on would
+/// publish from any environment that forgot to say no.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuntimeManifestPublicationCapability(bool);
+
+impl RuntimeManifestPublicationCapability {
+    /// Publication permitted.
+    #[must_use]
+    pub const fn enabled() -> Self {
+        Self(true)
+    }
+
+    /// Publication refused.
+    #[must_use]
+    pub const fn disabled() -> Self {
+        Self(false)
+    }
+
+    /// Whether publication is permitted.
+    #[must_use]
+    pub const fn is_enabled(self) -> bool {
+        self.0
+    }
+
+    /// Interprets a deployment switch value.
+    ///
+    /// Accepts the truthy spellings the compose files and workflows already use. Anything else —
+    /// including an unset variable, an empty string, or a typo — is disabled.
+    #[must_use]
+    pub fn from_env_value(value: Option<&str>) -> Self {
+        match value.map(|raw| raw.trim().to_ascii_lowercase()) {
+            Some(normalized) if matches!(normalized.as_str(), "1" | "true" | "yes" | "on") => {
+                Self::enabled()
+            }
+            _ => Self::disabled(),
+        }
+    }
+}
+
 /// Command for switching the active vector tile manifest to a previous immutable version.
 #[derive(Clone, Debug)]
 pub struct VectorTileManifestRollbackCommand {

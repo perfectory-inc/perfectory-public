@@ -64,8 +64,6 @@ const MARKER_TILE_CACHE_CONTROL: &str = "public, max-age=30";
 const FOUNDATION_PLATFORM_RUNTIME_ENV: &str = "FOUNDATION_PLATFORM_RUNTIME_ENV";
 const DB_MARKER_TILE_REFERENCE_ENABLED_ENV: &str =
     "FOUNDATION_PLATFORM_DB_MARKER_TILE_REFERENCE_ENABLED";
-const VECTOR_TILE_RUNTIME_MANIFEST_V2_ENABLED_ENV: &str =
-    "FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED";
 
 #[utoipa::path(
     post,
@@ -620,7 +618,7 @@ pub async fn get_vector_tile_runtime_manifest(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    if !vector_tile_runtime_manifest_v2_enabled() {
+    if !state.runtime_manifest_publication().is_enabled() {
         return Err(ApiError::NotFound(
             "v2 vector tile runtime manifest is disabled".to_owned(),
         ));
@@ -1143,17 +1141,6 @@ fn vector_tile_manifest_response(manifest: VectorTileManifest) -> VectorTileMani
         published_at: manifest.published_at,
         artifacts,
     }
-}
-
-fn vector_tile_runtime_manifest_v2_enabled() -> bool {
-    std::env::var(VECTOR_TILE_RUNTIME_MANIFEST_V2_ENABLED_ENV)
-        .ok()
-        .is_some_and(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
 }
 
 fn vector_tile_runtime_manifest_response(
