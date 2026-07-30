@@ -24,6 +24,9 @@ pub mod mark_tile_layer_dynamic;
 /// Outbound ports implemented by Catalog infrastructure.
 pub mod ports;
 
+/// Use case for promoting a validated static build to the active serving source.
+pub mod promote_tile_layer_static;
+
 /// Use case for promoting the active static vector tile manifest.
 pub mod promote_vector_tile_manifest;
 
@@ -32,6 +35,9 @@ pub mod rebuild_parcel_marker_anchors;
 
 /// Use case for registering an industrial complex.
 pub mod register_complex;
+
+/// Use case for returning one publication unit to its preserved dynamic release.
+pub mod rollback_tile_layer_source;
 
 /// Use case for rolling back the active static vector tile manifest.
 pub mod rollback_vector_tile_manifest;
@@ -51,11 +57,13 @@ pub use import_industrial_complex_catalog_seed::{
     ImportIndustrialComplexCatalogSeedReport, IndustrialComplexCatalogSeedRow,
 };
 pub use mark_tile_layer_dynamic::MarkTileLayerDynamic;
+pub use promote_tile_layer_static::PromoteTileLayerStatic;
 pub use promote_vector_tile_manifest::{PromoteVectorTileManifest, PromoteVectorTileManifestInput};
 pub use rebuild_parcel_marker_anchors::{
     RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput,
 };
 pub use register_complex::{RegisterIndustrialComplex, RegisterIndustrialComplexInput};
+pub use rollback_tile_layer_source::RollbackTileLayerSource;
 pub use rollback_vector_tile_manifest::{
     RollbackVectorTileManifest, RollbackVectorTileManifestInput,
 };

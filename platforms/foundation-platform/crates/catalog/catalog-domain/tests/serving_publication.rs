@@ -28,7 +28,7 @@ fn valid_manifest() -> serde_json::Value {
                     "kind": "static_pmtiles",
                     "martin_source_id": "parcels-0196e7e0-3c20-7000-8000-000000000062",
                     "tiles_url_template": "https://tiles.example.com/parcels-0196e7e0-3c20-7000-8000-000000000062/{z}/{x}/{y}",
-                    "pmtiles_object_key": "gold/vector-tiles/releases/0196e7e0-3c20-7000-8000-000000000062/parcels-0196e7e0-3c20-7000-8000-000000000062.pmtiles",
+                    "pmtiles_object_key": "gold/vector-tiles/releases/parcels-0196e7e0-3c20-7000-8000-000000000062.pmtiles",
                     "pmtiles_file_asset_id": "0196e7e0-3c20-7000-8000-000000000063",
                     "pmtiles_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "pmtiles_bytes": 987_654_321
@@ -147,8 +147,16 @@ fn v2_manifest_rejects_static_source_identity_that_does_not_match_release_filena
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
 
     let mut value = valid_manifest();
+    value["publication_units"]["parcels"]["source"]["pmtiles_object_key"] =
+        serde_json::json!("gold/vector-tiles/releases/parcels.pmtiles");
+    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
+
+    // The nested `releases/{release_id}/…` form ADR-0004 documented. The validator used to compare
+    // only the filename, so this passed while the publisher wrote the flat form — a consumer
+    // building a URL from the documented layout would have received a 404.
+    let mut value = valid_manifest();
     value["publication_units"]["parcels"]["source"]["pmtiles_object_key"] = serde_json::json!(
-        "gold/vector-tiles/releases/0196e7e0-3c20-7000-8000-000000000062/parcels.pmtiles"
+        "gold/vector-tiles/releases/0196e7e0-3c20-7000-8000-000000000062/parcels-0196e7e0-3c20-7000-8000-000000000062.pmtiles"
     );
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
 }

@@ -7,16 +7,17 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use catalog_domain::{
-    Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError, ComplexAnchorSummary,
-    ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset, IndustrialComplex,
-    IndustrialComplexKind, IndustryGroup, IndustryGroupMember, Manufacturer, MarkerAnchorAlgorithm,
-    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, RuntimeTileLayer,
-    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
-    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
+    Blueprint, BuildEvidenceDigest, Building, CanonicalIcebergSnapshotId, CatalogError,
+    ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
+    IndustrialComplex, IndustrialComplexKind, IndustryGroup, IndustryGroupMember, Manufacturer,
+    MarkerAnchorAlgorithm, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
+    PmtilesChecksum, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
+    ServingGeneration, SpatialLayer, VectorTileBuildOutcome, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
-    ComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId, VectorTileBuildJobId,
-    VectorTileDataRevisionId, VectorTileReleaseId,
+    ComplexId, FileAssetId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId,
+    VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
 };
 use foundation_shared_kernel::pnu::Pnu;
 use uuid::Uuid;
@@ -194,6 +195,77 @@ pub struct RecordVectorTileBuildResultCommand {
     /// [`VectorTileBuildOutcome`].
     pub outcome: VectorTileBuildOutcome,
     /// Staff operator that reported the result.
+    pub operator_staff_id: StaffId,
+}
+
+/// Command for promoting a validated static build to the active serving source for one unit.
+///
+/// The layer set is absent on purpose. A static release replaces a dynamic one built from the same
+/// data revision, so it must serve the same layers; the transaction copies them from the input
+/// release, which makes "static serves different layers than dynamic" unrepresentable rather than
+/// merely checked.
+///
+/// The Martin source name and the `PMTiles` object key are absent for the same kind of reason. Both
+/// are derived from `unit_key` and `release_id` by
+/// `catalog_domain::static_release_pmtiles_object_key`, so accepting them would only allow a caller
+/// to disagree with the one definition.
+#[derive(Clone, Debug)]
+pub struct PromoteTileLayerStaticCommand {
+    /// Publication unit being switched to its static release.
+    pub unit_key: String,
+    /// Validated build whose artifacts are being promoted.
+    pub build_job_id: VectorTileBuildJobId,
+    /// Release identity the artifact was uploaded under.
+    ///
+    /// Preallocated by the caller, as the immutable manifest's `file_asset` identity is: the object
+    /// key embeds the release, so the id has to exist before the upload.
+    pub release_id: VectorTileReleaseId,
+    /// Release the caller observed as active.
+    ///
+    /// Not optional. The first publication of a unit is always dynamic, so a static promotion
+    /// against a unit that has never published describes a state that cannot exist.
+    pub expected_active_release_id: VectorTileReleaseId,
+    /// Serving generation the caller observed. Not optional, for the same reason.
+    pub expected_serving_generation: ServingGeneration,
+    /// Release the build took as its input.
+    pub input_release_id: VectorTileReleaseId,
+    /// Immutable Iceberg snapshot the build froze.
+    pub frozen_source_snapshot_id: CanonicalIcebergSnapshotId,
+    /// Evidence the candidate artifacts were validated against.
+    pub validation_evidence: BuildEvidenceDigest,
+    /// Query-free tile URL template the Catalog pointer publishes.
+    pub tiles_url_template: RuntimeTilesUrlTemplate,
+    /// File asset row for the uploaded `PMTiles` object.
+    pub pmtiles_file_asset_id: FileAssetId,
+    /// Checksum of the uploaded `PMTiles` object bytes.
+    pub pmtiles_sha256: PmtilesChecksum,
+    /// Byte size of the uploaded `PMTiles` object. Zero is refused by the database.
+    pub pmtiles_bytes: u64,
+    /// Caller-chosen key that makes a retried promotion return the first outcome.
+    pub idempotency_key: String,
+    /// Staff operator that requested the promotion.
+    pub operator_staff_id: StaffId,
+}
+
+/// Command for returning one publication unit to its preserved same-revision dynamic release.
+///
+/// There is no target release field. The unit records exactly one `fallback_release_id`, and the
+/// database constrains its data revision to equal the active one, so "roll back to the recorded
+/// fallback" cannot name a release from a different revision. A caller-supplied target would
+/// reintroduce that possibility and turn a structural guarantee back into a check.
+#[derive(Clone, Debug)]
+pub struct RollbackTileLayerSourceCommand {
+    /// Publication unit being returned to its fallback.
+    pub unit_key: String,
+    /// Release the caller observed as active.
+    pub expected_active_release_id: VectorTileReleaseId,
+    /// Serving generation the caller observed.
+    pub expected_serving_generation: ServingGeneration,
+    /// Operator-facing reason persisted for audit.
+    pub reason: String,
+    /// Caller-chosen key that makes a retried rollback return the first outcome.
+    pub idempotency_key: String,
+    /// Staff operator that requested the rollback.
     pub operator_staff_id: StaffId,
 }
 
@@ -645,6 +717,50 @@ pub trait CatalogUnitOfWork: Send + Sync {
         Err(CatalogError::InvalidVectorTileRuntimeManifest(
             "static build result recording is not implemented by this Catalog unit of work"
                 .to_owned(),
+        ))
+    }
+
+    /// Promotes a validated static build to the active serving source for one publication unit.
+    ///
+    /// One transaction writes the immutable static release and its layers copied from the input
+    /// release, moves the unit's active pointer while preserving the previous dynamic release as the
+    /// same-revision fallback, advances the serving and manifest generations, and records the
+    /// additive v2 outbox event.
+    ///
+    /// A build whose input release stopped being active is recorded `superseded` rather than
+    /// promoted — see `catalog_domain::validate_build_promotion`. The distinction matters because a
+    /// conflict invites a retry and a supersession does not.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the observed release or generation is stale, when the build is not
+    /// validated, when its frozen snapshot does not match its input release, or when the writes fail.
+    async fn promote_tile_layer_static(
+        &self,
+        command: PromoteTileLayerStaticCommand,
+    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "static tile layer promotion is not implemented by this Catalog unit of work"
+                .to_owned(),
+        ))
+    }
+
+    /// Returns one publication unit to its preserved same-revision dynamic release.
+    ///
+    /// The data revision does not change: a rollback undoes a source switch, not a publication.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the observed release or generation is stale, when the unit has no
+    /// recorded fallback, or when the writes fail.
+    async fn rollback_tile_layer_source(
+        &self,
+        command: RollbackTileLayerSourceCommand,
+    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "tile layer source rollback is not implemented by this Catalog unit of work".to_owned(),
         ))
     }
 }

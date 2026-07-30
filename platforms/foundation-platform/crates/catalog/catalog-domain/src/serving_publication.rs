@@ -473,13 +473,7 @@ impl BuildEvidenceDigest {
     ///
     /// Returns an error when the value is not exactly 64 lowercase hex characters.
     pub fn new(value: String) -> Result<Self, String> {
-        let lowercase_hex = value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
-        if value.len() != 64 || !lowercase_hex {
-            return Err("build evidence digest must be 64 lowercase hex characters".to_owned());
-        }
-        Ok(Self(value))
+        lowercase_sha256(value, "build evidence digest").map(Self)
     }
 
     /// Borrowed digest.
@@ -487,6 +481,42 @@ impl BuildEvidenceDigest {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// Lowercase hex SHA-256 of the `PMTiles` object bytes.
+///
+/// Separate from [`BuildEvidenceDigest`] despite identical validation: one identifies the evidence a
+/// build was validated against, the other identifies the bytes being served. A single type would let
+/// the two be passed in each other's place, and the database columns they land in are different.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PmtilesChecksum(String);
+
+impl PmtilesChecksum {
+    /// Validates a lowercase hex SHA-256 checksum.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the value is not exactly 64 lowercase hex characters.
+    pub fn new(value: String) -> Result<Self, String> {
+        lowercase_sha256(value, "PMTiles checksum").map(Self)
+    }
+
+    /// Borrowed checksum.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// The shape both digest columns enforce: `character(64)` matching `^[0-9a-f]{64}$`.
+fn lowercase_sha256(value: String, label: &str) -> Result<String, String> {
+    let lowercase_hex = value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
+    if value.len() != 64 || !lowercase_hex {
+        return Err(format!("{label} must be 64 lowercase hex characters"));
+    }
+    Ok(value)
 }
 
 /// What one build attempt is allowed to report about itself.
@@ -790,15 +820,48 @@ impl PublicationUnit {
     }
 }
 
+/// Immutable object-storage root for `PMTiles` release derivatives.
+///
+/// Matches `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX` (ADR-0002).
+pub const STATIC_RELEASE_OBJECT_ROOT: &str = "gold/vector-tiles/releases";
+
+/// Derives the release-addressed Martin source name for a static release.
+///
+/// The name encodes the release, which is what makes a static source immutable: a new release is a
+/// new Martin source rather than new bytes behind the same one.
+#[must_use]
+pub fn static_release_martin_source_id(unit_key: &str, release_id: VectorTileReleaseId) -> String {
+    format!("{}-{release_id}", unit_key.trim())
+}
+
+/// Derives the write-once `PMTiles` object key for a static release.
+///
+/// This is the one definition of the layout. It used to be stated in three places that did not
+/// agree: this crate's validator checked only the filename, ADR-0004 documented a nested
+/// `releases/{release_id}/…` form, and the publisher wrote the flat form. The lenient check is why
+/// the disagreement survived — a consumer building a URL from the documented layout would have
+/// received a 404 from the layout that actually shipped.
+#[must_use]
+pub fn static_release_pmtiles_object_key(
+    unit_key: &str,
+    release_id: VectorTileReleaseId,
+) -> String {
+    format!(
+        "{STATIC_RELEASE_OBJECT_ROOT}/{}.pmtiles",
+        static_release_martin_source_id(unit_key, release_id)
+    )
+}
+
 fn static_pmtiles_identity_matches(
     unit_name: &str,
     release_id: VectorTileReleaseId,
     martin_source_id: &str,
     object_key: &str,
 ) -> bool {
-    let filename = format!("{unit_name}-{release_id}.pmtiles");
-    object_key.rsplit('/').next() == Some(filename.as_str())
-        && martin_source_id.trim() == filename.trim_end_matches(".pmtiles")
+    // The whole key, not just its filename. Comparing filenames accepted any prefix, which is
+    // exactly where the documented and implemented layouts differed.
+    martin_source_id.trim() == static_release_martin_source_id(unit_name, release_id)
+        && object_key.trim() == static_release_pmtiles_object_key(unit_name, release_id)
 }
 
 fn martin_route_matches_source_id(template: &RuntimeTilesUrlTemplate, source_id: &str) -> bool {

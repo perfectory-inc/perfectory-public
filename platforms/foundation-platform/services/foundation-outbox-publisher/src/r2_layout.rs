@@ -1,12 +1,15 @@
 //! Canonical physical R2 addresses for immutable Foundation artifacts.
 
 use anyhow::Context;
+use foundation_shared_kernel::ids::VectorTileReleaseId;
 use uuid::Uuid;
 
 pub const VECTOR_TILE_ARTIFACT_ROOT: &str = "gold/vector-tiles/artifacts";
 pub const VECTOR_TILE_MANIFEST_ROOT: &str = "gold/vector-tiles/manifests";
-/// Private immutable PMTiles derivatives. The deployment supplies the dedicated bucket.
-pub const VECTOR_TILE_DERIVATIVE_ROOT: &str = "gold/vector-tiles/releases";
+// The private immutable PMTiles derivative root used to be a constant here. Its only reader was
+// `vector_tile_release_key`, which now derives the whole key from
+// `catalog_domain::STATIC_RELEASE_OBJECT_ROOT`, so keeping a second copy of the root would only
+// reintroduce the drift this change removed.
 pub const PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT: &str = "gold/parcel-marker-anchors/artifacts";
 pub const BRONZE_CATALOG_RECOVERY_EVIDENCE_ROOT: &str = "control/evidence/bronze-catalog-recovery";
 
@@ -28,6 +31,15 @@ pub fn vector_tile_manifest_key(manifest_id: &str) -> anyhow::Result<String> {
 }
 
 /// Returns the write-once PMTiles object key for one publication unit and release.
+///
+/// The layout itself comes from `catalog_domain::static_release_pmtiles_object_key`, which the
+/// runtime-manifest validator also derives from. Restating it here is how the shipped key and the
+/// documented key came to differ while both passed validation.
+///
+/// The lower-case requirement is stricter than the `unit_key` column, which permits mixed case. It
+/// is kept because every publication unit in use (`parcels`, `complex`, `buildings`) is lower case
+/// and a case-only difference in an object key is not worth the confusion; the narrower rule is
+/// enforced here rather than silently in the derivation.
 pub fn vector_tile_release_key(publication_unit: &str, release_id: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
         !publication_unit.is_empty()
@@ -39,8 +51,9 @@ pub fn vector_tile_release_key(publication_unit: &str, release_id: &str) -> anyh
         "publication unit must be a lower-case identifier"
     );
     let release_id = parse_artifact_id(release_id, "vector tile release_id")?;
-    Ok(format!(
-        "{VECTOR_TILE_DERIVATIVE_ROOT}/{publication_unit}-{release_id}.pmtiles"
+    Ok(catalog_domain::static_release_pmtiles_object_key(
+        publication_unit,
+        VectorTileReleaseId::new(release_id),
     ))
 }
 

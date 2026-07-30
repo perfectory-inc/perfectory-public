@@ -74,12 +74,14 @@ pub use marker_tile::{
 pub use notice::{ComplexNotice, NoticeAttachment, NoticeType, ParseNoticeTypeError};
 pub use parcel::{Parcel, ParcelKind, ParseParcelKindError};
 pub use serving_publication::{
-    validate_build_promotion, validate_build_result_report, validate_build_snapshot_binding,
-    validate_serving_transition, ActiveTileSource, BuildEvidenceDigest, CanonicalIcebergSnapshotId,
-    DynamicPostgisSource, FeatureIdProperty, ManifestGeneration, PublicationUnit, RuntimeTileLayer,
+    static_release_martin_source_id, static_release_pmtiles_object_key, validate_build_promotion,
+    validate_build_result_report, validate_build_snapshot_binding, validate_serving_transition,
+    ActiveTileSource, BuildEvidenceDigest, CanonicalIcebergSnapshotId, DynamicPostgisSource,
+    FeatureIdProperty, ManifestGeneration, PmtilesChecksum, PublicationUnit, RuntimeTileLayer,
     RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, ServingSelection,
     ServingSourceKind, StaticPmtilesSource, VectorTileBuildOutcome, VectorTileBuildPromotionInput,
     VectorTileBuildPromotionVerdict, VectorTileBuildStatus, VectorTileRuntimeManifest,
+    STATIC_RELEASE_OBJECT_ROOT,
 };
 pub use source_record::SourceRecord;
 pub use spatial_layer::{ParseSpatialLayerKindError, SpatialLayer, SpatialLayerKind};

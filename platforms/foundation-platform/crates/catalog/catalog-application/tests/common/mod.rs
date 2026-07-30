@@ -17,18 +17,20 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use catalog_application::ports::{
-    CatalogUnitOfWork, MarkTileLayerDynamicCommand, RecordVectorTileBuildResultCommand,
+    CatalogUnitOfWork, MarkTileLayerDynamicCommand, PromoteTileLayerStaticCommand,
+    RecordVectorTileBuildResultCommand, RollbackTileLayerSourceCommand,
     StartVectorTileBuildCommand, UpsertIndustrialComplexCommand,
     VectorTileManifestPromotionCommand, VectorTileManifestRollbackCommand,
 };
 use catalog_domain::{
-    ActiveTileSource, CatalogError, ComplexMutation, DynamicPostgisSource, IndustrialComplex,
-    ManifestGeneration, Parcel, ParcelKind, PublicationUnit, ServingGeneration, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    static_release_martin_source_id, static_release_pmtiles_object_key, ActiveTileSource,
+    CatalogError, ComplexMutation, DynamicPostgisSource, FeatureIdProperty, IndustrialComplex,
+    ManifestGeneration, Parcel, ParcelKind, PublicationUnit, RuntimeTileLayer, RuntimeTileLineage,
+    ServingGeneration, StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
-    ComplexId, ParcelId, StaffId, VectorTileBuildJobId, VectorTileReleaseId,
-    VectorTileRuntimeManifestId,
+    ComplexId, FileAssetId, ParcelId, SourceRecordId, StaffId, VectorTileBuildJobId,
+    VectorTileDataRevisionId, VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
 use uuid::Uuid;
 
@@ -47,6 +49,8 @@ pub struct RecordingUnitOfWork {
     activations: Mutex<Vec<MarkTileLayerDynamicCommand>>,
     started_builds: Mutex<Vec<StartVectorTileBuildCommand>>,
     recorded_results: Mutex<Vec<RecordVectorTileBuildResultCommand>>,
+    static_promotions: Mutex<Vec<PromoteTileLayerStaticCommand>>,
+    rollbacks: Mutex<Vec<RollbackTileLayerSourceCommand>>,
 }
 
 impl RecordingUnitOfWork {
@@ -65,6 +69,16 @@ impl RecordingUnitOfWork {
         &self,
     ) -> Result<Vec<RecordVectorTileBuildResultCommand>, CatalogError> {
         Ok(self.recorded_results.lock().map_err(poisoned)?.clone())
+    }
+
+    /// Static promotions received, in order.
+    pub fn static_promotions(&self) -> Result<Vec<PromoteTileLayerStaticCommand>, CatalogError> {
+        Ok(self.static_promotions.lock().map_err(poisoned)?.clone())
+    }
+
+    /// Rollbacks received, in order.
+    pub fn rollbacks(&self) -> Result<Vec<RollbackTileLayerSourceCommand>, CatalogError> {
+        Ok(self.rollbacks.lock().map_err(poisoned)?.clone())
     }
 }
 
@@ -106,6 +120,66 @@ fn published_manifest(
     };
     manifest.validate().map_err(invalid)?;
     Ok(manifest)
+}
+
+/// Builds the manifest a real transaction would publish for a static promotion.
+///
+/// The Martin source name and the object key are derived, not taken from the command, exactly as the
+/// transaction will derive them — so a promotion the use case let through with a mismatched URL
+/// template fails the domain validator here instead of being asserted away.
+fn promoted_manifest(
+    command: &PromoteTileLayerStaticCommand,
+) -> Result<VectorTileRuntimeManifest, CatalogError> {
+    let invalid = CatalogError::InvalidVectorTileRuntimeManifest;
+    let unit = PublicationUnit {
+        data_revision: VectorTileDataRevisionId::new(Uuid::now_v7()),
+        serving_generation: ServingGeneration::new(command.expected_serving_generation.value() + 1)
+            .map_err(invalid)?,
+        active_release_id: command.release_id,
+        canonical_iceberg_snapshot_id: command.frozen_source_snapshot_id.clone(),
+        source: ActiveTileSource::StaticPmtiles(StaticPmtilesSource {
+            martin_source_id: static_release_martin_source_id(
+                &command.unit_key,
+                command.release_id,
+            ),
+            tiles_url_template: command.tiles_url_template.clone(),
+            pmtiles_object_key: static_release_pmtiles_object_key(
+                &command.unit_key,
+                command.release_id,
+            ),
+            pmtiles_file_asset_id: command.pmtiles_file_asset_id,
+            pmtiles_sha256: command.pmtiles_sha256.as_str().to_owned(),
+            pmtiles_bytes: command.pmtiles_bytes,
+        }),
+        layers: BTreeMap::from([("parcels".to_owned(), promoted_layer()?)]),
+        lineage: RuntimeTileLineage {
+            source_record_id: SourceRecordId::new(Uuid::now_v7()),
+            source_file_asset_ids: vec![FileAssetId::new(Uuid::now_v7())],
+        },
+    };
+    let manifest = VectorTileRuntimeManifest {
+        schema_version: 2,
+        current_version: VectorTileRuntimeManifestId::new(Uuid::now_v7()),
+        manifest_generation: ManifestGeneration::new(2).map_err(invalid)?,
+        refresh_after_seconds: 4,
+        published_at: chrono::Utc::now(),
+        publication_units: BTreeMap::from([(command.unit_key.clone(), unit)]),
+    };
+    manifest.validate().map_err(invalid)?;
+    Ok(manifest)
+}
+
+fn promoted_layer() -> Result<RuntimeTileLayer, CatalogError> {
+    Ok(RuntimeTileLayer {
+        source_layer: "parcels".to_owned(),
+        feature_id_property: FeatureIdProperty::new("pnu".to_owned())
+            .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?,
+        tile_min_zoom: 8,
+        tile_max_zoom: 16,
+        render_min_zoom: 10,
+        render_max_zoom: 22,
+        feature_filter_properties: BTreeMap::new(),
+    })
 }
 
 /// Implements `CatalogUnitOfWork` for one double: the required methods as self-naming errors, plus
@@ -207,6 +281,25 @@ catalog_unit_of_work_double!(RecordingUnitOfWork {
             .map_err(poisoned)?
             .push(command);
         Ok(())
+    }
+
+    async fn promote_tile_layer_static(
+        &self,
+        command: PromoteTileLayerStaticCommand,
+    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+        self.static_promotions
+            .lock()
+            .map_err(poisoned)?
+            .push(command.clone());
+        promoted_manifest(&command)
+    }
+
+    async fn rollback_tile_layer_source(
+        &self,
+        command: RollbackTileLayerSourceCommand,
+    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+        self.rollbacks.lock().map_err(poisoned)?.push(command);
+        Err(unused("rollback manifest projection"))
     }
 });
 
