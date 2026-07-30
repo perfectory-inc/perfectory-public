@@ -26,3 +26,4 @@ last_reviewed: 2026-07-28
 - [0012 — 검증 결과는 그 문면대로여야 한다](./0012-verification-results-must-mean-what-they-say.md)
 - [0013 — 릴리스 유일성은 두 소스 종류를 함께 허용한다](./0013-release-uniqueness-admits-both-source-kinds.md)
 - [0014 — serving generation은 한 단위의 소스 선택만 추적한다](./0014-serving-generation-tracks-one-unit-source-selection.md)
+- [0015 — 키를 가진 Catalog mutation은 원장 하나를 쓴다](./0015-one-idempotency-ledger-for-keyed-catalog-mutations.md)

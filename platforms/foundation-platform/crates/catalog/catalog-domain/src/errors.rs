@@ -61,6 +61,32 @@ pub enum CatalogError {
         current: String,
     },
 
+    /// An idempotency key was reused for a request that is not the one it first answered.
+    ///
+    /// Distinct from every other conflict here because the caller's fix is distinct: mint a new key.
+    /// Folding it into a generic invalid-request error would make "resend the identical body", "mint a
+    /// new key", and "re-read state and retry" indistinguishable at the transport boundary.
+    #[error(
+        "idempotency key reused for a different request (idempotency_key={idempotency_key}, command={command_kind})"
+    )]
+    MutationIdempotencyKeyReused {
+        /// Key that was already recorded against a different request.
+        idempotency_key: String,
+        /// Command the key was first recorded for.
+        command_kind: String,
+    },
+
+    /// Another transaction holds the same idempotency key and did not finish in time.
+    ///
+    /// Retryable, and the reason it needs its own variant: the underlying `55P03`/`57014` would
+    /// otherwise arrive as an infrastructure failure and be served as an opaque 500, so the one action
+    /// that resolves it — retry the same key — is unguessable from the response.
+    #[error("catalog mutation is contended (idempotency_key={idempotency_key})")]
+    MutationContended {
+        /// Key whose holder did not commit or roll back in time.
+        idempotency_key: String,
+    },
+
     /// A v2 publication unit's serving state differed from the caller's expectation.
     ///
     /// Distinct from [`CatalogError::VectorTileManifestVersionConflict`], which compares the frozen

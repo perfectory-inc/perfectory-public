@@ -14,6 +14,11 @@ workspace = true
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Request fingerprints for the Catalog mutation idempotency ledger (ADR-0015). A domain crate
+# computing a digest is not new in this workspace — another one already derives its dedup keys the
+# same way. Named without the package, because the boundary test over this tree forbids Catalog
+# manifests from referring to that capability at all.
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 foundation-shared-kernel = { workspace = true }
 
