@@ -18,7 +18,7 @@ use foundation_shared_kernel::ids::{
     VectorTileDataRevisionId, VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
 use foundation_shared_kernel::pnu::Pnu;
-use sqlx::{PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row};
 use uuid::Uuid;
 
 use crate::row_map::{
@@ -553,199 +553,15 @@ impl CatalogRepository for PgCatalogRepository {
         row_to_vector_tile_manifest(&row, artifacts).map(Some)
     }
 
-    #[allow(clippy::too_many_lines)]
     async fn get_active_vector_tile_runtime_manifest(
         &self,
     ) -> Result<Option<VectorTileRuntimeManifest>, CatalogError> {
-        let manifest_row = sqlx::query(
-            "SELECT m.id, m.manifest_generation, m.published_at
-             FROM catalog.vector_tile_runtime_manifest_pointer p
-             JOIN catalog.vector_tile_runtime_manifest m ON m.id = p.manifest_id
-             WHERE p.singleton = true",
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-        let Some(manifest_row) = manifest_row else {
-            return Ok(None);
-        };
-        let manifest_id =
-            VectorTileRuntimeManifestId::new(manifest_row.try_get("id").map_err(map_sqlx)?);
-        let manifest_generation = ManifestGeneration::new(
-            u64::try_from(
-                manifest_row
-                    .try_get::<i64, _>("manifest_generation")
-                    .map_err(map_sqlx)?,
-            )
-            .map_err(|error| CatalogError::Infrastructure(error.to_string()))?,
-        )
-        .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
-        let rows = sqlx::query(
-            "SELECT pu.unit_key, mu.data_revision, mu.serving_generation, mu.release_id,
-                    mu.canonical_iceberg_snapshot_id, r.source_kind, r.martin_source_id,
-                    r.tiles_url_template, r.postgis_projection_revision, r.pmtiles_object_key,
-                    r.pmtiles_file_asset_id, r.pmtiles_sha256, r.pmtiles_bytes,
-                    r.source_record_id, r.source_file_asset_ids
-             FROM catalog.vector_tile_runtime_manifest_unit mu
-             JOIN catalog.vector_tile_publication_unit pu ON pu.id = mu.publication_unit_id
-             JOIN catalog.vector_tile_release r ON r.id = mu.release_id
-             WHERE mu.manifest_id = $1
-             ORDER BY pu.unit_key",
-        )
-        .bind(manifest_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-        if rows.is_empty() {
-            return Err(CatalogError::InvalidVectorTileRuntimeManifest(
-                "active runtime manifest has no publication units".to_owned(),
-            ));
-        }
-        let mut publication_units = std::collections::BTreeMap::new();
-        for row in rows {
-            let unit_key: String = row.try_get("unit_key").map_err(map_sqlx)?;
-            let release_id = VectorTileReleaseId::new(row.try_get("release_id").map_err(map_sqlx)?);
-            let tiles_url_template =
-                RuntimeTilesUrlTemplate::new(row.try_get("tiles_url_template").map_err(map_sqlx)?)
-                    .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
-            let source_kind: String = row.try_get("source_kind").map_err(map_sqlx)?;
-            let source = match source_kind.as_str() {
-                "dynamic_postgis" => ActiveTileSource::DynamicPostgis(DynamicPostgisSource {
-                    martin_source_id: row.try_get("martin_source_id").map_err(map_sqlx)?,
-                    tiles_url_template,
-                    postgis_projection_revision: PostgisProjectionRevisionId::new(
-                        row.try_get("postgis_projection_revision")
-                            .map_err(map_sqlx)?,
-                    ),
-                    cache_policy: "no_store".to_owned(),
-                }),
-                "static_pmtiles" => ActiveTileSource::StaticPmtiles(StaticPmtilesSource {
-                    martin_source_id: row.try_get("martin_source_id").map_err(map_sqlx)?,
-                    tiles_url_template,
-                    pmtiles_object_key: row.try_get("pmtiles_object_key").map_err(map_sqlx)?,
-                    pmtiles_file_asset_id: FileAssetId::new(
-                        row.try_get("pmtiles_file_asset_id").map_err(map_sqlx)?,
-                    ),
-                    pmtiles_sha256: row.try_get("pmtiles_sha256").map_err(map_sqlx)?,
-                    pmtiles_bytes: u64::try_from(
-                        row.try_get::<i64, _>("pmtiles_bytes").map_err(map_sqlx)?,
-                    )
-                    .map_err(|error| CatalogError::Infrastructure(error.to_string()))?,
-                }),
-                other => {
-                    return Err(CatalogError::InvalidVectorTileRuntimeManifest(format!(
-                        "unknown source kind: {other}"
-                    )))
-                }
-            };
-            let layer_rows = sqlx::query(
-                "SELECT layer_id, source_layer, feature_id_property, tile_min_zoom,
-                        tile_max_zoom, render_min_zoom, render_max_zoom,
-                        feature_filter_properties
-                 FROM catalog.vector_tile_release_layer
-                 WHERE release_id = $1 ORDER BY layer_id",
-            )
-            .bind(release_id.as_uuid())
-            .fetch_all(&self.pool)
-            .await
-            .map_err(map_sqlx)?;
-            let mut layers = std::collections::BTreeMap::new();
-            for layer_row in layer_rows {
-                let feature_id_property = FeatureIdProperty::new(
-                    layer_row.try_get("feature_id_property").map_err(map_sqlx)?,
-                )
-                .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
-                let zoom = |name: &str| -> Result<u8, CatalogError> {
-                    u8::try_from(layer_row.try_get::<i16, _>(name).map_err(map_sqlx)?).map_err(
-                        |error| {
-                            CatalogError::InvalidVectorTileRuntimeManifest(format!(
-                                "invalid layer zoom: {error}"
-                            ))
-                        },
-                    )
-                };
-                let filter: JsonValue = layer_row
-                    .try_get("feature_filter_properties")
-                    .map_err(map_sqlx)?;
-                let filter_properties = filter
-                    .as_object()
-                    .ok_or_else(|| {
-                        CatalogError::InvalidVectorTileRuntimeManifest(
-                            "feature_filter_properties must be an object".to_owned(),
-                        )
-                    })?
-                    .iter()
-                    .map(|(key, value)| {
-                        value
-                            .as_str()
-                            .map(|value| (key.clone(), value.to_owned()))
-                            .ok_or_else(|| {
-                                CatalogError::InvalidVectorTileRuntimeManifest(
-                                    "feature filter values must be strings".to_owned(),
-                                )
-                            })
-                    })
-                    .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
-                let layer_id: String = layer_row.try_get("layer_id").map_err(map_sqlx)?;
-                layers.insert(
-                    layer_id,
-                    RuntimeTileLayer {
-                        source_layer: layer_row.try_get("source_layer").map_err(map_sqlx)?,
-                        feature_id_property,
-                        tile_min_zoom: zoom("tile_min_zoom")?,
-                        tile_max_zoom: zoom("tile_max_zoom")?,
-                        render_min_zoom: zoom("render_min_zoom")?,
-                        render_max_zoom: zoom("render_max_zoom")?,
-                        feature_filter_properties: filter_properties,
-                    },
-                );
-            }
-            let source_file_asset_ids: Vec<Uuid> =
-                row.try_get("source_file_asset_ids").map_err(map_sqlx)?;
-            let unit = PublicationUnit {
-                data_revision: VectorTileDataRevisionId::new(
-                    row.try_get("data_revision").map_err(map_sqlx)?,
-                ),
-                serving_generation: ServingGeneration::new(
-                    u64::try_from(
-                        row.try_get::<i64, _>("serving_generation")
-                            .map_err(map_sqlx)?,
-                    )
-                    .map_err(|error| CatalogError::Infrastructure(error.to_string()))?,
-                )
-                .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?,
-                active_release_id: release_id,
-                canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId::new(
-                    row.try_get("canonical_iceberg_snapshot_id")
-                        .map_err(map_sqlx)?,
-                )
-                .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?,
-                source,
-                layers,
-                lineage: RuntimeTileLineage {
-                    source_record_id: SourceRecordId::new(
-                        row.try_get("source_record_id").map_err(map_sqlx)?,
-                    ),
-                    source_file_asset_ids: source_file_asset_ids
-                        .into_iter()
-                        .map(FileAssetId::new)
-                        .collect(),
-                },
-            };
-            publication_units.insert(unit_key, unit);
-        }
-        let result = VectorTileRuntimeManifest {
-            schema_version: 2,
-            current_version: manifest_id,
-            manifest_generation,
-            refresh_after_seconds: 4,
-            published_at: manifest_row.try_get("published_at").map_err(map_sqlx)?,
-            publication_units,
-        };
-        result
-            .validate()
-            .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
-        Ok(Some(result))
+        // A checked-out connection rather than the pool, so this path and the activation
+        // transaction reach the same definition below. Reading through the pool after a commit
+        // would let another promotion land in between and return a manifest the caller never
+        // published.
+        let mut connection = self.pool.acquire().await.map_err(map_sqlx)?;
+        load_active_vector_tile_runtime_manifest(&mut connection).await
     }
 
     async fn get_marker_tile(&self, request: MarkerTileRequest) -> Result<Vec<u8>, CatalogError> {
@@ -800,4 +616,208 @@ impl CatalogRepository for PgCatalogRepository {
         .await
         .map_err(map_sqlx)
     }
+}
+
+/// Loads the active strict v2 runtime manifest over one caller-supplied connection.
+///
+/// The connection is a parameter rather than the repository's pool because the activation
+/// transaction has to return the manifest it just published. Reading through the pool after the
+/// commit would observe whatever generation is current *then*, which is not necessarily the one the
+/// caller wrote — so both callers read this one definition instead.
+///
+/// # Errors
+///
+/// Returns a [`CatalogError`] when the normalized publication ledger is inconsistent or unreadable.
+#[allow(clippy::too_many_lines)]
+pub(crate) async fn load_active_vector_tile_runtime_manifest(
+    connection: &mut PgConnection,
+) -> Result<Option<VectorTileRuntimeManifest>, CatalogError> {
+    let manifest_row = sqlx::query(
+        "SELECT m.id, m.manifest_generation, m.published_at
+             FROM catalog.vector_tile_runtime_manifest_pointer p
+             JOIN catalog.vector_tile_runtime_manifest m ON m.id = p.manifest_id
+             WHERE p.singleton = true",
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(map_sqlx)?;
+    let Some(manifest_row) = manifest_row else {
+        return Ok(None);
+    };
+    let manifest_id =
+        VectorTileRuntimeManifestId::new(manifest_row.try_get("id").map_err(map_sqlx)?);
+    let manifest_generation = ManifestGeneration::new(
+        u64::try_from(
+            manifest_row
+                .try_get::<i64, _>("manifest_generation")
+                .map_err(map_sqlx)?,
+        )
+        .map_err(|error| CatalogError::Infrastructure(error.to_string()))?,
+    )
+    .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
+    let rows = sqlx::query(
+        "SELECT pu.unit_key, mu.data_revision, mu.serving_generation, mu.release_id,
+                    mu.canonical_iceberg_snapshot_id, r.source_kind, r.martin_source_id,
+                    r.tiles_url_template, r.postgis_projection_revision, r.pmtiles_object_key,
+                    r.pmtiles_file_asset_id, r.pmtiles_sha256, r.pmtiles_bytes,
+                    r.source_record_id, r.source_file_asset_ids
+             FROM catalog.vector_tile_runtime_manifest_unit mu
+             JOIN catalog.vector_tile_publication_unit pu ON pu.id = mu.publication_unit_id
+             JOIN catalog.vector_tile_release r ON r.id = mu.release_id
+             WHERE mu.manifest_id = $1
+             ORDER BY pu.unit_key",
+    )
+    .bind(manifest_id.as_uuid())
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(map_sqlx)?;
+    if rows.is_empty() {
+        return Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "active runtime manifest has no publication units".to_owned(),
+        ));
+    }
+    let mut publication_units = std::collections::BTreeMap::new();
+    for row in rows {
+        let unit_key: String = row.try_get("unit_key").map_err(map_sqlx)?;
+        let release_id = VectorTileReleaseId::new(row.try_get("release_id").map_err(map_sqlx)?);
+        let tiles_url_template =
+            RuntimeTilesUrlTemplate::new(row.try_get("tiles_url_template").map_err(map_sqlx)?)
+                .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
+        let source_kind: String = row.try_get("source_kind").map_err(map_sqlx)?;
+        let source = match source_kind.as_str() {
+            "dynamic_postgis" => ActiveTileSource::DynamicPostgis(DynamicPostgisSource {
+                martin_source_id: row.try_get("martin_source_id").map_err(map_sqlx)?,
+                tiles_url_template,
+                postgis_projection_revision: PostgisProjectionRevisionId::new(
+                    row.try_get("postgis_projection_revision")
+                        .map_err(map_sqlx)?,
+                ),
+                cache_policy: "no_store".to_owned(),
+            }),
+            "static_pmtiles" => ActiveTileSource::StaticPmtiles(StaticPmtilesSource {
+                martin_source_id: row.try_get("martin_source_id").map_err(map_sqlx)?,
+                tiles_url_template,
+                pmtiles_object_key: row.try_get("pmtiles_object_key").map_err(map_sqlx)?,
+                pmtiles_file_asset_id: FileAssetId::new(
+                    row.try_get("pmtiles_file_asset_id").map_err(map_sqlx)?,
+                ),
+                pmtiles_sha256: row.try_get("pmtiles_sha256").map_err(map_sqlx)?,
+                pmtiles_bytes: u64::try_from(
+                    row.try_get::<i64, _>("pmtiles_bytes").map_err(map_sqlx)?,
+                )
+                .map_err(|error| CatalogError::Infrastructure(error.to_string()))?,
+            }),
+            other => {
+                return Err(CatalogError::InvalidVectorTileRuntimeManifest(format!(
+                    "unknown source kind: {other}"
+                )))
+            }
+        };
+        let layer_rows = sqlx::query(
+            "SELECT layer_id, source_layer, feature_id_property, tile_min_zoom,
+                        tile_max_zoom, render_min_zoom, render_max_zoom,
+                        feature_filter_properties
+                 FROM catalog.vector_tile_release_layer
+                 WHERE release_id = $1 ORDER BY layer_id",
+        )
+        .bind(release_id.as_uuid())
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(map_sqlx)?;
+        let mut layers = std::collections::BTreeMap::new();
+        for layer_row in layer_rows {
+            let feature_id_property =
+                FeatureIdProperty::new(layer_row.try_get("feature_id_property").map_err(map_sqlx)?)
+                    .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
+            let zoom = |name: &str| -> Result<u8, CatalogError> {
+                u8::try_from(layer_row.try_get::<i16, _>(name).map_err(map_sqlx)?).map_err(
+                    |error| {
+                        CatalogError::InvalidVectorTileRuntimeManifest(format!(
+                            "invalid layer zoom: {error}"
+                        ))
+                    },
+                )
+            };
+            let filter: JsonValue = layer_row
+                .try_get("feature_filter_properties")
+                .map_err(map_sqlx)?;
+            let filter_properties = filter
+                .as_object()
+                .ok_or_else(|| {
+                    CatalogError::InvalidVectorTileRuntimeManifest(
+                        "feature_filter_properties must be an object".to_owned(),
+                    )
+                })?
+                .iter()
+                .map(|(key, value)| {
+                    value
+                        .as_str()
+                        .map(|value| (key.clone(), value.to_owned()))
+                        .ok_or_else(|| {
+                            CatalogError::InvalidVectorTileRuntimeManifest(
+                                "feature filter values must be strings".to_owned(),
+                            )
+                        })
+                })
+                .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
+            let layer_id: String = layer_row.try_get("layer_id").map_err(map_sqlx)?;
+            layers.insert(
+                layer_id,
+                RuntimeTileLayer {
+                    source_layer: layer_row.try_get("source_layer").map_err(map_sqlx)?,
+                    feature_id_property,
+                    tile_min_zoom: zoom("tile_min_zoom")?,
+                    tile_max_zoom: zoom("tile_max_zoom")?,
+                    render_min_zoom: zoom("render_min_zoom")?,
+                    render_max_zoom: zoom("render_max_zoom")?,
+                    feature_filter_properties: filter_properties,
+                },
+            );
+        }
+        let source_file_asset_ids: Vec<Uuid> =
+            row.try_get("source_file_asset_ids").map_err(map_sqlx)?;
+        let unit = PublicationUnit {
+            data_revision: VectorTileDataRevisionId::new(
+                row.try_get("data_revision").map_err(map_sqlx)?,
+            ),
+            serving_generation: ServingGeneration::new(
+                u64::try_from(
+                    row.try_get::<i64, _>("serving_generation")
+                        .map_err(map_sqlx)?,
+                )
+                .map_err(|error| CatalogError::Infrastructure(error.to_string()))?,
+            )
+            .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?,
+            active_release_id: release_id,
+            canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId::new(
+                row.try_get("canonical_iceberg_snapshot_id")
+                    .map_err(map_sqlx)?,
+            )
+            .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?,
+            source,
+            layers,
+            lineage: RuntimeTileLineage {
+                source_record_id: SourceRecordId::new(
+                    row.try_get("source_record_id").map_err(map_sqlx)?,
+                ),
+                source_file_asset_ids: source_file_asset_ids
+                    .into_iter()
+                    .map(FileAssetId::new)
+                    .collect(),
+            },
+        };
+        publication_units.insert(unit_key, unit);
+    }
+    let result = VectorTileRuntimeManifest {
+        schema_version: 2,
+        current_version: manifest_id,
+        manifest_generation,
+        refresh_after_seconds: 4,
+        published_at: manifest_row.try_get("published_at").map_err(map_sqlx)?,
+        publication_units,
+    };
+    result
+        .validate()
+        .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
+    Ok(Some(result))
 }
