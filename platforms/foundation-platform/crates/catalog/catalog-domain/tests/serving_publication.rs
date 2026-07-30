@@ -1,10 +1,12 @@
 //! Contract tests for the single-source v2 spatial publication manifest.
 
 use catalog_domain::{
-    validate_serving_transition, ServingGeneration, ServingSelection, ServingSourceKind,
-    VectorTileRuntimeManifest,
+    validate_build_promotion, validate_build_snapshot_binding, validate_serving_transition,
+    BuildEvidenceDigest, CanonicalIcebergSnapshotId, ServingGeneration, ServingSelection,
+    ServingSourceKind, VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict,
+    VectorTileBuildStatus, VectorTileRuntimeManifest,
 };
-use foundation_shared_kernel::ids::VectorTileDataRevisionId;
+use foundation_shared_kernel::ids::{VectorTileDataRevisionId, VectorTileReleaseId};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -195,5 +197,107 @@ fn serving_state_machine_rejects_stale_static_and_generation_gaps() -> Result<()
         selection(ServingSourceKind::StaticPmtiles, 1, 8)?
     )
     .is_ok());
+    Ok(())
+}
+
+// --- static build lifecycle (guide Task 6 steps 2-3) ---------------------------
+//
+// A static release is only meaningful for the revision it was built from. These tests fix the two
+// ways a build can become invalid while it runs: the unit moved on, or the build reported a
+// snapshot that its input release was never pinned to.
+
+const fn release_id(seed: u128) -> VectorTileReleaseId {
+    VectorTileReleaseId::new(Uuid::from_u128(seed))
+}
+
+const fn promotion_input(
+    status: VectorTileBuildStatus,
+    input_release: u128,
+    active_release: u128,
+) -> VectorTileBuildPromotionInput {
+    VectorTileBuildPromotionInput {
+        status,
+        input_release_id: release_id(input_release),
+        active_release_id: release_id(active_release),
+    }
+}
+
+#[test]
+fn a_validated_build_promotes_only_while_its_input_release_is_still_active() {
+    assert_eq!(
+        validate_build_promotion(promotion_input(VectorTileBuildStatus::Validated, 10, 10)),
+        Ok(VectorTileBuildPromotionVerdict::Promotable)
+    );
+
+    // R10 active, B10 starts from R10, an edit activates R11, B10 validates. Promoting now would
+    // publish tiles for a revision the unit no longer serves, so the build is superseded — a
+    // conflict would invite a retry that can never succeed.
+    assert_eq!(
+        validate_build_promotion(promotion_input(VectorTileBuildStatus::Validated, 10, 11)),
+        Ok(VectorTileBuildPromotionVerdict::Superseded)
+    );
+}
+
+#[test]
+fn promotion_before_evidence_exists_is_refused_rather_than_superseded() {
+    for status in [
+        VectorTileBuildStatus::Planned,
+        VectorTileBuildStatus::Running,
+        VectorTileBuildStatus::Failed,
+    ] {
+        assert!(
+            validate_build_promotion(promotion_input(status, 10, 10)).is_err(),
+            "{} must not promote",
+            status.as_str()
+        );
+    }
+}
+
+#[test]
+fn build_status_spelling_round_trips_through_the_database_form() {
+    for status in [
+        VectorTileBuildStatus::Planned,
+        VectorTileBuildStatus::Running,
+        VectorTileBuildStatus::Validated,
+        VectorTileBuildStatus::Promoted,
+        VectorTileBuildStatus::Superseded,
+        VectorTileBuildStatus::Failed,
+    ] {
+        assert_eq!(VectorTileBuildStatus::try_from(status.as_str()), Ok(status));
+    }
+    assert!(VectorTileBuildStatus::try_from("cancelled").is_err());
+}
+
+#[test]
+fn only_promoted_superseded_and_failed_are_terminal() {
+    assert!(VectorTileBuildStatus::Promoted.is_terminal());
+    assert!(VectorTileBuildStatus::Superseded.is_terminal());
+    assert!(VectorTileBuildStatus::Failed.is_terminal());
+    assert!(!VectorTileBuildStatus::Planned.is_terminal());
+    assert!(!VectorTileBuildStatus::Running.is_terminal());
+    assert!(!VectorTileBuildStatus::Validated.is_terminal());
+}
+
+#[test]
+fn a_build_must_report_the_snapshot_its_input_release_is_pinned_to() -> Result<(), String> {
+    let pinned = CanonicalIcebergSnapshotId::new("7412".to_owned())?;
+    let other = CanonicalIcebergSnapshotId::new("7413".to_owned())?;
+
+    validate_build_snapshot_binding(&pinned, &pinned)?;
+    assert!(validate_build_snapshot_binding(&other, &pinned).is_err());
+    Ok(())
+}
+
+#[test]
+fn evidence_digest_accepts_only_lowercase_hex_of_exactly_sha256_length() -> Result<(), String> {
+    let digest = BuildEvidenceDigest::new("0".repeat(64))?;
+    assert_eq!(digest.as_str().len(), 64);
+
+    assert!(BuildEvidenceDigest::new("a".repeat(63)).is_err());
+    assert!(BuildEvidenceDigest::new("a".repeat(65)).is_err());
+    // Uppercase and non-hex both fail: the column is `character(64)` matching `^[0-9a-f]{64}$`,
+    // so accepting either here would only move the failure to the insert.
+    assert!(BuildEvidenceDigest::new("A".repeat(64)).is_err());
+    assert!(BuildEvidenceDigest::new("g".repeat(64)).is_err());
     Ok(())
 }

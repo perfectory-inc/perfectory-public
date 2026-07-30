@@ -387,6 +387,165 @@ pub fn validate_serving_transition(
     Ok(())
 }
 
+/// Lifecycle of one static build attempt.
+///
+/// Mirrors `catalog.vector_tile_build_job.status` exactly. The database constraint and this enum
+/// are two statements of one fact, so [`VectorTileBuildStatus::as_str`] is the only place the
+/// spelling is written and `TryFrom<&str>` is the only place it is read back.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VectorTileBuildStatus {
+    /// Plan recorded, no work started.
+    Planned,
+    /// Build running against the frozen snapshot.
+    Running,
+    /// Artifacts produced and validated; eligible for promotion.
+    Validated,
+    /// Promoted to the active serving source.
+    Promoted,
+    /// The input release stopped being active before promotion. Terminal.
+    Superseded,
+    /// The build could not produce validated artifacts. Terminal.
+    Failed,
+}
+
+impl VectorTileBuildStatus {
+    /// Database spelling of this status.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::Running => "running",
+            Self::Validated => "validated",
+            Self::Promoted => "promoted",
+            Self::Superseded => "superseded",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// Whether no further transition is possible.
+    #[must_use]
+    pub const fn is_terminal(self) -> bool {
+        matches!(self, Self::Promoted | Self::Superseded | Self::Failed)
+    }
+}
+
+impl TryFrom<&str> for VectorTileBuildStatus {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "planned" => Ok(Self::Planned),
+            "running" => Ok(Self::Running),
+            "validated" => Ok(Self::Validated),
+            "promoted" => Ok(Self::Promoted),
+            "superseded" => Ok(Self::Superseded),
+            "failed" => Ok(Self::Failed),
+            other => Err(format!("unknown vector tile build status: {other}")),
+        }
+    }
+}
+
+/// Lowercase hex SHA-256 of the evidence produced by a validated build.
+///
+/// The database enforces `^[0-9a-f]{64}$`; constructing this type is where a caller finds out,
+/// rather than at the insert.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BuildEvidenceDigest(String);
+
+impl BuildEvidenceDigest {
+    /// Validates a lowercase hex SHA-256 digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the value is not exactly 64 lowercase hex characters.
+    pub fn new(value: String) -> Result<Self, String> {
+        let lowercase_hex = value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
+        if value.len() != 64 || !lowercase_hex {
+            return Err("build evidence digest must be 64 lowercase hex characters".to_owned());
+        }
+        Ok(Self(value))
+    }
+
+    /// Borrowed digest.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// The state a promotion decision is made against.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VectorTileBuildPromotionInput {
+    /// Current status of the build.
+    pub status: VectorTileBuildStatus,
+    /// Release the build was started from.
+    pub input_release_id: VectorTileReleaseId,
+    /// Release currently selected for the unit.
+    pub active_release_id: VectorTileReleaseId,
+}
+
+/// Outcome of checking whether a build may promote.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VectorTileBuildPromotionVerdict {
+    /// The build may promote.
+    Promotable,
+    /// The unit moved on while this build ran. The build must be recorded
+    /// `superseded`, not retried — its artifacts describe a revision no longer served.
+    Superseded,
+}
+
+/// Decides whether a validated build may still promote.
+///
+/// A static release is only meaningful for the revision it was built from. If an edit activated a
+/// newer release while the build ran, promoting would publish stale tiles under a current pointer,
+/// so the build is superseded rather than merely conflicting — the distinction matters because a
+/// conflict invites a retry and a supersession does not.
+///
+/// # Errors
+///
+/// Returns an error when the build has not reached `validated`, which means promotion was
+/// requested before evidence existed.
+pub fn validate_build_promotion(
+    input: VectorTileBuildPromotionInput,
+) -> Result<VectorTileBuildPromotionVerdict, String> {
+    if input.status != VectorTileBuildStatus::Validated {
+        return Err(format!(
+            "only a validated build may promote; this build is {}",
+            input.status.as_str()
+        ));
+    }
+    if input.input_release_id != input.active_release_id {
+        return Ok(VectorTileBuildPromotionVerdict::Superseded);
+    }
+    Ok(VectorTileBuildPromotionVerdict::Promotable)
+}
+
+/// Rejects a build whose claimed frozen snapshot is not the one on its input release.
+///
+/// The frozen snapshot is what makes a build reproducible. A build that claims a different
+/// snapshot from the release it names is either pointed at the wrong release or reporting the
+/// wrong snapshot, and neither can be told apart afterwards — so it is refused before any
+/// artifact is trusted.
+///
+/// # Errors
+///
+/// Returns an error when the two snapshot identifiers differ.
+pub fn validate_build_snapshot_binding(
+    claimed_frozen_snapshot: &CanonicalIcebergSnapshotId,
+    input_release_snapshot: &CanonicalIcebergSnapshotId,
+) -> Result<(), String> {
+    if claimed_frozen_snapshot != input_release_snapshot {
+        return Err(format!(
+            "build claims frozen snapshot {} but its input release is pinned to {}",
+            claimed_frozen_snapshot.as_str(),
+            input_release_snapshot.as_str()
+        ));
+    }
+    Ok(())
+}
+
 /// Foundation-owned v2 runtime manifest.
 #[derive(Clone, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
