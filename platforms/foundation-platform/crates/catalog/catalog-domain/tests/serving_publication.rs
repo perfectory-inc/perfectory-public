@@ -107,16 +107,35 @@ fn v2_manifest_rejects_javascript_unsafe_generation_and_bad_snapshot() {
 
 #[test]
 fn v2_manifest_rejects_duplicate_source_ids_and_unsafe_unit_names() {
+    // Both units are dynamic and internally consistent, so manifest-wide Martin source uniqueness
+    // is the only invariant left to fail. A static fixture would fail its release-addressed
+    // filename check first and the assertion could not tell the two reasons apart.
     let mut duplicate = valid_manifest();
-    duplicate["publication_units"]["parcels"]["source"]["martin_source_id"] =
-        serde_json::json!("shared");
+    duplicate["publication_units"]["parcels"]["source"] = shared_dynamic_source();
     duplicate["publication_units"]["anchors"] = duplicate["publication_units"]["parcels"].clone();
-    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(duplicate).is_err());
+    let message = serde_json::from_value::<VectorTileRuntimeManifest>(duplicate)
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(
+        message.contains("already used by another publication unit"),
+        "expected a manifest-wide source id conflict, got: {message}"
+    );
 
     let mut unsafe_name = valid_manifest();
     let parcels_unit = unsafe_name["publication_units"]["parcels"].clone();
     unsafe_name["publication_units"] = serde_json::json!({"bad/name": parcels_unit});
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(unsafe_name).is_err());
+}
+
+fn shared_dynamic_source() -> serde_json::Value {
+    json!({
+        "kind": "dynamic_postgis",
+        "martin_source_id": "shared",
+        "tiles_url_template": "https://tiles.example.com/shared/{z}/{x}/{y}",
+        "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
+        "cache_policy": "no_store"
+    })
 }
 
 #[test]

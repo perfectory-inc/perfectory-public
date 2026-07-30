@@ -299,6 +299,20 @@ pub enum ActiveTileSource {
     StaticPmtiles(StaticPmtilesSource),
 }
 
+impl ActiveTileSource {
+    /// Configured Martin source name, whichever complete source is selected.
+    ///
+    /// Manifest-wide uniqueness of this name is the one invariant a single unit cannot check, so
+    /// the check needs to read the name without re-matching on the variant.
+    #[must_use]
+    pub fn martin_source_id(&self) -> &str {
+        match self {
+            Self::DynamicPostgis(source) => &source.martin_source_id,
+            Self::StaticPmtiles(source) => &source.martin_source_id,
+        }
+    }
+}
+
 /// One atomically switched publication unit.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -612,85 +626,111 @@ impl VectorTileRuntimeManifest {
         }
         let mut martin_source_ids = BTreeSet::new();
         for (unit_name, unit) in &self.publication_units {
-            if !is_martin_identifier(unit_name) {
+            unit.validate(unit_name)?;
+            let martin_source_id = unit.source.martin_source_id().trim();
+            if !martin_source_ids.insert(martin_source_id.to_owned()) {
                 return Err(format!(
-                    "publication unit {unit_name:?} must be a safe Martin identifier"
+                    "{unit_name}: Martin source id {martin_source_id} is already used by another publication unit"
                 ));
             }
-            if unit.layers.is_empty() {
-                return Err(format!("{unit_name}: layers must not be empty"));
+        }
+        Ok(())
+    }
+}
+
+impl PublicationUnit {
+    /// Validates every invariant one unit can decide without seeing the rest of the manifest.
+    ///
+    /// Split out of [`VectorTileRuntimeManifest::validate`] so a publisher can reject the single
+    /// unit it is changing, and name it in the error, instead of only learning that the assembled
+    /// global manifest is invalid. Both callers read this one definition, so the per-unit check and
+    /// the published manifest cannot disagree about what a valid unit is.
+    ///
+    /// The unit name is a parameter because it is the map key in the manifest, and several
+    /// invariants — the Martin identifier rule and the release-addressed static filename — relate
+    /// the name to the unit's own contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the unit name, layer set, lineage, zoom ranges, or source metadata
+    /// violate a publication invariant.
+    pub fn validate(&self, unit_name: &str) -> Result<(), String> {
+        if !is_martin_identifier(unit_name) {
+            return Err(format!(
+                "publication unit {unit_name:?} must be a safe Martin identifier"
+            ));
+        }
+        if self.layers.is_empty() {
+            return Err(format!("{unit_name}: layers must not be empty"));
+        }
+        if self.lineage.source_file_asset_ids.is_empty() {
+            return Err(format!(
+                "{unit_name}: source_file_asset_ids must not be empty"
+            ));
+        }
+        let mut source_layers = BTreeSet::new();
+        for (layer_name, layer) in &self.layers {
+            if layer_name.trim().is_empty() || layer.source_layer.trim().is_empty() {
+                return Err(format!("{unit_name}: layer names must not be empty"));
             }
-            if unit.lineage.source_file_asset_ids.is_empty() {
+            if !is_martin_identifier(layer_name)
+                || !is_martin_identifier(&layer.source_layer)
+                || !source_layers.insert(layer.source_layer.trim().to_owned())
+            {
                 return Err(format!(
-                    "{unit_name}: source_file_asset_ids must not be empty"
+                    "{unit_name}/{layer_name}: Martin layer ids must be unique safe identifiers"
                 ));
             }
-            let mut source_layers = BTreeSet::new();
-            for (layer_name, layer) in &unit.layers {
-                if layer_name.trim().is_empty() || layer.source_layer.trim().is_empty() {
-                    return Err(format!("{unit_name}: layer names must not be empty"));
-                }
-                if !is_martin_identifier(layer_name)
-                    || !is_martin_identifier(&layer.source_layer)
-                    || !source_layers.insert(layer.source_layer.trim().to_owned())
+            if layer.tile_min_zoom > layer.tile_max_zoom
+                || layer.render_min_zoom > layer.render_max_zoom
+            {
+                return Err(format!("{unit_name}/{layer_name}: zoom range is inverted"));
+            }
+            if layer
+                .feature_filter_properties
+                .values()
+                .any(String::is_empty)
+            {
+                return Err(format!(
+                    "{unit_name}/{layer_name}: filter property is empty"
+                ));
+            }
+        }
+        match &self.source {
+            ActiveTileSource::DynamicPostgis(source) => {
+                if !is_martin_identifier(&source.martin_source_id)
+                    || source.cache_policy != "no_store"
+                    || source.tiles_url_template.as_str().contains('?')
+                    || source.tiles_url_template.as_str().contains('#')
+                    || !martin_route_matches_source_id(
+                        &source.tiles_url_template,
+                        &source.martin_source_id,
+                    )
                 {
                     return Err(format!(
-                        "{unit_name}/{layer_name}: Martin layer ids must be unique safe identifiers"
-                    ));
-                }
-                if layer.tile_min_zoom > layer.tile_max_zoom
-                    || layer.render_min_zoom > layer.render_max_zoom
-                {
-                    return Err(format!("{unit_name}/{layer_name}: zoom range is inverted"));
-                }
-                if layer
-                    .feature_filter_properties
-                    .values()
-                    .any(String::is_empty)
-                {
-                    return Err(format!(
-                        "{unit_name}/{layer_name}: filter property is empty"
+                        "{unit_name}: dynamic source must use a stable Martin id, no_store, and a query-free URL"
                     ));
                 }
             }
-            match &unit.source {
-                ActiveTileSource::DynamicPostgis(source) => {
-                    if !is_martin_identifier(&source.martin_source_id)
-                        || !martin_source_ids.insert(source.martin_source_id.trim().to_owned())
-                        || source.cache_policy != "no_store"
-                        || source.tiles_url_template.as_str().contains('?')
-                        || source.tiles_url_template.as_str().contains('#')
-                        || !martin_route_matches_source_id(
-                            &source.tiles_url_template,
-                            &source.martin_source_id,
-                        )
-                    {
-                        return Err(format!(
-                            "{unit_name}: dynamic source must use a stable Martin id, no_store, and a query-free URL"
-                        ));
-                    }
-                }
-                ActiveTileSource::StaticPmtiles(source) => {
-                    if !is_martin_identifier(&source.martin_source_id)
-                        || !martin_source_ids.insert(source.martin_source_id.trim().to_owned())
-                        || source.pmtiles_object_key.trim().is_empty()
-                        || source.pmtiles_bytes == 0
-                        || !is_sha256(&source.pmtiles_sha256)
-                        || !martin_route_matches_source_id(
-                            &source.tiles_url_template,
-                            &source.martin_source_id,
-                        )
-                        || !static_pmtiles_identity_matches(
-                            unit_name,
-                            unit.active_release_id,
-                            &source.martin_source_id,
-                            &source.pmtiles_object_key,
-                        )
-                    {
-                        return Err(format!(
-                            "{unit_name}: static PMTiles metadata or release-addressed Martin identity is invalid"
-                        ));
-                    }
+            ActiveTileSource::StaticPmtiles(source) => {
+                if !is_martin_identifier(&source.martin_source_id)
+                    || source.pmtiles_object_key.trim().is_empty()
+                    || source.pmtiles_bytes == 0
+                    || !is_sha256(&source.pmtiles_sha256)
+                    || !martin_route_matches_source_id(
+                        &source.tiles_url_template,
+                        &source.martin_source_id,
+                    )
+                    || !static_pmtiles_identity_matches(
+                        unit_name,
+                        self.active_release_id,
+                        &source.martin_source_id,
+                        &source.pmtiles_object_key,
+                    )
+                {
+                    return Err(format!(
+                        "{unit_name}: static PMTiles metadata or release-addressed Martin identity is invalid"
+                    ));
                 }
             }
         }
