@@ -1392,6 +1392,19 @@ impl From<CatalogError> for ApiError {
             } => Self::Conflict(format!(
                 "vector tile serving state mismatch for {unit_key}: expected {expected}, current {current}"
             )),
+            // 409 for both, following the status Stripe serves `idempotency_key_in_use` and the IETF
+            // Idempotency-Key draft serves a concurrent retry on. 422 would arguably fit the reuse
+            // case, but `ApiError` has no 422 and inventing one for a route that does not exist yet
+            // would be shaping transport for an unwritten caller.
+            CatalogError::MutationIdempotencyKeyReused {
+                idempotency_key,
+                command_kind,
+            } => Self::Conflict(format!(
+                "idempotency key {idempotency_key} was already used by {command_kind} for a different request; use a new key"
+            )),
+            CatalogError::MutationContended { idempotency_key } => Self::Conflict(format!(
+                "idempotency key {idempotency_key} is in use by another request; retry with the same key"
+            )),
             CatalogError::InvalidPnu(e) => Self::BadRequest(e.to_string()),
             CatalogError::InvalidVectorTileManifestRollback(msg)
             | CatalogError::InvalidVectorTileManifestPromotion(msg)

@@ -8,12 +8,12 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use catalog_domain::{
     Blueprint, BuildEvidenceDigest, Building, CanonicalIcebergSnapshotId, CatalogError,
-    ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
-    IndustrialComplex, IndustrialComplexKind, IndustryGroup, IndustryGroupMember, Manufacturer,
-    MarkerAnchorAlgorithm, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
-    PmtilesChecksum, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
-    ServingGeneration, SpatialLayer, VectorTileBuildOutcome, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    CatalogMutationKind, ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset,
+    FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup, IndustryGroupMember,
+    Manufacturer, MarkerAnchorAlgorithm, MarkerTileRequest, Parcel, ParcelIndustryAssignment,
+    ParcelKind, PmtilesChecksum, RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
+    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
     ComplexId, FileAssetId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId,
@@ -159,6 +159,109 @@ pub struct MarkTileLayerDynamicCommand {
     pub idempotency_key: String,
     /// Staff operator that requested the activation.
     pub operator_staff_id: StaffId,
+}
+
+impl MarkTileLayerDynamicCommand {
+    /// Digests everything that makes this request the request it is.
+    ///
+    /// The field list is written out rather than derived, so adding a field to the command above does
+    /// not compile until someone decides whether it belongs to request identity. A derived encoding
+    /// would answer that question silently, and answer it wrong the moment a field is reordered.
+    ///
+    /// Two membership decisions are worth stating because the intuitive answer is the wrong one.
+    ///
+    /// `idempotency_key` is **excluded**: it is the ledger's key, so hashing it would make every
+    /// fingerprint trivially unique and the mismatch check dead code.
+    ///
+    /// `operator_staff_id` is **included**, even though it means a colleague re-sending the same body
+    /// is refused. The alternative is worse: the activation is recorded against the first operator,
+    /// so replaying that outcome to a second one reports a success they did not cause while the
+    /// ledger names someone else as the actor. A refusal is annoying and visible; a falsified audit
+    /// trail is neither.
+    ///
+    /// The `expected_*` pair is included for the same reason Stripe tells clients to mint a fresh key
+    /// when they change the request: a retry made on *new* observations is a new decision, not the
+    /// old one repeated.
+    #[must_use]
+    pub fn request_fingerprint(&self) -> RequestFingerprint {
+        let mut builder = RequestFingerprintBuilder::new(CatalogMutationKind::MarkTileLayerDynamic)
+            .text(&self.unit_key)
+            .optional_displayed(self.expected_active_release_id.as_ref())
+            .optional_integer(
+                self.expected_serving_generation
+                    .map(ServingGeneration::value),
+            )
+            .displayed(&self.data_revision)
+            .text(self.canonical_iceberg_snapshot_id.as_str())
+            .displayed(&self.postgis_projection_revision)
+            .text(&self.martin_source_id)
+            .text(self.tiles_url_template.as_str())
+            .count(self.layers.len());
+        // `BTreeMap` iteration is already sorted, and the count above means a shorter layer set can
+        // never encode as the prefix of a longer one.
+        for (layer_id, layer) in &self.layers {
+            builder = builder
+                .text(layer_id)
+                .text(&layer.source_layer)
+                .text(layer.feature_id_property.as_str())
+                .integer(u64::from(layer.tile_min_zoom))
+                .integer(u64::from(layer.tile_max_zoom))
+                .integer(u64::from(layer.render_min_zoom))
+                .integer(u64::from(layer.render_max_zoom))
+                .count(layer.feature_filter_properties.len());
+            for (property, value) in &layer.feature_filter_properties {
+                builder = builder.text(property).text(value);
+            }
+        }
+        builder = builder
+            .displayed(&self.lineage.source_record_id)
+            .count(self.lineage.source_file_asset_ids.len());
+        // In order, deliberately not sorted: the order lands in a Postgres array column, so a
+        // reordered lineage really is a different request.
+        for file_asset_id in &self.lineage.source_file_asset_ids {
+            builder = builder.displayed(file_asset_id);
+        }
+        builder.displayed(&self.operator_staff_id).finish()
+    }
+}
+
+/// A publication command's answer, and whether this call produced it.
+///
+/// An enum rather than a `(manifest, replayed: bool)` pair because a caller has to handle the
+/// difference: a replay returns the manifest the *first* call published, whose `manifest_generation`
+/// may be older than the pointer's, and clients compare generations to decide what to refetch. This
+/// repository already has the failure this prevents — `PgNormalizationUnitOfWork` returns a `created`
+/// flag that the route discards, so a deduplicated submission is reported as a fresh one.
+#[derive(Clone, Debug)]
+pub enum PublishedRuntimeManifest {
+    /// This call assembled and promoted the manifest.
+    Published(VectorTileRuntimeManifest),
+    /// A prior call with the same idempotency key published it; nothing was written now.
+    Replayed(VectorTileRuntimeManifest),
+}
+
+impl PublishedRuntimeManifest {
+    /// The manifest, for callers that genuinely do not distinguish the two cases.
+    #[must_use]
+    pub const fn manifest(&self) -> &VectorTileRuntimeManifest {
+        match self {
+            Self::Published(manifest) | Self::Replayed(manifest) => manifest,
+        }
+    }
+
+    /// Consumes this outcome and returns the manifest.
+    #[must_use]
+    pub fn into_manifest(self) -> VectorTileRuntimeManifest {
+        match self {
+            Self::Published(manifest) | Self::Replayed(manifest) => manifest,
+        }
+    }
+
+    /// Whether the ledger answered instead of the transaction.
+    #[must_use]
+    pub const fn was_replayed(&self) -> bool {
+        matches!(self, Self::Replayed(_))
+    }
 }
 
 /// Command for recording a static build attempt against one publication unit.
@@ -668,14 +771,20 @@ pub trait CatalogUnitOfWork: Send + Sync {
     /// The default is an error for the same reason the runtime-manifest promotion above is: a test
     /// double that inherited a silent success would report a publication that never happened.
     ///
+    /// A repeated `idempotency_key` carrying the same request returns the first outcome marked
+    /// [`PublishedRuntimeManifest::Replayed`] and writes nothing — no release, no manifest, no second
+    /// outbox event. The same key carrying a *different* request is refused: it is a key reuse, not a
+    /// retry, and the earlier outcome does not answer it.
+    ///
     /// # Errors
     ///
     /// Returns `CatalogError` when the observed release or generation is stale, when the unit is
-    /// absent, when the layer set is empty, or when persistence and outbox writes fail.
+    /// absent, when the layer set is empty, when the idempotency key was already used for a different
+    /// request, or when persistence and outbox writes fail.
     async fn mark_tile_layer_dynamic(
         &self,
         command: MarkTileLayerDynamicCommand,
-    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+    ) -> Result<PublishedRuntimeManifest, CatalogError> {
         let _ = command;
         Err(CatalogError::InvalidVectorTileRuntimeManifest(
             "dynamic tile layer activation is not implemented by this Catalog unit of work"

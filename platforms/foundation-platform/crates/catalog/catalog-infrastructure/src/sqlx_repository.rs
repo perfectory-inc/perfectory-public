@@ -618,7 +618,7 @@ impl CatalogRepository for PgCatalogRepository {
     }
 }
 
-/// Loads the active strict v2 runtime manifest over one caller-supplied connection.
+/// Loads the runtime manifest the singleton pointer currently selects.
 ///
 /// The connection is a parameter rather than the repository's pool because the activation
 /// transaction has to return the manifest it just published. Reading through the pool after the
@@ -628,16 +628,49 @@ impl CatalogRepository for PgCatalogRepository {
 /// # Errors
 ///
 /// Returns a [`CatalogError`] when the normalized publication ledger is inconsistent or unreadable.
-#[allow(clippy::too_many_lines)]
 pub(crate) async fn load_active_vector_tile_runtime_manifest(
     connection: &mut PgConnection,
 ) -> Result<Option<VectorTileRuntimeManifest>, CatalogError> {
-    let manifest_row = sqlx::query(
-        "SELECT m.id, m.manifest_generation, m.published_at
-             FROM catalog.vector_tile_runtime_manifest_pointer p
-             JOIN catalog.vector_tile_runtime_manifest m ON m.id = p.manifest_id
-             WHERE p.singleton = true",
+    let pointed_at: Option<Uuid> = sqlx::query_scalar(
+        "SELECT manifest_id
+         FROM catalog.vector_tile_runtime_manifest_pointer
+         WHERE singleton = true",
     )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(map_sqlx)?;
+    let Some(pointed_at) = pointed_at else {
+        return Ok(None);
+    };
+    load_vector_tile_runtime_manifest_by_id(
+        connection,
+        VectorTileRuntimeManifestId::new(pointed_at),
+    )
+    .await
+}
+
+/// Loads one immutable runtime manifest by identity, whether or not it is the selected one.
+///
+/// Split from the pointer read because a replayed command has to be answered with the manifest *it*
+/// published, and by the time the replay arrives another publication may have moved the pointer. The
+/// manifest and its unit rows are immutable, so reading by id reproduces the original reply exactly
+/// rather than storing a second copy of it.
+///
+/// # Errors
+///
+/// Returns a [`CatalogError`] when the manifest is absent, its ledger rows are inconsistent, or the
+/// read fails.
+#[allow(clippy::too_many_lines)]
+pub(crate) async fn load_vector_tile_runtime_manifest_by_id(
+    connection: &mut PgConnection,
+    manifest_id: VectorTileRuntimeManifestId,
+) -> Result<Option<VectorTileRuntimeManifest>, CatalogError> {
+    let manifest_row = sqlx::query(
+        "SELECT id, manifest_generation, published_at
+         FROM catalog.vector_tile_runtime_manifest
+         WHERE id = $1",
+    )
+    .bind(manifest_id.as_uuid())
     .fetch_optional(&mut *connection)
     .await
     .map_err(map_sqlx)?;

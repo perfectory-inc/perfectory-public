@@ -11,14 +11,16 @@
 
 use async_trait::async_trait;
 use catalog_application::ports::{
-    CatalogUnitOfWork, MarkTileLayerDynamicCommand, RuntimeManifestPublicationCapability,
-    UpsertIndustrialComplexCommand, VectorTileArtifactPromotionCommand, VectorTileFileAssetCommand,
+    CatalogUnitOfWork, MarkTileLayerDynamicCommand, PublishedRuntimeManifest,
+    RuntimeManifestPublicationCapability, UpsertIndustrialComplexCommand,
+    VectorTileArtifactPromotionCommand, VectorTileFileAssetCommand,
     VectorTileManifestPromotionCommand, VectorTileManifestRollbackCommand,
     VectorTileSourceRecordCommand,
 };
 use catalog_domain::{
-    CatalogError, ComplexMutation, IndustrialComplex, Parcel, ParcelKind, RuntimeTileLayer,
-    ServingGeneration, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    CatalogError, CatalogMutationKind, ComplexMutation, IndustrialComplex, Parcel, ParcelKind,
+    RuntimeTileLayer, ServingGeneration, VectorTileArtifact, VectorTileManifest,
+    VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use chrono::Utc;
 use foundation_shared_kernel::events::catalog_v1::{
@@ -38,7 +40,7 @@ use crate::row_map::{
     is_unique_violation_code, map_sqlx, row_to_complex, row_to_parcel, row_to_vector_tile_artifact,
     row_to_vector_tile_manifest, u64_to_i64,
 };
-use crate::sqlx_repository::load_active_vector_tile_runtime_manifest;
+use crate::sqlx_repository::load_vector_tile_runtime_manifest_by_id;
 
 /// `PostgreSQL` implementation of Catalog mutation unit-of-work ports.
 pub struct PgCatalogUnitOfWork {
@@ -481,12 +483,43 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
     async fn mark_tile_layer_dynamic(
         &self,
         command: MarkTileLayerDynamicCommand,
-    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+    ) -> Result<PublishedRuntimeManifest, CatalogError> {
         let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        set_lock_timeout_tx(&mut tx).await?;
 
-        // The fixed order is pointer -> publication unit -> release, and it is fixed *here* rather
-        // than left to whichever statement happens to touch a row first. Every code path that
-        // changes a serving source takes these three in this sequence.
+        // The manifest identity is minted before anything is written, because the ledger claim below
+        // records it and the claim has to come first. The deferred foreign key is what makes that
+        // ordering legal — see 20260730000004.
+        let manifest_id = Uuid::now_v7();
+
+        // The fixed order is ledger -> pointer -> publication unit -> release, and it is fixed *here*
+        // rather than left to whichever statement happens to touch a row first.
+        //
+        // The ledger leads for a reason that is not aesthetic: the pointer lock is table-level, so it
+        // serializes activations of *every* unit. A replay that had to take it first would queue
+        // behind an unrelated in-flight activation only to discover it has nothing to do, and every
+        // pooled connection carries a 2500ms statement timeout. Claiming the key first means a replay
+        // answers immediately. Deadlock is impossible in this order: a transaction holding the pointer
+        // lock already owns its ledger row, so it can never be waited on for one.
+        match claim_mutation_key_tx(&mut tx, &command, manifest_id).await? {
+            MutationClaim::Replay(recorded_manifest_id) => {
+                let manifest =
+                    load_vector_tile_runtime_manifest_by_id(&mut tx, recorded_manifest_id)
+                        .await?
+                        .ok_or_else(|| {
+                            CatalogError::Infrastructure(format!(
+                        "ledger key {} records manifest {recorded_manifest_id}, which is absent",
+                        command.idempotency_key
+                    ))
+                        })?;
+                // Committing rather than rolling back: nothing was written, and the commit is what
+                // releases the locks the claim took while it waited.
+                tx.commit().await.map_err(map_sqlx)?;
+                return Ok(PublishedRuntimeManifest::Replayed(manifest));
+            }
+            MutationClaim::Claimed => {}
+        }
+
         let current_manifest_id = lock_runtime_manifest_pointer_tx(&mut tx).await?;
         let units = lock_publication_units_tx(&mut tx).await?;
         let carried = current_manifest_selections_tx(&mut tx, current_manifest_id).await?;
@@ -504,7 +537,6 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         insert_dynamic_release_tx(&mut tx, activated_release_id, target.id, &command).await?;
         insert_release_layers_tx(&mut tx, activated_release_id, &command.layers).await?;
 
-        let manifest_id = Uuid::now_v7();
         insert_runtime_manifest_tx(&mut tx, manifest_id, &command).await?;
         insert_manifest_units_tx(&mut tx, manifest_id, &selections).await?;
 
@@ -518,22 +550,173 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
             .await
             .map_err(map_runtime_manifest_gate_error)?;
 
-        // Read back inside the transaction. A post-commit read through the pool could observe a
-        // later promotion and return a manifest this caller never published.
-        let manifest = load_active_vector_tile_runtime_manifest(&mut tx)
-            .await?
-            .ok_or_else(|| {
-                CatalogError::InvalidVectorTileRuntimeManifest(
-                    "the promotion gate left no active runtime manifest".to_owned(),
-                )
-            })?;
+        // Read back by identity inside the transaction, so this reply and a later replay of it come
+        // from one definition. Reading the pointer would work here and not there.
+        let manifest = load_vector_tile_runtime_manifest_by_id(
+            &mut tx,
+            VectorTileRuntimeManifestId::new(manifest_id),
+        )
+        .await?
+        .ok_or_else(|| {
+            CatalogError::InvalidVectorTileRuntimeManifest(
+                "the promotion gate left no runtime manifest under the promoted id".to_owned(),
+            )
+        })?;
 
         if self.runtime_manifest_publication.is_enabled() {
-            insert_outbox_event(&mut tx, &runtime_manifest_published_event(&manifest)).await?;
+            let event_id =
+                insert_outbox_event(&mut tx, &runtime_manifest_published_event(&manifest)).await?;
+            record_mutation_outbox_event_tx(&mut tx, &command.idempotency_key, event_id).await?;
         }
 
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(manifest)
+        Ok(PublishedRuntimeManifest::Published(manifest))
+    }
+}
+
+/// Whether this transaction owns the idempotency key or is answering a prior use of it.
+enum MutationClaim {
+    /// The key is this transaction's; the mutation proceeds.
+    Claimed,
+    /// A prior transaction recorded the same request; answer with the manifest it published.
+    Replay(VectorTileRuntimeManifestId),
+}
+
+/// Bounds every lock wait in this transaction so contention is answerable instead of opaque.
+///
+/// Without it a duplicate blocked on the ledger key or the pointer lock runs into the pool's
+/// `statement_timeout` (2500ms, set per connection by the API), surfaces as `57014`, and is served as
+/// a redacted 500 — the one case where the client's correct action, retrying the same key, is exactly
+/// what it cannot infer. `SET LOCAL` so the setting dies with the transaction and cannot leak back
+/// into the pooled connection.
+async fn set_lock_timeout_tx(tx: &mut Transaction<'_, Postgres>) -> Result<(), CatalogError> {
+    sqlx::query("SET LOCAL lock_timeout = '1200ms'")
+        .execute(&mut **tx)
+        .await
+        .map_err(map_sqlx)?;
+    Ok(())
+}
+
+/// Claims the idempotency key, or resolves what a prior use of it recorded.
+///
+/// `ON CONFLICT DO NOTHING RETURNING` rather than a plain insert: a bare unique violation raises
+/// `23505`, and Postgres has no continuable error — the transaction would be aborted and the replay
+/// would need a second one, losing the atomicity the ledger exists for. `DO NOTHING` waits for the
+/// conflicting transaction, then returns zero rows and leaves this transaction usable. There is
+/// deliberately no `SELECT` before `begin()`: two callers would both find nothing and race.
+async fn claim_mutation_key_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    command: &MarkTileLayerDynamicCommand,
+    manifest_id: Uuid,
+) -> Result<MutationClaim, CatalogError> {
+    let fingerprint = command.request_fingerprint();
+    let claimed: Option<String> = sqlx::query_scalar(
+        "INSERT INTO catalog.catalog_mutation_idempotency
+         (idempotency_key, command_kind, request_fingerprint_sha256,
+          request_fingerprint_schema_version, outcome_manifest_id, operator_staff_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING idempotency_key",
+    )
+    .bind(&command.idempotency_key)
+    .bind(CatalogMutationKind::MarkTileLayerDynamic.as_str())
+    .bind(fingerprint.as_str())
+    .bind(CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION)
+    .bind(manifest_id)
+    .bind(command.operator_staff_id.as_uuid())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_contention_error(&command.idempotency_key, error))?;
+    if claimed.is_some() {
+        return Ok(MutationClaim::Claimed);
+    }
+
+    let recorded = sqlx::query(
+        "SELECT command_kind, request_fingerprint_sha256, outcome_manifest_id
+         FROM catalog.catalog_mutation_idempotency
+         WHERE idempotency_key = $1",
+    )
+    .bind(&command.idempotency_key)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_contention_error(&command.idempotency_key, error))?;
+    // The conflicting transaction rolled back after this one waited on it, so the key is free again
+    // but this statement already lost its chance to take it. Retryable, and named as such.
+    let Some(recorded) = recorded else {
+        return Err(CatalogError::MutationContended {
+            idempotency_key: command.idempotency_key.clone(),
+        });
+    };
+
+    let recorded_fingerprint: String = recorded
+        .try_get("request_fingerprint_sha256")
+        .map_err(map_sqlx)?;
+    let recorded_kind: String = recorded.try_get("command_kind").map_err(map_sqlx)?;
+    if recorded_fingerprint.trim() != fingerprint.as_str() {
+        return Err(CatalogError::MutationIdempotencyKeyReused {
+            idempotency_key: command.idempotency_key.clone(),
+            command_kind: recorded_kind,
+        });
+    }
+    // The command kind is inside the fingerprint, so a matching digest already proves it. Reading it
+    // back keeps the check honest if the encoding is ever versioned apart from the kind.
+    if recorded_kind != CatalogMutationKind::MarkTileLayerDynamic.as_str() {
+        return Err(CatalogError::MutationIdempotencyKeyReused {
+            idempotency_key: command.idempotency_key.clone(),
+            command_kind: recorded_kind,
+        });
+    }
+
+    let recorded_manifest_id: Option<Uuid> =
+        recorded.try_get("outcome_manifest_id").map_err(map_sqlx)?;
+    recorded_manifest_id
+        .map(|id| MutationClaim::Replay(VectorTileRuntimeManifestId::new(id)))
+        .ok_or_else(|| {
+            CatalogError::Infrastructure(format!(
+                "ledger key {} recorded no manifest for a manifest-answering command",
+                command.idempotency_key
+            ))
+        })
+}
+
+/// Ties the ledger row to the event this transaction emitted.
+///
+/// Makes "the mutation, its outbox event and its ledger row are one transaction" assertable rather
+/// than merely intended, and records the consequence of the publication capability being off: the
+/// column stays null, and a later replay does not retro-announce.
+async fn record_mutation_outbox_event_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    idempotency_key: &str,
+    event_id: Uuid,
+) -> Result<(), CatalogError> {
+    sqlx::query(
+        "UPDATE catalog.catalog_mutation_idempotency
+         SET outbox_event_id = $2
+         WHERE idempotency_key = $1",
+    )
+    .bind(idempotency_key)
+    .bind(event_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(())
+}
+
+/// Maps a bounded lock wait to a retryable conflict instead of an opaque infrastructure failure.
+///
+/// `55P03` is `lock_timeout`; `57014` is the pool's `statement_timeout` winning the race to fire
+/// first. Only statements that wait on the idempotency key use this mapping, so a genuinely slow
+/// unrelated query is still reported as what it is.
+fn map_contention_error(idempotency_key: &str, error: sqlx::Error) -> CatalogError {
+    match error {
+        sqlx::Error::Database(database)
+            if matches!(database.code().as_deref(), Some("55P03" | "57014")) =>
+        {
+            CatalogError::MutationContended {
+                idempotency_key: idempotency_key.to_owned(),
+            }
+        }
+        other => map_sqlx(other),
     }
 }
 

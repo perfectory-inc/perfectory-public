@@ -23,9 +23,9 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use catalog_domain::{CatalogError, RuntimeTileLayer, VectorTileRuntimeManifest};
+use catalog_domain::{CatalogError, RuntimeTileLayer};
 
-use crate::ports::{CatalogUnitOfWork, MarkTileLayerDynamicCommand};
+use crate::ports::{CatalogUnitOfWork, MarkTileLayerDynamicCommand, PublishedRuntimeManifest};
 
 /// Activates a complete dynamic `PostGIS` source through the Catalog unit of work.
 pub struct MarkTileLayerDynamic {
@@ -41,15 +41,20 @@ impl MarkTileLayerDynamic {
 
     /// Activates the complete dynamic source described by the command.
     ///
+    /// The outcome says whether this call published the manifest or the idempotency ledger replayed a
+    /// prior one, because a replayed manifest can carry an older `manifest_generation` than the
+    /// pointer's and callers compare generations to decide what to refetch.
+    ///
     /// # Errors
     ///
     /// Returns `CatalogError` when required text is empty, when the observed release and generation
-    /// are not both present or both absent, when the layer set is empty or names one layer twice, or
-    /// when the transaction refuses the transition or its writes fail.
+    /// are not both present or both absent, when the layer set is empty or names one layer twice, when
+    /// the idempotency key was already used for a different request, or when the transaction refuses
+    /// the transition or its writes fail.
     pub async fn execute(
         &self,
         command: MarkTileLayerDynamicCommand,
-    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+    ) -> Result<PublishedRuntimeManifest, CatalogError> {
         self.uow
             .mark_tile_layer_dynamic(normalize_command(command)?)
             .await
