@@ -22,6 +22,10 @@ on:
       - "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml"
       - "docs/technology-stack.md"
       - "docs/adr/**"
+      # `administrative_boundary_contract` asserts on these two documents, so a
+      # change to either must rerun the test that guards it.
+      # `area-ci-input-coverage` derives this requirement from the sources.
+      - "docs/architecture/**"
       - ".github/workflows/foundation-ci.yml"
       - ".github/workflows/gongzzang-frontend.yml"
       # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
