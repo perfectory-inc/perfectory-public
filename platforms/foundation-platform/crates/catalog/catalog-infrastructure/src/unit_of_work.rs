@@ -726,8 +726,11 @@ fn find_publication_unit<'units>(
 ///
 /// Two rules the promotion gate enforces are answered here so the failure names the unit rather
 /// than arriving as a check-constraint violation: a manifest must select every publication unit, and
-/// every selected unit's serving generation must be exactly one past the unit's current one (or 1
-/// when the unit has never published).
+/// each selected unit's serving generation must be the value that unit's transition implies —
+/// `1` for a first publication, one past the current value when the release changes, and the current
+/// value when the manifest re-selects the release the unit already serves. A carried unit's source
+/// selection did not change, so its generation does not move; see
+/// `20260730000003_serving_generation_tracks_one_unit_source_selection.sql`.
 fn plan_dynamic_activation(
     units: &[LockedPublicationUnit],
     target: &LockedPublicationUnit,
@@ -760,7 +763,7 @@ fn plan_dynamic_activation(
             Ok(ManifestUnitSelection {
                 publication_unit_id: unit.id,
                 release_id: selection.release_id,
-                serving_generation: advance_serving_generation(unit)?,
+                serving_generation: unit.serving_generation,
                 data_revision: selection.data_revision,
                 canonical_iceberg_snapshot_id: selection.canonical_iceberg_snapshot_id.clone(),
             })
@@ -811,11 +814,10 @@ fn next_serving_generation(
     }
 }
 
-/// The next generation for a unit the gate will re-select unchanged.
+/// The next generation for a unit whose selected release changes.
 ///
-/// A carried-over unit advances too. The gate compares *every* selected unit against
-/// `unit.serving_generation + 1`, so a manifest that repeated a neighbour's current generation would
-/// be refused as a serving-generation gap.
+/// Only for the unit being switched. A carried unit keeps its generation, because the value tracks
+/// one unit's source selection and a carry-forward changes nothing about it.
 fn advance_serving_generation(unit: &LockedPublicationUnit) -> Result<i64, CatalogError> {
     unit.serving_generation.checked_add(1).ok_or_else(|| {
         CatalogError::InvalidVectorTileRuntimeManifest(format!(
