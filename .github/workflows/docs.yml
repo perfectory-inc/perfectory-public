@@ -43,6 +43,9 @@ jobs:
       - name: Check generated document catalog
         run: python3 scripts/catalog/render-document-catalog.py --check
       - name: Check document audit report
-        run: python3 scripts/catalog/audit-documentation.py --check
+        # `--strict` fails when a maintained page has no metadata; `--check` fails when the
+        # report is stale. Both in one invocation: `--strict` alone would also rewrite the report
+        # as a side effect, which would mask staleness instead of reporting it.
+        run: python3 scripts/catalog/audit-documentation.py --check --strict
       - name: Test document audit tool
         run: python3 -m unittest scripts/catalog/test_audit_documentation.py -v

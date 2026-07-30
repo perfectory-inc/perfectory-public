@@ -177,3 +177,36 @@ last_reviewed: 2026-07-28
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MetadataStrictFailureTests(unittest.TestCase):
+    """`--strict` must honour the same exemptions the report shows.
+
+    The report has three outcomes: compliant, exempt by an audit rule, missing. Collapsing that to
+    "ok or not ok" made 135 machine contracts, legal texts, drafts, ADRs and agent routers look
+    like violations, which is why the ratchet could not be turned on.
+    """
+
+    def test_ok_passes(self) -> None:
+        self.assertFalse(MODULE.metadata_is_failure("ok"))
+
+    def test_every_exemption_reason_passes(self) -> None:
+        for reason in (
+            "not applicable: machine contract",
+            "not applicable: legal text",
+            "not applicable: draft",
+            "not applicable: ADR fields",
+            "not applicable: agent router",
+        ):
+            with self.subTest(reason=reason):
+                self.assertFalse(MODULE.metadata_is_failure(reason))
+
+    def test_missing_metadata_fails(self) -> None:
+        self.assertTrue(
+            MODULE.metadata_is_failure("missing: status, owner, doc_type, last_reviewed")
+        )
+        self.assertTrue(MODULE.metadata_is_failure("missing: last_reviewed"))
+
+    def test_an_unrecognised_status_fails_rather_than_passing_silently(self) -> None:
+        self.assertTrue(MODULE.metadata_is_failure("unknown"))
+        self.assertTrue(MODULE.metadata_is_failure(""))

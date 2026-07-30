@@ -132,6 +132,19 @@ def intentional_duplicate_basenames(paths: list[Path]) -> dict[str, list[Path]]:
     }
 
 
+def metadata_is_failure(status: str) -> bool:
+    """Whether a metadata status should fail `--strict`.
+
+    The report has three outcomes, not two: compliant, exempt by an audit rule, and missing.
+    `--strict` used to fail everything that was not literally "ok", which counted every machine
+    contract, legal text, draft, ADR, and agent router as a violation — 135 of them. That made the
+    ratchet unflippable and hid the real number, so the exemption concept existed in the report and
+    nowhere else. Exemptions are decided in `metadata_status`; this is the only place that reads
+    them back.
+    """
+    return status != "ok" and not status.startswith("not applicable")
+
+
 def metadata_status(path: Path, text: str) -> str:
     """Return metadata audit status, respecting ADR and machine-contract rules."""
     narrative = prose_only(text)
@@ -453,9 +466,14 @@ def main() -> int:
     rendered = render(audit_rows())
     if args.strict:
         rows = audit_rows()
-        failures = [row for row in rows if row["metadata"] != "ok"]
+        failures = [row for row in rows if metadata_is_failure(str(row["metadata"]))]
         if failures:
-            print(f"documentation metadata missing in {len(failures)} file(s)", file=sys.stderr)
+            print(
+                f"documentation metadata missing in {len(failures)} file(s):",
+                file=sys.stderr,
+            )
+            for row in failures:
+                print(f"  {row['path']}: {row['metadata']}", file=sys.stderr)
             return 1
     if args.check:
         if not REPORT.exists() or REPORT.read_text(encoding="utf-8") != rendered:
