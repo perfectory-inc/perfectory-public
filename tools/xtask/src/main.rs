@@ -490,6 +490,10 @@ const AREAS: &[Area] = &[
                     },
                     LaneTarget {
                         package: "catalog-infrastructure",
+                        test: "spatial_tile_publication",
+                    },
+                    LaneTarget {
+                        package: "catalog-infrastructure",
                         test: "vector_tile_manifest_promote",
                     },
                     LaneTarget {
