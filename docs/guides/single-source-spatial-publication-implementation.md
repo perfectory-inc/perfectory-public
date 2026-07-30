@@ -742,6 +742,28 @@ typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다�
 > *전에* 이전 release id를 읽어 두고, 호출 *후에* fallback을 직접 써야 한다 — 호출 후에는
 > `active_release_id`가 이미 새 release다.
 
+> **착수 전 조사 결과 (2026-07-30):** 필요한 부품은 모두 존재한다. 없는 것은 트랜잭션 본문뿐이다.
+>
+> - **v2 outbox 이벤트 존재.** `foundation_shared_kernel::events::catalog_v1::CatalogEvent`의
+>   `VectorTileRuntimeManifestPublished(VectorTileRuntimeManifestPublishedV2)`. 페이로드는
+>   `manifest_id`, `manifest_generation`, `publication_units: BTreeMap<String,
+>   VectorTileRuntimeUnitSelectionV2>`, `published_at`이며 단위 선택은 `active_release_id`,
+>   `data_revision`, `serving_generation`, `canonical_iceberg_snapshot_id`를 담는다.
+>   (`foundation-contracts`가 아니라 `foundation-shared-kernel`에 있다.)
+> - **capability 주입 지점.** `PgCatalogUnitOfWork::new(pool)` 프로덕션 호출처가 4곳이다.
+>   생성자를 바꾸면 v2와 무관한 3곳이 함께 바뀌므로, `AppState`에서 쓴 것과 같은
+>   `with_runtime_manifest_publication(capability)` 빌더를 두고 기본값은 **비활성**으로 둔다
+>   (fail-closed). v2를 발행하는 호출처만 켠다.
+> - **publication unit은 시드된다.** `infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql`이
+>   INSERT 한다. 활성화 트랜잭션은 단위를 만들지 않고 **없으면 실패**한다.
+> - **CAS 판정에서 `serving_generation` 컬럼을 그대로 믿지 말 것.** 기본값이 1이므로
+>   `active_release_id IS NULL`인 단위도 1을 들고 있다. 첫 발행은 `expected_*` 둘 다 `None`이어야
+>   하고 다음 세대는 1이다. 그 외에는 관찰값 + 1이다.
+> - **반환값을 위한 리더가 트랜잭션을 받지 못한다.** `sqlx_repository.rs`의
+>   `get_active_vector_tile_runtime_manifest`(193줄)가 `&self.pool`에 묶여 있다. 커밋 뒤 pool로
+>   다시 읽으면 그 사이 다른 승격이 끼어들 수 있으므로, 본문을 `&mut sqlx::PgConnection`을 받는
+>   함수로 먼저 추출해 두 호출처가 같은 정의를 쓰게 한다. **이것이 트랜잭션보다 앞선 작업이다.**
+
 - [ ] **Step 7: Run unit and database integration tests**
 
 ```bash
