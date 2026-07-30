@@ -69,6 +69,7 @@ for g in no-subdir-github toolchain-consistency technology-version-consistency \
          live-lane-completeness-self-test live-lane-completeness \
          build-coupling-baseline-self-test build-coupling-baseline \
          no-silent-test-skip-self-test no-silent-test-skip \
+         no-env-access-in-domain-layers-self-test no-env-access-in-domain-layers \
          publication-authority-self-test \
          public-github-policy public-root-builder public-root-publisher-self-test \
          import-private-feature-diff-self-test; do
