@@ -43,17 +43,25 @@ def test_raon_runbook_keeps_runtime_neutral_security_boundary() -> None:
     for evidence_kind, pattern in public_evidence_patterns.items():
         assert re.search(pattern, runbook_body, flags=re.IGNORECASE) is None, evidence_kind
 
+    # Anchors are identifiers, placeholders, and the Korean sentences the runbook now uses. Six of
+    # these were English prose until the Korean-first migration (558c5beb) translated them, at which
+    # point this test failed for a policy-mandated edit rather than for a missing contract. Rewording
+    # must not fail it; deleting a contract must.
     required_contracts = [
-        "Status: runtime-neutral reference; Fargate is not selected by this document",
-        "Python/browser code is an acquisition adapter only. Rust owns validation",
+        # Runtime-neutral: this document selects no runtime.
+        "런타임 중립 참고 문서",
+        "Fargate를 선택하지 않음",
+        # The adapter acquires; Rust owns validation, storage, lineage, and commit.
+        "수집 adapter일 뿐이다",
+        "Rust가 소유한다",
         "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_DIRECT_TO_BRONZE=1",
-        "The private replay request is runtime-only.",
-        "Public proof must not contain cookies",
-        "R2 writes must use CreateOnly.",
-        "Bronze commit must go through `BronzeCommitter`.",
+        "private replay request는 runtime 동안만",
+        "공개 증거에는 cookie",
+        "CreateOnly",
+        "BronzeCommitter",
         "<provider-linux-package-url>",
         "<dataset-id>",
-        "private operations evidence system",
+        "private operations",
     ]
 
     for required_contract in required_contracts:

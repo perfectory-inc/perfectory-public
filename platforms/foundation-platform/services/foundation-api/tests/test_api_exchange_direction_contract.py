@@ -26,11 +26,14 @@ class ApiExchangeDirectionContractTest(unittest.TestCase):
         for surface in service_surfaces:
             self.assertIn(surface, contract)
 
-        self.assertIn("External provider acquisition is pull", contract)
-        self.assertIn("Proposal intake is push", contract)
-        self.assertIn("Outbox fan-out is push", contract)
-        self.assertIn("dbt/Trino modeling is pull/query", contract)
-        self.assertIn("cross-service direct database access is forbidden", contract)
+        # The direction rules are section headings, which the Korean-first migration (558c5beb)
+        # translated. Headings are the durable anchor: a reworded paragraph keeps them, a deleted
+        # rule does not.
+        self.assertIn("### 외부 제공기관 수집은 가져오기(Pull)", contract)
+        self.assertIn("### 제안 접수는 밀어넣기(Push)", contract)
+        self.assertIn("### Outbox 전달은 밀어넣기(Push)", contract)
+        self.assertIn("### dbt/Trino 모델링은 가져오기/조회다", contract)
+        self.assertIn("서비스 간 데이터베이스 직접 접근은 금지한다", contract)
 
 
 if __name__ == "__main__":

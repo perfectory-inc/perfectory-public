@@ -963,14 +963,34 @@ fn additive_migrations_are_allowed_without_rewriting_the_baseline() -> TestResul
     Ok(())
 }
 
+/// Reads the whole migration directory, not one file.
+///
+/// This used to read `20260724000001_spatial_tile_publication.sql` alone. `20260730000001` replaced
+/// that file's promotion function with `CREATE OR REPLACE`, so the test kept passing while checking a
+/// body that no longer runs — and a later migration that dropped an invariant would still have passed
+/// as long as the superseded original mentioned it. Concatenating every migration means a superseding
+/// file satisfies the assertion and removing an invariant everywhere fails it.
+///
+/// `additive_migrations_are_allowed_without_rewriting_the_baseline` is what still pins the original
+/// file's identity, so nothing is lost by widening this one.
 #[test]
 fn spatial_publication_migration_keeps_the_transition_invariants_in_sql() -> TestResult {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let migration = read_normalized_sql(
-        &root
-            .join("migrations")
-            .join("20260724000001_spatial_tile_publication.sql"),
-    )?;
+    let mut paths: Vec<PathBuf> = fs::read_dir(root.join("migrations"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|value| value == "sql"))
+        .collect();
+    paths.sort();
+    assert!(
+        paths.len() > 1,
+        "the migration directory must hold more than the baseline"
+    );
+    let mut migration = String::new();
+    for path in &paths {
+        migration.push_str(&read_normalized_sql(path)?);
+        migration.push('\n');
+    }
     for invariant in [
         "vector_tile_release_source_fields_check",
         "vector_tile_release_validation_evidence_check",
