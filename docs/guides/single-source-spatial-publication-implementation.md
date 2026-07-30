@@ -671,12 +671,17 @@ capability가 꺼진 경우 같은 activation은 내부 publication state만 갱
 내보내지 않는다. 기존 v1 event/projection 동작은 byte-identical이어야 한다. capability가 켜진
 경우 같은 transaction에 v2 event 정확히 하나를 기록한다.
 
-- [x] **Step 4: Write the serving-rollback test**
+- [ ] **Step 4: Write the serving-rollback test**
 
 정적 릴리스 S11을 승격한 뒤 같은 데이터 리비전의 보존된 동적 릴리스 R11로 롤백한다.
 다른 데이터 리비전의 fallback은 거부되는지 확인한다.
 
-- [ ] **Step 5: Implement application commands and ports**
+> **정정 (2026-07-30):** 이 항목은 `[x]`였는데 근거가 잘못됐다. 존재하는
+> `catalog-infrastructure/tests/vector_tile_manifest_rollback.rs`는 **v1 flat manifest** 롤백
+> 테스트이고, 이 단계가 요구하는 v2 serving-source 롤백 테스트는 없다. 이름이 비슷해서
+> 대조에서 통과했다.
+
+- [x] **Step 5: Implement application commands and ports**
 
 모든 mutation command에는 `expected_active_release_id`, `expected_version`,
 `canonical_iceberg_snapshot_id`와 idempotency key가 들어간다. Promotion에는
@@ -703,7 +708,7 @@ v2 outbox event를 막는다.** Step 3이 요구하는 대로 capability가 꺼�
 쓰는 곳, 즉 transaction이 소유한다. 정적 빌드 원장은 내부 기록이므로 애초에 대상이 아니다.
 API의 v2 매니페스트 조회 라우트가 같은 capability로 404를 내는 것은 별개의 읽기 게이트다.
 
-- [x] **Step 6: Implement one SQLx transaction boundary**
+- [ ] **Step 6: Implement one SQLx transaction boundary**
 
 기존 `catalog-infrastructure/src/unit_of_work.rs`의 `FOR UPDATE`/CAS/outbox pattern을 재사용한다.
 먼저 singleton `vector_tile_runtime_manifest_pointer` row, 그 다음 영향을 받은 publication unit,
@@ -711,6 +716,13 @@ API의 v2 매니페스트 조회 라우트가 같은 capability로 404를 내는
 모든 code path는 `runtime_manifest_pointer -> publication_unit -> release rows` 순서를 지켜야 한다.
 typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다른 unit의 selection을 조용히
 버리지 않는다. database transaction 안에서 R2 pointer를 갱신하지도 않는다.
+
+> **정정 (2026-07-30):** 이 항목도 `[x]`였는데 근거가 잘못됐다. `unit_of_work.rs`가 구현한
+> v2 메서드는 `promote_vector_tile_runtime_manifest` 하나이며, 이는 singleton pointer의 CAS를
+> SQL 함수에 위임할 뿐이다. 이 단계가 요구하는
+> `runtime_manifest_pointer -> publication_unit -> release rows` 3단 lock 트랜잭션은 없다.
+> 다섯 개 application 명령의 port 메서드는 모두 **기본 구현이 에러**인 상태이며, 그것이
+> 미구현을 조용한 성공으로 바꾸지 않는 이유다.
 
 - [ ] **Step 7: Run unit and database integration tests**
 
