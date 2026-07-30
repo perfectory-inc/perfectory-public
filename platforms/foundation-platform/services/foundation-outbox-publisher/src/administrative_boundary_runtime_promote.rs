@@ -83,7 +83,12 @@ pub async fn run() -> anyhow::Result<()> {
                     .context("every publication unit must have an active release")?,
                 unit.try_get::<Option<Uuid>, _>("active_data_revision")?
                     .context("every publication unit must have an active data revision")?,
-                unit.try_get::<i64, _>("serving_generation")? + 1,
+                // Unchanged, not `+ 1`. This unit re-selects the release it already serves, and
+                // `20260730000003_serving_generation_tracks_one_unit_source_selection.sql` requires a
+                // re-selected release to hold its generation — the value tracks one unit's source
+                // selection, and carrying it forward changes nothing about it. The `+ 1` here was
+                // correct under the previous rule and was left behind when that rule was narrowed.
+                unit.try_get::<i64, _>("serving_generation")?,
             )
         };
         let canonical_snapshot = sqlx::query_scalar::<_, String>(
