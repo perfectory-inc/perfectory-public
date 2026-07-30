@@ -684,6 +684,17 @@ capability가 꺼진 경우 같은 activation은 내부 publication state만 갱
 명시적으로 타입이 있는 `RuntimeManifestPublicationCapability`를 주입하며
 domain/application code가 environment variable을 직접 읽지 못하게 한다.
 
+구현 결정: `expected_version`은 전역 manifest version이 아니라 단위별
+`expected_serving_generation`으로 둔다. 전역 version을 CAS 키로 쓰면 서로 다른 단위를 바꾸는
+두 edit이 충돌로 판정되어 Step 1이 요구하는 "둘 다 commit되고 전역 generation이 순서대로 두 번
+증가"를 만족할 수 없다. 전역 manifest는 pointer를 잠근 뒤 다시 만든다. 단위별 release id와
+generation은 서로를 대체하지 않는다 — 같은 데이터 리비전으로 rollback하면 보존된 release가
+새 generation에서 다시 활성화되므로 release id 하나로는 두 상태를 구분할 수 없다.
+
+environment variable 금지는 서술이 아니라 `scripts/guard/no-env-access-in-domain-layers.sh`가
+집행한다. 레포의 `*-domain`·`*-application` 크레이트 36개 모두가 현재 0건이므로 예외 목록 없이
+그 상태를 고정했다.
+
 - [x] **Step 6: Implement one SQLx transaction boundary**
 
 기존 `catalog-infrastructure/src/unit_of_work.rs`의 `FOR UPDATE`/CAS/outbox pattern을 재사용한다.
