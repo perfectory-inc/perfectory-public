@@ -194,11 +194,23 @@ impl Fixture {
         .execute(pool)
         .await
         .expect("release layer");
+        // `manifest_generation` is globally unique and these tests share one database
+        // sequentially. A literal `1` made every fixture depend on every earlier test having
+        // cleaned up, so one panic mid-test cascaded into unrelated failures. Deriving the next
+        // generation removes that coupling.
+        let manifest_generation: i64 = sqlx::query_scalar(
+            "SELECT coalesce(max(manifest_generation), 0) + 1
+             FROM catalog.vector_tile_runtime_manifest",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("next manifest generation");
         sqlx::query(
             "INSERT INTO catalog.vector_tile_runtime_manifest (id, manifest_generation)
-             VALUES ($1, 1)",
+             VALUES ($1, $2)",
         )
         .bind(self.manifest_id)
+        .bind(manifest_generation)
         .execute(pool)
         .await
         .expect("runtime manifest");
@@ -453,5 +465,204 @@ async fn a_static_release_at_a_foreign_object_prefix_cannot_be_promoted() {
     // The revision row is left behind on purpose: `reject_temporal_history_mutation` makes temporal
     // identity facts append-only, so deleting one raises 42501. `Fixture::cleanup` leaves its own
     // revision for the same reason, and the harness database is disposable.
+    fixture.cleanup(&pool).await;
+}
+
+/// The static promotion path, end to end at the database boundary: a static release for the unit's
+/// *active* revision and snapshot now inserts, promotes, and leaves the dynamic release it replaced
+/// available as the same-revision fallback.
+///
+/// Before `20260730000002` the first insert here failed with 23505 and the path was unreachable. The
+/// assertion order matters — the insert is the part that used to be impossible, so a failure there is
+/// a regression of the uniqueness key rather than of the gate.
+#[tokio::test]
+#[ignore = "requires a migrated Foundation PostgreSQL database"]
+async fn a_static_release_can_replace_the_dynamic_release_of_the_same_revision() {
+    let _guard = runtime_manifest_test_guard().await;
+    let pool = pool().await;
+    let fixture = Fixture::new();
+    fixture.insert(&pool).await;
+    let uow = PgCatalogUnitOfWork::new(pool.clone());
+    uow.promote_vector_tile_runtime_manifest(None, fixture.manifest_id)
+        .await
+        .expect("first dynamic promotion");
+
+    let unit_key: String = sqlx::query_scalar(
+        "SELECT unit_key FROM catalog.vector_tile_publication_unit WHERE id = $1",
+    )
+    .bind(fixture.unit_id)
+    .fetch_one(&pool)
+    .await
+    .expect("unit key");
+    let static_release_id = Uuid::new_v4();
+    let martin_source_id = format!("{unit_key}-{static_release_id}");
+    let object_key = format!(
+        "{}/{martin_source_id}.pmtiles",
+        catalog_domain::STATIC_RELEASE_OBJECT_ROOT
+    );
+    let file_asset_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO catalog.file_asset (id, object_key, mime_type, size_bytes, visibility)
+         VALUES ($1, $2, 'application/vnd.pmtiles', 1, 'private')",
+    )
+    .bind(file_asset_id)
+    .bind(&object_key)
+    .execute(&pool)
+    .await
+    .expect("pmtiles file asset");
+
+    // Same unit, same revision, same snapshot as the active dynamic release. This is the insert the
+    // old uniqueness key refused.
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_release
+         (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
+          source_record_id, source_kind, martin_source_id, tiles_url_template,
+          pmtiles_object_key, pmtiles_file_asset_id, pmtiles_sha256, pmtiles_bytes,
+          validated_at, validation_evidence_sha256)
+         VALUES ($1, $2, $3, $4, $5, 'static_pmtiles', $6, $7, $8, $9, repeat('b', 64), 1,
+                 now(), repeat('c', 64))",
+    )
+    .bind(static_release_id)
+    .bind(fixture.unit_id)
+    .bind(fixture.data_revision)
+    .bind(&fixture.snapshot_id)
+    .bind(fixture.source_record_id)
+    .bind(&martin_source_id)
+    .bind(format!(
+        "https://tiles.example.test/{martin_source_id}/{{z}}/{{x}}/{{y}}"
+    ))
+    .bind(&object_key)
+    .bind(file_asset_id)
+    .execute(&pool)
+    .await
+    .expect("a static release must coexist with the dynamic release of the same revision");
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_release_layer
+         (release_id, layer_id, source_layer, feature_id_property,
+          tile_min_zoom, tile_max_zoom, render_min_zoom, render_max_zoom,
+          feature_filter_properties)
+         VALUES ($1, 'parcels', 'parcels', 'pnu', 14, 16, 14, 22, '{}'::jsonb)",
+    )
+    .bind(static_release_id)
+    .execute(&pool)
+    .await
+    .expect("static release layer");
+
+    let next_manifest_id = Uuid::new_v4();
+    let next_generation: i64 = sqlx::query_scalar(
+        "SELECT coalesce(max(manifest_generation), 0) + 1 FROM catalog.vector_tile_runtime_manifest",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("next manifest generation");
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_runtime_manifest (id, manifest_generation) VALUES ($1, $2)",
+    )
+    .bind(next_manifest_id)
+    .bind(next_generation)
+    .execute(&pool)
+    .await
+    .expect("second runtime manifest");
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_runtime_manifest_unit
+         (manifest_id, publication_unit_id, release_id, serving_generation,
+          data_revision, canonical_iceberg_snapshot_id)
+         VALUES ($1, $2, $3, 2, $4, $5)",
+    )
+    .bind(next_manifest_id)
+    .bind(fixture.unit_id)
+    .bind(static_release_id)
+    .bind(fixture.data_revision)
+    .bind(&fixture.snapshot_id)
+    .execute(&pool)
+    .await
+    .expect("second runtime manifest unit");
+
+    uow.promote_vector_tile_runtime_manifest(Some(fixture.manifest_id), next_manifest_id)
+        .await
+        .expect("the static promotion must pass the gate");
+
+    // The fallback is written *after* the promotion, not before. `fallback_distinct_check` forbids it
+    // equalling `active_release_id`, and before the promotion the active release still *is* the
+    // dynamic one — so a promoter that wrote the fallback first would be refused. This is the
+    // ordering constraint the transaction in Task 6 Step 6 has to follow: capture the previous
+    // release id, call the gate, then record it as the fallback.
+    sqlx::query(
+        "UPDATE catalog.vector_tile_publication_unit
+            SET fallback_release_id = $2,
+                fallback_data_revision = $3
+          WHERE id = $1",
+    )
+    .bind(fixture.unit_id)
+    .bind(fixture.release_id)
+    .bind(fixture.data_revision)
+    .execute(&pool)
+    .await
+    .expect("the replaced dynamic release must be recordable as the same-revision fallback");
+
+    let row = sqlx::query(
+        "SELECT active_release_id, fallback_release_id, active_data_revision,
+                fallback_data_revision, serving_generation
+         FROM catalog.vector_tile_publication_unit
+         WHERE id = $1",
+    )
+    .bind(fixture.unit_id)
+    .fetch_one(&pool)
+    .await
+    .expect("unit after the static promotion");
+    assert_eq!(
+        row.try_get::<Option<Uuid>, _>("active_release_id").unwrap(),
+        Some(static_release_id)
+    );
+    // Both point at the same revision, which is what `fallback_revision_check` demands and what
+    // makes the same-revision rollback in Task 6 Step 4 possible at all.
+    assert_eq!(
+        row.try_get::<Option<Uuid>, _>("fallback_release_id")
+            .unwrap(),
+        Some(fixture.release_id)
+    );
+    assert_eq!(
+        row.try_get::<Option<Uuid>, _>("fallback_data_revision")
+            .unwrap(),
+        row.try_get::<Option<Uuid>, _>("active_data_revision")
+            .unwrap()
+    );
+    assert_eq!(row.try_get::<i64, _>("serving_generation").unwrap(), 2);
+
+    sqlx::query(
+        "UPDATE catalog.vector_tile_publication_unit
+            SET active_release_id = NULL, active_data_revision = NULL,
+                fallback_release_id = NULL, fallback_data_revision = NULL
+          WHERE id = $1",
+    )
+    .bind(fixture.unit_id)
+    .execute(&pool)
+    .await
+    .expect("unit pointer cleanup");
+    sqlx::query("DELETE FROM catalog.vector_tile_runtime_manifest_unit WHERE manifest_id = $1")
+        .bind(next_manifest_id)
+        .execute(&pool)
+        .await
+        .expect("second manifest unit cleanup");
+    sqlx::query("DELETE FROM catalog.vector_tile_runtime_manifest_pointer WHERE manifest_id = $1")
+        .bind(next_manifest_id)
+        .execute(&pool)
+        .await
+        .expect("pointer cleanup");
+    sqlx::query("DELETE FROM catalog.vector_tile_runtime_manifest WHERE id = $1")
+        .bind(next_manifest_id)
+        .execute(&pool)
+        .await
+        .expect("second manifest cleanup");
+    sqlx::query("DELETE FROM catalog.vector_tile_release WHERE id = $1")
+        .bind(static_release_id)
+        .execute(&pool)
+        .await
+        .expect("static release cleanup");
+    sqlx::query("DELETE FROM catalog.file_asset WHERE id = $1")
+        .bind(file_asset_id)
+        .execute(&pool)
+        .await
+        .expect("file asset cleanup");
     fixture.cleanup(&pool).await;
 }
