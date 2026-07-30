@@ -5,13 +5,14 @@ doc_type: documentation
 last_reviewed: 2026-07-29
 ---
 
-# Playwright Runtime SSOT
+# Playwright 런타임 SSOT
 
-## Purpose
+## 목적
 
-Playwright must run against the Gongzzang web app that the test run owns. It must not silently attach to another local project that happens to listen on `localhost:3000`.
+Playwright는 테스트가 소유한 Gongzzang 웹 앱을 대상으로 실행해야 한다. 우연히 `localhost:3000`을
+사용하는 다른 로컬 프로젝트에 조용히 연결하면 안 된다.
 
-## Single Source
+## 단일 출처
 
 `apps/web/playwright-runtime.ts` is the SSOT for Playwright endpoint selection.
 
@@ -31,9 +32,10 @@ Both `apps/web/playwright.config.ts` and `apps/web/playwright.probes.config.ts` 
 
 from that SSOT.
 
-## Server Reuse
+## 서버 재사용
 
-Implicit server reuse is disabled by default. This prevents false-positive or hanging E2E runs when another project owns the same port.
+암묵적인 서버 재사용은 기본 비활성화한다. 다른 프로젝트가 같은 포트를 사용해도 E2E가 거짓 성공하거나
+멈추는 일을 막는다.
 
 Local reuse is allowed only when explicitly requested:
 
@@ -42,11 +44,11 @@ $env:PLAYWRIGHT_REUSE_EXISTING_SERVER='1'
 pnpm --filter @gongzzang/web test:e2e
 ```
 
-CI always disables reuse, even if the env var is set.
+CI는 환경변수가 설정돼도 항상 재사용을 비활성화한다.
 
-## Overrides
+## 재정의
 
-Use these only for intentional local debugging:
+다음 설정은 의도적인 로컬 디버깅에서만 사용한다.
 
 | Env | Example | Effect |
 |---|---|---|
@@ -54,9 +56,9 @@ Use these only for intentional local debugging:
 | `PLAYWRIGHT_PORT` | `4100` | Changes managed test port |
 | `PLAYWRIGHT_REUSE_EXISTING_SERVER` | `1` | Reuses an existing matching server outside CI |
 
-Invalid ports and unsafe host values fail before Playwright can attach to the wrong target.
+잘못된 포트와 안전하지 않은 host 값은 Playwright가 잘못된 대상에 연결하기 전에 실패한다.
 
-## Verification
+## 검증
 
 Run:
 
@@ -65,7 +67,7 @@ pnpm --filter @gongzzang/web exec vitest run tests/unit/playwright-runtime.test.
 $env:CI='1'; pnpm --filter @gongzzang/web exec playwright test
 ```
 
-Expected:
+기대 결과:
 
 - runtime/config tests pass
 - E2E starts a managed Next dev server on `127.0.0.1:3100`

@@ -8,10 +8,13 @@
 ## 요약
 
 - 감사 문서: **331개**
-- 언어 분류: **{'english': 114, 'korean': 123, 'mixed': 94}**
-- 메타데이터: **191개 정상 / 0개 누락 / 140개 해당 없음**
-- 중복 파일명 후보: **5개**
+- 언어 분류: **{'english': 34, 'korean': 140, 'mixed': 157}**
+- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
+- 유지 문서의 명백한 영문 문장: **0개**
+- 메타데이터: **196개 정상 / 0개 누락 / 135개 해당 없음**
+- 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
+- 승인 전 문서 유입 링크 0건: **0개**
 
 ## 언어·메타데이터별 목록
 
@@ -23,16 +26,16 @@
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 12 |
 | `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 7 |
-| `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 7 |
+| `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | current | korean | ok | 2 |
 | `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 4 |
 | `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 18 |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 3 |
-| `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | mixed | ok | 3 |
+| `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
 | `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | mixed | ok | 5 |
 | `docs/glossary.md` | Monorepo | documentation | current | korean | ok | 2 |
@@ -41,10 +44,10 @@
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed | mixed | ok | 2 |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/README.md` | Monorepo | README | current | korean | ok | 5 |
-| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 14 |
+| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 15 |
 | `docs/roadmap/README.md` | Monorepo | README | current | korean | ok | 0 |
 | `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 3 |
-| `platforms/foundation-platform/AGENTS.md` | Foundation Platform | agent rules | current | english | not applicable: agent router | 2 |
+| `platforms/foundation-platform/AGENTS.md` | Foundation Platform | agent rules | current | mixed | not applicable: agent router | 2 |
 | `platforms/foundation-platform/CLAUDE.md` | Foundation Platform | documentation | current | english | not applicable: agent router | 0 |
 | `platforms/foundation-platform/crates/catalog/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/crates/collection/README.md` | Foundation Platform | README | current | korean | ok | 0 |
@@ -52,8 +55,8 @@
 | `platforms/foundation-platform/crates/foundation-outbox/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/crates/foundation-shared-kernel/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/crates/lakehouse/README.md` | Foundation Platform | README | current | korean | ok | 0 |
-| `platforms/foundation-platform/crates/normalization/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
-| `platforms/foundation-platform/crates/technical/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
+| `platforms/foundation-platform/crates/normalization/README.md` | Foundation Platform | README | current | korean | ok | 0 |
+| `platforms/foundation-platform/crates/technical/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/adr/0001-inherit-gongzzang-adrs.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0002-r2-primary-object-storage.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 5 |
 | `platforms/foundation-platform/docs/adr/0003-industrial-complex-catalog-ssot.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 1 |
@@ -61,44 +64,44 @@
 | `platforms/foundation-platform/docs/adr/0005-object-lake-layout-and-indexing.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 4 |
 | `platforms/foundation-platform/docs/adr/0006-lakehouse-table-format-and-serving-architecture.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 9 |
 | `platforms/foundation-platform/docs/adr/0007-netflix-style-lakehouse-compute-architecture.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |
-| `platforms/foundation-platform/docs/adr/0008-pnu-anchor-pbf-marker-tile-contract.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 5 |
-| `platforms/foundation-platform/docs/adr/0009-cross-service-lakehouse-registry-control-plane.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 0 |
-| `platforms/foundation-platform/docs/adr/0010-cargo-build-ssot-and-bazel-freeze.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 2 |
-| `platforms/foundation-platform/docs/adr/0011-true-bazel-build-ssot-transition.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 2 |
-| `platforms/foundation-platform/docs/adr/0012-adopt-cross-repo-bazel-reconciliation.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 3 |
-| `platforms/foundation-platform/docs/adr/0013-adopt-collection-event-fabric.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 2 |
-| `platforms/foundation-platform/docs/adr/0014-bronze-source-slug-canonical-naming.md` | Foundation Platform | ADR | Accepted (naming + generator) | english | not applicable: ADR fields | 1 |
-| `platforms/foundation-platform/docs/adr/0015-bronze-object-key-content-addressed-layout.md` | Foundation Platform | ADR | Superseded by ADR 0016 and | english | not applicable: ADR fields | 4 |
-| `platforms/foundation-platform/docs/adr/0016-bronze-commit-protocol.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 8 |
-| `platforms/foundation-platform/docs/adr/0017-bronze-collection-protocol.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 3 |
-| `platforms/foundation-platform/docs/adr/0018-vworld-collection-channel-strategy.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 2 |
+| `platforms/foundation-platform/docs/adr/0008-pnu-anchor-pbf-marker-tile-contract.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 5 |
+| `platforms/foundation-platform/docs/adr/0009-cross-service-lakehouse-registry-control-plane.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 0 |
+| `platforms/foundation-platform/docs/adr/0010-cargo-build-ssot-and-bazel-freeze.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
+| `platforms/foundation-platform/docs/adr/0011-true-bazel-build-ssot-transition.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
+| `platforms/foundation-platform/docs/adr/0012-adopt-cross-repo-bazel-reconciliation.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |
+| `platforms/foundation-platform/docs/adr/0013-adopt-collection-event-fabric.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
+| `platforms/foundation-platform/docs/adr/0014-bronze-source-slug-canonical-naming.md` | Foundation Platform | ADR | Accepted (naming + generator) | mixed | not applicable: ADR fields | 1 |
+| `platforms/foundation-platform/docs/adr/0015-bronze-object-key-content-addressed-layout.md` | Foundation Platform | ADR | Superseded by ADR 0016 and | mixed | not applicable: ADR fields | 4 |
+| `platforms/foundation-platform/docs/adr/0016-bronze-commit-protocol.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 8 |
+| `platforms/foundation-platform/docs/adr/0017-bronze-collection-protocol.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |
+| `platforms/foundation-platform/docs/adr/0018-vworld-collection-channel-strategy.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0019-bronze-readable-object-lake-postgres-catalog-ssot.md` | Foundation Platform | ADR | Accepted | mixed | not applicable: ADR fields | 5 |
-| `platforms/foundation-platform/docs/adr/0020-real-transaction-bronze-source-strategy.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 0 |
-| `platforms/foundation-platform/docs/adr/0021-adopt-horizontal-platform-redefinition.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 3 |
-| `platforms/foundation-platform/docs/adr/0022-lakehouse-handoff-vs-storage-format-boundary.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 0 |
+| `platforms/foundation-platform/docs/adr/0020-real-transaction-bronze-source-strategy.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 0 |
+| `platforms/foundation-platform/docs/adr/0021-adopt-horizontal-platform-redefinition.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |
+| `platforms/foundation-platform/docs/adr/0022-lakehouse-handoff-vs-storage-format-boundary.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 0 |
 | `platforms/foundation-platform/docs/adr/0023-standard-pnu-canonical-dialect.md` | Foundation Platform | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `platforms/foundation-platform/docs/adr/0024-foundation-dbt-sql-modeling-layer.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 0 |
-| `platforms/foundation-platform/docs/adr/0025-bronze-catalog-recovery-evidence-sealing.md` | Foundation Platform | evidence | evidence | english | not applicable: ADR fields | 0 |
-| `platforms/foundation-platform/docs/adr/0026-lakehouse-capability-ownership.md` | Foundation Platform | ADR | Accepted | english | not applicable: ADR fields | 1 |
+| `platforms/foundation-platform/docs/adr/0024-foundation-dbt-sql-modeling-layer.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 0 |
+| `platforms/foundation-platform/docs/adr/0025-bronze-catalog-recovery-evidence-sealing.md` | Foundation Platform | evidence | evidence | mixed | not applicable: ADR fields | 0 |
+| `platforms/foundation-platform/docs/adr/0026-lakehouse-capability-ownership.md` | Foundation Platform | ADR | Accepted | mixed | not applicable: ADR fields | 1 |
 | `platforms/foundation-platform/docs/adr/0027-normalization-capability-ownership.md` | Foundation Platform | ADR | Accepted | mixed | not applicable: ADR fields | 2 |
-| `platforms/foundation-platform/docs/adr/0028-foundation-kafka-raw-written-design.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 1 |
-| `platforms/foundation-platform/docs/adr/0029-runtime-environment-backend-separation.md` | Foundation Platform | ADR | current | english | not applicable: ADR fields | 2 |
+| `platforms/foundation-platform/docs/adr/0028-foundation-kafka-raw-written-design.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 1 |
+| `platforms/foundation-platform/docs/adr/0029-runtime-environment-backend-separation.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/README.md` | Foundation Platform | README | current | korean | ok | 2 |
 | `platforms/foundation-platform/docs/architecture/ai-driven-maintenance-model.md` | Foundation Platform | architecture | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/architecture/api-exchange-direction-contract.md` | Foundation Platform | architecture | current | english | ok | 1 |
+| `platforms/foundation-platform/docs/architecture/api-exchange-direction-contract.md` | Foundation Platform | architecture | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/architecture/bronze-key-naming-and-catalog-principle.md` | Foundation Platform | architecture | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/architecture/README.md` | Foundation Platform | README | current | korean | ok | 2 |
 | `platforms/foundation-platform/docs/architecture/traffic-auth-policy-registry.v1.json` | Foundation Platform | architecture | current | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/canonical-property-data-platform-northstar.md` | Foundation Platform | documentation | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/catalog/bronze-source-slug-rename.v1.md` | Foundation Platform | reference | current | mixed | ok | 3 |
-| `platforms/foundation-platform/docs/catalog/building-register-consistency-rules.v1.draft.md` | Foundation Platform | draft | review required | korean | not applicable: draft | 1 |
-| `platforms/foundation-platform/docs/catalog/building-register-field-mapping.v1.draft.md` | Foundation Platform | draft | review required | korean | not applicable: draft | 0 |
+| `platforms/foundation-platform/docs/catalog/building-register-consistency-rules.v1.draft.md` | Foundation Platform | draft | review required | korean | not applicable: draft | 3 |
+| `platforms/foundation-platform/docs/catalog/building-register-field-mapping.v1.draft.md` | Foundation Platform | draft | review required | korean | not applicable: draft | 2 |
 | `platforms/foundation-platform/docs/catalog/building-register-floor-normalization-rules.v1.md` | Foundation Platform | reference | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/catalog/industrial-complex-lakehouse-poc.md` | Foundation Platform | reference | current | mixed | not applicable: draft | 1 |
-| `platforms/foundation-platform/docs/catalog/industrial-complex-ssot-model.md` | Foundation Platform | reference | current | mixed | not applicable: draft | 2 |
+| `platforms/foundation-platform/docs/catalog/industrial-complex-lakehouse-poc.md` | Foundation Platform | reference | proposed | mixed | ok | 2 |
+| `platforms/foundation-platform/docs/catalog/industrial-complex-ssot-model.md` | Foundation Platform | reference | proposed | mixed | ok | 3 |
 | `platforms/foundation-platform/docs/catalog/lakehouse-industry-reference.md` | Foundation Platform | reference | current | mixed | ok | 4 |
 | `platforms/foundation-platform/docs/catalog/national-data-normalization-contract.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
-| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | Draft | mixed | not applicable: draft | 0 |
+| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | proposed | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json` | Foundation Platform | fixture | fixture | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/catalog/provider-rate-policy.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
@@ -106,7 +109,7 @@
 | `platforms/foundation-platform/docs/catalog/public-data-collection-catalog.md` | Foundation Platform | reference | current | korean | ok | 9 |
 | `platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json` | Foundation Platform | reference | current | mixed | not applicable: machine contract | 8 |
 | `platforms/foundation-platform/docs/catalog/README.md` | Foundation Platform | README | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/catalog/source-change-detection-policy.md` | Foundation Platform | reference | current | mixed | ok | 1 |
+| `platforms/foundation-platform/docs/catalog/source-change-detection-policy.md` | Foundation Platform | reference | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/catalog/vworld-data-catalog-reference.md` | Foundation Platform | reference | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/catalog/vworld/README.md` | Foundation Platform | README | current | korean | ok | 2 |
 | `platforms/foundation-platform/docs/data-quality/lakehouse-quality-rules.v1.example.json` | Foundation Platform | fixture | fixture | english | not applicable: machine contract | 1 |
@@ -123,17 +126,17 @@
 | `platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/canonical-release-proof.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/runbooks/foundation-platform-low-cost-production-hardening.md` | Foundation Platform | runbook | current | english | ok | 0 |
+| `platforms/foundation-platform/docs/runbooks/foundation-platform-low-cost-production-hardening.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-backfill-and-schema-rebuild.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-catalog-smoke.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-registry.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
-| `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current | english | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
-| `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current | english | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/provider-outage-and-quota.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/public-data-bronze-lane-orchestration.md` | Foundation Platform | runbook | current | mixed | ok | 5 |
 | `platforms/foundation-platform/docs/runbooks/r2-inventory-audit.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
@@ -144,9 +147,9 @@
 | `platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/slo-alert-policy.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
-| `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current | english | ok | 0 |
-| `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current | english | ok | 0 |
-| `platforms/foundation-platform/infra/lakehouse/dbt/README.md` | Foundation Platform | README | current | english | ok | 0 |
+| `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
+| `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 0 |
+| `platforms/foundation-platform/infra/lakehouse/dbt/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current | mixed | ok | 2 |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
@@ -163,7 +166,7 @@
 | `platforms/identity-platform/docs/openapi/identity.v1.json` | Identity Platform | contract | current | english | not applicable: machine contract | 5 |
 | `platforms/identity-platform/docs/README.md` | Identity Platform | README | current | korean | ok | 7 |
 | `platforms/identity-platform/docs/runbooks/README.md` | Identity Platform | README | current | korean | ok | 0 |
-| `platforms/identity-platform/docs/runbooks/workload-identity-provisioning.md` | Identity Platform | runbook | current | english | ok | 5 |
+| `platforms/identity-platform/docs/runbooks/workload-identity-provisioning.md` | Identity Platform | runbook | current | mixed | ok | 5 |
 | `platforms/identity-platform/README.md` | Identity Platform | README | current | korean | ok | 3 |
 | `platforms/identity-platform/services/identity-api/README.md` | Identity Platform | README | current | mixed | ok | 0 |
 | `platforms/identity-platform/services/identity-policy-worker/README.md` | Identity Platform | README | current | korean | ok | 0 |
@@ -173,18 +176,18 @@
 | `platforms/intelligence-platform/crates/knowledge/README.md` | Intelligence Platform | README | current | korean | ok | 0 |
 | `platforms/intelligence-platform/crates/messaging/README.md` | Intelligence Platform | README | current | korean | ok | 0 |
 | `platforms/intelligence-platform/crates/normalization/README.md` | Intelligence Platform | README | current | mixed | ok | 0 |
-| `platforms/intelligence-platform/docs/adr/0001-canonical-implementation-rust.md` | Intelligence Platform | ADR | current | english | not applicable: ADR fields | 2 |
+| `platforms/intelligence-platform/docs/adr/0001-canonical-implementation-rust.md` | Intelligence Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/intelligence-platform/docs/adr/0002-canonical-release-rag-design.md` | Intelligence Platform | ADR | current | mixed | not applicable: ADR fields | 0 |
-| `platforms/intelligence-platform/docs/adr/README.md` | Intelligence Platform | README | current | english | ok | 2 |
+| `platforms/intelligence-platform/docs/adr/README.md` | Intelligence Platform | README | current | korean | ok | 2 |
 | `platforms/intelligence-platform/docs/architecture.md` | Intelligence Platform | documentation | current | mixed | ok | 5 |
 | `platforms/intelligence-platform/docs/README.md` | Intelligence Platform | README | current | korean | ok | 7 |
 | `platforms/intelligence-platform/README.md` | Intelligence Platform | README | current | mixed | ok | 3 |
-| `platforms/intelligence-platform/schemas/README.md` | Intelligence Platform | README | current | english | ok | 4 |
+| `platforms/intelligence-platform/schemas/README.md` | Intelligence Platform | README | current | mixed | ok | 4 |
 | `platforms/intelligence-platform/services/intelligence-api/README.md` | Intelligence Platform | README | current | korean | ok | 0 |
 | `platforms/intelligence-platform/services/intelligence-worker/README.md` | Intelligence Platform | README | current | korean | ok | 0 |
 | `products/gongzzang/AGENTS.md` | Gongzzang 제품 | agent rules | current | mixed | not applicable: agent router | 18 |
 | `products/gongzzang/apps/platform-web/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
-| `products/gongzzang/apps/web/README.md` | Gongzzang 제품 | README | current | english | ok | 0 |
+| `products/gongzzang/apps/web/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
 | `products/gongzzang/CLAUDE.md` | Gongzzang 제품 | documentation | current | english | not applicable: agent router | 1 |
 | `products/gongzzang/crates/admin-action-domain/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/crates/analysis-report-domain/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
@@ -194,7 +197,7 @@
 | `products/gongzzang/crates/business-verification-domain/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
 | `products/gongzzang/crates/circuit-breaker/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
 | `products/gongzzang/crates/court-auction-domain/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
-| `products/gongzzang/crates/data-clients/README.md` | Gongzzang 제품 | README | current | english | ok | 0 |
+| `products/gongzzang/crates/data-clients/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/crates/embedding/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/crates/featured-content-domain/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
 | `products/gongzzang/crates/foundation-platform-client/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
@@ -214,7 +217,7 @@
 | `products/gongzzang/crates/shared-kernel/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
 | `products/gongzzang/crates/system-alert-domain/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/crates/user-domain/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
-| `products/gongzzang/db/migration/README.md` | Gongzzang 제품 | README | current | english | ok | 0 |
+| `products/gongzzang/db/migration/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/docs/adr/0001-language-rust-ts.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 3 |
 | `products/gongzzang/docs/adr/0002-monorepo-cargo-pnpm-turbo.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `products/gongzzang/docs/adr/0003-frontend-nextjs-react19.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 4 |
@@ -223,7 +226,7 @@
 | `products/gongzzang/docs/adr/0006-api-rest-openapi.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 2 |
 | `products/gongzzang/docs/adr/0007-cache-moka-valkey.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 1 |
 | `products/gongzzang/docs/adr/0008-observability-grafana-otel-sentry.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
-| `products/gongzzang/docs/adr/0009-iac-pulumi.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 1 |
+| `products/gongzzang/docs/adr/0009-iac-pulumi.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 1 |
 | `products/gongzzang/docs/adr/0010-scope-information-platform-option-a.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 3 |
 | `products/gongzzang/docs/adr/0011-embedding-gemini-pgvector.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 2 |
 | `products/gongzzang/docs/adr/0012-pipeline-visualization-react-flow.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 1 |
@@ -232,50 +235,50 @@
 | `products/gongzzang/docs/adr/0015-v-world-acl-rearchitecture.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `products/gongzzang/docs/adr/0016-medallion-base-layer-postgis-silver-pmtiles-gold.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 9 |
 | `products/gongzzang/docs/adr/0017-listing-marker-render-canvas-bitmap-stamp.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 6 |
-| `products/gongzzang/docs/adr/0018-pnu-first-identity-no-coordinates.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 8 |
+| `products/gongzzang/docs/adr/0018-pnu-first-identity-no-coordinates.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 8 |
 | `products/gongzzang/docs/adr/0019-pmtiles-source-via-addsourcetype.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 4 |
 | `products/gongzzang/docs/adr/0020-naver-vector-interaction-model.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 1 |
 | `products/gongzzang/docs/adr/0021-static-vector-tile-decomposition.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 8 |
 | `products/gongzzang/docs/adr/0022-bronze-scraping-isolated-python-service.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `products/gongzzang/docs/adr/0023-audit-2026-05-08-hardening.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 2 |
 | `products/gongzzang/docs/adr/0024-etl-cancel-protocol-immediate-abort.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
-| `products/gongzzang/docs/adr/0025-bronze-scraping-workflow-orchestrator-not-rust-spawn.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 3 |
-| `products/gongzzang/docs/adr/0026-bronze-api-archive-r2-not-postgres-jsonb.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 3 |
-| `products/gongzzang/docs/adr/0027-admin-complex-layer-source-deferred.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 2 |
+| `products/gongzzang/docs/adr/0025-bronze-scraping-workflow-orchestrator-not-rust-spawn.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 3 |
+| `products/gongzzang/docs/adr/0026-bronze-api-archive-r2-not-postgres-jsonb.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 3 |
+| `products/gongzzang/docs/adr/0027-admin-complex-layer-source-deferred.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `products/gongzzang/docs/adr/0028-supply-chain-sha-pin-and-cleanup-cron.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 1 |
-| `products/gongzzang/docs/adr/0029-explicit-environment-separation.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 3 |
-| `products/gongzzang/docs/adr/0030-three-service-architecture.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 5 |
-| `products/gongzzang/docs/adr/0031-foundation-platform-bounded-contexts.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 2 |
-| `products/gongzzang/docs/adr/0032-eventual-consistency-strategy.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 6 |
-| `products/gongzzang/docs/adr/0033-seven-guardrails-enforcement.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 2 |
-| `products/gongzzang/docs/adr/0034-catalog-ownership-handover-to-foundation-platform.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 10 |
+| `products/gongzzang/docs/adr/0029-explicit-environment-separation.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 3 |
+| `products/gongzzang/docs/adr/0030-three-service-architecture.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 5 |
+| `products/gongzzang/docs/adr/0031-foundation-platform-bounded-contexts.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
+| `products/gongzzang/docs/adr/0032-eventual-consistency-strategy.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 6 |
+| `products/gongzzang/docs/adr/0033-seven-guardrails-enforcement.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
+| `products/gongzzang/docs/adr/0034-catalog-ownership-handover-to-foundation-platform.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 10 |
 | `products/gongzzang/docs/adr/0035-legacy-r2-removal-and-atomic-namespace.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
-| `products/gongzzang/docs/adr/0036-static-vector-tile-runtime-contract.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 11 |
-| `products/gongzzang/docs/adr/0037-pnu-anchor-pbf-marker-tiles.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 9 |
-| `products/gongzzang/docs/adr/0038-listing-marker-serving-index-filter-mask.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 4 |
-| `products/gongzzang/docs/adr/0039-service-owned-lakehouse-registry-integration.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 2 |
-| `products/gongzzang/docs/adr/0040-bazel-first-build-verification-control-plane.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 1 |
-| `products/gongzzang/docs/adr/0041-hermetic-javascript-package-bazel-rules.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 1 |
-| `products/gongzzang/docs/adr/0042-cross-repo-bazel-native-build-graph.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 1 |
-| `products/gongzzang/docs/adr/0043-bazel-transition-provisioning-decisions.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 1 |
-| `products/gongzzang/docs/adr/0044-bazel-transition-reconciliation.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 18 |
-| `products/gongzzang/docs/adr/0045-adr-placement-cross-repo-governance.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 2 |
-| `products/gongzzang/docs/adr/0046-kafka-kubernetes-preliminary-design.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 4 |
+| `products/gongzzang/docs/adr/0036-static-vector-tile-runtime-contract.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 11 |
+| `products/gongzzang/docs/adr/0037-pnu-anchor-pbf-marker-tiles.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 9 |
+| `products/gongzzang/docs/adr/0038-listing-marker-serving-index-filter-mask.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 4 |
+| `products/gongzzang/docs/adr/0039-service-owned-lakehouse-registry-integration.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
+| `products/gongzzang/docs/adr/0040-bazel-first-build-verification-control-plane.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 1 |
+| `products/gongzzang/docs/adr/0041-hermetic-javascript-package-bazel-rules.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 1 |
+| `products/gongzzang/docs/adr/0042-cross-repo-bazel-native-build-graph.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 1 |
+| `products/gongzzang/docs/adr/0043-bazel-transition-provisioning-decisions.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 1 |
+| `products/gongzzang/docs/adr/0044-bazel-transition-reconciliation.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 18 |
+| `products/gongzzang/docs/adr/0045-adr-placement-cross-repo-governance.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 2 |
+| `products/gongzzang/docs/adr/0046-kafka-kubernetes-preliminary-design.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 4 |
 | `products/gongzzang/docs/adr/0047-collection-event-fabric.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 4 |
-| `products/gongzzang/docs/adr/0048-horizontal-platform-redefinition.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 18 |
-| `products/gongzzang/docs/adr/0049-identity-platform-contract-design.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 4 |
-| `products/gongzzang/docs/adr/0050-dawneer-workbench-and-internal-admin-surface.md` | Gongzzang 제품 | ADR | current | english | not applicable: ADR fields | 2 |
+| `products/gongzzang/docs/adr/0048-horizontal-platform-redefinition.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 18 |
+| `products/gongzzang/docs/adr/0049-identity-platform-contract-design.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 4 |
+| `products/gongzzang/docs/adr/0050-dawneer-workbench-and-internal-admin-surface.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `products/gongzzang/docs/adr/README.md` | Gongzzang 제품 | README | current | mixed | ok | 3 |
-| `products/gongzzang/docs/architecture/caching.md` | Gongzzang 제품 | architecture | current | english | ok | 0 |
-| `products/gongzzang/docs/architecture/data-flow.md` | Gongzzang 제품 | architecture | current | english | ok | 0 |
+| `products/gongzzang/docs/architecture/caching.md` | Gongzzang 제품 | architecture | current | mixed | ok | 0 |
+| `products/gongzzang/docs/architecture/data-flow.md` | Gongzzang 제품 | architecture | current | korean | ok | 0 |
 | `products/gongzzang/docs/architecture/foundation-platform-boundary.v1.json` | Gongzzang 제품 | architecture | current | english | not applicable: machine contract | 1 |
 | `products/gongzzang/docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json` | Gongzzang 제품 | architecture | current | english | not applicable: machine contract | 1 |
 | `products/gongzzang/docs/architecture/foundation-platform-webhook-receiver-contract.v1.pin.json` | Gongzzang 제품 | architecture | current | english | not applicable: machine contract | 0 |
-| `products/gongzzang/docs/architecture/geo-pipeline.md` | Gongzzang 제품 | architecture | current | english | ok | 0 |
-| `products/gongzzang/docs/architecture/layers.md` | Gongzzang 제품 | architecture | current | english | ok | 0 |
-| `products/gongzzang/docs/architecture/mcp-vs-api.md` | Gongzzang 제품 | architecture | current | english | ok | 0 |
-| `products/gongzzang/docs/architecture/observability.md` | Gongzzang 제품 | architecture | current | english | ok | 2 |
-| `products/gongzzang/docs/architecture/partner-listing-exchange-boundary.md` | Gongzzang 제품 | architecture | current | english | ok | 0 |
+| `products/gongzzang/docs/architecture/geo-pipeline.md` | Gongzzang 제품 | architecture | current | mixed | ok | 0 |
+| `products/gongzzang/docs/architecture/layers.md` | Gongzzang 제품 | architecture | current | mixed | ok | 0 |
+| `products/gongzzang/docs/architecture/mcp-vs-api.md` | Gongzzang 제품 | architecture | current | mixed | ok | 0 |
+| `products/gongzzang/docs/architecture/observability.md` | Gongzzang 제품 | architecture | current | mixed | ok | 2 |
+| `products/gongzzang/docs/architecture/partner-listing-exchange-boundary.md` | Gongzzang 제품 | architecture | current | mixed | ok | 0 |
 | `products/gongzzang/docs/architecture/platform-integration/allowed-call-matrix.v1.json` | Gongzzang 제품 | architecture | current | english | not applicable: machine contract | 0 |
 | `products/gongzzang/docs/architecture/platform-integration/exception-policy.v1.json` | Gongzzang 제품 | architecture | current | english | not applicable: machine contract | 0 |
 | `products/gongzzang/docs/architecture/platform-integration/index.v1.json` | Gongzzang 제품 | architecture | current | english | not applicable: machine contract | 0 |
@@ -290,8 +293,8 @@
 | `products/gongzzang/docs/architecture/traffic-auth-policy-registry/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/docs/auth/frontend-integration.md` | Gongzzang 제품 | documentation | current | mixed | ok | 1 |
 | `products/gongzzang/docs/auth/README.md` | Gongzzang 제품 | README | current | korean | ok | 5 |
-| `products/gongzzang/docs/auth/staging-zitadel-integration.md` | Gongzzang 제품 | documentation | current | english | ok | 0 |
-| `products/gongzzang/docs/backend/circuit-breaker.md` | Gongzzang 제품 | documentation | current | english | ok | 2 |
+| `products/gongzzang/docs/auth/staging-zitadel-integration.md` | Gongzzang 제품 | documentation | current | korean | ok | 0 |
+| `products/gongzzang/docs/backend/circuit-breaker.md` | Gongzzang 제품 | documentation | current | mixed | ok | 2 |
 | `products/gongzzang/docs/backend/README.md` | Gongzzang 제품 | README | current | mixed | ok | 2 |
 | `products/gongzzang/docs/compliance/README.md` | Gongzzang 제품 | README | current | korean | ok | 2 |
 | `products/gongzzang/docs/conventions/comments.md` | Gongzzang 제품 | convention | current | korean | ok | 1 |
@@ -306,35 +309,35 @@
 | `products/gongzzang/docs/conventions/typescript.md` | Gongzzang 제품 | convention | current | mixed | ok | 3 |
 | `products/gongzzang/docs/conventions/ui-writing-korean.md` | Gongzzang 제품 | convention | current | korean | ok | 4 |
 | `products/gongzzang/docs/cost/README.md` | Gongzzang 제품 | README | current | korean | ok | 1 |
-| `products/gongzzang/docs/data-sources/data-go-kr.md` | Gongzzang 제품 | documentation | current | english | ok | 1 |
+| `products/gongzzang/docs/data-sources/data-go-kr.md` | Gongzzang 제품 | documentation | current | mixed | ok | 1 |
 | `products/gongzzang/docs/data-sources/korean-land-mcp.md` | Gongzzang 제품 | documentation | current | korean | ok | 0 |
 | `products/gongzzang/docs/data-sources/korean-law-mcp.md` | Gongzzang 제품 | documentation | current | korean | ok | 1 |
 | `products/gongzzang/docs/data-sources/korean-law.md` | Gongzzang 제품 | documentation | current | korean | ok | 1 |
 | `products/gongzzang/docs/data-sources/naver-maps.md` | Gongzzang 제품 | documentation | current | korean | ok | 2 |
 | `products/gongzzang/docs/data-sources/nice-identity.md` | Gongzzang 제품 | documentation | current | korean | ok | 2 |
-| `products/gongzzang/docs/data-sources/README.md` | Gongzzang 제품 | README | current | english | ok | 3 |
-| `products/gongzzang/docs/data-sources/v-world.md` | Gongzzang 제품 | documentation | current | english | ok | 3 |
-| `products/gongzzang/docs/database/er-diagram-v001.md` | Gongzzang 제품 | documentation | current | english | ok | 2 |
+| `products/gongzzang/docs/data-sources/README.md` | Gongzzang 제품 | README | current | mixed | ok | 3 |
+| `products/gongzzang/docs/data-sources/v-world.md` | Gongzzang 제품 | documentation | current | mixed | ok | 3 |
+| `products/gongzzang/docs/database/er-diagram-v001.md` | Gongzzang 제품 | documentation | current | mixed | ok | 2 |
 | `products/gongzzang/docs/database/migrations.md` | Gongzzang 제품 | documentation | current | korean | ok | 3 |
 | `products/gongzzang/docs/database/README.md` | Gongzzang 제품 | README | current | korean | ok | 1 |
-| `products/gongzzang/docs/frontend/listings-search.md` | Gongzzang 제품 | documentation | current | english | ok | 1 |
+| `products/gongzzang/docs/frontend/listings-search.md` | Gongzzang 제품 | documentation | current | mixed | ok | 1 |
 | `products/gongzzang/docs/frontend/panel-sss-axes.md` | Gongzzang 제품 | documentation | current | mixed | ok | 3 |
 | `products/gongzzang/docs/frontend/README.md` | Gongzzang 제품 | README | current | mixed | ok | 3 |
 | `products/gongzzang/docs/glossary.md` | Gongzzang 제품 | documentation | current | korean | ok | 10 |
 | `products/gongzzang/docs/governance/README.md` | Gongzzang 제품 | README | current | mixed | ok | 1 |
 | `products/gongzzang/docs/README.md` | Gongzzang 제품 | README | current | korean | ok | 9 |
-| `products/gongzzang/docs/runbooks/foundation-platform-integration-operations.md` | Gongzzang 제품 | runbook | current | english | ok | 1 |
-| `products/gongzzang/docs/runbooks/foundation-platform-workload-identity.md` | Gongzzang 제품 | runbook | current | english | ok | 1 |
+| `products/gongzzang/docs/runbooks/foundation-platform-integration-operations.md` | Gongzzang 제품 | runbook | current | mixed | ok | 1 |
+| `products/gongzzang/docs/runbooks/foundation-platform-workload-identity.md` | Gongzzang 제품 | runbook | current | mixed | ok | 1 |
 | `products/gongzzang/docs/runbooks/README.md` | Gongzzang 제품 | README | current | korean | ok | 1 |
-| `products/gongzzang/docs/runbooks/supply-chain-provenance-and-deploy-gate.md` | Gongzzang 제품 | runbook | current | english | ok | 1 |
+| `products/gongzzang/docs/runbooks/supply-chain-provenance-and-deploy-gate.md` | Gongzzang 제품 | runbook | current | korean | ok | 1 |
 | `products/gongzzang/docs/ssot-matrix.md` | Gongzzang 제품 | documentation | current | mixed | ok | 4 |
 | `products/gongzzang/docs/sss-charter.md` | Gongzzang 제품 | documentation | current | korean | ok | 9 |
-| `products/gongzzang/docs/testing/load.md` | Gongzzang 제품 | documentation | current | english | ok | 0 |
-| `products/gongzzang/docs/testing/playwright-runtime.md` | Gongzzang 제품 | documentation | current | english | ok | 0 |
+| `products/gongzzang/docs/testing/load.md` | Gongzzang 제품 | documentation | current | mixed | ok | 0 |
+| `products/gongzzang/docs/testing/playwright-runtime.md` | Gongzzang 제품 | documentation | current | mixed | ok | 0 |
 | `products/gongzzang/docs/testing/README.md` | Gongzzang 제품 | README | current | mixed | ok | 1 |
 | `products/gongzzang/infrastructure/docker/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/infrastructure/README.md` | Gongzzang 제품 | README | current | mixed | ok | 2 |
-| `products/gongzzang/infrastructure/security/README.md` | Gongzzang 제품 | README | current | english | ok | 0 |
+| `products/gongzzang/infrastructure/security/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
 | `products/gongzzang/migrations/README.md` | Gongzzang 제품 | README | current | korean | ok | 1 |
 | `products/gongzzang/packages/api-types/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/packages/map/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
@@ -343,45 +346,57 @@
 | `products/gongzzang/reference/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/services/gongzzang-api/README.md` | Gongzzang 제품 | README | current | mixed | ok | 1 |
 | `products/gongzzang/services/gongzzang-outbox-publisher/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
-| `products/gongzzang/tests/load/README.md` | Gongzzang 제품 | README | current | english | ok | 0 |
+| `products/gongzzang/tests/load/README.md` | Gongzzang 제품 | README | current | mixed | ok | 0 |
 | `README.md` | Monorepo | README | current | korean | ok | 3 |
 | `SECURITY.md` | Monorepo | documentation | current | korean | ok | 0 |
 | `THIRD_PARTY_NOTICES.md` | Monorepo | documentation | current | english | not applicable: legal text | 1 |
-| `tools/github/README.md` | Repository tooling | README | current | english | ok | 0 |
+| `tools/github/README.md` | Repository tooling | README | current | korean | ok | 0 |
 
 ## 중복 파일명 후보
 
-- `agents.md`
-  - `AGENTS.md`
-  - `platforms/foundation-platform/AGENTS.md`
-  - `platforms/identity-platform/AGENTS.md`
-  - `platforms/intelligence-platform/AGENTS.md`
-  - `products/gongzzang/AGENTS.md`
-- `claude.md`
-  - `CLAUDE.md`
-  - `platforms/foundation-platform/CLAUDE.md`
-  - `platforms/identity-platform/CLAUDE.md`
-  - `platforms/intelligence-platform/CLAUDE.md`
-  - `products/gongzzang/CLAUDE.md`
-- `glossary.md`
-  - `docs/glossary.md`
-  - `products/gongzzang/docs/glossary.md`
-- `pipeline-graph.v1.json`
-  - `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json`
-  - `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json`
-- `traffic-auth-policy-registry.v1.json`
-  - `platforms/foundation-platform/docs/architecture/traffic-auth-policy-registry.v1.json`
-  - `products/gongzzang/docs/architecture/traffic-auth-policy-registry.v1.json`
+- 없음
 
 ## 해석 규칙
 
 - `korean`: 한글 설명 중심
 - `english`: 한글 문장이 없는 영문 설명 중심
-- `mixed`: 한글과 영문 설명이 함께 존재
+- `mixed`: 한글 설명과 원래 표기를 보존한 기술 표현이 함께 존재
 - 코드 블록·명령어·URL·식별자는 언어 판정에서 제외
 - README 파일명 중복은 영역별 진입점이므로 중복 후보에서 제외
 - `CLAUDE.md`의 도구 전용 `@AGENTS.md` 지시는 허용
 
+## 명백한 영문 서술 문장
+
+- 없음
+
 ## 링크·참조 위반
+
+- 없음
+
+## 의도적으로 범위를 나눈 같은 파일명
+
+- `agents.md` — 루트 규칙을 영역별로 상속하는 에이전트 라우터
+  - `AGENTS.md`
+  - `platforms/foundation-platform/AGENTS.md`
+  - `platforms/identity-platform/AGENTS.md`
+  - `platforms/intelligence-platform/AGENTS.md`
+  - `products/gongzzang/AGENTS.md`
+- `claude.md` — 루트 규칙을 영역별 도구에 연결하는 라우터
+  - `CLAUDE.md`
+  - `platforms/foundation-platform/CLAUDE.md`
+  - `platforms/identity-platform/CLAUDE.md`
+  - `platforms/intelligence-platform/CLAUDE.md`
+  - `products/gongzzang/CLAUDE.md`
+- `glossary.md` — 전역 용어집과 제품 도메인 용어집의 책임 분리
+  - `docs/glossary.md`
+  - `products/gongzzang/docs/glossary.md`
+- `pipeline-graph.v1.json` — Foundation 카탈로그 정본과 공개 OpenAPI 계약의 분리
+  - `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json`
+  - `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json`
+- `traffic-auth-policy-registry.v1.json` — Foundation·Gongzzang이 각자 소유하는 정책 계약
+  - `platforms/foundation-platform/docs/architecture/traffic-auth-policy-registry.v1.json`
+  - `products/gongzzang/docs/architecture/traffic-auth-policy-registry.v1.json`
+
+## 승인 전 문서 참조 위반
 
 - 없음

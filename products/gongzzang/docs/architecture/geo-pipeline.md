@@ -5,13 +5,13 @@ doc_type: architecture
 last_reviewed: 2026-07-29
 ---
 
-# Geo Pipeline
+# 공간 데이터 파이프라인
 
-This document describes Gongzzang's current spatial data responsibilities.
+이 문서는 현재 Gongzzang의 공간 데이터 책임을 설명한다.
 
-## 1. Ownership Split
+## 1. 소유권 분리
 
-Foundation Platform owns:
+Foundation Platform 소유:
 
 - parcel geometry
 - building/reference spatial layers
@@ -19,7 +19,7 @@ Foundation Platform owns:
 - public/reference vector tile lifecycle
 - Catalog raw lineage
 
-Gongzzang owns:
+Gongzzang 소유:
 
 - listing semantics
 - listing visibility/filtering
@@ -37,7 +37,7 @@ Foundation Platform PNU anchor snapshot/event
   -> frontend map vector source
 ```
 
-Important files:
+주요 파일:
 
 - `migrations/20260719000115_parcel_marker_anchor_projection.sql`
 - `migrations/20260719000116_listing_marker_projection.sql`
@@ -51,9 +51,9 @@ Important files:
 
 ## 3. Public Marker Contract
 
-Public marker routes use tile coordinates and stable filter identifiers.
+공개 마커 경로는 타일 좌표와 안정적인 필터 식별자를 사용한다.
 
-They must not use:
+다음 입력은 사용하지 않는다.
 
 - `bbox`
 - `bounds`
@@ -63,19 +63,20 @@ They must not use:
 - `east`
 - listing-owned canonical latitude/longitude columns
 
-The reason is structural: map panning should load cacheable tile-shaped artifacts, and marker position should remain tied to Foundation Platform PNU anchors.
+구조적인 이유는 지도 이동이 캐시 가능한 타일 형태 산출물을 읽어야 하고 마커 위치가 Foundation
+Platform PNU 앵커에 계속 묶여 있어야 하기 때문이다.
 
 ## 4. Listing Coordinates
 
-Listing rows must not become the canonical owner of marker coordinates.
+매물 행이 마커 좌표의 정본 소유자가 되어서는 안 된다.
 
-Allowed:
+허용:
 
 - PNU identity on listing/domain records
 - derived marker projection based on Foundation Platform anchor data
 - overlay/delta/tombstone indexes for serving freshness
 
-Forbidden:
+금지:
 
 - `listing.latitude`
 - `listing.longitude`
@@ -83,9 +84,9 @@ Forbidden:
 
 ## 5. Internal Spatial Queries
 
-Internal market-domain reader ports use `shared_kernel::spatial_scope::SpatialScope`.
+내부 시장 도메인 reader port는 `shared_kernel::spatial_scope::SpatialScope`를 사용한다.
 
-Supported scope shapes:
+지원하는 scope 형태:
 
 - `PNU`
 - `Sido`
@@ -93,20 +94,18 @@ Supported scope shapes:
 - `Eupmyeondong`
 - validated slippy-map tile coordinates
 
-The goal is to keep product-side query intent explicit without reintroducing public
-`bbox`/`bounds` marker request shapes. `BoundingBox` may still exist as a low-level geometry value
-object, but market reader contracts should prefer `SpatialScope` unless a future ADR approves a
-different contract.
+목표는 public `bbox`/`bounds` marker 요청 형태를 다시 만들지 않고 제품 쪽 query 의도를 명시하는 것이다.
+`BoundingBox`는 낮은 수준 geometry value object로 남을 수 있지만, 향후 ADR이 다른 계약을 승인하지
+않는 한 시장 reader 계약은 `SpatialScope`를 우선한다.
 
 ## 6. Static Reference Tiles
 
-Gongzzang does not own or contain static vector tile ETL after Foundation
-Platform extraction. Source acquisition, build, promotion, rollback, and R2
-layout remain Foundation Platform responsibilities.
+Gongzzang은 Foundation Platform 추출 이후의 정적 vector tile ETL을 소유하거나 포함하지 않는다.
+원천 수집·build·승격·rollback·R2 layout은 Foundation Platform 책임이다.
 
 ## 7. Guardrails
 
-The PNU-anchor PBF marker contract and the Foundation Platform (dependency) boundary
-must stay intact. The Foundation Platform catalog boundary is enforced by
+PNU-anchor PBF marker 계약과 Foundation Platform 의존성 경계를 유지한다. Foundation Platform catalog
+경계는
 `scripts/lefthook/foundation-ownership-boundary.sh` and the boundary contract
 `docs/architecture/foundation-platform-boundary.v1.json`.

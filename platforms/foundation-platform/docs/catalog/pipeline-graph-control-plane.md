@@ -1,8 +1,15 @@
-# Foundation Platform Pipeline Graph Control Plane
+---
+status: proposed
+owner: foundation-platform
+doc_type: reference
+last_reviewed: 2026-07-30
+---
 
-Status: Draft
-Scope: foundation-platform pipeline graph contract, registry, status, and consumer boundary
-Date: 2026-05-19
+# Foundation Platform 파이프라인 그래프 제어면
+
+상태: 제안(초안)
+범위: foundation-platform 파이프라인 그래프 계약·레지스트리·상태·소비자 경계
+작성일: 2026-05-19
 
 ## 1. 목적
 
@@ -318,7 +325,7 @@ failed > blocked > missing > manual_approval > stale > running > waiting > healt
 이 ID는 Staff Identity ownership 또는 runtime을 뜻하지 않으며, runtime source와 binding은
 Foundation/Catalog 범위만 사용한다.
 
-`outbox-catalog-event-fanout` is the pre-launch final v1 node identifier for Foundation Catalog
+`outbox-catalog-event-fanout`은 출시 전 확정한 Foundation Catalog v1 node identifier다.
 event fan-out. It does not represent Staff Identity ownership or runtime. Its title, description,
 and runtime binding remain Foundation/Catalog-only.
 
@@ -333,7 +340,7 @@ Gold pointer / artifact publish
   -> future Search / AI / Notification consumers
 ```
 
-Kafka/MSK is not an initial launch dependency. Service code must depend on the
+Kafka/MSK는 초기 launch dependency가 아니다. service code는
 event publisher contract and outbox envelope, not on a Kafka client. A future
 Kafka publisher is an adapter behind the same event idempotency, retry, DLQ,
 schema version, and consumer effect acknowledgement rules.
@@ -374,10 +381,9 @@ Runtime source 후보:
 - cutover evidence artifact
 - receiver E2E evidence artifact
 
-Runtime metrics are attached through `runtime_bindings` in
-`docs/catalog/pipeline-graph.v1.json`. Product viewers and API handlers must
-not hard-code source slug, lakehouse contract, outbox scope, or cutover blocker
-to node-id mappings outside that registry.
+Runtime metric은 `docs/catalog/pipeline-graph.v1.json`의 `runtime_bindings`를 통해 연결한다.
+Product viewer와 API handler는 그 registry 밖에서 source slug, lakehouse contract, outbox scope,
+cutover blocker와 node-id 매핑을 hard-code하지 않는다.
 
 ## 10. Completeness Guard
 
@@ -420,7 +426,9 @@ GET /catalog/v1/pipeline-graph/runs/{run_id}
 
 API는 React Flow 형식을 반환하지 않는다. API는 provider-neutral graph contract를 반환한다.
 
-Runtime overlay rule: API responses keep registry node/edge definitions separate from observed runtime state. Product UIs merge `runtime.nodes[<node_id>]` into the viewer layer and must not write React Flow layout state back into foundation-platform canonical registry.
+Runtime overlay 규칙: API 응답은 registry node/edge 정의와 관찰된 runtime state를 분리한다.
+Product UI는 `runtime.nodes[<node_id>]`를 viewer layer에 합치며 React Flow layout state를
+foundation-platform canonical registry에 다시 쓰지 않는다.
 
 ## 12. Viewer Boundary
 

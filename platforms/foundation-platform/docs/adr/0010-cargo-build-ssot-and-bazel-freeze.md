@@ -1,4 +1,4 @@
-# ADR 0010 - Cargo Build SSOT and Bazel Abandonment
+# ADR 0010 - Cargo 빌드 SSOT와 Bazel 폐기
 
 | Field | Value |
 |---|---|
@@ -7,38 +7,37 @@
 | Scope | `foundation-platform` build, test, lint, and release artifact production |
 | Related ADRs | [ADR 0001](./0001-inherit-gongzzang-adrs.md), [ADR 0011](./0011-true-bazel-build-ssot-transition.md) |
 
-## Context
+## 배경
 
-The repository temporarily carried two verification surfaces: Cargo, which actually compiled,
-tested, linted, and released the Rust workspace, and Bazel wrappers around duplicated checks and
-PowerShell guardrails. Bazel did not own release artifacts and the wrapper layer created two
-competing definitions of build success.
+저장소에는 한때 실제로 compile·test·lint·release하는 Cargo와 중복 검사를 감싼 Bazel
+wrapper 및 PowerShell guard가 함께 있었다. Bazel은 release artifact를 소유하지 않았고,
+wrapper 계층이 빌드 성공에 대한 경쟁하는 정의 두 개를 만들었다.
 
-The cross-repository review recorded in Gongzzang ADR-0044 reversed the attempted Bazel transition.
-The Bazel and PowerShell surfaces have since been removed from this repository.
+Gongzzang ADR-0044에 기록된 저장소 간 검토로 시도했던 Bazel 전환을 되돌렸다. 이후 Bazel과
+PowerShell 표면은 이 저장소에서 제거했다.
 
-## Decision
+## 결정
 
-Cargo is the permanent build, test, lint, and release-artifact SSOT for `foundation-platform`.
+Cargo를 `foundation-platform`의 영구 빌드·테스트·lint·릴리스 산출물 SSOT로 사용한다.
 
-- Use workspace commands for full verification.
-- Use `cargo build|check|test -p <package>` for package-scoped work.
-- Use Rust tests or established native tools for repository-specific invariants.
-- Do not add Bazel files, targets, registries, projections, or wrappers.
-- Do not add PowerShell build or verification logic.
-- Reconsidering Bazel requires a new ADR backed by a measured problem that Cargo package selection
-  cannot solve and evidence that Bazel works on the team's supported development environments.
+- 전체 검증에는 workspace command를 사용한다.
+- package 단위 작업에는 `cargo build|check|test -p <package>`를 사용한다.
+- repository 고유 불변식은 Rust test나 검증된 native tool로 확인한다.
+- Bazel file·target·registry·projection·wrapper를 추가하지 않는다.
+- PowerShell build·verification logic을 추가하지 않는다.
+- Bazel을 다시 검토하려면 Cargo package 선택으로 해결할 수 없는 측정된 문제와 지원 개발
+  환경에서 Bazel이 동작한다는 증거를 담은 새 ADR이 필요하다.
 
-## Consequences
+## 영향
 
-- Build evidence and release artifacts come from one toolchain.
-- Package-scoped Cargo commands provide the required local fast path without a second build graph.
-- Historical Bazel experiments are not active implementation guidance.
-- Cross-language frontend repositories may use their own native package/build SSOT; this ADR governs
-  this Rust repository.
+- 빌드 증거와 release artifact가 하나의 toolchain에서 나온다.
+- package 단위 Cargo command가 두 번째 build graph 없이 필요한 local fast path를 제공한다.
+- 과거 Bazel 실험은 현재 구현 지침이 아니다.
+- 다언어 frontend repository는 자체 native package/build SSOT를 사용할 수 있으며, 이 ADR은
+  이 Rust repository에 적용한다.
 
-## Verification
+## 검증
 
-The decision is enforced by absence: the repository contains no `.bazelrc`, `MODULE.bazel`,
-`BUILD.bazel`, Bazel rule files, or Bazel CI jobs. Active Rust verification is expressed through
-Cargo and standard native tools.
+이 결정은 부재로 강제한다. 저장소에는 `.bazelrc`, `MODULE.bazel`,
+`BUILD.bazel`, Bazel rule file, Bazel CI job이 없다. 활성 Rust 검증은 Cargo와 표준 native
+tool만 사용한다.

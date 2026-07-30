@@ -89,9 +89,9 @@ event-fabric 어댑터다. 공공 공급자 rate control의 권위가 아니다.
 
 장애 전환 선택지는 원천 권위에 따라 제한된다.
 
-- V-World cadastral geometry: use cached Bronze/Silver outputs until provider recovers.
-- data.go.kr building register: use the latest archived Bronze and mark freshness degraded.
-- R2/Iceberg read path: keep serving the latest known-good snapshot.
+- V-World 지적 geometry: provider가 복구할 때까지 cache된 Bronze/Silver 결과를 사용한다.
+- data.go.kr 건축물대장: 최신 archive Bronze를 사용하고 freshness를 degraded로 표시한다.
+- R2/Iceberg read path: 마지막으로 정상인 snapshot을 계속 제공한다.
 
 권위가 없는 데이터셋을 정본 데이터로 조용히 대체하지 않는다. 사용자에게 임시 파생 화면이
 필요하면 stale로 표시하고 마지막 source snapshot ID까지 추적한다.

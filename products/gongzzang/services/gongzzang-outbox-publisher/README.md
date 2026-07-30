@@ -48,4 +48,4 @@ v1 의 default sink 는 `LoggingSink` — `tracing::info!` 로 구조화 event �
 - Prometheus metrics
 
 Current delivery semantics: [ADR-0032](../../docs/adr/0032-eventual-consistency-strategy.md).
-Executable behavior lives in this service and `crates/gongzzang-outbox` tests.
+실행 동작은 이 서비스와 `crates/gongzzang-outbox` 테스트가 소유한다.

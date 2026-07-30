@@ -1,4 +1,4 @@
-# ADR-0044: Native build and verification SSOT
+# ADR-0044: 네이티브 빌드·검증 SSOT
 
 | | |
 |---|---|
@@ -8,9 +8,9 @@
 | Supersedes | ADR-0040, ADR-0041, ADR-0042, ADR-0043 |
 | Reaffirms | ADR-0002 and foundation-platform ADR-0010 |
 
-## Context
+## 배경
 
-The repository previously carried two competing build models: native Cargo/pnpm tasks and a Bazel
+저장소에는 이전에 native Cargo/pnpm task와 Bazel이라는 두 경쟁 build model이
 graph wrapped by repository-specific registry, projection, and ratchet machinery. Duplicating the
 same build and verification knowledge across those models made the documentation and executable
 gates disagree.
@@ -19,10 +19,10 @@ Native tools already provide the required scoped execution: Cargo selects Rust p
 Turborepo filters frontend packages. Bazel would add another dependency graph, specialized
 maintenance, and infrastructure without removing a demonstrated bottleneck at this project's scale.
 
-The root cause is not one failed build. It is multiple writable definitions of how the repository is
+근본 원인은 하나의 빌드 실패가 아니다. 저장소를 검증하는 방법에 대한 쓰기 가능한 정의가
 built and verified. The repository therefore needs one build path and one verification entrypoint.
 
-## Decision
+## 결정
 
 1. **Cargo is the Rust build tool. pnpm/Turborepo is the frontend package and task runner.** Bazel is
    not part of the supported build, test, lint, or release path.
@@ -35,7 +35,7 @@ built and verified. The repository therefore needs one build path and one verifi
 5. Generated runtime policy remains legitimate only when application code consumes it, one canonical
    input owns it, and a mechanical drift guard proves the generated output matches that input.
 
-## Alternatives
+## 대안
 
 - **Native Cargo and pnpm/Turborepo** — adopted. They cover the required languages and scoped builds
   without a second graph.
@@ -45,7 +45,7 @@ built and verified. The repository therefore needs one build path and one verifi
   make the wrapper hierarchy verify itself.
 - **Buck2** — rejected for the same second-graph reason and consistent with ADR-0042.
 
-## Consequences
+## 영향
 
 - Build and verification ownership is unambiguous: native language tools execute work and xtask owns
   the public verification contract.
@@ -55,7 +55,7 @@ built and verified. The repository therefore needs one build path and one verifi
 - A change that introduces Bazel or a PowerShell verification control plane contradicts this ADR and
   must fail repository governance checks.
 
-## Re-adoption bar
+## 재도입 기준
 
 Re-adopting Bazel requires a new ADR that demonstrates both:
 
@@ -63,10 +63,10 @@ Re-adopting Bazel requires a new ADR that demonstrates both:
 2. a concrete, measured build or test bottleneck that native package selection and caching cannot
    solve at acceptable cost.
 
-The ADR must also define migration ownership, hermetic toolchains, cache trust boundaries, and how it
+ADR은 migration 소유권·hermetic toolchain·cache 신뢰 경계와
 replaces rather than duplicates the existing SSOT.
 
-## References
+## 참고 문서
 
 - ADR-0002, ADR-0040, ADR-0041, ADR-0042, ADR-0043
 - foundation-platform ADR-0010 and ADR-0011

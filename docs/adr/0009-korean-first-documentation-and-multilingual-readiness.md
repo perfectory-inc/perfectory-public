@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: current
 owner: repository-maintainers
 doc_type: adr
 last_reviewed: 2026-07-28
@@ -9,7 +9,7 @@ last_reviewed: 2026-07-28
 
 ## 상태
 
-제안. 문서 개편 설계 검토 후 채택한다.
+채택. 문서 개편과 한글 정본 전환의 기준으로 사용한다.
 
 ## 배경
 
@@ -80,6 +80,13 @@ last_reviewed: YYYY-MM-DD
 4. architecture·reference·guide·runbook을 번역하고 중복 내용을 링크로 치환한다.
 5. 조사·실행·장애·릴리스 기록을 정해진 형식으로 추가한다.
 6. 메타데이터·링크·색인·번역 관계를 CI에서 검사한다.
+
+## 현재 이행 상태
+
+구조·색인·메타데이터·링크 감사는 완료했다. 남은 한글화와 초안/역사 문서 검토는
+[운영 준비 작업 목록](../roadmap/production-readiness.md)의 문서 정리 항목을 따른다.
+자동 현황은 [문서 감사 보고서](../document-audit.md)와 [전체 문서 색인](../document-catalog.md)에서
+생성한다.
 
 ## 완료 기준
 

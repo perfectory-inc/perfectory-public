@@ -1,11 +1,11 @@
-# ADR 0029 - Runtime Environment Backend Separation
+# ADR 0029 - 런타임 환경별 백엔드 분리
 
 ## Status
 
-Accepted. This ADR defines the environment boundary for Foundation runtime backends. It does not
-select the production Kafka provider; that remains a separate Kafka implementation decision.
+승인됨. 이 ADR은 Foundation 런타임 백엔드의 환경 경계를 정의한다. 운영 Kafka 제공기관은 선택하지
+않으며 별도 Kafka 구현 결정으로 남긴다.
 
-## Decision
+## 결정
 
 Foundation has four explicit runtime environments:
 
@@ -16,42 +16,40 @@ Foundation has four explicit runtime environments:
 | `staging` | Dedicated Cloudflare R2 staging bucket | A managed production-compatible broker selected by the deployment | Staging Postgres | Staging provider/model credentials |
 | `production` | `foundation-platform-lakehouse-prod` | The selected production broker | Production Postgres | Production credentials only |
 
-The developer environment deliberately uses R2. MinIO is not a Foundation development dependency.
-Unit tests may use fakes, but operational commands must use the runtime environment's declared
-backend and must not silently fall back to a fake.
+개발자 환경도 의도적으로 R2를 사용한다. MinIO는 Foundation 개발 의존성이 아니다. 단위 테스트는
+fake를 사용할 수 있지만 운영 명령은 런타임 환경에 선언된 백엔드를 사용해야 하며 조용히 fake로
+대체하지 않는다.
 
-## Pre-launch sharing exception
+## 출시 전 공유 예외
 
-Until the product launches, a developer process may intentionally run with
+제품 출시 전까지 개발자 프로세스는 의도적으로
 `FOUNDATION_PLATFORM_RUNTIME_ENV=production` and use the existing production R2/Data Catalog.
-This is a temporary operational choice, not a new `local` environment: the execution location is
+이는 새 `local` 환경이 아니라 임시 운영 선택이다. 실행 위치는
 still a developer machine, while the selected backend environment is explicitly `production`.
-The process must also set `FOUNDATION_PLATFORM_EXECUTION_CONTEXT=developer` and the narrow
+process는 `FOUNDATION_PLATFORM_EXECUTION_CONTEXT=developer`와 좁은
 acknowledgement `FOUNDATION_PLATFORM_PRELAUNCH_SHARED=1`; the publisher rejects a developer→production
 run without that acknowledgement.
-The local metadata database, Valkey, Kafka, identity provider, and compute remain local unless a
-real production endpoint is supplied through private operations configuration. They must not be
-invented from local compose hostnames. Before external launch, switch the process to `local` and
-the dedicated development bucket, then provision and validate separate non-production endpoints.
+실제 운영 endpoint를 비공개 운영 설정으로 제공하지 않는 한 로컬 메타데이터 DB·Valkey·Kafka·Identity
+제공기관·계산 계층은 로컬로 유지한다. 로컬 Compose hostname으로 운영 주소를 추측하지 않는다. 외부
+출시 전에는 프로세스를 `local`과 전용 개발 버킷으로 전환하고 비운영 endpoint를 별도로 만들고 검증한다.
 
-## R2 bucket identities
+## R2 버킷 식별자
 
-The non-production bucket names are:
+비운영 버킷 이름은 다음과 같다.
 
 - `local` (developer process): `foundation-platform-lakehouse-dev` (remote Cloudflare R2 development bucket)
 - `ci`: `foundation-platform-lakehouse-ci`
 - `staging`: `foundation-platform-lakehouse-staging`
 - `production`: `foundation-platform-lakehouse-prod`
 
-The production bucket remains owned by the lakehouse domain SSOT:
+운영 버킷의 소유 정본은 레이크하우스 도메인의 다음 함수다.
 `LakehouseOwnerService::FoundationPlatform::production_r2_bucket_name()`.
-The runtime policy must call that function instead of duplicating the production string.
+런타임 정책은 운영 버킷 문자열을 복제하지 말고 해당 함수를 호출해야 한다.
 
-Every environment receives separate R2 credentials. Tokens are scoped to the environment bucket;
-developers and CI must not hold production R2 credentials. A wrong bucket is a startup/preflight
-error, not a warning.
+환경마다 R2 자격증명을 분리한다. 토큰은 환경 버킷으로 범위를 제한하고 개발자·CI는 운영 R2 자격증명을
+가지지 않는다. 잘못된 버킷은 경고가 아니라 시작/preflight 오류다.
 
-## Fallback rules
+## 대체 규칙
 
 - `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER=local` is a local/CI bounded-test option only.
 - `FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER=log` is a local/CI compose-smoke option only.
@@ -62,14 +60,13 @@ error, not a warning.
   unknown.
 - Production must never inherit a default local, logging, memory, or fixture configuration.
 
-## Redpanda/Kafka boundary
+## Redpanda/Kafka 경계
 
-Redpanda/Karapace is the local and CI C2 broker/registry used to test Kafka and Avro contracts.
-It is not evidence that Foundation production publishes Kafka events. A production broker must be
-selected and wired through the separate Kafka design before any staging/production broker setting is
-accepted.
+Redpanda/Karapace는 Kafka·Avro 계약을 검증하는 로컬·CI C2 broker/registry다. Foundation 운영이 Kafka
+이벤트를 발행한다는 증거가 아니다. staging/production broker 설정을 승인하기 전에 별도 Kafka 설계로
+운영 broker를 선택하고 연결해야 한다.
 
-## Enforcement
+## 강제 지점
 
 `foundation-outbox-publisher` validates the runtime environment at operational Catalog and Bronze
 live-write boundaries. Every Bronze write path must build its adapter through the shared

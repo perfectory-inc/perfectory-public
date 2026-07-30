@@ -7,11 +7,11 @@ last_reviewed: 2026-07-29
 
 # Circuit Breaker
 
-This document is the Gongzzang backend SSOT for protected outbound HTTP calls.
+이 문서는 보호된 outbound HTTP 호출에 대한 Gongzzang backend 정본이다.
 
-## 1. Rule
+## 1. 규칙
 
-Every production outbound call from Gongzzang must pass through an owning adapter boundary that provides:
+Gongzzang의 모든 운영 outbound 호출은 다음 기능을 제공하는 소유 adapter 경계를 거쳐야 한다.
 
 - timeout
 - retry
@@ -20,37 +20,40 @@ Every production outbound call from Gongzzang must pass through an owning adapte
 - traceable error mapping
 - audit or lineage logging when the call is audit-relevant
 
-The current Rust crate `crates/circuit-breaker` provides the first three:
+현재 Rust crate `crates/circuit-breaker`는 앞의 세 기능을 제공한다.
 
 - `Policy`
 - `Breaker`
 - `execute`
 
-It does not currently implement idempotency keys, audit persistence, rate limiting, or provider-specific lineage by itself. Those remain the owning adapter or service responsibility.
+이 crate 자체는 idempotency key·audit persistence·rate limiting·provider별 lineage를 구현하지 않는다.
+이는 소유 adapter 또는 service의 책임이다.
 
-## 2. Ownership
+## 2. 소유권
 
-### Gongzzang-Owned External Calls
+### Gongzzang 소유 외부 호출
 
-Allowed only when the data/source is Gongzzang-owned and approved by ADR or policy.
+데이터·원천을 Gongzzang이 소유하고 ADR 또는 정책으로 승인한 경우에만 허용한다.
 
-Examples:
+예시:
 
 - Gongzzang-owned law, identity, map, notification, or media integrations
 - Gongzzang service-to-service calls to Foundation Platform published APIs
 - Gongzzang lakehouse registry calls through the approved Foundation Platform contract
 
-### Foundation Platform-Owned Catalog Calls
+### Foundation Platform 소유 Catalog 호출
 
-Gongzzang must not call V-World or data.go.kr Catalog sources directly.
+Gongzzang은 V-World나 data.go.kr Catalog 원천을 직접 호출하면 안 된다.
 
-For Catalog facts, Gongzzang calls Foundation Platform published contracts only. Shared HTTP/auth mechanics live in `crates/foundation-platform-client`; service-owned translation remains in the calling Gongzzang service. Raw source adapters and raw lineage belong to Foundation Platform.
+Catalog 사실은 Foundation Platform 공개 계약만 호출한다. 공통 HTTP/auth 동작은
+`crates/foundation-platform-client`에 두고, 서비스별 번역은 호출한 Gongzzang service가 소유한다.
+raw source adapter와 raw lineage는 Foundation Platform에 속한다.
 
-## 3. Current Policy
+## 3. 현재 정책
 
-The current built-in policy is `Policy::foundation_platform_default()`.
+현재 기본 제공 정책은 `Policy::foundation_platform_default()`다.
 
-| Field | Value |
+| 필드 | 값 |
 |---|---:|
 | `timeout_ms` | `5_000` |
 | `max_retries` | `1` |
@@ -59,18 +62,19 @@ The current built-in policy is `Policy::foundation_platform_default()`.
 | `open_window_ms` | `10_000` |
 | `open_cooldown_ms` | `30_000` |
 
-Meaning:
+의미:
 
-- one request attempt can run for up to 5 seconds;
-- one retry is allowed after a 500ms base backoff;
-- 5 failures inside 10 seconds open the circuit;
-- an open circuit blocks calls for 30 seconds before a half-open trial.
+- 한 요청 시도는 최대 5초 실행된다.
+- 500ms 기본 backoff 뒤 retry 한 번을 허용한다.
+- 10초 안에 5회 실패하면 circuit을 연다.
+- 열린 circuit은 30초 동안 호출을 막고 half-open 시험을 허용한다.
 
-## 4. Required Adapter Shape
+## 4. 어댑터 형태
 
-An outbound adapter should own one reusable `reqwest::Client`, one reusable `Breaker`, and one named `Policy`.
+outbound 어댑터는 재사용 가능한 `reqwest::Client` 하나, `Breaker` 하나와 이름 있는 `Policy` 하나를
+소유해야 한다.
 
-The call path should look like:
+호출 경로는 다음 형태다.
 
 ```rust
 let response = execute(
@@ -87,78 +91,81 @@ let response = execute(
 .await?;
 ```
 
-Do not create a new breaker per request. A per-request breaker cannot remember recent failures and is therefore not a real circuit breaker.
+요청마다 새 breaker를 만들지 않는다. 요청별 breaker는 최근 실패를 기억하지 못하므로 진짜 circuit
+breaker가 아니다.
 
 ## 5. Retriable Statuses
 
-Provider adapters must convert retryable HTTP statuses into errors inside the closure passed to `execute`.
+제공기관 어댑터는 `execute`에 전달하는 closure 안에서 재시도할 HTTP 상태를 오류로 변환해야 한다.
 
-Current Foundation Platform adapters treat these as retryable:
+현재 Foundation Platform adapter는 다음 상태를 retry 대상으로 취급한다.
 
 - HTTP 5xx
 - HTTP 429
 
-Non-retryable statuses should return a successful HTTP response from the protected call and then be mapped by the adapter. For example, Foundation Platform parcel lookup maps HTTP 404 to `Ok(None)` after the protected call returns.
+재시도하지 않는 상태는 보호된 호출에서 성공적인 HTTP response로 반환한 뒤 adapter가 매핑한다.
+예를 들어 Foundation Platform parcel lookup은 보호 호출 뒤 HTTP 404를 `Ok(None)`으로 매핑한다.
 
 ## 6. Error Mapping
 
-Adapters must not leak raw provider schemas into domain crates.
+어댑터는 제공기관 원천 스키마를 도메인 crate에 노출하지 않는다.
 
-Required mapping:
+필수 매핑:
 
-- HTTP/client failures become adapter-specific infra errors.
-- Circuit breaker failures become product-facing backend errors.
-- Provider response JSON becomes Gongzzang-owned DTOs or read models.
-- Unexpected response values become parse/contract errors.
+- HTTP/client 실패는 adapter별 infra error가 된다.
+- circuit breaker 실패는 제품용 backend error가 된다.
+- provider response JSON은 Gongzzang 소유 DTO 또는 read model이 된다.
+- 예상하지 못한 response 값은 parse/contract error가 된다.
 
-Domain crates should depend on ports and value objects, not `reqwest`, provider SDKs, or provider response structs.
+도메인 crate는 `reqwest`·제공기관 SDK·응답 구조체가 아니라 port와 값 객체에 의존한다.
 
 ## 7. Audit And Lineage
 
-The circuit breaker crate does not write audit records.
+Circuit breaker crate는 감사 기록을 쓰지 않는다.
 
-Adapters must decide whether a call is audit-relevant:
+adapter는 호출이 audit 대상인지 결정해야 한다.
 
-- user-visible mutation: audit required;
-- admin/security-sensitive read: audit required;
-- raw public-data lineage: owning service lineage required;
-- ordinary Foundation Platform read-through lookup: trace/logging usually enough unless policy says otherwise.
+- 사용자에게 보이는 mutation: audit 필수
+- admin/security 민감 read: audit 필수
+- raw 공공데이터 lineage: 소유 service lineage 필수
+- 일반 Foundation Platform read-through lookup: 정책이 다르게 요구하지 않으면 trace/logging으로 충분
 
-Catalog raw lineage belongs to Foundation Platform. Gongzzang-owned external API raw lineage requires an ADR-approved archive/lineage contract before implementation.
+Catalog raw lineage는 Foundation Platform 소유다. Gongzzang 소유 외부 API raw lineage는 구현 전에
+ADR 승인 archive/lineage 계약이 필요하다.
 
 ## 8. Forbidden Patterns
 
-Do not:
+금지:
 
-- call V-World/data.go.kr Catalog APIs directly from Gongzzang runtime;
-- instantiate a new `Breaker` per request;
-- use ad-hoc `reqwest::get` in production adapters;
-- retry non-idempotent mutations without an explicit idempotency key or operation key;
-- log Authorization, Cookie, Set-Cookie, provider API keys, service tokens, or raw PII;
-- hide external-call failures behind silent fallbacks unless the fallback contract is explicitly documented.
+- Gongzzang runtime에서 V-World/data.go.kr Catalog API를 직접 호출한다.
+- 요청마다 새 `Breaker`를 만든다.
+- 운영 adapter에서 ad-hoc `reqwest::get`을 사용한다.
+- 명시적 idempotency key 또는 operation key 없이 non-idempotent mutation을 retry한다.
+- Authorization·Cookie·Set-Cookie·provider API key·service token·raw PII를 로그에 남긴다.
+- fallback 계약을 문서화하지 않고 외부 호출 실패를 조용한 fallback으로 숨긴다.
 
 ## 9. Existing Good Examples
 
-Current examples to follow:
+따라야 할 현재 예시:
 
 - `services/gongzzang-api/src/foundation_parcel_lookup.rs`
 - `services/gongzzang-api/src/building_reader.rs`
 - `services/gongzzang-outbox-publisher/src/foundation_lakehouse_registry.rs`
 
-These adapters keep Foundation Platform calls behind service-owned boundaries and reuse `reqwest::Client`, `Breaker`, and `Policy`.
+이 어댑터는 Foundation Platform 호출을 서비스 소유 경계 뒤에 두고 `reqwest::Client`, `Breaker`,
+`Policy`를 재사용한다.
 
 ## 10. Verification
 
-After changing external-call behavior, keep the Foundation Platform (dependency)
-boundary and platform-integration policy intact. The Foundation Platform catalog
-boundary is enforced by `scripts/lefthook/foundation-ownership-boundary.sh` and the
-boundary contract `docs/architecture/foundation-platform-boundary.v1.json`.
+외부 호출 동작을 바꾼 뒤에도 Foundation Platform 의존성 경계와 platform-integration 정책을 유지한다.
+Foundation Platform Catalog 경계는 `scripts/lefthook/foundation-ownership-boundary.sh`와
+`docs/architecture/foundation-platform-boundary.v1.json` 계약이 강제한다.
 
-Run Rust checks for the circuit breaker crate and affected service:
+회로 차단 crate와 영향을 받은 service에 Rust 검사를 실행한다.
 
 ```bash
 cargo test -p circuit-breaker
 cargo check -p gongzzang-api
 ```
 
-If the adapter touches Foundation Platform event, lakehouse, or marker contracts, also run the matching contract guardrail.
+어댑터가 Foundation Platform 이벤트·레이크하우스·마커 계약을 건드리면 해당 계약 가드도 실행한다.

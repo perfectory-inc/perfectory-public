@@ -233,7 +233,7 @@ docker exec -i \
   --lineage-output /workspace/target/lakehouse/smoke/summaries/industrial_complexes_iceberg_lineage.json
 ```
 
-After the write smoke succeeds, the read-only smoke can target the same dedicated table with the
+write smoke가 성공하면 read-only smoke는 같은 전용 테이블을 다음
 `smoke-vworld-cadastral` / `smoke-r2` subcommands or a direct Trino read:
 
 ```sql
@@ -252,8 +252,8 @@ persisted row count, lineage shape 를 검증한다.
 
 ### Industrial-complex Gold projection write smoke
 
-After a Silver handoff or smoke input exists, write the Gold `complex_catalog` projection to a
-dedicated Iceberg smoke table:
+Silver handoff 또는 smoke 입력이 있으면 Gold `complex_catalog` projection을 전용 Iceberg
+smoke 테이블에 기록한다.
 
 ```bash
 docker exec -i \
@@ -273,22 +273,22 @@ docker exec -i \
   --lineage-output /workspace/target/lakehouse/smoke/summaries/gold_complex_catalog_iceberg_lineage.json
 ```
 
-Default target is `gold.complex_catalog_smoke`. The job refuses non-smoke targets unless a non-smoke
+기본 target은 `gold.complex_catalog_smoke`다. job은 non-smoke
 flag is present, and it refuses fixture input for non-smoke targets. The Spark job emits a
 `foundation-platform.spark_run_summary.v1` summary with `contract = gold.complex_catalog`,
 `persisted_row_count`, source snapshot ids, and blocking quality metrics, applies the lakehouse
 quality rules (`foundation-outbox-publisher evaluate-lakehouse-quality-rules`), writes the
 `--lineage-output`, and is verified against the `foundation-platform.lakehouse_lineage_event.v1` contract.
 
-To validate the full Silver-to-Gold chain, run the Bronze-to-Silver job and then the Silver-to-Gold
-job in order against the same dedicated smoke tables: the Silver job writes
+전체 Silver-to-Gold chain을 검증하려면 같은 전용 smoke 테이블을 대상으로 Bronze-to-Silver
+job 다음 Silver-to-Gold job을 순서대로 실행한다. Silver job은
 `silver.industrial_complexes_smoke`, and the Gold job reads that Iceberg table as its source and
 writes `gold.complex_catalog_smoke`. The Gold run summary must show `input.kind = iceberg` and
 `input.qualified_table = r2.silver.industrial_complexes_smoke`.
 
 ### Industrial-complex Gold pointer publish
 
-After Spark/Iceberg writes and verifies a Gold industrial-complex artifact, publish the thin
+Spark/Iceberg가 Gold industrial-complex 산출물을 쓰고 검증한 뒤 얇은
 Catalog pointer through the Rust control plane. This records `source_record`, `file_asset`,
 `industrial_complex_gold_pointer`, and the outbox event in one transaction.
 
@@ -311,8 +311,9 @@ export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_CHECKSUM_SHA2
 cargo run -p foundation-outbox-publisher -- publish-industrial-complex-gold-pointer
 ```
 
-Use `FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_EXPECTED_CURRENT_VERSION` for stale-write
-protection when replacing an existing pointer. Leave it empty only for the first publish.
+기존 pointer를 바꿀 때 stale-write 방지를 위해
+`FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_EXPECTED_CURRENT_VERSION`을 사용한다.
+첫 공개에서만 비워 둔다.
 
 Spark Iceberg runtime 은 `spark-submit --packages` 로 driver 시작 전에 주입한다. Docker Spark image 는
 기본 Ivy cache path 가 writable 이 아니므로 script 는 `spark.jars.ivy=/tmp/.ivy2` 를 명시한다.

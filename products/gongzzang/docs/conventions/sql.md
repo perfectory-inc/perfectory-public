@@ -113,12 +113,12 @@ deleted_at timestamptz null
 
 ## 11. Gongzzang-owned external response archive
 
-Catalog source raw lineage is Foundation Platform-owned. Gongzzang must not add raw
-tables for parcel, building, industrial complex, manufacturer, public/reference
-spatial layers, or Catalog API drift monitoring.
+Catalog source raw lineage는 Foundation Platform 소유다. Gongzzang은 parcel·building·industrial
+complex·manufacturer·public/reference spatial layer·Catalog API drift monitoring을 위한 raw
+table을 추가하지 않는다.
 
-For a future Gongzzang-owned external adapter approved by ADR, archive tables use
-an explicit owner-specific name:
+ADR로 승인한 미래 Gongzzang 소유 external adapter archive table은 명시적인 owner-specific
+name을 사용한다.
 
 ```sql
 create table listing_external_data (

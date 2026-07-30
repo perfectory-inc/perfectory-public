@@ -1,4 +1,4 @@
-# ADR-0048: Horizontal Platform Redefinition
+# ADR-0048: 수평 플랫폼 재정의
 
 | Field | Value |
 |---|---|
@@ -8,21 +8,19 @@
 | Supersedes | ADR-0030/0031 core-centered platform naming, where it conflicts with this ADR |
 | Related | ADR-0030, ADR-0031, ADR-0032, ADR-0034, ADR-0045, foundation implementation ADR-0021 |
 
-## Context
+## 배경
 
-The previous cross-repo model used a single shared core as the internal hub for
-Catalog, Workforce/Authz, lakehouse, collection, and governance. That model
-helped extract common data from product services, but it also created a vertical
-gravity well: any shared capability tended to move into one increasingly broad
-core service.
+이전 저장소 간 모델은 하나의 shared core를 내부 hub로 사용해 Catalog,
+Workforce/Authz, lakehouse, collection, governance를 묶었다. 이 모델은 product
+service에서 공통 data를 추출하는 데 도움이 되었지만, 공통 capability가 점점 넓어지는
+하나의 core service로 몰리는 수직 중력 우물을 만들었다.
 
-The target architecture is now a horizontal platform architecture. Shared
-capabilities are not grouped under one generic core. They are grouped by durable
-platform responsibility.
+목표 구조는 이제 horizontal platform architecture다. 공유 capability를 하나의
+generic core 아래 묶지 않고, 오래 유지되는 platform 책임별로 묶는다.
 
-## Decision
+## 결정
 
-Adopt the following top-level platform names and ownership boundaries:
+다음 top-level platform 이름과 소유 경계를 채택한다.
 
 ```text
 foundation-platform
@@ -30,30 +28,28 @@ identity-platform
 intelligence-platform
 ```
 
-The old core name is retired as a platform name. It must not be used for new
-external resources, runtime labels, contracts, service names, package names, or
-architecture documents except when explicitly referring to historical migration
-evidence.
+이전 core 이름은 플랫폼 이름으로 폐기한다. 역사적 migration evidence를 명시적으로
+가리키는 경우를 제외하고 새 외부 resource·runtime label·contract·service·package·
+architecture 문서에는 사용하지 않는다.
 
-### foundation-platform
+### foundation-platform 책임
 
-`foundation-platform` owns canonical shared data and data infrastructure:
+`foundation-platform`은 canonical shared data와 data infrastructure를 소유한다:
 
 - public/canonical Catalog data
-- industrial complex, parcel, building, manufacturer, spatial, and map anchor facts
+- industrial complex, parcel, building, manufacturer, spatial, map anchor 사실
 - Bronze/Silver/Gold lakehouse data
 - R2/Iceberg/Trino/Spark lakehouse integration
-- source catalogs, raw lineage, collection ledger, Bronze commit protocol
-- canonical normalization proposal inbox for data it owns
-- approved canonical apply commands for data it owns
-- data governance, retention, lineage, and promotion policy
+- source catalog, raw lineage, collection ledger, Bronze commit protocol
+- 소유 data의 canonical normalization proposal inbox
+- 소유 data의 승인된 canonical apply command
+- data governance, retention, lineage, promotion policy
 
-The current Catalog, lakehouse, collection, and pipeline responsibilities move
-to foundation-platform.
+현재 Catalog·lakehouse·collection·pipeline 책임은 foundation-platform으로 이동한다.
 
-### identity-platform
+### identity-platform 책임
 
-`identity-platform` owns shared identity, authorization, and principal policy:
+`identity-platform`은 shared identity, authorization, principal policy를 소유한다:
 
 - staff identity
 - service identity and service tokens
@@ -63,15 +59,15 @@ to foundation-platform.
 - audit principal resolution
 - identity-related outbox/events
 
-The current Workforce/Authz responsibilities move to identity-platform.
+현재 Workforce/Authz 책임은 identity-platform으로 이동한다.
 
-Product-user identity remains product-owned unless explicitly moved. For
-example, Gongzzang B2C users remain `gongzzang` owned; staff/admin identity is
-identity-platform owned.
+Product-user identity는 명시적으로 이동하기 전까지 product가 소유한다. 예를 들어
+Gongzzang B2C user는 계속 `gongzzang` 소유이고 staff/admin identity는
+identity-platform 소유다.
 
-### intelligence-platform
+### intelligence-platform 책임
 
-`intelligence-platform` owns AI execution and proposal generation:
+`intelligence-platform`은 AI 실행과 proposal 생성을 소유한다:
 
 - model calls and model routing
 - embeddings/vector indexing and retrieval
@@ -81,13 +77,13 @@ identity-platform owned.
 - AI retry/outbox state
 - developer UI integrations such as Open WebUI, when used for development
 
-`intelligence-platform` does not own canonical data. It may submit proposals to
-foundation-platform or other owner services through approved APIs. It must not
-write owner databases, Silver/Gold tables, or canonical records directly.
+`intelligence-platform`은 canonical data를 소유하지 않는다. 승인된 API를 통해
+foundation-platform이나 다른 owner service에 proposal을 제출할 수 있다. owner DB,
+Silver/Gold table, canonical record에 직접 쓰면 안 된다.
 
-## Naming Rules
+## 이름 규칙
 
-New platform-level resources use the final platform names:
+새 platform-level resource는 최종 platform 이름을 사용한다:
 
 ```text
 foundation-platform-*
@@ -104,22 +100,21 @@ foundation-platform.catalog.*
 source_system = foundation-platform-r2
 ```
 
-Legacy core prefixes must not be used for new resources. Existing resources may
-remain only as migration inputs, must be marked legacy, and must be retired after
-verified migration.
+새 resource에는 legacy core prefix를 사용하지 않는다. 기존 resource는 migration input으로
+필요한 동안만 남길 수 있고 legacy로 표시하며, 검증된 migration 후 폐기한다.
 
-## Boundary Rule
+## 경계 규칙
 
-The platform that owns the data owns the approval gate for that data.
+데이터를 소유한 플랫폼이 해당 데이터의 승인 게이트를 소유한다.
 
 ```text
 AI proposes.
-The owning platform governs.
-Humans approve when required.
-The owning platform command writes canonical state.
+소유 플랫폼이 관리한다.
+필요하면 사람이 승인한다.
+소유 플랫폼 명령이 정본 상태에 쓴다.
 ```
 
-Therefore:
+따라서:
 
 - foundation-platform owns Catalog normalization proposal inboxes for foundation
   canonical data.
@@ -127,49 +122,45 @@ Therefore:
 - product services own product-specific gates such as listing moderation or
   site presentation approval.
 
-There is no single universal approval service at this scale.
+이 규모에는 하나의 범용 승인 서비스가 필요하지 않다.
 
-## Migration Strategy
+## 전환 전략
 
-1. Record this ADR as the cross-repo decision source.
-2. Add thin pointer ADRs in affected repos.
-3. Treat the current core repository/path as a legacy implementation location
-   only until it is renamed or replaced.
-4. Rename documentation, resource prefixes, environment variables, and runtime
-   labels when touched.
-5. Create new external resources with final names instead of renaming in place
-   when the provider does not support rename, such as R2 buckets.
-6. Move identity responsibilities behind identity-platform contracts before
-   physically splitting repositories.
-7. Move or rename physical repositories only after contracts, CI, deployment
-   names, and data migration are stable.
+1. 이 ADR을 cross-repo decision source로 기록한다.
+2. 영향을 받는 repo에 얇은 pointer ADR을 추가한다.
+3. 현재 core repository/path는 이름을 바꾸거나 교체하기 전까지만 legacy 구현 위치로
+   취급한다.
+4. 문서, resource prefix, environment variable, runtime label을 건드릴 때 최종 이름으로
+   바꾼다.
+5. R2 bucket처럼 provider가 rename을 지원하지 않으면 기존 resource를 바꾸지 말고 최종
+   이름으로 새 external resource를 만든다.
+6. repository를 물리적으로 나누기 전에 identity 책임을 identity-platform contract 뒤로
+   이동한다.
+7. contract, CI, deployment 이름, data migration이 안정화된 뒤에만 물리 repository를
+   이동하거나 이름을 바꾼다.
 
-## Non-Goals
+## 범위 밖
 
-- No immediate forced repository move in this ADR.
-- No direct database sharing across platforms.
-- No Kafka/Kubernetes requirement is introduced by this naming decision.
-- No AI service receives canonical write permission.
-- No product-specific semantics move into foundation-platform.
+- 이 ADR에서 즉시 repository를 강제로 이동하지 않는다.
+- platform 간 직접 database 공유를 하지 않는다.
+- 이 naming 결정으로 Kafka/Kubernetes 의무를 추가하지 않는다.
+- AI service에 canonical write permission을 주지 않는다.
+- product-specific semantics를 foundation-platform으로 옮기지 않는다.
 
-## Consequences
+## 영향
 
-- Positive: shared capabilities stop accumulating under one vertical core
-  umbrella.
-- Positive: data, identity, and AI responsibilities are separated at the
-  platform level.
-- Positive: future services can depend on horizontal contracts rather than one
-  overloaded core service.
-- Cost: existing documentation and resource names must be migrated carefully.
-- Cost: legacy physical paths may remain temporarily, but they are not valid
-  platform names.
+- 긍정적 효과: shared capability가 하나의 수직 core umbrella 아래 쌓이지 않는다.
+- 긍정적 효과: data, identity, AI 책임을 platform 수준에서 분리한다.
+- 긍정적 효과: 향후 service가 과부하된 core service가 아니라 horizontal contract에
+  의존할 수 있다.
+- 비용: 기존 문서와 resource 이름을 신중하게 migration해야 한다.
+- 비용: legacy 물리 path가 잠시 남을 수 있지만 유효한 platform 이름은 아니다.
 
-## Reassessment Triggers
+## 재평가 조건
 
-- If repository count or platform count grows enough that Gongzzang is no
-  longer appropriate as cross-repo governance home, create a dedicated
-  architecture/governance repository as described in ADR-0045.
-- If identity-platform becomes deployable independently, create a repo-local ADR
-  for its physical extraction plan.
-- If foundation-platform is physically renamed, supersede this ADR with the
-  final path/resource migration evidence.
+- repository 수나 platform 수가 늘어 Gongzzang이 cross-repo governance 위치로 더 이상
+  적절하지 않으면 ADR-0045에 따라 전용 architecture/governance repository를 만든다.
+- identity-platform을 독립 배포할 수 있게 되면 물리 추출 계획을 위한 repo-local ADR을
+  만든다.
+- foundation-platform의 물리 이름을 바꾸면 최종 path/resource migration evidence로 이
+  ADR을 대체한다.

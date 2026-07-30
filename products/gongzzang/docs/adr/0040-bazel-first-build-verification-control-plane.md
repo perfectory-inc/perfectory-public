@@ -1,4 +1,4 @@
-# ADR-0040: Bazel-first build and verification control plane
+# ADR-0040: Bazel 우선 빌드·검증 제어면
 
 | | |
 |---|---|
@@ -6,26 +6,26 @@
 | Status | **Superseded by [ADR-0044](./0044-bazel-transition-reconciliation.md)** |
 | Decision owner | Platform engineering |
 
-## Original decision
+## 원래 결정
 
-This ADR proposed Bazel as the common build and verification entrypoint, with Cargo and
+이 ADR은 Cargo와
 pnpm/Turborepo retained during a transition. Its goals were scoped verification, hermetic inputs,
 and shared remote caching without building a custom scheduler.
 
-The proposal also required a second target graph, transition wrappers, platform-specific toolchain
+제안은 두 번째 target graph, transition wrapper, platform별 toolchain도 요구했다.
 work, and remote-cache governance. Those costs duplicated knowledge already owned by native package
 graphs and the repository verification harness.
 
-## Supersession
+## 대체 상태
 
 ADR-0044 replaces this decision. Cargo is the Rust build tool, pnpm/Turborepo owns frontend tasks,
 and `cargo xtask verify <area>` is the verification SSOT. Do not add Bazel files, targets, wrappers,
 or registries based on this historical proposal.
 
-The durable lesson is that a build-platform change must remove a measured bottleneck and replace an
+지속되는 교훈은 build-platform 변경이 측정된 병목을 제거하고
 existing SSOT. Adding another graph beside the native graphs does not satisfy that bar.
 
-## References
+## 참고 문서
 
 - [ADR-0044](./0044-bazel-transition-reconciliation.md)
 - [Bazel remote caching](https://bazel.build/remote/caching)

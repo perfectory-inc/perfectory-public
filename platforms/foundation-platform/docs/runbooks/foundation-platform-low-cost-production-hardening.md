@@ -5,30 +5,28 @@ doc_type: runbook
 last_reviewed: 2026-07-29
 ---
 
-# Foundation Platform Low Cost Production Hardening Runbook
+# Foundation Platform 저비용 운영 강화 런북
 
-## Purpose
+## 목적
 
-This runbook records the low-cost production hardening baseline for foundation-platform. It does not
-replace M3.2 cutover completion evidence. It exists so capacity claims are based on measured
-load-test artifacts, not estimates.
+이 런북은 foundation-platform의 저비용 운영 강화 기준선을 기록한다. M3.2 전환 완료 증거를
+대체하지 않는다. 용량 주장을 추정치가 아니라 측정한 부하 테스트 산출물에 근거하게 하는 것이 목적이다.
 
-## Recovery Design
+## 복구 설계
 
-Cloudflare R2 does not expose S3 bucket versioning. Foundation Platform therefore uses two different
-recovery controls for two different storage contracts:
+Cloudflare R2는 S3 버킷 버전 관리를 제공하지 않는다. 따라서 Foundation Platform은 서로 다른 저장
+계약에 서로 다른 복구 제어를 적용한다.
 
-- The governed lakehouse Bronze prefix is immutable raw evidence. Apply the checked-in
+- 관리되는 레이크하우스 Bronze 접두사는 변경 불가 원자료 증거다. 저장소에 포함된
   `bronze-raw-30-days` Bucket Lock policy to the configured lakehouse bucket and read it back before
   allowing live collection writes.
-- PostgreSQL recovery uses a physically separate bucket supplied through
+- PostgreSQL 복구는
   `FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET`. Do not Bucket Lock the whole pgBackRest repository because
   pgBackRest updates metadata such as `backup.info` and `archive.info`. Its controls are a dedicated
   bucket and credentials, client-side AES-256-CBC encryption, continuous WAL archiving, 35-day
   full-backup retention, and restore rehearsal.
 
-Apply the checked-in lock declaration to the configured logical lakehouse bucket with the official
-Cloudflare CLI and verify it immediately:
+공식 Cloudflare CLI로 설정된 레이크하우스 버킷에 저장소의 잠금 선언을 적용하고 즉시 확인한다.
 
 ```bash
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=... \
@@ -38,13 +36,12 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... FOUNDATION_PLATFORM_R2_LAKEHO
   wrangler r2 bucket lock list "$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET"
 ```
 
-Do not add a lock for the pgBackRest repository unless completed backup objects and mutable repository
-metadata have first been moved into physically separate prefixes and an end-to-end backup plus expiry
-test has passed.
+완료된 백업 객체와 변경 가능한 저장소 메타데이터를 먼저 물리적으로 분리한 접두사로 옮기고
+백업·만료 전체 테스트를 통과하기 전에는 pgBackRest 저장소에 잠금을 추가하지 않는다.
 
-## Baseline Command
+## 기준 부하 명령
 
-Run the read-path k6 smoke after the API reports readiness:
+API가 준비 상태를 보고한 뒤 읽기 경로 k6 smoke를 실행한다.
 
 ```bash
 FOUNDATION_PLATFORM_API_URL=http://localhost:8080 \
@@ -54,78 +51,74 @@ FOUNDATION_PLATFORM_LOAD_HEALTH_RPS=5 \
 k6 run --summary-export target/load/summary.json scripts/load/foundation-read-smoke.js
 ```
 
-The k6 run writes JSON evidence under `target/load`.
+ k6 실행은 `target/load` 아래에 JSON 증거를 쓴다.
 
-## Validation Only
+## 실행 없이 검증
 
-In environments where k6 is not installed, validate the script without running load:
+k6가 설치되지 않은 환경에서는 부하를 실행하지 않고 스크립트만 검증한다.
 
 ```bash
 k6 inspect scripts/load/foundation-read-smoke.js
 ```
 
-This checks the script parses and its scenarios resolve. It does not make a capacity claim.
+스크립트 구문과 시나리오 해석만 확인하며 용량을 주장할 수 있는 검사는 아니다.
 
-## Initial Targets
+## 초기 목표
 
-- `/healthz` returns `200`.
-- `/readyz` returns `200` before load starts.
-- Hot read p95 stays below 500 ms.
-- Hot read p99 stays below 1500 ms.
-- Failed request rate stays below 1 percent.
-- Overload must degrade as bounded `429`, `503`, or timeout responses, not process collapse.
+- `/healthz`가 `200`을 반환한다.
+- 부하 시작 전에 `/readyz`가 `200`을 반환한다.
+- hot read p95가 500ms 미만이다.
+- hot read p99가 1500ms 미만이다.
+- 실패 요청률이 1% 미만이다.
+- overload는 process 붕괴가 아니라 제한된 `429`·`503`·timeout 응답으로 열화되어야 한다.
 
-## Capacity Claim Format
+## 용량 주장 형식
 
-Only claim capacity with evidence:
+증거가 있을 때만 다음 형식으로 용량을 주장한다.
 
 ```text
-On instance type X with PostgreSQL 17 config Y and Valkey 8 config Z,
-foundation-platform handled N read RPS for D duration with:
-p95 <= A ms, p99 <= B ms, error rate <= C%, no restart, no OOM, no DB saturation.
+instance type X, PostgreSQL 17 설정 Y, Valkey 8 설정 Z에서 foundation-platform이 D 기간 동안
+N read RPS를 처리했고 p95 <= A ms, p99 <= B ms, error rate <= C%, restart 없음, OOM 없음,
+DB saturation 없음이어야 한다.
 ```
 
-## Required Evidence
+## 필수 증거
 
 - k6 summary JSON from `target/load`.
-- Platform logs for the same time window.
-- `/metrics` scrape for request count, error rate, latency, DB pressure, Valkey state, and outbox state.
-- Deployment target details: host type, CPU, memory, PostgreSQL limits, Valkey limits, and commit SHA.
+- 같은 시간 구간의 platform log
+- 요청 수·error rate·latency·DB pressure·Valkey 상태·outbox 상태를 담은 `/metrics` scrape
+- 배포 target 정보: host type, CPU, memory, PostgreSQL/Valkey limit, commit SHA
 
-## Process Manager Guardrails
+## 프로세스 관리자 가드
 
-Use a process manager with explicit restart and shutdown behavior before making any production
-claim:
+운영을 주장하기 전 재시작·종료 동작이 명시된 프로세스 관리자를 사용한다.
 
-- Restart on failure with backoff. Do not use a tight infinite restart loop.
-- Set a startup timeout and fail deployment if `/readyz` does not return `200`.
-- Set a graceful stop timeout so in-flight requests can finish before the process is killed.
-- Load environment variables from an environment file managed outside Git.
-- Send logs to journald, Docker logs, or another retained log sink.
-- Record the deployed commit SHA, container digest, and environment file version in the rollout
-  note.
+- 실패 시 backoff를 두고 재시작한다. 빠른 무한 재시작 loop는 사용하지 않는다.
+- startup timeout을 설정하고 `/readyz`가 `200`이 아니면 배포를 실패시킨다.
+- process 종료 전에 in-flight 요청이 끝날 수 있도록 graceful stop timeout을 둔다.
+- Git 밖에서 관리하는 environment file로 환경변수를 읽는다.
+- log를 journald, Docker log 또는 보존되는 다른 sink로 보낸다.
+- rollout note에 배포 commit SHA, container digest, environment file version을 기록한다.
 
-## PostgreSQL Backup Policy
+## PostgreSQL 백업 정책
 
-The recovery image is pinned in `infra/postgres/Dockerfile.recovery` and uses pgBackRest 2.58.0.
-`compose.recovery.yml` enables synchronous WAL archive push with `archive_timeout=60s` and keeps the
-repository outside the application host in R2.
+복구 image는 `infra/postgres/Dockerfile.recovery`에 고정하고 pgBackRest 2.58.0을 사용한다.
+`compose.recovery.yml`은 `archive_timeout=60s`로 synchronous WAL archive push를 켜고 application
+host 밖 R2에 repository를 둔다.
 
-- Full backup: Sunday, or whenever no valid full backup exists.
-- Differential backup: every other day.
-- Schedule: daily at 02:15 local server time with up to 15 minutes randomized delay.
-- Retention: full backups remain recoverable for 35 days; required WAL is retained by pgBackRest.
-- Encryption: pgBackRest AES-256-CBC using a passphrase stored outside Git.
-- Access: credentials must be scoped to the dedicated recovery bucket and must not be shared with the
-  lakehouse writer.
-- RPO objective: at most 5 minutes. The configured 60-second archive timeout is stricter, while the
-  larger objective leaves room for network and alerting delay.
-- RTO objective: at most 2 hours for the current deployment class.
-- Valkey remains disposable cache/idempotency state and is not restored as canonical data.
+- Full backup: 일요일 또는 유효한 full backup이 없을 때
+- Differential backup: 이틀마다
+- Schedule: local server 시각 매일 02:15, 최대 15분 random delay
+- Retention: full backup은 35일 복구 가능, 필요한 WAL은 pgBackRest가 보존
+- Encryption: Git 밖에 둔 passphrase를 사용하는 pgBackRest AES-256-CBC
+- Access: credential은 전용 recovery bucket 범위여야 하며 lakehouse writer와 공유하지 않는다.
+- RPO 목표: 최대 5분. 설정된 60초 archive timeout은 더 엄격하고 네트워크·알림 지연 여유가 있다.
+- RTO 목표: 현재 배포 등급에서 최대 2시간
+- Valkey는 폐기 가능한 cache/idempotency 상태이며 정본 데이터로 복구하지 않는다.
 
-Install releases under `/opt/foundation-platform/releases/<git-sha>`. The deployment entrypoint
-atomically switches `/opt/foundation-platform/current`, records the prior target in `previous`, and
-keeps mutable recovery evidence outside immutable releases in `/var/lib/foundation-platform/recovery`:
+릴리스는 `/opt/foundation-platform/releases/<git-sha>` 아래에 설치한다. 배포 진입점은
+`/opt/foundation-platform/current`를 원자적으로 전환하고 이전 대상을 `previous`에 기록한다.
+변경 가능한 복구 증거는 변경 불가 릴리스 밖의 `/var/lib/foundation-platform/recovery`에 둔다.
 
 ```bash
 release_id="$(git rev-parse HEAD)"
@@ -136,19 +129,19 @@ sudo FOUNDATION_PLATFORM_RELEASE_ROOT=/opt/foundation-platform \
     "${release_id}" "/tmp/foundation-${release_id}.tar.gz"
 ```
 
-The same release entrypoint prepares lakehouse compute state outside the immutable source tree:
+같은 릴리스 진입점은 변경 불가 소스 트리 밖에 레이크하우스 계산 상태를 준비한다.
 
 - `/var/lib/foundation-platform/lakehouse`
 - `/var/lib/foundation-platform/remote-lakehouse`
 
-Both directories are owned by the configured lakehouse runtime UID/GID (default `185:185`) and are
-mounted by `compose.lakehouse.yml`. A release must never write mutable Spark or lakehouse output under
-`/opt/foundation-platform/releases/<git-sha>/target`.
+두 디렉터리는 설정된 레이크하우스 runtime UID/GID(기본 `185:185`)가 소유하고
+`compose.lakehouse.yml`이 마운트한다. 릴리스는 `/opt/foundation-platform/releases/<git-sha>/target`
+아래에 변경 가능한 Spark·레이크하우스 출력을 절대 쓰지 않는다.
 
-Install the scheduler only after `current` identifies the intended exact commit and
-`/etc/foundation-platform/recovery.env` exists with mode `0600`. Set
-`FOUNDATION_RECOVERY_EVIDENCE_DIR=/var/lib/foundation-platform/recovery` in that file, or use the
-same systemd default:
+`current`가 의도한 정확한 commit을 가리키고 `/etc/foundation-platform/recovery.env`가 mode
+`0600`으로 존재한 뒤에만 scheduler를 설치한다. 해당 file에
+`FOUNDATION_RECOVERY_EVIDENCE_DIR=/var/lib/foundation-platform/recovery`를 설정하거나 같은
+systemd default를 사용한다.
 
 ```bash
 sudo install -o root -g root -m 0644 \
@@ -164,10 +157,10 @@ systemctl show foundation-postgres-backup.timer -p ActiveState -p NextElapseUSec
 journalctl -u foundation-postgres-backup.service --since today
 ```
 
-The first service run must finish successfully before the timer is accepted as operational.
+timer를 운영 상태로 인정하기 전에 첫 서비스 실행이 성공적으로 끝나야 한다.
 
-Rollback switches the symlink without mutating either release. Restart affected services and rerun
-readiness checks after the switch:
+롤백은 어느 릴리스도 변경하지 않고 심볼릭 링크만 전환한다. 전환 후 영향을 받는 서비스를 재시작하고
+준비 상태 검사를 다시 실행한다.
 
 ```bash
 sudo FOUNDATION_PLATFORM_RELEASE_ROOT=/opt/foundation-platform \
@@ -176,12 +169,11 @@ sudo FOUNDATION_PLATFORM_RELEASE_ROOT=/opt/foundation-platform \
 readlink /opt/foundation-platform/current
 ```
 
-## Runtime Compose Entrypoint
+## 운영 Compose 진입점
 
-All production-runtime Compose operations must go through `scripts/deploy/foundation-runtime.sh`.
-The entrypoint always merges `docker-compose.yml` with `compose.recovery.yml`, so starting an API or
-observability service cannot silently replace the recovery-enabled PostgreSQL image with the local
-development image or disable WAL archiving.
+모든 운영 런타임 Compose 작업은 `scripts/deploy/foundation-runtime.sh`를 거쳐야 한다. 진입점은
+항상 `docker-compose.yml`과 `compose.recovery.yml`을 합치므로 API·관측성 서비스를 시작해도 복구
+설정 PostgreSQL 이미지가 로컬 개발 이미지로 바뀌거나 WAL 보관이 꺼지지 않는다.
 
 ```bash
 cd /opt/foundation-platform/current
@@ -190,8 +182,8 @@ sudo scripts/deploy/foundation-runtime.sh up -d --build \
 sudo scripts/deploy/foundation-runtime.sh ps
 ```
 
-Lakehouse services use the same recovery-safe wrapper but a separate Compose project so compute can
-be operated independently from the API and database runtime:
+레이크하우스 서비스도 같은 복구 안전 wrapper를 사용하지만 별도 Compose 프로젝트로 실행한다. 계산을
+API·데이터베이스 런타임과 독립적으로 운영하기 위해서다.
 
 ```bash
 sudo env FOUNDATION_PLATFORM_COMPOSE_PROJECT=foundation-platform-compute \
@@ -200,21 +192,20 @@ sudo env FOUNDATION_PLATFORM_COMPOSE_PROJECT=foundation-platform-compute \
   scripts/deploy/foundation-runtime.sh --profile lakehouse-batch up -d spark
 ```
 
-Use the same entrypoint for a controlled API alert rehearsal:
+제어된 API 장애 알림 리허설에도 같은 진입점을 사용한다.
 
 ```bash
 sudo scripts/deploy/foundation-runtime.sh stop foundation-api
 sudo scripts/deploy/foundation-runtime.sh up -d foundation-api
 ```
 
-Do not invoke the root Compose file by itself on a recovery-enabled runtime. The root file is also a
-local-development contract and intentionally uses the standard PostGIS image; the recovery overlay is
-what adds pgBackRest, `archive_mode=on`, and the off-host repository configuration.
+복구가 켜진 운영에서 루트 Compose 파일만 단독 호출하지 않는다. 루트 파일은 로컬 개발 계약이기도
+해서 표준 PostGIS 이미지를 의도적으로 사용한다. pgBackRest, `archive_mode=on`, 외부 저장소 설정은
+복구 overlay가 추가한다.
 
-## Restore Rehearsal
+## 복구 리허설
 
-Run the isolated rehearsal with a dedicated empty repository prefix and a temporary encryption
-passphrase:
+전용 빈 repository prefix와 임시 암호화 passphrase로 격리 리허설을 실행한다.
 
 ```bash
 run_id="$(date -u +%Y%m%d%H%M%S)"
@@ -223,31 +214,30 @@ FOUNDATION_RECOVERY_EVIDENCE_DIR="target/recovery/${run_id}" \
   scripts/recovery/postgres-restore-drill.sh
 ```
 
-The drill performs the exact bootstrap, migration, runtime-grant, and finalize chain; takes a full
+드릴은 정확한 bootstrap·migration·runtime-grant·finalize chain을 수행하고 전체 암호화 백업을
 encrypted backup; writes a marker after the full backup; creates a named PostgreSQL restore point;
 archives the WAL; restores into a new volume; promotes the restored database; reruns migrations; and
 proves both application tables and the post-backup marker are readable.
 
-## Evidence Handling
+## 증거 처리
 
-Every restore rehearsal must emit its schema version, run identifier, start/finish time, named restore
-point, migration count, read/PITR assertions, and result into the private operational evidence store.
-Retain the deployed and rollback commit identifiers, container digests, timer state, backup identifiers,
-RPO/RTO timings, alert transitions, daemon-restart results, and positive/negative bucket-access probes
-with the same run. Do not commit those values, live resource bindings, token names, account identifiers,
-or host inventory to this public source repository.
+모든 복구 리허설은 schema version, run identifier, 시작·종료 시각, 이름이 지정된 restore
+point, migration 수, read/PITR 검증 결과와 최종 결과를 비공개 운영 증거 저장소에 기록해야
+한다. 같은 run에 배포·rollback commit 식별자, container digest, timer 상태, backup 식별자,
+RPO/RTO 시간, alert 전환, daemon 재시작 결과, bucket 접근 성공·실패 probe를 함께 보존한다.
+이 값, 실제 resource binding, token 이름, account 식별자와 host inventory는 공개 소스
+저장소에 커밋하지 않는다.
 
-A recovery gate is complete only when the private evidence proves all of the following for the target
-environment:
+복구 게이트는 대상 환경의 비공개 증거가 다음을 모두 입증할 때만 완료다.
 
-- `pgbackrest check`, a full or differential backup, WAL archival, and a restore into an isolated volume;
-- application reads and a post-backup marker after PITR;
-- active/enabled scheduling and successful execution outside the immutable release directory;
-- the recovery credential can access only its dedicated bucket and is denied from the lakehouse bucket;
-- controlled service and daemon recovery returns every required health/readiness check;
-- observed RPO and RTO are within the declared objectives.
+- `pgbackrest check`, full 또는 differential backup, WAL archival, 격리 volume 복원
+- PITR 후 application read와 post-backup marker
+- immutable release directory 밖에서 active/enabled scheduling과 성공 실행
+- recovery credential이 전용 bucket만 접근하고 lakehouse bucket은 거부되는지
+- 제어된 service·daemon 복구가 필요한 모든 health/readiness check를 반환하는지
+- 관측한 RPO와 RTO가 선언한 목표 안에 있는지
 
-Official references:
+공식 참고 문서:
 
 - Cloudflare R2 Bucket Locks: https://developers.cloudflare.com/r2/buckets/bucket-locks/
 - Cloudflare R2 lock API: https://developers.cloudflare.com/api/resources/r2/subresources/buckets/subresources/locks/

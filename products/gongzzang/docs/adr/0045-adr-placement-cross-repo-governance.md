@@ -1,4 +1,4 @@
-# ADR-0045: ADR placement and cross-area governance
+# ADR-0045: ADR 배치와 영역 간 거버넌스
 
 | | |
 |---|---|
@@ -6,33 +6,32 @@
 | Status | **Superseded by root ADR-0001** |
 | Decision owner | perfectoryinc (platform owner) |
 
-## Context
+## 배경
 
-Before monorepo consolidation, an architecture decision could affect multiple independently managed
-codebases, which made its canonical home ambiguous. The original decision used Gongzzang as the
-temporary home for shared ADRs.
+모노레포 통합 전에는 아키텍처 결정이 독립적으로 관리되는 여러 codebase에 흩어져
+정본 위치가 모호했다. 원래 결정은 공유 ADR의 임시 위치로 Gongzzang을 사용했다.
 
-That rule no longer matches the repository topology. Keeping it would create two governance homes
-inside one monorepo.
+그 규칙은 이제 repository topology와 맞지 않는다. 유지하면 하나의 monorepo 안에 두
+개의 거버넌스 위치가 생긴다.
 
-## Current decision
+## 현재 결정
 
-- A decision scoped to one product or platform area lives in that area's `docs/adr/` directory.
-- A decision that governs multiple areas or repository-wide mechanics lives in root `docs/adr/`.
-- Area ADRs may point to a root ADR but must not duplicate its normative contract.
-- External products or consumers, including Dawneer, integrate through published contracts; their
-  existence does not create another architecture SSOT.
+- 한 product나 platform 영역에 한정된 결정은 해당 영역의 `docs/adr/` directory에 둔다.
+- 여러 영역이나 repository 전체 규칙을 지배하는 결정은 root `docs/adr/`에 둔다.
+- area ADR은 root ADR을 가리킬 수 있지만 규범 contract를 복제하지 않는다.
+- Dawneer를 포함한 외부 product·consumer는 발행된 contract로 통합하며, 존재 자체가
+  별도의 architecture SSOT를 만들지 않는다.
 
-Root ADR-0001 and the root `AGENTS.md` are authoritative when this historical ADR conflicts with the
-current monorepo layout.
+이 역사적 ADR이 현재 monorepo 배치와 충돌하면 root ADR-0001과 root `AGENTS.md`가
+권위 있는 기준이다.
 
-## Consequences
+## 영향
 
-- Decision placement follows ownership and scope.
-- Cross-area rules have one discoverable root home.
-- A separate governance repository is unnecessary while this monorepo remains the code SSOT.
+- 결정 배치는 소유권과 범위를 따른다.
+- 영역 간 규칙은 찾기 쉬운 root 위치 하나만 갖는다.
+- 이 monorepo가 code SSOT인 동안 별도 거버넌스 repository는 필요하지 않다.
 
-## References
+## 참고 문서
 
 - [Root ADR-0001](../../../../docs/adr/0001-monorepo-governance-and-conventions.md)
 - [Root AGENTS.md](../../../../AGENTS.md)

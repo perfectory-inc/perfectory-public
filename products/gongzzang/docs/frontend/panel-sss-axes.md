@@ -5,7 +5,7 @@ doc_type: architecture
 last_reviewed: 2026-07-29
 ---
 
-# SSS-grade Panel System Axes
+# SSS 수준 패널 시스템 축
 
 > AGENTS.md §10에서 이관 (2026-07-20, docs 대개편 Phase B2). 규범 본문은 원문 그대로이며,
 > §10.x 번호 체계는 기존 인용([sss-charter.md](../sss-charter.md), [ADR 0047](../adr/0047-collection-event-fabric.md) 등)과의
@@ -13,55 +13,55 @@ last_reviewed: 2026-07-29
 
 패널 시스템은 URL-driven enterprise interaction surface다. 모든 panel 변경은 아래 축을 만족해야 한다. (Claude + Codex 합의, 2026-05-08)
 
-## 10.1 Day-1 BLOCKER (없으면 SSS 자격 박탈)
+## 10.1 첫날 차단 조건(없으면 SSS 자격 박탈)
 
-1. **Correctness**
+1. **정합성(Correctness)**
    - URL serialize/deserialize roundtrip 100%
    - reload / back / forward / mobile back 동작 100%
    - hydration mismatch, race leak, memory leak 0
 
-2. **Accessibility**
+2. **접근성(Accessibility)**
    - WCAG 2.2 AA 기준
    - keyboard-only 주요 flow 100%
    - dialog / focus / ESC / breadcrumb은 ARIA APG 패턴 준수
    - axe violation 0 in CI
 
-3. **Type Safety**
+3. **타입 안전성(Type Safety)**
    - TS strict + discriminated union
    - panel kind / view exhaustiveness compile-time enforced
    - API 계약은 Rust → utoipa → OpenAPI → generated TS only
 
-4. **SSOT**
+4. **SSOT(단일 정본)**
    - URL = panel state SSOT
    - registry = kind / view / component / fetch / i18n / telemetry SSOT
    - panel framework는 kind implementation을 import 금지
    - ad-hoc URL parsing 금지 — codec만 허용
 
-5. **Security & Privacy**
+5. **보안·개인정보(Security & Privacy)**
    - user-facing string은 typed i18n only
    - PII log / span / event 금지
    - CSP / XSS / CSRF / rate-limit baseline 유지
    - audit-relevant panel/API actions는 correlation_id로 추적 가능해야 함
 
-6. **Migration / Versioning**
+6. **마이그레이션·버전 관리(Migration / Versioning)**
    - 한 번 배포된 URL codec은 영구 backward-compatible
    - invalid / unknown URL은 safe recovery + telemetry
    - codec 변경은 ADR + compatibility corpus test 필수
 
-## 10.2 Day-1 MUST
+## 10.2 첫날 필수
 
-7. **Resilience** — per-panel error boundary, AbortController / query cancellation, loading / error / empty / auth-required / ok state 강제
-8. **Observability** — `panel.opened` / `panel.url_decode_failed` / fetch latency span 필수, telemetry schema test 100%, panel open latency SLO 측정 가능해야 함
-9. **Performance** — LCP < 2.5s p75, INP < 200ms p75, CLS < 0.1 p75, bundle budget CI gate
-10. **Governance** — panel architecture 변경은 ADR 필요, lefthook + CI로 URL SSOT / codec / import boundary 강제
+7. **복원력(Resilience)** — panel별 error boundary, AbortController/query cancellation, loading/error/empty/auth-required/ok 상태 강제
+8. **관측성(Observability)** — `panel.opened`·`panel.url_decode_failed`·fetch latency span 필수. telemetry schema test 100%와 panel open latency SLO 측정 필요
+9. **성능(Performance)** — LCP < 2.5s p75, INP < 200ms p75, CLS < 0.1 p75, bundle budget CI gate
+10. **거버넌스(Governance)** — panel architecture 변경은 ADR이 필요하며 lefthook+CI가 URL SSOT·codec·import 경계를 강제
 
-## 10.3 Phase-2 Hardening
+## 10.3 2단계 강화(Phase-2 Hardening)
 
-11. **Contract Testing** — OpenAPI breaking change diff, generated client compile gate, no-mock integration tests for backing endpoints
-12. **Supply Chain Integrity** — CycloneDX SBOM, cargo-deny / pnpm audit / gitleaks, signed artifacts
-13. **Operations** — readiness / health checks, feature flag 및 rollback path, SLO dashboard + runbook + alert policy
-14. **Data Lineage** — Catalog source lineage lives in Foundation Platform; Gongzzang-owned sources need source / fetched_at / SRID / license traceability and schema evolution policy
-15. **Design System / Documentation** — Spec → ADR → Code traceability, Storybook + visual regression (critical states only), C4 recommended *not* CI gate
+11. **계약 테스트(Contract Testing)** — OpenAPI breaking change diff, generated client compile gate, backing endpoint no-mock integration test
+12. **공급망 무결성(Supply Chain Integrity)** — CycloneDX SBOM, cargo-deny/pnpm audit/gitleaks, signed artifact
+13. **운영(Operations)** — readiness/health check, feature flag와 rollback 경로, SLO dashboard+runbook+alert policy
+14. **데이터 계보(Data Lineage)** — Catalog source lineage는 Foundation Platform에 둔다. Gongzzang 소유 원천은 source/fetched_at/SRID/license 추적성과 schema evolution 정책이 필요하다.
+15. **디자인 시스템·문서화** — Spec→ADR→Code 추적성, Storybook+visual regression(중요 상태만), C4는 권장하되 CI gate로 강제하지 않는다.
 
 ## 10.4 명시적 비포함 (SSS 라벨에 본질 아님)
 

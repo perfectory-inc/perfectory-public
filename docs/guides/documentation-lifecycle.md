@@ -73,6 +73,11 @@ python3 scripts/catalog/render-document-catalog.py --check
 git diff --check
 ```
 
+`audit-documentation.py --check`는 유지 문서에 한글 설명이 전혀 없거나 명백한 영문 서술 문장이
+남은 경우 실패시킨다. 계약·fixture
+JSON, `AGENTS.md`/`CLAUDE.md` 라우터, 법률 원문은 자동 감사에서 예외로 분류한다. 기술명·코드·명령·
+식별자가 섞인 문서는 `mixed`로 보고되지만 사람이 읽는 문장은 한글로 작성해야 한다.
+
 감사 보고서는 [문서 감사 보고서](../document-audit.md), 전체 목록은
 [문서 색인](../document-catalog.md)에서 확인한다. 감사 보고서는 정본이 아니라 현재 상태를
 점검하기 위한 생성 산출물이다.

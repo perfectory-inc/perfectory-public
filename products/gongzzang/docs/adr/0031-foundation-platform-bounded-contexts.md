@@ -1,4 +1,4 @@
-# ADR 0031 - Historical Data And Staff Boundary
+# ADR 0031 - 역사적 데이터·직원 경계
 
 | Field | Value |
 |---|---|
@@ -6,9 +6,9 @@
 | Status | Superseded by [ADR 0048](./0048-horizontal-platform-redefinition.md) |
 | Related | [ADR 0049](./0049-identity-platform-contract-design.md) |
 
-## Historical Decision
+## 역사적 결정
 
-The original shared implementation separated canonical Catalog data from staff
+원래 shared 구현은 canonical Catalog data를 staff
 identity and authorization. That separation proved the ownership boundary, but
 the original decision still placed both capabilities inside one deployable.
 
@@ -19,7 +19,7 @@ ADR 0048 supersedes that topology with two horizontal platforms:
 - Identity Platform owns staff identity, service identity, authentication, and
   authorization policy.
 
-## Preserved Invariants
+## 유지하는 불변식
 
 - Cross-platform direct database access is forbidden.
 - Foundation stores only stable identity-principal references needed for audit;
@@ -29,7 +29,7 @@ ADR 0048 supersedes that topology with two horizontal platforms:
 - Integration uses published APIs, events, signed claims, or immutable
   artifacts.
 
-## Current Sources Of Truth
+## 현재 정본
 
 - [ADR 0048](./0048-horizontal-platform-redefinition.md) defines platform
   ownership.
@@ -38,5 +38,4 @@ ADR 0048 supersedes that topology with two horizontal platforms:
 - `docs/architecture/foundation-platform-boundary.v1.json` defines the
   machine-readable Gongzzang/Foundation boundary.
 
-This file is retained only to preserve the decision lineage. It is not an
-implementation guide.
+이 파일은 결정 lineage를 보존하기 위해서만 남긴다. 구현 안내서가 아니다.

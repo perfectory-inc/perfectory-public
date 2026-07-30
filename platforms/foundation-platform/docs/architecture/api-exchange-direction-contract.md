@@ -5,7 +5,7 @@ doc_type: architecture
 last_reviewed: 2026-07-29
 ---
 
-# API Exchange Direction Contract
+# API 교환 방향 계약
 
 Status: Accepted
 
@@ -13,28 +13,26 @@ Owner: foundation-platform
 
 Date: 2026-07-09
 
-## Purpose
+## 목적
 
-This contract fixes the direction of API exchanges so new integrations do not
-mix acquisition, command submission, event fan-out, and analytical querying.
+이 계약은 새 연동에서 수집, 명령 제출, 이벤트 전달, 분석 조회를 섞지 않도록 API 교환 방향을 고정한다.
 
-The rule is:
+핵심 규칙은 다음과 같다.
 
 ```text
-The owner of scheduling, quota, idempotency, and truth chooses the direction.
+일정·쿼터·멱등성·정본을 소유한 쪽이 방향을 결정한다.
 ```
 
-## Direction Rules
+## 방향 규칙
 
-### External provider acquisition is pull
+### 외부 제공기관 수집은 가져오기(Pull)
 
-Foundation Platform pulls public provider data from data.go.kr, V-World,
-hub.go.kr, MOLIT real-transaction export surfaces, and provider download
-surfaces.
+Foundation Platform이 data.go.kr, V-World, hub.go.kr, 국토부 실거래 내보내기와 제공기관 다운로드
+경로에서 공공 데이터를 가져온다.
 
-Providers do not push raw catalog data into Foundation Platform.
+제공기관이 Foundation Platform으로 원자료를 밀어 넣지 않는다.
 
-Foundation-owned acquisition controls:
+Foundation이 소유하는 수집 제어 항목:
 
 - schedule
 - provider quota and backoff
@@ -43,50 +41,45 @@ Foundation-owned acquisition controls:
 - lineage
 - retry and resume
 
-### Product catalog reads are pull
+### 제품 카탈로그 조회는 가져오기(Pull)
 
-Product services pull published Foundation contracts through read APIs. They do
-not read Foundation databases or object-lake internals directly.
+제품 서비스는 조회 API로 공개된 Foundation 계약을 가져온다. Foundation 데이터베이스나 객체 레이크
+내부를 직접 읽지 않는다.
 
-Current governed service surfaces:
+현재 관리되는 서비스 경로:
 
 - `GET /catalog/v1/parcels/by-pnu/:pnu`
 - `GET /catalog/v1/parcels/by-pnu/:pnu/buildings`
 
-Public read contracts may also exist, but they are still published contracts,
-not direct storage access.
+공개 조회 계약이 추가될 수 있지만, 이 역시 공개 계약이지 저장소 직접 접근이 아니다.
 
-### Proposal intake is push
+### 제안 접수는 밀어넣기(Push)
 
-`intelligence-platform` generates AI normalization proposals and pushes them to
-Foundation Platform for durable review-gated intake.
+`intelligence-platform`이 AI 정규화 제안을 만들고 Foundation Platform에 전달한다. Foundation은 이를
+내구성 있게 접수하고 검토 게이트를 적용한다.
 
 Current governed service surface:
 
 - `POST /internal/normalization/proposals`
 
-This push does not grant canonical write authority. It only creates a proposal
-receipt in the Foundation proposal inbox. Review, apply, and rollback remain
-Foundation staff/admin commands.
+이 전달은 정본 쓰기 권한을 주지 않는다. Foundation 제안함에 접수증만 만들며, 검토·적용·롤백은
+Foundation 직원/관리자 명령으로만 수행한다.
 
-### Lakehouse artifact registration is push
+### 레이크하우스 산출물 등록은 밀어넣기(Push)
 
-Product-owned workers can push governed artifact-registration requests when the
-product owns the produced artifact and Foundation owns the cross-service
-registry record.
+제품 소유 worker는 자신이 만든 산출물을 소유하고 Foundation이 교차 서비스 레지스트리 기록을
+소유하는 경우 관리되는 산출물 등록 요청을 전달할 수 있다.
 
 Current governed service surface:
 
 - `POST /internal/lakehouse/artifacts`
 
-The pushed request registers metadata. It does not give the caller direct
-Foundation database access.
+전달 요청은 메타데이터만 등록한다. 호출자에게 Foundation 데이터베이스 직접 접근 권한을 주지 않는다.
 
-### Admin commands are command pushes
+### 관리자 명령은 명령 전달이다
 
-Staff/admin routes push commands to Foundation Platform. These commands are not
-provider acquisition and not event fan-out. They must remain authenticated,
-authorized, audited, and routed through Foundation application commands.
+직원/관리자 경로는 Foundation Platform으로 명령을 전달한다. 제공기관 수집이나 이벤트 전달이 아니며,
+인증·인가·감사를 거치고 Foundation 애플리케이션 명령으로 라우팅해야 한다.
 
 Examples:
 
@@ -96,35 +89,32 @@ Examples:
 - rollback an applied proposal
 - promote or rollback a governed manifest
 
-### Outbox fan-out is push
+### Outbox 전달은 밀어넣기(Push)
 
-Foundation emits committed events through `catalog.outbox_event` and the outbox
-publisher. Webhook is the current transport. Kafka can be added later as another
-broadcaster, but the direction stays push from Foundation to subscribers.
+Foundation은 `catalog.outbox_event`와 outbox publisher를 통해 커밋된 이벤트를 발행한다. 현재 전송은
+웹훅이다. 나중에 Kafka를 추가할 수 있지만 방향은 Foundation에서 구독자로 가는 Push로 유지한다.
 
-Outbox events are for committed facts or durable platform events. They are not
-request/response reads and not source acquisition.
+Outbox 이벤트는 커밋된 사실이나 내구성 있는 플랫폼 이벤트를 위한 것이다. 요청/응답 조회나 원천 수집이
+아니다.
 
-### dbt/Trino modeling is pull/query
+### dbt/Trino 모델링은 가져오기/조회다
 
-dbt models query lakehouse relations through Trino. dbt does not push source
-data, does not call AI models, does not approve proposals, and does not publish
-canonical state by itself.
+dbt 모델은 Trino를 통해 레이크하우스 관계를 조회한다. dbt는 원천 데이터를 전달하거나 AI 모델을
+호출하거나 제안을 승인하거나 정본 상태를 단독으로 공개하지 않는다.
 
 dbt owns SQL modeling and SQL tests only.
 
-## Boundary Rules
+## 경계 규칙
 
-- cross-service direct database access is forbidden.
-- cross-service direct object-lake internals are forbidden unless the object is
-  an explicitly published immutable artifact.
-- Pull APIs must be idempotent reads or Foundation-owned acquisition workers.
-- Push APIs must return durable receipts or accepted commands.
-- Fan-out must use outbox transport, not ad-hoc synchronous callbacks.
-- AI can push proposals, never canonical writes.
-- Product services can pull published contracts, never Foundation internals.
+- 서비스 간 데이터베이스 직접 접근은 금지한다.
+- 명시적으로 공개된 변경 불가 산출물이 아닌 한 서비스 간 객체 레이크 내부 접근은 금지한다.
+- Pull API는 멱등 조회이거나 Foundation 소유 수집 worker여야 한다.
+- Push API는 내구성 있는 접수증이나 수락된 명령을 반환해야 한다.
+- 전달은 임의의 동기 콜백이 아니라 outbox 전송을 사용해야 한다.
+- AI는 제안만 전달할 수 있고 정본을 직접 쓸 수 없다.
+- 제품 서비스는 공개 계약만 가져올 수 있고 Foundation 내부를 읽을 수 없다.
 
-## Current Direction Matrix
+## 현재 방향 표
 
 | Flow | Direction | Owner of Truth | Current Mechanism |
 |---|---|---|---|
@@ -136,13 +126,11 @@ dbt owns SQL modeling and SQL tests only.
 | Event fan-out | Push | Foundation Platform | `catalog.outbox_event` -> webhook, future Kafka |
 | SQL modeling | Pull/query | Foundation Platform | dbt -> Trino |
 
-## Not Allowed
+## 금지 사항
 
-- A product service polling Foundation internal PostgreSQL tables.
-- A product service writing Foundation canonical tables.
-- `intelligence-platform` applying a normalization proposal directly.
-- dbt issuing admin commands or publishing Gold pointers.
-- Provider data being pushed into Foundation by Gongzzang as if Gongzzang owned
-  the public catalog source.
-- Synchronous callback chains replacing durable outbox events.
-
+- 제품 서비스가 Foundation 내부 PostgreSQL 테이블을 폴링하는 것.
+- 제품 서비스가 Foundation 정본 테이블에 쓰는 것.
+- `intelligence-platform`이 정규화 제안을 직접 적용하는 것.
+- dbt가 관리자 명령을 내리거나 Gold 포인터를 공개하는 것.
+- Gongzzang이 공공 카탈로그 원천을 소유한 것처럼 제공기관 데이터를 Foundation으로 전달하는 것.
+- 내구성 있는 outbox 이벤트 대신 동기 콜백 체인을 사용하는 것.

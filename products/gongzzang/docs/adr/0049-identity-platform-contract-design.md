@@ -1,4 +1,4 @@
-# ADR-0049: Identity-Platform Contract Design
+# ADR-0049: Identity Platform 계약 설계
 
 | Field | Value |
 |---|---|
@@ -7,224 +7,196 @@
 | Decision owner | perfectoryinc |
 | Related | ADR-0030, ADR-0031, ADR-0048, foundation implementation ADR-0021, foundation implementation ADR-0023 |
 
-> This ADR is the authoritative Identity Platform contract implementing ADR-0048. It defines the
-> *contract*: ownership boundary, v1 API/event
-> surfaces, service-identity staging, and the authorization model. It does
-> **not** authorize DB migration, repo split, or new infrastructure — those
-> remain separately approval-gated.
+> 이 ADR은 ADR-0048을 구현하는 Identity Platform 계약의 정본이다. 소유권 경계, v1 API/event
+> 표면, service identity 단계와 인가 모델을 정의한다. DB migration, 저장소 분리 또는 새
+> infrastructure를 승인하는 문서가 아니며, 그 작업은 별도의 승인 게이트를 따른다.
 
-## Context
+## 배경
 
-ADR-0048 redefined the cross-repo architecture as horizontal platforms and
-assigned shared identity to `identity-platform`:
+ADR-0048은 저장소 간 architecture를 수평 platform으로 재정의하고 공용 identity를
+`identity-platform`에 할당했다.
 
-- staff identity
-- service identity and service tokens
-- session verification
+- 직원 identity
+- service identity와 service token
+- session 검증
 - role/permission/policy model
-- cross-service authorization contracts
-- audit principal resolution
-- identity-related outbox/events
+- service 간 authorization contract
+- audit principal 해석
+- identity 관련 outbox/event
 
-Today every one of those responsibilities is implemented inside the legacy
-core repository (the transitional physical home of `foundation-platform`).
-ADR-0048's migration strategy requires identity responsibilities to move
-behind identity-platform *contracts* before any physical repository split.
-This ADR is that contract.
+현재 이 책임은 모두 legacy core repository(`foundation-platform`의 전환기 물리 위치)에 구현되어
+있다. ADR-0048의 migration strategy는 물리 repository를 나누기 전에 identity 책임을
+identity-platform *contract* 뒤로 이동하도록 요구한다. 이 ADR이 그 계약이다.
 
-Two constraints shape the design:
+두 가지 제약이 이 설계를 결정한다.
 
-1. **Product-first / YAGNI** (AGENTS.md top rule). The platform has zero
-   users. The v1 contract is therefore the surface that *exists today*,
-   renamed and versioned — not a new engine. Heavier machinery (ReBAC
-   authorization engine, SPIFFE workload identity infrastructure) is
-   designed here only as named, trigger-gated future stages.
-2. **Infrastructure quality is non-negotiable** (owner directive,
-   2026-07-02). The contract must be aligned with published enterprise
-   practice, so the staging targets below cite what Google, Airbnb, Uber,
-   and Netflix actually run (see References).
+1. **Product-first / YAGNI**(AGENTS.md 최상위 규칙). 이 platform에는 사용자가 0명이다. 따라서
+   v1 contract는 새 engine이 아니라 *현재 존재하는 표면*을 이름과 version만 바꾼 것이다.
+   무거운 장치(ReBAC 인가 engine, SPIFFE workload identity infrastructure)는 이름이 정해진
+   trigger 기반 미래 단계로만 설계한다.
+2. **Infrastructure 품질은 타협하지 않는다**(owner 지시, 2026-07-02). 계약은 공개된 기업
+   운영 사례에 맞춰야 하므로 아래 staging target은 Google·Airbnb·Uber·Netflix가 실제로 사용하는
+   방식을 참고 문서에 기록한다.
 
-### Current state (code-verified 2026-07-02)
+### 현재 상태(2026-07-02 코드 검증)
 
-**Staff identity** — implemented in the legacy repo, `crates/workforce/*`:
+**Staff identity** — legacy repo의 `crates/workforce/*`에 구현되어 있다.
 
-- Aggregates: `Staff` (id `StaffId`/UUID, unique `zitadel_subject`, email,
+- 집계: `Staff` (id `StaffId`/UUID, unique `zitadel_subject`, email,
   display_name, primary_role_code, version), `StaffRole` (staff_id,
   role_code matching `[A-Z0-9_]+`, granted_at, granted_by), `StaffSession`
   (session_id, staff_id, unique `jti`, issued_at, expires_at).
-- IdP: Zitadel (OIDC). `HttpZitadelClient` verifies ID tokens against
-  cached JWKS (RS256/384/512, ES256/384) and extracts
-  sub/email/name/jti/iat/exp/roles. JTI revocation uses the
-  `workforce.revoked_jti` table.
-- Use cases: `VerifyStaffSession` (token → staff + session + roles),
-  `AssignStaffRole` (only `MASTER_ADMIN` may grant, via
+- IdP: Zitadel (OIDC). `HttpZitadelClient`는 캐시한 JWKS를 사용해 ID token을 검증하고
+  캐시한 JWKS(RS256/384/512, ES256/384)로 검증하고 sub/email/name/jti/iat/exp/roles를
+  추출한다. JTI revoke에는 `workforce.revoked_jti` table을 사용한다.
+- 유스케이스: `VerifyStaffSession` (token → staff + session + roles),
+  `AssignStaffRole`(`can_grant_roles()`를 통해 `MASTER_ADMIN`만 부여 가능),
   `can_grant_roles()`), `BootstrapPlatformAdmin` (idempotent first admin;
-  runs as an identity-platform-internal startup routine — no HTTP route,
-  not a cross-service surface).
+  identity-platform 내부 startup routine으로 실행하며 HTTP route나 서비스 간 표면이
+  아니다).
 - HTTP: `POST /workforce/v1/sessions/verify` (id_token → staff_id,
-  session_id, email, display_name, roles[], expires_at) and
+  session_id, email, display_name, roles[], expires_at)를 반환하며
   `POST /workforce/v1/staff/{id}/roles` (Bearer actor token;
   400/401/403/404/409). OpenAPI `docs/openapi/workforce.v1.yaml`,
   operationIds `verifySession` / `assignRole`.
-- Events (shared-kernel `workforce_v1.rs`, compatibility corpus):
+- 이벤트 (shared-kernel `workforce_v1.rs`, 호환성 corpus):
   `workforce.staff.invited.v1`, `workforce.staff.role_assigned.v1`,
   `workforce.staff.session_revoked.v1` (reason:
   logout|admin_revoke|role_changed|security), published via
   `workforce.outbox_event`.
 - DB schema `workforce.*`: staff, staff_role, staff_session, revoked_jti,
   outbox_event.
-- Error model: StaffNotFound, DuplicateZitadelSubject, DuplicateRole,
+- 오류 모델: StaffNotFound, DuplicateZitadelSubject, DuplicateRole,
   RoleNotFound, SessionExpired, JtiRevoked, InvalidClaims,
   PermissionDenied, Infrastructure → 400/401/403/404/409/500.
 
-**Service identity** — `services/gongzzang-api/src/routes/service_identity.rs`:
+**Service identity** — `services/gongzzang-api/src/routes/service_identity.rs`에 구현되어 있다.
 
-- Consumers today: gongzzang (`gongzzang-api` catalog:read,
+- 현재 소비자: gongzzang (`gongzzang-api` catalog:read,
   `gongzzang-worker` lakehouse:write), dawneer (`dawneer-api`
   catalog:read), intelligence-platform (normalization:propose).
-- Mechanism: static bearer token or workload-identity token *file* re-read
-  per request (preferred over static). Token comparison is constant-time.
-  Metadata headers per family: policy-id, source, target, allowed-call-id
-  always required; scope required on the dawneer and intelligence lanes,
-  optional-but-validated-when-present on gongzzang lanes. Routes are
-  deny-by-default via the `SERVICE_IDENTITY_ROUTES` table (parcel/building
-  catalog reads, lakehouse artifact writes, normalization proposal
-  submission).
-- Header families: `x-gongzzang-*`, legacy `x-foundation-platform-*`, preferred
-  `x-foundation-platform-*` (added 2026-07-02). Policy-id/target *values*
-  intentionally still carry pinned legacy contract IDs until a
-  versioned-contract slice.
-- Gongzzang client side (`crates/auth/src/foundation_platform_service.rs`)
-  already enforces token metadata discipline: token minimum length (16
-  chars, client-enforced), scope, issued_at, expires_at (RFC 3339, TTL
-  capped at 90 days), rotation_owner; env aliases prefer
-  `FOUNDATION_PLATFORM_*`. No server-side length check exists in v1.
-- Policy registries (JSON): `foundation_platform.traffic_auth_policy_registry.v1`
-  (4 consumer policies, deny default) and
-  `gongzzang.traffic_auth_policy_registry.v1` (exposure classes
-  public_derived/authenticated_user/privileged/service_to_service).
+- 방식: static bearer token 또는 요청마다 다시 읽는 workload-identity token *file*이며,
+  static token보다 file 방식을 우선한다. Token 비교는 constant-time이다.
+  family별 메타데이터 header(policy-id, source, target, allowed-call-id)는 항상 필수이고,
+  dawneer와 intelligence lane에서는 scope도 필수다. gongzzang lane에서는 scope가
+  선택 사항이지만 있으면 검증한다. route는 `SERVICE_IDENTITY_ROUTES` table
+  (필지/건물 catalog 읽기, lakehouse artifact 쓰기, normalization proposal 제출)에
+  등록된 경우만 허용하는 deny-by-default 방식이다.
+- header family: `x-gongzzang-*`, legacy `x-foundation-platform-*`, 선호
+  `x-foundation-platform-*`(2026-07-02 추가). policy-id/target *값*은
+  versioned-contract 단계 전까지 의도적으로 고정된 legacy contract ID를 유지한다.
+- Gongzzang client(`crates/auth/src/foundation_platform_service.rs`)는 이미 token
+  metadata 규율을 강제한다. client에서 16자 이상 길이, scope, issued_at, expires_at
+  (RFC 3339, TTL 최대 90일), rotation_owner를 확인하고 환경변수 alias는
+  `FOUNDATION_PLATFORM_*`을 우선한다. v1에는 server-side 길이 검사가 없다.
+- 정책 registry(JSON): `foundation_platform.traffic_auth_policy_registry.v1`
+  (소비자 정책 4개, deny default)와 `gongzzang.traffic_auth_policy_registry.v1`
+  (exposure class: public_derived/authenticated_user/privileged/service_to_service).
 
-**Foundation-platform's dependence on identity** — Catalog normalization
-commands carry `reviewer_staff_id` / `applied_by_staff_id` /
-`rolled_back_by_staff_id` as audit principals, and Catalog uses an ACL
-adapter (`ActorDto`, `workforce_acl.rs`) so it never imports workforce
-domain types. This existing pattern is blessed below as the standard
-boundary shape.
+**Foundation-platform의 identity 의존성** — Catalog normalization command는
+`reviewer_staff_id` / `applied_by_staff_id` / `rolled_back_by_staff_id`를 audit principal로
+전달한다. Catalog은 ACL adapter(`ActorDto`, `workforce_acl.rs`)를 사용하므로 workforce
+domain type을 직접 import하지 않는다. 아래 결정은 이 기존 패턴을 표준 경계 형태로 승인한다.
 
-## Decision
+## 결정
 
-### 1. Ownership boundary
+### 1. 소유권 경계
 
-`identity-platform` owns:
+`identity-platform`이 소유한다:
 
-- Staff/admin identity lifecycle (invite, role grant, session, revocation)
-- Staff session verification and JTI revocation state
-- Service identity: service principals, token/verification rules, and the
-  shared cross-service traffic-auth policy registry
-- The role/permission model (role codes today; richer models later)
-- Cross-service authorization contracts (who may call what, deny default)
-- Audit principal resolution (opaque principal id → human-renderable
-  identity)
-- Identity events and their outbox
+- 직원/관리자 identity 생명주기(초대, role 부여, session, revoke)
+- 직원 session 검증과 JTI revoke 상태
+- Service identity: service principal, token/검증 규칙, 공유 서비스 간
+  traffic-auth policy registry
+- role/permission model(현재 role code, 이후 확장)
+- 서비스 간 authorization 계약(누가 무엇을 호출할 수 있는지, deny default)
+- audit principal 해석(opaque principal id → 사람이 표시할 수 있는 identity)
+- identity event와 해당 outbox
 
-`identity-platform` does **not** own:
+`identity-platform`이 **소유하지 않는다**:
 
-- Gongzzang B2C product users, product sessions, or product auth flows.
-  They remain `gongzzang`-owned; moving them requires a separate ADR
-  (ADR-0048 rule restated).
-- Authentication itself. Zitadel remains the IdP (OIDC issuance, JWKS).
-  identity-platform is the principal/policy/contract layer *on top* — a
-  buy-authentication, own-authorization split, the same shape
-  Zanzibar-style adopters use (see References).
-- Product-local exposure policy. Product registries such as
-  `gongzzang.traffic_auth_policy_registry.v1` stay product-owned; only
-  their `service_to_service` class must reference identity-platform-owned
-  policy IDs.
-- Domain audit *records*. Owning platforms keep their own audit rows;
-  identity-platform only resolves the principals in them.
+- Gongzzang B2C product user, product session, product auth 흐름. 이는
+  계속 `gongzzang` 소유이며 이동하려면 별도 ADR이 필요하다(ADR-0048 규칙 재확인).
+- Authentication 자체. Zitadel은 IdP(OIDC 발급, JWKS)로 남는다.
+  identity-platform은 그 위의 principal/policy/contract 계층이며, 인증은 구매하고
+  인가는 소유하는 분리 방식이다(참고 문서의 Zanzibar 계열 사례와 같은 형태).
+- product-local exposure policy. `gongzzang.traffic_auth_policy_registry.v1` 같은
+  product registry는 product 소유로 남는다. 다만 `service_to_service` class만
+  identity-platform 소유 policy ID를 참조해야 한다.
+- domain audit *record*. 각 소유 platform이 자신의 audit row를 보관하고,
+  identity-platform은 그 안의 principal만 해석한다.
 
-**Principal-reference vs principal-resolution.** The Catalog `ActorDto`
-ACL is the mandated pattern for every platform: an owning platform stores
-principal *references* (opaque `staff_id` UUIDs such as
-`reviewer_staff_id`) inside its own data, never imports identity domain
-types, and calls identity-platform when it needs *resolution* (id →
-email/display_name/roles) for rendering or verification. No platform other
-than identity-platform may read or join `workforce.*` (future
-`identity.*`) tables — cross-service direct DB access stays forbidden
-(ADR-0048 non-goal).
+**Principal-reference와 principal-resolution.** Catalog의 `ActorDto` ACL은 모든
+platform이 따라야 하는 패턴이다. 소유 platform은 자신의 data 안에 opaque한
+`staff_id` UUID(예: `reviewer_staff_id`)인 principal *reference*만 저장하고 identity
+domain type을 import하지 않는다. 화면 표시나 검증을 위해 *resolution*(id →
+email/display_name/roles)이 필요할 때만 identity-platform을 호출한다. identity-platform
+이외의 platform은 `workforce.*`(향후 `identity.*`) table을 읽거나 join할 수 없다.
+서비스 간 직접 DB 접근은 계속 금지한다(ADR-0048의 범위 밖 결정).
 
-### 2. Contract surfaces v1
+### 2. v1 계약 표면
 
-The v1 contract is mechanically derived from the verified current surface.
-No new capability is added except one minimal read (principal lookup),
-which closes the loop the ActorDto pattern requires.
+v1 계약은 검증된 현재 표면에서 기계적으로 생성한다.
+새 capability는 필요한 최소 read(principal lookup) 하나 외에는 추가하지 않는다.
+이 read가 ActorDto 패턴의 남은 연결 고리를 닫는다.
 
-#### 2.1 Staff API — `identity-platform.staff.v1`
+#### 2.1 직원 API — `identity-platform.staff.v1`
 
-Successor to `workforce.v1` (OpenAPI successor document:
-`docs/openapi/identity.v1.json` in the implementing repo):
+`workforce.v1`의 후속 계약이다(구현 repo의 OpenAPI 후속 문서는
+`docs/openapi/identity.v1.json`).
 
 | Operation | Route | Semantics |
 |---|---|---|
-| `verifySession` | `POST /identity/v1/sessions/verify` | id_token → staff_id, session_id, email, display_name, roles[], expires_at. Same JWKS verification, JTI revocation check, and error mapping as today. |
-| `assignRole` | `POST /identity/v1/staff/{id}/roles` | Bearer actor token; only `MASTER_ADMIN` grants (`can_grant_roles()`); 400/401/403/404/409 unchanged. |
-| `getStaffPrincipal` | `GET /identity/v1/staff/{id}` | **New, minimal.** staff_id → {staff_id, email, display_name, roles[]}. Read-only, for audit rendering by platforms holding principal references. Registered in the deny-by-default service route table like every other cross-service route. Scope name reserved: `identity:read`; policy-id and allowed-call-id are assigned in the implementation slice (this route returns staff PII cross-service, so it enters the same deny-by-default table). |
+| `verifySession` | `POST /identity/v1/sessions/verify` | id_token → staff_id, session_id, email, display_name, roles[], expires_at. 기존과 같은 JWKS 검증, JTI revoke 확인, 오류 매핑. |
+| `assignRole` | `POST /identity/v1/staff/{id}/roles` | Bearer actor token; `MASTER_ADMIN`만 부여(`can_grant_roles()`); 400/401/403/404/409 매핑은 동일. |
+| `getStaffPrincipal` | `GET /identity/v1/staff/{id}` | **신규 최소 표면.** staff_id → {staff_id, email, display_name, roles[]}. principal reference를 가진 platform이 audit 표시를 할 때 쓰는 읽기 전용 API다. 다른 서비스 간 route와 마찬가지로 deny-by-default route table에 등록한다. scope 이름은 `identity:read`로 예약하며 policy-id와 allowed-call-id는 구현 단계에서 할당한다(직원 PII를 서비스 간 반환하므로 같은 table에 넣는다). |
 
-The error model (StaffNotFound … Infrastructure and its HTTP mapping) is
-carried over unchanged as part of the v1 contract.
+error model(StaffNotFound … Infrastructure와 HTTP mapping)은 v1 계약의 일부로
+변경 없이 계승한다.
 
-Compatibility rule: `POST /workforce/v1/sessions/verify` and
-`POST /workforce/v1/staff/{id}/roles` remain accepted **aliases** of the
-`/identity/v1/*` routes until every consumer compiles against the new
-contract — the same alias-plus-telemetry discipline the naming migration
-uses for `/foundation-platform/events` vs `/foundation-platform/events`. Alias
-usage must be measurable before deprecation.
+호환성 규칙: `POST /workforce/v1/sessions/verify`와
+`POST /workforce/v1/staff/{id}/roles`는 모든 consumer가 새 계약으로 compile할
+때까지 `/identity/v1/*` route의 **alias**로 계속 허용한다. 이름 변경에서 사용하는
+alias+telemetry 규율을 따르며 폐기 전에 alias 사용량을 측정할 수 있어야 한다.
 
-#### 2.2 Service-identity verification — `identity-platform.service-auth.v1`
+#### 2.2 서비스 Identity 검증 — `identity-platform.service-auth.v1`
 
-The verification semantics are pinned as a contract, exactly as
-implemented today (code-verified 2026-07-02,
+검증 의미도 다음과 같이 계약으로 고정한다.
+현재 구현 상태는 다음과 같다(code-verified 2026-07-02,
 `services/gongzzang-api/src/routes/service_identity.rs:350-384`):
 
-- Credential: static bearer token **or** workload-identity token file
-  re-read per request; file preferred when both are configured.
-  Constant-time comparison. No server-side token-length enforcement in v1;
-  tightening is a candidate for the implementation slice.
-- Required metadata headers (per family): policy-id, source, target,
-  allowed-call-id always required on all lanes. Scope header required on
-  dawneer and intelligence lanes; optional but validated when present on
-  gongzzang lanes. Mismatch or missing required header is a deny. The v1
-  contract records this asymmetry as-is; uniform scope enforcement is
-  deferred to the implementation slice.
-- Deny-by-default: a route is callable service-to-service only if listed
-  in the route policy table with a matching policy.
-- Token metadata discipline (client side, `crates/auth/src/foundation_platform_service.rs:333-342`):
-  minimum token length of 16 chars, plus scope, issued_at, expires_at in
-  RFC 3339 with TTL capped at 90 days, and a named rotation_owner.
+- Credential: static bearer token **또는** workload-identity token file를
+  요청마다 다시 읽고, 둘 다 있으면 file을 우선한다. 비교는 constant-time이다.
+  v1에는 server-side token 길이 검사가 없으며 강화는 구현 단계 후보다.
+- 필수 metadata header(family별): policy-id, source, target, allowed-call-id는
+  모든 lane에서 필수다. dawneer와 intelligence lane에서는 scope도 필수이고,
+  gongzzang lane에서는 있으면 검증한다. 누락이나 불일치는 deny이며, v1은 이
+  비대칭을 그대로 기록하고 균일한 scope enforcement는 구현 단계로 미룬다.
+- Deny-by-default: route policy table에 일치하는 policy로 등록된 route만
+  서비스 간 호출이 가능하다.
+- Token metadata 규율(client 쪽, `crates/auth/src/foundation_platform_service.rs:333-342`):
+  token 최소 16자, scope, issued_at, expires_at(RFC 3339, TTL 최대 90일),
+  이름 있는 rotation_owner를 요구한다.
 
-Registry ownership moves: the shared consumer policy registry (today
-`foundation_platform.traffic_auth_policy_registry.v1`) becomes
-identity-platform-owned, with successor ID
-`identity-platform.traffic_auth_policy_registry.v1` published in a
-versioned slice. Consuming platforms (foundation, gongzzang, dawneer,
-intelligence) consume this registry; they do not fork or own it.
+Registry ownership 이동: 현재 공유 consumer policy registry인
+`foundation_platform.traffic_auth_policy_registry.v1`는 identity-platform 소유로
+이동하고, versioned slice에서 후속 ID
+`identity-platform.traffic_auth_policy_registry.v1`를 발행한다. 소비 platform
+(foundation, gongzzang, dawneer, intelligence)은 이 registry를 소비할 뿐 fork하거나
+소유하지 않는다.
 
-**No new header family now.** The existing header families are historical
-wire prefixes: some are source-named (`x-gongzzang-*` names the calling
-product), others are target-named (`x-foundation-platform-*` names the
-destination API). There is no uniform naming rule across families. The
-decision not to introduce `x-identity-platform-*` rests on a different
-basis: no consumer need exists, and policy-id/allowed-call-id values are
-pinned contract IDs that would break consumers if renamed. Adding a fourth
-alias family for its own sake is pure ceremony. Likewise, policy-id/target
-*values* keep their pinned legacy contract IDs until the versioned-contract
-slice, because renaming values inside a pinned contract breaks consumers
-without buying anything.
+**지금은 새 header family를 추가하지 않는다.** 기존 header family는 역사적인
+wire prefix다. 일부는 호출 product를 나타내는 source 이름(`x-gongzzang-*`)이고,
+일부는 destination API를 나타내는 target 이름(`x-foundation-platform-*`)이다.
+전체 family에 통일된 작명 규칙은 없다. `x-identity-platform-*`를 추가하지 않는
+이유는 consumer 요구가 없고 policy-id/allowed-call-id 값이 고정 contract ID라
+이름을 바꾸면 consumer가 깨지기 때문이다. 네 번째 alias family를 목적 없이
+추가하는 것은 형식에 불과하다. policy-id/target *값*도 versioned-contract 단계까지
+고정된 legacy contract ID를 유지한다.
 
-#### 2.3 Events — `identity-platform.staff.*.v1`
+#### 2.3 이벤트 — `identity-platform.staff.*.v1`
 
-Successor event names, payloads field-for-field identical to today's
-workforce corpus:
+후속 event 이름을 정의한다. payload는 현재 workforce corpus와 field 단위로 동일하다.
 
 | Successor | Legacy alias | Payload |
 |---|---|---|
@@ -232,211 +204,176 @@ workforce corpus:
 | `identity-platform.staff.role_assigned.v1` | `workforce.staff.role_assigned.v1` | schema_version, staff_id, role_code, assigned_at, assigned_by |
 | `identity-platform.staff.session_revoked.v1` | `workforce.staff.session_revoked.v1` | schema_version, staff_id, jti, revoked_at, reason: logout\|admin_revoke\|role_changed\|security |
 
-Compatibility rule: the `workforce.*.v1` names remain the wire format
-until a versioned publication slice; the successor names are reserved by
-this ADR. When the switch happens, the compatibility corpus must cover
-both names, consumers must accept both during the transition, and legacy
-names are retired only per the sequencing in §5 step 7. Events continue to
-flow through the existing outbox table (renamed only with the DB migration
-approval in §5 step 5).
+호환성 규칙: versioned publication 단계 전까지 `workforce.*.v1` 이름을 wire format으로
+유지하고, 후속 이름은 이 ADR에서 예약한다. 전환 시 compatibility corpus는 두 이름을
+모두 포함하고 consumer도 전환 기간 동안 둘 다 받아야 한다. legacy 이름은 §5 7단계
+순서에 따라서만 폐기한다. event는 기존 outbox table을 계속 통과하며, table 이름 변경은
+§5 5단계의 DB migration 승인을 받은 경우에만 수행한다.
 
-### 3. Service identity staging
+### 3. 서비스 Identity 스테이징
 
-Following SPIFFE's own adoption framing — static secrets → platform-issued
-short-lived identities — service identity evolves in three stages. Stages
-1–2 exist today; stage 3 is trigger-gated.
+SPIFFE가 제시한 도입 순서(static secret → platform-issued short-lived identity)에
+따라 service identity를 세 단계로 발전시킨다. 1–2단계는 현재 존재하고 3단계는
+trigger가 충족될 때만 진행한다.
 
-- **Stage 1 (today): static token + metadata discipline.** Static bearer
-  tokens with constant-time compare, metadata headers (4 always required;
-  scope lane-dependent), and the 90-day TTL cap + rotation_owner
-  requirement. This is acceptable pre-launch because token count is small
-  (4 consumers), rotation is owned, and TTL is bounded.
-- **Stage 2 (today, partial): workload-identity token file.** Token read
-  from a file per request, preferred over static env tokens. This
-  decouples credential delivery from process environment and is the
-  stepping stone to platform-issued credentials. New consumers should
-  onboard at stage 2, not stage 1.
-- **Stage 3 (trigger-gated): SPIFFE/SPIRE-style workload identity.**
-  Short-lived, automatically rotated SVIDs (on the order of one hour) with
-  mTLS, replacing shared secrets entirely. This is the CNCF-standardized
-  model run in production at Uber and Netflix (see References).
-  **Triggers:** Kubernetes adoption (which ADR-0046 itself defers behind
-  its own triggers) or more than two deployment environments. Building
-  SPIRE infrastructure before either trigger is the infra-before-users
-  trap ADR-0044 reversed.
-- **Delegation (trigger-gated): RFC 8693 token exchange.** When a service
-  must act *on behalf of* a staff principal across a service boundary —
-  e.g., foundation-platform proving to identity-platform (or an auditor)
-  *which staff member* approved a normalization proposal — the answer is
-  OAuth 2.0 Token Exchange with the `act` claim, which preserves the full
-  delegation chain in the token itself instead of shipping raw staff
-  tokens between services. **Trigger:** the first cross-service call that
-  must carry a staff principal's authority rather than a mere audit
-  reference. Until then, audit-reference fields (`reviewer_staff_id` etc.)
-  are sufficient and correct.
+- **1단계(현재): static token + metadata 규율.** constant-time 비교를 사용하는
+  static bearer token, metadata header(항상 필수 4개, scope는 lane별 적용), TTL 최대
+  90일과 rotation_owner 요구를 사용한다. consumer가 4개로 적고 rotation 소유자가
+  정해져 있으며 TTL이 제한되어 있어 출시 전 단계에는 충분하다.
+- **2단계(현재, 부분 적용): workload-identity token file.** 요청마다 file에서 token을
+  읽고 static 환경변수 token보다 우선한다. credential 전달을 process 환경과 분리해
+  platform 발급 credential로 가는 발판을 만든다. 새 consumer는 1단계가 아니라
+  2단계로 onboarding한다.
+- **3단계(trigger 조건부): SPIFFE/SPIRE형 workload identity.** 약 한 시간 수명의
+  SVID를 자동 교체하고 mTLS를 적용해 공유 secret을 완전히 대체한다. 이는 Uber와
+  Netflix가 운영에서 사용하는 CNCF 표준 모델이다(참고 문서).
+  **trigger:** Kubernetes 도입(ADR-0046도 자체 trigger 뒤로 미룸) 또는 배포 환경이
+  2개를 초과하는 경우다. 어느 조건도 충족하기 전에 SPIRE infrastructure를 만드는
+  것은 ADR-0044가 뒤집은 infra-before-users 함정이다.
+- **Delegation(trigger 조건부): RFC 8693 token exchange.** service가 경계를 넘어
+  staff principal을 *대신해* 행동해야 할 때(예: foundation-platform이
+  normalization proposal을 누가 승인했는지 identity-platform 또는 auditor에게
+  증명해야 할 때) `act` claim을 사용하는 OAuth 2.0 Token Exchange를 적용한다.
+  token 자체에 delegation chain을 보존하므로 service 간에 raw staff token을 보내지
+  않는다. **trigger:** 단순 audit reference가 아니라 staff 권한을 전달해야 하는
+  첫 서비스 간 호출이다. 그 전까지는 `reviewer_staff_id` 같은 audit-reference
+  field가 충분하고 올바르다.
 
-### 4. Authorization model
+### 4. 인가 모델
 
-**Decision: centralize authorization decisions in identity-platform; keep
-the model itself deliberately small (deny-by-default route/policy registry
-plus role codes); defer relationship-based access control behind named
-triggers.**
+**결정: authorization decision은 identity-platform에 중앙화하고, model 자체는
+의도적으로 작게 유지한다(deny-by-default route/policy registry + role code).
+관계 기반 access control은 이름 있는 trigger 뒤로 미룬다.**
 
-*Why centralize:* Google's Zanzibar demonstrated at the largest published
-scale that authorization as a dedicated, uniform service — rather than
-per-service ad-hoc role checks — is what keeps policy consistent and
-auditable across many products (Calendar, Cloud, Drive, Maps, Photos,
-YouTube all call one system). The same conclusion drove Airbnb's Himeji
-and the open-source successors (SpiceDB, OpenFGA, Ory Keto). Our v1
-equivalent of "one place answers *may X do Y*" is: identity-platform owns
-`verifySession`, the role model, and the traffic-auth policy registry;
-other platforms *ask*, they never fork the policy. In v1, identity-platform
-centralizes verification and policy *data* (session state, role model,
-policy registry); per-request allow/deny evaluation runs inside each target
-service's enforcement middleware. Full decision-as-a-service — where
-callers ask identity-platform to evaluate a policy and return allow/deny —
-is part of the later extraction, not v1.
+*왜 중앙화하는가:* Google Zanzibar는 가장 큰 공개 운영 규모에서, 서비스별 임의 role
+검사가 아니라 전용의 균일한 authorization service가 여러 product(Calendar, Cloud,
+Drive, Maps, Photos, YouTube)의 정책을 일관되고 감사 가능하게 만든다는 점을 보였다.
+Airbnb의 Himeji와 후속 오픈소스(SpiceDB, OpenFGA, Ory Keto)도 같은 결론을 따른다.
+v1에서 “X가 Y를 할 수 있는가”를 한 곳이 답한다는 의미는 identity-platform이
+`verifySession`, role model, traffic-auth policy registry를 소유하는 것이다. 다른
+platform은 *질의*만 하고 policy를 fork하지 않는다. v1에서는 검증과 policy *data*
+(session state, role model, policy registry)를 중앙화하며, 요청별 allow/deny 평가는
+target service의 enforcement middleware에서 수행한다. caller가 identity-platform에
+policy 평가를 요청해 allow/deny를 받는 완전한 decision-as-a-service는 후속 분리
+단계의 범위이지 v1이 아니다.
 
-*Why NOT ReBAC now:* Zanzibar exists to answer relationship questions
-("is this photo shared with a group the viewer is in?") across billions of
-objects. Our current authorization universe is a handful of role codes
-(`[A-Z0-9_]+`) held by internal staff, plus four service-to-service
-policies. Deploying a relationship-tuple engine for that is
-Google-cosplay, not engineering — it violates the product-first rule.
+*지금 ReBAC을 쓰지 않는 이유:* Zanzibar는 수십억 object에서 “이 사진이 viewer가
+속한 group과 공유되었는가?” 같은 관계 질문에 답하기 위한 시스템이다. 현재
+authorization 범위는 내부 직원이 가진 소수의 role code(`[A-Z0-9_]+`)와 서비스 간
+policy 4개뿐이다. 여기에 relationship-tuple engine을 배치하는 것은 engineering이
+아니라 Google 흉내이며 product-first 규칙을 위반한다.
 
-*ReBAC adoption triggers* (adopt SpiceDB/OpenFGA-class engine, do not
-build one): (a) fine-grained per-object sharing requirements — e.g.,
-listing- or site-level grants to individual external users; or
-(b) multi-tenant delegation — e.g., Dawneer B2B tenant admins managing
-their own members' permissions per industrial complex or per site. Either
-one makes role codes combinatorially explode, which is exactly the
-signal that the model, not the enforcement point, must change. Because
-decisions are already centralized behind identity-platform contracts, that
-swap changes the engine behind the API, not the consumers.
+*ReBAC 도입 trigger*(SpiceDB/OpenFGA급 engine을 만들지 말고 채택한다): (a) 개별
+외부 user에게 listing/site 수준 권한을 주는 세밀한 object 공유 요구, 또는 (b) Dawneer
+B2B tenant 관리자가 industrial complex/site별로 자신의 member 권한을 관리하는
+multi-tenant delegation 요구다. 어느 하나라도 role code가 조합적으로 폭증하며
+model을 바꿔야 한다는 신호가 된다. decision이 이미 identity-platform 계약 뒤에
+중앙화되어 있으므로 이 교체는 consumer가 아니라 API 뒤의 engine만 바꾼다.
 
-### 5. Extraction sequencing
+### 5. 분리 순서
 
-Refines the plan's seven steps. Cross-service direct DB access is
-forbidden at every step. The physical repo split is *last*, per ADR-0048.
+계획의 일곱 단계를 구체화한다. 모든 단계에서 서비스 간 직접 DB 접근은 금지한다.
+물리적인 repo 분리는 ADR-0048에 따라 *마지막*에 한다.
 
-1. **Contract ADR** — this document. Names, surfaces, staging, and
-   triggers are now decided; later slices implement, they do not
-   re-decide.
-2. **Publish read-only contracts as aliases.** The legacy repo keeps its
-   DB and routes. `/identity/v1/*` routes, `identity.v1` OpenAPI, and the
-   successor event names are added as aliases of the workforce
-   implementations, with telemetry on alias usage. `workforce.v1` stays
-   fully functional.
-3. **Service-identity policy ownership moves.** The shared consumer policy
-   registry is re-owned as `identity-platform.traffic_auth_policy_registry.v1`
-   (versioned slice); foundation Catalog policy and product exposure
-   registries reference it instead of embedding shared policy.
-4. **Product/staff separation documented.** Gongzzang B2C users and
-   product sessions are explicitly out of scope (this ADR, §1, is that
-   documentation); staff/admin accounts, service principals, and
-   cross-service permissions are identity-platform-owned.
-5. **DB/API migration prepared — separately gated.** A `workforce.*` →
-   `identity.*` schema migration plan requires its own owner approval
-   before any migration is written. Compatibility views or dual-read only
-   if an active consumer forces them.
-6. **Consumer cutover.** Catalog admin routes verify staff/sessions via
-   identity-platform contract names; gongzzang, dawneer, and intelligence
-   consume the published identity APIs and successor event names.
-7. **Legacy retirement.** `workforce.v1` routes, event names, and pins are
-   removed only after all consumers have moved, tests cover both legacy
-   and final names, alias telemetry shows zero legacy traffic, and
-   rollback is documented.
+1. **Contract ADR** — 이 문서다. 이름, 표면, staging, trigger를 결정했으며 이후
+   단계는 이를 구현하고 다시 결정하지 않는다.
+2. **읽기 전용 계약을 alias로 발행한다.** legacy repo는 DB와 route를 유지한다.
+   `/identity/v1/*` route, `identity.v1` OpenAPI, 후속 event 이름을 workforce 구현의
+   alias로 추가하고 alias 사용 telemetry를 수집한다. `workforce.v1`는 완전히 동작시킨다.
+3. **Service-identity policy 소유권을 이동한다.** 공유 consumer policy registry를
+   versioned slice에서 `identity-platform.traffic_auth_policy_registry.v1`로 재소유하고,
+   foundation Catalog policy와 product exposure registry는 shared policy를 복제하지
+   않고 이를 참조한다.
+4. **Product/staff 분리를 문서화한다.** Gongzzang B2C user와 product session은 명시적으로
+   범위 밖이다(§1이 그 문서다). staff/admin account, service principal, 서비스 간
+   permission은 identity-platform이 소유한다.
+5. **DB/API migration을 별도 gate로 준비한다.** `workforce.*` → `identity.*` schema
+   migration plan은 migration을 작성하기 전에 별도 owner 승인이 필요하다. active
+   consumer가 강제할 때만 compatibility view나 dual-read를 사용한다.
+6. **Consumer를 전환한다.** Catalog admin route는 identity-platform 계약 이름으로
+   staff/session을 검증하고, gongzzang·dawneer·intelligence는 발행된 identity API와
+   후속 event 이름을 소비한다.
+7. **Legacy를 폐기한다.** 모든 consumer가 이동하고, test가 legacy와 최종 이름을 모두
+   검증하며, alias telemetry가 legacy traffic 0을 보이고 rollback이 문서화된 뒤에만
+   `workforce.v1` route·event 이름·pin을 제거한다.
 
-Physical extraction of identity-platform into its own repository/deployment
-happens only after steps 1–7 are stable, under a dedicated repo-local ADR
-(ADR-0048 reassessment trigger).
+identity-platform을 별도 repository/deployment로 물리 추출하는 일은 1–7단계가 안정화된
+뒤에만, 별도의 repo-local ADR(ADR-0048 재평가 trigger)에 따라 수행한다.
 
-## Non-Goals
+## 범위 밖
 
-- No move of Gongzzang B2C users, product sessions, or product auth flows
-  (separate ADR required).
-- No new IdP. Zitadel stays; this ADR adds no authentication technology.
-- No ReBAC engine now (trigger-gated, §4) — and if triggered, adopt, don't
-  build.
-- No SPIFFE/SPIRE infrastructure now (trigger-gated, §3 stage 3).
-- No immediate physical repo split or deployment change.
-- No Kafka or Kubernetes requirement introduced by this contract.
-- No new `x-identity-platform-*` header family (§2.2).
-- No new CI guards or registries beyond what a real cutover slice needs at
-  the moment it ships (product-first rule 3).
+- Gongzzang B2C user, product session, product auth 흐름을 이동하지 않는다(별도 ADR 필요).
+- 새 IdP를 추가하지 않는다. Zitadel을 유지하며 이 ADR은 authentication technology를
+  추가하지 않는다.
+- 지금 ReBAC engine을 추가하지 않는다(§4 trigger 조건부). trigger가 발생하면 직접
+  만들지 말고 채택한다.
+- 지금 SPIFFE/SPIRE infrastructure를 추가하지 않는다(§3 3단계 trigger 조건부).
+- 즉시 물리 repo 분리나 deployment 변경을 하지 않는다.
+- 이 계약으로 Kafka나 Kubernetes 의무를 추가하지 않는다.
+- 새 `x-identity-platform-*` header family를 추가하지 않는다(§2.2).
+- 실제 cutover 단계가 배포될 때 필요한 범위를 넘어 새 CI guard나 registry를 추가하지
+  않는다(product-first 규칙 3).
 
-## Consequences
+## 영향
 
-Positive:
+긍정적 효과:
 
-- Identity has a named owner and a versioned contract before any code
-  moves, so the eventual physical extraction is a re-homing of an already
-  published API, not a redesign.
-- Consumers (foundation Catalog admin, gongzzang, dawneer, intelligence)
-  get one stable identity surface: session verification, role grant,
-  principal lookup, service-auth policy — deny-by-default everywhere.
-- The audit boundary is clean: platforms keep opaque principal references;
-  only identity-platform resolves them. `getStaffPrincipal` closes the one
-  gap that pattern had.
-- Future hardening paths (SPIFFE, RFC 8693, ReBAC) are pre-decided with
-  named triggers, so under pressure we upgrade deliberately instead of
-  improvising.
+ - Identity에 명확한 owner와 versioned contract가 생긴 뒤 code를 이동하므로, 향후
+   물리 추출은 redesign이 아니라 이미 발행된 API의 re-homing이 된다.
+ - consumer(foundation Catalog admin, gongzzang, dawneer, intelligence)가 session
+   검증, role 부여, principal lookup, service-auth policy를 제공하는 하나의 안정적인
+   identity 표면을 얻는다. 어디서나 deny-by-default다.
+ - audit 경계가 명확하다. 각 platform은 opaque principal reference를 보관하고
+   identity-platform만 해석한다. `getStaffPrincipal`이 기존 패턴의 유일한 빈틈을 닫는다.
+ - 향후 강화 경로(SPIFFE, RFC 8693, ReBAC)를 이름 있는 trigger로 미리 결정했으므로,
+   압박 상황에서도 즉흥적으로 만들지 않고 계획적으로 업그레이드한다.
 
-Costs / risks:
+비용과 위험:
 
-- Alias duplication (workforce.v1 + identity.v1 routes and event names)
-  must be carried until cutover, with telemetry, tests, and eventual
-  retirement work.
-- The new `getStaffPrincipal` read is new surface area — small, but it
-  must be added to the deny-by-default route table and covered by tests in
-  its implementation slice.
-- Registry re-ownership (§5 step 3) touches pinned policy IDs; done
-  carelessly it can break the four existing consumers, which is why values
-  stay pinned until the versioned slice.
-- Moving staff/session verification too early can break Catalog admin
-  approval paths (plan residual risk restated); sequencing §5 exists to
-  prevent exactly that.
+- alias 중복(workforce.v1 + identity.v1 route와 event 이름)을 cutover까지 telemetry,
+  test와 함께 유지하고 이후 폐기해야 한다.
+- 새 `getStaffPrincipal` read는 작지만 새로운 표면이다. deny-by-default route table에
+  등록하고 구현 단계에서 test로 검증해야 한다.
+- registry 재소유(§5 3단계)는 고정된 policy ID를 건드린다. 부주의하면 기존 consumer
+  4개가 깨질 수 있으므로 versioned 단계 전까지 값은 고정한다.
+- staff/session 검증을 너무 일찍 이동하면 Catalog admin 승인 경로가 깨질 수 있다.
+  §5 순서가 이를 막는다.
 
-## Reassessment Triggers
+## 재평가 조건
 
-- **Kubernetes adoption or >2 deployment environments** → implement stage
-  3 (SPIFFE/SPIRE workload identity, mTLS); cross-ref ADR-0046 triggers.
-- **First cross-service call carrying staff authority** (not just an audit
-  reference) → implement RFC 8693 token exchange with `act` claims.
-- **Per-object sharing or multi-tenant delegation requirement** → adopt a
-  Zanzibar-lineage engine (SpiceDB/OpenFGA-class) behind the existing
-  identity-platform decision contract.
-- **Identity-platform becomes independently deployable** → write the
-  repo-local physical extraction ADR (per ADR-0048).
-- **A second product needs staff-facing admin UI** (Dawneer workbench) →
-  revisit whether `identity.v1` needs staff listing/search operations
-  beyond the minimal v1 surface.
+- **Kubernetes 도입 또는 배포 환경 2개 초과** → 3단계(SPIFFE/SPIRE workload identity,
+  mTLS)를 구현한다(ADR-0046 trigger 참조).
+- **staff 권한을 전달하는 첫 서비스 간 호출**(단순 audit reference 아님) → `act` claim을
+  사용하는 RFC 8693 token exchange를 구현한다.
+- **object별 공유 또는 multi-tenant delegation 요구** → 기존 identity-platform
+  decision 계약 뒤에 Zanzibar 계열 engine(SpiceDB/OpenFGA급)을 채택한다.
+- **identity-platform을 독립 배포할 수 있게 됨** → repo-local 물리 추출 ADR을 작성한다
+  (ADR-0048에 따름).
+- **두 번째 product에 staff용 admin UI가 필요함**(Dawneer workbench) → 최소 v1 표면을
+  넘어 `identity.v1`에 staff listing/search가 필요한지 재평가한다.
 
-## References
+## 참고 문서
 
 - Pang et al., *Zanzibar: Google's Consistent, Global Authorization
   System*, USENIX ATC '19 —
   <https://www.usenix.org/conference/atc19/presentation/pang> ·
   <https://research.google/pubs/zanzibar-googles-consistent-global-authorization-system/>
-  (centralized authorization serving Calendar, Cloud, Drive, Maps, Photos,
-  YouTube; the case for one decision plane and for ReBAC *at scale*).
+  (Calendar, Cloud, Drive, Maps, Photos, YouTube를 제공하는 중앙 authorization과
+  대규모 ReBAC의 근거).
 - Airbnb Engineering, *Himeji: A Scalable Centralized System for
   Authorization at Airbnb* —
   <https://medium.com/airbnb-engineering/himeji-a-scalable-centralized-system-for-authorization-at-airbnb-341664924574>
-  (the Himeji centralized authorization system that informed the
-  adopt-don't-build conclusion for ReBAC).
+  (ReBAC을 직접 만들지 말고 채택하라는 결론에 근거가 된 Himeji 중앙 authorization).
 - AuthZed, *Google Zanzibar overview and lineage* —
-  <https://authzed.com/learn/google-zanzibar> (SpiceDB/OpenFGA/Ory Keto
-  successor ecosystem and Zanzibar design lineage; adopt-don't-build).
+  <https://authzed.com/learn/google-zanzibar> (SpiceDB/OpenFGA/Ory Keto 후속 생태계와
+  Zanzibar 설계 계보; 직접 만들지 말고 채택).
 - SPIFFE/SPIRE (CNCF graduation 2022) — production adopters (Uber,
   Netflix): <https://github.com/spiffe/spire/blob/main/ADOPTERS.md> ·
   <https://www.cncf.io/announcements/2022/09/20/spiffe-and-spire-projects-graduate-from-cloud-native-computing-foundation-incubator/>
-  (short-lived auto-rotated workload identities + mTLS replacing static
-  shared secrets; our stage 3 target).
+  (static shared secret을 대체하는 단기 자동 교체 workload identity + mTLS; 우리의
+  3단계 목표).
 - RFC 8693, *OAuth 2.0 Token Exchange* —
   <https://www.rfc-editor.org/info/rfc8693/> ·
-  <https://datatracker.ietf.org/doc/html/rfc8693> (delegation with the
-  `act` claim preserving the audit trail; our trigger-gated delegation
-  answer).
-- ADR-0048 — horizontal platform redefinition (ownership assignment this
-  ADR implements).
+  <https://datatracker.ietf.org/doc/html/rfc8693> (`act` claim으로 audit trail을 보존하는
+  delegation; trigger 조건부 delegation 해답).
+- ADR-0048 — 수평 platform 재정의(이 ADR이 구현하는 소유권 배정).

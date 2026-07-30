@@ -419,7 +419,7 @@ tools/github/README.md
 | `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current |
 | `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current |
-| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed |
+| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current |
 | `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
@@ -485,11 +485,11 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/catalog/building-register-consistency-rules.v1.draft.md` | Foundation Platform | draft | review required |
 | `platforms/foundation-platform/docs/catalog/building-register-field-mapping.v1.draft.md` | Foundation Platform | draft | review required |
 | `platforms/foundation-platform/docs/catalog/building-register-floor-normalization-rules.v1.md` | Foundation Platform | reference | current |
-| `platforms/foundation-platform/docs/catalog/industrial-complex-lakehouse-poc.md` | Foundation Platform | reference | current |
-| `platforms/foundation-platform/docs/catalog/industrial-complex-ssot-model.md` | Foundation Platform | reference | current |
+| `platforms/foundation-platform/docs/catalog/industrial-complex-lakehouse-poc.md` | Foundation Platform | reference | proposed |
+| `platforms/foundation-platform/docs/catalog/industrial-complex-ssot-model.md` | Foundation Platform | reference | proposed |
 | `platforms/foundation-platform/docs/catalog/lakehouse-industry-reference.md` | Foundation Platform | reference | current |
 | `platforms/foundation-platform/docs/catalog/national-data-normalization-contract.v1.json` | Foundation Platform | reference | current |
-| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | Draft |
+| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | proposed |
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json` | Foundation Platform | fixture | fixture |
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json` | Foundation Platform | reference | current |
 | `platforms/foundation-platform/docs/catalog/provider-rate-policy.v1.json` | Foundation Platform | reference | current |

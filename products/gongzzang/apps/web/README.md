@@ -7,23 +7,23 @@ last_reviewed: 2026-07-29
 
 # apps/web
 
-Gongzzang web client.
+Gongzzang 웹 클라이언트다.
 
-## Scope
+## 책임 범위
 
 - Framework: Next.js App Router
-- Role: browser UI and same-origin BFF proxy surface
-- User-facing copy: typed i18n only
-- LLM/MCP dependencies: forbidden in the runtime path
+- 역할: 브라우저 UI와 same-origin BFF proxy 표면
+- 사용자 문구: typed i18n만 사용
+- LLM/MCP 의존성: runtime 경로에서 금지
 
-## Current Routes
+## 현재 경로
 
 - `/listings`: listing search/map surface
 - `/api/proxy/*`: same-origin proxy to the Rust API
 - `/api/auth/*`: authentication callback/session endpoints
 
-## Boundaries
+## 경계
 
-- Business rules stay in Rust domain crates and API services.
-- Listing marker rendering uses the Gongzzang listing PBF source.
-- PNU/parcel anchor ownership stays in `foundation-platform`.
+- business rule은 Rust domain crate와 API service에 둔다.
+- 매물 marker 렌더링은 Gongzzang 매물 PBF source를 사용한다.
+- PNU/필지 anchor 소유권은 `foundation-platform`에 둔다.

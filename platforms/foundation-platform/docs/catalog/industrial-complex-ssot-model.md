@@ -1,16 +1,16 @@
 ---
-status: current
+status: proposed
 owner: foundation-platform
 doc_type: reference
 last_reviewed: 2026-07-29
 ---
 
-# Industrial Complex SSOT Model
+# 산업단지 SSOT 모델(제안)
 
 | 항목 | 내용 |
 |---|---|
 | 작성일 | 2026-05-12 |
-| 상태 | Draft |
+| 상태 | 제안(승인 전) |
 | 결정 ADR | [ADR 0003 - Industrial Complex Catalog SSOT](../adr/0003-industrial-complex-catalog-ssot.md) |
 | Object storage ADR | [ADR 0002 - R2 Primary Object Storage](../adr/0002-r2-primary-object-storage.md) |
 | Vector tile ADR | [ADR 0004 - Static Vector Tile Runtime Contract](../adr/0004-static-vector-tile-runtime-contract.md) |
@@ -291,7 +291,7 @@ Gongzzang 일반 사용자, 북마크, 검색 히스토리, 매물 문의는 fou
 | D5 | write owner switch | Dawneer/gongzzang 산단 write path 를 foundation-platform API 로 전환 |
 | D6 | legacy cleanup | consumer canonical columns rename/drop, cache/presentation 만 유지 |
 
-Static vector tile migration:
+정적 vector tile migration:
 
 | Phase | 목표 |
 |---|---|

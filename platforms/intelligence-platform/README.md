@@ -29,63 +29,58 @@ intelligence-platform/
 (`docs/adr/0001-canonical-implementation-rust.md`), 더 이상 배포 대상이나 계약 참고 집합에
 포함되지 않습니다. Foundation Platform wire 계약은 이 영역과 `schemas/`에서만 정의합니다.
 
-## Shape
+## 구성
 
-- `crates/intelligence-contracts`: shared wire and identity contracts.
-- `crates/knowledge/knowledge-domain`: knowledge validation and domain types.
-- `crates/knowledge/knowledge-application`: knowledge use cases and ports.
-- `crates/knowledge/knowledge-infrastructure`: knowledge persistence adapters.
-- `crates/normalization/intelligence-normalization-domain`: normalization rules and domain types.
-- `crates/normalization/intelligence-normalization-application`: normalization use cases and ports.
-- `crates/normalization/intelligence-normalization-infrastructure`: model, Foundation, state, and rate-limit adapters.
-- `crates/messaging/messaging-infrastructure`: Kafka, Avro, and schema-registry adapters.
-- `services/intelligence-api`: Axum HTTP API boundary.
-- `services/intelligence-worker`: background jobs, event consumption, and outbox delivery.
+- `crates/intelligence-contracts`: wire·식별자 공통 계약
+- `crates/knowledge/knowledge-domain`: 지식 검증과 도메인 타입
+- `crates/knowledge/knowledge-application`: 지식 유스케이스와 port
+- `crates/knowledge/knowledge-infrastructure`: 지식 저장 adapter
+- `crates/normalization/intelligence-normalization-domain`: 정규화 규칙과 도메인 타입
+- `crates/normalization/intelligence-normalization-application`: 정규화 유스케이스와 port
+- `crates/normalization/intelligence-normalization-infrastructure`: 모델·Foundation·상태·rate-limit adapter
+- `crates/messaging/messaging-infrastructure`: Kafka·Avro·schema registry adapter
+- `services/intelligence-api`: Axum HTTP API 경계
+- `services/intelligence-worker`: 백그라운드 작업·이벤트 소비·outbox 전달
 
 앱은 intelligence-platform API를 호출해야 합니다. Open WebUI나 model server에 직접
 연결하지 않습니다. Open WebUI는 모델 개발 UI로 사용할 수 있지만 production backend
 계약은 아닙니다.
 
-Production 코드는 Open WebUI 애플리케이션 endpoint가 아니라 model runtime 또는 gateway
-endpoint에 연결해야 합니다. 현재 local 구성에서는
-`<model-runtime-host>:8080` is Open WebUI and requires UI/API authentication, while
-`<model-runtime-host>:11434` is the Ollama model runtime with an OpenAI-compatible API.
-`<model-runtime-host>` stands for the operator's local model-runtime machine; keep
-the real hostname/IP only in local env (`MODEL_RUNTIME_BASE_URL`), never in committed files.
+운영 코드는 Open WebUI 애플리케이션 endpoint가 아니라 model runtime 또는 gateway endpoint에
+연결한다. 현재 local 구성에서 `<model-runtime-host>:8080`은 UI/API 인증이 필요한 Open WebUI이고,
+`<model-runtime-host>:11434`는 OpenAI 호환 API를 제공하는 Ollama runtime이다.
+`<model-runtime-host>`는 운영자의 로컬 모델 머신을 뜻한다. 실제 hostname/IP는 local env의
+`MODEL_RUNTIME_BASE_URL`에만 두고 커밋하지 않는다.
 
-## Local Ports
+## 로컬 포트
 
 - Rust API scaffold: `127.0.0.1:8010`
-- Current Open WebUI dev UI: `<model-runtime-host>:8080`
-- Current Ollama model runtime: `<model-runtime-host>:11434`
+- 현재 Open WebUI 개발 UI: `<model-runtime-host>:8080`
+- 현재 Ollama 모델 runtime: `<model-runtime-host>:11434`
 
-Set `INTELLIGENCE_API_BIND=0.0.0.0:8010` only for temporary LAN access, such
-as connecting Open WebUI to the policy gateway during local development. Keep
-the default `127.0.0.1:8010` for single-machine development.
+`INTELLIGENCE_API_BIND=0.0.0.0:8010`은 로컬 개발 중 Open WebUI를 정책 gateway에 붙이는 등
+일시적인 LAN 접근에만 사용한다. 단일 머신 개발의 기본값은 `127.0.0.1:8010`으로 유지한다.
 
-## Enterprise Runtime C0-C1
+## 기업용 runtime C0-C1
 
-This section covers the production-grade configuration added in the C0-C1
-foundation plan.  All configuration is via environment variables; defaults are
-loopback-only and safe for single-machine development without any additional
-variables set.
+이 절은 C0-C1 기반 계획에서 추가한 운영 수준 설정을 설명한다. 모든 설정은 환경변수로 주입하며,
+기본값은 loopback 전용이라 추가 변수 없이도 단일 머신 개발에서 안전하다.
 
-### Inbound authentication (fail-closed)
+### 인바운드 인증(fail-closed)
 
-Binding to any non-loopback address requires inbound authentication.  The
-process refuses to start if `INTELLIGENCE_API_BIND` is non-loopback and
-`INTELLIGENCE_INBOUND_AUTH_MODE` is not `shared-token`.
+loopback이 아닌 주소에 bind하려면 인바운드 인증이 필수다. `INTELLIGENCE_API_BIND`가 non-loopback인데
+`INTELLIGENCE_INBOUND_AUTH_MODE`가 `shared-token`이 아니면 프로세스는 시작하지 않는다.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `INTELLIGENCE_API_BIND` | No | `127.0.0.1:8010` | Listen address. Non-loopback requires auth. |
-| `INTELLIGENCE_INBOUND_AUTH_MODE` | Conditional | `disabled` | Set to `shared-token` for non-loopback. |
-| `INTELLIGENCE_INBOUND_SERVICE_TOKEN` | When mode is `shared-token` | — | Bearer token callers must supply. It is bound to the configured workload identity below. |
-| `INTELLIGENCE_INBOUND_SERVICE_SUBJECT_ID` | When mode is `shared-token` | — | Fixed service subject represented by the token; request headers cannot override it. |
-| `INTELLIGENCE_INBOUND_SERVICE_TENANT_ID` | When mode is `shared-token` | — | Fixed tenant scope represented by the token. |
-| `INTELLIGENCE_INBOUND_SERVICE_PRODUCT_ID` | When mode is `shared-token` | — | Fixed product scope represented by the token. |
-| `INTELLIGENCE_INBOUND_SERVICE_ACTIONS` | When mode is `shared-token` | — | Comma-separated explicit actions, for example `submit_normalization_proposal`. |
-| `INTELLIGENCE_CORS_ALLOWED_ORIGINS` | No | *(none — cross-origin refused)* | Comma-separated allowed origins. |
+| `INTELLIGENCE_API_BIND` | 아니오 | `127.0.0.1:8010` | 수신 주소. non-loopback이면 인증 필요 |
+| `INTELLIGENCE_INBOUND_AUTH_MODE` | 조건부 | `disabled` | non-loopback에서 `shared-token` 지정 |
+| `INTELLIGENCE_INBOUND_SERVICE_TOKEN` | `shared-token`일 때 | — | 호출자가 보낼 Bearer token. 아래 workload identity에 묶임 |
+| `INTELLIGENCE_INBOUND_SERVICE_SUBJECT_ID` | `shared-token`일 때 | — | token이 대표하는 고정 서비스 주체. 요청 헤더로 바꿀 수 없음 |
+| `INTELLIGENCE_INBOUND_SERVICE_TENANT_ID` | `shared-token`일 때 | — | 고정 tenant 범위 |
+| `INTELLIGENCE_INBOUND_SERVICE_PRODUCT_ID` | `shared-token`일 때 | — | 고정 product 범위 |
+| `INTELLIGENCE_INBOUND_SERVICE_ACTIONS` | `shared-token`일 때 | — | 쉼표로 나열한 허용 동작(예: `submit_normalization_proposal`) |
+| `INTELLIGENCE_CORS_ALLOWED_ORIGINS` | 아니오 | *(없음 — 교차 출처 거부)* | 허용 origin 목록 |
 
 ```dotenv
 INTELLIGENCE_API_BIND=0.0.0.0:8010
@@ -100,15 +95,15 @@ INTELLIGENCE_CORS_ALLOWED_ORIGINS=https://app.example.com
 
 ### Admission control
 
-Three knobs control load-shedding, body size, and per-request deadlines.
-Health endpoints (`/healthz`, `/readyz`, `/metrics`) are outside the admission
-stack and are never shed or concurrency-blocked.
+세 가지 설정값이 부하 차단·본문 크기·요청별 deadline을 제어한다.
+Health endpoint(`/healthz`, `/readyz`, `/metrics`)는 admission 계층 밖에 있어 부하 차단이나 동시성
+제한의 대상이 아니다.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `INTELLIGENCE_MAX_BODY_BYTES` | `1048576` (1 MiB) | Requests with larger bodies receive 413. |
-| `INTELLIGENCE_REQUEST_TIMEOUT_SECONDS` | `30` | Requests exceeding this wall-clock duration receive 504. |
-| `INTELLIGENCE_MAX_CONCURRENCY` | `128` | Requests arriving when the semaphore is exhausted receive 503. |
+| `INTELLIGENCE_MAX_BODY_BYTES` | `1048576` (1 MiB) | 초과 요청은 413 |
+| `INTELLIGENCE_REQUEST_TIMEOUT_SECONDS` | `30` | wall-clock 초과 요청은 504 |
+| `INTELLIGENCE_MAX_CONCURRENCY` | `128` | semaphore가 차면 503 |
 
 Overload response semantics:
 
@@ -121,14 +116,13 @@ Overload response semantics:
 | 503 | Global concurrency cap (`INTELLIGENCE_MAX_CONCURRENCY`) saturated |
 | 504 | Request exceeded `INTELLIGENCE_REQUEST_TIMEOUT_SECONDS` |
 
-### Durable state
+### 영속 상태
 
-When `DATABASE_URL` is set, both the normalization outbox and the audit log use
-a Postgres-backed adapter.  Migrations run automatically at connect.  Without
-`DATABASE_URL` the API falls back to a process-local in-memory store.
+`DATABASE_URL`이 있으면 정규화 outbox와 감사 로그가 Postgres adapter를 사용하고 접속 시 마이그레이션을
+자동 실행한다. 없으면 API는 프로세스 내부 메모리 저장소로 대체된다.
 
-**The in-memory fallback is loopback dev only — it is NOT safe to run multiple
-replicas against it; each process holds a separate store.**
+**메모리 대체 경로는 loopback 개발 전용이다. 여러 replica를 실행하면 각 프로세스가 별도 저장소를
+가지므로 안전하지 않다.**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -144,10 +138,9 @@ DATABASE_MAX_CONNECTIONS=10
 
 ### Outbox drain worker
 
-The drain worker is a separate binary that claims pending outbox records and
-delivers them to Foundation Platform. Run it alongside the API process when
-`DATABASE_URL` is set.  **`DATABASE_URL` is required** — the worker refuses to
-start against an in-memory outbox.
+drain worker는 대기 중인 outbox를 claim해 Foundation Platform으로 보내는 별도 binary다.
+`DATABASE_URL`이 있을 때 API와 함께 실행한다. **`DATABASE_URL`은 필수**이며 메모리 outbox에서는
+시작을 거부한다.
 
 ```bash
 cargo run -p intelligence-worker --bin normalization_outbox_drain_worker
@@ -160,17 +153,16 @@ cargo run -p intelligence-worker --bin normalization_outbox_drain_worker
 | `NORMALIZATION_OUTBOX_MAX_ATTEMPTS` | `8` | Maximum delivery attempts before dead-lettering. |
 | `NORMALIZATION_OUTBOX_DRAIN_IDLE_SECONDS` | `2` | Sleep between polls when the outbox is empty. |
 
-**Lease-vs-batch invariant warning:** ensure
+**Lease와 batch 불변식:**
 `NORMALIZATION_OUTBOX_DRAIN_BATCH_SIZE * FOUNDATION_PLATFORM_TIMEOUT_SECONDS` stays
-well below `NORMALIZATION_OUTBOX_DRAIN_LEASE_SECONDS`. If the tail of a batch
-outlives its lease, another worker instance will reclaim the record and attempt
-a duplicate delivery. Foundation Platform deduplication via `Idempotency-Key` is the
-backstop, but keeping the batch small and the lease generous avoids the race
-entirely.
+`NORMALIZATION_OUTBOX_DRAIN_BATCH_SIZE * FOUNDATION_PLATFORM_TIMEOUT_SECONDS`가
+`NORMALIZATION_OUTBOX_DRAIN_LEASE_SECONDS`보다 충분히 작아야 한다. batch 끝부분이 lease를 넘기면
+다른 worker가 레코드를 재획득해 중복 전달을 시도한다. Foundation의 `Idempotency-Key` 중복 제거는
+최후의 방어선이지만 batch를 작게, lease를 넉넉하게 잡으면 경합 자체를 피할 수 있다.
 
 ### Other worker binaries
 
-`intelligence-worker` ships three more binaries besides the drain worker:
+`intelligence-worker`는 drain worker 외에 다음 세 binary를 제공한다.
 
 ```bash
 cargo run -p intelligence-worker --bin building_register_floor_normalization
@@ -178,34 +170,29 @@ cargo run -p intelligence-worker --bin building_register_unit_normalization
 cargo run -p intelligence-worker --bin foundation_knowledge_consumer
 ```
 
-- `building_register_floor_normalization` — runs the building-register **floor**
-  normalization proposal job (generate → validate → submit through the Foundation
-  submitter; supports a dry-run mode via env).
-- `building_register_unit_normalization` — same job shape for building-register
-  **unit** normalization.
-- `foundation_knowledge_consumer` — consumes Foundation knowledge-source events
-  (Kafka + Karapace schema resolution, with DLQ) into the Postgres
-  knowledge-source registry. Note: the Foundation-side producer for this topic
-  does not exist yet; the default source topic is a fixture constant.
+- `building_register_floor_normalization` — 건축물대장 **층** 정규화 제안 작업(generate → validate →
+  Foundation submitter 제출). env로 dry-run을 지원한다.
+- `building_register_unit_normalization` — 건축물대장 **단위** 정규화 제안 작업.
+- `foundation_knowledge_consumer` — Foundation 지식 원천 이벤트(Kafka·Karapace schema, DLQ)를
+  Postgres 지식 원천 registry로 소비한다. 현재 Foundation 쪽 producer는 없으며 기본 topic은 fixture 상수다.
 
 ### Observability
 
 | Endpoint | Auth required | Admission | Notes |
 |----------|---------------|-----------|-------|
-| `GET /healthz` | No | Exempt — 2 s timeout, 1 KiB body cap | Process liveness; always 200 while running. |
-| `GET /readyz` | No | Exempt — 2 s timeout, 1 KiB body cap | Config-based readiness; 503 when model gateway or foundation submitter is unconfigured. |
-| `GET /metrics` | Yes (bearer), when auth mode is `shared-token` | Exempt from shed/concurrency; 2 s timeout, 1 KiB body cap | Prometheus text format. Buckets include 30 s and 60 s for LLM request latency. |
+| `GET /healthz` | 없음 | 제외 — 2초 timeout, 1 KiB 본문 | 프로세스 생존 확인. 실행 중이면 항상 200 |
+| `GET /readyz` | 없음 | 제외 — 2초 timeout, 1 KiB 본문 | 설정 기반 준비 상태. model gateway나 Foundation submitter가 없으면 503 |
+| `GET /metrics` | `shared-token`이면 bearer 필요 | 부하/동시성 제외 — 2초 timeout, 1 KiB 본문 | Prometheus 형식. LLM 지연 bucket에 30초·60초 포함 |
 
-`/metrics` is served on the main port outside the load-shed and concurrency
-stack so that Prometheus scrapes work even during saturation.  Moving `/metrics`
-to a separate loopback listener is deferred to C3.
+`/metrics`는 부하 차단·동시성 계층 밖의 주 포트에서 제공하므로 포화 중에도 Prometheus scrape가
+동작한다. 별도 loopback listener로 옮기는 일은 C3로 미룬다.
 
 ## Commands
 
-The workspace pins Rust `1.96.0` through the repository-root `rust-toolchain.toml`
-(area-local toolchain files are forbidden by the root toolchain guard).
+workspace는 루트 `rust-toolchain.toml`로 Rust `1.96.0`을 고정한다(영역 내부 toolchain 파일은
+루트 guard가 금지한다).
 
-Run these after Rust is installed locally:
+Rust를 로컬에 설치한 뒤 다음을 실행한다.
 
 ```bash
 cargo fmt --all --check
@@ -226,19 +213,15 @@ cargo run -p intelligence-api
 - `POST /intelligence/v1/normalization/generate-validate-submit`
 - `POST /intelligence/v1/normalization/submit-proposal`
 
-Platform-native routes mount under `/intelligence/v1/...` per root ADR-0001 §6.
-The OpenAI-compatible surface (`/v1/models`, `/v1/chat/completions`) keeps its
-ecosystem-mandated paths as a recorded exception to that convention.
+플랫폼 전용 route는 루트 ADR-0001 §6에 따라 `/intelligence/v1/...` 아래에 둔다.
+OpenAI 호환 표면(`/v1/models`, `/v1/chat/completions`)은 생태계가 요구하는 경로이므로 예외로 기록한다.
 
-`/v1/chat/completions` is the policy-enforced chat boundary. It accepts an
-OpenAI-compatible non-streaming chat request, injects the `ko-KR` answer policy,
-validates the model output, and makes one repair call when the first answer does
-not pass the Korean output validator. Apps should use this endpoint instead of
-calling Open WebUI directly.
+`/v1/chat/completions`는 정책이 적용된 chat 경계다. OpenAI 호환 비스트리밍 요청을 받고
+`ko-KR` 답변 정책을 주입한 뒤 모델 출력을 검증한다. 첫 답변이 한글 출력 validator를 통과하지
+못하면 한 번만 보정 호출한다. 앱은 Open WebUI를 직접 호출하지 말고 이 endpoint를 사용한다.
 
-Generation endpoints return `501` until a model proposal generator is
-configured. Submission endpoints return `501` until a Foundation Platform submitter is
-configured.
+model proposal generator가 설정되기 전까지 generation endpoint는 `501`을 반환한다.
+Foundation Platform submitter가 설정되기 전까지 submission endpoint도 `501`을 반환한다.
 
 ## Foundation Platform Submission
 
@@ -250,21 +233,19 @@ FOUNDATION_PLATFORM_NORMALIZATION_PATH=/internal/normalization/proposals
 FOUNDATION_PLATFORM_INTELLIGENCE_WORKLOAD_IDENTITY_TOKEN_FILE=/run/secrets/foundation-workload-token
 ```
 
-The token file must contain a Zitadel workload bearer issued for the Intelligence
-Platform runtime. The Rust API reads it during startup and sends only the bearer
-authorization header. Static service tokens and non-workload credentials are
-not accepted. When a Foundation Platform base URL is set, the token
-file is required and startup fails fast if it is absent or unreadable.
+token 파일에는 Intelligence Platform runtime용으로 발급된 Zitadel workload bearer가 있어야 한다.
+Rust API는 시작할 때 읽어 bearer authorization header만 보낸다. 정적 service token이나 workload가
+아닌 자격증명은 받지 않는다. Foundation Platform base URL을 설정하면 token 파일도 필수이며,
+없거나 읽을 수 없을 때 즉시 시작을 실패한다.
 
-The submit flow validates proposals first, skips invalid proposals, enqueues by
-idempotency key, sends to Foundation Platform, and deduplicates already-sent records.
+제출 흐름은 제안을 먼저 검증하고 잘못된 제안은 건너뛴다. idempotency key로 enqueue한 뒤 Foundation에
+전송하고 이미 전송된 레코드는 중복 제거한다.
 
-Every proposal POST carries an `Idempotency-Key` header whose value equals the
-outbox idempotency key (`{tenant_id}:{target_kind}:{raw_record_id}:{schema_version}`).
-Foundation Platform MAY use this header for server-side exactly-once intake dedup per
-the IETF Idempotency-Key draft. Re-deliveries by the outbox drain worker reuse
-the same key, so Foundation Platform can safely deduplicate retries without storing
-proposal state on the intelligence-platform side.
+모든 proposal POST는 outbox idempotency key(`{tenant_id}:{target_kind}:{raw_record_id}:{schema_version}`)와
+같은 값을 가진 `Idempotency-Key` header를 보낸다. Foundation Platform은 IETF Idempotency-Key draft에
+따라 이 header를 서버 측 exactly-once 수신 중복 제거에 사용할 수 있다. outbox drain worker의 재전송도
+같은 key를 쓰므로 Intelligence 쪽에 proposal 상태를 저장하지 않고도 Foundation이 retry를 안전하게
+중복 제거한다.
 
 ## Model Runtime
 
@@ -288,14 +269,14 @@ MODEL_RUNTIME_API_KEY=optional-token
 MODEL_RUNTIME_REASONING_EFFORT=none
 ```
 
-A local example profile is available at `config/local-ollama.env.example`.
+로컬 예시 profile은 `config/local-ollama.env.example`에 있다.
 Load it through the deployment environment or secret/config mechanism; it is
 configuration data, not an executable production wrapper. Any
 non-loopback bind requires the two `INTELLIGENCE_INBOUND_*` auth variables; see
 the **Enterprise Runtime C0-C1** section for the full fail-closed guard rules.
 
-The runtime uses an OpenAI-compatible chat completions shape. The base URL can
-point to Ollama, vLLM, or another compatible model gateway, but apps still call
+runtime은 OpenAI 호환 chat completions 형태를 사용한다. base URL은 Ollama·vLLM 또는 다른
+호환 model gateway를 가리킬 수 있지만 앱은 여전히
 `intelligence-platform`, not the model runtime. `MODEL_GATEWAY_*` names are
 still accepted as a deprecated compatibility alias, but new deployments should
 use `MODEL_RUNTIME_*`.
@@ -322,16 +303,15 @@ curl --fail-with-body \
 JSON
 ```
 
-Do not rely on hidden Korean aliases such as `gemma-ko` for production behavior.
+`gemma-ko` 같은 숨겨진 한국어 별칭을 운영 동작의 기준으로 삼지 않는다.
 Korean behavior belongs to the chat policy, validator, and repair flow exposed by
 the intelligence platform.
 
 ### Temporary Open WebUI Connection
 
-For the current local Open WebUI at `http://<model-runtime-host>:8080`, add an
-OpenAI-compatible connection that points to the intelligence platform instead of
-Ollama directly (`<intelligence-api-host>` is the LAN address of the machine
-running `intelligence-api`):
+현재 로컬 Open WebUI(`http://<model-runtime-host>:8080`)에는 Ollama를 직접 가리키지 않고
+intelligence platform을 가리키는 OpenAI-compatible connection을 설정한다.
+`<intelligence-api-host>`는 `intelligence-api`가 실행 중인 machine의 LAN address다.
 
 ```text
 Base URL: http://<intelligence-api-host>:8010/v1
@@ -339,13 +319,12 @@ API Key: local-dev
 Model: gemma2:9b
 ```
 
-Use this only as a temporary bridge. The final product UI should call
-`intelligence-platform` directly and Open WebUI should stay a development tool.
+이 설정은 임시 bridge로만 사용한다. 최종 제품 UI는 `intelligence-platform`을 직접 호출하고
+Open WebUI는 개발 도구로 남긴다.
 
 ## LangChain And LangGraph
 
-LangChain and LangGraph are not runtime dependencies of this Rust platform.
-LangChain is useful for quickly assembling LLM apps and agents. LangGraph is
-useful as a reference for durable, stateful, human-in-the-loop agent execution.
-The Rust platform adopts those architecture ideas through explicit contracts,
-outbox state, idempotency, and review boundaries.
+LangChain과 LangGraph는 이 Rust 플랫폼의 런타임 의존성이 아니다. LangChain은 LLM 앱과
+agent를 빠르게 조합할 때 유용하고 LangGraph는 내구성·상태 보존·사람 검토형 agent 실행의
+참고 모델로 유용하다. Rust 플랫폼은 명시적 계약, outbox 상태, 멱등성, 검토 경계로 해당
+아키텍처 아이디어만 채택한다.

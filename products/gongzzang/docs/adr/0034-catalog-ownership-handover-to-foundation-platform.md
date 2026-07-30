@@ -1,4 +1,4 @@
-# ADR 0034 - Catalog Ownership Handover To Foundation Platform
+# ADR 0034 - Catalog 소유권을 Foundation Platform으로 이관
 
 | Field | Value |
 |---|---|
@@ -6,46 +6,44 @@
 | Status | Completed; ownership reaffirmed by [ADR 0048](./0048-horizontal-platform-redefinition.md) |
 | Boundary SSOT | `docs/architecture/foundation-platform-boundary.v1.json` |
 
-## Decision
+## 결정
 
-Foundation Platform is the sole owner of canonical industrial-complex, parcel,
-building, manufacturer, public/reference spatial, collection, and lakehouse
-data. Gongzzang consumes those facts only through published Foundation APIs,
-events, and immutable artifacts.
+Foundation Platform은 canonical industrial-complex·parcel·building·manufacturer,
+public/reference spatial, collection, lakehouse data를 소유한다. Gongzzang은 발행된
+Foundation API·event·immutable artifact를 통해서만 이 사실을 소비한다.
 
-## Completed Extraction
+## 완료한 분리
 
-The following implementation categories are absent from the Gongzzang runtime
-workspace:
+다음 구현 category는 Gongzzang runtime workspace에 없다.
+workspace에는 다음이 없다:
 
-- canonical Catalog domain crates;
-- V-World and data.go.kr source clients;
-- raw capture and collection-control runtimes;
-- public/reference vector-tile ETL;
-- Catalog API-drift monitoring;
-- Foundation-owned collection and raw-data database tables.
+- canonical Catalog domain crate
+- V-World·data.go.kr source client
+- raw capture·collection-control runtime
+- public/reference vector-tile ETL
+- Catalog API drift monitoring
+- Foundation 소유 collection·raw-data DB table
 
-Gongzzang permanently owns listings, listing media, auctions, product users,
-product search, and product-facing marker semantics. It may keep local read
-models derived from Foundation artifacts, but those read models are not
-canonical coordinate or Catalog sources.
+Gongzzang은 listing, listing media, auction, product user, product search, product-facing
+marker semantics를 영구적으로 소유한다. Foundation artifact에서 파생한 local read model은
+둘 수 있지만 canonical coordinate나 Catalog source가 아니다.
 
-## Fresh-Schema Rule
+## 신규 스키마 규칙
 
-This project has not launched. The Gongzzang migration chain therefore creates
-only the final product-owned schema. It does not create retired Foundation-owned
-tables and then drop or rename them through compatibility migrations.
+이 프로젝트는 출시하지 않았다. 따라서 Gongzzang migration chain은
+최종 product 소유 schema만 둔다. 폐기된 Foundation 소유 table을 먼저 만들고 compatibility
+migration으로 삭제하거나 이름을 바꾸지 않는다.
 
-## Enforcement
+## 강제 지점
 
-- `docs/architecture/foundation-platform-boundary.v1.json` records ownership and
-  forbidden dependencies.
-- `scripts/lefthook/foundation-ownership-boundary.sh` rejects reintroduction of
-  Foundation internals into active Gongzzang code.
-- `tests/migrations/test_v001_full.sh` proves that a fresh database contains the
-  product tables and excludes Foundation-owned tables.
+- `docs/architecture/foundation-platform-boundary.v1.json`이 소유권과 금지 dependency를
+  기록한다.
+- `scripts/lefthook/foundation-ownership-boundary.sh`가 활성 Gongzzang code에 Foundation
+  내부 구현이 재도입되는 것을 거부한다.
+- `tests/migrations/test_v001_full.sh`가 새 DB에 product table만 있고 Foundation 소유
+  table은 없음을 증명한다.
 
-## Current Cross-Repo Sources
+## 현재 저장소 간 출처
 
 - [ADR 0048](./0048-horizontal-platform-redefinition.md)
 - `../../../../platforms/foundation-platform/docs/adr/0021-adopt-horizontal-platform-redefinition.md`

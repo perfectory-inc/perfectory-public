@@ -13,7 +13,7 @@
 #      the compiler depend on files the build system cannot infer from the source
 #      graph. Each site needs an explicit data dependency declared later.
 #
-# The roadmap (docs/architecture/platform-production-readiness-roadmap.md,
+# The roadmap (docs/roadmap/production-readiness.md,
 # 우선순위 4) records the decision NOT to migrate now and the three triggers that
 # would reopen it. That decision rests on these numbers being small. Nothing was
 # watching them.

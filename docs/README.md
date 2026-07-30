@@ -15,6 +15,7 @@ last_reviewed: 2026-07-28
 docs/
 ├── README.md                  이 문서 지도
 ├── document-catalog.md        전체 문서 자동 색인
+├── document-audit.md          문서 메타데이터·언어·링크 감사 보고서
 ├── adr/                       전역 설계 결정
 ├── architecture/             모노레포 전체 구조·경계
 ├── guides/                    전역 개발 안내
@@ -34,6 +35,7 @@ docs/
 | [문서 운영 안내](./guides/documentation-lifecycle.md) | 문서 작성·검토·기록·번역 절차 |
 | [운영 준비 작업 목록](./roadmap/production-readiness.md) | 전역 출시 준비 할 일과 완료 순서 |
 | [전체 문서 색인](./document-catalog.md) | 영역·유형·상태별 자동 생성 문서 목록 |
+| [문서 감사 보고서](./document-audit.md) | 메타데이터·언어·중복·링크 자동 감사 결과 |
 
 ## 플랫폼별 문서
 

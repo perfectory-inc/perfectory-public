@@ -58,7 +58,7 @@ Catalog. The Gongzzang workflow remains present only as a disabled audit stub, a
 
 ## 컨텍스트
 
-Mutable third-party Action references make workflow behavior change without a repository commit.
+변경 가능한 third-party Action 참조는 저장소 커밋 없이 workflow 동작을 바꿀 수 있다.
 Unbounded manifest backup retention creates a separate storage-safety risk. The repository therefore
 needs immutable workflow dependencies and an owner-scoped retention policy; historical audit output
 and live cleanup evidence belong in private operations storage.

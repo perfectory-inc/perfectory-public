@@ -1,4 +1,4 @@
-# ADR 0021 - Adopt Horizontal Platform Architecture
+# ADR 0021 - 수평 플랫폼 아키텍처 채택
 
 | Field | Value |
 |---|---|
@@ -6,15 +6,14 @@
 | Status | Accepted |
 | Governing ADR | `../../../../products/gongzzang/docs/adr/0048-horizontal-platform-redefinition.md` |
 
-## Context
+## 배경
 
-Shared data, identity, and intelligence have different security boundaries, scaling patterns, and
-release lifecycles. Keeping them in one platform would blur ownership and invite direct database
-coupling.
+shared data, identity, intelligence는 보안 경계·scaling pattern·release lifecycle이 서로
+다르다. 하나의 platform에 두면 소유권이 흐려지고 직접 database coupling을 부른다.
 
-## Decision
+## 결정
 
-The final architecture has three horizontal platforms:
+최종 아키텍처는 세 개의 horizontal platform으로 구성한다.
 
 ```text
 foundation-platform
@@ -22,27 +21,27 @@ identity-platform
 intelligence-platform
 ```
 
-- `foundation-platform` owns Catalog, collection, lakehouse, canonical public/reference data,
-  lineage, quality, and normalization proposal governance.
-- `identity-platform` owns staff identity, service identity, authentication policy, and
-  authorization.
-- `intelligence-platform` owns model execution, proposal generation, and vector/RAG processing.
+- `foundation-platform`은 Catalog, collection, lakehouse, canonical public/reference data,
+  lineage, quality, normalization proposal governance를 소유한다.
+- `identity-platform`은 staff identity, service identity, authentication policy,
+  authorization을 소유한다.
+- `intelligence-platform`은 model execution, proposal generation, vector/RAG processing을
+  소유한다.
 
-Gongzzang and future products consume published APIs, events, and immutable artifacts. Cross-platform
-direct database access and compatibility aliases are forbidden.
+Gongzzang과 향후 product는 발행된 API·event·immutable artifact를 소비한다. platform 간
+직접 database 접근과 compatibility alias는 금지한다.
 
-## Naming Rules
+## 이름 규칙
 
-- System slugs use `foundation-platform`, `identity-platform`, and `intelligence-platform`.
-- Brand display uses `Foundation Platform`, `Identity Platform`, and `Intelligence Platform`.
-- Fresh databases, buckets, services, packages, environment variables, and events use final names
-  only.
-- Contract versions such as `/v1`, `.v1`, and `schema_version: 1` remain where they express a real
-  public API, event, or schema compatibility boundary.
+- system slug은 `foundation-platform`, `identity-platform`, `intelligence-platform`을 사용한다.
+- brand 표기는 `Foundation Platform`, `Identity Platform`, `Intelligence Platform`을 사용한다.
+- 새 database·bucket·service·package·environment variable·event에는 최종 이름만 사용한다.
+- `/v1`, `.v1`, `schema_version: 1` 같은 contract version은 실제 public API·event·schema
+  호환성 경계를 표현하는 경우 유지한다.
 
-## Consequences
+## 영향
 
-- Each platform can deploy and scale independently.
-- Identity data is no longer stored in or foreign-keyed from Foundation.
-- AI remains a proposal producer; Foundation remains the canonical decision authority.
-- Prelaunch migration helpers and compatibility names are removed rather than carried forward.
+- 각 platform을 독립적으로 deploy하고 scale할 수 있다.
+- Identity data는 더 이상 Foundation에 저장하거나 foreign key로 연결하지 않는다.
+- AI는 proposal producer로 남고 Foundation은 canonical decision authority로 남는다.
+- 출시 전 migration helper와 compatibility 이름은 계속 운반하지 않고 제거한다.

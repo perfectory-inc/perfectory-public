@@ -1,4 +1,4 @@
-# ADR-0050: Dawneer Workbench and Internal Admin Surface
+# ADR-0050: Dawneer 작업대와 내부 관리자 화면
 
 | Field | Value |
 |---|---|
@@ -7,7 +7,7 @@
 | Decision owner | perfectoryinc |
 | Related | [ADR-0048](./0048-horizontal-platform-redefinition.md), [ADR-0049](./0049-identity-platform-contract-design.md) |
 
-## Context
+## 배경
 
 Dawneer already serves the B2B industrial-complex management and site-authoring workflow. The concrete
 shared staff workflow today is human review of normalization proposals before Foundation Platform
@@ -15,7 +15,7 @@ applies canonical-data changes. Creating a separate admin application for that w
 domain ownership into Dawneer, would duplicate product work before launch and blur the horizontal
 platform boundaries established by ADR-0048.
 
-## Decision
+## 결정
 
 Dawneer remains the B2B industrial-complex workbench and is the default and only shared staff-facing
 admin composition surface while the current product and team boundaries hold. This is a deployment
@@ -36,7 +36,7 @@ engine. Revisit that engine decision only when actual hierarchical or per-object
 Reconsider splitting the admin surface only when a real security boundary or independently owned team
 requires separate deployment and access control.
 
-## Consequences
+## 영향
 
 - Staff get one composition surface without duplicating domain data or business rules.
 - Each owning service remains independently responsible for its API, policy enforcement, and audit

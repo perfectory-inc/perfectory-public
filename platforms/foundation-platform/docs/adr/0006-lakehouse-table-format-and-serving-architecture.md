@@ -233,7 +233,7 @@ Spatial edits use Apache Iceberg's standard Write-Audit-Publish branch flow:
    manifest generation.
 6. Reconcile Iceberg `main` only along ancestry of the Catalog-selected snapshot.
 
-An unselected candidate branch cannot leak into later public history. A failed candidate remains
+선택되지 않은 candidate branch는 이후 공개 이력으로 유출될 수 없다. 실패한 candidate는
 isolated until bounded retention expires. Provider-specific R2 pointers must not emulate Iceberg
 branch semantics.
 

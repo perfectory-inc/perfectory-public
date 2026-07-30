@@ -1,4 +1,4 @@
-# ADR 0016 — Bronze Commit Protocol (single-seam BronzeCommitter)
+# ADR 0016 — Bronze 커밋 프로토콜(단일 경계 BronzeCommitter)
 
 - **Status:** Accepted (2026-06-25)
 - **Supersedes/extends:** [ADR 0015](./0015-bronze-object-key-content-addressed-layout.md)
@@ -10,9 +10,9 @@
 - **Contract SSOT:** this ADR plus [ADR 0015](./0015-bronze-object-key-content-addressed-layout.md);
   implementation and tests enforce the write protocol.
 
-## Context
+## 배경
 
-Bronze raw object writes are scattered across ~8 `put_object` call sites + per-lane plan/persist,
+Bronze 원자료 객체 쓰기가 약 8개의 `put_object` 호출 지점과 레인별 plan/persist에 흩어져 있고,
 with duplicated `dedupe_key` (2×), `sha256_hex` (4×), and operation-collapse (2×). Verified
 symptoms of this one root: operation= redundancy in some lanes not others; the V-World cadastral
 key hashing a plain region code (`filter_sha256`) + constant `filter_kind=attr` + a request-knob
@@ -25,15 +25,15 @@ exception — the hallmark of a missing commit boundary. R2 currently holds only
 this is the cheapest moment to fix the contract before national data lands (keys are immutable
 once collected).
 
-## Decision
+## 결정
 
-Route **every Bronze raw write through one `BronzeCommitter` seam** that owns, in one place:
+**모든 Bronze 원자료 쓰기를 하나의 `BronzeCommitter` 경계로 통과**시켜 다음을 한 곳에서 소유한다.
 key compile + semantic path guard + canonical page-size validation + checksum + CreateOnly write +
 DB `bronze_object` + ledger + event + manifest material. `ObjectStorage` stays a dumb low-level
 port. Immutable artifacts use `CreateOnly`, stable serving pointers and disposable smoke/scratch
 objects may use `OverwriteAllowed`, and Iceberg owns transactional Silver/Gold table commits.
 
-Key sub-decisions:
+세부 결정:
 - **Write-once via conditional PUT.** Bronze raw uses a per-request `write_mode = CreateOnly`
   → R2 `If-None-Match: *`. `412` is NOT a plain failure → reconcile by checksum. Non-streaming
   page PUT stores `x-amz-meta-sha256`; streaming bulk cannot (sha known only post-stream) →
@@ -50,7 +50,7 @@ Key sub-decisions:
 - **Bucket Lock / WORM (separate 2nd net, deferred).** Applied with explicit prefix + retention
   only AFTER cleanup + mini-smoke + national re-collect + green verification — never in dev/smoke.
 
-## Basis (honest — not borrowed authority)
+## 근거(외부 권위를 빌리지 않음)
 
 1. **Our SSOT principle** (AGENTS.md #6) — the committer consolidates the verified duplications.
 2. **Repository / Unit-of-Work pattern** (Fowler) — we already have `unit_of_work.rs`; the
@@ -60,7 +60,7 @@ Key sub-decisions:
    `if_none_match("*")`). Hudi (mutable table format) and Gobblin (heavyweight framework) are NOT
    1:1 — referenced as philosophy only, never cited as evidence.
 
-## Consequences
+## 영향
 
 - **Solves at root** (the write-authority class): operation= redundancy, cadastral jank, page-size
   collision, silent overwrite, async/sync recording inconsistency, put_object scattering,
@@ -72,7 +72,7 @@ Key sub-decisions:
   cross-repo gongzzang 0046/0047), broker deferred. The committer becomes its single future
   `raw_written` emit point, so building it first makes the eventual Kafka integration clean.
 
-## Acceptance criteria (definition of done)
+## 수용 기준(완료 정의)
 
 1. Zero direct `put_object` in Bronze collection modules. 2. Every Bronze lane via `BronzeCommitter`.
 3. R2 success → DB fail → retry 412 → same checksum → DB row recovered. 4. 412 + different checksum →
@@ -81,7 +81,8 @@ never requires sha256 pre-upload. 7. Canonical page-size violation fails at plan
 evidence-based). 8. V-World cadastral emits no `filter_sha256`/`filter_kind`/`size`. 9. audit/reconcile
 operate on the new key contract. 10. 5 GiB file-size preflight before national re-collect.
 
-## Non-goals
+## 범위 밖
 
-No framework / plugin system / event-sourcing. No Kafka / K8s / Temporal in this work. No Silver/Gold
+framework/plugin system/event-sourcing은 사용하지 않는다. 이 작업에는 Kafka/K8s/Temporal도
+없으며 Silver/Gold
 redesign. No `ArtifactWriter` rebuild — mutable writes keep the existing overwrite path.
