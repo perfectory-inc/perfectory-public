@@ -24,13 +24,20 @@
 # after the real count dropped. A ceiling that only ever rises is not a ratchet.
 set -euo pipefail
 
-# Measured 2026-07-29. Change deliberately, with the reason in the commit message.
-# They are parameters, not constants, for one reason: a guard whose thresholds
-# cannot be varied cannot have its own failure paths tested. The defaults are the
-# real repository's numbers; only the self-test passes anything else.
+# Measured 2026-07-29, raised to 80 on 2026-07-30. Change deliberately, with the
+# reason in the commit message. They are parameters, not constants, for one reason:
+# a guard whose thresholds cannot be varied cannot have its own failure paths
+# tested. The defaults are the real repository's numbers; only the self-test passes
+# anything else.
+#
+# 79 -> 80: `catalog-infrastructure/tests/spatial_tile_publication.rs` declares a
+# second `sqlx::migrate!` in that crate. The v2 publication transaction has to be
+# proved against a migrated database, and the promotion gate counts publication
+# units globally, so the suite needs its own disposable database rather than the
+# shared harness one — which is what the migrator site is for.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-79}"
+COMPILE_TIME_READ_BASELINE="${3:-80}"
 
 cd "$repo_root"
 
