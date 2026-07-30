@@ -1385,6 +1385,13 @@ impl From<CatalogError> for ApiError {
                     "vector tile manifest version mismatch: expected_current_version={expected}, current={current}"
                 ))
             }
+            CatalogError::VectorTileServingStateConflict {
+                unit_key,
+                expected,
+                current,
+            } => Self::Conflict(format!(
+                "vector tile serving state mismatch for {unit_key}: expected {expected}, current {current}"
+            )),
             CatalogError::InvalidPnu(e) => Self::BadRequest(e.to_string()),
             CatalogError::InvalidVectorTileManifestRollback(msg)
             | CatalogError::InvalidVectorTileManifestPromotion(msg)

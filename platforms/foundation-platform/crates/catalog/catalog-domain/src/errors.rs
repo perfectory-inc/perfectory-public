@@ -61,6 +61,24 @@ pub enum CatalogError {
         current: String,
     },
 
+    /// A v2 publication unit's serving state differed from the caller's expectation.
+    ///
+    /// Distinct from [`CatalogError::VectorTileManifestVersionConflict`], which compares the frozen
+    /// v1 manifest's string version. The v2 compare-and-swap is per publication unit and compares a
+    /// pair — the active release and the serving generation — because a same-revision rollback
+    /// re-activates a preserved release, so one release id can be active at two generations.
+    #[error(
+        "vector tile serving state mismatch (unit_key={unit_key}, expected={expected}, current={current})"
+    )]
+    VectorTileServingStateConflict {
+        /// Publication unit whose serving state was compared.
+        unit_key: String,
+        /// Release and serving generation the caller claimed to have observed.
+        expected: String,
+        /// Release and serving generation found under lock.
+        current: String,
+    },
+
     /// Industrial complex official source code already exists.
     #[error("industrial complex official source code already exists ({0})")]
     ComplexOfficialCodeConflict(String),
