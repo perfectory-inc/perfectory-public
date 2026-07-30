@@ -255,14 +255,14 @@ async fn a_stale_observation_loses_the_compare_and_swap_and_moves_nothing() -> T
     .await
 }
 
-/// The completeness rule, and the serving-generation cost it carries.
+/// The completeness rule, and what it does *not* cost.
 ///
 /// One unit changes but the manifest names every unit, because the gate rejects
-/// `next_unit_count <> publication_unit_count`. The carried unit's *release* is unchanged while its
-/// serving generation advances anyway: the gate compares every selected unit against
-/// `unit.serving_generation + 1`, so a manifest that repeated a neighbour's current generation is
-/// refused as a serving-generation gap. This is asserted rather than described because it is the
-/// one place the installed gate is stricter than "per-unit generations" suggests.
+/// `next_unit_count <> publication_unit_count`. The carried unit keeps both its release and its
+/// serving generation: the value tracks one unit's source selection, and a carry-forward changes
+/// nothing about it (ADR-0014). Asserted rather than described because the gate used to demand
+/// `unit.serving_generation + 1` from every selected unit, which made per-unit invalidation
+/// meaningless — every publication invalidated every unit.
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
 async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() -> TestResult {
@@ -309,8 +309,8 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
         assert_eq!(carried.data_revision.as_uuid(), parcels_revision);
         assert_eq!(
             carried.serving_generation.value(),
-            2,
-            "the gate advances every selected unit's serving generation, carried or not"
+            1,
+            "a carried unit's source selection did not change, so its generation does not move"
         );
         assert_eq!(
             published_unit(&second, "complex")?
@@ -320,6 +320,7 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
         );
 
         // Switching the first unit again now has to carry the second one, in the other direction.
+        // Its expectation is still generation 1 — publishing `complex` did not invalidate it.
         let third_revision = seed_data_revision(&pool, NEXT_SNAPSHOT, source_record_id).await?;
         let third = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
@@ -327,7 +328,7 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
                 third_revision,
                 NEXT_SNAPSHOT,
                 source_record_id,
-                Some((parcels_release, ServingGeneration::new(2)?)),
+                Some((parcels_release, ServingGeneration::new(1)?)),
             )?)
             .await?;
 
@@ -336,10 +337,14 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
         let switched = published_unit(&third, "parcels")?;
         assert_ne!(switched.active_release_id, parcels_release);
         assert_eq!(switched.data_revision.as_uuid(), third_revision);
-        assert_eq!(switched.serving_generation.value(), 3);
+        assert_eq!(switched.serving_generation.value(), 2);
         let complex = published_unit(&third, "complex")?;
         assert_eq!(complex.data_revision.as_uuid(), complex_revision);
-        assert_eq!(complex.serving_generation.value(), 2);
+        assert_eq!(
+            complex.serving_generation.value(),
+            1,
+            "the global manifest advanced three times; `complex` was switched once"
+        );
 
         assert_eq!(
             active_pointer(&pool).await?,
@@ -353,6 +358,234 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
                 RUNTIME_MANIFEST_PUBLISHED_V2
             ]
         );
+        Ok(())
+    })
+    .await
+}
+
+/// Task 6 Step 1's first interleaving: two edits to the *same* unit from one observed state.
+///
+/// Exactly one may commit. The loser has to receive a typed conflict rather than a serialization
+/// failure, because the two mean different things to a caller: it observed a state that is no longer
+/// current, and re-reading is the fix, not retrying the same command.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner() -> TestResult {
+    run_in_disposable_database("tile_same_unit_race", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let source_record_id = seed_source_record(&pool).await?;
+        seed_publication_unit(&pool, "parcels").await?;
+        let first_revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
+            .execute(activation_command(
+                "parcels",
+                first_revision,
+                PARCELS_SNAPSHOT,
+                source_record_id,
+                None,
+            )?)
+            .await?;
+        let observed = published_unit(&published, "parcels")?.active_release_id;
+        let observed_generation = ServingGeneration::new(1)?;
+
+        // Two different revisions, one observed state. Distinct revisions keep the release
+        // uniqueness key out of it, so the compare-and-swap is the only thing that can decide.
+        let left_revision = seed_data_revision(&pool, NEXT_SNAPSHOT, source_record_id).await?;
+        let right_revision = seed_data_revision(&pool, FOURTH_SNAPSHOT, source_record_id).await?;
+        let capability = RuntimeManifestPublicationCapability::enabled();
+        let left_writer = use_case(&pool, capability);
+        let right_writer = use_case(&pool, capability);
+        let (left, right) = tokio::join!(
+            left_writer.execute(activation_command(
+                "parcels",
+                left_revision,
+                NEXT_SNAPSHOT,
+                source_record_id,
+                Some((observed, observed_generation)),
+            )?),
+            right_writer.execute(activation_command(
+                "parcels",
+                right_revision,
+                FOURTH_SNAPSHOT,
+                source_record_id,
+                Some((observed, observed_generation)),
+            )?),
+        );
+
+        let (winner, loser) = match (left, right) {
+            (Ok(winner), Err(loser)) | (Err(loser), Ok(winner)) => (winner, loser),
+            (Ok(_), Ok(_)) => {
+                return Err("both activations committed; the compare-and-swap did not hold".into())
+            }
+            (Err(left), Err(right)) => {
+                return Err(format!("neither activation committed: {left}; {right}").into())
+            }
+        };
+        assert!(
+            matches!(
+                &loser,
+                CatalogError::VectorTileServingStateConflict { unit_key, .. } if unit_key == "parcels"
+            ),
+            "the loser must learn its observation is stale, not that the database serialized: {loser:?}"
+        );
+
+        assert_eq!(winner.manifest_generation.value(), 2);
+        assert_eq!(
+            published_unit(&winner, "parcels")?.serving_generation.value(),
+            2
+        );
+        assert_eq!(active_pointer(&pool).await?, winner.current_version.as_uuid());
+        assert_eq!(
+            manifest_count(&pool).await?,
+            2,
+            "the loser's manifest rows must have rolled back with its transaction"
+        );
+        assert_eq!(release_count(&pool).await?, 2);
+        assert_eq!(outbox_types(&pool).await?.len(), 2);
+        Ok(())
+    })
+    .await
+}
+
+/// Task 6 Step 1's second interleaving: two edits to *different* units, started together.
+///
+/// Both observe their own unit before either commits, and both must commit — they are not in
+/// conflict. Under the old gap rule the second one lost a compare-and-swap it was not in, because
+/// the first one's publication advanced *its* unit's generation too.
+///
+/// The proof that they serialize on the pointer rather than getting lucky is the later manifest: it
+/// holds the earlier writer's new release as well as its own, which is only possible if it read the
+/// pointer after the earlier one committed. Step 1 asks for exactly this rather than for a database
+/// serialization failure — the lock order is the thing under test, and neither selection is dropped.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn two_edits_to_different_units_both_commit_and_advance_the_global_generation_in_order(
+) -> TestResult {
+    run_in_disposable_database("tile_two_unit_interleave", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let source_record_id = seed_source_record(&pool).await?;
+
+        // Both units published, one at a time, because a first activation is also the first manifest
+        // that can name its unit.
+        seed_publication_unit(&pool, "parcels").await?;
+        let parcels_first = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let bootstrap = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
+            .execute(activation_command(
+                "parcels",
+                parcels_first,
+                PARCELS_SNAPSHOT,
+                source_record_id,
+                None,
+            )?)
+            .await?;
+        let parcels_release = published_unit(&bootstrap, "parcels")?.active_release_id;
+        seed_publication_unit(&pool, "complex").await?;
+        let complex_first = seed_data_revision(&pool, COMPLEX_SNAPSHOT, source_record_id).await?;
+        let paired = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
+            .execute(activation_command(
+                "complex",
+                complex_first,
+                COMPLEX_SNAPSHOT,
+                source_record_id,
+                None,
+            )?)
+            .await?;
+        let complex_release = published_unit(&paired, "complex")?.active_release_id;
+        let generation_before = paired.manifest_generation.value();
+
+        // Both expectations are read here, before either edit runs. That is the interleaving.
+        let parcels_next = seed_data_revision(&pool, NEXT_SNAPSHOT, source_record_id).await?;
+        let complex_next = seed_data_revision(&pool, FOURTH_SNAPSHOT, source_record_id).await?;
+        let switch_parcels = activation_command(
+            "parcels",
+            parcels_next,
+            NEXT_SNAPSHOT,
+            source_record_id,
+            Some((parcels_release, ServingGeneration::new(1)?)),
+        )?;
+        let switch_complex = activation_command(
+            "complex",
+            complex_next,
+            FOURTH_SNAPSHOT,
+            source_record_id,
+            Some((complex_release, ServingGeneration::new(1)?)),
+        )?;
+        let capability = RuntimeManifestPublicationCapability::enabled();
+        // Bound rather than inlined: `execute` borrows the use case, and a temporary inside
+        // `join!` would be dropped while its future still holds the borrow.
+        let parcels_writer = use_case(&pool, capability);
+        let complex_writer = use_case(&pool, capability);
+        let (parcels_result, complex_result) = tokio::join!(
+            parcels_writer.execute(switch_parcels),
+            complex_writer.execute(switch_complex),
+        );
+        let parcels_published = parcels_result?;
+        let complex_published = complex_result?;
+
+        // Which one wins the lock is not fixed, so order the two results by what the database
+        // decided instead of assuming it.
+        let (earlier, later) = if parcels_published.manifest_generation.value()
+            < complex_published.manifest_generation.value()
+        {
+            (&parcels_published, &complex_published)
+        } else {
+            (&complex_published, &parcels_published)
+        };
+        assert_eq!(earlier.manifest_generation.value(), generation_before + 1);
+        assert_eq!(
+            later.manifest_generation.value(),
+            generation_before + 2,
+            "the global generation advances twice, in order"
+        );
+
+        for manifest in [earlier, later] {
+            assert_eq!(
+                manifest.publication_units.len(),
+                2,
+                "each manifest selects both units exactly once"
+            );
+        }
+        // The later writer carried the earlier writer's *new* release, not the one it observed.
+        assert_ne!(
+            published_unit(later, "parcels")?.active_release_id,
+            parcels_release
+        );
+        assert_ne!(
+            published_unit(later, "complex")?.active_release_id,
+            complex_release
+        );
+        // The earlier writer switched exactly one unit and carried the other unchanged.
+        let earlier_switched = [
+            published_unit(earlier, "parcels")?.active_release_id != parcels_release,
+            published_unit(earlier, "complex")?.active_release_id != complex_release,
+        ];
+        assert_eq!(
+            earlier_switched.iter().filter(|changed| **changed).count(),
+            1,
+            "the earlier manifest changes one unit and carries the other"
+        );
+
+        assert_eq!(
+            active_pointer(&pool).await?,
+            later.current_version.as_uuid()
+        );
+        let units = sqlx::query(
+            "SELECT unit_key, active_release_id, serving_generation
+             FROM catalog.vector_tile_publication_unit
+             ORDER BY unit_key",
+        )
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(units.len(), 2);
+        for row in &units {
+            assert_eq!(
+                row.try_get::<i64, _>("serving_generation")?,
+                2,
+                "{} was switched exactly once",
+                row.try_get::<String, _>("unit_key")?
+            );
+        }
+        assert_eq!(outbox_types(&pool).await?.len(), 4);
         Ok(())
     })
     .await
@@ -579,6 +812,7 @@ async fn the_default_unit_of_work_does_not_publish_the_v2_event() -> TestResult 
 const PARCELS_SNAPSHOT: &str = "841361364657368623";
 const COMPLEX_SNAPSHOT: &str = "841361364657368624";
 const NEXT_SNAPSHOT: &str = "841361364657368625";
+const FOURTH_SNAPSHOT: &str = "841361364657368626";
 
 fn use_case(
     pool: &PgPool,
