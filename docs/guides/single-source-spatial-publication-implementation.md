@@ -764,6 +764,37 @@ typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다�
 >   다시 읽으면 그 사이 다른 승격이 끼어들 수 있으므로, 본문을 `&mut sqlx::PgConnection`을 받는
 >   함수로 먼저 추출해 두 호출처가 같은 정의를 쓰게 한다. **이것이 트랜잭션보다 앞선 작업이다.**
 
+> **Increment C 결과 (2026-07-30):** `mark_tile_layer_dynamic` 하나를 세로로 뚫었다. 리더 추출,
+> 트랜잭션, `catalog-infrastructure/tests/spatial_tile_publication.rs`(단위별 disposable DB 8개)까지
+> 완료. 남은 네 명령(`start_vector_tile_build`, `record_vector_tile_build_result`,
+> `promote_tile_layer_static`, `rollback_tile_layer_source`)은 여전히 port 기본 구현이 에러다.
+>
+> 뚫어 보고 드러난 것 세 가지 — 계획이 예상한 것과 다르다.
+>
+> 1. **`serving_generation`은 단위별로 독립하지 않는다.** 게이트의 gap 검사는 매니페스트가 선택한
+>    **모든** 단위에 대해 `manifest_unit.serving_generation = unit.serving_generation + 1`을 요구한다.
+>    따라서 한 단위만 바꾸는 발행도 이어받은 단위들의 serving generation을 함께 올린다. Step 1이
+>    요구한 "서로 다른 두 단위를 동시에 시작해 둘 다 commit"은 현재 게이트에서 성립하지 않는다 —
+>    나중 트랜잭션의 `expected_serving_generation`이 앞선 발행에 의해 이미 낡기 때문이다.
+>    Step 5의 "전역 version 대신 단위별 generation" 결정은 CAS 키에 대해서는 맞지만, generation이
+>    단위별로 **독립적으로 증가한다**는 뜻은 아니다. 게이트를 바꿀지 Step 1을 정정할지는 미결이다.
+>    근거: `spatial_tile_publication.rs`의
+>    `activating_one_unit_carries_every_other_unit_into_the_new_manifest`가 이 값을 단정한다.
+> 2. **두 번째 publication unit은 "시드 후 즉시 활성화" 순서만 가능하다.** 단위를 추가하고 발행하지
+>    않은 채 두면 다른 어떤 단위의 활성화도 완전성 검사에서 실패한다. 시드가 단위를 만들고 활성화가
+>    첫 발행을 하는 순서가 강제된다.
+> 3. **CAS 충돌에 retry loop를 두지 않았다.** Step 6 본문은 "충돌하면 최신 pointer부터 retry"라고
+>    쓰지만, 트랜잭션이 pointer 관계에 `SHARE ROW EXCLUSIVE`를 **먼저** 잡으면 동시성으로 인한 CAS
+>    충돌 자체가 생길 수 없다(같은 락을 SQL 함수도 잡으므로 모든 pointer 이동이 이 락에서 직렬화된다).
+>    남는 충돌은 호출자의 관찰이 낡은 경우뿐이고, 그것은 retry하면 안 된다 — 호출자가 보지 못한 상태
+>    위에 덮어쓰게 된다. retry를 대기로 바꾼 것이므로 lost-update 창이 없다.
+>
+> 미해결(범위 밖): **`idempotency_key`를 저장할 자리가 스키마에 없다.** `vector_tile_build_job`은
+> `(publication_unit_id, idempotency_key)`를 갖지만 활성화용 원장은 없다. 현재는
+> `vector_tile_release_unit_revision_snapshot_kind_key`가 재시도를 **거부**하므로 이중 발행은 불가능
+> 하고(`a_replayed_activation_leaves_no_partial_state`가 단정), Step 5가 요구한 "재시도가 첫 결과를
+> 돌려준다"는 아직 아니다. 추가 마이그레이션 + ADR이 필요하다.
+
 - [ ] **Step 7: Run unit and database integration tests**
 
 ```bash
