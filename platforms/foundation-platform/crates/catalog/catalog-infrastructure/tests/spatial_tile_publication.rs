@@ -663,8 +663,13 @@ async fn an_unknown_publication_unit_is_refused() -> TestResult {
     run_in_disposable_database("tile_unknown_unit", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
+        // The revision belongs to a unit that *does* exist, because a revision of a unit nobody
+        // configured is no longer representable — `catalog.publication_revision` carries a foreign
+        // key to the unit. The activation still names `parcels`, which does not exist, and the use
+        // case refuses on the unit before it ever reads a revision.
+        seed_publication_unit(&pool, "complex").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "complex", PARCELS_SNAPSHOT, source_record_id).await?;
 
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command(
@@ -1282,30 +1287,48 @@ async fn seed_data_revision(
     source_record_id: Uuid,
 ) -> TestResult<Uuid> {
     let revision_id = Uuid::new_v4();
+    // The revision goes in the publication unit's own ledger. It used to be written to
+    // `catalog.administrative_boundary_revision` — a `parcels` revision recorded as an
+    // administrative boundary fact — because that was the only ledger `vector_tile_release` could
+    // reference. `derived_from_administrative_revision` is left NULL here: these units publish
+    // parcels and complex geometry and derive from no administrative fact.
+    //
+    // Both writes take the publisher capability. `catalog.publication_revision` guards INSERT, not
+    // only UPDATE and DELETE, because the runtime grant hands every `catalog` table an INSERT.
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+        .execute(&mut *tx)
+        .await?;
+    let publication_unit_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM catalog.vector_tile_publication_unit WHERE unit_key = $1",
+    )
+    .bind(unit_key)
+    .fetch_one(&mut *tx)
+    .await?;
     sqlx::query(
-        "INSERT INTO catalog.administrative_boundary_revision
-         (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id,
-          status, validated_at)
-         VALUES ($1, $2, $3, $4, 'published', now())",
+        "INSERT INTO catalog.publication_revision
+         (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(revision_id)
+    .bind(publication_unit_id)
     .bind(snapshot)
-    .bind(format!("iceberg:spatial-tile-publication-{revision_id}"))
     .bind(source_record_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
     sqlx::query(
         "INSERT INTO serving_postgis.spatial_projection_load
-         (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id,
+         (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
           status, loaded_row_count, finished_at)
          VALUES ($1, $2, $3, $4, 'succeeded', 1, now())",
     )
     .bind(derived_id(revision_id, 1))
-    .bind(unit_key)
+    .bind(publication_unit_id)
     .bind(revision_id)
     .bind(snapshot)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(revision_id)
 }
 

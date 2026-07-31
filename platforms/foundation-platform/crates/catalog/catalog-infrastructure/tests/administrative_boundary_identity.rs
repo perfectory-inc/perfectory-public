@@ -105,7 +105,7 @@ async fn temporal_aliases_are_stable_and_history_is_guarded(
         sqlx::query(
             "INSERT INTO catalog.administrative_boundary_revision
              (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id, status, validated_at)
-             VALUES ($1, $3, $4, $2, 'published', now())",
+             VALUES ($1, $3, $4, $2, 'validated', now())",
         )
         .bind(revision_id)
         .bind(source_id)
@@ -351,15 +351,47 @@ async fn administrative_geometry_projection_is_valid_and_append_only(
     .bind(format!("scope:legal-dong:{unit_id}"))
     .execute(&mut *tx)
     .await?;
-    // A publication row belongs to the load that materialised it, so the fixture opens one. The load
-    // is `running`: this test asserts the projection's own geometry and append-only rules, and
-    // nothing here promotes it — an unclosed load is exactly what a promotion must refuse.
+    // A publication row belongs to the load that materialised it, so the fixture opens one, and a
+    // load belongs to a publication unit's revision, so the fixture registers that too. The load is
+    // `running`: this test asserts the projection's own geometry and append-only rules, and nothing
+    // here promotes it — an unclosed load is exactly what a promotion must refuse.
+    let publication_unit_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO catalog.vector_tile_publication_unit (id, unit_key) VALUES ($1, $2)")
+        .bind(publication_unit_id)
+        .bind(format!(
+            "admin-{}",
+            &publication_unit_id.simple().to_string()[..12]
+        ))
+        .execute(&mut *tx)
+        .await?;
+    // The capability is taken for this one statement and handed straight back. Holding it for the
+    // whole transaction would also disarm `administrative_boundary_publication_append_only`, and the
+    // append-only assertion at the end of this test would then pass for the wrong reason — it did,
+    // once, which is how this narrow scoping got written.
+    sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO catalog.publication_revision
+         (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id,
+          derived_from_administrative_revision)
+         VALUES ($1, $2, '9001', $3, $1)",
+    )
+    .bind(revision_id)
+    .bind(publication_unit_id)
+    .bind(source_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("SELECT set_config('foundation.temporal_publisher', 'off', true)")
+        .execute(&mut *tx)
+        .await?;
     sqlx::query(
         "INSERT INTO serving_postgis.spatial_projection_load
-         (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id, status)
-         VALUES ($1, 'admin', $2, '9001', 'running')",
+         (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id, status)
+         VALUES ($1, $2, $3, '9001', 'running')",
     )
     .bind(projection_load_id)
+    .bind(publication_unit_id)
     .bind(revision_id)
     .execute(&mut *tx)
     .await?;

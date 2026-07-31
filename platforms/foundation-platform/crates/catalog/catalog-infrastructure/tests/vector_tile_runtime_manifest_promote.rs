@@ -109,21 +109,30 @@ async fn runtime_manifest_cas_rejects_stale_writer_without_switching_pointer() {
     fixture.cleanup(&pool).await;
 }
 
-/// The four ways a release can name a projection load that does not back what the manifest claims.
+/// The ways a release can still name a projection load that does not back what the manifest claims.
 ///
-/// Each case mutates exactly one column of an otherwise-promotable load, so a passing case cannot be
-/// explained by anything else in the fixture. The `expect_err` is deliberately the *only* assertion
-/// that names the gate: the pointer assertion after it is what proves the refusal happened before any
-/// state moved, which is the property that matters — a gate that rejects after switching the pointer
-/// would still return an error and still be broken.
+/// The `expect_err` is deliberately the *only* assertion that names the gate: the pointer assertion
+/// after it is what proves the refusal happened before any state moved, which is the property that
+/// matters — a gate that rejects after switching the pointer would still return an error and still
+/// be broken.
 ///
-/// Before this gate existed all four of these promoted cleanly, and Martin then served zero features
-/// out of a unit the runtime manifest advertised as live.
+/// Before this gate existed both of these promoted cleanly, and Martin then served zero features out
+/// of a unit the runtime manifest advertised as live.
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn a_dynamic_release_without_a_matching_succeeded_projection_load_cannot_be_promoted() {
-    // (label, the single-column edit that breaks the load's claim)
-    let cases: [(&str, &str); 4] = [
+    // Only one of the gate's conditions is still reachable by editing the load in place, and that is
+    // the point of `20260731000002`. A load now names its unit by foreign key and its
+    // `(data_revision, publication_unit_id, canonical_iceberg_snapshot_id)` triple is a foreign key
+    // into `catalog.publication_revision`, so "different unit", "different revision" and "different
+    // snapshot" are no longer states a row can hold — they are 23503 at write time. Those three
+    // moved from a gate check to a schema constraint;
+    // `a_load_cannot_be_written_for_another_units_revision` below is what asserts they are refused.
+    //
+    // What remains reachable, and therefore still worth a gate, is a release pointing at a load that
+    // is internally consistent but describes a *different* revision than the manifest selects. The
+    // second case builds exactly that.
+    let cases: [(&str, &str); 2] = [
         (
             "the load never succeeded",
             "UPDATE serving_postgis.spatial_projection_load
@@ -131,22 +140,32 @@ async fn a_dynamic_release_without_a_matching_succeeded_projection_load_cannot_b
               WHERE id = $1",
         ),
         (
-            "the load materialised a different unit",
-            "UPDATE serving_postgis.spatial_projection_load
-                SET publication_unit_key = 'someone-elses-unit'
-              WHERE id = $1",
-        ),
-        (
-            "the load carries a different data revision",
-            "UPDATE serving_postgis.spatial_projection_load
-                SET data_revision = gen_random_uuid()
-              WHERE id = $1",
-        ),
-        (
-            "the load was built from a different Iceberg snapshot",
-            "UPDATE serving_postgis.spatial_projection_load
-                SET canonical_iceberg_snapshot_id = '811111111111111111'
-              WHERE id = $1",
+            "the release points at a load for another revision of the same unit",
+            // A second revision of this unit, a second succeeded load under it, and the release
+            // re-pointed at that load. Everything is internally consistent; only the agreement
+            // between the load and the manifest's selection is broken.
+            "WITH other_revision AS (
+                 INSERT INTO catalog.publication_revision
+                     (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
+                 SELECT gen_random_uuid(), load.publication_unit_id, '811111111111111111',
+                        release.source_record_id
+                   FROM serving_postgis.spatial_projection_load AS load
+                   JOIN catalog.vector_tile_release AS release
+                     ON release.postgis_projection_revision = load.id
+                  WHERE load.id = $1
+                 RETURNING id, publication_unit_id, canonical_iceberg_snapshot_id
+             ), other_load AS (
+                 INSERT INTO serving_postgis.spatial_projection_load
+                     (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
+                      status, loaded_row_count, finished_at)
+                 SELECT gen_random_uuid(), other_revision.publication_unit_id, other_revision.id,
+                        other_revision.canonical_iceberg_snapshot_id, 'succeeded', 1, now()
+                   FROM other_revision
+                 RETURNING id
+             )
+             UPDATE catalog.vector_tile_release
+                SET postgis_projection_revision = (SELECT id FROM other_load)
+              WHERE postgis_projection_revision = $1",
         ),
     ];
 
@@ -155,11 +174,17 @@ async fn a_dynamic_release_without_a_matching_succeeded_projection_load_cannot_b
         let pool = pool().await;
         let fixture = Fixture::new();
         fixture.insert(&pool).await;
+        let mut break_tx = pool.begin().await.expect("break transaction");
+        sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+            .execute(&mut *break_tx)
+            .await
+            .expect("publisher capability");
         sqlx::query(break_the_load)
             .bind(fixture.projection_load_id)
-            .execute(&pool)
+            .execute(&mut *break_tx)
             .await
             .expect("breaking the projection load");
+        break_tx.commit().await.expect("break transaction commit");
         let pointer_before = current_pointer(&pool).await;
 
         let uow = PgCatalogUnitOfWork::new(pool.clone());
@@ -185,6 +210,96 @@ async fn a_dynamic_release_without_a_matching_succeeded_projection_load_cannot_b
         // The load row is the fixture's, so the ordinary cleanup removes it along with the release.
         fixture.cleanup(&pool).await;
     }
+}
+
+/// A revision belongs to the unit it revises, and the database is what says so.
+///
+/// Before `20260731000002` this was three of the promotion gate's disjuncts, checked once at
+/// promotion time against a `publication_unit_key` the load carried as free text — kept in step with
+/// `vector_tile_publication_unit.unit_key` by a comment saying "the two spellings must not drift".
+/// A comment is not a constraint. Now the load's `(data_revision, publication_unit_id,
+/// canonical_iceberg_snapshot_id)` is a foreign key into `catalog.publication_revision`, so a load
+/// naming another unit's revision cannot be written at all — the gate never has to notice it.
+#[tokio::test]
+#[ignore = "requires a migrated Foundation PostgreSQL database"]
+async fn a_load_cannot_be_written_for_another_units_revision() {
+    let _guard = runtime_manifest_test_guard().await;
+    let pool = pool().await;
+    let fixture = Fixture::new();
+    fixture.insert(&pool).await;
+
+    // A second unit, with no revision of its own.
+    let foreign_unit_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO catalog.vector_tile_publication_unit (id, unit_key) VALUES ($1, $2)")
+        .bind(foreign_unit_id)
+        .bind(format!(
+            "foreign-{}",
+            &foreign_unit_id.simple().to_string()[..12]
+        ))
+        .execute(&pool)
+        .await
+        .expect("foreign publication unit");
+
+    let refused = sqlx::query(
+        "INSERT INTO serving_postgis.spatial_projection_load
+            (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
+             status, loaded_row_count, finished_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, 'succeeded', 1, now())",
+    )
+    .bind(foreign_unit_id)
+    .bind(fixture.data_revision)
+    .bind(&fixture.snapshot_id)
+    .execute(&pool)
+    .await
+    .expect_err("a load may not claim another unit's revision");
+    assert_eq!(
+        refused
+            .as_database_error()
+            .and_then(sqlx::error::DatabaseError::code)
+            .as_deref(),
+        Some("23503"),
+        "expected a foreign-key violation, got {refused:?}"
+    );
+
+    sqlx::query("DELETE FROM catalog.vector_tile_publication_unit WHERE id = $1")
+        .bind(foreign_unit_id)
+        .execute(&pool)
+        .await
+        .expect("foreign unit cleanup");
+    fixture.cleanup(&pool).await;
+}
+
+/// Registers a revision of a publication unit, through the publisher capability the ledger requires.
+///
+/// Every release and every projection load carries a foreign key into this table, so a fixture that
+/// mints a release now mints its revision first — there is no longer a way to name a revision that
+/// does not belong to the unit the release is for.
+async fn seed_publication_revision(
+    pool: &PgPool,
+    revision_id: Uuid,
+    unit_id: Uuid,
+    snapshot_id: &str,
+    source_record_id: Uuid,
+) {
+    let mut tx = pool.begin().await.expect("revision transaction");
+    sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+        .execute(&mut *tx)
+        .await
+        .expect("publisher capability");
+    sqlx::query(
+        "INSERT INTO catalog.publication_revision
+            (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id,
+             derived_from_administrative_revision)
+         VALUES ($1, $2, $3, $4, $1)",
+    )
+    .bind(revision_id)
+    .bind(unit_id)
+    .bind(snapshot_id)
+    .bind(source_record_id)
+    .execute(&mut *tx)
+    .await
+    .expect("publication revision");
+    tx.commit().await.expect("revision transaction commit");
 }
 
 /// The manifest the runtime pointer currently selects, or `None` before any publication.
@@ -243,7 +358,7 @@ impl Fixture {
             "INSERT INTO catalog.administrative_boundary_revision
              (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id,
               status, validated_at)
-             VALUES ($1, $2, $3, $4, 'published', now())",
+             VALUES ($1, $2, $3, $4, 'validated', now())",
         )
         .bind(self.data_revision)
         .bind(&self.snapshot_id)
@@ -262,19 +377,29 @@ impl Fixture {
         .execute(pool)
         .await
         .expect("publication unit");
-        // The gate compares the load's unit key against the unit the manifest selects and its
-        // revision against the one the manifest names, so both are bound from the same fixture
-        // values rather than restated. `loaded_row_count` is 1 because the `succeeded` CHECK refuses
-        // a load that materialised nothing; these CAS tests exercise the pointer switch, and the
-        // publication rows a real load writes are the subject of `spatial_projection_load_ledger`.
+        // The revision belongs to this unit, in the unit's own ledger. It used to be registered in
+        // `catalog.administrative_boundary_revision` — for a fixture unit named `cas-…` that had
+        // nothing to do with administrative boundaries — because that was the only ledger a release
+        // could reference. The administrative row above remains as the lineage this derives from.
+        seed_publication_revision(
+            pool,
+            self.data_revision,
+            self.unit_id,
+            &self.snapshot_id,
+            self.source_record_id,
+        )
+        .await;
+        // `loaded_row_count` is 1 because the `succeeded` CHECK refuses a load that materialised
+        // nothing; these CAS tests exercise the pointer switch, and the publication rows a real load
+        // writes are the subject of the projection-load ledger tests.
         sqlx::query(
             "INSERT INTO serving_postgis.spatial_projection_load
-                (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id,
+                (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
                  status, loaded_row_count, finished_at)
              VALUES ($1, $2, $3, $4, 'succeeded', 1, now())",
         )
         .bind(self.projection_load_id)
-        .bind(&unit_key)
+        .bind(self.unit_id)
         .bind(self.data_revision)
         .bind(&self.snapshot_id)
         .execute(pool)
@@ -374,12 +499,32 @@ impl Fixture {
             .execute(pool)
             .await
             .expect("release cleanup");
-        // After the release, which carries the foreign key to it.
-        sqlx::query("DELETE FROM serving_postgis.spatial_projection_load WHERE id = $1")
-            .bind(self.projection_load_id)
-            .execute(pool)
+        // After the release, which carries the foreign key to them. Deleted by unit rather than by
+        // id: a test may mint further revisions and loads for this unit, and every one of them
+        // references the unit row deleted below.
+        sqlx::query(
+            "DELETE FROM serving_postgis.spatial_projection_load WHERE publication_unit_id = $1",
+        )
+        .bind(self.unit_id)
+        .execute(pool)
+        .await
+        .expect("spatial projection load cleanup");
+        // The publication ledger is guarded on DELETE too, so cleanup takes the same capability the
+        // fixture took to write it.
+        let mut revision_tx = pool.begin().await.expect("revision cleanup transaction");
+        sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+            .execute(&mut *revision_tx)
             .await
-            .expect("spatial projection load cleanup");
+            .expect("publisher capability");
+        sqlx::query("DELETE FROM catalog.publication_revision WHERE publication_unit_id = $1")
+            .bind(self.unit_id)
+            .execute(&mut *revision_tx)
+            .await
+            .expect("publication revision cleanup");
+        revision_tx
+            .commit()
+            .await
+            .expect("revision cleanup transaction commit");
         sqlx::query("DELETE FROM catalog.vector_tile_publication_unit WHERE id = $1")
             .bind(self.unit_id)
             .execute(pool)
@@ -463,7 +608,7 @@ async fn a_static_release_at_a_foreign_object_prefix_cannot_be_promoted() {
         "INSERT INTO catalog.administrative_boundary_revision
          (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id,
           status, validated_at)
-         VALUES ($1, $2, $3, $4, 'published', now())",
+         VALUES ($1, $2, $3, $4, 'validated', now())",
     )
     .bind(static_revision)
     .bind(&static_snapshot)
@@ -472,6 +617,14 @@ async fn a_static_release_at_a_foreign_object_prefix_cannot_be_promoted() {
     .execute(&pool)
     .await
     .expect("static release revision");
+    seed_publication_revision(
+        &pool,
+        static_revision,
+        fixture.unit_id,
+        &static_snapshot,
+        fixture.source_record_id,
+    )
+    .await;
     let static_release_id = Uuid::new_v4();
     let martin_source_id = format!("{unit_key}-{static_release_id}");
     let file_asset_id = Uuid::new_v4();
