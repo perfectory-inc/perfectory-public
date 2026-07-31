@@ -29,6 +29,13 @@ const SOURCE_RECORD_ENV: &str =
     "FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_SOURCE_RECORD_ID";
 const SOURCE_OBJECT_KEY_ENV: &str =
     "FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_KEY";
+/// The `catalog.vector_tile_publication_unit.unit_key` this command materialises.
+///
+/// `catalog.promote_vector_tile_runtime_manifest` refuses a release whose projection load names a
+/// different unit than the manifest selects, so this string and the one the promote command creates
+/// the unit with are the same fact. Declared once so they cannot drift into a rejection that reads
+/// like a data problem.
+pub(crate) const ADMINISTRATIVE_UNIT_KEY: &str = "admin";
 const FORBIDDEN_SOURCE_PROVIDERS: &[&str] = &[
     "VWorld",
     "data.go.kr",
@@ -49,7 +56,25 @@ pub async fn run() -> anyhow::Result<()> {
         .await?;
     verify_revision(&mut transaction, &config).await?;
 
-    let mut geometry_count = 0usize;
+    // The load is opened before a single geometry lands, so the rows this run writes carry the
+    // identity of the run that wrote them. Keying the projection on the load rather than on the
+    // revision is what makes a re-publish of one revision a second, separately serviceable fact
+    // instead of an in-place overwrite that no row records.
+    let projection_load_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO serving_postgis.spatial_projection_load
+            (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id, status)
+         VALUES ($1, $2, $3, $4, 'running')",
+    )
+    .bind(projection_load_id)
+    .bind(ADMINISTRATIVE_UNIT_KEY)
+    .bind(config.data_revision)
+    .bind(&config.canonical_snapshot_id)
+    .execute(&mut *transaction)
+    .await
+    .context("failed to open the administrative PostGIS projection load")?;
+
+    let mut geometry_count = 0i64;
     for row in rows {
         let unit_id = ensure_unit(&mut transaction, &row).await?;
         if !row.parent_scope_kind.trim().is_empty() {
@@ -57,7 +82,15 @@ pub async fn run() -> anyhow::Result<()> {
             publish_parent(&mut transaction, &config, &row, unit_id, parent_id).await?;
         }
         if let Some(geometry) = row.geometry.as_ref() {
-            publish_geometry(&mut transaction, &config, &row, unit_id, geometry).await?;
+            publish_geometry(
+                &mut transaction,
+                &config,
+                &row,
+                unit_id,
+                geometry,
+                projection_load_id,
+            )
+            .await?;
             geometry_count += 1;
         }
         if !row.source_name.trim().is_empty() {
@@ -65,15 +98,24 @@ pub async fn run() -> anyhow::Result<()> {
         }
     }
 
+    // Counted by load, not by revision. Under the old revision-scoped count a re-publish that wrote
+    // nothing still read a previous run's rows and reported them as its own.
     let publication_count = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM serving_postgis.administrative_unit_boundary_publication WHERE data_revision = $1",
+        "SELECT count(*) FROM serving_postgis.administrative_unit_boundary_publication
+          WHERE projection_load_id = $1",
     )
-    .bind(config.data_revision)
+    .bind(projection_load_id)
     .fetch_one(&mut *transaction)
     .await?;
     if publication_count == 0 {
         bail!("administrative boundary publish produced no geometries");
     }
+    // Every offered geometry that did not become its own row in this load: a second source row for a
+    // unit this load already carries is skipped by the conflict clause below. It is derived from what
+    // is in the table rather than assumed, so it cannot claim a rejection that did not happen. A row
+    // whose geometry failed `st_isvalid` never reaches here — `publish_geometry` aborts the whole
+    // transaction, and a failed load leaves no ledger row at all.
+    let rejected_count = geometry_count - publication_count;
     sqlx::query(
         "UPDATE catalog.administrative_boundary_revision
             SET status = CASE WHEN status = 'candidate' THEN 'validated' ELSE status END,
@@ -83,10 +125,24 @@ pub async fn run() -> anyhow::Result<()> {
     .bind(config.data_revision)
     .execute(&mut *transaction)
     .await?;
+    sqlx::query(
+        "UPDATE serving_postgis.spatial_projection_load
+            SET status = 'succeeded',
+                loaded_row_count = $2,
+                rejected_row_count = $3,
+                finished_at = now()
+          WHERE id = $1 AND status = 'running'",
+    )
+    .bind(projection_load_id)
+    .bind(publication_count)
+    .bind(rejected_count)
+    .execute(&mut *transaction)
+    .await
+    .context("failed to close the administrative PostGIS projection load")?;
     transaction.commit().await?;
     println!(
-        "administrative-boundary-postgis-publish-ok geometries={} publication_rows={} data_revision={}",
-        geometry_count, publication_count, config.data_revision
+        "administrative-boundary-postgis-publish-ok geometries={} publication_rows={} rejected_rows={} data_revision={} projection_load_id={}",
+        geometry_count, publication_count, rejected_count, config.data_revision, projection_load_id
     );
     Ok(())
 }
@@ -421,6 +477,7 @@ async fn publish_geometry(
     row: &SourceRow,
     unit_id: Uuid,
     geometry: &JsonValue,
+    projection_load_id: Uuid,
 ) -> anyhow::Result<()> {
     let geometry_json = serde_json::to_string(geometry)?;
     sqlx::query(
@@ -431,15 +488,17 @@ async fn publish_geometry(
          INSERT INTO serving_postgis.administrative_unit_boundary_publication
             (administrative_unit_id, data_revision, canonical_iceberg_snapshot_id,
              source_snapshot_id, source_record_id, source_object_key, scope_kind,
-             canonical_code, display_name, geometry_checksum_sha256, geom, properties)
+             canonical_code, display_name, geometry_checksum_sha256, geom, properties,
+             projection_load_id)
          SELECT $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, ''),
                 encode(public.digest(public.st_asewkb(input.geom), 'sha256'), 'hex'),
                 input.geom,
                 jsonb_build_object('scope_kind', $8, 'canonical_code', $9,
-                                   'display_name', NULLIF($10, ''))
+                                   'display_name', NULLIF($10, '')),
+                $11
            FROM input
           WHERE public.st_isvalid(input.geom)
-         ON CONFLICT (data_revision, administrative_unit_id) DO NOTHING",
+         ON CONFLICT (projection_load_id, administrative_unit_id) DO NOTHING",
     )
     .bind(geometry_json)
     .bind(unit_id)
@@ -451,17 +510,21 @@ async fn publish_geometry(
     .bind(&row.scope_kind)
     .bind(&row.canonical_code)
     .bind(&row.source_name)
+    .bind(projection_load_id)
     .execute(&mut **transaction)
     .await
     .context("failed to append administrative boundary geometry")?;
+    // Keyed by the load this run opened. Against `data_revision` this check read whatever an earlier
+    // run of the same revision had left behind, so an insert that the `st_isvalid` filter dropped
+    // still passed and the command printed `-ok` having written nothing.
     let valid = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(
              SELECT 1 FROM serving_postgis.administrative_unit_boundary_publication
-              WHERE data_revision = $1 AND administrative_unit_id = $2
+              WHERE projection_load_id = $1 AND administrative_unit_id = $2
                AND public.st_isvalid(geom) AND public.st_srid(geom) = 4326
          )",
     )
-    .bind(config.data_revision)
+    .bind(projection_load_id)
     .bind(unit_id)
     .fetch_one(&mut **transaction)
     .await?;
