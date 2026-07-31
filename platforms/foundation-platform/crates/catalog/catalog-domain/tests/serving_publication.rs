@@ -158,14 +158,31 @@ fn v2_manifest_rejects_static_source_identity_that_does_not_match_release_filena
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
 }
 
+/// The snapshot tracks the revision number, so `revision_b` is genuinely newer content than
+/// `revision_a`. Tests that need a *backwards* move state their snapshot explicitly.
 fn selection(
     source_kind: ServingSourceKind,
     revision: u128,
     generation: u64,
 ) -> Result<ServingSelection, String> {
+    selection_at(
+        source_kind,
+        revision,
+        generation,
+        &format!("84136136465736{revision:04}"),
+    )
+}
+
+fn selection_at(
+    source_kind: ServingSourceKind,
+    revision: u128,
+    generation: u64,
+    snapshot: &str,
+) -> Result<ServingSelection, String> {
     Ok(ServingSelection {
         source_kind,
         data_revision: VectorTileDataRevisionId::new(Uuid::from_u128(revision)),
+        canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId::new(snapshot.to_owned())?,
         serving_generation: ServingGeneration::new(generation)?,
     })
 }
@@ -177,28 +194,67 @@ fn serving_state_machine_allows_only_complete_source_transitions() -> Result<(),
 
     assert!(validate_serving_transition(
         None,
-        selection(ServingSourceKind::DynamicPostgis, revision_a, 1)?
+        &selection(ServingSourceKind::DynamicPostgis, revision_a, 1)?
     )
     .is_ok());
 
     let dynamic_a = selection(ServingSourceKind::DynamicPostgis, revision_a, 1)?;
     assert!(validate_serving_transition(
-        Some(dynamic_a),
-        selection(ServingSourceKind::StaticPmtiles, revision_a, 2)?
+        Some(&dynamic_a),
+        &selection(ServingSourceKind::StaticPmtiles, revision_a, 2)?
     )
     .is_ok());
 
     let static_a = selection(ServingSourceKind::StaticPmtiles, revision_a, 2)?;
     assert!(validate_serving_transition(
-        Some(static_a),
-        selection(ServingSourceKind::DynamicPostgis, revision_b, 3)?
+        Some(&static_a),
+        &selection(ServingSourceKind::DynamicPostgis, revision_b, 3)?
     )
     .is_ok());
+    // The same-data fallback: back to dynamic at the snapshot the unit already serves.
     assert!(validate_serving_transition(
-        Some(static_a),
-        selection(ServingSourceKind::DynamicPostgis, revision_a, 3)?
+        Some(&static_a),
+        &selection(ServingSourceKind::DynamicPostgis, revision_a, 3)?
     )
     .is_ok());
+    Ok(())
+}
+
+/// The rule this function's documentation has always stated and never enforced.
+///
+/// Returning to dynamic may hold the unit's canonical snapshot or move it forward. Moving it back
+/// republishes superseded content behind a higher serving generation, which the client — which
+/// compares generations to decide what to re-fetch — reads as newer. Nothing could check this while
+/// the only comparable value was a uuid.
+#[test]
+fn a_dynamic_return_may_not_move_the_unit_to_an_older_snapshot() -> Result<(), String> {
+    let newer = selection_at(
+        ServingSourceKind::DynamicPostgis,
+        1,
+        4,
+        "841361364657368624",
+    )?;
+    let older = selection_at(
+        ServingSourceKind::DynamicPostgis,
+        2,
+        5,
+        "841361364657368623",
+    )?;
+    let same = selection_at(
+        ServingSourceKind::DynamicPostgis,
+        3,
+        5,
+        "841361364657368624",
+    )?;
+
+    assert!(validate_serving_transition(Some(&newer), &older).is_err());
+    assert!(validate_serving_transition(Some(&newer), &same).is_ok());
+
+    // Ordering is numeric, not lexicographic: a shorter id is a smaller number even though it
+    // sorts after by string comparison.
+    let long_snapshot = selection_at(ServingSourceKind::DynamicPostgis, 4, 6, "1000000000000")?;
+    let short_snapshot = selection_at(ServingSourceKind::DynamicPostgis, 5, 7, "999999999999")?;
+    assert!(validate_serving_transition(Some(&long_snapshot), &short_snapshot).is_err());
     Ok(())
 }
 
@@ -206,20 +262,21 @@ fn serving_state_machine_allows_only_complete_source_transitions() -> Result<(),
 fn serving_state_machine_rejects_stale_static_and_generation_gaps() -> Result<(), String> {
     let static_a = selection(ServingSourceKind::StaticPmtiles, 1, 7)?;
     let stale_static = selection(ServingSourceKind::StaticPmtiles, 2, 8)?;
-    assert!(validate_serving_transition(Some(static_a), stale_static).is_err());
+    assert!(validate_serving_transition(Some(&static_a), &stale_static).is_err());
 
-    assert!(
-        validate_serving_transition(None, selection(ServingSourceKind::DynamicPostgis, 1, 2)?)
-            .is_err()
-    );
     assert!(validate_serving_transition(
-        Some(static_a),
-        selection(ServingSourceKind::DynamicPostgis, 1, 9)?
+        None,
+        &selection(ServingSourceKind::DynamicPostgis, 1, 2)?
     )
     .is_err());
     assert!(validate_serving_transition(
-        Some(static_a),
-        selection(ServingSourceKind::StaticPmtiles, 1, 8)?
+        Some(&static_a),
+        &selection(ServingSourceKind::DynamicPostgis, 1, 9)?
+    )
+    .is_err());
+    assert!(validate_serving_transition(
+        Some(&static_a),
+        &selection(ServingSourceKind::StaticPmtiles, 1, 8)?
     )
     .is_ok());
     Ok(())

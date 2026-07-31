@@ -341,14 +341,38 @@ pub enum ServingSourceKind {
 }
 
 /// The minimum state needed to validate a source switch.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ServingSelection {
     /// The complete source selected by the release.
     pub source_kind: ServingSourceKind,
     /// Logical content revision represented by the release.
     pub data_revision: VectorTileDataRevisionId,
+    /// Immutable Iceberg snapshot the release was built from.
+    ///
+    /// Carried because `data_revision` cannot answer "is this newer?". It is a uuid, and this
+    /// function's own documentation has promised an ordering guarantee since it was written. The
+    /// snapshot id is the value that actually carries content order.
+    pub canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId,
     /// Monotonic source selection generation for this publication unit.
     pub serving_generation: ServingGeneration,
+}
+
+/// Orders two canonical snapshot ids by their numeric value.
+///
+/// Both are CHECK-constrained to `^[1-9][0-9]*$` in the database and to the same shape by
+/// [`CanonicalIcebergSnapshotId::new`], so there are no leading zeros and no sign: a longer string
+/// is a larger number, and equal lengths compare lexicographically. That avoids parsing into an
+/// integer type the ids can outgrow — real Iceberg snapshot ids already run to 18 digits.
+fn snapshot_is_older(
+    candidate: &CanonicalIcebergSnapshotId,
+    current: &CanonicalIcebergSnapshotId,
+) -> bool {
+    let (candidate, current) = (candidate.as_str(), current.as_str());
+    match candidate.len().cmp(&current.len()) {
+        core::cmp::Ordering::Less => true,
+        core::cmp::Ordering::Greater => false,
+        core::cmp::Ordering::Equal => candidate < current,
+    }
 }
 
 /// Validates the only supported publication state transitions.
@@ -356,17 +380,24 @@ pub struct ServingSelection {
 /// A first publication is always a complete dynamic source. A static release is allowed only
 /// when it was built from the currently selected data revision; this prevents an old `PMTiles`
 /// file from being promoted after the canonical source changed. Returning to dynamic is allowed
-/// for either the same data revision (a safe fallback) or a newer revision. Every switch advances
+/// for either the same canonical snapshot (a safe fallback) or a newer one. Every switch advances
 /// the per-unit generation exactly once.
+///
+/// That last dynamic rule was documented here from the day this function was written and enforced
+/// by nothing: the only value it could have compared was `data_revision`, and a uuid has no order.
+/// It is checked now against `canonical_iceberg_snapshot_id`, and
+/// `catalog.promote_vector_tile_runtime_manifest` makes the same comparison so a direct SQL caller
+/// cannot bypass it.
 ///
 /// # Errors
 ///
 /// Returns an error when the first publication is not dynamic generation 1, when a later
-/// generation does not advance exactly once, or when a static release uses a different data
-/// revision from the currently selected one.
+/// generation does not advance exactly once, when a static release uses a different data
+/// revision from the currently selected one, or when a dynamic release would move the unit back to
+/// an older canonical snapshot.
 pub fn validate_serving_transition(
-    previous: Option<ServingSelection>,
-    candidate: ServingSelection,
+    previous: Option<&ServingSelection>,
+    candidate: &ServingSelection,
 ) -> Result<(), String> {
     match previous {
         None => {
@@ -391,6 +422,17 @@ pub fn validate_serving_transition(
             {
                 return Err(
                     "static_pmtiles must be built from the currently selected data_revision"
+                        .to_owned(),
+                );
+            }
+            if candidate.source_kind == ServingSourceKind::DynamicPostgis
+                && snapshot_is_older(
+                    &candidate.canonical_iceberg_snapshot_id,
+                    &previous.canonical_iceberg_snapshot_id,
+                )
+            {
+                return Err(
+                    "dynamic_postgis must not move the unit to an older canonical snapshot"
                         .to_owned(),
                 );
             }
