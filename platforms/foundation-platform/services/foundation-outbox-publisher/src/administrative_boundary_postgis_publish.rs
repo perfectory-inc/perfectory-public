@@ -56,6 +56,31 @@ pub async fn run() -> anyhow::Result<()> {
         .await?;
     verify_revision(&mut transaction, &config).await?;
 
+    // The publication unit is ensured here as well as in the promote command. It used to exist only
+    // there, so a database where publish had run but promote had not held loads naming a unit that
+    // did not exist — a state no foreign key could describe until this command could create it too.
+    let publication_unit_id = ensure_administrative_unit(&mut transaction).await?;
+
+    // The revision this publishes, registered against the unit it revises. Same id as the
+    // administrative boundary revision it derives from, deliberately: the operator names one
+    // `DATA_REVISION` and it must not become two unrelated identifiers in two ledgers. The
+    // administrative ledger keeps the boundary *fact*; this one records that a publication unit has
+    // a revision built from that fact's canonical snapshot.
+    sqlx::query(
+        "INSERT INTO catalog.publication_revision
+            (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id,
+             derived_from_administrative_revision)
+         VALUES ($1, $2, $3, $4, $1)
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(config.data_revision)
+    .bind(publication_unit_id)
+    .bind(&config.canonical_snapshot_id)
+    .bind(config.source_record_id)
+    .execute(&mut *transaction)
+    .await
+    .context("failed to register the administrative publication revision")?;
+
     // The load is opened before a single geometry lands, so the rows this run writes carry the
     // identity of the run that wrote them. Keying the projection on the load rather than on the
     // revision is what makes a re-publish of one revision a second, separately serviceable fact
@@ -63,11 +88,11 @@ pub async fn run() -> anyhow::Result<()> {
     let projection_load_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO serving_postgis.spatial_projection_load
-            (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id, status)
+            (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id, status)
          VALUES ($1, $2, $3, $4, 'running')",
     )
     .bind(projection_load_id)
-    .bind(ADMINISTRATIVE_UNIT_KEY)
+    .bind(publication_unit_id)
     .bind(config.data_revision)
     .bind(&config.canonical_snapshot_id)
     .execute(&mut *transaction)
@@ -314,6 +339,29 @@ async fn verify_revision(
         bail!("administrative boundary source_record does not exist");
     }
     Ok(())
+}
+
+/// Provisions the `admin` vector-tile publication unit if this deployment has not published one yet.
+///
+/// Shared with `administrative_boundary_runtime_promote`, which is where it used to live alone. A
+/// projection load now names its unit by foreign key, so the unit has to exist by the time the load
+/// is opened — and the load is opened by *this* command, one operator step before the promote.
+pub(crate) async fn ensure_administrative_unit(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> anyhow::Result<Uuid> {
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key)
+         VALUES (gen_random_uuid(), $1) ON CONFLICT (unit_key) DO NOTHING",
+    )
+    .bind(ADMINISTRATIVE_UNIT_KEY)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(sqlx::query_scalar(
+        "SELECT id FROM catalog.vector_tile_publication_unit WHERE unit_key = $1",
+    )
+    .bind(ADMINISTRATIVE_UNIT_KEY)
+    .fetch_one(&mut **transaction)
+    .await?)
 }
 
 async fn ensure_parent_unit(

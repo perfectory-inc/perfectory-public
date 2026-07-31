@@ -161,11 +161,13 @@ run_publisher \
 # below with a message about formatting rather than about ambiguity. The newest load is the one the
 # publisher above just committed.
 PROJECTION_LOAD_ID="$(docker exec "$DB" psql -X -At -h 127.0.0.1 -U postgres -d tiles_slice_proof \
-  -c "SELECT id FROM serving_postgis.spatial_projection_load
-       WHERE publication_unit_key = 'admin'
-         AND data_revision = '019d2b87-3fd1-7e3a-8d88-0b72c8743701'
-         AND status = 'succeeded'
-       ORDER BY started_at DESC
+  -c "SELECT load.id
+        FROM serving_postgis.spatial_projection_load AS load
+        JOIN catalog.vector_tile_publication_unit AS unit ON unit.id = load.publication_unit_id
+       WHERE unit.unit_key = 'admin'
+         AND load.data_revision = '019d2b87-3fd1-7e3a-8d88-0b72c8743701'
+         AND load.status = 'succeeded'
+       ORDER BY load.started_at DESC
        LIMIT 1;")"
 [[ "$PROJECTION_LOAD_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
 

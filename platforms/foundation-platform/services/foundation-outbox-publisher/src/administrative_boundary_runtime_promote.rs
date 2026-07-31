@@ -9,7 +9,9 @@ use serde_json::json;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use crate::administrative_boundary_postgis_publish::ADMINISTRATIVE_UNIT_KEY;
+use crate::administrative_boundary_postgis_publish::{
+    ensure_administrative_unit, ADMINISTRATIVE_UNIT_KEY,
+};
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_CONFIRM";
@@ -47,7 +49,7 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
     verify_inputs(&mut transaction, &config).await?;
-    let publication_unit_id = ensure_admin_unit(&mut transaction).await?;
+    let publication_unit_id = ensure_administrative_unit(&mut transaction).await?;
     insert_release(&mut transaction, &config, publication_unit_id).await?;
     let next_generation = current_generation.map_or(1, |value| value + 1);
     sqlx::query(
@@ -260,8 +262,11 @@ async fn verify_inputs(
     // more than "this manifest selects a dynamic source with no succeeded PostGIS projection load",
     // because by then the load row it wanted is simply absent from the join.
     let load = sqlx::query(
-        "SELECT status, publication_unit_key, data_revision, canonical_iceberg_snapshot_id
-           FROM serving_postgis.spatial_projection_load WHERE id = $1",
+        "SELECT load.status, unit.unit_key, load.data_revision, load.canonical_iceberg_snapshot_id
+           FROM serving_postgis.spatial_projection_load AS load
+           JOIN catalog.vector_tile_publication_unit AS unit
+             ON unit.id = load.publication_unit_id
+          WHERE load.id = $1",
     )
     .bind(config.projection_load_id)
     .fetch_optional(&mut **transaction)
@@ -273,7 +278,7 @@ async fn verify_inputs(
         )
     })?;
     let status: String = load.try_get("status")?;
-    let unit_key: String = load.try_get("publication_unit_key")?;
+    let unit_key: String = load.try_get("unit_key")?;
     let load_revision: Uuid = load.try_get("data_revision")?;
     let load_snapshot: String = load.try_get("canonical_iceberg_snapshot_id")?;
     if status != "succeeded" {
@@ -303,22 +308,6 @@ async fn verify_inputs(
         );
     }
     Ok(())
-}
-
-async fn ensure_admin_unit(transaction: &mut Transaction<'_, Postgres>) -> anyhow::Result<Uuid> {
-    sqlx::query(
-        "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key)
-         VALUES (gen_random_uuid(), $1) ON CONFLICT (unit_key) DO NOTHING",
-    )
-    .bind(ADMINISTRATIVE_UNIT_KEY)
-    .execute(&mut **transaction)
-    .await?;
-    Ok(sqlx::query_scalar(
-        "SELECT id FROM catalog.vector_tile_publication_unit WHERE unit_key = $1",
-    )
-    .bind(ADMINISTRATIVE_UNIT_KEY)
-    .fetch_one(&mut **transaction)
-    .await?)
 }
 
 async fn insert_release(

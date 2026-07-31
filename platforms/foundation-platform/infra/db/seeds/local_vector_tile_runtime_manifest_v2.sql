@@ -6,19 +6,28 @@
 
 BEGIN;
 
+-- `catalog.publication_revision` guards INSERT as well as UPDATE and DELETE, because
+-- `grant-foundation-runtime.sql` hands every table in `catalog` an INSERT grant and a role boundary
+-- alone would let the API mint a revision claiming any canonical snapshot. Seeding one is publishing
+-- one, so the seed takes the capability — transaction-locally, inside this BEGIN.
+SELECT set_config('foundation.temporal_publisher', 'on', true);
+
 INSERT INTO catalog.vector_tile_publication_unit
     (id, unit_key, serving_generation, version)
 VALUES
     ('019d2b87-3fd1-7e3a-8d88-0b72c8743601', 'parcels', 1, 1)
 ON CONFLICT (id) DO NOTHING;
 
--- The additive administrative-identity migration binds release revisions to its
--- canonical ledger. Keep this disposable seed deterministic and lineage-backed.
-INSERT INTO catalog.administrative_boundary_revision
-    (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id, status, validated_at)
+-- A parcels revision, in the parcels unit's own ledger. This used to be an INSERT into
+-- `catalog.administrative_boundary_revision` with a fabricated `iceberg:tile-runtime-v2` source
+-- snapshot — a parcels revision recorded as an administrative boundary fact, because that was the
+-- only ledger a release could reference. `derived_from_administrative_revision` stays NULL: parcels
+-- geometry asserts nothing about administrative boundaries.
+INSERT INTO catalog.publication_revision
+    (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
 VALUES
-    ('019d2b87-3fd1-7e3a-8d88-0b72c8743603', '841361364657368623',
-     'iceberg:tile-runtime-v2', '019d2b87-3fd1-7e3a-8d88-0b72c8742001', 'published', now())
+    ('019d2b87-3fd1-7e3a-8d88-0b72c8743603', '019d2b87-3fd1-7e3a-8d88-0b72c8743601',
+     '841361364657368623', '019d2b87-3fd1-7e3a-8d88-0b72c8742001')
 ON CONFLICT (id) DO NOTHING;
 
 -- The load this seed's release serves rows out of. It used to be an invented UUID in the release row
@@ -27,9 +36,9 @@ ON CONFLICT (id) DO NOTHING;
 -- dynamic unit whose load did not succeed. Opened `running` here and closed below, in that order, for
 -- the same reason the publisher does: the row count is only known once the rows are in.
 INSERT INTO serving_postgis.spatial_projection_load
-    (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id, status)
+    (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id, status)
 VALUES
-    ('019d2b87-3fd1-7e3a-8d88-0b72c8743604', 'parcels',
+    ('019d2b87-3fd1-7e3a-8d88-0b72c8743604', '019d2b87-3fd1-7e3a-8d88-0b72c8743601',
      '019d2b87-3fd1-7e3a-8d88-0b72c8743603', '841361364657368623', 'running')
 ON CONFLICT (id) DO NOTHING;
 
