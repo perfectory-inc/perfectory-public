@@ -54,8 +54,24 @@ Martin composite source는 tile payload를 합칠 뿐 feature 제거·중복 제
 
 Dynamic Martin URL은 의도적으로 안정적이며 query가 없다. Catalog의
 `vector_tile_runtime_manifest_pointer`만 runtime selector이고 `serving_postgis.*_current` view가
-선택된 release의 `data_revision`과 이를 join한다. Static PMTiles route는 불변·release 주소이므로
-CDN cache가 같은 path에서 다른 release 바이트를 반환할 수 없다.
+선택된 release의 **projection 적재**를 경유해 join한다 —
+`release.postgis_projection_revision = publication.projection_load_id`. 즉 타일이 잘려 나오는 행은
+선택된 release가 **지명한 바로 그 적재**의 행이지, "그 리비전 아래 지금 저장된 무엇이든"이 아니다.
+Static PMTiles route는 불변·release 주소이므로 CDN cache가 같은 path에서 다른 release 바이트를
+반환할 수 없다.
+
+### 리비전·적재·release의 세 원장
+
+| 원장 | 답하는 질문 | 근거 |
+| --- | --- | --- |
+| `catalog.publication_revision` | 이 **단위**의 데이터가 어느 canonical 스냅샷인가 | [ADR-0017](../adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md) |
+| `serving_postgis.spatial_projection_load` | 그 리비전이 **언제·몇 행으로** materialise 됐는가 | [ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) |
+| `catalog.vector_tile_release` | 어느 적재를 **서빙**하는 불변 release인가 | [ADR-0013](../adr/0013-release-uniqueness-admits-both-source-kinds.md) |
+
+리비전은 단위에 스코프된다. release와 적재 모두
+`(data_revision, publication_unit_id, canonical_iceberg_snapshot_id)`로 참조하므로 **다른 단위의
+리비전을 지명하는 것은 쓸 수 없다.** `catalog.administrative_boundary_revision`은 행정경계
+**사실** 원장이며, 발행 리비전이 계보로 그것을 가리킨다 — 그 반대가 아니다.
 
 이 불변식으로 이중 렌더링, 오래된 geometry 부활, feature 단위 억제 garbage collection, static build
 중 변경 유실을 제거한다.
@@ -270,7 +286,6 @@ Rust DTO가 실행 가능한 계약 SSOT로 남고 OpenAPI/TypeScript 소비자�
         "kind": "dynamic_postgis",
         "martin_source_id": "parcels",
         "tiles_url_template": "https://tiles.example.com/parcels/{z}/{x}/{y}",
-        "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
         "cache_policy": "no_store"
       },
       "layers": {
@@ -297,9 +312,9 @@ Rust DTO가 실행 가능한 계약 SSOT로 남고 OpenAPI/TypeScript 소비자�
 }
 ```
 
-`source`는 닫힌 tagged union이다. `dynamic_postgis`는 완전한 PostGIS projection revision과
-cache policy를 담고, `static_pmtiles`는 immutable PMTiles object key·file-asset UUID·SHA-256·
-byte size·release 주소 Martin source를 담는다. 유효한 variant는 정확히 하나이며 v2에서는
+`source`는 닫힌 tagged union이다. `dynamic_postgis`는 Martin source id·URL 템플릿과 cache policy를
+담는다 — projection 적재 id는 **읽기 계약에서 제거됐다**([ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) §7).
+브라우저는 `serving_generation`만 비교하며 그 값을 쓴 적이 없다. `static_pmtiles`는 immutable PMTiles object key·file-asset UUID·SHA-256·byte size·release 주소 Martin source를 담는다. 유효한 variant는 정확히 하나이며 v2에서는
 v1 flat-object field를 금지한다.
 
 `current_version`, `data_revision`, `active_release_id`, projection revision과 lineage ID는

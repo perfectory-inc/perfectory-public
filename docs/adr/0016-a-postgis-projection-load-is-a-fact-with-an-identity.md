@@ -180,11 +180,32 @@ DTO를 직렬화해 `catalog_domain::VectorTileRuntimeManifest`로 역직렬화�
 2. **`status`의 세 값 중 `failed`를 쓰는 운영 writer가 없다.** 이 마이그레이션 자신은 쓴다 —
    publication 행이 없는 dynamic release의 날조된 UUID에 `failed` 행을 만들어, FK가 성립하면서도
    게이트가 그것을 거부하게 한다. 그러나 `publish-administrative-boundary-postgis`는 트랜잭션
-   하나이므로 실패를 커밋할 수 없다(§기각한 대안). 계획된 parcels 적재기는
-   `postgis_parcel_boundary_mirror_national_rebuild`를 따를 것이고 그쪽은 트랜잭션을 열지 않으므로
-   `failed`를 실제로 쓴다. 그 명령이 오지 않으면 이 값을 지워야 한다.
-3. **parcels 적재 경로가 아직 없다.** `serving_postgis.parcel_boundary_publication`에 쓰는 것은 시드와
-   마이그레이션 백필뿐이다. 게이트의 parcels 갈래는 픽스처로만 실증된다.
+   하나이므로 실패를 커밋할 수 없다(§기각한 대안).
+
+   > **정정 (2026-07-31):** 이 항목은 처음에 "계획된 parcels 적재기는
+   > `postgis_parcel_boundary_mirror_national_rebuild`를 따를 것"이라고 썼다. **그 명령을 템플릿으로
+   > 삼으면 안 된다.** 그것은 자기 활성 대상을 `TRUNCATE TABLE serving_postgis.parcel_boundary_mirror`
+   > 한다. 구현 안내서가 명시적으로 금지하는 형태이고("전국 rebuild는 staging과 atomic replacement를
+   > 사용해야 하며 active table을 먼저 `TRUNCATE`하지 않는다"), **이 마이그레이션이 그 금지를 더
+   > 강하게 만들었다** — 이제 모든 적재가 한 표를 공유하므로 truncate는 서빙 중인 적재와 보관된 적재를
+   > 함께 지운다. 재키잉 자체가 staging·swap이 노리던 것(적재마다 서로소인 행 집합, release가
+   > 지명하기 전까지 비가시)을 이미 제공하므로, 새 적재기에 staging 표는 필요 없다.
+   >
+   > 트랜잭션을 열지 않는 형태가 `failed`를 쓸 수 있다는 것만은 맞다. 다만 그 형태의 선례로 쓸 것은
+   > `parcel_marker_anchor_rebuild`의 **사전검증 후 커밋** 경로다 — geometry를 한 행도 쓰기 전에
+   > 실패를 확정할 수 있는 검증은 한 트랜잭션 안에서 `failed`를 커밋하고 끝내므로, 고아 `running`
+   > 행을 남기지 않는다. 두 커넥션은 geometry 적재 중 실패에만 필요하다.
+3. **parcels 적재 경로가 아직 없고, 그 앞에 모델 결함이 하나 있다.**
+   `serving_postgis.parcel_boundary_publication`에 쓰는 것은 시드와 마이그레이션 백필뿐이다.
+
+   막고 있는 것은 적재기 자체가 아니라 리비전의 신원이다.
+   `vector_tile_release.data_revision`는 `catalog.administrative_boundary_revision`에 복합 FK를 건다
+   (`20260727000001` `vector_tile_release_data_revision_fkey`). 그래서 **모든** 발행 단위의 리비전이
+   행정경계 리비전 원장에 등록돼야 하고, 한 도메인의 원장이 전역 원장 노릇을 한다. 이 거짓말은 이미
+   커밋돼 있다 — v2 시드는 **parcels** 리비전을 그 원장에 넣고, `spatial_tile_publication.rs`의
+   `seed_data_revision`도 `parcels`·`complex`에 대해 같은 일을 한다. parcels 적재기는 자기 리비전을
+   행정경계 리비전이라고 기록하지 않고는 발급할 수 없으므로, 이 위에 세운 적재기는 결함을 물려받는다.
+   **적재기보다 이 원장이 먼저다.**
 4. **`publish-administrative-boundary-postgis`에는 단위 테스트가 없다.** 원장 삽입·`projection_load_id`
    바인딩·재키잉된 `ON CONFLICT`을 실제로 통과시키는 것은
    `scripts/tiles/administrative-boundary-slice-proof.sh` 하나뿐이고, 그것은 Docker가 필요해서 **CI에
