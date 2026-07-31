@@ -21,6 +21,18 @@ VALUES
      'iceberg:tile-runtime-v2', '019d2b87-3fd1-7e3a-8d88-0b72c8742001', 'published', now())
 ON CONFLICT (id) DO NOTHING;
 
+-- The load this seed's release serves rows out of. It used to be an invented UUID in the release row
+-- and nothing else; `serving_postgis.spatial_projection_load` now has to hold it, because the release
+-- carries a foreign key to it and `catalog.promote_vector_tile_runtime_manifest` refuses to point at a
+-- dynamic unit whose load did not succeed. Opened `running` here and closed below, in that order, for
+-- the same reason the publisher does: the row count is only known once the rows are in.
+INSERT INTO serving_postgis.spatial_projection_load
+    (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id, status)
+VALUES
+    ('019d2b87-3fd1-7e3a-8d88-0b72c8743604', 'parcels',
+     '019d2b87-3fd1-7e3a-8d88-0b72c8743603', '841361364657368623', 'running')
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO catalog.vector_tile_release
     (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
      source_record_id, source_file_asset_ids, source_kind, martin_source_id,
@@ -84,7 +96,7 @@ ON CONFLICT (singleton) DO UPDATE SET manifest_id = EXCLUDED.manifest_id, update
 INSERT INTO serving_postgis.parcel_boundary_publication
     (pnu, data_revision, canonical_iceberg_snapshot_id, source_record_id,
      source_object_key, complex_id, parcel_id, official_complex_code,
-     geometry_checksum_sha256, geom, properties)
+     geometry_checksum_sha256, geom, properties, projection_load_id)
 SELECT
     mirror.pnu,
     '019d2b87-3fd1-7e3a-8d88-0b72c8743603',
@@ -96,14 +108,53 @@ SELECT
     complex.official_complex_code,
     mirror.geometry_checksum_sha256,
     mirror.geom,
-    mirror.properties
+    mirror.properties,
+    '019d2b87-3fd1-7e3a-8d88-0b72c8743604'
 FROM serving_postgis.parcel_boundary_mirror AS mirror
 JOIN catalog.industrial_complex AS complex ON complex.id = mirror.complex_id
 WHERE mirror.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
-ON CONFLICT (data_revision, pnu) DO UPDATE
-SET canonical_iceberg_snapshot_id = EXCLUDED.canonical_iceberg_snapshot_id,
-    geom = EXCLUDED.geom,
-    properties = EXCLUDED.properties,
-    updated_at = now();
+-- `DO NOTHING`, not the `DO UPDATE` this used to carry. A load names one materialisation, so
+-- re-running the seed re-asserts the same load rather than replacing its geometry underneath a
+-- release that already points at it. Changed source geometry needs a new load id, which is the whole
+-- distinction the ledger introduces.
+ON CONFLICT (projection_load_id, pnu) DO NOTHING;
+
+-- Closes the load with the count actually in the table. The `succeeded` CHECK requires a positive
+-- count, so a seed that materialised nothing fails here instead of leaving a promoted pointer at a
+-- unit Martin would serve zero features for.
+UPDATE serving_postgis.spatial_projection_load
+   SET status = 'succeeded',
+       loaded_row_count = (
+           SELECT count(*) FROM serving_postgis.parcel_boundary_publication
+            WHERE projection_load_id = '019d2b87-3fd1-7e3a-8d88-0b72c8743604'
+       ),
+       finished_at = now()
+ WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8743604'
+   AND status = 'running';
+
+-- The load id above is a literal, so a re-run cannot mint a new load the way the publisher does, and
+-- `DO NOTHING` means changed mirror geometry would be skipped in silence — the same shape of hole
+-- this ledger exists to close. A fixture cannot derive a fresh identity, but it can refuse to claim
+-- one it no longer matches: if the mirror stops agreeing with what this load recorded, say so here
+-- rather than serving the stored rows under a release that says they are current.
+DO $$
+DECLARE
+    recorded bigint;
+    available bigint;
+BEGIN
+    SELECT loaded_row_count INTO recorded
+      FROM serving_postgis.spatial_projection_load
+     WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8743604';
+    SELECT count(*) INTO available
+      FROM serving_postgis.parcel_boundary_mirror AS mirror
+      JOIN catalog.industrial_complex AS complex ON complex.id = mirror.complex_id
+     WHERE mirror.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
+    IF recorded <> available THEN
+        RAISE EXCEPTION
+            'projection load 019d2b87-3fd1-7e3a-8d88-0b72c8743604 recorded % rows but the mirror now offers %; mint a new load id in this seed',
+            recorded, available;
+    END IF;
+END
+$$;
 
 COMMIT;

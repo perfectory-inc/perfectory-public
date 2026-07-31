@@ -151,9 +151,28 @@ run_publisher \
   cargo run --locked --quiet -p foundation-outbox-publisher -- \
   publish-administrative-boundary-postgis
 
+# The publish command opened and closed one projection load. Read its id from the ledger rather than
+# from the command's stdout: a `$(... | grep ...)` would put a pipe in the judgment position and
+# report the wrong exit code, and reading the row proves the ledger recorded the load at all.
+#
+# `ORDER BY started_at DESC LIMIT 1` is not decoration. (unit, revision) is exactly the pair this
+# increment makes non-unique, so an unbounded query would return two ids the moment a revision is
+# republished — and `psql -At` would hand back both, newline-separated, failing the UUID pattern
+# below with a message about formatting rather than about ambiguity. The newest load is the one the
+# publisher above just committed.
+PROJECTION_LOAD_ID="$(docker exec "$DB" psql -X -At -h 127.0.0.1 -U postgres -d tiles_slice_proof \
+  -c "SELECT id FROM serving_postgis.spatial_projection_load
+       WHERE publication_unit_key = 'admin'
+         AND data_revision = '019d2b87-3fd1-7e3a-8d88-0b72c8743701'
+         AND status = 'succeeded'
+       ORDER BY started_at DESC
+       LIMIT 1;")"
+[[ "$PROJECTION_LOAD_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
+
 run_publisher \
   -e DATABASE_URL="postgres://postgres:$DB_PASSWORD@$DB:5432/tiles_slice_proof" \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_CONFIRM=1 \
+  -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_PROJECTION_LOAD_ID="$PROJECTION_LOAD_ID" \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_DATA_REVISION=019d2b87-3fd1-7e3a-8d88-0b72c8743701 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_CANONICAL_ICEBERG_SNAPSHOT_ID=841361364657368624 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_SOURCE_RECORD_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743702 \
