@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **333개**
-- 언어 분류: **{'english': 34, 'korean': 142, 'mixed': 157}**
+- 감사 문서: **336개**
+- 언어 분류: **{'english': 34, 'korean': 145, 'mixed': 157}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **196개 정상 / 0개 누락 / 137개 해당 없음**
+- 메타데이터: **196개 정상 / 0개 누락 / 140개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -35,15 +35,18 @@
 | `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 0 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 3 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
-| `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | mixed | ok | 6 |
+| `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | mixed | ok | 7 |
 | `docs/glossary.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current | korean | ok | 2 |
 | `docs/guides/README.md` | Monorepo | README | current | korean | ok | 1 |
-| `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed | mixed | ok | 3 |
+| `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed | mixed | ok | 4 |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/README.md` | Monorepo | README | current | korean | ok | 5 |
 | `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 15 |
@@ -62,7 +65,7 @@
 | `platforms/foundation-platform/docs/adr/0001-inherit-gongzzang-adrs.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0002-r2-primary-object-storage.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 5 |
 | `platforms/foundation-platform/docs/adr/0003-industrial-complex-catalog-ssot.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 1 |
-| `platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 10 |
+| `platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 14 |
 | `platforms/foundation-platform/docs/adr/0005-object-lake-layout-and-indexing.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 4 |
 | `platforms/foundation-platform/docs/adr/0006-lakehouse-table-format-and-serving-architecture.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 9 |
 | `platforms/foundation-platform/docs/adr/0007-netflix-style-lakehouse-compute-architecture.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |
