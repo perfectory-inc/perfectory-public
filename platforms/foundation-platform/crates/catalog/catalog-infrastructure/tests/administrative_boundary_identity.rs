@@ -325,6 +325,7 @@ async fn administrative_geometry_projection_is_valid_and_append_only(
     let unit_id = Uuid::new_v4();
     let revision_id = Uuid::new_v4();
     let source_id = Uuid::new_v4();
+    let projection_load_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
          VALUES ($1, 'test', $2, repeat('a', 64))",
@@ -350,21 +351,35 @@ async fn administrative_geometry_projection_is_valid_and_append_only(
     .bind(format!("scope:legal-dong:{unit_id}"))
     .execute(&mut *tx)
     .await?;
+    // A publication row belongs to the load that materialised it, so the fixture opens one. The load
+    // is `running`: this test asserts the projection's own geometry and append-only rules, and
+    // nothing here promotes it — an unclosed load is exactly what a promotion must refuse.
+    sqlx::query(
+        "INSERT INTO serving_postgis.spatial_projection_load
+         (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id, status)
+         VALUES ($1, 'admin', $2, '9001', 'running')",
+    )
+    .bind(projection_load_id)
+    .bind(revision_id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query(
         "INSERT INTO serving_postgis.administrative_unit_boundary_publication
          (administrative_unit_id, data_revision, canonical_iceberg_snapshot_id,
           source_snapshot_id, source_record_id, source_object_key, scope_kind,
-          canonical_code, display_name, geometry_checksum_sha256, geom, properties)
+          canonical_code, display_name, geometry_checksum_sha256, geom, properties,
+          projection_load_id)
          VALUES ($1, $2, '9001', 'iceberg:geometry-test', $3,
                  'gold/admin-boundaries/geometry-test.geojson', 'legal_dong', '9999900101',
                  'Geometry Fixture', repeat('a', 64),
                  ST_Multi(ST_GeomFromText(
                    'POLYGON((127.1231 36.1231,127.1232 36.1231,127.1232 36.1232,127.1231 36.1232,127.1231 36.1231))', 4326)),
-                 '{\"canonical_code\":\"9999900101\"}'::jsonb)",
+                 '{\"canonical_code\":\"9999900101\"}'::jsonb, $4)",
     )
     .bind(unit_id)
     .bind(revision_id)
     .bind(source_id)
+    .bind(projection_load_id)
     .execute(&mut *tx)
     .await?;
     let row = sqlx::query(

@@ -109,6 +109,94 @@ async fn runtime_manifest_cas_rejects_stale_writer_without_switching_pointer() {
     fixture.cleanup(&pool).await;
 }
 
+/// The four ways a release can name a projection load that does not back what the manifest claims.
+///
+/// Each case mutates exactly one column of an otherwise-promotable load, so a passing case cannot be
+/// explained by anything else in the fixture. The `expect_err` is deliberately the *only* assertion
+/// that names the gate: the pointer assertion after it is what proves the refusal happened before any
+/// state moved, which is the property that matters — a gate that rejects after switching the pointer
+/// would still return an error and still be broken.
+///
+/// Before this gate existed all four of these promoted cleanly, and Martin then served zero features
+/// out of a unit the runtime manifest advertised as live.
+#[tokio::test]
+#[ignore = "requires a migrated Foundation PostgreSQL database"]
+async fn a_dynamic_release_without_a_matching_succeeded_projection_load_cannot_be_promoted() {
+    // (label, the single-column edit that breaks the load's claim)
+    let cases: [(&str, &str); 4] = [
+        (
+            "the load never succeeded",
+            "UPDATE serving_postgis.spatial_projection_load
+                SET status = 'running', finished_at = NULL, loaded_row_count = 0
+              WHERE id = $1",
+        ),
+        (
+            "the load materialised a different unit",
+            "UPDATE serving_postgis.spatial_projection_load
+                SET publication_unit_key = 'someone-elses-unit'
+              WHERE id = $1",
+        ),
+        (
+            "the load carries a different data revision",
+            "UPDATE serving_postgis.spatial_projection_load
+                SET data_revision = gen_random_uuid()
+              WHERE id = $1",
+        ),
+        (
+            "the load was built from a different Iceberg snapshot",
+            "UPDATE serving_postgis.spatial_projection_load
+                SET canonical_iceberg_snapshot_id = '811111111111111111'
+              WHERE id = $1",
+        ),
+    ];
+
+    for (label, break_the_load) in cases {
+        let _guard = runtime_manifest_test_guard().await;
+        let pool = pool().await;
+        let fixture = Fixture::new();
+        fixture.insert(&pool).await;
+        sqlx::query(break_the_load)
+            .bind(fixture.projection_load_id)
+            .execute(&pool)
+            .await
+            .expect("breaking the projection load");
+        let pointer_before = current_pointer(&pool).await;
+
+        let uow = PgCatalogUnitOfWork::new(pool.clone());
+        let refused = uow
+            .promote_vector_tile_runtime_manifest(None, fixture.manifest_id)
+            .await
+            .expect_err(label);
+        assert!(
+            matches!(
+                &refused,
+                CatalogError::InvalidVectorTileRuntimeManifest(message)
+                    if message.contains("no succeeded PostGIS projection load")
+            ),
+            "{label}: got {refused:?}"
+        );
+
+        assert_eq!(
+            current_pointer(&pool).await,
+            pointer_before,
+            "{label}: the pointer moved even though the promotion was refused"
+        );
+
+        // The load row is the fixture's, so the ordinary cleanup removes it along with the release.
+        fixture.cleanup(&pool).await;
+    }
+}
+
+/// The manifest the runtime pointer currently selects, or `None` before any publication.
+async fn current_pointer(pool: &PgPool) -> Option<Uuid> {
+    sqlx::query_scalar::<_, Uuid>(
+        "SELECT manifest_id FROM catalog.vector_tile_runtime_manifest_pointer WHERE singleton",
+    )
+    .fetch_optional(pool)
+    .await
+    .expect("runtime manifest pointer")
+}
+
 struct Fixture {
     unit_id: Uuid,
     release_id: Uuid,
@@ -116,6 +204,12 @@ struct Fixture {
     data_revision: Uuid,
     source_record_id: Uuid,
     snapshot_id: String,
+    /// The `serving_postgis.spatial_projection_load` the dynamic release serves rows out of.
+    ///
+    /// This used to be a bare `Uuid::new_v4()` bound straight into
+    /// `postgis_projection_revision`. The column now carries a foreign key and the gate refuses a
+    /// dynamic unit whose load did not succeed, so an unbacked id no longer reaches the gate at all.
+    projection_load_id: Uuid,
 }
 
 impl Fixture {
@@ -130,6 +224,7 @@ impl Fixture {
             data_revision: Uuid::new_v4(),
             source_record_id: Uuid::new_v4(),
             snapshot_id: format!("9{}", Uuid::new_v4().as_u128()),
+            projection_load_id: Uuid::new_v4(),
         }
     }
 
@@ -157,15 +252,34 @@ impl Fixture {
         .execute(pool)
         .await
         .expect("administrative boundary revision");
+        let unit_key = format!("cas-{}", &self.unit_id.simple().to_string()[..12]);
         sqlx::query(
             "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key)
              VALUES ($1, $2)",
         )
         .bind(self.unit_id)
-        .bind(format!("cas-{}", &self.unit_id.simple().to_string()[..12]))
+        .bind(&unit_key)
         .execute(pool)
         .await
         .expect("publication unit");
+        // The gate compares the load's unit key against the unit the manifest selects and its
+        // revision against the one the manifest names, so both are bound from the same fixture
+        // values rather than restated. `loaded_row_count` is 1 because the `succeeded` CHECK refuses
+        // a load that materialised nothing; these CAS tests exercise the pointer switch, and the
+        // publication rows a real load writes are the subject of `spatial_projection_load_ledger`.
+        sqlx::query(
+            "INSERT INTO serving_postgis.spatial_projection_load
+                (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id,
+                 status, loaded_row_count, finished_at)
+             VALUES ($1, $2, $3, $4, 'succeeded', 1, now())",
+        )
+        .bind(self.projection_load_id)
+        .bind(&unit_key)
+        .bind(self.data_revision)
+        .bind(&self.snapshot_id)
+        .execute(pool)
+        .await
+        .expect("spatial projection load");
         sqlx::query(
             "INSERT INTO catalog.vector_tile_release
              (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
@@ -179,7 +293,7 @@ impl Fixture {
         .bind(self.data_revision)
         .bind(&self.snapshot_id)
         .bind(self.source_record_id)
-        .bind(Uuid::new_v4())
+        .bind(self.projection_load_id)
         .execute(pool)
         .await
         .expect("release");
@@ -260,6 +374,12 @@ impl Fixture {
             .execute(pool)
             .await
             .expect("release cleanup");
+        // After the release, which carries the foreign key to it.
+        sqlx::query("DELETE FROM serving_postgis.spatial_projection_load WHERE id = $1")
+            .bind(self.projection_load_id)
+            .execute(pool)
+            .await
+            .expect("spatial projection load cleanup");
         sqlx::query("DELETE FROM catalog.vector_tile_publication_unit WHERE id = $1")
             .bind(self.unit_id)
             .execute(pool)

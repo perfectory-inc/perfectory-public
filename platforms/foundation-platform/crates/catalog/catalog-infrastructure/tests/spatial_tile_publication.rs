@@ -54,7 +54,8 @@ async fn a_first_activation_publishes_a_complete_dynamic_manifest() -> TestResul
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         let unit_id = seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision =
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
 
         let manifest = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
@@ -196,7 +197,7 @@ async fn a_stale_observation_loses_the_compare_and_swap_and_moves_nothing() -> T
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         let unit_id = seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision = seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
         let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
                 "parcels",
@@ -207,7 +208,7 @@ async fn a_stale_observation_loses_the_compare_and_swap_and_moves_nothing() -> T
             )?)
             .await?;
         let active_release_id = published_unit(&published, "parcels")?.active_release_id;
-        let next_revision = seed_data_revision(&pool, NEXT_SNAPSHOT, source_record_id).await?;
+        let next_revision = seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
 
         // A repeated first-publication claim against a unit that has published.
         let repeated_first_claim = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
@@ -285,7 +286,7 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
         let parcels_revision =
-            seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
         let first = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
                 "parcels",
@@ -302,7 +303,7 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
         // published has no release to select for it.
         seed_publication_unit(&pool, "complex").await?;
         let complex_revision =
-            seed_data_revision(&pool, COMPLEX_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "complex", COMPLEX_SNAPSHOT, source_record_id).await?;
         let second = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
                 "complex",
@@ -335,7 +336,8 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
 
         // Switching the first unit again now has to carry the second one, in the other direction.
         // Its expectation is still generation 1 — publishing `complex` did not invalidate it.
-        let third_revision = seed_data_revision(&pool, NEXT_SNAPSHOT, source_record_id).await?;
+        let third_revision =
+            seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
         let third = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
                 "parcels",
@@ -389,7 +391,7 @@ async fn two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner(
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
-        let first_revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let first_revision = seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
         let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
                 "parcels",
@@ -404,8 +406,8 @@ async fn two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner(
 
         // Two different revisions, one observed state. Distinct revisions keep the release
         // uniqueness key out of it, so the compare-and-swap is the only thing that can decide.
-        let left_revision = seed_data_revision(&pool, NEXT_SNAPSHOT, source_record_id).await?;
-        let right_revision = seed_data_revision(&pool, FOURTH_SNAPSHOT, source_record_id).await?;
+        let left_revision = seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
+        let right_revision = seed_data_revision(&pool, "parcels", FOURTH_SNAPSHOT, source_record_id).await?;
         let capability = RuntimeManifestPublicationCapability::enabled();
         let left_writer = use_case(&pool, capability);
         let right_writer = use_case(&pool, capability);
@@ -485,7 +487,8 @@ async fn two_edits_to_different_units_both_commit_and_advance_the_global_generat
         // Both units published, one at a time, because a first activation is also the first manifest
         // that can name its unit.
         seed_publication_unit(&pool, "parcels").await?;
-        let parcels_first = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let parcels_first =
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
         let bootstrap = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
                 "parcels",
@@ -497,7 +500,8 @@ async fn two_edits_to_different_units_both_commit_and_advance_the_global_generat
             .await?;
         let parcels_release = published_unit(&bootstrap, "parcels")?.active_release_id;
         seed_publication_unit(&pool, "complex").await?;
-        let complex_first = seed_data_revision(&pool, COMPLEX_SNAPSHOT, source_record_id).await?;
+        let complex_first =
+            seed_data_revision(&pool, "complex", COMPLEX_SNAPSHOT, source_record_id).await?;
         let paired = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
                 "complex",
@@ -511,8 +515,10 @@ async fn two_edits_to_different_units_both_commit_and_advance_the_global_generat
         let generation_before = paired.manifest_generation.value();
 
         // Both expectations are read here, before either edit runs. That is the interleaving.
-        let parcels_next = seed_data_revision(&pool, NEXT_SNAPSHOT, source_record_id).await?;
-        let complex_next = seed_data_revision(&pool, FOURTH_SNAPSHOT, source_record_id).await?;
+        let parcels_next =
+            seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
+        let complex_next =
+            seed_data_revision(&pool, "complex", FOURTH_SNAPSHOT, source_record_id).await?;
         let switch_parcels = activation_command(
             "parcels",
             parcels_next,
@@ -620,7 +626,8 @@ async fn an_unpublished_neighbour_refuses_the_activation_by_name() -> TestResult
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
         seed_publication_unit(&pool, "complex").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision =
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
 
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command(
@@ -656,7 +663,8 @@ async fn an_unknown_publication_unit_is_refused() -> TestResult {
     run_in_disposable_database("tile_unknown_unit", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision =
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
 
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command(
@@ -701,7 +709,8 @@ async fn re_publishing_one_revision_after_observing_it_leaves_no_partial_state()
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision =
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
         let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
                 "parcels",
@@ -773,7 +782,8 @@ async fn an_identical_retry_is_answered_from_the_ledger_and_writes_nothing() -> 
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision =
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
         let command = || {
             activation_command_with_key(
                 "retry-me",
@@ -842,8 +852,10 @@ async fn an_idempotency_key_reused_for_a_different_request_is_refused() -> TestR
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
-        let next_revision = seed_data_revision(&pool, NEXT_SNAPSHOT, source_record_id).await?;
+        let revision =
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+        let next_revision =
+            seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
 
         let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command_with_key(
@@ -905,7 +917,7 @@ async fn a_key_recorded_under_another_fingerprint_version_is_named_as_such() -> 
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision = seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
 
         // A key left by a deployment that computed fingerprints differently. The digest is
         // irrelevant — it is never reached.
@@ -961,7 +973,7 @@ async fn a_key_held_by_an_uncommitted_transaction_answers_contended() -> TestRes
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision = seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
 
         // Hold the key from a transaction that never commits. `outcome_manifest_id` may name a
         // manifest that does not exist because the foreign key is deferred to commit time, and this
@@ -1020,7 +1032,8 @@ async fn publication_capability_off_records_the_activation_without_the_public_ev
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         let unit_id = seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision =
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
 
         let manifest = use_case(&pool, RuntimeManifestPublicationCapability::disabled())
             .execute(activation_command(
@@ -1074,7 +1087,8 @@ async fn the_default_unit_of_work_does_not_publish_the_v2_event() -> TestResult 
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
         seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, PARCELS_SNAPSHOT, source_record_id).await?;
+        let revision =
+            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
 
         let uow = PgCatalogUnitOfWork::new(pool.clone());
         uow.mark_tile_layer_dynamic(activation_command(
@@ -1249,9 +1263,21 @@ async fn seed_source_record(pool: &PgPool) -> TestResult<Uuid> {
     Ok(source_record_id)
 }
 
-/// Seeds the revision `vector_tile_release_data_revision_fkey` binds a release to.
+/// Seeds the revision `vector_tile_release_data_revision_fkey` binds a release to, and the
+/// `PostGIS` projection load `vector_tile_release_projection_load_fkey` binds it to.
+///
+/// The two are seeded together because a dynamic release cannot exist without both, and the
+/// promotion gate additionally requires the load to have succeeded for the *same* unit and the
+/// *same* revision the manifest selects. `unit_key` is therefore a parameter rather than a constant:
+/// a load seeded under the wrong unit would be refused by the gate, which is the behaviour under
+/// test elsewhere and must not be an accident here.
+///
+/// The load id is `derived_id(revision, 1)` — the same derivation `activation_command_with_key` uses
+/// for `postgis_projection_revision`, so the row the command names is the row this seeded. Deriving
+/// it keeps a rebuilt command byte-identical, which the idempotency fingerprint depends on.
 async fn seed_data_revision(
     pool: &PgPool,
+    unit_key: &str,
     snapshot: &str,
     source_record_id: Uuid,
 ) -> TestResult<Uuid> {
@@ -1266,6 +1292,18 @@ async fn seed_data_revision(
     .bind(snapshot)
     .bind(format!("iceberg:spatial-tile-publication-{revision_id}"))
     .bind(source_record_id)
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO serving_postgis.spatial_projection_load
+         (id, publication_unit_key, data_revision, canonical_iceberg_snapshot_id,
+          status, loaded_row_count, finished_at)
+         VALUES ($1, $2, $3, $4, 'succeeded', 1, now())",
+    )
+    .bind(derived_id(revision_id, 1))
+    .bind(unit_key)
+    .bind(revision_id)
+    .bind(snapshot)
     .execute(pool)
     .await?;
     Ok(revision_id)
