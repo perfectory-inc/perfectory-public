@@ -14,8 +14,8 @@ use catalog_domain::{
     StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
-    ComplexId, FileAssetId, NoticeId, ParcelId, PostgisProjectionRevisionId, SourceRecordId,
-    VectorTileDataRevisionId, VectorTileReleaseId, VectorTileRuntimeManifestId,
+    ComplexId, FileAssetId, NoticeId, ParcelId, SourceRecordId, VectorTileDataRevisionId,
+    VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
 use foundation_shared_kernel::pnu::Pnu;
 use sqlx::{PgConnection, PgPool, Row};
@@ -691,7 +691,7 @@ pub(crate) async fn load_vector_tile_runtime_manifest_by_id(
     let rows = sqlx::query(
         "SELECT pu.unit_key, mu.data_revision, mu.serving_generation, mu.release_id,
                     mu.canonical_iceberg_snapshot_id, r.source_kind, r.martin_source_id,
-                    r.tiles_url_template, r.postgis_projection_revision, r.pmtiles_object_key,
+                    r.tiles_url_template, r.pmtiles_object_key,
                     r.pmtiles_file_asset_id, r.pmtiles_sha256, r.pmtiles_bytes,
                     r.source_record_id, r.source_file_asset_ids
              FROM catalog.vector_tile_runtime_manifest_unit mu
@@ -721,10 +721,6 @@ pub(crate) async fn load_vector_tile_runtime_manifest_by_id(
             "dynamic_postgis" => ActiveTileSource::DynamicPostgis(DynamicPostgisSource {
                 martin_source_id: row.try_get("martin_source_id").map_err(map_sqlx)?,
                 tiles_url_template,
-                postgis_projection_revision: PostgisProjectionRevisionId::new(
-                    row.try_get("postgis_projection_revision")
-                        .map_err(map_sqlx)?,
-                ),
                 cache_policy: "no_store".to_owned(),
             }),
             "static_pmtiles" => ActiveTileSource::StaticPmtiles(StaticPmtilesSource {

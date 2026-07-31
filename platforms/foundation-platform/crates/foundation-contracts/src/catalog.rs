@@ -691,8 +691,6 @@ pub struct VectorTileDynamicPostgisResponse {
     pub martin_source_id: String,
     /// Complete Martin tile URL template.
     pub tiles_url_template: String,
-    /// Complete `PostGIS` projection revision UUID.
-    pub postgis_projection_revision: Uuid,
     /// Must be `no_store` for the dynamic source.
     pub cache_policy: String,
 }

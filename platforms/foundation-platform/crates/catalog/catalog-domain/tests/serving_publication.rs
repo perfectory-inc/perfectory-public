@@ -74,7 +74,6 @@ fn v2_manifest_rejects_unknown_source_and_dynamic_cache_busting_query() {
         "kind": "dynamic_postgis",
         "martin_source_id": "parcels",
         "tiles_url_template": "http://127.0.0.1:3000/parcels/{z}/{x}/{y}",
-        "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
         "cache_policy": "no_store"
     });
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_ok());
@@ -84,7 +83,6 @@ fn v2_manifest_rejects_unknown_source_and_dynamic_cache_busting_query() {
         "kind": "dynamic_postgis",
         "martin_source_id": "parcels",
         "tiles_url_template": "http://127.0.0.1:3000/parcels/{z}/{x}/{y}?generation=42",
-        "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
         "cache_policy": "no_store"
     });
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
@@ -134,7 +132,6 @@ fn shared_dynamic_source() -> serde_json::Value {
         "kind": "dynamic_postgis",
         "martin_source_id": "shared",
         "tiles_url_template": "https://tiles.example.com/shared/{z}/{x}/{y}",
-        "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
         "cache_policy": "no_store"
     })
 }

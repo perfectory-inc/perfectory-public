@@ -8,8 +8,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use foundation_shared_kernel::ids::{
-    FileAssetId, PostgisProjectionRevisionId, SourceRecordId, VectorTileDataRevisionId,
-    VectorTileReleaseId, VectorTileRuntimeManifestId,
+    FileAssetId, SourceRecordId, VectorTileDataRevisionId, VectorTileReleaseId,
+    VectorTileRuntimeManifestId,
 };
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 
@@ -265,8 +265,6 @@ pub struct DynamicPostgisSource {
     pub martin_source_id: String,
     /// Stable, query-free tile URL template selected by the Catalog pointer.
     pub tiles_url_template: RuntimeTilesUrlTemplate,
-    /// Complete `PostGIS` projection revision.
-    pub postgis_projection_revision: PostgisProjectionRevisionId,
     /// Dynamic sources are never browser-cacheable.
     pub cache_policy: String,
 }

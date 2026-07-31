@@ -158,7 +158,6 @@ const DynamicPostgisSourceSchema = z
     kind: z.literal("dynamic_postgis"),
     martin_source_id: martinIdentifierSchema,
     tiles_url_template: runtimeTilesUrlTemplateSchema,
-    postgis_projection_revision: uuidSchema,
     cache_policy: z.literal("no_store"),
   })
   .strict()

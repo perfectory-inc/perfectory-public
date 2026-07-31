@@ -1156,9 +1156,6 @@ fn vector_tile_runtime_manifest_response(
                         VectorTileDynamicPostgisResponse {
                             martin_source_id: source.martin_source_id,
                             tiles_url_template: source.tiles_url_template.as_str().to_owned(),
-                            postgis_projection_revision: source
-                                .postgis_projection_revision
-                                .as_uuid(),
                             cache_policy: source.cache_policy,
                         },
                     )

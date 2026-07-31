@@ -104,7 +104,6 @@ fn published_manifest(
         source: ActiveTileSource::DynamicPostgis(DynamicPostgisSource {
             martin_source_id: command.martin_source_id.clone(),
             tiles_url_template: command.tiles_url_template.clone(),
-            postgis_projection_revision: command.postgis_projection_revision,
             cache_policy: "no_store".to_owned(),
         }),
         layers: command.layers.clone(),
