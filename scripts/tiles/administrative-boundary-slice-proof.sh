@@ -54,8 +54,11 @@ REPO_HOST_PATH="$(host_path "$REPO_ROOT")"
 export MSYS_NO_PATHCONV=1
 mkdir -p "$RUN_DIR"
 
+# `-v` removes the anonymous volume the postgres image declares for its data directory. Without it
+# each proof run orphans one, and nothing collects them — see the same fix in
+# `scripts/verify/integration.sh`.
 cleanup() {
-  docker rm -f "$MARTIN" "$DB" >/dev/null 2>&1 || true
+  docker rm -f -v "$MARTIN" "$DB" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
