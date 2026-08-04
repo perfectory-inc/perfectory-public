@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: roadmap
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-05
 ---
 
 # 운영 준비 작업 목록
@@ -84,6 +84,33 @@ last_reviewed: 2026-07-30
 - [ ] LLM 정규화 provider, 비용/쿼터, proposal 승인·적용 권한과 감사 로그 확정
 - [ ] production orchestrator 선택, 소유자·스케줄·재시도·취소·롤백을 ADR로 결정
 
+### 공간 데이터 발행 경로
+
+파이프라인의 서빙 끝단이다. 발행 상태 기계와 불변식은
+[단일 출처 공간 데이터 공개 아키텍처](../architecture/single-source-spatial-publication.md)가 정본이며,
+용어는 [전역 용어집](../glossary.md)의 공간 데이터 발행 용어를 따른다. 여기서는 남은 순서만 고정한다.
+
+- [x] 발행 단위마다 완전한 활성 소스를 하나로 강제하고 포인터를 CAS로만 전진시킨다
+- [x] 투영 적재를 정체성 있는 사실로 만들어 릴리스가 지명한 적재의 행만 서빙한다
+      ([ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md))
+- [x] 발행 리비전을 그것이 개정하는 단위에 스코프해 교차 단위 참조를 쓰기 시점에 막는다
+      ([ADR-0017](../adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md))
+- [ ] `catalog.parcel`에 쓰는 프로덕션 경로의 소유자를 정한다. **이것이 parcels 적재기의
+      선행조건이고 지금 주인이 없다.** 현재 그 표에 INSERT하는 것은 테스트와 Docker fixture뿐이고
+      정본 실버는 PostgreSQL 밖에 있어 적재기가 읽을 Cargo 의존성이 없다. 선행조건 없이 적재기를
+      먼저 만들면 fixture 규모가 천장이 된다.
+- [x] `publish-administrative-boundary-postgis`의 **적재 경로**를 CI가 실행하는 검사로 덮는다
+      ([ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) 남은 부채 4 해소)
+- [ ] 같은 명령의 **승격 경로**를 CI로 옮긴다. Martin·PMTiles·CAS 승격은 여전히 Docker Compose가
+      필요한 `scripts/tiles/administrative-boundary-slice-proof.sh`만 통과시킨다.
+- [ ] 지오메트리 체크섬 계약이 기대는 인코딩 가정을 명시적으로 만든다. 생산자는 자신이 쓸 값을,
+      소비자는 파일에서 **다시 파싱한** 값을 해시하므로 `print(parse(print(v))) == print(v)`가
+      성립해야 하는데, `serde_json`은 자신이 출력한 17자리 값(`37.300000000000004`)을 1 ULP 다른
+      f64(`37.3`)로 파싱한다. 오늘 터지지 않는 이유는 생산자의 좌표가 전부 파싱 결과이고 산술로
+      만든 f64가 없기 때문이며, 이는 설계가 아니라 우연이다. 좌표를 변환하는 단계(재투영·단순화·
+      반올림)가 들어오면 정상 데이터가 `geometry_sha256 mismatch`로 거부되고 그 메시지는 입력
+      손상처럼 읽힌다.
+
 ## 우선순위 2 — 규모 확장용 Kafka Connect 전환
 
 현재 직접 `OutboxWorker` 전달기는 작은 규모에서 운영 가능한 경로다. 다음 조건이 발생할
@@ -121,6 +148,10 @@ ADR-0011의 후속 작업은 발견한 테스트를 나중에 잡는 데서 멈�
 구조적으로 생기지 않도록 만드는 것이다.
 
 - [ ] 라이브 테스트 자원 요구사항을 테스트 선언에서 직접 파생한다.
+- [ ] 일회용 하네스가 자기 저장소를 흘리지 않는지 기계적으로 검사한다. `scripts/verify/integration.sh`와
+      `scripts/tiles/administrative-boundary-slice-proof.sh`는 `docker rm`에 `-v`가 빠져 실행마다
+      PostgreSQL 익명 볼륨을 하나씩 남겼다. 107개(개당 약 115MB)가 쌓여 디스크가 차고 검증 실행이
+      죽고 나서야 드러났다. 두 스크립트는 고쳤지만 세 번째가 같은 형태로 들어오는 것을 막는 것은 없다.
 - [x] R2 환경변수 가드를 알려진 레거시 거부 목록에서 허용 목록으로 강화한다.
 - [x] 문서 메타데이터 마이그레이션 후 문서 CI를 strict 모드로 전환한다.
 - [ ] 현재 Cargo 검증을 유지하고, 두 번째 상시 엔지니어·CI 병목·원격 캐시 도입 때만
@@ -130,6 +161,26 @@ ADR-0011의 후속 작업은 발견한 테스트를 나중에 잡는 데서 멈�
 세 선언은 이미 `tools/xtask/src/main.rs` 한 곳에 있고 셸 가드가 같은 파일을 읽는다. 중간
 형식을 하나 더 두면 Rust 선언과 그 형식이 어긋날 수 있는 새 경로가 생기며, 이는 통합으로
 제거하려던 문제와 같은 종류다.
+
+## ADR이 기록한 남은 부채
+
+각 ADR은 자신이 닫지 못한 것을 `남은 부채` 절에 기록한다. **그 항목의 본문은 ADR이 소유하고
+이 표는 어디에 속하는지와 순서만 고정한다.** 항목을 여기에 옮겨 적지 않는다 — 복사본은 한쪽만
+고쳐지는 순간 어긋나며, 그것이 아래에서 금지하는 중복과 같은 것이다.
+
+`scripts/guard/roadmap-owns-recorded-debt.sh`가 `남은 부채`를 기록한 ADR이 이 표에서 빠지면
+실패한다. 규칙이 산문뿐이던 동안 ADR 8개의 37개 항목 전부가 이 목록 밖에 있었다.
+
+| ADR | 항목 | 무엇에 관한 부채인가 | 우선순위 |
+|---|---|---|---|
+| [0010 라이브 자원 테스트 레인](../adr/0010-live-resource-test-lanes.md) | 11 | 여전히 실행되지 않는 레인 타깃과 정적 가드를 우회하는 형태 | 4 |
+| [0011 테스트 실행 집합 완전성](../adr/0011-test-execution-set-completeness.md) | 4 | 발견 가드가 정적이고 임포트 게이트가 없음 | 4 |
+| [0012 검증 결과의 의미](../adr/0012-verification-results-must-mean-what-they-say.md) | 3 | 구조화 판정 블록 전환 미완, 셸 형태를 기계 검사하지 않음 | 4 |
+| [0013 릴리스 유일성](../adr/0013-release-uniqueness-admits-both-source-kinds.md) | 2 | 단위 키 대소문자 계약과 정적 승격의 fallback 쓰기 순서 | 1 |
+| [0014 제공 세대](../adr/0014-serving-generation-tracks-one-unit-source-selection.md) | 2 | 정적 승격 경로가 이 규칙을 아직 지나지 않음 | 1 |
+| [0015 멱등성 원장](../adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md) | 5 | 키를 발급하는 클라이언트 부재와 원장을 우회하는 경로 둘 | 1 |
+| [0016 투영 적재의 정체성](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) | 6 | 적재 보존 기간, `failed` writer 부재, parcels 적재 경로, CI 밖 검사 | 1 |
+| [0017 리비전의 소속](../adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md) | 4 | 사실 원장 분리 미완, 계보를 CHECK로 강제할 수 없음, 미참조 FK | 1 |
 
 ## 문서 정리 상태
 
