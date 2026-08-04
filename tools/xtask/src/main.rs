@@ -550,7 +550,7 @@ const AREAS: &[Area] = &[
                     },
                     LaneTarget {
                         package: "foundation-outbox-publisher",
-                        test: "administrative_boundary_postgis_publish",
+                        test: "administrative_boundary_publication",
                     },
                     LaneTarget {
                         package: "lakehouse-infrastructure",

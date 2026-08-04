@@ -99,10 +99,12 @@ last_reviewed: 2026-08-05
       선행조건이고 지금 주인이 없다.** 현재 그 표에 INSERT하는 것은 테스트와 Docker fixture뿐이고
       정본 실버는 PostgreSQL 밖에 있어 적재기가 읽을 Cargo 의존성이 없다. 선행조건 없이 적재기를
       먼저 만들면 fixture 규모가 천장이 된다.
-- [x] `publish-administrative-boundary-postgis`의 **적재 경로**를 CI가 실행하는 검사로 덮는다
+- [x] 적재 경로와 승격 경로를 CI가 실행하는 검사로 덮는다 — 발행이 적재를 열고 닫는 것부터
+      런타임 포인터가 그 적재를 서빙하도록 전진하는 것까지
       ([ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) 남은 부채 4 해소)
-- [ ] 같은 명령의 **승격 경로**를 CI로 옮긴다. Martin·PMTiles·CAS 승격은 여전히 Docker Compose가
-      필요한 `scripts/tiles/administrative-boundary-slice-proof.sh`만 통과시킨다.
+- [ ] 타일이 실제로 나오는지를 CI에서 확인한다. Martin 기동·타일 요청·MVT 디코드·PMTiles는 여전히
+      Docker Compose가 필요한 `scripts/tiles/administrative-boundary-slice-proof.sh`만 통과시킨다.
+      승격까지는 CI가 보지만 **그 결과가 타일로 나오는지는 아직 CI 밖이다.**
 - [ ] 지오메트리 체크섬 계약이 기대는 인코딩 가정을 명시적으로 만든다. 생산자는 자신이 쓸 값을,
       소비자는 파일에서 **다시 파싱한** 값을 해시하므로 `print(parse(print(v))) == print(v)`가
       성립해야 하는데, `serde_json`은 자신이 출력한 17자리 값(`37.300000000000004`)을 1 ULP 다른

@@ -212,7 +212,7 @@ DTO를 직렬화해 `catalog_domain::VectorTileRuntimeManifest`로 역직렬화�
    없다.** 앞선 회귀를 아무 검사도 잡지 못한 것이 이 때문이다.
 
    > **해소 (2026-08-05):** `foundation-outbox-publisher`의
-   > `administrative_boundary_postgis_publish`가 이 경로를 CI의 `postgres` 레인에서 실행한다.
+   > `administrative_boundary_publication`이 이 경로를 CI의 `postgres` 레인에서 실행한다.
    >
    > 명령을 함수로 쪼개 부르지 않고 **빌드된 바이너리를 프로세스로 실행한다.** 이 명령은 설정
    > 전체가 환경변수 계약이므로, 호출 가능한 seam을 만들면 정작 그 계약이 검사 밖에 남는다.
@@ -227,12 +227,25 @@ DTO를 직렬화해 `catalog_domain::VectorTileRuntimeManifest`로 역직렬화�
    > 된다), 리비전을 증명하지 못한 발행이 `running` 고아 행을 남기지 않는지, 발행 리비전이 단위와
    > 계보를 함께 갖는지.
    >
-   > 덮지 못한 것: Martin·PMTiles·CAS 승격은 여전히 슬라이스 프루프만 통과시킨다. **적재 경로만**
-   > CI로 옮겼다.
+   > 같은 스위트가 `promote-administrative-boundary-runtime`도 덮는다. 그 명령 역시 `DATABASE_URL`과
+   > 자기 입력만 쓴다 — 슬라이스 프루프가 Docker Compose를 필요로 한 것은 승격 **이후** 타일을
+   > 실제로 읽는 단계 때문이었다. 포인터 전진, 두 세대(`serving_generation`은 한 단위의 소스 선택,
+   > `manifest_generation`은 전역)의 구분, 낡은 포인터를 기대한 승격의 거부, 그리고 **릴리스 id를
+   > 다른 적재에 재사용하는 것의 거부**를 단정한다. 마지막 것은 승격 게이트가 잡을 수 없다 — 같은
+   > 단위·리비전·스냅샷의 이전 succeeded 적재가 게이트 조건을 모두 만족하므로, 그것을 막는 것은
+   > 릴리스 행을 되읽어 통째로 비교하는 코드 하나뿐이고 지금까지 그 코드에는 검사가 없었다.
+   >
+   > 덮지 못한 것: Martin 기동, 실제 타일 요청, MVT 디코드, PMTiles. 그것들은 Docker Compose가
+   > 실제로 필요하며 슬라이스 프루프에 남는다.
    >
    > 이 검사를 처음 돌렸을 때 잡힌 것은 프로덕션 코드가 아니라 픽스처였다. 행정 계층 규칙
    > (`legal_dong`의 부모는 `sigungu`여야 한다)이 스키마에 있는데 CI가 그것을 한 번도 실행해 본
-   > 적이 없었다는 뜻이기도 하다.
+   > 적이 없었다는 뜻이기도 하다. 승격 쪽에서도 같은 일이 두 번 더 일어났고, 그 결과 문서 어디에도
+   > 없던 규칙 하나가 드러났다: **발행 리비전은 id·정본 스냅샷·시행일이 함께 움직인다.**
+   > `vector_tile_release_unit_revision_snapshot_kind_key`가 단위·리비전·스냅샷당 동적 릴리스를
+   > 하나로 제한하고, 승격 게이트가 더 오래된 스냅샷으로의 후퇴를 거부하며,
+   > `administrative_unit_parent_one_parent_excl`이 더 늦은 시행일에만 부모 사실의 승계를 허용한다.
+   > 세 제약이 서로 다른 곳에 있어 따로 읽으면 이 규칙이 보이지 않는다.
 5. **지문 v1이 그대로인데 값의 의미가 바뀌었다.** `postgis_projection_revision`은 `data_revision`의
    별칭에서 `spatial_projection_load.id`가 됐고 `CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION`은
    상수다. 전환 전에 발급된 키를 전환 후에 재생하면 `MutationFingerprintVersionChanged`가 아니라
