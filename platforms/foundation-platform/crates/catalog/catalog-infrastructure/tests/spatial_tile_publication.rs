@@ -8,9 +8,6 @@
 
 #![allow(clippy::expect_used, clippy::too_many_lines, clippy::unwrap_used)]
 
-#[allow(dead_code)]
-mod support;
-
 use std::{collections::BTreeMap, sync::Arc};
 
 use catalog_application::{
@@ -34,7 +31,7 @@ use foundation_shared_kernel::ids::{
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use support::{run_in_disposable_database, TestResult};
+use foundation_disposable_database::{run_in_disposable_database, TestResult};
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../../migrations");
 

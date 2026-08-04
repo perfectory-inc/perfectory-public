@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **333개**
+- 문서 파일: **337개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 32 |
+| Monorepo | 36 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 94 |
+| ADR | 98 |
 | README | 105 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -382,6 +382,10 @@ docs/adr/0010-live-resource-test-lanes.md
 docs/adr/0011-test-execution-set-completeness.md
 docs/adr/0012-verification-results-must-mean-what-they-say.md
 docs/adr/0013-release-uniqueness-admits-both-source-kinds.md
+docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md
+docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md
+docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md
+docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -426,6 +430,10 @@ tools/github/README.md
 | `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current |
 | `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current |
 | `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current |
+| `docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md` | Monorepo | ADR | current |
+| `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current |
+| `docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md` | Monorepo | ADR | current |
+| `docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

@@ -210,6 +210,29 @@ DTO를 직렬화해 `catalog_domain::VectorTileRuntimeManifest`로 역직렬화�
    바인딩·재키잉된 `ON CONFLICT`을 실제로 통과시키는 것은
    `scripts/tiles/administrative-boundary-slice-proof.sh` 하나뿐이고, 그것은 Docker가 필요해서 **CI에
    없다.** 앞선 회귀를 아무 검사도 잡지 못한 것이 이 때문이다.
+
+   > **해소 (2026-08-05):** `foundation-outbox-publisher`의
+   > `administrative_boundary_postgis_publish`가 이 경로를 CI의 `postgres` 레인에서 실행한다.
+   >
+   > 명령을 함수로 쪼개 부르지 않고 **빌드된 바이너리를 프로세스로 실행한다.** 이 명령은 설정
+   > 전체가 환경변수 계약이므로, 호출 가능한 seam을 만들면 정작 그 계약이 검사 밖에 남는다.
+   > 그리고 테스트마다 일회용 데이터베이스를 쓴다 — 이 명령은 `admin` 발행 단위를 만드는데
+   > `catalog.promote_vector_tile_runtime_manifest`가 `count(*)`로 **전체** 단위를 세므로, 공유
+   > 데이터베이스에 하나만 남아도 승격 스위트가 통째로 깨지고 증상은 "승격 결함"으로 읽힌다.
+   > 그 헬퍼가 `catalog-infrastructure/tests/support`에만 있었기에, 복사하지 않고
+   > `foundation-disposable-database` 크레이트로 분리했다.
+   >
+   > 덮은 것: 적재가 열리고 **자기가 쓴 행 수로** 닫히는지, 재발행이 두 번째 적재를 열고 이전
+   > 적재의 행을 자기 것으로 세지 않는지(이 항목이 가리키는 회귀 — 누적 집계였다면 두 번째가 두 배가
+   > 된다), 리비전을 증명하지 못한 발행이 `running` 고아 행을 남기지 않는지, 발행 리비전이 단위와
+   > 계보를 함께 갖는지.
+   >
+   > 덮지 못한 것: Martin·PMTiles·CAS 승격은 여전히 슬라이스 프루프만 통과시킨다. **적재 경로만**
+   > CI로 옮겼다.
+   >
+   > 이 검사를 처음 돌렸을 때 잡힌 것은 프로덕션 코드가 아니라 픽스처였다. 행정 계층 규칙
+   > (`legal_dong`의 부모는 `sigungu`여야 한다)이 스키마에 있는데 CI가 그것을 한 번도 실행해 본
+   > 적이 없었다는 뜻이기도 하다.
 5. **지문 v1이 그대로인데 값의 의미가 바뀌었다.** `postgis_projection_revision`은 `data_revision`의
    별칭에서 `spatial_projection_load.id`가 됐고 `CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION`은
    상수다. 전환 전에 발급된 키를 전환 후에 재생하면 `MutationFingerprintVersionChanged`가 아니라

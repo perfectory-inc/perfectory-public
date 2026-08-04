@@ -549,6 +549,10 @@ const AREAS: &[Area] = &[
                         test: "publish_roundtrip",
                     },
                     LaneTarget {
+                        package: "foundation-outbox-publisher",
+                        test: "administrative_boundary_postgis_publish",
+                    },
+                    LaneTarget {
                         package: "lakehouse-infrastructure",
                         test: "gold_publication_atomicity",
                     },

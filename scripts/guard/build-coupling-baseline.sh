@@ -35,9 +35,22 @@ set -euo pipefail
 # proved against a migrated database, and the promotion gate counts publication
 # units globally, so the suite needs its own disposable database rather than the
 # shared harness one — which is what the migrator site is for.
+#
+# 80 -> 81: `foundation-outbox-publisher/tests/administrative_boundary_postgis_publish.rs`
+# declares the first `sqlx::migrate!` in that crate, for the same reason: the only
+# production writer of a projection load creates the `admin` publication unit, so
+# it cannot run against the shared harness database without failing every
+# promotion test. This cost one site, not two — the fixture's scratch directory
+# comes from `env::temp_dir()` at runtime rather than from the crate manifest
+# directory at compile time, which the first draft used and this guard priced.
+#
+# That count is a text search, so a comment naming one of these macros is counted
+# like a call site. It is not a bug to fix here: these guards deliberately do not
+# parse Rust, because a second analyzer of the language is a larger liability than
+# an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-80}"
+COMPILE_TIME_READ_BASELINE="${3:-81}"
 
 cd "$repo_root"
 

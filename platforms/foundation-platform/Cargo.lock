@@ -737,6 +737,7 @@ dependencies = [
  "catalog-application",
  "catalog-domain",
  "chrono",
+ "foundation-disposable-database",
  "foundation-shared-kernel",
  "serde_json",
  "sqlx",
@@ -1302,6 +1303,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "foundation-disposable-database"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "foundation-normalization-application"
 version = "0.1.0"
 dependencies = [
@@ -1383,6 +1393,7 @@ dependencies = [
  "collection-application",
  "collection-domain",
  "collection-infrastructure",
+ "foundation-disposable-database",
  "foundation-normalization-application",
  "foundation-normalization-domain",
  "foundation-normalization-infrastructure",

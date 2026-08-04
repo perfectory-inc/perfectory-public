@@ -48,4 +48,5 @@ uuid = { workspace = true, features = ["v4"] }
 zip = { workspace = true }
 
 [dev-dependencies]
+foundation-disposable-database = { workspace = true }
 wiremock = { workspace = true }
