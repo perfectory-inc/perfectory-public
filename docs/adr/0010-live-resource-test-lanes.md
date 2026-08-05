@@ -229,6 +229,29 @@ Oxide omicron이 `live-tests/`를 별도 패키지로 두고 있어 유력한 �
    샌드박스 같은 물리 차단이 아니다. Bazel조차 새는 것이 알려져 있으나
    (bazelbuild/bazel#10068·#11325 — darwin-sandbox가 네트워크를 실제로 막지 못함),
    방향은 맞다. Docker `--network none`이 보강 후보다.
+
+   > **부분 해소 (2026-08-05):** `scripts/verify/cargo-verify.sh`가 검증을 `--network none`으로
+   > 실행한다. 정적 가드는 그대로 있고 그 위에 한 겹이 생긴 것이다 — 정규식이 보는 텍스트 형태로는
+   > 계속 뚫릴 수 있지만(#8이 실제 사례, 그리고 2026-08-05에 `judgment-position-exit-codes`가 여러 줄
+   > 문자열 내부를 코드로 읽으며 같은 방식으로 한 번 더), **텍스트를 어떻게 쓰든 컨테이너 밖으로
+   > 나갈 수는 없다.** 루프백은 남으므로 자체 서버를 띄우는 테스트는 영향받지 않는다.
+   > `cargo-verify-isolation-self-test`가 이제 그 플래그를 단정하므로 조용히 사라지지 않는다.
+   >
+   > 차단을 켜자 "오프라인 검증"이 오프라인이 아니었다는 것이 줄줄이 드러났다. `rust-toolchain.toml`이
+   > 요구하는 `rust-analyzer`·`rust-src`가 베이스 이미지에 없어 **매 실행이 그 둘을 내려받고 있었고**,
+   > `perfectory-rustup` 볼륨이 이미지의 `/usr/local/rustup`을 가려 무엇을 구워 넣어도 무효였으며,
+   > `rustup component add … || true`는 네트워크가 없으면 조용히 아무것도 하지 않았다. `ensure_apt`는
+   > `apt-get update`가 **오류 7건에도 exit 0**을 내는 것을 성공으로 받고 있었다. `actionlint`는 매번
+   > GitHub에서 받았고, 차단하면 OK도 FAIL도 없이 체인을 죽였다.
+   >
+   > 대응은 전부 이미지로 옮기는 것이었다(`tools/verify-image/Dockerfile`): apt 의존성, 툴체인,
+   > actionlint 캐시. 목록은 어디에도 복제하지 않았다 — 툴체인은 `rustup toolchain install`이
+   > `rust-toolchain.toml`을 직접 읽고, actionlint는 `scripts/ci/actionlint.sh` 자신을 빌드 시점에
+   > 실행해 캐시를 데운다. `ensure_apt`는 `dpkg-query`로 이미 설치된 것을 확인하면 apt를 부르지 않는다.
+   >
+   > **CI는 그대로 네트워크가 있다.** GitHub 러너가 `cargo xtask verify`를 직접 부르므로 이 차단은
+   > 로컬 하네스에만 적용된다. 동등하게 하려면 CI가 이 하네스를 거쳐야 하고 러너 시간이 두 배가 된다.
+   > 이 항목이 완전 해소가 아니라 부분 해소인 이유다.
 5. **여전히 실행되지 않는 6타깃.** identity `live_provisioning`(레인 자체가 어느
    워크플로에서도 호출되지 않는다 — identity-ci는 raw 명령으로 `role_grant_postgres`
    하나만 돌린다), intelligence kafka·redis, foundation r2·lakehouse·data-go-kr

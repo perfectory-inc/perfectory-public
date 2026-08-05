@@ -1219,18 +1219,48 @@ fn ensure_apt(deps: &[&str]) {
     if deps.is_empty() {
         return;
     }
+    // Already satisfied is the normal case: the verification image bakes these in, and a CI runner
+    // that installed them once keeps them for the job. Returning here is what lets the harness run
+    // the verification with no network at all — an `apt-get update` would be the only reason it
+    // needed one, and a step that reaches the internet is a step that can fail for reasons the
+    // thing being verified has nothing to do with.
+    let missing: Vec<&str> = deps
+        .iter()
+        .copied()
+        .filter(|dep| !debian_package_installed(dep))
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
     if !tool_exists("apt-get") {
         eprintln!(
             "xtask: apt-get not found; install these manually before verifying: {}",
-            deps.join(" ")
+            missing.join(" ")
         );
         return;
     }
     let sudo = !is_root();
-    run(apt(sudo).arg("update"));
+    // `apt-get update` exits 0 even when every source failed — measured, seven errors and a zero.
+    // Its status therefore proves nothing, and only the install below is a real judgment.
+    let _ = run_reporting(apt(sudo).arg("update"));
     run(apt(sudo)
         .args(["install", "-y", "--no-install-recommends"])
-        .args(deps));
+        .args(&missing));
+}
+
+/// Whether dpkg reports a package as installed.
+///
+/// `command -v` cannot answer this: half of these deps are `-dev` packages that ship headers and no
+/// executable, so a binary probe would call them missing on an image that already has them and
+/// reach for the network every run.
+fn debian_package_installed(package: &str) -> bool {
+    Command::new("dpkg-query")
+        .args(["-W", "-f=${db:Status-Status}", package])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim() == "installed")
+        .unwrap_or(false)
 }
 
 fn apt(sudo: bool) -> Command {

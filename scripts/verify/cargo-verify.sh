@@ -14,6 +14,9 @@ shift || true
 SLUG="$(echo "$AREA" | tr '/' '-')"
 # pwd -W: Windows-style path under Git Bash (docker needs it); plain pwd elsewhere.
 REPO="$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd; })"
+# The same root as a path this shell can open. `$REPO` is Windows-style for Docker's benefit, which
+# `cp` and friends under Git Bash cannot follow.
+REPO_POSIX="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$(dirname "$0")/../../tools/container-images.env"
 # A linked worktree stores only a `.git` pointer whose target is outside the
 # bind-mounted tree. Build a disposable Git directory containing the current
@@ -137,8 +140,34 @@ if [ "$clean_verify" -eq 1 ] \
   source_worktree_tree_before="$(snapshot_worktree_tree "$BEFORE_CHECK_INDEX")"
 fi
 
+# Build the verification image before the run. It layers every area's apt dependencies and the fmt
+# and clippy components onto the pinned toolchain, which is what removes the last step that needed
+# the internet — see tools/verify-image/Dockerfile. Docker caches the layers, so this is a no-op
+# after the first build and whenever the base pin and the dependency list are unchanged.
+#
+VERIFY_IMAGE="perfectory-verify:local"
+# The context is the repository root because the image copies `rust-toolchain.toml`, which lives
+# there and is the single toolchain pin — assembling a smaller context elsewhere would either
+# duplicate the pin or hand the guard a computed path, and
+# `scripts/guard/check-container-runtime-policy.sh` requires a literal repository-relative one so a
+# context is auditable. The root `.dockerignore` narrows what that costs to the two files it needs.
+#
+# The command carries no redirection and ends at its context on purpose: that guard reads the whole
+# logical line and treats every trailing token as another context, so a `>log` or a closing paren
+# beside the `.` reads as two contexts and is refused. Build output therefore streams; it is a few
+# lines once the layers are cached. `set -e` makes a failed build stop the run.
+(
+  cd "$REPO_POSIX"
+  MSYS_NO_PATHCONV=1 docker build -f ./tools/verify-image/Dockerfile -t "$VERIFY_IMAGE" .
+)
+
 docker_args=(
   run --rm
+  # Offline verification, enforced rather than assumed. Cargo resolves from the mounted registry and
+  # every apt dependency is already in the image, so nothing here has a reason to reach the network —
+  # and a test that quietly reaches one to decide it can pass now cannot (ADR-0010 남은 부채 4).
+  # Loopback still exists, so tests that stand up their own local server are unaffected.
+  --network none
   --security-opt no-new-privileges
   --pids-limit 2048
   --mount "type=bind,source=$GIT_DIR_MOUNT,target=/perfectory-git,readonly"
@@ -176,10 +205,12 @@ if [ "$clean_verify" -eq 1 ]; then
 else
   # Named caches are an intentional performance optimization for ordinary
   # local/CI verification; they are never used by the publication audit.
+  # No rustup volume. It used to cache components added at run time, and mounting it over
+  # /usr/local/rustup hid the toolchain the verification image carries — including the fmt and clippy
+  # components baked in there. The image is the one source of the toolchain now.
   docker_args+=(
     -v "$REPO:/work"
     -v perfectory-cargo-registry:/usr/local/cargo/registry
-    -v perfectory-rustup:/usr/local/rustup
     -v "perfectory-target-$SLUG:/work/$AREA/target"
   )
   if [ "$AREA" != "tools/xtask" ]; then
@@ -188,8 +219,7 @@ else
 fi
 
 MSYS_NO_PATHCONV=1 docker "${docker_args[@]}" \
-  "$RUST_TOOLCHAIN_IMAGE" bash -ceu '
-    rustup component add rustfmt clippy >/dev/null 2>&1 || true
+  "$VERIFY_IMAGE" bash -ceu '
     cargo xtask verify "$PERFECTORY_VERIFY_AREA"
   '
 

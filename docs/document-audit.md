@@ -32,7 +32,7 @@
 | `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 18 |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |
-| `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 7 |
