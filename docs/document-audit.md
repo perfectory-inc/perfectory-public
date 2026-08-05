@@ -34,7 +34,7 @@
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 7 |
 | `docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 8 |
 | `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |

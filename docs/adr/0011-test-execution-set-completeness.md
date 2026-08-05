@@ -300,6 +300,32 @@ pre-push에서 몇 초 만에 끝나는 이유다. JSON 경로를 택하면 가�
    `vitest.integration.config.ts`의 `include`가 그 5개를 이름으로 정확히 되받으며, 두 레인 모두
    `gongzzang-frontend.yml`에서 실행된다. 분할은 완전하다. 다만 **그 완전성을 증명하는 것은 없다.**
    두 설정의 합집합이 발견된 테스트 파일 전체와 같은지 대조하는 검사가 다음 단계다.
+
+   > **해소 (2026-08-05):** 검사를 붙이기 전에 **거울을 만든 원인을 없앴다.**
+   >
+   > 두 설정이 같은 5개 파일을 이름으로 주고받은 이유는 그 파일들이 실제 Redis를 쓰면서
+   > `tests/unit/`에 있었기 때문이다(다섯 개 모두 `getRedis()`로 `select`·`flushdb` 한다).
+   > `tests/integration/`으로 옮기니 양쪽이 디렉터리 glob만 남고 **맞춰 둘 목록 자체가 사라졌다.**
+   > 두 레인이 공유하던 `setup.ts`도 `tests/unit/` 아래 있었고 `tests/`로 옮겼다.
+   >
+   > 설정은 하나로 합쳤다. `test.projects`는 Vitest 자신의 다중 프로젝트 메커니즘이며
+   > (`test.workspace`를 대체했다) 플러그인·별칭·setup을 한 번만 적게 한다. 두 번째 설정 파일이
+   > 첫 번째와 어긋나는 경로가 없어졌다. 실행은 `--project unit` / `--project integration`으로
+   > 나뉘므로 유닛 레인이 Redis를 건드리지 않는 성질은 그대로다.
+   >
+   > 이동 뒤에도 한 가지가 남는다 — **세 glob 밖에 놓인 `*.test.ts`**. 어느 프로젝트도 수집하지
+   > 않고 두 레인 다 초록이다. `products/gongzzang/scripts/ci/vitest-lane-completeness.sh`가
+   > `vitest list --filesOnly --json --static-parse`로 **Vitest의 수집기가 실제로 모은 집합**을
+   > 받아 디스크의 테스트 파일 전체와 대조한다. include/exclude 의미를 여기서 다시 구현하면
+   > 방금 없앤 거울을 되살리는 것이므로 하지 않는다. `--static-parse`(Vitest 4.1)는 파일을
+   > 임포트하지 않고 파싱하므로 수집이 Redis에 붙지 않는다.
+   >
+   > 통과만이 아니라 **거부도 증명했다.** 규칙 밖에 테스트 파일을 하나 심으면 검사가 그 파일을
+   > 이름으로 지목하며 실패하고, 지우면 다시 통과한다. 첫 실행에서는 통과하면서 개수를
+   > `collected=49, discovered=50`으로 찍었다 — 마지막 개행이 없어 `wc -l`이 하나 적게 셌다.
+   > 통과한 검사가 실패처럼 읽히는 것은 [ADR-0012](./0012-verification-results-must-mean-what-they-say.md)가
+   > 다루는 결함이라 함께 고쳤고, `comm`이 로케일 차이로 조용히 틀린 차집합을 내지 않도록 양쪽을
+   > `LC_ALL=C`로 정렬한다.
 3. **자격증명이 없어 돌지 않는 레인은 이 ADR이 다루지 않는다.** ADR-0010 부채 #5의 대상이며,
    그 레인들에게는 정적 대조가 여전히 유일한 방어다.
 4. **임포트 게이트는 여전히 없다.** 이 결함군이 들어온 경로 — 감사된 소스 스냅샷의 일괄 임포트,
