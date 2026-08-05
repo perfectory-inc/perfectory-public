@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **337개**
-- 언어 분류: **{'english': 34, 'korean': 146, 'mixed': 157}**
+- 감사 문서: **340개**
+- 언어 분류: **{'english': 34, 'korean': 149, 'mixed': 157}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **196개 정상 / 0개 누락 / 141개 해당 없음**
+- 메타데이터: **198개 정상 / 0개 누락 / 142개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -33,13 +33,14 @@
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
-| `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
-| `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 7 |
+| `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 10 |
 | `docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 8 |
-| `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |
-| `docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 9 |
-| `docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 6 |
+| `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 12 |
+| `docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 8 |
+| `docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 3 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -50,7 +51,9 @@
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed | mixed | ok | 4 |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/README.md` | Monorepo | README | current | korean | ok | 5 |
-| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 15 |
+| `docs/roadmap/foundation-baseline.md` | Monorepo | roadmap | current | korean | ok | 1 |
+| `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current | korean | ok | 2 |
+| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 17 |
 | `docs/roadmap/README.md` | Monorepo | README | current | korean | ok | 0 |
 | `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 3 |
 | `platforms/foundation-platform/AGENTS.md` | Foundation Platform | agent rules | current | mixed | not applicable: agent router | 2 |

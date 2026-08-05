@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **338개**
+- 문서 파일: **340개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,7 +19,7 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 37 |
+| Monorepo | 39 |
 | Repository tooling | 1 |
 
 ### 유형별
@@ -38,7 +38,7 @@
 | fixture | 9 |
 | guide | 2 |
 | reference | 14 |
-| roadmap | 1 |
+| roadmap | 3 |
 | runbook | 29 |
 
 ## 책임별 문서 트리
@@ -397,6 +397,8 @@ docs/guides/README.md
 docs/guides/single-source-spatial-publication-implementation.md
 docs/public-data-catalog.md
 docs/README.md
+docs/roadmap/foundation-baseline.md
+docs/roadmap/foundation-goals.md
 docs/roadmap/production-readiness.md
 docs/roadmap/README.md
 docs/technology-stack.md
@@ -446,6 +448,8 @@ tools/github/README.md
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current |
 | `docs/README.md` | Monorepo | README | current |
+| `docs/roadmap/foundation-baseline.md` | Monorepo | roadmap | current |
+| `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current |
 | `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current |
 | `docs/roadmap/README.md` | Monorepo | README | current |
 | `docs/technology-stack.md` | Monorepo | documentation | current |
