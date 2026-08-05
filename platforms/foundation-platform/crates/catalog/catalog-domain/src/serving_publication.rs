@@ -332,12 +332,42 @@ pub struct PublicationUnit {
 }
 
 /// The source kind selected by one immutable publication release.
+///
+/// Spells `vector_tile_release_source_kind_check`, which
+/// `a_database_vocabulary_is_spelled_the_same_way_in_both_languages` reads out of the installed
+/// constraint and compares against [`ServingSourceKind::ALL`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServingSourceKind {
     /// Complete `PostGIS` projection served dynamically by Martin.
     DynamicPostgis,
     /// Immutable `PMTiles` release served through Martin.
     StaticPmtiles,
+}
+
+impl ServingSourceKind {
+    /// Every source kind, so a caller can enumerate the vocabulary without restating it.
+    pub const ALL: [Self; 2] = [Self::DynamicPostgis, Self::StaticPmtiles];
+
+    /// Database spelling of this source kind.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DynamicPostgis => "dynamic_postgis",
+            Self::StaticPmtiles => "static_pmtiles",
+        }
+    }
+
+    /// Parses the database spelling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `value` is not one of the two release source kinds.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == value)
+            .ok_or_else(|| format!("unknown source kind: {value}"))
+    }
 }
 
 /// The minimum state needed to validate a source switch.
@@ -443,9 +473,12 @@ pub fn validate_serving_transition(
 
 /// Lifecycle of one static build attempt.
 ///
-/// Mirrors `catalog.vector_tile_build_job.status` exactly. The database constraint and this enum
-/// are two statements of one fact, so [`VectorTileBuildStatus::as_str`] is the only place the
-/// spelling is written and `TryFrom<&str>` is the only place it is read back.
+/// Spells `vector_tile_build_job_status_check`. The database constraint and this enum are two
+/// statements of one fact, so [`VectorTileBuildStatus::as_str`] is the only place the spelling is
+/// written and `TryFrom<&str>` is the only place it is read back — and
+/// `a_database_vocabulary_is_spelled_the_same_way_in_both_languages` reads the installed constraint
+/// and compares it against [`VectorTileBuildStatus::ALL`], because a claim that two statements
+/// agree is worth exactly what checks it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VectorTileBuildStatus {
     /// Plan recorded, no work started.
@@ -463,6 +496,16 @@ pub enum VectorTileBuildStatus {
 }
 
 impl VectorTileBuildStatus {
+    /// Every status, so a caller can enumerate the vocabulary without restating it.
+    pub const ALL: [Self; 6] = [
+        Self::Planned,
+        Self::Running,
+        Self::Validated,
+        Self::Promoted,
+        Self::Superseded,
+        Self::Failed,
+    ];
+
     /// Database spelling of this status.
     #[must_use]
     pub const fn as_str(self) -> &'static str {

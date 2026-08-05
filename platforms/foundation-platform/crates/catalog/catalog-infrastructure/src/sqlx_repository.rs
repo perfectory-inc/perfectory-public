@@ -10,8 +10,9 @@ use catalog_domain::{
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
     Manufacturer, MarkerTileRequest, Parcel, ParcelIndustryAssignment, PublicationUnit,
-    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
-    StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
+    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
+    ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
     ComplexId, FileAssetId, NoticeId, ParcelId, SourceRecordId, VectorTileDataRevisionId,
@@ -717,29 +718,34 @@ pub(crate) async fn load_vector_tile_runtime_manifest_by_id(
             RuntimeTilesUrlTemplate::new(row.try_get("tiles_url_template").map_err(map_sqlx)?)
                 .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
         let source_kind: String = row.try_get("source_kind").map_err(map_sqlx)?;
-        let source = match source_kind.as_str() {
-            "dynamic_postgis" => ActiveTileSource::DynamicPostgis(DynamicPostgisSource {
-                martin_source_id: row.try_get("martin_source_id").map_err(map_sqlx)?,
-                tiles_url_template,
-                cache_policy: "no_store".to_owned(),
-            }),
-            "static_pmtiles" => ActiveTileSource::StaticPmtiles(StaticPmtilesSource {
-                martin_source_id: row.try_get("martin_source_id").map_err(map_sqlx)?,
-                tiles_url_template,
-                pmtiles_object_key: row.try_get("pmtiles_object_key").map_err(map_sqlx)?,
-                pmtiles_file_asset_id: FileAssetId::new(
-                    row.try_get("pmtiles_file_asset_id").map_err(map_sqlx)?,
-                ),
-                pmtiles_sha256: row.try_get("pmtiles_sha256").map_err(map_sqlx)?,
-                pmtiles_bytes: u64::try_from(
-                    row.try_get::<i64, _>("pmtiles_bytes").map_err(map_sqlx)?,
-                )
-                .map_err(|error| CatalogError::Infrastructure(error.to_string()))?,
-            }),
-            other => {
-                return Err(CatalogError::InvalidVectorTileRuntimeManifest(format!(
-                    "unknown source kind: {other}"
-                )))
+        // Parsed by the domain rather than matched here. The spelling belongs to
+        // `ServingSourceKind`, and restating it in this decoder is how the two would drift: a kind
+        // added to the enum and the constraint would still land in the catch-all below and read as
+        // "unknown" at serving time.
+        let source_kind = ServingSourceKind::parse(&source_kind)
+            .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?;
+        let source = match source_kind {
+            ServingSourceKind::DynamicPostgis => {
+                ActiveTileSource::DynamicPostgis(DynamicPostgisSource {
+                    martin_source_id: row.try_get("martin_source_id").map_err(map_sqlx)?,
+                    tiles_url_template,
+                    cache_policy: "no_store".to_owned(),
+                })
+            }
+            ServingSourceKind::StaticPmtiles => {
+                ActiveTileSource::StaticPmtiles(StaticPmtilesSource {
+                    martin_source_id: row.try_get("martin_source_id").map_err(map_sqlx)?,
+                    tiles_url_template,
+                    pmtiles_object_key: row.try_get("pmtiles_object_key").map_err(map_sqlx)?,
+                    pmtiles_file_asset_id: FileAssetId::new(
+                        row.try_get("pmtiles_file_asset_id").map_err(map_sqlx)?,
+                    ),
+                    pmtiles_sha256: row.try_get("pmtiles_sha256").map_err(map_sqlx)?,
+                    pmtiles_bytes: u64::try_from(
+                        row.try_get::<i64, _>("pmtiles_bytes").map_err(map_sqlx)?,
+                    )
+                    .map_err(|error| CatalogError::Infrastructure(error.to_string()))?,
+                })
             }
         };
         let layer_rows = sqlx::query(

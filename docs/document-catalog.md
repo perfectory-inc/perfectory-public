@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **337개**
+- 문서 파일: **338개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 36 |
+| Monorepo | 37 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 98 |
+| ADR | 99 |
 | README | 105 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -386,6 +386,7 @@ docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md
 docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md
 docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md
 docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md
+docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -434,6 +435,7 @@ tools/github/README.md
 | `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current |
 | `docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md` | Monorepo | ADR | current |
 | `docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md` | Monorepo | ADR | current |
+| `docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

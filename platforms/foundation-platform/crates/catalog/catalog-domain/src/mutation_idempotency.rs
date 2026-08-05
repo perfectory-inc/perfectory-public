@@ -32,8 +32,10 @@ const FINGERPRINT_DOMAIN: &str = "foundation-platform.catalog_mutation_fingerpri
 
 /// The keyed Catalog publication commands the idempotency ledger covers.
 ///
-/// Mirrors `catalog_mutation_idempotency_command_kind_check` exactly, the way
-/// [`VectorTileBuildStatus`](crate::VectorTileBuildStatus) mirrors its own status check.
+/// Spells `catalog_mutation_idempotency_command_kind_check`, the way
+/// [`VectorTileBuildStatus`](crate::VectorTileBuildStatus) spells its own status check.
+/// `a_database_vocabulary_is_spelled_the_same_way_in_both_languages` reads that constraint out of
+/// the installed schema and compares it against [`CatalogMutationKind::ALL`].
 ///
 /// `record_vector_tile_build_result` is absent on purpose: it carries no idempotency key because its
 /// request identity is already the pair `(build_job_id, outcome)`, and a key would be a second
@@ -51,6 +53,14 @@ pub enum CatalogMutationKind {
 }
 
 impl CatalogMutationKind {
+    /// Every command kind, so a caller can enumerate the vocabulary without restating it.
+    pub const ALL: [Self; 4] = [
+        Self::MarkTileLayerDynamic,
+        Self::StartVectorTileBuild,
+        Self::PromoteTileLayerStatic,
+        Self::RollbackTileLayerSource,
+    ];
+
     /// Database spelling of this command kind.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -65,7 +75,10 @@ impl CatalogMutationKind {
     /// Whether this command answers with a runtime manifest.
     ///
     /// The ledger's outcome column is present for exactly these, which is what
-    /// `catalog_mutation_idempotency_manifest_outcome_check` enforces.
+    /// `catalog_mutation_idempotency_manifest_outcome_check` enforces. That constraint names its
+    /// kinds across two branches rather than as one list, so
+    /// `a_command_answers_with_a_manifest_in_both_languages_or_in_neither` compares the two by
+    /// offering the database every kind both with and without an outcome.
     #[must_use]
     pub const fn answers_with_manifest(self) -> bool {
         match self {
