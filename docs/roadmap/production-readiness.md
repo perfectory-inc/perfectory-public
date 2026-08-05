@@ -178,20 +178,29 @@ ADR-0011의 후속 작업은 발견한 테스트를 나중에 잡는 데서 멈�
 닫힐 때 이 절이 갱신된다는 보장이 없다. 가드는 목록이 **닿을 수 있는지**를 검사할 뿐 **최신인지**는
 검사하지 않으며, 그것은 기계적으로 판정할 수 없다.
 
-2026-08-05에 ADR-0010을 실물과 전수 대조했다: **기록된 11항목 중 실제로 열린 것은 3개**였다.
-셋은 정정·사실·교훈 기록이고, 셋은 이미 닫혔는데 아무도 여기에 적지 않았다. 나머지 ADR은 아직
-같은 방식으로 대조하지 않았으므로, 아래 숫자는 **기록된 항목 수**로 읽어야 한다.
+2026-08-05에 **여덟 ADR을 모두 실물과 대조했다.** 기록된 37항목 중 열린 것은 **22개**다. 나머지
+15개는 이미 닫혔거나(5), 애초에 부채가 아니거나(정정·감사 결과·교훈 기록 3), 지켜야 할 코드가 아직
+없어 도달할 수 없거나(4), 의도적 결정이다(3). 닫힌 5개 중 **셋은 아무도 ADR에 적지 않은 채로**
+닫혀 있었고(그중 하나는 자기를 인용한 CI 주석까지 달려 있었다), 둘은 이번 대조 중에 닫았다.
 
-| ADR | 기록된 항목 | 무엇에 관한 부채인가 | 우선순위 |
-|---|---|---|---|
-| [0010 라이브 자원 테스트 레인](../adr/0010-live-resource-test-lanes.md) | 11 (열림 3, 대조 완료) | 자격증명이 없어 안 도는 5타깃, 정적 가드, 임포트 게이트 부재 | 4 |
-| [0011 테스트 실행 집합 완전성](../adr/0011-test-execution-set-completeness.md) | 4 | 발견 가드가 정적이고 임포트 게이트가 없음 | 4 |
-| [0012 검증 결과의 의미](../adr/0012-verification-results-must-mean-what-they-say.md) | 3 | 구조화 판정 블록 전환 미완, 셸 형태를 기계 검사하지 않음 | 4 |
-| [0013 릴리스 유일성](../adr/0013-release-uniqueness-admits-both-source-kinds.md) | 2 | 단위 키 대소문자 계약과 정적 승격의 fallback 쓰기 순서 | 1 |
-| [0014 제공 세대](../adr/0014-serving-generation-tracks-one-unit-source-selection.md) | 2 | 정적 승격 경로가 이 규칙을 아직 지나지 않음 | 1 |
-| [0015 멱등성 원장](../adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md) | 5 | 키를 발급하는 클라이언트 부재와 원장을 우회하는 경로 둘 | 1 |
-| [0016 투영 적재의 정체성](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) | 6 | 적재 보존 기간, `failed` writer 부재, parcels 적재 경로, CI 밖 검사 | 1 |
-| [0017 리비전의 소속](../adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md) | 4 | 사실 원장 분리 미완, 계보를 CHECK로 강제할 수 없음, 미참조 FK | 1 |
+`열림` 열이 실제 남은 일이다. `기록` 열은 그 절의 항목 수이며 위 세 가지가 섞여 있다.
+
+| ADR | 기록 | 열림 | 열린 것이 무엇인가 | 우선순위 |
+|---|---|---|---|---|
+| [0010 라이브 자원 테스트 레인](../adr/0010-live-resource-test-lanes.md) | 11 | 3 | 자격증명이 없어 안 도는 5타깃, 정적 가드, 임포트 게이트 부재 | 4 |
+| [0011 테스트 실행 집합 완전성](../adr/0011-test-execution-set-completeness.md) | 4 | 4 | 정적 가드, vitest 두 설정의 합집합 미대조, 자격증명 레인, 임포트 게이트 | 4 |
+| [0012 검증 결과의 의미](../adr/0012-verification-results-must-mean-what-they-say.md) | 3 | 2 | xtask 전수 모드 부재, 판정 자리 셸 형태를 기계 검사하지 않음 | 4 |
+| [0013 릴리스 유일성](../adr/0013-release-uniqueness-admits-both-source-kinds.md) | 2 | 1 | `r2_layout`이 단위 키에 소문자를 요구해 검증기보다 좁음 | 1 |
+| [0014 제공 세대](../adr/0014-serving-generation-tracks-one-unit-source-selection.md) | 2 | 1 | 정적 승격이 아직 포트 기본 구현(에러)이라 이 규칙을 지난 적 없음 | 1 |
+| [0015 멱등성 원장](../adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md) | 5 | 3 | 키를 발급하는 클라이언트 부재, `validate()` 결합, 원장 우회 경로 둘 | 1 |
+| [0016 투영 적재의 정체성](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) | 6 | 5 | 적재 보존 기간, `failed` writer 부재, parcels 적재 경로, 지문 v1 의미 변화, 시드의 고정 적재 id | 1 |
+| [0017 리비전의 소속](../adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md) | 4 | 3 | `superseded` writer 부재, 계보를 CHECK로 강제할 수 없음, 사실 원장(`parcel_identifier`) 분리 미완 | 1 |
+
+대조에서 나온 두 가지를 여기 적어 둔다. **열린 21개 중 상당수는 코드로 닫히지 않는다** — 자격증명
+(5타깃), 정본 실버의 소유자(parcels 적재기), 클라이언트 구현(멱등성 키 발급)처럼 결정이 먼저인
+것들이다. 그리고 **`남은 부채` 절은 닫힐 때 갱신되지 않는다.** 여섯 항목이 코드로는 닫힌 채 목록에
+살아 있었고, 그중 하나는 자기를 인용한 CI 주석까지 달려 있었다. 이 표의 `열림` 수도 대조한 날짜의
+사실일 뿐이며, 같은 방식의 재대조가 유일한 유지 수단이다.
 
 ## 문서 정리 상태
 

@@ -206,6 +206,16 @@ DTO를 직렬화해 `catalog_domain::VectorTileRuntimeManifest`로 역직렬화�
    `seed_data_revision`도 `parcels`·`complex`에 대해 같은 일을 한다. parcels 적재기는 자기 리비전을
    행정경계 리비전이라고 기록하지 않고는 발급할 수 없으므로, 이 위에 세운 적재기는 결함을 물려받는다.
    **적재기보다 이 원장이 먼저다.**
+
+   > **정정 (2026-08-05):** 이 항목이 지목한 **모델 결함은 닫혔다.**
+   > [ADR-0017](./0017-a-data-revision-belongs-to-the-unit-it-revises.md)이 발행 리비전을
+   > `catalog.publication_revision`으로 분리해 단위에 스코프했으므로, parcels 리비전을 행정경계
+   > 리비전이라고 기록해야 할 이유가 더 이상 없다. "적재기보다 이 원장이 먼저다"는 충족됐다.
+   >
+   > **그럼에도 적재기를 만들면 안 된다.** 막는 것이 바뀌었을 뿐이다: `catalog.parcel`에 쓰는
+   > 프로덕션 코드가 없고(전 저장소에서 INSERT는 마이그레이션 백필 하나뿐), 정본 실버가
+   > PostgreSQL 밖이라 적재기가 읽을 Cargo 의존성이 없다. 이제 이것은 **스키마 문제가 아니라
+   > 선행조건의 소유자 문제**이고, 코드로 닫히지 않는다.
 4. **`publish-administrative-boundary-postgis`에는 단위 테스트가 없다.** 원장 삽입·`projection_load_id`
    바인딩·재키잉된 `ON CONFLICT`을 실제로 통과시키는 것은
    `scripts/tiles/administrative-boundary-slice-proof.sh` 하나뿐이고, 그것은 Docker가 필요해서 **CI에
