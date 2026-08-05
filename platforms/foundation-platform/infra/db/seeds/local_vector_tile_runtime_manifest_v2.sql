@@ -146,22 +146,29 @@ UPDATE serving_postgis.spatial_projection_load
 -- this ledger exists to close. A fixture cannot derive a fresh identity, but it can refuse to claim
 -- one it no longer matches: if the mirror stops agreeing with what this load recorded, say so here
 -- rather than serving the stored rows under a release that says they are current.
+-- Compared by content, not by cardinality. A count agreed whenever an edit replaced one geometry
+-- with another, which is exactly the case where the stored rows are stale and the count cannot say
+-- so. Both sides already carry `geometry_checksum_sha256`, so the digest below distinguishes "the
+-- same rows" from "the same number of rows".
 DO $$
 DECLARE
-    recorded bigint;
-    available bigint;
+    stored_rows bigint;
+    mirror_rows bigint;
+    stored_digest text;
+    mirror_digest text;
 BEGIN
-    SELECT loaded_row_count INTO recorded
-      FROM serving_postgis.spatial_projection_load
-     WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8743604';
-    SELECT count(*) INTO available
+    SELECT count(*), md5(coalesce(string_agg(pnu || geometry_checksum_sha256, ',' ORDER BY pnu), ''))
+      INTO stored_rows, stored_digest
+      FROM serving_postgis.parcel_boundary_publication
+     WHERE projection_load_id = '019d2b87-3fd1-7e3a-8d88-0b72c8743604';
+    SELECT count(*), md5(coalesce(string_agg(mirror.pnu || mirror.geometry_checksum_sha256, ',' ORDER BY mirror.pnu), ''))
+      INTO mirror_rows, mirror_digest
       FROM serving_postgis.parcel_boundary_mirror AS mirror
-      JOIN catalog.industrial_complex AS complex ON complex.id = mirror.complex_id
      WHERE mirror.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
-    IF recorded <> available THEN
+    IF stored_digest <> mirror_digest THEN
         RAISE EXCEPTION
-            'projection load 019d2b87-3fd1-7e3a-8d88-0b72c8743604 recorded % rows but the mirror now offers %; mint a new load id in this seed',
-            recorded, available;
+            'projection load 019d2b87-3fd1-7e3a-8d88-0b72c8743604 holds % row(s) that no longer match the mirror''s % row(s); mint a new load id in this seed, and a new release to name it',
+            stored_rows, mirror_rows;
     END IF;
 END
 $$;
