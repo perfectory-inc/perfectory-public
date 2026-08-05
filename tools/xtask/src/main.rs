@@ -768,16 +768,20 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("verify") => {
-            repository_guard();
+            // One log for the whole gate. A failing repository guard used to end the run before any
+            // area was verified, and under `verify all` the first failing area hid every area after
+            // it — the same rule-1 defect one level up from the stages inside `verify`.
+            let mut log = FailureLog::default();
+            repository_guard(&mut log);
             match args.get(1).map(String::as_str) {
                 Some("all") => {
                     for area in AREAS {
                         eprintln!("\n=== xtask verify {} ===", area.slug);
-                        verify(area);
+                        verify(area, &mut log);
                     }
                 }
                 Some(name) => match AREAS.iter().find(|a| a.slug == name || a.dir == name) {
-                    Some(area) => verify(area),
+                    Some(area) => verify(area, &mut log),
                     None => fail_usage(&format!(
                         "unknown area '{name}'. known: {}, all",
                         AREAS.iter().map(|a| a.slug).collect::<Vec<_>>().join(", ")
@@ -785,28 +789,35 @@ fn main() {
                 },
                 None => fail_usage("missing area: cargo xtask verify <area|all>"),
             }
+            log.finish("verify");
         }
-        Some("integration") => match args.get(1).map(String::as_str) {
-            Some("all") => {
-                for area in AREAS.iter().filter(|a| !a.live_lanes.is_empty()) {
-                    eprintln!("\n=== xtask integration {} ===", area.slug);
-                    integration(area);
+        Some("integration") => {
+            // One log across every area and lane, for the same reason `verify` keeps one: under
+            // `integration all` the first failing area used to hide every area after it.
+            let mut log = FailureLog::default();
+            match args.get(1).map(String::as_str) {
+                Some("all") => {
+                    for area in AREAS.iter().filter(|a| !a.live_lanes.is_empty()) {
+                        eprintln!("\n=== xtask integration {} ===", area.slug);
+                        integration(area, &mut log);
+                    }
                 }
-            }
-            Some(name) => match AREAS.iter().find(|a| a.slug == name || a.dir == name) {
-                // A third argument selects one live-resource lane; without it the
-                // area's Postgres suite runs as before.
-                Some(area) => match args.get(2).map(String::as_str) {
-                    Some(lane) => integration_lane(area, lane),
-                    None => integration(area),
+                Some(name) => match AREAS.iter().find(|a| a.slug == name || a.dir == name) {
+                    // A third argument selects one live-resource lane; without it the
+                    // area's Postgres suite runs as before.
+                    Some(area) => match args.get(2).map(String::as_str) {
+                        Some(lane) => integration_lane(area, lane, &mut log),
+                        None => integration(area, &mut log),
+                    },
+                    None => fail_usage(&format!(
+                        "unknown area '{name}'. known: {}, all",
+                        AREAS.iter().map(|a| a.slug).collect::<Vec<_>>().join(", ")
+                    )),
                 },
-                None => fail_usage(&format!(
-                    "unknown area '{name}'. known: {}, all",
-                    AREAS.iter().map(|a| a.slug).collect::<Vec<_>>().join(", ")
-                )),
-            },
-            None => fail_usage("missing area: cargo xtask integration <area|all> [lane]"),
-        },
+                None => fail_usage("missing area: cargo xtask integration <area|all> [lane]"),
+            }
+            log.finish("integration");
+        }
         Some("docs") => docs(),
         _ => fail_usage("usage: cargo xtask <verify <area|all> | integration <area|all> | docs>"),
     }
@@ -881,12 +892,12 @@ fn container_image(root: &Path, key: &str) -> String {
 }
 
 /// Canonical verification for one area — the single policy (ADR-0004).
-fn verify(area: &Area) {
+fn verify(area: &Area, log: &mut FailureLog) {
     let dir = repo_root().join(area.dir);
     ensure_apt(area.apt_deps);
 
-    cargo(&dir, &["fmt", "--all", "--", "--check"]);
-    cargo(
+    log.absorb(cargo_reporting(&dir, &["fmt", "--all", "--", "--check"]));
+    log.absorb(cargo_reporting(
         &dir,
         &[
             "clippy",
@@ -898,10 +909,10 @@ fn verify(area: &Area) {
             "-D",
             "warnings",
         ],
-    );
+    ));
 
     for command in verify_test_commands(area) {
-        cargo(&dir, &command);
+        log.absorb(cargo_reporting(&dir, &command));
     }
 
     // A covers root that points at nothing is a claim no one can honour. The
@@ -912,29 +923,30 @@ fn verify(area: &Area) {
         for root in suite.covers {
             let claimed = dir.join(root);
             if !claimed.is_dir() {
-                eprintln!(
-                    "xtask: FAILED: {} python suite '{}' claims covers root '{}', \
-                     which is not a directory under {}. Fix the declaration or \
-                     restore the tree.",
+                log.record(format!(
+                    "{} python suite '{}' claims covers root '{}', which is not a directory \
+                     under {}. Fix the declaration or restore the tree.",
                     area.slug,
                     suite.dir,
                     root,
                     dir.display()
-                );
-                exit(1);
+                ));
             }
         }
     }
 
     for (suite, plan) in area.python_tests.iter().zip(python_test_plans(area, &dir)) {
-        let output = python_capturing_output(&plan);
+        // A suite that could not run cannot also be judged on its count; recording both would
+        // report one failure twice and inflate the total the summary prints.
+        let Some(output) = log.absorb(python_capturing_output(&plan)) else {
+            continue;
+        };
         if executed_python_test_count(&output) == 0 {
-            eprintln!(
-                "xtask: FAILED: {} python suite '{}' executed 0 tests. Check the \
-                 covers roots and the discovery pattern.",
+            log.record(format!(
+                "{} python suite '{}' executed 0 tests. Check the covers roots and the \
+                 discovery pattern.",
                 area.slug, suite.dir
-            );
-            exit(1);
+            ));
         }
     }
 }
@@ -984,7 +996,7 @@ fn executed_python_test_count(output: &str) -> usize {
 /// Python 3.13 but exits 0 and prints `OK` under the 3.11.2 in the pinned
 /// verification image. The verdict would depend on where the command ran, which
 /// is the local/CI split ADR-0004 exists to remove.
-fn python_capturing_output(plan: &PythonCommandPlan) -> String {
+fn python_capturing_output(plan: &PythonCommandPlan) -> Result<String, String> {
     let mut command = Command::new("python3");
     command
         .current_dir(&plan.current_dir)
@@ -995,19 +1007,18 @@ fn python_capturing_output(plan: &PythonCommandPlan) -> String {
         command.env("PYTHONPATH", python_path);
     }
     let rendered = format!("{command:?}");
-    let output = command.output().unwrap_or_else(|error| {
-        eprintln!("xtask: could not spawn {rendered}: {error}");
-        exit(1);
-    });
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(error) => return Err(format!("could not spawn {rendered}: {error}")),
+    };
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     print!("{stdout}");
     eprint!("{stderr}");
     if !output.status.success() {
-        eprintln!("xtask: FAILED ({}): {rendered}", output.status);
-        exit(output.status.code().unwrap_or(1));
+        return Err(format!("({}) {rendered}", output.status));
     }
-    format!("{stdout}{stderr}")
+    Ok(format!("{stdout}{stderr}"))
 }
 
 fn python_test_plans(area: &Area, area_dir: &Path) -> Vec<PythonCommandPlan> {
@@ -1057,12 +1068,14 @@ fn validate_local_only_scripts() {
     }
 }
 
-fn repository_guard() {
+fn repository_guard(log: &mut FailureLog) {
     validate_local_only_scripts();
     let root = repo_root();
-    run(Command::new("bash")
-        .current_dir(&root)
-        .arg("scripts/guard/monorepo-guard.sh"));
+    log.absorb(run_reporting(
+        Command::new("bash")
+            .current_dir(&root)
+            .arg("scripts/guard/monorepo-guard.sh"),
+    ));
 }
 
 /// Run an area's live-DB integration tests against an ALREADY-provisioned database
@@ -1080,7 +1093,7 @@ fn repository_guard() {
 /// job ran both and the Kafka half quietly passed against no broker. A lane runs
 /// its own targets and refuses to start without its own env, so "did not run"
 /// can never be recorded as "verified".
-fn integration_lane(area: &Area, lane_name: &str) {
+fn integration_lane(area: &Area, lane_name: &str, log: &mut FailureLog) {
     let Some(lane) = area.live_lanes.iter().find(|lane| lane.name == lane_name) else {
         fail_usage(&format!(
             "unknown lane '{lane_name}' for {}. known: {}",
@@ -1106,13 +1119,15 @@ fn integration_lane(area: &Area, lane_name: &str) {
     let mut lane_total = 0;
     for (target, command) in lane.targets.iter().zip(lane_commands(lane)) {
         let args: Vec<&str> = command.iter().map(String::as_str).collect();
-        let output = cargo_capturing_stdout(&dir, &args);
+        // Every remaining target still runs. A lane is an authoritative gate, and stopping here
+        // meant one broken suite hid the state of every suite after it — on a lane that takes
+        // twenty minutes to reach the end.
+        let Some(output) = log.absorb(cargo_capturing_stdout(&dir, &args)) else {
+            continue;
+        };
         match lane_target_verdict(area.slug, lane.name, target, &output) {
             Ok(count) => lane_total += count,
-            Err(message) => {
-                eprintln!("xtask: {message}");
-                exit(1);
-            }
+            Err(message) => log.record(message),
         }
     }
     eprintln!(
@@ -1133,7 +1148,7 @@ fn integration_lane(area: &Area, lane_name: &str) {
 /// counted as a pass, so a green Postgres job silently asserted nothing about
 /// four other backends. Delegating to the lane runs exactly the targets Postgres
 /// actually covers.
-fn integration(area: &Area) {
+fn integration(area: &Area, log: &mut FailureLog) {
     let has_postgres_lane = area.live_lanes.iter().any(|lane| lane.name == "postgres");
     if !has_postgres_lane {
         fail_usage(&format!(
@@ -1152,7 +1167,7 @@ fn integration(area: &Area) {
             area.slug
         ));
     }
-    integration_lane(area, "postgres");
+    integration_lane(area, "postgres", log);
 }
 
 /// The repository root: xtask lives at `<root>/tools/xtask`, so climb two parents
@@ -1170,24 +1185,13 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Run `cargo <args>` in `area_dir`. SQLX_OFFLINE matches CI + the harness so
-/// compile-time query checks never need a live database.
-fn cargo(area_dir: &Path, args: &[&str]) {
-    let mut command = Command::new("cargo");
-    command
-        .current_dir(area_dir)
-        .env("SQLX_OFFLINE", "true")
-        .args(args);
-    run(&mut command);
-}
-
 /// Like `cargo`, but keeps stdout so libtest's `test result:` summary can be
 /// read back — the only way to tell "verified" from "selected nothing".
 ///
 /// stderr stays inherited, so cargo's compile progress still streams live during
 /// long builds; the captured stdout is echoed the moment the command ends, so
 /// CI logs lose nothing.
-fn cargo_capturing_stdout(area_dir: &Path, args: &[&str]) -> String {
+fn cargo_capturing_stdout(area_dir: &Path, args: &[&str]) -> Result<String, String> {
     let mut command = Command::new("cargo");
     command
         .current_dir(area_dir)
@@ -1196,17 +1200,16 @@ fn cargo_capturing_stdout(area_dir: &Path, args: &[&str]) -> String {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit());
     let rendered = format!("{command:?}");
-    let output = command.output().unwrap_or_else(|error| {
-        eprintln!("xtask: could not spawn {rendered}: {error}");
-        exit(1);
-    });
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(error) => return Err(format!("could not spawn {rendered}: {error}")),
+    };
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     print!("{stdout}");
     if !output.status.success() {
-        eprintln!("xtask: FAILED ({}): {rendered}", output.status);
-        exit(output.status.code().unwrap_or(1));
+        return Err(format!("({}) {rendered}", output.status));
     }
-    stdout
+    Ok(stdout)
 }
 
 /// Install Debian packages needed by an area's complete verification suite. No-op
@@ -1263,18 +1266,81 @@ fn tool_exists(name: &str) -> bool {
 /// Run a command; on failure print it and exit with its code. This is a gate, not
 /// a library — failing fast with the exact command is the right behaviour.
 fn run(command: &mut Command) {
-    let rendered = format!("{command:?}");
-    match command.status() {
-        Ok(status) if status.success() => {}
-        Ok(status) => {
-            eprintln!("xtask: FAILED ({status}): {rendered}");
-            exit(status.code().unwrap_or(1));
-        }
-        Err(error) => {
-            eprintln!("xtask: could not spawn {rendered}: {error}");
-            exit(1);
+    let mut log = FailureLog::default();
+    log.absorb(run_reporting(command));
+    log.finish("command");
+}
+
+/// Collects every failure of an authoritative run instead of stopping at the first.
+///
+/// [ADR-0012](../../../docs/adr/0012-verification-results-must-mean-what-they-say.md) rule 1: an
+/// authoritative gate reports *all* failures, because an auditor who is shown one failure cannot
+/// tell whether it is the only one. Fail-fast is useful for a local loop and is what running the
+/// individual `cargo` commands gives; `verify` and the lanes are the gate, so they are exhaustive.
+///
+/// The cost is real — a broken build means clippy and every test command still run and still fail —
+/// and it is the point. The alternative is what this session kept paying: fix, wait for a full
+/// rebuild, discover the next failure, repeat.
+#[derive(Default)]
+struct FailureLog {
+    failures: Vec<String>,
+}
+
+impl FailureLog {
+    /// Records a failure and reports it immediately, so a long run still streams its bad news.
+    fn record(&mut self, message: String) {
+        eprintln!("xtask: FAILED: {message}");
+        self.failures.push(message);
+    }
+
+    /// Records the error half of a reporting runner's result, keeping the success half.
+    fn absorb<T>(&mut self, result: Result<T, String>) -> Option<T> {
+        match result {
+            Ok(value) => Some(value),
+            Err(message) => {
+                self.record(message);
+                None
+            }
         }
     }
+
+    /// Exits non-zero after listing everything that failed, or returns if nothing did.
+    fn finish(self, what: &str) {
+        if self.failures.is_empty() {
+            return;
+        }
+        eprintln!(
+            "\nxtask: {what} failed — {} failure(s), all of them:",
+            self.failures.len()
+        );
+        for (index, failure) in self.failures.iter().enumerate() {
+            eprintln!("  {}. {failure}", index + 1);
+        }
+        exit(1);
+    }
+}
+
+fn run_reporting(command: &mut Command) -> Result<(), String> {
+    let rendered = format!("{command:?}");
+    match command.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!("({status}) {rendered}")),
+        Err(error) => Err(format!("could not spawn {rendered}: {error}")),
+    }
+}
+
+/// Run `cargo <args>` in `area_dir`, reporting failure instead of exiting.
+///
+/// `SQLX_OFFLINE` matches CI and the harness, so compile-time query checks never need a live
+/// database. The exiting form this replaced is gone: every caller sat inside an authoritative gate,
+/// and a gate that exits on its first failure cannot obey ADR-0012 rule 1.
+fn cargo_reporting(area_dir: &Path, args: &[&str]) -> Result<(), String> {
+    let mut command = Command::new("cargo");
+    command
+        .current_dir(area_dir)
+        .env("SQLX_OFFLINE", "true")
+        .args(args);
+    run_reporting(&mut command)
 }
 
 fn fail_usage(message: &str) -> ! {
@@ -1285,6 +1351,39 @@ fn fail_usage(message: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An authoritative gate reports every failure, not the first one (ADR-0012 rule 1).
+    ///
+    /// `verify` and the lanes used to exit at the first failing stage, so an auditor shown one
+    /// failure could not tell whether it was the only one — and a twenty-minute lane had to be run
+    /// again from the start after every fix. The log is asserted directly rather than through a
+    /// spawned build: `finish` ends the process, which a unit test cannot observe, but everything
+    /// that decides *what* it prints lives here.
+    #[test]
+    fn a_failure_log_keeps_every_failure_not_only_the_first() {
+        let mut log = FailureLog::default();
+
+        assert_eq!(
+            log.absorb(Ok::<_, String>("clippy output")),
+            Some("clippy output")
+        );
+        assert!(log.failures.is_empty(), "a success records nothing");
+
+        assert_eq!(
+            log.absorb(Err::<&str, _>("(exit 1) cargo fmt".to_owned())),
+            None
+        );
+        log.record("foundation python suite 'tests' executed 0 tests".to_owned());
+
+        assert_eq!(
+            log.failures,
+            vec![
+                "(exit 1) cargo fmt",
+                "foundation python suite 'tests' executed 0 tests"
+            ],
+            "both failures survive, in the order they happened"
+        );
+    }
 
     /// A lane must run exactly the targets it declares — never a workspace sweep.
     ///
