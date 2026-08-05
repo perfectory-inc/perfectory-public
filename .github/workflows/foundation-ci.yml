@@ -363,10 +363,39 @@ jobs:
         if: always()
         run: timeout --foreground 120s docker compose down -v --remove-orphans
 
+  administrative-boundary-slice:
+    name: Administrative boundary vertical slice
+    runs-on: ubuntu-24.04
+    # The slice compiles the publisher from source inside a pinned container before it can publish,
+    # so its budget is closer to compose-smoke's than to a test job's.
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+
+      # The only path that carries one publication unit from a source snapshot all the way to a
+      # decoded tile: PostGIS projection load, CAS runtime-manifest promotion, Martin serving the
+      # release the pointer names, and an MVT decoder asserting the layer and its properties. Every
+      # step of it was already covered by some test; that a step's output is the next step's input
+      # was not, and no amount of per-step testing can show it. It provisions its own Postgres and
+      # Martin from digest-pinned images and needs no credentials, so it runs here unchanged rather
+      # than as a second copy shaped for CI.
+      #
+      # It is slower than its work: the stock `rust` image does not carry the components
+      # `rust-toolchain.toml` asks for, so rustup fetches four of them at run time — the same hidden
+      # download that was moved into the verification image. Baking a slice image would remove it,
+      # and that is a separate change: this job's images are digest-pinned public ones, while the
+      # verification image is built locally and CI has no copy.
+      - name: Prove the administrative boundary path end to end
+        run: bash scripts/tiles/administrative-boundary-slice-proof.sh
+
   required:
     name: required/foundation
     if: ${{ always() }}
-    needs: [rust-quality, supply-chain, postgres-integration, kafka-integration, compose-smoke]
+    needs: [rust-quality, supply-chain, postgres-integration, kafka-integration, compose-smoke, administrative-boundary-slice]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -380,5 +409,6 @@ jobs:
           REQUIRED_RESULT_POSTGRES_INTEGRATION: ${{ needs.postgres-integration.result }}
           REQUIRED_RESULT_KAFKA_INTEGRATION: ${{ needs.kafka-integration.result }}
           REQUIRED_RESULT_COMPOSE_SMOKE: ${{ needs.compose-smoke.result }}
+          REQUIRED_RESULT_ADMINISTRATIVE_BOUNDARY_SLICE: ${{ needs.administrative-boundary-slice.result }}
         working-directory: .
         run: bash scripts/ci/require-successful-needs.sh

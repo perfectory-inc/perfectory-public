@@ -102,9 +102,18 @@ last_reviewed: 2026-08-05
 - [x] 적재 경로와 승격 경로를 CI가 실행하는 검사로 덮는다 — 발행이 적재를 열고 닫는 것부터
       런타임 포인터가 그 적재를 서빙하도록 전진하는 것까지
       ([ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) 남은 부채 4 해소)
-- [ ] 타일이 실제로 나오는지를 CI에서 확인한다. Martin 기동·타일 요청·MVT 디코드·PMTiles는 여전히
-      Docker Compose가 필요한 `scripts/tiles/administrative-boundary-slice-proof.sh`만 통과시킨다.
-      승격까지는 CI가 보지만 **그 결과가 타일로 나오는지는 아직 CI 밖이다.**
+- [x] 타일이 실제로 나오는지를 CI에서 확인한다 — `administrative-boundary-slice` 잡이
+      `scripts/tiles/administrative-boundary-slice-proof.sh`를 돌리고 `required/foundation`이
+      그것을 센다 ([기반 목표](./foundation-goals.md) G2).
+
+      > **정정 (2026-08-06):** 이 항목은 그 스크립트가 "Docker Compose가 필요하다"고 적었으나
+      > **사실이 아니었다.** compose 참조가 하나도 없고, 다이제스트 고정 이미지로 자기 Postgres와
+      > Martin을 직접 띄우며 자격증명도 쓰지 않는다. 필요한 것은 Docker뿐이고 CI 러너에는 이미
+      > 있었다. 막고 있던 것은 의존성이 아니라 **아무도 부르지 않는다는 사실**이었다 — 워크플로도,
+      > xtask도, 가드도 이 스크립트를 참조하지 않았다. 잘못된 장애물 서술 때문에 한 줄이면 될 일이
+      > 큰 일로 남아 있었다.
+- [ ] PMTiles(정적) 경로는 여전히 CI 밖이다. 동적 경로만 위 잡이 덮으며, 정적 승격은 구현 자체가
+      아직 포트 기본 구현(에러)이다 ([ADR-0014](../adr/0014-serving-generation-tracks-one-unit-source-selection.md) 남은 부채 1).
 - [ ] 지오메트리 체크섬 계약이 기대는 인코딩 가정을 명시적으로 만든다. 생산자는 자신이 쓸 값을,
       소비자는 파일에서 **다시 파싱한** 값을 해시하므로 `print(parse(print(v))) == print(v)`가
       성립해야 하는데, `serde_json`은 자신이 출력한 17자리 값(`37.300000000000004`)을 1 ULP 다른
