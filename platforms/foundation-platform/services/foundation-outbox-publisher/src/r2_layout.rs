@@ -36,18 +36,12 @@ pub fn vector_tile_manifest_key(manifest_id: &str) -> anyhow::Result<String> {
 /// runtime-manifest validator also derives from. Restating it here is how the shipped key and the
 /// documented key came to differ while both passed validation.
 ///
-/// The lower-case requirement is stricter than the `unit_key` column, which permits mixed case. It
-/// is kept because every publication unit in use (`parcels`, `complex`, `buildings`) is lower case
-/// and a case-only difference in an object key is not worth the confusion; the narrower rule is
-/// enforced here rather than silently in the derivation.
+/// The spelling rule comes from `catalog_domain::is_publication_unit_key`, which is also what
+/// `catalog.vector_tile_publication_unit_key_check` states in SQL. Restating it here was how this
+/// function came to disagree with the column in three directions at once (ADR-0013 남은 부채 1).
 pub fn vector_tile_release_key(publication_unit: &str, release_id: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
-        !publication_unit.is_empty()
-            && publication_unit.len() <= 128
-            && publication_unit == publication_unit.to_ascii_lowercase()
-            && publication_unit.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
-            }),
+        catalog_domain::is_publication_unit_key(publication_unit),
         "publication unit must be a lower-case identifier"
     );
     let release_id = parse_artifact_id(release_id, "vector tile release_id")?;

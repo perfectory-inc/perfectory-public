@@ -865,6 +865,38 @@ impl PublicationUnit {
 /// Matches `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX` (ADR-0002).
 pub const STATIC_RELEASE_OBJECT_ROOT: &str = "gold/vector-tiles/releases";
 
+/// Whether a publication unit key is spellable as the identity every derivation below builds on.
+///
+/// A unit key is not just a name: it becomes a Martin source id and the stem of an immutable
+/// `PMTiles` object key, so what is legal here decides what is addressable in object storage.
+///
+/// Three rules, each for a reason the storage imposes:
+///
+/// * lower case only — object keys are case-sensitive, so `Parcels` and `parcels` would be two
+///   prefixes for one unit;
+/// * no `.` — the derived name is a filename stem and the extension is appended, so a dot makes the
+///   stem ambiguous to anything that splits on it (Martin discovers static sources exactly that way);
+/// * a letter first — a key that opens with a digit or a separator reads as a fragment rather than
+///   a name, and nothing in use needs it.
+///
+/// `catalog.vector_tile_publication_unit_key_check` states the same set in SQL and
+/// `a_publication_unit_key_is_spelled_the_same_way_in_both_languages` holds the two together. Before
+/// that they disagreed in three directions at once — the column admitted upper case and refused `.`,
+/// while the publisher refused upper case, admitted `.`, and let a key start with anything — which
+/// ADR-0013 남은 부채 1 recorded as the publisher merely being "narrower".
+#[must_use]
+pub fn is_publication_unit_key(candidate: &str) -> bool {
+    let mut characters = candidate.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    candidate.len() <= 128
+        && first.is_ascii_lowercase()
+        && characters.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || "_-".contains(character)
+        })
+}
+
 /// Derives the release-addressed Martin source name for a static release.
 ///
 /// The name encodes the release, which is what makes a static source immutable: a new release is a

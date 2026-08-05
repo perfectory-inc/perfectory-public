@@ -1329,6 +1329,61 @@ async fn seed_data_revision(
     Ok(revision_id)
 }
 
+/// The column and the domain admit exactly the same unit keys.
+///
+/// A unit key becomes a Martin source id and a `PMTiles` object-key stem, so the two statements of
+/// the rule — `vector_tile_publication_unit_key_check` in SQL and
+/// [`catalog_domain::is_publication_unit_key`] in Rust — decide the same thing about storage. They
+/// cannot share a definition across languages, so this compares them instead of trusting that they
+/// were written to agree. They did not: the column admitted upper case and refused `.`, the
+/// publisher refused upper case, admitted `.`, and let a key start with anything, and ADR-0013
+/// 남은 부채 1 recorded that as the publisher being "narrower".
+///
+/// The candidates are chosen one per axis of that disagreement, plus the length boundary on both
+/// sides of the limit.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_publication_unit_key_is_spelled_the_same_way_in_both_languages() -> TestResult {
+    run_in_disposable_database("unit_key_spelling", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+
+        let long = "a".repeat(128);
+        let too_long = "a".repeat(129);
+        let candidates = [
+            "parcels",
+            "complex-2",
+            "legal_dong",
+            "Parcels",
+            "par.cels",
+            "1parcels",
+            "_parcels",
+            "parcels ",
+            "",
+            long.as_str(),
+            too_long.as_str(),
+        ];
+
+        for candidate in candidates {
+            let domain_accepts = catalog_domain::is_publication_unit_key(candidate);
+            let database_accepts = sqlx::query(
+                "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key) VALUES ($1, $2)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(candidate)
+            .execute(&pool)
+            .await
+            .is_ok();
+            assert_eq!(
+                domain_accepts, database_accepts,
+                "the column and the domain disagree about {candidate:?}: \
+                 domain={domain_accepts}, database={database_accepts}"
+            );
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// Publication units are provisioned, never created by an activation.
 async fn seed_publication_unit(pool: &PgPool, unit_key: &str) -> TestResult<Uuid> {
     let unit_id = Uuid::new_v4();
