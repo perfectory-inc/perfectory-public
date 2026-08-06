@@ -220,7 +220,7 @@ ADR-0011의 후속 작업은 발견한 테스트를 나중에 잡는 데서 멈�
 
 | ADR | 기록 | 열림 | 열린 것이 무엇인가 | 우선순위 |
 |---|---|---|---|---|
-| [0010 라이브 자원 테스트 레인](../adr/0010-live-resource-test-lanes.md) | 11 | 3 | 자격증명이 없어 안 도는 5타깃, 정적 가드(부분 해소 — CI는 차단 밖), 임포트 게이트 부재 | 4 |
+| [0010 라이브 자원 테스트 레인](../adr/0010-live-resource-test-lanes.md) | 11 | 2 | (자격증명 항목은 2026-08-06 해소 — 아래 참조) 정적 가드(부분 해소 — CI는 차단 밖), 임포트 게이트 부재 | 4 |
 | [0011 테스트 실행 집합 완전성](../adr/0011-test-execution-set-completeness.md) | 4 | 3 | 정적 가드(부분 해소 — CI는 차단 밖), 자격증명 레인, 임포트 게이트 | 4 |
 | [0012 검증 결과의 의미](../adr/0012-verification-results-must-mean-what-they-say.md) | 3 | 0 | — 전부 닫힘 | 4 |
 | [0013 릴리스 유일성](../adr/0013-release-uniqueness-admits-both-source-kinds.md) | 2 | 0 | — 전부 닫힘 | 1 |

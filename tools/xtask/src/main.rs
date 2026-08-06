@@ -637,6 +637,18 @@ const AREAS: &[Area] = &[
                     test: "lakehouse_live_smoke",
                 }],
             },
+            // Diagnostic, not a gate. Every one of the 22 data.go.kr endpoints in
+            // `public-source-endpoint-catalog.v1.json` — ten building-register and twelve
+            // real-transaction — carries `source_acquisition_lane: disabled_api_duplicate`, and
+            // `national_data_collection_ledger_execute` refuses to select any of them. Bulk is the
+            // source for both: hub.go.kr for the building register, rt.molit.go.kr for real
+            // transactions. This lane therefore proves the provider still answers, which is worth
+            // knowing and is not worth blocking on.
+            //
+            // Treating it as a lane to "turn on" wastes a real service key on a path the platform
+            // has decided not to use, and the provider is intermittently down besides — three
+            // consecutive probes returned 200, 503 SERVICETIMEOUT_ERROR, 200. Run it deliberately
+            // when the question is "does the API still work", never as a precondition for release.
             LiveLane {
                 name: "data-go-kr",
                 required_env: &[
