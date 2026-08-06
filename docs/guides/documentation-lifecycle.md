@@ -39,9 +39,14 @@ last_reviewed: 2026-07-28
    ```yaml
    status: current
    owner: <소유 영역>
-   doc_type: adr | architecture | guide | runbook | reference | catalog
+   doc_type: <아래 참조>
    last_reviewed: YYYY-MM-DD
    ```
+
+   `doc_type`의 허용 값은 `scripts/catalog/audit-documentation.py`의 `ALLOWED_DOC_TYPES`가
+   소유하며, `--strict`가 그 밖의 값을 거부한다. **여기에 목록을 다시 적지 않는다** — 이 문서와
+   [ADR 0009](../adr/0009-korean-first-documentation-and-multilingual-readiness.md)가 서로 다른
+   목록을 적고 있었고 둘 다 실물과 달랐던 것이, 값을 검사하지 않는 감사와 겹쳐 오래 남아 있었다.
 
 3. 기존 문서를 옮기기 전에 코드·CI·링크가 경로를 직접 참조하는지 확인한다. 계약 파일,
    생성 산출물, 법률 원문은 임의로 이름을 바꾸거나 삭제하지 않는다.
@@ -67,11 +72,16 @@ last_reviewed: 2026-07-28
 ## 확인 명령
 
 ```bash
-python3 scripts/catalog/audit-documentation.py --check
+python3 scripts/catalog/audit-documentation.py --check --strict
 python3 -m unittest scripts/catalog/test_audit_documentation.py -v
 python3 scripts/catalog/render-document-catalog.py --check
+python3 scripts/catalog/render-foundation-baseline.py --check
+python3 -m unittest scripts/catalog/test_foundation_baseline.py -v
 git diff --check
 ```
+
+`--strict`가 붙는다. 그것이 없으면 감사는 보고서를 쓸 뿐 실패하지 않으며, `doc_type` 어휘
+검사도 지나간다. `docs.yml`이 도는 것과 같은 형태로 적어 로컬과 CI가 갈라지지 않게 한다.
 
 `audit-documentation.py --check`는 유지 문서에 한글 설명이 전혀 없거나 명백한 영문 서술 문장이
 남은 경우 실패시킨다. 계약·fixture

@@ -57,9 +57,15 @@ ADR은 설계 이유를, architecture는 현재 상태를, guide/runbook은 행�
 ```yaml
 status: current | proposed | deprecated | archived
 owner: foundation | identity | intelligence | gongzzang | repository-maintainers
-doc_type: guide | runbook | architecture | adr | reference | record | catalog
+doc_type: <scripts/catalog/audit-documentation.py 의 ALLOWED_DOC_TYPES>
 last_reviewed: YYYY-MM-DD
 ```
+
+> **정정 (2026-08-06).** `doc_type` 값은 원래 여기에 일곱 개로 적혀 있었다. 그 목록은
+> [문서 운영 안내](../guides/documentation-lifecycle.md)가 적은 여섯 개와도, 저장소 실물과도
+> 달랐다 — `record`는 어느 문서도 쓰지 않았고, 가장 많이 쓰이는 `README`는 두 목록 어디에도
+> 없었다. 감사 도구가 키의 **존재만** 검사하고 값은 보지 않았으므로 셋이 갈라져도 아무도 몰랐다.
+> 이제 어휘는 그 도구가 소유하고 `--strict`가 거부하며, 이 ADR과 안내서는 목록을 다시 적지 않는다.
 
 `archived` 문서는 역사 보존용이며 현재 동작이나 정책을 설명하는 링크의 목적지가 될 수
 없다. 외부 계약·fixture·법률·감사·사고 기록은 참조를 확인하지 않고 삭제하지 않는다.

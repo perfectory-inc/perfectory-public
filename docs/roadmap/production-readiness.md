@@ -242,6 +242,11 @@ ADR-0011의 후속 작업은 발견한 테스트를 나중에 잡는 데서 멈�
 
 ## 문서 정리 상태
 
+- [ ] `doc_type: documentation`인 28개 문서를 실제 종류로 좁힌다. 이 값은 아무것도 분류하지
+      않으며(`intelligence-platform/docs/architecture.md`가 이 값을 달고 있다), 파일마다 판단이
+      필요해 2026-08-06에 어휘를 강제할 때 **잠정 허용**으로 남겼다. 좁히고 나면
+      `audit-documentation.py`의 `ALLOWED_DOC_TYPES`에서 뺀다.
+
 문서의 미완료 작업도 이 문서가 정본이다. README·ADR에 작업을 복제하지 않는다.
 
 - [x] 루트 작업 목록을 `docs/roadmap/` 아래에 배치
