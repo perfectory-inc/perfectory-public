@@ -31,9 +31,18 @@ async fn lakehouse_live_smoke_reads_current_snapshot_for_configured_table() -> T
     let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
     let snapshot = catalog.get_current_snapshot(&table_name).await?;
 
+    // `load_table` maps a catalog 404 to `Ok(None)` and a table whose metadata carries no current
+    // snapshot to `Ok(None)` as well, so this absence has two very different causes and the message
+    // has to name both. It said only "expected current snapshot", and the cause turned out to be
+    // the first one: the configured default table does not exist in the production warehouse at
+    // all, whose `silver` namespace holds `building_register_units` and
+    // `building_register_unit_areas`. Reading that from the message alone was impossible.
     assert!(
         snapshot.is_some(),
-        "live lakehouse smoke expected current snapshot for {table_name}"
+        "live lakehouse smoke found no current snapshot for {table_name}. The catalog answers this \
+         the same way whether the table is absent or exists with no snapshot yet — list the \
+         warehouse's namespaces to tell which, and check {SMOKE_TABLE_ENV} before assuming the \
+         pipeline is at fault."
     );
 
     Ok(())

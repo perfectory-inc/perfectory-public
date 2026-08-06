@@ -70,6 +70,13 @@ last_reviewed: 2026-08-05
 - [ ] 운영 R2/Postgres 버킷·DB를 개발/CI와 분리하고 런타임 가드로 강제
 - [ ] 운영 R2 Data Catalog writer/reader 토큰을 사용자 지정 API 정책으로 분리하고, 어드민
   토큰을 공용 런타임 자격증명으로 사용하지 않도록 검증
+
+  > **2026-08-06 현재 상태:** 라이브 레인을 처음 실행하기 위해 **어드민 범위 카탈로그 토큰을
+  > 임시로 쓰고 있다.** 위 원칙이 허용하는 "임시 대안"에 해당하며, 그 전 토큰은 개체 권한만 있어
+  > 카탈로그가 `403 Forbidden`으로 거절했다 — 개체 API 권한과 Iceberg 카탈로그 권한이 별개라는
+  > 이 문서의 서술이 실측으로 확인됐다. **좁히기 전에는 닫지 말 것.** 필요한 최소 권한은 이제
+  > 관측으로 정할 수 있다: 스모크가 실제로 부른 것은 `GET /v1/config`, 네임스페이스 조회,
+  > 테이블 로드뿐이고 쓰기는 없었다.
 - [ ] 계정 수준 카탈로그 격리가 필요하면 출시 전에 운영 Cloudflare 계정 분리 여부를 결정하고,
   분리 시 객체·Iceberg 메타데이터 이전과 무중단 전환 계획을 승인
 - [ ] Bronze 불변성, Postgres 백업/복구 리허설, RPO/RTO 증거 확보
@@ -79,6 +86,23 @@ last_reviewed: 2026-08-05
 
 - [ ] 국가 수집 대상별 bulk/API 선택과 실제 공급자 자격증명·쿼터 검증
 - [ ] Bronze → Silver → Gold를 실제 R2/Iceberg backend 자격증명으로 실행하고 결과를 검증
+
+  > **2026-08-06 실측.** 라이브 레인 셋을 처음 돌렸고, 실버가 **어디까지 와 있는지가 관측으로
+  > 확정됐다.**
+  >
+  > - **R2 객체 경로: 통과.** 쓰기·읽기·삭제 왕복과 인벤토리 조회가 실제 버킷에서 성공했다.
+  > - **Iceberg 카탈로그: 통과.** 네임스페이스는 `silver`, `gongzzang_silver`,
+  >   `tiles_slice_proof`이고 `silver`에는 `building_register_units`와
+  >   `building_register_unit_areas`가 있다. 그 테이블의 현재 스냅샷을 읽는 데 성공했다.
+  > - **`silver.industrial_complexes`는 존재하지 않는다.** 스모크의 기본 대상이 이것이어서 레인이
+  >   실패했고, 원인은 파이프라인이 아니라 **없는 테이블을 가리킨 설정**이었다.
+  > - **data.go.kr: 상대 서버 오류.** HTTP 502에 `returnReasonCode 04`(HTTP 에러)로, 인증 단계에
+  >   도달하지도 못했다. 서비스 키 문제가 아니므로 재시도 대상이다.
+  >
+  > 남은 구간은 실버에서 Postgres canonical로 넘어오는 길이다. 건축물대장은 실버까지 와 있는데
+  > `catalog.building`·`catalog.building_unit`에는 생산자가 없다
+  > ([기반 목표](./foundation-goals.md) G1의 21표에 둘 다 포함된다). **읽을 데이터가 없어서가
+  > 아니라 읽는 코드가 없어서다.**
 - [ ] dbt Gold 모델 또는 Spark Gold projection 중 하나를 정식 Gold 계약으로 확정
 - [ ] Trino/Spark/Iceberg catalog 연결, snapshot 승격·롤백·재처리 증명
 - [ ] LLM 정규화 provider, 비용/쿼터, proposal 승인·적용 권한과 감사 로그 확정

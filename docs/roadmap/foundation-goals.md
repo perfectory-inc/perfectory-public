@@ -73,6 +73,14 @@ last_reviewed: 2026-08-06
 실버는 PostgreSQL 밖에 있고 소유자가 정해지지 않았다. 이 결정 없이 적재기를 먼저 만들면 fixture
 규모가 천장이 된다 (production-readiness 우선순위 1이 이미 같은 판단을 적고 있다).
 
+**2026-08-06 실측이 이 서술을 좁혔다.** 라이브 레인을 처음 돌려 보니 정본 실버가 어디에 있는지는
+더 이상 미지가 아니다 — Cloudflare R2 Data Catalog의 `silver` 네임스페이스이고, 거기에
+`building_register_units`와 `building_register_unit_areas`가 실재하며 그 스냅샷을 읽는 코드도
+작동한다. 즉 **건축물대장은 데이터가 없어서 막힌 것이 아니라 읽는 코드가 없어서 막혀 있다.**
+`catalog.building`·`catalog.building_unit`은 위 21표에 들어 있고, 그 둘의 상류는 이미 존재한다.
+필지(`parcel`)는 다르다 — 실버에 아직 없으므로 소유자 결정이 여전히 선행한다. **두 경우를 한
+덩어리로 묶어 "정본 실버에 주인이 없다"고 적었던 것이 이 항목이 통째로 막혀 보이던 이유다.**
+
 ## G2 — 수직 슬라이스 하나가 CI 안에서 끝까지 지난다
 
 **불변식.** 원천 → bronze → canonical → 발행 → 타일 → API 응답을 CI가 한 번에 통과시키는
