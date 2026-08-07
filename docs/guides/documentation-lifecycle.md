@@ -54,8 +54,14 @@ last_reviewed: 2026-07-28
    기록한다. 결정이 완료되면 ADR, 실행 절차가 완료되면 runbook으로 승격한다.
 5. 변경은 조직 저장소의 작업 브랜치에서 사람의 PR로 검토한다. `main`에는 직접 커밋하지
   않는다. PR은 문서 diff, 링크, 자동 색인, 감사 보고서 검사를 통과해야 한다.
-6. 병합 후 `python3 scripts/catalog/audit-documentation.py --write`와
-   `python3 scripts/catalog/render-document-catalog.py --write`로 생성 문서를 갱신한다.
+6. 병합 후 생성 문서를 갱신한다. 각 생성기의 쓰기 방식은 서로 다르다 — 감사는 `--write`가
+   있어야 쓰고, 색인과 기반 지표는 인자 없이 쓰며 `--check`로만 검사한다.
+
+   ```bash
+   python3 scripts/catalog/audit-documentation.py --write
+   python3 scripts/catalog/render-document-catalog.py
+   python3 scripts/catalog/render-foundation-baseline.py
+   ```
 
 ## 기록과 번역
 
