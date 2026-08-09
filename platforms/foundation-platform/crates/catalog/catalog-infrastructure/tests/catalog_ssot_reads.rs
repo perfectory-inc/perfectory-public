@@ -228,11 +228,10 @@ impl SsotFixture {
     async fn insert(&self, pool: &PgPool) {
         sqlx::query(
             "INSERT INTO catalog.parcel
-             (id, complex_id, pnu, kind, area_m2, version)
-             VALUES ($1, $2, $3, 'factory', 1200, 1)",
+             (id, pnu, kind, area_m2, version)
+             VALUES ($1, $2, 'factory', 1200, 1)",
         )
         .bind(self.parcel_id.as_uuid())
-        .bind(self.complex.id.as_uuid())
         .bind(&self.pnu)
         .execute(pool)
         .await

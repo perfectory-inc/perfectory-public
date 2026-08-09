@@ -121,7 +121,9 @@ last_reviewed: 2026-08-05
       나머지 산단 스코프 읽기 셋은 옮기지 않고 삭제했으므로
       ([ADR-0021](../adr/0021-an-unread-surface-is-deleted-not-migrated.md)) 이전 대상은 넷이
       아니라 하나였다.
-- [ ] 3단계 — 컬럼과 `ParcelResponse.complex_id`를 제거한다. OpenAPI 사본 두 개를 함께 고친다.
+- [x] 3단계 — `catalog.parcel.complex_id`와 그 인덱스·FK·얼림 트리거, `ParcelResponse.complex_id`를
+      제거했다. OpenAPI 사본 둘과 계약 pin 해시를 함께 갱신했고, 타일 슬라이스 증명이 소속 표를
+      경유해서도 통과한다. **산업단지에 속하지 않는 필지가 이제 표현 가능하다.**
 - [ ] 4단계 — 부속지번 실버가 실물이 된 뒤 `catalog.building_parcel`과
       `building_unit.building_id`를 착수한다. 지금은 소스가 `planned`라 착수하지 않는다.
 

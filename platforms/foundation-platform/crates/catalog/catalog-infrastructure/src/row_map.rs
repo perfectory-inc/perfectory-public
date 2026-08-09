@@ -56,7 +56,6 @@ pub fn row_to_parcel(row: &PgRow) -> Result<Parcel, CatalogError> {
     let pnu = Pnu::parse(pnu_raw).map_err(CatalogError::InvalidPnu)?;
     Ok(Parcel {
         id: ParcelId::new(row.try_get::<Uuid, _>("id").map_err(map_sqlx)?),
-        complex_id: ComplexId::new(row.try_get::<Uuid, _>("complex_id").map_err(map_sqlx)?),
         pnu,
         kind,
         area_m2: area,

@@ -46,11 +46,10 @@ async fn temporal_aliases_are_stable_and_history_is_guarded(
     .execute(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO catalog.parcel (id, complex_id, pnu, kind, area_m2, version)
-         VALUES ($1, $2, $3, 'factory', 1, 1)",
+        "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
+         VALUES ($1, $2, 'factory', 1, 1)",
     )
     .bind(parcel_id)
-    .bind(complex_id)
     .bind(old_pnu)
     .execute(&mut *tx)
     .await?;

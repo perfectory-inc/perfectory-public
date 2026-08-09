@@ -601,7 +601,10 @@ done
 compose exec -T postgis psql -X -h 127.0.0.1 -U postgres -d tiles_slice_proof \
   -v ON_ERROR_STOP=1 -q -f - < "$REPO_ROOT/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql"
 
-[[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.industrial_complex WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM serving_postgis.parcel_boundary_mirror WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel_marker_anchor AS anchor JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id WHERE parcel.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101' AND anchor.is_active));")" == "1|3|3|3" ]] \
+# The parcel counts go through `catalog.parcel_current_complex`: a parcel no longer carries a
+# complex column (ADR-0019 step 3), and the view owns the "today" predicate (ADR-0022). The mirror
+# still has its own `complex_id`, which is a separate projection and deliberately untouched.
+[[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.industrial_complex WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel_current_complex WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM serving_postgis.parcel_boundary_mirror WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel_marker_anchor AS anchor JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = anchor.parcel_id WHERE membership.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101' AND anchor.is_active));")" == "1|3|3|3" ]] \
   || fail "fixture row counts drifted"
 [[ "$(psql_value "SELECT concat_ws('|', count(*), min(ST_SRID(geom)), max(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.parcel_boundary_current;")" == "3|5179|5179|t" ]] \
   || fail "active parcel publication view geometry contract failed"

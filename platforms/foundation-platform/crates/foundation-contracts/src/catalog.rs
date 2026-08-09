@@ -102,13 +102,14 @@ pub struct IndustrialComplexGoldPointerResponse {
     pub published_at: DateTime<Utc>,
 }
 
-/// Canonical parcel response for a parcel inside an industrial complex.
+/// Canonical parcel response.
+///
+/// Carries no industrial complex. Membership is a dated fact between two entities rather than a
+/// property of the parcel (ADR-0019), and most parcels belong to no complex at all.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct ParcelResponse {
     /// Stable foundation-platform identifier for the parcel.
     pub id: Uuid,
-    /// Industrial complex that owns this parcel.
-    pub complex_id: Uuid,
     /// Parcel Number Unit identifier.
     #[schema(
         min_length = 19,

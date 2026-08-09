@@ -125,12 +125,11 @@ impl ComplexAnchorSummaryFixture {
 
         sqlx::query(
             "INSERT INTO catalog.parcel
-             (id, complex_id, pnu, kind, area_m2, version)
-             VALUES ($1, $2, $3, 'factory', 500, 1),
-                    ($4, $2, $5, 'factory', 500, 1)",
+             (id, pnu, kind, area_m2, version)
+             VALUES ($1, $2, 'factory', 500, 1),
+                    ($3, $4, 'factory', 500, 1)",
         )
         .bind(self.first_parcel_id.as_uuid())
-        .bind(self.complex_id.as_uuid())
         .bind(&self.first_pnu)
         .bind(self.second_parcel_id.as_uuid())
         .bind(&self.second_pnu)
@@ -269,8 +268,13 @@ impl ComplexAnchorSummaryFixture {
             .bind(self.complex_id.as_uuid())
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM catalog.parcel WHERE complex_id = $1")
-            .bind(self.complex_id.as_uuid())
+        // By id, not by complex: the parcel no longer carries one (ADR-0019 step 3). The membership
+        // rows deleted just above were the only thing tying these parcels to the fixture complex.
+        sqlx::query("DELETE FROM catalog.parcel WHERE id = ANY($1)")
+            .bind(vec![
+                self.first_parcel_id.as_uuid(),
+                self.second_parcel_id.as_uuid(),
+            ])
             .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM catalog.industrial_complex WHERE id = $1")

@@ -903,7 +903,6 @@ fn complex_anchor_summary_response(summary: &ComplexAnchorSummary) -> ComplexAnc
 fn parcel_response(parcel: &Parcel) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
-        complex_id: parcel.complex_id.as_uuid(),
         pnu: parcel.pnu.as_str().to_owned(),
         kind: parcel.kind.wire_name().to_owned(),
         area_m2: parcel.area_m2,

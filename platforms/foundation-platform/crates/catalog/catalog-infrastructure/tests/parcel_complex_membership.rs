@@ -98,11 +98,10 @@ impl Fixture {
             (other_parcel_id, "9999900101100010002"),
         ] {
             sqlx::query(
-                "INSERT INTO catalog.parcel (id, complex_id, pnu, kind, area_m2, version)
-                 VALUES ($1, $2, $3, 'factory', 1, 1)",
+                "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
+                 VALUES ($1, $2, 'factory', 1, 1)",
             )
             .bind(id)
-            .bind(complex_id)
             .bind(pnu)
             .execute(&mut **tx)
             .await?;
@@ -476,47 +475,56 @@ async fn a_membership_snapshot_must_match_its_revision() -> TestResult {
     Ok(())
 }
 
-/// Moving a parcel by writing the old column is refused.
+/// A parcel carries no industrial complex, and one outside every complex can exist.
 ///
-/// The column outlives step 2 and still holds the value the backfill copied. An UPDATE is the only
-/// way it and the membership table can start disagreeing, and the test above would then be the
-/// thing that notices — long after. This refuses the write instead.
+/// Step 2 froze `catalog.parcel.complex_id` against UPDATE; step 3 dropped it, which is the
+/// stronger statement — the old model is not refused, it is unwritable. Asserted against
+/// `information_schema` rather than by attempting a write, because a write would fail with the same
+/// error whether the column is absent or merely misspelled in the test.
+///
+/// The second half is the point of the whole change: a parcel belonging to no complex is now a row
+/// the database accepts. While the column was NOT NULL it was not, and most of the country is that
+/// row.
 #[tokio::test]
 #[ignore = "requires disposable Postgres with Foundation migrations"]
-async fn moving_a_parcel_by_writing_the_frozen_column_is_refused() -> TestResult {
+async fn a_parcel_carries_no_complex_and_may_belong_to_none() -> TestResult {
     let pool = pool().await?;
-    let mut tx = pool.begin().await?;
-    let fixture = Fixture::insert(&mut tx).await?;
 
-    let mut move_tx = tx.begin().await?;
-    let moved = sqlx::query("UPDATE catalog.parcel SET complex_id = $1 WHERE id = $2")
-        .bind(fixture.other_complex_id)
-        .bind(fixture.parcel_id)
-        .execute(&mut *move_tx)
-        .await;
+    let column_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+             SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'catalog'
+                AND table_name = 'parcel'
+                AND column_name = 'complex_id'
+         )",
+    )
+    .fetch_one(&pool)
+    .await?;
     assert!(
-        moved.is_err(),
-        "catalog.parcel.complex_id is frozen; membership is written to the membership table"
+        !column_exists,
+        "catalog.parcel.complex_id must be gone; membership is a fact between two entities"
     );
-    move_tx.rollback().await?;
 
-    // An UPDATE that leaves the column alone must still be accepted, or the guard would have
-    // frozen the whole row rather than one projection.
-    let mut kind_tx = tx.begin().await?;
-    sqlx::query("UPDATE catalog.parcel SET kind = 'support' WHERE id = $1")
-        .bind(fixture.parcel_id)
-        .execute(&mut *kind_tx)
-        .await?;
-    kind_tx.rollback().await?;
+    let mut tx = pool.begin().await?;
+    let unaffiliated_parcel = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
+         VALUES ($1, '9999900101100019999', 'other', 1, 1)",
+    )
+    .bind(unaffiliated_parcel)
+    .execute(&mut *tx)
+    .await?;
 
-    // And writing the same value back is not a move, so it is not refused either.
-    let mut same_tx = tx.begin().await?;
-    sqlx::query("UPDATE catalog.parcel SET complex_id = $1 WHERE id = $2")
-        .bind(fixture.complex_id)
-        .bind(fixture.parcel_id)
-        .execute(&mut *same_tx)
-        .await?;
-    same_tx.rollback().await?;
+    let memberships = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM catalog.parcel_current_complex WHERE parcel_id = $1",
+    )
+    .bind(unaffiliated_parcel)
+    .fetch_one(&mut *tx)
+    .await?;
+    assert_eq!(
+        memberships, 0,
+        "a parcel in no complex must read as being in none, not as an error"
+    );
 
     tx.rollback().await?;
     Ok(())
@@ -580,6 +588,9 @@ async fn a_pre_existing_parcel_is_backfilled_with_its_membership() -> TestResult
         // An explicit `created_at`, because the interval's lower bound is asserted against it and a
         // defaulted `now()` would make that assertion true by construction on both sides.
         sqlx::query(
+            // Pre-migration schema on purpose: at this point in the sequence `complex_id` still
+            // exists and is NOT NULL, which is exactly the state the backfill reads. Step 3 drops
+            // the column, so this INSERT is the one place it must still be written.
             "INSERT INTO catalog.parcel (id, complex_id, pnu, kind, area_m2, created_at, version)
              VALUES ($1, $2, '9999900101100010001', 'factory', 1, TIMESTAMPTZ '2021-03-04 05:06:07Z', 1)",
         )

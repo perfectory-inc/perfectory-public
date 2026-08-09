@@ -263,7 +263,7 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
 
         // 변경 전 row 를 `FOR UPDATE` 로 잠가 event payload 의 previous_kind 가 race-free.
         let before_row = sqlx::query(
-            "SELECT id, complex_id, pnu, kind, area_m2, created_at, updated_at, version
+            "SELECT id, pnu, kind, area_m2, created_at, updated_at, version
              FROM catalog.parcel
              WHERE id = $1
              FOR UPDATE",
@@ -292,7 +292,7 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
                  updated_at = now(),
                  version = version + 1
              WHERE id = $1 AND version = $2
-             RETURNING id, complex_id, pnu, kind, area_m2, created_at, updated_at, version",
+             RETURNING id, pnu, kind, area_m2, created_at, updated_at, version",
         )
         .bind(id.as_uuid())
         .bind(expected_version)

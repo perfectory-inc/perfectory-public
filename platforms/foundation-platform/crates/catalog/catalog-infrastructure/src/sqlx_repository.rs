@@ -199,7 +199,7 @@ impl CatalogRepository for PgCatalogRepository {
 
     async fn find_parcel_by_id(&self, id: ParcelId) -> Result<Option<Parcel>, CatalogError> {
         let row_opt = sqlx::query(
-            "SELECT p.id, p.complex_id, pci.identifier_value AS pnu, p.kind,
+            "SELECT p.id, pci.identifier_value AS pnu, p.kind,
                     p.area_m2, p.created_at, p.updated_at, p.version
              FROM catalog.parcel p
              JOIN catalog.parcel_current_identifier pci ON pci.parcel_id = p.id
@@ -215,7 +215,7 @@ impl CatalogRepository for PgCatalogRepository {
 
     async fn find_parcel_by_pnu(&self, pnu: &Pnu) -> Result<Option<Parcel>, CatalogError> {
         let row_opt = sqlx::query(
-            "SELECT p.id, p.complex_id, pci.identifier_value AS pnu, p.kind,
+            "SELECT p.id, pci.identifier_value AS pnu, p.kind,
                     p.area_m2, p.created_at, p.updated_at, p.version
              FROM catalog.parcel p
              JOIN catalog.parcel_identifier_lookup pil ON pil.parcel_id = p.id

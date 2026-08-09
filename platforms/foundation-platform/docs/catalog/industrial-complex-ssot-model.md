@@ -34,7 +34,7 @@ last_reviewed: 2026-07-29
 | 데이터 성격 | Owner | 예시 |
 |---|---|---|
 | 모든 제품에서 같은 값이어야 하는 산업단지 사실 | `foundation-platform` | 이름, 종류, 주소, 면적, 관리기관, 상태, 경계 |
-| 산업단지에 종속된 운영 subobject | `foundation-platform` | 공지, 고시, 첨부, 도면, 필지, 건물, 공간 레이어, 3D asset |
+| 산업단지에 종속된 운영 subobject | `foundation-platform` | 공지, 고시, 첨부, 도면, 공간 레이어, 3D asset |
 | 산업단지의 업종 규칙 | `foundation-platform` | 유치업종, 허용업종, 필지별 업종 배정 |
 | 특정 사이트의 렌더링 선택 | `dawneer` | 노출 여부, 정렬, 색상, 문구 override, 문의 채널 override |
 | 부동산 상품과 시장 데이터 | `gongzzang` | 매물, 경매, 실거래, 검색 인덱스, 일반 사용자 북마크 |
@@ -52,7 +52,8 @@ last_reviewed: 2026-07-29
 | Entity | 역할 | 주요 필드 |
 |---|---|---|
 | `catalog.industrial_complex` | 산업단지 aggregate root | `id`, `official_complex_code`, `name`, `kind`, `primary_bjdong_code`, `area_m2`, `version`, `updated_at` |
-| `catalog.parcel` | 산업단지 내 필지 | `id`, `complex_id`, `pnu`, `kind`, `area_m2`, `version` |
+| `catalog.parcel` | 필지 (산업단지 소속은 별도 사실) | `id`, `pnu`, `kind`, `area_m2`, `version` |
+| `catalog.parcel_complex_membership` | 필지의 산단 소속, 기간을 가짐 | `parcel_id`, `complex_id`, `asserted_by`, `effective_period` |
 | `catalog.building` | 필지에 속한 건물 | `id`, `parcel_id`, `purpose_code`, `structure_code`, `floor_area_m2` |
 | `catalog.manufacturer` | 입주 제조사 | `id`, `primary_parcel_id`, `name`, `ksic_code` |
 | `catalog.outbox_event` | consumer cache 갱신 이벤트 | `event_id`, `type`, `payload`, `occurred_at`, `published_at` |
