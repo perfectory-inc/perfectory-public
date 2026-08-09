@@ -34,3 +34,4 @@ last_reviewed: 2026-07-28
 - [0020 — 도형은 사실의 근거가 아니다](./0020-geometry-is-not-evidence-for-a-fact.md)
 - [0021 — 아무도 읽지 않는 표면은 옮기지 않고 지운다](./0021-an-unread-surface-is-deleted-not-migrated.md)
 - [0022 — "현재"는 오늘이고, 그것을 말하는 뷰는 하나다](./0022-current-means-today-and-one-view-says-so.md)
+- [0023 — 편집은 원장의 행이지, 고쳐진 행에만 남는 것이 아니다](./0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md)

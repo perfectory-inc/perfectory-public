@@ -228,6 +228,7 @@ impl CatalogUnitOfWork for $double {
             _id: ParcelId,
             _expected_version: i64,
             _new_kind: ParcelKind,
+            _applied_by: StaffId,
         ) -> Result<Parcel, CatalogError> {
             Err(unused("update_parcel_kind"))
         }

@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **344개**
+- 문서 파일: **345개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 43 |
+| Monorepo | 44 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 102 |
+| ADR | 103 |
 | README | 105 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -391,6 +391,7 @@ docs/adr/0019-membership-is-a-dated-fact-not-a-column.md
 docs/adr/0020-geometry-is-not-evidence-for-a-fact.md
 docs/adr/0021-an-unread-surface-is-deleted-not-migrated.md
 docs/adr/0022-current-means-today-and-one-view-says-so.md
+docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -446,6 +447,7 @@ tools/github/README.md
 | `docs/adr/0020-geometry-is-not-evidence-for-a-fact.md` | Monorepo | evidence | evidence |
 | `docs/adr/0021-an-unread-surface-is-deleted-not-migrated.md` | Monorepo | ADR | current |
 | `docs/adr/0022-current-means-today-and-one-view-says-so.md` | Monorepo | ADR | current |
+| `docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

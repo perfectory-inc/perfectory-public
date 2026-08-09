@@ -818,7 +818,7 @@ pub async fn promote_vector_tile_manifest(
 pub async fn update_parcel_kind(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
-    Extension(_principal): Extension<AuthorizedPrincipal>,
+    Extension(principal): Extension<AuthorizedPrincipal>,
     Json(body): Json<UpdateParcelKindRequest>,
 ) -> Result<Json<ParcelResponse>, ApiError> {
     let new_kind =
@@ -829,6 +829,7 @@ pub async fn update_parcel_kind(
             parcel_id: ParcelId::new(id),
             expected_version: body.if_match_version,
             new_kind,
+            applied_by: StaffId::new(principal.principal_id),
         })
         .await?;
 

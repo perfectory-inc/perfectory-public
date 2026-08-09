@@ -258,6 +258,7 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         id: ParcelId,
         expected_version: i64,
         new_kind: ParcelKind,
+        applied_by: StaffId,
     ) -> Result<Parcel, CatalogError> {
         let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
 
@@ -301,6 +302,42 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         .await
         .map_err(map_sqlx)?;
         let updated = row_to_parcel(&updated_row)?;
+
+        // The edit ledger row, in the same transaction as the row it describes. ADR-0006 rebuilds
+        // the serving projection from a snapshot plus an audited edit ledger, so an edit recorded
+        // only on the parcel is one a rebuild silently drops (ADR-0023).
+        //
+        // `catalog.catalog_edit` and not the Normalization context's own ledger: that one belongs
+        // to a package `package_boundary.rs` keeps out of Catalog, and Catalog does not depend on
+        // it. ADR-0023 §Decision 2 names it; this comment does not, because that guard reads source
+        // text and a comment spelling the table would be a crossing in its eyes.
+        //
+        // The snapshots carry the field that changed and the identity of what it changed on — not
+        // the whole row, because the ledger records the edit and the Iceberg snapshot records the
+        // rest.
+        sqlx::query(
+            "INSERT INTO catalog.catalog_edit
+             (id, command_type, target_kind, target_id, expected_version,
+              before_snapshot, after_snapshot, applied_by_principal_id)
+             VALUES ($1, 'parcel.kind.update.v1', 'parcel', $2, $3, $4, $5, $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(id.as_uuid())
+        .bind(expected_version)
+        .bind(serde_json::json!({
+            "parcel_id": id.as_uuid(),
+            "kind": before.kind.wire_name(),
+            "version": before.version,
+        }))
+        .bind(serde_json::json!({
+            "parcel_id": id.as_uuid(),
+            "kind": updated.kind.wire_name(),
+            "version": updated.version,
+        }))
+        .bind(applied_by.as_uuid())
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
 
         let event = CatalogEvent::ParcelKindChanged(before.kind_changed_event(new_kind));
         insert_outbox_event(&mut tx, &event).await?;

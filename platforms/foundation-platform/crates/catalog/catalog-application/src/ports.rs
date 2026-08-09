@@ -686,7 +686,12 @@ pub trait CatalogUnitOfWork: Send + Sync {
         request_id: Option<String>,
     ) -> Result<IndustrialComplex, CatalogError>;
 
-    /// Updates a parcel kind and emits a race-free parcel kind changed event.
+    /// Updates a parcel kind, writes the edit ledger row, and emits a race-free parcel kind
+    /// changed event — all in one transaction.
+    ///
+    /// The ledger row is not optional bookkeeping. ADR-0006 rebuilds the serving projection from a
+    /// snapshot plus the edit ledger, so an edit that lands in the row without landing in the
+    /// ledger is an edit a rebuild loses (ADR-0023).
     ///
     /// # Errors
     /// Returns `CatalogError` when the parcel is missing, the expected version is stale,
@@ -696,6 +701,7 @@ pub trait CatalogUnitOfWork: Send + Sync {
         id: ParcelId,
         expected_version: i64,
         new_kind: ParcelKind,
+        applied_by: StaffId,
     ) -> Result<Parcel, CatalogError>;
 
     /// Switches the active vector tile manifest pointer to an existing immutable version.
