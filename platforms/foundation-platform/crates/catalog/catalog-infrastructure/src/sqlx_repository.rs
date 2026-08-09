@@ -9,10 +9,9 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError,
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
-    Manufacturer, MarkerTileRequest, Parcel, ParcelIndustryAssignment, PublicationUnit,
-    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
-    ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, PublicationUnit, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind,
+    SpatialLayer, StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
     ComplexId, FileAssetId, NoticeId, ParcelId, SourceRecordId, VectorTileDataRevisionId,
@@ -25,9 +24,8 @@ use uuid::Uuid;
 use crate::row_map::{
     map_sqlx, row_to_blueprint, row_to_building, row_to_complex, row_to_complex_notice,
     row_to_digital_twin_asset, row_to_file_asset, row_to_industry_group,
-    row_to_industry_group_member, row_to_manufacturer, row_to_parcel,
-    row_to_parcel_industry_assignment, row_to_spatial_layer, row_to_vector_tile_artifact,
-    row_to_vector_tile_manifest,
+    row_to_industry_group_member, row_to_parcel, row_to_parcel_industry_assignment,
+    row_to_spatial_layer, row_to_vector_tile_artifact, row_to_vector_tile_manifest,
 };
 use serde_json::Value as JsonValue;
 
@@ -223,49 +221,6 @@ impl CatalogRepository for PgCatalogRepository {
         row_opt.as_ref().map(row_to_parcel).transpose()
     }
 
-    async fn list_parcels_by_complex(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Vec<Parcel>, CatalogError> {
-        let rows = sqlx::query(
-            "SELECT p.id, p.complex_id, pci.identifier_value AS pnu, p.kind,
-                    p.area_m2, p.created_at, p.updated_at, p.version
-             FROM catalog.parcel p
-             JOIN catalog.parcel_current_identifier pci ON pci.parcel_id = p.id
-             WHERE complex_id = $1
-             ORDER BY pci.identifier_value",
-        )
-        .bind(complex_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-
-        rows.iter().map(row_to_parcel).collect()
-    }
-
-    async fn list_buildings_by_complex(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Vec<Building>, CatalogError> {
-        let rows = sqlx::query(
-            "SELECT b.id, b.parcel_id, b.purpose_code, b.structure_code,
-                    b.floor_area_m2, b.stories, b.below_ground_floors, b.has_rooftop,
-                    b.rooftop_area_m2, b.rooftop_usage,
-                    b.built_year, b.updated_at
-             FROM catalog.building b
-             JOIN catalog.parcel p ON p.id = b.parcel_id
-             JOIN catalog.parcel_current_identifier pci ON pci.parcel_id = p.id
-             WHERE p.complex_id = $1
-             ORDER BY pci.identifier_value, b.updated_at DESC, b.id",
-        )
-        .bind(complex_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-
-        rows.iter().map(row_to_building).collect()
-    }
-
     async fn list_buildings_by_pnu(&self, pnu: &Pnu) -> Result<Vec<Building>, CatalogError> {
         let rows = sqlx::query(
             "SELECT b.id, b.parcel_id, b.purpose_code, b.structure_code,
@@ -284,26 +239,6 @@ impl CatalogRepository for PgCatalogRepository {
         .map_err(map_sqlx)?;
 
         rows.iter().map(row_to_building).collect()
-    }
-
-    async fn list_manufacturers_by_complex(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Vec<Manufacturer>, CatalogError> {
-        let rows = sqlx::query(
-            "SELECT m.id, m.primary_parcel_id, m.name, m.ksic_code,
-                    m.business_registration_number, m.updated_at
-             FROM catalog.manufacturer m
-             JOIN catalog.parcel p ON p.id = m.primary_parcel_id
-             WHERE p.complex_id = $1
-             ORDER BY m.name, m.id",
-        )
-        .bind(complex_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-
-        rows.iter().map(row_to_manufacturer).collect()
     }
 
     async fn list_complex_notices(

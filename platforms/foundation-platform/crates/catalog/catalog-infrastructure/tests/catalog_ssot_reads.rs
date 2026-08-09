@@ -43,22 +43,11 @@ async fn repository_reads_industrial_complex_ssot_subresources() {
     fixture.cleanup(&pool).await;
 }
 
+// The complex-scoped parcel, building and manufacturer reads were deleted rather than migrated to
+// the membership table: nothing in this repository called them and the traffic-auth policy registry
+// declared no cross-repo consumer either (ADR-0021). What is left here is the PNU-scoped read, which
+// is the one gongzzang actually calls.
 async fn assert_core_subresource_reads(repo: &PgCatalogRepository, fixture: &SsotFixture) {
-    let parcels = repo
-        .list_parcels_by_complex(fixture.complex.id)
-        .await
-        .expect("list parcels");
-    assert_eq!(parcels.len(), 1);
-    assert_eq!(parcels[0].id, fixture.parcel_id);
-
-    let buildings = repo
-        .list_buildings_by_complex(fixture.complex.id)
-        .await
-        .expect("list buildings");
-    assert_eq!(buildings.len(), 1);
-    assert_eq!(buildings[0].parcel_id, fixture.parcel_id);
-    assert_eq!(buildings[0].purpose_code, "02000");
-
     let pnu = Pnu::parse(fixture.pnu.clone()).expect("fixture pnu");
     let buildings_by_pnu = repo
         .list_buildings_by_pnu(&pnu)
@@ -67,14 +56,6 @@ async fn assert_core_subresource_reads(repo: &PgCatalogRepository, fixture: &Sso
     assert_eq!(buildings_by_pnu.len(), 1);
     assert_eq!(buildings_by_pnu[0].parcel_id, fixture.parcel_id);
     assert_eq!(buildings_by_pnu[0].purpose_code, "02000");
-
-    let manufacturers = repo
-        .list_manufacturers_by_complex(fixture.complex.id)
-        .await
-        .expect("list manufacturers");
-    assert_eq!(manufacturers.len(), 1);
-    assert_eq!(manufacturers[0].primary_parcel_id, fixture.parcel_id);
-    assert_eq!(manufacturers[0].name, "Fixture Manufacturing");
 }
 
 async fn assert_document_subresource_reads(repo: &PgCatalogRepository, fixture: &SsotFixture) {

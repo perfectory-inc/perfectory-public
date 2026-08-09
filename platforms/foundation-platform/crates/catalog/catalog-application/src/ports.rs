@@ -10,8 +10,8 @@ use catalog_domain::{
     Blueprint, BuildEvidenceDigest, Building, CanonicalIcebergSnapshotId, CatalogError,
     CatalogMutationKind, ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset,
     FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup, IndustryGroupMember,
-    Manufacturer, MarkerAnchorAlgorithm, MarkerTileRequest, Parcel, ParcelIndustryAssignment,
-    ParcelKind, PmtilesChecksum, RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer,
+    MarkerAnchorAlgorithm, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
+    PmtilesChecksum, RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer,
     RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
     VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
 };
@@ -533,38 +533,11 @@ pub trait CatalogRepository: Send + Sync {
     /// Returns `CatalogError` when repository access fails.
     async fn find_parcel_by_pnu(&self, pnu: &Pnu) -> Result<Option<Parcel>, CatalogError>;
 
-    /// Lists parcels that belong to one industrial complex.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_parcels_by_complex(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Vec<Parcel>, CatalogError>;
-
-    /// Lists buildings on parcels that belong to one industrial complex.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_buildings_by_complex(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Vec<Building>, CatalogError>;
-
     /// Lists buildings on one parcel identified by PNU.
     ///
     /// # Errors
     /// Returns `CatalogError` when repository access fails.
     async fn list_buildings_by_pnu(&self, pnu: &Pnu) -> Result<Vec<Building>, CatalogError>;
-
-    /// Lists manufacturers on parcels that belong to one industrial complex.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_manufacturers_by_complex(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Vec<Manufacturer>, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

@@ -183,6 +183,12 @@ pub struct UnitResponse {
 }
 
 /// Manufacturer read response that deliberately omits sensitive business identifiers.
+///
+/// No route returns this today: the complex-scoped manufacturer list was deleted rather than
+/// migrated to the membership table, because nothing called it (ADR-0021). The shape is kept
+/// because its field list *is* a decision — `business_registration_number` is on the domain type
+/// and deliberately absent here — and that decision would be silently lost if the type went with
+/// the route. A future manufacturer read starts from this shape rather than re-deciding it.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct ManufacturerResponse {
     /// Stable foundation-platform identifier for the manufacturer.

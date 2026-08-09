@@ -6,15 +6,15 @@
 use catalog_domain::{
     Blueprint, BlueprintKind, Building, CatalogError, ComplexNotice, DigitalTwinAsset,
     DigitalTwinAssetKind, FileAsset, FileAssetVisibility, IndustrialComplex, IndustrialComplexKind,
-    IndustryAssignmentKind, IndustryCodeSystem, IndustryGroup, IndustryGroupMember, Manufacturer,
-    NoticeType, Parcel, ParcelIndustryAssignment, ParcelKind, SpatialLayer, SpatialLayerKind,
-    TilesUrlTemplate, VectorTileArtifact, VectorTileLineage, VectorTileManifest, ZoomRange,
+    IndustryAssignmentKind, IndustryCodeSystem, IndustryGroup, IndustryGroupMember, NoticeType,
+    Parcel, ParcelIndustryAssignment, ParcelKind, SpatialLayer, SpatialLayerKind, TilesUrlTemplate,
+    VectorTileArtifact, VectorTileLineage, VectorTileManifest, ZoomRange,
 };
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::{
     BlueprintId, BuildingId, ComplexId, DigitalTwinAssetId, FileAssetId, IndustryAssignmentId,
-    IndustryGroupId, ManufacturerId, NoticeId, ParcelId, SourceRecordId, SpatialLayerId,
-    VectorTileArtifactId, VectorTileManifestId,
+    IndustryGroupId, NoticeId, ParcelId, SourceRecordId, SpatialLayerId, VectorTileArtifactId,
+    VectorTileManifestId,
 };
 use foundation_shared_kernel::pnu::Pnu;
 use foundation_shared_kernel::{ObjectKey, ObjectKeyPrefix};
@@ -83,24 +83,6 @@ pub fn row_to_building(row: &PgRow) -> Result<Building, CatalogError> {
         rooftop_area_m2: row.try_get("rooftop_area_m2").map_err(map_sqlx)?,
         rooftop_usage: row.try_get("rooftop_usage").map_err(map_sqlx)?,
         built_year: row.try_get("built_year").map_err(map_sqlx)?,
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_sqlx)?,
-    })
-}
-
-pub fn row_to_manufacturer(row: &PgRow) -> Result<Manufacturer, CatalogError> {
-    Ok(Manufacturer {
-        id: ManufacturerId::new(row.try_get::<Uuid, _>("id").map_err(map_sqlx)?),
-        primary_parcel_id: ParcelId::new(
-            row.try_get::<Uuid, _>("primary_parcel_id")
-                .map_err(map_sqlx)?,
-        ),
-        name: row.try_get("name").map_err(map_sqlx)?,
-        ksic_code: row.try_get("ksic_code").map_err(map_sqlx)?,
-        business_registration_number: row
-            .try_get("business_registration_number")
-            .map_err(map_sqlx)?,
         updated_at: row
             .try_get::<DateTime<Utc>, _>("updated_at")
             .map_err(map_sqlx)?,

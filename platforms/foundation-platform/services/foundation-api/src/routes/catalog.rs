@@ -24,22 +24,21 @@ use catalog_application::{
 use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
-    IndustryGroupMember, Manufacturer, MarkerTileRequest, Parcel, ParcelIndustryAssignment,
-    ParcelKind, SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    IndustryGroupMember, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
+    SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::BuildingUnitRow;
 use foundation_contracts::catalog::{
     ArchiveComplexRequest, BlueprintResponse, BuildingResponse, ComplexAnchorSummaryResponse,
     ComplexNoticeResponse, DigitalTwinAssetResponse, FileAssetResponse,
     IndustrialComplexGoldPointerResponse, IndustrialComplexResponse, IndustryGroupMemberResponse,
-    IndustryGroupResponse, ManufacturerResponse, MarkerTileContractResponse,
-    ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
-    ParcelMarkerAnchorRebuildResponse, ParcelResponse, PromoteFileAssetRequest,
-    PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
-    RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse, UnitResponse,
-    UpdateComplexRequest, UpdateParcelKindRequest, VectorTileArtifactResponse,
-    VectorTileDynamicPostgisResponse, VectorTileLineageResponse, VectorTileManifestResponse,
-    VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
+    IndustryGroupResponse, MarkerTileContractResponse, ParcelIndustryAssignmentResponse,
+    ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse, ParcelResponse,
+    PromoteFileAssetRequest, PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest,
+    PromoteVectorTileManifestRequest, RegisterComplexRequest, RollbackVectorTileManifestRequest,
+    SpatialLayerResponse, UnitResponse, UpdateComplexRequest, UpdateParcelKindRequest,
+    VectorTileArtifactResponse, VectorTileDynamicPostgisResponse, VectorTileLineageResponse,
+    VectorTileManifestResponse, VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
     VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
     VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
@@ -247,47 +246,6 @@ pub async fn list_complexes(
 
 #[utoipa::path(
     get,
-    path = "/catalog/v1/complexes/{id}/parcels",
-    operation_id = "listComplexParcels",
-    params(("id" = Uuid, Path, description = "Industrial complex id")),
-    responses((status = 200, body = [ParcelResponse])),
-    security(("bearerAuth" = []))
-)]
-pub async fn list_complex_parcels(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-    Extension(_principal): Extension<AuthorizedPrincipal>,
-) -> Result<Json<Vec<ParcelResponse>>, ApiError> {
-    let parcels = state
-        .catalog_repo
-        .list_parcels_by_complex(ComplexId::new(id))
-        .await?;
-
-    Ok(Json(parcels.iter().map(parcel_response).collect()))
-}
-
-#[utoipa::path(
-    get,
-    path = "/catalog/v1/complexes/{id}/buildings",
-    operation_id = "listComplexBuildings",
-    params(("id" = Uuid, Path, description = "Industrial complex id")),
-    responses((status = 200, body = [BuildingResponse])),
-    security(("bearerAuth" = []))
-)]
-pub async fn list_complex_buildings(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<Vec<BuildingResponse>>, ApiError> {
-    let buildings = state
-        .catalog_repo
-        .list_buildings_by_complex(ComplexId::new(id))
-        .await?;
-
-    Ok(Json(buildings.iter().map(building_response).collect()))
-}
-
-#[utoipa::path(
-    get,
     path = "/catalog/v1/parcels/by-pnu/{pnu}/buildings",
     operation_id = "listParcelBuildingsByPnu",
     params((
@@ -365,27 +323,6 @@ pub async fn get_parcel_by_pnu(
         .ok_or_else(|| ApiError::NotFound(pnu.as_str().to_owned()))?;
 
     Ok(Json(parcel_response(&parcel)))
-}
-
-#[utoipa::path(
-    get,
-    path = "/catalog/v1/complexes/{id}/manufacturers",
-    operation_id = "listComplexManufacturers",
-    params(("id" = Uuid, Path, description = "Industrial complex id")),
-    responses((status = 200, body = [ManufacturerResponse]))
-)]
-pub async fn list_complex_manufacturers(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<Vec<ManufacturerResponse>>, ApiError> {
-    let manufacturers = state
-        .catalog_repo
-        .list_manufacturers_by_complex(ComplexId::new(id))
-        .await?;
-
-    Ok(Json(
-        manufacturers.iter().map(manufacturer_response).collect(),
-    ))
 }
 
 #[utoipa::path(
@@ -1003,16 +940,6 @@ fn building_response(building: &Building) -> BuildingResponse {
         rooftop_usage: building.rooftop_usage.clone(),
         built_year: building.built_year,
         updated_at: building.updated_at,
-    }
-}
-
-fn manufacturer_response(manufacturer: &Manufacturer) -> ManufacturerResponse {
-    ManufacturerResponse {
-        id: manufacturer.id.as_uuid(),
-        primary_parcel_id: manufacturer.primary_parcel_id.as_uuid(),
-        name: manufacturer.name.clone(),
-        ksic_code: manufacturer.ksic_code.clone(),
-        updated_at: manufacturer.updated_at,
     }
 }
 

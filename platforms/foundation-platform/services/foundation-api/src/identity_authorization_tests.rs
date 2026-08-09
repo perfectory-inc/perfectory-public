@@ -878,10 +878,15 @@ fn service_route_cases() -> [ServiceRouteCase; 6] {
             action: "read",
             resource_id: Some("9999900101100090000"),
         },
+        // Was `complex_parcels` until ADR-0021 deleted that route. Replaced rather than dropped:
+        // this is the matrix's only complex-id-scoped case, so removing it would have stopped
+        // anything from proving that a complex route passes its own `{id}` to the policy as the
+        // resource id. `/notices` carries the identical `protected_route(.., SERVICE_CATALOG_READ,
+        // Some("id"))` shape.
         ServiceRouteCase {
-            name: "complex_parcels",
+            name: "complex_notices",
             method: Method::GET,
-            uri: "/catalog/v1/complexes/018f7c6a-0000-7000-8000-000000000001/parcels",
+            uri: "/catalog/v1/complexes/018f7c6a-0000-7000-8000-000000000001/notices",
             resource: "foundation.catalog",
             action: "read",
             resource_id: Some("018f7c6a-0000-7000-8000-000000000001"),

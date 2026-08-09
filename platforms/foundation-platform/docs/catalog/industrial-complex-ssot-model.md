@@ -142,13 +142,19 @@ DB/API 이름은 `object_key` 와 `objectKey` 를 쓴다. `s3_key`, `s3Key`, `S3
 
 ### 5.1 Read API
 
+> **2026-08-09.** 산단 스코프 필지·건물·제조사 목록(`/complexes/{id}/parcels`, `.../buildings`,
+> `.../manufacturers`)과 `parcels:bulk-upsert`는 이 표에서 **삭제됐다.** 저장소 안에 호출자가
+> 없었고 트래픽·인증 정책 등록부도 크로스 저장소 소비자를 선언하지 않았으므로, 소속 표로 옮기지
+> 않고 지웠다 — 근거와 기각한 대안은
+> [ADR-0021](../../../../docs/adr/0021-an-unread-surface-is-deleted-not-migrated.md). 구현이
+> 빠진 것이 아니라 없애기로 한 것이다. `anchor-summary`는 등록부가 Dawneer를 지명하므로 남으며,
+> [ADR-0019](../../../../docs/adr/0019-membership-is-a-dated-fact-not-a-column.md)의 읽기 이전
+> 대상이다.
+
 | Endpoint | Consumer | 설명 |
 |---|---|---|
 | `GET /catalog/v1/complexes/{id}` | 모두 | 산업단지 기본 정보 |
-| `GET /catalog/v1/complexes/{id}/parcels` | 모두 | 산단 필지 목록 |
 | `GET /catalog/v1/parcels/{id}` | 모두 | 단일 필지 |
-| `GET /catalog/v1/complexes/{id}/buildings` | 모두 | 산단 건물 목록 |
-| `GET /catalog/v1/complexes/{id}/manufacturers` | 모두 | 입주 제조사 목록 |
 | `GET /catalog/v1/complexes/{id}/notices` | Dawneer 중심 | 공지/고시 |
 | `GET /catalog/v1/complexes/{id}/attachments` | 모두 | 공식 첨부/이미지 |
 | `GET /catalog/v1/complexes/{id}/blueprints` | Dawneer 중심 | 도면 |
@@ -167,7 +173,6 @@ Write API 는 Staff 권한만 허용한다. Consumer 서비스가 자기 DB 를 
 |---|---|---|
 | `POST /catalog/v1/complexes` | Catalog admin | 산단 등록 |
 | `PATCH /catalog/v1/complexes/{id}` | Catalog admin | 산단 기본 정보 갱신 |
-| `PUT /catalog/v1/complexes/{id}/parcels:bulk-upsert` | ETL/admin | 필지 upsert |
 | `PUT /catalog/v1/complexes/{id}/notices:bulk-upsert` | ETL/admin | 공지 upsert |
 | `POST /catalog/v1/file-assets` | Catalog admin | R2 object metadata 등록 |
 | `PUT /catalog/v1/complexes/{id}/blueprints` | Catalog admin | 도면 등록/교체 |
