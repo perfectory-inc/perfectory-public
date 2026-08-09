@@ -115,11 +115,12 @@ last_reviewed: 2026-08-05
 
 - [ ] 1단계 — `catalog.parcel_complex_membership`을 추가하고 기존 `parcel.complex_id`에서
       백필한다. 기존 컬럼을 건드리지 않으므로 단독 배포 가능하다.
-- [ ] 2단계 — `/complexes/{id}/anchor-summary`의 읽기를 소속 표로 옮기고 `parcel.complex_id`에
-      쓰기 금지 트리거를 건다. 두 경로가 같은 답을 내는지 대조하는 테스트가 먼저다. 나머지 산단
-      스코프 읽기 셋은 옮기지 않고 삭제했다
-      ([ADR-0021](../adr/0021-an-unread-surface-is-deleted-not-migrated.md)) — 이전 대상은 넷이
-      아니라 **하나**다.
+- [x] 2단계 — `/complexes/{id}/anchor-summary`의 읽기를 소속 표로 옮기고 `parcel.complex_id`에
+      쓰기 금지 트리거를 걸었다. "현재"는 오늘이며 그 술어는 `catalog.parcel_current_complex`
+      하나가 소유한다 ([ADR-0022](../adr/0022-current-means-today-and-one-view-says-so.md)).
+      나머지 산단 스코프 읽기 셋은 옮기지 않고 삭제했으므로
+      ([ADR-0021](../adr/0021-an-unread-surface-is-deleted-not-migrated.md)) 이전 대상은 넷이
+      아니라 하나였다.
 - [ ] 3단계 — 컬럼과 `ParcelResponse.complex_id`를 제거한다. OpenAPI 사본 두 개를 함께 고친다.
 - [ ] 4단계 — 부속지번 실버가 실물이 된 뒤 `catalog.building_parcel`과
       `building_unit.building_id`를 착수한다. 지금은 소스가 `planned`라 착수하지 않는다.
@@ -251,7 +252,8 @@ ADR-0011의 후속 작업은 발견한 테스트를 나중에 잡는 데서 멈�
 | [0018 두 언어의 어휘 대조](../adr/0018-a-vocabulary-written-in-two-languages-is-compared.md) | 3 | 2 | catalog 밖 도메인 어휘 미대조, 제약 읽기가 단일 목록 형태에 한정 | 2 |
 | [0019 소속은 기간을 가진 사실](../adr/0019-membership-is-a-dated-fact-not-a-column.md) | 4 | 4 | 필지 전이표 부재, 건물↔필지·호실→건물 미교정, 소속 표의 운영 생산자 부재, 산단의 시군구 코드가 스칼라 | 1 |
 | [0020 도형은 사실의 근거가 아니다](../adr/0020-geometry-is-not-evidence-for-a-fact.md) | 4 | 3 | `sandan_parcel` 수집기 부재, 한 필지 한 산단 미실측, 레이크하우스 계약의 도형 어휘 잔존, 덮어쓰기형 표 전환 | 1 |
-| [0021 안 읽히는 표면은 지운다](../adr/0021-an-unread-surface-is-deleted-not-migrated.md) | 3 | 3 | `anchor-summary` 읽기 이전, 산단 SSOT 제안 문서 전면 재검토, 등록부와 실물 라우트 대조 검사 부재 | 2 |
+| [0021 안 읽히는 표면은 지운다](../adr/0021-an-unread-surface-is-deleted-not-migrated.md) | 3 | 2 | (`anchor-summary` 읽기 이전은 0022가 해소) 산단 SSOT 제안 문서 전면 재검토, 등록부와 실물 라우트 대조 검사 부재 | 2 |
+| [0022 "현재"는 오늘이다](../adr/0022-current-means-today-and-one-view-says-so.md) | 3 | 3 | `CURRENT_DATE` 시간대 미지정, `as_of` 파라미터 보류, `parcel.complex_id` INSERT는 여전히 자유 | 2 |
 
 2026-08-06에 0018이 더해졌다(기록 3, 열림 2). 세 번째 항목은 0017 남은 부채 3과 **같은 건**이므로
 열림으로 세지 않는다 — 같은 일을 두 번 세는 것이 이 표가 피하려는 것이다.
@@ -272,6 +274,11 @@ ADR-0011의 후속 작업은 발견한 테스트를 나중에 잡는 데서 멈�
 §이행 순서 2가 이미 담고 있던 일을 **좁힌** 것이지 새로 만든 것이 아니다 — 대상이 넷에서 하나로
 줄었으므로 이 표에서는 0019 쪽이 아니라 여기에 적어 남은 범위를 정확히 보이게 한다.
 표 합계는 기록 51, 열림 29다.
+
+2026-08-10에 0022가 더해졌다(기록 3, 열림 3). 동시에 0021의 첫 항목(`anchor-summary` 읽기 이전)이
+닫혔으므로 0021은 열림 3 → 2가 된다. 0022의 첫 항목(`CURRENT_DATE` 시간대)은 **이 결정이 만든 것이
+아니라** `parcel_current_identifier`가 이미 갖고 있던 문제를 하나 늘린 것이며, 둘을 함께 고쳐야
+하므로 한 항목으로 센다. 표 합계는 기록 54, 열림 31이다.
 
 대조에서 나온 두 가지를 여기 적어 둔다. **2026-08-05 대조 시점의 열린 19개 중 상당수는 코드로 닫히지 않는다** — 자격증명
 (5타깃), 정본 실버의 소유자(parcels 적재기), 클라이언트 구현(멱등성 키 발급)처럼 결정이 먼저인

@@ -30,6 +30,13 @@ static MIGRATOR: Migrator = sqlx::migrate!("../../../migrations");
 /// Version of the migration under test, spelled once.
 const MEMBERSHIP_MIGRATION_VERSION: i64 = 20_260_809_000_001;
 
+/// Version of the migration that adds `catalog.parcel_current_complex`, spelled once.
+///
+/// The backfill test runs through this one rather than stopping at the membership migration,
+/// because the parity assertion needs the view. It adds a view and a trigger and writes no rows, so
+/// applying it to a database whose parcel was inserted by hand between passes changes nothing.
+const CURRENT_COMPLEX_VIEW_MIGRATION_VERSION: i64 = 20_260_810_000_001;
+
 /// Connection for this `#[ignore]`d live suite. A missing `DATABASE_URL` aborts the test instead of
 /// yielding `None`: these tests run only when a harness asked for them, so an absent database is a
 /// provisioning failure — not a reason to report success.
@@ -469,23 +476,73 @@ async fn a_membership_snapshot_must_match_its_revision() -> TestResult {
     Ok(())
 }
 
+/// Moving a parcel by writing the old column is refused.
+///
+/// The column outlives step 2 and still holds the value the backfill copied. An UPDATE is the only
+/// way it and the membership table can start disagreeing, and the test above would then be the
+/// thing that notices — long after. This refuses the write instead.
+#[tokio::test]
+#[ignore = "requires disposable Postgres with Foundation migrations"]
+async fn moving_a_parcel_by_writing_the_frozen_column_is_refused() -> TestResult {
+    let pool = pool().await?;
+    let mut tx = pool.begin().await?;
+    let fixture = Fixture::insert(&mut tx).await?;
+
+    let mut move_tx = tx.begin().await?;
+    let moved = sqlx::query("UPDATE catalog.parcel SET complex_id = $1 WHERE id = $2")
+        .bind(fixture.other_complex_id)
+        .bind(fixture.parcel_id)
+        .execute(&mut *move_tx)
+        .await;
+    assert!(
+        moved.is_err(),
+        "catalog.parcel.complex_id is frozen; membership is written to the membership table"
+    );
+    move_tx.rollback().await?;
+
+    // An UPDATE that leaves the column alone must still be accepted, or the guard would have
+    // frozen the whole row rather than one projection.
+    let mut kind_tx = tx.begin().await?;
+    sqlx::query("UPDATE catalog.parcel SET kind = 'support' WHERE id = $1")
+        .bind(fixture.parcel_id)
+        .execute(&mut *kind_tx)
+        .await?;
+    kind_tx.rollback().await?;
+
+    // And writing the same value back is not a move, so it is not refused either.
+    let mut same_tx = tx.begin().await?;
+    sqlx::query("UPDATE catalog.parcel SET complex_id = $1 WHERE id = $2")
+        .bind(fixture.complex_id)
+        .bind(fixture.parcel_id)
+        .execute(&mut *same_tx)
+        .await?;
+    same_tx.rollback().await?;
+
+    tx.rollback().await?;
+    Ok(())
+}
+
 /// The migrations that precede the membership migration.
 ///
 /// A backfill is only observable on a database that held rows before it ran. Applying every
 /// migration and inserting afterwards leaves the backfill nothing to find, and such a test passes
 /// unchanged against a migration whose `INSERT` was deleted — which is the whole reason this
 /// two-pass split exists rather than a single `MIGRATOR.run`.
-fn migrations_before_membership() -> Migrator {
+///
+/// The second pass stops at the membership migration rather than running the rest. It used to
+/// assert that nothing followed it, which stopped being true the moment step 2 added one. Bounding
+/// both passes is the better answer anyway: a later migration applied here would run against a
+/// database whose parcel was inserted by hand between passes, which is not a state the harness ever
+/// produces, and this test has nothing to say about migrations after the one it is about.
+fn migrations_up_to(last_version: i64) -> Migrator {
     let migrations: Vec<Migration> = MIGRATOR
         .iter()
-        .filter(|migration| migration.version < MEMBERSHIP_MIGRATION_VERSION)
+        .filter(|migration| migration.version <= last_version)
         .cloned()
         .collect();
-    assert_eq!(
-        migrations.len() + 1,
-        MIGRATOR.iter().count(),
-        "the membership migration must be the last one; a later migration would be skipped by \
-         this pass and then applied by the second, in an order the harness never runs"
+    assert!(
+        !migrations.is_empty(),
+        "no migration at or before version {last_version}; the constant is stale"
     );
     Migrator {
         migrations: Cow::Owned(migrations),
@@ -505,7 +562,9 @@ fn migrations_before_membership() -> Migrator {
 #[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
 async fn a_pre_existing_parcel_is_backfilled_with_its_membership() -> TestResult {
     run_in_disposable_database("parcel_complex_backfill", |pool| async move {
-        migrations_before_membership().run(&pool).await?;
+        migrations_up_to(MEMBERSHIP_MIGRATION_VERSION - 1)
+            .run(&pool)
+            .await?;
 
         let complex_id = Uuid::new_v4();
         let parcel_id = Uuid::new_v4();
@@ -529,7 +588,9 @@ async fn a_pre_existing_parcel_is_backfilled_with_its_membership() -> TestResult
         .execute(&pool)
         .await?;
 
-        MIGRATOR.run(&pool).await?;
+        migrations_up_to(CURRENT_COMPLEX_VIEW_MIGRATION_VERSION)
+            .run(&pool)
+            .await?;
 
         let row = sqlx::query(
             "SELECT m.complex_id,
@@ -576,6 +637,33 @@ async fn a_pre_existing_parcel_is_backfilled_with_its_membership() -> TestResult
         .fetch_one(&pool)
         .await?;
         assert_eq!(memberships, 1, "the backfill writes one row per parcel");
+
+        // The step-2 parity assertion, and it belongs here rather than against the shared harness
+        // database. That database is migrated from empty, so the backfill finds no parcels and a
+        // parity check there compares nothing to nothing — it stayed green with the view's
+        // predicate deliberately pinned to 1900, which is how this was found. Here a backfilled
+        // parcel exists, so both halves have something to say.
+        let current_complex = sqlx::query_scalar::<_, Uuid>(
+            "SELECT complex_id FROM catalog.parcel_current_complex WHERE parcel_id = $1",
+        )
+        .bind(parcel_id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(
+            current_complex, complex_id,
+            "the view must name the same complex the frozen column does"
+        );
+
+        let column_complex = sqlx::query_scalar::<_, Uuid>(
+            "SELECT complex_id FROM catalog.parcel WHERE id = $1",
+        )
+        .bind(parcel_id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(
+            column_complex, current_complex,
+            "step 2 moved a read from the column to the view; they must answer alike"
+        );
 
         Ok(())
     })

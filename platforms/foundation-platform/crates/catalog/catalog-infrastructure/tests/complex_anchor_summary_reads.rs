@@ -65,6 +65,12 @@ struct ComplexAnchorSummaryFixture {
     first_pnu: String,
     second_pnu: String,
     source_snapshot_id: String,
+    // The summary reads membership, not `catalog.parcel.complex_id` (ADR-0019 step 2). The step-1
+    // backfill only reached parcels that existed when that migration ran, so a fixture creating
+    // parcels afterwards has to state their membership itself — an inherited one does not exist.
+    membership_source_record_id: Uuid,
+    membership_revision_id: Uuid,
+    membership_snapshot_id: String,
 }
 
 impl ComplexAnchorSummaryFixture {
@@ -96,6 +102,12 @@ impl ComplexAnchorSummaryFixture {
                 "iceberg:complex-anchor-summary-{}",
                 Uuid::new_v4().simple()
             ),
+            membership_source_record_id: Uuid::now_v7(),
+            membership_revision_id: Uuid::now_v7(),
+            membership_snapshot_id: format!(
+                "iceberg:anchor-summary-membership-{}",
+                Uuid::new_v4().simple()
+            ),
         }
     }
 
@@ -124,6 +136,8 @@ impl ComplexAnchorSummaryFixture {
         .bind(&self.second_pnu)
         .execute(pool)
         .await?;
+
+        self.insert_membership(pool).await?;
 
         sqlx::query(
             "INSERT INTO catalog.parcel_marker_anchor_generation_run
@@ -166,6 +180,58 @@ impl ComplexAnchorSummaryFixture {
         Ok(())
     }
 
+    /// States that both fixture parcels belong to the fixture complex today.
+    ///
+    /// Separate from `insert` because it is a different job: the anchors above are the thing under
+    /// test, and this is the membership the summary now filters by (ADR-0019 step 2). The interval
+    /// opens in the past and stays open, so `parcel_current_complex` selects both rows on any day
+    /// this test runs.
+    async fn insert_membership(&self, pool: &PgPool) -> TestResult {
+        sqlx::query(
+            "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
+             VALUES ($1, 'test', $2, repeat('c', 64))",
+        )
+        .bind(self.membership_source_record_id)
+        .bind(format!(
+            "anchor-summary-membership-{}",
+            self.membership_source_record_id
+        ))
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO catalog.administrative_boundary_revision
+             (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id, status,
+              validated_at)
+             VALUES ($1, '8101', $2, $3, 'validated', now())",
+        )
+        .bind(self.membership_revision_id)
+        .bind(&self.membership_snapshot_id)
+        .bind(self.membership_source_record_id)
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO catalog.parcel_complex_membership
+             (id, parcel_id, complex_id, asserted_by, effective_period, data_revision,
+              source_snapshot_id, source_record_id)
+             VALUES (gen_random_uuid(), $1, $2, 'official_list', '[2020-01-01,)'::daterange,
+                     $3, $4, $5),
+                    (gen_random_uuid(), $6, $2, 'official_list', '[2020-01-01,)'::daterange,
+                     $3, $4, $5)",
+        )
+        .bind(self.first_parcel_id.as_uuid())
+        .bind(self.complex_id.as_uuid())
+        .bind(self.membership_revision_id)
+        .bind(&self.membership_snapshot_id)
+        .bind(self.membership_source_record_id)
+        .bind(self.second_parcel_id.as_uuid())
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
     async fn cleanup(&self, pool: &PgPool) -> TestResult {
         sqlx::query(
             "DELETE FROM catalog.parcel_marker_anchor
@@ -186,14 +252,40 @@ impl ComplexAnchorSummaryFixture {
         .bind(&self.source_snapshot_id)
         .execute(pool)
         .await?;
+        // Membership rows and revisions are append-only, and the parcel foreign key is RESTRICT, so
+        // they have to go first and only the publisher capability may remove them. Taking that
+        // capability here is the point of the trigger rather than a way around it: a fixture that
+        // could erase history without it would mean nothing else needed it either.
+        //
+        // One transaction, and `set_config(.., true)` so the setting is transaction-scoped. Session
+        // scope (`false`) does not work through a pool: each `execute(pool)` borrows whatever
+        // connection is free, so the setting and the DELETE land on different sessions and the
+        // trigger refuses the delete. That is the 42501 this cleanup first failed with.
+        let mut tx = pool.begin().await?;
+        sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM catalog.parcel_complex_membership WHERE complex_id = $1")
+            .bind(self.complex_id.as_uuid())
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM catalog.parcel WHERE complex_id = $1")
             .bind(self.complex_id.as_uuid())
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM catalog.industrial_complex WHERE id = $1")
             .bind(self.complex_id.as_uuid())
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM catalog.administrative_boundary_revision WHERE id = $1")
+            .bind(self.membership_revision_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM catalog.source_record WHERE id = $1")
+            .bind(self.membership_source_record_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
         Ok(())
     }
 }

@@ -157,7 +157,16 @@ impl CatalogRepository for PgCatalogRepository {
                ON (pma.parcel_id = p.id
                    OR (pma.parcel_id IS NULL AND pma.pnu = pci.identifier_value))
               AND pma.is_active
-             WHERE p.complex_id = $1",
+             -- Membership, not `p.complex_id` (ADR-0019 step 2). `parcel_current_complex` owns the
+             -- CURRENT_DATE predicate so this query does not restate it (ADR-0022). EXISTS rather
+             -- than a join because this is an aggregate and a join states the wrong intent — the
+             -- single exclusion on the membership table already makes a duplicate row impossible.
+             WHERE EXISTS (
+                 SELECT 1
+                   FROM catalog.parcel_current_complex pcc
+                  WHERE pcc.parcel_id = p.id
+                    AND pcc.complex_id = $1
+             )",
         )
         .bind(complex_id.as_uuid())
         .fetch_one(&self.pool)
