@@ -55,7 +55,7 @@ last_reviewed: 2026-08-06
 
 **불변식.** canonical 표는 생산자를 가지거나, 생산자가 없다는 사실이 선언되어 있다.
 
-**지표.** 생산자 없는 canonical 표 = **21 / 58** → 0
+**지표.** 생산자 없는 canonical 표 = **21 / 59** → 0
 
 **재측정.** 마이그레이션의 `CREATE TABLE catalog.*`와, 테스트·시드를 뺀 `INSERT INTO` 대조
 (G0 생성기가 수행)

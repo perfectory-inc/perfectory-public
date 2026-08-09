@@ -44,13 +44,21 @@ set -euo pipefail
 # comes from `env::temp_dir()` at runtime rather than from the crate manifest
 # directory at compile time, which the first draft used and this guard priced.
 #
+# 81 -> 82: `catalog-infrastructure/tests/parcel_complex_membership.rs` declares a
+# third migrator site in that crate. ADR-0019's backfill is only observable on a
+# database that held parcels *before* the membership migration ran, so that test
+# applies the migrations in two passes and needs the migration set as a value it
+# can filter. Applying everything and inserting afterwards leaves the backfill
+# nothing to find, and such a test passes unchanged against a migration whose
+# `INSERT` was deleted — so the alternative is not a cheaper site but no assertion.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-81}"
+COMPILE_TIME_READ_BASELINE="${3:-82}"
 
 cd "$repo_root"
 

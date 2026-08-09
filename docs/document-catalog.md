@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **341개**
+- 문서 파일: **342개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,7 +19,7 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 40 |
+| Monorepo | 41 |
 | Repository tooling | 1 |
 
 ### 유형별
@@ -34,7 +34,7 @@
 | convention | 10 |
 | documentation | 32 |
 | draft | 2 |
-| evidence | 1 |
+| evidence | 2 |
 | fixture | 9 |
 | guide | 2 |
 | reference | 14 |
@@ -388,6 +388,7 @@ docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md
 docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md
 docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md
 docs/adr/0019-membership-is-a-dated-fact-not-a-column.md
+docs/adr/0020-geometry-is-not-evidence-for-a-fact.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -440,6 +441,7 @@ tools/github/README.md
 | `docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md` | Monorepo | ADR | current |
 | `docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md` | Monorepo | ADR | current |
 | `docs/adr/0019-membership-is-a-dated-fact-not-a-column.md` | Monorepo | ADR | current |
+| `docs/adr/0020-geometry-is-not-evidence-for-a-fact.md` | Monorepo | evidence | evidence |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

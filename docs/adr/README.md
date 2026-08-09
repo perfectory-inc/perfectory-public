@@ -31,3 +31,4 @@ last_reviewed: 2026-07-28
 - [0017 — 데이터 리비전은 그것이 개정하는 단위에 속한다](./0017-a-data-revision-belongs-to-the-unit-it-revises.md)
 - [0018 — 두 언어가 같은 어휘를 적으면 대조한다](./0018-a-vocabulary-written-in-two-languages-is-compared.md)
 - [0019 — 소속은 한쪽의 컬럼이 아니라 기간을 가진 사실이다](./0019-membership-is-a-dated-fact-not-a-column.md)
+- [0020 — 도형은 사실의 근거가 아니다](./0020-geometry-is-not-evidence-for-a-fact.md)

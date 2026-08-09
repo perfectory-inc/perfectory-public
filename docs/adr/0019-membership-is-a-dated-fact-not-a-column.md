@@ -11,6 +11,8 @@ last_reviewed: 2026-08-07
 - Date: 2026-08-07
 - 관련: [ADR-0017 데이터 리비전은 그것이 개정하는 단위에 속한다](./0017-a-data-revision-belongs-to-the-unit-it-revises.md), [ADR-0018 두 언어가 같은 어휘를 적으면 대조한다](./0018-a-vocabulary-written-in-two-languages-is-compared.md), [기반 목표 G1](../roadmap/foundation-goals.md)
 - 마이그레이션: `20260807000001_parcel_complex_membership.sql` (1단계)
+- 정정 (2026-08-09): 1단계는 실제로 `20260809000001_parcel_complex_membership.sql`로 작성됐다. 위 머리말과 §이행 순서 1의 `20260807000001`은 ADR을 적은 날 기준의 예정 파일명이며, 마이그레이션 버전은 작성일이어야 하므로 결정이 아니라 파일명만 고쳤다.
+- **§Decision 1의 어휘는 [ADR-0020](./0020-geometry-is-not-evidence-for-a-fact.md)이 대체한다 (2026-08-09).** `membership_kind`(`inside`/`intersects`/`candidate`/`excluded`), `source_method`의 `geometry_overlay`, `overlap_ratio`는 모두 **도형 판정을 전제한 어휘**였고, 다각형 포함관계는 소속의 근거가 될 수 없다. 이 ADR은 그 목록을 "발명하지 않았다"는 이유로 채택했는데, 어휘를 베끼면서 그 어휘가 담은 가정까지 들여온 것이 실수였다. 나머지 결정 — 소속이 기간을 가진 사실이라는 것, `parcel.complex_id` 제거, 건물↔필지·필지 전이의 모양, 이행 순서 — 는 그대로 유효하다.
 
 ## Context
 

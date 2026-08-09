@@ -19,9 +19,9 @@ use catalog_application::{
 };
 use catalog_domain::{
     ActiveTileSource, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind,
-    FeatureIdProperty, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
-    ServingGeneration, ServingSourceKind, VectorTileBuildStatus, VectorTileRuntimeManifest,
-    CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+    FeatureIdProperty, MembershipAssertedBy, RuntimeTileLayer, RuntimeTileLineage,
+    RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind, VectorTileBuildStatus,
+    VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use foundation_shared_kernel::events::catalog_v1::vector_tile_runtime_manifest_object_key;
@@ -1421,27 +1421,36 @@ fn admitted_values(constraint: &str, definition: &str) -> Vec<String> {
 
 /// Every enum that spells a database vocabulary admits exactly what its constraint admits.
 ///
-/// Three enums in `catalog_domain` write out values the database also constrains, and each said so
-/// in a doc comment — "mirrors ... exactly" — with nothing checking it. That is the same standing
-/// assumption `a_publication_unit_key_is_spelled_the_same_way_in_both_languages` found already
-/// broken in three directions, so it is checked here for the same reason: the two statements cannot
-/// share a definition across languages, and a claim that they agree is worth what proves it.
+/// Several enums in `catalog_domain` write out values the database also constrains, and the first
+/// three of them said so in a doc comment — "mirrors ... exactly" — with nothing checking it. That
+/// is the same standing assumption `a_publication_unit_key_is_spelled_the_same_way_in_both_languages`
+/// found already broken in three directions, so it is checked here for the same reason: the two
+/// statements cannot share a definition across languages, and a claim that they agree is worth what
+/// proves it.
 ///
 /// The Rust side comes from each enum's own `ALL`, and the SQL side is read out of the installed
 /// constraint. Neither list is restated here — only the binding between them, which is the one
-/// thing that is genuinely this test's to know.
+/// thing that is genuinely this test's to know. That is what keeps registering a vocabulary down to
+/// one row, and what lets ADR-0019 require it of every new one.
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
 async fn a_database_vocabulary_is_spelled_the_same_way_in_both_languages() -> TestResult {
     run_in_disposable_database("database_vocabulary", |pool| async move {
         MIGRATOR.run(&pool).await?;
 
-        let vocabularies: [(&str, Vec<&str>); 3] = [
+        let vocabularies: [(&str, Vec<&str>); 4] = [
             (
                 "catalog_mutation_idempotency_command_kind_check",
                 CatalogMutationKind::ALL
                     .into_iter()
                     .map(CatalogMutationKind::as_str)
+                    .collect(),
+            ),
+            (
+                "parcel_complex_membership_asserted_by_check",
+                MembershipAssertedBy::ALL
+                    .into_iter()
+                    .map(MembershipAssertedBy::as_str)
                     .collect(),
             ),
             (
