@@ -14,7 +14,7 @@ const USAGE: &str = "Usage:\n\
   mvt_assert assert <tile.pbf> --content-encoding identity\n\
       --expect-layer <name>=<count> [--expect-layer ...]\n\
       [--expect-pnu <pnu>]... [--expect-complex-code <code>]...\n\
-      [--expect-identity <layer>|<pnu>|<complex-code>]...\n\
+      [--expect-identity <layer>|<pnu>]...\n\
       [--expect-property <key>=<value>]...\n\
       [--expect-nonempty-layer <name>]...";
 
@@ -83,33 +83,28 @@ struct Tile {
     layers: BTreeMap<String, Layer>,
 }
 
+/// What a decoded feature is, for identity assertions.
+///
+/// The industrial-complex code used to be part of this. It was removed with the column it came
+/// from: a parcel feature does not carry a membership claim, because membership is a dated fact
+/// read from data and a tile that freezes it becomes a second answer a designation change
+/// invalidates without telling anyone (ADR-0024, ADR-0020). A parcel's identity is its PNU.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Identity {
     layer: String,
     pnu: String,
-    complex_code: String,
 }
 
 impl Identity {
-    fn new(
-        layer: impl Into<String>,
-        pnu: impl Into<String>,
-        complex_code: impl Into<String>,
-    ) -> Self {
+    fn new(layer: impl Into<String>, pnu: impl Into<String>) -> Self {
         Self {
             layer: layer.into(),
             pnu: pnu.into(),
-            complex_code: complex_code.into(),
         }
     }
 
     fn canonical_line(&self) -> String {
-        format!(
-            "layer={}\tpnu={}\tofficial_complex_code={}",
-            quote(&self.layer),
-            quote(&self.pnu),
-            quote(&self.complex_code)
-        )
+        format!("layer={}\tpnu={}", quote(&self.layer), quote(&self.pnu))
     }
 }
 
@@ -647,9 +642,7 @@ fn tile_identities(tile: &Tile) -> Result<Vec<Identity>, String> {
     for (layer_name, layer) in &tile.layers {
         for (index, feature) in layer.features.iter().enumerate() {
             let pnu = required_string_property(feature, "pnu", layer_name, index)?;
-            let complex_code =
-                required_string_property(feature, "official_complex_code", layer_name, index)?;
-            identities.push(Identity::new(layer_name, pnu, complex_code));
+            identities.push(Identity::new(layer_name, pnu));
         }
     }
     identities.sort_unstable();
@@ -874,15 +867,14 @@ fn parse_expectations(arguments: &[String]) -> Result<Expectations, String> {
 
 fn parse_identity(value: &str) -> Result<Identity, String> {
     let fields = value.split('|').collect::<Vec<_>>();
-    if fields.len() != 3 {
+    if fields.len() != 2 {
         return Err(format!(
-            "identity expectation must have the form layer|pnu|complex-code, got {value:?}"
+            "identity expectation must have the form layer|pnu, got {value:?}"
         ));
     }
     require_nonempty(fields[0], "identity layer")?;
     require_nonempty(fields[1], "identity PNU")?;
-    require_nonempty(fields[2], "identity complex code")?;
-    Ok(Identity::new(fields[0], fields[1], fields[2]))
+    Ok(Identity::new(fields[0], fields[1]))
 }
 
 fn require_identity_content_encoding(value: &str) -> Result<(), String> {
@@ -1120,9 +1112,9 @@ mod tests {
         assert_eq!(
             canonical_identity_lines(&decoded).unwrap(),
             vec![
-                "layer=\"parcel_anchor_aggregate\"\tpnu=\"9999900000000000001\"\tofficial_complex_code=\"IC-SYNTHETIC-001\"",
-                "layer=\"parcels\"\tpnu=\"9999900000000000001\"\tofficial_complex_code=\"IC-SYNTHETIC-001\"",
-                "layer=\"parcels\"\tpnu=\"9999900000000000002\"\tofficial_complex_code=\"IC-SYNTHETIC-001\"",
+                "layer=\"parcel_anchor_aggregate\"\tpnu=\"9999900000000000001\"",
+                "layer=\"parcels\"\tpnu=\"9999900000000000001\"",
+                "layer=\"parcels\"\tpnu=\"9999900000000000002\"",
             ]
         );
     }
@@ -1171,13 +1163,9 @@ mod tests {
             complex_codes: BTreeSet::from(["IC-SYNTHETIC-001".to_owned()]),
             properties: vec![("count".to_owned(), "3".to_owned())],
             identities: vec![
-                Identity::new(
-                    "parcel_anchor_aggregate",
-                    "9999900000000000001",
-                    "IC-SYNTHETIC-001",
-                ),
-                Identity::new("parcels", "9999900000000000001", "IC-SYNTHETIC-001"),
-                Identity::new("parcels", "9999900000000000002", "IC-SYNTHETIC-001"),
+                Identity::new("parcel_anchor_aggregate", "9999900000000000001"),
+                Identity::new("parcels", "9999900000000000001"),
+                Identity::new("parcels", "9999900000000000002"),
             ],
         };
         assert_tile(&decoded, &expectations).unwrap();
@@ -1204,13 +1192,9 @@ mod tests {
                 ("parcels".to_owned(), 2),
             ]),
             identities: vec![
-                Identity::new(
-                    "parcel_anchor_aggregate",
-                    "9999900000000000001",
-                    "IC-SYNTHETIC-001",
-                ),
-                Identity::new("parcels", "9999900000000000001", "IC-SYNTHETIC-001"),
-                Identity::new("parcels", "9999900000000000002", "IC-SYNTHETIC-001"),
+                Identity::new("parcel_anchor_aggregate", "9999900000000000001"),
+                Identity::new("parcels", "9999900000000000001"),
+                Identity::new("parcels", "9999900000000000002"),
             ],
             ..Expectations::default()
         };
@@ -1218,13 +1202,9 @@ mod tests {
 
         let mut swapped = base.clone();
         swapped.identities = vec![
-            Identity::new(
-                "parcel_anchor_aggregate",
-                "9999900000000000002",
-                "IC-SYNTHETIC-001",
-            ),
-            Identity::new("parcels", "9999900000000000001", "IC-SYNTHETIC-001"),
-            Identity::new("parcels", "9999900000000000001", "IC-SYNTHETIC-001"),
+            Identity::new("parcel_anchor_aggregate", "9999900000000000002"),
+            Identity::new("parcels", "9999900000000000001"),
+            Identity::new("parcels", "9999900000000000001"),
         ];
         assert!(assert_tile(&decoded, &swapped)
             .unwrap_err()
@@ -1395,17 +1375,17 @@ mod tests {
             "--expect-layer".to_owned(),
             "parcels=2".to_owned(),
             "--expect-identity".to_owned(),
-            "parcels|9999900000000000001|IC-SYNTHETIC-001".to_owned(),
+            "parcels|9999900000000000001".to_owned(),
             "--expect-identity".to_owned(),
-            "parcels|9999900000000000002|IC-SYNTHETIC-001".to_owned(),
+            "parcels|9999900000000000002".to_owned(),
         ])
         .unwrap();
         assert_eq!(parsed.layers["parcels"], 2);
         assert_eq!(
             parsed.identities,
             vec![
-                Identity::new("parcels", "9999900000000000001", "IC-SYNTHETIC-001"),
-                Identity::new("parcels", "9999900000000000002", "IC-SYNTHETIC-001"),
+                Identity::new("parcels", "9999900000000000001"),
+                Identity::new("parcels", "9999900000000000002"),
             ]
         );
     }

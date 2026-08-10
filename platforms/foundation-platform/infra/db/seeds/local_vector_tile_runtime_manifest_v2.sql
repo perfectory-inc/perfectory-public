@@ -102,9 +102,14 @@ INSERT INTO catalog.vector_tile_runtime_manifest_pointer (singleton, manifest_id
 VALUES (true, '019d2b87-3fd1-7e3a-8d88-0b72c8743605')
 ON CONFLICT (singleton) DO UPDATE SET manifest_id = EXCLUDED.manifest_id, updated_at = now();
 
+-- No `official_complex_code`, and no join to `catalog.industrial_complex` (ADR-0024). That inner
+-- join was not incidental: it was the only way to satisfy the column's NOT NULL, and it silently
+-- excluded every parcel outside a complex — which is most of the country. The seed still scopes to
+-- one complex through the mirror's own nullable column, because this fixture is a bounded slice,
+-- but nothing structural requires a parcel to have one any more.
 INSERT INTO serving_postgis.parcel_boundary_publication
     (pnu, data_revision, canonical_iceberg_snapshot_id, source_record_id,
-     source_object_key, complex_id, parcel_id, official_complex_code,
+     source_object_key, complex_id, parcel_id,
      geometry_checksum_sha256, geom, properties, projection_load_id)
 SELECT
     mirror.pnu,
@@ -114,13 +119,11 @@ SELECT
     mirror.source_object_key,
     mirror.complex_id,
     mirror.parcel_id,
-    complex.official_complex_code,
     mirror.geometry_checksum_sha256,
     mirror.geom,
     mirror.properties,
     '019d2b87-3fd1-7e3a-8d88-0b72c8743604'
 FROM serving_postgis.parcel_boundary_mirror AS mirror
-JOIN catalog.industrial_complex AS complex ON complex.id = mirror.complex_id
 WHERE mirror.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
 -- `DO NOTHING`, not the `DO UPDATE` this used to carry. A load names one materialisation, so
 -- re-running the seed re-asserts the same load rather than replacing its geometry underneath a

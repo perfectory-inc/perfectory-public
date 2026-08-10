@@ -19,9 +19,12 @@ postgres:
       layer_id: parcels
       minzoom: 14
       maxzoom: 16
+      # A parcel feature answers "which parcel is this polygon", and that answer is the PNU. It does
+      # not carry an industrial-complex code: membership is a dated fact read from data, and a tile
+      # baking it in would be a second, frozen answer that a designation change silently invalidates
+      # (ADR-0024, ADR-0020).
       properties:
         pnu: Parcel number
-        official_complex_code: Industrial-complex code
     admin:
       schema: serving_postgis
       table: administrative_unit_boundary_current
@@ -58,6 +61,7 @@ postgres:
       layer_id: parcel_anchor
       minzoom: 12
       maxzoom: 16
+      # Per-parcel, so the same rule as `parcels` above. The aggregate layer keeps its complex code
+      # because there the code is the feature's own identity, not a claim about a parcel.
       properties:
         pnu: Parcel number
-        official_complex_code: Industrial-complex code

@@ -306,7 +306,7 @@ SELECT
     '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
     fixture.parcel_id,
     fixture.geometry_checksum_sha256,
-        jsonb_build_object('fixture', true, 'official_complex_code', 'IC-SYNTHETIC-001'),
+    jsonb_build_object('fixture', true),
     public.ST_Multi(
         public.ST_Transform(
             public.ST_SetSRID(public.ST_GeomFromText(fixture.boundary_wkt), 4326),
@@ -462,11 +462,9 @@ CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcels AS
 SELECT
     boundary.pnu::text AS pnu,
     boundary.pnu::text AS "PNU",
-    complex.official_complex_code,
     boundary.geom::public.geometry(MultiPolygon, 5179) AS geom
 FROM serving_postgis.parcel_boundary_mirror AS boundary
-JOIN catalog.industrial_complex AS complex ON complex.id = boundary.complex_id
-WHERE complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
+WHERE boundary.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
 
 CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcel_anchor_aggregate AS
 SELECT
@@ -484,10 +482,12 @@ WHERE anchor.is_active
   AND complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
 GROUP BY complex.id, complex.official_complex_code;
 
+-- Per-parcel anchors carry the PNU and nothing else (ADR-0024). The membership join stays because
+-- this proof fixture is scoped to one complex, but the code it resolves is used for the WHERE, not
+-- shipped as a feature property: a parcel feature does not claim membership.
 CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcel_anchor AS
 SELECT
     anchor.pnu::text AS pnu,
-    complex.official_complex_code,
     anchor.anchor_point::public.geometry(Point, 4326) AS geom
 FROM catalog.parcel_marker_anchor AS anchor
 JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id

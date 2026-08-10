@@ -35,3 +35,4 @@ last_reviewed: 2026-07-28
 - [0021 — 아무도 읽지 않는 표면은 옮기지 않고 지운다](./0021-an-unread-surface-is-deleted-not-migrated.md)
 - [0022 — "현재"는 오늘이고, 그것을 말하는 뷰는 하나다](./0022-current-means-today-and-one-view-says-so.md)
 - [0023 — 편집은 원장의 행이지, 고쳐진 행에만 남는 것이 아니다](./0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md)
+- [0024 — 서빙 투영은 타일 계약이 지명한 것만 싣는다](./0024-the-serving-projection-carries-only-what-the-tile-contract-names.md)

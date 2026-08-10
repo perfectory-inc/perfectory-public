@@ -687,13 +687,13 @@ fetch_tile "http://127.0.0.1:3110/parcels,parcel_anchor_aggregate,parcel_anchor/
 
 mvt_assert assert "$RUN_RELATIVE/dynamic-z11.pbf" --content-encoding identity \
   --expect-layer parcel_anchor_aggregate=1 \
-  --expect-identity "parcel_anchor_aggregate|${PNUS[0]}|$COMPLEX_CODE" \
+  --expect-identity "parcel_anchor_aggregate|${PNUS[0]}" \
   --expect-property count=3
 
 z14_expectations=()
 for pnu in "${PNUS[@]}"; do
-  z14_expectations+=(--expect-identity "parcels|$pnu|$COMPLEX_CODE")
-  z14_expectations+=(--expect-identity "parcel_anchor|$pnu|$COMPLEX_CODE")
+  z14_expectations+=(--expect-identity "parcels|$pnu")
+  z14_expectations+=(--expect-identity "parcel_anchor|$pnu")
   z14_expectations+=(--expect-property "pnu=$pnu")
 done
 mvt_assert assert "$RUN_RELATIVE/dynamic-z14.pbf" --content-encoding identity \
@@ -920,7 +920,7 @@ fetch_tile "http://127.0.0.1:3101/$STATIC_SOURCE_ID/11/1747/803" "$STATIC_Z11"
 fetch_tile "http://127.0.0.1:3101/$STATIC_SOURCE_ID/14/13977/6426" "$STATIC_Z14"
 mvt_assert assert "$RUN_RELATIVE/static-z11.pbf" --content-encoding identity \
   --expect-layer parcel_anchor_aggregate=1 \
-  --expect-identity "parcel_anchor_aggregate|${PNUS[0]}|$COMPLEX_CODE" \
+  --expect-identity "parcel_anchor_aggregate|${PNUS[0]}" \
   --expect-property count=3
 mvt_assert assert "$RUN_RELATIVE/static-z14.pbf" --content-encoding identity \
   --expect-layer parcels=3 --expect-layer parcel_anchor=3 "${z14_expectations[@]}"
