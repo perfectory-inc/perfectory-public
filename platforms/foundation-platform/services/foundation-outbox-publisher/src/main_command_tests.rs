@@ -179,6 +179,10 @@ fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Resu
             Command::PublishAdministrativeBoundaryPostgis,
         ),
         (
+            "publish-parcel-boundary-postgis",
+            Command::PublishParcelBoundaryPostgis,
+        ),
+        (
             "promote-administrative-boundary-runtime",
             Command::PromoteAdministrativeBoundaryRuntime,
         ),

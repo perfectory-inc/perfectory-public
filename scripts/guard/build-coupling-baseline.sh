@@ -52,13 +52,21 @@ set -euo pipefail
 # nothing to find, and such a test passes unchanged against a migration whose
 # `INSERT` was deleted — so the alternative is not a cheaper site but no assertion.
 #
+# 82 -> 83: `foundation-outbox-publisher/tests/parcel_boundary_publication.rs` declares
+# a second migrator site in that crate, for the same reason as the first: the only
+# production writer of the parcel serving projection creates the `parcels`
+# publication unit, and the promotion gate counts publication units globally, so a
+# unit left in the shared harness database fails every promotion test elsewhere while
+# reading as a promotion bug. One site, not two — the fixture keeps nothing on disk,
+# so it prices no crate-manifest-directory read.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-82}"
+COMPILE_TIME_READ_BASELINE="${3:-83}"
 
 cd "$repo_root"
 

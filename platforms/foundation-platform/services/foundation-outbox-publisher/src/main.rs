@@ -109,6 +109,7 @@ mod official_administrative_boundary_source_snapshot;
 mod page_collector;
 mod page_count_plan_contract;
 mod pagination_guard;
+mod parcel_boundary_postgis_publish;
 mod parcel_marker_anchor_artifact_export;
 mod parcel_marker_anchor_pbf_artifact_build;
 mod parcel_marker_anchor_pbf_manifest_promote;
@@ -213,6 +214,7 @@ enum Command {
     CheckNationalDataCollectionRolloutApproval,
     CheckAdministrativeSpatialScopeRegistry,
     PublishAdministrativeBoundaryPostgis,
+    PublishParcelBoundaryPostgis,
     PromoteAdministrativeBoundaryRuntime,
     CheckIndustrialComplexCanonicalSourceReadiness,
     CheckNationalBronzeObjectManifest,
@@ -419,6 +421,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishAdministrativeBoundaryPostgis => {
             Box::pin(administrative_boundary_postgis_publish::run())
         }
+        Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
         Command::PromoteAdministrativeBoundaryRuntime => {
             Box::pin(administrative_boundary_runtime_promote::run())
         }
@@ -946,6 +949,7 @@ where
         Some("publish-administrative-boundary-postgis") => {
             Ok(Command::PublishAdministrativeBoundaryPostgis)
         }
+        Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
         Some("promote-administrative-boundary-runtime") => {
             Ok(Command::PromoteAdministrativeBoundaryRuntime)
         }
