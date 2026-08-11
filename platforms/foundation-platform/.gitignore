@@ -28,6 +28,10 @@ target/release-artifacts/*
 .env
 .env.local
 .env.*.local
+# Timestamped backups of the above; the root .gitignore carries the same
+# pair and the same reason.
+.env.local.*
+.env.*.local.*
 .vscode/
 .idea/
 *.iml
