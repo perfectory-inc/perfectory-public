@@ -9,6 +9,9 @@ use serde_json::json;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use crate::administrative_boundary_postgis_publish::{
+    ensure_administrative_unit, ADMINISTRATIVE_UNIT_KEY,
+};
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_CONFIRM";
@@ -28,6 +31,8 @@ const MANIFEST_ID_ENV: &str =
     "FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_MANIFEST_ID";
 const TILES_URL_ENV: &str =
     "FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_TILES_URL_TEMPLATE";
+const PROJECTION_LOAD_ENV: &str =
+    "FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_PROJECTION_LOAD_ID";
 
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
@@ -44,7 +49,7 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
     verify_inputs(&mut transaction, &config).await?;
-    let publication_unit_id = ensure_admin_unit(&mut transaction).await?;
+    let publication_unit_id = ensure_administrative_unit(&mut transaction).await?;
     insert_release(&mut transaction, &config, publication_unit_id).await?;
     let next_generation = current_generation.map_or(1, |value| value + 1);
     sqlx::query(
@@ -83,7 +88,12 @@ pub async fn run() -> anyhow::Result<()> {
                     .context("every publication unit must have an active release")?,
                 unit.try_get::<Option<Uuid>, _>("active_data_revision")?
                     .context("every publication unit must have an active data revision")?,
-                unit.try_get::<i64, _>("serving_generation")? + 1,
+                // Unchanged, not `+ 1`. This unit re-selects the release it already serves, and
+                // `20260730000003_serving_generation_tracks_one_unit_source_selection.sql` requires a
+                // re-selected release to hold its generation — the value tracks one unit's source
+                // selection, and carrying it forward changes nothing about it. The `+ 1` here was
+                // correct under the previous rule and was left behind when that rule was narrowed.
+                unit.try_get::<i64, _>("serving_generation")?,
             )
         };
         let canonical_snapshot = sqlx::query_scalar::<_, String>(
@@ -133,6 +143,12 @@ struct Config {
     release_id: Uuid,
     manifest_id: Uuid,
     tiles_url_template: String,
+    /// The `serving_postgis.spatial_projection_load` row this release serves rows out of.
+    ///
+    /// Named rather than resolved. One revision can carry several succeeded loads — that is the
+    /// state the ledger exists to represent — and the promotion gate accepts any of them, so
+    /// resolution here would be a silent choice among facts that nothing downstream could catch.
+    projection_load_id: Uuid,
 }
 
 impl Config {
@@ -181,6 +197,7 @@ impl Config {
             release_id: parse_uuid(RELEASE_ID_ENV)?,
             manifest_id: parse_uuid(MANIFEST_ID_ENV)?,
             tiles_url_template,
+            projection_load_id: parse_uuid(PROJECTION_LOAD_ENV)?,
         })
     }
 }
@@ -240,21 +257,57 @@ async fn verify_inputs(
     if source_count != 1 || file_count != 1 {
         bail!("runtime promotion lineage source_record/file_asset is missing");
     }
+    // `catalog.promote_vector_tile_runtime_manifest` refuses on the same conditions and is the
+    // authority. Answering first only changes which sentence the operator reads: the gate can say no
+    // more than "this manifest selects a dynamic source with no succeeded PostGIS projection load",
+    // because by then the load row it wanted is simply absent from the join.
+    let load = sqlx::query(
+        "SELECT load.status, unit.unit_key, load.data_revision, load.canonical_iceberg_snapshot_id
+           FROM serving_postgis.spatial_projection_load AS load
+           JOIN catalog.vector_tile_publication_unit AS unit
+             ON unit.id = load.publication_unit_id
+          WHERE load.id = $1",
+    )
+    .bind(config.projection_load_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .with_context(|| {
+        format!(
+            "{PROJECTION_LOAD_ENV}={} names no PostGIS projection load",
+            config.projection_load_id
+        )
+    })?;
+    let status: String = load.try_get("status")?;
+    let unit_key: String = load.try_get("unit_key")?;
+    let load_revision: Uuid = load.try_get("data_revision")?;
+    let load_snapshot: String = load.try_get("canonical_iceberg_snapshot_id")?;
+    if status != "succeeded" {
+        bail!(
+            "PostGIS projection load {} is '{status}', not 'succeeded'",
+            config.projection_load_id
+        );
+    }
+    if unit_key != ADMINISTRATIVE_UNIT_KEY {
+        bail!(
+            "PostGIS projection load {} materialised unit '{unit_key}', not '{ADMINISTRATIVE_UNIT_KEY}'",
+            config.projection_load_id
+        );
+    }
+    if load_revision != config.data_revision {
+        bail!(
+            "PostGIS projection load {} carries revision {load_revision}, not {}",
+            config.projection_load_id,
+            config.data_revision
+        );
+    }
+    if load_snapshot != config.canonical_snapshot_id {
+        bail!(
+            "PostGIS projection load {} was materialised from snapshot {load_snapshot}, not {}",
+            config.projection_load_id,
+            config.canonical_snapshot_id
+        );
+    }
     Ok(())
-}
-
-async fn ensure_admin_unit(transaction: &mut Transaction<'_, Postgres>) -> anyhow::Result<Uuid> {
-    sqlx::query(
-        "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key)
-         VALUES (gen_random_uuid(), 'admin') ON CONFLICT (unit_key) DO NOTHING",
-    )
-    .execute(&mut **transaction)
-    .await?;
-    Ok(sqlx::query_scalar(
-        "SELECT id FROM catalog.vector_tile_publication_unit WHERE unit_key = 'admin'",
-    )
-    .fetch_one(&mut **transaction)
-    .await?)
 }
 
 async fn insert_release(
@@ -267,7 +320,7 @@ async fn insert_release(
             (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
              source_record_id, source_file_asset_ids, source_kind, martin_source_id,
              tiles_url_template, postgis_projection_revision)
-         VALUES ($1, $2, $3, $4, $5, $6, 'dynamic_postgis', 'admin', $7, $3)
+         VALUES ($1, $2, $3, $4, $5, $6, 'dynamic_postgis', 'admin', $7, $8)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(config.release_id)
@@ -277,8 +330,43 @@ async fn insert_release(
     .bind(config.source_record_id)
     .bind(vec![config.source_file_asset_id])
     .bind(&config.tiles_url_template)
+    // Was `$3` — the data revision bound twice. The column now holds the identity of the load that
+    // materialised the rows this release serves, which is a different fact from the revision those
+    // rows describe, and the promotion gate reads it.
+    .bind(config.projection_load_id)
     .execute(&mut **transaction)
     .await?;
+    // `DO NOTHING` above means a re-promote under a release id that already exists keeps whatever
+    // that row already said. Every one of those fields was verified against the *environment*, not
+    // against the row, and the gate cannot catch the difference: an earlier succeeded load for the
+    // same unit, revision and snapshot satisfies every one of its conditions, so the pointer would
+    // move while the view kept serving the earlier load's rows. Read the row back and compare whole.
+    let stored = sqlx::query(
+        "SELECT data_revision, canonical_iceberg_snapshot_id, postgis_projection_revision,
+                source_record_id, tiles_url_template
+           FROM catalog.vector_tile_release WHERE id = $1",
+    )
+    .bind(config.release_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    let stored_revision: Uuid = stored.try_get("data_revision")?;
+    let stored_snapshot: String = stored.try_get("canonical_iceberg_snapshot_id")?;
+    let stored_load: Option<Uuid> = stored.try_get("postgis_projection_revision")?;
+    let stored_source_record: Uuid = stored.try_get("source_record_id")?;
+    let stored_url: String = stored.try_get("tiles_url_template")?;
+    if stored_revision != config.data_revision
+        || stored_snapshot != config.canonical_snapshot_id
+        || stored_load != Some(config.projection_load_id)
+        || stored_source_record != config.source_record_id
+        || stored_url != config.tiles_url_template
+    {
+        bail!(
+            "release {} already exists and describes a different publication \
+             (stored revision {stored_revision}, snapshot {stored_snapshot}, projection load {stored_load:?}); \
+             a changed publication needs a new release id",
+            config.release_id
+        );
+    }
     sqlx::query(
         "INSERT INTO catalog.vector_tile_release_layer
             (release_id, layer_id, source_layer, feature_id_property,

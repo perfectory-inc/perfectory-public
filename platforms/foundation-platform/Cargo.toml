@@ -16,6 +16,7 @@ members = [
     "crates/catalog/catalog-application",
     "crates/catalog/catalog-infrastructure",
     "crates/technical/outbound-http-infrastructure",
+    "crates/technical/foundation-disposable-database",
     "crates/foundation-outbox",
     "services/foundation-api",
     "services/foundation-outbox-publisher",
@@ -119,6 +120,7 @@ catalog-domain          = { path = "crates/catalog/catalog-domain" }
 catalog-application             = { path = "crates/catalog/catalog-application" }
 catalog-infrastructure           = { path = "crates/catalog/catalog-infrastructure" }
 outbound-http-infrastructure = { path = "crates/technical/outbound-http-infrastructure" }
+foundation-disposable-database = { path = "crates/technical/foundation-disposable-database" }
 foundation-outbox       = { path = "crates/foundation-outbox" }
 
 [profile.release]

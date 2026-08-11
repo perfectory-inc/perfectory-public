@@ -1,10 +1,11 @@
 //! Contract tests for the single-source v2 spatial publication manifest.
 
 use catalog_domain::{
-    validate_build_promotion, validate_build_snapshot_binding, validate_serving_transition,
-    BuildEvidenceDigest, CanonicalIcebergSnapshotId, ServingGeneration, ServingSelection,
-    ServingSourceKind, VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict,
-    VectorTileBuildStatus, VectorTileRuntimeManifest,
+    validate_build_promotion, validate_build_result_report, validate_build_snapshot_binding,
+    validate_serving_transition, BuildEvidenceDigest, CanonicalIcebergSnapshotId,
+    ServingGeneration, ServingSelection, ServingSourceKind, VectorTileBuildOutcome,
+    VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict, VectorTileBuildStatus,
+    VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{VectorTileDataRevisionId, VectorTileReleaseId};
 use serde_json::json;
@@ -27,7 +28,7 @@ fn valid_manifest() -> serde_json::Value {
                     "kind": "static_pmtiles",
                     "martin_source_id": "parcels-0196e7e0-3c20-7000-8000-000000000062",
                     "tiles_url_template": "https://tiles.example.com/parcels-0196e7e0-3c20-7000-8000-000000000062/{z}/{x}/{y}",
-                    "pmtiles_object_key": "gold/vector-tiles/releases/0196e7e0-3c20-7000-8000-000000000062/parcels-0196e7e0-3c20-7000-8000-000000000062.pmtiles",
+                    "pmtiles_object_key": "gold/vector-tiles/releases/parcels-0196e7e0-3c20-7000-8000-000000000062.pmtiles",
                     "pmtiles_file_asset_id": "0196e7e0-3c20-7000-8000-000000000063",
                     "pmtiles_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "pmtiles_bytes": 987_654_321
@@ -73,7 +74,6 @@ fn v2_manifest_rejects_unknown_source_and_dynamic_cache_busting_query() {
         "kind": "dynamic_postgis",
         "martin_source_id": "parcels",
         "tiles_url_template": "http://127.0.0.1:3000/parcels/{z}/{x}/{y}",
-        "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
         "cache_policy": "no_store"
     });
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_ok());
@@ -83,7 +83,6 @@ fn v2_manifest_rejects_unknown_source_and_dynamic_cache_busting_query() {
         "kind": "dynamic_postgis",
         "martin_source_id": "parcels",
         "tiles_url_template": "http://127.0.0.1:3000/parcels/{z}/{x}/{y}?generation=42",
-        "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
         "cache_policy": "no_store"
     });
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
@@ -107,16 +106,34 @@ fn v2_manifest_rejects_javascript_unsafe_generation_and_bad_snapshot() {
 
 #[test]
 fn v2_manifest_rejects_duplicate_source_ids_and_unsafe_unit_names() {
+    // Both units are dynamic and internally consistent, so manifest-wide Martin source uniqueness
+    // is the only invariant left to fail. A static fixture would fail its release-addressed
+    // filename check first and the assertion could not tell the two reasons apart.
     let mut duplicate = valid_manifest();
-    duplicate["publication_units"]["parcels"]["source"]["martin_source_id"] =
-        serde_json::json!("shared");
+    duplicate["publication_units"]["parcels"]["source"] = shared_dynamic_source();
     duplicate["publication_units"]["anchors"] = duplicate["publication_units"]["parcels"].clone();
-    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(duplicate).is_err());
+    let message = serde_json::from_value::<VectorTileRuntimeManifest>(duplicate)
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(
+        message.contains("already used by another publication unit"),
+        "expected a manifest-wide source id conflict, got: {message}"
+    );
 
     let mut unsafe_name = valid_manifest();
     let parcels_unit = unsafe_name["publication_units"]["parcels"].clone();
     unsafe_name["publication_units"] = serde_json::json!({"bad/name": parcels_unit});
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(unsafe_name).is_err());
+}
+
+fn shared_dynamic_source() -> serde_json::Value {
+    json!({
+        "kind": "dynamic_postgis",
+        "martin_source_id": "shared",
+        "tiles_url_template": "https://tiles.example.com/shared/{z}/{x}/{y}",
+        "cache_policy": "no_store"
+    })
 }
 
 #[test]
@@ -127,20 +144,45 @@ fn v2_manifest_rejects_static_source_identity_that_does_not_match_release_filena
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
 
     let mut value = valid_manifest();
+    value["publication_units"]["parcels"]["source"]["pmtiles_object_key"] =
+        serde_json::json!("gold/vector-tiles/releases/parcels.pmtiles");
+    assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
+
+    // The nested `releases/{release_id}/…` form ADR-0004 documented. The validator used to compare
+    // only the filename, so this passed while the publisher wrote the flat form — a consumer
+    // building a URL from the documented layout would have received a 404.
+    let mut value = valid_manifest();
     value["publication_units"]["parcels"]["source"]["pmtiles_object_key"] = serde_json::json!(
-        "gold/vector-tiles/releases/0196e7e0-3c20-7000-8000-000000000062/parcels.pmtiles"
+        "gold/vector-tiles/releases/0196e7e0-3c20-7000-8000-000000000062/parcels-0196e7e0-3c20-7000-8000-000000000062.pmtiles"
     );
     assert!(serde_json::from_value::<VectorTileRuntimeManifest>(value).is_err());
 }
 
+/// The snapshot tracks the revision number, so `revision_b` is genuinely newer content than
+/// `revision_a`. Tests that need a *backwards* move state their snapshot explicitly.
 fn selection(
     source_kind: ServingSourceKind,
     revision: u128,
     generation: u64,
 ) -> Result<ServingSelection, String> {
+    selection_at(
+        source_kind,
+        revision,
+        generation,
+        &format!("84136136465736{revision:04}"),
+    )
+}
+
+fn selection_at(
+    source_kind: ServingSourceKind,
+    revision: u128,
+    generation: u64,
+    snapshot: &str,
+) -> Result<ServingSelection, String> {
     Ok(ServingSelection {
         source_kind,
         data_revision: VectorTileDataRevisionId::new(Uuid::from_u128(revision)),
+        canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId::new(snapshot.to_owned())?,
         serving_generation: ServingGeneration::new(generation)?,
     })
 }
@@ -152,28 +194,67 @@ fn serving_state_machine_allows_only_complete_source_transitions() -> Result<(),
 
     assert!(validate_serving_transition(
         None,
-        selection(ServingSourceKind::DynamicPostgis, revision_a, 1)?
+        &selection(ServingSourceKind::DynamicPostgis, revision_a, 1)?
     )
     .is_ok());
 
     let dynamic_a = selection(ServingSourceKind::DynamicPostgis, revision_a, 1)?;
     assert!(validate_serving_transition(
-        Some(dynamic_a),
-        selection(ServingSourceKind::StaticPmtiles, revision_a, 2)?
+        Some(&dynamic_a),
+        &selection(ServingSourceKind::StaticPmtiles, revision_a, 2)?
     )
     .is_ok());
 
     let static_a = selection(ServingSourceKind::StaticPmtiles, revision_a, 2)?;
     assert!(validate_serving_transition(
-        Some(static_a),
-        selection(ServingSourceKind::DynamicPostgis, revision_b, 3)?
+        Some(&static_a),
+        &selection(ServingSourceKind::DynamicPostgis, revision_b, 3)?
     )
     .is_ok());
+    // The same-data fallback: back to dynamic at the snapshot the unit already serves.
     assert!(validate_serving_transition(
-        Some(static_a),
-        selection(ServingSourceKind::DynamicPostgis, revision_a, 3)?
+        Some(&static_a),
+        &selection(ServingSourceKind::DynamicPostgis, revision_a, 3)?
     )
     .is_ok());
+    Ok(())
+}
+
+/// The rule this function's documentation has always stated and never enforced.
+///
+/// Returning to dynamic may hold the unit's canonical snapshot or move it forward. Moving it back
+/// republishes superseded content behind a higher serving generation, which the client — which
+/// compares generations to decide what to re-fetch — reads as newer. Nothing could check this while
+/// the only comparable value was a uuid.
+#[test]
+fn a_dynamic_return_may_not_move_the_unit_to_an_older_snapshot() -> Result<(), String> {
+    let newer = selection_at(
+        ServingSourceKind::DynamicPostgis,
+        1,
+        4,
+        "841361364657368624",
+    )?;
+    let older = selection_at(
+        ServingSourceKind::DynamicPostgis,
+        2,
+        5,
+        "841361364657368623",
+    )?;
+    let same = selection_at(
+        ServingSourceKind::DynamicPostgis,
+        3,
+        5,
+        "841361364657368624",
+    )?;
+
+    assert!(validate_serving_transition(Some(&newer), &older).is_err());
+    assert!(validate_serving_transition(Some(&newer), &same).is_ok());
+
+    // Ordering is numeric, not lexicographic: a shorter id is a smaller number even though it
+    // sorts after by string comparison.
+    let long_snapshot = selection_at(ServingSourceKind::DynamicPostgis, 4, 6, "1000000000000")?;
+    let short_snapshot = selection_at(ServingSourceKind::DynamicPostgis, 5, 7, "999999999999")?;
+    assert!(validate_serving_transition(Some(&long_snapshot), &short_snapshot).is_err());
     Ok(())
 }
 
@@ -181,20 +262,21 @@ fn serving_state_machine_allows_only_complete_source_transitions() -> Result<(),
 fn serving_state_machine_rejects_stale_static_and_generation_gaps() -> Result<(), String> {
     let static_a = selection(ServingSourceKind::StaticPmtiles, 1, 7)?;
     let stale_static = selection(ServingSourceKind::StaticPmtiles, 2, 8)?;
-    assert!(validate_serving_transition(Some(static_a), stale_static).is_err());
+    assert!(validate_serving_transition(Some(&static_a), &stale_static).is_err());
 
-    assert!(
-        validate_serving_transition(None, selection(ServingSourceKind::DynamicPostgis, 1, 2)?)
-            .is_err()
-    );
     assert!(validate_serving_transition(
-        Some(static_a),
-        selection(ServingSourceKind::DynamicPostgis, 1, 9)?
+        None,
+        &selection(ServingSourceKind::DynamicPostgis, 1, 2)?
     )
     .is_err());
     assert!(validate_serving_transition(
-        Some(static_a),
-        selection(ServingSourceKind::StaticPmtiles, 1, 8)?
+        Some(&static_a),
+        &selection(ServingSourceKind::DynamicPostgis, 1, 9)?
+    )
+    .is_err());
+    assert!(validate_serving_transition(
+        Some(&static_a),
+        &selection(ServingSourceKind::StaticPmtiles, 1, 8)?
     )
     .is_ok());
     Ok(())
@@ -299,5 +381,55 @@ fn evidence_digest_accepts_only_lowercase_hex_of_exactly_sha256_length() -> Resu
     // so accepting either here would only move the failure to the insert.
     assert!(BuildEvidenceDigest::new("A".repeat(64)).is_err());
     assert!(BuildEvidenceDigest::new("g".repeat(64)).is_err());
+    Ok(())
+}
+
+#[test]
+fn a_build_can_only_report_the_two_outcomes_it_owns() -> Result<(), String> {
+    let validated = VectorTileBuildOutcome::Validated(BuildEvidenceDigest::new("a".repeat(64))?);
+    assert_eq!(validated.status(), VectorTileBuildStatus::Validated);
+
+    let failed = VectorTileBuildOutcome::Failed("tippecanoe exited 1".to_owned());
+    assert_eq!(failed.status(), VectorTileBuildStatus::Failed);
+
+    // Neither outcome maps to a status the promotion decision owns. `promoted` and `superseded`
+    // are unreachable from a build's own report by construction, which is the point of the type.
+    for owned in [validated.status(), failed.status()] {
+        assert!(!matches!(
+            owned,
+            VectorTileBuildStatus::Promoted | VectorTileBuildStatus::Superseded
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn a_terminal_build_cannot_be_reported_again() -> Result<(), String> {
+    let outcome = VectorTileBuildOutcome::Validated(BuildEvidenceDigest::new("b".repeat(64))?);
+
+    // A running attempt may report; it has not been acted on yet.
+    validate_build_result_report(VectorTileBuildStatus::Planned, &outcome)?;
+    validate_build_result_report(VectorTileBuildStatus::Running, &outcome)?;
+
+    // Each terminal status was already acted on: `promoted` moved the pointer, `superseded`
+    // recorded that the unit moved past this revision, `failed` closed the attempt.
+    for terminal in [
+        VectorTileBuildStatus::Promoted,
+        VectorTileBuildStatus::Superseded,
+        VectorTileBuildStatus::Failed,
+    ] {
+        let message = validate_build_result_report(terminal, &outcome)
+            .err()
+            .unwrap_or_default();
+        assert!(
+            message.contains(terminal.as_str()),
+            "refusal must name the terminal status, got: {message}"
+        );
+    }
+
+    // `validated` is not terminal: a validated build is still awaiting a promotion decision, and
+    // re-reporting it with fresh evidence is a retry of the same attempt, not a rewrite of a
+    // decision. Refusing it here would strand builds that revalidate.
+    validate_build_result_report(VectorTileBuildStatus::Validated, &outcome)?;
     Ok(())
 }

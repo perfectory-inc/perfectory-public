@@ -9,13 +9,13 @@ type TestResult = Result<(), Box<dyn Error>>;
 /// The Identity CI workflow moved from the workspace-local
 /// `.github/workflows/ci.yml` to the monorepo root as
 /// `.github/workflows/identity-ci.yml`, so it is reached by climbing out of
-/// the workspace root that [`read_repo_file`] resolves against. (Secret
+/// the workspace root that [`read_area_file`] resolves against. (Secret
 /// scanning moved to the root `secret-scan.yml` workflow.)
 const IDENTITY_CI_WORKFLOW: &str = "../../.github/workflows/identity-ci.yml";
 
 #[test]
 fn compose_exposes_only_independent_least_privilege_identity_runtimes() -> TestResult {
-    let compose = read_repo_file("docker-compose.yml")?;
+    let compose = read_area_file("docker-compose.yml")?;
 
     for required in [
         "identity_api:${IDENTITY_API_PASSWORD:?set IDENTITY_API_PASSWORD}",
@@ -48,7 +48,7 @@ fn runtime_images_are_locked_non_root_and_health_checked() -> TestResult {
         "services/identity-api/Dockerfile",
         "services/identity-policy-worker/Dockerfile",
     ] {
-        let contents = read_repo_file(dockerfile)?;
+        let contents = read_area_file(dockerfile)?;
         assert!(contents.contains("cargo build --locked --release"));
         assert!(contents.contains("USER 10001:10001"));
         assert!(contents.contains("HEALTHCHECK"));
@@ -64,10 +64,10 @@ fn runtime_images_are_locked_non_root_and_health_checked() -> TestResult {
         assert!(!contents.contains("FROM busybox:"));
         assert!(!contents.contains("/usr/local/bin/busybox"));
     }
-    assert!(read_repo_file("services/identity-api/Dockerfile")?
+    assert!(read_area_file("services/identity-api/Dockerfile")?
         .contains("CMD [\"/usr/local/bin/identity-api\", \"--healthcheck\"]"));
     assert!(
-        read_repo_file("services/identity-policy-worker/Dockerfile")?
+        read_area_file("services/identity-policy-worker/Dockerfile")?
             .contains("CMD [\"/usr/local/bin/identity-policy-worker\", \"--healthcheck\"]")
     );
     Ok(())
@@ -75,7 +75,7 @@ fn runtime_images_are_locked_non_root_and_health_checked() -> TestResult {
 
 #[test]
 fn compose_pins_external_images_and_runs_all_one_shots_non_root() -> TestResult {
-    let compose = read_repo_file("docker-compose.yml")?;
+    let compose = read_area_file("docker-compose.yml")?;
     for image in compose
         .lines()
         .map(str::trim)
@@ -88,7 +88,7 @@ fn compose_pins_external_images_and_runs_all_one_shots_non_root() -> TestResult 
     }
     assert_eq!(compose.matches("user: \"70:70\"").count(), 3);
 
-    let smoke = read_repo_file("scripts/compose-smoke.sh")?;
+    let smoke = read_area_file("scripts/compose-smoke.sh")?;
     for service in [
         "identity-bootstrap",
         "identity-database-migrator",
@@ -106,7 +106,7 @@ fn compose_pins_external_images_and_runs_all_one_shots_non_root() -> TestResult 
 
 #[test]
 fn compose_smoke_requires_terminal_zero_exit_before_postconditions() -> TestResult {
-    let smoke = read_repo_file("scripts/compose-smoke.sh")?;
+    let smoke = read_area_file("scripts/compose-smoke.sh")?;
     for required in [
         "ONE_SHOT_TIMEOUT_SECONDS",
         "timeout --foreground",
@@ -125,7 +125,7 @@ fn compose_smoke_requires_terminal_zero_exit_before_postconditions() -> TestResu
     assert!(!smoke.contains("state=retained postcondition=PASS"));
     assert!(!smoke.contains("run -d --no-deps"));
 
-    let ci = read_repo_file(IDENTITY_CI_WORKFLOW)?;
+    let ci = read_area_file(IDENTITY_CI_WORKFLOW)?;
     assert!(ci.contains("timeout-minutes: 30"));
     assert!(ci.contains("scripts/compose-smoke.sh -- start-all"));
     assert!(ci.contains("scripts/compose-smoke.sh -- rerun-all"));
@@ -142,18 +142,18 @@ fn compose_smoke_requires_terminal_zero_exit_before_postconditions() -> TestResu
 
 #[test]
 fn api_health_probes_use_the_native_command_and_bind_aware_listener() -> TestResult {
-    let compose = read_repo_file("docker-compose.yml")?;
+    let compose = read_area_file("docker-compose.yml")?;
     assert!(compose.contains("[\"CMD\", \"/usr/local/bin/identity-api\", \"--healthcheck\"]"));
     assert!(
         compose.contains("[\"CMD\", \"/usr/local/bin/identity-policy-worker\", \"--healthcheck\"]")
     );
     assert!(!compose.contains("/usr/local/bin/busybox"));
 
-    let main = read_repo_file("services/identity-api/src/main.rs")?;
+    let main = read_area_file("services/identity-api/src/main.rs")?;
     assert!(main.contains("healthcheck_address(bind_address()?)"));
     assert!(main.contains("address.is_unspecified()"));
     for path in ["scripts/compose-smoke.sh", IDENTITY_CI_WORKFLOW] {
-        let contents = read_repo_file(path)?;
+        let contents = read_area_file(path)?;
         assert!(
             contents.contains("State.Health.Status"),
             "{path} does not consume the native Identity runtime health result"
@@ -165,7 +165,7 @@ fn api_health_probes_use_the_native_command_and_bind_aware_listener() -> TestRes
 
 #[test]
 fn worker_healthcheck_validates_config_and_read_only_database_readiness() -> TestResult {
-    let main = read_repo_file("services/identity-policy-worker/src/main.rs")?;
+    let main = read_area_file("services/identity-policy-worker/src/main.rs")?;
     for required in [
         "WorkerConfig::from_env()?",
         "check_worker_readiness(&config).await",
@@ -181,7 +181,7 @@ fn worker_healthcheck_validates_config_and_read_only_database_readiness() -> Tes
         "if healthcheck_requested(std::env::args_os().nth(1).as_deref()) {\n        return Ok(());"
     ));
 
-    let ci = read_repo_file(IDENTITY_CI_WORKFLOW)?;
+    let ci = read_area_file(IDENTITY_CI_WORKFLOW)?;
     for required in [
         "Verify worker healthcheck rejects missing configuration",
         "Verify worker healthcheck rejects unreachable database",
@@ -196,7 +196,7 @@ fn worker_healthcheck_validates_config_and_read_only_database_readiness() -> Tes
 
 #[test]
 fn examples_and_ci_cover_independent_bootstrap_migration_and_compose() -> TestResult {
-    let example = read_repo_file(".env.example")?;
+    let example = read_area_file(".env.example")?;
     for required in [
         "IDENTITY_ADMIN_PASSWORD=REPLACE_WITH_",
         "IDENTITY_MIGRATOR_PASSWORD=REPLACE_WITH_",
@@ -214,7 +214,7 @@ fn examples_and_ci_cover_independent_bootstrap_migration_and_compose() -> TestRe
         );
     }
 
-    let ci = read_repo_file(IDENTITY_CI_WORKFLOW)?;
+    let ci = read_area_file(IDENTITY_CI_WORKFLOW)?;
     for required in [
         // ADR-0004: full-workspace fmt/clippy/test verification is owned by the
         // single SSOT command (replaces the standalone build/fmt/clippy/test jobs);
@@ -233,7 +233,7 @@ fn examples_and_ci_cover_independent_bootstrap_migration_and_compose() -> TestRe
 
 #[test]
 fn runtime_role_cannot_modify_staff_profile_fields() -> TestResult {
-    let grants = read_repo_file("infra/compose/grant-identity-runtime-access.sql")?;
+    let grants = read_area_file("infra/compose/grant-identity-runtime-access.sql")?;
 
     assert!(grants.contains("REVOKE UPDATE ON identity.staff FROM :\"identity_api_role\";"));
     assert!(grants.contains("GRANT SELECT, INSERT ON identity.staff TO :\"identity_api_role\";"));
@@ -244,10 +244,10 @@ fn runtime_role_cannot_modify_staff_profile_fields() -> TestResult {
 
 #[test]
 fn provisioner_is_a_fail_closed_atomic_least_privilege_deployment_job() -> TestResult {
-    let compose = read_repo_file("docker-compose.yml")?;
-    let grants = read_repo_file("infra/compose/grant-identity-runtime-access.sql")?;
-    let dockerfile = read_repo_file("services/identity-api/Dockerfile")?;
-    let smoke = read_repo_file("scripts/compose-smoke.sh")?;
+    let compose = read_area_file("docker-compose.yml")?;
+    let grants = read_area_file("infra/compose/grant-identity-runtime-access.sql")?;
+    let dockerfile = read_area_file("services/identity-api/Dockerfile")?;
+    let smoke = read_area_file("scripts/compose-smoke.sh")?;
 
     for required in [
         "identity-service-provisioner --bin identity-service-provisioner",
@@ -282,7 +282,12 @@ fn provisioner_is_a_fail_closed_atomic_least_privilege_deployment_job() -> TestR
     Ok(())
 }
 
-fn read_repo_file(relative: &str) -> Result<String, std::io::Error> {
+/// Reads a path relative to the **area** root, `platforms/identity-platform`.
+///
+/// It was named `read_repo_file`, which reads as the repository root. Sibling tests in other areas
+/// do resolve against the repository root, so the wrong name made this file's paths look like
+/// repository paths when they are area paths.
+fn read_area_file(relative: &str) -> Result<String, std::io::Error> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     fs::read_to_string(root.join(relative))
 }

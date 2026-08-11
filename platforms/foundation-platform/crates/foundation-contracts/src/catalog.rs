@@ -102,13 +102,14 @@ pub struct IndustrialComplexGoldPointerResponse {
     pub published_at: DateTime<Utc>,
 }
 
-/// Canonical parcel response for a parcel inside an industrial complex.
+/// Canonical parcel response.
+///
+/// Carries no industrial complex. Membership is a dated fact between two entities rather than a
+/// property of the parcel (ADR-0019), and most parcels belong to no complex at all.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct ParcelResponse {
     /// Stable foundation-platform identifier for the parcel.
     pub id: Uuid,
-    /// Industrial complex that owns this parcel.
-    pub complex_id: Uuid,
     /// Parcel Number Unit identifier.
     #[schema(
         min_length = 19,
@@ -183,6 +184,12 @@ pub struct UnitResponse {
 }
 
 /// Manufacturer read response that deliberately omits sensitive business identifiers.
+///
+/// No route returns this today: the complex-scoped manufacturer list was deleted rather than
+/// migrated to the membership table, because nothing called it (ADR-0021). The shape is kept
+/// because its field list *is* a decision — `business_registration_number` is on the domain type
+/// and deliberately absent here — and that decision would be silently lost if the type went with
+/// the route. A future manufacturer read starts from this shape rather than re-deciding it.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct ManufacturerResponse {
     /// Stable foundation-platform identifier for the manufacturer.
@@ -691,8 +698,6 @@ pub struct VectorTileDynamicPostgisResponse {
     pub martin_source_id: String,
     /// Complete Martin tile URL template.
     pub tiles_url_template: String,
-    /// Complete `PostGIS` projection revision UUID.
-    pub postgis_projection_revision: Uuid,
     /// Must be `no_store` for the dynamic source.
     pub cache_policy: String,
 }

@@ -47,7 +47,9 @@ class TrinoCatalogTemplateContractTest(unittest.TestCase):
         text = DBT_README.read_text(encoding="utf-8")
 
         self.assertIn("foundation_platform.properties", text)
-        self.assertIn("catalog file name is the Trino catalog name", text)
+        # Was "catalog file name is the Trino catalog name" until the Korean-first migration
+        # (558c5beb) translated the sentence that states it.
+        self.assertIn("파일명을 카탈로그 이름으로 사용", text)
 
 
 if __name__ == "__main__":

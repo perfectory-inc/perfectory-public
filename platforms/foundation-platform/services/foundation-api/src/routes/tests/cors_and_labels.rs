@@ -50,8 +50,8 @@ fn cors_invalid_local_origins_fall_back_to_default_local_origins() -> Result<(),
 #[test]
 fn canonical_route_label_bounds_dynamic_metric_cardinality() {
     assert_eq!(
-        super::canonical_route_label("/catalog/v1/complexes/abc/parcels"),
-        "/catalog/v1/complexes/{id}/parcels"
+        super::canonical_route_label("/catalog/v1/complexes/abc/notices"),
+        "/catalog/v1/complexes/{id}/notices"
     );
     assert_eq!(
         super::canonical_route_label("/catalog/v1/complexes/abc/archive"),

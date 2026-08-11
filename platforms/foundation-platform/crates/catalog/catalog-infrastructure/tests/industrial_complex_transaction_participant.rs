@@ -1,8 +1,5 @@
 //! `PostgreSQL` contract tests for the Catalog canonical transaction participant.
 
-#[allow(dead_code)]
-mod support;
-
 use catalog_application::{
     industrial_complex_patch::{
         parse_industrial_complex_proposed_record, parse_industrial_complex_restore_input,
@@ -17,7 +14,7 @@ use serde_json::{json, Value as JsonValue};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
-use support::{run_in_disposable_database, TestResult};
+use foundation_disposable_database::{run_in_disposable_database, TestResult};
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../../migrations");
 

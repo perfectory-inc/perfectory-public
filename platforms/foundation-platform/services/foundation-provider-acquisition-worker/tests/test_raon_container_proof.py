@@ -102,7 +102,7 @@ def test_runbook_documents_container_proof_before_fargate_selection() -> None:
     assert "Dockerfile.raon-agent-proof" in runbook
     assert "Dockerfile.raon-batch" in runbook
     assert "RAON_DEB_SHA256" in runbook
-    assert "Fargate remains the clean managed candidate" in runbook
-    assert "it is not selected by this runbook" in runbook
-    assert "ai-server is a" in runbook
-    assert "not the production collector" in runbook
+    # Translated by the Korean-first migration (558c5beb); anchored on the sentences the runbook now
+    # carries so a reword does not fail this and a removal does.
+    assert "관리형 후보로 깔끔하지만 이 런북에서 선택하지 않는다" in runbook
+    assert "ai-server는 실험실용이지 운영" in runbook

@@ -671,12 +671,17 @@ capability가 꺼진 경우 같은 activation은 내부 publication state만 갱
 내보내지 않는다. 기존 v1 event/projection 동작은 byte-identical이어야 한다. capability가 켜진
 경우 같은 transaction에 v2 event 정확히 하나를 기록한다.
 
-- [x] **Step 4: Write the serving-rollback test**
+- [ ] **Step 4: Write the serving-rollback test**
 
 정적 릴리스 S11을 승격한 뒤 같은 데이터 리비전의 보존된 동적 릴리스 R11로 롤백한다.
 다른 데이터 리비전의 fallback은 거부되는지 확인한다.
 
-- [ ] **Step 5: Implement application commands and ports**
+> **정정 (2026-07-30):** 이 항목은 `[x]`였는데 근거가 잘못됐다. 존재하는
+> `catalog-infrastructure/tests/vector_tile_manifest_rollback.rs`는 **v1 flat manifest** 롤백
+> 테스트이고, 이 단계가 요구하는 v2 serving-source 롤백 테스트는 없다. 이름이 비슷해서
+> 대조에서 통과했다.
+
+- [x] **Step 5: Implement application commands and ports**
 
 모든 mutation command에는 `expected_active_release_id`, `expected_version`,
 `canonical_iceberg_snapshot_id`와 idempotency key가 들어간다. Promotion에는
@@ -684,7 +689,26 @@ capability가 꺼진 경우 같은 activation은 내부 publication state만 갱
 명시적으로 타입이 있는 `RuntimeManifestPublicationCapability`를 주입하며
 domain/application code가 environment variable을 직접 읽지 못하게 한다.
 
-- [x] **Step 6: Implement one SQLx transaction boundary**
+구현 결정: `expected_version`은 전역 manifest version이 아니라 단위별
+`expected_serving_generation`으로 둔다. 전역 version을 CAS 키로 쓰면 서로 다른 단위를 바꾸는
+두 edit이 충돌로 판정되어 Step 1이 요구하는 "둘 다 commit되고 전역 generation이 순서대로 두 번
+증가"를 만족할 수 없다. 전역 manifest는 pointer를 잠근 뒤 다시 만든다. 단위별 release id와
+generation은 서로를 대체하지 않는다 — 같은 데이터 리비전으로 rollback하면 보존된 release가
+새 generation에서 다시 활성화되므로 release id 하나로는 두 상태를 구분할 수 없다.
+
+environment variable 금지는 서술이 아니라 `scripts/guard/no-env-access-in-domain-layers.sh`가
+집행한다. 레포의 `*-domain`·`*-application` 크레이트 36개 모두가 현재 0건이므로 예외 목록 없이
+그 상태를 고정했다.
+
+`RuntimeManifestPublicationCapability`가 무엇을 막는지도 못 박아 둔다. **admission이 아니라
+v2 outbox event를 막는다.** Step 3이 요구하는 대로 capability가 꺼진 배포도 activation을 내부
+원장에 기록하고 public v2 event만 내보내지 않으며, 그래야 v1 동작이 byte-identical하게 남는다.
+따라서 use case는 이 capability를 보지 않는다 — use case에서 거부하면 그 요구를 만족할 수 없고,
+하나의 배포 결정을 두 곳에서 답하게 되어 주입 타입을 도입한 이유가 사라진다. 결정은 event를
+쓰는 곳, 즉 transaction이 소유한다. 정적 빌드 원장은 내부 기록이므로 애초에 대상이 아니다.
+API의 v2 매니페스트 조회 라우트가 같은 capability로 404를 내는 것은 별개의 읽기 게이트다.
+
+- [ ] **Step 6: Implement one SQLx transaction boundary**
 
 기존 `catalog-infrastructure/src/unit_of_work.rs`의 `FOR UPDATE`/CAS/outbox pattern을 재사용한다.
 먼저 singleton `vector_tile_runtime_manifest_pointer` row, 그 다음 영향을 받은 publication unit,
@@ -692,6 +716,104 @@ domain/application code가 environment variable을 직접 읽지 못하게 한�
 모든 code path는 `runtime_manifest_pointer -> publication_unit -> release rows` 순서를 지켜야 한다.
 typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다른 unit의 selection을 조용히
 버리지 않는다. database transaction 안에서 R2 pointer를 갱신하지도 않는다.
+
+> **정정 (2026-07-30):** 이 항목도 `[x]`였는데 근거가 잘못됐다. `unit_of_work.rs`가 구현한
+> v2 메서드는 `promote_vector_tile_runtime_manifest` 하나이며, 이는 singleton pointer의 CAS를
+> SQL 함수에 위임할 뿐이다. 이 단계가 요구하는
+> `runtime_manifest_pointer -> publication_unit -> release rows` 3단 lock 트랜잭션은 없다.
+> 다섯 개 application 명령의 port 메서드는 모두 **기본 구현이 에러**인 상태이며, 그것이
+> 미구현을 조용한 성공으로 바꾸지 않는 이유다.
+
+> **구현 제약 (2026-07-30 확인):** SQL 함수를 읽어 보면 이 단계의 일이 예상보다 적고, 대신
+> 예상하지 못한 제약이 하나 있다.
+>
+> `catalog.promote_vector_tile_runtime_manifest`가 이미 pointer CAS, 완전성
+> (`next_unit_count = publication_unit_count`), 첫 발행은 dynamic, static은 현재 리비전,
+> serving generation ±1, 전역 generation 증가, 그리고 unit pointer 갱신(+fallback 보존/삭제)을
+> 모두 수행한다. Rust 트랜잭션이 할 일은 release·layer·manifest·manifest_unit 행을 쓰고 이
+> 함수를 호출한 뒤 outbox event를 넣는 것이다.
+>
+> 제약: **한 단위만 바꿔도 매니페스트는 모든 publication unit을 선택해야 한다.** 함수가
+> `next_unit_count <> publication_unit_count`를 거부하므로, 활성화 트랜잭션은 현재 pointer의
+> manifest_unit 행을 읽어 나머지 단위의 선택을 그대로 이어받아야 한다. Step 1이 요구하는
+> "selection이 사라지거나 half-committed unit을 합친 manifest가 나오면 안 된다"가 이 제약이다.
+>
+> `fallback_release_id`는 함수가 **보존하거나 지울 뿐 설정하지 않는다.** 정적 승격은 함수 호출
+> *전에* 이전 release id를 읽어 두고, 호출 *후에* fallback을 직접 써야 한다 — 호출 후에는
+> `active_release_id`가 이미 새 release다.
+
+> **착수 전 조사 결과 (2026-07-30):** 필요한 부품은 모두 존재한다. 없는 것은 트랜잭션 본문뿐이다.
+>
+> - **v2 outbox 이벤트 존재.** `foundation_shared_kernel::events::catalog_v1::CatalogEvent`의
+>   `VectorTileRuntimeManifestPublished(VectorTileRuntimeManifestPublishedV2)`. 페이로드는
+>   `manifest_id`, `manifest_generation`, `publication_units: BTreeMap<String,
+>   VectorTileRuntimeUnitSelectionV2>`, `published_at`이며 단위 선택은 `active_release_id`,
+>   `data_revision`, `serving_generation`, `canonical_iceberg_snapshot_id`를 담는다.
+>   (`foundation-contracts`가 아니라 `foundation-shared-kernel`에 있다.)
+> - **capability 주입 지점.** `PgCatalogUnitOfWork::new(pool)` 프로덕션 호출처가 4곳이다.
+>   생성자를 바꾸면 v2와 무관한 3곳이 함께 바뀌므로, `AppState`에서 쓴 것과 같은
+>   `with_runtime_manifest_publication(capability)` 빌더를 두고 기본값은 **비활성**으로 둔다
+>   (fail-closed). v2를 발행하는 호출처만 켠다.
+> - **publication unit은 시드된다.** `infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql`이
+>   INSERT 한다. 활성화 트랜잭션은 단위를 만들지 않고 **없으면 실패**한다.
+> - **CAS 판정에서 `serving_generation` 컬럼을 그대로 믿지 말 것.** 기본값이 1이므로
+>   `active_release_id IS NULL`인 단위도 1을 들고 있다. 첫 발행은 `expected_*` 둘 다 `None`이어야
+>   하고 다음 세대는 1이다. 그 외에는 관찰값 + 1이다.
+> - **반환값을 위한 리더가 트랜잭션을 받지 못한다.** `sqlx_repository.rs`의
+>   `get_active_vector_tile_runtime_manifest`(193줄)가 `&self.pool`에 묶여 있다. 커밋 뒤 pool로
+>   다시 읽으면 그 사이 다른 승격이 끼어들 수 있으므로, 본문을 `&mut sqlx::PgConnection`을 받는
+>   함수로 먼저 추출해 두 호출처가 같은 정의를 쓰게 한다. **이것이 트랜잭션보다 앞선 작업이다.**
+
+> **Increment C·D 결과 (2026-07-30):** `mark_tile_layer_dynamic` 하나를 세로로 뚫고, 뚫는 과정에서
+> 드러난 게이트 결함을 고쳤다. 리더 추출, 트랜잭션,
+> `catalog-infrastructure/tests/spatial_tile_publication.rs`(단위별 disposable DB 10개)까지 완료.
+> 남은 네 명령(`start_vector_tile_build`, `record_vector_tile_build_result`,
+> `promote_tile_layer_static`, `rollback_tile_layer_source`)은 여전히 port 기본 구현이 에러다.
+>
+> 뚫어 보고 드러난 것 세 가지 — 계획이 예상한 것과 다르다.
+>
+> 1. **게이트가 `serving_generation`의 의미를 어기고 있었고, 고쳤다.** gap 검사가 매니페스트에
+>    선택된 **모든** 단위에 `unit.serving_generation + 1`을 요구했으므로, 한 단위만 바꾸는 발행이
+>    이어받은 단위들의 세대까지 올렸다. 그러면 FP-ADR-0004의 단위별 폴링이 정보를 잃고, Step 1의
+>    "서로 다른 두 단위가 둘 다 commit"이 성립하지 않는다 — 나중 writer의
+>    `expected_serving_generation`이 자기와 무관한 발행에 의해 낡기 때문이다.
+>    `20260730000003_serving_generation_tracks_one_unit_source_selection.sql`이 규칙을 전이별로
+>    좁혔다: 첫 발행은 `1`, release가 바뀌면 `+1`, release를 재선택하면 **유지**.
+>    근거: [ADR-0014](../adr/0014-serving-generation-tracks-one-unit-source-selection.md).
+>    마이그레이션을 빼면 `activating_one_unit_carries_every_other_unit_into_the_new_manifest`와
+>    `two_edits_to_different_units_both_commit_and_advance_the_global_generation_in_order`가
+>    `has a serving-generation gap`으로 실패한다 — 음성 대조로 확인했다.
+> 2. **두 번째 publication unit은 "시드 후 즉시 활성화" 순서만 가능하다.** 단위를 추가하고 발행하지
+>    않은 채 두면 다른 어떤 단위의 활성화도 완전성 검사에서 실패한다. 시드가 단위를 만들고 활성화가
+>    첫 발행을 하는 순서가 강제된다.
+> 3. **CAS 충돌에 retry loop를 두지 않았다.** Step 6 본문은 "충돌하면 최신 pointer부터 retry"라고
+>    쓰지만, 트랜잭션이 pointer 관계에 `SHARE ROW EXCLUSIVE`를 **먼저** 잡으면 동시성으로 인한 CAS
+>    충돌 자체가 생길 수 없다(같은 락을 SQL 함수도 잡으므로 모든 pointer 이동이 이 락에서 직렬화된다).
+>    남는 충돌은 호출자의 관찰이 낡은 경우뿐이고, 그것은 retry하면 안 된다 — 호출자가 보지 못한 상태
+>    위에 덮어쓰게 된다. retry를 대기로 바꾼 것이므로 lost-update 창이 없다.
+>
+> **Step 1의 두 interleaving은 이제 테스트가 있다.** 같은 단위 경합은
+> `two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner`(정확히 하나 commit, 패자는
+> typed `VectorTileServingStateConflict`), 서로 다른 단위 경합은
+> `two_edits_to_different_units_both_commit_and_advance_the_global_generation_in_order`(둘 다 commit,
+> 각 매니페스트에 두 selection이 정확히 한 번, 전역 generation 순서대로 두 번 증가)가 담당한다.
+> 후자는 database serialization failure가 아니라 **나중 매니페스트가 앞선 writer의 새 release를
+> 이어받았다는 사실**로 lock order를 증명한다. Step 1이 여전히 미완인 이유는 완전한 PostGIS
+> projection 행 단정이 남았기 때문이며, 그 행을 쓰는 것은 Task 7 Step 4다.
+>
+> 미해결(범위 밖): **`idempotency_key`를 저장할 자리가 스키마에 없다.** `vector_tile_build_job`은
+> `(publication_unit_id, idempotency_key)`를 갖지만 활성화용 원장은 없다. Step 5가 요구한 "재시도가
+> 첫 결과를 돌려준다"는 아직 아니며, 추가 마이그레이션 + ADR이 필요하다.
+>
+> > **정정 (2026-07-30):** 이 단락은 처음에 "release 유니크 키가 재시도를 거부한다"고 썼고 근거로
+> > `a_replayed_activation_leaves_no_partial_state`를 들었다. 둘 다 틀렸다. 동일한 본문의 재시도는
+> > `expected_active_release_id`가 여전히 `None`이므로 **CAS**가 거부한다 —
+> > `a_stale_observation_loses_the_compare_and_swap_and_moves_nothing`의 첫 분기가 그것이다. 그
+> > 테스트는 첫 호출에 `None`, 두 번째에 `Some((release, 1))`을 보내므로 **본문이 다른 요청**이었고,
+> > 재시도를 시험한 적이 없다. 지금은
+> > `re_publishing_one_revision_after_observing_it_leaves_no_partial_state`로 이름을 고쳤고, 그것이
+> > 실제로 덮는 것은 "관찰을 갱신해 같은 리비전을 다시 발행하려는 시도"다. 이중 발행이 불가능하다는
+> > 결론 자체는 유지되지만 막는 주체가 다르다.
 
 - [ ] **Step 7: Run unit and database integration tests**
 

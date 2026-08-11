@@ -25,6 +25,7 @@ Date: 2026-07-09
 
 ## 방향 규칙
 
+<!-- contract: external-acquisition-pull -->
 ### 외부 제공기관 수집은 가져오기(Pull)
 
 Foundation Platform이 data.go.kr, V-World, hub.go.kr, 국토부 실거래 내보내기와 제공기관 다운로드
@@ -41,6 +42,7 @@ Foundation이 소유하는 수집 제어 항목:
 - lineage
 - retry and resume
 
+<!-- contract: catalog-lookup-pull -->
 ### 제품 카탈로그 조회는 가져오기(Pull)
 
 제품 서비스는 조회 API로 공개된 Foundation 계약을 가져온다. Foundation 데이터베이스나 객체 레이크
@@ -53,6 +55,7 @@ Foundation이 소유하는 수집 제어 항목:
 
 공개 조회 계약이 추가될 수 있지만, 이 역시 공개 계약이지 저장소 직접 접근이 아니다.
 
+<!-- contract: proposal-intake-push -->
 ### 제안 접수는 밀어넣기(Push)
 
 `intelligence-platform`이 AI 정규화 제안을 만들고 Foundation Platform에 전달한다. Foundation은 이를
@@ -65,6 +68,7 @@ Current governed service surface:
 이 전달은 정본 쓰기 권한을 주지 않는다. Foundation 제안함에 접수증만 만들며, 검토·적용·롤백은
 Foundation 직원/관리자 명령으로만 수행한다.
 
+<!-- contract: artifact-registration-push -->
 ### 레이크하우스 산출물 등록은 밀어넣기(Push)
 
 제품 소유 worker는 자신이 만든 산출물을 소유하고 Foundation이 교차 서비스 레지스트리 기록을
@@ -76,6 +80,7 @@ Current governed service surface:
 
 전달 요청은 메타데이터만 등록한다. 호출자에게 Foundation 데이터베이스 직접 접근 권한을 주지 않는다.
 
+<!-- contract: staff-command-push -->
 ### 관리자 명령은 명령 전달이다
 
 직원/관리자 경로는 Foundation Platform으로 명령을 전달한다. 제공기관 수집이나 이벤트 전달이 아니며,
@@ -89,6 +94,7 @@ Examples:
 - rollback an applied proposal
 - promote or rollback a governed manifest
 
+<!-- contract: outbox-fanout-push -->
 ### Outbox 전달은 밀어넣기(Push)
 
 Foundation은 `catalog.outbox_event`와 outbox publisher를 통해 커밋된 이벤트를 발행한다. 현재 전송은
@@ -97,6 +103,7 @@ Foundation은 `catalog.outbox_event`와 outbox publisher를 통해 커밋된 이
 Outbox 이벤트는 커밋된 사실이나 내구성 있는 플랫폼 이벤트를 위한 것이다. 요청/응답 조회나 원천 수집이
 아니다.
 
+<!-- contract: dbt-modeling-pull -->
 ### dbt/Trino 모델링은 가져오기/조회다
 
 dbt 모델은 Trino를 통해 레이크하우스 관계를 조회한다. dbt는 원천 데이터를 전달하거나 AI 모델을
@@ -106,6 +113,7 @@ dbt owns SQL modeling and SQL tests only.
 
 ## 경계 규칙
 
+<!-- contract: no-cross-service-db-access -->
 - 서비스 간 데이터베이스 직접 접근은 금지한다.
 - 명시적으로 공개된 변경 불가 산출물이 아닌 한 서비스 간 객체 레이크 내부 접근은 금지한다.
 - Pull API는 멱등 조회이거나 Foundation 소유 수집 worker여야 한다.

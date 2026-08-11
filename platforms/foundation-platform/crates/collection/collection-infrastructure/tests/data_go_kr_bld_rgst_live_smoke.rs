@@ -28,18 +28,28 @@ async fn data_go_kr_building_register_live_smoke_reads_json_envelope() -> TestRe
         format!("missing required environment variable: {DATA_GO_KR_SERVICE_KEY_ENV}")
     })?;
     let request_url = smoke_url(service_key.trim());
-    let payload = reqwest::get(request_url)
-        .await?
-        .json::<serde_json::Value>()
-        .await?;
+    // Status and body are captured before parsing, and both go into every failure below. Without
+    // them this test could only say the envelope was the wrong shape, which reads the same whether
+    // the key was rejected, the quota ran out, or the provider's gateway was down. It was the last
+    // of those — `{"OpenAPI_ServiceResponse":{"cmmMsgHeader":{"errMsg":"HTTP_ERROR",...}}}` behind
+    // an HTTP 502 — and finding that out needed a request made by hand outside the test.
+    //
+    // The body is provider output, not ours: the service key travels in the query string and never
+    // appears in a response, so printing it leaks nothing.
+    let response = reqwest::get(request_url).await?;
+    let status = response.status();
+    let body = response.text().await?;
+    let payload: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
+        format!("data.go.kr returned HTTP {status} and unparseable JSON ({error}): {body}")
+    })?;
 
-    let header = payload
-        .pointer("/response/header")
-        .ok_or("data.go.kr response omitted /response/header")?;
+    let header = payload.pointer("/response/header").ok_or_else(|| {
+        format!("data.go.kr returned HTTP {status} without /response/header: {body}")
+    })?;
     let result_code = header
         .get("resultCode")
         .and_then(serde_json::Value::as_str)
-        .ok_or("data.go.kr response omitted resultCode")?;
+        .ok_or_else(|| format!("data.go.kr header carried no resultCode: {body}"))?;
     let result_msg = header
         .get("resultMsg")
         .and_then(serde_json::Value::as_str)

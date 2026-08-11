@@ -7,13 +7,18 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use catalog_domain::{
-    Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexMutation, ComplexNotice,
-    DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
-    IndustryGroupMember, Manufacturer, MarkerAnchorAlgorithm, MarkerTileRequest, Parcel,
-    ParcelIndustryAssignment, ParcelKind, SpatialLayer, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    Blueprint, BuildEvidenceDigest, Building, CanonicalIcebergSnapshotId, CatalogError,
+    CatalogMutationKind, ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset,
+    FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup, IndustryGroupMember,
+    MarkerAnchorAlgorithm, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
+    PmtilesChecksum, RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
+    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
 };
-use foundation_shared_kernel::ids::{ComplexId, NoticeId, ParcelId, StaffId};
+use foundation_shared_kernel::ids::{
+    ComplexId, FileAssetId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId,
+    VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
+};
 use foundation_shared_kernel::pnu::Pnu;
 use uuid::Uuid;
 
@@ -99,6 +104,272 @@ pub struct VectorTileManifestPromotionCommand {
     pub operator_staff_id: StaffId,
     /// Optional request id used for idempotency and trace correlation.
     pub request_id: Option<String>,
+}
+
+/// Command for activating a complete dynamic `PostGIS` source for one publication unit.
+///
+/// This is the v2 publication entry point: every unit starts dynamic, and a static release may
+/// only ever replace a dynamic one built from the same data revision. The expectations are carried
+/// on the command rather than read inside the transaction so that two concurrent edits starting
+/// from the same observed state cannot both win — the loser sees a version conflict instead of
+/// silently overwriting.
+///
+/// The expectations are deliberately per-unit and there is no expected global manifest version.
+/// A global check would be stricter than the invariant requires: two edits to *different* units
+/// are not in conflict, and the guide requires both to commit with the global generation advancing
+/// twice in order. The global manifest is therefore rebuilt from the locked pointer at commit time
+/// rather than compared against a value the caller read earlier.
+#[derive(Clone, Debug)]
+pub struct MarkTileLayerDynamicCommand {
+    /// Publication unit being switched, for example `parcels`.
+    pub unit_key: String,
+    /// Release the caller observed as active, or `None` for a first publication.
+    ///
+    /// `None` is a claim that the unit has never published, not an instruction to skip the check.
+    /// The implementation refuses it when a release already exists.
+    pub expected_active_release_id: Option<VectorTileReleaseId>,
+    /// Serving generation the caller observed, or `None` for a first publication.
+    ///
+    /// Paired with `expected_active_release_id`: one present without the other describes a state
+    /// that cannot exist, so the use case refuses the mixed form rather than guessing.
+    ///
+    /// It is not redundant with the release id. A same-data rollback re-activates a *preserved*
+    /// dynamic release, so one release id can be the active one at two different generations; the
+    /// release alone would not tell those two states apart.
+    pub expected_serving_generation: Option<ServingGeneration>,
+    /// Logical content revision this activation publishes.
+    pub data_revision: VectorTileDataRevisionId,
+    /// Immutable Iceberg snapshot the projection was built from.
+    pub canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId,
+    /// Complete `PostGIS` projection revision backing the dynamic source.
+    pub postgis_projection_revision: PostgisProjectionRevisionId,
+    /// Configured Martin source name.
+    pub martin_source_id: String,
+    /// Query-free tile URL template the Catalog pointer publishes.
+    pub tiles_url_template: RuntimeTilesUrlTemplate,
+    /// Complete layer set for this unit, keyed exactly as the published manifest keys it.
+    ///
+    /// An empty set is refused: a unit that serves no layer is not a publication. `cache_policy`
+    /// is absent by design — a dynamic source is never browser-cacheable, so the use case writes
+    /// the single permitted value instead of accepting one.
+    pub layers: BTreeMap<String, RuntimeTileLayer>,
+    /// Audit lineage for the projection input.
+    pub lineage: RuntimeTileLineage,
+    /// Caller-chosen key that makes a retried activation return the first outcome.
+    pub idempotency_key: String,
+    /// Staff operator that requested the activation.
+    pub operator_staff_id: StaffId,
+}
+
+impl MarkTileLayerDynamicCommand {
+    /// Digests everything that makes this request the request it is.
+    ///
+    /// The field list is written out rather than derived, so adding a field to the command above does
+    /// not compile until someone decides whether it belongs to request identity. A derived encoding
+    /// would answer that question silently, and answer it wrong the moment a field is reordered.
+    ///
+    /// Two membership decisions are worth stating because the intuitive answer is the wrong one.
+    ///
+    /// `idempotency_key` is **excluded**: it is the ledger's key, so hashing it would make every
+    /// fingerprint trivially unique and the mismatch check dead code.
+    ///
+    /// `operator_staff_id` is **included**, even though it means a colleague re-sending the same body
+    /// is refused. The alternative is worse: the activation is recorded against the first operator,
+    /// so replaying that outcome to a second one reports a success they did not cause while the
+    /// ledger names someone else as the actor. A refusal is annoying and visible; a falsified audit
+    /// trail is neither.
+    ///
+    /// The `expected_*` pair is included for the same reason Stripe tells clients to mint a fresh key
+    /// when they change the request: a retry made on *new* observations is a new decision, not the
+    /// old one repeated.
+    #[must_use]
+    pub fn request_fingerprint(&self) -> RequestFingerprint {
+        let mut builder = RequestFingerprintBuilder::new(CatalogMutationKind::MarkTileLayerDynamic)
+            .text(&self.unit_key)
+            .optional_displayed(self.expected_active_release_id.as_ref())
+            .optional_integer(
+                self.expected_serving_generation
+                    .map(ServingGeneration::value),
+            )
+            .displayed(&self.data_revision)
+            .text(self.canonical_iceberg_snapshot_id.as_str())
+            .displayed(&self.postgis_projection_revision)
+            .text(&self.martin_source_id)
+            .text(self.tiles_url_template.as_str())
+            .count(self.layers.len());
+        // `BTreeMap` iteration is already sorted, and the count above means a shorter layer set can
+        // never encode as the prefix of a longer one.
+        for (layer_id, layer) in &self.layers {
+            builder = builder
+                .text(layer_id)
+                .text(&layer.source_layer)
+                .text(layer.feature_id_property.as_str())
+                .integer(u64::from(layer.tile_min_zoom))
+                .integer(u64::from(layer.tile_max_zoom))
+                .integer(u64::from(layer.render_min_zoom))
+                .integer(u64::from(layer.render_max_zoom))
+                .count(layer.feature_filter_properties.len());
+            for (property, value) in &layer.feature_filter_properties {
+                builder = builder.text(property).text(value);
+            }
+        }
+        builder = builder
+            .displayed(&self.lineage.source_record_id)
+            .count(self.lineage.source_file_asset_ids.len());
+        // In order, deliberately not sorted: the order lands in a Postgres array column, so a
+        // reordered lineage really is a different request.
+        for file_asset_id in &self.lineage.source_file_asset_ids {
+            builder = builder.displayed(file_asset_id);
+        }
+        builder.displayed(&self.operator_staff_id).finish()
+    }
+}
+
+/// A publication command's answer, and whether this call produced it.
+///
+/// An enum rather than a `(manifest, replayed: bool)` pair because a caller has to handle the
+/// difference: a replay returns the manifest the *first* call published, whose `manifest_generation`
+/// may be older than the pointer's, and clients compare generations to decide what to refetch. This
+/// repository already has the failure this prevents — `PgNormalizationUnitOfWork` returns a `created`
+/// flag that the route discards, so a deduplicated submission is reported as a fresh one.
+#[derive(Clone, Debug)]
+pub enum PublishedRuntimeManifest {
+    /// This call assembled and promoted the manifest.
+    Published(VectorTileRuntimeManifest),
+    /// A prior call with the same idempotency key published it; nothing was written now.
+    Replayed(VectorTileRuntimeManifest),
+}
+
+impl PublishedRuntimeManifest {
+    /// The manifest, for callers that genuinely do not distinguish the two cases.
+    #[must_use]
+    pub const fn manifest(&self) -> &VectorTileRuntimeManifest {
+        match self {
+            Self::Published(manifest) | Self::Replayed(manifest) => manifest,
+        }
+    }
+
+    /// Consumes this outcome and returns the manifest.
+    #[must_use]
+    pub fn into_manifest(self) -> VectorTileRuntimeManifest {
+        match self {
+            Self::Published(manifest) | Self::Replayed(manifest) => manifest,
+        }
+    }
+
+    /// Whether the ledger answered instead of the transaction.
+    #[must_use]
+    pub const fn was_replayed(&self) -> bool {
+        matches!(self, Self::Replayed(_))
+    }
+}
+
+/// Command for recording a static build attempt against one publication unit.
+///
+/// Starting a build is a ledger write, not a side effect of running one: the row fixes which
+/// release and which frozen snapshot the artifacts must correspond to, so a build that later
+/// reports different inputs can be refused instead of trusted.
+#[derive(Clone, Debug)]
+pub struct StartVectorTileBuildCommand {
+    /// Publication unit the build targets.
+    pub unit_key: String,
+    /// Release the build takes as its input.
+    pub input_release_id: VectorTileReleaseId,
+    /// Logical content revision that release represents.
+    pub input_data_revision: VectorTileDataRevisionId,
+    /// Immutable Iceberg snapshot the build freezes.
+    ///
+    /// The transaction checks it against the snapshot pinned on `input_release_id`. A build that
+    /// claims a different snapshot from the release it names is either pointed at the wrong release
+    /// or reporting the wrong snapshot, and afterwards the two cannot be told apart.
+    pub frozen_source_snapshot_id: CanonicalIcebergSnapshotId,
+    /// Caller-chosen key that makes a retried start return the first build rather than a second.
+    pub idempotency_key: String,
+    /// Staff operator that requested the build.
+    pub operator_staff_id: StaffId,
+}
+
+/// Command for recording what one static build attempt produced.
+#[derive(Clone, Debug)]
+pub struct RecordVectorTileBuildResultCommand {
+    /// Build being reported.
+    pub build_job_id: VectorTileBuildJobId,
+    /// What the attempt produced. Only `validated` and `failed` are expressible; see
+    /// [`VectorTileBuildOutcome`].
+    pub outcome: VectorTileBuildOutcome,
+    /// Staff operator that reported the result.
+    pub operator_staff_id: StaffId,
+}
+
+/// Command for promoting a validated static build to the active serving source for one unit.
+///
+/// The layer set is absent on purpose. A static release replaces a dynamic one built from the same
+/// data revision, so it must serve the same layers; the transaction copies them from the input
+/// release, which makes "static serves different layers than dynamic" unrepresentable rather than
+/// merely checked.
+///
+/// The Martin source name and the `PMTiles` object key are absent for the same kind of reason. Both
+/// are derived from `unit_key` and `release_id` by
+/// `catalog_domain::static_release_pmtiles_object_key`, so accepting them would only allow a caller
+/// to disagree with the one definition.
+#[derive(Clone, Debug)]
+pub struct PromoteTileLayerStaticCommand {
+    /// Publication unit being switched to its static release.
+    pub unit_key: String,
+    /// Validated build whose artifacts are being promoted.
+    pub build_job_id: VectorTileBuildJobId,
+    /// Release identity the artifact was uploaded under.
+    ///
+    /// Preallocated by the caller, as the immutable manifest's `file_asset` identity is: the object
+    /// key embeds the release, so the id has to exist before the upload.
+    pub release_id: VectorTileReleaseId,
+    /// Release the caller observed as active.
+    ///
+    /// Not optional. The first publication of a unit is always dynamic, so a static promotion
+    /// against a unit that has never published describes a state that cannot exist.
+    pub expected_active_release_id: VectorTileReleaseId,
+    /// Serving generation the caller observed. Not optional, for the same reason.
+    pub expected_serving_generation: ServingGeneration,
+    /// Release the build took as its input.
+    pub input_release_id: VectorTileReleaseId,
+    /// Immutable Iceberg snapshot the build froze.
+    pub frozen_source_snapshot_id: CanonicalIcebergSnapshotId,
+    /// Evidence the candidate artifacts were validated against.
+    pub validation_evidence: BuildEvidenceDigest,
+    /// Query-free tile URL template the Catalog pointer publishes.
+    pub tiles_url_template: RuntimeTilesUrlTemplate,
+    /// File asset row for the uploaded `PMTiles` object.
+    pub pmtiles_file_asset_id: FileAssetId,
+    /// Checksum of the uploaded `PMTiles` object bytes.
+    pub pmtiles_sha256: PmtilesChecksum,
+    /// Byte size of the uploaded `PMTiles` object. Zero is refused by the database.
+    pub pmtiles_bytes: u64,
+    /// Caller-chosen key that makes a retried promotion return the first outcome.
+    pub idempotency_key: String,
+    /// Staff operator that requested the promotion.
+    pub operator_staff_id: StaffId,
+}
+
+/// Command for returning one publication unit to its preserved same-revision dynamic release.
+///
+/// There is no target release field. The unit records exactly one `fallback_release_id`, and the
+/// database constrains its data revision to equal the active one, so "roll back to the recorded
+/// fallback" cannot name a release from a different revision. A caller-supplied target would
+/// reintroduce that possibility and turn a structural guarantee back into a check.
+#[derive(Clone, Debug)]
+pub struct RollbackTileLayerSourceCommand {
+    /// Publication unit being returned to its fallback.
+    pub unit_key: String,
+    /// Release the caller observed as active.
+    pub expected_active_release_id: VectorTileReleaseId,
+    /// Serving generation the caller observed.
+    pub expected_serving_generation: ServingGeneration,
+    /// Operator-facing reason persisted for audit.
+    pub reason: String,
+    /// Caller-chosen key that makes a retried rollback return the first outcome.
+    pub idempotency_key: String,
+    /// Staff operator that requested the rollback.
+    pub operator_staff_id: StaffId,
 }
 
 /// Source record command embedded in vector tile promote operations.
@@ -262,38 +533,11 @@ pub trait CatalogRepository: Send + Sync {
     /// Returns `CatalogError` when repository access fails.
     async fn find_parcel_by_pnu(&self, pnu: &Pnu) -> Result<Option<Parcel>, CatalogError>;
 
-    /// Lists parcels that belong to one industrial complex.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_parcels_by_complex(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Vec<Parcel>, CatalogError>;
-
-    /// Lists buildings on parcels that belong to one industrial complex.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_buildings_by_complex(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Vec<Building>, CatalogError>;
-
     /// Lists buildings on one parcel identified by PNU.
     ///
     /// # Errors
     /// Returns `CatalogError` when repository access fails.
     async fn list_buildings_by_pnu(&self, pnu: &Pnu) -> Result<Vec<Building>, CatalogError>;
-
-    /// Lists manufacturers on parcels that belong to one industrial complex.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_manufacturers_by_complex(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Vec<Manufacturer>, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///
@@ -442,7 +686,12 @@ pub trait CatalogUnitOfWork: Send + Sync {
         request_id: Option<String>,
     ) -> Result<IndustrialComplex, CatalogError>;
 
-    /// Updates a parcel kind and emits a race-free parcel kind changed event.
+    /// Updates a parcel kind, writes the edit ledger row, and emits a race-free parcel kind
+    /// changed event — all in one transaction.
+    ///
+    /// The ledger row is not optional bookkeeping. ADR-0006 rebuilds the serving projection from a
+    /// snapshot plus the edit ledger, so an edit that lands in the row without landing in the
+    /// ledger is an edit a rebuild loses (ADR-0023).
     ///
     /// # Errors
     /// Returns `CatalogError` when the parcel is missing, the expected version is stale,
@@ -452,6 +701,7 @@ pub trait CatalogUnitOfWork: Send + Sync {
         id: ParcelId,
         expected_version: i64,
         new_kind: ParcelKind,
+        applied_by: StaffId,
     ) -> Result<Parcel, CatalogError>;
 
     /// Switches the active vector tile manifest pointer to an existing immutable version.
@@ -487,6 +737,118 @@ pub trait CatalogUnitOfWork: Send + Sync {
         let _ = (expected_manifest_id, next_manifest_id);
         Err(CatalogError::InvalidVectorTileRuntimeManifest(
             "runtime manifest promotion is not implemented by this Catalog unit of work".to_owned(),
+        ))
+    }
+
+    /// Activates a complete dynamic `PostGIS` source for one publication unit.
+    ///
+    /// One transaction writes the projection rows, the immutable dynamic release, the unit's active
+    /// pointer and serving generation, the new global manifest and its generation, and the additive
+    /// v2 outbox event. A partial activation is never visible: if any write fails the pointer does
+    /// not move.
+    ///
+    /// The default is an error for the same reason the runtime-manifest promotion above is: a test
+    /// double that inherited a silent success would report a publication that never happened.
+    ///
+    /// A repeated `idempotency_key` carrying the same request returns the first outcome marked
+    /// [`PublishedRuntimeManifest::Replayed`] and writes nothing — no release, no manifest, no second
+    /// outbox event. The same key carrying a *different* request is refused: it is a key reuse, not a
+    /// retry, and the earlier outcome does not answer it.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the observed release or generation is stale, when the unit is
+    /// absent, when the layer set is empty, when the idempotency key was already used for a different
+    /// request, or when persistence and outbox writes fail.
+    async fn mark_tile_layer_dynamic(
+        &self,
+        command: MarkTileLayerDynamicCommand,
+    ) -> Result<PublishedRuntimeManifest, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "dynamic tile layer activation is not implemented by this Catalog unit of work"
+                .to_owned(),
+        ))
+    }
+
+    /// Records a static build attempt and returns its ledger identity.
+    ///
+    /// The transaction refuses a build whose claimed frozen snapshot is not the one pinned on its
+    /// input release, and returns the existing build for a repeated idempotency key rather than
+    /// opening a second attempt against the same inputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the unit or release is absent, when the claimed snapshot does not
+    /// match the release, or when the write fails.
+    async fn start_vector_tile_build(
+        &self,
+        command: StartVectorTileBuildCommand,
+    ) -> Result<VectorTileBuildJobId, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "static build start is not implemented by this Catalog unit of work".to_owned(),
+        ))
+    }
+
+    /// Records what a static build attempt produced.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the build is absent, when it has already reached a terminal
+    /// status, or when the write fails.
+    async fn record_vector_tile_build_result(
+        &self,
+        command: RecordVectorTileBuildResultCommand,
+    ) -> Result<(), CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "static build result recording is not implemented by this Catalog unit of work"
+                .to_owned(),
+        ))
+    }
+
+    /// Promotes a validated static build to the active serving source for one publication unit.
+    ///
+    /// One transaction writes the immutable static release and its layers copied from the input
+    /// release, moves the unit's active pointer while preserving the previous dynamic release as the
+    /// same-revision fallback, advances the serving and manifest generations, and records the
+    /// additive v2 outbox event.
+    ///
+    /// A build whose input release stopped being active is recorded `superseded` rather than
+    /// promoted — see `catalog_domain::validate_build_promotion`. The distinction matters because a
+    /// conflict invites a retry and a supersession does not.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the observed release or generation is stale, when the build is not
+    /// validated, when its frozen snapshot does not match its input release, or when the writes fail.
+    async fn promote_tile_layer_static(
+        &self,
+        command: PromoteTileLayerStaticCommand,
+    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "static tile layer promotion is not implemented by this Catalog unit of work"
+                .to_owned(),
+        ))
+    }
+
+    /// Returns one publication unit to its preserved same-revision dynamic release.
+    ///
+    /// The data revision does not change: a rollback undoes a source switch, not a publication.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CatalogError` when the observed release or generation is stale, when the unit has no
+    /// recorded fallback, or when the writes fail.
+    async fn rollback_tile_layer_source(
+        &self,
+        command: RollbackTileLayerSourceCommand,
+    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "tile layer source rollback is not implemented by this Catalog unit of work".to_owned(),
         ))
     }
 }

@@ -24,13 +24,55 @@
 # after the real count dropped. A ceiling that only ever rises is not a ratchet.
 set -euo pipefail
 
-# Measured 2026-07-29. Change deliberately, with the reason in the commit message.
-# They are parameters, not constants, for one reason: a guard whose thresholds
-# cannot be varied cannot have its own failure paths tested. The defaults are the
-# real repository's numbers; only the self-test passes anything else.
+# Measured 2026-07-29, raised to 80 on 2026-07-30. Change deliberately, with the
+# reason in the commit message. They are parameters, not constants, for one reason:
+# a guard whose thresholds cannot be varied cannot have its own failure paths
+# tested. The defaults are the real repository's numbers; only the self-test passes
+# anything else.
+#
+# 79 -> 80: `catalog-infrastructure/tests/spatial_tile_publication.rs` declares a
+# second `sqlx::migrate!` in that crate. The v2 publication transaction has to be
+# proved against a migrated database, and the promotion gate counts publication
+# units globally, so the suite needs its own disposable database rather than the
+# shared harness one — which is what the migrator site is for.
+#
+# 80 -> 81: `foundation-outbox-publisher/tests/administrative_boundary_postgis_publish.rs`
+# declares the first `sqlx::migrate!` in that crate, for the same reason: the only
+# production writer of a projection load creates the `admin` publication unit, so
+# it cannot run against the shared harness database without failing every
+# promotion test. This cost one site, not two — the fixture's scratch directory
+# comes from `env::temp_dir()` at runtime rather than from the crate manifest
+# directory at compile time, which the first draft used and this guard priced.
+#
+# 81 -> 82: `catalog-infrastructure/tests/parcel_complex_membership.rs` declares a
+# third migrator site in that crate. ADR-0019's backfill is only observable on a
+# database that held parcels *before* the membership migration ran, so that test
+# applies the migrations in two passes and needs the migration set as a value it
+# can filter. Applying everything and inserting afterwards leaves the backfill
+# nothing to find, and such a test passes unchanged against a migration whose
+# `INSERT` was deleted — so the alternative is not a cheaper site but no assertion.
+#
+# 82 -> 83: `foundation-outbox-publisher/tests/parcel_boundary_publication.rs` declares
+# a second migrator site in that crate, for the same reason as the first: the only
+# production writer of the parcel serving projection creates the `parcels`
+# publication unit, and the promotion gate counts publication units globally, so a
+# unit left in the shared harness database fails every promotion test elsewhere while
+# reading as a promotion bug. One site, not two — the fixture keeps nothing on disk,
+# so it prices no crate-manifest-directory read.
+#
+# 83 -> 84: `foundation-outbox-publisher/tests/parcel_publication_source_evidence.rs`
+# declares the third migrator site in that crate. The sealed-evidence constraints and
+# append-only guards are PostgreSQL contracts, and the suite must prove them in a
+# disposable migrated database without leaving publication state in the shared
+# harness database.
+#
+# That count is a text search, so a comment naming one of these macros is counted
+# like a call site. It is not a bug to fix here: these guards deliberately do not
+# parse Rust, because a second analyzer of the language is a larger liability than
+# an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-79}"
+COMPILE_TIME_READ_BASELINE="${3:-84}"
 
 cd "$repo_root"
 

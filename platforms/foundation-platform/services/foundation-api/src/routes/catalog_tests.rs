@@ -2,7 +2,7 @@ use super::{
     building_response, complex_anchor_summary_response, db_reference_marker_tile_enabled_from_vars,
     get_marker_tile, get_marker_tile_contract, get_vector_tile_manifest,
     industrial_complex_list_response, industrial_complex_response, list_complex_blueprints,
-    manufacturer_response, parcel_marker_anchor_rebuild_response, request_id_from_headers,
+    parcel_marker_anchor_rebuild_response, request_id_from_headers,
     require_exact_manifest_action_path, vector_tile_artifact_response, ApiError, MarkerTilePath,
     MarkerTileQuery, PARCEL_MARKER_ANCHOR_REBUILD_PATH, VECTOR_TILE_MANIFEST_PROMOTE_PATH,
     VECTOR_TILE_MANIFEST_ROLLBACK_PATH,
@@ -13,10 +13,11 @@ use axum::http::{HeaderMap, HeaderValue};
 use axum::Json;
 use catalog_application::ports::ParcelMarkerAnchorRebuildReport;
 use catalog_domain::{
-    Building, ComplexAnchorSummary, IndustrialComplex, IndustrialComplexKind, Manufacturer,
+    Building, ComplexAnchorSummary, IndustrialComplex, IndustrialComplexKind,
     MarkerAnchorAlgorithm, VectorTileArtifact, VectorTileLineage, ZoomRange,
 };
 use chrono::Utc;
+use foundation_contracts::catalog::ManufacturerResponse;
 use foundation_shared_kernel::ids::{
     BuildingId, ComplexId, FileAssetId, ManufacturerId, ParcelId, SourceRecordId,
     VectorTileArtifactId, VectorTileManifestId,
@@ -448,21 +449,26 @@ fn building_response_maps_building_read_model() {
     assert_eq!(response.updated_at, updated_at);
 }
 
+/// The manufacturer wire shape still omits the business registration number.
+///
+/// No route returns it since ADR-0021 deleted the complex-scoped list, and the mapper went with
+/// that route. The assertion is kept and rewritten against the DTO directly, because what it
+/// guards is not the mapper but the shape: `Manufacturer` carries
+/// `business_registration_number` and `ManufacturerResponse` must not. Deleting this test with the
+/// mapper would have removed the only place that says so.
 #[test]
 fn manufacturer_response_omits_sensitive_business_number() {
     let manufacturer_id = ManufacturerId::new(Uuid::now_v7());
     let parcel_id = ParcelId::new(Uuid::now_v7());
     let updated_at = Utc::now();
-    let manufacturer = Manufacturer {
-        id: manufacturer_id,
-        primary_parcel_id: parcel_id,
+    let response = ManufacturerResponse {
+        id: manufacturer_id.as_uuid(),
+        primary_parcel_id: parcel_id.as_uuid(),
         name: "fixture manufacturer".to_owned(),
         ksic_code: "26299".to_owned(),
-        business_registration_number: "123-45-67890".to_owned(),
         updated_at,
     };
 
-    let response = manufacturer_response(&manufacturer);
     let payload = serde_json::to_value(&response).expect("serialize manufacturer response");
 
     assert_eq!(response.id, manufacturer_id.as_uuid());

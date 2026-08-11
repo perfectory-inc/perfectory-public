@@ -601,11 +601,14 @@ done
 compose exec -T postgis psql -X -h 127.0.0.1 -U postgres -d tiles_slice_proof \
   -v ON_ERROR_STOP=1 -q -f - < "$REPO_ROOT/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql"
 
-[[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.industrial_complex WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM serving_postgis.parcel_boundary_mirror WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel_marker_anchor AS anchor JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id WHERE parcel.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101' AND anchor.is_active));")" == "1|3|3|3" ]] \
+# The parcel counts go through `catalog.parcel_current_complex`: a parcel no longer carries a
+# complex column (ADR-0019 step 3), and the view owns the "today" predicate (ADR-0022). The mirror
+# still has its own `complex_id`, which is a separate projection and deliberately untouched.
+[[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.industrial_complex WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel_current_complex WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM serving_postgis.parcel_boundary_mirror WHERE complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'), (SELECT count(*) FROM catalog.parcel_marker_anchor AS anchor JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = anchor.parcel_id WHERE membership.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101' AND anchor.is_active));")" == "1|3|3|3" ]] \
   || fail "fixture row counts drifted"
 [[ "$(psql_value "SELECT concat_ws('|', count(*), min(ST_SRID(geom)), max(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.parcel_boundary_current;")" == "3|5179|5179|t" ]] \
   || fail "active parcel publication view geometry contract failed"
-[[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.vector_tile_runtime_manifest_pointer WHERE singleton), (SELECT count(*) FROM serving_postgis.parcel_boundary_current), (SELECT count(*) FROM serving_postgis.parcel_boundary_publication AS publication JOIN catalog.vector_tile_runtime_manifest_unit AS manifest_unit ON manifest_unit.data_revision = publication.data_revision JOIN catalog.vector_tile_runtime_manifest_pointer AS pointer ON pointer.manifest_id = manifest_unit.manifest_id WHERE pointer.singleton));")" == "1|3|3" ]] \
+[[ "$(psql_value "SELECT concat_ws('|', (SELECT count(*) FROM catalog.vector_tile_runtime_manifest_pointer WHERE singleton), (SELECT count(*) FROM serving_postgis.parcel_boundary_current), (SELECT count(*) FROM serving_postgis.parcel_boundary_publication AS publication JOIN catalog.vector_tile_release AS release ON release.postgis_projection_revision = publication.projection_load_id JOIN catalog.vector_tile_runtime_manifest_unit AS manifest_unit ON manifest_unit.release_id = release.id JOIN catalog.vector_tile_runtime_manifest_pointer AS pointer ON pointer.manifest_id = manifest_unit.manifest_id WHERE pointer.singleton));")" == "1|3|3" ]] \
   || fail "active parcel view is not bound to the single runtime-manifest pointer"
 [[ "$(psql_value "SELECT concat_ws('|', count(*), min(ST_SRID(geom)), max(ST_SRID(geom)), bool_and(ST_IsValid(geom))) FROM serving_postgis.tiles_slice_parcel_anchor;")" == "3|4326|4326|t" ]] \
   || fail "anchor view geometry contract failed"
@@ -684,13 +687,13 @@ fetch_tile "http://127.0.0.1:3110/parcels,parcel_anchor_aggregate,parcel_anchor/
 
 mvt_assert assert "$RUN_RELATIVE/dynamic-z11.pbf" --content-encoding identity \
   --expect-layer parcel_anchor_aggregate=1 \
-  --expect-identity "parcel_anchor_aggregate|${PNUS[0]}|$COMPLEX_CODE" \
+  --expect-identity "parcel_anchor_aggregate|${PNUS[0]}" \
   --expect-property count=3
 
 z14_expectations=()
 for pnu in "${PNUS[@]}"; do
-  z14_expectations+=(--expect-identity "parcels|$pnu|$COMPLEX_CODE")
-  z14_expectations+=(--expect-identity "parcel_anchor|$pnu|$COMPLEX_CODE")
+  z14_expectations+=(--expect-identity "parcels|$pnu")
+  z14_expectations+=(--expect-identity "parcel_anchor|$pnu")
   z14_expectations+=(--expect-property "pnu=$pnu")
 done
 mvt_assert assert "$RUN_RELATIVE/dynamic-z14.pbf" --content-encoding identity \
@@ -917,7 +920,7 @@ fetch_tile "http://127.0.0.1:3101/$STATIC_SOURCE_ID/11/1747/803" "$STATIC_Z11"
 fetch_tile "http://127.0.0.1:3101/$STATIC_SOURCE_ID/14/13977/6426" "$STATIC_Z14"
 mvt_assert assert "$RUN_RELATIVE/static-z11.pbf" --content-encoding identity \
   --expect-layer parcel_anchor_aggregate=1 \
-  --expect-identity "parcel_anchor_aggregate|${PNUS[0]}|$COMPLEX_CODE" \
+  --expect-identity "parcel_anchor_aggregate|${PNUS[0]}" \
   --expect-property count=3
 mvt_assert assert "$RUN_RELATIVE/static-z14.pbf" --content-encoding identity \
   --expect-layer parcels=3 --expect-layer parcel_anchor=3 "${z14_expectations[@]}"

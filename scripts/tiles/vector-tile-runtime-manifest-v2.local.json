@@ -14,7 +14,6 @@
         "kind": "dynamic_postgis",
         "martin_source_id": "parcels",
         "tiles_url_template": "http://127.0.0.1:3110/parcels/{z}/{x}/{y}",
-        "postgis_projection_revision": "019d2b87-3fd1-7e3a-8d88-0b72c8743401",
         "cache_policy": "no_store"
       },
       "layers": {

@@ -58,9 +58,18 @@ gold/vector-tiles/runtime-manifest.json                 # schema v2, rebuildable
 
 ```text
 gold/vector-tiles/manifests/{manifest_id}.json
-gold/vector-tiles/releases/{release_id}/{publication_unit}-{release_id}.pmtiles
-gold/vector-tiles/releases/{release_id}/{publication_unit}-{release_id}.tilejson.json
+gold/vector-tiles/releases/{publication_unit}-{release_id}.pmtiles
+gold/vector-tiles/releases/{publication_unit}-{release_id}.tilejson.json
 ```
+
+> **갱신 (2026-07-30):** release 경로에서 `{release_id}/` 디렉터리 구획을 뺐다. 이 문서가
+> 적었던 중첩 형태는 한 번도 배포되지 않았다 — `r2_layout.rs`는 처음부터 평평한 형태를 썼고
+> 런북도 그 형태를 기록한다. 도메인 검증기가 object key의 **파일명만** 비교했기 때문에 두 형태가
+> 모두 통과했고, 이 문서를 보고 URL을 만든 소비자는 404를 받았을 것이다.
+>
+> 이제 `catalog_domain::static_release_pmtiles_object_key`가 이 규칙의 유일한 정의이며,
+> 검증기는 전체 key를 비교하고 `r2_layout.rs`는 그 함수에 위임한다. 중첩 형태는 도메인 테스트의
+> 거부 사례로 고정했다.
 
 `gold/manifest.json`을 schema-v2 byte로 덮어쓰지 않는다. 다음 source가 자체 v2
 the bounded legacy anchor consumer until those sources have their own proven v2 producer/consumer
@@ -190,7 +199,7 @@ V2는 PMTiles object를 flat tile directory인 것처럼 취급하지 않고 전
         "kind": "static_pmtiles",
         "martin_source_id": "parcels-0196e7e0-3c20-7000-8000-000000000062",
         "tiles_url_template": "https://tiles.example.com/parcels-0196e7e0-3c20-7000-8000-000000000062/{z}/{x}/{y}",
-        "pmtiles_object_key": "gold/vector-tiles/releases/0196e7e0-3c20-7000-8000-000000000062/parcels-0196e7e0-3c20-7000-8000-000000000062.pmtiles",
+        "pmtiles_object_key": "gold/vector-tiles/releases/parcels-0196e7e0-3c20-7000-8000-000000000062.pmtiles",
         "pmtiles_file_asset_id": "0196e7e0-3c20-7000-8000-000000000063",
         "pmtiles_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "pmtiles_bytes": 987654321
@@ -305,7 +314,7 @@ retarget하거나 제거하지 않는다. 이 제한된 dual-manifest migration�
 | `gold/manifest.json` | `foundation-platform` Catalog | frozen legacy schema-v1 projection during migration |
 | `gold/vector-tiles/runtime-manifest.json` | `foundation-platform` Catalog | rebuildable schema-v2 runtime projection |
 | `gold/vector-tiles/manifests/{manifest_id}.json` | `foundation-platform` Catalog | create-only immutable manifest projection; ID equals `current_version` and links to its `catalog.file_asset` row |
-| `gold/vector-tiles/releases/{release_id}/{publication_unit}-{release_id}.pmtiles` | `foundation-platform` Catalog | immutable release `pmtiles_file_asset_id` |
+| `gold/vector-tiles/releases/{publication_unit}-{release_id}.pmtiles` | `foundation-platform` Catalog | immutable release `pmtiles_file_asset_id` |
 | `publication_units[unit]` | `foundation-platform` Catalog | active release plus layer and build metadata |
 | `lineage.source_record_id` | `foundation-platform` Catalog | `catalog.source_record.id` |
 | `lineage.*file_asset_id` | `foundation-platform` Catalog | `catalog.file_asset.id` |

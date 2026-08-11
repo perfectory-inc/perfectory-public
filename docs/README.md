@@ -20,7 +20,7 @@ docs/
 ├── architecture/             모노레포 전체 구조·경계
 ├── guides/                    전역 개발 안내
 ├── reference/                 전역 조회용 사실
-├── roadmap/                   전역 작업 목록
+├── roadmap/                   전역 작업 목록과 기반 목표·지표
 ├── glossary.md                전역 용어 정본
 └── technology-stack.md        기술·버전·환경 기준
 ```
@@ -35,7 +35,9 @@ docs/
 | [ADR](./adr/README.md) | 모노레포 전역 설계 결정 |
 | [문서 운영 안내](./guides/documentation-lifecycle.md) | 문서 작성·검토·기록·번역 절차 |
 | [전역 레퍼런스](./reference/README.md) | 조회용 사실 — 외부 사례 조사 등 |
-| [운영 준비 작업 목록](./roadmap/production-readiness.md) | 전역 출시 준비 할 일과 완료 순서 |
+| [운영 준비 작업 목록](./roadmap/production-readiness.md) | 전역 출시 준비 **할 일**과 완료 순서 |
+| [기반 목표](./roadmap/foundation-goals.md) | **무엇이 참이어야 하는가** — 불변식과 지표 |
+| [기반 지표](./roadmap/foundation-baseline.md) | 위 목표가 판정에 쓰는 수치 (자동 생성) |
 | [전체 문서 색인](./document-catalog.md) | 영역·유형·상태별 자동 생성 문서 목록 |
 | [문서 감사 보고서](./document-audit.md) | 메타데이터·언어·중복·링크 자동 감사 결과 |
 

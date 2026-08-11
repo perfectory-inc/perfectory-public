@@ -69,13 +69,15 @@ async fn rebuilds_active_parcel_marker_anchors_from_postgis_mirror() -> TestResu
                 pma.is_active,
                 ST_Contains(pb.geom, ST_Transform(pma.anchor_point, 5179)) AS anchor_inside
          FROM catalog.parcel_marker_anchor pma
-         JOIN serving_postgis.parcel_boundary_mirror pb ON pb.pnu = pma.pnu
+         JOIN serving_postgis.parcel_boundary_mirror pb
+           ON pb.pnu = pma.pnu
+          AND pb.source_snapshot_id = pma.source_geometry_version
          WHERE pma.pnu = $1
            AND pma.source_geometry_version = $2
            AND pma.is_active = true",
     )
     .bind(fixture.pnu)
-    .bind(fixture.source_snapshot_id)
+    .bind(&fixture.source_snapshot_id)
     .fetch_one(&pool)
     .await?;
 
@@ -110,20 +112,23 @@ async fn rebuilds_active_parcel_marker_anchors_from_postgis_mirror() -> TestResu
 }
 
 struct ParcelMarkerAnchorRebuildFixture {
-    mirror_run_id: &'static str,
+    mirror_run_id: uuid::Uuid,
     pnu: &'static str,
-    source_snapshot_id: &'static str,
+    source_snapshot_id: String,
     source_object_key: &'static str,
     source_row_id: &'static str,
     geometry_checksum_sha256: &'static str,
 }
 
 impl ParcelMarkerAnchorRebuildFixture {
-    const fn new() -> Self {
+    fn new() -> Self {
+        let mirror_run_id = uuid::Uuid::new_v4();
         Self {
-            mirror_run_id: "018f0000-0000-7000-8000-00000000e001",
+            mirror_run_id,
             pnu: "9999900501100090001",
-            source_snapshot_id: "iceberg:parcel-marker-anchor-rebuild-test-0001",
+            source_snapshot_id: format!(
+                "iceberg:parcel-marker-anchor-rebuild-test-{mirror_run_id}"
+            ),
             source_object_key: "gold/parcel-boundaries/anchor-rebuild-test.parquet",
             source_row_id: "vworld-cadastral:parcel-boundary:pnu:9999900501100090001",
             geometry_checksum_sha256:
@@ -139,8 +144,8 @@ impl ParcelMarkerAnchorRebuildFixture {
              VALUES ($1, $2, 'silver.parcel_boundaries', 5179, 'succeeded', 1,
                      0, '{}'::jsonb, now(), now())",
         )
-        .bind(self.mirror_run_id.parse::<uuid::Uuid>()?)
-        .bind(self.source_snapshot_id)
+        .bind(self.mirror_run_id)
+        .bind(&self.source_snapshot_id)
         .execute(pool)
         .await?;
 
@@ -155,8 +160,8 @@ impl ParcelMarkerAnchorRebuildFixture {
                      ), 4326), 5179)))",
         )
         .bind(self.pnu)
-        .bind(self.mirror_run_id.parse::<uuid::Uuid>()?)
-        .bind(self.source_snapshot_id)
+        .bind(self.mirror_run_id)
+        .bind(&self.source_snapshot_id)
         .bind(self.source_object_key)
         .bind(self.source_row_id)
         .bind(self.geometry_checksum_sha256)
@@ -175,17 +180,12 @@ impl ParcelMarkerAnchorRebuildFixture {
             "DELETE FROM catalog.parcel_marker_anchor_generation_run
              WHERE source_snapshot_id = $1",
         )
-        .bind(self.source_snapshot_id)
+        .bind(&self.source_snapshot_id)
         .execute(pool)
         .await?;
-        sqlx::query("DELETE FROM serving_postgis.parcel_boundary_mirror WHERE pnu = $1")
-            .bind(self.pnu)
-            .execute(pool)
-            .await?;
-        sqlx::query("DELETE FROM serving_postgis.parcel_boundary_mirror_rebuild_run WHERE id = $1")
-            .bind(self.mirror_run_id.parse::<uuid::Uuid>()?)
-            .execute(pool)
-            .await?;
+        // The mirror run and its run-keyed rows are terminal history. They deliberately remain in
+        // the shared integration database; a fresh UUID makes a rerun independent, and the query
+        // above joins through that exact snapshot instead of treating PNU as a current-row key.
         Ok(())
     }
 }

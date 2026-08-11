@@ -1,12 +1,15 @@
 //! Canonical physical R2 addresses for immutable Foundation artifacts.
 
 use anyhow::Context;
+use foundation_shared_kernel::ids::VectorTileReleaseId;
 use uuid::Uuid;
 
 pub const VECTOR_TILE_ARTIFACT_ROOT: &str = "gold/vector-tiles/artifacts";
 pub const VECTOR_TILE_MANIFEST_ROOT: &str = "gold/vector-tiles/manifests";
-/// Private immutable PMTiles derivatives. The deployment supplies the dedicated bucket.
-pub const VECTOR_TILE_DERIVATIVE_ROOT: &str = "gold/vector-tiles/releases";
+// The private immutable PMTiles derivative root used to be a constant here. Its only reader was
+// `vector_tile_release_key`, which now derives the whole key from
+// `catalog_domain::STATIC_RELEASE_OBJECT_ROOT`, so keeping a second copy of the root would only
+// reintroduce the drift this change removed.
 pub const PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT: &str = "gold/parcel-marker-anchors/artifacts";
 pub const BRONZE_CATALOG_RECOVERY_EVIDENCE_ROOT: &str = "control/evidence/bronze-catalog-recovery";
 
@@ -28,19 +31,23 @@ pub fn vector_tile_manifest_key(manifest_id: &str) -> anyhow::Result<String> {
 }
 
 /// Returns the write-once PMTiles object key for one publication unit and release.
+///
+/// The layout itself comes from `catalog_domain::static_release_pmtiles_object_key`, which the
+/// runtime-manifest validator also derives from. Restating it here is how the shipped key and the
+/// documented key came to differ while both passed validation.
+///
+/// The spelling rule comes from `catalog_domain::is_publication_unit_key`, which is also what
+/// `catalog.vector_tile_publication_unit_key_check` states in SQL. Restating it here was how this
+/// function came to disagree with the column in three directions at once (ADR-0013 남은 부채 1).
 pub fn vector_tile_release_key(publication_unit: &str, release_id: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
-        !publication_unit.is_empty()
-            && publication_unit.len() <= 128
-            && publication_unit == publication_unit.to_ascii_lowercase()
-            && publication_unit.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
-            }),
+        catalog_domain::is_publication_unit_key(publication_unit),
         "publication unit must be a lower-case identifier"
     );
     let release_id = parse_artifact_id(release_id, "vector tile release_id")?;
-    Ok(format!(
-        "{VECTOR_TILE_DERIVATIVE_ROOT}/{publication_unit}-{release_id}.pmtiles"
+    Ok(catalog_domain::static_release_pmtiles_object_key(
+        publication_unit,
+        VectorTileReleaseId::new(release_id),
     ))
 }
 

@@ -15,6 +15,31 @@ from types import ModuleType
 ROOT = Path(__file__).resolve().parents[2]
 REPORT = ROOT / "docs/document-audit.md"
 REQUIRED_METADATA = ("status", "owner", "doc_type", "last_reviewed")
+# The `doc_type` vocabulary, owned here because prose could not keep it.
+#
+# It was stated twice and neither statement matched the tree: the lifecycle guide listed six values,
+# ADR-0009's metadata template listed seven including `record`, which nothing uses, and both omitted
+# `README` — the most common value in the repository by a wide margin — along with `documentation`,
+# `roadmap`, and `convention`. Nothing compared any of the three, because the audit only ever
+# checked that the key was present, never what it said.
+#
+# `documentation` is admitted under protest. Twenty-eight files carry it and it classifies nothing —
+# `intelligence-platform/docs/architecture.md` is an architecture document wearing it. Narrowing
+# those is one judgment per file and is tracked in the roadmap rather than guessed at here.
+ALLOWED_DOC_TYPES = frozenset(
+    {
+        "README",
+        "adr",
+        "architecture",
+        "catalog",
+        "convention",
+        "documentation",
+        "guide",
+        "reference",
+        "roadmap",
+        "runbook",
+    }
+)
 LEGAL_NAMES = {"LICENSE", "LICENSE.md", "LICENSE.txt", "THIRD_PARTY_NOTICES.md"}
 NARRATIVE_SUFFIXES = {".md", ".mdx", ".rst", ".adoc"}
 ENGLISH_SENTENCE_STARTS = (
@@ -168,7 +193,14 @@ def metadata_status(path: Path, text: str) -> str:
         return "not applicable: agent router"
     frontmatter = parse_frontmatter(text)
     missing = [key for key in REQUIRED_METADATA if key not in frontmatter]
-    return "ok" if not missing else "missing: " + ", ".join(missing)
+    if missing:
+        return "missing: " + ", ".join(missing)
+    declared = frontmatter["doc_type"]
+    if declared not in ALLOWED_DOC_TYPES:
+        # Reported as a metadata failure rather than a separate outcome: a document filed under a
+        # type nothing recognises is as unfindable as one with no type at all.
+        return f"missing: doc_type '{declared}' is not one of {', '.join(sorted(ALLOWED_DOC_TYPES))}"
+    return "ok"
 
 
 def local_targets(source: Path, text: str, known: set[Path]) -> list[Path]:

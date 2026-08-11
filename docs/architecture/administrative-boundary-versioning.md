@@ -41,9 +41,17 @@ Foundation은 공식 행정코드·이름·PNU를 토지의 정체성이 아니�
 
 마이그레이션 `20260727000001_administrative_boundary_identity.sql`은 다음을 추가한다.
 
-- `catalog.administrative_boundary_revision`: 정본 리비전 원장. 공개될 때 UUID를
-  `vector_tile_release.data_revision`으로 재사용한다. 숫자 `canonical_iceberg_snapshot_id`와
-  문자열 `source_snapshot_id`는 분리하고 복합 외래키로 묶는다.
+- `catalog.administrative_boundary_revision`: 행정경계 **사실** 리비전 원장. 숫자
+  `canonical_iceberg_snapshot_id`와 문자열 `source_snapshot_id`는 분리하고 복합 외래키로 묶는다.
+
+  > **정정 (2026-07-31, [ADR-0017](../adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md)):**
+  > 이 항목은 "공개될 때 UUID를 `vector_tile_release.data_revision`으로 **재사용한다**"고 썼고,
+  > `20260727000001`은 실제로 `vector_tile_release`의 FK를 이 원장으로 걸었다. 그래서 parcels를
+  > 포함한 **모든** 발행 단위의 리비전이 행정경계 원장에 등록돼야 했다 — 한 도메인의 원장이 전역
+  > 원장 노릇을 한 것이다. 발행 리비전은 이제 단위에 스코프된
+  > `catalog.publication_revision`이 소유하고, 행정 리비전은 그것이 **파생된 사실**로서
+  > `derived_from_administrative_revision`에 계보로 남는다. UUID는 두 원장에서 같은 값으로
+  > 유지되므로 운영자가 다루는 `DATA_REVISION`은 하나 그대로다.
 - `catalog.administrative_unit` 및 유효기간별 코드·이름 행
   `catalog.administrative_unit_identifier`.
 - `catalog.administrative_unit_transition`의 `replaced_by`, `merged_into`, `split_from` 전이와

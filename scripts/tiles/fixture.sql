@@ -170,11 +170,13 @@ VALUES
         repeat('3', 64)
     );
 
+-- No complex: a parcel does not carry one since ADR-0019 step 3. This fixture's parcels are not
+-- claimed to be in the fixture complex, and nothing in the tile slice needs them to be — the mirror
+-- rows below carry their own complex column, which is what the proof reads.
 INSERT INTO catalog.parcel
-    (id, complex_id, pnu, kind, area_m2, version)
+    (id, pnu, kind, area_m2, version)
 SELECT
     fixture.parcel_id,
-    '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
     fixture.pnu,
     fixture.kind,
     fixture.area_m2,
@@ -182,12 +184,49 @@ SELECT
 FROM tiles_slice_fixture_parcel AS fixture
 ON CONFLICT (id) DO UPDATE
 SET
-    complex_id = EXCLUDED.complex_id,
     pnu = EXCLUDED.pnu,
     kind = EXCLUDED.kind,
     area_m2 = EXCLUDED.area_m2,
     updated_at = now(),
     version = catalog.parcel.version + 1;
+
+-- Membership, which is now the only thing that puts these parcels in the fixture complex. The
+-- anchor views below join through `catalog.parcel_current_complex`, so without these rows the proof
+-- would count zero anchors and report that as the fixture's answer.
+INSERT INTO catalog.administrative_boundary_revision
+    (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id, status, validated_at)
+VALUES
+    (
+        '019d2b87-3fd1-7e3a-8d88-0b72c8742301',
+        '7301',
+        'iceberg:tiles-slice-proof-membership',
+        '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
+        'validated',
+        now()
+    )
+ON CONFLICT (id) DO NOTHING;
+
+-- The publisher capability is required by `parcel_complex_membership_append_only`, and it is
+-- transaction-scoped: this whole file runs inside one BEGIN, so `true` covers the INSERT below and
+-- ends with the COMMIT rather than leaking into the next session on this connection.
+SELECT set_config('foundation.temporal_publisher', 'on', true);
+
+INSERT INTO catalog.parcel_complex_membership
+    (id, parcel_id, complex_id, asserted_by, effective_period, data_revision,
+     source_snapshot_id, source_record_id)
+SELECT
+    md5('tiles-slice-proof-membership:' || fixture.parcel_id::text)::uuid,
+    fixture.parcel_id,
+    '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
+    'official_list',
+    daterange(DATE '2020-01-01', NULL, '[)'),
+    '019d2b87-3fd1-7e3a-8d88-0b72c8742301',
+    'iceberg:tiles-slice-proof-membership',
+    '019d2b87-3fd1-7e3a-8d88-0b72c8742001'
+FROM tiles_slice_fixture_parcel AS fixture
+ON CONFLICT (id) DO NOTHING;
+
+SELECT set_config('foundation.temporal_publisher', 'off', true);
 
 INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
     (
@@ -267,7 +306,7 @@ SELECT
     '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
     fixture.parcel_id,
     fixture.geometry_checksum_sha256,
-        jsonb_build_object('fixture', true, 'official_complex_code', 'IC-SYNTHETIC-001'),
+    jsonb_build_object('fixture', true),
     public.ST_Multi(
         public.ST_Transform(
             public.ST_SetSRID(public.ST_GeomFromText(fixture.boundary_wkt), 4326),
@@ -423,11 +462,9 @@ CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcels AS
 SELECT
     boundary.pnu::text AS pnu,
     boundary.pnu::text AS "PNU",
-    complex.official_complex_code,
     boundary.geom::public.geometry(MultiPolygon, 5179) AS geom
 FROM serving_postgis.parcel_boundary_mirror AS boundary
-JOIN catalog.industrial_complex AS complex ON complex.id = boundary.complex_id
-WHERE complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
+WHERE boundary.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
 
 CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcel_anchor_aggregate AS
 SELECT
@@ -437,19 +474,27 @@ SELECT
     public.ST_Centroid(public.ST_Collect(anchor.anchor_point))::public.geometry(Point, 4326) AS geom
 FROM catalog.parcel_marker_anchor AS anchor
 JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id
-JOIN catalog.industrial_complex AS complex ON complex.id = parcel.complex_id
+-- Membership, not a column on the parcel (ADR-0019). `parcel_current_complex` owns the
+-- "today" predicate so this view does not restate it (ADR-0022).
+JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = parcel.id
+JOIN catalog.industrial_complex AS complex ON complex.id = membership.complex_id
 WHERE anchor.is_active
   AND complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
 GROUP BY complex.id, complex.official_complex_code;
 
+-- Per-parcel anchors carry the PNU and nothing else (ADR-0024). The membership join stays because
+-- this proof fixture is scoped to one complex, but the code it resolves is used for the WHERE, not
+-- shipped as a feature property: a parcel feature does not claim membership.
 CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcel_anchor AS
 SELECT
     anchor.pnu::text AS pnu,
-    complex.official_complex_code,
     anchor.anchor_point::public.geometry(Point, 4326) AS geom
 FROM catalog.parcel_marker_anchor AS anchor
 JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id
-JOIN catalog.industrial_complex AS complex ON complex.id = parcel.complex_id
+-- Membership, not a column on the parcel (ADR-0019). `parcel_current_complex` owns the
+-- "today" predicate so this view does not restate it (ADR-0022).
+JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = parcel.id
+JOIN catalog.industrial_complex AS complex ON complex.id = membership.complex_id
 WHERE anchor.is_active
   AND complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
 

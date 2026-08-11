@@ -30,11 +30,17 @@ pub mod marker_tile;
 /// Manufacturer metadata assigned to parcels.
 pub mod manufacturer;
 
+/// Request identity for keyed Catalog publication mutations.
+pub mod mutation_idempotency;
+
 /// Official notices and attachments.
 pub mod notice;
 
 /// Parcel aggregate.
 pub mod parcel;
+
+/// Effective-dated membership of a parcel in an industrial complex.
+pub mod parcel_complex_membership;
 
 /// Source lineage for imported facts.
 pub mod source_record;
@@ -71,15 +77,22 @@ pub use marker_tile::{
     ALL_ACTIVE_MARKER_FILTER_HASH, PARCEL_ANCHOR_MARKER_TILE_LAYER,
     PNU_ANCHOR_PBF_MARKER_TILE_CONTRACT,
 };
+pub use mutation_idempotency::{
+    CatalogMutationKind, RequestFingerprint, RequestFingerprintBuilder,
+    CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+};
 pub use notice::{ComplexNotice, NoticeAttachment, NoticeType, ParseNoticeTypeError};
 pub use parcel::{Parcel, ParcelKind, ParseParcelKindError};
+pub use parcel_complex_membership::MembershipAssertedBy;
 pub use serving_publication::{
-    validate_build_promotion, validate_build_snapshot_binding, validate_serving_transition,
-    ActiveTileSource, BuildEvidenceDigest, CanonicalIcebergSnapshotId, DynamicPostgisSource,
-    FeatureIdProperty, ManifestGeneration, PublicationUnit, RuntimeTileLayer, RuntimeTileLineage,
-    RuntimeTilesUrlTemplate, ServingGeneration, ServingSelection, ServingSourceKind,
-    StaticPmtilesSource, VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict,
-    VectorTileBuildStatus, VectorTileRuntimeManifest,
+    is_publication_unit_key, static_release_martin_source_id, static_release_pmtiles_object_key,
+    validate_build_promotion, validate_build_result_report, validate_build_snapshot_binding,
+    validate_serving_transition, ActiveTileSource, BuildEvidenceDigest, CanonicalIcebergSnapshotId,
+    DynamicPostgisSource, FeatureIdProperty, ManifestGeneration, PmtilesChecksum, PublicationUnit,
+    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
+    ServingSelection, ServingSourceKind, StaticPmtilesSource, VectorTileBuildOutcome,
+    VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict, VectorTileBuildStatus,
+    VectorTileRuntimeManifest, STATIC_RELEASE_OBJECT_ROOT,
 };
 pub use source_record::SourceRecord;
 pub use spatial_layer::{ParseSpatialLayerKindError, SpatialLayer, SpatialLayerKind};

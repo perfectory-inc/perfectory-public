@@ -13,7 +13,7 @@ type TestResult = Result<(), Box<dyn Error>>;
 /// The Foundation CI workflow moved from the workspace-local
 /// `.github/workflows/ci.yml` to the monorepo root as
 /// `.github/workflows/foundation-ci.yml`, so it is reached by climbing out of
-/// the workspace root that [`read_repo_file`] resolves against. (Secret
+/// the workspace root that [`read_area_file`] resolves against. (Secret
 /// scanning moved to the root `secret-scan.yml` workflow; the ported
 /// Foundation workflow carries no gitleaks steps.)
 const FOUNDATION_CI_WORKFLOW: &str = "../../.github/workflows/foundation-ci.yml";
@@ -29,7 +29,7 @@ const FOUNDATION_BASELINE_MIGRATIONS: [&str; 4] = [
 
 #[test]
 fn compose_builds_migrates_and_runs_the_foundation_api_with_separate_roles() -> TestResult {
-    let compose = read_repo_file("docker-compose.yml")?;
+    let compose = read_area_file("docker-compose.yml")?;
 
     for required in [
         "foundation-migrate:\n",
@@ -60,8 +60,8 @@ fn compose_builds_migrates_and_runs_the_foundation_api_with_separate_roles() -> 
 
 #[test]
 fn long_running_runtime_services_restart_after_docker_daemon_recovery() -> TestResult {
-    let compose = read_repo_file("docker-compose.yml")?;
-    let lakehouse = read_repo_file("compose.lakehouse.yml")?;
+    let compose = read_area_file("docker-compose.yml")?;
+    let lakehouse = read_area_file("compose.lakehouse.yml")?;
 
     for (service, document) in [
         ("foundation-api", compose.as_str()),
@@ -85,11 +85,11 @@ fn long_running_runtime_services_restart_after_docker_daemon_recovery() -> TestR
 
 #[test]
 fn mutable_lakehouse_state_is_release_independent_and_prepared_for_runtime_uid() -> TestResult {
-    let lakehouse = read_repo_file("compose.lakehouse.yml")?;
-    let runtime = read_repo_file("scripts/deploy/foundation-runtime.sh")?;
-    let release = read_repo_file("scripts/deploy/foundation-release.sh")?;
+    let lakehouse = read_area_file("compose.lakehouse.yml")?;
+    let runtime = read_area_file("scripts/deploy/foundation-runtime.sh")?;
+    let release = read_area_file("scripts/deploy/foundation-release.sh")?;
     let runbook =
-        read_repo_file("docs/runbooks/foundation-platform-low-cost-production-hardening.md")?;
+        read_area_file("docs/runbooks/foundation-platform-low-cost-production-hardening.md")?;
 
     assert!(lakehouse.contains(
         "${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-./target/lakehouse}:/workspace/target/lakehouse"
@@ -134,7 +134,7 @@ fn mutable_lakehouse_state_is_release_independent_and_prepared_for_runtime_uid()
 
 #[test]
 fn api_image_is_locked_non_root_and_health_checked() -> TestResult {
-    let dockerfile = read_repo_file("services/foundation-api/Dockerfile")?;
+    let dockerfile = read_area_file("services/foundation-api/Dockerfile")?;
 
     assert!(dockerfile.contains("cargo build --locked --release"));
     assert!(dockerfile.contains("USER 10001:10001"));
@@ -161,7 +161,7 @@ fn all_docker_and_compose_images_are_immutable_and_helpers_are_non_root() -> Tes
         "services/foundation-provider-acquisition-worker/Dockerfile.raon-agent-proof",
         "services/foundation-provider-acquisition-worker/Dockerfile.raon-batch",
     ] {
-        let contents = read_repo_file(dockerfile)?;
+        let contents = read_area_file(dockerfile)?;
         assert!(
             contents
                 .lines()
@@ -172,9 +172,9 @@ fn all_docker_and_compose_images_are_immutable_and_helpers_are_non_root() -> Tes
         assert_versioned_apt_installs(dockerfile, &contents);
     }
 
-    let compose = read_repo_file("docker-compose.yml")?;
-    let lakehouse_compose = read_repo_file("compose.lakehouse.yml")?;
-    let observability_compose = read_repo_file("compose.observability.yml")?;
+    let compose = read_area_file("docker-compose.yml")?;
+    let lakehouse_compose = read_area_file("compose.lakehouse.yml")?;
+    let observability_compose = read_area_file("compose.observability.yml")?;
     for image in [
         compose.as_str(),
         lakehouse_compose.as_str(),
@@ -193,13 +193,13 @@ fn all_docker_and_compose_images_are_immutable_and_helpers_are_non_root() -> Tes
     assert_eq!(compose.matches("user: \"70:70\"").count(), 3);
 
     let provider_lock =
-        read_repo_file("services/foundation-provider-acquisition-worker/requirements.lock")?;
+        read_area_file("services/foundation-provider-acquisition-worker/requirements.lock")?;
     assert!(provider_lock.contains("--hash=sha256:"));
     for dockerfile in [
         "services/foundation-provider-acquisition-worker/Dockerfile.raon-agent-proof",
         "services/foundation-provider-acquisition-worker/Dockerfile.raon-batch",
     ] {
-        let contents = read_repo_file(dockerfile)?;
+        let contents = read_area_file(dockerfile)?;
         assert!(contents.contains("requirements.lock"));
         assert!(contents.contains("--require-hashes"));
         assert!(contents.contains("--no-deps"));
@@ -208,7 +208,7 @@ fn all_docker_and_compose_images_are_immutable_and_helpers_are_non_root() -> Tes
     }
 
     let lakehouse_control =
-        read_repo_file("services/foundation-outbox-publisher/Dockerfile.lakehouse-control")?;
+        read_area_file("services/foundation-outbox-publisher/Dockerfile.lakehouse-control")?;
     assert!(lakehouse_control.contains("USER 10001:10001"));
     assert!(!compose.contains("chown -R"));
     assert!(!lakehouse_compose.contains("chown -R"));
@@ -220,7 +220,7 @@ fn all_docker_and_compose_images_are_immutable_and_helpers_are_non_root() -> Tes
     .concat();
     assert!(lakehouse_compose.contains(&lakehouse_user_contract));
 
-    let smoke = read_repo_file("scripts/compose-smoke.sh")?;
+    let smoke = read_area_file("scripts/compose-smoke.sh")?;
     for service in [
         "foundation-bootstrap",
         "foundation-migrate",
@@ -237,10 +237,10 @@ fn all_docker_and_compose_images_are_immutable_and_helpers_are_non_root() -> Tes
 
 #[test]
 fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> TestResult {
-    let root = read_repo_file("docker-compose.yml")?;
+    let root = read_area_file("docker-compose.yml")?;
     assert!(root.contains("- path: compose.observability.yml"));
 
-    let compose = read_repo_file("compose.observability.yml")?;
+    let compose = read_area_file("compose.observability.yml")?;
     for required in [
         "prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
         "prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba",
@@ -254,22 +254,22 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
         assert!(compose.contains(required), "observability Compose is missing {required}");
     }
 
-    let prometheus = read_repo_file("infra/observability/prometheus/prometheus.yml")?;
+    let prometheus = read_area_file("infra/observability/prometheus/prometheus.yml")?;
     assert!(prometheus.contains("foundation-api:8080"));
     assert!(prometheus.contains("alertmanager:9093"));
     assert!(prometheus.contains("foundation-api.rules.yml"));
 
-    let alertmanager = read_repo_file("infra/observability/alertmanager/alertmanager.yml")?;
+    let alertmanager = read_area_file("infra/observability/alertmanager/alertmanager.yml")?;
     assert!(alertmanager.contains("receiver: prelaunch-audit"));
 
-    let rules = read_repo_file("infra/observability/prometheus/foundation-api.rules.yml")?;
+    let rules = read_area_file("infra/observability/prometheus/foundation-api.rules.yml")?;
     assert!(rules.contains("foundation_api_up != 1 or absent(foundation_api_up)"));
     Ok(())
 }
 
 #[test]
 fn production_runtime_entrypoint_cannot_drop_the_recovery_overlay() -> TestResult {
-    let runtime = read_repo_file("scripts/deploy/foundation-runtime.sh")?;
+    let runtime = read_area_file("scripts/deploy/foundation-runtime.sh")?;
     for required in [
         "--project-directory \"${root_dir}\"",
         "-f \"${root_dir}/docker-compose.yml\"",
@@ -284,7 +284,7 @@ fn production_runtime_entrypoint_cannot_drop_the_recovery_overlay() -> TestResul
     }
 
     let runbook =
-        read_repo_file("docs/runbooks/foundation-platform-low-cost-production-hardening.md")?;
+        read_area_file("docs/runbooks/foundation-platform-low-cost-production-hardening.md")?;
     assert!(runbook.contains("scripts/deploy/foundation-runtime.sh up"));
     assert!(!runbook.contains("docker compose --project-name foundation-platform-runtime"));
     Ok(())
@@ -292,8 +292,8 @@ fn production_runtime_entrypoint_cannot_drop_the_recovery_overlay() -> TestResul
 
 #[test]
 fn lakehouse_compose_is_an_independent_compute_boundary() -> TestResult {
-    let compose = read_repo_file("docker-compose.yml")?;
-    let lakehouse_compose = read_repo_file("compose.lakehouse.yml")?;
+    let compose = read_area_file("docker-compose.yml")?;
+    let lakehouse_compose = read_area_file("compose.lakehouse.yml")?;
 
     assert!(compose.contains("include:\n  - path: compose.lakehouse.yml"));
     for service in [
@@ -337,7 +337,7 @@ fn lakehouse_runtime_user_contract_has_one_ssot() -> TestResult {
     ];
 
     for path in contract_files {
-        let contents = read_repo_file(path)?;
+        let contents = read_area_file(path)?;
         assert!(
             contents.contains("FOUNDATION_PLATFORM_LAKEHOUSE_UID"),
             "{path} does not use the lakehouse UID contract"
@@ -364,7 +364,7 @@ fn lakehouse_runtime_user_contract_has_one_ssot() -> TestResult {
 
 #[test]
 fn compose_smoke_requires_terminal_zero_exit_before_postconditions() -> TestResult {
-    let smoke = read_repo_file("scripts/compose-smoke.sh")?;
+    let smoke = read_area_file("scripts/compose-smoke.sh")?;
     for required in [
         "ONE_SHOT_TIMEOUT_SECONDS",
         "timeout --foreground",
@@ -383,7 +383,7 @@ fn compose_smoke_requires_terminal_zero_exit_before_postconditions() -> TestResu
     assert!(!smoke.contains("state=retained postcondition=PASS"));
     assert!(!smoke.contains("run -d --no-deps"));
 
-    let ci = read_repo_file(FOUNDATION_CI_WORKFLOW)?;
+    let ci = read_area_file(FOUNDATION_CI_WORKFLOW)?;
     assert!(ci.contains("scripts/compose-smoke.sh -- start-api"));
     assert!(ci.contains("scripts/compose-smoke.sh -- rerun-api"));
     Ok(())
@@ -391,15 +391,15 @@ fn compose_smoke_requires_terminal_zero_exit_before_postconditions() -> TestResu
 
 #[test]
 fn api_health_probes_use_the_native_command_and_bind_aware_listener() -> TestResult {
-    let compose = read_repo_file("docker-compose.yml")?;
+    let compose = read_area_file("docker-compose.yml")?;
     assert!(compose.contains("[\"CMD\", \"/usr/local/bin/foundation-api\", \"--healthcheck\"]"));
     assert!(!compose.contains("/usr/local/bin/busybox"));
 
-    let runtime = read_repo_file("services/foundation-api/src/lib.rs")?;
+    let runtime = read_area_file("services/foundation-api/src/lib.rs")?;
     assert!(runtime.contains("healthcheck_address(bind_addr_from_env()?)"));
     assert!(runtime.contains("address.is_unspecified()"));
     for path in ["scripts/compose-smoke.sh", FOUNDATION_CI_WORKFLOW] {
-        let contents = read_repo_file(path)?;
+        let contents = read_area_file(path)?;
         assert!(
             contents.contains("State.Health.Status"),
             "{path} does not consume the native Foundation API health result"
@@ -411,7 +411,7 @@ fn api_health_probes_use_the_native_command_and_bind_aware_listener() -> TestRes
 
 #[test]
 fn compose_smoke_provisions_a_bounded_oidc_verifier_fixture() -> TestResult {
-    let compose = read_repo_file("docker-compose.yml")?;
+    let compose = read_area_file("docker-compose.yml")?;
     for required in [
         "foundation-oidc-smoke:\n",
         "foundation-api-smoke:\n",
@@ -425,26 +425,26 @@ fn compose_smoke_provisions_a_bounded_oidc_verifier_fixture() -> TestResult {
         assert!(compose.contains(required), "Compose is missing {required}");
     }
 
-    let discovery = read_repo_file("infra/compose/oidc-smoke/.well-known/openid-configuration")?;
+    let discovery = read_area_file("infra/compose/oidc-smoke/.well-known/openid-configuration")?;
     let discovery: serde_json::Value = serde_json::from_str(&discovery)?;
     assert_eq!(discovery["issuer"], "http://127.0.0.1:18081");
     assert_eq!(discovery["jwks_uri"], "http://127.0.0.1:18081/jwks.json");
-    let jwks = read_repo_file("infra/compose/oidc-smoke/jwks.json")?;
+    let jwks = read_area_file("infra/compose/oidc-smoke/jwks.json")?;
     let jwks: serde_json::Value = serde_json::from_str(&jwks)?;
     assert_eq!(jwks["keys"][0]["alg"], "RS256");
 
-    let smoke = read_repo_file("scripts/compose-smoke.sh")?;
+    let smoke = read_area_file("scripts/compose-smoke.sh")?;
     assert!(smoke.contains("wait_oidc_fixture"));
     assert!(smoke.contains("oidc_fixture_issuer=\"http://127.0.0.1:18081\""));
-    let ci = read_repo_file(FOUNDATION_CI_WORKFLOW)?;
+    let ci = read_area_file(FOUNDATION_CI_WORKFLOW)?;
     assert!(ci.contains("ZITADEL_ISSUER_URL: http://127.0.0.1:18081"));
     Ok(())
 }
 
 #[test]
 fn migration_database_create_is_open_only_for_the_migration_window() -> TestResult {
-    let bootstrap = read_repo_file("infra/compose/bootstrap-foundation.sql")?;
-    let finalize = read_repo_file("infra/compose/finalize-foundation.sql")?;
+    let bootstrap = read_area_file("infra/compose/bootstrap-foundation.sql")?;
+    let finalize = read_area_file("infra/compose/finalize-foundation.sql")?;
 
     assert!(bootstrap.contains("GRANT CREATE ON DATABASE foundation TO foundation_migrator"));
     assert!(finalize.contains("REVOKE CREATE ON DATABASE foundation FROM foundation_migrator"));
@@ -453,7 +453,7 @@ fn migration_database_create_is_open_only_for_the_migration_window() -> TestResu
 
 #[test]
 fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
-    let example = read_repo_file(".env.example")?;
+    let example = read_area_file(".env.example")?;
     for required in [
         "FOUNDATION_ADMIN_PASSWORD=REPLACE_WITH_",
         "FOUNDATION_MIGRATOR_PASSWORD=REPLACE_WITH_",
@@ -467,7 +467,7 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
             ".env.example is missing {required}"
         );
     }
-    let local_example = read_repo_file(".env.local.example")?;
+    let local_example = read_area_file(".env.local.example")?;
     for required in [
         "DATABASE_URL=postgres://foundation_api:",
         "IDENTITY_API_BASE_URL=",
@@ -480,7 +480,7 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
         );
     }
 
-    let ci = read_repo_file(FOUNDATION_CI_WORKFLOW)?;
+    let ci = read_area_file(FOUNDATION_CI_WORKFLOW)?;
     for required in [
         // ADR-0004: full-workspace fmt/clippy/test verification is owned by the
         // single SSOT command (xtask clippy --all-targets + test --workspace
@@ -497,7 +497,7 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
 
 #[test]
 fn r2_connection_contract_is_the_single_non_secret_source_for_examples() -> TestResult {
-    let contract_text = read_repo_file("config/r2-connections.contract.json")?;
+    let contract_text = read_area_file("config/r2-connections.contract.json")?;
     let contract: serde_json::Value = serde_json::from_str(&contract_text)?;
     assert_eq!(contract["schema_version"], 1);
     assert_eq!(contract["provider"], "cloudflare-r2");
@@ -505,8 +505,8 @@ fn r2_connection_contract_is_the_single_non_secret_source_for_examples() -> Test
     let connections = contract["connections"]
         .as_object()
         .ok_or("R2 connection contract must contain an object of connections")?;
-    let example = read_repo_file(".env.example")?;
-    let local_example = read_repo_file(".env.local.example")?;
+    let example = read_area_file(".env.example")?;
+    let local_example = read_area_file(".env.local.example")?;
 
     for (purpose, connection) in connections {
         let required_env = connection["required_env"]
@@ -575,7 +575,7 @@ fn postgres_recovery_contract_is_encrypted_bounded_and_rehearsable() -> TestResu
 }
 
 fn assert_postgres_recovery_compose_contract() -> TestResult {
-    let compose = read_repo_file("compose.recovery.yml")?;
+    let compose = read_area_file("compose.recovery.yml")?;
     for required in [
         "foundation-postgres-recovery:local",
         "dockerfile: infra/postgres/Dockerfile.recovery",
@@ -604,7 +604,7 @@ fn assert_postgres_recovery_compose_contract() -> TestResult {
     assert!(compose.contains("*foundation-recovery-reader-environment"));
     assert!(!compose.contains("latest"));
 
-    let dockerfile = read_repo_file("infra/postgres/Dockerfile.recovery")?;
+    let dockerfile = read_area_file("infra/postgres/Dockerfile.recovery")?;
     assert!(dockerfile.contains("pgbackrest=2.58.0-r0"));
     assert!(dockerfile.contains(
         "COPY --chmod=0755 infra/postgres/recovery-entrypoint.sh /usr/local/bin/foundation-postgres-recovery-entrypoint"
@@ -617,7 +617,7 @@ fn assert_postgres_recovery_compose_contract() -> TestResult {
 }
 
 fn assert_pgbackrest_repository_contract() -> TestResult {
-    let config = read_repo_file("infra/postgres/pgbackrest.conf")?;
+    let config = read_area_file("infra/postgres/pgbackrest.conf")?;
     for required in [
         "repo1-type=s3",
         "pg1-user=foundation_admin",
@@ -640,7 +640,7 @@ fn assert_pgbackrest_repository_contract() -> TestResult {
 }
 
 fn assert_postgres_restore_drill_contract() -> TestResult {
-    let drill = read_repo_file("scripts/recovery/postgres-restore-drill.sh")?;
+    let drill = read_area_file("scripts/recovery/postgres-restore-drill.sh")?;
     for required in [
         "set -Eeuo pipefail",
         "trap cleanup EXIT",
@@ -688,7 +688,7 @@ fn assert_postgres_restore_drill_contract() -> TestResult {
 }
 
 fn assert_postgres_backup_scheduler_contract() -> TestResult {
-    let backup = read_repo_file("scripts/recovery/run-postgres-backup.sh")?;
+    let backup = read_area_file("scripts/recovery/run-postgres-backup.sh")?;
     for required in [
         "stanza-create",
         "pgbackrest-backup check",
@@ -709,11 +709,11 @@ fn assert_postgres_backup_scheduler_contract() -> TestResult {
     );
     assert!(!backup.contains("set -x"));
 
-    let timer = read_repo_file("infra/systemd/foundation-postgres-backup.timer")?;
+    let timer = read_area_file("infra/systemd/foundation-postgres-backup.timer")?;
     assert!(timer.contains("OnCalendar=*-*-* 02:15:00"));
     assert!(timer.contains("Persistent=true"));
     assert!(timer.contains("RandomizedDelaySec=15m"));
-    let service = read_repo_file("infra/systemd/foundation-postgres-backup.service")?;
+    let service = read_area_file("infra/systemd/foundation-postgres-backup.service")?;
     assert!(service.contains("EnvironmentFile=/etc/foundation-platform/recovery.env"));
     assert!(service.contains("TimeoutStartSec=6h"));
     assert!(service.contains("WorkingDirectory=/opt/foundation-platform/current"));
@@ -722,7 +722,7 @@ fn assert_postgres_backup_scheduler_contract() -> TestResult {
     ));
     assert!(service.contains("ReadWritePaths=/var/lib/foundation-platform/recovery"));
 
-    let release = read_repo_file("scripts/deploy/foundation-release.sh")?;
+    let release = read_area_file("scripts/deploy/foundation-release.sh")?;
     for required in [
         "FOUNDATION_PLATFORM_RELEASE_ROOT",
         "FOUNDATION_PLATFORM_STATE_ROOT",
@@ -854,7 +854,7 @@ const SIGNED_OIDC_SMOKE_REQUIRED_CONTRACT: &[&str] = &[
 
 #[test]
 fn signed_oidc_smoke_is_disposable_secret_safe_and_covers_all_boundaries() -> TestResult {
-    let smoke = read_repo_file("scripts/smoke/identity-foundation-signed-oidc.sh")?;
+    let smoke = read_area_file("scripts/smoke/identity-foundation-signed-oidc.sh")?;
 
     for required in SIGNED_OIDC_SMOKE_REQUIRED_CONTRACT {
         assert!(
@@ -963,14 +963,34 @@ fn additive_migrations_are_allowed_without_rewriting_the_baseline() -> TestResul
     Ok(())
 }
 
+/// Reads the whole migration directory, not one file.
+///
+/// This used to read `20260724000001_spatial_tile_publication.sql` alone. `20260730000001` replaced
+/// that file's promotion function with `CREATE OR REPLACE`, so the test kept passing while checking a
+/// body that no longer runs — and a later migration that dropped an invariant would still have passed
+/// as long as the superseded original mentioned it. Concatenating every migration means a superseding
+/// file satisfies the assertion and removing an invariant everywhere fails it.
+///
+/// `additive_migrations_are_allowed_without_rewriting_the_baseline` is what still pins the original
+/// file's identity, so nothing is lost by widening this one.
 #[test]
 fn spatial_publication_migration_keeps_the_transition_invariants_in_sql() -> TestResult {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let migration = read_normalized_sql(
-        &root
-            .join("migrations")
-            .join("20260724000001_spatial_tile_publication.sql"),
-    )?;
+    let mut paths: Vec<PathBuf> = fs::read_dir(root.join("migrations"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|value| value == "sql"))
+        .collect();
+    paths.sort();
+    assert!(
+        paths.len() > 1,
+        "the migration directory must hold more than the baseline"
+    );
+    let mut migration = String::new();
+    for path in &paths {
+        migration.push_str(&read_normalized_sql(path)?);
+        migration.push('\n');
+    }
     for invariant in [
         "vector_tile_release_source_fields_check",
         "vector_tile_release_validation_evidence_check",
@@ -1120,7 +1140,13 @@ fn read_normalized_sql(path: &std::path::Path) -> Result<String, std::io::Error>
         .map(|contents| contents.split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
-fn read_repo_file(relative: &str) -> Result<String, std::io::Error> {
+/// Reads a path relative to the **area** root, `platforms/foundation-platform`.
+///
+/// It was named `read_repo_file`, which reads as the repository root. Sibling tests do resolve
+/// against the repository root, so the two conventions sit side by side and the wrong name made
+/// this file's paths look like repository paths — `scripts/deploy/...` here is
+/// `platforms/foundation-platform/scripts/deploy/...`, a different file from the one at the root.
+fn read_area_file(relative: &str) -> Result<String, std::io::Error> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     fs::read_to_string(root.join(relative))
 }
@@ -1131,7 +1157,7 @@ fn assert_single_bucket_lock_rule(
     expected_prefix: &str,
     expected_max_age_seconds: u64,
 ) -> TestResult {
-    let document: serde_json::Value = serde_json::from_str(&read_repo_file(relative)?)?;
+    let document: serde_json::Value = serde_json::from_str(&read_area_file(relative)?)?;
     let rules = document["rules"]
         .as_array()
         .ok_or("bucket lock rules must be an array")?;

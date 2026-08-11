@@ -684,21 +684,32 @@ fn production_runbook_locks_private_derivative_bucket_and_pointer_safety() {
     let runbook =
         read("platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md");
 
+    // Anchors are technical identifiers and the English terms the Korean-first policy keeps
+    // verbatim. Fourteen of these used to be English prose; the Korean-first migration (558c5beb)
+    // translated those sentences and this test broke — masked at first, because `cargo test`
+    // fail-fasts at the first failing target and `administrative_boundary_contract` fell over
+    // before this binary ran. Same repair as there: rewording a sentence must not fail this test,
+    // deleting a mechanism must.
     require_all(
         &runbook,
         &[
-            "canonical data and serving derivatives are separate private security",
-            "Canonical/source geometry remains in the lakehouse bucket",
-            "serving-derivative bucket contains only publishable, immutable PMTiles serving releases",
-            "PostGIS is a complete warm serving projection",
-            "Catalog-selected R2/Iceberg snapshot",
-            "Martin gets a separate read-only credential",
-            "publisher gets a separate write credential",
-            "release prefix limits discovery",
-            "it is not an IAM boundary",
+            // Canonical data and serving derivatives stay in separate private buckets.
+            "serving-derivative",
+            "Lakehouse, Bronze, recovery, backup",
+            "gold/vector-tiles/releases",
+            // PostGIS remains the complete warm projection; static only sheds render load.
+            "warm serving projection",
+            // Every release pins the Catalog-selected snapshot and logical revision.
+            "Iceberg",
+            "`data_revision`",
+            // Split credentials: Martin reads, the publisher writes; the prefix is not IAM.
+            "읽기 전용 자격증명",
+            "쓰기 자격증명",
+            "not an IAM boundary",
             "create-only precondition",
-            "canonical Lakehouse `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*` adapter is forbidden",
-            "Martin 1.12 `pmtiles.paths`",
+            "`FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`",
+            "Martin 1.12",
+            "`pmtiles.paths`",
             "named sources are startup snapshots",
             "The R2 bucket itself needs no public domain",
             "`gold/manifest.json` bytes unchanged",
@@ -707,10 +718,10 @@ fn production_runbook_locks_private_derivative_bucket_and_pointer_safety() {
             "Compare and swap",
             "emit the outbox projection event",
             "`SUPERSEDED`",
-            "same `data_revision`",
             "never edits a historical manifest",
-            "proof-only uppercase `PNU` compatibility alias",
-            "canonical lowercase `pnu`",
+            // The frozen v1 fixture keeps the proof-only alias beside the canonical property.
+            "`PNU`",
+            "`pnu`",
             "production `foundation-migrate` SQLx runner",
             "user curl configuration",
             "full public readback SHA-256",

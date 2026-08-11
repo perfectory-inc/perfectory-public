@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **333개**
-- 언어 분류: **{'english': 34, 'korean': 142, 'mixed': 157}**
+- 감사 문서: **349개**
+- 언어 분류: **{'english': 34, 'korean': 157, 'mixed': 158}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **198개 정상 / 0개 누락 / 135개 해당 없음**
+- 메타데이터: **200개 정상 / 0개 누락 / 149개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -26,27 +26,43 @@
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 12 |
 | `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 7 |
+| `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 9 |
 | `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | current | korean | ok | 2 |
-| `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 4 |
+| `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 9 |
 | `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 18 |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 10 |
+| `docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 9 |
+| `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 15 |
+| `docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 10 |
+| `docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 7 |
+| `docs/adr/0019-membership-is-a-dated-fact-not-a-column.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 18 |
+| `docs/adr/0020-geometry-is-not-evidence-for-a-fact.md` | Monorepo | evidence | evidence | korean | not applicable: ADR fields | 9 |
+| `docs/adr/0021-an-unread-surface-is-deleted-not-migrated.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 10 |
+| `docs/adr/0022-current-means-today-and-one-view-says-so.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0024-the-serving-projection-carries-only-what-the-tile-contract-names.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md` | Monorepo | evidence | evidence | mixed | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
-| `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | mixed | ok | 5 |
-| `docs/glossary.md` | Monorepo | documentation | current | korean | ok | 2 |
-| `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current | korean | ok | 2 |
+| `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | mixed | ok | 9 |
+| `docs/glossary.md` | Monorepo | documentation | current | korean | ok | 3 |
+| `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current | korean | ok | 3 |
 | `docs/guides/README.md` | Monorepo | README | current | korean | ok | 2 |
-| `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed | mixed | ok | 2 |
+| `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed | mixed | ok | 4 |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/README.md` | Monorepo | README | current | korean | ok | 5 |
 | `docs/reference/design-system-benchmarks.md` | Monorepo | reference | current | korean | ok | 1 |
 | `docs/reference/README.md` | Monorepo | README | current | korean | ok | 1 |
-| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 15 |
+| `docs/roadmap/foundation-baseline.md` | Monorepo | roadmap | current | korean | ok | 2 |
+| `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current | korean | ok | 6 |
+| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 17 |
 | `docs/roadmap/README.md` | Monorepo | README | current | korean | ok | 0 |
 | `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 4 |
 | `platforms/foundation-platform/AGENTS.md` | Foundation Platform | agent rules | current | mixed | not applicable: agent router | 2 |
@@ -62,7 +78,7 @@
 | `platforms/foundation-platform/docs/adr/0001-inherit-gongzzang-adrs.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0002-r2-primary-object-storage.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 5 |
 | `platforms/foundation-platform/docs/adr/0003-industrial-complex-catalog-ssot.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 1 |
-| `platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 8 |
+| `platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 14 |
 | `platforms/foundation-platform/docs/adr/0005-object-lake-layout-and-indexing.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 4 |
 | `platforms/foundation-platform/docs/adr/0006-lakehouse-table-format-and-serving-architecture.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 9 |
 | `platforms/foundation-platform/docs/adr/0007-netflix-style-lakehouse-compute-architecture.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |
@@ -83,7 +99,7 @@
 | `platforms/foundation-platform/docs/adr/0022-lakehouse-handoff-vs-storage-format-boundary.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 0 |
 | `platforms/foundation-platform/docs/adr/0023-standard-pnu-canonical-dialect.md` | Foundation Platform | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `platforms/foundation-platform/docs/adr/0024-foundation-dbt-sql-modeling-layer.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 0 |
-| `platforms/foundation-platform/docs/adr/0025-bronze-catalog-recovery-evidence-sealing.md` | Foundation Platform | evidence | evidence | mixed | not applicable: ADR fields | 0 |
+| `platforms/foundation-platform/docs/adr/0025-bronze-catalog-recovery-evidence-sealing.md` | Foundation Platform | evidence | evidence | mixed | not applicable: ADR fields | 1 |
 | `platforms/foundation-platform/docs/adr/0026-lakehouse-capability-ownership.md` | Foundation Platform | ADR | Accepted | mixed | not applicable: ADR fields | 1 |
 | `platforms/foundation-platform/docs/adr/0027-normalization-capability-ownership.md` | Foundation Platform | ADR | Accepted | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0028-foundation-kafka-raw-written-design.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 1 |

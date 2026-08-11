@@ -8,8 +8,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use foundation_shared_kernel::ids::{
-    FileAssetId, PostgisProjectionRevisionId, SourceRecordId, VectorTileDataRevisionId,
-    VectorTileReleaseId, VectorTileRuntimeManifestId,
+    FileAssetId, SourceRecordId, VectorTileDataRevisionId, VectorTileReleaseId,
+    VectorTileRuntimeManifestId,
 };
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 
@@ -265,8 +265,6 @@ pub struct DynamicPostgisSource {
     pub martin_source_id: String,
     /// Stable, query-free tile URL template selected by the Catalog pointer.
     pub tiles_url_template: RuntimeTilesUrlTemplate,
-    /// Complete `PostGIS` projection revision.
-    pub postgis_projection_revision: PostgisProjectionRevisionId,
     /// Dynamic sources are never browser-cacheable.
     pub cache_policy: String,
 }
@@ -299,6 +297,20 @@ pub enum ActiveTileSource {
     StaticPmtiles(StaticPmtilesSource),
 }
 
+impl ActiveTileSource {
+    /// Configured Martin source name, whichever complete source is selected.
+    ///
+    /// Manifest-wide uniqueness of this name is the one invariant a single unit cannot check, so
+    /// the check needs to read the name without re-matching on the variant.
+    #[must_use]
+    pub fn martin_source_id(&self) -> &str {
+        match self {
+            Self::DynamicPostgis(source) => &source.martin_source_id,
+            Self::StaticPmtiles(source) => &source.martin_source_id,
+        }
+    }
+}
+
 /// One atomically switched publication unit.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -320,6 +332,10 @@ pub struct PublicationUnit {
 }
 
 /// The source kind selected by one immutable publication release.
+///
+/// Spells `vector_tile_release_source_kind_check`, which
+/// `a_database_vocabulary_is_spelled_the_same_way_in_both_languages` reads out of the installed
+/// constraint and compares against [`ServingSourceKind::ALL`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServingSourceKind {
     /// Complete `PostGIS` projection served dynamically by Martin.
@@ -328,15 +344,65 @@ pub enum ServingSourceKind {
     StaticPmtiles,
 }
 
+impl ServingSourceKind {
+    /// Every source kind, so a caller can enumerate the vocabulary without restating it.
+    pub const ALL: [Self; 2] = [Self::DynamicPostgis, Self::StaticPmtiles];
+
+    /// Database spelling of this source kind.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DynamicPostgis => "dynamic_postgis",
+            Self::StaticPmtiles => "static_pmtiles",
+        }
+    }
+
+    /// Parses the database spelling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `value` is not one of the two release source kinds.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == value)
+            .ok_or_else(|| format!("unknown source kind: {value}"))
+    }
+}
+
 /// The minimum state needed to validate a source switch.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ServingSelection {
     /// The complete source selected by the release.
     pub source_kind: ServingSourceKind,
     /// Logical content revision represented by the release.
     pub data_revision: VectorTileDataRevisionId,
+    /// Immutable Iceberg snapshot the release was built from.
+    ///
+    /// Carried because `data_revision` cannot answer "is this newer?". It is a uuid, and this
+    /// function's own documentation has promised an ordering guarantee since it was written. The
+    /// snapshot id is the value that actually carries content order.
+    pub canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId,
     /// Monotonic source selection generation for this publication unit.
     pub serving_generation: ServingGeneration,
+}
+
+/// Orders two canonical snapshot ids by their numeric value.
+///
+/// Both are CHECK-constrained to `^[1-9][0-9]*$` in the database and to the same shape by
+/// [`CanonicalIcebergSnapshotId::new`], so there are no leading zeros and no sign: a longer string
+/// is a larger number, and equal lengths compare lexicographically. That avoids parsing into an
+/// integer type the ids can outgrow — real Iceberg snapshot ids already run to 18 digits.
+fn snapshot_is_older(
+    candidate: &CanonicalIcebergSnapshotId,
+    current: &CanonicalIcebergSnapshotId,
+) -> bool {
+    let (candidate, current) = (candidate.as_str(), current.as_str());
+    match candidate.len().cmp(&current.len()) {
+        core::cmp::Ordering::Less => true,
+        core::cmp::Ordering::Greater => false,
+        core::cmp::Ordering::Equal => candidate < current,
+    }
 }
 
 /// Validates the only supported publication state transitions.
@@ -344,17 +410,24 @@ pub struct ServingSelection {
 /// A first publication is always a complete dynamic source. A static release is allowed only
 /// when it was built from the currently selected data revision; this prevents an old `PMTiles`
 /// file from being promoted after the canonical source changed. Returning to dynamic is allowed
-/// for either the same data revision (a safe fallback) or a newer revision. Every switch advances
+/// for either the same canonical snapshot (a safe fallback) or a newer one. Every switch advances
 /// the per-unit generation exactly once.
+///
+/// That last dynamic rule was documented here from the day this function was written and enforced
+/// by nothing: the only value it could have compared was `data_revision`, and a uuid has no order.
+/// It is checked now against `canonical_iceberg_snapshot_id`, and
+/// `catalog.promote_vector_tile_runtime_manifest` makes the same comparison so a direct SQL caller
+/// cannot bypass it.
 ///
 /// # Errors
 ///
 /// Returns an error when the first publication is not dynamic generation 1, when a later
-/// generation does not advance exactly once, or when a static release uses a different data
-/// revision from the currently selected one.
+/// generation does not advance exactly once, when a static release uses a different data
+/// revision from the currently selected one, or when a dynamic release would move the unit back to
+/// an older canonical snapshot.
 pub fn validate_serving_transition(
-    previous: Option<ServingSelection>,
-    candidate: ServingSelection,
+    previous: Option<&ServingSelection>,
+    candidate: &ServingSelection,
 ) -> Result<(), String> {
     match previous {
         None => {
@@ -382,6 +455,17 @@ pub fn validate_serving_transition(
                         .to_owned(),
                 );
             }
+            if candidate.source_kind == ServingSourceKind::DynamicPostgis
+                && snapshot_is_older(
+                    &candidate.canonical_iceberg_snapshot_id,
+                    &previous.canonical_iceberg_snapshot_id,
+                )
+            {
+                return Err(
+                    "dynamic_postgis must not move the unit to an older canonical snapshot"
+                        .to_owned(),
+                );
+            }
         }
     }
     Ok(())
@@ -389,9 +473,12 @@ pub fn validate_serving_transition(
 
 /// Lifecycle of one static build attempt.
 ///
-/// Mirrors `catalog.vector_tile_build_job.status` exactly. The database constraint and this enum
-/// are two statements of one fact, so [`VectorTileBuildStatus::as_str`] is the only place the
-/// spelling is written and `TryFrom<&str>` is the only place it is read back.
+/// Spells `vector_tile_build_job_status_check`. The database constraint and this enum are two
+/// statements of one fact, so [`VectorTileBuildStatus::as_str`] is the only place the spelling is
+/// written and `TryFrom<&str>` is the only place it is read back — and
+/// `a_database_vocabulary_is_spelled_the_same_way_in_both_languages` reads the installed constraint
+/// and compares it against [`VectorTileBuildStatus::ALL`], because a claim that two statements
+/// agree is worth exactly what checks it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VectorTileBuildStatus {
     /// Plan recorded, no work started.
@@ -409,6 +496,16 @@ pub enum VectorTileBuildStatus {
 }
 
 impl VectorTileBuildStatus {
+    /// Every status, so a caller can enumerate the vocabulary without restating it.
+    pub const ALL: [Self; 6] = [
+        Self::Planned,
+        Self::Running,
+        Self::Validated,
+        Self::Promoted,
+        Self::Superseded,
+        Self::Failed,
+    ];
+
     /// Database spelling of this status.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -459,13 +556,7 @@ impl BuildEvidenceDigest {
     ///
     /// Returns an error when the value is not exactly 64 lowercase hex characters.
     pub fn new(value: String) -> Result<Self, String> {
-        let lowercase_hex = value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
-        if value.len() != 64 || !lowercase_hex {
-            return Err("build evidence digest must be 64 lowercase hex characters".to_owned());
-        }
-        Ok(Self(value))
+        lowercase_sha256(value, "build evidence digest").map(Self)
     }
 
     /// Borrowed digest.
@@ -473,6 +564,94 @@ impl BuildEvidenceDigest {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// Lowercase hex SHA-256 of the `PMTiles` object bytes.
+///
+/// Separate from [`BuildEvidenceDigest`] despite identical validation: one identifies the evidence a
+/// build was validated against, the other identifies the bytes being served. A single type would let
+/// the two be passed in each other's place, and the database columns they land in are different.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PmtilesChecksum(String);
+
+impl PmtilesChecksum {
+    /// Validates a lowercase hex SHA-256 checksum.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the value is not exactly 64 lowercase hex characters.
+    pub fn new(value: String) -> Result<Self, String> {
+        lowercase_sha256(value, "PMTiles checksum").map(Self)
+    }
+
+    /// Borrowed checksum.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// The shape both digest columns enforce: `character(64)` matching `^[0-9a-f]{64}$`.
+fn lowercase_sha256(value: String, label: &str) -> Result<String, String> {
+    let lowercase_hex = value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
+    if value.len() != 64 || !lowercase_hex {
+        return Err(format!("{label} must be 64 lowercase hex characters"));
+    }
+    Ok(value)
+}
+
+/// What one build attempt is allowed to report about itself.
+///
+/// Of the six [`VectorTileBuildStatus`] values only two are outcomes a running build can produce.
+/// `planned` and `running` are set when the build starts, and `promoted` and `superseded` are the
+/// promotion decision's to make — a build that could write its own `promoted` row would publish
+/// itself without the active-release check that [`validate_build_promotion`] exists to perform. So
+/// the reporting command carries this type rather than a status, and that bypass is unrepresentable.
+///
+/// `result_snapshot_id` is deliberately absent. The database requires it to equal the build's
+/// frozen snapshot, so a caller-supplied copy could only ever agree or be wrong.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum VectorTileBuildOutcome {
+    /// Artifacts were produced and validated. Carries the evidence they were validated against.
+    Validated(BuildEvidenceDigest),
+    /// The attempt could not produce validated artifacts. Carries the operator-facing reason.
+    Failed(String),
+}
+
+impl VectorTileBuildOutcome {
+    /// The status this outcome records.
+    #[must_use]
+    pub const fn status(&self) -> VectorTileBuildStatus {
+        match self {
+            Self::Validated(_) => VectorTileBuildStatus::Validated,
+            Self::Failed(_) => VectorTileBuildStatus::Failed,
+        }
+    }
+}
+
+/// Rejects a result reported against a build that has already reached a terminal state.
+///
+/// A terminal build's row is evidence of a decision that was already acted on: `promoted` moved the
+/// pointer, `superseded` recorded that the unit had moved on, `failed` closed the attempt.
+/// Overwriting any of them would make the ledger disagree with what was served.
+///
+/// # Errors
+///
+/// Returns an error when the observed status is terminal.
+pub fn validate_build_result_report(
+    observed: VectorTileBuildStatus,
+    outcome: &VectorTileBuildOutcome,
+) -> Result<(), String> {
+    if observed.is_terminal() {
+        return Err(format!(
+            "build already reached the terminal status {}; it cannot be reported as {}",
+            observed.as_str(),
+            outcome.status().as_str()
+        ));
+    }
+    Ok(())
 }
 
 /// The state a promotion decision is made against.
@@ -612,90 +791,180 @@ impl VectorTileRuntimeManifest {
         }
         let mut martin_source_ids = BTreeSet::new();
         for (unit_name, unit) in &self.publication_units {
-            if !is_martin_identifier(unit_name) {
+            unit.validate(unit_name)?;
+            let martin_source_id = unit.source.martin_source_id().trim();
+            if !martin_source_ids.insert(martin_source_id.to_owned()) {
                 return Err(format!(
-                    "publication unit {unit_name:?} must be a safe Martin identifier"
+                    "{unit_name}: Martin source id {martin_source_id} is already used by another publication unit"
                 ));
             }
-            if unit.layers.is_empty() {
-                return Err(format!("{unit_name}: layers must not be empty"));
+        }
+        Ok(())
+    }
+}
+
+impl PublicationUnit {
+    /// Validates every invariant one unit can decide without seeing the rest of the manifest.
+    ///
+    /// Split out of [`VectorTileRuntimeManifest::validate`] so a publisher can reject the single
+    /// unit it is changing, and name it in the error, instead of only learning that the assembled
+    /// global manifest is invalid. Both callers read this one definition, so the per-unit check and
+    /// the published manifest cannot disagree about what a valid unit is.
+    ///
+    /// The unit name is a parameter because it is the map key in the manifest, and several
+    /// invariants — the Martin identifier rule and the release-addressed static filename — relate
+    /// the name to the unit's own contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the unit name, layer set, lineage, zoom ranges, or source metadata
+    /// violate a publication invariant.
+    pub fn validate(&self, unit_name: &str) -> Result<(), String> {
+        if !is_martin_identifier(unit_name) {
+            return Err(format!(
+                "publication unit {unit_name:?} must be a safe Martin identifier"
+            ));
+        }
+        if self.layers.is_empty() {
+            return Err(format!("{unit_name}: layers must not be empty"));
+        }
+        if self.lineage.source_file_asset_ids.is_empty() {
+            return Err(format!(
+                "{unit_name}: source_file_asset_ids must not be empty"
+            ));
+        }
+        let mut source_layers = BTreeSet::new();
+        for (layer_name, layer) in &self.layers {
+            if layer_name.trim().is_empty() || layer.source_layer.trim().is_empty() {
+                return Err(format!("{unit_name}: layer names must not be empty"));
             }
-            if unit.lineage.source_file_asset_ids.is_empty() {
+            if !is_martin_identifier(layer_name)
+                || !is_martin_identifier(&layer.source_layer)
+                || !source_layers.insert(layer.source_layer.trim().to_owned())
+            {
                 return Err(format!(
-                    "{unit_name}: source_file_asset_ids must not be empty"
+                    "{unit_name}/{layer_name}: Martin layer ids must be unique safe identifiers"
                 ));
             }
-            let mut source_layers = BTreeSet::new();
-            for (layer_name, layer) in &unit.layers {
-                if layer_name.trim().is_empty() || layer.source_layer.trim().is_empty() {
-                    return Err(format!("{unit_name}: layer names must not be empty"));
-                }
-                if !is_martin_identifier(layer_name)
-                    || !is_martin_identifier(&layer.source_layer)
-                    || !source_layers.insert(layer.source_layer.trim().to_owned())
+            if layer.tile_min_zoom > layer.tile_max_zoom
+                || layer.render_min_zoom > layer.render_max_zoom
+            {
+                return Err(format!("{unit_name}/{layer_name}: zoom range is inverted"));
+            }
+            if layer
+                .feature_filter_properties
+                .values()
+                .any(String::is_empty)
+            {
+                return Err(format!(
+                    "{unit_name}/{layer_name}: filter property is empty"
+                ));
+            }
+        }
+        match &self.source {
+            ActiveTileSource::DynamicPostgis(source) => {
+                if !is_martin_identifier(&source.martin_source_id)
+                    || source.cache_policy != "no_store"
+                    || source.tiles_url_template.as_str().contains('?')
+                    || source.tiles_url_template.as_str().contains('#')
+                    || !martin_route_matches_source_id(
+                        &source.tiles_url_template,
+                        &source.martin_source_id,
+                    )
                 {
                     return Err(format!(
-                        "{unit_name}/{layer_name}: Martin layer ids must be unique safe identifiers"
-                    ));
-                }
-                if layer.tile_min_zoom > layer.tile_max_zoom
-                    || layer.render_min_zoom > layer.render_max_zoom
-                {
-                    return Err(format!("{unit_name}/{layer_name}: zoom range is inverted"));
-                }
-                if layer
-                    .feature_filter_properties
-                    .values()
-                    .any(String::is_empty)
-                {
-                    return Err(format!(
-                        "{unit_name}/{layer_name}: filter property is empty"
+                        "{unit_name}: dynamic source must use a stable Martin id, no_store, and a query-free URL"
                     ));
                 }
             }
-            match &unit.source {
-                ActiveTileSource::DynamicPostgis(source) => {
-                    if !is_martin_identifier(&source.martin_source_id)
-                        || !martin_source_ids.insert(source.martin_source_id.trim().to_owned())
-                        || source.cache_policy != "no_store"
-                        || source.tiles_url_template.as_str().contains('?')
-                        || source.tiles_url_template.as_str().contains('#')
-                        || !martin_route_matches_source_id(
-                            &source.tiles_url_template,
-                            &source.martin_source_id,
-                        )
-                    {
-                        return Err(format!(
-                            "{unit_name}: dynamic source must use a stable Martin id, no_store, and a query-free URL"
-                        ));
-                    }
-                }
-                ActiveTileSource::StaticPmtiles(source) => {
-                    if !is_martin_identifier(&source.martin_source_id)
-                        || !martin_source_ids.insert(source.martin_source_id.trim().to_owned())
-                        || source.pmtiles_object_key.trim().is_empty()
-                        || source.pmtiles_bytes == 0
-                        || !is_sha256(&source.pmtiles_sha256)
-                        || !martin_route_matches_source_id(
-                            &source.tiles_url_template,
-                            &source.martin_source_id,
-                        )
-                        || !static_pmtiles_identity_matches(
-                            unit_name,
-                            unit.active_release_id,
-                            &source.martin_source_id,
-                            &source.pmtiles_object_key,
-                        )
-                    {
-                        return Err(format!(
-                            "{unit_name}: static PMTiles metadata or release-addressed Martin identity is invalid"
-                        ));
-                    }
+            ActiveTileSource::StaticPmtiles(source) => {
+                if !is_martin_identifier(&source.martin_source_id)
+                    || source.pmtiles_object_key.trim().is_empty()
+                    || source.pmtiles_bytes == 0
+                    || !is_sha256(&source.pmtiles_sha256)
+                    || !martin_route_matches_source_id(
+                        &source.tiles_url_template,
+                        &source.martin_source_id,
+                    )
+                    || !static_pmtiles_identity_matches(
+                        unit_name,
+                        self.active_release_id,
+                        &source.martin_source_id,
+                        &source.pmtiles_object_key,
+                    )
+                {
+                    return Err(format!(
+                        "{unit_name}: static PMTiles metadata or release-addressed Martin identity is invalid"
+                    ));
                 }
             }
         }
         Ok(())
     }
+}
+
+/// Immutable object-storage root for `PMTiles` release derivatives.
+///
+/// Matches `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX` (ADR-0002).
+pub const STATIC_RELEASE_OBJECT_ROOT: &str = "gold/vector-tiles/releases";
+
+/// Whether a publication unit key is spellable as the identity every derivation below builds on.
+///
+/// A unit key is not just a name: it becomes a Martin source id and the stem of an immutable
+/// `PMTiles` object key, so what is legal here decides what is addressable in object storage.
+///
+/// Three rules, each for a reason the storage imposes:
+///
+/// * lower case only — object keys are case-sensitive, so `Parcels` and `parcels` would be two
+///   prefixes for one unit;
+/// * no `.` — the derived name is a filename stem and the extension is appended, so a dot makes the
+///   stem ambiguous to anything that splits on it (Martin discovers static sources exactly that way);
+/// * a letter first — a key that opens with a digit or a separator reads as a fragment rather than
+///   a name, and nothing in use needs it.
+///
+/// `catalog.vector_tile_publication_unit_key_check` states the same set in SQL and
+/// `a_publication_unit_key_is_spelled_the_same_way_in_both_languages` holds the two together. Before
+/// that they disagreed in three directions at once — the column admitted upper case and refused `.`,
+/// while the publisher refused upper case, admitted `.`, and let a key start with anything — which
+/// ADR-0013 남은 부채 1 recorded as the publisher merely being "narrower".
+#[must_use]
+pub fn is_publication_unit_key(candidate: &str) -> bool {
+    let mut characters = candidate.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    candidate.len() <= 128
+        && first.is_ascii_lowercase()
+        && characters.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || "_-".contains(character)
+        })
+}
+
+/// Derives the release-addressed Martin source name for a static release.
+///
+/// The name encodes the release, which is what makes a static source immutable: a new release is a
+/// new Martin source rather than new bytes behind the same one.
+#[must_use]
+pub fn static_release_martin_source_id(unit_key: &str, release_id: VectorTileReleaseId) -> String {
+    format!("{}-{release_id}", unit_key.trim())
+}
+
+/// Derives the write-once `PMTiles` object key for a static release.
+///
+/// This is the one definition of the layout. It used to be stated in three places that did not
+/// agree: this crate's validator checked only the filename, ADR-0004 documented a nested
+/// `releases/{release_id}/…` form, and the publisher wrote the flat form. The lenient check is why
+/// the disagreement survived — a consumer building a URL from the documented layout would have
+/// received a 404 from the layout that actually shipped.
+#[must_use]
+pub fn static_release_pmtiles_object_key(
+    unit_key: &str,
+    release_id: VectorTileReleaseId,
+) -> String {
+    format!(
+        "{STATIC_RELEASE_OBJECT_ROOT}/{}.pmtiles",
+        static_release_martin_source_id(unit_key, release_id)
+    )
 }
 
 fn static_pmtiles_identity_matches(
@@ -704,9 +973,10 @@ fn static_pmtiles_identity_matches(
     martin_source_id: &str,
     object_key: &str,
 ) -> bool {
-    let filename = format!("{unit_name}-{release_id}.pmtiles");
-    object_key.rsplit('/').next() == Some(filename.as_str())
-        && martin_source_id.trim() == filename.trim_end_matches(".pmtiles")
+    // The whole key, not just its filename. Comparing filenames accepted any prefix, which is
+    // exactly where the documented and implemented layouts differed.
+    martin_source_id.trim() == static_release_martin_source_id(unit_name, release_id)
+        && object_key.trim() == static_release_pmtiles_object_key(unit_name, release_id)
 }
 
 fn martin_route_matches_source_id(template: &RuntimeTilesUrlTemplate, source_id: &str) -> bool {

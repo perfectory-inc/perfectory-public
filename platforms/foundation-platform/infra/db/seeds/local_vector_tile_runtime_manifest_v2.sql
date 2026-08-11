@@ -6,19 +6,40 @@
 
 BEGIN;
 
+-- `catalog.publication_revision` guards INSERT as well as UPDATE and DELETE, because
+-- `grant-foundation-runtime.sql` hands every table in `catalog` an INSERT grant and a role boundary
+-- alone would let the API mint a revision claiming any canonical snapshot. Seeding one is publishing
+-- one, so the seed takes the capability — transaction-locally, inside this BEGIN.
+SELECT set_config('foundation.temporal_publisher', 'on', true);
+
 INSERT INTO catalog.vector_tile_publication_unit
     (id, unit_key, serving_generation, version)
 VALUES
     ('019d2b87-3fd1-7e3a-8d88-0b72c8743601', 'parcels', 1, 1)
 ON CONFLICT (id) DO NOTHING;
 
--- The additive administrative-identity migration binds release revisions to its
--- canonical ledger. Keep this disposable seed deterministic and lineage-backed.
-INSERT INTO catalog.administrative_boundary_revision
-    (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id, status, validated_at)
+-- A parcels revision, in the parcels unit's own ledger. This used to be an INSERT into
+-- `catalog.administrative_boundary_revision` with a fabricated `iceberg:tile-runtime-v2` source
+-- snapshot — a parcels revision recorded as an administrative boundary fact, because that was the
+-- only ledger a release could reference. `derived_from_administrative_revision` stays NULL: parcels
+-- geometry asserts nothing about administrative boundaries.
+INSERT INTO catalog.publication_revision
+    (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
 VALUES
-    ('019d2b87-3fd1-7e3a-8d88-0b72c8743603', '841361364657368623',
-     'iceberg:tile-runtime-v2', '019d2b87-3fd1-7e3a-8d88-0b72c8742001', 'published', now())
+    ('019d2b87-3fd1-7e3a-8d88-0b72c8743603', '019d2b87-3fd1-7e3a-8d88-0b72c8743601',
+     '841361364657368623', '019d2b87-3fd1-7e3a-8d88-0b72c8742001')
+ON CONFLICT (id) DO NOTHING;
+
+-- The load this seed's release serves rows out of. It used to be an invented UUID in the release row
+-- and nothing else; `serving_postgis.spatial_projection_load` now has to hold it, because the release
+-- carries a foreign key to it and `catalog.promote_vector_tile_runtime_manifest` refuses to point at a
+-- dynamic unit whose load did not succeed. Opened `running` here and closed below, in that order, for
+-- the same reason the publisher does: the row count is only known once the rows are in.
+INSERT INTO serving_postgis.spatial_projection_load
+    (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id, status)
+VALUES
+    ('019d2b87-3fd1-7e3a-8d88-0b72c8743604', '019d2b87-3fd1-7e3a-8d88-0b72c8743601',
+     '019d2b87-3fd1-7e3a-8d88-0b72c8743603', '841361364657368623', 'running')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO catalog.vector_tile_release
@@ -81,10 +102,15 @@ INSERT INTO catalog.vector_tile_runtime_manifest_pointer (singleton, manifest_id
 VALUES (true, '019d2b87-3fd1-7e3a-8d88-0b72c8743605')
 ON CONFLICT (singleton) DO UPDATE SET manifest_id = EXCLUDED.manifest_id, updated_at = now();
 
+-- No `official_complex_code`, and no join to `catalog.industrial_complex` (ADR-0024). That inner
+-- join was not incidental: it was the only way to satisfy the column's NOT NULL, and it silently
+-- excluded every parcel outside a complex — which is most of the country. The seed still scopes to
+-- one complex through the mirror's own nullable column, because this fixture is a bounded slice,
+-- but nothing structural requires a parcel to have one any more.
 INSERT INTO serving_postgis.parcel_boundary_publication
     (pnu, data_revision, canonical_iceberg_snapshot_id, source_record_id,
-     source_object_key, complex_id, parcel_id, official_complex_code,
-     geometry_checksum_sha256, geom, properties)
+     source_object_key, complex_id, parcel_id,
+     geometry_checksum_sha256, geom, properties, projection_load_id)
 SELECT
     mirror.pnu,
     '019d2b87-3fd1-7e3a-8d88-0b72c8743603',
@@ -93,17 +119,61 @@ SELECT
     mirror.source_object_key,
     mirror.complex_id,
     mirror.parcel_id,
-    complex.official_complex_code,
     mirror.geometry_checksum_sha256,
     mirror.geom,
-    mirror.properties
+    mirror.properties,
+    '019d2b87-3fd1-7e3a-8d88-0b72c8743604'
 FROM serving_postgis.parcel_boundary_mirror AS mirror
-JOIN catalog.industrial_complex AS complex ON complex.id = mirror.complex_id
 WHERE mirror.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
-ON CONFLICT (data_revision, pnu) DO UPDATE
-SET canonical_iceberg_snapshot_id = EXCLUDED.canonical_iceberg_snapshot_id,
-    geom = EXCLUDED.geom,
-    properties = EXCLUDED.properties,
-    updated_at = now();
+-- `DO NOTHING`, not the `DO UPDATE` this used to carry. A load names one materialisation, so
+-- re-running the seed re-asserts the same load rather than replacing its geometry underneath a
+-- release that already points at it. Changed source geometry needs a new load id, which is the whole
+-- distinction the ledger introduces.
+ON CONFLICT (projection_load_id, pnu) DO NOTHING;
+
+-- Closes the load with the count actually in the table. The `succeeded` CHECK requires a positive
+-- count, so a seed that materialised nothing fails here instead of leaving a promoted pointer at a
+-- unit Martin would serve zero features for.
+UPDATE serving_postgis.spatial_projection_load
+   SET status = 'succeeded',
+       loaded_row_count = (
+           SELECT count(*) FROM serving_postgis.parcel_boundary_publication
+            WHERE projection_load_id = '019d2b87-3fd1-7e3a-8d88-0b72c8743604'
+       ),
+       finished_at = now()
+ WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8743604'
+   AND status = 'running';
+
+-- The load id above is a literal, so a re-run cannot mint a new load the way the publisher does, and
+-- `DO NOTHING` means changed mirror geometry would be skipped in silence — the same shape of hole
+-- this ledger exists to close. A fixture cannot derive a fresh identity, but it can refuse to claim
+-- one it no longer matches: if the mirror stops agreeing with what this load recorded, say so here
+-- rather than serving the stored rows under a release that says they are current.
+-- Compared by content, not by cardinality. A count agreed whenever an edit replaced one geometry
+-- with another, which is exactly the case where the stored rows are stale and the count cannot say
+-- so. Both sides already carry `geometry_checksum_sha256`, so the digest below distinguishes "the
+-- same rows" from "the same number of rows".
+DO $$
+DECLARE
+    stored_rows bigint;
+    mirror_rows bigint;
+    stored_digest text;
+    mirror_digest text;
+BEGIN
+    SELECT count(*), md5(coalesce(string_agg(pnu || geometry_checksum_sha256, ',' ORDER BY pnu), ''))
+      INTO stored_rows, stored_digest
+      FROM serving_postgis.parcel_boundary_publication
+     WHERE projection_load_id = '019d2b87-3fd1-7e3a-8d88-0b72c8743604';
+    SELECT count(*), md5(coalesce(string_agg(mirror.pnu || mirror.geometry_checksum_sha256, ',' ORDER BY mirror.pnu), ''))
+      INTO mirror_rows, mirror_digest
+      FROM serving_postgis.parcel_boundary_mirror AS mirror
+     WHERE mirror.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
+    IF stored_digest <> mirror_digest THEN
+        RAISE EXCEPTION
+            'projection load 019d2b87-3fd1-7e3a-8d88-0b72c8743604 holds % row(s) that no longer match the mirror''s % row(s); mint a new load id in this seed, and a new release to name it',
+            stored_rows, mirror_rows;
+    END IF;
+END
+$$;
 
 COMMIT;

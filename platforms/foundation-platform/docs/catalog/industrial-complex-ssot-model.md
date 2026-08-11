@@ -34,7 +34,7 @@ last_reviewed: 2026-07-29
 | 데이터 성격 | Owner | 예시 |
 |---|---|---|
 | 모든 제품에서 같은 값이어야 하는 산업단지 사실 | `foundation-platform` | 이름, 종류, 주소, 면적, 관리기관, 상태, 경계 |
-| 산업단지에 종속된 운영 subobject | `foundation-platform` | 공지, 고시, 첨부, 도면, 필지, 건물, 공간 레이어, 3D asset |
+| 산업단지에 종속된 운영 subobject | `foundation-platform` | 공지, 고시, 첨부, 도면, 공간 레이어, 3D asset |
 | 산업단지의 업종 규칙 | `foundation-platform` | 유치업종, 허용업종, 필지별 업종 배정 |
 | 특정 사이트의 렌더링 선택 | `dawneer` | 노출 여부, 정렬, 색상, 문구 override, 문의 채널 override |
 | 부동산 상품과 시장 데이터 | `gongzzang` | 매물, 경매, 실거래, 검색 인덱스, 일반 사용자 북마크 |
@@ -52,7 +52,8 @@ last_reviewed: 2026-07-29
 | Entity | 역할 | 주요 필드 |
 |---|---|---|
 | `catalog.industrial_complex` | 산업단지 aggregate root | `id`, `official_complex_code`, `name`, `kind`, `primary_bjdong_code`, `area_m2`, `version`, `updated_at` |
-| `catalog.parcel` | 산업단지 내 필지 | `id`, `complex_id`, `pnu`, `kind`, `area_m2`, `version` |
+| `catalog.parcel` | 필지 (산업단지 소속은 별도 사실) | `id`, `pnu`, `kind`, `area_m2`, `version` |
+| `catalog.parcel_complex_membership` | 필지의 산단 소속, 기간을 가짐 | `parcel_id`, `complex_id`, `asserted_by`, `effective_period` |
 | `catalog.building` | 필지에 속한 건물 | `id`, `parcel_id`, `purpose_code`, `structure_code`, `floor_area_m2` |
 | `catalog.manufacturer` | 입주 제조사 | `id`, `primary_parcel_id`, `name`, `ksic_code` |
 | `catalog.outbox_event` | consumer cache 갱신 이벤트 | `event_id`, `type`, `payload`, `occurred_at`, `published_at` |
@@ -142,13 +143,19 @@ DB/API 이름은 `object_key` 와 `objectKey` 를 쓴다. `s3_key`, `s3Key`, `S3
 
 ### 5.1 Read API
 
+> **2026-08-09.** 산단 스코프 필지·건물·제조사 목록(`/complexes/{id}/parcels`, `.../buildings`,
+> `.../manufacturers`)과 `parcels:bulk-upsert`는 이 표에서 **삭제됐다.** 저장소 안에 호출자가
+> 없었고 트래픽·인증 정책 등록부도 크로스 저장소 소비자를 선언하지 않았으므로, 소속 표로 옮기지
+> 않고 지웠다 — 근거와 기각한 대안은
+> [ADR-0021](../../../../docs/adr/0021-an-unread-surface-is-deleted-not-migrated.md). 구현이
+> 빠진 것이 아니라 없애기로 한 것이다. `anchor-summary`는 등록부가 Dawneer를 지명하므로 남으며,
+> [ADR-0019](../../../../docs/adr/0019-membership-is-a-dated-fact-not-a-column.md)의 읽기 이전
+> 대상이다.
+
 | Endpoint | Consumer | 설명 |
 |---|---|---|
 | `GET /catalog/v1/complexes/{id}` | 모두 | 산업단지 기본 정보 |
-| `GET /catalog/v1/complexes/{id}/parcels` | 모두 | 산단 필지 목록 |
 | `GET /catalog/v1/parcels/{id}` | 모두 | 단일 필지 |
-| `GET /catalog/v1/complexes/{id}/buildings` | 모두 | 산단 건물 목록 |
-| `GET /catalog/v1/complexes/{id}/manufacturers` | 모두 | 입주 제조사 목록 |
 | `GET /catalog/v1/complexes/{id}/notices` | Dawneer 중심 | 공지/고시 |
 | `GET /catalog/v1/complexes/{id}/attachments` | 모두 | 공식 첨부/이미지 |
 | `GET /catalog/v1/complexes/{id}/blueprints` | Dawneer 중심 | 도면 |
@@ -167,7 +174,6 @@ Write API 는 Staff 권한만 허용한다. Consumer 서비스가 자기 DB 를 
 |---|---|---|
 | `POST /catalog/v1/complexes` | Catalog admin | 산단 등록 |
 | `PATCH /catalog/v1/complexes/{id}` | Catalog admin | 산단 기본 정보 갱신 |
-| `PUT /catalog/v1/complexes/{id}/parcels:bulk-upsert` | ETL/admin | 필지 upsert |
 | `PUT /catalog/v1/complexes/{id}/notices:bulk-upsert` | ETL/admin | 공지 upsert |
 | `POST /catalog/v1/file-assets` | Catalog admin | R2 object metadata 등록 |
 | `PUT /catalog/v1/complexes/{id}/blueprints` | Catalog admin | 도면 등록/교체 |
