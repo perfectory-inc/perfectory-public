@@ -53,6 +53,7 @@ for g in no-subdir-github toolchain-consistency technology-version-consistency \
          technology-version-consistency-self-test migration-naming \
          unique-package-names no-stale-sibling-paths health-route-conformance \
          utility-library-policy-self-test utility-library-policy \
+         hand-rolled-error-boundary-self-test hand-rolled-error-boundary \
          no-adhoc-cargo-lint foundation-parcel-current-selector-self-test \
          foundation-parcel-current-selector xtask-path-coverage \
          lefthook-advisory-policy-self-test lefthook-advisory-policy \

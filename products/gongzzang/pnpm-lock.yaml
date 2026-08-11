@@ -55,6 +55,9 @@ importers:
       '@opentelemetry/sdk-node':
         specifier: ^0.218.0
         version: 0.218.0(@opentelemetry/api@1.9.1)
+      '@suspensive/react':
+        specifier: ^3.21.3
+        version: 3.21.3(react@19.2.5)
       '@tanstack/react-query':
         specifier: ^5.100.9
         version: 5.100.9(react@19.2.5)
@@ -2026,6 +2029,11 @@ packages:
 
   '@standard-schema/utils@0.3.0':
     resolution: {integrity: sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==}
+
+  '@suspensive/react@3.21.3':
+    resolution: {integrity: sha512-6nYE0yL3q6XnnWZ6BPBb61mWzXAXp6dvzpKGLopCI6CwzPQFNCPY0wj38dilBaBdpbIShE/uaPOT9WLX3leGig==}
+    peerDependencies:
+      react: ^18 || ^19
 
   '@swc/core-darwin-arm64@1.15.33':
     resolution: {integrity: sha512-N+L0uXhuO7FIfzqwgxmzv0zIpV0qEp8wPX3QQs2p4atjMoywup2JTeDlXPw+z9pWJGCae3JjM+tZ6myclI+2gA==}
@@ -6208,6 +6216,10 @@ snapshots:
   '@standard-schema/spec@1.1.0': {}
 
   '@standard-schema/utils@0.3.0': {}
+
+  '@suspensive/react@3.21.3(react@19.2.5)':
+    dependencies:
+      react: 19.2.5
 
   '@swc/core-darwin-arm64@1.15.33':
     optional: true
