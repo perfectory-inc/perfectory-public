@@ -57,6 +57,50 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 | Observability | Prometheus `v3.5.0`, Alertmanager `v0.28.1`, tracing/OpenTelemetry/Sentry adapters | Compose/manifest 실행 경로 확인 |
 | Identity provider | Zitadel `v2.65.1` local image | local Compose만 실행 중; production provider/version 배선 미완료 |
 
+## 1.1 채택 애플리케이션 라이브러리 — 직접 만들기 전에 여기부터 본다
+
+§1이 런타임·툴체인 버전을 고정한다면 이 표는 **필요가 생겼을 때 무엇에 손을 뻗는지**를 고정한다.
+[AGENTS.md 해결 접근 순서](../AGENTS.md) 4·5항(오픈소스 우선, 커스텀은 마지막 수단)은 이미
+규칙으로 있었지만 **명단이 없었다.** 매번 스스로 찾아보라는 규칙은 지켜지지 않았고, 실제로
+`products/gongzzang/apps/web/lib/panel/panel-entry-view.tsx`에 error boundary를 직접
+구현한 클래스가 들어와 있다. 이 표가 그 빈자리다.
+
+| 이 필요가 생기면 | 이것을 쓴다 | 직접 만들면 생기는 일 |
+|---|---|---|
+| `debounce`, `throttle`, `groupBy`, `chunk`, deep clone/equal 같은 범용 유틸리티 | [es-toolkit](https://github.com/toss/es-toolkit) | 같은 함수가 파일마다 조금씩 다르게 존재하고, 어느 것이 맞는지 판정할 SSOT가 없다 |
+| error boundary, Suspense 경계, loading flash 방지, client-only 렌더 | [@suspensive/react](https://github.com/toss/suspensive) | 클래스 컴포넌트로 boundary를 매번 새로 짠다. reset·selective catch·중첩 boundary는 대개 빠진 채로 남는다 |
+| 모달·다이얼로그·시트를 여닫고 결과를 돌려받기 | [overlay-kit](https://github.com/toss/overlay-kit) | 화면마다 `isOpen` state와 콜백이 흩어지고, 오버레이 UI가 그것을 띄운 화면에 묶여 재사용이 안 된다 |
+| 초성 검색, 조사(은/는·이/가) 자동 선택, 한글 분해·조합 | [es-hangul](https://github.com/toss/es-hangul) | 자모 배열과 유니코드 산술을 손으로 적게 된다. 한국어가 1차 언어인 제품에서 가장 조용히 틀리는 자리다 |
+
+운영 규칙:
+
+1. **버전은 첫 도입 시점에 이 표에 고정한다.** 위 네 개는 2026-08-11 채택 결정이고, 아직
+   어느 manifest에도 없다. peer 범위는 확인했다 — `@suspensive/react`는 React `^18 || ^19`,
+   `overlay-kit`은 `^16.8 || ^17 || ^18 || ^19`, `es-hangul`은 런타임 의존성이 없다. 넷 다 MIT다.
+2. **같은 역할의 두 번째 라이브러리는 들어올 수 없다.** `scripts/guard/utility-library-policy.sh`가
+   package manifest의 dependency key만 읽어 거부한다.
+3. **표를 바꾸는 것이 결정이다.** 다른 것을 쓰려면 이 표와 가드를 같은 커밋에서 함께 고친다.
+   리뷰에서 라이브러리 선택을 매번 다시 논쟁하지 않기 위한 표다.
+
+### AI 도구용 1차 자료
+
+이 표의 목적은 "직접 만들기 전에 있는지 본다"이고, 그 확인은 라이브러리가 스스로 제공하는
+1차 자료로 한다. 사용법 예제를 이 저장소에 베껴 오지 않는다 — 베낀 순간 낡기 시작하고,
+[AGENTS.md 최상위 원칙](../AGENTS.md) 2항이 금지하는 지식 복제가 된다. 2026-08-11에 실제로
+응답을 확인한 것만 적는다.
+
+| 라이브러리 | 제공되는 것 |
+|---|---|
+| es-toolkit | Agent Skill (`npx skills add toss/es-toolkit`) — `guide`·`recommend`·`migrate`. Claude Code는 `/plugin marketplace add toss/es-toolkit` 후 `/plugin install es-toolkit@es-toolkit-plugin`. 문서 색인 `https://es-toolkit.dev/llms.txt`, 전문 `https://es-toolkit.dev/llms-full.txt` |
+| @suspensive/react | 문서 색인 `https://suspensive.org/llms.txt` |
+| overlay-kit | 문서 전문 `https://overlay-kit.slash.page/llms-full.txt` |
+| es-hangul | 해당 경로 없음(404). `https://es-hangul.slash.page` 문서를 직접 본다 |
+
+es-toolkit의 `recommend`는 이 표가 노리는 행동 그 자체다 — 필요를 말하면 이미 있는 함수를
+알려준다. 다만 Agent Skill 설치는 저장소가 아니라 각자의 도구 환경에 남는 변경이라
+`docs/technology-stack.md`가 강제할 수 없다. 그래서 여기서는 **어디에 있는지**만 고정하고,
+설치 여부는 각 작업자가 정한다.
+
 ## 2. 역할별 환경 매트릭스
 
 | 역할/소유자 | local | CI | staging | production | 상태 |
@@ -115,6 +159,11 @@ SSOT로 사용한다. 이 표는 기술 현황을, 로드맵은 실제 다음 �
 - `scripts/guard/technology-version-consistency.sh`가 tracked Compose/Dockerfile/package
   정의의 canonical DB/cache/frontend runtime 버전을 검사한다.
 - `scripts/guard/toolchain-consistency.sh`가 Rust `1.96.0`과 Docker builder를 검사한다.
+- `scripts/guard/utility-library-policy.sh`가 tracked package manifest의 dependency
+  key만 읽어, canonical 유틸리티 라이브러리 옆에 같은 역할의 두 번째 라이브러리가 들어오는
+  것을 거부한다. 산문·주석·버전 값에는 반응하지 않으므로 이 문단처럼 이력을 적을 수 있다.
+  손으로 쓴 `debounce`를 라이브러리 것으로 바꾸라는 쪽은 기계가 판정할 수 없어 리뷰 규칙으로
+  남는다 — **새 유틸리티가 필요하면 직접 구현하기 전에 es-toolkit에 있는지 먼저 본다.**
 - 두 guard와 self-test는 `scripts/guard/monorepo-guard.sh`를 통해 기존 CI 검증 SSOT에 포함된다.
 - 새 버전 도입은 이 문서 갱신 → ADR/마이그레이션 → local/CI/staging 검증 → production rollout
   순서로 한다. Compose에 임의의 두 번째 버전을 추가하지 않는다.
