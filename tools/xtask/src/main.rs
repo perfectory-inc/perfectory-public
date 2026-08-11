@@ -565,6 +565,10 @@ const AREAS: &[Area] = &[
                         test: "parcel_boundary_publication",
                     },
                     LaneTarget {
+                        package: "foundation-outbox-publisher",
+                        test: "parcel_publication_source_evidence",
+                    },
+                    LaneTarget {
                         package: "lakehouse-infrastructure",
                         test: "gold_publication_atomicity",
                     },

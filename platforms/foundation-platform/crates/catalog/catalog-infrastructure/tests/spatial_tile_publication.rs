@@ -34,6 +34,10 @@ use uuid::Uuid;
 
 use foundation_disposable_database::{run_in_disposable_database, TestResult};
 
+#[path = "support/spatial_tile_publication_evidence.rs"]
+mod spatial_tile_publication_evidence;
+use spatial_tile_publication_evidence::seed_parcel_source_evidence;
+
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../../migrations");
 
 /// The event type tag the additive v2 publication writes to the outbox.
@@ -1314,16 +1318,22 @@ async fn seed_data_revision(
     .bind(source_record_id)
     .execute(&mut *tx)
     .await?;
+    let source_evidence_id = if unit_key == "parcels" {
+        Some(seed_parcel_source_evidence(&mut tx, revision_id, snapshot, source_record_id).await?)
+    } else {
+        None
+    };
     sqlx::query(
         "INSERT INTO serving_postgis.spatial_projection_load
          (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
-          status, loaded_row_count, finished_at)
-         VALUES ($1, $2, $3, $4, 'succeeded', 1, now())",
+          source_evidence_id, status, loaded_row_count, finished_at)
+         VALUES ($1, $2, $3, $4, $5, 'succeeded', 1, now())",
     )
     .bind(derived_id(revision_id, 1))
     .bind(publication_unit_id)
     .bind(revision_id)
     .bind(snapshot)
+    .bind(source_evidence_id)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
