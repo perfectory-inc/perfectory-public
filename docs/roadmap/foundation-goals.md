@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: roadmap
-last_reviewed: 2026-08-06
+last_reviewed: 2026-08-11
 ---
 
 # 기반 목표
@@ -138,13 +138,14 @@ last_reviewed: 2026-08-06
 G1의 특수한 경우이며 별도로 세는 이유는 판정 방법이 다르기 때문이다. 각 값은 "구현이 온다" 또는
 "지운다" 중 하나로 결정되어야 하고, 어느 쪽도 아닌 채로 남아 있는 것이 지금 상태다.
 
-**이 수는 "운영 writer가 있는가"가 아니라 "테스트 밖 어디서든 쓰는가"를 센다.** 차이가 실제로
-드러나는 자리가 하나 있다. `spatial_projection_load.failed`는 마이그레이션 백필이 한 번 쓰므로
-여기서는 도달 가능으로 세지만, 운영 경로는 그것을 쓸 수 없다 — 적재기가 한 트랜잭션이라 실패가
-롤백되며 원장 행 자체가 사라진다.
-[ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md)이 그 사실을 이미
-정확히 기록하고 있으므로 이 지표가 그것을 다시 세지 않는다. 지표는 기계가 판정할 수 있는 것만
-세고, 판정이 필요한 것은 ADR이 소유한다.
+**이 수는 "운영 writer가 있는가"가 아니라 "테스트 밖 어디서든 쓰는가"를 센다.** 그 차이는
+`spatial_projection_load.failed`에서 보인다. 마이그레이션 백필이 이 값을 써서 지표상 도달
+가능이고, 이제 `publish-parcel-boundary-postgis`도 materialisation 실패를 별도 커넥션으로
+`failed`에 기록한다. 반면 `publish-administrative-boundary-postgis`는 한 트랜잭션이라 실패하면
+원장 행과 publication 행이 함께 롤백된다. 같은 상태값의 단위별 운영 경로 차이와 parcel의
+load-open 직후 프로세스 종료 reconciliation은
+[ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md)이 소유한다. 지표는
+기계가 판정할 수 있는 것만 세고, 판정이 필요한 것은 ADR이 소유한다.
 
 ## G5 — 안 도는 테스트를 0으로 만든다
 

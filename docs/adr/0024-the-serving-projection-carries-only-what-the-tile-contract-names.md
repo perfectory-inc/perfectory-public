@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: adr
-last_reviewed: 2026-08-10
+last_reviewed: 2026-08-11
 ---
 
 # ADR 0024: 서빙 투영은 타일 계약이 지명한 것만 싣는다
@@ -150,10 +150,14 @@ nullable이고 소비자가 없다는 점은 같지만, 성격이 다르다. 이
 
 ## 남은 부채
 
-1. **`parcel_boundary_publication`에 프로덕션 생산자가 여전히 없다.** 이 증분은 막던 것을 치웠을
-   뿐 채우는 코드를 만들지 않는다. 그리고 실제로 도는 적재기는 **다른 표**
-   (`parcel_boundary_mirror`)를 채운다 — 두 표가 병존하고 하나만 채워지며 다른 하나만 서빙된다는
-   사실은 이 ADR이 해소하지 않는다. 그것이 필지 타일 슬라이스의 본체다.
+1. **`parcel_boundary_publication`의 production 경계는 생겼지만 publishable upstream 생산자가
+   없다.** `publish-parcel-boundary-postgis`가 봉인된 source evidence 하나에서
+   출처를 읽어 이 표를 append하고, load id로 행 집합을 분리하며, source/target의 EPSG:5179 EWKB
+   content digest와 target lineage를 대조한 뒤에만 load를 `succeeded`로 닫는다. 따라서 이 표에
+   쓰는 production 경계 자체는 생겼다. 다만 현재 mirror writer는 bounded QA only이고 그 upstream
+   실행 증거가 production cutover와 national rollout을 부정하므로 봉인 가능한 기존 run은 0개다.
+   production-capable Iceberg→run→evidence 생산자가 오기 전에는 end-to-end production producer가
+   완성됐다고 보지 않는다.
 2. **서빙 뷰가 계약보다 많이 싣는 것을 막는 검사가 없다.** §Decision 3. 지금은 사람이 대조해야
    한다.
 3. **`complex_id` 두 서빙 표에 남아 있다.** §Decision 2. 소속을 서빙이 실을지의 판단과 함께.

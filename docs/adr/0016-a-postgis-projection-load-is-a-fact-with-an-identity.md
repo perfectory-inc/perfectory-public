@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: adr
-last_reviewed: 2026-07-31
+last_reviewed: 2026-08-11
 ---
 
 # ADR 0016: PostGIS 적재는 신원을 가진 하나의 사실이다
@@ -177,10 +177,10 @@ DTO를 직렬화해 `catalog_domain::VectorTileRuntimeManifest`로 역직렬화�
    미룬 근거의 절반("행이 작다")은 여기에 넘어오지 않는다 — 이것은 geometry다. 이번에 스위퍼는
    넣지 않는다: 증가는 요청당이 아니라 **운영자가 발행할 때마다**이므로 발행 빈도에 묶인다.
    재검토 방아쇠는 **운영자 명령이 아니라 스케줄로 재적재하는 첫 단위**다.
-2. **`status`의 세 값 중 `failed`를 쓰는 운영 writer가 없다.** 이 마이그레이션 자신은 쓴다 —
-   publication 행이 없는 dynamic release의 날조된 UUID에 `failed` 행을 만들어, FK가 성립하면서도
-   게이트가 그것을 거부하게 한다. 그러나 `publish-administrative-boundary-postgis`는 트랜잭션
-   하나이므로 실패를 커밋할 수 없다(§기각한 대안).
+2. **parcels의 운영 `failed` writer는 생겼고, load-open 직후 프로세스 종료 reconciliation이
+   남는다.** `publish-parcel-boundary-postgis`는 materialisation 실패를 별도 커넥션으로 같은 load에
+   기록한다. `publish-administrative-boundary-postgis`는 여전히 한 트랜잭션이라 실패하면 load와
+   publication 행이 함께 롤백된다(§기각한 대안).
 
    > **정정 (2026-07-31):** 이 항목은 처음에 "계획된 parcels 적재기는
    > `postgis_parcel_boundary_mirror_national_rebuild`를 따를 것"이라고 썼다. **그 명령을 템플릿으로
@@ -195,6 +195,15 @@ DTO를 직렬화해 `catalog_domain::VectorTileRuntimeManifest`로 역직렬화�
    > `parcel_marker_anchor_rebuild`의 **사전검증 후 커밋** 경로다 — geometry를 한 행도 쓰기 전에
    > 실패를 확정할 수 있는 검증은 한 트랜잭션 안에서 `failed`를 커밋하고 끝내므로, 고아 `running`
    > 행을 남기지 않는다. 두 커넥션은 geometry 적재 중 실패에만 필요하다.
+   >
+   > **해소 (2026-08-11):** `publish-parcel-boundary-postgis`가 운영 `failed` writer다. 봉인된
+   > `catalog.parcel_publication_source_evidence`와 리비전을 첫 트랜잭션에서 검증하고 load를 연 뒤,
+   > 별도 materialisation 트랜잭션에서 source tuple을 다시 잠그고 검증한다. geometry INSERT,
+   > source/target content digest, target lineage, 최종 load tuple 중 하나라도 실패하면 materialisation
+   > 전체를 롤백하고 두 번째 커넥션으로 같은 load를 `failed`로 닫는다. built-binary 테스트가 두 번째
+   > target row에서 강제한 INSERT 실패 뒤 target 0행·failed load 1행·오류 문구를 함께 단정한다.
+   > 프로세스가 load-open 커밋 직후 종료될 때 남는 `running` 행의 timeout/reconciliation은 이 항목이
+   > 말한 “운영 failed writer 없음”과 별도의 운영 부채로 남으며, promotion gate는 그 행을 거부한다.
 3. **parcels 적재 경로가 아직 없고, 그 앞에 모델 결함이 하나 있다.**
    `serving_postgis.parcel_boundary_publication`에 쓰는 것은 시드와 마이그레이션 백필뿐이다.
 

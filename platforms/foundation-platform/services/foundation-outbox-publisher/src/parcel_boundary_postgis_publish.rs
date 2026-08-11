@@ -1,48 +1,29 @@
-//! Materialises one succeeded parcel-boundary mirror rebuild into the append-only PostGIS parcel
-//! serving projection. The mirror and its rebuild-run ledger remain the evidence SSOT; this command
-//! only creates a projection bound to one existing Catalog revision.
+//! Materialises one sealed parcel source evidence row into the append-only PostGIS projection.
 //!
-//! **Why the mirror rather than the Silver handoff shards.** They are the same rows read at two
-//! points of one pipeline: the shards are what `rebuild-postgis-parcel-boundary-mirror-national`
-//! reads, and `serving_postgis.parcel_boundary_mirror` is what it writes. Reading the shards again
-//! here would rebuild that command's whole path — the R2 fetch, the JSONL row contract, the `COPY`
-//! staging, and the geometry repair and reprojection into EPSG:5179 — and two implementations of one
-//! repair are two answers to "what is this parcel's geometry" with nothing comparing them. The
-//! mirror already holds the answer in this projection's own SRID, behind the same `st_isvalid` and
-//! `st_srid` constraints this table carries, and `parcel_boundary_mirror_rebuild_run` gives that
-//! materialisation an identity this command can name and verify instead of trusting a file path.
-//! The one existing producer of the target table — the local v2 seed — already selects from the
-//! mirror, so reading the shards would also be a second shape for one relationship. What the mirror
-//! costs is honest: it is `UNLOGGED` and a national rebuild replaces it, so a run row can outlive
-//! its rows. That is checked rather than assumed, in [`materialise`].
-//!
-//! [ADR-0016](../../../../../docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md)
-//! 남은 부채 3 forbids a parcels loader on two grounds: nothing in production writes
-//! `catalog.parcel`, and the canonical Silver lives outside PostgreSQL so a loader has no dependency
-//! to read it through. Neither reaches this command. It writes the serving projection and its two
-//! ledgers, touches no Catalog fact table, and its input is a serving table a production command
-//! already fills.
+//! R2/Iceberg remains canonical. The operator names only the append-only evidence row that already
+//! binds an Iceberg snapshot, Catalog provenance, a durable run-keyed mirror source set, complete
+//! quality measurements, and the canonical projection-content digest. This command derives every
+//! publication identity from that row and independently rechecks the source and copied target.
 
 use anyhow::{bail, Context};
+use futures_util::TryStreamExt;
+use serde::Deserialize;
+use serde_json::Value as JsonValue;
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::public_data_control_support::{optional_bool_env, required_env_value};
 
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_CONFIRM";
-const DATA_REVISION_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_DATA_REVISION";
-const CANONICAL_SNAPSHOT_ENV: &str =
-    "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_CANONICAL_ICEBERG_SNAPSHOT_ID";
-const SOURCE_RECORD_ENV: &str =
-    "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_SOURCE_RECORD_ID";
-const MIRROR_REBUILD_RUN_ENV: &str =
-    "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_MIRROR_REBUILD_RUN_ID";
-/// The `catalog.vector_tile_publication_unit.unit_key` this command materialises.
-///
-/// `serving_postgis.parcel_boundary_current` — the view Martin reads — selects on this same string,
-/// and the promotion gate compares the load's unit against the manifest's. Declared once here so a
-/// publish cannot land under a unit no tile source reads.
+const SOURCE_EVIDENCE_ENV: &str =
+    "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_SOURCE_EVIDENCE_ID";
 const PARCEL_UNIT_KEY: &str = "parcels";
+const EXECUTION_SCHEMA_VERSION: &str =
+    "foundation-platform.parcel_publication_execution_evidence.v1";
+const QUALITY_SCHEMA_VERSION: &str = "foundation-platform.parcel_publication_quality.v1";
+const GEOMETRY_REPAIR_STRATEGY: &str = "postgis-make-valid-v1";
+const CONTENT_DIGEST_PREFIX: &[u8] = b"perfectory.parcel-projection-content.v1\0";
 
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
@@ -51,19 +32,21 @@ pub async fn run() -> anyhow::Result<()> {
         .context("failed to connect to DATABASE_URL for parcel boundary PostGIS publish")?;
     let opened = open_load(&pool, &config).await?;
     match materialise(&pool, &config, &opened).await {
-        Ok(publication_rows) => {
+        Ok(summary) => {
             println!(
-                "parcel-boundary-postgis-publish-ok publication_rows={} data_revision={} projection_load_id={} mirror_rebuild_run_id={}",
-                publication_rows,
-                config.data_revision,
+                "parcel-boundary-postgis-publish-ok source_evidence_id={} \
+                 mirror_rebuild_run_id={} canonical_iceberg_snapshot_id={} \
+                 data_revision={} projection_load_id={} source_rows={} loaded_rows={} rejected_rows=0",
+                config.source_evidence_id,
+                summary.mirror_rebuild_run_id,
+                opened.canonical_snapshot_id,
+                opened.data_revision,
                 opened.projection_load_id,
-                config.mirror_rebuild_run_id
+                summary.source_rows,
+                summary.loaded_rows,
             );
             Ok(())
         }
-        // Both arms return the original failure, and the operator learns from the message whether
-        // the ledger now agrees with it. A run that ended without saying either would leave a
-        // `running` row that no later run can close and no gate can explain.
         Err(error) => Err(match close_failed_load(&pool, &opened, &error).await {
             Ok(()) => error.context(format!(
                 "projection load {} was closed as failed",
@@ -79,15 +62,7 @@ pub async fn run() -> anyhow::Result<()> {
 
 struct Config {
     database_url: String,
-    data_revision: Uuid,
-    canonical_snapshot_id: String,
-    source_record_id: Uuid,
-    /// The `serving_postgis.parcel_boundary_mirror_rebuild_run` whose rows this publishes.
-    ///
-    /// Named rather than resolved, for the reason ADR-0016 §5 gives for the promotion's load id: the
-    /// ledger exists to let several materialisations coexist, so picking "the latest succeeded one"
-    /// here would be a silent choice among facts that nothing downstream could catch.
-    mirror_rebuild_run_id: Uuid,
+    source_evidence_id: Uuid,
 }
 
 impl Config {
@@ -95,139 +70,256 @@ impl Config {
         if optional_bool_env(CONFIRM_ENV)? != Some(true) {
             bail!("{CONFIRM_ENV}=1 is required before writing parcel boundary PostGIS");
         }
-        let canonical_snapshot_id = required_env_value(CANONICAL_SNAPSHOT_ENV)?;
-        if !is_positive_digits(&canonical_snapshot_id) {
-            bail!("{CANONICAL_SNAPSHOT_ENV} must be a positive decimal snapshot id");
-        }
         Ok(Self {
             database_url: required_env_value("DATABASE_URL")?,
-            data_revision: uuid_env(DATA_REVISION_ENV)?,
-            canonical_snapshot_id,
-            source_record_id: uuid_env(SOURCE_RECORD_ENV)?,
-            mirror_rebuild_run_id: uuid_env(MIRROR_REBUILD_RUN_ENV)?,
+            source_evidence_id: uuid_env(SOURCE_EVIDENCE_ENV)?,
         })
     }
 }
 
-/// The load this run opened, and the row count the rebuild it names recorded for itself.
 struct OpenedLoad {
     projection_load_id: Uuid,
-    recorded_row_count: i64,
+    publication_unit_id: Uuid,
+    data_revision: Uuid,
+    source_evidence_id: Uuid,
+    canonical_snapshot_id: String,
 }
 
-/// Refuses everything that can still be refused for free, then opens the load.
-///
-/// Two transactions, and the split is the point. The administrative publisher is one transaction and
-/// ADR-0016 records what that costs: a failure rolls the opened load back with the geometry, so
-/// `failed` has no production writer and a projection that broke halfway leaves no trace. Splitting
-/// where refusal is still free keeps both properties — a rejected *input* leaves no ledger row at
-/// all, and a failure *during* materialisation is closed as `failed` with its reason. That is the
-/// pre-validate-then-commit shape ADR-0016 남은 부채 2 names as the precedent to follow.
-///
-/// What the split gives up is bounded: a process killed between the two commits leaves a `running`
-/// load. The promotion gate refuses a `running` load exactly as it refuses a `failed` one, so such a
-/// row is never served — it is unexplained, not dangerous.
+struct MaterialisationSummary {
+    mirror_rebuild_run_id: Uuid,
+    source_rows: i64,
+    loaded_rows: i64,
+}
+
+struct SourceEvidence {
+    id: Uuid,
+    mirror_rebuild_run_id: Uuid,
+    canonical_snapshot_id: String,
+    mirror_source_snapshot_id: String,
+    iceberg_logical_table: String,
+    source_record_id: Uuid,
+    source_file_asset_id: Uuid,
+    source_row_count: i64,
+    projection_content_sha256: String,
+    quality: ParcelPublicationQuality,
+}
+
+#[derive(Deserialize)]
+struct ParcelPublicationQuality {
+    schema_version: String,
+    object_count: u64,
+    expected_row_count: u64,
+    loaded_row_count: u64,
+    invalid_srid_count: u64,
+    invalid_geometry_count: u64,
+    empty_geometry_count: u64,
+    nonpositive_area_count: u64,
+    source_srid: String,
+    target_srid: String,
+    geometry_repair_strategy: String,
+}
+
+struct SourceSetStats {
+    row_count: i64,
+    object_count: i64,
+    invalid_srid_count: i64,
+    invalid_geometry_count: i64,
+    empty_geometry_count: i64,
+    nonpositive_area_count: i64,
+    provenance_mismatch_count: i64,
+}
+
 async fn open_load(pool: &PgPool, config: &Config) -> anyhow::Result<OpenedLoad> {
     let mut transaction = pool.begin().await?;
-    // `publication_revision_publisher_only` covers INSERT as well as UPDATE and DELETE, because a
-    // role grant alone would let the API mint a revision claiming any snapshot. Registering one is
-    // publishing one, so the capability is taken here.
     sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
         .execute(&mut *transaction)
         .await?;
-    let recorded_row_count = verify_mirror_rebuild_run(&mut transaction, config).await?;
-    verify_source_record(&mut transaction, config).await?;
-    let publication_unit_id = ensure_parcel_unit(&mut transaction).await?;
-    register_revision(&mut transaction, config, publication_unit_id).await?;
 
-    // Opened before a single geometry lands, so the rows this run writes carry the identity of the
-    // run that wrote them. Keying the projection on the load rather than on the revision is what
-    // makes a re-publish of one revision a second, separately serviceable fact.
+    let evidence = read_and_verify_evidence(&mut transaction, config.source_evidence_id).await?;
+    let publication_unit_id = ensure_parcel_unit(&mut transaction).await?;
+    let data_revision =
+        register_or_reuse_revision(&mut transaction, publication_unit_id, &evidence).await?;
     let projection_load_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO serving_postgis.spatial_projection_load
-            (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id, status)
-         VALUES ($1, $2, $3, $4, 'running')",
+            (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
+             source_evidence_id, status)
+         VALUES ($1, $2, $3, $4, $5, 'running')",
     )
     .bind(projection_load_id)
     .bind(publication_unit_id)
-    .bind(config.data_revision)
-    .bind(&config.canonical_snapshot_id)
+    .bind(data_revision)
+    .bind(&evidence.canonical_snapshot_id)
+    .bind(evidence.id)
     .execute(&mut *transaction)
     .await
     .context("failed to open the parcel PostGIS projection load")?;
     transaction.commit().await?;
+
     Ok(OpenedLoad {
         projection_load_id,
-        recorded_row_count,
+        publication_unit_id,
+        data_revision,
+        source_evidence_id: evidence.id,
+        canonical_snapshot_id: evidence.canonical_snapshot_id,
     })
 }
 
-/// Verifies the mirror rebuild this publish copies, and returns the row count it recorded.
-///
-/// The recorded count is compared against the rows actually present only after the load is open (see
-/// [`materialise`]). The run ledger is a logged table and the mirror is not, so a run row outliving
-/// its rows is the expected disagreement here — and it deserves a `failed` load naming it rather
-/// than a refusal that leaves nothing behind for the next operator to read.
-async fn verify_mirror_rebuild_run(
+async fn read_and_verify_evidence(
     transaction: &mut Transaction<'_, Postgres>,
-    config: &Config,
-) -> anyhow::Result<i64> {
+    evidence_id: Uuid,
+) -> anyhow::Result<SourceEvidence> {
     let row = sqlx::query(
-        "SELECT status, loaded_row_count
-           FROM serving_postgis.parcel_boundary_mirror_rebuild_run
-          WHERE id = $1",
+        "SELECT evidence.id, evidence.mirror_rebuild_run_id,
+                evidence.mirror_rebuild_run_status AS evidence_run_status,
+                evidence.mirror_rebuild_rejected_row_count AS evidence_rejected_row_count,
+                evidence.canonical_iceberg_snapshot_id,
+                evidence.mirror_source_snapshot_id,
+                evidence.iceberg_logical_table,
+                evidence.source_record_id, evidence.source_file_asset_id,
+                evidence.execution_evidence_schema_version,
+                evidence.source_row_count, evidence.projection_content_sha256::text,
+                evidence.quality_schema_version, evidence.sealed_at IS NOT NULL AS is_sealed,
+                run.status AS run_status, run.source_snapshot_id AS run_source_snapshot_id,
+                run.source_table AS run_source_table, run.source_record_id AS run_source_record_id,
+                run.source_file_asset_id AS run_source_file_asset_id, run.srid AS run_srid,
+                run.loaded_row_count AS run_loaded_row_count,
+                run.rejected_row_count AS run_rejected_row_count,
+                run.quality_report, run.finished_at IS NOT NULL AS run_finished
+           FROM catalog.parcel_publication_source_evidence AS evidence
+           JOIN serving_postgis.parcel_boundary_mirror_rebuild_run AS run
+             ON run.id = evidence.mirror_rebuild_run_id
+          WHERE evidence.id = $1
+          FOR KEY SHARE OF evidence
+          FOR SHARE OF run",
     )
-    .bind(config.mirror_rebuild_run_id)
+    .bind(evidence_id)
     .fetch_optional(&mut **transaction)
     .await?
     .with_context(|| {
         format!(
-            "{MIRROR_REBUILD_RUN_ENV}={} names no parcel boundary mirror rebuild run",
-            config.mirror_rebuild_run_id
+            "{SOURCE_EVIDENCE_ENV}={evidence_id} names no sealed parcel publication source evidence; \
+             bounded-QA mirror runs are not publication evidence"
         )
     })?;
-    let status: String = row.try_get("status")?;
-    if status != "succeeded" {
+
+    let execution_schema_version: String = row.try_get("execution_evidence_schema_version")?;
+    if execution_schema_version != EXECUTION_SCHEMA_VERSION {
         bail!(
-            "parcel boundary mirror rebuild {} is '{status}', not 'succeeded'",
-            config.mirror_rebuild_run_id
+            "parcel source evidence {evidence_id} is not publication-eligible: execution schema \
+             {execution_schema_version} cannot prove a full Iceberg commit, production cutover, \
+             and national rollout; expected {EXECUTION_SCHEMA_VERSION}"
         );
     }
-    Ok(row.try_get("loaded_row_count")?)
+
+    let evidence_run_status: String = row.try_get("evidence_run_status")?;
+    let run_status: String = row.try_get("run_status")?;
+    let evidence_rejected: i64 = row.try_get("evidence_rejected_row_count")?;
+    let run_rejected: i64 = row.try_get("run_rejected_row_count")?;
+    if evidence_rejected != 0 || run_rejected != 0 {
+        bail!(
+            "parcel source evidence {evidence_id} has rejected_row_count={run_rejected}; \
+             every publication source rejection count must be zero"
+        );
+    }
+    if evidence_run_status != "succeeded" || run_status != "succeeded" {
+        bail!(
+            "parcel source evidence {evidence_id} names run status evidence={evidence_run_status}, \
+             run={run_status}; both must be succeeded"
+        );
+    }
+
+    let canonical_snapshot_id: String = row.try_get("canonical_iceberg_snapshot_id")?;
+    let mirror_source_snapshot_id: String = row.try_get("mirror_source_snapshot_id")?;
+    let iceberg_logical_table: String = row.try_get("iceberg_logical_table")?;
+    let source_record_id: Uuid = row.try_get("source_record_id")?;
+    let source_file_asset_id: Uuid = row.try_get("source_file_asset_id")?;
+    let source_row_count: i64 = row.try_get("source_row_count")?;
+    let run_source_snapshot_id: String = row.try_get("run_source_snapshot_id")?;
+    let run_source_table: String = row.try_get("run_source_table")?;
+    let run_source_record_id: Option<Uuid> = row.try_get("run_source_record_id")?;
+    let run_source_file_asset_id: Option<Uuid> = row.try_get("run_source_file_asset_id")?;
+    let run_loaded_row_count: i64 = row.try_get("run_loaded_row_count")?;
+    let run_srid: i32 = row.try_get("run_srid")?;
+    let run_finished: bool = row.try_get("run_finished")?;
+    let is_sealed: bool = row.try_get("is_sealed")?;
+
+    if !is_sealed
+        || source_row_count <= 0
+        || run_loaded_row_count != source_row_count
+        || run_srid != 5179
+        || !run_finished
+        || iceberg_logical_table != "silver.parcel_boundaries"
+        || mirror_source_snapshot_id != format!("iceberg:{canonical_snapshot_id}")
+        || run_source_snapshot_id != mirror_source_snapshot_id
+        || run_source_table != iceberg_logical_table
+        || run_source_record_id != Some(source_record_id)
+        || run_source_file_asset_id != Some(source_file_asset_id)
+    {
+        bail!(
+            "parcel source evidence {evidence_id} no longer matches its complete sealed mirror run tuple"
+        );
+    }
+
+    let quality_schema_version: String = row.try_get("quality_schema_version")?;
+    let quality_report: JsonValue = row.try_get("quality_report")?;
+    let quality: ParcelPublicationQuality =
+        serde_json::from_value(quality_report).with_context(|| {
+            format!(
+            "parcel source evidence {evidence_id} requires a complete parcel publication quality \
+             report including schema_version and every defect counter"
+        )
+        })?;
+    verify_quality_report(
+        evidence_id,
+        &quality_schema_version,
+        source_row_count,
+        &quality,
+    )?;
+
+    Ok(SourceEvidence {
+        id: row.try_get("id")?,
+        mirror_rebuild_run_id: row.try_get("mirror_rebuild_run_id")?,
+        canonical_snapshot_id,
+        mirror_source_snapshot_id,
+        iceberg_logical_table,
+        source_record_id,
+        source_file_asset_id,
+        source_row_count,
+        projection_content_sha256: row.try_get("projection_content_sha256")?,
+        quality,
+    })
 }
 
-/// Answers for the revision's provenance before the foreign key has to.
-///
-/// `catalog.publication_revision.source_record_id` references this row, so an absent record is
-/// refused either way; answering first only decides which sentence the operator reads.
-async fn verify_source_record(
-    transaction: &mut Transaction<'_, Postgres>,
-    config: &Config,
+fn verify_quality_report(
+    evidence_id: Uuid,
+    evidence_schema_version: &str,
+    source_row_count: i64,
+    quality: &ParcelPublicationQuality,
 ) -> anyhow::Result<()> {
-    let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM catalog.source_record WHERE id = $1)",
-    )
-    .bind(config.source_record_id)
-    .fetch_one(&mut **transaction)
-    .await?;
-    if !exists {
+    let expected_rows = u64::try_from(source_row_count)
+        .context("sealed parcel source row count must be positive")?;
+    if evidence_schema_version != QUALITY_SCHEMA_VERSION
+        || quality.schema_version != QUALITY_SCHEMA_VERSION
+        || quality.object_count == 0
+        || quality.expected_row_count != expected_rows
+        || quality.loaded_row_count != expected_rows
+        || quality.invalid_srid_count != 0
+        || quality.invalid_geometry_count != 0
+        || quality.empty_geometry_count != 0
+        || quality.nonpositive_area_count != 0
+        || quality.source_srid != "EPSG:4326"
+        || quality.target_srid != "EPSG:5179"
+        || quality.geometry_repair_strategy != GEOMETRY_REPAIR_STRATEGY
+    {
         bail!(
-            "{SOURCE_RECORD_ENV}={} names no catalog source record",
-            config.source_record_id
+            "parcel source evidence {evidence_id} does not carry the complete zero-defect \
+             {QUALITY_SCHEMA_VERSION} quality report"
         );
     }
     Ok(())
 }
 
-/// Provisions the `parcels` publication unit if this deployment has not published one yet.
-///
-/// A load names its unit by foreign key, so the unit has to exist by the time the load is opened.
-/// Creating it has a price worth stating: `catalog.promote_vector_tile_runtime_manifest` counts every
-/// publication unit and refuses a manifest that does not select all of them, so a deployment that
-/// publishes parcels cannot promote anything until parcels is promoted too. That is the same bargain
-/// the administrative publisher makes, and it is the honest one — a unit nothing selects is a unit
-/// nothing serves, and the gate says so instead of the pointer quietly omitting it.
 async fn ensure_parcel_unit(transaction: &mut Transaction<'_, Postgres>) -> anyhow::Result<Uuid> {
     sqlx::query(
         "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key)
@@ -244,93 +336,317 @@ async fn ensure_parcel_unit(transaction: &mut Transaction<'_, Postgres>) -> anyh
     .await?)
 }
 
-/// Registers the parcels publication revision, or proves the registered one is the same fact.
-///
-/// `derived_from_administrative_revision` stays NULL. A parcels revision asserts nothing about
-/// administrative boundaries, and that separation is what ADR-0017 split the ledgers for; before it,
-/// a parcels revision could only be recorded as an administrative boundary fact.
-///
-/// Read back whole after the conflict clause. `ON CONFLICT (id) DO NOTHING` keeps whatever an
-/// existing row already says while every input here was checked against the *environment*, and the
-/// load's composite foreign key would then refuse the difference as a bare constraint violation
-/// naming a key. ADR-0016 §6 records the same shape one table over, on the release row.
-async fn register_revision(
+async fn register_or_reuse_revision(
     transaction: &mut Transaction<'_, Postgres>,
-    config: &Config,
     publication_unit_id: Uuid,
-) -> anyhow::Result<()> {
+    evidence: &SourceEvidence,
+) -> anyhow::Result<Uuid> {
+    let proposed_revision_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO catalog.publication_revision
             (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
          VALUES ($1, $2, $3, $4)
-         ON CONFLICT (id) DO NOTHING",
+         ON CONFLICT (publication_unit_id, canonical_iceberg_snapshot_id) DO NOTHING",
     )
-    .bind(config.data_revision)
+    .bind(proposed_revision_id)
     .bind(publication_unit_id)
-    .bind(&config.canonical_snapshot_id)
-    .bind(config.source_record_id)
+    .bind(&evidence.canonical_snapshot_id)
+    .bind(evidence.source_record_id)
     .execute(&mut **transaction)
     .await
-    .context(
-        "failed to register the parcels publication revision; \
-         one unit carries one revision per canonical snapshot",
-    )?;
+    .context("failed to register the parcels publication revision")?;
+
     let stored = sqlx::query(
-        "SELECT publication_unit_id, canonical_iceberg_snapshot_id, source_record_id
-           FROM catalog.publication_revision WHERE id = $1",
+        "SELECT id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id,
+                derived_from_administrative_revision
+           FROM catalog.publication_revision
+          WHERE publication_unit_id = $1 AND canonical_iceberg_snapshot_id = $2
+          FOR SHARE",
     )
-    .bind(config.data_revision)
+    .bind(publication_unit_id)
+    .bind(&evidence.canonical_snapshot_id)
     .fetch_one(&mut **transaction)
     .await?;
+    let stored_id: Uuid = stored.try_get("id")?;
     let stored_unit: Uuid = stored.try_get("publication_unit_id")?;
     let stored_snapshot: String = stored.try_get("canonical_iceberg_snapshot_id")?;
     let stored_source_record: Uuid = stored.try_get("source_record_id")?;
+    let stored_lineage: Option<Uuid> = stored.try_get("derived_from_administrative_revision")?;
+
+    if let Some(lineage) = stored_lineage {
+        bail!(
+            "publication revision {stored_id} has administrative lineage {lineage}; \
+             sealed parcel evidence requires the whole stored revision to have NULL administrative lineage"
+        );
+    }
     if stored_unit != publication_unit_id
-        || stored_snapshot != config.canonical_snapshot_id
-        || stored_source_record != config.source_record_id
+        || stored_snapshot != evidence.canonical_snapshot_id
+        || stored_source_record != evidence.source_record_id
     {
         bail!(
-            "publication revision {} already exists and describes a different publication \
+            "publication revision {stored_id} already describes a different sealed publication \
              (stored unit {stored_unit}, snapshot {stored_snapshot}, source record {stored_source_record}); \
-             a changed publication needs a new revision id",
-            config.data_revision
+             evidence {} requires unit {publication_unit_id}, snapshot {}, source record {}",
+            evidence.id,
+            evidence.canonical_snapshot_id,
+            evidence.source_record_id
+        );
+    }
+    Ok(stored_id)
+}
+
+async fn materialise(
+    pool: &PgPool,
+    config: &Config,
+    opened: &OpenedLoad,
+) -> anyhow::Result<MaterialisationSummary> {
+    let mut transaction = pool.begin().await?;
+    let evidence = read_and_verify_evidence(&mut transaction, config.source_evidence_id).await?;
+    lock_and_verify_opened_load(&mut transaction, opened, &evidence).await?;
+
+    let source_stats = read_source_set_stats(&mut transaction, &evidence).await?;
+    verify_source_set_stats(&evidence, &source_stats)?;
+    let (streamed_source_rows, source_digest) = stream_projection_digest(
+        &mut transaction,
+        ProjectionRows::Source(evidence.mirror_rebuild_run_id),
+    )
+    .await?;
+    if streamed_source_rows != evidence.source_row_count
+        || source_digest != evidence.projection_content_sha256
+    {
+        bail!(
+            "sealed source evidence {} records {} row(s) and content digest {}, but the locked \
+             source set streamed {streamed_source_rows} row(s) with digest {source_digest}",
+            evidence.id,
+            evidence.source_row_count,
+            evidence.projection_content_sha256
+        );
+    }
+
+    let inserted_rows = append_projection(&mut transaction, opened, &evidence).await?;
+    if inserted_rows != evidence.source_row_count {
+        bail!(
+            "parcel boundary publish offered {} row(s) and INSERT affected {inserted_rows}",
+            evidence.source_row_count
+        );
+    }
+
+    let target_stats = read_target_set_stats(&mut transaction, opened, &evidence).await?;
+    if target_stats.row_count != evidence.source_row_count
+        || target_stats.provenance_mismatch_count != 0
+        || target_stats.invalid_srid_count != 0
+        || target_stats.invalid_geometry_count != 0
+        || target_stats.empty_geometry_count != 0
+        || target_stats.nonpositive_area_count != 0
+    {
+        bail!(
+            "parcel target postcondition failed: rows={}, lineage_mismatches={}, invalid_srid={}, \
+             invalid_geometry={}, empty_geometry={}, nonpositive_area={}",
+            target_stats.row_count,
+            target_stats.provenance_mismatch_count,
+            target_stats.invalid_srid_count,
+            target_stats.invalid_geometry_count,
+            target_stats.empty_geometry_count,
+            target_stats.nonpositive_area_count
+        );
+    }
+
+    let (streamed_target_rows, target_digest) = stream_projection_digest(
+        &mut transaction,
+        ProjectionRows::Target(opened.projection_load_id),
+    )
+    .await?;
+    if streamed_target_rows != evidence.source_row_count
+        || target_digest != source_digest
+        || target_digest != evidence.projection_content_sha256
+    {
+        bail!(
+            "target content digest {target_digest} over {streamed_target_rows} row(s) does not \
+             match sealed source digest {} over {} row(s)",
+            evidence.projection_content_sha256,
+            evidence.source_row_count
+        );
+    }
+
+    close_succeeded_load(&mut transaction, opened, streamed_target_rows).await?;
+    transaction.commit().await?;
+    Ok(MaterialisationSummary {
+        mirror_rebuild_run_id: evidence.mirror_rebuild_run_id,
+        source_rows: streamed_source_rows,
+        loaded_rows: streamed_target_rows,
+    })
+}
+
+async fn lock_and_verify_opened_load(
+    transaction: &mut Transaction<'_, Postgres>,
+    opened: &OpenedLoad,
+    evidence: &SourceEvidence,
+) -> anyhow::Result<()> {
+    let row = sqlx::query(
+        "SELECT load.status, load.publication_unit_id, load.data_revision,
+                load.canonical_iceberg_snapshot_id, load.source_evidence_id,
+                unit.unit_key, revision.source_record_id,
+                revision.derived_from_administrative_revision
+           FROM serving_postgis.spatial_projection_load AS load
+           JOIN catalog.vector_tile_publication_unit AS unit
+             ON unit.id = load.publication_unit_id
+           JOIN catalog.publication_revision AS revision
+             ON revision.id = load.data_revision
+            AND revision.publication_unit_id = load.publication_unit_id
+            AND revision.canonical_iceberg_snapshot_id = load.canonical_iceberg_snapshot_id
+          WHERE load.id = $1
+          FOR UPDATE OF load
+          FOR SHARE OF unit, revision",
+    )
+    .bind(opened.projection_load_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+
+    let status: String = row.try_get("status")?;
+    let publication_unit_id: Uuid = row.try_get("publication_unit_id")?;
+    let data_revision: Uuid = row.try_get("data_revision")?;
+    let snapshot: String = row.try_get("canonical_iceberg_snapshot_id")?;
+    let source_evidence_id: Option<Uuid> = row.try_get("source_evidence_id")?;
+    let unit_key: String = row.try_get("unit_key")?;
+    let revision_source_record_id: Uuid = row.try_get("source_record_id")?;
+    let revision_lineage: Option<Uuid> = row.try_get("derived_from_administrative_revision")?;
+    if status != "running"
+        || unit_key != PARCEL_UNIT_KEY
+        || data_revision != opened.data_revision
+        || snapshot != evidence.canonical_snapshot_id
+        || source_evidence_id != Some(evidence.id)
+        || source_evidence_id != Some(opened.source_evidence_id)
+        || revision_source_record_id != evidence.source_record_id
+        || revision_lineage.is_some()
+        || publication_unit_id != opened.publication_unit_id
+    {
+        bail!(
+            "projection load {} no longer matches its locked evidence/revision tuple",
+            opened.projection_load_id
         );
     }
     Ok(())
 }
 
-/// Copies the named mirror rebuild into the projection and closes the load with what landed.
-///
-/// Returns the published row count. Every count is read back out of the tables rather than taken
-/// from `rows_affected`, because what the ledger has to record is what is in the table.
-async fn materialise(pool: &PgPool, config: &Config, opened: &OpenedLoad) -> anyhow::Result<i64> {
-    let mut transaction = pool.begin().await?;
-    let mirror_rows = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM serving_postgis.parcel_boundary_mirror WHERE rebuild_run_id = $1",
+async fn read_source_set_stats(
+    transaction: &mut Transaction<'_, Postgres>,
+    evidence: &SourceEvidence,
+) -> anyhow::Result<SourceSetStats> {
+    let row = sqlx::query(
+        "SELECT count(*)::bigint AS row_count,
+                count(DISTINCT source_object_key)::bigint AS object_count,
+                count(*) FILTER (WHERE public.st_srid(geom) <> 5179)::bigint AS invalid_srid_count,
+                count(*) FILTER (WHERE NOT public.st_isvalid(geom))::bigint AS invalid_geometry_count,
+                count(*) FILTER (WHERE public.st_isempty(geom))::bigint AS empty_geometry_count,
+                count(*) FILTER (WHERE public.st_area(geom) <= 0)::bigint AS nonpositive_area_count,
+                count(*) FILTER (
+                    WHERE source_snapshot_id IS DISTINCT FROM $2
+                       OR source_table IS DISTINCT FROM $3
+                       OR source_record_id IS DISTINCT FROM $4
+                       OR source_file_asset_id IS DISTINCT FROM $5
+                )::bigint AS provenance_mismatch_count
+           FROM serving_postgis.parcel_boundary_mirror
+          WHERE rebuild_run_id = $1",
     )
-    .bind(config.mirror_rebuild_run_id)
-    .fetch_one(&mut *transaction)
+    .bind(evidence.mirror_rebuild_run_id)
+    .bind(&evidence.mirror_source_snapshot_id)
+    .bind(&evidence.iceberg_logical_table)
+    .bind(evidence.source_record_id)
+    .bind(evidence.source_file_asset_id)
+    .fetch_one(&mut **transaction)
     .await?;
-    if mirror_rows != opened.recorded_row_count {
+    source_set_stats_from_row(&row)
+}
+
+fn source_set_stats_from_row(row: &sqlx::postgres::PgRow) -> anyhow::Result<SourceSetStats> {
+    Ok(SourceSetStats {
+        row_count: row.try_get("row_count")?,
+        object_count: row.try_get("object_count")?,
+        invalid_srid_count: row.try_get("invalid_srid_count")?,
+        invalid_geometry_count: row.try_get("invalid_geometry_count")?,
+        empty_geometry_count: row.try_get("empty_geometry_count")?,
+        nonpositive_area_count: row.try_get("nonpositive_area_count")?,
+        provenance_mismatch_count: row.try_get("provenance_mismatch_count")?,
+    })
+}
+
+fn verify_source_set_stats(
+    evidence: &SourceEvidence,
+    stats: &SourceSetStats,
+) -> anyhow::Result<()> {
+    if stats.row_count != evidence.source_row_count
+        || stats.object_count != i64::try_from(evidence.quality.object_count)?
+        || stats.invalid_srid_count != 0
+        || stats.invalid_geometry_count != 0
+        || stats.empty_geometry_count != 0
+        || stats.nonpositive_area_count != 0
+        || stats.provenance_mismatch_count != 0
+    {
         bail!(
-            "parcel boundary mirror rebuild {} recorded {} row(s) and the mirror now holds {mirror_rows}; \
-             the mirror is replaced wholesale by every national rebuild, so this load would publish a \
-             different materialisation than the one it names",
-            config.mirror_rebuild_run_id,
-            opened.recorded_row_count
+            "locked parcel source set does not match evidence/quality: rows={}, objects={}, \
+             invalid_srid={}, invalid_geometry={}, empty_geometry={}, nonpositive_area={}, \
+             lineage_mismatches={}",
+            stats.row_count,
+            stats.object_count,
+            stats.invalid_srid_count,
+            stats.invalid_geometry_count,
+            stats.empty_geometry_count,
+            stats.nonpositive_area_count,
+            stats.provenance_mismatch_count
         );
     }
+    Ok(())
+}
 
-    // `complex_id` and `parcel_id` are left unset. ADR-0024 keeps whether a serving projection
-    // carries industrial-complex membership an open question and neither column has a production
-    // producer in the mirror either, so filling them would forward a NULL under the appearance of a
-    // fact — or, if the mirror ever gained a value, put a frozen membership claim in a serving row
-    // that ADR-0020 says belongs to the dated membership ledger. `source_record_id` is the
-    // operator's, not the mirror's: it is the revision's verified provenance, and the mirror's own
-    // column is filled by nothing. Geometry needs no repair or reprojection here — the mirror stores
-    // it in this table's SRID under the same validity constraint, and a row that broke either would
-    // abort this statement and close the load as failed.
-    sqlx::query(
+enum ProjectionRows {
+    Source(Uuid),
+    Target(Uuid),
+}
+
+async fn stream_projection_digest(
+    transaction: &mut Transaction<'_, Postgres>,
+    rows_to_read: ProjectionRows,
+) -> anyhow::Result<(i64, String)> {
+    let (sql, id) = match rows_to_read {
+        ProjectionRows::Source(run_id) => (
+            "SELECT pnu::text AS pnu, public.st_asewkb(geom, 'NDR') AS ewkb
+               FROM serving_postgis.parcel_boundary_mirror
+              WHERE rebuild_run_id = $1
+              ORDER BY pnu COLLATE \"C\"",
+            run_id,
+        ),
+        ProjectionRows::Target(load_id) => (
+            "SELECT pnu::text AS pnu, public.st_asewkb(geom, 'NDR') AS ewkb
+               FROM serving_postgis.parcel_boundary_publication
+              WHERE projection_load_id = $1
+              ORDER BY pnu COLLATE \"C\"",
+            load_id,
+        ),
+    };
+    let mut rows = sqlx::query(sql).bind(id).fetch(&mut **transaction);
+    let mut digest = Sha256::new();
+    digest.update(CONTENT_DIGEST_PREFIX);
+    let mut row_count = 0_i64;
+    while let Some(row) = rows.try_next().await? {
+        let pnu: String = row.try_get("pnu")?;
+        if pnu.len() != 19 || !pnu.bytes().all(|byte| byte.is_ascii_digit()) {
+            bail!("projection digest requires an ASCII 19-byte PNU, got {pnu:?}");
+        }
+        let ewkb: Vec<u8> = row.try_get("ewkb")?;
+        digest.update(pnu.as_bytes());
+        digest.update([0]);
+        digest.update(Sha256::digest(ewkb));
+        row_count += 1;
+    }
+    Ok((row_count, format!("{:x}", digest.finalize())))
+}
+
+async fn append_projection(
+    transaction: &mut Transaction<'_, Postgres>,
+    opened: &OpenedLoad,
+    evidence: &SourceEvidence,
+) -> anyhow::Result<i64> {
+    let affected = sqlx::query(
         "INSERT INTO serving_postgis.parcel_boundary_publication
             (pnu, data_revision, canonical_iceberg_snapshot_id, source_record_id,
              source_object_key, geometry_checksum_sha256, geom, properties, projection_load_id)
@@ -339,37 +655,57 @@ async fn materialise(pool: &PgPool, config: &Config, opened: &OpenedLoad) -> any
            FROM serving_postgis.parcel_boundary_mirror AS mirror
           WHERE mirror.rebuild_run_id = $1",
     )
-    .bind(config.mirror_rebuild_run_id)
-    .bind(config.data_revision)
-    .bind(&config.canonical_snapshot_id)
-    .bind(config.source_record_id)
+    .bind(evidence.mirror_rebuild_run_id)
+    .bind(opened.data_revision)
+    .bind(&evidence.canonical_snapshot_id)
+    .bind(evidence.source_record_id)
     .bind(opened.projection_load_id)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await
-    .context("failed to append parcel boundary geometry")?;
-
-    let publication_rows = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM serving_postgis.parcel_boundary_publication
-          WHERE projection_load_id = $1",
-    )
-    .bind(opened.projection_load_id)
-    .fetch_one(&mut *transaction)
-    .await?;
-    if publication_rows != mirror_rows {
-        bail!("parcel boundary publish offered {mirror_rows} row(s) and landed {publication_rows}");
-    }
-    close_succeeded_load(&mut transaction, opened, publication_rows).await?;
-    transaction.commit().await?;
-    Ok(publication_rows)
+    .context("failed to append parcel boundary geometry")?
+    .rows_affected();
+    i64::try_from(affected).context("parcel publication affected-row count does not fit bigint")
 }
 
-/// Closes the load `succeeded` with the count that landed, and proves it closed something.
-///
-/// `rejected_row_count` is zero and cannot be anything else. The mirror's primary key is `pnu`, so
-/// one materialisation cannot offer two rows for one parcel, and the insert above carries no
-/// conflict clause to drop one; the administrative projection derives a rejection count because its
-/// source is a file with no such key. The equality the caller asserts is what would catch that
-/// assumption breaking, rather than arithmetic over a difference the schema forbids.
+async fn read_target_set_stats(
+    transaction: &mut Transaction<'_, Postgres>,
+    opened: &OpenedLoad,
+    evidence: &SourceEvidence,
+) -> anyhow::Result<SourceSetStats> {
+    let row = sqlx::query(
+        "SELECT count(*)::bigint AS row_count,
+                0::bigint AS object_count,
+                count(*) FILTER (WHERE public.st_srid(target.geom) <> 5179)::bigint AS invalid_srid_count,
+                count(*) FILTER (WHERE NOT public.st_isvalid(target.geom))::bigint AS invalid_geometry_count,
+                count(*) FILTER (WHERE public.st_isempty(target.geom))::bigint AS empty_geometry_count,
+                count(*) FILTER (WHERE public.st_area(target.geom) <= 0)::bigint AS nonpositive_area_count,
+                count(*) FILTER (
+                    WHERE source.pnu IS NULL
+                       OR target.data_revision IS DISTINCT FROM $2
+                       OR target.canonical_iceberg_snapshot_id IS DISTINCT FROM $3
+                       OR target.source_record_id IS DISTINCT FROM $4
+                       OR target.projection_load_id IS DISTINCT FROM $5
+                       OR target.parcel_id IS NOT NULL
+                       OR target.source_object_key IS DISTINCT FROM source.source_object_key
+                       OR target.geometry_checksum_sha256 IS DISTINCT FROM source.geometry_checksum_sha256
+                       OR target.properties IS DISTINCT FROM source.properties
+                )::bigint AS provenance_mismatch_count
+           FROM serving_postgis.parcel_boundary_publication AS target
+           LEFT JOIN serving_postgis.parcel_boundary_mirror AS source
+             ON source.rebuild_run_id = $6 AND source.pnu = target.pnu
+          WHERE target.projection_load_id = $1",
+    )
+    .bind(opened.projection_load_id)
+    .bind(opened.data_revision)
+    .bind(&evidence.canonical_snapshot_id)
+    .bind(evidence.source_record_id)
+    .bind(opened.projection_load_id)
+    .bind(evidence.mirror_rebuild_run_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    source_set_stats_from_row(&row)
+}
+
 async fn close_succeeded_load(
     transaction: &mut Transaction<'_, Postgres>,
     opened: &OpenedLoad,
@@ -377,10 +713,8 @@ async fn close_succeeded_load(
 ) -> anyhow::Result<()> {
     let closed = sqlx::query(
         "UPDATE serving_postgis.spatial_projection_load
-            SET status = 'succeeded',
-                loaded_row_count = $2,
-                rejected_row_count = 0,
-                finished_at = now()
+            SET status = 'succeeded', loaded_row_count = $2, rejected_row_count = 0,
+                error_message = NULL, finished_at = now()
           WHERE id = $1 AND status = 'running'",
     )
     .bind(opened.projection_load_id)
@@ -391,40 +725,88 @@ async fn close_succeeded_load(
     .rows_affected();
     if closed != 1 {
         bail!(
-            "projection load {} was not 'running' when this run tried to close it",
+            "projection load {} was not running when this run tried to close it",
             opened.projection_load_id
         );
     }
-    Ok(())
+    verify_final_load(transaction, opened, "succeeded", publication_rows, false).await
 }
 
-/// Closes a load whose materialisation could not complete, with the reason it could not.
-///
-/// On its own connection from the pool. The materialisation transaction has already rolled back by
-/// the time this runs, so the geometry it wrote is gone and the load closes carrying nothing — which
-/// is the honest state: a `failed` load the promotion gate refuses by name, holding the sentence
-/// that explains it.
 async fn close_failed_load(
     pool: &PgPool,
     opened: &OpenedLoad,
     error: &anyhow::Error,
 ) -> anyhow::Result<()> {
+    let mut transaction = pool.begin().await?;
     let closed = sqlx::query(
         "UPDATE serving_postgis.spatial_projection_load
-            SET status = 'failed',
-                error_message = left($2, 4000),
-                finished_at = now()
+            SET status = 'failed', loaded_row_count = 0, rejected_row_count = 0,
+                error_message = left($2, 4000), finished_at = now()
           WHERE id = $1 AND status = 'running'",
     )
     .bind(opened.projection_load_id)
     .bind(format!("{error:#}"))
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?
     .rows_affected();
     if closed != 1 {
         bail!(
-            "projection load {} was not 'running'",
+            "projection load {} was not running",
             opened.projection_load_id
+        );
+    }
+    verify_final_load(&mut transaction, opened, "failed", 0, true).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+async fn verify_final_load(
+    transaction: &mut Transaction<'_, Postgres>,
+    opened: &OpenedLoad,
+    expected_status: &str,
+    expected_loaded_rows: i64,
+    expect_error: bool,
+) -> anyhow::Result<()> {
+    let row = sqlx::query(
+        "SELECT status, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
+                source_evidence_id,
+                loaded_row_count, rejected_row_count, finished_at IS NOT NULL AS finished,
+                error_message
+           FROM serving_postgis.spatial_projection_load WHERE id = $1",
+    )
+    .bind(opened.projection_load_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    let status: String = row.try_get("status")?;
+    let publication_unit_id: Uuid = row.try_get("publication_unit_id")?;
+    let data_revision: Uuid = row.try_get("data_revision")?;
+    let snapshot: String = row.try_get("canonical_iceberg_snapshot_id")?;
+    let source_evidence_id: Option<Uuid> = row.try_get("source_evidence_id")?;
+    let loaded_rows: i64 = row.try_get("loaded_row_count")?;
+    let rejected_rows: i64 = row.try_get("rejected_row_count")?;
+    let finished: bool = row.try_get("finished")?;
+    let error_message: Option<String> = row.try_get("error_message")?;
+    let error_shape_matches = if expect_error {
+        error_message
+            .as_deref()
+            .is_some_and(|message| !message.trim().is_empty())
+    } else {
+        error_message.is_none()
+    };
+    if status != expected_status
+        || publication_unit_id != opened.publication_unit_id
+        || data_revision != opened.data_revision
+        || snapshot != opened.canonical_snapshot_id
+        || source_evidence_id != Some(opened.source_evidence_id)
+        || loaded_rows != expected_loaded_rows
+        || rejected_rows != 0
+        || !finished
+        || !error_shape_matches
+    {
+        bail!(
+            "projection load {} final tuple does not match its {} postcondition",
+            opened.projection_load_id,
+            expected_status
         );
     }
     Ok(())
@@ -432,8 +814,4 @@ async fn close_failed_load(
 
 fn uuid_env(name: &str) -> anyhow::Result<Uuid> {
     Uuid::parse_str(&required_env_value(name)?).with_context(|| format!("{name} must be a UUID"))
-}
-
-fn is_positive_digits(value: &str) -> bool {
-    !value.is_empty() && value != "0" && value.bytes().all(|byte| byte.is_ascii_digit())
 }

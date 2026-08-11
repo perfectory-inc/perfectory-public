@@ -60,13 +60,19 @@ set -euo pipefail
 # reading as a promotion bug. One site, not two — the fixture keeps nothing on disk,
 # so it prices no crate-manifest-directory read.
 #
+# 83 -> 84: `foundation-outbox-publisher/tests/parcel_publication_source_evidence.rs`
+# declares the third migrator site in that crate. The sealed-evidence constraints and
+# append-only guards are PostgreSQL contracts, and the suite must prove them in a
+# disposable migrated database without leaving publication state in the shared
+# harness database.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-83}"
+COMPILE_TIME_READ_BASELINE="${3:-84}"
 
 cd "$repo_root"
 
