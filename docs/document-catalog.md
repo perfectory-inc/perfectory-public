@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **331개**
+- 문서 파일: **333개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,7 +19,7 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 30 |
+| Monorepo | 32 |
 | Repository tooling | 1 |
 
 ### 유형별
@@ -27,7 +27,7 @@
 | 유형 | 문서 수 |
 |---|---:|
 | ADR | 92 |
-| README | 105 |
+| README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 3 |
@@ -37,7 +37,7 @@
 | evidence | 1 |
 | fixture | 9 |
 | guide | 2 |
-| reference | 14 |
+| reference | 15 |
 | roadmap | 1 |
 | runbook | 29 |
 
@@ -390,6 +390,8 @@ docs/guides/README.md
 docs/guides/single-source-spatial-publication-implementation.md
 docs/public-data-catalog.md
 docs/README.md
+docs/reference/design-system-benchmarks.md
+docs/reference/README.md
 docs/roadmap/production-readiness.md
 docs/roadmap/README.md
 docs/technology-stack.md
@@ -432,6 +434,8 @@ tools/github/README.md
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current |
 | `docs/README.md` | Monorepo | README | current |
+| `docs/reference/design-system-benchmarks.md` | Monorepo | reference | current |
+| `docs/reference/README.md` | Monorepo | README | current |
 | `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current |
 | `docs/roadmap/README.md` | Monorepo | README | current |
 | `docs/technology-stack.md` | Monorepo | documentation | current |
