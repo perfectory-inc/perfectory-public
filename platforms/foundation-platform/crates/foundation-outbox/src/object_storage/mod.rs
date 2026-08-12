@@ -66,6 +66,17 @@ pub trait ObjectStorageService: Send + Sync {
 
 #[async_trait]
 #[allow(clippy::module_name_repetitions)]
+/// Narrow read port for small immutable control-evidence objects.
+pub trait EvidenceByteReader: Send + Sync {
+    /// Reads the exact bytes whose digest and JSON claims will be sealed.
+    ///
+    /// # Errors
+    /// Returns `PublishError` when the provider rejects the read or the body cannot be collected.
+    async fn read_evidence_bytes(&self, key: &str) -> Result<Vec<u8>, PublishError>;
+}
+
+#[async_trait]
+#[allow(clippy::module_name_repetitions)]
 /// Provider-neutral streaming object storage write port for large immutable objects.
 pub trait ObjectStorageStreamingService: Send + Sync {
     /// Streams an object to the configured storage provider.

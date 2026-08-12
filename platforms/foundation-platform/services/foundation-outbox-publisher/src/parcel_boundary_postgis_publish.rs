@@ -6,24 +6,20 @@
 //! publication identity from that row and independently rechecks the source and copied target.
 
 use anyhow::{bail, Context};
-use futures_util::TryStreamExt;
-use serde::Deserialize;
 use serde_json::Value as JsonValue;
-use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use crate::public_data_control_support::{optional_bool_env, required_env_value};
+use crate::{
+    parcel_projection_digest::{stream_projection_digest, ProjectionRows},
+    parcel_publication_contract::{verify_quality_report, ParcelPublicationQuality},
+    public_data_control_support::{optional_bool_env, required_env_value},
+};
 
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_CONFIRM";
 const SOURCE_EVIDENCE_ENV: &str =
     "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_SOURCE_EVIDENCE_ID";
 const PARCEL_UNIT_KEY: &str = "parcels";
-const EXECUTION_SCHEMA_VERSION: &str =
-    "foundation-platform.parcel_publication_execution_evidence.v1";
-const QUALITY_SCHEMA_VERSION: &str = "foundation-platform.parcel_publication_quality.v1";
-const GEOMETRY_REPAIR_STRATEGY: &str = "postgis-make-valid-v1";
-const CONTENT_DIGEST_PREFIX: &[u8] = b"perfectory.parcel-projection-content.v1\0";
 
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
@@ -97,26 +93,14 @@ struct SourceEvidence {
     canonical_snapshot_id: String,
     mirror_source_snapshot_id: String,
     iceberg_logical_table: String,
+    _iceberg_table_uuid: Uuid,
+    _execution_evidence_object_key: String,
+    _execution_evidence_sha256: String,
     source_record_id: Uuid,
     source_file_asset_id: Uuid,
     source_row_count: i64,
     projection_content_sha256: String,
     quality: ParcelPublicationQuality,
-}
-
-#[derive(Deserialize)]
-struct ParcelPublicationQuality {
-    schema_version: String,
-    object_count: u64,
-    expected_row_count: u64,
-    loaded_row_count: u64,
-    invalid_srid_count: u64,
-    invalid_geometry_count: u64,
-    empty_geometry_count: u64,
-    nonpositive_area_count: u64,
-    source_srid: String,
-    target_srid: String,
-    geometry_repair_strategy: String,
 }
 
 struct SourceSetStats {
@@ -175,9 +159,10 @@ async fn read_and_verify_evidence(
                 evidence.mirror_rebuild_rejected_row_count AS evidence_rejected_row_count,
                 evidence.canonical_iceberg_snapshot_id,
                 evidence.mirror_source_snapshot_id,
-                evidence.iceberg_logical_table,
+                evidence.iceberg_logical_table, evidence.iceberg_table_uuid,
+                evidence.execution_evidence_object_key,
+                evidence.execution_evidence_sha256::text,
                 evidence.source_record_id, evidence.source_file_asset_id,
-                evidence.execution_evidence_schema_version,
                 evidence.source_row_count, evidence.projection_content_sha256::text,
                 evidence.quality_schema_version, evidence.sealed_at IS NOT NULL AS is_sealed,
                 run.status AS run_status, run.source_snapshot_id AS run_source_snapshot_id,
@@ -202,15 +187,6 @@ async fn read_and_verify_evidence(
              bounded-QA mirror runs are not publication evidence"
         )
     })?;
-
-    let execution_schema_version: String = row.try_get("execution_evidence_schema_version")?;
-    if execution_schema_version != EXECUTION_SCHEMA_VERSION {
-        bail!(
-            "parcel source evidence {evidence_id} is not publication-eligible: execution schema \
-             {execution_schema_version} cannot prove a full Iceberg commit, production cutover, \
-             and national rollout; expected {EXECUTION_SCHEMA_VERSION}"
-        );
-    }
 
     let evidence_run_status: String = row.try_get("evidence_run_status")?;
     let run_status: String = row.try_get("run_status")?;
@@ -270,12 +246,7 @@ async fn read_and_verify_evidence(
              report including schema_version and every defect counter"
         )
         })?;
-    verify_quality_report(
-        evidence_id,
-        &quality_schema_version,
-        source_row_count,
-        &quality,
-    )?;
+    verify_quality_report(&quality_schema_version, source_row_count, &quality)?;
 
     Ok(SourceEvidence {
         id: row.try_get("id")?,
@@ -283,41 +254,15 @@ async fn read_and_verify_evidence(
         canonical_snapshot_id,
         mirror_source_snapshot_id,
         iceberg_logical_table,
+        _iceberg_table_uuid: row.try_get("iceberg_table_uuid")?,
+        _execution_evidence_object_key: row.try_get("execution_evidence_object_key")?,
+        _execution_evidence_sha256: row.try_get("execution_evidence_sha256")?,
         source_record_id,
         source_file_asset_id,
         source_row_count,
         projection_content_sha256: row.try_get("projection_content_sha256")?,
         quality,
     })
-}
-
-fn verify_quality_report(
-    evidence_id: Uuid,
-    evidence_schema_version: &str,
-    source_row_count: i64,
-    quality: &ParcelPublicationQuality,
-) -> anyhow::Result<()> {
-    let expected_rows = u64::try_from(source_row_count)
-        .context("sealed parcel source row count must be positive")?;
-    if evidence_schema_version != QUALITY_SCHEMA_VERSION
-        || quality.schema_version != QUALITY_SCHEMA_VERSION
-        || quality.object_count == 0
-        || quality.expected_row_count != expected_rows
-        || quality.loaded_row_count != expected_rows
-        || quality.invalid_srid_count != 0
-        || quality.invalid_geometry_count != 0
-        || quality.empty_geometry_count != 0
-        || quality.nonpositive_area_count != 0
-        || quality.source_srid != "EPSG:4326"
-        || quality.target_srid != "EPSG:5179"
-        || quality.geometry_repair_strategy != GEOMETRY_REPAIR_STRATEGY
-    {
-        bail!(
-            "parcel source evidence {evidence_id} does not carry the complete zero-defect \
-             {QUALITY_SCHEMA_VERSION} quality report"
-        );
-    }
-    Ok(())
 }
 
 async fn ensure_parcel_unit(transaction: &mut Transaction<'_, Postgres>) -> anyhow::Result<Uuid> {
@@ -596,49 +541,6 @@ fn verify_source_set_stats(
         );
     }
     Ok(())
-}
-
-enum ProjectionRows {
-    Source(Uuid),
-    Target(Uuid),
-}
-
-async fn stream_projection_digest(
-    transaction: &mut Transaction<'_, Postgres>,
-    rows_to_read: ProjectionRows,
-) -> anyhow::Result<(i64, String)> {
-    let (sql, id) = match rows_to_read {
-        ProjectionRows::Source(run_id) => (
-            "SELECT pnu::text AS pnu, public.st_asewkb(geom, 'NDR') AS ewkb
-               FROM serving_postgis.parcel_boundary_mirror
-              WHERE rebuild_run_id = $1
-              ORDER BY pnu COLLATE \"C\"",
-            run_id,
-        ),
-        ProjectionRows::Target(load_id) => (
-            "SELECT pnu::text AS pnu, public.st_asewkb(geom, 'NDR') AS ewkb
-               FROM serving_postgis.parcel_boundary_publication
-              WHERE projection_load_id = $1
-              ORDER BY pnu COLLATE \"C\"",
-            load_id,
-        ),
-    };
-    let mut rows = sqlx::query(sql).bind(id).fetch(&mut **transaction);
-    let mut digest = Sha256::new();
-    digest.update(CONTENT_DIGEST_PREFIX);
-    let mut row_count = 0_i64;
-    while let Some(row) = rows.try_next().await? {
-        let pnu: String = row.try_get("pnu")?;
-        if pnu.len() != 19 || !pnu.bytes().all(|byte| byte.is_ascii_digit()) {
-            bail!("projection digest requires an ASCII 19-byte PNU, got {pnu:?}");
-        }
-        let ewkb: Vec<u8> = row.try_get("ewkb")?;
-        digest.update(pnu.as_bytes());
-        digest.update([0]);
-        digest.update(Sha256::digest(ewkb));
-        row_count += 1;
-    }
-    Ok((row_count, format!("{:x}", digest.finalize())))
 }
 
 async fn append_projection(

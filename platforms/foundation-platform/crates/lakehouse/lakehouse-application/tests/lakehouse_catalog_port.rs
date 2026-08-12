@@ -7,7 +7,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::StaffId;
 use lakehouse_application::ports::{
-    LakehouseBatchRunAudit, LakehouseBatchRunAuditCommand, LakehouseCatalog, LakehouseTableSnapshot,
+    LakehouseBatchRunAudit, LakehouseBatchRunAuditCommand, LakehouseCatalog,
+    LakehouseTableMetadata, LakehouseTableSnapshot,
 };
 use lakehouse_domain::{
     LakehouseError, LakehouseTableContract, SparkRunInput, SparkRunSummary, SparkRunTarget,
@@ -44,6 +45,21 @@ impl LakehouseCatalog for RecordingLakehouseCatalog {
         Ok(Some(LakehouseTableSnapshot {
             table_name: table_name.to_owned(),
             snapshot_id: "123456789".to_owned(),
+            metadata_location: "r2://foundation-platform-lakehouse/metadata/metadata.json"
+                .to_owned(),
+        }))
+    }
+
+    async fn get_table_metadata(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<LakehouseTableMetadata>, LakehouseError> {
+        Ok(Some(LakehouseTableMetadata {
+            table_name: table_name.to_owned(),
+            table_uuid: Uuid::parse_str("2f7bf2d1-3e08-4d1a-936e-556d8ebfd055")
+                .map_err(|error| LakehouseError::Persistence(error.to_string()))?,
+            current_snapshot_id: Some(123_456_789),
+            snapshot_ids: vec![123_456_788, 123_456_789],
             metadata_location: "r2://foundation-platform-lakehouse/metadata/metadata.json"
                 .to_owned(),
         }))

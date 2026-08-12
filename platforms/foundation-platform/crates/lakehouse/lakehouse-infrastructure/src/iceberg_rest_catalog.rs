@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use lakehouse_application::ports::{LakehouseCatalog, LakehouseTableSnapshot};
+use lakehouse_application::ports::{
+    LakehouseCatalog, LakehouseTableMetadata, LakehouseTableSnapshot,
+};
 use lakehouse_domain::{LakehouseError, LakehouseTableContract};
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -208,20 +210,66 @@ impl IcebergRestCatalog {
         &self,
         table_name: &str,
     ) -> Result<Option<LakehouseTableSnapshot>, LakehouseError> {
+        let payload = self.load_table_response(table_name).await?;
+        payload
+            .map(|payload| {
+                let snapshot_id = payload.current_snapshot_id().ok_or_else(|| {
+                    LakehouseError::Upstream(
+                        "Iceberg REST load table response omitted current snapshot id".into(),
+                    )
+                })?;
+                Ok(LakehouseTableSnapshot {
+                    table_name: table_name.to_owned(),
+                    snapshot_id,
+                    metadata_location: payload.metadata_location,
+                })
+            })
+            .transpose()
+    }
+
+    async fn load_table_metadata(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<LakehouseTableMetadata>, LakehouseError> {
+        let payload = self.load_table_response(table_name).await?;
+        payload
+            .map(|payload| {
+                let table_uuid = payload.metadata.table_uuid.ok_or_else(|| {
+                    LakehouseError::Upstream(
+                        "Iceberg REST load table response omitted table UUID".into(),
+                    )
+                })?;
+                Ok(LakehouseTableMetadata {
+                    table_name: table_name.to_owned(),
+                    table_uuid,
+                    current_snapshot_id: payload.current_snapshot_id_i64(),
+                    snapshot_ids: payload
+                        .metadata
+                        .snapshots
+                        .into_iter()
+                        .map(|snapshot| snapshot.snapshot_id)
+                        .collect(),
+                    metadata_location: payload.metadata_location,
+                })
+            })
+            .transpose()
+    }
+
+    async fn load_table_response(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<LoadTableResponse>, LakehouseError> {
         let catalog_prefix = self.catalog_prefix().await?;
         let url = self.load_table_url(&catalog_prefix, table_name)?;
-        execute_retryable(&self.resilience_ctx(), || {
-            self.load_table_once(&url, table_name)
-        })
-        .await
-        .map_err(crate::outbound_http_error::into_lakehouse_error)
+        execute_retryable(&self.resilience_ctx(), || self.load_table_once(&url))
+            .await
+            .map_err(crate::outbound_http_error::into_lakehouse_error)
     }
 
     async fn load_table_once(
         &self,
         url: &reqwest::Url,
-        table_name: &str,
-    ) -> Result<Option<LakehouseTableSnapshot>, AttemptError> {
+    ) -> Result<Option<LoadTableResponse>, AttemptError> {
         let request = self.with_catalog_headers(self.client.get(url.clone()));
         let response = request
             .send()
@@ -265,17 +313,7 @@ impl IcebergRestCatalog {
         let payload: LoadTableResponse = serde_json::from_slice(&raw_payload).map_err(|error| {
             outbound_http_infrastructure::OutboundHttpError::new(error.to_string())
         })?;
-        let snapshot_id = payload.current_snapshot_id().ok_or_else(|| {
-            outbound_http_infrastructure::OutboundHttpError::new(
-                "Iceberg REST load table response omitted current snapshot id",
-            )
-        })?;
-
-        Ok(Some(LakehouseTableSnapshot {
-            table_name: table_name.to_owned(),
-            snapshot_id,
-            metadata_location: payload.metadata_location,
-        }))
+        Ok(Some(payload))
     }
 }
 
@@ -298,6 +336,13 @@ impl LakehouseCatalog for IcebergRestCatalog {
         table_name: &str,
     ) -> Result<Option<LakehouseTableSnapshot>, LakehouseError> {
         self.load_table(table_name).await
+    }
+
+    async fn get_table_metadata(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<LakehouseTableMetadata>, LakehouseError> {
+        self.load_table_metadata(table_name).await
     }
 }
 
@@ -335,12 +380,30 @@ impl LoadTableResponse {
             _ => None,
         }
     }
+
+    fn current_snapshot_id_i64(&self) -> Option<i64> {
+        match &self.metadata.current_snapshot_id {
+            serde_json::Value::Number(value) => value.as_i64(),
+            serde_json::Value::String(value) => value.parse().ok(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 struct IcebergTableMetadata {
+    #[serde(rename = "table-uuid")]
+    table_uuid: Option<uuid::Uuid>,
     #[serde(rename = "current-snapshot-id")]
     current_snapshot_id: serde_json::Value,
+    #[serde(default)]
+    snapshots: Vec<IcebergSnapshotMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IcebergSnapshotMetadata {
+    #[serde(rename = "snapshot-id")]
+    snapshot_id: i64,
 }
 
 fn parse_table_name(table_name: &str) -> Result<(Vec<&str>, &str), LakehouseError> {

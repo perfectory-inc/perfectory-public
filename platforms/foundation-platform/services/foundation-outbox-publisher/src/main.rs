@@ -114,6 +114,9 @@ mod parcel_marker_anchor_artifact_export;
 mod parcel_marker_anchor_pbf_artifact_build;
 mod parcel_marker_anchor_pbf_manifest_promote;
 mod parcel_marker_anchor_streaming_rebuild;
+mod parcel_projection_digest;
+mod parcel_publication_contract;
+mod parcel_publication_evidence_sealer;
 mod postgis_anchor_pbf_regional_proof_check;
 mod postgis_mirror_dlq_cutover_evidence;
 mod postgis_parcel_boundary_mirror_national_rebuild;
@@ -215,6 +218,7 @@ enum Command {
     CheckAdministrativeSpatialScopeRegistry,
     PublishAdministrativeBoundaryPostgis,
     PublishParcelBoundaryPostgis,
+    SealParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
     CheckIndustrialComplexCanonicalSourceReadiness,
     CheckNationalBronzeObjectManifest,
@@ -422,6 +426,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(administrative_boundary_postgis_publish::run())
         }
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
+        Command::SealParcelPublicationEvidence => {
+            Box::pin(parcel_publication_evidence_sealer::run())
+        }
         Command::PromoteAdministrativeBoundaryRuntime => {
             Box::pin(administrative_boundary_runtime_promote::run())
         }
@@ -950,6 +957,7 @@ where
             Ok(Command::PublishAdministrativeBoundaryPostgis)
         }
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
+        Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
         Some("promote-administrative-boundary-runtime") => {
             Ok(Command::PromoteAdministrativeBoundaryRuntime)
         }

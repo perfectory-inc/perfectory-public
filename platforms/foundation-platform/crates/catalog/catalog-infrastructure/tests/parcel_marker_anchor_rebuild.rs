@@ -140,12 +140,20 @@ impl ParcelMarkerAnchorRebuildFixture {
         sqlx::query(
             "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
              (id, source_snapshot_id, source_table, srid, status, loaded_row_count,
-              rejected_row_count, quality_report, started_at, finished_at)
-             VALUES ($1, $2, 'silver.parcel_boundaries', 5179, 'succeeded', 1,
-                     0, '{}'::jsonb, now(), now())",
+              rejected_row_count, quality_report, started_at)
+             VALUES ($1, $2, 'silver.parcel_boundaries', 5179, 'planned', 0,
+                     0, '{}'::jsonb, now())",
         )
         .bind(self.mirror_run_id)
         .bind(&self.source_snapshot_id)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
+                SET status = 'running', updated_at = now(), version = version + 1
+              WHERE id = $1 AND status = 'planned'",
+        )
+        .bind(self.mirror_run_id)
         .execute(pool)
         .await?;
 
@@ -165,6 +173,16 @@ impl ParcelMarkerAnchorRebuildFixture {
         .bind(self.source_object_key)
         .bind(self.source_row_id)
         .bind(self.geometry_checksum_sha256)
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
+                SET status = 'succeeded', loaded_row_count = 1, finished_at = now(),
+                    updated_at = now(), version = version + 1
+              WHERE id = $1 AND status = 'running'",
+        )
+        .bind(self.mirror_run_id)
         .execute(pool)
         .await?;
 

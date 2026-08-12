@@ -330,7 +330,7 @@ fn build_rebuild_sql(
     {},
     '{}',
     {},
-    'running',
+    'planned',
     0,
     0,
     {},
@@ -343,6 +343,10 @@ fn build_rebuild_sql(
         SOURCE_TABLE,
         TARGET_SRID,
         jsonb_literal(&quality_report)?
+    ));
+    statements.push(format!(
+        "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run SET status = 'running', updated_at = now(), version = version + 1 WHERE id = {}::uuid AND status = 'planned';",
+        sql_literal(&rebuild_run_id.to_string())
     ));
     statements.push(format!(
         "DELETE FROM serving_postgis.parcel_boundary_mirror WHERE pnu IN ({pnu_list});"

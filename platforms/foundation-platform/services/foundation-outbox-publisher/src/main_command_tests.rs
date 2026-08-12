@@ -19,6 +19,18 @@ fn smoke_r2_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn seal_parcel_publication_evidence_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "seal-parcel-publication-evidence",
+        ])?,
+        Command::SealParcelPublicationEvidence
+    );
+    Ok(())
+}
+
+#[test]
 fn inventory_r2_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "inventory-r2"])?,
