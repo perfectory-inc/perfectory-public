@@ -109,7 +109,7 @@ export class Boundary {
 TSX
 )"
 
-# ADR-0026 declares this detector is not a semantic boundary. A deliberately
+# ADR-0027 declares this detector is not a semantic boundary. A deliberately
 # computed lifecycle name is therefore an expected pass, pinned here so nobody
 # can later cite this suite as proof that every class boundary is rejected.
 expect_accepted "declared computed-member boundary limit" "$(fixture_repo computed-member <<'TSX'

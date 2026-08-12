@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Threat model (ADR-0026): honest-mistake detection.
+# Threat model (ADR-0027): honest-mistake detection.
 # Prevents: honest reintroduction of the two direct React class error-boundary
 # lifecycle identifiers after the repository adopted @suspensive/react.
 # Does not prevent: deliberate evasion or semantically equivalent dynamic code;

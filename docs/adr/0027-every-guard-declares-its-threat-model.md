@@ -5,7 +5,7 @@ doc_type: adr
 last_reviewed: 2026-08-13
 ---
 
-# ADR 0026: 모든 가드는 자기 위협 모델을 선언한다
+# ADR 0027: 모든 가드는 자기 위협 모델을 선언한다
 
 - Status: Accepted
 - Date: 2026-08-13
