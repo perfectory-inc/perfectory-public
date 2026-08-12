@@ -9,36 +9,48 @@
 use catalog_application::ports::CatalogUnitOfWork;
 use catalog_domain::CatalogError;
 use catalog_infrastructure::PgCatalogUnitOfWork;
+use foundation_disposable_database::{disposable_database_url, DisposableDatabaseUrl};
 use sqlx::{PgPool, Row};
-use std::sync::OnceLock;
 use uuid::Uuid;
 
-static RUNTIME_MANIFEST_TEST_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../../migrations");
 
-async fn runtime_manifest_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
-    RUNTIME_MANIFEST_TEST_LOCK
-        .get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await
+struct TestDatabase {
+    guard: DisposableDatabaseUrl,
+    pool: PgPool,
+}
+
+impl TestDatabase {
+    async fn create(label: &str) -> Self {
+        let guard = disposable_database_url(label)
+            .await
+            .expect("create disposable runtime-manifest database");
+        let pool = guard.pool().await.expect("connect disposable database");
+        MIGRATOR
+            .run(&pool)
+            .await
+            .expect("migrate disposable database");
+        Self { guard, pool }
+    }
+
+    async fn finish(self) {
+        self.pool.close().await;
+        self.guard
+            .drop_database()
+            .await
+            .expect("drop disposable runtime-manifest database");
+    }
 }
 
 /// Connection for this `#[ignore]`d live suite. Both failure modes abort the
 /// test: a configured-but-unreachable database must not silently downgrade a
 /// contract test into a no-op that still reports success — this helper used to
 /// swallow the connection error without printing anything at all.
-async fn pool() -> PgPool {
-    let url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set; run `cargo xtask integration foundation`");
-    PgPool::connect(&url)
-        .await
-        .expect("connect to the database in DATABASE_URL")
-}
-
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn runtime_manifest_cas_switches_one_complete_unit() {
-    let _guard = runtime_manifest_test_guard().await;
-    let pool = pool().await;
+    let database = TestDatabase::create("runtime_manifest_switch").await;
+    let pool = database.pool.clone();
     let fixture = Fixture::new();
     fixture.insert(&pool).await;
 
@@ -74,14 +86,14 @@ async fn runtime_manifest_cas_switches_one_complete_unit() {
     );
     assert_eq!(row.try_get::<i64, _>("serving_generation").unwrap(), 1);
 
-    fixture.cleanup(&pool).await;
+    database.finish().await;
 }
 
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn runtime_manifest_cas_rejects_stale_writer_without_switching_pointer() {
-    let _guard = runtime_manifest_test_guard().await;
-    let pool = pool().await;
+    let database = TestDatabase::create("runtime_manifest_stale").await;
+    let pool = database.pool.clone();
     let fixture = Fixture::new();
     fixture.insert(&pool).await;
 
@@ -106,7 +118,7 @@ async fn runtime_manifest_cas_rejects_stale_writer_without_switching_pointer() {
     .await
     .expect("active pointer");
     assert_eq!(active, fixture.manifest_id);
-    fixture.cleanup(&pool).await;
+    database.finish().await;
 }
 
 /// The ways a release can still name a projection load that does not back what the manifest claims.
@@ -132,19 +144,12 @@ async fn a_dynamic_release_without_a_matching_succeeded_projection_load_cannot_b
     // What remains reachable, and therefore still worth a gate, is a release pointing at a load that
     // is internally consistent but describes a *different* revision than the manifest selects. The
     // second case builds exactly that.
-    let cases: [(&str, &str); 2] = [
-        (
-            "the load never succeeded",
-            "UPDATE serving_postgis.spatial_projection_load
-                SET status = 'running', finished_at = NULL, loaded_row_count = 0
-              WHERE id = $1",
-        ),
-        (
-            "the release points at a load for another revision of the same unit",
-            // A second revision of this unit, a second succeeded load under it, and the release
-            // re-pointed at that load. Everything is internally consistent; only the agreement
-            // between the load and the manifest's selection is broken.
-            "WITH other_revision AS (
+    let cases: [(&str, &str); 1] = [(
+        "the release points at a load for another revision of the same unit",
+        // A second revision of this unit, a second succeeded load under it, and the release
+        // re-pointed at that load. Everything is internally consistent; only the agreement
+        // between the load and the manifest's selection is broken.
+        "WITH other_revision AS (
                  INSERT INTO catalog.publication_revision
                      (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
                  SELECT gen_random_uuid(), load.publication_unit_id, '811111111111111111',
@@ -166,12 +171,11 @@ async fn a_dynamic_release_without_a_matching_succeeded_projection_load_cannot_b
              UPDATE catalog.vector_tile_release
                 SET postgis_projection_revision = (SELECT id FROM other_load)
               WHERE postgis_projection_revision = $1",
-        ),
-    ];
+    )];
 
-    for (label, break_the_load) in cases {
-        let _guard = runtime_manifest_test_guard().await;
-        let pool = pool().await;
+    for (case_index, (label, break_the_load)) in cases.into_iter().enumerate() {
+        let database = TestDatabase::create(&format!("runtime_manifest_gate_{case_index}")).await;
+        let pool = database.pool.clone();
         let fixture = Fixture::new();
         fixture.insert(&pool).await;
         let mut break_tx = pool.begin().await.expect("break transaction");
@@ -207,8 +211,7 @@ async fn a_dynamic_release_without_a_matching_succeeded_projection_load_cannot_b
             "{label}: the pointer moved even though the promotion was refused"
         );
 
-        // The load row is the fixture's, so the ordinary cleanup removes it along with the release.
-        fixture.cleanup(&pool).await;
+        database.finish().await;
     }
 }
 
@@ -223,8 +226,8 @@ async fn a_dynamic_release_without_a_matching_succeeded_projection_load_cannot_b
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn a_load_cannot_be_written_for_another_units_revision() {
-    let _guard = runtime_manifest_test_guard().await;
-    let pool = pool().await;
+    let database = TestDatabase::create("runtime_manifest_foreign_revision").await;
+    let pool = database.pool.clone();
     let fixture = Fixture::new();
     fixture.insert(&pool).await;
 
@@ -266,7 +269,7 @@ async fn a_load_cannot_be_written_for_another_units_revision() {
         .execute(&pool)
         .await
         .expect("foreign unit cleanup");
-    fixture.cleanup(&pool).await;
+    database.finish().await;
 }
 
 /// Registers a revision of a publication unit, through the publisher capability the ledger requires.
@@ -468,85 +471,6 @@ impl Fixture {
         .await
         .expect("runtime manifest unit");
     }
-
-    async fn cleanup(&self, pool: &PgPool) {
-        sqlx::query(
-            "DELETE FROM catalog.vector_tile_runtime_manifest_pointer WHERE manifest_id = $1",
-        )
-        .bind(self.manifest_id)
-        .execute(pool)
-        .await
-        .expect("pointer cleanup");
-        sqlx::query("DELETE FROM catalog.vector_tile_runtime_manifest WHERE id = $1")
-            .bind(self.manifest_id)
-            .execute(pool)
-            .await
-            .expect("manifest cleanup");
-        sqlx::query(
-            "UPDATE catalog.vector_tile_publication_unit
-                SET active_release_id = NULL,
-                    active_data_revision = NULL,
-                    fallback_release_id = NULL,
-                    fallback_data_revision = NULL
-              WHERE id = $1",
-        )
-        .bind(self.unit_id)
-        .execute(pool)
-        .await
-        .expect("publication unit pointer cleanup");
-        sqlx::query("DELETE FROM catalog.vector_tile_release WHERE id = $1")
-            .bind(self.release_id)
-            .execute(pool)
-            .await
-            .expect("release cleanup");
-        // After the release, which carries the foreign key to them. Deleted by unit rather than by
-        // id: a test may mint further revisions and loads for this unit, and every one of them
-        // references the unit row deleted below.
-        sqlx::query(
-            "DELETE FROM serving_postgis.spatial_projection_load WHERE publication_unit_id = $1",
-        )
-        .bind(self.unit_id)
-        .execute(pool)
-        .await
-        .expect("spatial projection load cleanup");
-        // The publication ledger is guarded on DELETE too, so cleanup takes the same capability the
-        // fixture took to write it.
-        let mut revision_tx = pool.begin().await.expect("revision cleanup transaction");
-        sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
-            .execute(&mut *revision_tx)
-            .await
-            .expect("publisher capability");
-        sqlx::query("DELETE FROM catalog.publication_revision WHERE publication_unit_id = $1")
-            .bind(self.unit_id)
-            .execute(&mut *revision_tx)
-            .await
-            .expect("publication revision cleanup");
-        revision_tx
-            .commit()
-            .await
-            .expect("revision cleanup transaction commit");
-        sqlx::query("DELETE FROM catalog.vector_tile_publication_unit WHERE id = $1")
-            .bind(self.unit_id)
-            .execute(pool)
-            .await
-            .expect("unit cleanup");
-        // The revision ledger is append-only for ordinary API sessions. Test cleanup uses the
-        // same transaction-local publisher capability as the Foundation publisher, so the guard
-        // remains enabled in production and the pool connection cannot retain the override.
-        let mut tx = pool.begin().await.expect("cleanup transaction");
-        sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
-            .execute(&mut *tx)
-            .await
-            .expect("enable temporal fixture cleanup");
-        sqlx::query("DELETE FROM catalog.administrative_boundary_revision WHERE id = $1")
-            .bind(self.data_revision)
-            .execute(&mut *tx)
-            .await
-            .expect("administrative boundary revision cleanup");
-        // Source records are immutable lineage. Reused fixture rows are deliberately retained so
-        // a concurrent or rerun test cannot delete provenance that another fixture is using.
-        tx.commit().await.expect("cleanup transaction commit");
-    }
 }
 
 /// The migration writes the derivative root as a SQL literal because a `plpgsql` function cannot
@@ -555,7 +479,8 @@ impl Fixture {
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn the_promotion_gate_and_the_domain_agree_on_the_release_object_root() {
-    let pool = pool().await;
+    let database = TestDatabase::create("runtime_manifest_contract_root").await;
+    let pool = database.pool.clone();
     let source: String = sqlx::query_scalar(
         "SELECT prosrc
          FROM pg_proc
@@ -572,6 +497,7 @@ async fn the_promotion_gate_and_the_domain_agree_on_the_release_object_root() {
         source.contains(&expected),
         "the gate must compare the whole object key against {expected}; installed body:\n{source}"
     );
+    database.finish().await;
 }
 
 /// The bypass the gate's own comment claimed to close. The Martin source name below is
@@ -586,8 +512,8 @@ async fn the_promotion_gate_and_the_domain_agree_on_the_release_object_root() {
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn a_static_release_at_a_foreign_object_prefix_cannot_be_promoted() {
-    let _guard = runtime_manifest_test_guard().await;
-    let pool = pool().await;
+    let database = TestDatabase::create("runtime_manifest_foreign_prefix").await;
+    let pool = database.pool.clone();
     let fixture = Fixture::new();
     fixture.insert(&pool).await;
     let uow = PgCatalogUnitOfWork::new(pool.clone());
@@ -738,7 +664,7 @@ async fn a_static_release_at_a_foreign_object_prefix_cannot_be_promoted() {
     // The revision row is left behind on purpose: `reject_temporal_history_mutation` makes temporal
     // identity facts append-only, so deleting one raises 42501. `Fixture::cleanup` leaves its own
     // revision for the same reason, and the harness database is disposable.
-    fixture.cleanup(&pool).await;
+    database.finish().await;
 }
 
 /// The static promotion path, end to end at the database boundary: a static release for the unit's
@@ -751,8 +677,8 @@ async fn a_static_release_at_a_foreign_object_prefix_cannot_be_promoted() {
 #[tokio::test]
 #[ignore = "requires a migrated Foundation PostgreSQL database"]
 async fn a_static_release_can_replace_the_dynamic_release_of_the_same_revision() {
-    let _guard = runtime_manifest_test_guard().await;
-    let pool = pool().await;
+    let database = TestDatabase::create("runtime_manifest_static_replace").await;
+    let pool = database.pool.clone();
     let fixture = Fixture::new();
     fixture.insert(&pool).await;
     let uow = PgCatalogUnitOfWork::new(pool.clone());
@@ -937,5 +863,5 @@ async fn a_static_release_can_replace_the_dynamic_release_of_the_same_revision()
         .execute(&pool)
         .await
         .expect("file asset cleanup");
-    fixture.cleanup(&pool).await;
+    database.finish().await;
 }

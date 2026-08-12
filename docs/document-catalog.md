@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **349개**
+- 문서 파일: **351개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 48 |
+| Monorepo | 50 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 104 |
+| ADR | 105 |
 | README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -34,7 +34,7 @@
 | convention | 10 |
 | documentation | 32 |
 | draft | 2 |
-| evidence | 3 |
+| evidence | 4 |
 | fixture | 9 |
 | guide | 2 |
 | reference | 15 |
@@ -394,6 +394,8 @@ docs/adr/0022-current-means-today-and-one-view-says-so.md
 docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md
 docs/adr/0024-the-serving-projection-carries-only-what-the-tile-contract-names.md
 docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md
+docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md
+docs/adr/0027-every-guard-declares-its-threat-model.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -454,6 +456,8 @@ tools/github/README.md
 | `docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md` | Monorepo | ADR | current |
 | `docs/adr/0024-the-serving-projection-carries-only-what-the-tile-contract-names.md` | Monorepo | ADR | current |
 | `docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md` | Monorepo | evidence | evidence |
+| `docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md` | Monorepo | evidence | evidence |
+| `docs/adr/0027-every-guard-declares-its-threat-model.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

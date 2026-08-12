@@ -22,9 +22,9 @@ const CANONICAL_SNAPSHOT_ID: i64 = 841_361_364_657_368_626;
 const MIRROR_SNAPSHOT_ID: &str = "iceberg:841361364657368626";
 const EXECUTION_SCHEMA_VERSION: &str =
     "foundation-platform.parcel_publication_execution_evidence.v1";
-const BOUNDED_QA_EXECUTION_SCHEMA_VERSION: &str = "silver_gold_national_promotion_execution.v1";
 const QUALITY_SCHEMA_VERSION: &str = "foundation-platform.parcel_publication_quality.v1";
 const CONTENT_DIGEST_PREFIX: &[u8] = b"perfectory.parcel-projection-content.v1\0";
+const ICEBERG_TABLE_UUID: &str = "2f7bf2d1-3e08-4d1a-936e-556d8ebfd055";
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
@@ -120,23 +120,6 @@ async fn republishing_one_evidence_reuses_revision_and_appends_a_fresh_load() ->
             fixture.evidence_digest(&pool).await?
         );
     }
-
-    fixture.finish(pool).await
-}
-
-#[tokio::test]
-#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
-async fn bounded_qa_execution_evidence_is_not_publication_eligible() -> TestResult {
-    let fixture = Fixture::create_with("parcel_publish_bounded_qa", SeedMode::BoundedQa).await?;
-    let pool = fixture.pool().await?;
-
-    let output = fixture.publish()?;
-    assert_rejected(
-        &output,
-        "is not publication-eligible",
-        BOUNDED_QA_EXECUTION_SCHEMA_VERSION,
-    );
-    assert_eq!(fixture.loads(&pool).await?.len(), 0);
 
     fixture.finish(pool).await
 }
@@ -263,7 +246,6 @@ async fn two_evidence_rows_cannot_be_mixed_through_one_snapshot_revision() -> Te
 #[derive(Clone, Copy)]
 enum SeedMode {
     Publishable,
-    BoundedQa,
     RejectedRows,
     IncompleteQuality,
 }
@@ -299,7 +281,6 @@ struct ProjectionLoad {
 
 struct Fixture {
     database: DisposableDatabaseUrl,
-    iceberg_table_uuid: Uuid,
     source: SourceSet,
     evidence_id: Uuid,
 }
@@ -314,7 +295,6 @@ impl Fixture {
     async fn create_with(label: &str, mode: SeedMode) -> TestResult<Self> {
         let fixture = Self {
             database: disposable_database_url(label).await?,
-            iceberg_table_uuid: Uuid::new_v4(),
             source: SourceSet::new(),
             evidence_id: Uuid::new_v4(),
         };
@@ -335,18 +315,6 @@ impl Fixture {
             .seed_source_set(&pool, &fixture.source, quality_report, rejected_row_count)
             .await?;
 
-        let execution_schema = match mode {
-            SeedMode::BoundedQa => {
-                sqlx::query(
-                    "ALTER TABLE catalog.parcel_publication_source_evidence
-                     DROP CONSTRAINT parcel_publication_source_evidence_execution_schema_check",
-                )
-                .execute(&pool)
-                .await?;
-                BOUNDED_QA_EXECUTION_SCHEMA_VERSION
-            }
-            _ => EXECUTION_SCHEMA_VERSION,
-        };
         if matches!(mode, SeedMode::RejectedRows) {
             sqlx::query(
                 "ALTER TABLE catalog.parcel_publication_source_evidence
@@ -369,7 +337,7 @@ impl Fixture {
                 &pool,
                 fixture.evidence_id,
                 &fixture.source,
-                execution_schema,
+                EXECUTION_SCHEMA_VERSION,
                 rejected_row_count,
             )
             .await?;
@@ -435,15 +403,25 @@ impl Fixture {
             "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
                 (id, source_snapshot_id, source_table, source_record_id, source_file_asset_id,
                  srid, status, loaded_row_count, rejected_row_count, quality_report, started_at)
-             VALUES ($1, $2, 'silver.parcel_boundaries', $3, $4, 5179, 'running', 0, $5,
-                     $6, now())",
+             VALUES ($1, $2, 'silver.parcel_boundaries', $3, $4, 5179, 'planned', 0, 0,
+                     $5, now())",
         )
         .bind(source.run_id)
         .bind(MIRROR_SNAPSHOT_ID)
         .bind(source.source_record_id)
         .bind(source.source_file_asset_id)
-        .bind(rejected_row_count)
         .bind(quality_report)
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
+                SET status = 'running', rejected_row_count = $2,
+                    updated_at = now(), version = version + 1
+              WHERE id = $1 AND status = 'planned'",
+        )
+        .bind(source.run_id)
+        .bind(rejected_row_count)
         .execute(pool)
         .await?;
 
@@ -516,6 +494,13 @@ impl Fixture {
         rejected_row_count: i64,
     ) -> TestResult<Uuid> {
         let digest = source_content_digest(pool, source.run_id).await?;
+        let execution_sha256 = execution_evidence_sha256(source);
+        let mut transaction = pool.begin().await?;
+        sqlx::query(
+            "SELECT set_config('foundation.parcel_publication_evidence_sealer', 'on', true)",
+        )
+        .execute(&mut *transaction)
+        .await?;
         sqlx::query(
             "INSERT INTO catalog.parcel_publication_source_evidence
                 (id, mirror_rebuild_run_id, mirror_rebuild_run_status,
@@ -525,22 +510,24 @@ impl Fixture {
                  execution_evidence_object_key, execution_evidence_sha256,
                  source_row_count, projection_content_sha256, quality_schema_version)
              VALUES ($1, $2, 'succeeded', $3, $4, 'silver.parcel_boundaries', $5, $6, $7,
-                     $8, $9, repeat('a', 64), $10, $11, $12)",
+                     $8, $9, $10, $11, $12, $13)",
         )
         .bind(evidence_id)
         .bind(source.run_id)
         .bind(rejected_row_count)
-        .bind(self.iceberg_table_uuid)
+        .bind(Uuid::parse_str(ICEBERG_TABLE_UUID)?)
         .bind(CANONICAL_SNAPSHOT_ID)
         .bind(source.source_record_id)
         .bind(source.source_file_asset_id)
         .bind(execution_schema)
         .bind(format!("evidence/parcel-publication/{evidence_id}.json"))
+        .bind(execution_sha256)
         .bind(Self::MIRROR_ROWS)
         .bind(digest)
         .bind(QUALITY_SCHEMA_VERSION)
-        .execute(pool)
+        .execute(&mut *transaction)
         .await?;
+        transaction.commit().await?;
         Ok(evidence_id)
     }
 
@@ -738,6 +725,19 @@ impl Fixture {
         .fetch_one(pool)
         .await?)
     }
+}
+
+fn execution_evidence_sha256(source: &SourceSet) -> String {
+    let bytes = serde_json::to_vec(&json!({
+        "schema_version": EXECUTION_SCHEMA_VERSION,
+        "mirror_rebuild_run_id": source.run_id,
+        "source_record_id": source.source_record_id,
+        "source_file_asset_id": source.source_file_asset_id,
+        "iceberg_table_uuid": ICEBERG_TABLE_UUID,
+        "iceberg_snapshot_id": CANONICAL_SNAPSHOT_ID,
+    }))
+    .expect("fixture evidence serializes");
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn complete_quality_report() -> JsonValue {

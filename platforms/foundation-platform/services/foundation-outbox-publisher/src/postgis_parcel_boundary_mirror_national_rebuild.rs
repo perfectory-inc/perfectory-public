@@ -442,7 +442,7 @@ async fn insert_rebuild_run(
         "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
          (id, source_snapshot_id, source_table, srid, status, loaded_row_count,
           rejected_row_count, quality_report, started_at)
-         VALUES ($1, $2, $3, $4, 'running', 0, 0, $5, now())",
+         VALUES ($1, $2, $3, $4, 'planned', 0, 0, $5, now())",
     )
     .bind(rebuild_run_id)
     .bind(config.source_snapshot_id.as_str())
@@ -460,6 +460,15 @@ async fn insert_rebuild_run(
     .execute(&mut *conn)
     .await
     .context("failed to insert PostGIS mirror rebuild run")?;
+    sqlx::query(
+        "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
+            SET status = 'running', updated_at = now(), version = version + 1
+          WHERE id = $1 AND status = 'planned'",
+    )
+    .bind(rebuild_run_id)
+    .execute(&mut *conn)
+    .await
+    .context("failed to start PostGIS mirror rebuild run")?;
     Ok(())
 }
 

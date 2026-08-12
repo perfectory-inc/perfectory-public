@@ -7,6 +7,7 @@ use lakehouse_domain::SILVER_INDUSTRIAL_COMPLEXES;
 use lakehouse_infrastructure::{
     IcebergRestCatalog, LakehouseCatalogConfig, LakehouseCatalogProvider,
 };
+use uuid::Uuid;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -76,6 +77,52 @@ async fn loads_current_snapshot_through_catalog_config_prefix() -> Result<(), Bo
         snapshot.metadata_location,
         "r2://foundation-platform-lakehouse/silver/industrial_complexes/metadata/00001.json"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn loads_table_uuid_and_complete_snapshot_identity_set() -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/v1/cloudflare-catalog-prefix/namespaces/silver/tables/parcel_boundaries",
+        ))
+        .and(header("authorization", "Bearer secret-token"))
+        .and(header(
+            "x-iceberg-access-delegation",
+            "vended-credentials",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://foundation-platform-lakehouse/silver/parcel_boundaries/metadata/00003.json",
+            "metadata": {
+                "table-uuid": "2f7bf2d1-3e08-4d1a-936e-556d8ebfd055",
+                "current-snapshot-id": 841_361_364_657_368_626_i64,
+                "snapshots": [
+                    {"snapshot-id": 841_361_364_657_368_624_i64},
+                    {"snapshot-id": 841_361_364_657_368_626_i64}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let metadata = catalog
+        .get_table_metadata("silver.parcel_boundaries")
+        .await?
+        .ok_or_else(|| std::io::Error::other("table should exist"))?;
+
+    assert_eq!(
+        metadata.table_uuid,
+        Uuid::parse_str("2f7bf2d1-3e08-4d1a-936e-556d8ebfd055")?
+    );
+    assert_eq!(
+        metadata.snapshot_ids,
+        vec![841_361_364_657_368_624, 841_361_364_657_368_626]
+    );
+    assert_eq!(metadata.current_snapshot_id, Some(841_361_364_657_368_626));
+    assert_eq!(metadata.table_name, "silver.parcel_boundaries");
     Ok(())
 }
 

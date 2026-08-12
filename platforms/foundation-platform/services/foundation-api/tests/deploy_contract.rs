@@ -452,6 +452,28 @@ fn migration_database_create_is_open_only_for_the_migration_window() -> TestResu
 }
 
 #[test]
+fn foundation_api_cannot_write_parcel_publication_ledgers_directly() -> TestResult {
+    let grants = read_area_file("infra/compose/grant-foundation-runtime.sql")?;
+    for protected_table in [
+        "catalog.parcel_publication_source_evidence",
+        "serving_postgis.parcel_boundary_mirror_rebuild_run",
+        "serving_postgis.parcel_boundary_mirror",
+        "serving_postgis.spatial_projection_load",
+        "serving_postgis.parcel_boundary_publication",
+    ] {
+        assert!(
+            grants.contains(protected_table),
+            "runtime grants do not name protected parcel table {protected_table}"
+        );
+    }
+    assert!(
+        grants.contains("REVOKE INSERT, UPDATE, DELETE ON TABLE"),
+        "parcel ledgers must be removed from foundation_api's blanket DML grant"
+    );
+    Ok(())
+}
+
+#[test]
 fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
     let example = read_area_file(".env.example")?;
     for required in [

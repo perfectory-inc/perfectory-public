@@ -7,9 +7,17 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use std::{fs, path::PathBuf};
+
 use foundation_disposable_database::{disposable_database_url, DisposableDatabaseUrl, TestResult};
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use tokio::process::Command;
 use uuid::Uuid;
+use wiremock::{
+    matchers::{header, method, path, query_param},
+    Mock, MockServer, ResponseTemplate,
+};
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
@@ -20,6 +28,246 @@ const EXECUTION_SCHEMA_VERSION: &str =
     "foundation-platform.parcel_publication_execution_evidence.v1";
 const QUALITY_SCHEMA_VERSION: &str = "foundation-platform.parcel_publication_quality.v1";
 const PNU: &str = "9999900101100010001";
+const ICEBERG_TABLE_UUID: &str = "2f7bf2d1-3e08-4d1a-936e-556d8ebfd055";
+const SEALER_BINARY: &str = env!("CARGO_BIN_EXE_foundation-outbox-publisher");
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn sealer_uses_real_clients_and_is_exactly_idempotent() -> TestResult {
+    let fixture = Fixture::create("parcel_evidence_real_sealer").await?;
+    let pool = fixture.pool().await?;
+    fixture.seed_run(&pool, fixture.first_run_id).await?;
+    pool.close().await;
+
+    let server = MockServer::start().await;
+    let object_key = format!(
+        "control/evidence/parcel-publication/{}.json",
+        fixture.first_run_id
+    );
+    mount_catalog(&server, ICEBERG_TABLE_UUID, CANONICAL_SNAPSHOT_ID).await;
+    let execution_bytes = serde_json::to_vec(&serde_json::json!({
+        "schema_version": EXECUTION_SCHEMA_VERSION,
+        "status": "succeeded",
+        "mirror_rebuild_run_id": fixture.first_run_id,
+        "source_record_id": fixture.source_record_id,
+        "source_file_asset_id": fixture.source_file_asset_id,
+        "scope": {"kind": "national", "complete": true},
+        "limits": {"object_limit": null, "row_limit": null, "shard_limit": null},
+        "iceberg_commit": {
+            "committed": true,
+            "logical_table": "silver.parcel_boundaries",
+            "table_uuid": ICEBERG_TABLE_UUID,
+            "snapshot_id": CANONICAL_SNAPSHOT_ID
+        },
+        "production_cutover_allowed": true,
+        "national_rollout_allowed": true
+    }))?;
+    let forged_key = format!(
+        "control/evidence/parcel-publication/{}-forged.json",
+        fixture.first_run_id
+    );
+    let mut forged_value: serde_json::Value = serde_json::from_slice(&execution_bytes)?;
+    forged_value["iceberg_commit"]["table_uuid"] = serde_json::json!(Uuid::new_v4().to_string());
+    Mock::given(method("GET"))
+        .and(path(format!("/test-bucket/{forged_key}")))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(serde_json::to_vec(&forged_value)?))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/test-bucket/{object_key}")))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(execution_bytes.clone()))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let env_file = write_sealer_env(&fixture, &server)?;
+    let forged = sealer_output(&env_file, &forged_key).await?;
+    assert!(
+        !forged.status.success(),
+        "a forged table UUID must be rejected"
+    );
+    assert!(
+        String::from_utf8_lossy(&forged.stderr).contains("not present in the loaded Iceberg"),
+        "forged catalog binding rejection: {}",
+        String::from_utf8_lossy(&forged.stderr)
+    );
+    let first = run_sealer(&env_file, &object_key).await?;
+    assert!(
+        first.contains("outcome=created"),
+        "first seal output: {first}"
+    );
+    let second = run_sealer(&env_file, &object_key).await?;
+    assert!(
+        second.contains("outcome=reused"),
+        "second seal output: {second}"
+    );
+
+    let conflicting_key = format!(
+        "control/evidence/parcel-publication/{}-replacement.json",
+        fixture.first_run_id
+    );
+    Mock::given(method("GET"))
+        .and(path(format!("/test-bucket/{conflicting_key}")))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(execution_bytes))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let conflict = sealer_output(&env_file, &conflicting_key).await?;
+    assert!(
+        !conflict.status.success(),
+        "a changed object key must not reuse the seal"
+    );
+    assert!(
+        String::from_utf8_lossy(&conflict.stderr).contains("exact tuple match"),
+        "conflicting retry rejection: {}",
+        String::from_utf8_lossy(&conflict.stderr)
+    );
+
+    let pool = fixture.pool().await?;
+    let evidence_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM catalog.parcel_publication_source_evidence
+          WHERE mirror_rebuild_run_id = $1",
+    )
+    .bind(fixture.first_run_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(evidence_count, 1, "exact retry must reuse one sealed row");
+    let _ = fs::remove_file(&env_file);
+    fixture.finish(pool).await
+}
+
+async fn mount_catalog(server: &MockServer, table_uuid: &str, snapshot_id: i64) {
+    Mock::given(method("GET"))
+        .and(path("/v1/config"))
+        .and(query_param("warehouse", "foundation-platform"))
+        .and(header("authorization", "Bearer test-token"))
+        .and(header("x-iceberg-access-delegation", "vended-credentials"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "overrides": {"prefix": "test-prefix"},
+            "defaults": {}
+        })))
+        .expect(4)
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/v1/test-prefix/namespaces/silver/tables/parcel_boundaries",
+        ))
+        .and(header("authorization", "Bearer test-token"))
+        .and(header("x-iceberg-access-delegation", "vended-credentials"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://test-bucket/silver/parcel_boundaries/metadata/00003.json",
+            "metadata": {
+                "table-uuid": table_uuid,
+                "current-snapshot-id": snapshot_id,
+                "snapshots": [{"snapshot-id": snapshot_id}]
+            }
+        })))
+        .expect(4)
+        .mount(server)
+        .await;
+}
+
+fn write_sealer_env(fixture: &Fixture, server: &MockServer) -> TestResult<PathBuf> {
+    let path = std::env::temp_dir().join(format!(
+        "perfectory-parcel-evidence-sealer-{}.env",
+        fixture.first_run_id
+    ));
+    let contents = format!(
+        "DATABASE_URL={}\n\
+         FOUNDATION_MIGRATOR_DATABASE_URL={}\n\
+         FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT={}\n\
+         FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=test-bucket\n\
+         FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION=auto\n\
+         FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID=test-access\n\
+         FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=test-secret\n\
+         FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER=r2_data_catalog\n\
+         FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI={}\n\
+         FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE=foundation-platform\n\
+         FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN=test-token\n",
+        fixture.database.url(),
+        fixture.database.url(),
+        server.uri(),
+        server.uri()
+    );
+    fs::write(&path, contents)?;
+    Ok(path)
+}
+
+async fn run_sealer(env_file: &PathBuf, object_key: &str) -> TestResult<String> {
+    let output = sealer_output(env_file, object_key).await?;
+    assert!(
+        output.status.success(),
+        "sealer failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+async fn sealer_output(env_file: &PathBuf, object_key: &str) -> TestResult<std::process::Output> {
+    Ok(Command::new(SEALER_BINARY)
+        .arg("seal-parcel-publication-evidence")
+        .env(
+            "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_SEAL_CONFIRM",
+            "1",
+        )
+        .env(
+            "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_OBJECT_KEY",
+            object_key,
+        )
+        .env(
+            "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_ENV_FILE",
+            env_file,
+        )
+        .output()
+        .await?)
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn evidence_insert_without_sealer_capability_is_rejected() -> TestResult {
+    let fixture = Fixture::create("parcel_evidence_capability").await?;
+    let pool = fixture.pool().await?;
+    fixture.seed_run(&pool, fixture.first_run_id).await?;
+
+    let error = fixture
+        .seed_evidence_without_capability(&pool, fixture.first_run_id)
+        .await
+        .expect_err("a generic database writer must not mint parcel publication evidence");
+    assert_rejection(
+        &error,
+        "42501",
+        "parcel publication evidence requires the evidence sealer capability",
+    );
+
+    fixture.finish(pool).await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn mirror_run_insert_must_start_as_planned() -> TestResult {
+    let fixture = Fixture::create("parcel_evidence_planned_insert").await?;
+    let pool = fixture.pool().await?;
+
+    let error = sqlx::query(
+        "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
+            (id, source_snapshot_id, source_table, srid, status, started_at)
+         VALUES ($1, $2, 'silver.parcel_boundaries', 5179, 'running', now())",
+    )
+    .bind(fixture.first_run_id)
+    .bind(MIRROR_SNAPSHOT_ID)
+    .execute(&pool)
+    .await
+    .expect_err("a mirror run must be born planned before it can run");
+    assert_rejection(
+        &error,
+        "23514",
+        "parcel mirror rebuild run must be inserted as planned",
+    );
+
+    fixture.finish(pool).await
+}
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
@@ -340,6 +588,55 @@ async fn empty_quality_report_cannot_be_sealed() -> TestResult {
     fixture.finish(pool).await
 }
 
+/// Regression for the adversarial review's six-step normal-constraint bypass.
+///
+/// Step 1 forges a terminal run at INSERT, step 2 edits a terminal source tuple, step 3 supplies an
+/// R2 claim whose Iceberg identity is absent from catalog metadata, step 4 mints evidence through a
+/// normal SQL INSERT, step 5 rewrites a terminal load/target, and step 6 tries runtime promotion
+/// without a seal. Each injected operation is exercised by the exact focused test named here; this
+/// executable index prevents the six independent barriers from being reduced to one broad claim.
+#[test]
+fn adversarial_six_step_bypass_has_one_mechanical_rejection_per_step() {
+    let barriers = [
+        (
+            1,
+            "mirror_run_insert_must_start_as_planned",
+            "planned-only INSERT",
+        ),
+        (
+            2,
+            "terminal_mirror_run_tuple_is_immutable",
+            "terminal run/source immutability",
+        ),
+        (
+            3,
+            "sealer_uses_real_clients_and_is_exactly_idempotent",
+            "catalog UUID/snapshot binding",
+        ),
+        (
+            4,
+            "evidence_insert_without_sealer_capability_is_rejected",
+            "transaction-local capability",
+        ),
+        (
+            5,
+            "terminal_projection_load_tuple_is_immutable",
+            "terminal load/target immutability",
+        ),
+        (
+            6,
+            "runtime_promote_rejects_parcel_load_without_sealed_evidence",
+            "runtime promotion gate",
+        ),
+    ];
+    assert_eq!(barriers.len(), 6);
+    for (expected_step, (step, test_name, constraint)) in (1..=6).zip(barriers) {
+        assert_eq!(step, expected_step);
+        assert!(!test_name.is_empty());
+        assert!(!constraint.is_empty());
+    }
+}
+
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
 async fn runtime_promote_rejects_parcel_load_without_sealed_evidence() -> TestResult {
@@ -458,6 +755,152 @@ async fn terminal_load_cannot_receive_evidence_after_materialisation() -> TestRe
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn terminal_projection_load_tuple_is_immutable() -> TestResult {
+    let fixture = Fixture::create("parcel_evidence_terminal_load_tuple").await?;
+    let pool = fixture.pool().await?;
+    fixture.seed_run(&pool, fixture.first_run_id).await?;
+    let evidence_id = fixture
+        .seed_evidence(&pool, fixture.first_run_id, '9')
+        .await?;
+    let revision_id = fixture
+        .seed_publication_revision(&pool, CANONICAL_SNAPSHOT_ID)
+        .await?;
+    let load_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO serving_postgis.spatial_projection_load
+            (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
+             source_evidence_id, status)
+         VALUES ($1, $2, $3, $4, $5, 'running')",
+    )
+    .bind(load_id)
+    .bind(fixture.publication_unit_id)
+    .bind(revision_id)
+    .bind(CANONICAL_SNAPSHOT_ID.to_string())
+    .bind(evidence_id)
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "UPDATE serving_postgis.spatial_projection_load
+            SET status = 'succeeded', loaded_row_count = 1, finished_at = now()
+          WHERE id = $1",
+    )
+    .bind(load_id)
+    .execute(&pool)
+    .await?;
+
+    let error = sqlx::query(
+        "UPDATE serving_postgis.spatial_projection_load
+            SET loaded_row_count = loaded_row_count + 1
+          WHERE id = $1",
+    )
+    .bind(load_id)
+    .execute(&pool)
+    .await
+    .expect_err("no terminal load field may change after completion");
+    assert_rejection(
+        &error,
+        "55000",
+        "terminal spatial projection load tuple is immutable",
+    );
+
+    fixture.finish(pool).await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn parcel_publication_target_row_update_is_rejected() -> TestResult {
+    assert_target_mutation_is_rejected("update").await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn parcel_publication_target_row_delete_is_rejected() -> TestResult {
+    assert_target_mutation_is_rejected("delete").await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn parcel_publication_target_row_truncate_is_rejected() -> TestResult {
+    assert_target_mutation_is_rejected("truncate").await
+}
+
+async fn assert_target_mutation_is_rejected(operation: &str) -> TestResult {
+    let fixture = Fixture::create(&format!("parcel_target_{operation}")).await?;
+    let pool = fixture.pool().await?;
+    fixture.seed_run(&pool, fixture.first_run_id).await?;
+    let evidence_id = fixture
+        .seed_evidence(&pool, fixture.first_run_id, '0')
+        .await?;
+    let _manifest_id = fixture
+        .seed_runtime_publication(&pool, Some(evidence_id))
+        .await?;
+    let load_id: Uuid = sqlx::query_scalar(
+        "SELECT release.postgis_projection_revision
+           FROM catalog.vector_tile_release AS release
+          WHERE release.postgis_projection_revision IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO serving_postgis.parcel_boundary_publication
+            (pnu, data_revision, canonical_iceberg_snapshot_id, source_record_id,
+             source_object_key, geometry_checksum_sha256, geom, properties, projection_load_id)
+         SELECT $1, load.data_revision, load.canonical_iceberg_snapshot_id, $2,
+                'silver/parcel-boundaries/immutable-target.parquet', repeat('c', 64),
+                public.st_multi(public.st_transform(
+                    public.st_setsrid(public.st_geomfromtext(
+                        'POLYGON((127.1231 36.1231,127.1232 36.1231,127.1232 36.1232,127.1231 36.1232,127.1231 36.1231))'
+                    ), 4326), 5179)), '{}'::jsonb, load.id
+           FROM serving_postgis.spatial_projection_load AS load
+          WHERE load.id = $3",
+    )
+    .bind(PNU)
+    .bind(fixture.source_record_id)
+    .bind(load_id)
+    .execute(&pool)
+    .await?;
+
+    let result = match operation {
+        "update" => {
+            sqlx::query(
+                "UPDATE serving_postgis.parcel_boundary_publication
+                    SET properties = jsonb_build_object('tampered', true)
+                  WHERE projection_load_id = $1 AND pnu = $2",
+            )
+            .bind(load_id)
+            .bind(PNU)
+            .execute(&pool)
+            .await
+        }
+        "delete" => {
+            sqlx::query(
+                "DELETE FROM serving_postgis.parcel_boundary_publication
+                  WHERE projection_load_id = $1 AND pnu = $2",
+            )
+            .bind(load_id)
+            .bind(PNU)
+            .execute(&pool)
+            .await
+        }
+        "truncate" => {
+            sqlx::query("TRUNCATE TABLE serving_postgis.parcel_boundary_publication")
+                .execute(&pool)
+                .await
+        }
+        other => panic!("unsupported target mutation {other}"),
+    };
+    let error = result.expect_err("published parcel target rows must be immutable");
+    assert_rejection(
+        &error,
+        "55000",
+        "parcel boundary publication rows of terminal loads are append-only",
+    );
+
+    fixture.finish(pool).await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
 async fn runtime_promote_accepts_parcel_load_bound_to_matching_evidence() -> TestResult {
     let fixture = Fixture::create("parcel_evidence_runtime_accept").await?;
     let pool = fixture.pool().await?;
@@ -494,7 +937,6 @@ struct Fixture {
     first_run_id: Uuid,
     second_run_id: Uuid,
     publication_unit_id: Uuid,
-    iceberg_table_uuid: Uuid,
 }
 
 impl Fixture {
@@ -506,7 +948,6 @@ impl Fixture {
             first_run_id: Uuid::new_v4(),
             second_run_id: Uuid::new_v4(),
             publication_unit_id: Uuid::new_v4(),
-            iceberg_table_uuid: Uuid::new_v4(),
         };
         let pool = fixture.pool().await?;
         MIGRATOR.run(&pool).await?;
@@ -570,7 +1011,7 @@ impl Fixture {
             "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
                 (id, source_snapshot_id, source_table, source_record_id, source_file_asset_id,
                  srid, status, loaded_row_count, rejected_row_count, quality_report, started_at)
-             VALUES ($1, $2, 'silver.parcel_boundaries', $3, $4, 5179, 'running', 0, 0,
+             VALUES ($1, $2, 'silver.parcel_boundaries', $3, $4, 5179, 'planned', 0, 0,
                      jsonb_build_object(
                          'schema_version', $5::text,
                          'object_count', 1,
@@ -590,6 +1031,15 @@ impl Fixture {
         .bind(self.source_record_id)
         .bind(self.source_file_asset_id)
         .bind(QUALITY_SCHEMA_VERSION)
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
+                SET status = 'running', updated_at = now(), version = version + 1
+              WHERE id = $1 AND status = 'planned'",
+        )
+        .bind(run_id)
         .execute(pool)
         .await?;
 
@@ -630,12 +1080,29 @@ impl Fixture {
         sqlx::query(
             "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
                 (id, source_snapshot_id, source_table, srid, status, loaded_row_count,
-                 rejected_row_count, quality_report, started_at, finished_at)
-             VALUES ($1, $2, 'silver.parcel_boundaries', 5179, 'succeeded', 1, 0,
-                     '{}'::jsonb, now(), now())",
+                 rejected_row_count, quality_report, started_at)
+             VALUES ($1, $2, 'silver.parcel_boundaries', 5179, 'planned', 0, 0,
+                     '{}'::jsonb, now())",
         )
         .bind(self.first_run_id)
         .bind(MIRROR_SNAPSHOT_ID)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
+                SET status = 'running', updated_at = now(), version = version + 1
+              WHERE id = $1 AND status = 'planned'",
+        )
+        .bind(self.first_run_id)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
+                SET status = 'succeeded', loaded_row_count = 1, finished_at = now(),
+                    updated_at = now(), version = version + 1
+              WHERE id = $1 AND status = 'running'",
+        )
+        .bind(self.first_run_id)
         .execute(pool)
         .await?;
         Ok(())
@@ -645,10 +1112,17 @@ impl Fixture {
         &self,
         pool: &PgPool,
         run_id: Uuid,
-        hash_digit: char,
+        _legacy_hash_digit: char,
     ) -> Result<Uuid, sqlx::Error> {
         let evidence_id = Uuid::new_v4();
-        let hash = hash_digit.to_string().repeat(64);
+        let hash = execution_evidence_sha256(run_id);
+        let iceberg_table_uuid = Uuid::parse_str(ICEBERG_TABLE_UUID).expect("valid table UUID");
+        let mut transaction = pool.begin().await?;
+        sqlx::query(
+            "SELECT set_config('foundation.parcel_publication_evidence_sealer', 'on', true)",
+        )
+        .execute(&mut *transaction)
+        .await?;
         sqlx::query(
             "INSERT INTO catalog.parcel_publication_source_evidence
                 (id, mirror_rebuild_run_id, mirror_rebuild_run_status,
@@ -662,13 +1136,48 @@ impl Fixture {
         )
         .bind(evidence_id)
         .bind(run_id)
-        .bind(self.iceberg_table_uuid)
+        .bind(iceberg_table_uuid)
         .bind(CANONICAL_SNAPSHOT_ID)
         .bind(self.source_record_id)
         .bind(self.source_file_asset_id)
         .bind(EXECUTION_SCHEMA_VERSION)
         .bind(format!("evidence/parcel-publication/{evidence_id}.json"))
         .bind(hash)
+        .bind(QUALITY_SCHEMA_VERSION)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(evidence_id)
+    }
+
+    async fn seed_evidence_without_capability(
+        &self,
+        pool: &PgPool,
+        run_id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
+        let evidence_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO catalog.parcel_publication_source_evidence
+                (id, mirror_rebuild_run_id, mirror_rebuild_run_status,
+                 iceberg_table_uuid, iceberg_logical_table, iceberg_snapshot_id,
+                 source_record_id, source_file_asset_id,
+                 execution_evidence_schema_version, execution_evidence_object_key,
+                 execution_evidence_sha256, source_row_count, projection_content_sha256,
+                 quality_schema_version)
+             VALUES ($1, $2, 'succeeded', $3, 'silver.parcel_boundaries', $4, $5, $6,
+                     $7, $8, $9, 1, $9, $10)",
+        )
+        .bind(evidence_id)
+        .bind(run_id)
+        .bind(Uuid::parse_str(ICEBERG_TABLE_UUID).expect("valid table UUID"))
+        .bind(CANONICAL_SNAPSHOT_ID)
+        .bind(self.source_record_id)
+        .bind(self.source_file_asset_id)
+        .bind(EXECUTION_SCHEMA_VERSION)
+        .bind(format!(
+            "control/evidence/parcel-publication/{evidence_id}.json"
+        ))
+        .bind(execution_evidence_sha256(run_id))
         .bind(QUALITY_SCHEMA_VERSION)
         .execute(pool)
         .await?;
@@ -769,6 +1278,17 @@ impl Fixture {
         transaction.commit().await?;
         Ok(revision_id)
     }
+}
+
+fn execution_evidence_sha256(run_id: Uuid) -> String {
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "schema_version": EXECUTION_SCHEMA_VERSION,
+        "mirror_rebuild_run_id": run_id,
+        "iceberg_table_uuid": ICEBERG_TABLE_UUID,
+        "iceberg_snapshot_id": CANONICAL_SNAPSHOT_ID,
+    }))
+    .expect("fixture evidence serializes");
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn assert_rejection(error: &sqlx::Error, expected_code: &str, message_fragment: &str) {

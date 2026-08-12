@@ -293,10 +293,13 @@ EPSG:5179 target geometry에서 다시 계산한 값이 아니다. 둘 다 revie
 
 ## 확신이 낮은 구현 선택
 
-- production execution evidence를 현행 파일의 v2로 만들지 별도 schema로 만들지는 결정하지 않았다.
-  현행 v1을 고쳐 해석하지 않는다는 경계와, 새 schema가 증명해야 할 data는 §4로 확정했다.
-- 전국 행 수에서 digest를 PostgreSQL aggregate로 계산할지 application streaming으로 계산할지는
-  benchmark가 필요하다. §6의 bytes와 test vector가 같아야 한다는 계약은 구현 선택과 무관하다.
+- [ADR-0026](./0026-parcel-evidence-sealer-is-the-only-append-boundary.md)은 production execution
+  evidence를 별도 `parcel_publication_execution_evidence.v1` strict schema로 구현했다. 현행
+  `silver_gold_national_promotion_execution.v1`의 뜻은 바꾸지 않는다.
+- 전국 digest는 application streaming으로 구현했다. PNU/EWKB ordered stream을 일정 메모리로
+  읽으며 §6의 bytes를 그대로 계산한다.
+- execution evidence production writer의 전용 credential/create-only object 경계는 아직 구현되지
+  않았다. 이 신뢰 부채의 현재 끝은 ADR-0026에 기록한다.
 
 ## References
 

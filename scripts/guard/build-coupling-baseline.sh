@@ -66,13 +66,18 @@ set -euo pipefail
 # disposable migrated database without leaving publication state in the shared
 # harness database.
 #
+# 84 -> 85: `catalog-infrastructure/tests/vector_tile_runtime_manifest_promote.rs`
+# owns one migrator site after terminal projection loads became immutable. The old shared-database
+# cleanup had to DELETE succeeded loads, which is now the forbidden behavior under test; one
+# migrated disposable database per test preserves both the invariant and isolation.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-84}"
+COMPILE_TIME_READ_BASELINE="${3:-85}"
 
 cd "$repo_root"
 
