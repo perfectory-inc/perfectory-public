@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-# Prevents React class error boundaries from returning after the repository
-# adopted @suspensive/react as the single implementation for that role.
+# Threat model (ADR-0026): honest-mistake detection.
+# Prevents: honest reintroduction of the two direct React class error-boundary
+# lifecycle identifiers after the repository adopted @suspensive/react.
+# Does not prevent: deliberate evasion or semantically equivalent dynamic code;
+# this is neither a security boundary nor a complete semantic analysis.
 #
-# There is intentionally no allow-list or inline suppression. If a future use
-# is justified, change this guard deliberately and record the reason in Git.
-# Only tracked JavaScript/TypeScript source is inspected. The lexical scanner
-# skips comments and string/template literal text so documentation cannot make
-# the repository fail merely by naming the displaced lifecycle APIs.
+# Scope: tracked JavaScript/TypeScript source with direct identifier spelling.
+# Known limits: computed member names, Object.defineProperty/prototype mutation,
+# generated or untracked source, and runtime construction can pass. The
+# self-test deliberately records a computed-member pass so this limit cannot be
+# mistaken for coverage. Comments, literals, regular expressions, and JSX text
+# are excluded to keep the blocking guard's known false-positive count at zero.
+# There is intentionally no inline suppression. A justified direct use changes
+# this guard and its threat model in one reviewed commit.
 set -euo pipefail
 
 if [ "$#" -gt 1 ]; then
@@ -129,6 +135,39 @@ def find_forbidden_identifiers(source):
                 advance()
         return "".join(normalized)
 
+    def is_jsx_text(position):
+        """Recognize raw JSX children without pretending to parse TSX.
+
+        This only excludes text between a tag-shaped closing angle bracket and
+        the next JSX delimiter. Expressions in braces remain ordinary code.
+        The guard's threat model treats this as false-positive control, not as
+        added semantic coverage.
+        """
+        tag_end = position - 1
+        while tag_end >= 0 and source[tag_end] not in ">;{}":
+            tag_end -= 1
+        if tag_end < 0 or source[tag_end] != ">":
+            return False
+
+        statement_start = max(
+            source.rfind(";", 0, tag_end),
+            source.rfind("{", 0, tag_end),
+            source.rfind("}", 0, tag_end),
+        )
+        tag_start = source.rfind("<", statement_start + 1, tag_end)
+        if tag_start == -1:
+            return False
+        tag_body = source[tag_start + 1 : tag_end]
+        if tag_body.startswith("/"):
+            tag_body = tag_body[1:]
+        if tag_body and (tag_body[0].isspace() or not (tag_body[0].isalnum() or tag_body[0] in "_$")):
+            return False
+
+        text_end = position
+        while text_end < len(source) and source[text_end] not in "<;{}":
+            text_end += 1
+        return text_end < len(source) and source[text_end] in "<{"
+
     def skip_quoted(quote):
         advance()
         while index < len(source):
@@ -232,8 +271,9 @@ def find_forbidden_identifiers(source):
 
             if is_identifier_start(index):
                 identifier_line = line
+                identifier_start = index
                 identifier = read_identifier()
-                if identifier in forbidden:
+                if identifier in forbidden and not is_jsx_text(identifier_start):
                     hits.append((identifier, identifier_line))
                 regex_allowed = identifier in regex_prefix_keywords
                 continue

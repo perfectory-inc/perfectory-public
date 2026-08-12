@@ -109,6 +109,52 @@ export class Boundary {
 TSX
 )"
 
+# ADR-0026 declares this detector is not a semantic boundary. A deliberately
+# computed lifecycle name is therefore an expected pass, pinned here so nobody
+# can later cite this suite as proof that every class boundary is rejected.
+expect_accepted "declared computed-member boundary limit" "$(fixture_repo computed-member <<'TSX'
+import React from "react";
+
+export class Boundary extends React.Component<
+  { children: React.ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static ["getDerived" + "StateFromError"]() {
+    return { failed: true };
+  }
+
+  ["component" + "DidCatch"](error: unknown) {
+    console.error(error);
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+TSX
+)"
+
+expect_accepted "lifecycle name in JSX text" "$(fixture_repo jsx-text <<'TSX'
+export const Documentation = () => <p>componentDidCatch is a React lifecycle name.</p>;
+TSX
+)"
+
+expect_rejected "lifecycle in a JSX expression" "$(fixture_repo jsx-expression <<'TSX'
+export const Invalid = () => <p>{Boundary.componentDidCatch}</p>;
+TSX
+)"
+
+expect_accepted "lifecycle name in nested JSX text" "$(fixture_repo nested-jsx-text <<'TSX'
+export const Documentation = () => (
+  <section>
+    <p><strong>componentDidCatch</strong> is a React lifecycle name.</p>
+  </section>
+);
+TSX
+)"
+
 expect_accepted "the adopted library" "$(fixture_repo adopted <<'TSX'
 import { ErrorBoundary } from "@suspensive/react";
 
