@@ -26,7 +26,10 @@ Intelligence Platform에서 작업하는 AI 에이전트 공용 진입점. 모�
   **선택적이며 prod 발행 미배선**: submission-requested 토픽을 발행하는 프로덕션 코드 없음,
   Foundation 측 knowledge.source 프로듀서 부재(기본 토픽은 fixture 상수).
   C2를 "가동 중"으로 서술하지 말 것. `/metrics` 분리 리스너는 C3로 연기.
-- knowledge retrieval·vector/RAG는 **미구현**(소유권 선언만 존재) — 착수 전 신규 설계 문서 필요.
+- knowledge retrieval은 **비계 수직 슬라이스만 구현**: Postgres 전문검색 색인(`ip_knowledge_chunk`),
+  `KnowledgeIndexPort`, `tenant:scaffold` 전용 CLI 2종. HTTP route 없음.
+  vector/embedding은 **여전히 미구현**이며 [ADR-0002](./docs/adr/0002-canonical-release-rag-design.md)가
+  승인 전 provider·index 고정을 금지한다 — `scripts/guard/intelligence-no-vector-provider.sh`가 강제한다.
 
 ## 절대 규칙
 

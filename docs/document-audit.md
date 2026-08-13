@@ -283,7 +283,7 @@
 | `platforms/intelligence-platform/crates/messaging/README.md` | Intelligence Platform | README | current | korean | ok | 0 |
 | `platforms/intelligence-platform/crates/normalization/README.md` | Intelligence Platform | README | current | mixed | ok | 0 |
 | `platforms/intelligence-platform/docs/adr/0001-canonical-implementation-rust.md` | Intelligence Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
-| `platforms/intelligence-platform/docs/adr/0002-canonical-release-rag-design.md` | Intelligence Platform | ADR | current | mixed | not applicable: ADR fields | 0 |
+| `platforms/intelligence-platform/docs/adr/0002-canonical-release-rag-design.md` | Intelligence Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/intelligence-platform/docs/adr/README.md` | Intelligence Platform | README | current | korean | ok | 2 |
 | `platforms/intelligence-platform/docs/architecture.md` | Intelligence Platform | documentation | current | mixed | ok | 5 |
 | `platforms/intelligence-platform/docs/README.md` | Intelligence Platform | README | current | korean | ok | 7 |

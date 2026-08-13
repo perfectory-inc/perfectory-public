@@ -13,3 +13,4 @@ last_reviewed: 2026-07-29
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
 | [0001](0001-canonical-implementation-rust.md) | Rust를 Intelligence Platform 정본 구현으로 사용하고 Python은 폐기 | Accepted | 2026-07-08 |
+| [0002](0002-canonical-release-rag-design.md) | canonical release를 읽는 RAG 설계 경계 | 제안(구현 보류) | 2026-07-08 |
