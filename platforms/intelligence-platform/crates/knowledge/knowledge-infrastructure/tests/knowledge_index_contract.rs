@@ -6,11 +6,73 @@ use knowledge_application::{
     SCAFFOLD_TENANT_ID,
 };
 use knowledge_domain::KnowledgeChunk;
-use knowledge_infrastructure::InMemoryKnowledgeIndex;
+use knowledge_infrastructure::{
+    InMemoryKnowledgeIndex, PostgresKnowledgeIndex, PostgresKnowledgeIndexConfig,
+};
 
 #[tokio::test]
 async fn memory_index_satisfies_the_index_contract() {
     knowledge_index_contract_suite(InMemoryKnowledgeIndex::default(), SCAFFOLD_TENANT_ID).await;
+}
+
+#[tokio::test]
+#[ignore = "requires the Intelligence Postgres integration lane"]
+async fn postgres_index_satisfies_the_index_contract() {
+    let index = pg_index().await;
+    index
+        .purge_scope(&TenantScope::new(SCAFFOLD_TENANT_ID, "product-1"))
+        .await
+        .expect("clean start");
+    knowledge_index_contract_suite(index, SCAFFOLD_TENANT_ID).await;
+}
+
+#[tokio::test]
+#[ignore = "requires the Intelligence Postgres integration lane"]
+async fn postgres_index_ranks_the_denser_chunk_first() {
+    let index = pg_index().await;
+    let scope = TenantScope::new(SCAFFOLD_TENANT_ID, "product-rank");
+    index.purge_scope(&scope).await.expect("clean start");
+
+    let release = ReleaseRef::new(scope.clone(), "release-rank");
+    index
+        .index_chunks(
+            &release,
+            vec![
+                chunk("doc-sparse", 0, "기타", "건폐율 한 번만 나온다"),
+                chunk("doc-dense", 0, "건폐율", "건폐율 건폐율 건폐율 기준"),
+            ],
+        )
+        .await
+        .expect("index must succeed");
+    index
+        .activate_release(&release)
+        .await
+        .expect("activate must succeed");
+
+    let hits = index
+        .search(&scope, "건폐율", 5)
+        .await
+        .expect("search must succeed");
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].source_id, "doc-dense", "밀도가 높은 청크가 앞선다");
+
+    index.purge_scope(&scope).await.expect("cleanup");
+}
+
+/// `INTELLIGENCE_TEST_DATABASE_URL`이 없으면 실패한다. 조용한 skip을 만들지 않는다 —
+/// `scripts/guard/no-silent-test-skip.sh`가 강제하는 규칙이고, 등록부 계약 테스트가
+/// 같은 이유로 이미 이 형태다.
+async fn pg_index() -> PostgresKnowledgeIndex {
+    let url = std::env::var("INTELLIGENCE_TEST_DATABASE_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+        .expect("INTELLIGENCE_TEST_DATABASE_URL must be set and non-empty for the Postgres lane");
+
+    let config = PostgresKnowledgeIndexConfig::new(url, 10)
+        .expect("INTELLIGENCE_TEST_DATABASE_URL produced an invalid config");
+    PostgresKnowledgeIndex::connect(config)
+        .await
+        .expect("failed to connect to test database")
 }
 
 pub async fn knowledge_index_contract_suite<I>(index: I, tenant_id: &str)

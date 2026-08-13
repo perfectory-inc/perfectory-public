@@ -80,9 +80,7 @@ impl KnowledgeIndexPort for InMemoryKnowledgeIndex {
         let mut scored: Vec<(usize, SearchHit)> = store
             .iter()
             .filter(|((tenant, product, release, _, _), _)| {
-                tenant == &scope.tenant_id
-                    && product == &scope.product_id
-                    && release == &release_id
+                tenant == &scope.tenant_id && product == &scope.product_id && release == &release_id
             })
             .filter_map(|(_, indexed)| {
                 let haystack = format!(

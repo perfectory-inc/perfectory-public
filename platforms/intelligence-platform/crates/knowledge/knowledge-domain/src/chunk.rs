@@ -82,7 +82,10 @@ mod tests {
         let second = KnowledgeChunk::new("source-1", 0, "제목", "본문입니다")
             .expect("valid chunk must build");
 
-        assert_eq!(first.content_checksum_sha256, second.content_checksum_sha256);
+        assert_eq!(
+            first.content_checksum_sha256,
+            second.content_checksum_sha256
+        );
         assert_eq!(first.content_checksum_sha256.len(), 64);
     }
 
@@ -93,7 +96,10 @@ mod tests {
         let second =
             KnowledgeChunk::new("source-1", 0, "제목", "본문 B").expect("valid chunk must build");
 
-        assert_ne!(first.content_checksum_sha256, second.content_checksum_sha256);
+        assert_ne!(
+            first.content_checksum_sha256,
+            second.content_checksum_sha256
+        );
     }
 
     #[test]
