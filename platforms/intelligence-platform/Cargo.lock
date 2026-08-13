@@ -1369,6 +1369,7 @@ dependencies = [
  "knowledge-application",
  "knowledge-domain",
  "serde_json",
+ "sha2",
  "sqlx",
  "thiserror",
  "tokio",
