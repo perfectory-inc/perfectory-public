@@ -105,6 +105,31 @@ run_publisher() {
     "$RUST_IMAGE" env "${env_values[@]}" "$@"
 }
 
+# Build both binaries once, here, with cmake present. `rdkafka-sys` builds vendored librdkafka and
+# its build script calls cmake, which the stock `rust` image does not carry —
+# `tools/verify-image/Dockerfile` installs it for exactly this reason. Every later `cargo run` in
+# this proof then reuses these artifacts and needs no toolchain beyond rustc, so the install happens
+# in one container rather than in each of them.
+#
+# `perfectory-target-foundation-platform` is a named volume that survives runs, so on a machine that
+# has built before, this step is a no-op and the missing cmake stays invisible. It is not invisible
+# on a fresh volume, which is what CI always has.
+docker run --rm \
+  -v "$REPO_HOST_PATH:/work" \
+  -v perfectory-cargo-registry:/usr/local/cargo/registry \
+  -v perfectory-rustup:/usr/local/rustup \
+  -v perfectory-target-foundation-platform:/work/platforms/foundation-platform/target \
+  -w /work/platforms/foundation-platform \
+  -e SQLX_OFFLINE=true \
+  "$RUST_IMAGE" bash -euo pipefail -c '
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq >/dev/null 2>&1
+    apt-get install -y --no-install-recommends cmake >/dev/null 2>&1
+    command -v cmake >/dev/null || { printf "cmake install failed\n" >&2; exit 1; }
+    cargo build --locked --quiet -p foundation-api --bin foundation-migrate
+    cargo build --locked --quiet -p foundation-outbox-publisher
+  '
+
 docker run --rm --network "$NET" \
   -v "$REPO_HOST_PATH:/work" \
   -v perfectory-cargo-registry:/usr/local/cargo/registry \
