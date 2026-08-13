@@ -1,4 +1,4 @@
-# ADR 0033 - Focused Architecture Enforcement
+# ADR 0033 - 핵심 아키텍처 강제
 
 | Field | Value |
 |---|---|
@@ -6,16 +6,16 @@
 | Status | Accepted with product-first scope |
 | Architecture | [ADR 0048](./0048-horizontal-platform-redefinition.md) |
 
-## Context
+## 배경
 
-The original decision proposed seven broad architecture guardrails. Experience
+원래 결정은 광범위한 아키텍처 가드 7개를 제안했다. 경험상
 showed that broad registries and self-validating evidence systems added ceremony
 without protecting product behavior. The product-first rules in `AGENTS.md`
 supersede that approach.
 
-## Decision
+## 결정
 
-Keep only focused enforcement tied to a demonstrated failure mode:
+입증된 실패 mode에 연결된 집중 enforcement만 남긴다.
 
 | Enforcement | Real failure prevented |
 |---|---|
@@ -27,11 +27,11 @@ Keep only focused enforcement tied to a demonstrated failure mode:
 | formatter, clippy, typecheck, and focused tests | Build and behavior regressions in changed code |
 | file-size limit | Unreviewable source files growing beyond the repository rule |
 
-No guard may exist only to validate another guard, registry, checklist, or
+다른 guard·registry·checklist를 검증하기 위한 목적으로만 guard를 만들지 않는다.
 evidence bundle. A new guard requires one sentence naming the real incident it
 prevents.
 
-## Current Enforcement Sources
+## 현재 강제 출처
 
 - `AGENTS.md` defines repository-wide product-first and boundary rules.
 - `docs/architecture/foundation-platform-boundary.v1.json` defines Foundation
@@ -40,7 +40,7 @@ prevents.
 - SQL migrations define the database schema.
 - API/event schemas and consumer tests define published contracts.
 
-## Consequence
+## 영향
 
 Architecture remains machine-enforced where a bypass can damage product data,
 security, or runtime behavior, while obsolete governance ceremony is deleted

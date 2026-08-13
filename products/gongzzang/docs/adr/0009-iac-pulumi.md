@@ -1,4 +1,4 @@
-# ADR 0009 - Pulumi For Gongzzang Infrastructure
+# ADR 0009 - Gongzzang 인프라에 Pulumi 사용
 
 | Field | Value |
 |---|---|
@@ -6,12 +6,12 @@
 | Status | Accepted |
 | Decision owner | Gongzzang |
 
-## Context
+## 배경
 
 Product infrastructure needs reviewable desired state, environment separation,
 and drift detection. Console-only changes cannot provide those guarantees.
 
-## Decision
+## 결정
 
 Gongzzang-owned cloud infrastructure is declared with Pulumi and TypeScript in
 `infrastructure/`. `infrastructure/Pulumi.yaml`, `infrastructure/index.ts`, and
@@ -23,7 +23,7 @@ Development, staging, and production use separate stacks. A change is reviewed
 with `pulumi preview` before an authorized operator applies it. The public
 repository contains no workflow that is authorized to mutate production.
 
-## Alternatives
+## 대안
 
 - OpenTofu/Terraform remains a viable migration target if portability or state
   ownership outweighs the TypeScript reuse benefit.
@@ -31,7 +31,7 @@ repository contains no workflow that is authorized to mutate production.
 - Crossplane is deferred because the project does not require Kubernetes as an
   infrastructure control plane.
 
-## Consequences
+## 영향
 
 - Desired infrastructure changes remain code-reviewed and reproducible.
 - Pulumi state and credentials are operational assets outside the public source
@@ -40,7 +40,7 @@ repository contains no workflow that is authorized to mutate production.
   environment protection, and least-privilege credentials; its filename is not
   part of this ADR.
 
-## References
+## 참고 문서
 
 - `infrastructure/README.md`
 - [Pulumi documentation](https://www.pulumi.com/docs/)

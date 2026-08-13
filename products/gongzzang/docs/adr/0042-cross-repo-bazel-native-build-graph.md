@@ -1,4 +1,4 @@
-# ADR-0042: Cross-area Bazel-native build graph
+# ADR-0042: 영역 간 Bazel 네이티브 빌드 그래프
 
 | | |
 |---|---|
@@ -6,23 +6,23 @@
 | Status | **Superseded by [ADR-0044](./0044-bazel-transition-reconciliation.md)** |
 | Decision owner | Platform engineering |
 
-## Original decision
+## 원래 결정
 
-This ADR proposed extending the Bazel-first approach across the product and platform codebases so
+이 ADR은 제품·플랫폼 코드 전체에 Bazel-first 방식을 확장해
 service contracts, generated clients, policy checks, and release verification could share one build
 graph. It required explicit migration boundaries and rollback conditions rather than permanent
 wrappers around native commands.
 
-## Supersession
+## 대체 상태
 
-The codebases now share one monorepo and one root verification contract. ADR-0044 rejects the second
+코드베이스는 이제 하나의 모노레포와 루트 검증 계약을 공유한다. ADR-0044는 두 번째
 Bazel graph: Cargo and pnpm/Turborepo execute language-native work, while
 `cargo xtask verify <area>` provides the common local/CI entrypoint.
 
-This ADR contains no executable migration instruction. Do not infer repository layout, workspace
+이 ADR에는 실행 가능한 migration 지침이 없다. 저장소 layout이나 workspace를 이 문서에서
 state, runner support, or implementation progress from the original proposal.
 
-## References
+## 참고 문서
 
 - [ADR-0044](./0044-bazel-transition-reconciliation.md)
 - [Root ADR-0004](../../../../docs/adr/0004-verification-ssot.md)

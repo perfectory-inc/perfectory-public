@@ -5,9 +5,9 @@ doc_type: README
 last_reviewed: 2026-07-29
 ---
 
-# Foundation normalization
+# Foundation 정규화
 
-Intelligence가 제출한 정규화 제안을 Foundation 원장에 검토·승인·적용하는 경계입니다.
+Intelligence가 제출한 정규화 제안을 Foundation 원장에 검토·승인·적용하는 경계다.
 Intelligence는 제안만 하고 이 영역이 canonical write를 소유합니다.
 
 - 책임 결정: [`docs/adr/0027-normalization-capability-ownership.md`](../../docs/adr/0027-normalization-capability-ownership.md)

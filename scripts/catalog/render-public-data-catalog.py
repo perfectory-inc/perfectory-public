@@ -70,6 +70,13 @@ def render(endpoint_doc: dict[str, Any], lane_doc: dict[str, Any]) -> str:
     )
 
     lines: list[str] = [
+        "---",
+        "status: current",
+        "owner: foundation-platform",
+        "doc_type: catalog",
+        "last_reviewed: 2026-07-30",
+        "---",
+        "",
         "<!-- GENERATED FILE. Do not edit by hand. -->",
         "<!-- Render with: python3 scripts/catalog/render-public-data-catalog.py -->",
         "",

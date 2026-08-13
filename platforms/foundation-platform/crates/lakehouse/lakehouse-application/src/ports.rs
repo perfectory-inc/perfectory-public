@@ -72,6 +72,21 @@ pub struct LakehouseTableSnapshot {
     pub metadata_location: String,
 }
 
+/// Complete Iceberg table identity needed by provenance sealers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LakehouseTableMetadata {
+    /// Fully qualified logical table name.
+    pub table_name: String,
+    /// Iceberg table UUID from the catalog metadata document.
+    pub table_uuid: Uuid,
+    /// Current snapshot id when the table currently selects one.
+    pub current_snapshot_id: Option<i64>,
+    /// Every snapshot id retained by the loaded Iceberg table metadata.
+    pub snapshot_ids: Vec<i64>,
+    /// Provider-neutral metadata location returned by the catalog.
+    pub metadata_location: String,
+}
+
 /// Read model for a validated Lakehouse batch run that may be used by promotion workflows.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LakehouseBatchRunRecord {
@@ -134,6 +149,16 @@ pub trait LakehouseCatalog: Send + Sync {
         &self,
         table_name: &str,
     ) -> Result<Option<LakehouseTableSnapshot>, LakehouseError>;
+
+    /// Loads the table UUID and complete retained snapshot identity set.
+    ///
+    /// # Errors
+    /// Returns `LakehouseError` when catalog access fails or required Iceberg identity metadata is
+    /// missing.
+    async fn get_table_metadata(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<LakehouseTableMetadata>, LakehouseError>;
 }
 
 /// Provider-neutral candidate handle for a spatial tile WAP branch.

@@ -1,4 +1,4 @@
-# ADR 0008 - PNU Anchor PBF Marker Tile Contract
+# ADR 0008 - PNU 앵커 PBF 마커 타일 계약
 
 | Field | Value |
 |---|---|
@@ -8,36 +8,35 @@
 | Related | [`gongzzang ADR 0037`](../../../../products/gongzzang/docs/adr/0037-pnu-anchor-pbf-marker-tiles.md) |
 | Scope | `foundation-platform` Catalog, parcel marker anchors, map marker tile serving, `gongzzang` map runtime |
 
-## Context
+## 배경
 
-Gongzzang map runtime needs to render many parcel-attached map features such as listings,
-real transaction prices, official land prices, auctions, and future parcel indicators. The runtime
-must not depend on ad-hoc bounding-box JSON endpoints because that path creates the same failure
-mode repeatedly:
+Gongzzang map runtime은 listing, 실거래가, 공시지가, auction, 향후 필지 indicator처럼
+필지에 붙은 많은 map feature를 렌더링해야 한다. 이 runtime은 임의의 bounding-box JSON
+endpoint에 의존하면 안 된다. 그 경로가 같은 실패를 반복해서 만들기 때문이다.
 
-- a wide viewport can request too much data at once;
-- `ORDER BY`, deduplication, and count queries can happen before a safe tile boundary;
-- marker records may be silently truncated by a per-request limit;
-- marker coordinates can drift away from the parcel identity if coordinates are stored per product;
-- the frontend must reconcile too many object-specific API shapes.
+- 넓은 viewport가 한 번에 너무 많은 data를 요청할 수 있다.
+- 안전한 tile 경계 전에 `ORDER BY`, deduplication, count query가 실행될 수 있다.
+- 요청별 limit 때문에 marker record가 조용히 잘릴 수 있다.
+- 좌표를 product별로 저장하면 marker 좌표가 필지 identity에서 벗어날 수 있다.
+- frontend가 object별 API shape를 너무 많이 조정해야 한다.
 
-The platform architecture already decided two relevant rules:
+플랫폼 아키텍처는 이미 다음 두 규칙을 결정했다.
 
-- Foundation parcel and administrative geometry is served as standard MVT through the
-  Foundation-owned single-source manifest contract in ADR 0004;
-- parcel-attached business identity is PNU-first in Gongzzang ADR 0018.
+- Foundation parcel·administrative geometry는 ADR 0004의 Foundation 소유 single-source
+  manifest contract를 통해 표준 MVT로 제공한다.
+- 필지에 붙은 business identity는 Gongzzang ADR 0018에서 PNU-first다.
 
-This ADR extends those rules to marker positions and marker tile responses.
+이 ADR은 해당 규칙을 마커 위치와 마커 타일 응답까지 확장한다.
 
-This ADR does not transfer Gongzzang listing ownership into foundation-platform. Listings are Gongzzang
-market-domain product data. foundation-platform owns parcel anchors and public/reference spatial layers;
-product services own product semantics and may serve product marker PBF tiles using the same
-PNU-anchor contract.
+이 ADR은 Gongzzang listing 소유권을 foundation-platform으로 옮기지 않는다. Listing은 Gongzzang
+시장 도메인 제품 데이터다. foundation-platform은 필지 anchor와 public/reference 공간 계층을
+소유하고 제품 서비스는 제품 의미를 소유하며 같은 PNU-anchor 계약으로 제품 marker PBF를
+제공할 수 있다.
 
-## Decision
+## 결정
 
-All launch map marker traffic for parcel-attached objects must use **PNU anchor backed PBF vector
-tiles**.
+필지에 연결된 객체의 출시 지도 marker 트래픽은 모두 **PNU anchor 기반 PBF vector tile**을
+사용해야 한다.
 
 Contract constants:
 
@@ -55,49 +54,47 @@ aggregate_anchor_max_zoom = 11
 exact_anchor_min_zoom = 12
 ```
 
-PBF is the serving projection. It is not the source of truth for location.
+PBF는 serving projection이며 위치의 정본이 아니다.
 
-For foundation-platform-owned static/reference marker layers, the launch hot path is the active
-vector tile manifest, then the one complete Martin source selected for each marker publication
-unit. During the first schema-v2 parcel migration, both anchor layers remain on the frozen
-schema-v1 manifest while `/catalog/v1/vector-tiles/runtime-manifest` supplies only the v2 parcel
-unit. The database-backed `/map/v1/marker-tiles/...` endpoint is a reference path for diagnostics,
-bounded regional proof, and admin verification; it must not be used as the production launch
-runtime for national traffic.
+foundation-platform 소유 static/reference marker 계층의 출시 hot path는 활성 vector tile
+manifest와 각 marker publication unit에 선택된 완전한 Martin source다. 첫 schema-v2 parcel
+migration 동안 두 anchor layer는 고정된 schema-v1 manifest에 남고
+`/catalog/v1/vector-tiles/runtime-manifest`는 v2 parcel unit만 제공한다. DB 기반
+`/map/v1/marker-tiles/...` endpoint는 진단·제한된 지역 증명·admin 검증을 위한 reference
+경로이며 전국 traffic의 production launch runtime으로 사용하지 않는다.
 
-Low zooms must not repeat every individual PNU anchor. Static/reference parcel anchors use aggregate
-artifacts through z11 and exact PNU anchor artifacts from z12 upward.
+낮은 zoom에서 개별 PNU anchor를 모두 반복하지 않는다. static/reference parcel anchor는
+z11까지 aggregate artifact를 사용하고 z12부터 정확한 PNU anchor artifact를 사용한다.
 
-The source of truth for marker position is a foundation-platform Catalog anchor derived from parcel
-geometry and identified by PNU. A product such as Gongzzang may decide what a marker means, how it
-is styled, and what details panel opens, but it must not own the canonical parcel marker position.
+marker 위치의 정본은 필지 geometry에서 도출하고 PNU로 식별하는 foundation-platform Catalog
+anchor다. Gongzzang 같은 product는 marker 의미·스타일·열리는 detail panel을 결정할 수
+있지만 canonical parcel marker 위치를 소유해서는 안 된다.
 
-## Anchor Registry
+## 앵커 레지스트리
 
-foundation-platform Catalog owns a logical `parcel_marker_anchor` registry.
+foundation-platform Catalog은 논리적 `parcel_marker_anchor` registry를 소유한다.
 
 Minimum anchor fields:
 
 | Field | Meaning |
 |---|---|
-| `pnu` | Parcel identity. This is the primary lookup key. |
-| `anchor_lng` | Longitude in EPSG:4326. |
-| `anchor_lat` | Latitude in EPSG:4326. |
-| `algorithm` | Anchor algorithm name. `official_label_point` is preferred when a source provides it; otherwise `polylabel`. |
-| `algorithm_version` | Stable version string for reproducible anchor generation. |
-| `source_geometry_version` | Parcel geometry build/version that produced the anchor. |
-| `source_geometry_checksum_sha256` | Checksum or build checksum for the source geometry input. |
-| `computed_at_utc` | UTC timestamp of anchor computation. |
+| `pnu` | 필지 identity이며 기본 lookup key다. |
+| `anchor_lng` | EPSG:4326 경도. |
+| `anchor_lat` | EPSG:4326 위도. |
+| `algorithm` | Anchor algorithm 이름. source가 제공하면 `official_label_point`를 우선하고 아니면 `polylabel`을 사용한다. |
+| `algorithm_version` | 재현 가능한 anchor 생성을 위한 안정적인 version string. |
+| `source_geometry_version` | anchor를 만든 parcel geometry build/version. |
+| `source_geometry_checksum_sha256` | source geometry input의 checksum 또는 build checksum. |
+| `computed_at_utc` | anchor 계산 시각(UTC). |
 
-The storage name may change during implementation, but those semantics must remain intact.
+구현 중 저장소 이름은 바뀔 수 있지만 의미는 유지해야 한다.
 
-The anchor must be inside the parcel polygon when source geometry permits it. If a parcel geometry is
-invalid or missing, foundation-platform must emit an explicit lineage/error state instead of inventing a
-coordinate.
+source geometry가 허용하면 anchor는 필지 polygon 안에 있어야 한다. 필지 geometry가 잘못되거나
+없으면 foundation-platform은 좌표를 만들어내지 말고 명시적인 lineage/error 상태를 내야 한다.
 
-## Marker Tile Contract
+## 마커 타일 계약
 
-Marker tiles are addressed by tile coordinate and filter identity, not by arbitrary viewport bounds.
+마커 타일은 임의의 viewport bounds가 아니라 타일 좌표와 필터 식별자로 주소를 정한다.
 
 Recommended public read shape:
 
@@ -105,113 +102,112 @@ Recommended public read shape:
 GET /map/v1/marker-tiles/{layer}/{z}/{x}/{y}.pbf?filter_hash={hash}
 ```
 
-`layer` is a stable marker layer name such as `parcel_anchor`, `real_transaction_price`,
-`official_land_price`, `auction`, or product-owned layers such as Gongzzang `listing`.
-`filter_hash` is the identity of a validated filter contract, not a free-form SQL expression.
+`layer`는 `parcel_anchor`, `real_transaction_price`, `official_land_price`, `auction` 또는
+Gongzzang `listing` 같은 안정적인 marker layer 이름이다. `filter_hash`는 검증된 filter
+contract의 identity이며 자유 형식 SQL expression이 아니다.
 
-foundation-platform serves layers it owns, such as `parcel_anchor` and public/reference data layers.
-Gongzzang listing marker tiles are served by Gongzzang unless a later ADR explicitly creates a
-neutral projection boundary that does not store or interpret listing business semantics.
+foundation-platform은 `parcel_anchor`와 public/reference data layer처럼 소유한 layer를
+제공한다. 이후 ADR이 listing business semantics를 저장하거나 해석하지 않는 중립 projection
+경계를 명시적으로 만들지 않는 한 Gongzzang listing marker tile은 Gongzzang이 제공한다.
 
-The PBF tile contains point features whose geometry is the resolved PNU anchor. Each feature must
-contain only the minimum rendering and lookup properties required for the map:
+PBF tile은 geometry가 확인된 PNU anchor인 point feature를 담는다. 각 feature는 map에
+필요한 최소 rendering·lookup property만 포함한다.
 
 | Property | Meaning |
 |---|---|
-| `id` | Product-owned object id or aggregate id. |
-| `pnu` | Parcel identity used to resolve the anchor. |
-| `kind` | Stable marker kind for style selection. |
-| `count` | Aggregate count when the feature represents multiple objects. |
-| `rank` | Optional deterministic display rank for label collision. |
-| `detail_ref` | Opaque lookup reference for detail API fetch. |
+| `id` | Product 소유 object id 또는 aggregate id. |
+| `pnu` | anchor를 해석하는 데 사용하는 필지 identity. |
+| `kind` | style 선택을 위한 안정적인 marker kind. |
+| `count` | feature가 여러 object를 나타낼 때의 aggregate count. |
+| `rank` | label 충돌을 위한 선택적 deterministic 표시 순위. |
+| `detail_ref` | detail API fetch를 위한 opaque lookup reference. |
 
-Large labels and rich marker cards are presentation. They are not data completeness. If visual space
-is insufficient, the renderer must degrade labels to small dots or aggregate symbols. A successful
-tile response must not silently drop eligible records just because there is no visual room.
+큰 label과 풍부한 marker card는 presentation이며 data completeness가 아니다. 화면 공간이
+부족하면 renderer는 label을 작은 점이나 aggregate symbol로 낮춰야 한다. 시각 공간이
+부족하다는 이유만으로 성공 tile 응답에서 대상 record를 조용히 버려서는 안 된다.
 
-## Completeness Rule
+## 완전성 규칙
 
-Tile responses may aggregate, but they must not lie.
+타일 응답은 집계할 수 있지만 사실을 왜곡해서는 안 된다.
 
 Allowed:
 
-- point feature for every eligible record;
-- deterministic aggregation where `count` and `detail_ref` preserve drill-down;
-- zoom-dependent simplification only when the simplified feature represents the full underlying set;
-- separate detail fetch by `id`, `pnu`, or `detail_ref`.
+- 대상 record마다 point feature를 둔다.
+- `count`와 `detail_ref`로 drill-down을 보존하는 deterministic aggregation을 사용한다.
+- 단순화된 feature가 원래 전체 set을 나타낼 때만 zoom별 단순화를 허용한다.
+- `id`, `pnu`, `detail_ref`로 별도 detail fetch를 제공한다.
 
 Forbidden:
 
 - `LIMIT N` as a success-path data cap for a tile without an explicit "truncated" failure state;
-- dropping lower-ranked markers and returning HTTP 200 as if the tile is complete;
-- deriving marker coordinates from product-owned `latitude`/`longitude` columns for parcel-attached
-  objects;
-- public launch map marker requests based on `bbox`, `bounds`, `south/west/north/east`, or raw
-  coordinate envelopes.
+- 낮은 순위 marker를 버리고 tile이 완전한 것처럼 HTTP 200을 반환한다.
+- 필지에 붙은 object의 marker 좌표를 product 소유 `latitude`/`longitude` column에서 도출한다.
+- `bbox`, `bounds`, `south/west/north/east`, raw coordinate envelope에 기반한 public launch
+  map marker request를 사용한다.
 
-If a tile cannot be represented within configured budgets, the service must return a structured
-budget error or an aggregate that truthfully represents the underlying records.
+설정된 예산 안에서 tile을 표현할 수 없으면 서비스는 구조화된 budget error를 반환하거나
+원본 record를 정직하게 나타내는 aggregate를 반환해야 한다.
 
-## Relationship To Static Parcel Tiles
+## 정적 필지 타일과의 관계
 
-Parcel polygons and marker points are separate publication units with one location model.
+필지 폴리곤과 마커 점은 하나의 위치 모델을 공유하는 별도 공개 단위다.
 
-- Parcel polygon MVT: complete PostGIS or immutable PMTiles-backed Martin source from ADR 0004.
-- Marker point PBF: dynamic or semi-static marker layer generated by the owning service from
-  business data joined to foundation-platform PNU anchors.
+- Parcel polygon MVT: ADR 0004의 complete PostGIS 또는 immutable PMTiles 기반 Martin source.
+- Marker point PBF: owner service가 business data를 foundation-platform PNU anchor와 join해
+  만든 dynamic 또는 semi-static marker layer.
 
-Both layers use PNU as the join key. The marker point PBF must not duplicate the parcel polygon as
-its own location source.
+두 layer 모두 PNU를 join key로 사용한다. marker point PBF가 parcel polygon을 별도 위치
+source로 복제해서는 안 된다.
 
-## JSON Use
+## JSON 사용
 
-JSON marker endpoints are allowed only for admin diagnostics, contract tests, and detail fetches.
-They are not the launch map marker rendering path.
+JSON 마커 endpoint는 관리자 진단·계약 테스트·상세 조회에서만 허용한다. 출시 지도 마커 렌더링 경로는
+아니다.
 
-The launch map may fetch details as JSON after a user selects a feature, but the map-wide marker
-surface is PBF/MVT.
+출시 지도는 사용자가 feature를 선택한 뒤 상세를 JSON으로 가져올 수 있지만 지도 전체 marker
+표면은 PBF/MVT다.
 
-## Consequences
+## 영향
 
-Positive:
+긍정적 효과:
 
-- viewport size no longer controls backend result size directly;
-- marker position has a single owner and is reproducible from parcel geometry lineage;
-- Gongzzang, Dawneer, and future products can share the same anchor semantics;
-- map rendering can degrade from labels to dots without data loss;
-- the API contract aligns with CDN/cache-friendly tile addressing.
+- viewport 크기가 backend result size를 직접 제어하지 않는다.
+- marker 위치 owner가 하나이며 parcel geometry lineage에서 재현할 수 있다.
+- Gongzzang·Dawneer·향후 product가 같은 anchor semantics를 공유할 수 있다.
+- data loss 없이 map rendering을 label에서 dot으로 낮출 수 있다.
+- API contract가 CDN/cache 친화적인 tile addressing과 맞는다.
 
-Cost:
+비용:
 
-- foundation-platform must own an anchor generation and lineage pipeline;
-- product marker data must join through PNU before tile encoding, without foundation-platform owning
-  product semantics such as listing price, status, exposure, search filters, or detail payloads;
-- filter hashing and tile budget errors need a strict contract before production exposure;
-- current bbox JSON map paths in Gongzzang become transitional and must not be treated as launch
-  architecture.
+- foundation-platform이 anchor 생성·lineage pipeline을 소유해야 한다.
+- product marker data는 tile encoding 전에 PNU로 join해야 하며, foundation-platform이 listing
+  price·status·exposure·search filter·detail payload 같은 product semantics를 소유하지 않는다.
+- production에 노출하기 전에 filter hashing과 tile budget error에 엄격한 contract가 필요하다.
+- Gongzzang의 현재 bbox JSON map path는 과도기 경로가 되며 launch architecture로 취급하지
+  않는다.
 
-## Implementation Sequence
+## 구현 순서
 
-1. Define the anchor registry schema and anchor generation algorithm contract.
-2. Build anchor generation from parcel geometry with checksum and version lineage.
-3. Define the marker tile response schema and filter hash contract.
-4. Add one low-risk marker layer first, preferably read-only real transaction or official land
-   price points.
-5. Move Gongzzang listing markers from bbox JSON to Gongzzang-owned PBF marker tiles that consume
-   foundation-platform anchors by PNU.
-6. Add CI guardrails that reject new launch map marker paths using bbox/bounds.
-7. Deprecate and remove legacy listing coordinate marker paths after the PBF runtime is verified.
+1. anchor registry schema와 anchor generation algorithm contract를 정의한다.
+2. checksum과 version lineage를 포함해 parcel geometry에서 anchor를 생성한다.
+3. marker tile response schema와 filter hash contract를 정의한다.
+4. 먼저 위험이 낮은 marker layer 하나를 추가한다. 읽기 전용 실거래가나 공시지가 point가
+   적합하다.
+5. Gongzzang listing marker를 bbox JSON에서 Gongzzang 소유 PBF marker tile로 옮긴다. 이
+   tile은 PNU로 foundation-platform anchor를 소비한다.
+6. bbox/bounds를 사용하는 새 launch map marker path를 거부하는 CI guard를 추가한다.
+7. PBF runtime 검증 후 legacy listing coordinate marker path를 deprecated하고 제거한다.
 
-DB migrations for the anchor registry require explicit migration approval before generation.
+앵커 레지스트리 DB migration은 생성 전에 명시적인 migration 승인이 필요하다.
 
-## Revisit Triggers
+## 재검토 조건
 
-- parcel geometry source changes enough to require a new anchor algorithm version;
-- a product needs non-parcel-attached freehand coordinates as a first-class business object;
-- a marker layer cannot meet tile budget without truthful aggregation;
-- another service attempts to own parcel marker coordinates outside foundation-platform.
+- parcel geometry source가 바뀌어 새 anchor algorithm version이 필요해진다.
+- product가 필지에 붙지 않은 자유 좌표를 first-class business object로 필요로 한다.
+- marker layer가 정직한 aggregation 없이는 tile budget을 맞출 수 없다.
+- 다른 service가 foundation-platform 밖에서 parcel marker 좌표를 소유하려 한다.
 
-## References
+## 참고 문서
 
 - [ADR 0004 - Static Vector Tile Runtime Contract](./0004-static-vector-tile-runtime-contract.md)
 - [ADR 0006 - Lakehouse Table Format and Serving Architecture](./0006-lakehouse-table-format-and-serving-architecture.md)

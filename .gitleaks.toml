@@ -91,10 +91,13 @@ regexes = [
 
 [[allowlists]]
 targetRules = ["generic-api-key"]
-description = "Synthetic session secret installed by the web unit-test bootstrap."
+description = "Synthetic session secret installed by the shared web test bootstrap."
 condition = "AND"
 regexTarget = "secret"
+# Both paths are required: the scan runs in `all` mode, so it reads the working tree at the
+# current path and every commit at the path the file had before 0222299f moved it.
 paths = [
+  '''^products/gongzzang/apps/web/tests/setup\.ts$''',
   '''^products/gongzzang/apps/web/tests/unit/setup\.ts$''',
 ]
 regexes = [
@@ -103,10 +106,12 @@ regexes = [
 
 [[allowlists]]
 targetRules = ["naver-maps-credential-assignment"]
-description = "Synthetic Naver client ID installed by the web unit-test bootstrap."
+description = "Synthetic Naver client ID installed by the shared web test bootstrap."
 condition = "AND"
 regexTarget = "secret"
+# Both paths are required: see the session-secret allowlist above.
 paths = [
+  '''^products/gongzzang/apps/web/tests/setup\.ts$''',
   '''^products/gongzzang/apps/web/tests/unit/setup\.ts$''',
 ]
 regexes = [

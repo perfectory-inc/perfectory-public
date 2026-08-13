@@ -61,6 +61,69 @@ pub enum CatalogError {
         current: String,
     },
 
+    /// An idempotency key was reused for a request that is not the one it first answered.
+    ///
+    /// Distinct from every other conflict here because the caller's fix is distinct: mint a new key.
+    /// Folding it into a generic invalid-request error would make "resend the identical body", "mint a
+    /// new key", and "re-read state and retry" indistinguishable at the transport boundary.
+    #[error(
+        "idempotency key reused for a different request (idempotency_key={idempotency_key}, command={command_kind})"
+    )]
+    MutationIdempotencyKeyReused {
+        /// Key that was already recorded against a different request.
+        idempotency_key: String,
+        /// Command the key was first recorded for.
+        command_kind: String,
+    },
+
+    /// The stored key was fingerprinted by a different algorithm version than this deployment uses.
+    ///
+    /// Separate from [`CatalogError::MutationIdempotencyKeyReused`] because the cause is different
+    /// and the operator needs to know which. Nothing is wrong with the request: two digests produced
+    /// by different encodings are incomparable, so this deployment can prove neither that the request
+    /// is the same nor that it differs. Reporting it as a key reuse would send someone looking for a
+    /// caller bug that does not exist.
+    #[error(
+        "idempotency key was fingerprinted by another algorithm version (idempotency_key={idempotency_key}, recorded={recorded}, current={current})"
+    )]
+    MutationFingerprintVersionChanged {
+        /// Key whose stored fingerprint cannot be compared.
+        idempotency_key: String,
+        /// Fingerprint algorithm version the key was recorded under.
+        recorded: String,
+        /// Fingerprint algorithm version this deployment computes.
+        current: String,
+    },
+
+    /// Another transaction holds the same idempotency key and did not finish in time.
+    ///
+    /// Retryable, and the reason it needs its own variant: the underlying `55P03`/`57014` would
+    /// otherwise arrive as an infrastructure failure and be served as an opaque 500, so the one action
+    /// that resolves it — retry the same key — is unguessable from the response.
+    #[error("catalog mutation is contended (idempotency_key={idempotency_key})")]
+    MutationContended {
+        /// Key whose holder did not commit or roll back in time.
+        idempotency_key: String,
+    },
+
+    /// A v2 publication unit's serving state differed from the caller's expectation.
+    ///
+    /// Distinct from [`CatalogError::VectorTileManifestVersionConflict`], which compares the frozen
+    /// v1 manifest's string version. The v2 compare-and-swap is per publication unit and compares a
+    /// pair — the active release and the serving generation — because a same-revision rollback
+    /// re-activates a preserved release, so one release id can be active at two generations.
+    #[error(
+        "vector tile serving state mismatch (unit_key={unit_key}, expected={expected}, current={current})"
+    )]
+    VectorTileServingStateConflict {
+        /// Publication unit whose serving state was compared.
+        unit_key: String,
+        /// Release and serving generation the caller claimed to have observed.
+        expected: String,
+        /// Release and serving generation found under lock.
+        current: String,
+    },
+
     /// Industrial complex official source code already exists.
     #[error("industrial complex official source code already exists ({0})")]
     ComplexOfficialCodeConflict(String),

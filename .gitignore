@@ -10,10 +10,17 @@ node_modules/
 __pycache__/
 *.py[cod]
 
-# Local env & secrets (never commit; secret-scan + these two lines are the guard)
+# Local env & secrets (never commit; secret-scan + these lines are the guard)
 .env
 .env.local
 .env.*.local
+# Timestamped backups of the above. A rotation left
+# `.env.local.bak-20260806T004029Z` tracked-visible in a repository whose remote
+# is public: the exact name is ignored while every copy of it was not. Prefix
+# match, not a longer list of suffixes, because the next backup will be named by
+# whatever tool makes it.
+.env.local.*
+.env.*.local.*
 
 # OS / editor cruft
 .DS_Store

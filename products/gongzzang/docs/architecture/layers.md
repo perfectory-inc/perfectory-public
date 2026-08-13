@@ -5,13 +5,13 @@ doc_type: architecture
 last_reviewed: 2026-07-29
 ---
 
-# Layers
+# 계층
 
-This document describes Gongzzang's current dependency direction.
+이 문서는 현재 Gongzzang의 의존성 방향을 설명한다.
 
-## 1. Layer Rule
+## 1. 계층 규칙
 
-Dependency direction:
+의존성 방향:
 
 ```text
 apps / services
@@ -19,13 +19,13 @@ apps / services
   -> crates/*-domain ports and value objects
 ```
 
-Domain crates must not depend on runtime frameworks, databases, HTTP clients, provider SDKs, or UI code.
+도메인 crate는 런타임 프레임워크·데이터베이스·HTTP client·제공기관 SDK·UI 코드에 의존하지 않는다.
 
 ## 2. Domain Layer
 
-Domain layer owns business meaning and compile-time rules.
+도메인 계층은 비즈니스 의미와 컴파일 시 규칙을 소유한다.
 
-Current examples:
+현재 예시:
 
 - `crates/listing-domain`
 - `crates/listing-photo-domain`
@@ -36,14 +36,14 @@ Current examples:
 - `crates/{bookmark,search-history,analysis-report,notification}-domain`
 - `crates/{audit-log,outbox-event}-domain`
 
-Allowed dependencies:
+허용 의존성:
 
 - shared value objects
 - repository ports
 - pure domain errors
 - serializable DTOs when they are domain-owned
 
-Forbidden dependencies:
+금지 의존성:
 
 - `reqwest`
 - `sqlx`
@@ -53,7 +53,7 @@ Forbidden dependencies:
 
 ## 3. Adapter Layer
 
-Adapters translate between domain ports and infrastructure.
+어댑터는 도메인 port와 인프라 사이를 변환한다.
 
 Current examples:
 
@@ -63,34 +63,34 @@ Current examples:
 - `services/gongzzang-api/src/photo_upload.rs`
 - `services/gongzzang-outbox-publisher/src/foundation_lakehouse_registry.rs`
 
-Adapters may use `reqwest`, `sqlx`, S3/R2 clients, or Redis clients when the owning boundary requires them.
+소유 경계가 요구할 때 어댑터는 `reqwest`, `sqlx`, S3/R2 client, Redis client를 사용할 수 있다.
 
 ## 4. Service Layer
 
-Services compose repositories, adapters, route state, middleware, and startup policy.
+서비스는 repository·어댑터·route 상태·middleware·시작 정책을 조합한다.
 
-Current services:
+현재 서비스:
 
 - `services/gongzzang-api`
 - `services/gongzzang-outbox-publisher`
 
 ## 5. App Layer
 
-Frontend apps own user interaction and product UI.
+프론트엔드 앱은 사용자 상호작용과 제품 UI를 소유한다.
 
-Current app of record:
+현재 정본 앱:
 
 - `apps/web`
 
-Important frontend boundaries:
+중요한 프론트엔드 경계:
 
-- user-facing strings should go through typed i18n;
-- public API access should go through approved proxy/client paths;
-- Foundation Platform event receiver is a narrow integration route, not a general Catalog client.
+- 사용자 노출 문자열은 typed i18n을 거친다.
+- public API 접근은 승인된 proxy/client 경로를 거친다.
+- Foundation Platform event receiver는 좁은 통합 route이지 일반 Catalog client가 아니다.
 
 ## 6. Policy And Registry Layer
 
-Cross-cutting rules are registered in JSON/policy files and checked by scripts.
+공통 규칙은 JSON/policy 파일에 등록하고 스크립트로 검사한다.
 
 Important registries:
 
@@ -98,7 +98,7 @@ Important registries:
 - `docs/architecture/foundation-platform-boundary.v1.json`
 - `docs/architecture/platform-integration/index.v1.json`
 
-Generated or derived runtime files must follow those registries.
+생성·파생 런타임 파일은 해당 레지스트리를 따라야 한다.
 
 ## 7. Build/Verification Layer
 
@@ -111,12 +111,12 @@ Current state:
 - the frontend is built/tested with `pnpm` + `turbo` (`turbo run build`, `turbo run test`, `turbo run typecheck`);
 - off-the-shelf tools (gitleaks, lefthook, cargo-deny) and a small Rust `repo-guard` cover repo-specific guardrails.
 
-The goal is reproducible verification through the native toolchains; there is no
-Bazel build graph and no transition ratchet (both removed per ADR-0044).
+목표는 native toolchain으로 재현 가능한 검증을 하는 것이며
+ADR-0044에 따라 Bazel 빌드 그래프와 전환 래칫은 제거했다.
 
 ## 8. Guardrails
 
-Layer changes must preserve the Foundation Platform dependency boundary and the
-platform-integration policy. The Foundation Platform catalog boundary is enforced by
+Layer 변경은 Foundation Platform dependency boundary와 platform-integration policy를 유지해야
+한다. Foundation Platform catalog boundary는 다음이 강제한다.
 `scripts/lefthook/foundation-ownership-boundary.sh` and the boundary contract
 `docs/architecture/foundation-platform-boundary.v1.json`.

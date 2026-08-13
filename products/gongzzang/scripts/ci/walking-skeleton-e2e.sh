@@ -40,7 +40,15 @@ for _ in {1..30}; do
 done
 
 sqlx migrate run --source migrations
-cargo test --workspace --features integration --no-fail-fast -- --test-threads=1
+# Through the lane rather than a workspace sweep. `cargo test --workspace --features integration`
+# was a second, private definition of "the gongzzang integration suite": it re-ran every unit test
+# `gongzzang-ci.yml` had already run, and it re-ran the twenty DB targets without being tied to the
+# lane table, so `live-lane-completeness.sh` could prove a set this job did not execute (ADR-0010
+# 남은 부채 1, ADR-0011). The alias resolves `--manifest-path` against the caller's directory, so it
+# has to be invoked from the monorepo root — the same shape `scripts/verify/foundation-kafka-live.sh`
+# uses.
+monorepo_root="$(cd "$repo_root/../.." && pwd)"
+(cd "$monorepo_root" && cargo xtask integration gongzzang postgres)
 
 PGPASSWORD="${POSTGRES_PASSWORD:-ci_only_changeme}" psql -h localhost -U "${POSTGRES_USER:-gongzzang}" -d "${POSTGRES_DB:-gongzzang}" \
   -c 'truncate "user", listing, listing_photo cascade;'

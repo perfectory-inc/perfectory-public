@@ -109,6 +109,137 @@ for pattern in "${legacy_patterns[@]}"; do
   fi
 done
 
+# ---------------------------------------------------------------------------
+# Unlisted names are rejected, not just known-legacy ones.
+#
+# Everything above is a deny-list: it rejects the specific legacy spellings we
+# already know about. That is fail-OPEN. A brand-new connection-like name nobody
+# thought to add — `FOUNDATION_PLATFORM_R2_ARCHIVE_SECRET_ACCESS_KEY`, say —
+# passes every check on this page. The plan that introduced this namespace asked
+# for the opposite shape: allow exactly the declared control families and reject
+# unlisted connection-like names.
+#
+# Two rules, because the two risks are not the same.
+#
+#   1. A *connection field* (credential, endpoint, bucket, region) must be
+#      canonical or an explicitly named exception. This is where a mistake leaks
+#      access, so it is exact-match and fail-closed.
+#   2. Any other name must belong to a declared *control family*. Operational
+#      switches churn with the work, so families keep the guard from becoming a
+#      second changelog — but an unfamiliar family still fails.
+# ---------------------------------------------------------------------------
+
+# A field name ending this way configures a connection, whatever family it sits in.
+connection_field_suffixes=(
+  ACCESS_KEY_ID SECRET_ACCESS_KEY ACCOUNT_ID
+  ENDPOINT ENDPOINT_HOST BUCKET BUCKET_NAME REGION PUBLIC_BASE_URL
+)
+
+# Connection-shaped names that are deliberately NOT canonical connections.
+# Each one is isolated from production credentials on purpose; listing them here
+# is what makes that isolation reviewable instead of assumed.
+connection_exceptions=(
+  # Proof-only tile credentials. Loaded from TILES_SLICE_PROOF_ENV_FILE outside
+  # the repository, never from the canonical Foundation profile.
+  FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID
+  FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET
+  FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT
+  # Live-smoke target selection. A bucket *name* chosen by the operator for a
+  # bounded write probe, not a connection the runtime configures itself with.
+  FOUNDATION_PLATFORM_R2_LIVE_SMOKE_BUCKET
+  # Billing report input: the bucket whose usage rows are being summed, read
+  # from a CSV export rather than connected to.
+  FOUNDATION_PLATFORM_R2_BILLING_USAGE_METRICS_BUCKET_NAME
+)
+
+# Declared operational control families. A name outside all of them fails.
+allowed_control_prefixes=(
+  FOUNDATION_PLATFORM_R2_LIVE_
+  FOUNDATION_PLATFORM_R2_SMOKE_
+  FOUNDATION_PLATFORM_R2_INVENTORY_
+  FOUNDATION_PLATFORM_R2_BILLING_
+  FOUNDATION_PLATFORM_R2_CLEANUP_VERIFY
+  FOUNDATION_PLATFORM_R2_DELETE_CANDIDATES
+  FOUNDATION_PLATFORM_R2_BRONZE_KEY_
+  FOUNDATION_PLATFORM_R2_TILE_PROOF_
+)
+
+in_list() {
+  local needle="$1"
+  shift
+  local candidate
+  for candidate in "$@"; do
+    [ "$candidate" = "$needle" ] && return 0
+  done
+  return 1
+}
+
+has_connection_suffix() {
+  local name="$1" suffix
+  for suffix in "${connection_field_suffixes[@]}"; do
+    case "$name" in
+      *"_$suffix") return 0 ;;
+    esac
+  done
+  return 1
+}
+
+has_allowed_prefix() {
+  local name="$1" prefix
+  for prefix in "${allowed_control_prefixes[@]}"; do
+    case "$name" in
+      "$prefix"*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# `|| true`: an empty result is a legitimate state and `set -euo pipefail` would
+# otherwise abort with no verdict, which is worse than either answer.
+discovered_names="$(
+  git grep -oh -E 'FOUNDATION_PLATFORM_R2_[A-Z0-9_]+' -- \
+    ':!scripts/guard/r2-env-namespace-consistency.sh' \
+    ':!scripts/guard/r2-env-namespace-consistency-self-test.sh' \
+    2>/dev/null | sort -u || true
+)"
+
+unlisted=""
+while IFS= read -r name; do
+  [ -n "$name" ] || continue
+  # Trailing underscore means a prefix constant assembled in code
+  # (`FOUNDATION_PLATFORM_R2_LAKEHOUSE_`), not an environment name.
+  case "$name" in
+    *_) continue ;;
+  esac
+  if in_list "$name" "${canonical_keys[@]}"; then
+    continue
+  fi
+  if has_connection_suffix "$name"; then
+    if ! in_list "$name" "${connection_exceptions[@]}"; then
+      unlisted="${unlisted}${name}: connection field that is neither canonical nor a declared exception
+"
+    fi
+    continue
+  fi
+  if ! has_allowed_prefix "$name"; then
+    unlisted="${unlisted}${name}: belongs to no declared control family
+"
+  fi
+done <<EOF
+$discovered_names
+EOF
+
+if [ -n "$unlisted" ]; then
+  printf 'FAIL r2-env-namespace: Foundation R2 names that no list authorises:\n' >&2
+  printf '%s' "$unlisted" | sed 's/^/      /' >&2
+  echo '    A connection field belongs in canonical_keys, or in connection_exceptions with' >&2
+  echo '    the reason it is isolated. A control belongs to a declared family prefix.' >&2
+  echo '    Rejecting only known-legacy spellings would let a new name through.' >&2
+  fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
   echo 'OK r2-env-namespace-consistency'
 fi

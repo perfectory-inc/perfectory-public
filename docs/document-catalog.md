@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **331개**
+- 문서 파일: **351개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,26 +19,26 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 30 |
+| Monorepo | 50 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 92 |
-| README | 105 |
+| ADR | 105 |
+| README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 3 |
 | convention | 10 |
 | documentation | 32 |
 | draft | 2 |
-| evidence | 1 |
+| evidence | 4 |
 | fixture | 9 |
 | guide | 2 |
-| reference | 14 |
-| roadmap | 1 |
+| reference | 15 |
+| roadmap | 3 |
 | runbook | 29 |
 
 ## 책임별 문서 트리
@@ -380,6 +380,22 @@ docs/adr/0008-manual-dependency-updates-and-organization-branches.md
 docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md
 docs/adr/0010-live-resource-test-lanes.md
 docs/adr/0011-test-execution-set-completeness.md
+docs/adr/0012-verification-results-must-mean-what-they-say.md
+docs/adr/0013-release-uniqueness-admits-both-source-kinds.md
+docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md
+docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md
+docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md
+docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md
+docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md
+docs/adr/0019-membership-is-a-dated-fact-not-a-column.md
+docs/adr/0020-geometry-is-not-evidence-for-a-fact.md
+docs/adr/0021-an-unread-surface-is-deleted-not-migrated.md
+docs/adr/0022-current-means-today-and-one-view-says-so.md
+docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md
+docs/adr/0024-the-serving-projection-carries-only-what-the-tile-contract-names.md
+docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md
+docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md
+docs/adr/0027-every-guard-declares-its-threat-model.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -390,6 +406,10 @@ docs/guides/README.md
 docs/guides/single-source-spatial-publication-implementation.md
 docs/public-data-catalog.md
 docs/README.md
+docs/reference/design-system-benchmarks.md
+docs/reference/README.md
+docs/roadmap/foundation-baseline.md
+docs/roadmap/foundation-goals.md
 docs/roadmap/production-readiness.md
 docs/roadmap/README.md
 docs/technology-stack.md
@@ -419,9 +439,25 @@ tools/github/README.md
 | `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current |
 | `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current |
-| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | proposed |
+| `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current |
 | `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current |
+| `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current |
+| `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current |
+| `docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md` | Monorepo | ADR | current |
+| `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current |
+| `docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md` | Monorepo | ADR | current |
+| `docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md` | Monorepo | ADR | current |
+| `docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md` | Monorepo | ADR | current |
+| `docs/adr/0019-membership-is-a-dated-fact-not-a-column.md` | Monorepo | ADR | current |
+| `docs/adr/0020-geometry-is-not-evidence-for-a-fact.md` | Monorepo | evidence | evidence |
+| `docs/adr/0021-an-unread-surface-is-deleted-not-migrated.md` | Monorepo | ADR | current |
+| `docs/adr/0022-current-means-today-and-one-view-says-so.md` | Monorepo | ADR | current |
+| `docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md` | Monorepo | ADR | current |
+| `docs/adr/0024-the-serving-projection-carries-only-what-the-tile-contract-names.md` | Monorepo | ADR | current |
+| `docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md` | Monorepo | evidence | evidence |
+| `docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md` | Monorepo | evidence | evidence |
+| `docs/adr/0027-every-guard-declares-its-threat-model.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -432,6 +468,10 @@ tools/github/README.md
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current |
 | `docs/README.md` | Monorepo | README | current |
+| `docs/reference/design-system-benchmarks.md` | Monorepo | reference | current |
+| `docs/reference/README.md` | Monorepo | README | current |
+| `docs/roadmap/foundation-baseline.md` | Monorepo | roadmap | current |
+| `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current |
 | `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current |
 | `docs/roadmap/README.md` | Monorepo | README | current |
 | `docs/technology-stack.md` | Monorepo | documentation | current |
@@ -485,11 +525,11 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/catalog/building-register-consistency-rules.v1.draft.md` | Foundation Platform | draft | review required |
 | `platforms/foundation-platform/docs/catalog/building-register-field-mapping.v1.draft.md` | Foundation Platform | draft | review required |
 | `platforms/foundation-platform/docs/catalog/building-register-floor-normalization-rules.v1.md` | Foundation Platform | reference | current |
-| `platforms/foundation-platform/docs/catalog/industrial-complex-lakehouse-poc.md` | Foundation Platform | reference | current |
-| `platforms/foundation-platform/docs/catalog/industrial-complex-ssot-model.md` | Foundation Platform | reference | current |
+| `platforms/foundation-platform/docs/catalog/industrial-complex-lakehouse-poc.md` | Foundation Platform | reference | proposed |
+| `platforms/foundation-platform/docs/catalog/industrial-complex-ssot-model.md` | Foundation Platform | reference | proposed |
 | `platforms/foundation-platform/docs/catalog/lakehouse-industry-reference.md` | Foundation Platform | reference | current |
 | `platforms/foundation-platform/docs/catalog/national-data-normalization-contract.v1.json` | Foundation Platform | reference | current |
-| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | Draft |
+| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | proposed |
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json` | Foundation Platform | fixture | fixture |
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json` | Foundation Platform | reference | current |
 | `platforms/foundation-platform/docs/catalog/provider-rate-policy.v1.json` | Foundation Platform | reference | current |

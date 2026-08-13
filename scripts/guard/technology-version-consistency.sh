@@ -77,6 +77,27 @@ if [ -n "$workflow_node_versions" ] && printf '%s\n' "$workflow_node_versions" |
   fail=1
 fi
 
+# The verification image layers onto the harness's pinned toolchain, so its `FROM` and
+# `RUST_TOOLCHAIN_IMAGE` are the same fact written twice. The digest has to be literal in the
+# Dockerfile — `check-container-runtime-policy.sh` refuses a reference it cannot read, and a build
+# argument is exactly that — so the copy is enforced here instead of avoided. Drift between the two
+# would verify against a toolchain other than the one the harness runs everything else with.
+verify_dockerfile=tools/verify-image/Dockerfile
+pin_file=tools/container-images.env
+if [ -f "$verify_dockerfile" ] && [ -f "$pin_file" ]; then
+  pinned_toolchain=$(sed -n 's/^RUST_TOOLCHAIN_IMAGE=//p' "$pin_file" | tr -d '\r')
+  verify_base=$(sed -n 's/^FROM[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$verify_dockerfile" | head -1)
+  if [ -z "$pinned_toolchain" ] || [ -z "$verify_base" ]; then
+    echo "FAIL technology-version: could not read the toolchain pin or the verification image base" >&2
+    fail=1
+  elif [ "$pinned_toolchain" != "$verify_base" ]; then
+    echo 'FAIL technology-version: the verification image base does not match the pinned toolchain:' >&2
+    echo "  $pin_file:           $pinned_toolchain" >&2
+    echo "  $verify_dockerfile:  $verify_base" >&2
+    fail=1
+  fi
+fi
+
 if [ "$fail" -eq 0 ]; then
   echo 'OK technology-version-consistency'
 fi

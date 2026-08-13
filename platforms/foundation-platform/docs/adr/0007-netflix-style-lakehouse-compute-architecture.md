@@ -1,4 +1,4 @@
-# ADR 0007 - Netflix-style Lakehouse Compute Architecture
+# ADR 0007 - Netflix 방식 레이크하우스 컴퓨트 아키텍처
 
 | 항목 | 내용 |
 |---|---|
@@ -75,13 +75,13 @@ Rust 는 compute engine 을 대체하지 않는다. 대신 compute engine 을 �
 
 Rust 소유:
 
-- static lakehouse table contract
-- source lineage 와 `source_record`
+- 정적 lakehouse table contract
+- source lineage와 `source_record`
 - quality gate 결과
-- publish/promotion decision
+- publish/promotion 결정
 - rollback pointer
-- `LakehouseMaintenancePolicy` 와 maintenance planning
-- consumer API, manifest, event
+- `LakehouseMaintenancePolicy`와 maintenance planning
+- consumer API·manifest·event
 
 Spark/Trino 소유 아님:
 

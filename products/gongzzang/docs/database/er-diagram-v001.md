@@ -5,23 +5,21 @@ doc_type: documentation
 last_reviewed: 2026-07-29
 ---
 
-# Gongzzang Runtime ER Overview
+# Gongzzang 런타임 ER 개요
 
-This document describes the Gongzzang-owned runtime data model only.
+이 문서는 Gongzzang이 소유하는 런타임 데이터 모델만 설명한다.
 
-Catalog ETL, raw public API archive, and API drift observability tables are
-Foundation Platform concerns. The fresh Gongzzang migration chain does not create
-the former Foundation-owned tables:
+Catalog ETL·공공 API 원자료 보관·API 변경 관측성 table은 Foundation Platform 책임이다. 새 Gongzzang
+migration chain은 과거 Foundation 소유 table을 만들지 않는다.
 
 - `pipeline_schedule`
 - `pipeline_run`
 - `parcel_external_data`
 - `api_health_check`
 
-Their names remain only in negative schema assertions so a future change cannot
-silently reintroduce them.
+이 이름의 table을 향후 migration에서 다시 만들면 소유권 경계를 조용히 되살리는 것이므로 금지한다.
 
-## Active RDS Model
+## 현재 RDS 모델
 
 ```mermaid
 erDiagram
@@ -147,18 +145,17 @@ erDiagram
     }
 ```
 
-## Cross-Service References
+## 서비스 간 참조
 
-`listing.parcel_pnu` is not a foreign key into a Gongzzang-owned `parcel`
-table. Canonical parcel geometry and anchor lineage are owned by Foundation Platform.
-Gongzzang keeps only the `parcel_marker_anchor` read-model copy required for
-listing marker serving.
+`listing.parcel_pnu`는 Gongzzang 소유 `parcel` table의 foreign key가 아니다. 정본 필지 geometry와
+anchor lineage는 Foundation Platform이 소유한다. Gongzzang은 marker serving에 필요한
+`parcel_marker_anchor` read-model 복사본만 유지한다.
 
-## Update Order
+## 갱신 순서
 
 1. Migrations in `migrations/*.sql`
 2. Rust repository/domain contracts
 3. This diagram
 
-If this document conflicts with migrations or the boundary ledger, the
-migrations plus `docs/architecture/foundation-platform-boundary.v1.json` win.
+이 문서가 migration 또는 경계 원장과 충돌하면 migration과
+`docs/architecture/foundation-platform-boundary.v1.json`이 우선한다.

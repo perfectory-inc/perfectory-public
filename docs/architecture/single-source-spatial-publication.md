@@ -1,18 +1,11 @@
 ---
 status: current
-owner: monorepo
+owner: foundation
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 <!-- public-repository-safety: reviewed-public-contract -->
-
----
-status: current
-owner: foundation
-doc_type: architecture
-last_reviewed: 2026-07-28
----
 
 # 단일 출처 공간 데이터 공개 아키텍처
 
@@ -29,51 +22,63 @@ last_reviewed: 2026-07-28
 **최신성 SLO:** 활성 릴리스와 제공 세대가 커밋된 뒤 이미 열려 있는 지도에 공개 변경이 5초 안에
 반영되어야 한다.
 
-## 1. Decision
+## 1. 결정
 
-Each publication unit has exactly one complete active tile source at a time:
+각 publication unit은 항상 완전한 active tile source를 정확히 하나만 가진다.
 
-- `DYNAMIC`: Martin renders the complete current unit from the Foundation PostGIS serving mirror.
-- `STATIC`: Martin serves one immutable, version-addressed PMTiles artifact from the dedicated
-  private serving-derivative R2 bucket.
+- `DYNAMIC`: Martin이 Foundation PostGIS serving mirror에서 현재 단위 전체를 렌더링한다.
+- `STATIC`: Martin이 전용 private serving-derivative R2 bucket의 불변·버전 주소 PMTiles 하나를 제공한다.
 
-At launch, a publication unit is one logical layer such as `parcels`, `complex`, or `buildings`.
-Static and dynamic representations of the same unit are never rendered together. A future ADR may
-reduce the unit to non-overlapping Web Mercator partitions only after measurements justify it.
+출시 시 publication unit은 `parcels`, `complex`, `buildings` 같은 하나의 논리 계층이다.
+같은 단위의 static과 dynamic 표현을 동시에 렌더링하지 않는다. 향후 ADR은 측정 결과가 근거가 될
+때만 단위를 겹치지 않는 Web Mercator partition으로 줄일 수 있다.
 
-This supersedes the proposed Foundation-wide `static base + feature delta - tombstone` composition.
-Martin composite sources combine tile payloads; they do not provide feature subtraction,
-deduplication, or replacement precedence. Implementing those semantics in Gongzzang would duplicate
-Foundation visibility policy in a consumer. Implementing them in a custom gateway would create a
-custom tile engine.
+이는 제안되었던 Foundation 전역 `static base + feature delta - tombstone` 조합을 폐기한다.
+Martin composite source는 tile payload를 합칠 뿐 feature 제거·중복 제거·교체 우선순위를 제공하지 않는다.
+그 의미를 Gongzzang에 구현하면 소비자가 Foundation 공개 정책을 복제하게 되고, custom gateway에
+구현하면 별도 tile engine을 만들게 된다.
 
-## 2. Problem and Root Invariant
+## 2. 문제와 핵심 불변식
 
-The root problem is not how to hide one polygon already baked into PMTiles. It is how to expose one
-logically current map while preserving an immutable R2-first canonical history and allowing immediate
-edits.
+핵심 문제는 PMTiles에 이미 들어간 폴리곤 하나를 숨기는 방법이 아니다. 불변 R2 우선 정본 이력을
+보존하면서 논리적으로 현재인 지도 하나를 제공하고 즉시 수정을 허용하는 방법이다.
 
-For every `(publication_unit, serving_generation)`:
+모든 `(publication_unit, serving_generation)`에 대해 다음을 보장한다.
 
-1. A tile response contains zero or one current representation of each logical feature.
-2. Every tile in the unit is read from one complete active source.
-3. A source transition is visible only after the candidate source has been validated.
-4. A stale static build cannot replace a newer dynamic revision.
-5. Rollback selects a previously validated complete source; it does not reconstruct a mixture.
-6. PMTiles, PostGIS, Martin caches, and the runtime manifest are projections, never independent
-   authorities for canonical geometry or visibility.
+1. tile 응답에는 각 논리 feature의 현재 표현이 0개 또는 1개만 있다.
+2. 한 단위의 모든 tile은 하나의 완전한 active source에서 읽는다.
+3. 후보 source를 검증한 뒤에만 source 전환이 보인다.
+4. 오래된 static build가 더 최신인 dynamic 리비전을 덮지 못한다.
+5. rollback은 과거에 검증한 완전 source를 선택하며 서로 다른 source를 재조합하지 않는다.
+6. PMTiles·PostGIS·Martin cache·runtime manifest는 projection이지 정본 geometry나 공개 권위가 아니다.
 
-Dynamic Martin URLs are deliberately stable and query-free. The Catalog
-`vector_tile_runtime_manifest_pointer` is the only runtime selector; the `serving_postgis.*_current`
-views join it to the selected release's `data_revision`. Static PMTiles routes are immutable and
-release-addressed, so CDN caching cannot serve bytes from a different release under the same path.
+Dynamic Martin URL은 의도적으로 안정적이며 query가 없다. Catalog의
+`vector_tile_runtime_manifest_pointer`만 runtime selector이고 `serving_postgis.*_current` view가
+선택된 release의 **projection 적재**를 경유해 join한다 —
+`release.postgis_projection_revision = publication.projection_load_id`. 즉 타일이 잘려 나오는 행은
+선택된 release가 **지명한 바로 그 적재**의 행이지, "그 리비전 아래 지금 저장된 무엇이든"이 아니다.
+Static PMTiles route는 불변·release 주소이므로 CDN cache가 같은 path에서 다른 release 바이트를
+반환할 수 없다.
 
-These invariants eliminate double drawing, stale resurrection, feature-level suppression garbage
-collection, and change loss during a static build.
+### 리비전·적재·release의 세 원장
+
+| 원장 | 답하는 질문 | 근거 |
+| --- | --- | --- |
+| `catalog.publication_revision` | 이 **단위**의 데이터가 어느 canonical 스냅샷인가 | [ADR-0017](../adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md) |
+| `serving_postgis.spatial_projection_load` | 그 리비전이 **언제·몇 행으로** materialise 됐는가 | [ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) |
+| `catalog.vector_tile_release` | 어느 적재를 **서빙**하는 불변 release인가 | [ADR-0013](../adr/0013-release-uniqueness-admits-both-source-kinds.md) |
+
+리비전은 단위에 스코프된다. release와 적재 모두
+`(data_revision, publication_unit_id, canonical_iceberg_snapshot_id)`로 참조하므로 **다른 단위의
+리비전을 지명하는 것은 쓸 수 없다.** `catalog.administrative_boundary_revision`은 행정경계
+**사실** 원장이며, 발행 리비전이 계보로 그것을 가리킨다 — 그 반대가 아니다.
+
+이 불변식으로 이중 렌더링, 오래된 geometry 부활, feature 단위 억제 garbage collection, static build
+중 변경 유실을 제거한다.
 
 ## 3. Authority and SSOT
 
-SSOT means one authority for each fact, not one physical storage system.
+SSOT는 물리 저장소 하나가 아니라 사실마다 권위가 하나라는 뜻이다.
 
 | Fact | Authority | Derived copies |
 |---|---|---|
@@ -84,20 +89,20 @@ SSOT means one authority for each fact, not one physical storage system.
 | Tile bytes while static | Immutable PMTiles artifact selected by Catalog | Martin/CDN range cache |
 | Listing visibility and marker state | Gongzzang listing write model | Gongzzang marker projections |
 
-An approved public edit must be durably registered in the Foundation canonical revision and projected
-into PostGIS before its serving generation becomes public. PostGIS remains reconstructible from the
-canonical Foundation data and must not become the only copy of an edit. An unapproved preview may use
-a staff-only workspace but is outside the public tile contract.
+승인된 공개 변경은 serving generation을 공개하기 전에 Foundation 정본 리비전에 영속 등록하고
+PostGIS로 투영해야 한다. PostGIS는 Foundation 정본 데이터에서 재구성 가능해야 하며 변경의 유일한
+복사본이 되면 안 된다. 미승인 preview는 staff 전용 workspace를 사용할 수 있지만 공개 tile 계약
+범위 밖이다.
 
-R2 carries two projections of Catalog manifest state: create-only
-`gold/vector-tiles/manifests/{manifest_id}.json` history and the rebuildable no-cache
-`gold/vector-tiles/runtime-manifest.json` active pointer. Neither is where operators manually choose
-the active source. The mutable pointer is updated with R2 ETag compare-and-swap (`If-Match`, or
-`If-None-Match: *` on bootstrap), never an unconditional overwrite after a database check.
+R2에는 Catalog manifest 상태의 두 projection이 있다. create-only
+`gold/vector-tiles/manifests/{manifest_id}.json` 이력과 재생성 가능한 no-cache
+`gold/vector-tiles/runtime-manifest.json` active pointer다. 어느 것도 운영자가 active source를 직접
+고르는 장소가 아니다. 변경 가능한 pointer는 R2 ETag compare-and-swap(`If-Match`, bootstrap에서는
+`If-None-Match: *`)로 갱신하며 DB 확인 뒤 무조건 덮어쓰지 않는다.
 
-## 4. Publication State Model
+## 4. 공개 상태 모델
 
-The active source and build job are separate facts:
+active source와 build job은 서로 다른 사실이다.
 
 ```text
 publication_unit
@@ -125,158 +130,144 @@ tile_build_job
   candidate_artifact_id
 ```
 
-The pointer is advanced only through the Catalog compare-and-swap function
-`catalog.promote_vector_tile_runtime_manifest(expected_manifest_id, next_manifest_id)`. It locks
-the singleton, requires a complete manifest and contiguous per-unit generations, updates the
-ledger's active selections, and then changes the pointer in one transaction.
+pointer는 Catalog compare-and-swap 함수
+`catalog.promote_vector_tile_runtime_manifest(expected_manifest_id, next_manifest_id)`으로만 전진한다.
+이 함수는 singleton을 잠그고 완전한 manifest와 단위별 연속 generation을 요구한 뒤 원장의 active
+selection을 갱신하고 같은 트랜잭션에서 pointer를 바꾼다.
 
-`BUILDING` is not a third serving source. While a static build runs, the unit continues serving its
-complete dynamic source.
+`BUILDING`은 세 번째 serving source가 아니다. 정적 build 중에도 단위는 완전한 dynamic source를
+계속 제공한다.
 
-Each immutable release records its `data_revision`, canonical Iceberg snapshot, PostGIS projection
-generation, source kind, versioned tile URL, validation evidence, and optional PMTiles artifact. A
-dynamic release does not make mutable PostGIS rows into history; its canonical revision remains
-reconstructible from Iceberg.
+각 불변 release에는 `data_revision`, 정본 Iceberg snapshot, PostGIS projection generation, source 종류,
+버전 tile URL, 검증 증거, 선택적 PMTiles artifact를 기록한다. dynamic release가 변경 가능한 PostGIS
+행을 이력으로 만들지는 않는다. 정본 리비전은 Iceberg에서 계속 재구성할 수 있어야 한다.
 
 `data_revision` changes when public feature content changes. `serving_generation` changes whenever
-Catalog selects another complete release, including a dynamic-to-static switch for the same data.
-They are deliberately different values. `manifest_generation` is global and changes whenever any
-publication unit changes, so one poll token can unambiguously detect independently updated units.
+Catalog이 같은 데이터의 동적→정적 전환을 포함해 다른 완전한 릴리스를 선택한다.
+두 값은 의도적으로 다르다. `manifest_generation`은 전역 값이며 어느 publication unit이 바뀌어도
+증가하므로 하나의 poll token으로 독립적으로 바뀐 단위를 모호함 없이 감지할 수 있다.
 
-The v2 state uses normalized publication-unit, release, release-layer, immutable-manifest,
-manifest-unit-selection, singleton-pointer, build-job, and refresh-observation tables. The existing
-schema-v1 `vector_tile_manifest` and `vector_tile_artifact` tables and their flat-MVT constraints are
-not altered. This physical separation makes accidental v1 semantic reuse impossible and preserves
-the legacy endpoint/event/object bytes during migration.
+v2 상태는 정규화된 publication-unit, release, release-layer, immutable-manifest,
+manifest-unit-selection, singleton-pointer, build-job, refresh-observation table을 사용한다. 기존
+schema-v1 `vector_tile_manifest`·`vector_tile_artifact`와 flat-MVT 제약은 바꾸지 않는다. 물리적
+분리로 v1 의미를 실수로 재사용할 수 없고 마이그레이션 중 레거시 endpoint/event/object 바이트를 보존한다.
 
 ### 4.1 Public edit
 
-1. Read the expected active release, Catalog-selected Iceberg snapshot, data revision, and optimistic
-   version. New edits must branch from this selected snapshot, never from an unselected Iceberg
-   `main` head.
-2. Create a release-scoped Iceberg WAP branch from the selected snapshot, write the candidate there,
-   and validate it. The branch has an explicit retention period and remains isolated from `main`.
-3. In one Foundation database transaction, lock the singleton runtime-manifest pointer first, then
-   lock the affected publication unit; verify the expected active release/version; apply the
-   candidate revision to the complete PostGIS serving projection; record a new immutable dynamic
-   release; select it; increment `serving_generation`; and record the outbox event for the R2
-   manifest projection. The same transaction reads all unit selections while the pointer is locked,
-   creates the new immutable global manifest, and increments `manifest_generation`.
-4. The Catalog runtime-manifest endpoint reads the new complete release directly from that committed
-   transaction.
-5. The outbox publisher asynchronously projects the same manifest to R2 for boot/distribution use.
-6. Return public success only after steps 1-4 are durable and the dynamic source is ready.
+1. 예상 active release, Catalog 선택 Iceberg snapshot, data revision, optimistic version을 읽는다.
+   새 변경은 선택된 snapshot에서 branch해야 하며 선택되지 않은 Iceberg `main` head에서 시작하지 않는다.
+2. 선택된 snapshot에서 release 범위 Iceberg WAP branch를 만들고 후보를 기록·검증한다. branch에는
+   명시적 보존 기간을 두며 `main`과 격리한다.
+3. 하나의 Foundation DB 트랜잭션에서 singleton runtime-manifest pointer를 먼저 잠근 다음 영향받은
+   publication unit을 잠근다. 예상 active release/version을 확인하고 후보 리비전을 완전한 PostGIS
+   serving projection에 적용한다. 새 불변 dynamic release를 기록·선택하고 `serving_generation`을
+   증가시키며 R2 manifest projection용 outbox event를 기록한다. 같은 트랜잭션에서 pointer를 잠근 채
+   모든 unit selection을 읽어 새 불변 전역 manifest를 만들고 `manifest_generation`을 증가시킨다.
+4. Catalog runtime-manifest endpoint는 커밋된 트랜잭션의 새 완전 release를 직접 읽는다.
+5. outbox publisher는 같은 manifest를 boot/distribution용 R2에 비동기로 투영한다.
+6. 1~4단계가 영속화되고 dynamic source가 준비된 뒤에만 public success를 반환한다.
 
-Every public edit creates a new release, even when the unit was already dynamic. The per-unit row
-lock, global pointer lock, expected active release, and branch base snapshot serialize concurrent
-edits. Every publication transaction acquires locks in the fixed order
-`runtime_manifest_pointer -> publication_unit -> release rows`; no code path may acquire a unit lock
-first. The selected WAP snapshot becomes the Catalog-authoritative canonical revision only when step
-3 commits. A failed activation leaves an unselected branch; later edits still branch from the
-Catalog-selected snapshot, so failed candidates cannot leak into later public revisions.
+모든 public edit는 단위가 이미 dynamic이어도 새 release를 만든다. 단위 row lock, 전역 pointer lock,
+예상 active release, branch base snapshot이 동시 변경을 직렬화한다. 모든 공개 트랜잭션은 다음 고정
+순서로 lock을 얻는다.
+`runtime_manifest_pointer -> publication_unit -> release rows`. 어떤 code path도 unit lock을 먼저
+얻지 않는다. 선택된 WAP snapshot은 3단계가 커밋될 때만 Catalog 권위 정본 리비전이 된다. 활성화에
+실패하면 선택되지 않은 branch로 남고, 이후 변경은 Catalog가 선택한 snapshot에서만 branch하므로
+실패한 후보가 다음 공개 리비전에 섞이지 않는다.
 
-A reconciler fast-forwards Iceberg `main` only along the ancestry of the currently Catalog-selected
-snapshot. It retains every selected branch until `main` catches up and every retained release no
-longer needs it; unselected branches expire after their bounded audit retention. This is Apache
-Iceberg's standard
-[Write-Audit-Publish/branch mechanism](https://iceberg.apache.org/docs/latest/branching/), not a
-custom table format.
+reconciler는 현재 Catalog가 선택한 snapshot의 ancestry를 따라갈 때만 Iceberg `main`을
+fast-forward한다.
+`main`이 따라잡고 보존된 release가 더 이상 필요 없어질 때까지 선택된 branch를 모두 보존한다.
+선택되지 않은 branch는 제한된 audit 보존 기간 뒤 만료된다. 이는 Apache Iceberg의 표준
+[Write-Audit-Publish/branch mechanism](https://iceberg.apache.org/docs/latest/branching)이며 custom
+table format이 아니다.
 
-Before the publication backend is implemented, a bounded live capability probe must prove that the
-selected Iceberg REST Catalog provider supports creating a branch at an exact snapshot, writing and
-reading the branch, retaining it, and fast-forwarding `main`. Cloudflare R2 Data Catalog is a provider,
-not the table-format SSOT. If its current beta implementation fails this standard Iceberg contract,
-the implementation stops for a provider decision; it must not emulate branches with ad-hoc R2
-pointers. Canonical Parquet/Iceberg data can remain on R2 behind another conforming Iceberg REST
-Catalog.
+공개 backend를 구현하기 전에 제한된 live capability probe로 선택한 Iceberg REST Catalog provider가
+정확한 snapshot에서 branch 생성, branch 쓰기·읽기·보존, `main` fast-forward를 지원하는지 증명한다.
+Cloudflare R2 Data Catalog은 provider이지 table-format SSOT가 아니다. 현재 beta 구현이 표준 Iceberg
+계약을 충족하지 못하면 provider 결정을 먼저 하고, 임의 R2 pointer로 branch를 흉내 내면 안 된다.
+정본 Parquet/Iceberg 데이터는 호환되는 다른 Iceberg REST Catalog 뒤에서 R2에 계속 둘 수 있다.
 
-If PostGIS is unavailable or not caught up, the edit may be accepted as pending but must not be
-reported as publicly visible.
+PostGIS가 unavailable이거나 따라잡지 못했으면 변경을 pending으로 받을 수는 있지만 public visible로
+보고하면 안 된다.
 
-The dynamic tile URL is stable, query-free, and explicitly non-cacheable. The Catalog runtime
-manifest pointer selects the complete committed PostGIS revision behind Martin's stable source;
-`serving_generation` is a manifest identity and refresh token, never a URL selector. Martin's
-mutable tile cache and the CDN must not retain a deleted geometry beyond the 5-second SLO.
+dynamic tile URL은 안정적이고 query가 없으며 명시적으로 cache하지 않는다. Catalog runtime manifest
+pointer가 Martin의 안정 source 뒤에 있는 완전한 커밋 PostGIS 리비전을 선택한다. `serving_generation`은
+manifest identity이자 refresh token이며 URL selector가 아니다. Martin의 mutable tile cache와 CDN은
+삭제된 geometry를 5초 SLO보다 오래 보존하면 안 된다.
 
-### 4.2 Scheduled or operator-requested static publication
+### 4.2 예약 또는 운영자 요청 정적 공개
 
-1. Capture active dynamic release `R`, its `data_revision`, canonical Iceberg snapshot, and projection
-   generation.
-2. Materialize a build-scoped frozen PostGIS snapshot for exactly `R`; never run multiple
-   `martin-cp` passes against a mutating live mirror.
-3. Create a build job bound to `R` and the frozen snapshot; continue serving dynamic tiles.
-4. Bulk render with `martin-cp` to MBTiles.
-5. Validate source layers, stable identities, zoom coverage, feature counts, and expected omissions.
-6. Convert and verify one immutable PMTiles artifact.
-7. Upload it create-only to a versioned key in the dedicated private serving-derivative R2 bucket.
-8. Wait for `martin-static` to discover the new immutable object from its configured R2 PMTiles
-   prefix, then verify the version-addressed source route, HTTP Range reads, and decoded MVT through
-   the production-shaped URL.
-9. Compare and swap only if the unit still selects input release `R`, its `data_revision` is
-   unchanged, and its optimistic version matches the build input.
-10. Create and select a static release with the same `data_revision`, retain `R` as the same-data
-    fallback, increment the unit `serving_generation` and global `manifest_generation`, and expose the
-    complete manifest from Catalog.
+1. active dynamic release `R`, `data_revision`, 정본 Iceberg snapshot, projection generation을 캡처한다.
+2. 정확히 `R`만을 위한 build 범위 고정 PostGIS snapshot을 만든다. 변경 중인 live mirror에 여러
+   `martin-cp` pass를 실행하지 않는다.
+3. `R`과 고정 snapshot에 묶인 build job을 만들고 dynamic tile 제공은 계속한다.
+4. `martin-cp`로 MBTiles를 bulk render한다.
+5. source layer, 안정 identity, zoom 범위, feature 수, 예상 누락을 검증한다.
+6. 불변 PMTiles artifact 하나로 변환·검증한다.
+7. 전용 private serving-derivative R2 bucket의 versioned key에 create-only로 업로드한다.
+8. `martin-static`이 설정된 R2 PMTiles prefix에서 새 불변 object를 발견할 때까지 기다린다. 그 뒤
+   version 주소 source route, HTTP Range read, production 형태 URL의 decoded MVT를 검증한다.
+9. 단위가 여전히 입력 release `R`을 선택하고 `data_revision`이 같으며 optimistic version이 build
+   입력과 일치할 때만 CAS한다.
+10. 같은 `data_revision`의 static release를 만들고 선택한다. `R`을 같은 데이터 fallback으로 보존하고
+    unit `serving_generation`과 전역 `manifest_generation`을 증가시킨 뒤 Catalog에서 완전 manifest를 공개한다.
 
-If any edit replaces `R` after step 1, step 9 marks the build `SUPERSEDED`; it can never
-be promoted. The scheduler may debounce and retry from the newer revision. No edit is paused or lost.
+1단계 뒤 어떤 변경이든 `R`을 교체하면 9단계가 build를 `SUPERSEDED`로 표시하고 절대 승격하지 않는다.
+scheduler는 최신 리비전에서 debounce 후 재시도할 수 있다. 변경을 멈추거나 잃지 않는다.
 
-Martin uses two independently configured deployments of the same pinned Martin image:
+Martin은 같은 pinned Martin image를 독립적으로 설정한 두 deployment로 사용한다.
 
-- `martin-dynamic` has stable, explicit PostGIS sources and is not restarted for a static release.
-- `martin-static` uses Martin 1.12's `pmtiles.paths` remote-prefix discovery against only the dedicated
-  private serving-derivative R2 bucket. A separate bucket-scoped, read-only R2 credential grants
-  list/read access to that bucket. The configured prefix bounds source discovery; it is not an IAM
-  boundary.
+- `martin-dynamic`은 안정적이고 명시적인 PostGIS source를 가지며 static release 때문에 재시작하지 않는다.
+- `martin-static`은 전용 private serving-derivative R2 bucket에 대해서만 Martin 1.12의
+  `pmtiles.paths` remote-prefix discovery를 사용한다. 별도 bucket 범위 읽기 전용 R2 credential이
+  bucket list/read 권한을 준다. 설정 prefix는 source discovery 범위일 뿐 IAM 경계가 아니다.
 
-Every archive filename is exactly `{publication_unit}-{release_id}.pmtiles`, so Martin's discovered
-source ID is the release-addressed filename stem. Discovery only adds immutable routes; files are
-never overwritten in place. The publisher polls Martin's catalog until the expected source appears,
-decodes representative tiles, and only then invokes the CAS promotion. The checked-in config fixes a
-bounded reload interval and the proof mechanically verifies the pinned Martin source-ID convention.
-Named `pmtiles.sources` URLs are not used because they are snapshotted at startup.
+모든 archive filename은 정확히 `{publication_unit}-{release_id}.pmtiles`이며 Martin이 발견하는 source ID는
+release 주소 filename stem이다. discovery는 불변 route만 추가하고 파일을 제자리에서 덮어쓰지 않는다.
+publisher는 예상 source가 나타날 때까지 Martin catalog를 poll하고 대표 tile을 decode한 뒤에만 CAS
+승격을 호출한다. 저장소 설정은 제한된 reload 간격을 고정하고 proof가 pinned Martin source-ID 규칙을
+기계적으로 검증한다. 이름이 지정된 `pmtiles.sources` URL은 시작 시 snapshot되므로 사용하지 않는다.
 
-Martin supports Cloudflare R2 through its S3-compatible PMTiles object-store source, so the bucket
-does not need a public `r2.dev` endpoint or custom domain. Cloudflare CDN fronts the public Martin
-MVT route; Martin is the authenticated R2 origin client. Direct public/custom-domain PMTiles is an
-explicitly authorized alternative, not the default.
+Martin은 S3 호환 PMTiles object-store source로 Cloudflare R2를 지원하므로 bucket에 public `r2.dev`
+endpoint나 custom domain이 필요 없다. Cloudflare CDN은 public Martin MVT route 앞에 있고 Martin은
+인증된 R2 origin client다. 직접 public/custom-domain PMTiles는 명시적으로 승인한 대안이지 기본값이 아니다.
 
-This reuses Martin's documented
+이는 Martin이 문서화한
 [S3-compatible PMTiles source and remote-prefix hot reload](https://github.com/maplibre/martin/blob/martin-v1.12.0/docs/content/sources-files.md)
-and avoids a custom watcher, Docker socket, or service restart in the publication path. Local
-fallback uses the same contract with a watched local directory. Named `pmtiles.sources` entries
-remain startup snapshots; only `pmtiles.paths` provides prefix polling.
+경로를 재사용하며 공개 경로에 custom watcher, Docker socket, service restart를 만들지 않는다. local
+fallback도 감시하는 local directory로 같은 계약을 사용한다. 이름이 있는 `pmtiles.sources` 항목은
+계속 startup snapshot이고 prefix polling은 `pmtiles.paths`만 제공한다.
 
-### 4.3 Next edit after static publication
+### 4.3 정적 공개 이후 다음 변경
 
-The PostGIS mirror remains warm and caught up even while static tiles handle public reads. The edit
-flow creates a new data revision and dynamic release, then atomically selects that complete source
-before public success. The client never displays the static and dynamic forms together.
+정적 tile이 public read를 처리하는 동안에도 PostGIS mirror는 warm 상태로 따라잡는다. 변경 흐름은
+새 data revision과 dynamic release를 만들고 public success 전에 그 완전 source를 원자적으로 선택한다.
+client는 static과 dynamic 형태를 함께 표시하지 않는다.
 
 ### 4.4 Rollback
 
-Serving rollback and data rollback are different operations:
+Serving rollback과 data rollback은 다른 작업이다.
 
-- **Serving rollback** recovers from a bad tile source by selecting a retained, validated complete
-  release for the same `data_revision`, using an expected-active-release compare and swap. The first
-  slice proves static-to-dynamic rollback because the warm dynamic mirror still represents the same
-  data revision.
-- **Data revert** does not point at a mutable historical PostGIS state. Foundation creates a new
-  canonical revision whose content intentionally reverts selected prior changes, projects it into
-  PostGIS, and follows the normal public-edit flow. History remains append-only.
+- **Serving rollback**은 잘못된 tile source가 발생하면 같은 `data_revision`의 보존·검증된 완전 release를
+  expected-active-release CAS로 선택해 복구한다. 첫 slice는 warm dynamic mirror가 같은 data revision을
+  계속 표현하므로 static→dynamic rollback을 증명한다.
+- **Data revert**는 변경 가능한 과거 PostGIS 상태를 가리키지 않는다. Foundation은 이전 변경을
+  의도적으로 되돌린 새 정본 리비전을 만들고 PostGIS로 투영한 뒤 일반 public-edit 흐름을 따른다.
+  이력은 추가 전용이다.
 
-Rollback never pairs an old archive with newer feature tombstones and never silently changes
-business data as a side effect of infrastructure recovery.
+rollback은 오래된 archive와 최신 feature tombstone을 짝지우지 않으며 infrastructure 복구의 부작용으로
+business data를 조용히 바꾸지 않는다.
 
-## 5. Manifest v2 Contract
+## 5. 매니페스트 v2 계약
 
-The accepted v1 contract describes individual flat MVT objects using a global
-`tiles_url_template`, physical `object_key_prefix`, `flat_tile_count`, and
-`flat_tile_total_bytes`. Those fields must not be repurposed for a Martin PMTiles route.
+현재 수용한 v1 계약은 전역 `tiles_url_template`, 물리적 `object_key_prefix`,
+`flat_tile_count`, `flat_tile_total_bytes`를 사용하는 개별 flat MVT 객체를 설명한다.
+이 필드는 Martin PMTiles 경로에 재사용해서는 안 된다.
 
-A Foundation-owned manifest v2 makes the serving transport explicit once per publication unit. It
-does not duplicate release, source, or generation identities for every layer. The exact Rust DTO
-remains the executable contract SSOT and generates OpenAPI/TypeScript consumers:
+Foundation이 소유하는 매니페스트 v2는 공개 단위마다 제공 전송 방식을 한 번만
+명시한다. 계층마다 release·source·generation 식별자를 복제하지 않는다. 정확한
+Rust DTO가 실행 가능한 계약 SSOT로 남고 OpenAPI/TypeScript 소비자를 생성한다.
 
 ```json
 {
@@ -295,7 +286,6 @@ remains the executable contract SSOT and generates OpenAPI/TypeScript consumers:
         "kind": "dynamic_postgis",
         "martin_source_id": "parcels",
         "tiles_url_template": "https://tiles.example.com/parcels/{z}/{x}/{y}",
-        "postgis_projection_revision": "0196e7e0-3c20-7000-8000-000000000063",
         "cache_policy": "no_store"
       },
       "layers": {
@@ -322,122 +312,121 @@ remains the executable contract SSOT and generates OpenAPI/TypeScript consumers:
 }
 ```
 
-`source` is a closed tagged union. `dynamic_postgis` carries the complete PostGIS projection
-revision and cache policy. `static_pmtiles` instead carries the immutable PMTiles object key,
-file-asset UUID, SHA-256, byte size, and release-addressed Martin source. Exactly one variant is
-valid. V2 forbids v1 flat-object fields.
+`source`는 닫힌 tagged union이다. `dynamic_postgis`는 Martin source id·URL 템플릿과 cache policy를
+담는다 — projection 적재 id는 **읽기 계약에서 제거됐다**([ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) §7).
+브라우저는 `serving_generation`만 비교하며 그 값을 쓴 적이 없다. `static_pmtiles`는 immutable PMTiles object key·file-asset UUID·SHA-256·byte size·release 주소 Martin source를 담는다. 유효한 variant는 정확히 하나이며 v2에서는
+v1 flat-object field를 금지한다.
 
-`current_version`, `data_revision`, `active_release_id`, projection revisions, and lineage IDs are
-UUIDs. `manifest_generation` and `serving_generation` are positive integers no greater than
-`9007199254740991`. `canonical_iceberg_snapshot_id` is a positive decimal **string**, never a JSON
-number: production Iceberg snapshot IDs can exceed JavaScript's safe integer range.
+`current_version`, `data_revision`, `active_release_id`, projection revision과 lineage ID는
+UUID다. `manifest_generation`과 `serving_generation`은 `9007199254740991` 이하의 양의 정수다.
+`canonical_iceberg_snapshot_id`는 JSON number가 아닌 양의 십진 **문자열**이다. 운영 Iceberg
+snapshot ID가 JavaScript의 안전한 정수 범위를 넘을 수 있기 때문이다.
 
-`manifest_generation` is only a global poll/change token. A unit's `source` and
-`serving_generation` select its runtime. `data_revision` changes when feature content changes;
-`serving_generation` also changes for a dynamic-to-static switch of the same data.
+`manifest_generation`은 전역 poll/change token일 뿐이다. unit의 `source`와 `serving_generation`이
+runtime을 선택한다. feature content가 바뀌면 `data_revision`이 바뀌고, 같은 data를 동적에서
+정적으로 바꿀 때도 `serving_generation`이 바뀐다.
 
-Dynamic PostGIS source IDs are stable explicit Martin configuration names. Their URL is query-free
-and uses `no_store`; the Catalog pointer, not a query parameter, selects the committed revision.
-Creating an undeclared per-generation Martin source ID is forbidden. Static source IDs are instead immutable
-release-addressed PMTiles filename stems. The browser's Mapbox source identity remains the logical
-unit name (`parcels`); only the server route segment changes for a static release, and the client
-retargets the existing logical source URL after validating the filename-derived identity.
+Dynamic PostGIS source ID는 안정적인 명시적 Martin configuration name이다. URL에는 query가 없고
+`no_store`를 사용하며 query parameter가 아니라 Catalog pointer가 commit된 revision을 선택한다.
+선언되지 않은 generation별 Martin source ID는 금지한다. Static source ID는 불변 release 주소가
+붙은 PMTiles filename stem이다. 브라우저의 Mapbox source identity는 logical unit name(`parcels`)로
+유지하고, static release에서는 server route segment만 바꾼다. client는 filename에서 파생한
+identity를 검증한 뒤 기존 logical source URL을 retarget한다.
 
-Each layer declares one canonical lowercase `feature_id_property`. The PostGIS view, PMTiles
-producer, TileJSON `vector_layers[].id`, Martin source, Mapbox `promoteId`, and contract tests use
-that same value. Proof-only aliases such as uppercase `PNU` are not production identities.
+각 계층은 하나의 정본 소문자 `feature_id_property`를 선언한다. PostGIS 뷰, PMTiles
+생성기, TileJSON `vector_layers[].id`, Martin 소스, Mapbox `promoteId`, 계약 테스트가
+모두 같은 값을 사용한다. 대문자 `PNU`처럼 증명에만 쓰는 별칭은 운영 식별자가 아니다.
 
-The first v2 publication unit is only `parcels`. During the bounded migration, the existing v1
-manifest continues to supply `parcel_anchor_aggregate` and `parcel_anchor`; Gongzzang ignores its
-v1 `parcels` artifact and loads the v2 parcel source instead. A parcel polygon transition therefore
-does not retarget the two anchor sources, and no unit is registered twice. `complex`, both anchor
-units, `admin`, and `buildings` migrate to v2 only after their own producer/consumer parity. The
-model may allow multiple MVT layers within one future unit only when they are always built,
-validated, and switched as one complete Martin source.
+첫 v2 공개 단위는 `parcels` 하나뿐이다. 제한된 이전 기간에는 기존 v1 매니페스트가
+`parcel_anchor_aggregate`와 `parcel_anchor`를 계속 제공한다. Gongzzang은 v1의
+`parcels` 산출물을 무시하고 v2 필지를 읽는다. 따라서 필지 폴리곤 전환이 두 앵커
+소스를 바꾸지 않으며 단위를 중복 등록하지 않는다. `complex`, 두 앵커 단위,
+`admin`, `buildings`는 각 생성자·소비자 동등성이 확인된 뒤에만 v2로 이전한다.
+미래 단위에 여러 MVT 계층을 허용하는 경우에도 하나의 완전한 Martin 소스로 항상
+함께 빌드·검증·전환되어야 한다.
 
-Manifest v1 remains supported during a bounded consumer migration. Catalog must never publish a v2
-manifest until the pinned Gongzzang consumer contract accepts it. Both sides dispatch exactly on
-`schema_version`; values other than `1` or `2` fail closed.
+소비자 이전이 끝날 때까지 제한된 기간 동안 매니페스트 v1을 지원한다. 고정된
+Gongzzang 소비자 계약이 수용하기 전에는 Catalog가 v2 매니페스트를 절대 발행하지
+않는다. 양쪽은 정확히 `schema_version`으로 분기하며 `1`이나 `2`가 아닌 값은
+fail closed 처리한다.
 
-The two schemas also use distinct projections during that migration. The existing
-`gold/manifest.json` stays frozen as v1; the Catalog live endpoint is
+이전 기간에는 두 스키마가 서로 다른 projection을 사용한다. 기존
+`gold/manifest.json`은 v1으로 동결하고 Catalog live endpoint는
 `GET /catalog/v1/vector-tiles/runtime-manifest`. Each v2 `current_version` is also the
 `manifest_id` in create-only `gold/vector-tiles/manifests/{manifest_id}.json`, while the rebuildable
 active v2 pointer is `gold/vector-tiles/runtime-manifest.json`. Overwriting the v1 key with v2 would
 remove the anchor sources on a fresh page load and is forbidden.
 
-## 6. Five-Second Active-Map Refresh
+## 6. 5초 활성 지도 갱신
 
-Gongzzang performs one non-overlapping conditional Catalog runtime-manifest check every 4 seconds
-while the map is mounted and visible. Schema v2 fixes `refresh_after_seconds` to `4`. This reserves
-one second of the 5-second SLO for manifest retrieval, source
-replacement, and the first new tile:
+Gongzzang은 지도가 표시되고 마운트된 동안 4초마다 겹치지 않는 조건부 Catalog
+runtime-manifest 확인을 한 번 실행한다. Schema v2는 `refresh_after_seconds`를 `4`로
+고정한다. 5초 SLO 중 1초를 매니페스트 조회, 소스 교체, 첫 새 타일에 남긴다.
 
-1. Use `ETag`/`If-None-Match` or an equivalent revision response so unchanged polls are small.
-2. On a changed global `manifest_generation`, validate the complete manifest from the same Catalog
-   response; do not wait for the asynchronous R2 manifest projection. Diff per-unit
-   `serving_generation` values to find the affected sources.
-3. Replace or retarget only affected vector sources using the supported Naver internal mapbox-gl
-   source API, then force tile reload.
-4. Re-register dependent style layers in deterministic order if source replacement requires it.
-5. Stop polling when the component is unmounted or the page is hidden; check immediately when it
-   becomes visible.
-6. Randomize only the initial polling phase to spread clients, never overlap requests, and use
-   bounded exponential backoff after transport/server failures.
+1. `ETag`/`If-None-Match` 또는 동등한 revision 응답을 사용해 변경 없는 polling을 작게 한다.
+2. 전역 `manifest_generation`이 바뀌면 같은 Catalog 응답의 완전한 매니페스트를 검증한다.
+   비동기 R2 매니페스트 projection을 기다리지 않는다. 단위별
+   `serving_generation`을 비교해 영향을 받은 소스를 찾는다.
+3. 지원되는 Naver 내부 mapbox-gl 소스로 영향을 받은 벡터 소스만 교체하거나 다시
+   지정한 뒤 타일을 강제로 갱신한다.
+4. 소스 교체에 필요하면 의존 스타일 계층을 결정적인 순서로 다시 등록한다.
+5. 컴포넌트가 해제되거나 페이지가 숨겨지면 polling을 멈추고 다시 보일 때 즉시 확인한다.
+6. 초기 polling 단계만 무작위화해 요청을 분산한다. 요청은 겹치지 않게 하고 전송·서버
+   실패 뒤에는 제한된 지수형 backoff를 사용한다.
 
-The steady-state budget is at most `0.25` conditional manifest requests/second per visible map.
-Before v2 is enabled, Foundation must register the route as an anonymous read-only public contract,
-bound its metric label and edge/CORS policy, and pass a load probe at twice the deployment's declared
-concurrent-visible-map launch budget.
+안정 상태 예산은 표시 중인 지도 하나당 조건부 매니페스트 요청 초당 최대 `0.25`다.
+v2를 켜기 전에 Foundation은 이 경로를 익명 읽기 전용 공개 계약으로 등록하고,
+metric label과 edge/CORS 정책을 묶고, 배포가 선언한 동시 표시 지도 출시 예산의
+두 배로 부하 probe를 통과해야 한다.
 
-Before backend state-machine implementation begins, the existing Naver SDK browser probe must prove
-one of these source-reload paths:
+백엔드 상태 머신 구현을 시작하기 전에 기존 Naver SDK 브라우저 probe가 다음 중 하나의
+소스 갱신 경로를 증명해야 한다.
 
 1. Preferred: `getSource(id).setTiles(...)` changes a vector source URL and causes fresh tile requests
    while source-layer, zoom, and `promoteId` remain unchanged.
 2. Fallback: `removeLayer`/`removeSource` followed by deterministic re-registration preserves camera
    and interaction state and meets the SLO.
-3. Last bounded fallback: controlled Naver map reinitialization preserves camera/selection state and
-   meets the SLO.
+3. 마지막 제한 fallback은 controlled Naver map 재초기화로 camera/selection state를 보존하고
+   SLO를 만족한다.
 
-If none is supported by the actual bundled SDK, this design is blocked and must return to architecture
-review; a service worker or custom MVT compositor must not be introduced as a hidden workaround.
+실제 번들 SDK가 어느 것도 지원하지 않으면 이 설계는 차단하고 아키텍처 검토로
+돌아간다. service worker나 사용자 정의 MVT compositor를 숨은 우회책으로 추가하지 않는다.
 
-The client keeps its currently registered source descriptor if a new manifest is malformed or its
-candidate source is not ready. Immutable static URLs continue to return the exact old release.
-A retained dynamic URL is only an availability fallback: because its stable Martin source reads the
-latest committed complete projection, it may return newer dynamic bytes and is not historical
-rollback. Foundation must never publish a dynamic release before that projection is ready. A source
-transition failure must be observable and must not combine old static tiles with new dynamic tiles.
+새 매니페스트가 잘못되었거나 후보 소스가 준비되지 않으면 클라이언트는 현재 등록된
+소스 설명을 유지한다. 변경할 수 없는 static URL은 계속 정확한 이전 release를 반환한다.
+유지한 dynamic URL은 가용성 fallback일 뿐이다. 안정적인 Martin 소스가 마지막으로
+커밋된 완전한 projection을 읽으므로 더 최신 dynamic 바이트를 반환할 수 있으며 과거
+rollback이 아니다. Foundation은 projection이 준비되기 전에 dynamic release를 발행하지
+않는다. 소스 전환 실패는 관측 가능해야 하며 이전 static 타일과 새 dynamic 타일을
+섞어서는 안 된다.
 
-The 5-second SLO starts when Foundation commits the active release and complete runtime manifest in
-the Catalog transaction, not when an operator begins drawing or when a background canonicalization
-job starts. The target is at least 99% of transitions within 5 seconds over a rolling 24-hour window;
-before launch, a repeated browser integration probe must meet the limit on every run. The measurement
-ends when the already-open map successfully loads a tile for each changed unit's new
-`serving_generation`.
+5초 SLO는 운영자가 그리기를 시작하거나 백그라운드 정규화 작업이 시작할 때가 아니라
+Foundation이 Catalog 트랜잭션에서 활성 release와 완전한 runtime manifest를 커밋할 때
+시작한다. 목표는 이동 24시간 구간에서 전환의 최소 99%를 5초 안에 완료하는 것이다.
+출시 전에는 반복 브라우저 통합 probe가 매번 이 제한을 충족해야 한다. 측정은 이미 열린
+지도가 변경된 각 단위의 새 `serving_generation` 타일을 성공적으로 읽을 때 끝난다.
 
 ## 7. Cache Contract
 
-- Static PMTiles object keys and Martin source URLs are immutable and version-addressed.
-- Static tile and HTTP Range responses may use long-lived immutable caching.
-- The lightweight Catalog runtime-manifest response uses `no-cache, must-revalidate` and supports conditional
-  requests, so every poll observes the current revision while unchanged responses remain small.
-  The schema-v2 polling interval is exactly four seconds, reserving one second for source reload and the first new
-  tile; measurements must shorten the interval if that budget is missed.
-- Dynamic tiles use `no-store` at launch, or a measured cache configuration whose total origin,
-  Martin, CDN, browser, and polling delay remains within 5 seconds.
-- Dynamic Martin URLs are query-free and use `no-store`; the runtime-manifest pointer selects the
-  complete PostGIS revision. Business rollback creates a new revision or selects a complete static
-  release; a URL query is never a historical selector.
-- A PMTiles object is never overwritten in place.
+- Static PMTiles object key와 Martin source URL은 불변이며 version 주소를 사용한다.
+- Static tile과 HTTP Range response는 장기 불변 cache를 사용할 수 있다.
+- 가벼운 Catalog runtime-manifest 응답은 `no-cache, must-revalidate`를 사용하고 조건부
+  요청을 지원한다. 따라서 매 polling마다 현재 revision을 확인하면서 변경이 없는 응답은 작게 유지한다.
+  schema-v2 polling 간격은 정확히 4초이며 소스 갱신과 첫 새 타일에 1초를 남긴다.
+  이 예산을 놓치면 측정 결과에 따라 간격을 줄여야 한다.
+- Dynamic tile은 출시 시 `no-store`를 사용하거나 origin·Martin·CDN·browser·polling 지연의 합이
+  5초 이내라는 측정 결과가 있는 cache 설정을 사용한다.
+- Dynamic Martin URL은 query가 없고 `no-store`를 사용한다. runtime-manifest pointer가 완전한
+  PostGIS revision을 선택한다. Business rollback은 새 revision을 만들거나 완전한 static release를
+  선택하며 URL query를 historical selector로 사용하지 않는다.
+- PMTiles object는 제자리에서 덮어쓰지 않는다.
 - Promotion purges or expires only the small mutable manifest/revision pointer, not immutable tile
   objects.
 
 ## 8. Ownership and Boundaries
 
-- Foundation owns canonical public/reference geometry, feature identity, publication state, Martin
-  source readiness, PMTiles builds, R2 upload, validation, promotion, rollback, and the manifest.
+- Foundation은 canonical public/reference geometry, feature identity, publication state, Martin
+  source readiness, PMTiles build, R2 upload, validation, promotion, rollback과 manifest를 소유한다.
 - Gongzzang validates and consumes the published manifest. It owns only active-map refresh and
   product presentation.
 - Dawneer may later provide staff controls for edit, approval, publish-now, and rollback, but calls
@@ -451,49 +440,49 @@ ends when the already-open map successfully loads a tile for each changed unit's
 
 Required state-transition evidence:
 
-- data revision, serving generation, active release/source, and same-data fallback release;
-- PostGIS projection generation and readiness;
-- build input release/snapshot, duration, result, validation report, and supersession reason;
-- immutable R2 object key, checksum, size, and upload precondition result;
-- Martin source readiness, decoded feature count, source layers, identity samples, and Range behavior;
-- CAS promotion/rollback result;
-- manifest projection lag;
+- data revision·serving generation·active release/source·같은 data의 fallback release
+- PostGIS projection generation과 readiness
+- build input release/snapshot·duration·result·validation report·supersession reason
+- immutable R2 object key·checksum·size·upload precondition 결과
+- Martin source readiness·decoded feature count·source layer·identity sample·Range 동작
+- CAS promotion/rollback 결과
+- manifest projection lag
 - client generation-poll lag, source-reload success/failure, and time to first tile at the new
   generation.
 
-Readiness must fail when a dynamic unit is selected but its PostGIS projection is behind, or when a
-static unit is selected but the exact Martin/R2 artifact is unreadable. A build failure leaves the
-active dynamic source unchanged.
+동적 unit을 선택했지만 PostGIS projection이 뒤처졌거나, 정적 unit을 선택했는데 정확한 Martin/R2
+artifact를 읽을 수 없으면 readiness는 실패해야 한다. build failure가 나도 active dynamic source는
+바뀌지 않는다.
 
 ## 10. Mechanical Guards
 
 Tests must make these regressions impossible:
 
-1. A manifest publication unit selects exactly one active source.
-2. Every manifest layer maps to one Martin source and one expected MVT source layer; no undeclared
-   source is exposed by the slice configuration.
-3. Static and dynamic producers emit the same canonical feature identity.
-4. An edit during build makes the stale build unpromotable.
-5. A failed build or R2 upload cannot alter the active source.
-6. A dynamic-to-static switch occurs only after decoding expected features through the Martin URL.
-7. A static-to-dynamic edit cannot report public success while the dynamic projection is behind.
-8. A browser revision change replaces the source and does not leave both versions registered.
+1. Manifest publication unit은 정확히 하나의 active source를 선택한다.
+2. 모든 manifest layer는 하나의 Martin source와 예상 MVT source layer에 매핑되며, slice
+   설정에 선언되지 않은 source는 노출되지 않는다.
+3. 정적·동적 producer는 동일한 canonical feature identity를 내보낸다.
+4. 빌드 중 편집이 발생하면 오래된 빌드는 승격할 수 없다.
+5. 실패한 빌드나 R2 업로드는 active source를 변경할 수 없다.
+6. 동적→정적 전환은 Martin URL로 예상 feature를 디코드한 뒤에만 발생한다.
+7. 정적→동적 편집은 동적 projection이 뒤처진 상태에서 공개 성공을 보고할 수 없다.
+8. 브라우저 revision 변경은 source를 교체하며 두 버전을 모두 등록한 채 남기지 않는다.
 9. Malformed/unready new manifests retain the current source descriptor; tests distinguish exact
    immutable-static retention from the non-historical latest-projection behavior of a dynamic route.
-10. The proof exercises add, modify, and delete for one sample unit and finds no duplicate, gap, or
-    resurrected feature.
+10. 증명은 하나의 sample unit에 대해 추가·수정·삭제를 실행하고 duplicate·gap·부활한
+    feature가 없는지 확인한다.
 11. Two outbox publishers interleaved as `A reads -> B publishes newer -> A writes` cannot regress
     the R2 runtime pointer; A's stale ETag fails and reconciliation selects Catalog's current manifest.
 12. Two different publication units activated concurrently preserve both selections and produce an
     ordered global manifest sequence; a partial or lost unit selection is impossible.
 
-The guards run through `cargo xtask verify foundation` and `cargo xtask verify gongzzang`; workflows
-must not introduce a second verification path.
+가드는 `cargo xtask verify foundation`과 `cargo xtask verify gongzzang`을 통해 실행한다.
+워크플로우가 두 번째 검증 경로를 만들면 안 된다.
 
-## 11. Scale Evolution
+## 11. 규모 확장
 
-The launch unit is a complete layer because it is the smallest architecture that provides immediate
-correctness without custom tile composition. Before adding sharding, collect:
+출시 단위는 사용자 정의 타일 조합 없이 즉시 정확성을 보장하는 가장 작은 구조인
+완전한 계층이다. 샤딩을 추가하기 전에 다음을 수집한다.
 
 - Martin/PostGIS p95 and origin CPU;
 - dynamic cache-miss rate and cost;
@@ -502,38 +491,37 @@ correctness without custom tile composition. Before adding sharding, collect:
 - superseded build frequency;
 - active-map refresh success and latency.
 
-Only when a measured threshold is exceeded may a follow-up ADR introduce fixed, non-overlapping
-partition ownership. Each partition uses the same single-active-source invariant. An edit marks every
-partition intersecting both the old and new geometry dynamic. Feature-level static/dynamic mixtures
-remain prohibited.
+측정된 임계치를 넘은 경우에만 후속 ADR이 고정되고 겹치지 않는 partition 소유권을
+도입할 수 있다. 각 partition은 동일한 단일 활성 소스 불변식을 사용한다. 수정은
+이전·새 geometry를 모두 가로지르는 모든 partition을 dynamic으로 표시한다. feature 단위
+static/dynamic 혼합은 계속 금지한다.
 
-Direct flat MVT objects, DuckDB/GeoParquet serving, and custom server-side MVT composition are not
-launch paths. They may be reconsidered only with production evidence that the selected architecture
-cannot meet its SLO or cost target.
+직접 flat MVT 객체, DuckDB/GeoParquet 제공, 서버 측 사용자 정의 MVT 조합은 출시 경로가
+아니다. 선택한 구조가 SLO나 비용 목표를 달성할 수 없다는 운영 증거가 있을 때만
+재검토한다.
 
 ## 12. ADR Reconciliation
 
-The governing records now agree:
+권위 문서가 이제 다음과 같이 일치한다.
 
 1. Root ADR 0006 defines object-storage-first serving and the single-complete-source invariant.
 2. Foundation ADR 0004 owns edit publication, active releases, strict manifest v1/v2 semantics, and
    authenticated private-R2 Martin serving.
-3. Foundation ADR 0006 remains authoritative for R2/Iceberg canonical data and reconstructible
-   PostGIS/PMTiles serving projections.
+3. Foundation ADR 0006은 R2/Iceberg 정본 데이터와 재구성 가능한 PostGIS/PMTiles serving projection의
+   권위로 남는다.
 4. Gongzzang ADR 0036 owns strict consumer dispatch and source replacement; historical ADRs 0016 and
    0021 are superseded.
-5. The proof runbook distinguishes its local v1 adapter from the production v2 contract.
+5. 증명 runbook은 로컬 v1 adapter와 운영 v2 contract를 구분한다.
 
 ## 13. Delivery Boundary
 
-The first implementation is one generic vertical slice using the `parcels` publication unit:
+첫 구현은 `parcels` 공개 단위를 사용하는 일반 vertical slice 하나다.
 
-- one canonical revision and complete PostGIS mirror;
-- one proven Naver mapbox-gl source-reload path before backend state-machine implementation;
-- one isolated Iceberg WAP candidate whose failed activation cannot enter later public history;
-- one immutable PMTiles candidate on the dedicated proof R2 path;
-- one static-Martin remote-prefix discovery cycle that exposes the create-only R2 object without a
-  restart;
+- canonical revision 하나와 완전한 PostGIS mirror 하나
+- backend state-machine 구현 전 검증된 Naver mapbox-gl source-reload path 하나
+- 실패한 activation이 이후 public history에 들어갈 수 없는 격리된 Iceberg WAP candidate 하나
+- 전용 proof R2 path의 immutable PMTiles candidate 하나
+- restart 없이 create-only R2 object를 노출하는 static-Martin remote-prefix discovery cycle 하나
 - dynamic edit and 5-second open-map refresh;
 - validated CAS promotion to static;
 - a concurrent edit that mechanically blocks stale promotion;
@@ -541,5 +529,5 @@ The first implementation is one generic vertical slice using the `parcels` publi
 - generic contracts and tests capable of adding `complex`, `buildings`, and future Foundation polygon
   layers without copying publication logic.
 
-It does not implement regional partitions, a custom tile compositor, feature tombstones, national
-scale rollout, or the Dawneer admin UI.
+지역 partition, 사용자 정의 타일 compositor, feature tombstone, 전국 규모 출시,
+Dawneer 관리자 UI는 구현하지 않는다.

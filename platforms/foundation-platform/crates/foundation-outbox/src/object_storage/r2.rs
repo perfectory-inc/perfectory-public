@@ -13,9 +13,10 @@ use sha2::{Digest as _, Sha256};
 use crate::errors::PublishError;
 
 use super::{
-    ByteStream, ObjectStorageService, ObjectStorageSmokeReport, ObjectStorageStreamingService,
-    ObjectWriteMode, PutObjectRequest, R2InventoryAuditReport, R2InventoryObject,
-    R2InventoryReport, R2InventoryRequest, StreamingObjectRehash, StreamingPutObjectRequest,
+    ByteStream, EvidenceByteReader, ObjectStorageService, ObjectStorageSmokeReport,
+    ObjectStorageStreamingService, ObjectWriteMode, PutObjectRequest, R2InventoryAuditReport,
+    R2InventoryObject, R2InventoryReport, R2InventoryRequest, StreamingObjectRehash,
+    StreamingPutObjectRequest,
 };
 
 /// Default R2 object key used by the smoke command.
@@ -547,6 +548,13 @@ impl R2ObjectStorage {
                 ))
             })?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl EvidenceByteReader for R2ObjectStorage {
+    async fn read_evidence_bytes(&self, key: &str) -> Result<Vec<u8>, PublishError> {
+        self.get_object_bytes(key).await
     }
 }
 

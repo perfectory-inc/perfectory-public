@@ -5,32 +5,25 @@ doc_type: runbook
 last_reviewed: 2026-07-29
 ---
 
-# Supply-Chain Source Gates
+# 공급망 원천 게이트
 
-## Current Contract
+## 현재 계약
 
-The public repository verifies source and dependency integrity; it does not
-contain a production deployment admission path.
+공개 저장소는 원천·의존성 무결성을 검증하지만 운영 배포 admission 경로를 포함하지 않는다.
 
-- `.github/workflows/gongzzang-ci.yml` runs the `cargo-deny` dependency-policy
-  gate and the Gongzzang verification/guardrail jobs.
-- `.github/workflows/secret-scan.yml` runs gitleaks against the worktree and
-  Git history with the root `.gitleaks.toml` configuration.
-- Third-party Actions are pinned to immutable commit SHAs and reviewed through
-  dependency update pull requests.
-- `cargo xtask verify gongzzang` is the local and CI verification entry point.
+- `.github/workflows/gongzzang-ci.yml`은 `cargo-deny` 의존성 정책 gate와 Gongzzang 검증/guardrail job을 실행한다.
+- `.github/workflows/secret-scan.yml`은 루트 `.gitleaks.toml` 설정으로 worktree와 Git history에 gitleaks를 실행한다.
+- Third-party Action은 불변 commit SHA로 고정하고 의존성 갱신 pull request로 검토한다.
+- `cargo xtask verify gongzzang`은 로컬·CI 검증 진입점이다.
 
-The machine-readable policy is
+기계 판독 정책은
 [`supply-chain-policy.v1.json`](../architecture/platform-integration/supply-chain-policy.v1.json).
 
-## Production Promotion
+## 운영 승격
 
-Release provenance, SBOM attestation, signing, and production deployment
-admission were intentionally removed before launch by
-[ADR 0044](../adr/0044-bazel-transition-reconciliation.md). A future production
-promotion gate must be designed from the actual deployment target and threat
-model. It requires a new ADR, protected environment, least-privilege identity,
-artifact identity contract, rollback procedure, and verification evidence.
+릴리스 provenance·SBOM 증명·서명·운영 배포 승인은 출시 전에
+[ADR 0044](../adr/0044-bazel-transition-reconciliation.md)에 따라 별도 운영 gate로 설계한다. 향후
+production promotion gate는 실제 배포 target과 threat model에서 출발해야 한다. 새 ADR, protected
+environment, 최소권한 identity, artifact identity 계약, rollback 절차, 검증 증거가 필요하다.
 
-Historical workflow or script names are not an executable runbook and must not
-be copied back into the repository.
+과거 workflow·script 이름은 실행 가능한 런북이 아니므로 저장소에 다시 복사하지 않는다.

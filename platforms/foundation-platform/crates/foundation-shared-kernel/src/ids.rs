@@ -79,6 +79,10 @@ id_newtype!(
     "Catalog complete `PostGIS` serving projection revision identifier."
 );
 id_newtype!(
+    VectorTileBuildJobId,
+    "Catalog static vector tile build job identifier."
+);
+id_newtype!(
     LakehouseStorageNamespaceId,
     "Lakehouse Registry storage namespace identifier."
 );

@@ -44,8 +44,8 @@ pub use kafka_broadcaster::{
 };
 pub use lineage::LakehouseLineagePublisher;
 pub use object_storage::{
-    FileObjectStorage, LoggingObjectStorage, ObjectStorageService, ObjectStorageStreamingService,
-    R2ObjectStorage,
+    EvidenceByteReader, FileObjectStorage, LoggingObjectStorage, ObjectStorageService,
+    ObjectStorageStreamingService, R2ObjectStorage,
 };
 pub use outbox_raw_written_sink::OutboxRawWrittenSink;
 pub use postgres_jobbus::PostgresJobBus;

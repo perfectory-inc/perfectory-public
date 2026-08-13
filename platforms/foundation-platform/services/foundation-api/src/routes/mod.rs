@@ -126,28 +126,6 @@ fn complex_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
             "/catalog/v1/complexes/{id}/anchor-summary",
             get(catalog::get_complex_anchor_summary),
         )
-        .route(
-            "/catalog/v1/complexes/{id}/parcels",
-            protected_route(
-                get(catalog::list_complex_parcels),
-                state,
-                SERVICE_CATALOG_READ,
-                Some("id"),
-            ),
-        )
-        .route(
-            "/catalog/v1/complexes/{id}/buildings",
-            protected_route(
-                get(catalog::list_complex_buildings),
-                state,
-                SERVICE_CATALOG_READ,
-                Some("id"),
-            ),
-        )
-        .route(
-            "/catalog/v1/complexes/{id}/manufacturers",
-            get(catalog::list_complex_manufacturers),
-        )
         .merge(complex_catalog_asset_routes(state))
         .route(
             "/catalog/v1/industry-groups",
@@ -840,19 +818,10 @@ fn canonical_route_label(path: &str) -> String {
         ["catalog", "v1", "complexes", _, "anchor-summary"] => {
             "/catalog/v1/complexes/{id}/anchor-summary".to_owned()
         }
-        ["catalog", "v1", "complexes", _, "parcels"] => {
-            "/catalog/v1/complexes/{id}/parcels".to_owned()
-        }
-        ["catalog", "v1", "complexes", _, "buildings"] => {
-            "/catalog/v1/complexes/{id}/buildings".to_owned()
-        }
         ["catalog", "v1", "parcels", "by-pnu", _, "buildings"] => {
             "/catalog/v1/parcels/by-pnu/{pnu}/buildings".to_owned()
         }
         ["catalog", "v1", "parcels", "by-pnu", _] => "/catalog/v1/parcels/by-pnu/{pnu}".to_owned(),
-        ["catalog", "v1", "complexes", _, "manufacturers"] => {
-            "/catalog/v1/complexes/{id}/manufacturers".to_owned()
-        }
         ["catalog", "v1", "complexes", _, "notices"] => {
             "/catalog/v1/complexes/{id}/notices".to_owned()
         }

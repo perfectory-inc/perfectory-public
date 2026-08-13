@@ -1,4 +1,4 @@
-# ADR 0038 - Listing Marker Serving Index And Filter Mask
+# ADR 0038 - 매물 마커 제공 인덱스·필터 마스크
 
 | Field | Value |
 |---|---|
@@ -7,14 +7,14 @@
 | Preceded by | [ADR 0017](./0017-listing-marker-render-canvas-bitmap-stamp.md), [ADR 0018](./0018-pnu-first-identity-no-coordinates.md), [ADR 0037](./0037-pnu-anchor-pbf-marker-tiles.md) |
 | Refines | [ADR 0037](./0037-pnu-anchor-pbf-marker-tiles.md) |
 
-## Context
+## 배경
 
-ADR 0037 fixed the launch marker contract: parcel-attached listing markers are addressed by tile
-coordinate, rendered from Gongzzang-owned marker PBF, and positioned only through foundation-platform PNU
-anchors.
+ADR 0037이 launch marker contract를 고정했다. 필지 연결 listing marker는 tile coordinate로
+주소를 정하고 Gongzzang 소유 marker PBF로 렌더링하며 foundation-platform PNU anchor를 통해서만
+위치를 정한다.
 
-The next decision is how high-cardinality listing filters behave when the product exposes advanced
-industrial real-estate filters similar to the design lab:
+다음 결정은 제품이 design lab과 유사한 고급 산업용 부동산 filter를 노출할 때 고카디널리티
+listing filter를 처리하는 방법이다.
 
 - asset type: factory, warehouse, land;
 - deal type: sale, jeonse, monthly rent;
@@ -22,12 +22,11 @@ industrial real-estate filters similar to the design lab:
 - boolean and enum flags: crane, dock, drive-in, clean room, usage area, land category, court;
 - namespace semantics: factory OR warehouse OR land OR auction.
 
-Generating every filter combination as a separate tile set is not viable. Directly querying the
-listing OLTP tables for every map pan, zoom, or slider movement is also not viable. Cache helps, but
-cache cannot be the primary strategy for numeric input filters because price and area ranges have a
-very high number of possible values.
+모든 filter 조합을 별도 tile set으로 만드는 것은 실행할 수 없다. map pan·zoom·slider 변경마다
+listing OLTP table을 직접 조회하는 것도 실행할 수 없다. cache는 도움이 되지만 price·area
+범위는 가능한 값이 매우 많으므로 numeric input filter의 primary 전략이 될 수 없다.
 
-## Decision
+## 결정
 
 Gongzzang listing marker serving uses a dedicated read model and filter index. The launch table
 names are `listing_marker_projection` and `listing_marker_filter_registry`:
@@ -40,22 +39,21 @@ listing OLTP rows
 -> browser instant filter and Canvas/GL renderer
 ```
 
-The map runtime is a hybrid:
+map runtime은 hybrid다.
 
-1. Static polygon/reference layers stay separate and are served through foundation-platform contracts.
-2. Gongzzang listing markers are served from a Gongzzang-owned marker projection/index, not directly
-   from listing OLTP rows.
-3. The first marker payload for a visible tile is a base marker tile containing safe, minimal marker
-   fields for instant browser-side filtering.
-4. Simple visible-tile filters are applied immediately in the browser.
-   Guardrail label: browser instant filtering.
-5. Exact nationwide counts, unseen tiles, permission-sensitive results, and complex filters are
-   handled by server-side indexes.
-6. When a filter changes after a base marker tile is already present, the server may return a small
-   filter mask instead of re-sending the full marker tile.
-7. Cache is a secondary accelerator, not the correctness or scalability mechanism.
+1. static polygon/reference layer는 분리해 foundation-platform contract로 제공한다.
+2. Gongzzang listing marker는 listing OLTP row가 아니라 Gongzzang 소유 marker projection/index에서
+   제공한다.
+3. 보이는 tile의 첫 marker payload는 browser 즉시 filtering에 필요한 안전한 최소 field를 담은
+   base marker tile이다.
+4. 단순 visible-tile filter는 browser에서 즉시 적용한다(guardrail label: browser instant filtering).
+5. 정확한 전국 count, 보이지 않는 tile, permission-sensitive result, 복잡한 filter는 server-side
+   index가 처리한다.
+6. base marker tile이 이미 있을 때 filter가 바뀌면 전체 tile을 다시 보내는 대신 작은 filter mask를
+   반환할 수 있다.
+7. cache는 보조 accelerator일 뿐 correctness나 scalability mechanism이 아니다.
 
-## Ownership
+## 소유권
 
 | Fact | Owner |
 |---|---|
@@ -70,44 +68,44 @@ Listing rows must still not own canonical marker latitude/longitude. Marker serv
 include anchor coordinates, but those values are copies derived from foundation-platform anchor snapshots
 and must carry anchor lineage/version.
 
-## Rejected Options
+## 기각한 대안
 
 ### A. Precompute every filter combination as marker tiles
 
-Rejected.
+기각한다.
 
-This explodes for numeric range filters such as price and area, and it couples product filter UX to
-tile artifact lifecycle. It also creates excessive invalidation when a single listing changes.
+가격·면적 같은 numeric range filter에서는 조합 수가 폭발하고 product filter UX가 tile
+artifact lifecycle에 종속된다. listing 하나가 바뀔 때 무효화도 과도하게 발생한다.
 
 ### B. Query listing OLTP tables directly for every map request
 
-Rejected.
+기각한다.
 
-The write model should not be the high-throughput map serving model. This increases lock/query
-pressure on listing tables and makes traffic spikes from map gestures compete with listing writes,
-review, and back-office operations.
+write model을 고처리량 지도 제공 model로 사용해서는 안 된다. listing table에 lock/query
+pressure가 생기고 map gesture traffic spike가 listing write·review·back-office 작업과
+경쟁한다.
 
 ### C. Make all filters apply only after a modal "Apply" action
 
-Rejected as the only interaction model.
+유일한 상호작용 모델로는 기각한다.
 
-Advanced modal filters may use a draft/apply flow, but fast map filters such as asset type, deal
-type, price, and area must feel immediate on the current viewport. The system still coalesces and
-cancels server work, but the client visual state changes immediately.
+고급 modal filter는 draft/apply flow를 사용할 수 있지만 asset type·deal type·price·area 같은
+빠른 map filter는 현재 viewport에서 즉시 반응해야 한다. system은 server 작업을 coalesce하고
+cancel하지만 client visual state는 즉시 바뀐다.
 
 ### D. Put all marker domains into one combined marker tile
 
-Rejected.
+기각한다.
 
-Listing, auction, real transaction price, parcel anchor, official land price, and industrial complex
-markers differ in ownership, freshness, permissions, filters, and invalidation. They must be
-separate layers that compose visually on one map.
+listing·auction·실거래가·parcel anchor·공시지가·industrial complex marker는 ownership,
+freshness, permission, filter, invalidation이 다르다. 한 map에 시각적으로 조합하더라도
+별도 layer여야 한다.
 
-## Runtime Policy
+## 런타임 정책
 
-### Layer Separation
+### 계층 분리
 
-The map may show many layers at once, but serving remains layer-specific:
+지도에 여러 계층을 동시에 표시해도 제공은 계층별로 유지한다.
 
 ```text
 parcel polygon layer          -> foundation-platform static vector tile
@@ -118,7 +116,7 @@ auction marker layer          -> source owner decided by auction ADR
 real transaction marker layer -> foundation-platform or data-domain reference layer
 ```
 
-### Filter Execution
+### 필터 실행
 
 Browser-side instant filters:
 
@@ -139,10 +137,10 @@ Server-side indexed filters:
 - industrial attributes that are not present in the base marker tile;
 - exact results after draft modal filters are applied.
 
-### Filter Mask
+### 필터 마스크
 
-A filter mask is an optional compact response for an already-loaded base marker tile. It identifies
-which marker ids in that tile remain visible under a normalized filter contract.
+filter mask는 이미 로드된 base marker tile을 위한 선택적 compact 응답이다. 정규화된 filter
+contract에서 해당 tile의 어떤 marker id가 계속 보이는지를 나타낸다.
 
 Allowed shapes:
 
@@ -150,26 +148,26 @@ Allowed shapes:
 - hide list, when most markers remain;
 - compressed bitmap, when the tile has many markers and stable marker ordinal assignment.
 
-The mask must be keyed by:
+mask의 key는 다음과 같다.
 
 ```text
 layer + z + x + y + filter_hash + marker_projection_version + anchor_snapshot_id + auth_scope
 ```
 
-The mask is an optimization. A client must be able to fall back to requesting the full marker tile
-for the same normalized filter when the mask is missing, stale, or unsupported.
+mask는 최적화일 뿐이다. client는 mask가 없거나 오래됐거나 지원되지 않으면 같은 정규화 filter로
+전체 marker tile을 요청하는 fallback을 사용할 수 있어야 한다.
 
-### Numeric Filters
+### 숫자 필터
 
-Numeric filters are not cache-first.
+숫자 필터는 캐시 우선으로 처리하지 않는다.
 
-Price, area, floor height, floor load, power, water, and date ranges use:
+price·area·floor height·floor load·power·water·date range는 다음을 사용한다.
 
-- browser-side comparisons for the current base marker tile when the needed values are present;
-- server-side range indexes for full-corpus counts and unseen tiles;
-- optional cache only for common normalized buckets or hot repeated requests.
+- 필요한 값이 있으면 현재 base marker tile에서 browser-side 비교
+- full-corpus count와 보이지 않는 tile에는 server-side range index
+- 자주 쓰는 normalized bucket이나 반복 요청에만 선택적 cache
 
-### Write Freshness
+### 쓰기 최신성
 
 Listing marker freshness target:
 
@@ -184,7 +182,7 @@ Listing marker freshness target:
 Listing writes must invalidate or version only affected marker projection rows, tile ids, and filter
 index entries. They must not rebuild nationwide marker artifacts.
 
-## API Direction
+## API 방향
 
 Existing ADR 0037 tile path remains valid:
 
@@ -200,44 +198,42 @@ GET /map/v1/marker-masks/listing/{z}/{x}/{y}?filter_hash={filter_hash}&base_vers
 GET /map/v1/marker-counts/listing?filter_hash={filter_hash}
 ```
 
-The names are directional, not final route commitments. Implementation planning must choose exact
-routes and types.
+이 이름은 방향을 나타낼 뿐 최종 route를 확정하지 않는다. 구현 계획에서 정확한 route와 type을
+선택해야 한다.
 
 `filter_hash` is derived from a typed, normalized filter contract. It is not raw JSON order, raw SQL,
 or user-provided code.
 
-## Guardrails
+## 가드
 
-Implementation must enforce:
+구현은 다음을 강제해야 한다.
 
-- no public launch marker request shape named `bbox`, `bounds`, `south`, `west`, `north`, or `east`;
-- no listing-owned canonical latitude/longitude for parcel-attached listings;
-- no successful tile/mask response that silently drops eligible records;
-- no cross-service movement of listing price/status/exposure into foundation-platform;
-- no static all-filter-combination tile generation;
-- no map request path that reads directly from listing OLTP tables when a marker projection/index is
-  required.
+- `bbox`, `bounds`, `south`, `west`, `north`, `east`라는 public launch marker request shape를
+  사용하지 않는다.
+- 필지 연결 listing에 listing 소유 canonical latitude/longitude를 두지 않는다.
+- 대상 record를 조용히 버리는 성공 tile/mask response를 만들지 않는다.
+- listing price/status/exposure를 서비스 경계를 넘어 foundation-platform으로 옮기지 않는다.
+- 모든 filter 조합의 static tile을 생성하지 않는다.
+- marker projection/index가 필요할 때 listing OLTP table을 직접 읽는 map request path를 만들지 않는다.
 
-## Consequences
+## 영향
 
-Positive:
+긍정적 효과:
 
-- Map traffic is bounded by tile id, layer, filter identity, and read indexes.
-- Price and area filters remain responsive without relying on unbounded cache keys.
-- A listing write updates affected projection/index entries instead of rebuilding national tiles.
-- Layer ownership remains clear as auction, real transaction, and listing markers evolve separately.
-- The browser can feel immediate while the server remains authoritative for exact counts and
-  unseen regions.
+- map traffic가 tile id·layer·filter identity·read index로 제한된다.
+- unbounded cache key에 의존하지 않고 price·area filter가 빠르게 반응한다.
+- listing write가 전국 tile을 다시 만들지 않고 영향받은 projection/index entry만 갱신한다.
+- auction·실거래가·listing marker가 별도로 발전해도 layer ownership이 명확하다.
+- browser는 즉시 반응하고 server는 정확한 count와 보이지 않는 지역의 authority로 남는다.
 
-Cost:
+비용:
 
-- Gongzzang must maintain a marker projection and filter index in addition to listing OLTP rows.
-- The frontend must reconcile base tiles, browser-side instant filters, server masks, and count
-  results.
-- Filter normalization becomes a contract surface and needs tests.
-- Projection lag must be observable and handled in UX.
+- Gongzzang은 listing OLTP row 외에 marker projection과 filter index를 유지해야 한다.
+- frontend가 base tile, browser instant filter, server mask, count result를 조정해야 한다.
+- filter normalization이 contract surface가 되며 test가 필요하다.
+- projection lag를 관찰하고 UX에서 처리해야 한다.
 
-## Revisit Triggers
+## 재검토 조건
 
 - Listing marker projection lag exceeds the public freshness target.
 - Base marker tile payload becomes too large for acceptable mobile map performance.
@@ -245,7 +241,7 @@ Cost:
 - Numeric filters require exact global counts faster than the chosen range index can support.
 - Authorization rules become too viewer-specific for shared tile or mask caching.
 
-## References
+## 참고 문서
 
 - [ADR 0017 - Listing marker rendering](./0017-listing-marker-render-canvas-bitmap-stamp.md)
 - [ADR 0018 - PNU-first identity](./0018-pnu-first-identity-no-coordinates.md)

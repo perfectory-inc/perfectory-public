@@ -1,9 +1,10 @@
 // apps/web/lib/panel/panel-entry-view.tsx
 "use client";
 
+import { ErrorBoundary } from "@suspensive/react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import React, { createElement, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, useEffect, useMemo, useRef, useState } from "react";
 import { PanelCard } from "./panel-card";
 import { getKindDefinition, getView } from "./registry";
 import { reportPanelOpened } from "./telemetry";
@@ -11,35 +12,19 @@ import type { PanelStackEntry } from "./types";
 import { usePanelStack } from "./use-panel-stack";
 
 /**
- * Panel-local error boundary. Catches *render-time* exceptions from registry
- * view components (registry component throws synchronously during render or
- * during a hook). Async/fetch errors are handled separately by TanStack Query
- * (query.isError → state="error").
+ * Panel-local @suspensive/react boundary. It catches *render-time* exceptions
+ * from registry view components (a synchronous throw during render or a hook).
+ * Async/fetch errors stay with TanStack Query (query.isError → state="error").
  *
- * On catch: logs, then renders the registry's errorComponent via the parent
- * PanelEntryView's `state="error"` path — surfaces via setError prop callback.
+ * On catch, `onError` stores the exception in the parent. The boundary's
+ * ReactNode fallback is null; PanelCard then renders the registry errorComponent
+ * through PanelEntryView's `state="error"` path.
  *
  * Spec rule § 9 #6 — error boundary per card. Closes T1 #6 gap.
  */
-class PanelErrorBoundary extends React.Component<
-  { children: React.ReactNode; onError: (err: Error) => void; fallback: React.ReactNode },
-  { hasError: boolean }
-> {
-  override state = { hasError: false };
-  static getDerivedStateFromError(): { hasError: boolean } {
-    return { hasError: true };
-  }
-  override componentDidCatch(err: Error): void {
-    this.props.onError(err);
-  }
-  override render(): React.ReactNode {
-    return this.state.hasError ? this.props.fallback : this.props.children;
-  }
-}
-
 /**
  * 단일 entry 의 렌더링 — fetcher 호출 + 4-state shell + 컴포넌트 dispatch.
- * Spec rule § 9 #1 (registry SSOT), #6 (error boundary via PanelCard + PanelErrorBoundary),
+ * Spec rule § 9 #1 (registry SSOT), #6 (error boundary via PanelCard + @suspensive/react),
  * #8 (AbortController per slot — TanStack Query 가 자동), #17 (4-state).
  */
 export function PanelEntryView({
@@ -130,8 +115,8 @@ export function PanelEntryView({
         <div className="p-6 text-center text-[var(--color-muted)]">{t("authRequired")}</div>
       }
     >
-      <PanelErrorBoundary
-        onError={(err) => setRenderError(err)}
+      <ErrorBoundary
+        onError={setRenderError}
         fallback={null /* PanelCard will swap to state="error" via stateNarrowed */}
       >
         {query.data !== undefined &&
@@ -139,7 +124,7 @@ export function PanelEntryView({
             entry: entry as never,
             data: query.data,
           })}
-      </PanelErrorBoundary>
+      </ErrorBoundary>
     </PanelCard>
   );
 }

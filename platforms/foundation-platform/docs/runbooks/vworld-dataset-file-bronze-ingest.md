@@ -5,36 +5,34 @@ doc_type: runbook
 last_reviewed: 2026-07-29
 ---
 
-# VWorld dataset file Bronze ingest runbook
+# VWorld 데이터 파일 Bronze 수집 런북
 
-## Purpose
+## 목적
 
-VWorld provider dataset files are collected as immutable Bronze objects. If a dataset has an
-official file download path, do not fall back to WFS/OpenAPI collection for the same national raw
-snapshot.
+VWorld 제공기관 데이터 파일은 변경 불가 Bronze 객체로 수집한다. 데이터셋에 공식 파일 다운로드
+경로가 있으면 같은 국가 원자료 snapshot을 위해 WFS/OpenAPI 수집으로 대체하지 않는다.
 
-## Evidence boundary
+## 증거 경계
 
-Collection plans, provider inventories, object counts, byte totals, checksums, and live-write results are
-generated under `target/audit/` and retained in the private operational evidence store. They are not
-committed to the public source repository. Re-run the commands below in the target environment before
-making a current-state or completion claim.
+수집 계획·제공기관 inventory·객체 수·바이트 합계·checksum·실제 쓰기 결과는 `target/audit/` 아래에
+생성하고 비공개 운영 증거 저장소에 보관한다. 공개 저장소에 커밋하지 않는다. 현재 상태나 완료를
+주장하기 전에 대상 환경에서 아래 명령을 다시 실행한다.
 
-## Commands
+## 명령
 
-Create the dataset collection plan:
+데이터셋 수집 계획 생성:
 
 ```bash
 cargo run -p foundation-outbox-publisher -- plan-vworld-dataset-collection
 ```
 
-Build the provider file-level inventory:
+제공기관 파일 inventory 생성:
 
 ```bash
 cargo run -p foundation-outbox-publisher -- inventory-vworld-dataset-files
 ```
 
-Run one-file dry-run smoke with automatic login:
+자동 로그인으로 파일 하나 dry-run smoke:
 
 ```bash
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_JOBS="1"
@@ -45,7 +43,7 @@ unset FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE
 cargo run -p foundation-outbox-publisher -- ingest-vworld-dataset-files
 ```
 
-Run one-file R2/DB live-write smoke:
+파일 하나 R2/DB 실제 쓰기 smoke:
 
 ```bash
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_JOBS="1"
@@ -54,7 +52,7 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE="1"
 cargo run -p foundation-outbox-publisher -- ingest-vworld-dataset-files
 ```
 
-Run the full national file ingest only after smoke evidence is ready:
+smoke 증거가 준비된 뒤에만 전국 파일 수집 실행:
 
 ```bash
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD="1"
@@ -64,7 +62,7 @@ unset FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_FILES
 cargo run -p foundation-outbox-publisher -- ingest-vworld-dataset-files
 ```
 
-Run all currently automatable provider files while deferring RAON/KUpload selection archives:
+현재 자동화할 수 있는 모든 제공기관 파일을 실행하되 RAON/KUpload 선택 archive는 보류:
 
 ```bash
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD="1"
@@ -76,42 +74,40 @@ unset FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_FILES
 cargo run -p foundation-outbox-publisher -- ingest-vworld-dataset-files
 ```
 
-`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_EXCLUDE_SELECTION_ARCHIVES=1` removes
-`SelectionArchive` inventory items from the selected download set. Those files require the provider
-acquisition plane (RAON/KUpload agent or an official alternative) and must not be counted as
-successfully collected by the normal dataset-file lane. The full-download confirmation gate still
-applies to the remaining eligible files.
+`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_EXCLUDE_SELECTION_ARCHIVES=1`은 선택 다운로드 집합에서
+`SelectionArchive` inventory 항목을 제외한다. 이 파일은 provider acquisition plane(RAON/KUpload
+agent 또는 공식 대안)이 필요하므로 일반 dataset-file lane의 성공 수집으로 세면 안 된다. 남은 대상
+파일에는 full-download 확인 gate가 계속 적용된다.
 
-`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_DEFER_PROVIDER_ACQUISITION_BLOCKED=1` keeps the normal lane green
-when a selected provider file still returns a RAON/KUpload acquisition requirement. Such files are
-recorded in evidence with `status=provider_acquisition_blocked`, and the run status becomes
-`ready_with_provider_acquisition_deferred`. Real file failures still block the run.
+`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_DEFER_PROVIDER_ACQUISITION_BLOCKED=1`은 선택된 provider file이
+RAON/KUpload 수집을 요구해도 일반 lane을 성공 상태로 유지한다. 해당 파일은 evidence에
+`status=provider_acquisition_blocked`로 기록하고 실행 상태는 `ready_with_provider_acquisition_deferred`가
+된다. 실제 파일 실패는 여전히 실행을 막는다.
 
-## Parallel Execution
+## 병렬 실행
 
-`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_JOBS` and
-`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_FILES` decide how many items are selected.
-`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_IN_FLIGHT` decides how many selected files are downloaded
-at the same time.
+`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_JOBS`와 `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_FILES`가
+선택 항목 수를 정한다. `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_IN_FLIGHT`는 동시에 다운로드할
+선택 파일 수를 정한다.
 
-| Variable | Default | Meaning |
+| 변수 | 기본값 | 의미 |
 |---|---:|---|
-| `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_IN_FLIGHT` | `4` | Concurrent selected file downloads. `0` is rejected. |
+| `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_IN_FLIGHT` | `4` | 동시 선택 파일 다운로드 수. `0`은 거부 |
 
-The evidence JSON records `max_in_flight`. File reports are written back in inventory order, not
-completion order, so audit diffs stay stable even when downloads finish out of order.
+evidence JSON에는 `max_in_flight`를 기록한다. 파일 report는 완료 순서가 아니라 inventory 순서로
+다시 써서 다운로드 완료 순서가 달라도 audit diff가 안정적이다.
 
-## Required Environment
+## 필수 환경
 
-For live writes:
+실제 쓰기:
 
-| Variable | Purpose |
+| 변수 | 목적 |
 |---|---|
 | `DATABASE_URL` | Bronze metadata database |
 | `FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER` | `r2` (developer/staging/production); `local` is bounded-test-only for local/CI |
 | `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET`, `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT`, `FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION`, `FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID`, `FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY` | R2 object storage |
 
-For VWorld file downloads:
+VWorld 파일 다운로드:
 
 | Variable | Purpose |
 |---|---|
@@ -119,15 +115,14 @@ For VWorld file downloads:
 | `FOUNDATION_PLATFORM_VWORLD_DATASET_USERNAME` or `VWORLD_USERNAME` | Provider login username when Cookie header is not supplied |
 | `FOUNDATION_PLATFORM_VWORLD_DATASET_PASSWORD` or `VWORLD_PASSWORD` | Provider login password when Cookie header is not supplied |
 
-The ingestor logs in once per run when a Cookie header is not supplied, then reuses the returned
-session Cookie for every selected file. Credentials must not be printed in logs, evidence, or shell
-output.
+Cookie header가 없으면 ingestor는 실행마다 한 번 로그인하고 반환된 session Cookie를 선택 파일마다
+재사용한다. credential은 log·evidence·shell 출력에 남기면 안 된다.
 
-## Safety Gates
+## 안전 게이트
 
 - Full national download is blocked unless
   `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD=1`.
 - Live writes are disabled unless `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE=1`.
-- The provider file inventory must be `status=ready` and file counts must match the collection
-  plan.
-- Download responses that are empty or HTML are rejected and are not stored as Bronze.
+- provider file inventory는 `status=ready`여야 하며 파일 수가 collection plan과 일치해야
+  한다.
+- 비어 있거나 HTML인 다운로드 응답은 거부하며 Bronze에 저장하지 않는다.

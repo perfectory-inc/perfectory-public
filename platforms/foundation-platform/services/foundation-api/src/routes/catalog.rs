@@ -24,22 +24,21 @@ use catalog_application::{
 use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
-    IndustryGroupMember, Manufacturer, MarkerTileRequest, Parcel, ParcelIndustryAssignment,
-    ParcelKind, SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    IndustryGroupMember, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
+    SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::BuildingUnitRow;
 use foundation_contracts::catalog::{
     ArchiveComplexRequest, BlueprintResponse, BuildingResponse, ComplexAnchorSummaryResponse,
     ComplexNoticeResponse, DigitalTwinAssetResponse, FileAssetResponse,
     IndustrialComplexGoldPointerResponse, IndustrialComplexResponse, IndustryGroupMemberResponse,
-    IndustryGroupResponse, ManufacturerResponse, MarkerTileContractResponse,
-    ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
-    ParcelMarkerAnchorRebuildResponse, ParcelResponse, PromoteFileAssetRequest,
-    PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
-    RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse, UnitResponse,
-    UpdateComplexRequest, UpdateParcelKindRequest, VectorTileArtifactResponse,
-    VectorTileDynamicPostgisResponse, VectorTileLineageResponse, VectorTileManifestResponse,
-    VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
+    IndustryGroupResponse, MarkerTileContractResponse, ParcelIndustryAssignmentResponse,
+    ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse, ParcelResponse,
+    PromoteFileAssetRequest, PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest,
+    PromoteVectorTileManifestRequest, RegisterComplexRequest, RollbackVectorTileManifestRequest,
+    SpatialLayerResponse, UnitResponse, UpdateComplexRequest, UpdateParcelKindRequest,
+    VectorTileArtifactResponse, VectorTileDynamicPostgisResponse, VectorTileLineageResponse,
+    VectorTileManifestResponse, VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
     VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
     VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
@@ -64,8 +63,6 @@ const MARKER_TILE_CACHE_CONTROL: &str = "public, max-age=30";
 const FOUNDATION_PLATFORM_RUNTIME_ENV: &str = "FOUNDATION_PLATFORM_RUNTIME_ENV";
 const DB_MARKER_TILE_REFERENCE_ENABLED_ENV: &str =
     "FOUNDATION_PLATFORM_DB_MARKER_TILE_REFERENCE_ENABLED";
-const VECTOR_TILE_RUNTIME_MANIFEST_V2_ENABLED_ENV: &str =
-    "FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED";
 
 #[utoipa::path(
     post,
@@ -249,47 +246,6 @@ pub async fn list_complexes(
 
 #[utoipa::path(
     get,
-    path = "/catalog/v1/complexes/{id}/parcels",
-    operation_id = "listComplexParcels",
-    params(("id" = Uuid, Path, description = "Industrial complex id")),
-    responses((status = 200, body = [ParcelResponse])),
-    security(("bearerAuth" = []))
-)]
-pub async fn list_complex_parcels(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-    Extension(_principal): Extension<AuthorizedPrincipal>,
-) -> Result<Json<Vec<ParcelResponse>>, ApiError> {
-    let parcels = state
-        .catalog_repo
-        .list_parcels_by_complex(ComplexId::new(id))
-        .await?;
-
-    Ok(Json(parcels.iter().map(parcel_response).collect()))
-}
-
-#[utoipa::path(
-    get,
-    path = "/catalog/v1/complexes/{id}/buildings",
-    operation_id = "listComplexBuildings",
-    params(("id" = Uuid, Path, description = "Industrial complex id")),
-    responses((status = 200, body = [BuildingResponse])),
-    security(("bearerAuth" = []))
-)]
-pub async fn list_complex_buildings(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<Vec<BuildingResponse>>, ApiError> {
-    let buildings = state
-        .catalog_repo
-        .list_buildings_by_complex(ComplexId::new(id))
-        .await?;
-
-    Ok(Json(buildings.iter().map(building_response).collect()))
-}
-
-#[utoipa::path(
-    get,
     path = "/catalog/v1/parcels/by-pnu/{pnu}/buildings",
     operation_id = "listParcelBuildingsByPnu",
     params((
@@ -367,27 +323,6 @@ pub async fn get_parcel_by_pnu(
         .ok_or_else(|| ApiError::NotFound(pnu.as_str().to_owned()))?;
 
     Ok(Json(parcel_response(&parcel)))
-}
-
-#[utoipa::path(
-    get,
-    path = "/catalog/v1/complexes/{id}/manufacturers",
-    operation_id = "listComplexManufacturers",
-    params(("id" = Uuid, Path, description = "Industrial complex id")),
-    responses((status = 200, body = [ManufacturerResponse]))
-)]
-pub async fn list_complex_manufacturers(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<Vec<ManufacturerResponse>>, ApiError> {
-    let manufacturers = state
-        .catalog_repo
-        .list_manufacturers_by_complex(ComplexId::new(id))
-        .await?;
-
-    Ok(Json(
-        manufacturers.iter().map(manufacturer_response).collect(),
-    ))
 }
 
 #[utoipa::path(
@@ -620,7 +555,7 @@ pub async fn get_vector_tile_runtime_manifest(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    if !vector_tile_runtime_manifest_v2_enabled() {
+    if !state.runtime_manifest_publication().is_enabled() {
         return Err(ApiError::NotFound(
             "v2 vector tile runtime manifest is disabled".to_owned(),
         ));
@@ -883,7 +818,7 @@ pub async fn promote_vector_tile_manifest(
 pub async fn update_parcel_kind(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
-    Extension(_principal): Extension<AuthorizedPrincipal>,
+    Extension(principal): Extension<AuthorizedPrincipal>,
     Json(body): Json<UpdateParcelKindRequest>,
 ) -> Result<Json<ParcelResponse>, ApiError> {
     let new_kind =
@@ -894,6 +829,7 @@ pub async fn update_parcel_kind(
             parcel_id: ParcelId::new(id),
             expected_version: body.if_match_version,
             new_kind,
+            applied_by: StaffId::new(principal.principal_id),
         })
         .await?;
 
@@ -968,7 +904,6 @@ fn complex_anchor_summary_response(summary: &ComplexAnchorSummary) -> ComplexAnc
 fn parcel_response(parcel: &Parcel) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
-        complex_id: parcel.complex_id.as_uuid(),
         pnu: parcel.pnu.as_str().to_owned(),
         kind: parcel.kind.wire_name().to_owned(),
         area_m2: parcel.area_m2,
@@ -1005,16 +940,6 @@ fn building_response(building: &Building) -> BuildingResponse {
         rooftop_usage: building.rooftop_usage.clone(),
         built_year: building.built_year,
         updated_at: building.updated_at,
-    }
-}
-
-fn manufacturer_response(manufacturer: &Manufacturer) -> ManufacturerResponse {
-    ManufacturerResponse {
-        id: manufacturer.id.as_uuid(),
-        primary_parcel_id: manufacturer.primary_parcel_id.as_uuid(),
-        name: manufacturer.name.clone(),
-        ksic_code: manufacturer.ksic_code.clone(),
-        updated_at: manufacturer.updated_at,
     }
 }
 
@@ -1145,17 +1070,6 @@ fn vector_tile_manifest_response(manifest: VectorTileManifest) -> VectorTileMani
     }
 }
 
-fn vector_tile_runtime_manifest_v2_enabled() -> bool {
-    std::env::var(VECTOR_TILE_RUNTIME_MANIFEST_V2_ENABLED_ENV)
-        .ok()
-        .is_some_and(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-}
-
 fn vector_tile_runtime_manifest_response(
     manifest: VectorTileRuntimeManifest,
 ) -> VectorTileRuntimeManifestResponse {
@@ -1169,9 +1083,6 @@ fn vector_tile_runtime_manifest_response(
                         VectorTileDynamicPostgisResponse {
                             martin_source_id: source.martin_source_id,
                             tiles_url_template: source.tiles_url_template.as_str().to_owned(),
-                            postgis_projection_revision: source
-                                .postgis_projection_revision
-                                .as_uuid(),
                             cache_policy: source.cache_policy,
                         },
                     )
@@ -1398,6 +1309,33 @@ impl From<CatalogError> for ApiError {
                     "vector tile manifest version mismatch: expected_current_version={expected}, current={current}"
                 ))
             }
+            CatalogError::VectorTileServingStateConflict {
+                unit_key,
+                expected,
+                current,
+            } => Self::Conflict(format!(
+                "vector tile serving state mismatch for {unit_key}: expected {expected}, current {current}"
+            )),
+            // 409 for both, following the status Stripe serves `idempotency_key_in_use` and the IETF
+            // Idempotency-Key draft serves a concurrent retry on. 422 would arguably fit the reuse
+            // case, but `ApiError` has no 422 and inventing one for a route that does not exist yet
+            // would be shaping transport for an unwritten caller.
+            CatalogError::MutationIdempotencyKeyReused {
+                idempotency_key,
+                command_kind,
+            } => Self::Conflict(format!(
+                "idempotency key {idempotency_key} was already used by {command_kind} for a different request; use a new key"
+            )),
+            CatalogError::MutationContended { idempotency_key } => Self::Conflict(format!(
+                "idempotency key {idempotency_key} is in use by another request; retry with the same key"
+            )),
+            CatalogError::MutationFingerprintVersionChanged {
+                idempotency_key,
+                recorded,
+                current,
+            } => Self::Conflict(format!(
+                "idempotency key {idempotency_key} was recorded under request fingerprint {recorded}; this deployment computes {current}, so the two cannot be compared. Use a new key."
+            )),
             CatalogError::InvalidPnu(e) => Self::BadRequest(e.to_string()),
             CatalogError::InvalidVectorTileManifestRollback(msg)
             | CatalogError::InvalidVectorTileManifestPromotion(msg)

@@ -66,30 +66,27 @@ R2 inventory·R2 billing 지표를 포함한다. 대시보드는 선택적 표�
 
 ## 규칙 원본
 
-The baseline Prometheus alert rule lives in
-`infra/observability/prometheus/foundation-api.rules.yml`. `compose.observability.yml` deploys
-Prometheus and Alertmanager, loads this rule file, and scrapes `foundation-api:8080/metrics` on the
-private Compose network. It covers the API scrape contract
-exported by `GET /metrics`, including API process, database readiness, API 5xx rate,
-request timeout count, app-level overload rejection count, lakehouse batch staleness,
-DB pool pressure, API p95 latency,
-ingestion staleness, ingestion failure, ingestion duration, outbox pending age, and outbox retry
-backlog gauges. The pre-launch Alertmanager receiver is `prelaunch-audit`: it persists and exposes
-routed alerts for an operator rehearsal without sending them to an external paging provider. Before
-public launch, an owned staff notification route and its secret must be provisioned and its delivery
-tested. A pre-launch alert rehearsal passes only when the same controlled outage alert is active in
-both Prometheus and Alertmanager, and then resolves after the API recovers.
-The same scrape endpoint also exports latest successful lakehouse batch created time, recorded
-time, and row count by contract for freshness dashboarding. It also exports latest Bronze
-ingestion finished time, duration, records seen, objects written, raw response bytes by source and
-status, Catalog outbox pending/retry/oldest-age metrics, and
-`foundation_api_http_requests_total` by method, canonical route, and status. Timeout responses
-are also aggregated as `foundation_api_http_request_timeout_total` by canonical route. App-level
-traffic budget rejections are exported as `foundation_api_http_overload_rejected_total` by
-reason. PostgreSQL pool pressure is exported as `foundation_api_db_pool_size`,
-`foundation_api_db_pool_idle_connections`, and `foundation_api_db_pool_max_connections`.
-Request latency is exported as `foundation_api_http_request_duration_seconds_bucket` by method,
-canonical route, status, and histogram bucket.
+기본 Prometheus alert rule은
+`infra/observability/prometheus/foundation-api.rules.yml`에 있다. `compose.observability.yml`은
+Prometheus와 Alertmanager를 배포하고 이 rule file을 읽은 뒤 private Compose network에서
+`foundation-api:8080/metrics`를 scrape한다. `GET /metrics`가 내보내는 API scrape contract를
+다루며 API process·database readiness·API 5xx rate·request timeout count·app-level overload
+rejection count·lakehouse batch staleness·DB pool pressure·API p95 latency·ingestion staleness·
+ingestion failure·ingestion duration·outbox pending age·outbox retry backlog gauge를 포함한다.
+출시 전 Alertmanager receiver는 `prelaunch-audit`이며 외부 paging provider로 보내지 않고 운영자
+rehearsal용 routed alert를 보존·노출한다. 공개 launch 전에는 소유한 staff notification route와
+secret을 만들고 전달을 테스트해야 한다. 같은 controlled outage alert가 Prometheus와 Alertmanager
+양쪽에서 활성화된 뒤 API 복구 후 해제되어야 pre-launch rehearsal을 통과한다.
+같은 scrape endpoint는 freshness dashboard용으로 최신 성공 lakehouse batch의 생성 시각·기록
+시각·행 수를 contract별로 내보낸다. 최신 Bronze ingestion 종료 시각·duration·확인 record 수·
+작성 object 수·source별 raw response bytes와 status, Catalog outbox pending/retry/oldest-age
+metric도 제공한다. `foundation_api_http_requests_total`은 method·canonical route·status별로,
+timeout response는 `foundation_api_http_request_timeout_total`로 canonical route별 집계한다.
+app-level traffic budget 거부는 reason별 `foundation_api_http_overload_rejected_total`로 내보낸다.
+PostgreSQL pool pressure는 `foundation_api_db_pool_size`,
+`foundation_api_db_pool_idle_connections`, `foundation_api_db_pool_max_connections`로,
+request latency는 method·canonical route·status·histogram bucket별
+`foundation_api_http_request_duration_seconds_bucket`으로 내보낸다.
 
 초기 staleness 임계값은 24시간, 초기 느린 수집 임계값은 3600초, 초기 outbox pending-age
 임계값은 600초, 초기 API p95 지연 임계값은 1초다. 이는 기준 운영 tripwire이며 최종 비즈니스

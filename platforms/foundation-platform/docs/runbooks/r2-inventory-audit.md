@@ -65,7 +65,7 @@ cargo run -p foundation-outbox-publisher -- audit-r2-inventory
 
 ## Live Smoke Metrics
 
-Optional R2 live smoke can write a Prometheus text artifact for the dedicated smoke
+선택적인 R2 live smoke는 전용 smoke를 위한 Prometheus text artifact를 쓸 수 있다.
 write/read/delete round trip:
 
 ```bash
@@ -73,14 +73,14 @@ export FOUNDATION_PLATFORM_R2_SMOKE_METRICS_PATH="target/r2-live-smoke/r2-smoke.
 cargo run -p foundation-outbox-publisher --bin foundation-outbox-publisher -- smoke-r2
 ```
 
-The metric artifact contains:
+metric 산출물은 다음을 포함한다.
 
 - `foundation_platform_r2_smoke_request_total`
 - `foundation_platform_r2_smoke_bytes_verified`
 
-The metric labels include the source and operation only. They do not include the object key, so each
-smoke run does not create high-cardinality series. The optional GitHub Actions `r2-live-smoke` job
-uploads this file as the `r2-live-smoke-metrics` artifact.
+metric label에는 source와 operation만 들어간다. object key는 넣지 않으므로 smoke 실행마다
+고카디널리티 series가 생기지 않는다. 선택적인 GitHub Actions `r2-live-smoke` job은 이 파일을
+`r2-live-smoke-metrics` 산출물로 업로드한다.
 
 Inventory audit의 list request cost는 호출자가 넣은 단가 기반 estimate다. 실제 R2 request/cost
 accounting은 Cloudflare billing export를 내려받아 normalized CSV 또는 JSON으로 저장한 뒤 별도

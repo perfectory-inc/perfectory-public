@@ -1,4 +1,4 @@
-# ADR 0025 - Bronze Catalog recovery evidence sealing
+# ADR 0025 - Bronze Catalog 복구 증거 봉인
 
 Status: Accepted
 Date: 2026-07-14
@@ -6,18 +6,18 @@ Owner: foundation-platform
 Related: [ADR 0016](./0016-bronze-commit-protocol.md),
 [ADR 0019](./0019-bronze-readable-object-lake-postgres-catalog-ssot.md)
 
-## Context
+## 배경
 
-Catalog recovery verifies existing Bronze bytes in R2 and reconstructs missing Postgres metadata.
+Catalog 복구는 R2의 기존 Bronze 바이트를 검증하고 누락된 Postgres 메타데이터를 재구성한다.
 Recovery sets can be large, so running a complete dry-run and then APPLY would read and hash the same
 bytes twice. A local-only recovery manifest can also disappear after a successful apply, leaving the
-Catalog mutation without durable evidence of why it was allowed.
+허용 이유를 보여주는 내구성 있는 증거 없이 Catalog를 변경하지 않는다.
 
 R2 and Postgres cannot participate in one transaction. Recovery therefore needs durable immutable
 input evidence, exact object identity checks, and source-scoped atomic Catalog mutation without a
 second full-byte validation pass.
 
-## Decision
+## 결정
 
 1. APPLY is source-scoped. One explicit source is fully verified before its Catalog transaction is
    committed. A partial candidate limit is forbidden in APPLY mode.
@@ -43,7 +43,7 @@ second full-byte validation pass.
    32 and an accepted range of 1 through 64. The application use case remains runtime-independent,
    preserves manifest order, and performs no Catalog mutation until every result validates.
 
-## Failure semantics
+## 실패 의미
 
 - Changed or missing local evidence: fail before R2 object verification.
 - Existing evidence with matching checksum metadata: idempotent reuse.
@@ -52,7 +52,7 @@ second full-byte validation pass.
 - Catalog transaction failure: no partial source metadata is committed; sealed evidence remains
   available for diagnosis and retry.
 
-## Consequences
+## 영향
 
 - Large recovery sources require one full-byte verification pass instead of two.
 - Independent R2 object reads can overlap without introducing partial Catalog commits or unbounded
@@ -65,7 +65,7 @@ second full-byte validation pass.
 - This adds only small JSON evidence objects. It does not add a database migration, Kafka,
   Kubernetes, Temporal, or another orchestration framework.
 
-## Non-goals
+## 범위 밖
 
 - Recovery evidence is not a generic evidence framework.
 - It does not replace the Bronze Catalog, provider inventory, or ingestion-run audit records.

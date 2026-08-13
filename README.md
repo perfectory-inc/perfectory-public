@@ -28,7 +28,8 @@ perfectory/
 1. [영역 규칙](./AGENTS.md)
 2. [전역 문서 지도](./docs/README.md)
 3. [전체 문서 자동 색인](./docs/document-catalog.md)
-4. 작업 영역의 `README.md`와 `AGENTS.md`
+4. [문서 감사 보고서](./docs/document-audit.md)
+5. 작업 영역의 `README.md`와 `AGENTS.md`
 
 ## 영역 진입점
 

@@ -325,8 +325,11 @@ fn local_manifest_and_martin_sources_cannot_drift() {
                 "display_name",
                 "scope_kind",
             ]),
+            // The aggregate keeps its complex code: that layer's feature IS a complex, so the code
+            // is its own identity. `parcels` and `parcel_anchor` are per-parcel and carry only the
+            // PNU — a parcel feature must not ship a membership claim (ADR-0024).
             "parcel_anchor_aggregate" => BTreeSet::from(["count", "official_complex_code", "pnu"]),
-            "parcels" | "parcel_anchor" => BTreeSet::from(["official_complex_code", "pnu"]),
+            "parcels" | "parcel_anchor" => BTreeSet::from(["pnu"]),
             _ => unreachable!("expected_tables contains only guarded source IDs"),
         };
         assert_eq!(yaml_mapping_keys(&properties, 8), expected_properties);

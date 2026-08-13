@@ -135,6 +135,7 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
         _id: ParcelId,
         _expected_version: i64,
         _new_kind: ParcelKind,
+        _applied_by: StaffId,
     ) -> Result<Parcel, CatalogError> {
         Err(unexpected_call("update_parcel_kind"))
     }

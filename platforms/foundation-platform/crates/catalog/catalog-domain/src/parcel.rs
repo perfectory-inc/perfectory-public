@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::events::catalog_v1::ParcelKindChangedV1;
-use foundation_shared_kernel::ids::{ComplexId, ParcelId};
+use foundation_shared_kernel::ids::ParcelId;
 use foundation_shared_kernel::pnu::Pnu;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -64,8 +64,6 @@ pub enum ParseParcelKindError {
 pub struct Parcel {
     /// Stable foundation-platform parcel identifier.
     pub id: ParcelId,
-    /// Industrial complex that owns the parcel.
-    pub complex_id: ComplexId,
     /// Canonical 19-digit parcel identifier.
     pub pnu: Pnu,
     /// Canonical parcel kind.

@@ -5,7 +5,8 @@ import { NextIntlClientProvider } from "next-intl";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PanelEntryView } from "./panel-entry-view";
-import { _resetRegistryForTests, defineKind } from "./registry";
+import { _resetRegistryForTests, defineKind, defineView } from "./registry";
+import type { PanelStackEntry } from "./types";
 
 // Mock telemetry to avoid OTEL noise
 vi.mock("./telemetry", () => ({
@@ -26,13 +27,16 @@ vi.mock("./use-panel-stack", () => ({
 afterEach(() => {
   _resetRegistryForTests();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 const ThrowingComponent = () => {
   throw new Error("registry component blew up");
 };
 const ErrorCard = ({ error }: { error: unknown }) => (
-  <div>ERROR: {error instanceof Error ? error.message : String(error)}</div>
+  <div data-testid="panel-error-card">
+    ERROR: {error instanceof Error ? error.message : String(error)}
+  </div>
 );
 const Loading = () => <div>L</div>;
 const Empty = () => <div>E</div>;
@@ -51,17 +55,26 @@ const messages = {
   },
 };
 
-function makeRegistry() {
+function makeRegistry({
+  summaryComponent = ThrowingComponent,
+  summaryFetcher = async () => ({ ok: true }),
+}: {
+  summaryComponent?: React.ComponentType<{
+    entry: Extract<PanelStackEntry, { kind: "parcel" }>;
+    data: { ok: boolean };
+  }>;
+  summaryFetcher?: (id: string, signal?: AbortSignal) => Promise<{ ok: boolean }>;
+} = {}) {
   defineKind({
     kind: "parcel",
     idPattern: /^\d{19}$/,
     views: {
-      summary: {
-        component: ThrowingComponent,
-        fetcher: async () => ({ ok: true }),
+      summary: defineView({
+        component: summaryComponent,
+        fetcher: summaryFetcher,
         staleTime: 1000,
         links: [],
-      },
+      }),
       buildings: {
         component: () => null,
         fetcher: async () => ({ items: [] }),
@@ -106,13 +119,13 @@ function renderWithQuery(ui: React.ReactNode) {
   );
 }
 
-describe("PanelEntryView ErrorBoundary", () => {
+describe("PanelEntryView error handling", () => {
   // Suppress React's expected error logging for this test
   beforeEach(() => {
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  it("catches render-time exception from registry component → state=error", async () => {
+  it("routes a synchronous registry render exception through the error card", async () => {
     makeRegistry();
     renderWithQuery(
       <PanelEntryView
@@ -121,7 +134,30 @@ describe("PanelEntryView ErrorBoundary", () => {
       />,
     );
     await waitFor(() => {
-      expect(screen.getByText(/registry component blew up/)).toBeInTheDocument();
+      expect(screen.getByTestId("panel-error-card")).toHaveTextContent(
+        "ERROR: registry component blew up",
+      );
     });
+  });
+
+  it("leaves rejected fetches on the TanStack Query error path", async () => {
+    makeRegistry({
+      summaryComponent: () => <div>registry view rendered</div>,
+      summaryFetcher: async () => {
+        throw new Error("panel fetch failed");
+      },
+    });
+
+    renderWithQuery(
+      <PanelEntryView
+        entry={{ kind: "parcel", id: "9999900501107370000", view: "summary" }}
+        depth={1}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-error-card")).toHaveTextContent("ERROR: panel fetch failed");
+    });
+    expect(screen.queryByText("registry view rendered")).not.toBeInTheDocument();
   });
 });

@@ -5,11 +5,11 @@ doc_type: architecture
 last_reviewed: 2026-07-29
 ---
 
-# Data Flow
+# 데이터 흐름
 
-This document maps the current Gongzzang request and data paths.
+이 문서는 현재 Gongzzang 요청·데이터 경로를 정리한다.
 
-## 1. Product Request Path
+## 1. 제품 요청 경로
 
 ```text
 Browser
@@ -20,7 +20,7 @@ Browser
   -> response
 ```
 
-Core runtime files:
+주요 런타임 파일:
 
 - `apps/web/proxy.ts`
 - `apps/web/app/api/proxy/[...path]/route.ts`
@@ -29,14 +29,15 @@ Core runtime files:
 - `crates/*-domain`
 - `crates/gongzzang-persistence`
 
-The browser should not talk to the Rust API with ad-hoc route knowledge. Public proxy and route exposure policy are controlled by:
+브라우저가 임의의 경로 지식을 갖고 Rust API를 직접 호출하지 않는다. 공개 proxy와 경로 노출 정책은
+다음 파일이 통제한다.
 
 - `docs/architecture/traffic-auth-policy-registry.v1.json`
 - `docs/architecture/platform-integration/route-exposure-policy.v1.json`
 - `apps/web/lib/policies/traffic-auth-policy.generated.ts`
 - `services/gongzzang-api/src/traffic_auth_policy.rs`
 
-## 2. Listing Mutation Path
+## 2. 매물 변경 경로
 
 ```text
 Browser form/action
@@ -50,7 +51,7 @@ Browser form/action
        -> outbox_event
 ```
 
-Mutation context and traceability are carried through `MutationContext`.
+변경 context와 추적 정보는 `MutationContext`로 전달한다.
 
 Important files:
 
@@ -60,7 +61,7 @@ Important files:
 - `crates/audit-log-domain`
 - `crates/outbox-event-domain`
 
-## 3. Foundation Platform Catalog Read Path
+## 3. Foundation Platform Catalog 조회 경로
 
 ```text
 Gongzzang route
@@ -69,7 +70,7 @@ Gongzzang route
   -> Gongzzang-owned DTO/read model
 ```
 
-Gongzzang must not call V-World or data.go.kr Catalog APIs directly.
+Gongzzang은 V-World나 data.go.kr Catalog API를 직접 호출하지 않는다.
 
 Current approved adapters:
 
@@ -82,7 +83,7 @@ Current supporting policies:
 - `docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json`
 - `docs/backend/circuit-breaker.md`
 
-## 4. Foundation Platform Event Path
+## 4. Foundation Platform 이벤트 경로
 
 ```text
 Foundation Platform event
@@ -100,9 +101,9 @@ Important files:
 - `services/gongzzang-api/src/foundation_anchor_import.rs`
 - `migrations/20260719000118_foundation_platform_event_inbox_anchor_import.sql` (current fresh-schema creation)
 
-The event receiver must be idempotent and signature-protected.
+이벤트 수신자는 멱등적이고 서명으로 보호돼야 한다.
 
-## 5. Listing Marker Data Path
+## 5. 매물 마커 데이터 경로
 
 ```text
 Foundation Platform PNU anchor projection
@@ -121,9 +122,9 @@ Important files:
 - `apps/web/lib/map/marker-tile-contract.ts`
 - `apps/web/lib/map/marker-tile-style.ts`
 
-Public marker routes must not use `bbox` or `bounds` launch request shapes.
+공개 마커 경로는 출시 요청 형식으로 `bbox`나 `bounds`를 사용하지 않는다.
 
-## 6. Media/Lakehouse Path
+## 6. 미디어·레이크하우스 경로
 
 ```text
 Listing photo lifecycle
@@ -139,10 +140,9 @@ Important files:
 - `services/gongzzang-outbox-publisher/src/foundation_platform_lakehouse_registry.rs`
 - `docs/architecture/platform-integration/lakehouse-registry-policy.v1.json`
 
-## 7. Guardrails
+## 7. 가드
 
-When data-flow ownership changes, the Foundation Platform boundary, dependency
-boundary, platform-integration policy, PNU-anchor PBF marker contract, and
-traffic/auth policy registry must stay intact. The Foundation Platform catalog
-boundary is enforced by `scripts/lefthook/foundation-ownership-boundary.sh` and the
-boundary contract `docs/architecture/foundation-platform-boundary.v1.json`.
+데이터 흐름 소유권이 바뀌어도 Foundation Platform 경계·의존성 경계·플랫폼 연동 정책·PNU 앵커 PBF
+마커 계약·traffic/auth 정책 레지스트리는 유지해야 한다. Catalog 경계는
+`scripts/lefthook/foundation-ownership-boundary.sh`와
+`docs/architecture/foundation-platform-boundary.v1.json` 계약으로 강제한다.

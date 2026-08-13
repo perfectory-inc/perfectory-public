@@ -1,4 +1,4 @@
-# ADR 0022 - Lakehouse Handoff Vs Storage Format Boundary
+# ADR 0022 - 레이크하우스 전달과 저장 형식 경계
 
 | Field | Value |
 |---|---|
@@ -7,11 +7,11 @@
 | Scope | foundation-platform lakehouse transport, Silver/Gold storage, AI normalization input |
 | Related | ADR 0006, ADR 0007, ADR 0019, ADR 0021 |
 
-> Package ownership update (2026-07-17): [ADR 0026](0026-lakehouse-capability-ownership.md)
-> supersedes only the package-owner references in this ADR. Lakehouse contracts now live in
-> `lakehouse-domain`; the format-boundary decision below is unchanged.
+> Package ownership update (2026-07-17): [ADR 0026](0026-lakehouse-capability-ownership.md)가
+> 이 ADR의 package-owner reference만 대체한다. Lakehouse contract는 이제
+> `lakehouse-domain`에 있으며 아래 format 경계 결정은 변하지 않는다.
 
-## Decision
+## 결정
 
 foundation-platform separates **transport handoff format** from **lakehouse physical storage format**.
 
@@ -29,53 +29,51 @@ JSONL
   -> never the canonical physical storage format for Silver or Gold tables
 ```
 
-## Format Role Matrix
+## 형식별 역할 표
 
-These formats are complementary. They must not be treated as interchangeable
-because each one belongs to a different boundary.
+이 형식들은 서로 보완적이다. 각각 다른 경계에 속하므로 상호 교환 가능한 것으로 취급해서는
+안 된다.
 
 | Boundary | Default format | Role |
 |---|---|---|
-| Bronze raw evidence | Source-native bytes | Preserve provider bytes as received: ZIP, CSV, XML, JSON, SHP, or other source payloads. Do not rewrite raw evidence into Avro, Parquet, or JSONL just to normalize storage. |
-| Kafka / event transport | Protobuf by default; Avro allowed by topic decision | Carry small, schema-versioned event envelopes: ids, trace ids, object pointers, checksums, status, and schema version. Never carry raw files or full lakehouse rows. |
-| Rust / engine processing memory | Arrow | Move batches through readers, normalizers, and writers as columnar in-memory data. Arrow is a processing/interchange format, not the canonical table store. |
-| Silver / Gold physical files | Parquet or GeoParquet | Store canonical scalar and geometry tables for analytics, compression, predicate pushdown, and multi-engine reads. |
-| Silver / Gold table abstraction | Iceberg | Manage table snapshots, schema evolution, manifests, rollback, and multi-engine commits over Parquet/GeoParquet files. |
-| AI context packs, test fixtures, small handoff payloads | JSONL | Use only for bounded, transient model input, fixtures, or writer handoff where line-oriented text is useful. |
+| Bronze raw evidence | Source-native bytes | 받은 provider byte를 ZIP·CSV·XML·JSON·SHP 등 그대로 보존한다. 저장을 정규화한다는 이유로 Avro·Parquet·JSONL로 다시 쓰지 않는다. |
+| Kafka / event transport | 기본 Protobuf; topic 결정에 따라 Avro 허용 | id·trace id·object pointer·checksum·status·schema version을 담은 작은 schema-versioned event envelope다. raw file이나 전체 lakehouse row는 담지 않는다. |
+| Rust / engine processing memory | Arrow | reader·normalizer·writer 사이 batch를 columnar in-memory data로 이동한다. Arrow는 processing/interchange format이지 canonical table store가 아니다. |
+| Silver / Gold physical files | Parquet 또는 GeoParquet | analytics·compression·predicate pushdown·multi-engine read를 위한 canonical scalar·geometry table을 저장한다. |
+| Silver / Gold table abstraction | Iceberg | Parquet/GeoParquet file 위에서 table snapshot·schema evolution·manifest·rollback·multi-engine commit을 관리한다. |
+| AI context pack, test fixture, small handoff payload | JSONL | 제한된 일시적 model input·fixture·writer handoff에서 line-oriented text가 유용할 때만 사용한다. |
 
 Kafka event format choice:
 
-- Use **Protobuf** as the default for foundation-platform service events because
-  Rust-first generated types make service boundaries explicit.
-- Use **Avro** when a topic is primarily a data-platform stream that benefits
-  from Avro-first Schema Registry, Kafka Connect, Spark, or Flink integration.
-- Do not mix Avro and Protobuf inside one topic family. Pick one per event
-  contract and version it.
-- Outbox JSON/JSONB is the local transactional event record. It is not the
-  future Kafka wire format.
+- foundation-platform service event의 기본은 **Protobuf**로 한다. Rust-first generated type가
+  service 경계를 명시하기 때문이다.
+- topic이 data-platform stream이고 Avro-first Schema Registry·Kafka Connect·Spark·Flink
+  integration의 이점이 있으면 **Avro**를 사용한다.
+- 하나의 topic family에서 Avro와 Protobuf를 섞지 않는다. event contract마다 하나를 선택하고
+  version을 붙인다.
+- Outbox JSON/JSONB는 local transactional event record이며 미래 Kafka wire format이 아니다.
 
-Large intermediate data must not default to JSONL. If the intermediate payload
-is large enough to be scanned, queried, partitioned, or repeatedly processed,
-use Arrow for in-memory batches or Parquet/GeoParquet for durable intermediate
-files.
+큰 intermediate data의 기본값을 JSONL로 하지 않는다. payload가 scan·query·partition·반복
+처리할 만큼 크면 in-memory batch에는 Arrow를, durable intermediate file에는
+Parquet/GeoParquet를 사용한다.
 
-Existing Rust structs such as `*SilverHandoff { jsonl: String }` are not lakehouse table storage.
-They are writer-neutral transport payloads used to hand rows to Spark/Iceberg writers, tests, or
-intelligence-platform proposal workers. The final table storage contract is the
-`LakehouseTableContract.physical_format` in `lakehouse-domain`, not the temporary handoff field name.
+`*SilverHandoff { jsonl: String }` 같은 기존 Rust struct는 lakehouse table storage가 아니다.
+Spark/Iceberg writer·test·intelligence-platform proposal worker에 row를 전달하는 writer-neutral
+transport payload다. 최종 table storage contract는 임시 handoff field 이름이 아니라
+`lakehouse-domain`의 `LakehouseTableContract.physical_format`다.
 
-## Why This Is The Enterprise Shape
+## 이 형태를 선택한 이유
 
-This follows the common lakehouse split:
+이는 일반적인 lakehouse 분리를 따른다.
 
-1. Medallion layers define data quality and ownership: Bronze is raw, Silver is validated, Gold is
-   enriched/product-facing.
-2. Iceberg defines the analytic table abstraction: snapshots, schema evolution, rollback, and safe
-   multi-engine access.
-3. Parquet/GeoParquet are the physical data files used under Silver/Gold tables.
-4. JSONL is useful at edges because it is line-oriented, easy to stream, easy to diff, and easy to
-   feed to a model or writer. It is not a table format and does not replace Iceberg metadata,
-   snapshots, manifests, partition evolution, or Parquet statistics.
+1. Medallion layer가 data quality와 ownership을 정의한다. Bronze는 raw, Silver는 validated,
+   Gold는 enriched/product-facing다.
+2. Iceberg가 analytic table abstraction을 정의한다. snapshot·schema evolution·rollback·
+   안전한 multi-engine access를 제공한다.
+3. Parquet/GeoParquet가 Silver/Gold table 아래의 물리 data file이다.
+4. JSONL은 line-oriented이고 stream·diff·model/writer 전달이 쉬워 edge에서 유용하다. table
+   format이 아니며 Iceberg metadata·snapshot·manifest·partition evolution·Parquet statistic을
+   대체하지 않는다.
 
 So the correct boundary is:
 
@@ -84,33 +82,34 @@ Rust foundation-platform control plane:
   contract, lineage, proposal input, review gate, promotion decision
 
 Spark / Iceberg writer:
-  converts approved handoff rows into Parquet/GeoParquet Iceberg tables
+  승인된 handoff row를 Parquet/GeoParquet Iceberg table로 변환한다.
 
 Trino / query layer:
-  reads Silver/Gold Iceberg tables, not handoff JSONL
+  handoff JSONL이 아니라 Silver/Gold Iceberg table을 읽는다.
 
 intelligence-platform:
-  may receive JSONL context packs as proposal input,
-  but proposals return to foundation-platform inbox and never write Silver directly
+  JSONL context pack을 proposal input으로 받을 수 있지만,
+  proposal은 foundation-platform inbox로 돌아가며 Silver에 직접 쓰지 않는다.
 ```
 
-## Rules
+## 규칙
 
-1. `jsonl` fields in app-layer handoff structs must be documented as transient transport.
-2. No Silver/Gold contract may declare JSONL as its `LakehousePhysicalFormat`.
-3. Silver canonical entities use `LakehousePhysicalFormat::Parquet` or
-   `LakehousePhysicalFormat::GeoParquet`.
-4. AI normalization context packs may be JSONL because they are proposal input, not canonical data.
-5. Long-term storage, query, promotion, and rollback must refer to Iceberg snapshot/table contracts,
-   not handoff file paths.
-6. Kafka topics must use a versioned Protobuf or Avro event contract, not ad-hoc JSONL.
-7. Kafka messages must carry claim-check pointers to R2/Iceberg/Postgres state, not raw payload blobs.
-8. Arrow may be used for processing batches and writer boundaries, but not as the durable
-   Silver/Gold table contract unless a future ADR explicitly changes the storage layer.
+1. app-layer handoff struct의 `jsonl` field는 transient transport로 문서화한다.
+2. Silver/Gold contract가 `LakehousePhysicalFormat`으로 JSONL을 선언하지 않는다.
+3. Silver canonical entity는 `LakehousePhysicalFormat::Parquet` 또는
+   `LakehousePhysicalFormat::GeoParquet`를 사용한다.
+4. AI normalization context pack은 canonical data가 아닌 proposal input이므로 JSONL을 쓸 수 있다.
+5. 장기 storage·query·promotion·rollback은 handoff file path가 아니라 Iceberg snapshot/table
+   contract를 참조한다.
+6. Kafka topic은 임의 JSONL이 아니라 versioned Protobuf 또는 Avro event contract를 사용한다.
+7. Kafka message는 raw payload blob이 아니라 R2/Iceberg/Postgres state의 claim-check pointer를
+   담는다.
+8. Arrow는 processing batch와 writer 경계에 사용할 수 있지만, 향후 ADR이 storage layer를
+   명시적으로 바꾸지 않는 한 durable Silver/Gold table contract로 사용하지 않는다.
 
-## Current Application
+## 현재 적용
 
-`silver.building_register_floors` is a canonical Silver table and stays Parquet:
+`silver.building_register_floors`는 canonical Silver table이며 Parquet로 유지한다.
 
 ```text
 LakehouseTableContract {
@@ -121,11 +120,10 @@ LakehouseTableContract {
 }
 ```
 
-The new `foundation-platform.floor_entity_context_pack.v1` payload is JSONL because it is an
-intelligence-platform input stream. It does not mean `silver.building_register_floors` is stored as
-JSONL.
+새 `foundation-platform.floor_entity_context_pack.v1` payload는 intelligence-platform input
+stream이다. 이것이 `silver.building_register_floors`를 JSONL로 저장한다는 뜻은 아니다.
 
-## References
+## 참고 문서
 
 - Databricks medallion architecture: Bronze raw, Silver validated, Gold enriched, with layered
   quality and governance:

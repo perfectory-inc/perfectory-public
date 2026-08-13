@@ -142,6 +142,18 @@ Oxide omicron이 `live-tests/`를 별도 패키지로 두고 있어 유력한 �
 경유이며, 워크스페이스 4개를 의도적으로 분리해 두었다(Bazel이 가장 까다로워하는 지점).
 얻으려는 것이 "테스트 네트워크 차단" 하나인데 비율이 맞지 않는다.
 
+> **갱신 (2026-07-30):** 이 문단의 근거 하나가 낡았다. rust-analyzer의 비-Cargo 프로젝트
+> 자동 탐지(`rust-analyzer.workspace.discoverConfig`)가 머지되어(rules_rust #2755, PR #3073)
+> Bazel 프로젝트에서도 Cargo와 비슷하게 동작한다. 공식 문서가 여전히 "형식은 잠정적"이라
+> 적고 flycheck이 기본 비활성이므로 Cargo 수준은 아니지만, **"IDE가 깨진다"는 더 이상 주된
+> 기각 사유가 아니다.**
+>
+> 기각 자체는 유지한다. 유효한 근거는 1인 운영, 원격 캐시 부재, 검증 계층 전면 재작업이며
+> 재검토 트리거와 함께
+> [운영 준비 로드맵 우선순위 4](../roadmap/production-readiness.md)에
+> 정리돼 있다. 기각을 유지하되 근거를 갱신하지 않으면, 언젠가 낡은 근거로 옳은 결정을
+> 방어하게 된다.
+
 ## Consequences
 
 - 새 영역·새 백엔드 추가는 `tools/xtask` 한 곳의 데이터 편집이다.
@@ -180,6 +192,19 @@ Oxide omicron이 `live-tests/`를 별도 패키지로 두고 있어 유력한 �
    `cargo test --workspace --features integration`으로 같은 20개를 한 번 더 돌린다.
    이 ADR이 기각한 "쓸어담기" 형태이며, PR마다 중복 비용을 낸다. 레인 위임으로
    대체 가능하지만 그 워크플로는 이번 변경 범위 밖이라 손대지 않았다.
+
+   > **해소 (2026-08-05):** 레인에 위임했다. 경로는 여기 적힌
+   > `scripts/ci/walking-skeleton-e2e.sh`가 아니라
+   > `products/gongzzang/scripts/ci/walking-skeleton-e2e.sh`다. 스윕이 덮던 것은 **양쪽 다 이미
+   > 다른 워크플로가 돌리고 있었다** — 단위 테스트는 `gongzzang-ci.yml`의
+   > `cargo xtask verify gongzzang`이, 20개 DB 타깃은 `gongzzang-db-migrations.yml`의
+   > `cargo xtask integration gongzzang postgres`가. 별칭이 `--manifest-path`를 호출자 디렉터리
+   > 기준으로 푸는데 이 스크립트는 `products/gongzzang`에서 돌므로, `foundation-kafka-live.sh`와
+   > 같은 `(cd "$monorepo_root" && …)` 형태를 쓴다.
+   >
+   > 남은 판단: 이 잡이 DB 타깃을 **아예 돌리지 않아도 되는가**. 지금은 돌린 직후 `truncate`하고
+   > API를 띄우므로 그 실행이 E2E 단언에 기여하지 않는다. 다만 스크립트가 선언한 순서
+   > ("migrate, run integration tests, boot the API")를 바꾸는 일이라 위임까지만 했다.
 2. **전수 감사 결과: 게이팅 선언은 55개 모두 실물과 일치한다.** 55타깃을 서브모듈
    (`mod`/`#[path]`)까지 펼쳐 실제 속성을 세어 확인했다. `Ignored` 35개는 모두 진짜
    `#[ignore]` 속성을 1개 이상 갖고, gongzzang 20개는 모두 문자 그대로
@@ -195,17 +220,59 @@ Oxide omicron이 `live-tests/`를 별도 패키지로 두고 있어 유력한 �
    export하지 않는 `FOUNDATION_PLATFORM_R2_INVENTORY_LIVE_SMOKE`를 단언한다. 셋 중
    조용한 것은 첫 번째뿐이지만, 셋 다 "약속한 거부가 발동할 수 없다"는 같은 결함이다.
    r2는 **한 번도 돌지 않았으므로** 아무것도 알려주지 않았을 것이다.
+
+   > **해소 (확인 2026-08-05):** 마지막 문장이 지목한 미export 변수는 이제 존재한다.
+   > `scripts/verify/foundation-r2-lakehouse-live.sh:114`가
+   > `FOUNDATION_PLATFORM_R2_INVENTORY_LIVE_SMOKE`를 export하고 레인 선언도 그것을 요구한다.
+   > r2 타깃 자체는 5번의 이유(자격증명)로 여전히 돌지 않는다.
 4. **가드는 여전히 정적이다.** 다섯 번째 삼킴 방식이 나오면 또 통과한다. Bazel
    샌드박스 같은 물리 차단이 아니다. Bazel조차 새는 것이 알려져 있으나
    (bazelbuild/bazel#10068·#11325 — darwin-sandbox가 네트워크를 실제로 막지 못함),
    방향은 맞다. Docker `--network none`이 보강 후보다.
+
+   > **부분 해소 (2026-08-05):** `scripts/verify/cargo-verify.sh`가 검증을 `--network none`으로
+   > 실행한다. 정적 가드는 그대로 있고 그 위에 한 겹이 생긴 것이다 — 정규식이 보는 텍스트 형태로는
+   > 계속 뚫릴 수 있지만(#8이 실제 사례, 그리고 2026-08-05에 `judgment-position-exit-codes`가 여러 줄
+   > 문자열 내부를 코드로 읽으며 같은 방식으로 한 번 더), **텍스트를 어떻게 쓰든 컨테이너 밖으로
+   > 나갈 수는 없다.** 루프백은 남으므로 자체 서버를 띄우는 테스트는 영향받지 않는다.
+   > `cargo-verify-isolation-self-test`가 이제 그 플래그를 단정하므로 조용히 사라지지 않는다.
+   >
+   > 차단을 켜자 "오프라인 검증"이 오프라인이 아니었다는 것이 줄줄이 드러났다. `rust-toolchain.toml`이
+   > 요구하는 `rust-analyzer`·`rust-src`가 베이스 이미지에 없어 **매 실행이 그 둘을 내려받고 있었고**,
+   > `perfectory-rustup` 볼륨이 이미지의 `/usr/local/rustup`을 가려 무엇을 구워 넣어도 무효였으며,
+   > `rustup component add … || true`는 네트워크가 없으면 조용히 아무것도 하지 않았다. `ensure_apt`는
+   > `apt-get update`가 **오류 7건에도 exit 0**을 내는 것을 성공으로 받고 있었다. `actionlint`는 매번
+   > GitHub에서 받았고, 차단하면 OK도 FAIL도 없이 체인을 죽였다.
+   >
+   > 대응은 전부 이미지로 옮기는 것이었다(`tools/verify-image/Dockerfile`): apt 의존성, 툴체인,
+   > actionlint 캐시. 목록은 어디에도 복제하지 않았다 — 툴체인은 `rustup toolchain install`이
+   > `rust-toolchain.toml`을 직접 읽고, actionlint는 `scripts/ci/actionlint.sh` 자신을 빌드 시점에
+   > 실행해 캐시를 데운다. `ensure_apt`는 `dpkg-query`로 이미 설치된 것을 확인하면 apt를 부르지 않는다.
+   >
+   > **CI는 그대로 네트워크가 있다.** GitHub 러너가 `cargo xtask verify`를 직접 부르므로 이 차단은
+   > 로컬 하네스에만 적용된다. 동등하게 하려면 CI가 이 하네스를 거쳐야 하고 러너 시간이 두 배가 된다.
+   > 이 항목이 완전 해소가 아니라 부분 해소인 이유다.
 5. **여전히 실행되지 않는 6타깃.** identity `live_provisioning`(레인 자체가 어느
    워크플로에서도 호출되지 않는다 — identity-ci는 raw 명령으로 `role_grant_postgres`
    하나만 돌린다), intelligence kafka·redis, foundation r2·lakehouse·data-go-kr
    (자격증명 없음). 이제 "안 돎"이 정직하게 보이고 게이팅도 검증되지만, 커버리지는
    그대로다.
+
+   > **부분 해소 (확인 2026-08-05):** 6타깃이 아니라 **5타깃**이다.
+   > `identity-ci.yml`이 이제 `cargo xtask integration identity postgres`로 레인을 부르고
+   > (100행) 레인이 요구하는 두 URL을 모두 설정하므로(75~81행), `live_provisioning`은 실행된다.
+   > 이것이 자격증명 없이 닫을 수 있던 유일한 항목이었다.
+   >
+   > 남은 5개(intelligence kafka·redis, foundation r2·lakehouse·data-go-kr)는 전부
+   > **자격증명이 없어서** 안 돈다. 코드로 닫히지 않는다 — 누가 어느 계정으로 그 자원을 준비할
+   > 것인가의 결정이며, 우선순위 0의 자격증명 분리 항목과 같은 결정에 묶인다.
 6. **`foundation-kafka-live.sh`가 레인을 우회한다.** raw `cargo test --locked … --
    --ignored` 루프로 같은 3타깃을 돌린다. gongzzang에서 없앤 것과 같은 사설 사본이다.
+
+   > **해소 (확인 2026-08-05):** 더 이상 우회하지 않는다.
+   > `scripts/verify/foundation-kafka-live.sh`는 88·126행에서
+   > `cargo xtask integration foundation kafka`를 부른다. 이 항목이 언제 닫혔는지는 이 기록이
+   > 말하지 않는다 — 닫힐 때 여기에 적히지 않았다는 사실 자체가 아래 정정의 근거다.
 7. **임포트 게이트가 없다.** 이 결함군이 들어온 경로(대량 임포트)는 지금도 검사 없이 열려
    있다.
 8. **rustfmt 한 줄이 가드를 통째로 무력화했다 (발견·수정).** 4번의 "정적이라 샌다"는

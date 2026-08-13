@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use catalog_application::{
-    ArchiveIndustrialComplex, PromoteVectorTileManifest, RebuildParcelMarkerAnchors,
-    RegisterIndustrialComplex, RollbackVectorTileManifest, UpdateIndustrialComplex,
-    UpdateParcelKind,
+    ports::RuntimeManifestPublicationCapability, ArchiveIndustrialComplex,
+    PromoteVectorTileManifest, RebuildParcelMarkerAnchors, RegisterIndustrialComplex,
+    RollbackVectorTileManifest, UpdateIndustrialComplex, UpdateParcelKind,
 };
 use catalog_infrastructure::{
     PgCatalogRepository, PgCatalogUnitOfWork, PgParcelMarkerAnchorRebuilder,
@@ -32,6 +32,10 @@ use crate::identity_token_verifier::IdentityTokenVerifier;
 use crate::traffic::TrafficConfig;
 
 const IDENTITY_CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
+/// Deployment switch for v2 runtime manifest publication. Named here because this file is the
+/// only place permitted to read the process environment.
+const RUNTIME_MANIFEST_PUBLICATION_ENV: &str = "FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED";
+
 const DEFAULT_IDENTITY_AUTHORIZATION_TIMEOUT_MS: u64 = 2_000;
 const IDENTITY_NETWORK_BUDGET_SLICES: u32 = 5;
 
@@ -53,6 +57,8 @@ pub struct AppConfig {
     pub zitadel_issuer_url: String,
     pub zitadel_audience: String,
     pub identity_authorization_timeout_ms: u64,
+    /// Whether this deployment may publish the v2 runtime manifest.
+    pub runtime_manifest_publication: RuntimeManifestPublicationCapability,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -94,6 +100,13 @@ impl AppConfig {
                 "FOUNDATION_PLATFORM_IDENTITY_AUTHORIZATION_TIMEOUT_MS",
                 DEFAULT_IDENTITY_AUTHORIZATION_TIMEOUT_MS,
             )?,
+            // Read once here, at the only boundary that is allowed to see the process
+            // environment. The handler used to consult `std::env::var` per request, which put a
+            // deployment decision inside a hot path and made it untestable without mutating
+            // global state.
+            runtime_manifest_publication: RuntimeManifestPublicationCapability::from_env_value(
+                lookup(RUNTIME_MANIFEST_PUBLICATION_ENV).as_deref(),
+            ),
         })
     }
 
@@ -173,6 +186,7 @@ pub struct AppState {
     pub apply_normalization_proposal: ApplyNormalizationProposal,
     pub rollback_normalization_application: RollbackNormalizationApplication,
     pub identity_authorization: Arc<dyn IdentityAuthorization>,
+    runtime_manifest_publication: RuntimeManifestPublicationCapability,
 }
 
 #[cfg(test)]
@@ -543,8 +557,25 @@ impl AppState {
             pool,
             config.database.max_connections,
             identity_authorization,
-        );
+        )
+        .with_runtime_manifest_publication(config.runtime_manifest_publication);
         Ok(state)
+    }
+
+    /// Records the deployment's publication capability.
+    #[must_use]
+    const fn with_runtime_manifest_publication(
+        mut self,
+        capability: RuntimeManifestPublicationCapability,
+    ) -> Self {
+        self.runtime_manifest_publication = capability;
+        self
+    }
+
+    /// Whether this deployment may publish the v2 runtime manifest.
+    #[must_use]
+    pub const fn runtime_manifest_publication(&self) -> RuntimeManifestPublicationCapability {
+        self.runtime_manifest_publication
     }
 
     fn from_pool(
@@ -632,6 +663,9 @@ impl AppState {
             apply_normalization_proposal,
             rollback_normalization_application,
             identity_authorization,
+            // Fail closed. Only a deployment that says so turns publication on, so a test
+            // harness or a forgotten variable can never publish.
+            runtime_manifest_publication: RuntimeManifestPublicationCapability::disabled(),
         }
     }
 
@@ -843,6 +877,20 @@ mod tests {
             .collect()
     }
 
+    /// The variables `AppConfig::from_vars` refuses to run without. Tests that are about one
+    /// optional switch should not restate them, or the switch under test gets lost in the noise.
+    fn required_config_vars() -> Vec<(&'static str, &'static str)> {
+        vec![
+            (
+                "DATABASE_URL",
+                "postgres://foundation_platform:secret@localhost:15434/foundation_platform",
+            ),
+            ("IDENTITY_API_BASE_URL", "https://identity.example.test"),
+            ("ZITADEL_ISSUER_URL", "https://issuer.example.test"),
+            ("FOUNDATION_PLATFORM_ZITADEL_AUDIENCE", "foundation-api"),
+        ]
+    }
+
     #[test]
     fn identity_network_calls_leave_budget_for_two_policy_attempts() -> anyhow::Result<()> {
         let authorization_timeout = Duration::from_secs(2);
@@ -930,6 +978,56 @@ mod tests {
             "https://identity.example.test"
         );
         assert_eq!(config.zitadel_audience, "foundation-api");
+        Ok(())
+    }
+
+    /// The switch was read with `std::env::var` inside the request handler, so it could not be
+    /// exercised without mutating the process environment. Through the injected lookup the
+    /// deployment decision is an ordinary value with ordinary tests.
+    #[test]
+    fn runtime_manifest_publication_defaults_to_disabled_when_unset() -> anyhow::Result<()> {
+        let vars = vars(&required_config_vars());
+
+        let config = AppConfig::from_vars(|key| vars.get(key).cloned())?;
+
+        assert!(!config.runtime_manifest_publication.is_enabled());
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_manifest_publication_accepts_the_deployment_truthy_spellings() -> anyhow::Result<()>
+    {
+        for spelling in ["1", "true", "TRUE", "yes", "on", " true "] {
+            let mut pairs = required_config_vars();
+            pairs.push(("FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED", spelling));
+            let vars = vars(&pairs);
+
+            let config = AppConfig::from_vars(|key| vars.get(key).cloned())?;
+
+            assert!(
+                config.runtime_manifest_publication.is_enabled(),
+                "{spelling:?} should enable publication"
+            );
+        }
+        Ok(())
+    }
+
+    /// Anything unrecognised is disabled. A publication capability that treated a typo as consent
+    /// would publish from an environment that never said yes.
+    #[test]
+    fn runtime_manifest_publication_treats_unrecognised_values_as_disabled() -> anyhow::Result<()> {
+        for spelling in ["", " ", "0", "false", "no", "off", "enabled", "ture"] {
+            let mut pairs = required_config_vars();
+            pairs.push(("FOUNDATION_TILE_RUNTIME_MANIFEST_V2_ENABLED", spelling));
+            let vars = vars(&pairs);
+
+            let config = AppConfig::from_vars(|key| vars.get(key).cloned())?;
+
+            assert!(
+                !config.runtime_manifest_publication.is_enabled(),
+                "{spelling:?} must not enable publication"
+            );
+        }
         Ok(())
     }
 

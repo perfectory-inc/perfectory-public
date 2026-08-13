@@ -7,6 +7,7 @@ use std::{
 use anyhow::{bail, Context};
 use chrono::{SecondsFormat, Utc};
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
+use lakehouse_infrastructure::{LakehouseCatalogConfig, LakehouseCatalogProvider};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
@@ -110,6 +111,40 @@ pub fn r2_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectStorageCon
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         )?,
     })
+}
+
+pub fn lakehouse_catalog_config_from_env_file(
+    path: &Path,
+) -> anyhow::Result<LakehouseCatalogConfig> {
+    if !path.is_file() {
+        bail!("Env file not found: {}", path.display());
+    }
+    let values = read_dotenv(path)?;
+    Ok(LakehouseCatalogConfig {
+        provider: LakehouseCatalogProvider::from_wire(&required_value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER",
+        )?)?,
+        catalog_uri: required_value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
+        )?,
+        warehouse: required_value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
+        )?,
+        catalog_token: value_from_dotenv_or_env(
+            &values,
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
+        )?,
+    })
+}
+
+pub fn evidence_sealer_database_url_from_env_file(path: &Path) -> anyhow::Result<String> {
+    if !path.is_file() {
+        bail!("Env file not found: {}", path.display());
+    }
+    required_value_from_dotenv_or_env(&read_dotenv(path)?, "FOUNDATION_MIGRATOR_DATABASE_URL")
 }
 
 pub fn normalize_windows_verbatim_path(path: PathBuf) -> PathBuf {

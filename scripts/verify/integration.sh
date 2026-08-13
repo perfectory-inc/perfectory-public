@@ -52,8 +52,13 @@ case "$AREA" in
 esac
 SLUG="$(echo "$AREA_DIR" | tr '/' '-')"
 
+# `-v` is load-bearing. The postgres image declares a volume for its data directory, so every run
+# creates an anonymous one, and `docker rm` without `-v` removes the container while orphaning it.
+# Nothing ever referenced those again and nothing collected them: 107 of them, ~115MB each, had
+# accumulated by the time a run failed for lack of disk. A disposable harness that leaks its own
+# storage stops being disposable.
 cleanup() {
-  docker rm -f "$DB" >/dev/null 2>&1 || true
+  docker rm -f -v "$DB" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT

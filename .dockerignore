@@ -1,0 +1,18 @@
+# Context filter for builds rooted at the repository.
+#
+# `scripts/verify/cargo-verify.sh` builds the verification image from here because
+# `scripts/guard/check-container-runtime-policy.sh` requires a literal repository-relative context,
+# and the image has to copy `rust-toolchain.toml` — the single toolchain pin (ADR-0001 §3), which
+# lives at the root and must not be duplicated into a build directory.
+#
+# Everything is excluded and the two files that image needs are added back, so the daemon receives a
+# few kilobytes instead of the whole tree (89MB, including per-area `target/` directories). A build
+# that needs more from the root has to say so here, which is the point: a context is auditable.
+*
+!rust-toolchain.toml
+!tools/verify-image/Dockerfile
+# The checksum-pinned actionlint release and the script that fetches it. The image warms that
+# script's cache at build time so `workflow-policy` can run with no network; copying the version and
+# checksum into the Dockerfile instead would put the pin in two places.
+!tools/actionlint.env
+!scripts/ci/actionlint.sh

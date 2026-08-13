@@ -3,7 +3,7 @@
   "source_repo": "foundation-platform",
   "source_path": "docs/openapi/catalog.v1.json",
   "snapshot_path": "crates/foundation-platform-client/openapi/catalog.v1.json",
-  "source_sha256": "d916cddcb44a9224a49d48eca2a29e5c9dbcea14a9031c78b96f65e192c065dc",
+  "source_sha256": "a62991e3005ba22d77552ef04e88b5754711cf8a289b49d7bd69a32e15de390c",
   "source_schema_version": "foundation-platform.openapi.catalog.v1",
   "consumer_slug": "gongzzang",
   "base_env": "FOUNDATION_PLATFORM_API_BASE_URL",

@@ -21,7 +21,6 @@ function manifest(servingGeneration: number, url: string) {
           kind: "dynamic_postgis",
           martin_source_id: "parcels",
           tiles_url_template: url,
-          postgis_projection_revision: "0196e7e0-3c20-7000-8000-000000000063",
           cache_policy: "no_store",
         },
         layers: {

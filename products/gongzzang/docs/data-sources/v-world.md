@@ -5,54 +5,52 @@ doc_type: documentation
 last_reviewed: 2026-07-29
 ---
 
-# V-World Source Boundary
+# V-World 원천 경계
 
-V-World is a Foundation Platform Catalog input source.
+V-World는 Foundation Platform Catalog 입력 원천이다.
 
-Gongzzang must not add a V-World client, scheduled V-World job, raw-response
-capture path, or V-World drift monitor. Gongzzang consumes Catalog facts through
-Foundation Platform published contracts only.
+Gongzzang은 V-World client·예약 작업·원자료 보관·변경 감시를 추가하지 않는다. Catalog 사실은
+Foundation Platform 공개 계약으로만 소비한다.
 
-## Gongzzang Contract
+## Gongzzang 계약
 
-Allowed Gongzzang usage:
+허용 사용:
 
-- Foundation Platform Catalog HTTP API pinned by
+- Foundation Platform Catalog HTTP API 고정 계약:
   `docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json`
-- Foundation Platform events pinned by
+- Foundation Platform event 고정 계약:
   `docs/architecture/foundation-platform-webhook-receiver-contract.v1.pin.json`
-- Immutable PNU anchor artifacts imported into the Gongzzang read model
+- Gongzzang read model로 가져오는 불변 PNU anchor artifact
 
-Disallowed Gongzzang usage:
+금지 사용:
 
-- Direct V-World HTTP calls
-- `vworld-client` or replacement Catalog ACL crates
-- `parcel_external_data` writes
-- raw capture binaries or R2 raw archive writers
-- V-World-specific drift smoke workflows
+- V-World 직접 HTTP 호출
+- `vworld-client` 또는 대체 Catalog ACL crate
+- `parcel_external_data` 쓰기
+- raw capture binary 또는 R2 raw archive writer
+- V-World 전용 drift smoke workflow
 
-## Ownership
+## 소유권
 
-Foundation Platform owns:
+Foundation Platform 소유:
 
-- V-World credentials and quota handling
-- Request/response parsing
+- V-World credential과 quota 처리
+- request/response parsing
 - raw response lineage
 - schema drift monitoring
-- canonical parcel geometry and public/reference spatial layers
+- 정본 필지 geometry와 public/reference spatial layer
 
-Gongzzang owns:
+Gongzzang 소유:
 
-- Listing semantics
-- Listing marker serving
-- the PNU anchor read-model copy required by listing marker serving
+- 매물 의미
+- 매물 marker 제공
+- 매물 marker 제공에 필요한 PNU anchor read-model 복사본
 
-## Guardrails
+## 가드
 
 - Foundation Platform catalog boundary — `scripts/lefthook/foundation-ownership-boundary.sh`
 - Foundation Platform boundary / dependency-boundary contract — `docs/architecture/foundation-platform-boundary.v1.json`
 - Foundation Platform Catalog API consumer contract — `docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json`
 
-If V-World source behavior changes, update Foundation Platform first. Gongzzang should
-only update pinned Foundation Platform contracts after the Foundation Platform API/event
-contract changes.
+V-World 원천 동작이 바뀌면 먼저 Foundation Platform을 갱신한다. Gongzzang은 Foundation Platform
+API/이벤트 계약이 바뀐 뒤 고정된 계약만 갱신한다.

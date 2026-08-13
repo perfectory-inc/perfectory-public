@@ -7,9 +7,9 @@ last_reviewed: 2026-07-29
 
 # infrastructure/
 
-Pulumi (TypeScript) IaC. AWS Seoul + Cloudflare 무료 활용. sub-project 8에서 본격 작성.
+Pulumi(TypeScript) IaC다. AWS 서울 리전과 Cloudflare 무료 구성을 사용한다. sub-project 8에서 본격 작성한다.
 
-## 향후 모듈 (sub-project 8+)
+## 향후 모듈(sub-project 8+)
 - `networking/` — VPC, Subnet, NACL, Security Group
 - `compute/` — ECS Fargate (Phase 3+) → EKS (Phase 4+)
 - `data/` — RDS (Postgres + PostGIS), ElastiCache (Valkey), Cloudflare R2

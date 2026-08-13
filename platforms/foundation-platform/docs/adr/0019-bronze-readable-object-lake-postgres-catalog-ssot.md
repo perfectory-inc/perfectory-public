@@ -1,4 +1,4 @@
-# ADR 0019 - Bronze readable object lake + Postgres catalog SSOT
+# ADR 0019 - Bronze 읽을 수 있는 객체 lake와 Postgres catalog SSOT
 
 Status: Accepted
 Date: 2026-06-28
@@ -10,8 +10,8 @@ Related: [ADR 0016](./0016-bronze-commit-protocol.md), [ADR 0017](./0017-bronze-
 
 ## Decision
 
-The R2 object path is a human-readable physical layout for operations. The single source of truth
-for identity, integrity, dates, and lineage is the Postgres Bronze Catalog.
+R2 객체 path는 운영을 위한 사람이 읽을 수 있는 물리 layout이다. identity·integrity·date·
+lineage의 단일 정본은 Postgres Bronze Catalog다.
 
 ## Context
 
@@ -31,11 +31,11 @@ Dates also have two different meanings:
 
 We considered three layouts:
 
-1. **Date-free path**: mechanically normalized, but poor for request-scope dates and less readable.
-2. **Content-addressed blob path** (`bronze/blob/sha256/...`): pure, but opaque and expensive for
-   streaming bulk files because the final key is unknown until the full digest is known.
-3. **Readable path + Postgres catalog truth**: operationally readable while keeping correctness in
-   the catalog. This ADR adopts this option.
+1. **Date-free path**: 기계적으로 정규화되지만 request-scope date를 표현하기 어렵고 덜 읽힌다.
+2. **Content-addressed blob path**(`bronze/blob/sha256/...`): 순수하지만 opaque하고 streaming
+   bulk file에서는 전체 digest를 알아야 최종 key를 정할 수 있어 비용이 크다.
+3. **Readable path + Postgres catalog truth**: 운영에서는 읽기 쉽고 correctness는 catalog에 둔다.
+   이 ADR은 이 option을 채택한다.
 
 ## Adopted Model
 
@@ -51,13 +51,13 @@ bronze/source=datagokr__building_register_main/sigungu=11680/bjdong=10300/page-0
 bronze/source=vworldkr__land_register/pnu=9999900601100010000/page-000001.json
 ```
 
-The path is useful for humans, R2 browsing, smoke verification, and incident triage. Code must not
-parse the path to decide skip, dedupe, coverage, freshness, or lineage.
+path는 사람·R2 browsing·smoke 검증·incident triage에 유용하다. code는 skip·dedupe·coverage·
+freshness·lineage를 결정하기 위해 path를 parse하지 않는다.
 
-Request-scope partitions such as `period`, `lawd`, `sigungu`, `bjdong`, and `pnu` stay in
-API-page keys when they distinguish one requested coverage slice from another. A bulk file's
-provider period, snapshot date, updated date, and fallback collection date are descriptive
-metadata, so they do not participate in its physical identity; its provider file id is the leaf.
+`period`, `lawd`, `sigungu`, `bjdong`, `pnu` 같은 request-scope partition은 요청한 coverage
+slice를 구분하면 API-page key에 남긴다. bulk file의 provider period·snapshot date·updated
+date·fallback collection date는 descriptive metadata이므로 physical identity에 참여하지
+않으며 provider file id를 leaf로 사용한다.
 
 ### Postgres Bronze Catalog is truth
 
@@ -80,29 +80,29 @@ ingestion_run_id
 collected_at
 ```
 
-`source_identity_key` answers "which source/request/file piece is this?"
-`checksum_sha256` answers "are these bytes identical?"
-They are related only through the catalog, not through path conventions.
+`source_identity_key`는 “어느 source/request/file 조각인가?”에 답한다.
+`checksum_sha256`는 “byte가 동일한가?”에 답한다.
+둘은 경로 규칙이 아니라 Catalog를 통해서만 연결한다.
 
 ### Date policy
 
-- `snapshot_period` is the human bucket, such as `2026-05`.
-- `snapshot_date` is the canonical as-of date. Month-granularity data uses the first day of the
-  month with `snapshot_granularity=month`.
-- `snapshot_granularity` is `day` or `month`.
-- `snapshot_basis` records why the date exists:
+- `snapshot_period`는 `2026-05` 같은 사람이 읽는 bucket이다.
+- `snapshot_date`는 canonical as-of date다. month 단위 data는 해당 month 첫날을 쓰고
+  `snapshot_granularity=month`로 기록한다.
+- `snapshot_granularity`는 `day` 또는 `month`다.
+- `snapshot_basis`는 date가 존재하는 이유를 기록한다.
   - `provider_snapshot_date`
   - `provider_file_period`
   - `request_month`
   - `provider_updated_at`
   - `collected_at_fallback`
 
-`snapshot_date` is always populated for new Bronze objects. If the provider has no 기준일, use
-갱신일; if it has neither, use `collected_at_fallback`. The basis must make the fallback explicit.
+새 Bronze object에는 항상 `snapshot_date`를 채운다. provider에 기준일이 없으면 갱신일을
+사용하고 둘 다 없으면 `collected_at_fallback`을 사용한다. basis에 fallback을 명시한다.
 
 ### Identity policy
 
-The source identity is source-specific and generated in one place:
+source identity는 source별이며 한 곳에서 생성한다.
 
 ```text
 hub/vworld bulk       = provider_file_id
@@ -112,8 +112,8 @@ V-World PNU API       = pnu + page + page_size
 V-World cadastral API = pnu/emd/fingerprint + page + page_size
 ```
 
-Provider request parameters are still preserved in `request_params` as raw lineage. That is not
-duplication; it answers a different audit question.
+Provider request parameter는 raw lineage로 `request_params`에 보존한다. 이는 중복이 아니라
+다른 audit 질문에 답하기 위한 것이다.
 
 ### Dedupe policy
 
@@ -123,16 +123,16 @@ duplication; it answers a different audit question.
 dedupe_key = source_slug + ":" + source_identity_key + ":sha256=" + checksum_sha256
 ```
 
-No lane may hand-format a dedupe key differently.
+어떤 레인도 dedupe key를 임의 형식으로 만들 수 없다.
 
 ## Consequences
 
-- Operators can still read R2 paths directly.
-- Filename or provider ID changes do not silently become truth. The catalog and checksum decide.
-- Same bytes are recognized by checksum; changed bytes are recorded as a new content state.
-- Silver/Gold remain deferred to an Iceberg-style lakehouse. Bronze stays raw files + catalog.
-- API/event contract versions remain explicit, while semantic data versions stay out of R2 object
-  keys and live in Catalog/Iceberg metadata.
+- 운영자는 여전히 R2 path를 직접 읽을 수 있다.
+- filename이나 provider ID 변경이 조용히 정본이 되지 않는다. catalog와 checksum이 결정한다.
+- 같은 byte는 checksum으로 인식하고 변경 byte는 새 content state로 기록한다.
+- Silver/Gold는 Iceberg형 lakehouse로 미루며 Bronze는 raw file + catalog로 남긴다.
+- API/event contract version은 명시적으로 유지하고 semantic data version은 R2 object key가
+  아니라 Catalog/Iceberg metadata에 둔다.
 
 ## Non-goals
 

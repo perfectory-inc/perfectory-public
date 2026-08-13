@@ -170,11 +170,13 @@ VALUES
         repeat('3', 64)
     );
 
+-- No complex: a parcel does not carry one since ADR-0019 step 3. This fixture's parcels are not
+-- claimed to be in the fixture complex, and nothing in the tile slice needs them to be — the mirror
+-- rows below carry their own complex column, which is what the proof reads.
 INSERT INTO catalog.parcel
-    (id, complex_id, pnu, kind, area_m2, version)
+    (id, pnu, kind, area_m2, version)
 SELECT
     fixture.parcel_id,
-    '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
     fixture.pnu,
     fixture.kind,
     fixture.area_m2,
@@ -182,13 +184,55 @@ SELECT
 FROM tiles_slice_fixture_parcel AS fixture
 ON CONFLICT (id) DO UPDATE
 SET
-    complex_id = EXCLUDED.complex_id,
     pnu = EXCLUDED.pnu,
     kind = EXCLUDED.kind,
     area_m2 = EXCLUDED.area_m2,
     updated_at = now(),
     version = catalog.parcel.version + 1;
 
+-- Membership, which is now the only thing that puts these parcels in the fixture complex. The
+-- anchor views below join through `catalog.parcel_current_complex`, so without these rows the proof
+-- would count zero anchors and report that as the fixture's answer.
+INSERT INTO catalog.administrative_boundary_revision
+    (id, canonical_iceberg_snapshot_id, source_snapshot_id, source_record_id, status, validated_at)
+VALUES
+    (
+        '019d2b87-3fd1-7e3a-8d88-0b72c8742301',
+        '7301',
+        'iceberg:tiles-slice-proof-membership',
+        '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
+        'validated',
+        now()
+    )
+ON CONFLICT (id) DO NOTHING;
+
+-- The publisher capability is required by `parcel_complex_membership_append_only`, and it is
+-- transaction-scoped: this whole file runs inside one BEGIN, so `true` covers the INSERT below and
+-- ends with the COMMIT rather than leaking into the next session on this connection.
+SELECT set_config('foundation.temporal_publisher', 'on', true);
+
+INSERT INTO catalog.parcel_complex_membership
+    (id, parcel_id, complex_id, asserted_by, effective_period, data_revision,
+     source_snapshot_id, source_record_id)
+SELECT
+    md5('tiles-slice-proof-membership:' || fixture.parcel_id::text)::uuid,
+    fixture.parcel_id,
+    '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
+    'official_list',
+    daterange(DATE '2020-01-01', NULL, '[)'),
+    '019d2b87-3fd1-7e3a-8d88-0b72c8742301',
+    'iceberg:tiles-slice-proof-membership',
+    '019d2b87-3fd1-7e3a-8d88-0b72c8742001'
+FROM tiles_slice_fixture_parcel AS fixture
+ON CONFLICT (id) DO NOTHING;
+
+SELECT set_config('foundation.temporal_publisher', 'off', true);
+
+-- ADR-0026: a rebuild run is born without claims and reaches a terminal state only through the
+-- transitions its state guard admits. Seeding a `succeeded` row directly is refused, so the
+-- fixture walks the same planned -> running -> succeeded path a real rebuild takes. Each step is
+-- guarded by the status it expects, which keeps re-running this file a no-op once the run is
+-- terminal — a terminal run is immutable and cannot be upserted over.
 INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
     (
         id,
@@ -198,45 +242,55 @@ INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
         source_file_asset_id,
         srid,
         status,
-        loaded_row_count,
-        rejected_row_count,
-        quality_report,
-        started_at,
-        finished_at,
-        version
+        started_at
     )
 VALUES
     (
         '019d2b87-3fd1-7e3a-8d88-0b72c8742301',
-        'iceberg:tiles-slice-proof-v1',
+        'iceberg:841361364657368623',
         'silver.parcel_boundaries',
         '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
         '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
         5179,
-        'succeeded',
-        3,
-        0,
-        jsonb_build_object('fixture', true, 'invalid_geometry_count', 0),
-        TIMESTAMPTZ '2026-07-21 00:00:00+00',
-        TIMESTAMPTZ '2026-07-21 00:00:01+00',
-        1
+        'planned',
+        TIMESTAMPTZ '2026-07-21 00:00:00+00'
     )
-ON CONFLICT (id) DO UPDATE
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
 SET
-    source_snapshot_id = EXCLUDED.source_snapshot_id,
-    source_table = EXCLUDED.source_table,
-    source_record_id = EXCLUDED.source_record_id,
-    source_file_asset_id = EXCLUDED.source_file_asset_id,
-    srid = EXCLUDED.srid,
-    status = EXCLUDED.status,
-    loaded_row_count = EXCLUDED.loaded_row_count,
-    rejected_row_count = EXCLUDED.rejected_row_count,
-    quality_report = EXCLUDED.quality_report,
-    started_at = EXCLUDED.started_at,
-    finished_at = EXCLUDED.finished_at,
+    status = 'running',
+    updated_at = now(),
+    version = version + 1
+WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742301'
+  AND status = 'planned';
+
+UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
+SET
+    status = 'succeeded',
+    loaded_row_count = 3,
+    rejected_row_count = 0,
+    -- ADR-0025 requires every field below before a run can be sealed; a partial report is refused
+    -- rather than treated as "nothing went wrong". The counts describe this fixture's three parcels.
+    quality_report = jsonb_build_object(
+        'schema_version', 'foundation-platform.parcel_publication_quality.v1',
+        'object_count', 1,
+        'expected_row_count', 3,
+        'loaded_row_count', 3,
+        'invalid_srid_count', 0,
+        'invalid_geometry_count', 0,
+        'empty_geometry_count', 0,
+        'nonpositive_area_count', 0,
+        'source_srid', 'EPSG:4326',
+        'target_srid', 'EPSG:5179',
+        'geometry_repair_strategy', 'postgis-make-valid-v1'
+    ),
+    finished_at = TIMESTAMPTZ '2026-07-21 00:00:01+00',
     error_message = NULL,
     updated_at = now(),
-    version = serving_postgis.parcel_boundary_mirror_rebuild_run.version + 1;
+    version = version + 1
+WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742301'
+  AND status = 'running';
 
 INSERT INTO serving_postgis.parcel_boundary_mirror
     (
@@ -258,7 +312,7 @@ INSERT INTO serving_postgis.parcel_boundary_mirror
 SELECT
     fixture.pnu,
     '019d2b87-3fd1-7e3a-8d88-0b72c8742301',
-    'iceberg:tiles-slice-proof-v1',
+    'iceberg:841361364657368623',
     'silver.parcel_boundaries',
     '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
     '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
@@ -267,7 +321,7 @@ SELECT
     '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
     fixture.parcel_id,
     fixture.geometry_checksum_sha256,
-        jsonb_build_object('fixture', true, 'official_complex_code', 'IC-SYNTHETIC-001'),
+    jsonb_build_object('fixture', true),
     public.ST_Multi(
         public.ST_Transform(
             public.ST_SetSRID(public.ST_GeomFromText(fixture.boundary_wkt), 4326),
@@ -276,9 +330,11 @@ SELECT
     )::public.geometry(MultiPolygon, 5179),
     1
 FROM tiles_slice_fixture_parcel AS fixture
-ON CONFLICT (pnu) DO UPDATE
+-- ADR-0026 repointed this primary key from (pnu) to (rebuild_run_id, pnu) so one parcel can hold
+-- a row per rebuild. The conflict target follows the key; `rebuild_run_id` therefore leaves the
+-- SET list, because a row that conflicts already carries the run it was inserted under.
+ON CONFLICT (rebuild_run_id, pnu) DO UPDATE
 SET
-    rebuild_run_id = EXCLUDED.rebuild_run_id,
     source_snapshot_id = EXCLUDED.source_snapshot_id,
     source_table = EXCLUDED.source_table,
     source_record_id = EXCLUDED.source_record_id,
@@ -315,7 +371,7 @@ INSERT INTO catalog.parcel_marker_anchor_generation_run
 VALUES
     (
         '019d2b87-3fd1-7e3a-8d88-0b72c8742302',
-        'iceberg:tiles-slice-proof-v1',
+        'iceberg:841361364657368623',
         'silver.parcel_boundaries',
         '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
         '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
@@ -376,7 +432,7 @@ SELECT
     fixture.pnu,
     fixture.parcel_id,
     '019d2b87-3fd1-7e3a-8d88-0b72c8742302',
-    'iceberg:tiles-slice-proof-v1',
+    'iceberg:841361364657368623',
     'silver.parcel_boundaries',
     '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
     '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
@@ -423,11 +479,9 @@ CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcels AS
 SELECT
     boundary.pnu::text AS pnu,
     boundary.pnu::text AS "PNU",
-    complex.official_complex_code,
     boundary.geom::public.geometry(MultiPolygon, 5179) AS geom
 FROM serving_postgis.parcel_boundary_mirror AS boundary
-JOIN catalog.industrial_complex AS complex ON complex.id = boundary.complex_id
-WHERE complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
+WHERE boundary.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
 
 CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcel_anchor_aggregate AS
 SELECT
@@ -437,19 +491,27 @@ SELECT
     public.ST_Centroid(public.ST_Collect(anchor.anchor_point))::public.geometry(Point, 4326) AS geom
 FROM catalog.parcel_marker_anchor AS anchor
 JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id
-JOIN catalog.industrial_complex AS complex ON complex.id = parcel.complex_id
+-- Membership, not a column on the parcel (ADR-0019). `parcel_current_complex` owns the
+-- "today" predicate so this view does not restate it (ADR-0022).
+JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = parcel.id
+JOIN catalog.industrial_complex AS complex ON complex.id = membership.complex_id
 WHERE anchor.is_active
   AND complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
 GROUP BY complex.id, complex.official_complex_code;
 
+-- Per-parcel anchors carry the PNU and nothing else (ADR-0024). The membership join stays because
+-- this proof fixture is scoped to one complex, but the code it resolves is used for the WHERE, not
+-- shipped as a feature property: a parcel feature does not claim membership.
 CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcel_anchor AS
 SELECT
     anchor.pnu::text AS pnu,
-    complex.official_complex_code,
     anchor.anchor_point::public.geometry(Point, 4326) AS geom
 FROM catalog.parcel_marker_anchor AS anchor
 JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id
-JOIN catalog.industrial_complex AS complex ON complex.id = parcel.complex_id
+-- Membership, not a column on the parcel (ADR-0019). `parcel_current_complex` owns the
+-- "today" predicate so this view does not restate it (ADR-0022).
+JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = parcel.id
+JOIN catalog.industrial_complex AS complex ON complex.id = membership.complex_id
 WHERE anchor.is_active
   AND complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
 

@@ -350,7 +350,6 @@ describe("foundation-platform vector tile manifest consumer", () => {
             kind: "dynamic_postgis",
             martin_source_id: "parcels",
             tiles_url_template: "http://127.0.0.1:3110/parcels/{z}/{x}/{y}",
-            postgis_projection_revision: "0196e7e0-3c20-7000-8000-000000000063",
             cache_policy: "no_store",
           },
           layers: {
@@ -453,7 +452,6 @@ describe("foundation-platform vector tile manifest consumer", () => {
             kind: "dynamic_postgis",
             martin_source_id: "parcels",
             tiles_url_template: "http://127.0.0.1:3110/not-parcels/{z}/{x}/{y}",
-            postgis_projection_revision: "0196e7e0-3c20-7000-8000-000000000063",
             cache_policy: "no_store",
           },
           layers: {
@@ -503,7 +501,6 @@ describe("foundation-platform vector tile manifest consumer", () => {
             kind: "dynamic_postgis",
             martin_source_id: "parcels",
             tiles_url_template: "http://127.0.0.1:3101/parcels/{z}/{x}/{y}",
-            postgis_projection_revision: "0196e7e0-3c20-7000-8000-000000000063",
             cache_policy: "no_store",
           },
           layers: {

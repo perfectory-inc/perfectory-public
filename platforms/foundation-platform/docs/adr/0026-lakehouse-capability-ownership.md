@@ -1,30 +1,29 @@
-# ADR 0026: Lakehouse Capability Owns Materialization and Publication
+# ADR 0026: 레이크하우스 기능이 구체화·공개를 소유
 
 - Status: Accepted
 - Date: 2026-07-16
 - Supersedes: Lakehouse ownership implied by the Catalog umbrella
 - Related: Foundation ADR 0021, Gongzzang ADR 0048
 
-## Context
+## 배경
 
-The Foundation Platform is already the physical owner of Catalog, Collection,
-Lakehouse, Normalization, and Spatial capabilities. Collection has been extracted
-from the former Catalog umbrella, but Lakehouse behavior is still distributed
-through `catalog-domain`, `catalog-application`, `catalog-infrastructure`,
-`outbox-publisher`, and the two Foundation services.
+Foundation Platform은 이미 Catalog·Collection의 물리 소유자이며 Lakehouse,
+Normalization, Spatial capability도 소유한다. Collection은 과거 Catalog umbrella에서
+추출했지만 Lakehouse 동작은 여전히 `catalog-domain`, `catalog-application`,
+`catalog-infrastructure`, `outbox-publisher`, 두 Foundation service에 분산되어 있다.
 
-This distribution has concrete defects:
+이 분배에는 명확한 결함이 있다.
 
-- Registry asset, active-version, and artifact writes are not one transaction.
-- Gold pointer reads and publication are mixed into Catalog repository and unit-of-work ports.
-- Lakehouse errors are represented as `CatalogError`.
-- Domain objects manufacture shared wire events directly.
-- Silver materialization, lineage validation, and quality policy have no single owner.
-- Moving files layer by layer would leave intermediate commits that do not compile.
+- Registry asset·active-version·artifact write가 하나의 transaction이 아니다.
+- Gold pointer read와 publication이 Catalog repository·unit-of-work port에 섞여 있다.
+- Lakehouse error를 `CatalogError`로 나타낸다.
+- domain object가 shared wire event를 직접 만든다.
+- Silver materialization·lineage validation·quality policy의 단일 owner가 없다.
+- file을 layer별로 옮기면 compile되지 않는 중간 commit이 남는다.
 
-## Decision
+## 결정
 
-### Capability packages
+### 기능 패키지
 
 Lakehouse behavior moves to these packages:
 
@@ -34,7 +33,7 @@ crates/lakehouse/lakehouse-application
 crates/lakehouse/lakehouse-infrastructure
 ```
 
-Package direction is:
+package 의존 방향은 다음과 같다.
 
 ```text
 lakehouse-domain
@@ -49,27 +48,26 @@ lakehouse-infrastructure
 Foundation service composition roots
 ```
 
-Catalog and Collection must not depend on a Lakehouse package.
+Catalog와 Collection은 Lakehouse package에 의존하지 않는다.
 
-### Vertical-slice cutover
+### 수직 슬라이스 전환
 
-The migration moves complete behavior slices. A slice includes its domain contract,
-application port and use case, infrastructure adapter, composition-root wiring, and
-compatibility tests. Every committed slice must compile and pass its focused tests.
-There is no committed red architecture-test phase and no compatibility re-export.
+마이그레이션은 완전한 behavior slice를 옮긴다. slice에는 domain 계약, application port와
+use case, infrastructure adapter, composition-root wiring, compatibility test가 포함된다.
+모든 commit된 slice는 compile되고 focused test를 통과해야 한다.
+커밋된 red architecture-test 단계나 호환성 re-export를 두지 않는다.
 
-### Transaction ownership
+### 트랜잭션 소유권
 
-`LakehouseRegistryUnitOfWork` owns namespace validation, asset upsert, active-version
-transition, and artifact insertion as one PostgreSQL transaction.
+`LakehouseRegistryUnitOfWork`는 namespace validation, asset upsert, active-version transition,
+artifact insertion을 하나의 PostgreSQL transaction으로 소유한다.
 
-`LakehousePublicationUnitOfWork` owns the Gold pointer, its source record and file
-assets, and the corresponding outbox event as one PostgreSQL transaction. Existing
-SQL, row locking, optimistic-version behavior, and event bytes are preserved.
+`LakehousePublicationUnitOfWork`는 Gold pointer, source record, file asset, 해당 outbox event를
+하나의 PostgreSQL transaction으로 소유한다. 기존
+SQL·row lock·optimistic-version 동작과 이벤트 바이트는 유지한다.
 
-Until a separately approved physical-schema migration, Lakehouse infrastructure is
-authorized to read canonical Catalog tables and to write only these legacy-schema
-records for Lakehouse transactions:
+별도 승인된 physical-schema migration 전까지 Lakehouse infrastructure는 canonical Catalog table을
+읽을 수 있고 Lakehouse transaction에서는 다음 legacy-schema record만 쓸 수 있다.
 
 - `catalog.source_record`
 - `catalog.file_asset`
@@ -77,55 +75,52 @@ records for Lakehouse transactions:
 - `catalog.lakehouse_*`
 - `catalog.outbox_event`
 
-This is physical co-location, not Catalog capability ownership.
+이는 물리적 공존일 뿐 Catalog 기능 소유권을 뜻하지 않는다.
 
-### Domain events and wire contracts
+### 도메인 이벤트와 wire 계약
 
-Lakehouse domain objects produce Lakehouse-owned domain event data. They do not
-import a shared protocol event union. Infrastructure or service adapters map domain
-events to the existing `foundation-shared-kernel::events::catalog_v1` wire DTOs.
-Exact JSON compatibility tests preserve existing consumers while avoiding a package
-dependency cycle.
+Lakehouse domain object는 Lakehouse 소유 domain event data를 만든다. shared protocol event
+union을 import하지 않는다. infrastructure나 service adapter가 domain event를 기존
+`foundation-shared-kernel::events::catalog_v1` wire DTO로 매핑한다. 정확한 JSON compatibility
+test로 기존 consumer를 보존하면서 package dependency cycle을 피한다.
 
-### Error boundary
+### 오류 경계
 
-Lakehouse packages use `LakehouseError`. HTTP adapters map it to the existing public
-400, 409, and opaque 500 behavior. Outbound HTTP adapters map transport failures to
-`LakehouseError`; Lakehouse code never manufactures `CatalogError`.
+Lakehouse package는 `LakehouseError`를 사용한다. HTTP adapter는 이를 기존 public 400·409·
+opaque 500 동작으로 매핑한다. outbound HTTP adapter는 transport failure를 `LakehouseError`로
+매핑하며 Lakehouse code가 `CatalogError`를 만들지 않는다.
 
-## Consequences
+## 영향
 
-### Positive
+### 긍정 효과
 
-- Lakehouse ownership is explicit and follows the same capability/layer convention
-  as Collection, Identity, and Intelligence packages.
-- Registry and Gold publication gain testable rollback guarantees.
-- Catalog becomes smaller without changing API routes, event names, object keys, or DB data.
-- Future Lakehouse workers and Kafka adapters receive one stable application boundary.
+- Lakehouse ownership이 명시되고 Collection·Identity·Intelligence package와 같은
+  capability/layer convention을 따른다.
+- Registry와 Gold publication이 test 가능한 rollback 보장을 얻는다.
+- API route·event name·object key·DB data를 바꾸지 않고 Catalog가 작아진다.
+- 향후 Lakehouse worker와 Kafka adapter가 안정된 application boundary 하나를 사용한다.
 
-### Cost
+### 비용
 
-- Service composition roots temporarily inject Catalog and Lakehouse adapters together.
-- Lakehouse infrastructure temporarily touches selected tables under the legacy
-  `catalog` PostgreSQL schema.
-- Compatibility tests are required because Rust ownership changes while public wire
-  contracts remain unchanged.
+- service composition root가 잠시 Catalog와 Lakehouse adapter를 함께 주입한다.
+- Lakehouse infrastructure가 legacy `catalog` PostgreSQL schema의 일부 table을 잠시 다룬다.
+- public wire contract는 그대로지만 Rust ownership이 바뀌므로 compatibility test가 필요하다.
 
-## Explicit Non-Goals
+## 명시적 범위 밖
 
-This decision does not:
+이 결정은 다음을 하지 않는다.
 
-- move or rename PostgreSQL schemas or tables;
-- split service deployables;
-- add Kafka, Kubernetes, Temporal, or another orchestrator;
-- extract Normalization or Spatial capability code;
-- change HTTP routes, JSON fields, event names, R2 keys, CLI commands, or persisted values.
+- PostgreSQL schema·table을 이동하거나 이름을 바꾼다.
+- service deployable을 분리한다.
+- Kafka·Kubernetes·Temporal·다른 orchestrator를 추가한다.
+- Normalization·Spatial capability code를 추출한다.
+- HTTP route·JSON field·event name·R2 key·CLI command·persisted value를 바꾼다.
 
-Those changes require separate decisions and verification.
+이 변경은 별도 결정과 검증이 필요하다.
 
-## Verification
+## 검증
 
-Completion requires:
+완료에는 다음이 필요하다.
 
 1. no Lakehouse/Iceberg/Silver/Gold implementation remains under `catalog-*`;
 2. no Catalog or Collection package depends on `lakehouse-*`;

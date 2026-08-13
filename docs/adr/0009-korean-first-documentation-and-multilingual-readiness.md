@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: current
 owner: repository-maintainers
 doc_type: adr
 last_reviewed: 2026-07-28
@@ -9,7 +9,7 @@ last_reviewed: 2026-07-28
 
 ## 상태
 
-제안. 문서 개편 설계 검토 후 채택한다.
+채택. 문서 개편과 한글 정본 전환의 기준으로 사용한다.
 
 ## 배경
 
@@ -57,9 +57,15 @@ ADR은 설계 이유를, architecture는 현재 상태를, guide/runbook은 행�
 ```yaml
 status: current | proposed | deprecated | archived
 owner: foundation | identity | intelligence | gongzzang | repository-maintainers
-doc_type: guide | runbook | architecture | adr | reference | record | catalog
+doc_type: <scripts/catalog/audit-documentation.py 의 ALLOWED_DOC_TYPES>
 last_reviewed: YYYY-MM-DD
 ```
+
+> **정정 (2026-08-06).** `doc_type` 값은 원래 여기에 일곱 개로 적혀 있었다. 그 목록은
+> [문서 운영 안내](../guides/documentation-lifecycle.md)가 적은 여섯 개와도, 저장소 실물과도
+> 달랐다 — `record`는 어느 문서도 쓰지 않았고, 가장 많이 쓰이는 `README`는 두 목록 어디에도
+> 없었다. 감사 도구가 키의 **존재만** 검사하고 값은 보지 않았으므로 셋이 갈라져도 아무도 몰랐다.
+> 이제 어휘는 그 도구가 소유하고 `--strict`가 거부하며, 이 ADR과 안내서는 목록을 다시 적지 않는다.
 
 `archived` 문서는 역사 보존용이며 현재 동작이나 정책을 설명하는 링크의 목적지가 될 수
 없다. 외부 계약·fixture·법률·감사·사고 기록은 참조를 확인하지 않고 삭제하지 않는다.
@@ -80,6 +86,13 @@ last_reviewed: YYYY-MM-DD
 4. architecture·reference·guide·runbook을 번역하고 중복 내용을 링크로 치환한다.
 5. 조사·실행·장애·릴리스 기록을 정해진 형식으로 추가한다.
 6. 메타데이터·링크·색인·번역 관계를 CI에서 검사한다.
+
+## 현재 이행 상태
+
+구조·색인·메타데이터·링크 감사는 완료했다. 남은 한글화와 초안/역사 문서 검토는
+[운영 준비 작업 목록](../roadmap/production-readiness.md)의 문서 정리 항목을 따른다.
+자동 현황은 [문서 감사 보고서](../document-audit.md)와 [전체 문서 색인](../document-catalog.md)에서
+생성한다.
 
 ## 완료 기준
 

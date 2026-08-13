@@ -1,13 +1,13 @@
-# ADR 0015 - Bronze Object Key Layout (Superseded)
+# ADR 0015 - Bronze 객체 키 배치(대체됨)
 
 - Status: Superseded by [ADR 0016](./0016-bronze-commit-protocol.md) and
   [ADR 0019](./0019-bronze-readable-object-lake-postgres-catalog-ssot.md)
 - Date: 2026-06-24
 - Owner: foundation-platform
 
-## Why This File Remains
+## 이 파일을 남기는 이유
 
-This ADR is kept only to preserve historical links. The original body mixed three
+이 ADR은 과거 링크를 보존하기 위해서만 남긴다. 기존 본문은 세 가지를 혼합했다.
 ideas that are now intentionally separated:
 
 1. R2 object keys as physical storage locations.
@@ -17,9 +17,9 @@ ideas that are now intentionally separated:
 That wording made it too easy to treat the object key itself as the truth. The
 current contract rejects that model.
 
-## Current Decision
+## 현재 결정
 
-The accepted Bronze contract is now:
+현재 수용된 Bronze 계약은 다음과 같다.
 
 - R2 `object_key` is a readable physical location label.
 - Postgres `bronze_object` is the SSOT for source identity, snapshot date/period,
@@ -34,7 +34,7 @@ See:
 - [ADR 0016 - Bronze Commit Protocol](./0016-bronze-commit-protocol.md)
 - [ADR 0019 - Bronze Readable Object Lake + Postgres Catalog SSOT](./0019-bronze-readable-object-lake-postgres-catalog-ssot.md)
 
-## Migration Note
+## 전환 메모
 
 Historical R2 migration/audit tools may still parse old `run_id=...` and
 `partition=...` path shapes while cleaning pre-ADR-0019 data. That is legacy data

@@ -52,6 +52,8 @@ for g in no-subdir-github toolchain-consistency technology-version-consistency \
          r2-env-namespace-consistency r2-env-namespace-consistency-self-test \
          technology-version-consistency-self-test migration-naming \
          unique-package-names no-stale-sibling-paths health-route-conformance \
+         utility-library-policy-self-test utility-library-policy \
+         hand-rolled-error-boundary-self-test hand-rolled-error-boundary \
          no-adhoc-cargo-lint foundation-parcel-current-selector-self-test \
          foundation-parcel-current-selector xtask-path-coverage \
          lefthook-advisory-policy-self-test lefthook-advisory-policy \
@@ -69,6 +71,11 @@ for g in no-subdir-github toolchain-consistency technology-version-consistency \
          live-lane-completeness-self-test live-lane-completeness \
          build-coupling-baseline-self-test build-coupling-baseline \
          no-silent-test-skip-self-test no-silent-test-skip \
+         no-env-access-in-domain-layers-self-test no-env-access-in-domain-layers \
+         area-ci-input-coverage-self-test area-ci-input-coverage \
+         document-contract-markers-self-test document-contract-markers \
+         roadmap-owns-recorded-debt-self-test roadmap-owns-recorded-debt \
+         judgment-position-exit-codes-self-test judgment-position-exit-codes \
          publication-authority-self-test \
          public-github-policy public-root-builder public-root-publisher-self-test \
          import-private-feature-diff-self-test; do

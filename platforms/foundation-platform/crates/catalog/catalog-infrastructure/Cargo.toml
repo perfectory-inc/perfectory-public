@@ -24,4 +24,5 @@ foundation-shared-kernel = { workspace = true }
 default = []
 
 [dev-dependencies]
+foundation-disposable-database = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

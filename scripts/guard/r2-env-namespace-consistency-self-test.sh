@@ -85,5 +85,49 @@ if bash "$checker" "$fixture" >/dev/null 2>&1; then
   echo 'FAIL r2-env-namespace-consistency-self-test: legacy assignment was accepted' >&2
   exit 1
 fi
+# The fixture is only ever staged, never committed, so `git checkout --` would
+# restore the polluted index rather than the clean file. Rewrite it instead.
+printf '%s\n' 'R2_MODE=false' > "$fixture/scripts/internal.sh"
+git -C "$fixture" add .
+bash "$checker" "$fixture" >/dev/null
+
+# --- the allow-list dimension --------------------------------------------------
+# The checks above reject spellings we already know are legacy, which leaves a new
+# name free to walk in. These two prove the opposite rule: a name no list
+# authorises fails, whether it looks like a credential or like a switch.
+
+env_example="$fixture/platforms/foundation-platform/.env.example"
+cp -- "$env_example" "$fixture/.env.example.clean"
+
+unlisted_probe() {
+  local label="$1" name="$2" should_fail="$3"
+  printf '%s=\n' "$name" >> "$env_example"
+  git -C "$fixture" add .
+  if bash "$checker" "$fixture" >/dev/null 2>&1; then
+    if [ "$should_fail" = "yes" ]; then
+      echo "FAIL r2-env-namespace-consistency-self-test: $label was accepted" >&2
+      exit 1
+    fi
+  elif [ "$should_fail" = "no" ]; then
+    echo "FAIL r2-env-namespace-consistency-self-test: $label was rejected" >&2
+    exit 1
+  fi
+  cp -- "$fixture/.env.example.clean" "$env_example"
+  git -C "$fixture" add .
+}
+
+# A credential nobody added to canonical_keys. This is the shape the deny-list
+# could never catch: it is not a legacy spelling, it is simply new.
+unlisted_probe "an unlisted connection field" \
+  FOUNDATION_PLATFORM_R2_ARCHIVE_SECRET_ACCESS_KEY yes
+
+# A switch outside every declared control family.
+unlisted_probe "a control outside every declared family" \
+  FOUNDATION_PLATFORM_R2_WEIRD_KNOB yes
+
+# A switch inside a declared family is fine — the rule constrains families, and
+# forcing every operational flag through a guard edit would make it a changelog.
+unlisted_probe "a control inside a declared family" \
+  FOUNDATION_PLATFORM_R2_INVENTORY_PAGE_SIZE no
 
 echo 'OK r2-env-namespace-consistency-self-test'

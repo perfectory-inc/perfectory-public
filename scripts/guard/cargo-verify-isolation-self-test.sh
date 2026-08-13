@@ -20,6 +20,13 @@ fake_bin="$test_root/bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/docker" <<'SH'
 #!/usr/bin/env bash
+# The harness builds its verification image before it runs anything in it. That build carries none
+# of the mounts asserted below, and capturing it would overwrite the arguments of the invocation
+# this test is about, so it is answered and ignored — the subject here is the isolation of the
+# verification run.
+if [ "${1:-}" = build ]; then
+  exit 0
+fi
 printf '%s\n' "$@" >"$DOCKER_ARGUMENT_CAPTURE"
 if [ "${DOCKER_VERIFY_BLOB_STORE:-0}" = 1 ]; then
   safe_git_dir=""
@@ -92,6 +99,11 @@ PATH="$fake_bin:$PATH" \
   PERFECTORY_CLEAN_VERIFY=1 \
   bash scripts/verify/cargo-verify.sh products/gongzzang
 
+# Offline verification as a property of the sandbox rather than a claim about what the tests happen
+# to reach (ADR-0010 남은 부채 4). Every dependency is in the image or a mounted volume, so nothing
+# inside has a reason to leave the container.
+require_argument "$clean_capture" "--network"
+require_argument "$clean_capture" "none"
 require_argument "$clean_capture" "--security-opt"
 require_argument "$clean_capture" "no-new-privileges"
 require_argument "$clean_capture" "--pids-limit"
@@ -137,7 +149,13 @@ PATH="$fake_bin:$PATH" \
   bash scripts/verify/cargo-verify.sh products/gongzzang
 
 require_argument "$normal_capture" "perfectory-cargo-registry:/usr/local/cargo/registry"
-require_argument "$normal_capture" "perfectory-rustup:/usr/local/rustup"
+# The toolchain now comes from the verification image, which installs exactly what
+# `rust-toolchain.toml` pins. A `perfectory-rustup` volume mounted over /usr/local/rustup hid that
+# — components baked into the image were invisible, and rustup fetched the missing ones on every
+# run. Rejecting it here keeps the cache from coming back and shadowing the image again.
+reject_argument "$normal_capture" "perfectory-rustup:/usr/local/rustup"
+require_argument "$normal_capture" "--network"
+require_argument "$normal_capture" "none"
 require_argument "$normal_capture" "perfectory-target-products-gongzzang:/work/products/gongzzang/target"
 require_argument "$normal_capture" "perfectory-target-xtask:/work/tools/xtask/target"
 reject_argument "$normal_capture" "PERFECTORY_GIT_DIR=/perfectory-git"

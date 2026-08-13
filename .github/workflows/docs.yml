@@ -43,6 +43,15 @@ jobs:
       - name: Check generated document catalog
         run: python3 scripts/catalog/render-document-catalog.py --check
       - name: Check document audit report
-        run: python3 scripts/catalog/audit-documentation.py --check
+        # `--strict` fails when a maintained page has no metadata; `--check` fails when the
+        # report is stale. Both in one invocation: `--strict` alone would also rewrite the report
+        # as a side effect, which would mask staleness instead of reporting it.
+        run: python3 scripts/catalog/audit-documentation.py --check --strict
       - name: Test document audit tool
         run: python3 -m unittest scripts/catalog/test_audit_documentation.py -v
+      - name: Check generated foundation baseline
+        run: python3 scripts/catalog/render-foundation-baseline.py --check
+      - name: Test foundation baseline tool
+        # The generator reported a flattering zero four separate ways before these cases pinned it.
+        # A stale-file check alone would keep confirming whatever wrong number it last wrote.
+        run: python3 -m unittest scripts/catalog/test_foundation_baseline.py -v

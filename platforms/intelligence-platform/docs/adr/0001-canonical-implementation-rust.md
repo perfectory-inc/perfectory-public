@@ -1,44 +1,59 @@
-# ADR-0001: Rust is the canonical intelligence-platform implementation; the Python service is retired
+# ADR-0001: Rust를 Intelligence Platform 정본 구현으로 사용하고 Python 서비스는 폐기
 
 - **Status:** Accepted
 - **Date:** 2026-07-08
 - **Deciders:** Platform owner
 - **Architecture:** [Intelligence Platform Architecture](../architecture.md)
 
-## Context
+## 배경
 
-Two implementations of the intelligence platform coexisted:
+Intelligence Platform 구현이 두 개 공존했다.
 
-- `intelligence-platform-rs` (Rust + Axum, now renamed to `intelligence-platform`) — the stated production direction, with inbound auth, an admission stack, a durable Postgres outbox with lease-based claiming, Idempotency-Key submission, and CI against a live Postgres.
-- the former `intelligence-platform` Python + FastAPI tree — described in its own README as the "production" service and elsewhere as a "reference contract."
+- `intelligence-platform-rs`(Rust + Axum, 현재 `intelligence-platform`으로 이름 변경) — inbound
+  auth, admission stack, lease 기반 claim을 사용하는 durable Postgres outbox, Idempotency-Key
+  제출, live Postgres CI가 있는 production 방향.
+- 과거 `intelligence-platform` Python + FastAPI tree — 자체 README에서 "production" service,
+  다른 곳에서 "reference contract"로 설명하던 경로.
 
-The audit confirmed this dual track was actively harmful:
+감사 결과 이중 구현은 실제로 해로웠다.
 
-- **Contract drift (G1/RC7):** the two clients spoke different wire contracts to the same Foundation intake — different request shapes, status enums (`queued|rejected` vs `submitted|accepted|rejected|queued`), idempotency-key formulas (4-field vs 3-field), default paths, and header sets. No process artifact declared which was authoritative.
-- **The Python service was not deployable or safe:** zero inbound authentication with `tenant_id` trusted from the request body (an unauthenticated cross-tenant write surface, rated C0); a hardcoded stub `/v1/rag/query`; a SHA-256 hash used as the embedding; synchronous clients blocking the async event loop; per-request client construction; a non-functional in-memory outbox; no Dockerfile; no CI; no dependency lockfile; and `.pyc` artifacts built on CPython 3.14 while its own tooling targeted 3.12.
+- **Contract drift (G1/RC7):** 두 client가 같은 Foundation intake에 서로 다른 wire contract를
+  말했다. request shape, status enum(`queued|rejected` 대 `submitted|accepted|rejected|queued`),
+  idempotency-key 공식(4-field 대 3-field), default path, header set이 달랐고 어느 쪽이
+  권위인지 선언한 process artifact가 없었다.
+- **Python service는 deployable하거나 안전하지 않았다:** inbound authentication이 없고
+  request body의 `tenant_id`를 신뢰했다(C0으로 평가된 미인증 cross-tenant write surface),
+  hardcoded stub `/v1/rag/query`, embedding으로 SHA-256 hash 사용, async event loop를 막는
+  synchronous client, 요청마다 client 생성, 동작하지 않는 in-memory outbox, Dockerfile·CI·
+  dependency lockfile 부재, tooling은 3.12를 목표로 하지만 CPython 3.14에서 만든 `.pyc` artifact.
 
 Maintaining both meant every contract change had to land in two places or drift; the Python surface added attack surface and false capability with no path to production.
 
-## Decision
+## 결정
 
-**The Rust workspace at the repository root is the single canonical implementation and source of truth for the platform boundary.** Its former `intelligence-platform-rs` path is historical only. The retired Python project that previously occupied `intelligence-platform/` is **removed from the repository** and is no longer part of the deployable estate, the contract-reference set, or CI.
+**저장소 루트의 Rust workspace를 플랫폼 경계의 유일한 정본 구현·출처로 사용한다.** 이전
+`intelligence-platform-rs` 경로는 역사 기록일 뿐이다. `intelligence-platform/`에 있던 폐기 Python
+프로젝트는 **저장소에서 제거**했으며 배포 대상·계약 참조 집합·CI에 포함하지 않는다.
 
-The wire contract to the Foundation Platform is defined solely by the Rust client and its schemas under `schemas/`.
+Foundation Platform과의 wire 계약은 Rust client와 `schemas/` 아래 스키마만 정의한다.
 
-## Consequences
+## 영향
 
-- The unauthenticated cross-tenant write surface (C0), the stub RAG path, the hash-embedding, the event-loop blocking, and the Python-side contract drift are eliminated by removal rather than by parallel maintenance.
-- Any capability that existed only in the Python prototype is now a Rust work item, tracked in the master hardening plan. Notable items still to be built in Rust (not lost, just relocated): real retrieval/RAG wiring, an embedding port with a non-toy adapter, and source-authority ordering in the core (see plan Waves P1/P2 and the earlier RAG design docs). *(2026-07-20 note: that hardening plan and the RAG design docs were not migrated into this monorepo — they exist only in pre-absorption history/archives. A fresh design doc is required before the RAG work item can restart.)*
-- Documentation that referenced the Python service as production or as a reference contract is corrected.
+- 미인증 cross-tenant write surface(C0), stub RAG path, hash embedding, event-loop blocking,
+  Python 쪽 contract drift를 병행 유지하지 않고 제거로 없앤다.
+- Python prototype에만 있던 기능은 이제 Rust 작업으로 추적한다. 실제 retrieval/RAG 연결, 장난감이
+  아닌 embedding adapter를 위한 port, core의 source 권위 순서가 남은 항목이다(P1/P2 파동과 과거
+  RAG 설계 문서 참고). *(2026-07-20 기록: 해당 hardening 계획과 RAG 설계 문서는 이 모노레포로
+  이전하지 않았고 흡수 전 기록/보관소에만 있다. RAG 작업을 재개하기 전에 새 설계 문서가 필요하다.)*
+- Python 서비스를 production 또는 계약 참조로 설명하던 문서를 정정한다.
 
-## Recovery
+## 복구
 
-The retired Python tree and unique pre-cutover experiments are retained in the private transition
-archive governed by [root ADR-0007](../../../../docs/adr/0007-public-code-private-operations-boundary.md),
-not in the public canonical history. Inspect any recovery snapshot read-only outside the live
-repository and never restore it over the canonical Rust path. Port only individually reviewed
-capabilities through a new design and normal pull request.
+폐기된 Python 트리와 전환 전 실험은 [루트 ADR-0007](../../../../docs/adr/0007-public-code-private-operations-boundary.md)이
+정한 비공개 전환 보관소에만 보관하며 공개 정본 기록에는 넣지 않는다. 복구 snapshot은 실행 저장소
+밖에서 읽기 전용으로 확인하고 정본 Rust 경로 위에 복원하지 않는다. 개별 검토한 기능만 새 설계와
+일반 변경 절차로 이식한다.
 
-## Related
+## 관련 문서
 
 - Current module and platform boundaries: `docs/architecture.md`

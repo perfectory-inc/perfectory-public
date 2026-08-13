@@ -1,4 +1,4 @@
-# ADR 0032 - Cross-Platform Consistency Strategy
+# ADR 0032 - 플랫폼 간 최종 일관성 전략
 
 | Field | Value |
 |---|---|
@@ -7,14 +7,14 @@
 | Ownership | [ADR 0048](./0048-horizontal-platform-redefinition.md) |
 | Event transport | [ADR 0046](./0046-kafka-kubernetes-preliminary-design.md), [ADR 0047](./0047-collection-event-fabric.md) |
 
-## Decision
+## 결정
 
-Each platform commits its own canonical state in one local database transaction.
+각 플랫폼은 하나의 로컬 데이터베이스 transaction에서 자기 정본 상태를 커밋한다.
 Cross-platform propagation is asynchronous and uses published events or
 immutable artifacts. A distributed transaction and cross-platform database
 write are forbidden.
 
-The consistency protocol has five parts:
+일관성 protocol은 다섯 부분으로 구성한다.
 
 1. **Transactional outbox** - canonical state and its outbound event are written
    atomically in the owner's database.
@@ -27,7 +27,7 @@ The consistency protocol has five parts:
 5. **Quarantine** - checksum conflicts, malformed contracts, and exhausted
    retries are isolated for review instead of being silently accepted.
 
-## Ownership Examples
+## 소유권 예시
 
 - Foundation commits canonical Catalog data and publishes artifact/event
   references. Gongzzang imports only its product-serving read models.
@@ -36,14 +36,14 @@ The consistency protocol has five parts:
 - Intelligence submits normalization proposals. Foundation approval/apply
   commands alone may change Foundation canonical records.
 
-## Transport Independence
+## 전송 독립성
 
 Webhook, SQS/SNS, and Kafka are delivery adapters. Moving between them must not
 change event identity, schema, idempotency, ownership, or replay semantics.
 Kafka may become the high-throughput event log, but it is not the consistency
 model itself.
 
-## Failure Rules
+## 실패 규칙
 
 - At-least-once delivery is expected; duplicate effects are a consumer bug.
 - An event is acknowledged only after durable inbox/side-effect handling.
@@ -51,7 +51,7 @@ model itself.
 - A conflicting checksum fails loudly and enters quarantine.
 - Consumer lag affects freshness, never ownership of the canonical fact.
 
-## Verification
+## 검증
 
 Focused tests cover outbox atomicity, duplicate delivery, stale-version
 rejection, checksum conflict, retry exhaustion, and replay recovery on the

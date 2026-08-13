@@ -1,16 +1,16 @@
 ---
-status: current
+status: proposed
 owner: foundation-platform
 doc_type: reference
 last_reviewed: 2026-07-29
 ---
 
-# Industrial Complex Lakehouse PoC
+# 산업단지 레이크하우스 PoC(제안)
 
 | 항목 | 내용 |
 |---|---|
 | 작성일 | 2026-05-14 |
-| 상태 | Draft |
+| 상태 | 제안(승인 전) |
 | 결정 ADR | [ADR 0006 - Lakehouse Table Format And Serving Architecture](../adr/0006-lakehouse-table-format-and-serving-architecture.md) |
 | SSOT 모델 | [Industrial Complex SSOT Model](industrial-complex-ssot-model.md) |
 | 외부 레퍼런스 | [Lakehouse Industry Reference](lakehouse-industry-reference.md) |

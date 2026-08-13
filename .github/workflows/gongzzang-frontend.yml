@@ -92,6 +92,13 @@ jobs:
       - name: Typecheck
         run: pnpm turbo typecheck
 
+      # Before either lane runs, so a file no project collects is reported as
+      # itself rather than as two green lanes (ADR-0011 남은 부채 2). Needs the
+      # install above; `vitest list --static-parse` collects without importing, so
+      # this does not touch the Redis service.
+      - name: Vitest lane completeness
+        run: bash scripts/ci/vitest-lane-completeness.sh
+
       - name: Unit tests
         run: pnpm turbo test
 
