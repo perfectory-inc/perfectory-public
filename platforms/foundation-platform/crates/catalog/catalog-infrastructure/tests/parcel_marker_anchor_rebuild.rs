@@ -28,7 +28,7 @@ async fn rebuilds_active_parcel_marker_anchors_from_postgis_mirror() -> TestResu
     let use_case = RebuildParcelMarkerAnchors::new(rebuilder);
     let report = use_case
         .execute(RebuildParcelMarkerAnchorsInput {
-            source_snapshot_id: fixture.source_snapshot_id.to_owned(),
+            source_snapshot_id: fixture.source_snapshot_id.clone(),
             algorithm_version: "postgis-st_maximuminscribedcircle-v1".to_owned(),
             requested_by_staff_id: None,
             request_id: Some("anchor-rebuild-infra-test".to_owned()),

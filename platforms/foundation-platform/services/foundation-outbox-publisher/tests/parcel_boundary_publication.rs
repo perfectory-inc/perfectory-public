@@ -1,7 +1,7 @@
-//! Process-level contract for publishing one sealed parcel source into PostGIS.
+//! Process-level contract for publishing one sealed parcel source into `PostGIS`.
 //!
 //! Every test runs the built `foundation-outbox-publisher` binary. Fixtures deliberately inject
-//! forbidden states into a disposable database when PostgreSQL normally prevents them, so each
+//! forbidden states into a disposable database when `PostgreSQL` normally prevents them, so each
 //! publisher-side rejection proves an independent defence rather than re-testing only the schema.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -250,6 +250,9 @@ enum SeedMode {
     IncompleteQuality,
 }
 
+// The shared `_id` postfix is the column name each field is bound to; renaming it here would
+// make the INSERT statements read against their own schema.
+#[allow(clippy::struct_field_names)]
 #[derive(Clone, Copy)]
 struct SourceSet {
     run_id: Uuid,
@@ -301,11 +304,7 @@ impl Fixture {
         let pool = fixture.pool().await?;
         MIGRATOR.run(&pool).await?;
 
-        let rejected_row_count = if matches!(mode, SeedMode::RejectedRows) {
-            1
-        } else {
-            0
-        };
+        let rejected_row_count = i64::from(matches!(mode, SeedMode::RejectedRows));
         let quality_report = if matches!(mode, SeedMode::IncompleteQuality) {
             json!({})
         } else {
@@ -815,7 +814,6 @@ fn assert_rejected(output: &Output, first: &str, second: &str) {
         stderr.contains(first) && stderr.contains(second),
         "rejection did not name the violated invariant: {stderr}"
     );
-    eprintln!("observed built-binary rejection: {stderr}");
 }
 
 const SQUARES: [(f64, f64, f64, f64); 3] = [

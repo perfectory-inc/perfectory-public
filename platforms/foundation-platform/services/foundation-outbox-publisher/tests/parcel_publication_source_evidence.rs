@@ -1,7 +1,7 @@
 //! Database invariants for the sealed parcel-publication source path.
 //!
 //! These tests inject the forbidden writes themselves. A green assertion therefore means
-//! PostgreSQL returned the named rejection while rows were present; it never means that an empty
+//! `PostgreSQL` returned the named rejection while rows were present; it never means that an empty
 //! query happened to find no violation.
 //! The schema under test is appended by `20260811000001_parcel_publication_source_evidence.sql`.
 
@@ -809,23 +809,42 @@ async fn terminal_projection_load_tuple_is_immutable() -> TestResult {
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
 async fn parcel_publication_target_row_update_is_rejected() -> TestResult {
-    assert_target_mutation_is_rejected("update").await
+    assert_target_mutation_is_rejected(TargetMutation::Update).await
 }
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
 async fn parcel_publication_target_row_delete_is_rejected() -> TestResult {
-    assert_target_mutation_is_rejected("delete").await
+    assert_target_mutation_is_rejected(TargetMutation::Delete).await
 }
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
 async fn parcel_publication_target_row_truncate_is_rejected() -> TestResult {
-    assert_target_mutation_is_rejected("truncate").await
+    assert_target_mutation_is_rejected(TargetMutation::Truncate).await
 }
 
-async fn assert_target_mutation_is_rejected(operation: &str) -> TestResult {
-    let fixture = Fixture::create(&format!("parcel_target_{operation}")).await?;
+/// The three mutations the terminal-load trigger must refuse. Naming them as variants rather
+/// than strings is what removes the unreachable arm this helper would otherwise need.
+#[derive(Clone, Copy)]
+enum TargetMutation {
+    Update,
+    Delete,
+    Truncate,
+}
+
+impl TargetMutation {
+    const fn fixture_suffix(self) -> &'static str {
+        match self {
+            Self::Update => "update",
+            Self::Delete => "delete",
+            Self::Truncate => "truncate",
+        }
+    }
+}
+
+async fn assert_target_mutation_is_rejected(operation: TargetMutation) -> TestResult {
+    let fixture = Fixture::create(&format!("parcel_target_{}", operation.fixture_suffix())).await?;
     let pool = fixture.pool().await?;
     fixture.seed_run(&pool, fixture.first_run_id).await?;
     let evidence_id = fixture
@@ -861,7 +880,7 @@ async fn assert_target_mutation_is_rejected(operation: &str) -> TestResult {
     .await?;
 
     let result = match operation {
-        "update" => {
+        TargetMutation::Update => {
             sqlx::query(
                 "UPDATE serving_postgis.parcel_boundary_publication
                     SET properties = jsonb_build_object('tampered', true)
@@ -872,7 +891,7 @@ async fn assert_target_mutation_is_rejected(operation: &str) -> TestResult {
             .execute(&pool)
             .await
         }
-        "delete" => {
+        TargetMutation::Delete => {
             sqlx::query(
                 "DELETE FROM serving_postgis.parcel_boundary_publication
                   WHERE projection_load_id = $1 AND pnu = $2",
@@ -882,12 +901,11 @@ async fn assert_target_mutation_is_rejected(operation: &str) -> TestResult {
             .execute(&pool)
             .await
         }
-        "truncate" => {
+        TargetMutation::Truncate => {
             sqlx::query("TRUNCATE TABLE serving_postgis.parcel_boundary_publication")
                 .execute(&pool)
                 .await
         }
-        other => panic!("unsupported target mutation {other}"),
     };
     let error = result.expect_err("published parcel target rows must be immutable");
     assert_rejection(
@@ -1292,9 +1310,13 @@ fn execution_evidence_sha256(run_id: Uuid) -> String {
 }
 
 fn assert_rejection(error: &sqlx::Error, expected_code: &str, message_fragment: &str) {
+    assert!(
+        error.as_database_error().is_some(),
+        "expected a PostgreSQL rejection, got {error:?}"
+    );
     let database_error = error
         .as_database_error()
-        .unwrap_or_else(|| panic!("expected a PostgreSQL rejection, got {error:?}"));
+        .expect("presence asserted immediately above");
     assert_eq!(
         database_error.code().as_deref(),
         Some(expected_code),
@@ -1304,25 +1326,20 @@ fn assert_rejection(error: &sqlx::Error, expected_code: &str, message_fragment: 
         database_error.message().contains(message_fragment),
         "rejection did not name the invariant: {error:?}"
     );
-    eprintln!(
-        "observed rejection SQLSTATE={} message={}",
-        expected_code,
-        database_error.message()
-    );
 }
 
 fn assert_constraint_rejection(error: &sqlx::Error, expected_code: &str, constraint: &str) {
+    assert!(
+        error.as_database_error().is_some(),
+        "expected a PostgreSQL rejection, got {error:?}"
+    );
     let database_error = error
         .as_database_error()
-        .unwrap_or_else(|| panic!("expected a PostgreSQL rejection, got {error:?}"));
+        .expect("presence asserted immediately above");
     assert_eq!(database_error.code().as_deref(), Some(expected_code));
     assert_eq!(
         database_error.constraint(),
         Some(constraint),
         "wrong constraint rejected the violating row: {error:?}"
-    );
-    eprintln!(
-        "observed rejection SQLSTATE={} constraint={}",
-        expected_code, constraint
     );
 }
