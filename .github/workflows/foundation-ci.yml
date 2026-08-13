@@ -19,6 +19,13 @@ on:
       - "scripts/verify/foundation-r2-lakehouse-live.sh"
       - "scripts/guard/foundation-r2-lakehouse-live-self-test.sh"
       - "scripts/guard/foundation-kafka-contract.sh"
+      - "scripts/ci/osv-vulnerability-gate.sh"
+      - "scripts/guard/check-osv-vulnerability-baseline.py"
+      - "scripts/guard/osv-vulnerability-ratchet-self-test.sh"
+      - "tools/osv-scanner.env"
+      - "tools/osv-vulnerability-baseline.tsv"
+      - "**/Cargo.lock"
+      - "**/pnpm-lock.yaml"
       - "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml"
       - "docs/technology-stack.md"
       - "docs/adr/**"
@@ -139,6 +146,10 @@ jobs:
           source_version="${GITHUB_SHA:-$(git rev-parse --verify HEAD)}"
           syft "dir:." --exclude='./.git/**' --exclude='./target/**' --source-name=foundation-platform --source-version="$source_version" --output=cyclonedx-json=target/supply-chain-tools/cyclonedx-bom.json
 
+      - name: Run repository OSV vulnerability ratchet
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/ci/osv-vulnerability-gate.sh --report-path platforms/foundation-platform/target/supply-chain-tools/osv-report.json
+
       - name: Upload supply-chain artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2 (SHA pin, ADR 0028)
@@ -147,6 +158,7 @@ jobs:
           # path: is relative to $GITHUB_WORKSPACE — defaults.run.working-directory does NOT apply to uses: steps
           path: |
             platforms/foundation-platform/target/supply-chain-tools/cyclonedx-bom.json
+            platforms/foundation-platform/target/supply-chain-tools/osv-report.json
           if-no-files-found: warn
 
   postgres-integration:

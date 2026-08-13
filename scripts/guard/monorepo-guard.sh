@@ -66,6 +66,7 @@ for g in no-subdir-github toolchain-consistency technology-version-consistency \
          legal-publication-self-test \
          third-party-artifact-policy-self-test \
          gitleaks-policy-self-test \
+         osv-vulnerability-ratchet-self-test \
          actions-cache-controls-self-test billing-budgets-self-test \
          tiles-slice-proof-env-self-test \
          live-lane-completeness-self-test live-lane-completeness \
