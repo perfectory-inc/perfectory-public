@@ -35,11 +35,44 @@ ON CONFLICT (id) DO NOTHING;
 -- carries a foreign key to it and `catalog.promote_vector_tile_runtime_manifest` refuses to point at a
 -- dynamic unit whose load did not succeed. Opened `running` here and closed below, in that order, for
 -- the same reason the publisher does: the row count is only known once the rows are in.
+-- ADR-0025/0026: a `parcels` load may only be promoted if it names sealed evidence for the mirror
+-- rebuild it came from, so the seed has to seal that evidence rather than skip it. The sealer
+-- capability is transaction-local and this file runs inside one transaction, matching how the
+-- publisher takes it. Every column here is pinned by the evidence composite FK to the rebuild run
+-- `scripts/tiles/fixture.sql` closed: change one and the insert is refused, not silently accepted.
+--
+-- The two digests are synthetic. This proof has no execution-evidence object and no Iceberg reader,
+-- so neither value is ADR-0025 canonical bytes and neither may be read as proof of content; the
+-- column CHECKs require only 64 lowercase hex characters.
+SELECT set_config('foundation.parcel_publication_evidence_sealer', 'on', true);
+
+INSERT INTO catalog.parcel_publication_source_evidence
+    (id, mirror_rebuild_run_id, mirror_rebuild_run_status, mirror_rebuild_rejected_row_count,
+     iceberg_table_uuid, iceberg_logical_table, iceberg_snapshot_id,
+     source_record_id, source_file_asset_id,
+     execution_evidence_schema_version, execution_evidence_object_key, execution_evidence_sha256,
+     source_row_count, projection_content_sha256, quality_schema_version)
+VALUES
+    ('019d2b87-3fd1-7e3a-8d88-0b72c8743901',
+     '019d2b87-3fd1-7e3a-8d88-0b72c8742301', 'succeeded', 0,
+     '019d2b87-3fd1-7e3a-8d88-0b72c8743902', 'silver.parcel_boundaries', 841361364657368623,
+     '019d2b87-3fd1-7e3a-8d88-0b72c8742001', '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
+     'foundation-platform.parcel_publication_execution_evidence.v1',
+     'evidence/parcel-publication/019d2b87-3fd1-7e3a-8d88-0b72c8743901.json', repeat('e', 64),
+     3, repeat('f', 64), 'foundation-platform.parcel_publication_quality.v1')
+ON CONFLICT (id) DO NOTHING;
+
+SELECT set_config('foundation.parcel_publication_evidence_sealer', 'off', true);
+
+-- The evidence binding is set here, at INSERT, because it becomes immutable once the load reaches a
+-- terminal status below.
 INSERT INTO serving_postgis.spatial_projection_load
-    (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id, status)
+    (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id, status,
+     source_evidence_id)
 VALUES
     ('019d2b87-3fd1-7e3a-8d88-0b72c8743604', '019d2b87-3fd1-7e3a-8d88-0b72c8743601',
-     '019d2b87-3fd1-7e3a-8d88-0b72c8743603', '841361364657368623', 'running')
+     '019d2b87-3fd1-7e3a-8d88-0b72c8743603', '841361364657368623', 'running',
+     '019d2b87-3fd1-7e3a-8d88-0b72c8743901')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO catalog.vector_tile_release

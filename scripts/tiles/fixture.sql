@@ -228,6 +228,11 @@ ON CONFLICT (id) DO NOTHING;
 
 SELECT set_config('foundation.temporal_publisher', 'off', true);
 
+-- ADR-0026: a rebuild run is born without claims and reaches a terminal state only through the
+-- transitions its state guard admits. Seeding a `succeeded` row directly is refused, so the
+-- fixture walks the same planned -> running -> succeeded path a real rebuild takes. Each step is
+-- guarded by the status it expects, which keeps re-running this file a no-op once the run is
+-- terminal — a terminal run is immutable and cannot be upserted over.
 INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
     (
         id,
@@ -237,45 +242,55 @@ INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
         source_file_asset_id,
         srid,
         status,
-        loaded_row_count,
-        rejected_row_count,
-        quality_report,
-        started_at,
-        finished_at,
-        version
+        started_at
     )
 VALUES
     (
         '019d2b87-3fd1-7e3a-8d88-0b72c8742301',
-        'iceberg:tiles-slice-proof-v1',
+        'iceberg:841361364657368623',
         'silver.parcel_boundaries',
         '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
         '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
         5179,
-        'succeeded',
-        3,
-        0,
-        jsonb_build_object('fixture', true, 'invalid_geometry_count', 0),
-        TIMESTAMPTZ '2026-07-21 00:00:00+00',
-        TIMESTAMPTZ '2026-07-21 00:00:01+00',
-        1
+        'planned',
+        TIMESTAMPTZ '2026-07-21 00:00:00+00'
     )
-ON CONFLICT (id) DO UPDATE
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
 SET
-    source_snapshot_id = EXCLUDED.source_snapshot_id,
-    source_table = EXCLUDED.source_table,
-    source_record_id = EXCLUDED.source_record_id,
-    source_file_asset_id = EXCLUDED.source_file_asset_id,
-    srid = EXCLUDED.srid,
-    status = EXCLUDED.status,
-    loaded_row_count = EXCLUDED.loaded_row_count,
-    rejected_row_count = EXCLUDED.rejected_row_count,
-    quality_report = EXCLUDED.quality_report,
-    started_at = EXCLUDED.started_at,
-    finished_at = EXCLUDED.finished_at,
+    status = 'running',
+    updated_at = now(),
+    version = version + 1
+WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742301'
+  AND status = 'planned';
+
+UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
+SET
+    status = 'succeeded',
+    loaded_row_count = 3,
+    rejected_row_count = 0,
+    -- ADR-0025 requires every field below before a run can be sealed; a partial report is refused
+    -- rather than treated as "nothing went wrong". The counts describe this fixture's three parcels.
+    quality_report = jsonb_build_object(
+        'schema_version', 'foundation-platform.parcel_publication_quality.v1',
+        'object_count', 1,
+        'expected_row_count', 3,
+        'loaded_row_count', 3,
+        'invalid_srid_count', 0,
+        'invalid_geometry_count', 0,
+        'empty_geometry_count', 0,
+        'nonpositive_area_count', 0,
+        'source_srid', 'EPSG:4326',
+        'target_srid', 'EPSG:5179',
+        'geometry_repair_strategy', 'postgis-make-valid-v1'
+    ),
+    finished_at = TIMESTAMPTZ '2026-07-21 00:00:01+00',
     error_message = NULL,
     updated_at = now(),
-    version = serving_postgis.parcel_boundary_mirror_rebuild_run.version + 1;
+    version = version + 1
+WHERE id = '019d2b87-3fd1-7e3a-8d88-0b72c8742301'
+  AND status = 'running';
 
 INSERT INTO serving_postgis.parcel_boundary_mirror
     (
@@ -297,7 +312,7 @@ INSERT INTO serving_postgis.parcel_boundary_mirror
 SELECT
     fixture.pnu,
     '019d2b87-3fd1-7e3a-8d88-0b72c8742301',
-    'iceberg:tiles-slice-proof-v1',
+    'iceberg:841361364657368623',
     'silver.parcel_boundaries',
     '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
     '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
@@ -315,9 +330,11 @@ SELECT
     )::public.geometry(MultiPolygon, 5179),
     1
 FROM tiles_slice_fixture_parcel AS fixture
-ON CONFLICT (pnu) DO UPDATE
+-- ADR-0026 repointed this primary key from (pnu) to (rebuild_run_id, pnu) so one parcel can hold
+-- a row per rebuild. The conflict target follows the key; `rebuild_run_id` therefore leaves the
+-- SET list, because a row that conflicts already carries the run it was inserted under.
+ON CONFLICT (rebuild_run_id, pnu) DO UPDATE
 SET
-    rebuild_run_id = EXCLUDED.rebuild_run_id,
     source_snapshot_id = EXCLUDED.source_snapshot_id,
     source_table = EXCLUDED.source_table,
     source_record_id = EXCLUDED.source_record_id,
@@ -354,7 +371,7 @@ INSERT INTO catalog.parcel_marker_anchor_generation_run
 VALUES
     (
         '019d2b87-3fd1-7e3a-8d88-0b72c8742302',
-        'iceberg:tiles-slice-proof-v1',
+        'iceberg:841361364657368623',
         'silver.parcel_boundaries',
         '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
         '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
@@ -415,7 +432,7 @@ SELECT
     fixture.pnu,
     fixture.parcel_id,
     '019d2b87-3fd1-7e3a-8d88-0b72c8742302',
-    'iceberg:tiles-slice-proof-v1',
+    'iceberg:841361364657368623',
     'silver.parcel_boundaries',
     '019d2b87-3fd1-7e3a-8d88-0b72c8742001',
     '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
