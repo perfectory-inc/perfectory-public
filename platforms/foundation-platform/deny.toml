@@ -16,8 +16,17 @@ unsound = "all"
 # unreleased Git revision or downgrading the Arrow/Parquet stack would widen risk,
 # so retain this compile-time-only maintenance exception until a compatible
 # release is published, then upgrade Parquet and delete it.
+#
+# RUSTSEC-2026-0253 (`lru` panic-safety in `LruCache::pop()`) is reached only through
+# `aws-sdk-s3`, which is not optional for R2 access. The advisory is patched in
+# `lru >= 0.18.2`, but every published `aws-sdk-s3` release declares `lru = "^0.16.3"` —
+# checked 2026-08-13 against both our locked 1.132.0 and the newest 1.141.0 — so the fix
+# is semver-unreachable from any released SDK, not merely un-upgraded here. Dropping the
+# S3 SDK or pinning an unreleased revision would widen risk. Remove this entry once
+# `aws-sdk-s3` publishes a release that depends on `lru >= 0.18.2`.
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "parquet 59.1.0 still directly depends on paste; no compatible released Parquet 59.x removes it as of 2026-07-23" },
+    { id = "RUSTSEC-2026-0253", reason = "lru is reached only via aws-sdk-s3, whose every published release through 1.141.0 requires lru ^0.16.3 while the fix landed in 0.18.2, as of 2026-08-13" },
 ]
 
 [licenses]
