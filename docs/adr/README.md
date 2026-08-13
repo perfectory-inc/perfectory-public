@@ -39,3 +39,4 @@ last_reviewed: 2026-07-28
 - [0025 — 필지 발행은 봉인된 Iceberg 증거 하나를 지명한다](./0025-parcel-publication-names-one-sealed-iceberg-evidence.md)
 - [0026 — 필지 증거 봉인자가 유일한 append 경계다](./0026-parcel-evidence-sealer-is-the-only-append-boundary.md)
 - [0027 — 모든 가드는 자기 위협 모델을 선언한다](./0027-every-guard-declares-its-threat-model.md)
+- [0028 — 공급망 취약점 게이트는 OSV 래칫을 함께 쓴다](./0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md)
