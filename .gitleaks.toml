@@ -91,11 +91,11 @@ regexes = [
 
 [[allowlists]]
 targetRules = ["generic-api-key"]
-description = "Synthetic session secret installed by the web unit-test bootstrap."
+description = "Synthetic session secret installed by the shared web test bootstrap."
 condition = "AND"
 regexTarget = "secret"
 paths = [
-  '''^products/gongzzang/apps/web/tests/unit/setup\.ts$''',
+  '''^products/gongzzang/apps/web/tests/setup\.ts$''',
 ]
 regexes = [
   '''^test-secret-placeholder-32-chars-x$''',
@@ -103,11 +103,11 @@ regexes = [
 
 [[allowlists]]
 targetRules = ["naver-maps-credential-assignment"]
-description = "Synthetic Naver client ID installed by the web unit-test bootstrap."
+description = "Synthetic Naver client ID installed by the shared web test bootstrap."
 condition = "AND"
 regexTarget = "secret"
 paths = [
-  '''^products/gongzzang/apps/web/tests/unit/setup\.ts$''',
+  '''^products/gongzzang/apps/web/tests/setup\.ts$''',
 ]
 regexes = [
   '''^test-naver-client$''',

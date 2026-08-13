@@ -390,6 +390,7 @@ jobs:
       # and that is a separate change: this job's images are digest-pinned public ones, while the
       # verification image is built locally and CI has no copy.
       - name: Prove the administrative boundary path end to end
+        working-directory: ${{ github.workspace }}
         run: bash scripts/tiles/administrative-boundary-slice-proof.sh
 
   required:
