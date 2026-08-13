@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **352개**
+- 문서 파일: **353개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,7 +19,7 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 51 |
+| Monorepo | 52 |
 | Repository tooling | 1 |
 
 ### 유형별
@@ -34,7 +34,7 @@
 | convention | 10 |
 | documentation | 32 |
 | draft | 2 |
-| evidence | 4 |
+| evidence | 5 |
 | fixture | 9 |
 | guide | 2 |
 | reference | 15 |
@@ -397,6 +397,7 @@ docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md
 docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md
 docs/adr/0027-every-guard-declares-its-threat-model.md
 docs/adr/0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md
+docs/adr/0029-parcel-publication-evidence-is-written-from-the-terminal-run.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -460,6 +461,7 @@ tools/github/README.md
 | `docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md` | Monorepo | evidence | evidence |
 | `docs/adr/0027-every-guard-declares-its-threat-model.md` | Monorepo | ADR | current |
 | `docs/adr/0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md` | Monorepo | ADR | current |
+| `docs/adr/0029-parcel-publication-evidence-is-written-from-the-terminal-run.md` | Monorepo | evidence | evidence |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
