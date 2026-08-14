@@ -314,6 +314,7 @@ fn build_rebuild_sql(
         "target_srid": TARGET_SRID,
         "geometry_repair_strategy": GEOMETRY_REPAIR_STRATEGY,
     });
+    let (publication_scope, publication_limits) = bounded_publication_claims(rows.len())?;
     let pnu_list = rows
         .iter()
         .map(|row| sql_literal(&row.pnu))
@@ -324,7 +325,8 @@ fn build_rebuild_sql(
     statements.push(format!(
         r#"INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run (
     id, source_snapshot_id, source_table, srid, status, loaded_row_count,
-    rejected_row_count, quality_report, started_at, created_at, updated_at
+    rejected_row_count, quality_report, publication_scope, publication_limits,
+    started_at, created_at, updated_at
 ) VALUES (
     {}::uuid,
     {},
@@ -334,6 +336,8 @@ fn build_rebuild_sql(
     0,
     0,
     {},
+    {},
+    {},
     now(),
     now(),
     now()
@@ -342,7 +346,9 @@ fn build_rebuild_sql(
         sql_literal(snapshot_id),
         SOURCE_TABLE,
         TARGET_SRID,
-        jsonb_literal(&quality_report)?
+        jsonb_literal(&quality_report)?,
+        jsonb_literal(&publication_scope)?,
+        jsonb_literal(&publication_limits)?
     ));
     statements.push(format!(
         "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run SET status = 'running', updated_at = now(), version = version + 1 WHERE id = {}::uuid AND status = 'planned';",
@@ -466,6 +472,17 @@ fn mirror_row_properties(row: &HandoffRow) -> JsonValue {
         "valid_to_utc": row.valid_to_utc,
         "ingested_at_utc": row.ingested_at_utc,
     })
+}
+
+fn bounded_publication_claims(row_count: usize) -> anyhow::Result<(JsonValue, JsonValue)> {
+    let row_limit = u64::try_from(row_count).context("handoff row count overflows u64")?;
+    if row_limit == 0 {
+        bail!("bounded publication claims require at least one handoff row");
+    }
+    Ok((
+        json!({"kind": "bounded", "complete": false}),
+        json!({"object_limit": 1, "row_limit": row_limit, "shard_limit": 1}),
+    ))
 }
 
 fn source_geometry_sql(geometry_wkb_hex: &str) -> String {
@@ -893,4 +910,21 @@ fn jsonb_literal(value: &JsonValue) -> anyhow::Result<String> {
 
 fn temp_sql_path(prefix: &str) -> PathBuf {
     env::temp_dir().join(format!("{prefix}-{}.sql", Uuid::new_v4()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_handoff_rebuild_records_its_exact_bounded_scope() -> anyhow::Result<()> {
+        let (scope, limits) = bounded_publication_claims(7)?;
+
+        assert_eq!(scope, json!({"kind": "bounded", "complete": false}));
+        assert_eq!(
+            limits,
+            json!({"object_limit": 1, "row_limit": 7, "shard_limit": 1})
+        );
+        Ok(())
+    }
 }

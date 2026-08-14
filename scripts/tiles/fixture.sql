@@ -242,6 +242,8 @@ INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
         source_file_asset_id,
         srid,
         status,
+        publication_scope,
+        publication_limits,
         started_at
     )
 VALUES
@@ -253,6 +255,8 @@ VALUES
         '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
         5179,
         'planned',
+        '{"kind":"bounded","complete":false}'::jsonb,
+        '{"object_limit":1,"row_limit":3,"shard_limit":1}'::jsonb,
         TIMESTAMPTZ '2026-07-21 00:00:00+00'
     )
 ON CONFLICT (id) DO NOTHING;

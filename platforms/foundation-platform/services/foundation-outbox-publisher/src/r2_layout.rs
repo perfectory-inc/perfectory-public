@@ -12,6 +12,8 @@ pub const VECTOR_TILE_MANIFEST_ROOT: &str = "gold/vector-tiles/manifests";
 // reintroduce the drift this change removed.
 pub const PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT: &str = "gold/parcel-marker-anchors/artifacts";
 pub const BRONZE_CATALOG_RECOVERY_EVIDENCE_ROOT: &str = "control/evidence/bronze-catalog-recovery";
+pub const PARCEL_PUBLICATION_EXECUTION_EVIDENCE_ROOT: &str =
+    "control/evidence/parcel-publication/execution";
 
 const BRONZE_CATALOG_RECOVERY_EVIDENCE_KINDS: [&str; 4] = [
     "endpoint-catalog",
@@ -93,6 +95,27 @@ pub fn is_bronze_catalog_recovery_evidence_key(key: &str) -> bool {
     bronze_catalog_recovery_evidence_key(kind, sha256).is_ok_and(|canonical| canonical == key)
 }
 
+pub fn parcel_publication_execution_evidence_key(sha256: &str) -> anyhow::Result<String> {
+    anyhow::ensure!(
+        is_lowercase_sha256(sha256),
+        "parcel publication evidence checksum must be lowercase SHA-256"
+    );
+    Ok(format!(
+        "{PARCEL_PUBLICATION_EXECUTION_EVIDENCE_ROOT}/sha256={sha256}.json"
+    ))
+}
+
+pub fn is_parcel_publication_execution_evidence_key(key: &str) -> bool {
+    let Some(sha256) = key
+        .strip_prefix(PARCEL_PUBLICATION_EXECUTION_EVIDENCE_ROOT)
+        .and_then(|relative| relative.strip_prefix("/sha256="))
+        .and_then(|value| value.strip_suffix(".json"))
+    else {
+        return false;
+    };
+    parcel_publication_execution_evidence_key(sha256).is_ok_and(|canonical| canonical == key)
+}
+
 fn is_lowercase_sha256(value: &str) -> bool {
     value.len() == 64
         && value
@@ -108,7 +131,8 @@ fn parse_artifact_id(raw: &str, label: &'static str) -> anyhow::Result<Uuid> {
 mod tests {
     use super::{
         bronze_catalog_recovery_evidence_key, is_bronze_catalog_recovery_evidence_key,
-        parcel_marker_anchor_artifact_prefix, vector_tile_artifact_prefix,
+        is_parcel_publication_execution_evidence_key, parcel_marker_anchor_artifact_prefix,
+        parcel_publication_execution_evidence_key, vector_tile_artifact_prefix,
         vector_tile_manifest_key, vector_tile_release_key,
     };
 
@@ -164,6 +188,23 @@ mod tests {
         assert!(!is_bronze_catalog_recovery_evidence_key(
             "control/evidence/bronze-catalog-recovery/manifests/arbitrary.json"
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn parcel_publication_evidence_path_is_content_addressed_and_canonical() -> anyhow::Result<()> {
+        let checksum = "b".repeat(64);
+        let key = parcel_publication_execution_evidence_key(&checksum)?;
+
+        assert_eq!(
+            key,
+            format!("control/evidence/parcel-publication/execution/sha256={checksum}.json")
+        );
+        assert!(is_parcel_publication_execution_evidence_key(&key));
+        assert!(!is_parcel_publication_execution_evidence_key(
+            "control/evidence/parcel-publication/execution/latest.json"
+        ));
+        assert!(parcel_publication_execution_evidence_key(&"B".repeat(64)).is_err());
         Ok(())
     }
 }

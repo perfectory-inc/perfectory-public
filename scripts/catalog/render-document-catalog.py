@@ -84,10 +84,10 @@ def type_for(path: Path) -> str:
         return "fixture"
     if ".draft." in name:
         return "draft"
-    if ".proof." in name or "evidence" in name:
-        return "evidence"
     if "adr" in parts:
         return "ADR"
+    if ".proof." in name or "evidence" in name:
+        return "evidence"
     if "runbooks" in parts:
         return "runbook"
     if "architecture" in parts:
@@ -111,11 +111,12 @@ def type_for(path: Path) -> str:
 
 def status_for(path: Path) -> str:
     name = path.name.lower()
+    parts = {part.lower() for part in path.parts}
     if ".example." in name:
         return "fixture"
     if ".draft." in name:
         return "review required"
-    if ".proof." in name or "evidence" in name:
+    if ".proof." in name or ("evidence" in name and "adr" not in parts):
         return "evidence"
     try:
         text = (ROOT / path).read_text(encoding="utf-8-sig")

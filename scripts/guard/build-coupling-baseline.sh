@@ -71,13 +71,19 @@ set -euo pipefail
 # cleanup had to DELETE succeeded loads, which is now the forbidden behavior under test; one
 # migrated disposable database per test preserves both the invariant and isolation.
 #
+# 85 -> 86: `foundation-outbox-publisher/src/postgis_parcel_boundary_mirror_national_rebuild.rs`
+# owns one test-only migrator site. The provenance regression must call the production rebuild's
+# private staging and mirror-insert functions, then inspect both the run and every loaded row in one
+# disposable migrated database. An integration-test binary cannot reach those functions, while a
+# CLI test would replace the database proof with R2 and process-fixture coupling.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-85}"
+COMPILE_TIME_READ_BASELINE="${3:-86}"
 
 cd "$repo_root"
 

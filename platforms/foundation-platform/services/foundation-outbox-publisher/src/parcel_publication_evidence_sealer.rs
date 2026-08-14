@@ -19,7 +19,10 @@ use crate::{
     },
     r2_command_support::{
         env_path, evidence_sealer_database_url_from_env_file,
-        lakehouse_catalog_config_from_env_file, r2_config_from_env_file,
+        lakehouse_catalog_config_from_env_file, r2_reader_config_from_env_file,
+    },
+    r2_layout::{
+        is_parcel_publication_execution_evidence_key, parcel_publication_execution_evidence_key,
     },
 };
 
@@ -29,7 +32,7 @@ const ENV_FILE_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_ENV_
 
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
-    let storage = R2ObjectStorage::from_config(r2_config_from_env_file(&config.env_file)?);
+    let storage = R2ObjectStorage::from_config(r2_reader_config_from_env_file(&config.env_file)?);
     let catalog =
         IcebergRestCatalog::new(lakehouse_catalog_config_from_env_file(&config.env_file)?)
             .context("failed to initialise Iceberg REST catalog for parcel evidence sealing")?;
@@ -45,6 +48,9 @@ pub async fn run() -> anyhow::Result<()> {
             )
         })?;
     let execution_sha256 = format!("{:x}", Sha256::digest(&bytes));
+    if config.object_key != parcel_publication_execution_evidence_key(&execution_sha256)? {
+        bail!("object key SHA-256 does not match the loaded execution evidence bytes");
+    }
     let execution: ParcelPublicationExecutionEvidence = serde_json::from_slice(&bytes)
         .context("parcel publication execution evidence is not its strict v1 JSON contract")?;
     execution.validate_publication_claims()?;
@@ -99,13 +105,10 @@ impl Config {
 }
 
 fn validate_object_key(key: &str) -> anyhow::Result<()> {
-    if key.is_empty()
-        || key.starts_with('/')
-        || key.contains("//")
-        || key.contains('\\')
-        || key.split('/').any(|part| part == "." || part == "..")
-    {
-        bail!("{OBJECT_KEY_ENV} must be a canonical relative R2 object key");
+    if !is_parcel_publication_execution_evidence_key(key) {
+        bail!(
+            "{OBJECT_KEY_ENV} must be the canonical content-addressed parcel publication evidence key"
+        );
     }
     Ok(())
 }
@@ -126,6 +129,8 @@ struct RunBinding {
     srid: i32,
     finished: bool,
     quality_report: JsonValue,
+    publication_scope: JsonValue,
+    publication_limits: JsonValue,
 }
 
 async fn seal(
@@ -204,7 +209,8 @@ async fn lock_run(
     let row = sqlx::query(
         "SELECT status, source_snapshot_id, source_table, source_record_id,
                 source_file_asset_id, loaded_row_count, rejected_row_count, srid,
-                finished_at IS NOT NULL AS finished, quality_report
+                finished_at IS NOT NULL AS finished, quality_report,
+                publication_scope, publication_limits
            FROM serving_postgis.parcel_boundary_mirror_rebuild_run
           WHERE id = $1
           FOR UPDATE",
@@ -224,6 +230,8 @@ async fn lock_run(
         srid: row.try_get("srid")?,
         finished: row.try_get("finished")?,
         quality_report: row.try_get("quality_report")?,
+        publication_scope: row.try_get("publication_scope")?,
+        publication_limits: row.try_get("publication_limits")?,
     })
 }
 
@@ -232,6 +240,8 @@ fn verify_run_binding(
     execution: &ParcelPublicationExecutionEvidence,
 ) -> anyhow::Result<()> {
     let snapshot = format!("iceberg:{}", execution.iceberg_commit.snapshot_id);
+    let scope = serde_json::to_value(&execution.scope)?;
+    let limits = serde_json::to_value(&execution.limits)?;
     if run.status != "succeeded"
         || !run.finished
         || run.loaded_row_count <= 0
@@ -241,6 +251,8 @@ fn verify_run_binding(
         || run.source_table != execution.iceberg_commit.logical_table
         || run.source_record_id != Some(execution.source_record_id)
         || run.source_file_asset_id != Some(execution.source_file_asset_id)
+        || run.publication_scope != scope
+        || run.publication_limits != limits
     {
         bail!("execution evidence does not match one complete terminal parcel mirror run tuple");
     }

@@ -13,11 +13,15 @@ use serde_json::json;
 use sqlx::{Connection, Executor, PgConnection};
 use uuid::Uuid;
 
+use crate::parcel_publication_contract::{
+    ParcelPublicationQuality, GEOMETRY_REPAIR_STRATEGY, PARCEL_LOGICAL_TABLE,
+    QUALITY_SCHEMA_VERSION,
+};
+
 const SUMMARY_SCHEMA_VERSION: &str =
     "foundation-platform.postgis_parcel_boundary_mirror_national_rebuild_summary.v1";
 const EXECUTION_SCHEMA_VERSION: &str =
     "foundation-platform.silver_gold_national_promotion_execution.v1";
-const SOURCE_TABLE: &str = "silver.parcel_boundaries";
 const TARGET_SRID: i32 = 5179;
 const SOURCE_SRID: i32 = 4326;
 const DEFAULT_COPY_BUFFER_BYTES: usize = 8 * 1024 * 1024;
@@ -71,6 +75,8 @@ struct RebuildConfig {
     database_url: String,
     execution_evidence_path: PathBuf,
     source_snapshot_id: String,
+    source_record_id: Uuid,
+    source_file_asset_id: Uuid,
     expected_row_count: Option<u64>,
     max_bounded_object_count: u64,
     max_bounded_row_count: u64,
@@ -228,6 +234,12 @@ impl RebuildConfig {
                 "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_EXECUTION_EVIDENCE_PATH",
             )?),
             source_snapshot_id,
+            source_record_id: parse_uuid_env(
+                "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_SOURCE_RECORD_ID",
+            )?,
+            source_file_asset_id: parse_uuid_env(
+                "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_SOURCE_FILE_ASSET_ID",
+            )?,
             expected_row_count,
             max_bounded_object_count: optional_env(
                 "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_MAX_BOUNDED_OBJECT_COUNT",
@@ -347,6 +359,8 @@ async fn execute_rebuild(
             object,
             rebuild_run_id,
             config.source_snapshot_id.as_str(),
+            config.source_record_id,
+            config.source_file_asset_id,
             config.copy_buffer_bytes,
         )
         .await?;
@@ -363,7 +377,7 @@ async fn execute_rebuild(
         );
     }
 
-    let validation = validate_loaded_mirror(conn, config.source_snapshot_id.as_str()).await?;
+    let validation = validate_loaded_mirror(conn, rebuild_run_id).await?;
     if validation.loaded_rows != evidence.expected_row_count {
         bail!(
             "loaded row count mismatch: expected={} actual={}",
@@ -393,7 +407,7 @@ async fn execute_rebuild(
         generated_at_utc: Utc::now().to_rfc3339(),
         rebuild_run_id,
         source_snapshot_id: config.source_snapshot_id.clone(),
-        source_table: SOURCE_TABLE,
+        source_table: PARCEL_LOGICAL_TABLE,
         source_srid: format!("EPSG:{SOURCE_SRID}"),
         target_srid: format!("EPSG:{TARGET_SRID}"),
         storage_driver: "r2",
@@ -441,12 +455,13 @@ async fn insert_rebuild_run(
     sqlx::query(
         "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
          (id, source_snapshot_id, source_table, srid, status, loaded_row_count,
-          rejected_row_count, quality_report, started_at)
-         VALUES ($1, $2, $3, $4, 'planned', 0, 0, $5, now())",
+          rejected_row_count, quality_report, publication_scope, publication_limits,
+          source_record_id, source_file_asset_id, started_at)
+         VALUES ($1, $2, $3, $4, 'planned', 0, 0, $5, $6, $7, $8, $9, now())",
     )
     .bind(rebuild_run_id)
     .bind(config.source_snapshot_id.as_str())
-    .bind(SOURCE_TABLE)
+    .bind(PARCEL_LOGICAL_TABLE)
     .bind(TARGET_SRID)
     .bind(json!({
         "execution_evidence_path": config.execution_evidence_path.display().to_string(),
@@ -454,9 +469,17 @@ async fn insert_rebuild_run(
         "expected_row_count": evidence.expected_row_count,
         "source_srid": format!("EPSG:{SOURCE_SRID}"),
         "target_srid": format!("EPSG:{TARGET_SRID}"),
-        "geometry_repair_strategy": "postgis-st_makevalid-collectionextract-polygon-v1",
+        "geometry_repair_strategy": GEOMETRY_REPAIR_STRATEGY,
         "load_strategy": "r2-jsonl-copy-stage-per-object"
     }))
+    .bind(json!({"kind": "bounded", "complete": false}))
+    .bind(json!({
+        "object_limit": config.max_bounded_object_count,
+        "row_limit": config.max_bounded_row_count,
+        "shard_limit": evidence.object_count
+    }))
+    .bind(config.source_record_id)
+    .bind(config.source_file_asset_id)
     .execute(&mut *conn)
     .await
     .context("failed to insert PostGIS mirror rebuild run")?;
@@ -473,10 +496,7 @@ async fn insert_rebuild_run(
 }
 
 async fn prepare_target_tables(conn: &mut PgConnection) -> anyhow::Result<()> {
-    assert_mirror_table_is_unlogged(conn).await?;
-    conn.execute("TRUNCATE TABLE serving_postgis.parcel_boundary_mirror")
-        .await
-        .context("failed to truncate parcel_boundary_mirror")?;
+    assert_mirror_table_is_logged(conn).await?;
     conn.execute(
         "CREATE TEMPORARY TABLE IF NOT EXISTS parcel_boundary_mirror_load_stage (
              pnu text NOT NULL,
@@ -492,7 +512,7 @@ async fn prepare_target_tables(conn: &mut PgConnection) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn assert_mirror_table_is_unlogged(conn: &mut PgConnection) -> anyhow::Result<()> {
+async fn assert_mirror_table_is_logged(conn: &mut PgConnection) -> anyhow::Result<()> {
     let relpersistence = sqlx::query_scalar::<_, String>(
         "SELECT relpersistence::text
          FROM pg_class
@@ -501,8 +521,10 @@ async fn assert_mirror_table_is_unlogged(conn: &mut PgConnection) -> anyhow::Res
     .fetch_one(&mut *conn)
     .await
     .context("failed to inspect parcel_boundary_mirror persistence")?;
-    if relpersistence != "u" {
-        bail!("serving_postgis.parcel_boundary_mirror must be UNLOGGED before national rebuild");
+    if relpersistence != "p" {
+        bail!(
+            "serving_postgis.parcel_boundary_mirror must be LOGGED for durable run-scoped evidence"
+        );
     }
     Ok(())
 }
@@ -513,6 +535,8 @@ async fn load_handoff_object(
     object: &HandoffObject,
     rebuild_run_id: Uuid,
     source_snapshot_id: &str,
+    source_record_id: Uuid,
+    source_file_asset_id: Uuid,
     copy_buffer_bytes: usize,
 ) -> anyhow::Result<ObjectLoadSummary> {
     conn.execute("TRUNCATE TABLE parcel_boundary_mirror_load_stage")
@@ -544,14 +568,20 @@ async fn load_handoff_object(
         );
     }
 
-    let inserted_row_count = insert_stage_into_mirror(conn, rebuild_run_id, source_snapshot_id)
-        .await
-        .with_context(|| {
-            format!(
-                "failed to insert staged rows into PostGIS mirror for {}",
-                object.object_key
-            )
-        })?;
+    let inserted_row_count = insert_stage_into_mirror(
+        conn,
+        rebuild_run_id,
+        source_snapshot_id,
+        source_record_id,
+        source_file_asset_id,
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "failed to insert staged rows into PostGIS mirror for {}",
+            object.object_key
+        )
+    })?;
     if inserted_row_count != copied_row_count {
         bail!(
             "inserted row count mismatch for {}: copied={copied_row_count} inserted={inserted_row_count}",
@@ -742,6 +772,8 @@ async fn insert_stage_into_mirror(
     conn: &mut PgConnection,
     rebuild_run_id: Uuid,
     source_snapshot_id: &str,
+    source_record_id: Uuid,
+    source_file_asset_id: Uuid,
 ) -> anyhow::Result<u64> {
     let result = sqlx::query(
         "INSERT INTO serving_postgis.parcel_boundary_mirror (
@@ -767,8 +799,8 @@ async fn insert_stage_into_mirror(
              $2::uuid,
              $3,
              $1,
-             NULL::uuid,
-             NULL::uuid,
+             $4::uuid,
+             $5::uuid,
              source_object_key,
              boundary_id,
              NULL::uuid,
@@ -791,9 +823,11 @@ async fn insert_stage_into_mirror(
              1
          FROM parcel_boundary_mirror_load_stage",
     )
-    .bind(SOURCE_TABLE)
+    .bind(PARCEL_LOGICAL_TABLE)
     .bind(rebuild_run_id)
     .bind(source_snapshot_id)
+    .bind(source_record_id)
+    .bind(source_file_asset_id)
     .execute(&mut *conn)
     .await
     .context("failed to insert PostGIS mirror rows from stage")?;
@@ -811,31 +845,29 @@ struct MirrorValidation {
 
 async fn validate_loaded_mirror(
     conn: &mut PgConnection,
-    source_snapshot_id: &str,
+    rebuild_run_id: Uuid,
 ) -> anyhow::Result<MirrorValidation> {
     Ok(MirrorValidation {
-        loaded_rows: count_mirror_where(conn, source_snapshot_id, "TRUE").await?,
-        invalid_srid: count_mirror_where(conn, source_snapshot_id, "ST_SRID(geom) <> 5179").await?,
-        invalid_geometry: count_mirror_where(conn, source_snapshot_id, "NOT ST_IsValid(geom)")
-            .await?,
-        empty_geometry: count_mirror_where(conn, source_snapshot_id, "ST_IsEmpty(geom)").await?,
-        nonpositive_area: count_mirror_where(conn, source_snapshot_id, "ST_Area(geom) <= 0")
-            .await?,
+        loaded_rows: count_mirror_where(conn, rebuild_run_id, "TRUE").await?,
+        invalid_srid: count_mirror_where(conn, rebuild_run_id, "ST_SRID(geom) <> 5179").await?,
+        invalid_geometry: count_mirror_where(conn, rebuild_run_id, "NOT ST_IsValid(geom)").await?,
+        empty_geometry: count_mirror_where(conn, rebuild_run_id, "ST_IsEmpty(geom)").await?,
+        nonpositive_area: count_mirror_where(conn, rebuild_run_id, "ST_Area(geom) <= 0").await?,
     })
 }
 
 async fn count_mirror_where(
     conn: &mut PgConnection,
-    source_snapshot_id: &str,
+    rebuild_run_id: Uuid,
     predicate: &str,
 ) -> anyhow::Result<u64> {
     let sql = format!(
         "SELECT count(*)
          FROM serving_postgis.parcel_boundary_mirror
-         WHERE source_snapshot_id = $1 AND ({predicate})"
+         WHERE rebuild_run_id = $1 AND ({predicate})"
     );
     let count = sqlx::query_scalar::<_, i64>(&sql)
-        .bind(source_snapshot_id)
+        .bind(rebuild_run_id)
         .fetch_one(&mut *conn)
         .await
         .context("failed to validate PostGIS mirror rows")?;
@@ -849,6 +881,7 @@ async fn mark_rebuild_succeeded(
     validation: &MirrorValidation,
     evidence: &ExecutionEvidence,
 ) -> anyhow::Result<()> {
+    let quality = publication_quality(evidence, validation);
     sqlx::query(
         "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
          SET status = 'succeeded',
@@ -863,22 +896,30 @@ async fn mark_rebuild_succeeded(
     .bind(rebuild_run_id)
     .bind(source_snapshot_id)
     .bind(u64_to_i64("loaded_row_count", validation.loaded_rows)?)
-    .bind(json!({
-        "object_count": evidence.object_count,
-        "expected_row_count": evidence.expected_row_count,
-        "loaded_row_count": validation.loaded_rows,
-        "invalid_srid_count": validation.invalid_srid,
-        "invalid_geometry_count": validation.invalid_geometry,
-        "empty_geometry_count": validation.empty_geometry,
-        "nonpositive_area_count": validation.nonpositive_area,
-        "source_srid": format!("EPSG:{SOURCE_SRID}"),
-        "target_srid": format!("EPSG:{TARGET_SRID}"),
-        "geometry_repair_strategy": "postgis-st_makevalid-collectionextract-polygon-v1"
-    }))
+    .bind(serde_json::to_value(quality).context("failed to serialize parcel publication quality")?)
     .execute(&mut *conn)
     .await
     .context("failed to mark PostGIS mirror rebuild succeeded")?;
     Ok(())
+}
+
+fn publication_quality(
+    evidence: &ExecutionEvidence,
+    validation: &MirrorValidation,
+) -> ParcelPublicationQuality {
+    ParcelPublicationQuality {
+        schema_version: QUALITY_SCHEMA_VERSION.to_owned(),
+        object_count: evidence.object_count,
+        expected_row_count: evidence.expected_row_count,
+        loaded_row_count: validation.loaded_rows,
+        invalid_srid_count: validation.invalid_srid,
+        invalid_geometry_count: validation.invalid_geometry,
+        empty_geometry_count: validation.empty_geometry,
+        nonpositive_area_count: validation.nonpositive_area,
+        source_srid: format!("EPSG:{SOURCE_SRID}"),
+        target_srid: format!("EPSG:{TARGET_SRID}"),
+        geometry_repair_strategy: GEOMETRY_REPAIR_STRATEGY.to_owned(),
+    }
 }
 
 async fn mark_rebuild_failed(
@@ -892,7 +933,7 @@ async fn mark_rebuild_failed(
          SET status = 'failed',
              loaded_row_count = (
                  SELECT count(*) FROM serving_postgis.parcel_boundary_mirror
-                 WHERE source_snapshot_id = $2
+                 WHERE rebuild_run_id = $1
              ),
              error_message = left($3, 4000),
              finished_at = now(),
@@ -1020,10 +1061,17 @@ fn u64_to_i64(label: &str, value: u64) -> anyhow::Result<i64> {
     i64::try_from(value).with_context(|| format!("{label} overflows Postgres BIGINT"))
 }
 
+fn parse_uuid_env(name: &str) -> anyhow::Result<Uuid> {
+    Uuid::parse_str(required_env(name)?.as_str()).with_context(|| format!("{name} must be a UUID"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use foundation_disposable_database::{run_in_disposable_database, TestResult};
     use serde_json::Value as JsonValue;
+
+    static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
     #[test]
     fn execution_evidence_selects_r2_succeeded_handoff_objects() -> anyhow::Result<()> {
@@ -1180,6 +1228,8 @@ mod tests {
             database_url: "postgres://example.invalid/foundation_platform".to_owned(),
             execution_evidence_path: PathBuf::from("target/audit/evidence.json"),
             source_snapshot_id: "iceberg:parcel-boundaries-snapshot-001".to_owned(),
+            source_record_id: Uuid::nil(),
+            source_file_asset_id: Uuid::max(),
             expected_row_count: None,
             max_bounded_object_count: DEFAULT_MAX_BOUNDED_OBJECT_COUNT,
             max_bounded_row_count: DEFAULT_MAX_BOUNDED_ROW_COUNT,
@@ -1193,5 +1243,168 @@ mod tests {
             .unwrap_or_default();
 
         assert!(error.contains("bounded QA only"));
+    }
+
+    #[test]
+    fn terminal_quality_reuses_the_counts_already_computed_by_rebuild() {
+        let evidence = ExecutionEvidence {
+            object_count: 3,
+            expected_row_count: 7,
+            objects: Vec::new(),
+        };
+        let validation = MirrorValidation {
+            loaded_rows: 7,
+            invalid_srid: 0,
+            invalid_geometry: 0,
+            empty_geometry: 0,
+            nonpositive_area: 0,
+        };
+
+        let quality = publication_quality(&evidence, &validation);
+
+        assert_eq!(quality.schema_version, QUALITY_SCHEMA_VERSION);
+        assert_eq!(quality.object_count, evidence.object_count);
+        assert_eq!(quality.expected_row_count, evidence.expected_row_count);
+        assert_eq!(quality.loaded_row_count, validation.loaded_rows);
+        assert_eq!(quality.geometry_repair_strategy, GEOMETRY_REPAIR_STRATEGY);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+    async fn rebuild_records_one_provenance_pair_on_the_run_and_every_loaded_row() -> TestResult {
+        run_in_disposable_database("parcel_rebuild_provenance", |pool| async move {
+            MIGRATOR.run(&pool).await?;
+            let source_record_id = Uuid::new_v4();
+            let unrelated_source_record_id = Uuid::new_v4();
+            let source_file_asset_id = Uuid::new_v4();
+            let rebuild_run_id = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO catalog.source_record
+                    (id, source, external_id, checksum_sha256, raw_object_key)
+                 VALUES ($1, 'parcel-rebuild-test', $2, repeat('a', 64), $3)",
+            )
+            .bind(source_record_id)
+            .bind(format!("parcel-rebuild-{source_record_id}"))
+            .bind(format!("silver/parcel-boundaries/{source_record_id}/metadata.json"))
+            .execute(&pool)
+            .await?;
+            sqlx::query(
+                "INSERT INTO catalog.file_asset
+                    (id, object_key, mime_type, size_bytes, checksum_sha256,
+                     source_record_id, visibility)
+                 VALUES ($1, $2, 'application/json', 1, repeat('b', 64), $3, 'internal')",
+            )
+            .bind(source_file_asset_id)
+            .bind(format!("silver/parcel-boundaries/{source_file_asset_id}/manifest.json"))
+            .bind(source_record_id)
+            .execute(&pool)
+            .await?;
+            sqlx::query(
+                "INSERT INTO catalog.source_record
+                    (id, source, external_id, checksum_sha256, raw_object_key)
+                 VALUES ($1, 'parcel-rebuild-test', $2, repeat('d', 64), $3)",
+            )
+            .bind(unrelated_source_record_id)
+            .bind(format!("parcel-rebuild-{unrelated_source_record_id}"))
+            .bind(format!(
+                "silver/parcel-boundaries/{unrelated_source_record_id}/metadata.json"
+            ))
+            .execute(&pool)
+            .await?;
+
+            let config = RebuildConfig {
+                database_url: "postgres://unused.invalid/foundation_platform".to_owned(),
+                execution_evidence_path: PathBuf::from("target/audit/evidence.json"),
+                source_snapshot_id: "iceberg:841361364657368626".to_owned(),
+                source_record_id,
+                source_file_asset_id,
+                expected_row_count: None,
+                max_bounded_object_count: DEFAULT_MAX_BOUNDED_OBJECT_COUNT,
+                max_bounded_row_count: DEFAULT_MAX_BOUNDED_ROW_COUNT,
+                copy_buffer_bytes: DEFAULT_COPY_BUFFER_BYTES,
+                summary_path: None,
+            };
+            let evidence = ExecutionEvidence {
+                object_count: 1,
+                expected_row_count: 1,
+                objects: Vec::new(),
+            };
+            let mut conn = pool.acquire().await?;
+            let mismatched_config = RebuildConfig {
+                database_url: "postgres://unused.invalid/foundation_platform".to_owned(),
+                execution_evidence_path: PathBuf::from("target/audit/evidence.json"),
+                source_snapshot_id: "iceberg:841361364657368626".to_owned(),
+                source_record_id: unrelated_source_record_id,
+                source_file_asset_id,
+                expected_row_count: None,
+                max_bounded_object_count: DEFAULT_MAX_BOUNDED_OBJECT_COUNT,
+                max_bounded_row_count: DEFAULT_MAX_BOUNDED_ROW_COUNT,
+                copy_buffer_bytes: DEFAULT_COPY_BUFFER_BYTES,
+                summary_path: None,
+            };
+            let mismatch_error = insert_rebuild_run(
+                &mut conn,
+                Uuid::new_v4(),
+                &mismatched_config,
+                &evidence,
+            )
+            .await
+            .expect_err("an asset from another source record must be rejected");
+            assert!(
+                format!("{mismatch_error:#}").contains(
+                    "parcel_boundary_mirror_rebuild_run_source_asset_pair_fkey"
+                ),
+                "unexpected provenance-pair rejection: {mismatch_error:#}"
+            );
+
+            insert_rebuild_run(&mut conn, rebuild_run_id, &config, &evidence).await?;
+            prepare_target_tables(&mut conn).await?;
+            sqlx::query(
+                "INSERT INTO parcel_boundary_mirror_load_stage
+                    (pnu, boundary_id, source_object_key, geometry_wkb_hex,
+                     geometry_checksum_sha256, properties)
+                 VALUES ('9999900101100010001', 'boundary-1', 'silver/part-0001.jsonl',
+                         encode(ST_AsBinary(ST_GeomFromText(
+                             'POLYGON((127.1231 36.1231,127.1232 36.1231,127.1232 36.1232,127.1231 36.1232,127.1231 36.1231))',
+                             4326
+                         )), 'hex'), repeat('c', 64), '{}'::jsonb)",
+            )
+            .execute(&mut *conn)
+            .await?;
+            assert_eq!(
+                insert_stage_into_mirror(
+                    &mut conn,
+                    rebuild_run_id,
+                    config.source_snapshot_id.as_str(),
+                    source_record_id,
+                    source_file_asset_id,
+                )
+                .await?,
+                1
+            );
+
+            let (run_record, run_asset, mismatched_rows): (Option<Uuid>, Option<Uuid>, i64) =
+                sqlx::query_as(
+                    "SELECT run.source_record_id,
+                            run.source_file_asset_id,
+                            count(*) FILTER (
+                                WHERE mirror.source_record_id IS DISTINCT FROM run.source_record_id
+                                   OR mirror.source_file_asset_id IS DISTINCT FROM run.source_file_asset_id
+                            )::bigint
+                       FROM serving_postgis.parcel_boundary_mirror_rebuild_run AS run
+                       JOIN serving_postgis.parcel_boundary_mirror AS mirror
+                         ON mirror.rebuild_run_id = run.id
+                      WHERE run.id = $1
+                      GROUP BY run.source_record_id, run.source_file_asset_id",
+                )
+                .bind(rebuild_run_id)
+                .fetch_one(&mut *conn)
+                .await?;
+            assert_eq!(run_record, Some(source_record_id));
+            assert_eq!(run_asset, Some(source_file_asset_id));
+            assert_eq!(mismatched_rows, 0);
+            Ok(())
+        })
+        .await
     }
 }

@@ -41,3 +41,5 @@ last_reviewed: 2026-07-28
 - [0027 — 모든 가드는 자기 위협 모델을 선언한다](./0027-every-guard-declares-its-threat-model.md)
 - [0028 — 공급망 취약점 게이트는 OSV 래칫을 함께 쓴다](./0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md)
 - [0029 — 필지 발행 실행 증거는 terminal run에서 쓴다](./0029-parcel-publication-evidence-is-written-from-the-terminal-run.md)
+- [0030 — 필지 발행 증거는 서로 다른 두 승인을 구별한다](./0030-parcel-publication-evidence-requires-two-distinct-approvals.md)
+- [0031 — 필지 mirror run이 발행 scope와 limit을 봉인한다](./0031-parcel-mirror-run-seals-publication-scope.md)

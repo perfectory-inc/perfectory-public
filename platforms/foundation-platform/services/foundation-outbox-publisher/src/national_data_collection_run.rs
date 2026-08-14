@@ -31,8 +31,6 @@ use env_helpers::{
 };
 
 const SCHEMA_VERSION: &str = "foundation-platform.national_data_collection_run_evidence.v1";
-const APPROVAL_SCHEMA_VERSION: &str =
-    "foundation-platform.national_data_collection_rollout_approval.v1";
 const SHARD_MANIFEST_SCHEMA_VERSION: &str =
     "foundation-platform.national_data_collection_shard_manifest.v1";
 const PLAN_SCHEMA_VERSION: &str = "foundation-platform.national_data_collection_plan.v1";
@@ -537,7 +535,9 @@ fn validate_execution_confirmations(config: &RunConfig) -> anyhow::Result<()> {
 }
 
 fn validate_approval(approval: &JsonValue) -> anyhow::Result<()> {
-    if string_property(approval, "schema_version") != APPROVAL_SCHEMA_VERSION {
+    if string_property(approval, "schema_version")
+        != crate::national_data_collection_rollout_approval_check::SCHEMA_VERSION
+    {
         bail!("national rollout approval schema mismatch");
     }
     if string_property(approval, "status") != "ready"
