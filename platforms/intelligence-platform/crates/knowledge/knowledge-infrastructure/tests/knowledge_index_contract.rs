@@ -15,6 +15,57 @@ async fn memory_index_satisfies_the_index_contract() {
     knowledge_index_contract_suite(InMemoryKnowledgeIndex::default(), SCAFFOLD_TENANT_ID).await;
 }
 
+/// 한국어는 조사가 명사에 붙어 한 토큰이 된다. 검색어 "건폐율"이 본문의 "건폐율을"과
+/// 맞아야 검색이 쓸모 있다 — 고시문은 거의 모든 명사가 조사를 달고 나온다.
+///
+/// 이 테스트가 실패하면 형태소 분석이 없는 것이고, 그 상태로 고시 코퍼스를 넣으면
+/// 관은 뚫렸는데 물이 안 흐른다.
+#[tokio::test]
+#[ignore = "requires the Intelligence Postgres integration lane"]
+async fn postgres_index_matches_a_noun_that_carries_a_josa() {
+    let index = pg_index().await;
+    let scope = TenantScope::new(SCAFFOLD_TENANT_ID, "product-josa");
+    index.purge_scope(&scope).await.expect("clean start");
+
+    let release = ReleaseRef::new(scope.clone(), "release-josa");
+    index
+        .index_chunks(
+            &release,
+            vec![chunk(
+                "notice-1",
+                0,
+                // 제목은 일부러 질의어를 하나도 담지 않는다. 담으면 본문 토큰화가
+                // 실패해도 제목이 대신 맞아 테스트가 통과해 버린다 — 실제로 처음
+                // 이렇게 써서 3개 중 2개가 거짓 통과했다.
+                "고시 본문",
+                "해당 지구단위계획구역에서는 건폐율을 100분의 80까지 완화하여 적용한다.",
+            )],
+        )
+        .await
+        .expect("index must succeed");
+    index
+        .activate_release(&release)
+        .await
+        .expect("activate must succeed");
+
+    for (query, why) in [
+        ("건폐율", "조사 '을'이 붙은 명사를 어간으로 찾아야 한다"),
+        ("완화", "'완화하여'의 어간을 찾아야 한다"),
+        (
+            "지구단위계획구역",
+            "조사 '에서는'이 붙은 복합명사를 찾아야 한다",
+        ),
+    ] {
+        let hits = index
+            .search(&scope, query, 5)
+            .await
+            .expect("search must succeed");
+        assert_eq!(hits.len(), 1, "질의 '{query}': {why}");
+    }
+
+    index.purge_scope(&scope).await.expect("cleanup");
+}
+
 #[tokio::test]
 #[ignore = "requires the Intelligence Postgres integration lane"]
 async fn postgres_index_satisfies_the_index_contract() {

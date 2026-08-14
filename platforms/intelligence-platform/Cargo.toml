@@ -36,6 +36,9 @@ apache-avro = "0.21.0"
 async-trait = "0.1"
 axum = "0.8"
 chrono = { version = "0.4", features = ["clock", "serde"] }
+# 한국어 형태소 분석. 사전은 mecab-ko-dic으로, Elasticsearch의 Nori와 같은 사전이다 —
+# 품질 상한은 사전에서 오므로 커스텀 Postgres 확장 없이 같은 상한에 닿는다.
+lindera = { version = "5.1", default-features = false, features = ["embed-ko-dic"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schema_registry_converter = "4.9.0"

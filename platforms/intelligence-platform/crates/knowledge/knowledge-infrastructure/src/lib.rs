@@ -1,3 +1,4 @@
+mod korean_tokenizer;
 mod local_markdown_source;
 mod memory_index;
 mod memory_registry;

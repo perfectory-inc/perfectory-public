@@ -7,6 +7,8 @@ use knowledge_application::{
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
+use crate::korean_tokenizer::{build_index_text, build_query_text};
+
 #[derive(Debug, thiserror::Error)]
 pub enum PostgresKnowledgeIndexError {
     #[error("postgres knowledge index config is invalid")]
@@ -124,12 +126,13 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
                 r#"
                 INSERT INTO ip_knowledge_chunk (
                     tenant_id, product_id, release_id, source_id, chunk_ordinal,
-                    heading_path, body, source_snapshot_id, content_checksum_sha256
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    heading_path, body, search_text, source_snapshot_id, content_checksum_sha256
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (tenant_id, product_id, release_id, source_id, chunk_ordinal)
                 DO UPDATE SET
                     heading_path = EXCLUDED.heading_path,
                     body = EXCLUDED.body,
+                    search_text = EXCLUDED.search_text,
                     source_snapshot_id = EXCLUDED.source_snapshot_id,
                     content_checksum_sha256 = EXCLUDED.content_checksum_sha256
                 "#,
@@ -141,6 +144,10 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
             .bind(indexed.chunk.chunk_ordinal)
             .bind(&indexed.chunk.heading_path)
             .bind(&indexed.chunk.body)
+            .bind(build_index_text(&format!(
+                "{} {}",
+                indexed.chunk.heading_path, indexed.chunk.body
+            )))
             .bind(&indexed.source_snapshot_id)
             .bind(&indexed.chunk.content_checksum_sha256)
             .execute(&mut *tx)
@@ -230,7 +237,9 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
         )
         .bind(&scope.tenant_id)
         .bind(&scope.product_id)
-        .bind(query)
+        // 질의도 색인과 **같은 함수**를 통과해야 한다. 한쪽만 형태소로 쪼개면
+        // 토큰 경계가 어긋나 아무것도 맞지 않는다.
+        .bind(build_query_text(query))
         .bind(i64::from(limit))
         .fetch_all(&self.pool)
         .await

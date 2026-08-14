@@ -14,3 +14,4 @@ last_reviewed: 2026-07-29
 |-----|-------|--------|------|
 | [0001](0001-canonical-implementation-rust.md) | Rust를 Intelligence Platform 정본 구현으로 사용하고 Python은 폐기 | Accepted | 2026-07-08 |
 | [0002](0002-canonical-release-rag-design.md) | canonical release를 읽는 RAG 설계 경계 | 제안(구현 보류) | 2026-07-08 |
+| [0003](0003-korean-morphology-in-rust.md) | 한국어 형태소 분석은 Rust 색인기가 하고 사전은 mecab-ko-dic을 쓴다 | Accepted | 2026-08-14 |
