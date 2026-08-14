@@ -239,8 +239,8 @@ SYNTHESIS      답변 + 인용
 | 키워드 색인 | Postgres FTS + GIN | ✅ 같음 (Cerebras) |
 | 스코프 | `TenantScope`(tenant + product) | ✅ 같음 (Cerebras Projects) |
 | 정확 토큰 우선 | 형태소 토큰 + 원문 토큰 병행 | ✅ 같은 문제의식 |
-| **리트리버 수** | **1개** | Cerebras 6개 |
-| **RRF 융합** | 없음 | 표준 |
+| **리트리버 수** | **3개** (형태소·원문·제목) — [ADR-0004](../../platforms/intelligence-platform/docs/adr/0004-retriever-fusion-over-a-single-scorer.md) | Cerebras 6개 |
+| **RRF 융합** | ✅ k=60, 도메인 순수 함수 | 표준 |
 | **재순위 단계** | 없음 | 표준 |
 | **원문 정규화(distillation)** | 없음 | Cerebras·Anthropic·Uber |
 | **age decay** | 없음 | Cerebras |
@@ -248,8 +248,11 @@ SYNTHESIS      답변 + 인용
 | 벡터 | 없음(의도적 — ADR-0002가 근거 없는 provider 고정 금지) | pgvector 3072 HNSW 등 |
 | MCP 도구 노출 | 없음 | Cerebras |
 
-**바닥 네 줄은 이미 같고, 위 여섯 줄이 비어 있다.** 그중 RRF·재순위·age decay는 **임베딩 없이
-지금 만들 수 있다.**
+**바닥 여섯 줄은 이미 같다.** 남은 네 줄 중 재순위·age decay는 임베딩 없이 만들 수 있고,
+age decay는 코퍼스가 문서 날짜를 가져와야 한다.
+
+리트리버 분리와 RRF는 이 조사의 직접적 산물이다 — 조사 전에는 신호 하나를 한 칼럼에 섞어
+쓰고 있었고, 그것이 서로를 가린다는 것을 사례들이 알려 줬다.
 
 ---
 

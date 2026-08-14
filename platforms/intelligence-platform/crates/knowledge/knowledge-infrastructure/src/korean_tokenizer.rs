@@ -21,42 +21,22 @@ use lindera::dictionary::load_dictionary;
 use lindera::mode::Mode;
 use lindera::segmenter::Segmenter;
 
-/// 색인에 넣을 텍스트. **형태소 토큰과 원문 토큰을 함께** 낸다.
+/// 형태소 리트리버에 넣을 질의 텍스트.
 ///
-/// 형태소만으로는 부족하다는 것을 실측으로 확인했다. mecab-ko-dic에 없는 단어는
-/// 앞뒤 문맥에 따라 Viterbi 경로가 달라져 **같은 단어가 다르게 쪼개진다**:
+/// 형태소 신호는 색인도 질의도 **같은 함수**를 통과해야 한다. 한쪽만 쪼개면 토큰 경계가
+/// 어긋나 아무것도 맞지 않는다. 원문 리트리버는 질의를 쪼개지 않고 그대로 쓴다.
+///
+/// 두 신호를 나눠 둔 이유는 실측이다. mecab-ko-dic에 없는 단어는 앞뒤 문맥에 따라
+/// Viterbi 경로가 달라져 **같은 단어가 다르게 쪼개진다**:
 ///
 /// ```text
 /// "용적률"       -> 용적률        (한 토큰)
 /// "용적률 산정"  -> 용적 률 산정  (두 토큰)
 /// ```
 ///
-/// 그래서 질의 `용적률`이 본문 `용적률 산정`을 못 맞혔다. `Mode::Decompose`로 바꿔도
-/// 같았다. 고시문에는 사전에 없는 행정 용어가 많으므로 이 상태로 두면 검색이 조용히
-/// 실패한다 — 오류가 아니라 "결과 없음"으로 나타나 알아채기 어렵다.
-///
-/// 원문을 함께 넣으면 그 경우를 원문 쪽이 받아 준다. Elasticsearch Nori의 `mixed`
-/// decompound 모드가 복합어와 그 부분을 함께 넣는 것과 같은 발상이다. 대가는 색인이
-/// 대략 두 배가 되는 것이고, 지금 규모에서는 문제가 되지 않는다.
-pub fn build_index_text(text: &str) -> String {
-    let morphemes = tokenize_korean(text);
-    if morphemes == text {
-        return morphemes;
-    }
-    let mut out = String::with_capacity(morphemes.len() + text.len() + 1);
-    out.push_str(&morphemes);
-    out.push(' ');
-    out.push_str(text);
-    out
-}
-
-/// 질의에 쓸 텍스트. **형태소만** 낸다 — 색인과 일부러 다르다.
-///
-/// Postgres의 `websearch_to_tsquery`는 토큰을 AND로 묶으므로, 질의에 원문 토큰까지
-/// 넣으면 과잉 제약이 된다. 실제로 질의 `지구단위계획구역`의 원문 토큰이 본문
-/// `지구단위계획구역에서는`(조사가 붙어 한 덩어리)에 없어서 4개가 맞는데도 0건이 나왔다.
-///
-/// 색인은 넓게, 질의는 좁게 — 재현율은 색인 쪽 원문 토큰이 담당한다.
+/// 형태소 신호 하나만 있으면 질의 `용적률`이 본문 `용적률 산정`을 못 맞힌다
+/// (`Mode::Decompose`로 바꿔도 같았다). 원문 신호가 그 경우를 받아 주고, 조사가 붙은
+/// 경우는 형태소 신호가 받아 준다. 둘의 순위 목록은 RRF가 합친다.
 pub fn build_query_text(query: &str) -> String {
     tokenize_korean(query)
 }
@@ -139,41 +119,37 @@ mod tests {
         assert_eq!(tokenize_korean("용적률 산정"), "용적 률 산정");
     }
 
-    /// 검색이 성립하는 조건: 질의 토큰이 색인 토큰에 **모두** 있어야 한다
-    /// (`websearch_to_tsquery`가 AND로 묶으므로).
+    /// 형태소 신호가 성립하는 조건: 질의 토큰이 색인 토큰에 **모두** 있어야 한다
+    /// (`websearch_to_tsquery`가 AND로 묶으므로). 조사가 붙은 명사가 이 신호의 몫이다.
     #[test]
-    fn every_query_token_is_present_in_the_index_text() {
+    fn the_morpheme_signal_matches_a_noun_that_carries_a_josa() {
         for (body, query) in [
-            ("해당 구역에서는 건폐율을 완화한다.", "건폐율"), // 조사
-            ("용적률 산정 기준", "용적률"),                   // 미등재어 문맥 의존
-            ("지구단위계획구역에서는", "지구단위계획구역"),   // 복합명사 + 조사
+            ("해당 구역에서는 건폐율을 완화한다.", "건폐율"),
+            ("지구단위계획구역에서는", "지구단위계획구역"),
             ("평택첨단복합 일반산업단지계획 변경 승인", "산업단지"),
         ] {
-            let indexed = build_index_text(body);
+            let indexed = tokenize_korean(body);
             let indexed_tokens: Vec<&str> = indexed.split_whitespace().collect();
             for token in build_query_text(query).split_whitespace() {
                 assert!(
                     indexed_tokens.contains(&token),
-                    "질의 '{query}'의 토큰 '{token}'이 본문 '{body}'의 색인 입력에 없다: {indexed}"
+                    "질의 '{query}'의 토큰 '{token}'이 본문 '{body}'의 형태소 색인에 없다: {indexed}"
                 );
             }
         }
     }
 
-    /// 아직 못 막는 경우를 명시해 둔다: **사전에 없는 단어에 조사가 붙은 것**.
-    /// 본문 `용적률을`은 형태소로 `용적 률 을`이 되고 원문 토큰은 `용적률을`이라,
-    /// 질의 `용적률`(= `용적률` 한 토큰)이 어느 쪽에도 없다.
-    ///
-    /// 고칠 방법은 사용자 사전이다 — lindera `Segmenter::new`의 세 번째 인자.
-    /// 코퍼스가 오면 자주 나오는 미등재어를 뽑아 사전에 넣으면 이 테스트가 뒤집힌다.
-    /// 그때 이 테스트의 이름과 단정을 함께 바꾼다.
+    /// 형태소 신호 **하나만으로는** 미등재어를 놓친다는 사실을 고정한다. 이것이 원문
+    /// 리트리버가 존재하는 이유이며, 리트리버를 하나로 되돌리려는 다음 사람이 볼 자리다.
     #[test]
-    fn known_gap_unknown_word_with_a_josa_is_not_matched_yet() {
-        let indexed = build_index_text("용적률을 산정한다");
-        let indexed_tokens: Vec<&str> = indexed.split_whitespace().collect();
+    fn the_morpheme_signal_alone_misses_an_unknown_word() {
+        let indexed = tokenize_korean("용적률 산정 기준");
         assert!(
-            !indexed_tokens.contains(&"용적률"),
-            "이 한계가 사라졌다면 사용자 사전이 붙은 것이다. 테스트를 뒤집을 것: {indexed}"
+            !indexed.split_whitespace().any(|token| token == "용적률"),
+            "형태소만으로 '용적률'이 잡힌다면 사용자 사전이 붙은 것이다. \
+             그때 원문 리트리버의 필요성을 다시 판단할 것: {indexed}"
         );
+        // 원문 신호는 이 경우를 받아 준다 — 원문에는 '용적률'이 그대로 있다.
+        assert!("용적률 산정 기준".contains("용적률"));
     }
 }

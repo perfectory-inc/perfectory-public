@@ -110,6 +110,58 @@ async fn postgres_index_ranks_the_denser_chunk_first() {
     index.purge_scope(&scope).await.expect("cleanup");
 }
 
+/// 융합이 실제로 순위를 바꾸는지 증명한다. **리트리버를 하나로 줄이면 반드시 실패해야 하는**
+/// 데이터로 짰다 — 처음 쓴 판본은 한 개짜리로도 통과해서 아무것도 증명하지 못했다.
+///
+/// | 문서 | 형태소 | 원문 | 제목 |
+/// |---|---|---|---|
+/// | `josa-heavy` | **1등** (`건폐율`이 3회) | ✗ 원문은 `건폐율을`이라 질의 `건폐율`과 다른 토큰 | ✗ 제목이 `부칙` |
+/// | `consensus`  | 2등 (1회) | ✓ | ✓ |
+///
+/// 형태소 하나만 쓰면 `josa-heavy`가 이긴다. 셋을 합치면 `consensus`가 이긴다.
+#[tokio::test]
+#[ignore = "requires the Intelligence Postgres integration lane"]
+async fn postgres_index_lets_consensus_across_signals_win() {
+    let index = pg_index().await;
+    let scope = TenantScope::new(SCAFFOLD_TENANT_ID, "product-fusion");
+    index.purge_scope(&scope).await.expect("clean start");
+
+    let release = ReleaseRef::new(scope.clone(), "release-fusion");
+    index
+        .index_chunks(
+            &release,
+            vec![
+                chunk(
+                    "josa-heavy",
+                    0,
+                    "부칙",
+                    "건폐율을 건폐율을 건폐율을 준용하여 적용한다.",
+                ),
+                chunk("consensus", 0, "건폐율", "완화 기준은 별표와 같다."),
+            ],
+        )
+        .await
+        .expect("index must succeed");
+    index
+        .activate_release(&release)
+        .await
+        .expect("activate must succeed");
+
+    let hits = index
+        .search(&scope, "건폐율", 5)
+        .await
+        .expect("search must succeed");
+
+    assert_eq!(hits.len(), 2, "두 문서 모두 잡혀야 한다: {hits:?}");
+    assert_eq!(
+        hits[0].source_id, "consensus",
+        "세 신호의 합의가 형태소 신호 단독 1등을 이겨야 한다. \
+         이 단정이 리트리버 1개로도 통과한다면 융합이 일하지 않는 것이다: {hits:?}"
+    );
+
+    index.purge_scope(&scope).await.expect("cleanup");
+}
+
 /// `INTELLIGENCE_TEST_DATABASE_URL`이 없으면 실패한다. 조용한 skip을 만들지 않는다 —
 /// `scripts/guard/no-silent-test-skip.sh`가 강제하는 규칙이고, 등록부 계약 테스트가
 /// 같은 이유로 이미 이 형태다.

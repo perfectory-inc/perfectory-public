@@ -64,10 +64,12 @@ cargo test -p messaging-infrastructure --test live_kafka_karapace -- --nocapture
 | 검색 엔진·벡터 DB·임베딩 provider를 고르려 함 | [ADR-0002](./docs/adr/0002-canonical-release-rag-design.md) — **승인 전 고정 금지**. 가드가 기계로 막는다 |
 | "형태소 분석 없이 `simple`로 충분하지 않나" | [ADR-0003](./docs/adr/0003-korean-morphology-in-rust.md) — 실측으로 아니라고 확인했다 |
 | Elasticsearch로 옮기려 함 | [사례 레퍼런스](../../docs/reference/knowledge-search-industry-cases.md) — Cerebras는 하루 15,000 질문을 Postgres 한 테이블로 받는다. 전환 조건은 ADR-0003 재검토 트리거 |
-| 검색 품질을 올리려 함 | 같은 문서 §교차 관찰 — **다음은 벡터가 아니라 리트리버 분리 + RRF**다. 사례 전부가 하이브리드다 |
+| 리트리버를 하나로 되돌리려 함 | [ADR-0004](./docs/adr/0004-retriever-fusion-over-a-single-scorer.md) — 신호를 한 칼럼에 섞으면 서로를 가린다. 계약 테스트가 1개로 줄이면 실패한다 |
+| 검색 품질을 올리려 함 | [사례 레퍼런스](../../docs/reference/knowledge-search-industry-cases.md) §교차 관찰 — 다음은 **재순위**이고, 그 전에 평가 세트가 있어야 한다 |
 | 무엇을 색인할지 정하려 함 | 코퍼스는 산업단지 고시다. 수집은 Foundation 소관 |
 
-**지금 없는 것을 있다고 쓰지 말 것:** 리트리버는 1개, RRF·재순위·평가 세트·벡터는 없다.
+**지금 없는 것을 있다고 쓰지 말 것:** 재순위·age decay·평가 세트·벡터는 없다.
+있는 것은 신호 3종(형태소·원문·제목)과 RRF(k=60) 융합까지다.
 
 ## 문서 라우팅
 

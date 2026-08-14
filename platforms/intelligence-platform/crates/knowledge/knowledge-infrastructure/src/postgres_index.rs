@@ -1,13 +1,63 @@
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use knowledge_application::{
     IndexedChunk, KnowledgeIndexError, KnowledgeIndexPort, ReleaseRef, SearchHit, TenantScope,
 };
+use knowledge_domain::{reciprocal_rank_fusion, RankedList, DEFAULT_RRF_SMOOTHING};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-use crate::korean_tokenizer::{build_index_text, build_query_text};
+use crate::korean_tokenizer::{build_query_text, tokenize_korean};
+
+/// 융합에서 청크를 가리키는 식별자. 활성 release는 범위마다 하나뿐이므로
+/// (`idx_ip_knowledge_release_single_active`) 이 쌍이 검색 범위 안에서 유일하다.
+type ChunkKey = (String, i32);
+
+/// 하나의 검색 신호. 각자 자기 순위 목록을 내고 질의 시점에 합쳐진다.
+///
+/// 신호를 한 칼럼에 섞으면 서로를 가린다 — 제목이 정확히 맞은 문서가 긴 본문에 희석되고,
+/// 원문 일치와 형태소 일치를 구분할 수 없다. 순위를 매기는 자가 하나뿐이면 그 자가 틀렸을 때
+/// 대안이 없다. 근거는 `docs/reference/knowledge-search-industry-cases.md`.
+struct RetrieverSpec {
+    /// 진단용 이름. 융합 결과에 어느 리트리버가 올렸는지가 남는다.
+    name: &'static str,
+    /// 이 신호가 읽는 tsvector 칼럼. **컴파일 시점 상수이며 사용자 입력이 아니다** —
+    /// 아래 `format!`이 안전한 이유가 이것이다.
+    column: &'static str,
+    /// 질의를 형태소로 쪼개서 넣을지, 원문 그대로 넣을지.
+    morpheme_query: bool,
+}
+
+/// 지금의 신호 세 가지. 벡터 리트리버는 여기에 **한 줄 더하는 것**이 된다 —
+/// 융합·수화(hydrate)·포트는 바뀌지 않는다. 그것이 이 구조의 목적이다.
+const RETRIEVERS: &[RetrieverSpec] = &[
+    RetrieverSpec {
+        name: "morpheme",
+        column: "search_vector_morph",
+        morpheme_query: true,
+    },
+    RetrieverSpec {
+        name: "raw",
+        column: "search_vector_raw",
+        morpheme_query: false,
+    },
+    RetrieverSpec {
+        name: "heading",
+        column: "search_vector_heading",
+        morpheme_query: false,
+    },
+];
+
+/// 리트리버마다 최종 개수의 몇 배까지 후보를 가져오는가.
+///
+/// 융합은 순위를 보고 합의를 찾는 것이므로 후보가 얕으면 합의할 거리가 없다. 조사한
+/// 사례들도 융합 뒤 상위 20을 만들고 재순위로 10을 남긴다 — 넉넉히 가져와서 줄이는 쪽이다.
+const CANDIDATE_DEPTH_FACTOR: u32 = 4;
+
+/// 후보 깊이의 하한. `limit`이 1이어도 합의를 볼 수 있을 만큼은 가져온다.
+const MIN_CANDIDATE_DEPTH: u32 = 20;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PostgresKnowledgeIndexError {
@@ -95,6 +145,113 @@ impl PostgresKnowledgeIndex {
 
         Ok(Self { pool })
     }
+
+    /// 리트리버 하나를 돌려 순위 목록을 얻는다. 본문은 가져오지 않는다 — 융합이 끝난
+    /// 뒤에 살아남은 것만 수화한다.
+    async fn retrieve(
+        &self,
+        scope: &TenantScope,
+        retriever: &RetrieverSpec,
+        morph_query: &str,
+        raw_query: &str,
+        depth: u32,
+    ) -> Result<Vec<ChunkKey>, KnowledgeIndexError> {
+        let text = if retriever.morpheme_query {
+            morph_query
+        } else {
+            raw_query
+        };
+
+        // `column`은 위 const 표의 `&'static str`이며 사용자 입력이 경유하지 않는다.
+        // 질의어는 전부 바인드 파라미터다.
+        let sql = format!(
+            r#"
+            SELECT c.source_id, c.chunk_ordinal
+            FROM ip_knowledge_chunk c
+            JOIN ip_knowledge_release r
+              ON r.tenant_id = c.tenant_id
+             AND r.product_id = c.product_id
+             AND r.release_id = c.release_id
+            WHERE c.tenant_id = $1
+              AND c.product_id = $2
+              AND r.is_active
+              AND c.{column} @@ websearch_to_tsquery('simple', $3)
+            ORDER BY
+                ts_rank(c.{column}, websearch_to_tsquery('simple', $3)) DESC,
+                c.source_id,
+                c.chunk_ordinal
+            LIMIT $4
+            "#,
+            column = retriever.column
+        );
+
+        let rows = sqlx::query(&sql)
+            .bind(&scope.tenant_id)
+            .bind(&scope.product_id)
+            .bind(text)
+            .bind(i64::from(depth))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(store_failed_from)?;
+
+        rows.iter()
+            .map(|row| {
+                Ok((
+                    row.try_get::<String, _>("source_id")
+                        .map_err(store_failed_from)?,
+                    row.try_get::<i32, _>("chunk_ordinal")
+                        .map_err(store_failed_from)?,
+                ))
+            })
+            .collect()
+    }
+
+    /// 융합이 고른 키만 본문과 함께 읽고 **융합 순서 그대로** 돌려준다.
+    /// SQL이 정한 순서가 아니라 융합이 정한 순서가 답이다.
+    async fn hydrate(
+        &self,
+        scope: &TenantScope,
+        keys: &[ChunkKey],
+    ) -> Result<Vec<SearchHit>, KnowledgeIndexError> {
+        let source_ids: Vec<String> = keys.iter().map(|(id, _)| id.clone()).collect();
+        let ordinals: Vec<i32> = keys.iter().map(|(_, ordinal)| *ordinal).collect();
+
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                c.source_id,
+                c.chunk_ordinal,
+                c.heading_path,
+                c.body,
+                c.release_id
+            FROM ip_knowledge_chunk c
+            JOIN ip_knowledge_release r
+              ON r.tenant_id = c.tenant_id
+             AND r.product_id = c.product_id
+             AND r.release_id = c.release_id
+            WHERE c.tenant_id = $1
+              AND c.product_id = $2
+              AND r.is_active
+              AND (c.source_id, c.chunk_ordinal)
+                  IN (SELECT * FROM unnest($3::text[], $4::int[]))
+            "#,
+        )
+        .bind(&scope.tenant_id)
+        .bind(&scope.product_id)
+        .bind(&source_ids)
+        .bind(&ordinals)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(store_failed_from)?;
+
+        let mut by_key: BTreeMap<ChunkKey, SearchHit> = BTreeMap::new();
+        for row in &rows {
+            let hit = row_to_hit(row)?;
+            by_key.insert((hit.source_id.clone(), hit.chunk_ordinal), hit);
+        }
+
+        Ok(keys.iter().filter_map(|key| by_key.remove(key)).collect())
+    }
 }
 
 #[async_trait]
@@ -126,13 +283,15 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
                 r#"
                 INSERT INTO ip_knowledge_chunk (
                     tenant_id, product_id, release_id, source_id, chunk_ordinal,
-                    heading_path, body, search_text, source_snapshot_id, content_checksum_sha256
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    heading_path, body, search_text_morph, search_text_raw,
+                    source_snapshot_id, content_checksum_sha256
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (tenant_id, product_id, release_id, source_id, chunk_ordinal)
                 DO UPDATE SET
                     heading_path = EXCLUDED.heading_path,
                     body = EXCLUDED.body,
-                    search_text = EXCLUDED.search_text,
+                    search_text_morph = EXCLUDED.search_text_morph,
+                    search_text_raw = EXCLUDED.search_text_raw,
                     source_snapshot_id = EXCLUDED.source_snapshot_id,
                     content_checksum_sha256 = EXCLUDED.content_checksum_sha256
                 "#,
@@ -144,10 +303,9 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
             .bind(indexed.chunk.chunk_ordinal)
             .bind(&indexed.chunk.heading_path)
             .bind(&indexed.chunk.body)
-            .bind(build_index_text(&format!(
-                "{} {}",
-                indexed.chunk.heading_path, indexed.chunk.body
-            )))
+            // 두 신호를 **각자의 칼럼에** 넣는다. 한 칸에 섞으면 서로를 가린다.
+            .bind(tokenize_korean(&searchable_text(indexed)))
+            .bind(searchable_text(indexed))
             .bind(&indexed.source_snapshot_id)
             .bind(&indexed.chunk.content_checksum_sha256)
             .execute(&mut *tx)
@@ -211,41 +369,37 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
                 message: "query must be non-empty".to_string(),
             });
         }
-        let rows = sqlx::query(
-            r#"
-            SELECT
-                c.source_id,
-                c.chunk_ordinal,
-                c.heading_path,
-                c.body,
-                c.release_id
-            FROM ip_knowledge_chunk c
-            JOIN ip_knowledge_release r
-              ON r.tenant_id = c.tenant_id
-             AND r.product_id = c.product_id
-             AND r.release_id = c.release_id
-            WHERE c.tenant_id = $1
-              AND c.product_id = $2
-              AND r.is_active
-              AND c.search_vector @@ websearch_to_tsquery('simple', $3)
-            ORDER BY
-                ts_rank(c.search_vector, websearch_to_tsquery('simple', $3)) DESC,
-                c.source_id,
-                c.chunk_ordinal
-            LIMIT $4
-            "#,
-        )
-        .bind(&scope.tenant_id)
-        .bind(&scope.product_id)
+
         // 질의도 색인과 **같은 함수**를 통과해야 한다. 한쪽만 형태소로 쪼개면
         // 토큰 경계가 어긋나 아무것도 맞지 않는다.
-        .bind(build_query_text(query))
-        .bind(i64::from(limit))
-        .fetch_all(&self.pool)
-        .await
-        .map_err(store_failed_from)?;
+        let morph_query = build_query_text(query);
 
-        rows.iter().map(row_to_hit).collect()
+        let depth = (limit.saturating_mul(CANDIDATE_DEPTH_FACTOR)).max(MIN_CANDIDATE_DEPTH);
+
+        // 리트리버마다 자기 순위 목록을 만든다. 하나의 자로 전부를 재지 않는 것이 요점이다 —
+        // 신호를 한 칼럼에 섞으면 서로를 가린다.
+        let mut lists = Vec::with_capacity(RETRIEVERS.len());
+        for retriever in RETRIEVERS {
+            let ids = self
+                .retrieve(scope, retriever, &morph_query, query, depth)
+                .await?;
+            lists.push(RankedList {
+                retriever: retriever.name,
+                ids,
+            });
+        }
+
+        let fused = reciprocal_rank_fusion(&lists, DEFAULT_RRF_SMOOTHING);
+        let wanted: Vec<ChunkKey> = fused
+            .into_iter()
+            .take(limit as usize)
+            .map(|item| item.id)
+            .collect();
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        self.hydrate(scope, &wanted).await
     }
 
     async fn purge_scope(&self, scope: &TenantScope) -> Result<u64, KnowledgeIndexError> {
@@ -275,6 +429,12 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
         tx.commit().await.map_err(store_failed_from)?;
         Ok(removed)
     }
+}
+
+/// 색인 대상 텍스트. 제목 경로와 본문을 잇는다 — 제목에 담긴 어휘도 본문 신호에 들어가야
+/// 하기 때문이다. 제목 **전용** 신호는 별도 리트리버(`heading`)가 따로 본다.
+fn searchable_text(indexed: &IndexedChunk) -> String {
+    format!("{} {}", indexed.chunk.heading_path, indexed.chunk.body)
 }
 
 fn row_to_hit(row: &sqlx::postgres::PgRow) -> Result<SearchHit, KnowledgeIndexError> {
