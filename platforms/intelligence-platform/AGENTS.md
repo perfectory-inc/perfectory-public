@@ -55,9 +55,24 @@ docker compose -f docker/c2-event-backbone.compose.yml up -d
 cargo test -p messaging-infrastructure --test live_kafka_karapace -- --nocapture
 ```
 
+## 지식 검색을 건드리기 전에
+
+이 영역에서 가장 자주 되돌려지는 자리다. 순서대로 읽을 것.
+
+| 무엇을 하려는가 | 먼저 볼 것 |
+|---|---|
+| 검색 엔진·벡터 DB·임베딩 provider를 고르려 함 | [ADR-0002](./docs/adr/0002-canonical-release-rag-design.md) — **승인 전 고정 금지**. 가드가 기계로 막는다 |
+| "형태소 분석 없이 `simple`로 충분하지 않나" | [ADR-0003](./docs/adr/0003-korean-morphology-in-rust.md) — 실측으로 아니라고 확인했다 |
+| Elasticsearch로 옮기려 함 | [사례 레퍼런스](../../docs/reference/knowledge-search-industry-cases.md) — Cerebras는 하루 15,000 질문을 Postgres 한 테이블로 받는다. 전환 조건은 ADR-0003 재검토 트리거 |
+| 검색 품질을 올리려 함 | 같은 문서 §교차 관찰 — **다음은 벡터가 아니라 리트리버 분리 + RRF**다. 사례 전부가 하이브리드다 |
+| 무엇을 색인할지 정하려 함 | 코퍼스는 산업단지 고시다. 수집은 Foundation 소관 |
+
+**지금 없는 것을 있다고 쓰지 말 것:** 리트리버는 1개, RRF·재순위·평가 세트·벡터는 없다.
+
 ## 문서 라우팅
 
 - [README.md](./README.md) — env 레퍼런스 전체 (C0-C1 fail-closed 규칙·엔드포인트·모델 런타임)
 - [docs/architecture.md](./docs/architecture.md) — 모듈 경계 + Cross-Platform Contract
 - [docs/adr/](./docs/adr/README.md) — 영역 결정 기록 (0001 = Rust canonical)
 - [schemas/README.md](./schemas/README.md) — Avro 스키마 진화 규율 + C2 라이브 검증 절차
+- [지식 검색·RAG 사례 레퍼런스](../../docs/reference/knowledge-search-industry-cases.md) — 외부 프로덕션 사례의 측정치와 우리 대조표

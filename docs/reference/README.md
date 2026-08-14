@@ -15,6 +15,7 @@ last_reviewed: 2026-07-31
 ## 문서
 
 - [디자인시스템 벤치마킹](./design-system-benchmarks.md) — 외부 디자인시스템의 공개 계약과 설계 선택
+- [지식 검색·RAG 사례](./knowledge-search-industry-cases.md) — Cerebras·Cursor·Slack·Uber·Anthropic·LinkedIn의 검색 파이프라인과 측정치
 
 ## 배치 기준
 

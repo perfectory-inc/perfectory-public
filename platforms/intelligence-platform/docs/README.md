@@ -25,6 +25,7 @@ schemas/
 - [모듈 경계와 플랫폼 계약](./architecture.md)
 - [Avro 이벤트 스키마와 C2 검증](../schemas/README.md)
 - [영역 ADR](./adr/README.md)
+- [지식 검색·RAG 사례 레퍼런스](../../../docs/reference/knowledge-search-industry-cases.md) — 검색 설계를 바꾸기 전에 볼 것
 - [플랫폼 시작 안내](../README.md)
 - [전체 모노레포 문서 색인](../../../docs/document-catalog.md)
 
