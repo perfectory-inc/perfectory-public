@@ -1068,7 +1068,7 @@ mod tests {
         assert_eq!(first.dataset_slug, "real_transaction_apartment_trade");
         assert_eq!(
             first.source_slug,
-            "rtmolitkr__real_transaction_apartment_trade"
+            "rtmolitgokr__real_transaction_apartment_trade"
         );
         assert_eq!(first.thing_code, "A");
         assert_eq!(first.deal_type_code, "1");
@@ -1079,7 +1079,7 @@ mod tests {
         assert_eq!(first.sigungu_code.as_deref(), Some("11680"));
         assert_eq!(
             first.object_key,
-            "bronze/source=rtmolitkr__real_transaction_apartment_trade/period=2026-05/sido=11000/sigungu=11680/export.csv"
+            "bronze/source=rtmolitgokr__real_transaction_apartment_trade/period=2026-05/sido=11000/sigungu=11680/export.csv"
         );
 
         let last = report.jobs.last().ok_or("missing last job")?;
@@ -1107,7 +1107,7 @@ mod tests {
         assert_eq!(first.sigungu_code, None);
         assert_eq!(
             first.object_key,
-            "bronze/source=rtmolitkr__real_transaction_apartment_trade/period=2026-06/scope=nationwide/export.csv"
+            "bronze/source=rtmolitgokr__real_transaction_apartment_trade/period=2026-06/scope=nationwide/export.csv"
         );
         Ok(())
     }
@@ -1131,7 +1131,7 @@ mod tests {
         assert_eq!(first.contract_to, "2025-12-31");
         assert_eq!(
             first.object_key,
-            "bronze/source=rtmolitkr__real_transaction_apartment_trade/contract_from=2025-01-01/contract_to=2025-12-31/scope=nationwide/export.csv"
+            "bronze/source=rtmolitgokr__real_transaction_apartment_trade/contract_from=2025-01-01/contract_to=2025-12-31/scope=nationwide/export.csv"
         );
 
         let last = report.jobs.last().ok_or("missing last job")?;
@@ -1141,7 +1141,7 @@ mod tests {
         assert_eq!(last.contract_to, "2026-06-30");
         assert_eq!(
             last.object_key,
-            "bronze/source=rtmolitkr__real_transaction_industrial_trade/contract_from=2026-01-01/contract_to=2026-06-30/scope=nationwide/export.csv"
+            "bronze/source=rtmolitgokr__real_transaction_industrial_trade/contract_from=2026-01-01/contract_to=2026-06-30/scope=nationwide/export.csv"
         );
         Ok(())
     }
@@ -1168,7 +1168,7 @@ mod tests {
         assert_eq!(first.contract_to, "2026-07-01");
         assert_eq!(
             first.object_key,
-            "bronze/source=rtmolitkr__real_transaction_apartment_trade/contract_from=2026-04-03/contract_to=2026-07-01/scope=nationwide/export.csv"
+            "bronze/source=rtmolitgokr__real_transaction_apartment_trade/contract_from=2026-04-03/contract_to=2026-07-01/scope=nationwide/export.csv"
         );
         Ok(())
     }

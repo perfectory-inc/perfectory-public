@@ -140,7 +140,7 @@ mod tests {
     fn is_canonical_source_slug_accepts_canonical_examples() {
         for slug in [
             "datagokr__building_register_main",
-            "rtmolitkr__real_transaction_apartment_trade",
+            "rtmolitgokr__real_transaction_apartment_trade",
             "hubgokr__building_register",
             "vworldkr__cadastral",
             "jusogokr__legal_emd",
@@ -253,7 +253,7 @@ mod tests {
         );
         assert_eq!(
             source_slug("rt.molit.go.kr", "real_transaction_apartment_trade")?,
-            "rtmolitkr__real_transaction_apartment_trade"
+            "rtmolitgokr__real_transaction_apartment_trade"
         );
         assert_eq!(
             source_slug("hub.go.kr", "building_register_basis_outline")?,

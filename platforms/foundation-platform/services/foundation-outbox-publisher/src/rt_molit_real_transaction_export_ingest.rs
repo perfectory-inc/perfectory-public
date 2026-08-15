@@ -750,7 +750,7 @@ mod tests {
 
         assert_eq!(
             config.source_slug,
-            "rtmolitkr__real_transaction_apartment_trade"
+            "rtmolitgokr__real_transaction_apartment_trade"
         );
         assert_eq!(
             config.source_name,
