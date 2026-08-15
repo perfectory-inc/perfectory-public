@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **355개**
+- 문서 파일: **356개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 54 |
+| Monorepo | 55 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 113 |
+| ADR | 114 |
 | README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -399,6 +399,7 @@ docs/adr/0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md
 docs/adr/0029-parcel-publication-evidence-is-written-from-the-terminal-run.md
 docs/adr/0030-parcel-publication-evidence-requires-two-distinct-approvals.md
 docs/adr/0031-parcel-mirror-run-seals-publication-scope.md
+docs/adr/0032-provider-identity-is-derived-from-domain-label.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -465,6 +466,7 @@ tools/github/README.md
 | `docs/adr/0029-parcel-publication-evidence-is-written-from-the-terminal-run.md` | Monorepo | ADR | current |
 | `docs/adr/0030-parcel-publication-evidence-requires-two-distinct-approvals.md` | Monorepo | ADR | current |
 | `docs/adr/0031-parcel-mirror-run-seals-publication-scope.md` | Monorepo | ADR | current |
+| `docs/adr/0032-provider-identity-is-derived-from-domain-label.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -505,7 +507,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/adr/0011-true-bazel-build-ssot-transition.md` | Foundation Platform | ADR | current |
 | `platforms/foundation-platform/docs/adr/0012-adopt-cross-repo-bazel-reconciliation.md` | Foundation Platform | ADR | current |
 | `platforms/foundation-platform/docs/adr/0013-adopt-collection-event-fabric.md` | Foundation Platform | ADR | current |
-| `platforms/foundation-platform/docs/adr/0014-bronze-source-slug-canonical-naming.md` | Foundation Platform | ADR | Accepted (naming + generator) |
+| `platforms/foundation-platform/docs/adr/0014-bronze-source-slug-canonical-naming.md` | Foundation Platform | ADR | Superseded in part by ADR-0032 (D2 및 D6의 제공기관 유예만; D1·D3·D4·D5는 유효) |
 | `platforms/foundation-platform/docs/adr/0015-bronze-object-key-content-addressed-layout.md` | Foundation Platform | ADR | Superseded by ADR 0016 and |
 | `platforms/foundation-platform/docs/adr/0016-bronze-commit-protocol.md` | Foundation Platform | ADR | current |
 | `platforms/foundation-platform/docs/adr/0017-bronze-collection-protocol.md` | Foundation Platform | ADR | current |

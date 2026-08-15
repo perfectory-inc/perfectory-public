@@ -295,7 +295,7 @@ impl BuildingHubBulkIngestConfig {
         let provider = optional_env_value("FOUNDATION_PLATFORM_BUILDING_HUB_BULK_PROVIDER")?
             .unwrap_or_else(|| "hub.go.kr".to_owned());
         let operation = required_env_value("FOUNDATION_PLATFORM_BUILDING_HUB_BULK_OPERATION")?;
-        // hub.go.kr / VWorld / mois / factoryon / juso operations are already canonical snake_case
+        // hub.go.kr / vworld.kr / mois / factoryon / juso.go.kr operations are already canonical snake_case
         // (`dataset_slug == operation`, ADR 0014 D3), so the supplied source_slug must equal the
         // generated canonical `{providerid}__{operation}`. These three envs are otherwise wired
         // independently with no consistency check; validate them together so a stale source_slug

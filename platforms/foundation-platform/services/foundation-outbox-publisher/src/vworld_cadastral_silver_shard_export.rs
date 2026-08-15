@@ -23,7 +23,7 @@ use serde_json::Value as JsonValue;
 
 const MANIFEST_ENTRY_SCHEMA_VERSION: &str =
     "foundation-platform.national_bronze_object_manifest_entry.v1";
-const TARGET_PROVIDER: &str = "VWorld";
+const TARGET_PROVIDER: &str = "vworld.kr";
 const TARGET_ENDPOINT: &str = "ingest-vworld-cadastral";
 const SILVER_HANDOFF_CONTENT_TYPE: &str = "application/x-ndjson; charset=utf-8";
 const SILVER_HANDOFF_CACHE_CONTROL: &str = "no-store";
@@ -566,8 +566,8 @@ mod tests {
                     "local",
                     "bronze/source=molit-building-register-national-11110-10100/part-000001.json"
                 ),
-                manifest_line("VWorld", "ingest-vworld-cadastral", "local", &key_one),
-                manifest_line("VWorld", "ingest-vworld-cadastral", "local", &key_two)
+                manifest_line("vworld.kr", "ingest-vworld-cadastral", "local", &key_one),
+                manifest_line("vworld.kr", "ingest-vworld-cadastral", "local", &key_two)
             )
             .as_bytes(),
         )?;
@@ -621,7 +621,7 @@ mod tests {
             &manifest_path,
             format!(
                 "{}\n",
-                manifest_line("VWorld", "ingest-vworld-cadastral", "r2", &key)
+                manifest_line("vworld.kr", "ingest-vworld-cadastral", "r2", &key)
             )
             .as_bytes(),
         )?;
@@ -664,7 +664,7 @@ mod tests {
             &manifest_path,
             format!(
                 "\u{feff}{}\n",
-                manifest_line("VWorld", "ingest-vworld-cadastral", "local", &key)
+                manifest_line("vworld.kr", "ingest-vworld-cadastral", "local", &key)
             )
             .as_bytes(),
         )?;

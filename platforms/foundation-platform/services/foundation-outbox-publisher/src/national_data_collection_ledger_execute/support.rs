@@ -86,7 +86,7 @@ pub(super) fn validate_plan(plan: &JsonValue) -> anyhow::Result<()> {
 
 pub(super) fn is_provider_empty_job(job: &JsonValue) -> bool {
     string_prop(job, "provider_empty_reason") == "vworld_invalid_emd_code"
-        && string_prop(job, "provider") == "VWorld"
+        && string_prop(job, "provider") == "vworld.kr"
         && string_prop(job, "endpoint") == "ingest-vworld-cadastral"
         && u64_prop(job, "provider_total_count", 0) == 0
 }

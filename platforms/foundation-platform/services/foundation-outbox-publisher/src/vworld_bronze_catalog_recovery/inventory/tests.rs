@@ -9,7 +9,7 @@ fn selects_exact_endpoint_catalog_scope_without_collection_plan_csv() {
           "endpoints":[
             {
               "endpoint_slug":"vworld-dataset-land_right_registration",
-              "provider":"VWorld",
+              "provider":"vworld.kr",
               "dataset_slug":"land_right_registration",
               "operation":"land_right_registration",
               "source_acquisition_lane":"provider_dataset_file",
@@ -19,7 +19,7 @@ fn selects_exact_endpoint_catalog_scope_without_collection_plan_csv() {
             },
             {
               "endpoint_slug":"vworld-dataset-land_transfer_history",
-              "provider":"VWorld",
+              "provider":"vworld.kr",
               "dataset_slug":"land_transfer_history",
               "operation":"land_transfer_history",
               "source_acquisition_lane":"provider_dataset_file",

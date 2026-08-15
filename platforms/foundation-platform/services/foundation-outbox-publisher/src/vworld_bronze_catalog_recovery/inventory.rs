@@ -206,7 +206,7 @@ fn select_endpoints(
     }
     let mut endpoints_by_source = BTreeMap::new();
     for endpoint in catalog.endpoints {
-        if endpoint.provider != "VWorld"
+        if endpoint.provider != "vworld.kr"
             || endpoint.source_acquisition_lane != "provider_dataset_file"
         {
             continue;

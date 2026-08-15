@@ -580,7 +580,7 @@ fn sample_bronze_commit_config() -> ProviderAcquisitionBronzeCommitConfig {
     ProviderAcquisitionBronzeCommitConfig {
         source_slug: "vworldkr__parcel".to_owned(),
         source_name: "V-World parcel dataset file".to_owned(),
-        provider: "VWorld".to_owned(),
+        provider: "vworld.kr".to_owned(),
         dataset_name: "parcel".to_owned(),
         base_uri: Some("https://www.vworld.kr".to_owned()),
         terms_url: Some("https://www.vworld.kr/dev/v4dv_2ddataguide_s002.do".to_owned()),

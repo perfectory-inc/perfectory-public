@@ -21,14 +21,14 @@ fn rt_molit_export_plan_builds_monthly_nationwide_csv_identity() -> TestResult {
     };
 
     let plan = plan_rt_molit_real_transaction_export(RtMolitRealTransactionExportPlanInput {
-        source_slug: "rtmolitkr__real_transaction_apartment_trade",
+        source_slug: "rtmolitgokr__real_transaction_apartment_trade",
         request,
         raw_payload,
     })?;
 
     assert_eq!(
         plan.object_key.as_str(),
-        "bronze/source=rtmolitkr__real_transaction_apartment_trade/period=2026-06/scope=nationwide/export.csv"
+        "bronze/source=rtmolitgokr__real_transaction_apartment_trade/period=2026-06/scope=nationwide/export.csv"
     );
     assert_eq!(
         plan.source_identity_key,
@@ -71,14 +71,14 @@ fn rt_molit_export_plan_builds_monthly_sigungu_csv_identity() -> TestResult {
     };
 
     let plan = plan_rt_molit_real_transaction_export(RtMolitRealTransactionExportPlanInput {
-        source_slug: "rtmolitkr__real_transaction_apartment_trade",
+        source_slug: "rtmolitgokr__real_transaction_apartment_trade",
         request,
         raw_payload,
     })?;
 
     assert_eq!(
         plan.object_key.as_str(),
-        "bronze/source=rtmolitkr__real_transaction_apartment_trade/period=2026-06/sido=11000/sigungu=11680/export.csv"
+        "bronze/source=rtmolitgokr__real_transaction_apartment_trade/period=2026-06/sido=11000/sigungu=11680/export.csv"
     );
     assert_eq!(
         plan.source_identity_key,
@@ -106,7 +106,7 @@ fn rt_molit_export_plan_rejects_reversed_contract_range() -> TestResult {
     };
 
     let error = plan_rt_molit_real_transaction_export(RtMolitRealTransactionExportPlanInput {
-        source_slug: "rtmolitkr__real_transaction_apartment_trade",
+        source_slug: "rtmolitgokr__real_transaction_apartment_trade",
         request,
         raw_payload: b"csv".to_vec(),
     })

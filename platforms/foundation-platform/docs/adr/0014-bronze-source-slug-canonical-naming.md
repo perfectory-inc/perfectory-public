@@ -1,6 +1,6 @@
 # ADR 0014 - Bronze 원천 slug 정본 이름과 단일 생성기
 
-- Status: Accepted (naming + generator)
+- Status: Superseded in part by ADR-0032 (D2 및 D6의 제공기관 유예만; D1·D3·D4·D5는 유효)
 - Date: 2026-06-23
 - Owner: foundation-platform
 - `docs/architecture/bronze-key-naming-and-catalog-principle.md` §4의 "물리 key를 안정적으로

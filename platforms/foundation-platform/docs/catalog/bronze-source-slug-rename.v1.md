@@ -13,7 +13,8 @@ last_reviewed: 2026-07-29
 
 > 규칙: `source_slug = {providerid}__{dataset_slug}` (소문자, 이중 언더스코어).
 > **`operation`(API 호출용 식별자) != `dataset_slug`(의미 식별자)** - 생성기는 `dataset_slug`로 만든다(ADR 0014 D3).
-> providerid: `vworldkr / datagokr / hubgokr / jusogokr / moisgokr / factoryongokr`.
+> 승인 제공기관과 파생 `providerid`의 정본은
+> [`APPROVED_PROVIDER_DOMAINS`](../../crates/collection/collection-domain/src/source_slug.rs)다.
 > 근거: dbt `source__entity` + BigQuery(`-` 금지)/Databricks(소문자) + AWS(소스별). ADR 0014.
 > 이 표는 마이그레이션 old->new 매핑이자 **operation->dataset_slug 맵**이다.
 
@@ -150,7 +151,7 @@ last_reviewed: 2026-07-29
 > 08/0802 `building_gas_usage` -> `building_energy_monthly_gas`.
 > 각 건 dataset_slug + bronze.source_slug 동시 변경 (operation == dataset_slug 규칙 유지).
 
-## 3. VWorld (25) - operation == dataset_slug
+## 3. vworld.kr (25) - operation == dataset_slug
 모두 `vworldkr__{operation}`. boundary_census_emd/sido/sigungu, boundary_emd/sido/sigungu,
 land_characteristic, land_forest, land_individual_price, land_ownership, land_register,
 land_right_registration, land_transfer_history, land_use_plan, land_use_zone, land_use_zone_code,
@@ -158,7 +159,7 @@ parcel, real_estate_broker, sandan_boundary, sandan_facility_land_use, sandan_la
 sandan_location, sandan_parcel, sandan_permitted_industry, sandan_profile.
 (old `vworld-dataset-{kebab}` -> new `vworldkr__{snake}`.)
 
-## 4. juso (11) - 중복 `juso_` prefix 제거가 dataset_slug
+## 4. juso.go.kr (11) - 중복 `juso_` prefix 제거가 dataset_slug
 | dataset_slug | 새 source_slug | old slug | 한국어 |
 |---|---|---|---|
 | base_interval | `jusogokr__base_interval` | juso-electronic-map-juso-base-interval | 기초구간 |

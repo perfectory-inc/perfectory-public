@@ -183,14 +183,14 @@ fn validate_page_count_job(job: &JsonValue, job_id: &str) -> anyhow::Result<()> 
             bail!("national page count plan building-register contract mismatch: {job_id}");
         }
     } else if job_id.starts_with("vworld-cadastral-") {
-        if provider != "VWorld"
+        if provider != "vworld.kr"
             || endpoint_slug != "vworld-dataset-parcel"
             || string_property(job, "dataset") != "LP_PA_CBND_BUBUN"
         {
             bail!("national page count plan VWorld cadastral contract mismatch: {job_id}");
         }
     } else if job_id.starts_with("vworld-land-register-")
-        && (provider != "VWorld"
+        && (provider != "vworld.kr"
             || endpoint_slug != "vworld-dataset-land_register"
             || string_property(job, "operation") != "ladfrlList")
     {
