@@ -199,7 +199,7 @@ fn new_vworld_cadastral_job(
     let mut job = json_object([
         ("id", json!(job_id)),
         ("status", json!("planned")),
-        ("provider", json!("VWorld")),
+        ("provider", json!("vworld.kr")),
         ("endpoint_slug", json!("vworld-dataset-parcel")),
         ("endpoint", json!("ingest-vworld-cadastral")),
         ("dataset", json!("LP_PA_CBND_BUBUN")),
@@ -221,7 +221,7 @@ fn new_vworld_cadastral_job(
         ("effective_page_size", effective_page_size),
         // ADR 0014 §6 (owner-confirmed): the source slug is canonical + scope-free; the
         // sigungu/bjdong scope lives in the idempotency_key and the sigungu_cd/bjdong_cd fields.
-        ("source_slug", json!(source_slug("VWorld", "cadastral")?)),
+        ("source_slug", json!(source_slug("vworld.kr", "cadastral")?)),
         (
             "idempotency_key",
             json!(format!(
@@ -272,7 +272,7 @@ fn new_vworld_land_register_job(
     Ok(json_object([
         ("id", json!(job_id)),
         ("status", json!("planned")),
-        ("provider", json!("VWorld")),
+        ("provider", json!("vworld.kr")),
         ("endpoint_slug", json!("vworld-dataset-land_register")),
         ("endpoint", json!("ingest-vworld-land-register")),
         ("operation", json!("ladfrlList")),
@@ -289,7 +289,7 @@ fn new_vworld_land_register_job(
         // ADR 0014 §6 (owner-confirmed): canonical + scope-free; scope lives in idempotency_key.
         (
             "source_slug",
-            json!(source_slug("VWorld", "land_register")?),
+            json!(source_slug("vworld.kr", "land_register")?),
         ),
         (
             "idempotency_key",

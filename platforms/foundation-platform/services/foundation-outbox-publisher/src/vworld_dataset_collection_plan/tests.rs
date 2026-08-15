@@ -9,7 +9,7 @@ fn compile_plan_reports_matching_dataset_jobs_and_missing_selector_blockers() ->
       "endpoints": [
         {
           "endpoint_slug": "vworld-dataset-parcel",
-          "provider": "VWorld",
+          "provider": "vworld.kr",
           "group": "vworld_dataset",
           "display_name_ko": "VWorld parcel",
           "operation": "parcel",
@@ -25,7 +25,7 @@ fn compile_plan_reports_matching_dataset_jobs_and_missing_selector_blockers() ->
         },
         {
           "endpoint_slug": "vworld-dataset-land_register",
-          "provider": "VWorld",
+          "provider": "vworld.kr",
           "group": "vworld_dataset",
           "display_name_ko": "VWorld land register",
           "operation": "land_register",
@@ -71,7 +71,7 @@ fn compile_plan_reports_missing_provider_inventory_blockers() -> TestResult {
       "endpoints": [
         {
           "endpoint_slug": "vworld-dataset-parcel",
-          "provider": "VWorld",
+          "provider": "vworld.kr",
           "group": "vworld_dataset",
           "display_name_ko": "VWorld parcel",
           "operation": "parcel",
@@ -117,7 +117,7 @@ fn compile_plan_accepts_utf8_bom_inventory_summary() -> TestResult {
       "endpoints": [
         {
           "endpoint_slug": "vworld-dataset-boundary_sido",
-          "provider": "VWorld",
+          "provider": "vworld.kr",
           "group": "vworld_dataset",
           "display_name_ko": "VWorld boundary sido",
           "operation": "boundary_sido",
@@ -154,7 +154,7 @@ fn compile_plan_accepts_utf8_bom_endpoint_catalog() -> TestResult {
       \"endpoints\": [
         {
           \"endpoint_slug\": \"vworld-dataset-parcel\",
-          \"provider\": \"VWorld\",
+          \"provider\": \"vworld.kr\",
           \"group\": \"vworld_dataset\",
           \"display_name_ko\": \"VWorld parcel\",
           \"operation\": \"parcel\",

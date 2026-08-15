@@ -18,7 +18,7 @@
 //! API operation that flows into the Bronze object key is distinct, so the V-World map below maps the
 //! provider-native API operation onto that same canonical dataset_slug.)
 //!
-//! hub.go.kr / mois / factoryon / juso operations are already canonical `snake_case`
+//! hub.go.kr / mois / factoryon / juso.go.kr operations are already canonical `snake_case`
 //! (`dataset_slug == operation`) in the catalog, so they need no map here — the byte-equality branch
 //! of [`operation_collapses_into_slug`] covers them.
 //!
@@ -110,7 +110,7 @@ pub fn vworld_ned_dataset_slug(operation: &str) -> Option<&'static str> {
 /// This is the SINGLE shared collapse rule the Bronze key compiler consults, consolidating what used
 /// to be two byte-equality-only copies of `operation_is_redundant_with_slug`. A collapse fires when
 /// the operation resolves to the slug's `dataset_slug` through ANY of:
-/// - **byte-equality** (`operation == dataset_slug`) — hub.go.kr / mois / factoryon / juso operations
+/// - **byte-equality** (`operation == dataset_slug`) — hub.go.kr / mois / factoryon / juso.go.kr operations
 ///   are already canonical `snake_case` in the catalog, so they collapse directly;
 /// - the data.go.kr building-register map ([`building_register_dataset_slug`]);
 /// - the data.go.kr real-transaction map ([`real_transaction_dataset_slug`]);
@@ -270,7 +270,7 @@ mod tests {
         let dataset_slug =
             vworld_ned_dataset_slug("getLandCharacteristic").ok_or("expected a dataset_slug")?;
         assert_eq!(
-            source_slug("VWorld", dataset_slug)?,
+            source_slug("vworld.kr", dataset_slug)?,
             "vworldkr__land_characteristic"
         );
         Ok(())

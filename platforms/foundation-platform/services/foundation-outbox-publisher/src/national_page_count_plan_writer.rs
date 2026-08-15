@@ -339,7 +339,7 @@ fn new_national_vworld_job(job: &JsonValue) -> anyhow::Result<NationalJob> {
 
     Ok(NationalJob {
         job_id,
-        provider: "VWorld",
+        provider: "vworld.kr",
         endpoint_slug,
         scope_unit_id: json_string(job, "scope_unit_id"),
         operation: is_land_register.then_some(operation),

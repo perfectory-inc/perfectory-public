@@ -14,7 +14,7 @@ fn exact_provider_inventory_and_r2_match_compiles_authoritative_candidate() {
     assert!(manifest.unresolved.is_empty());
     let source = &manifest.sources[0];
     assert_eq!(source.source.slug, "vworldkr__land_characteristic");
-    assert_eq!(source.source.provider, "VWorld");
+    assert_eq!(source.source.provider, "vworld.kr");
     assert_eq!(source.candidates.len(), 1);
     let candidate = &source.candidates[0];
     assert_eq!(
@@ -155,7 +155,7 @@ fn endpoint_catalog() -> JsonValue {
         "status": "ready",
         "endpoints": [{
             "endpoint_slug": "vworld-dataset-land_characteristic",
-            "provider": "VWorld",
+            "provider": "vworld.kr",
             "dataset_slug": "land_characteristic",
             "operation": "land_characteristic",
             "source_acquisition_lane": "provider_dataset_file",

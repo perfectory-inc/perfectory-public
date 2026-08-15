@@ -127,7 +127,7 @@
     },
     {
       "lane_id": "vworld:dataset-open-api",
-      "provider": "VWorld",
+      "provider": "vworld.kr",
       "endpoint_groups": ["vworld_dataset"],
       "budget": {
         "daily_request_budget_env": "VWORLD_DAILY_REQUEST_BUDGET",

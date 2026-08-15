@@ -34,45 +34,36 @@ pub enum SourceSlugError {
     NonCanonicalSourceSlug(String),
 }
 
-/// The owner-approved set of canonical `providerid` values (ADR 0014 D2).
+/// The owner-approved set of canonical provider domain labels (ADR 0032).
 ///
-/// This is the SSOT for "which `providerid` may appear on the left of `__` in a canonical
-/// `source_slug`". [`provider_id`] maps every in-scope provider label onto one of these, and
-/// [`is_canonical_source_slug`] checks membership against it.
-pub const KNOWN_PROVIDER_IDS: [&str; 7] = [
-    "vworldkr",
-    "datagokr",
-    "rtmolitkr",
-    "hubgokr",
-    "jusogokr",
-    "moisgokr",
-    "factoryongokr",
+/// This is the only manually maintained provider-identity list. A canonical `providerid` is always
+/// derived by removing `.` from one of these labels, so a label and its id cannot drift apart.
+pub const APPROVED_PROVIDER_DOMAINS: [&str; 7] = [
+    "vworld.kr",
+    "data.go.kr",
+    "rt.molit.go.kr",
+    "hub.go.kr",
+    "juso.go.kr",
+    "mois.go.kr",
+    "factoryon.go.kr",
 ];
 
 /// Maps a catalog-native `provider` label to its canonical, engine-portable `providerid`.
 ///
-/// Returns `None` for any provider outside the owner-approved 7-provider map (ADR 0014 D2). An
-/// unknown provider is a hard error for the slug generator: it forces the map to stay complete.
-///
-/// Every value returned here is a member of [`KNOWN_PROVIDER_IDS`].
+/// Returns `None` for any provider outside [`APPROVED_PROVIDER_DOMAINS`]. An unknown provider is a
+/// hard error for the slug generator. Every returned id is derived from its domain by removing only
+/// `.` (ADR 0032), never by consulting a second mapping table.
 #[must_use]
-pub fn provider_id(provider: &str) -> Option<&'static str> {
-    match provider {
-        "VWorld" => Some("vworldkr"),
-        "data.go.kr" => Some("datagokr"),
-        "rt.molit.go.kr" => Some("rtmolitkr"),
-        "hub.go.kr" => Some("hubgokr"),
-        "juso" => Some("jusogokr"),
-        "mois.go.kr" => Some("moisgokr"),
-        "factoryon.go.kr" => Some("factoryongokr"),
-        _ => None,
-    }
+pub fn provider_id(provider: &str) -> Option<String> {
+    APPROVED_PROVIDER_DOMAINS
+        .contains(&provider)
+        .then(|| provider.replace('.', ""))
 }
 
 /// Produces the canonical Bronze `source_slug` for `(provider, dataset_slug)`.
 ///
 /// # Errors
-/// - the `provider` is not in the 7-provider map (see [`provider_id`]);
+/// - the `provider` is not in [`APPROVED_PROVIDER_DOMAINS`] (see [`provider_id`]);
 /// - the `dataset_slug` is empty, or does not match `^[a-z0-9][a-z0-9_]*$` (lowercase ASCII,
 ///   `snake_case`, no `-`, and no leading/trailing `_`).
 ///
@@ -104,8 +95,9 @@ fn is_canonical_dataset_slug(dataset_slug: &str) -> bool {
     bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
-/// Returns `true` iff `slug` is exactly `"{providerid}__{dataset_slug}"` where `providerid` is one
-/// of the seven [`KNOWN_PROVIDER_IDS`] and `dataset_slug` matches `^[a-z0-9][a-z0-9_]*$`.
+/// Returns `true` iff `slug` is exactly `"{providerid}__{dataset_slug}"` where `providerid` is
+/// derived from one of [`APPROVED_PROVIDER_DOMAINS`] and `dataset_slug` matches
+/// `^[a-z0-9][a-z0-9_]*$`.
 ///
 /// This is the canonical Bronze `source_slug` shape (ADR 0014). It is the backstop the Bronze write
 /// boundary uses so a non-canonical slug (old hyphenated names, single-underscore variants, unknown
@@ -115,7 +107,11 @@ pub fn is_canonical_source_slug(slug: &str) -> bool {
     let Some((provider, dataset_slug)) = slug.split_once("__") else {
         return false;
     };
-    KNOWN_PROVIDER_IDS.contains(&provider) && is_canonical_dataset_slug(dataset_slug)
+    APPROVED_PROVIDER_DOMAINS
+        .iter()
+        .filter_map(|domain| provider_id(domain))
+        .any(|id| id == provider)
+        && is_canonical_dataset_slug(dataset_slug)
 }
 
 /// Asserts that `slug` is a canonical Bronze `source_slug` (see [`is_canonical_source_slug`]).
@@ -132,7 +128,12 @@ pub fn assert_canonical_source_slug(slug: &str) -> Result<(), SourceSlugError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{assert_canonical_source_slug, is_canonical_source_slug, provider_id, source_slug};
+    use std::collections::HashSet;
+
+    use super::{
+        assert_canonical_source_slug, is_canonical_source_slug, provider_id, source_slug,
+        APPROVED_PROVIDER_DOMAINS,
+    };
     use crate::bronze::{build_bronze_object_key, BronzeObjectKeyParts};
 
     #[test]
@@ -190,20 +191,58 @@ mod tests {
 
     #[test]
     fn provider_id_maps_every_in_scope_provider() {
-        assert_eq!(provider_id("VWorld"), Some("vworldkr"));
-        assert_eq!(provider_id("data.go.kr"), Some("datagokr"));
-        assert_eq!(provider_id("rt.molit.go.kr"), Some("rtmolitkr"));
-        assert_eq!(provider_id("hub.go.kr"), Some("hubgokr"));
-        assert_eq!(provider_id("juso"), Some("jusogokr"));
-        assert_eq!(provider_id("mois.go.kr"), Some("moisgokr"));
-        assert_eq!(provider_id("factoryon.go.kr"), Some("factoryongokr"));
+        assert_eq!(provider_id("vworld.kr").as_deref(), Some("vworldkr"));
+        assert_eq!(provider_id("data.go.kr").as_deref(), Some("datagokr"));
+        assert_eq!(
+            provider_id("rt.molit.go.kr").as_deref(),
+            Some("rtmolitgokr")
+        );
+        assert_eq!(provider_id("hub.go.kr").as_deref(), Some("hubgokr"));
+        assert_eq!(provider_id("juso.go.kr").as_deref(), Some("jusogokr"));
+        assert_eq!(provider_id("mois.go.kr").as_deref(), Some("moisgokr"));
+        assert_eq!(
+            provider_id("factoryon.go.kr").as_deref(),
+            Some("factoryongokr")
+        );
+    }
+
+    #[test]
+    fn provider_id_keeps_every_rt_molit_domain_label() {
+        assert_eq!(
+            provider_id("rt.molit.go.kr").as_deref(),
+            Some("rtmolitgokr")
+        );
     }
 
     #[test]
     fn provider_id_rejects_out_of_scope_providers() {
+        assert_eq!(provider_id("VWorld"), None);
+        assert_eq!(provider_id("juso"), None);
         assert_eq!(provider_id("mixed_public_source"), None);
         assert_eq!(provider_id("data-go-kr"), None);
         assert_eq!(provider_id(""), None);
+    }
+
+    #[test]
+    fn approved_provider_domains_are_domain_shaped_and_derive_unique_ids() {
+        assert_valid_provider_domains(&APPROVED_PROVIDER_DOMAINS);
+    }
+
+    #[test]
+    fn domain_shape_rejects_non_domains_and_accepts_or_kr_boundary() {
+        for invalid in ["juso", "VWorld", "mixed_public_source", "rt.molit.go.kr."] {
+            assert!(
+                !is_domain_shaped(invalid),
+                "expected invalid domain: {invalid:?}"
+            );
+        }
+        assert!(is_domain_shaped("industryland.or.kr"));
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate derived providerid")]
+    fn derived_provider_ids_reject_collisions() {
+        assert_valid_provider_domains(&["a.bc.kr", "ab.c.kr"]);
     }
 
     #[test]
@@ -220,7 +259,7 @@ mod tests {
             source_slug("hub.go.kr", "building_register_basis_outline")?,
             "hubgokr__building_register_basis_outline"
         );
-        assert_eq!(source_slug("juso", "building")?, "jusogokr__building");
+        assert_eq!(source_slug("juso.go.kr", "building")?, "jusogokr__building");
         Ok(())
     }
 
@@ -260,5 +299,36 @@ mod tests {
             key.as_str()
         );
         Ok(())
+    }
+
+    fn is_domain_shaped(provider: &str) -> bool {
+        let labels: Vec<&str> = provider.split('.').collect();
+        labels.len() >= 2
+            && labels.iter().all(|label| {
+                !label.is_empty()
+                    && label.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                    })
+            })
+    }
+
+    fn assert_valid_provider_domains(domains: &[&str]) {
+        let mut ids = HashSet::with_capacity(domains.len());
+        for domain in domains {
+            assert!(
+                is_domain_shaped(domain),
+                "invalid provider domain: {domain:?}"
+            );
+            let id = domain.replace('.', "");
+            assert!(
+                id.bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+                "derived providerid must contain only lowercase ASCII letters and digits: {id:?}"
+            );
+            assert!(
+                ids.insert(id.clone()),
+                "duplicate derived providerid {id:?} from provider domain {domain:?}"
+            );
+        }
     }
 }

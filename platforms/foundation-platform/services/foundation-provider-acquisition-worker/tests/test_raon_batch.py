@@ -74,6 +74,11 @@ def test_run_batch_imports_replay_directly_to_bronze_and_deletes_private_request
     ]
     assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_COMMIT_BRONZE"] == "1"
     assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_DIRECT_TO_BRONZE"] == "1"
+    assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_PROVIDER"] == "vworld.kr"
+    assert (
+        seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_SOURCE_NAME"]
+        == "vworld.kr boundary_census_emd dataset file"
+    )
     assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_REPLAY_REQUEST_PATH"].endswith(
         "private-replay-request.json"
     )

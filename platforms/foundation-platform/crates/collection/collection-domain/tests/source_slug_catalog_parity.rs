@@ -17,6 +17,14 @@ use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+const LEGACY_NON_PROVIDER_SENTINELS: [&str; 1] = ["mixed_public_source"];
+const PROVIDER_DOCUMENTS: [&str; 4] = [
+    "public-source-endpoint-catalog.v1.json",
+    "provider-rate-policy.v1.json",
+    "public-data-bronze-lane-registry.v1.json",
+    "national-data-normalization-contract.v1.json",
+];
+
 #[test]
 fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     let raw = std::fs::read_to_string(catalog_path()?)?;
@@ -32,11 +40,13 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
             .as_str()
             .ok_or("entry.provider must be a string")?;
 
-        // Out-of-scope providers (mixed_public_source / POI) keep their legacy slug.
+        // The named non-provider sentinel keeps its legacy slug. Any other unregistered label is a
+        // hard failure rather than a silent skip.
         if provider_id(provider).is_none() {
+            assert_registered_provider_or_sentinel(provider)?;
             assert!(
                 entry.get("dataset_slug").is_none(),
-                "out-of-scope provider {provider:?} must not carry a dataset_slug"
+                "legacy non-provider sentinel {provider:?} must not carry a dataset_slug"
             );
             skipped += 1;
             continue;
@@ -65,6 +75,35 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
         "expected 10 skipped mixed_public_source entries"
     );
     Ok(())
+}
+
+#[test]
+fn every_provider_document_uses_registered_labels_or_named_sentinel() -> TestResult {
+    for file_name in PROVIDER_DOCUMENTS {
+        let document = read_catalog_json(file_name)?;
+        let mut providers = Vec::new();
+        collect_provider_labels(&document, &mut providers)?;
+        assert!(
+            !providers.is_empty(),
+            "{file_name} must contain provider labels"
+        );
+        for provider in providers {
+            assert_registered_provider_or_sentinel(provider).map_err(|error| {
+                format!("{file_name} contains an invalid provider label: {error}")
+            })?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn unknown_non_sentinel_provider_is_rejected() {
+    let error = assert_registered_provider_or_sentinel("unknown-provider.invalid")
+        .expect_err("an unregistered non-sentinel provider must fail");
+    assert_eq!(
+        error,
+        "unregistered provider label \"unknown-provider.invalid\" is not an approved legacy sentinel"
+    );
 }
 
 /// Parity: the in-code data.go.kr `operation -> dataset_slug` maps must agree with the catalog's
@@ -141,7 +180,7 @@ fn vworld_ned_dataset_slug_map_targets_exist_in_catalog() -> TestResult {
 
     let vworld_dataset_slugs: Vec<&str> = endpoints
         .iter()
-        .filter(|entry| entry["provider"].as_str() == Some("VWorld"))
+        .filter(|entry| entry["provider"].as_str() == Some("vworld.kr"))
         .filter_map(|entry| entry["dataset_slug"].as_str())
         .collect();
 
@@ -167,9 +206,49 @@ fn vworld_ned_dataset_slug_map_targets_exist_in_catalog() -> TestResult {
 }
 
 fn catalog_path() -> Result<PathBuf, &'static str> {
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+    Ok(workspace_root()?.join("docs/catalog/public-source-endpoint-catalog.v1.json"))
+}
+
+fn read_catalog_json(file_name: &str) -> Result<Value, Box<dyn Error>> {
+    let path = workspace_root()?.join("docs/catalog").join(file_name);
+    let raw = std::fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&raw)?)
+}
+
+fn workspace_root() -> Result<PathBuf, &'static str> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(3)
-        .ok_or("collection-domain manifest must live under crates/collection/collection-domain")?;
-    Ok(workspace_root.join("docs/catalog/public-source-endpoint-catalog.v1.json"))
+        .map(Path::to_path_buf)
+        .ok_or("collection-domain manifest must live under crates/collection/collection-domain")
+}
+
+fn collect_provider_labels<'a>(value: &'a Value, providers: &mut Vec<&'a str>) -> TestResult {
+    match value {
+        Value::Object(object) => {
+            for (key, child) in object {
+                if key == "provider" {
+                    providers.push(child.as_str().ok_or("provider field must be a string")?);
+                } else {
+                    collect_provider_labels(child, providers)?;
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_provider_labels(item, providers)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn assert_registered_provider_or_sentinel(provider: &str) -> Result<(), String> {
+    if provider_id(provider).is_some() || LEGACY_NON_PROVIDER_SENTINELS.contains(&provider) {
+        return Ok(());
+    }
+    Err(format!(
+        "unregistered provider label {provider:?} is not an approved legacy sentinel"
+    ))
 }

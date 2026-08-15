@@ -140,7 +140,7 @@ fn scope_row_from_value(value: JsonValue, index: usize) -> anyhow::Result<ScopeR
     }
     if matches!(
         string_property(&value, "source_provider").as_str(),
-        "VWorld"
+        "vworld.kr"
             | "data.go.kr"
             | "provider-parcel"
             | "vworld_parcel_boundaries_silver_handoff_jsonl"

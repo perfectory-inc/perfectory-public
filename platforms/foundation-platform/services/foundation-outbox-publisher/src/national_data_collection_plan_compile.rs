@@ -559,7 +559,7 @@ fn assert_job(job: &JsonValue, shard_id: &str) -> anyhow::Result<()> {
         if provider == "data.go.kr" {
             assert_building_register_job(job, &job_id, &endpoint_slug, &sigungu, &bjdong)?;
         }
-        if provider == "VWorld" {
+        if provider == "vworld.kr" {
             assert_vworld_job(job, &job_id, &endpoint_slug, &sigungu, &bjdong)?;
         }
     }
@@ -764,7 +764,7 @@ fn provider_request(
     endpoint: &str,
     endpoint_slug: &str,
 ) -> JsonValue {
-    if provider == "VWorld" && endpoint == "ingest-vworld-cadastral" {
+    if provider == "vworld.kr" && endpoint == "ingest-vworld-cadastral" {
         return object([
             ("request", str_value("GetFeature")),
             ("service", str_value("data")),
@@ -796,7 +796,7 @@ fn provider_request(
             ),
         ]);
     }
-    if provider == "VWorld" && endpoint == "ingest-vworld-land-register" {
+    if provider == "vworld.kr" && endpoint == "ingest-vworld-land-register" {
         return object([
             ("operation", str_value(string_property(job, "operation"))),
             ("pnu_prefix", str_value(string_property(job, "pnu_prefix"))),
