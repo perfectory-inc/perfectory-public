@@ -892,7 +892,7 @@ fn source_catalog_entry(
         id: SourceCatalogId::new(Uuid::new_v4()),
         slug: job.source_slug.clone(),
         name: job.source_name.clone(),
-        provider: "VWorld".to_owned(),
+        provider: "vworld.kr".to_owned(),
         dataset_name: job.dataset_name.clone(),
         base_url: Some(job.base_uri.clone()),
         auth_kind: SourceAuthKind::Manual,

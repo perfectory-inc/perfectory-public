@@ -37,7 +37,7 @@ const SOURCE_OBJECT_KEY_ENV: &str =
 /// like a data problem.
 pub(crate) const ADMINISTRATIVE_UNIT_KEY: &str = "admin";
 const FORBIDDEN_SOURCE_PROVIDERS: &[&str] = &[
-    "VWorld",
+    "vworld.kr",
     "data.go.kr",
     "provider-parcel",
     "vworld_parcel_boundaries_silver_handoff_jsonl",

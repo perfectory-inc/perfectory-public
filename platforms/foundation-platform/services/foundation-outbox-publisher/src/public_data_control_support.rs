@@ -494,7 +494,7 @@ mod resolve_canonical_source_slug_tests {
         let resolved = resolve_canonical_source_slug(
             "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SOURCE_SLUG",
             None,
-            "VWorld",
+            "vworld.kr",
             "cadastral",
         )?;
         assert_eq!(resolved, "vworldkr__cadastral");

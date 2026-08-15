@@ -371,7 +371,7 @@ fn source() -> TestValueResult<SourceCatalogEntry> {
         id: SourceCatalogId::new(Uuid::now_v7()),
         slug: "vworldkr__land_characteristic".to_owned(),
         name: "VWorld land characteristic".to_owned(),
-        provider: "VWorld".to_owned(),
+        provider: "vworld.kr".to_owned(),
         dataset_name: "land_characteristic".to_owned(),
         base_url: Some("https://www.vworld.kr".to_owned()),
         auth_kind: SourceAuthKind::Manual,

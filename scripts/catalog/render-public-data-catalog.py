@@ -138,11 +138,11 @@ def render(endpoint_doc: dict[str, Any], lane_doc: dict[str, Any]) -> str:
     ]
     group_descriptions = {
         "building_hub_bulk": "hub.go.kr 건축물·허가·에너지·점검 벌크 파일",
-        "vworld_dataset": "VWorld 제공기관 데이터 파일",
-        "vworld_ned_open_api": "VWorld NED API (현재 기본 실행 제외)",
+        "vworld_dataset": "vworld.kr 제공기관 데이터 파일",
+        "vworld_ned_open_api": "vworld.kr NED API (현재 기본 실행 제외)",
         "building_register_open_api": "data.go.kr 건축물대장 API 중복 경로",
         "real_transaction_open_api": "data.go.kr 실거래 API 보조·검증 경로",
-        "juso_electronic_map_bulk": "주소정보 전자지도 벌크 (수동 승인)",
+        "juso_electronic_map_bulk": "juso.go.kr 주소정보 전자지도 벌크 (수동 승인)",
         "other_bulk": "학교·공장·인구·교통 등 추가 벌크 (수동 승인)",
     }
     for group in sorted(group_counts):

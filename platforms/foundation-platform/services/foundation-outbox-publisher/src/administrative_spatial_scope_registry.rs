@@ -25,7 +25,7 @@ const DEFAULT_REGISTRY_PATH: &str = "target/audit/administrative-spatial-scope-r
 const DEFAULT_EVIDENCE_PATH: &str =
     "target/audit/administrative-spatial-scope-registry-evidence.json";
 const FORBIDDEN_SOURCE_PROVIDERS: &[&str] = &[
-    "VWorld",
+    "vworld.kr",
     "data.go.kr",
     "provider-parcel",
     "vworld_parcel_boundaries_silver_handoff_jsonl",

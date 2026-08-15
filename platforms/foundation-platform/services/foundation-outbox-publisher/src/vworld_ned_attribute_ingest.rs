@@ -37,7 +37,7 @@ use crate::public_data_control_support::{
 const PROVIDER: &str = "vworld";
 /// Catalog-native provider label used by the canonical `source_slug` generator (ADR 0014 D2).
 /// Distinct from `PROVIDER` (the source-catalog row's stored provider value).
-const GENERATOR_PROVIDER: &str = "VWorld";
+const GENERATOR_PROVIDER: &str = "vworld.kr";
 const DEFAULT_BASE_URI: &str = "https://api.vworld.kr/ned/data";
 const DEFAULT_OPERATION: &str = "ladfrlList";
 const DEFAULT_PARTITION_NAME: &str = "pnu";
@@ -336,7 +336,7 @@ impl PageCollectorLane for VWorldNedLane {
 struct VWorldNedOperationSpec {
     operation: &'static str,
     /// Canonical semantic dataset identity (ADR 0014 D3). The Bronze `source_slug` is derived from
-    /// this through `collection_domain::source_slug("VWorld", dataset_slug)`, never hand-written. The
+    /// this through `collection_domain::source_slug("vworld.kr", dataset_slug)`, never hand-written. The
     /// provider-native `operation` (e.g. `ladfrlList`) is the API call id and is NOT the slug.
     dataset_slug: &'static str,
     source_name: &'static str,

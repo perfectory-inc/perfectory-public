@@ -41,7 +41,7 @@ pub(in crate::national_data_collection_ledger_execute) fn validate_execution_inp
     }
     if jobs_needing_provider
         .iter()
-        .any(|job| string_prop(job, "provider") == "VWorld")
+        .any(|job| string_prop(job, "provider") == "vworld.kr")
     {
         require_env(&dotenv, "VWORLD_API_KEY")?;
     }

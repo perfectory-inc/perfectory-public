@@ -6,7 +6,7 @@ use crate::public_provider_rate_policy::{LanePolicy, ProviderRatePolicyDocument}
 
 /// Derive a lane endpoint-group key from a job's provider + endpoint (policy-JSON lane model).
 pub(crate) fn endpoint_group_for(provider: &str, endpoint: &str) -> anyhow::Result<String> {
-    if provider == "VWorld" {
+    if provider == "vworld.kr" {
         return Ok("vworld_dataset".to_owned());
     }
     if provider == "data.go.kr" && endpoint.starts_with("getBr") {
@@ -52,7 +52,10 @@ mod tests {
 
     #[test]
     fn endpoint_group_maps_known_providers() -> anyhow::Result<()> {
-        assert_eq!(endpoint_group_for("VWorld", "anything")?, "vworld_dataset");
+        assert_eq!(
+            endpoint_group_for("vworld.kr", "anything")?,
+            "vworld_dataset"
+        );
         assert_eq!(
             endpoint_group_for("data.go.kr", "getBrTitleInfo")?,
             "building_register_open_api"

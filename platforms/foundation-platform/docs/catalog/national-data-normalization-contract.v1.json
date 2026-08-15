@@ -23,7 +23,7 @@
   "sources": [
     {
       "source_slug": "vworld-cadastral",
-      "provider": "VWorld",
+      "provider": "vworld.kr",
       "endpoint": "ingest-vworld-cadastral",
       "scope_authority": "administrative_spatial_scope_registry",
       "bronze": {
@@ -107,7 +107,7 @@
     },
     {
       "source_slug": "vworld-land-register",
-      "provider": "VWorld",
+      "provider": "vworld.kr",
       "endpoint": "ingest-vworld-land-register",
       "scope_authority": "administrative_spatial_scope_registry",
       "bronze": {
@@ -140,7 +140,7 @@
     },
     {
       "source_slug": "juso-building-footprint",
-      "provider": "juso",
+      "provider": "juso.go.kr",
       "endpoint": "electronic-map-building-shape-file",
       "scope_authority": "juso-electronic-map-distribution",
       "bronze": {

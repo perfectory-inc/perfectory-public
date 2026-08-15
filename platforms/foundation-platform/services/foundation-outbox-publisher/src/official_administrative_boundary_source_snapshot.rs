@@ -27,7 +27,7 @@ const DEFAULT_NAME_PROPERTY: &str = "EMD_NM";
 const DEFAULT_PARENT_CODE_PROPERTY: &str = "SIGUNGU_CD";
 const DEFAULT_PARENT_NAME_PROPERTY: &str = "SIGUNGU_NM";
 const FORBIDDEN_SOURCE_PROVIDERS: &[&str] = &[
-    "VWorld",
+    "vworld.kr",
     "data.go.kr",
     "provider-parcel",
     "vworld_parcel_boundaries_silver_handoff_jsonl",

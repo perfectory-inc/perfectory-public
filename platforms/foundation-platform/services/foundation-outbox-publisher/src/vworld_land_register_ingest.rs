@@ -36,7 +36,7 @@ use crate::public_data_control_support::{
 const SOURCE_NAME: &str = "VWorld Land Register";
 const PROVIDER: &str = "vworld";
 /// Catalog-native provider label used by the canonical `source_slug` generator (ADR 0014 D2).
-const GENERATOR_PROVIDER: &str = "VWorld";
+const GENERATOR_PROVIDER: &str = "vworld.kr";
 const DATASET_NAME: &str = "vworld-ned-ladfrl-list";
 /// Canonical semantic dataset identity for the VWorld land register (ADR 0014 §6).
 const DEFAULT_DATASET_SLUG: &str = "land_register";

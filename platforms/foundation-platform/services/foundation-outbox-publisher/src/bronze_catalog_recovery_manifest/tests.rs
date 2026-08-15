@@ -317,7 +317,7 @@ fn ready_manifest() -> BronzeCatalogRecoveryManifest {
                 endpoint_slug: "vworld-dataset-land_characteristic".to_owned(),
                 slug: "vworldkr__land_characteristic".to_owned(),
                 name: "VWorld land characteristic".to_owned(),
-                provider: "VWorld".to_owned(),
+                provider: "vworld.kr".to_owned(),
                 dataset_name: "Land characteristic".to_owned(),
                 base_url: Some("https://www.vworld.kr".to_owned()),
                 auth_kind: "manual".to_owned(),

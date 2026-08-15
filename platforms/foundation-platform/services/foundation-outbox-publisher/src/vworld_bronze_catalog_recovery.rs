@@ -229,7 +229,7 @@ fn validate_job_against_endpoint(
         .provider_dataset_selector
         .as_ref()
         .context("VWorld endpoint is missing provider_dataset_selector")?;
-    if endpoint.provider != "VWorld"
+    if endpoint.provider != "vworld.kr"
         || endpoint.source_acquisition_lane != "provider_dataset_file"
         || endpoint.bronze.source_slug != job.source_slug
         || endpoint.operation != job.operation

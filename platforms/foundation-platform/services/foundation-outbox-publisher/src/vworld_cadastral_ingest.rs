@@ -35,7 +35,7 @@ use crate::public_data_control_support::{
 const SOURCE_NAME: &str = "VWorld Cadastral Parcel Boundaries";
 const PROVIDER: &str = "vworld";
 /// Catalog-native provider label used by the canonical `source_slug` generator (ADR 0014 D2).
-const GENERATOR_PROVIDER: &str = "VWorld";
+const GENERATOR_PROVIDER: &str = "vworld.kr";
 /// Canonical semantic dataset identity for VWorld cadastral parcel boundaries (a real dataset,
 /// distinct from `parcel`; ADR 0014 §6). The Bronze slug is generator-derived from this.
 const DEFAULT_DATASET_SLUG: &str = "cadastral";

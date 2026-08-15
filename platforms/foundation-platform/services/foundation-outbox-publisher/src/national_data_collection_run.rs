@@ -166,7 +166,7 @@ pub fn run() -> anyhow::Result<()> {
     if config.include_vworld_cadastral {
         write_quota_metric(
             &config.quota_metrics_path,
-            "VWorld",
+            "vworld.kr",
             "ingest-vworld-cadastral",
             config.vworld_max_pages,
         )?;
@@ -193,7 +193,7 @@ pub fn run() -> anyhow::Result<()> {
         if vworld_run.exit_code != 0 {
             write_dependency_metric(
                 &config.quota_metrics_path,
-                "VWorld",
+                "vworld.kr",
                 "ingest-vworld-cadastral",
                 vworld_run.duration,
                 "failed",
@@ -205,7 +205,7 @@ pub fn run() -> anyhow::Result<()> {
         }
         write_dependency_metric(
             &config.quota_metrics_path,
-            "VWorld",
+            "vworld.kr",
             "ingest-vworld-cadastral",
             vworld_run.duration,
             "succeeded",
@@ -215,7 +215,7 @@ pub fn run() -> anyhow::Result<()> {
             &config.local_object_root,
             vworld_run.started_at,
             &config.vworld_source_slug,
-            "VWorld",
+            "vworld.kr",
         )?;
         total_object_count += vworld_bronze.object_count;
         total_record_count += vworld_bronze.logical_record_count;
@@ -322,7 +322,7 @@ impl RunConfig {
         // folds to the plain canonical generator output. Building-register resolves the run's
         // operation to its specific sub-type slug; cadastral is the `cadastral` dataset.
         let default_source_slug = default_building_register_source_slug(&operation)?;
-        let default_vworld_source_slug = canonical_source_slug("VWorld", "cadastral")?;
+        let default_vworld_source_slug = canonical_source_slug("vworld.kr", "cadastral")?;
 
         Ok(Self {
             approval_path: resolve_repo_path(
@@ -702,7 +702,7 @@ fn provider_plan(config: &RunConfig) -> JsonValue {
 fn vworld_provider_plan(config: &RunConfig) -> JsonValue {
     json!({
         "status": "planned",
-        "provider": "VWorld",
+        "provider": "vworld.kr",
         "endpoint": "ingest-vworld-cadastral",
         "dataset": config.vworld_dataset,
         "filter_kind": "attr_filter",
@@ -746,7 +746,7 @@ fn ready_provider(config: &RunConfig, bronze: &BronzeRunReport) -> JsonValue {
 fn ready_vworld_provider(config: &RunConfig, bronze: &BronzeRunReport) -> JsonValue {
     json!({
         "status": "ready",
-        "provider": "VWorld",
+        "provider": "vworld.kr",
         "endpoint": "ingest-vworld-cadastral",
         "dataset": config.vworld_dataset,
         "filter_kind": "attr_filter",
