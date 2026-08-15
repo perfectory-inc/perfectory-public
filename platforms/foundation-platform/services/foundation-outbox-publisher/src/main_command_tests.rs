@@ -31,6 +31,18 @@ fn seal_parcel_publication_evidence_command_is_explicit() -> anyhow::Result<()> 
 }
 
 #[test]
+fn write_parcel_publication_evidence_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "write-parcel-publication-evidence",
+        ])?,
+        Command::WriteParcelPublicationEvidence
+    );
+    Ok(())
+}
+
+#[test]
 fn inventory_r2_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "inventory-r2"])?,

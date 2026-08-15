@@ -13,7 +13,8 @@ use crate::public_data_control_support::{
     utc_now, write_json_file,
 };
 
-const SCHEMA_VERSION: &str = "foundation-platform.national_data_collection_rollout_approval.v1";
+pub(crate) const SCHEMA_VERSION: &str =
+    "foundation-platform.national_data_collection_rollout_approval.v1";
 const DEFAULT_APPROVAL_PATH: &str = "target/audit/national-data-collection-rollout-approval.json";
 // The checker's report MUST NOT default to the approval artifact path: writing the report there
 // would overwrite (fabricate/destroy) the operator's recorded approval. Keep them distinct.
@@ -379,6 +380,38 @@ fn validate_approval(approval: &JsonValue, blockers: &mut Vec<String>) {
     );
 }
 
+/// Verifies the checker output that authorises national rollout for parcel publication.
+///
+/// This consumes the *check report*, not the raw operator approval. The check report is the
+/// existing boundary that has already combined the operator record with all prior evidence.
+pub(crate) fn validate_parcel_publication_national_approval_check(
+    check: &JsonValue,
+) -> anyhow::Result<()> {
+    if string_property(check, "schema_version") != SCHEMA_VERSION {
+        bail!("national rollout approval check schema_version must be {SCHEMA_VERSION}");
+    }
+    if string_property(check, "status") != "ready" {
+        bail!("national rollout approval check status=ready is required");
+    }
+    if !bool_property(check, "approved", false) {
+        bail!("national rollout approval check approved=true is required");
+    }
+    if string_property(check, "approved_scope") != "national" {
+        bail!("national rollout approval check approved_scope=national is required");
+    }
+    if !bool_property(check, "national_rollout_allowed", false) {
+        bail!("national rollout approval check national_rollout_allowed=true is required");
+    }
+    let blockers = check
+        .get("blockers")
+        .and_then(JsonValue::as_array)
+        .context("national rollout approval check blockers must be an array")?;
+    if !blockers.is_empty() {
+        bail!("national rollout approval check blockers must be empty");
+    }
+    Ok(())
+}
+
 fn utc_timestamp_not_future(value: &str) -> bool {
     let Ok(parsed) = DateTime::parse_from_rfc3339(value.trim()) else {
         return false;
@@ -559,4 +592,50 @@ struct PriorEvidenceReport {
     status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     national_rollout_allowed: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::validate_parcel_publication_national_approval_check;
+
+    fn ready_check() -> serde_json::Value {
+        json!({
+            "schema_version": super::SCHEMA_VERSION,
+            "status": "ready",
+            "approved": true,
+            "approved_scope": "national",
+            "national_rollout_allowed": true,
+            "blockers": []
+        })
+    }
+
+    #[test]
+    fn parcel_publication_accepts_only_a_ready_national_approval_check() -> anyhow::Result<()> {
+        validate_parcel_publication_national_approval_check(&ready_check())?;
+
+        for (pointer, value, expected) in [
+            ("/status", json!("blocked"), "status=ready"),
+            ("/approved", json!(false), "approved=true"),
+            (
+                "/approved_scope",
+                json!("regional"),
+                "approved_scope=national",
+            ),
+            (
+                "/national_rollout_allowed",
+                json!(false),
+                "national_rollout_allowed=true",
+            ),
+            ("/blockers", json!(["not-ready"]), "blockers must be empty"),
+        ] {
+            let mut check = ready_check();
+            *check.pointer_mut(pointer).expect("fixture pointer") = value;
+            let error = validate_parcel_publication_national_approval_check(&check)
+                .expect_err("ineligible national approval check must fail");
+            assert!(error.to_string().contains(expected), "{pointer}: {error:#}");
+        }
+        Ok(())
+    }
 }

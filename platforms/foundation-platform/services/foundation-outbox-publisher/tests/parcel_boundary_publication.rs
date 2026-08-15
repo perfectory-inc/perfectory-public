@@ -399,11 +399,14 @@ impl Fixture {
         .await?;
 
         sqlx::query(
-            "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
+            r#"INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
                 (id, source_snapshot_id, source_table, source_record_id, source_file_asset_id,
-                 srid, status, loaded_row_count, rejected_row_count, quality_report, started_at)
+                 srid, status, loaded_row_count, rejected_row_count, quality_report,
+                 publication_scope, publication_limits, started_at)
              VALUES ($1, $2, 'silver.parcel_boundaries', $3, $4, 5179, 'planned', 0, 0,
-                     $5, now())",
+                     $5, '{"kind":"national","complete":true}'::jsonb,
+                     '{"object_limit":null,"row_limit":null,"shard_limit":null}'::jsonb,
+                     now())"#,
         )
         .bind(source.run_id)
         .bind(MIRROR_SNAPSHOT_ID)

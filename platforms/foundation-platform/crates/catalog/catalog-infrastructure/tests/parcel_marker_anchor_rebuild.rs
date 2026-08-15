@@ -138,11 +138,13 @@ impl ParcelMarkerAnchorRebuildFixture {
 
     async fn insert_mirror(&self, pool: &PgPool) -> TestResult {
         sqlx::query(
-            "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
-             (id, source_snapshot_id, source_table, srid, status, loaded_row_count,
-              rejected_row_count, quality_report, started_at)
-             VALUES ($1, $2, 'silver.parcel_boundaries', 5179, 'planned', 0,
-                     0, '{}'::jsonb, now())",
+            r#"INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
+              (id, source_snapshot_id, source_table, srid, status, loaded_row_count,
+               rejected_row_count, quality_report, publication_scope, publication_limits,
+               started_at)
+              VALUES ($1, $2, 'silver.parcel_boundaries', 5179, 'planned', 0,
+                      0, '{}'::jsonb, '{"kind":"bounded","complete":false}'::jsonb,
+                      '{"object_limit":1,"row_limit":1,"shard_limit":1}'::jsonb, now())"#,
         )
         .bind(self.mirror_run_id)
         .bind(&self.source_snapshot_id)

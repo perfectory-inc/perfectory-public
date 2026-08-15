@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **353개**
+- 문서 파일: **356개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 52 |
+| Monorepo | 55 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 107 |
+| ADR | 114 |
 | README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -34,7 +34,6 @@
 | convention | 10 |
 | documentation | 32 |
 | draft | 2 |
-| evidence | 4 |
 | fixture | 9 |
 | guide | 2 |
 | reference | 15 |
@@ -397,6 +396,9 @@ docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md
 docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md
 docs/adr/0027-every-guard-declares-its-threat-model.md
 docs/adr/0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md
+docs/adr/0029-parcel-publication-evidence-is-written-from-the-terminal-run.md
+docs/adr/0030-parcel-publication-evidence-requires-two-distinct-approvals.md
+docs/adr/0031-parcel-mirror-run-seals-publication-scope.md
 docs/adr/0032-provider-identity-is-derived-from-domain-label.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
@@ -452,15 +454,18 @@ tools/github/README.md
 | `docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md` | Monorepo | ADR | current |
 | `docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md` | Monorepo | ADR | current |
 | `docs/adr/0019-membership-is-a-dated-fact-not-a-column.md` | Monorepo | ADR | current |
-| `docs/adr/0020-geometry-is-not-evidence-for-a-fact.md` | Monorepo | evidence | evidence |
+| `docs/adr/0020-geometry-is-not-evidence-for-a-fact.md` | Monorepo | ADR | current |
 | `docs/adr/0021-an-unread-surface-is-deleted-not-migrated.md` | Monorepo | ADR | current |
 | `docs/adr/0022-current-means-today-and-one-view-says-so.md` | Monorepo | ADR | current |
 | `docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md` | Monorepo | ADR | current |
 | `docs/adr/0024-the-serving-projection-carries-only-what-the-tile-contract-names.md` | Monorepo | ADR | current |
-| `docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md` | Monorepo | evidence | evidence |
-| `docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md` | Monorepo | evidence | evidence |
+| `docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md` | Monorepo | ADR | current |
+| `docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md` | Monorepo | ADR | current |
 | `docs/adr/0027-every-guard-declares-its-threat-model.md` | Monorepo | ADR | current |
 | `docs/adr/0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md` | Monorepo | ADR | current |
+| `docs/adr/0029-parcel-publication-evidence-is-written-from-the-terminal-run.md` | Monorepo | ADR | current |
+| `docs/adr/0030-parcel-publication-evidence-requires-two-distinct-approvals.md` | Monorepo | ADR | current |
+| `docs/adr/0031-parcel-mirror-run-seals-publication-scope.md` | Monorepo | ADR | current |
 | `docs/adr/0032-provider-identity-is-derived-from-domain-label.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
@@ -513,7 +518,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/adr/0022-lakehouse-handoff-vs-storage-format-boundary.md` | Foundation Platform | ADR | current |
 | `platforms/foundation-platform/docs/adr/0023-standard-pnu-canonical-dialect.md` | Foundation Platform | ADR | Accepted |
 | `platforms/foundation-platform/docs/adr/0024-foundation-dbt-sql-modeling-layer.md` | Foundation Platform | ADR | current |
-| `platforms/foundation-platform/docs/adr/0025-bronze-catalog-recovery-evidence-sealing.md` | Foundation Platform | evidence | evidence |
+| `platforms/foundation-platform/docs/adr/0025-bronze-catalog-recovery-evidence-sealing.md` | Foundation Platform | ADR | Accepted |
 | `platforms/foundation-platform/docs/adr/0026-lakehouse-capability-ownership.md` | Foundation Platform | ADR | Accepted |
 | `platforms/foundation-platform/docs/adr/0027-normalization-capability-ownership.md` | Foundation Platform | ADR | Accepted |
 | `platforms/foundation-platform/docs/adr/0028-foundation-kafka-raw-written-design.md` | Foundation Platform | ADR | current |

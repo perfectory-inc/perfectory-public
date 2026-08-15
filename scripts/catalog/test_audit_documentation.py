@@ -77,6 +77,15 @@ last_reviewed: 2026-07-28
             "not applicable: ADR fields",
         )
 
+    def test_adr_directory_outranks_evidence_keyword_in_filename(self) -> None:
+        catalog = MODULE.load_catalog_module()
+        path = Path(
+            "docs/adr/0030-parcel-publication-evidence-requires-two-distinct-approvals.md"
+        )
+
+        self.assertEqual(catalog.type_for(path), "ADR")
+        self.assertEqual(catalog.status_for(path), "current")
+
     def test_treats_machine_contracts_as_metadata_exemption(self) -> None:
         self.assertEqual(
             MODULE.metadata_status(Path("docs/catalog/contract.v1.json"), "{}"),

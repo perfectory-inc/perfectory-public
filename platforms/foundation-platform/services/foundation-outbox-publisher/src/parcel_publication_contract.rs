@@ -1,7 +1,7 @@
 //! Shared typed contracts for sealing and consuming parcel-publication evidence.
 
 use anyhow::bail;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
@@ -11,7 +11,7 @@ pub const QUALITY_SCHEMA_VERSION: &str = "foundation-platform.parcel_publication
 pub const PARCEL_LOGICAL_TABLE: &str = "silver.parcel_boundaries";
 pub const GEOMETRY_REPAIR_STRATEGY: &str = "postgis-make-valid-v1";
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParcelPublicationExecutionEvidence {
     pub schema_version: String,
@@ -26,14 +26,14 @@ pub struct ParcelPublicationExecutionEvidence {
     pub national_rollout_allowed: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicationScope {
     pub kind: String,
     pub complete: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicationLimits {
     pub object_limit: JsonValue,
@@ -41,7 +41,7 @@ pub struct PublicationLimits {
     pub shard_limit: JsonValue,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IcebergCommit {
     pub committed: bool,
@@ -86,7 +86,8 @@ impl ParcelPublicationExecutionEvidence {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ParcelPublicationQuality {
     pub schema_version: String,
     pub object_count: u64,
@@ -206,5 +207,16 @@ mod tests {
             .expect("object")
             .remove("source_record_id");
         assert!(serde_json::from_value::<ParcelPublicationExecutionEvidence>(missing).is_err());
+    }
+
+    #[test]
+    fn execution_evidence_round_trips_through_the_shared_contract() -> anyhow::Result<()> {
+        let claim: ParcelPublicationExecutionEvidence = serde_json::from_value(valid_claim())?;
+        let bytes = serde_json::to_vec(&claim)?;
+        let reparsed: ParcelPublicationExecutionEvidence = serde_json::from_slice(&bytes)?;
+
+        reparsed.validate_publication_claims()?;
+        assert_eq!(serde_json::to_value(&reparsed)?, valid_claim());
+        Ok(())
     }
 }

@@ -21,6 +21,40 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
+fn bash_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn bash_command() -> Command {
+    #[cfg(windows)]
+    {
+        let git_exec_path = Command::new("git")
+            .arg("--exec-path")
+            .output()
+            .expect("locate the Git installation that provides Bash");
+        assert!(
+            git_exec_path.status.success(),
+            "{}",
+            output_text(&git_exec_path)
+        );
+        let git_exec_path = String::from_utf8(git_exec_path.stdout)
+            .expect("Git exec path must be UTF-8")
+            .trim()
+            .to_owned();
+        let git_root = Path::new(&git_exec_path)
+            .ancestors()
+            .nth(3)
+            .expect("Git exec path must be nested under the Git installation");
+        let bash = git_root.join("bin/bash.exe");
+        assert!(bash.is_file(), "Git Bash must exist at {}", bash.display());
+        Command::new(bash)
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("bash")
+    }
+}
+
 fn read(relative: &str) -> String {
     let path = repo_root().join(relative);
     let message = format!("read {}", path.display());
@@ -28,10 +62,10 @@ fn read(relative: &str) -> String {
 }
 
 fn r2_validation_output(script: &Path, bucket: &str) -> Output {
-    let mut command = Command::new("bash");
+    let mut command = bash_command();
     command
         .arg("-x")
-        .arg(script)
+        .arg(bash_path(script))
         .arg("--validate-r2-config-only");
     for name in [
         "FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID",
@@ -441,13 +475,15 @@ fn http_evidence_redacts_url_secrets_and_failure_cleanup_removes_unverified_arti
     )
     .expect("write redirect headers containing fake secrets");
 
-    let redaction = Command::new("bash")
-        .arg("-ceu")
-        .arg("source \"$1\"; tiles_redact_response_headers \"$2\" \"$3\"")
-        .arg("_")
-        .arg(&helper)
-        .arg(&raw_redirect)
-        .arg(&redacted)
+    let redaction = bash_command()
+        .args([
+            "-ceu",
+            "source \"$1\"; tiles_redact_response_headers \"$2\" \"$3\"",
+            "_",
+            &bash_path(&helper),
+            &bash_path(&raw_redirect),
+            &bash_path(&redacted),
+        ])
         .output()
         .expect("run the production response-header redactor");
     assert!(redaction.status.success(), "{}", output_text(&redaction));
@@ -487,13 +523,15 @@ fn http_evidence_redacts_url_secrets_and_failure_cleanup_removes_unverified_arti
         "origin reflected X-Amz-Signature=FAKE_SIGNATURE",
     )
     .expect("write a simulated unverified curl error body");
-    let failed = Command::new("bash")
-        .arg("-ceu")
-        .arg("source \"$1\"; trap 'tiles_remove_http_artifacts \"$2\" \"$3\"' EXIT; exit 7")
-        .arg("_")
-        .arg(&helper)
-        .arg(&failed_raw)
-        .arg(&failed_body)
+    let failed = bash_command()
+        .args([
+            "-ceu",
+            "source \"$1\"; trap 'tiles_remove_http_artifacts \"$2\" \"$3\"' EXIT; exit 7",
+            "_",
+            &bash_path(&helper),
+            &bash_path(&failed_raw),
+            &bash_path(&failed_body),
+        ])
         .output()
         .expect("simulate a nonzero curl exit after raw headers were written");
     assert_eq!(failed.status.code(), Some(7), "{}", output_text(&failed));

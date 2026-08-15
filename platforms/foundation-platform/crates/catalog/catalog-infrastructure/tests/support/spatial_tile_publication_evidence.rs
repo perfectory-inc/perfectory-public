@@ -31,9 +31,10 @@ pub async fn seed_parcel_source_evidence(
     .execute(&mut **tx)
     .await?;
     sqlx::query(
-        "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
+        r#"INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
             (id, source_snapshot_id, source_table, source_record_id, source_file_asset_id,
-             srid, status, loaded_row_count, rejected_row_count, quality_report, started_at)
+             srid, status, loaded_row_count, rejected_row_count, quality_report,
+             publication_scope, publication_limits, started_at)
          VALUES ($1, 'iceberg:' || $2::text, 'silver.parcel_boundaries', $3, $4,
                  5179, 'planned', 0, 0,
                  jsonb_build_object(
@@ -48,7 +49,9 @@ pub async fn seed_parcel_source_evidence(
                      'source_srid', 'EPSG:4326',
                      'target_srid', 'EPSG:5179',
                      'geometry_repair_strategy', 'postgis-make-valid-v1'
-                 ), now())",
+                 ), '{"kind":"national","complete":true}'::jsonb,
+                 '{"object_limit":null,"row_limit":null,"shard_limit":null}'::jsonb,
+                 now())"#,
     )
     .bind(run_id)
     .bind(snapshot)

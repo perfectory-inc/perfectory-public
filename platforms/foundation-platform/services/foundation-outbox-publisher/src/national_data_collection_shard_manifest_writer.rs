@@ -28,8 +28,6 @@ pub(super) use scope::ScopeRow;
 
 const MANIFEST_SCHEMA_VERSION: &str =
     "foundation-platform.national_data_collection_shard_manifest.v1";
-const APPROVAL_SCHEMA_VERSION: &str =
-    "foundation-platform.national_data_collection_rollout_approval.v1";
 const PILOT_SCHEMA_VERSION: &str = "foundation-platform.national_data_collection_run_evidence.v1";
 const SCOPE_SCHEMA_VERSION: &str = "foundation-platform.national_data_collection_scope.v1";
 const SCOPE_ROW_SCHEMA_VERSION: &str = "foundation-platform.national_data_collection_scope_row.v1";

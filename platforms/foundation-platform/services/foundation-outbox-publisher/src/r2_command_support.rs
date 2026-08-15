@@ -78,6 +78,36 @@ pub fn optional_env(name: &str) -> anyhow::Result<Option<String>> {
 }
 
 pub fn r2_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectStorageConfig> {
+    r2_config_from_env_file_with_credentials(
+        path,
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+    )
+}
+
+pub fn r2_reader_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectStorageConfig> {
+    r2_config_from_env_file_with_credentials(
+        path,
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+    )
+}
+
+pub fn parcel_publication_evidence_writer_config_from_env_file(
+    path: &Path,
+) -> anyhow::Result<R2ObjectStorageConfig> {
+    r2_config_from_env_file_with_credentials(
+        path,
+        "FOUNDATION_PLATFORM_R2_PARCEL_PUBLICATION_EVIDENCE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_PARCEL_PUBLICATION_EVIDENCE_WRITER_SECRET_ACCESS_KEY",
+    )
+}
+
+fn r2_config_from_env_file_with_credentials(
+    path: &Path,
+    access_key_env: &str,
+    secret_key_env: &str,
+) -> anyhow::Result<R2ObjectStorageConfig> {
     if !path.is_file() {
         bail!("Env file not found: {}", path.display());
     }
@@ -102,15 +132,18 @@ pub fn r2_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectStorageCon
         endpoint,
         region: value_from_dotenv_or_env(&values, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION")?
             .unwrap_or_else(|| "auto".to_owned()),
-        access_key_id: required_value_from_dotenv_or_env(
-            &values,
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
-        )?,
-        secret_access_key: required_value_from_dotenv_or_env(
-            &values,
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
-        )?,
+        access_key_id: required_value_from_dotenv_or_env(&values, access_key_env)?,
+        secret_access_key: required_value_from_dotenv_or_env(&values, secret_key_env)?,
     })
+}
+
+pub fn parcel_publication_evidence_database_url_from_env_file(
+    path: &Path,
+) -> anyhow::Result<String> {
+    if !path.is_file() {
+        bail!("Env file not found: {}", path.display());
+    }
+    required_value_from_dotenv_or_env(&read_dotenv(path)?, "DATABASE_URL")
 }
 
 pub fn lakehouse_catalog_config_from_env_file(

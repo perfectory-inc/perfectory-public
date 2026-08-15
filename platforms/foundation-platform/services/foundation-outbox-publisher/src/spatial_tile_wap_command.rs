@@ -752,7 +752,7 @@ mod tests {
         );
         assert_eq!(plan.branch_name, format!("tile_{RELEASE_HEX}"));
         assert_eq!(plan.program, "docker");
-        assert_eq!(plan.working_directory, root.display().to_string());
+        assert_eq!(plan.working_directory, host_path(&config.root));
         assert_eq!(
             plan.expected_evidence_path,
             format!("target/spatial-tile-publication/spatial-tile-wap-{RELEASE_HEX}-probe.json")
@@ -797,8 +797,10 @@ mod tests {
         let root = test_root()?;
         let config = config_from(&base_env(&root, "plan"))?;
         let plan = build_host_execution_plan(&config)?;
-        let artifact_root = root.join("target").join("spatial-tile-publication");
-        let mount = format!("{}:{CONTAINER_ARTIFACT_ROOT}", artifact_root.display());
+        let mount = format!(
+            "{}:{CONTAINER_ARTIFACT_ROOT}",
+            host_path(&config.artifact_root)
+        );
         let container_evidence =
             format!("{CONTAINER_ARTIFACT_ROOT}/spatial-tile-wap-{RELEASE_HEX}-probe.json");
 

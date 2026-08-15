@@ -12,13 +12,15 @@ use serde_json::Value as JsonValue;
 use super::config::{ProviderSet, WriterConfig};
 use super::source_inputs::{EndpointCatalog, PageCountPlan};
 use super::support::*;
-use super::{APPROVAL_SCHEMA_VERSION, DEFAULT_BUILDING_REGISTER_OPERATION, PILOT_SCHEMA_VERSION};
+use super::{DEFAULT_BUILDING_REGISTER_OPERATION, PILOT_SCHEMA_VERSION};
 
 pub(super) fn assert_ready_inputs(
     approval: &JsonValue,
     pilot_evidence: &JsonValue,
 ) -> anyhow::Result<()> {
-    if string_property(approval, "schema_version") != APPROVAL_SCHEMA_VERSION {
+    if string_property(approval, "schema_version")
+        != crate::national_data_collection_rollout_approval_check::SCHEMA_VERSION
+    {
         bail!("national rollout approval schema mismatch");
     }
     if string_property(approval, "status") != "ready" {
