@@ -97,13 +97,15 @@ fn every_provider_document_uses_registered_labels_or_named_sentinel() -> TestRes
 }
 
 #[test]
-fn unknown_non_sentinel_provider_is_rejected() {
+fn unknown_non_sentinel_provider_is_rejected() -> TestResult {
     let error = assert_registered_provider_or_sentinel("unknown-provider.invalid")
-        .expect_err("an unregistered non-sentinel provider must fail");
+        .err()
+        .ok_or("an unregistered non-sentinel provider must fail")?;
     assert_eq!(
         error,
         "unregistered provider label \"unknown-provider.invalid\" is not an approved legacy sentinel"
     );
+    Ok(())
 }
 
 /// Parity: the in-code data.go.kr `operation -> dataset_slug` maps must agree with the catalog's
