@@ -1,11 +1,11 @@
 //! Parity test: the public source-endpoint catalog's `bronze.source_slug` is a DERIVED projection
 //! of the single generator `collection_domain::source_slug(provider, dataset_slug)` (ADR 0014 D3).
 //!
-//! For every in-scope entry (provider in the 6-provider map) this asserts
+//! For every entry with an approved provider domain this asserts
 //! `entry.bronze.source_slug == source_slug(entry.provider, entry.dataset_slug)`, which makes the
-//! catalog file unable to drift away from the generator. Entries whose provider is outside the map
-//! (the 10 `mixed_public_source` / POI entries) are skipped: they keep their legacy slug and carry
-//! no `dataset_slug` (Phase 2 scope boundary).
+//! catalog file unable to drift away from the generator. The 10 `mixed_public_source` / POI entries
+//! are the only named non-provider sentinel: they keep their legacy slug and carry no `dataset_slug`
+//! (Phase 2 scope boundary). Every other unregistered label fails.
 
 use std::{error::Error, path::Path, path::PathBuf};
 

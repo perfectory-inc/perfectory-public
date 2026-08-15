@@ -50,9 +50,9 @@ endpoint catalog는 "무엇을 수집할 수 있는지"의 SSOT이고, lane regi
 | lane | provider | 수집 방식 | 내부 병렬 설정 |
 |---|---|---|---|
 | `building-hub-bulk` | `hub.go.kr` | bulk file | `FOUNDATION_PLATFORM_BUILDING_HUB_BULK_COLLECTION_MAX_IN_FLIGHT` |
-| `vworld-dataset-file` | `VWorld` | provider dataset file | `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_IN_FLIGHT` |
+| `vworld-dataset-file` | `vworld.kr` | provider dataset file | `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_IN_FLIGHT` |
 | `data-go-kr-api` | `data.go.kr` | disabled legacy API parity command | none; command fails closed |
-| `vworld-ned-open-api` | `VWorld` | Open API | `FOUNDATION_PLATFORM_VWORLD_NED_ATTRIBUTE_MAX_IN_FLIGHT` |
+| `vworld-ned-open-api` | `vworld.kr` | Open API | `FOUNDATION_PLATFORM_VWORLD_NED_ATTRIBUTE_MAX_IN_FLIGHT` |
 
 현재 기본 실행 대상은 `status=enabled`이고 `include_by_default=true`인 lane이다.
 `planned` lane은 endpoint coverage를 설명하기 위한 계획 상태이며 기본 실행되지 않는다.
