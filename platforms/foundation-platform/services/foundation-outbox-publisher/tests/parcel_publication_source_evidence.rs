@@ -35,6 +35,20 @@ const SEALER_BINARY: &str = env!("CARGO_BIN_EXE_foundation-outbox-publisher");
 mod parcel_publication_producer_sealer;
 
 async fn mount_catalog(server: &MockServer, table_uuid: &str, snapshot_id: i64) {
+    mount_catalog_with_snapshots(server, table_uuid, snapshot_id, &[snapshot_id], 4).await;
+}
+
+async fn mount_catalog_with_snapshots(
+    server: &MockServer,
+    table_uuid: &str,
+    current_snapshot_id: i64,
+    snapshot_ids: &[i64],
+    expected_requests: u64,
+) {
+    let snapshots = snapshot_ids
+        .iter()
+        .map(|snapshot_id| serde_json::json!({"snapshot-id": snapshot_id}))
+        .collect::<Vec<_>>();
     Mock::given(method("GET"))
         .and(path("/v1/config"))
         .and(query_param("warehouse", "foundation-platform"))
@@ -44,7 +58,7 @@ async fn mount_catalog(server: &MockServer, table_uuid: &str, snapshot_id: i64) 
             "overrides": {"prefix": "test-prefix"},
             "defaults": {}
         })))
-        .expect(4)
+        .expect(expected_requests)
         .mount(server)
         .await;
     Mock::given(method("GET"))
@@ -57,11 +71,11 @@ async fn mount_catalog(server: &MockServer, table_uuid: &str, snapshot_id: i64) 
             "metadata-location": "r2://test-bucket/silver/parcel_boundaries/metadata/00003.json",
             "metadata": {
                 "table-uuid": table_uuid,
-                "current-snapshot-id": snapshot_id,
-                "snapshots": [{"snapshot-id": snapshot_id}]
+                "current-snapshot-id": current_snapshot_id,
+                "snapshots": snapshots
             }
         })))
-        .expect(4)
+        .expect(expected_requests)
         .mount(server)
         .await;
 }
@@ -1015,36 +1029,8 @@ impl Fixture {
     }
 
     async fn seed_catalog_provenance(&self, pool: &PgPool) -> TestResult {
-        sqlx::query(
-            "INSERT INTO catalog.source_record
-                (id, source, external_id, checksum_sha256, raw_object_key)
-             VALUES ($1, 'parcel-publication-evidence-test', $2, repeat('a', 64), $3)",
-        )
-        .bind(self.source_record_id)
-        .bind(format!(
-            "parcel-publication-evidence-{}",
-            self.source_record_id
-        ))
-        .bind(format!(
-            "silver/parcel-boundaries/{}/metadata.json",
-            self.source_record_id
-        ))
-        .execute(pool)
-        .await?;
-        sqlx::query(
-            "INSERT INTO catalog.file_asset
-                (id, object_key, mime_type, size_bytes, checksum_sha256,
-                 source_record_id, visibility)
-             VALUES ($1, $2, 'application/json', 1, repeat('b', 64), $3, 'internal')",
-        )
-        .bind(self.source_file_asset_id)
-        .bind(format!(
-            "silver/parcel-boundaries/{}/manifest.json",
-            self.source_file_asset_id
-        ))
-        .bind(self.source_record_id)
-        .execute(pool)
-        .await?;
+        self.seed_catalog_provenance_pair(pool, self.source_record_id, self.source_file_asset_id)
+            .await?;
         sqlx::query(
             "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key)
              VALUES ($1, 'parcels')",
@@ -1055,7 +1041,69 @@ impl Fixture {
         Ok(())
     }
 
+    async fn seed_catalog_provenance_pair(
+        &self,
+        pool: &PgPool,
+        source_record_id: Uuid,
+        source_file_asset_id: Uuid,
+    ) -> TestResult {
+        sqlx::query(
+            "INSERT INTO catalog.source_record
+                (id, source, external_id, checksum_sha256, raw_object_key)
+             VALUES ($1, 'parcel-publication-evidence-test', $2, repeat('a', 64), $3)",
+        )
+        .bind(source_record_id)
+        .bind(format!("parcel-publication-evidence-{}", source_record_id))
+        .bind(format!(
+            "silver/parcel-boundaries/{}/metadata.json",
+            source_record_id
+        ))
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO catalog.file_asset
+                (id, object_key, mime_type, size_bytes, checksum_sha256,
+                 source_record_id, visibility)
+             VALUES ($1, $2, 'application/json', 1, repeat('b', 64), $3, 'internal')",
+        )
+        .bind(source_file_asset_id)
+        .bind(format!(
+            "silver/parcel-boundaries/{}/manifest.json",
+            source_file_asset_id
+        ))
+        .bind(source_record_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     async fn seed_run(&self, pool: &PgPool, run_id: Uuid) -> TestResult {
+        self.seed_run_with_claims(
+            pool,
+            run_id,
+            serde_json::json!({"kind": "national", "complete": true}),
+            serde_json::json!({
+                "object_limit": null,
+                "row_limit": null,
+                "shard_limit": null
+            }),
+            "succeeded",
+        )
+        .await
+    }
+
+    async fn seed_run_with_claims(
+        &self,
+        pool: &PgPool,
+        run_id: Uuid,
+        publication_scope: serde_json::Value,
+        publication_limits: serde_json::Value,
+        terminal_status: &str,
+    ) -> TestResult {
+        assert!(
+            matches!(terminal_status, "succeeded" | "failed" | "cancelled"),
+            "fixture terminal status must be an allowed transition target"
+        );
         sqlx::query(
             "INSERT INTO serving_postgis.parcel_boundary_mirror_rebuild_run
                 (id, source_snapshot_id, source_table, source_record_id, source_file_asset_id,
@@ -1081,12 +1129,8 @@ impl Fixture {
         .bind(self.source_record_id)
         .bind(self.source_file_asset_id)
         .bind(QUALITY_SCHEMA_VERSION)
-        .bind(serde_json::json!({"kind": "national", "complete": true}))
-        .bind(serde_json::json!({
-            "object_limit": null,
-            "row_limit": null,
-            "shard_limit": null
-        }))
+        .bind(publication_scope)
+        .bind(publication_limits)
         .execute(pool)
         .await?;
 
@@ -1122,11 +1166,13 @@ impl Fixture {
 
         sqlx::query(
             "UPDATE serving_postgis.parcel_boundary_mirror_rebuild_run
-                SET status = 'succeeded', loaded_row_count = 1, finished_at = now(),
+                SET status = $2, loaded_row_count = 1, finished_at = now(),
+                    error_message = CASE WHEN $2 = 'failed' THEN 'fixture terminal failure' END,
                     updated_at = now(), version = version + 1
               WHERE id = $1 AND status = 'running'",
         )
         .bind(run_id)
+        .bind(terminal_status)
         .execute(pool)
         .await?;
         Ok(())
