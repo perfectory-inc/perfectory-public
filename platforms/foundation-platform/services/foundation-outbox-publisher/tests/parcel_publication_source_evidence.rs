@@ -1053,10 +1053,9 @@ impl Fixture {
              VALUES ($1, 'parcel-publication-evidence-test', $2, repeat('a', 64), $3)",
         )
         .bind(source_record_id)
-        .bind(format!("parcel-publication-evidence-{}", source_record_id))
+        .bind(format!("parcel-publication-evidence-{source_record_id}"))
         .bind(format!(
-            "silver/parcel-boundaries/{}/metadata.json",
-            source_record_id
+            "silver/parcel-boundaries/{source_record_id}/metadata.json"
         ))
         .execute(pool)
         .await?;
@@ -1068,8 +1067,7 @@ impl Fixture {
         )
         .bind(source_file_asset_id)
         .bind(format!(
-            "silver/parcel-boundaries/{}/manifest.json",
-            source_file_asset_id
+            "silver/parcel-boundaries/{source_file_asset_id}/manifest.json"
         ))
         .bind(source_record_id)
         .execute(pool)
