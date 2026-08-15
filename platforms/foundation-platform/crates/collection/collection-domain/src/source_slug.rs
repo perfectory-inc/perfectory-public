@@ -239,7 +239,18 @@ mod tests {
 
     #[test]
     fn domain_shape_rejects_non_domains_and_accepts_or_kr_boundary() {
-        for invalid in ["juso", "VWorld", "mixed_public_source", "rt.molit.go.kr."] {
+        // The first four fail on label count or an empty label. `VWorld.kr` and
+        // `mixed_public.source` reach the per-byte charset check and are the only cases that
+        // exercise it: without them, replacing that predicate with `true` keeps every assertion
+        // green.
+        for invalid in [
+            "juso",
+            "VWorld",
+            "mixed_public_source",
+            "rt.molit.go.kr.",
+            "VWorld.kr",
+            "mixed_public.source",
+        ] {
             assert!(
                 !is_domain_shaped(invalid),
                 "expected invalid domain: {invalid:?}"

@@ -92,7 +92,7 @@
 | `platforms/foundation-platform/docs/adr/0011-true-bazel-build-ssot-transition.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0012-adopt-cross-repo-bazel-reconciliation.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |
 | `platforms/foundation-platform/docs/adr/0013-adopt-collection-event-fabric.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
-| `platforms/foundation-platform/docs/adr/0014-bronze-source-slug-canonical-naming.md` | Foundation Platform | ADR | Superseded by ADR-0032 | mixed | not applicable: ADR fields | 2 |
+| `platforms/foundation-platform/docs/adr/0014-bronze-source-slug-canonical-naming.md` | Foundation Platform | ADR | Superseded in part by ADR-0032 (D2 및 D6의 제공기관 유예만; D1·D3·D4·D5는 유효) | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0015-bronze-object-key-content-addressed-layout.md` | Foundation Platform | ADR | Superseded by ADR 0016 and | mixed | not applicable: ADR fields | 4 |
 | `platforms/foundation-platform/docs/adr/0016-bronze-commit-protocol.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 8 |
 | `platforms/foundation-platform/docs/adr/0017-bronze-collection-protocol.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |

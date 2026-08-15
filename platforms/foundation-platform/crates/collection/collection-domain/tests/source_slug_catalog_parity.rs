@@ -18,12 +18,28 @@ use serde_json::Value;
 type TestResult = Result<(), Box<dyn Error>>;
 
 const LEGACY_NON_PROVIDER_SENTINELS: [&str; 1] = ["mixed_public_source"];
-const PROVIDER_DOCUMENTS: [&str; 4] = [
-    "public-source-endpoint-catalog.v1.json",
-    "provider-rate-policy.v1.json",
-    "public-data-bronze-lane-registry.v1.json",
-    "national-data-normalization-contract.v1.json",
-];
+/// Every `docs/catalog/*.json` that carries a provider label, discovered rather than listed.
+///
+/// A hand-written list is the defect this crate exists to remove: a fifth catalog document that
+/// grows a `provider` key would be silently unscanned. The directory is the collector, so the set
+/// widens on its own. Documents with no provider label at all are skipped here and asserted
+/// non-empty only for those that do carry one.
+fn provider_documents() -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let dir = workspace_root()?.join("docs/catalog");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        found.push(path);
+    }
+    found.sort();
+    if found.is_empty() {
+        return Err(format!("no catalog JSON documents under {}", dir.display()).into());
+    }
+    Ok(found)
+}
 
 #[test]
 fn catalog_source_slug_is_derived_from_generator() -> TestResult {
@@ -79,20 +95,33 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
 
 #[test]
 fn every_provider_document_uses_registered_labels_or_named_sentinel() -> TestResult {
-    for file_name in PROVIDER_DOCUMENTS {
-        let document = read_catalog_json(file_name)?;
+    let mut documents_with_labels = 0usize;
+    for path in provider_documents()? {
+        let raw = std::fs::read_to_string(&path)?;
+        let document: Value = serde_json::from_str(&raw)?;
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("<unnamed>");
         let mut providers = Vec::new();
         collect_provider_labels(&document, &mut providers)?;
-        assert!(
-            !providers.is_empty(),
-            "{file_name} must contain provider labels"
-        );
+        if providers.is_empty() {
+            continue;
+        }
+        documents_with_labels += 1;
         for provider in providers {
             assert_registered_provider_or_sentinel(provider).map_err(|error| {
                 format!("{file_name} contains an invalid provider label: {error}")
             })?;
         }
     }
+    // The discovery must not silently match nothing: four documents carry provider labels today,
+    // and a drop to zero would make this test vacuous rather than failing.
+    assert!(
+        documents_with_labels >= 4,
+        "expected at least four catalog documents carrying provider labels, found \
+         {documents_with_labels}"
+    );
     Ok(())
 }
 
@@ -209,12 +238,6 @@ fn vworld_ned_dataset_slug_map_targets_exist_in_catalog() -> TestResult {
 
 fn catalog_path() -> Result<PathBuf, &'static str> {
     Ok(workspace_root()?.join("docs/catalog/public-source-endpoint-catalog.v1.json"))
-}
-
-fn read_catalog_json(file_name: &str) -> Result<Value, Box<dyn Error>> {
-    let path = workspace_root()?.join("docs/catalog").join(file_name);
-    let raw = std::fs::read_to_string(path)?;
-    Ok(serde_json::from_str(&raw)?)
 }
 
 fn workspace_root() -> Result<PathBuf, &'static str> {
