@@ -100,6 +100,10 @@ impl KnowledgeIndexPort for InMemoryKnowledgeIndex {
                             chunk_ordinal: indexed.chunk.chunk_ordinal,
                             heading_path: indexed.chunk.heading_path.clone(),
                             body: indexed.chunk.body.clone(),
+                            // 인메모리 어댑터는 문맥 복원을 하지 않는다. 테스트와
+                            // loopback 개발용이며, 문맥 복원은 Postgres 스위트가 본다.
+                            context_before: None,
+                            context_after: None,
                             release_id: release_id.clone(),
                         },
                     )

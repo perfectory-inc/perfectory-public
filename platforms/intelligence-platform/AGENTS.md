@@ -68,8 +68,9 @@ cargo test -p messaging-infrastructure --test live_kafka_karapace -- --nocapture
 | 검색 품질을 올리려 함 | [사례 레퍼런스](../../docs/reference/knowledge-search-industry-cases.md) §교차 관찰 — 다음은 **재순위**이고, 그 전에 평가 세트가 있어야 한다 |
 | 무엇을 색인할지 정하려 함 | 코퍼스는 산업단지 고시다. 수집은 Foundation 소관 |
 
-**지금 없는 것을 있다고 쓰지 말 것:** 재순위·age decay·평가 세트·벡터는 없다.
-있는 것은 신호 3종(형태소·원문·제목)과 RRF(k=60) 융합까지다.
+**지금 없는 것을 있다고 쓰지 말 것:** 재순위·distillation·age decay·평가 세트·벡터는 없다.
+있는 것은 신호 3종(형태소·원문·제목) → RRF(k=60) → 출처별 상한 3 → 이웃 문맥까지다
+([ADR-0004](./docs/adr/0004-retriever-fusion-over-a-single-scorer.md)·[ADR-0005](./docs/adr/0005-result-assembly-diversity-and-context.md)).
 
 ## 문서 라우팅
 

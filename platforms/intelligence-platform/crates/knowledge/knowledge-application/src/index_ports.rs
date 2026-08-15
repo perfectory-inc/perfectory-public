@@ -59,7 +59,13 @@ pub struct SearchHit {
     pub source_id: String,
     pub chunk_ordinal: i32,
     pub heading_path: String,
+    /// 매치된 조각의 본문. **이웃 문맥을 여기 섞지 않는다** — 무엇이 맞았는지와
+    /// 무엇이 곁에 있었는지는 구분되어야 한다.
     pub body: String,
+    /// 바로 앞 조각의 본문. 청킹이 잘라 버린 전제·정의가 여기 있을 수 있다.
+    pub context_before: Option<String>,
+    /// 바로 뒤 조각의 본문. 단서·예외가 여기 있을 수 있다.
+    pub context_after: Option<String>,
     pub release_id: String,
 }
 

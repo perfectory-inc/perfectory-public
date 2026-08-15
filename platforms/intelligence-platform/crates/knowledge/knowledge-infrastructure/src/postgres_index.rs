@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use knowledge_application::{
     IndexedChunk, KnowledgeIndexError, KnowledgeIndexPort, ReleaseRef, SearchHit, TenantScope,
 };
-use knowledge_domain::{reciprocal_rank_fusion, RankedList, DEFAULT_RRF_SMOOTHING};
+use knowledge_domain::{cap_per_group, reciprocal_rank_fusion, RankedList, DEFAULT_RRF_SMOOTHING};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
@@ -58,6 +58,16 @@ const CANDIDATE_DEPTH_FACTOR: u32 = 4;
 
 /// 후보 깊이의 하한. `limit`이 1이어도 합의를 볼 수 있을 만큼은 가져온다.
 const MIN_CANDIDATE_DEPTH: u32 = 20;
+
+/// 한 원천 문서가 결과에 낼 수 있는 조각 수의 상한.
+///
+/// 순위는 조각 하나하나가 얼마나 맞는지만 본다. 결과 묶음 전체가 쓸모 있는지는 보지 않는다.
+/// 그래서 긴 고시 하나가 여러 절에서 걸리면 그 문서만으로 결과가 다 찬다.
+///
+/// 3인 이유: 1이면 실제로 관련 있는 다른 절을 버리게 되고, 크면 상한의 의미가 없다.
+/// 3이면 `limit`이 10일 때 서로 다른 문서가 최소 4개는 보인다. **측정 근거는 없다** —
+/// 평가 세트가 생기면 그 자료로 정한다.
+const MAX_CHUNKS_PER_SOURCE: usize = 3;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PostgresKnowledgeIndexError {
@@ -206,15 +216,28 @@ impl PostgresKnowledgeIndex {
             .collect()
     }
 
-    /// 융합이 고른 키만 본문과 함께 읽고 **융합 순서 그대로** 돌려준다.
+    /// 융합이 고른 키를 본문과 **이웃 문맥**까지 읽고 **융합 순서 그대로** 돌려준다.
     /// SQL이 정한 순서가 아니라 융합이 정한 순서가 답이다.
+    ///
+    /// 이웃을 함께 읽는 이유: 청킹은 제목 아래 문단을 잘라 놓는다. 매치된 조각만 보여주면
+    /// 그 앞 조각에 있던 전제나 정의, 뒤 조각에 있던 단서가 사라진 채 한 문단만 남는다.
+    /// 조사한 사례도 같은 일을 한다 —
+    /// *"we pull in the two neighboring sections so the heading, preconditions, and caveats
+    /// that chunking split apart aren't lost."* (Cerebras)
     async fn hydrate(
         &self,
         scope: &TenantScope,
         keys: &[ChunkKey],
     ) -> Result<Vec<SearchHit>, KnowledgeIndexError> {
-        let source_ids: Vec<String> = keys.iter().map(|(id, _)| id.clone()).collect();
-        let ordinals: Vec<i32> = keys.iter().map(|(_, ordinal)| *ordinal).collect();
+        // 매치된 조각과 그 앞뒤를 한 번에 읽는다. 결과당 질의를 따로 내면 N+1이 된다.
+        let mut source_ids: Vec<String> = Vec::with_capacity(keys.len() * 3);
+        let mut ordinals: Vec<i32> = Vec::with_capacity(keys.len() * 3);
+        for (source_id, ordinal) in keys {
+            for neighbour in [ordinal.saturating_sub(1), *ordinal, ordinal + 1] {
+                source_ids.push(source_id.clone());
+                ordinals.push(neighbour);
+            }
+        }
 
         let rows = sqlx::query(
             r#"
@@ -244,13 +267,33 @@ impl PostgresKnowledgeIndex {
         .await
         .map_err(store_failed_from)?;
 
-        let mut by_key: BTreeMap<ChunkKey, SearchHit> = BTreeMap::new();
+        let mut bodies: BTreeMap<ChunkKey, ChunkRow> = BTreeMap::new();
         for row in &rows {
-            let hit = row_to_hit(row)?;
-            by_key.insert((hit.source_id.clone(), hit.chunk_ordinal), hit);
+            let parsed = row_to_chunk(row)?;
+            bodies.insert((parsed.source_id.clone(), parsed.chunk_ordinal), parsed);
         }
 
-        Ok(keys.iter().filter_map(|key| by_key.remove(key)).collect())
+        Ok(keys
+            .iter()
+            .filter_map(|key| {
+                let matched = bodies.get(key)?;
+                Some(SearchHit {
+                    source_id: matched.source_id.clone(),
+                    chunk_ordinal: matched.chunk_ordinal,
+                    heading_path: matched.heading_path.clone(),
+                    body: matched.body.clone(),
+                    context_before: matched
+                        .chunk_ordinal
+                        .checked_sub(1)
+                        .and_then(|before| bodies.get(&(matched.source_id.clone(), before)))
+                        .map(|row| row.body.clone()),
+                    context_after: bodies
+                        .get(&(matched.source_id.clone(), matched.chunk_ordinal + 1))
+                        .map(|row| row.body.clone()),
+                    release_id: matched.release_id.clone(),
+                })
+            })
+            .collect())
     }
 }
 
@@ -390,7 +433,12 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
         }
 
         let fused = reciprocal_rank_fusion(&lists, DEFAULT_RRF_SMOOTHING);
-        let wanted: Vec<ChunkKey> = fused
+
+        // 상한을 **자르기 전에** 건다. 자른 뒤에 걸면 이미 한 출처가 자리를 다 차지한
+        // 뒤라 다양성이 회복되지 않는다.
+        let diverse = cap_per_group(fused, MAX_CHUNKS_PER_SOURCE, |item| item.id.0.clone());
+
+        let wanted: Vec<ChunkKey> = diverse
             .into_iter()
             .take(limit as usize)
             .map(|item| item.id)
@@ -437,8 +485,17 @@ fn searchable_text(indexed: &IndexedChunk) -> String {
     format!("{} {}", indexed.chunk.heading_path, indexed.chunk.body)
 }
 
-fn row_to_hit(row: &sqlx::postgres::PgRow) -> Result<SearchHit, KnowledgeIndexError> {
-    Ok(SearchHit {
+/// 읽어 온 조각 한 줄. 매치된 것과 이웃을 같은 모양으로 담는다 — 이웃도 결국 조각이다.
+struct ChunkRow {
+    source_id: String,
+    chunk_ordinal: i32,
+    heading_path: String,
+    body: String,
+    release_id: String,
+}
+
+fn row_to_chunk(row: &sqlx::postgres::PgRow) -> Result<ChunkRow, KnowledgeIndexError> {
+    Ok(ChunkRow {
         source_id: row.try_get("source_id").map_err(store_failed_from)?,
         chunk_ordinal: row.try_get("chunk_ordinal").map_err(store_failed_from)?,
         heading_path: row.try_get("heading_path").map_err(store_failed_from)?,

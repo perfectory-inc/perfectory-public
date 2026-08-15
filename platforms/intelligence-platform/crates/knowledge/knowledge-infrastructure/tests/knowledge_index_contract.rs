@@ -162,6 +162,113 @@ async fn postgres_index_lets_consensus_across_signals_win() {
     index.purge_scope(&scope).await.expect("cleanup");
 }
 
+/// 한 원천이 결과를 독식하지 못한다. 상한을 없애면 실패한다.
+///
+/// `long-notice`는 다섯 절이 모두 질의어를 담고 있어 순위만으로는 상위 5칸을 다 차지한다.
+/// `short-notice`는 한 절뿐이라 밀려난다. 사용자는 "건폐율"을 물었는데 같은 고시의 다섯
+/// 조각만 보게 된다 — 순위는 조각 하나하나만 보지 결과 묶음 전체를 보지 않기 때문이다.
+#[tokio::test]
+#[ignore = "requires the Intelligence Postgres integration lane"]
+async fn postgres_index_caps_how_much_one_source_can_fill() {
+    let index = pg_index().await;
+    let scope = TenantScope::new(SCAFFOLD_TENANT_ID, "product-diversity");
+    index.purge_scope(&scope).await.expect("clean start");
+
+    let release = ReleaseRef::new(scope.clone(), "release-diversity");
+    let mut chunks = Vec::new();
+    for ordinal in 0..5 {
+        chunks.push(chunk(
+            "long-notice",
+            ordinal,
+            "건폐율",
+            "건폐율을 완화하여 적용한다.",
+        ));
+    }
+    chunks.push(chunk("short-notice", 0, "건폐율", "건폐율을 준용한다."));
+
+    index
+        .index_chunks(&release, chunks)
+        .await
+        .expect("index must succeed");
+    index
+        .activate_release(&release)
+        .await
+        .expect("activate must succeed");
+
+    let hits = index
+        .search(&scope, "건폐율", 5)
+        .await
+        .expect("search must succeed");
+
+    let from_long = hits
+        .iter()
+        .filter(|hit| hit.source_id == "long-notice")
+        .count();
+    assert!(
+        from_long <= 3,
+        "한 원천이 상한을 넘어 결과를 차지했다: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|hit| hit.source_id == "short-notice"),
+        "상한이 없으면 짧은 고시가 밀려난다. 다른 원천이 보여야 한다: {hits:?}"
+    );
+
+    index.purge_scope(&scope).await.expect("cleanup");
+}
+
+/// 매치된 조각의 앞뒤 문맥이 함께 온다. 청킹이 잘라 버린 전제와 단서를 되돌리는 자리다.
+#[tokio::test]
+#[ignore = "requires the Intelligence Postgres integration lane"]
+async fn postgres_index_returns_neighbouring_context() {
+    let index = pg_index().await;
+    let scope = TenantScope::new(SCAFFOLD_TENANT_ID, "product-context");
+    index.purge_scope(&scope).await.expect("clean start");
+
+    let release = ReleaseRef::new(scope.clone(), "release-context");
+    index
+        .index_chunks(
+            &release,
+            vec![
+                chunk("notice", 0, "제1조", "이 고시는 다음 각 호에 적용한다."),
+                chunk("notice", 1, "제2조", "건폐율을 완화하여 적용한다."),
+                chunk("notice", 2, "제3조", "다만 보전녹지지역은 제외한다."),
+            ],
+        )
+        .await
+        .expect("index must succeed");
+    index
+        .activate_release(&release)
+        .await
+        .expect("activate must succeed");
+
+    let hits = index
+        .search(&scope, "건폐율", 5)
+        .await
+        .expect("search must succeed");
+
+    let matched = hits
+        .iter()
+        .find(|hit| hit.chunk_ordinal == 1)
+        .expect("가운데 조각이 잡혀야 한다");
+
+    assert_eq!(
+        matched.context_before.as_deref(),
+        Some("이 고시는 다음 각 호에 적용한다."),
+        "앞 조각의 전제가 함께 와야 한다: {matched:?}"
+    );
+    assert_eq!(
+        matched.context_after.as_deref(),
+        Some("다만 보전녹지지역은 제외한다."),
+        "뒤 조각의 단서가 함께 와야 한다: {matched:?}"
+    );
+    assert!(
+        !matched.body.contains("보전녹지지역"),
+        "문맥을 본문에 섞으면 무엇이 맞았는지 알 수 없다: {matched:?}"
+    );
+
+    index.purge_scope(&scope).await.expect("cleanup");
+}
+
 /// `INTELLIGENCE_TEST_DATABASE_URL`이 없으면 실패한다. 조용한 skip을 만들지 않는다 —
 /// `scripts/guard/no-silent-test-skip.sh`가 강제하는 규칙이고, 등록부 계약 테스트가
 /// 같은 이유로 이미 이 형태다.

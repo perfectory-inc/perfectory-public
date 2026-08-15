@@ -16,3 +16,4 @@ last_reviewed: 2026-07-29
 | [0002](0002-canonical-release-rag-design.md) | canonical release를 읽는 RAG 설계 경계 | 제안(구현 보류) | 2026-07-08 |
 | [0003](0003-korean-morphology-in-rust.md) | 한국어 형태소 분석은 Rust 색인기가 하고 사전은 mecab-ko-dic을 쓴다 | Accepted | 2026-08-14 |
 | [0004](0004-retriever-fusion-over-a-single-scorer.md) | 검색은 신호별 리트리버를 두고 RRF로 합친다 | Accepted | 2026-08-14 |
+| [0005](0005-result-assembly-diversity-and-context.md) | 결과 조립: 출처별 상한과 이웃 문맥 | Accepted | 2026-08-15 |

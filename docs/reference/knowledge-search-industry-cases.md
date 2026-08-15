@@ -241,6 +241,8 @@ SYNTHESIS      답변 + 인용
 | 정확 토큰 우선 | 형태소 토큰 + 원문 토큰 병행 | ✅ 같은 문제의식 |
 | **리트리버 수** | **3개** (형태소·원문·제목) — [ADR-0004](../../platforms/intelligence-platform/docs/adr/0004-retriever-fusion-over-a-single-scorer.md) | Cerebras 6개 |
 | **RRF 융합** | ✅ k=60, 도메인 순수 함수 | 표준 |
+| **출처별 상한 (다양성)** | ✅ 3 — [ADR-0005](../../platforms/intelligence-platform/docs/adr/0005-result-assembly-diversity-and-context.md) | Cerebras |
+| **문맥 복원 (이웃 절)** | ✅ 앞뒤 한 칸 | Cerebras 앞뒤 두 절 |
 | **재순위 단계** | 없음 | 표준 |
 | **원문 정규화(distillation)** | 없음 | Cerebras·Anthropic·Uber |
 | **age decay** | 없음 | Cerebras |

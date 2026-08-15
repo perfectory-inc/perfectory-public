@@ -90,6 +90,41 @@ where
     fused
 }
 
+/// 한 출처가 결과를 독식하지 못하게 출처마다 상한을 둔다. 순서는 그대로 유지하고
+/// 상한을 넘은 것만 걷어낸다.
+///
+/// 왜 필요한가: 긴 문서 하나가 여러 절에서 걸리면 그 문서의 조각들이 결과를 다 채운다.
+/// 사용자는 "건폐율"을 물었는데 같은 고시의 5개 절만 보게 되고, 다른 고시는 아예 보이지
+/// 않는다. 순위는 각 조각이 얼마나 맞는지만 보지 **결과 묶음 전체가 얼마나 쓸모 있는지**는
+/// 보지 않기 때문이다.
+///
+/// 조사한 사례도 융합 직후 같은 일을 한다 —
+/// *"we merge duplicate chunks back to one source, cap how many results each file can
+/// contribute, and end up with a more diverse top twenty."* (Cerebras)
+///
+/// 상한을 1로 두지 않는 이유: 긴 고시는 여러 절이 실제로 관련 있을 수 있다. 상한은
+/// 독식을 막는 것이지 한 문서를 한 번만 보여주려는 것이 아니다.
+pub fn cap_per_group<T, K, F>(items: Vec<T>, max_per_group: usize, group_of: F) -> Vec<T>
+where
+    K: Ord,
+    F: Fn(&T) -> K,
+{
+    if max_per_group == 0 {
+        return Vec::new();
+    }
+    let mut taken: BTreeMap<K, usize> = BTreeMap::new();
+    let mut kept = Vec::with_capacity(items.len());
+    for item in items {
+        let count = taken.entry(group_of(&item)).or_insert(0);
+        if *count >= max_per_group {
+            continue;
+        }
+        *count += 1;
+        kept.push(item);
+    }
+    kept
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +248,74 @@ mod tests {
             "only-first",
             "완충 상수가 작으면 1등 한 표가 합의를 이긴다: {with_tiny:?}"
         );
+    }
+
+    // ---- cap_per_group ----
+
+    fn chunks(pairs: &[(&str, i32)]) -> Vec<(String, i32)> {
+        pairs
+            .iter()
+            .map(|(source, ordinal)| ((*source).to_string(), *ordinal))
+            .collect()
+    }
+
+    /// 상한의 존재 이유. 한 출처의 조각들이 결과를 다 채우면 다른 출처가 보이지 않는다.
+    #[test]
+    fn one_source_cannot_fill_the_whole_result() {
+        let items = chunks(&[
+            ("notice-a", 0),
+            ("notice-a", 1),
+            ("notice-a", 2),
+            ("notice-a", 3),
+            ("notice-b", 0),
+        ]);
+
+        let capped = cap_per_group(items, 2, |(source, _)| source.clone());
+
+        assert_eq!(
+            capped,
+            chunks(&[("notice-a", 0), ("notice-a", 1), ("notice-b", 0)]),
+            "상한을 넘은 조각만 빠지고 순서는 그대로여야 한다"
+        );
+    }
+
+    #[test]
+    fn ranking_order_is_preserved_among_survivors() {
+        let items = chunks(&[
+            ("a", 0),
+            ("b", 0),
+            ("a", 1),
+            ("c", 0),
+            ("a", 2), // 상한 초과
+            ("b", 1),
+        ]);
+
+        let capped = cap_per_group(items, 2, |(source, _)| source.clone());
+
+        assert_eq!(
+            capped,
+            chunks(&[("a", 0), ("b", 0), ("a", 1), ("c", 0), ("b", 1)])
+        );
+    }
+
+    #[test]
+    fn a_cap_larger_than_any_group_changes_nothing() {
+        let items = chunks(&[("a", 0), ("a", 1), ("b", 0)]);
+        let capped = cap_per_group(items.clone(), 10, |(source, _)| source.clone());
+        assert_eq!(capped, items);
+    }
+
+    /// 상한 0은 전부 버린다. 호출부가 실수로 0을 넘기면 결과가 사라져 바로 드러나야 한다 —
+    /// 조용히 무제한으로 해석하면 상한이 없는 것과 구분되지 않는다.
+    #[test]
+    fn a_zero_cap_keeps_nothing() {
+        let capped = cap_per_group(chunks(&[("a", 0)]), 0, |(source, _)| source.clone());
+        assert!(capped.is_empty());
+    }
+
+    #[test]
+    fn an_empty_input_stays_empty() {
+        let capped: Vec<(String, i32)> = cap_per_group(Vec::new(), 3, |(source, _)| source.clone());
+        assert!(capped.is_empty());
     }
 }
