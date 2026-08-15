@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **352개**
-- 언어 분류: **{'english': 34, 'korean': 159, 'mixed': 159}**
+- 감사 문서: **353개**
+- 언어 분류: **{'english': 34, 'korean': 160, 'mixed': 159}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **200개 정상 / 0개 누락 / 152개 해당 없음**
+- 메타데이터: **200개 정상 / 0개 누락 / 153개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -49,8 +49,9 @@
 | `docs/adr/0024-the-serving-projection-carries-only-what-the-tile-contract-names.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md` | Monorepo | evidence | evidence | mixed | not applicable: ADR fields | 3 |
 | `docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md` | Monorepo | evidence | evidence | mixed | not applicable: ADR fields | 2 |
-| `docs/adr/0027-every-guard-declares-its-threat-model.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0027-every-guard-declares-its-threat-model.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0032-provider-identity-is-derived-from-domain-label.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -91,7 +92,7 @@
 | `platforms/foundation-platform/docs/adr/0011-true-bazel-build-ssot-transition.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0012-adopt-cross-repo-bazel-reconciliation.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |
 | `platforms/foundation-platform/docs/adr/0013-adopt-collection-event-fabric.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
-| `platforms/foundation-platform/docs/adr/0014-bronze-source-slug-canonical-naming.md` | Foundation Platform | ADR | Accepted (naming + generator) | mixed | not applicable: ADR fields | 1 |
+| `platforms/foundation-platform/docs/adr/0014-bronze-source-slug-canonical-naming.md` | Foundation Platform | ADR | Superseded by ADR-0032 | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0015-bronze-object-key-content-addressed-layout.md` | Foundation Platform | ADR | Superseded by ADR 0016 and | mixed | not applicable: ADR fields | 4 |
 | `platforms/foundation-platform/docs/adr/0016-bronze-commit-protocol.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 8 |
 | `platforms/foundation-platform/docs/adr/0017-bronze-collection-protocol.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |

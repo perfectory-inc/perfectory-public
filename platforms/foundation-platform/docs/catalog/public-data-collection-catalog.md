@@ -32,13 +32,13 @@ last_reviewed: 2026-07-30
 
 | 제공기관 | endpoint 수 | 국가 수집 허용 | 기본 실행 | 주요 상태 |
 |---|---:|---:|---:|---|
-| VWorld | 25 | 25 | 24 | API 예정 1, 기본 실행 24 |
 | data.go.kr | 22 | 0 | 0 | 중복 API 비활성 22 |
 | factoryon.go.kr | 1 | 0 | 0 | 수동 승인 1 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
-| juso | 11 | 0 | 0 | 수동 승인 11 |
+| juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
 | mixed_public_source | 10 | 0 | 0 | 수동 승인 10 |
 | mois.go.kr | 2 | 0 | 0 | 수동 승인 2 |
+| vworld.kr | 25 | 25 | 24 | API 예정 1, 기본 실행 24 |
 
 ## 수집 레인
 
@@ -46,8 +46,8 @@ last_reviewed: 2026-07-30
 |---|---|---:|---|---|
 | `data-go-kr-api` | planned | false | data.go.kr | real_transaction_open_api |
 | `building-hub-bulk` | enabled | true | hub.go.kr | building_hub_bulk |
-| `vworld-dataset-file` | enabled | true | VWorld | vworld_dataset |
-| `vworld-ned-open-api` | planned | false | VWorld | vworld_ned_open_api |
+| `vworld-dataset-file` | enabled | true | vworld.kr | vworld_dataset |
+| `vworld-ned-open-api` | planned | false | vworld.kr | vworld_ned_open_api |
 
 ## 취급 데이터 묶음
 
@@ -55,11 +55,11 @@ last_reviewed: 2026-07-30
 |---|---:|---|
 | `building_hub_bulk` | 59 | hub.go.kr 건축물·허가·에너지·점검 벌크 파일 |
 | `building_register_open_api` | 10 | data.go.kr 건축물대장 API 중복 경로 |
-| `juso_electronic_map_bulk` | 11 | 주소정보 전자지도 벌크 (수동 승인) |
+| `juso_electronic_map_bulk` | 11 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `other_bulk` | 13 | 학교·공장·인구·교통 등 추가 벌크 (수동 승인) |
 | `real_transaction_open_api` | 12 | data.go.kr 실거래 API 보조·검증 경로 |
-| `vworld_dataset` | 24 | VWorld 제공기관 데이터 파일 |
-| `vworld_ned_open_api` | 1 | VWorld NED API (현재 기본 실행 제외) |
+| `vworld_dataset` | 24 | vworld.kr 제공기관 데이터 파일 |
+| `vworld_ned_open_api` | 1 | vworld.kr NED API (현재 기본 실행 제외) |
 
 ## Foundation 건축물 데이터 세부 분류
 
@@ -87,31 +87,6 @@ last_reviewed: 2026-07-30
 
 | 제공기관 | 데이터 종류 | 수집 데이터(한글명) | 수집 방식 | 국가 수집 허용 | 현재 상태 |
 |---|---|---|---|---:|---|
-| VWorld | 공간·토지·산업단지 | VWorld 통계 읍면동 경계 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 통계 시도 경계 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 통계 시군구 경계 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 읍면동 경계 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 시도 경계 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 시군구 경계 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 토지특성 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 임야 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 개별공시지가 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 토지소유 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 토지권리등록 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 토지이동연혁 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 토지이용계획 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 토지이용구역 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 토지이용구역 코드 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 필지 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 공인중개사 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 산업단지 경계 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 산업단지 시설용지 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 산업단지 용도지역 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 산업단지 위치 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 산업단지 필지 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 산업단지 유치업종 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 공간·토지·산업단지 | VWorld 산업단지 개요 | 제공기관 파일 | true | 기본 실행 |
-| VWorld | 수치표고(NED) | VWorld 토지대장 | 공개 API | true | API 예정 |
 | data.go.kr | 건축물대장 API | 건축물대장 부속지번 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 건축물대장 API | 건축물대장 기본개요 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 건축물대장 API | 건축물대장 전유부 | 중복 API | false | 중복 API 비활성 |
@@ -194,17 +169,17 @@ last_reviewed: 2026-07-30
 | hub.go.kr | 건축물·허가·에너지·점검 | 대지위치 | bulk_file | true | 기본 실행 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 호별개요 | bulk_file | true | 기본 실행 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 복리분양시설 | bulk_file | true | 기본 실행 |
-| juso | 주소정보 전자지도 | JUSO 기초구간 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 국가기초구역 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 건물 도형 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 건물 출입구 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 건물군 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 법정구역 읍면동 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 법정구역 리 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 법정구역 시도 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 법정구역 시군구 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 도로구간 | 벌크(수동 승인) | false | 수동 승인 |
-| juso | 주소정보 전자지도 | JUSO 실폭도로 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 기초구간 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 국가기초구역 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 건물 도형 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 건물 출입구 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 건물군 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 법정구역 읍면동 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 법정구역 리 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 법정구역 시도 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 법정구역 시군구 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 도로구간 | 벌크(수동 승인) | false | 수동 승인 |
+| juso.go.kr | 주소정보 전자지도 | JUSO 실폭도로 | 벌크(수동 승인) | false | 수동 승인 |
 | mixed_public_source | 기타 공공데이터 | 행정동 법정동 연계 | 벌크(수동 승인) | false | 수동 승인 |
 | mixed_public_source | 기타 공공데이터 | 공항 | 벌크(수동 승인) | false | 수동 승인 |
 | mixed_public_source | 기타 공공데이터 | 상권 | 벌크(수동 승인) | false | 수동 승인 |
@@ -217,6 +192,31 @@ last_reviewed: 2026-07-30
 | mixed_public_source | 기타 공공데이터 | 대학교 | 벌크(수동 승인) | false | 수동 승인 |
 | mois.go.kr | 기타 공공데이터 | 동 인구 | 벌크(수동 승인) | false | 수동 승인 |
 | mois.go.kr | 기타 공공데이터 | 세대수 | 벌크(수동 승인) | false | 수동 승인 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 통계 읍면동 경계 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 통계 시도 경계 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 통계 시군구 경계 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 읍면동 경계 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 시도 경계 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 시군구 경계 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 토지특성 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 임야 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 개별공시지가 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 토지소유 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 토지권리등록 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 토지이동연혁 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 토지이용계획 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 토지이용구역 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 토지이용구역 코드 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 필지 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 공인중개사 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 산업단지 경계 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 산업단지 시설용지 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 산업단지 용도지역 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 산업단지 위치 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 산업단지 필지 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 산업단지 유치업종 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 산업단지 개요 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 수치표고(NED) | VWorld 토지대장 | 공개 API | true | API 예정 |
 
 ## 문서 유지 규칙
 
