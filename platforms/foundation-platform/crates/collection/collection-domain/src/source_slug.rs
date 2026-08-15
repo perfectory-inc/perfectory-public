@@ -38,7 +38,7 @@ pub enum SourceSlugError {
 ///
 /// This is the only manually maintained provider-identity list. A canonical `providerid` is always
 /// derived by removing `.` from one of these labels, so a label and its id cannot drift apart.
-pub const APPROVED_PROVIDER_DOMAINS: [&str; 7] = [
+pub const APPROVED_PROVIDER_DOMAINS: [&str; 8] = [
     "vworld.kr",
     "data.go.kr",
     "rt.molit.go.kr",
@@ -46,6 +46,7 @@ pub const APPROVED_PROVIDER_DOMAINS: [&str; 7] = [
     "juso.go.kr",
     "mois.go.kr",
     "factoryon.go.kr",
+    "industryland.or.kr",
 ];
 
 /// Maps a catalog-native `provider` label to its canonical, engine-portable `providerid`.
@@ -211,6 +212,14 @@ mod tests {
         assert_eq!(
             provider_id("rt.molit.go.kr").as_deref(),
             Some("rtmolitgokr")
+        );
+    }
+
+    #[test]
+    fn provider_id_derives_industryland_domain() {
+        assert_eq!(
+            provider_id("industryland.or.kr").as_deref(),
+            Some("industrylandorkr")
         );
     }
 
