@@ -21,10 +21,25 @@ use thiserror::Error;
 /// Number of unresolved complex codes named in a [`IndustrialComplexBronzeRawPlanError`] message.
 const MISSING_ADDRESS_SAMPLE_LIMIT: usize = 5;
 
-/// Snapshot month whose full table backs every `OBSERVED` label list below.
-const MEASURED_SNAPSHOT_PERIOD: &str = "202506";
+/// Snapshot month whose full table backs every `*_OBSERVED` label list below.
+///
+/// The tables are evidence for this month and no other. A run over a different snapshot matches
+/// labels against a table nobody has counted for it, so the answer belongs in the export summary
+/// rather than in a comment — see [`industrial_complex_labels_measured_for`].
+pub const INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD: &str = "202506";
 
-/// `lrstt_ty` labels counted in the whole `MEASURED_SNAPSHOT_PERIOD` table (1,442 rows).
+/// Whether the `*_OBSERVED` label tables were measured against `snapshot_period`.
+///
+/// `false` does not stop an export: a later month is still decodable, and an unmapped label fails
+/// loudly on its own. It means the run leans on label mappings that no snapshot has confirmed for
+/// the month in hand, which the producer records as an evidence limitation.
+#[must_use]
+pub fn industrial_complex_labels_measured_for(snapshot_period: &str) -> bool {
+    snapshot_period.trim() == INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD
+}
+
+/// `lrstt_ty` labels counted in the whole [`INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD`] table
+/// (1,442 rows).
 ///
 /// These four are the entire observed domain; the counts are the measurement, not an estimate.
 const COMPLEX_KIND_LABELS_OBSERVED: &[(&str, &str)] = &[
@@ -46,7 +61,8 @@ const COMPLEX_KIND_LABELS_PRESUMED: &[(&str, &str)] = &[
     ("농공산업단지", "agricultural"),
 ];
 
-/// `make_sttus_nm` labels counted in the whole `MEASURED_SNAPSHOT_PERIOD` table (1,442 rows).
+/// `make_sttus_nm` labels counted in the whole [`INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD`] table
+/// (1,442 rows).
 ///
 /// `준비중` and `보상중` map to `planned` on measured evidence rather than on the wording of the
 /// label. Per-status counts of `strwrk_de` (착공일자), `compet_cnfm_de` (준공인가일자), and the mean
@@ -685,8 +701,9 @@ fn require_address_part(
 #[cfg(test)]
 mod tests {
     use super::{
-        COMPLEX_KIND_LABELS_OBSERVED, COMPLEX_KIND_LABELS_PRESUMED, COMPLEX_STATUS_LABELS_OBSERVED,
-        COMPLEX_STATUS_LABELS_PRESUMED, MEASURED_SNAPSHOT_PERIOD,
+        industrial_complex_labels_measured_for, COMPLEX_KIND_LABELS_OBSERVED,
+        COMPLEX_KIND_LABELS_PRESUMED, COMPLEX_STATUS_LABELS_OBSERVED,
+        COMPLEX_STATUS_LABELS_PRESUMED, INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
     };
 
     /// The whole `202506` table, measured by reading the Bronze object: every distinct `lrstt_ty`
@@ -702,9 +719,32 @@ mod tests {
     ];
     const MEASURED_ROW_COUNT: u32 = 1442;
 
+    /// The snapshot month the row counts below were read from. `MEASURED_*` and
+    /// `INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD` must name the same month, or the tables
+    /// claim evidence from a table nobody counted.
+    const MEASURED_PERIOD: &str = "202506";
+
+    #[test]
+    fn the_measured_period_is_the_one_the_label_tables_claim() {
+        assert!(industrial_complex_labels_measured_for(MEASURED_PERIOD));
+        assert!(industrial_complex_labels_measured_for(&format!(
+            "  {MEASURED_PERIOD}  "
+        )));
+        // Any other month is outside the measurement, which the producer has to say out loud.
+        for unmeasured in ["202505", "202507", "202606", ""] {
+            assert!(
+                !industrial_complex_labels_measured_for(unmeasured),
+                "{unmeasured} is not the measured snapshot"
+            );
+        }
+    }
+
     #[test]
     fn observed_label_tables_hold_exactly_what_the_measured_snapshot_produced() {
-        assert_eq!(MEASURED_SNAPSHOT_PERIOD, "202506");
+        assert_eq!(
+            INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
+            MEASURED_PERIOD
+        );
         assert_eq!(
             COMPLEX_KIND_LABELS_OBSERVED
                 .iter()

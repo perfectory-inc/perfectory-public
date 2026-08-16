@@ -83,10 +83,11 @@ pub use building_register_unit_silver_plan::{
     BuildingRegisterUnitSilverRowsInput, BuildingRegisterUnitSourceRow,
 };
 pub use industrial_complex_bronze_raw_plan::{
-    industrial_complex_bronze_raw_row_to_jsonl, normalize_industrial_complex_bronze_raw_rows,
-    IndustrialComplexAddress, IndustrialComplexAddressBook, IndustrialComplexBronzeRawPlanError,
+    industrial_complex_bronze_raw_row_to_jsonl, industrial_complex_labels_measured_for,
+    normalize_industrial_complex_bronze_raw_rows, IndustrialComplexAddress,
+    IndustrialComplexAddressBook, IndustrialComplexBronzeRawPlanError,
     IndustrialComplexBronzeRawRow, IndustrialComplexBronzeRawRowsInput,
-    IndustrialComplexBronzeSourceRecord,
+    IndustrialComplexBronzeSourceRecord, INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
 };
 pub use industrial_complex_silver_plan::{
     build_industrial_complex_silver_handoff, normalize_industrial_complex_silver_rows,

@@ -22,8 +22,9 @@ mod profile_workbook_decoder;
 use anyhow::{bail, Context};
 use chrono::Utc;
 use lakehouse_application::{
-    industrial_complex_bronze_raw_row_to_jsonl, normalize_industrial_complex_bronze_raw_rows,
-    IndustrialComplexBronzeRawRow, IndustrialComplexBronzeRawRowsInput,
+    industrial_complex_bronze_raw_row_to_jsonl, industrial_complex_labels_measured_for,
+    normalize_industrial_complex_bronze_raw_rows, IndustrialComplexBronzeRawRow,
+    IndustrialComplexBronzeRawRowsInput, INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
 };
 use lakehouse_domain::BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL;
 use zip::ZipArchive;
@@ -60,6 +61,10 @@ struct BronzeRawJsonlExportReport {
     address_resolution_count: usize,
     bronze_object_key: String,
     source_snapshot_id: String,
+    /// `sta_ym` of the decoded table; the normalizer has already proven it is single-valued.
+    snapshot_period: String,
+    /// Whether the label tables were counted against [`Self::snapshot_period`].
+    labels_measured_for_snapshot: bool,
 }
 
 /// Runs the industrial-complex Bronze profile to JSONL export.
@@ -112,12 +117,28 @@ fn export_bronze_raw_jsonl(
         .first()
         .map(|row| row.source_snapshot_id.clone())
         .context("normalized zero rows")?;
+    // Normalization already refused a table that mixes months, so any decoded row names the month.
+    let snapshot_period = records
+        .first()
+        .map(|record| record.snapshot_period.trim().to_owned())
+        .context("decoded zero rows")?;
+    let labels_measured_for_snapshot = industrial_complex_labels_measured_for(&snapshot_period);
+    if !labels_measured_for_snapshot {
+        tracing::warn!(
+            snapshot_period = %snapshot_period,
+            measured_snapshot_period = INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
+            "industrial-complex label tables were not counted for this snapshot month; \
+             kind and status mappings for it are unconfirmed"
+        );
+    }
 
     let report = BronzeRawJsonlExportReport {
         row_count: rows.len(),
         address_resolution_count: addresses.len(),
         bronze_object_key,
         source_snapshot_id,
+        snapshot_period,
+        labels_measured_for_snapshot,
     };
     if let Some(summary_path) = &config.summary_path {
         write_summary(config, &rows, &report, summary_path)?;
@@ -289,6 +310,18 @@ fn write_summary(
             .entry(row.address.sido_code().to_owned())
             .or_insert(0) += 1;
     }
+    let mut evidence_limitations = vec![
+        "local_bronze_to_jsonl_export_only",
+        "does_not_run_the_spark_bronze_to_silver_job",
+        "does_not_write_iceberg_table",
+        "address_resolution_is_only_as_good_as_its_injected_source",
+        "does_not_approve_production_cutover",
+    ];
+    if !report.labels_measured_for_snapshot {
+        // The kind/status tables are counted evidence for one month only. Saying so in the
+        // artifact is the difference between a mapping that was verified and one that was assumed.
+        evidence_limitations.push("label_tables_not_measured_for_this_snapshot_period");
+    }
     let summary = serde_json::json!({
         "schema_version": "foundation-platform.industrial_complex_bronze_raw_jsonl_export.v1",
         "generated_at_utc": Utc::now().to_rfc3339(),
@@ -302,6 +335,11 @@ fn write_summary(
             "max_rows": config.max_rows,
             "address_source_path": config.address_source_path.display().to_string(),
             "address_resolution_count": report.address_resolution_count,
+            "snapshot_period": report.snapshot_period,
+        },
+        "label_tables": {
+            "measured_snapshot_period": INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
+            "measured_for_this_snapshot_period": report.labels_measured_for_snapshot,
         },
         "output": {
             "path": config.output_path.display().to_string(),
@@ -312,13 +350,7 @@ fn write_summary(
             "status_counts": status_counts,
             "sido_code_counts": sido_counts,
         },
-        "evidence_limitations": [
-            "local_bronze_to_jsonl_export_only",
-            "does_not_run_the_spark_bronze_to_silver_job",
-            "does_not_write_iceberg_table",
-            "address_resolution_is_only_as_good_as_its_injected_source",
-            "does_not_approve_production_cutover"
-        ]
+        "evidence_limitations": evidence_limitations
     });
     let payload = serde_json::to_vec_pretty(&summary)
         .context("failed to serialize the industrial-complex Bronze JSONL export summary")?;
@@ -463,6 +495,67 @@ mod tests {
     }
 
     #[test]
+    fn a_snapshot_month_the_label_tables_never_counted_is_named_in_the_summary(
+    ) -> anyhow::Result<()> {
+        let root = temp_root("foundation-platform-industrial-complex-bronze-jsonl-unmeasured");
+        let mut rows = profile_rows();
+        // Same table, a month nobody has counted the kind/status labels for.
+        let unmeasured = [
+            "209912",
+            "111010",
+            "구로디지털단지",
+            "국가",
+            "조성완료",
+            "한국산업단지공단",
+            "",
+            "19640415",
+            "19730101",
+            "1925368.7",
+        ];
+        rows[1] = &unmeasured;
+        write_profile_zip(
+            &root
+                .join("bronze")
+                .join(format!("source={DEFAULT_SOURCE_SLUG}"))
+                .join(SYNTHETIC_OBJECT_NAME),
+            &rows,
+        )?;
+        let address_source_path = root.join("addresses.jsonl");
+        fs::write(&address_source_path, format!("{ADDRESS_LINE_111010}\n"))?;
+        let config = config(&root, address_source_path);
+
+        let report = export_bronze_raw_jsonl(&config)?;
+
+        assert_eq!(report.snapshot_period, "209912");
+        assert!(!report.labels_measured_for_snapshot);
+
+        let summary_path = config
+            .summary_path
+            .as_ref()
+            .context("summary path was configured")?;
+        let summary =
+            serde_json::from_str::<serde_json::Value>(&fs::read_to_string(summary_path)?)?;
+        assert_eq!(summary["source"]["snapshot_period"], "209912");
+        assert_eq!(
+            summary["label_tables"]["measured_snapshot_period"],
+            INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD
+        );
+        assert_eq!(
+            summary["label_tables"]["measured_for_this_snapshot_period"],
+            false
+        );
+        let limitations = summary["evidence_limitations"]
+            .as_array()
+            .context("evidence_limitations must be an array")?;
+        assert!(limitations
+            .iter()
+            .any(|value| value == "label_tables_not_measured_for_this_snapshot_period"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
     fn exports_one_jsonl_record_per_profile_row() -> anyhow::Result<()> {
         let root = staged_root("foundation-platform-industrial-complex-bronze-jsonl")?;
         let address_source_path = root.join("addresses.jsonl");
@@ -512,6 +605,11 @@ mod tests {
             BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL
         );
         assert_eq!(summary["output"]["row_count"], 1);
+        assert_eq!(summary["source"]["snapshot_period"], "202506");
+        assert_eq!(
+            summary["label_tables"]["measured_for_this_snapshot_period"],
+            true
+        );
 
         fs::remove_dir_all(root)?;
         Ok(())
