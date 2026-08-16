@@ -21,6 +21,11 @@ impl ProviderRequestSpacing {
             .transpose()
     }
 
+    /// Returns the configured interval in whole milliseconds, for run evidence.
+    pub(crate) const fn interval_millis(&self) -> u128 {
+        self.interval.as_millis()
+    }
+
     pub(crate) fn delay_before_request(&self, request_index: usize) -> Option<Duration> {
         if request_index == 0 {
             None

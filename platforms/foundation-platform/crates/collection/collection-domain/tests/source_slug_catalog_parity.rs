@@ -84,8 +84,9 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
         checked += 1;
     }
 
-    // Guardrail: the in-scope / out-of-scope split must stay as authored (120 in-scope, 10 mixed).
-    assert_eq!(checked, 120, "expected 120 in-scope catalog entries");
+    // Guardrail: the in-scope / out-of-scope split must stay as authored (123 in-scope, 10 mixed).
+    // The three ILIS entries joined when the industrial-complex address source got a collector.
+    assert_eq!(checked, 123, "expected 123 in-scope catalog entries");
     assert_eq!(
         skipped, 10,
         "expected 10 skipped mixed_public_source entries"

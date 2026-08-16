@@ -728,6 +728,27 @@ fn export_industrial_complex_bronze_raw_jsonl_command_is_explicit() -> anyhow::R
     Ok(())
 }
 
+/// The two halves of the industrial-complex address source: collect it into Bronze, then derive
+/// the resolution the producer above refuses to run without.
+#[test]
+fn industrial_complex_address_source_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "collect-industrial-complex-address-source",
+        ])?,
+        Command::CollectIndustrialComplexAddressSource
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-industrial-complex-address-resolution",
+        ])?,
+        Command::BuildIndustrialComplexAddressResolution
+    );
+    Ok(())
+}
+
 #[test]
 fn artifact_batch_commands_run_with_expanded_stack() {
     assert!(command_requires_expanded_stack(

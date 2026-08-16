@@ -65,6 +65,13 @@ struct BronzeRawJsonlExportReport {
     snapshot_period: String,
     /// Whether the label tables were counted against [`Self::snapshot_period`].
     labels_measured_for_snapshot: bool,
+    /// How many rows each resolution tier accounts for, keyed by tier wire name.
+    ///
+    /// One of the three tiers is a heuristic, so an export that could not say how many of its rows
+    /// leaned on it would be reporting a location it cannot defend (root ADR-0034).
+    resolution_tier_counts: BTreeMap<&'static str, u64>,
+    /// How many rows each administrative granularity accounts for, keyed by granularity wire name.
+    address_granularity_counts: BTreeMap<&'static str, u64>,
 }
 
 /// Runs the industrial-complex Bronze profile to JSONL export.
@@ -92,12 +99,12 @@ fn export_bronze_raw_jsonl(
 ) -> anyhow::Result<BronzeRawJsonlExportReport> {
     // The injected address source is read first: a run that cannot prove where the complexes are
     // must not touch the Bronze object or the output path at all.
-    let addresses = address_source::read_address_book(&config.address_source_path)?;
+    let resolution = address_source::read_address_book(&config.address_source_path)?;
+    let addresses = &resolution.book;
     let object_path = locate_source_object(config)?;
     let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
-    let workbook_bytes = read_single_workbook_entry(&object_path)?;
-    let records = profile_workbook_decoder::decode_profile_rows(
-        workbook_bytes,
+    let records = decode_profile_rows_from_bronze_zip(
+        &object_path,
         config.sheet_name.as_deref(),
         config.max_rows,
     )
@@ -105,7 +112,7 @@ fn export_bronze_raw_jsonl(
 
     let rows = normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
         records: &records,
-        addresses: &addresses,
+        addresses,
         bronze_object_key: bronze_object_key.as_str(),
         source_slug: config.source_slug.as_str(),
         ingested_at_utc: Utc::now(),
@@ -139,6 +146,8 @@ fn export_bronze_raw_jsonl(
         source_snapshot_id,
         snapshot_period,
         labels_measured_for_snapshot,
+        resolution_tier_counts: resolution.tier_counts,
+        address_granularity_counts: resolution.granularity_counts,
     };
     if let Some(summary_path) = &config.summary_path {
         write_summary(config, &rows, &report, summary_path)?;
@@ -168,58 +177,109 @@ impl BronzeRawJsonlExportConfig {
 /// Chooses one zip from a prefix that may accumulate monthly snapshots.
 /// A pin selects its exact object; without a pin, only a single zip is accepted.
 fn locate_source_object(config: &BronzeRawJsonlExportConfig) -> anyhow::Result<PathBuf> {
-    let source_root = config
-        .bronze_local_object_root
+    locate_single_bronze_object(
+        &config.bronze_local_object_root,
+        config.source_slug.as_str(),
+        config.source_object.as_deref(),
+        "zip",
+    )
+    .with_context(|| format!("set {SOURCE_OBJECT_ENV} to the exact object to export"))
+}
+
+/// Resolves exactly one Bronze object under `bronze/source={source_slug}/`, recursively.
+///
+/// Shared with the address-resolution builder, which has to reach the SAME profile object this
+/// producer reads. Two locators would be free to disagree about which snapshot is current, and the
+/// resolution would then describe a month the export never opened.
+///
+/// # Errors
+/// Returns an error when the source prefix is absent, when a pin does not resolve to a file, when
+/// no object with `extension` is found, or when more than one is and no pin was given.
+pub(crate) fn locate_single_bronze_object(
+    bronze_local_object_root: &Path,
+    source_slug: &str,
+    pinned_object: Option<&str>,
+    extension: &str,
+) -> anyhow::Result<PathBuf> {
+    let source_root = bronze_local_object_root
         .join("bronze")
-        .join(format!("source={}", config.source_slug));
+        .join(format!("source={source_slug}"));
     if !source_root.is_dir() {
         bail!(
-            "industrial-complex profile Bronze source directory not found: {}",
+            "Bronze source directory not found: {}",
             source_root.display()
         );
     }
-    if let Some(object) = config.source_object.as_deref() {
+    if let Some(object) = pinned_object {
         let pinned = source_root.join(object);
         if !pinned.is_file() {
-            bail!(
-                "pinned industrial-complex profile Bronze object not found: {}",
-                pinned.display()
-            );
+            bail!("pinned Bronze object not found: {}", pinned.display());
         }
         return Ok(pinned);
     }
-    let mut zips = Vec::new();
-    for entry in fs::read_dir(&source_root)
-        .with_context(|| format!("failed to read {}", source_root.display()))?
-    {
-        let path = entry
-            .with_context(|| format!("failed to read entry in {}", source_root.display()))?
-            .path();
-        if path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
-        {
-            zips.push(path);
-        }
-    }
-    zips.sort();
-    if zips.len() > 1 {
+    let mut matches = Vec::new();
+    collect_objects_with_extension(&source_root, extension, &mut matches)?;
+    matches.sort();
+    if matches.len() > 1 {
         bail!(
-            concat!(
-                "industrial-complex profile Bronze source {} holds {} zips; monthly snapshots are ",
-                "ambiguous; set {} to the exact zip to export"
-            ),
+            "Bronze source {} holds {} .{extension} objects; the snapshot is ambiguous, so pin the \
+             exact object",
             source_root.display(),
-            zips.len(),
-            SOURCE_OBJECT_ENV
+            matches.len()
         );
     }
-    zips.into_iter().next().with_context(|| {
+    matches.into_iter().next().with_context(|| {
         format!(
-            "no industrial-complex profile Bronze zip found in {}",
+            "no .{extension} Bronze object found in {}",
             source_root.display()
         )
     })
+}
+
+/// Collects every file with `extension` under `dir`, descending into the readable object-key
+/// partition directories (`operation=…/scope=…`) the Bronze layout writes.
+fn collect_objects_with_extension(
+    dir: &Path,
+    extension: &str,
+    found: &mut Vec<PathBuf>,
+) -> anyhow::Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
+        let path = entry
+            .with_context(|| format!("failed to read entry in {}", dir.display()))?
+            .path();
+        if path.is_dir() {
+            collect_objects_with_extension(&path, extension, found)?;
+        } else if path
+            .extension()
+            .is_some_and(|value| value.eq_ignore_ascii_case(extension))
+        {
+            found.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Decodes the profile workbook out of a Bronze zip.
+///
+/// Shared with the address-resolution builder so the set of complexes that must be resolved is read
+/// by the same decoder that later demands an address for each of them.
+///
+/// # Errors
+/// Returns an error when the zip cannot be opened, does not hold exactly one workbook, or the
+/// workbook cannot be decoded.
+pub(crate) fn decode_profile_rows_from_bronze_zip(
+    object_path: &Path,
+    sheet_name: Option<&str>,
+    max_rows: Option<usize>,
+) -> anyhow::Result<Vec<lakehouse_application::IndustrialComplexBronzeSourceRecord>> {
+    let workbook_bytes = read_single_workbook_entry(object_path)?;
+    profile_workbook_decoder::decode_profile_rows(workbook_bytes, sheet_name, max_rows)
+        .with_context(|| {
+            format!(
+                "failed to decode industrial-complex profile {}",
+                object_path.display()
+            )
+        })
 }
 
 /// Reads the single workbook entry out of the Bronze zip.
@@ -303,12 +363,16 @@ fn write_summary(
     let mut kind_counts = BTreeMap::<String, u64>::new();
     let mut status_counts = BTreeMap::<String, u64>::new();
     let mut sido_counts = BTreeMap::<String, u64>::new();
+    let mut rows_with_a_legal_dong = 0_u64;
     for row in rows {
         *kind_counts.entry(row.complex_kind.clone()).or_insert(0) += 1;
         *status_counts.entry(row.status.clone()).or_insert(0) += 1;
         *sido_counts
             .entry(row.address.sido_code().to_owned())
             .or_insert(0) += 1;
+        if row.address.primary_bjdong_code().is_some() {
+            rows_with_a_legal_dong += 1;
+        }
     }
     let mut evidence_limitations = vec![
         "local_bronze_to_jsonl_export_only",
@@ -321,6 +385,22 @@ fn write_summary(
         // The kind/status tables are counted evidence for one month only. Saying so in the
         // artifact is the difference between a mapping that was verified and one that was assumed.
         evidence_limitations.push("label_tables_not_measured_for_this_snapshot_period");
+    }
+    if rows_with_a_legal_dong < rows.len() as u64 {
+        // Most industrial complexes span several eup/myeon/dong and some span several provinces,
+        // so no address source names one. The rows carry `sido_code` and `sigungu_code` and a null
+        // `primary_bjdong_code`; a consumer that needs dong-level identity has to know that from
+        // the artifact rather than discover it downstream (root ADR-0034).
+        evidence_limitations.push("some_rows_have_no_legal_dong_code_only_a_sigungu_code");
+    }
+    if report
+        .resolution_tier_counts
+        .get("modal_notice_code")
+        .is_some_and(|count| *count > 0)
+    {
+        // A heuristic tier: the modal district among a complex's own notices. It is right for the
+        // complexes measured, and it is still a vote rather than an authority.
+        evidence_limitations.push("some_addresses_resolved_by_the_modal_notice_heuristic");
     }
     let summary = serde_json::json!({
         "schema_version": "foundation-platform.industrial_complex_bronze_raw_jsonl_export.v1",
@@ -336,6 +416,12 @@ fn write_summary(
             "address_source_path": config.address_source_path.display().to_string(),
             "address_resolution_count": report.address_resolution_count,
             "snapshot_period": report.snapshot_period,
+        },
+        "address_resolution": {
+            "tier_counts": report.resolution_tier_counts,
+            "granularity_counts": report.address_granularity_counts,
+            "rows_with_a_legal_dong_code": rows_with_a_legal_dong,
+            "rows_without_a_legal_dong_code": rows.len() as u64 - rows_with_a_legal_dong,
         },
         "label_tables": {
             "measured_snapshot_period": INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
@@ -413,10 +499,12 @@ mod tests {
     const SYNTHETIC_SECOND_OBJECT_NAME: &str = "20991231DS99990-2.zip";
 
     const ADDRESS_LINE_111010: &str = concat!(
-        r#"{"official_complex_code":"111010","primary_bjdong_code":"1153010200","#,
+        r#"{"official_complex_code":"111010","administrative_code":"1153000000","#,
+        r#""administrative_code_granularity":"sigungu","#,
         r#""address_text":"서울특별시 구로구 구로동","#,
-        r#""address_source_dataset":"ilis__industrial_complex_detail","#,
-        r#""address_source_record_id":"ilis:111010"}"#
+        r#""address_source_dataset":"industrylandorkr__industrial_complex_list","#,
+        r#""address_source_record_id":"industrylandorkr:danji_cd=111010","#,
+        r#""resolution_tier":"source_code_in_authority"}"#
     );
 
     fn temp_root(name: &str) -> PathBuf {
@@ -590,6 +678,10 @@ mod tests {
         assert_eq!(record["complex_kind"], "national");
         assert_eq!(record["status"], "operating");
         assert_eq!(record["sido_code"], "11");
+        assert_eq!(record["sigungu_code"], "11530");
+        // The resolution named a district, so the dong column is null rather than the district code
+        // wearing a dong column's name (root ADR-0034).
+        assert_eq!(record["primary_bjdong_code"], serde_json::Value::Null);
         assert_eq!(record["address_text"], "서울특별시 구로구 구로동");
         assert_eq!(record["completion_date"], "1973-01-01");
         assert_eq!(record["valid_from_utc"], "2025-06-01T00:00:00Z");
@@ -610,6 +702,24 @@ mod tests {
             summary["label_tables"]["measured_for_this_snapshot_period"],
             true
         );
+        assert_eq!(
+            summary["address_resolution"]["tier_counts"]["source_code_in_authority"],
+            1
+        );
+        assert_eq!(
+            summary["address_resolution"]["granularity_counts"]["sigungu"],
+            1
+        );
+        assert_eq!(
+            summary["address_resolution"]["rows_without_a_legal_dong_code"],
+            1
+        );
+        let limitations = summary["evidence_limitations"]
+            .as_array()
+            .context("evidence_limitations must be an array")?;
+        assert!(limitations
+            .iter()
+            .any(|value| value == "some_rows_have_no_legal_dong_code_only_a_sigungu_code"));
 
         fs::remove_dir_all(root)?;
         Ok(())
@@ -623,9 +733,12 @@ mod tests {
         fs::write(
             &address_source_path,
             concat!(
-                r#"{"official_complex_code":"999999","primary_bjdong_code":"4111710300","#,
-                r#""address_text":"경기도 수원시","address_source_dataset":"ilis","#,
-                r#""address_source_record_id":"ilis:999999"}"#,
+                r#"{"official_complex_code":"999999","administrative_code":"4111710300","#,
+                r#""administrative_code_granularity":"legal_dong","#,
+                r#""address_text":"경기도 수원시","#,
+                r#""address_source_dataset":"industrylandorkr__industrial_complex_list","#,
+                r#""address_source_record_id":"industrylandorkr:danji_cd=999999","#,
+                r#""resolution_tier":"source_code_in_authority"}"#,
                 "\n"
             ),
         )?;

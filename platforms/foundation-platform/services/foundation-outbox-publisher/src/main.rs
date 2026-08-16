@@ -66,6 +66,8 @@ mod canonical_silver_gold_cutover_evidence;
 mod github_actions_secret_configurator;
 mod github_cutover_artifact_fetch;
 mod github_cutover_dispatch;
+mod industrial_complex_address_resolution_build;
+mod industrial_complex_address_source_collect;
 mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_source_readiness;
 mod industrial_complex_catalog_import;
@@ -180,7 +182,9 @@ enum Command {
     AuditR2Inventory,
     BuildParcelMarkerAnchorAggregatePbfArtifacts,
     BuildParcelMarkerAnchorPbfArtifacts,
+    BuildIndustrialComplexAddressResolution,
     BuildingRegisterSmoke,
+    CollectIndustrialComplexAddressSource,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
@@ -341,6 +345,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(parcel_marker_anchor_pbf_artifact_build::run())
         }
         Command::BuildingRegisterSmoke => Box::pin(async { building_register_smoke::run() }),
+        Command::BuildIndustrialComplexAddressResolution => {
+            Box::pin(async { industrial_complex_address_resolution_build::run() })
+        }
+        Command::CollectIndustrialComplexAddressSource => {
+            Box::pin(industrial_complex_address_source_collect::run())
+        }
         Command::DeleteR2Candidates => Box::pin(r2_delete_candidates::run()),
         Command::ExportBuildingRegisterFloorSilverHandoff => {
             Box::pin(async { building_register_floor_silver_export::run() })
@@ -1054,6 +1064,12 @@ where
         Some("ingest-vworld-dataset-files") => Ok(Command::IngestVWorldDatasetFiles),
         Some("ingest-vworld-land-register") => Ok(Command::IngestVWorldLandRegister),
         Some("ingest-vworld-ned-attribute") => Ok(Command::IngestVWorldNedAttribute),
+        Some("build-industrial-complex-address-resolution") => {
+            Ok(Command::BuildIndustrialComplexAddressResolution)
+        }
+        Some("collect-industrial-complex-address-source") => {
+            Ok(Command::CollectIndustrialComplexAddressSource)
+        }
         Some("export-industrial-complex-bronze-raw-jsonl") => {
             Ok(Command::ExportIndustrialComplexBronzeRawJsonl)
         }

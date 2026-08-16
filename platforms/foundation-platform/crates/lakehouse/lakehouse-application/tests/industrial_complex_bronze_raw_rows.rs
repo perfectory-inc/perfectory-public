@@ -6,8 +6,9 @@ use catalog_domain::IndustrialComplexKind;
 use chrono::{DateTime, Utc};
 use lakehouse_application::{
     industrial_complex_bronze_raw_row_to_jsonl, normalize_industrial_complex_bronze_raw_rows,
-    IndustrialComplexAddress, IndustrialComplexAddressBook, IndustrialComplexBronzeRawPlanError,
-    IndustrialComplexBronzeRawRowsInput, IndustrialComplexBronzeSourceRecord,
+    IndustrialComplexAddress, IndustrialComplexAddressBook, IndustrialComplexAddressGranularity,
+    IndustrialComplexBronzeRawPlanError, IndustrialComplexBronzeRawRowsInput,
+    IndustrialComplexBronzeSourceRecord,
 };
 use lakehouse_domain::{
     bronze_industrial_complexes_raw_jsonl_columns, INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
@@ -48,12 +49,24 @@ fn address_book(code: &str) -> anyhow::Result<IndustrialComplexAddressBook> {
         code,
         IndustrialComplexAddress::try_new(
             "1153010200",
+            IndustrialComplexAddressGranularity::LegalDong,
             "서울특별시 구로구 구로동",
-            "ilis__industrial_complex_detail",
-            "ilis:111010",
+            "industrylandorkr__industrial_complex_list",
+            "industrylandorkr:danji_cd=111010",
         )?,
     )?;
     Ok(book)
+}
+
+/// A district-granularity address, which is what every real ILIS resolution produces today.
+fn sigungu_address(code: &str) -> anyhow::Result<IndustrialComplexAddress> {
+    Ok(IndustrialComplexAddress::try_new(
+        code,
+        IndustrialComplexAddressGranularity::Sigungu,
+        "서울특별시 구로구 구로동, 금천구 가산동 일원",
+        "industrylandorkr__industrial_complex_list",
+        "industrylandorkr:danji_cd=111010",
+    )?)
 }
 
 #[test]
@@ -108,10 +121,16 @@ fn bronze_rows_emit_exactly_the_exported_transport_columns() -> TestResult {
 }
 
 #[test]
-fn address_rejects_every_shape_that_is_not_a_legal_dong_code() {
+fn address_rejects_every_shape_that_is_not_a_ten_digit_administrative_code() {
     for code in ["", "   ", "미상", "115301020", "11530102000", "11530A0200"] {
-        let error = IndustrialComplexAddress::try_new(code, "주소", "dataset", "record")
-            .expect_err("address must reject a non legal-dong code");
+        let error = IndustrialComplexAddress::try_new(
+            code,
+            IndustrialComplexAddressGranularity::LegalDong,
+            "주소",
+            "dataset",
+            "record",
+        )
+        .expect_err("address must reject a non ten-digit administrative code");
         assert!(
             matches!(
                 error,
@@ -122,6 +141,49 @@ fn address_rejects_every_shape_that_is_not_a_legal_dong_code() {
     }
 }
 
+/// The reason the granularity is carried at all: both codes are ten digits, so only the declared
+/// granularity distinguishes "this district" from "this dong", and a mismatch is a lie that the
+/// shape check alone would pass (root ADR-0034).
+#[test]
+fn address_rejects_a_code_whose_shape_contradicts_its_declared_granularity() {
+    for (code, granularity) in [
+        ("1153000000", IndustrialComplexAddressGranularity::LegalDong),
+        ("1153010200", IndustrialComplexAddressGranularity::Sigungu),
+    ] {
+        let error =
+            IndustrialComplexAddress::try_new(code, granularity, "주소", "dataset", "record")
+                .expect_err("a contradicting granularity must be rejected");
+        assert!(
+            matches!(
+                error,
+                IndustrialComplexBronzeRawPlanError::InvalidAddress(ref message)
+                    if message.contains("granularity")
+            ),
+            "{code:?}/{granularity:?} produced {error}"
+        );
+    }
+}
+
+#[test]
+fn granularity_wire_values_round_trip_and_reject_anything_else() -> TestResult {
+    for granularity in [
+        IndustrialComplexAddressGranularity::Sigungu,
+        IndustrialComplexAddressGranularity::LegalDong,
+    ] {
+        assert_eq!(
+            IndustrialComplexAddressGranularity::from_wire(granularity.wire_name())?,
+            granularity
+        );
+    }
+    for invalid in ["", "  ", "bjdong", "dong", "SIGUNGU", "legal-dong"] {
+        assert!(
+            IndustrialComplexAddressGranularity::from_wire(invalid).is_err(),
+            "{invalid:?} must not parse"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn address_rejects_blank_text_and_blank_provenance() {
     for (text, dataset, record_id) in [
@@ -130,8 +192,14 @@ fn address_rejects_blank_text_and_blank_provenance() {
         ("주소", "", "record"),
         ("주소", "dataset", "   "),
     ] {
-        let error = IndustrialComplexAddress::try_new("1153010200", text, dataset, record_id)
-            .expect_err("address must reject blank text or provenance");
+        let error = IndustrialComplexAddress::try_new(
+            "1153010200",
+            IndustrialComplexAddressGranularity::LegalDong,
+            text,
+            dataset,
+            record_id,
+        )
+        .expect_err("address must reject blank text or provenance");
         assert!(
             matches!(
                 error,
@@ -143,9 +211,10 @@ fn address_rejects_blank_text_and_blank_provenance() {
 }
 
 #[test]
-fn administrative_codes_are_derived_from_the_legal_dong_code() -> TestResult {
+fn administrative_codes_are_derived_from_the_administrative_code() -> TestResult {
     let address = IndustrialComplexAddress::try_new(
         " 4111710300 ",
+        IndustrialComplexAddressGranularity::LegalDong,
         " 경기도 수원시 장안구 ",
         " dataset ",
         " record ",
@@ -153,8 +222,38 @@ fn administrative_codes_are_derived_from_the_legal_dong_code() -> TestResult {
 
     assert_eq!(address.sido_code(), "41");
     assert_eq!(address.sigungu_code(), "41117");
-    assert_eq!(address.primary_bjdong_code(), "4111710300");
+    assert_eq!(address.primary_bjdong_code(), Some("4111710300"));
     assert_eq!(address.address_text(), "경기도 수원시 장안구");
+    Ok(())
+}
+
+/// A district-granularity source still proves the province and the district — those it named. It
+/// has not named a legal dong, and the row must say so rather than let the district code stand in.
+#[test]
+fn a_district_granularity_address_reports_no_legal_dong_and_the_row_writes_null() -> TestResult {
+    let address = sigungu_address("1153000000")?;
+    assert_eq!(address.sido_code(), "11");
+    assert_eq!(address.sigungu_code(), "11530");
+    assert_eq!(address.primary_bjdong_code(), None);
+    assert_eq!(address.administrative_code(), "1153000000");
+
+    let records = vec![source_record("111010")];
+    let mut addresses = IndustrialComplexAddressBook::new();
+    addresses.insert("111010", address)?;
+    let rows =
+        normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+            records: &records,
+            addresses: &addresses,
+            bronze_object_key: BRONZE_OBJECT_KEY,
+            source_slug: SOURCE_SLUG,
+            ingested_at_utc: ingested_at()?,
+        })?;
+    let line = industrial_complex_bronze_raw_row_to_jsonl(&rows[0])?;
+    let record = serde_json::from_str::<Value>(line.as_str())?;
+
+    assert_eq!(record["sido_code"], "11");
+    assert_eq!(record["sigungu_code"], "11530");
+    assert_eq!(record["primary_bjdong_code"], Value::Null);
     Ok(())
 }
 
@@ -223,7 +322,13 @@ fn the_address_book_refuses_to_resolve_one_code_twice() -> TestResult {
     let error = book
         .insert(
             "111010",
-            IndustrialComplexAddress::try_new("4111710300", "다른 주소", "dataset", "record")?,
+            IndustrialComplexAddress::try_new(
+                "4111710300",
+                IndustrialComplexAddressGranularity::LegalDong,
+                "다른 주소",
+                "dataset",
+                "record",
+            )?,
         )
         .expect_err("a second resolution must fail");
 
@@ -270,7 +375,13 @@ fn mixed_snapshot_months_fail_instead_of_picking_one() -> TestResult {
     let mut addresses = address_book("111010")?;
     addresses.insert(
         "111020",
-        IndustrialComplexAddress::try_new("4111710300", "경기도", "dataset", "record")?,
+        IndustrialComplexAddress::try_new(
+            "4111710300",
+            IndustrialComplexAddressGranularity::LegalDong,
+            "경기도",
+            "dataset",
+            "record",
+        )?,
     )?;
 
     let error =

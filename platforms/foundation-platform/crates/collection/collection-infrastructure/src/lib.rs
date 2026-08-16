@@ -5,6 +5,7 @@ pub mod building_hub_bulk;
 pub mod data_go_kr_building_register;
 pub mod data_go_kr_odcloud_api;
 pub mod data_go_kr_service_api;
+pub mod ilis_industrial_complex_api;
 mod outbound_http_error;
 mod row_map;
 pub mod vworld_data_api;
@@ -26,6 +27,10 @@ pub use data_go_kr_odcloud_api::{
 pub use data_go_kr_service_api::{
     DataGoKrRequestPolicy, DataGoKrServiceApiClient, DataGoKrServiceApiConfig,
     DataGoKrServiceApiPage,
+};
+pub use ilis_industrial_complex_api::{
+    IlisIndustrialComplexApiClient, IlisIndustrialComplexApiConfig, IlisIndustrialComplexPage,
+    IlisRequestPolicy,
 };
 pub use vworld_data_api::{
     VWorldDataApiClient, VWorldDataApiConfig, VWorldDataApiPage, VWorldDataFeatureRequest,

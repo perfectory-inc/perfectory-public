@@ -13,6 +13,8 @@ pub mod bronze_committer;
 pub mod building_hub_bulk_collection_plan;
 /// Planning helpers for building-register Bronze ingestion pages.
 pub mod building_register_bronze_plan;
+/// Planning helpers for ILIS industrial-complex Bronze ingestion pages.
+pub mod ilis_industrial_complex_bronze_plan;
 /// Outbound ports implemented by Collection infrastructure.
 pub mod ports;
 /// Landing-key contract for provider acquisition workers.
@@ -57,6 +59,10 @@ pub use building_register_bronze_plan::{
     BuildingRegisterBronzePagePlan, BuildingRegisterBronzePagePlanInput,
     BuildingRegisterBronzePlanError, BuildingRegisterPageRequest,
     BuildingRegisterSchemaObservation,
+};
+pub use ilis_industrial_complex_bronze_plan::{
+    plan_ilis_industrial_complex_bronze_page, IlisIndustrialComplexBronzePagePlan,
+    IlisIndustrialComplexBronzePagePlanInput, IlisIndustrialComplexPageRequest,
 };
 pub use provider_acquisition_landing::{
     provider_landing_key, ProviderLandingError, ProviderLandingObject,

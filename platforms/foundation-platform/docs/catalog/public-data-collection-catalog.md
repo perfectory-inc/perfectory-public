@@ -22,10 +22,10 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **130개**
-- 고유 dataset slug: **111개**
-- 고유 Bronze source slug: **130개**
-- 국가 수집 허용 endpoint: **82개**
+- 엔드포인트 정의: **133개**
+- 고유 dataset slug: **114개**
+- 고유 Bronze source slug: **133개**
+- 국가 수집 허용 endpoint: **84개**
 - 기본 실행 레인에 포함되는 endpoint: **81개**
 
 ## 제공기관별 정리
@@ -35,6 +35,7 @@ last_reviewed: 2026-07-30
 | data.go.kr | 22 | 0 | 0 | 중복 API 비활성 22 |
 | factoryon.go.kr | 1 | 0 | 0 | 수동 승인 1 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
+| industryland.or.kr | 3 | 2 | 0 | 전용 커맨드 3 |
 | juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
 | mixed_public_source | 10 | 0 | 0 | 수동 승인 10 |
 | mois.go.kr | 2 | 0 | 0 | 수동 승인 2 |
@@ -55,6 +56,7 @@ last_reviewed: 2026-07-30
 |---|---:|---|
 | `building_hub_bulk` | 59 | hub.go.kr 건축물·허가·에너지·점검 벌크 파일 |
 | `building_register_open_api` | 10 | data.go.kr 건축물대장 API 중복 경로 |
+| `ilis` | 3 | industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처) |
 | `juso_electronic_map_bulk` | 11 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `other_bulk` | 13 | 학교·공장·인구·교통 등 추가 벌크 (수동 승인) |
 | `real_transaction_open_api` | 12 | data.go.kr 실거래 API 보조·검증 경로 |
@@ -169,6 +171,9 @@ last_reviewed: 2026-07-30
 | hub.go.kr | 건축물·허가·에너지·점검 | 대지위치 | bulk_file | true | 기본 실행 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 호별개요 | bulk_file | true | 기본 실행 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 복리분양시설 | bulk_file | true | 기본 실행 |
+| industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 상세 | 공개 JSON API (전용 커맨드) | false | 전용 커맨드 |
+| industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 목록 | 공개 JSON API (전용 커맨드) | true | 전용 커맨드 |
+| industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 고시 목록 | 공개 JSON API (전용 커맨드) | true | 전용 커맨드 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 기초구간 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 국가기초구역 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 건물 도형 | 벌크(수동 승인) | false | 수동 승인 |
