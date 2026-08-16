@@ -40,6 +40,9 @@ def status_for(endpoint: dict[str, Any], default_lanes: set[str]) -> str:
         return "API 예정"
     if lane == "provider_dataset_file":
         return "파일 실행"
+    if lane == "public_json_api":
+        # 국가 수집 오케스트레이터가 아니라 전용 커맨드가 수집한다.
+        return "전용 커맨드"
     return "확인 필요"
 
 
@@ -144,6 +147,7 @@ def render(endpoint_doc: dict[str, Any], lane_doc: dict[str, Any]) -> str:
         "real_transaction_open_api": "data.go.kr 실거래 API 보조·검증 경로",
         "juso_electronic_map_bulk": "juso.go.kr 주소정보 전자지도 벌크 (수동 승인)",
         "other_bulk": "학교·공장·인구·교통 등 추가 벌크 (수동 승인)",
+        "ilis": "industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처)",
     }
     for group in sorted(group_counts):
         lines.append(
@@ -158,10 +162,12 @@ def render(endpoint_doc: dict[str, Any], lane_doc: dict[str, Any]) -> str:
         "real_transaction_open_api": "부동산 실거래",
         "juso_electronic_map_bulk": "주소정보 전자지도",
         "other_bulk": "기타 공공데이터",
+        "ilis": "산업단지 주소 출처",
     }
     acquisition_names = {
         "provider_dataset_file": "제공기관 파일",
         "open_api_only": "공개 API",
+        "public_json_api": "공개 JSON API (전용 커맨드)",
         "disabled_api_duplicate": "중복 API",
         "manual_approval_bulk": "벌크(수동 승인)",
         "provider_inventory_missing": "제공기관 목록 없음",

@@ -77,13 +77,19 @@ set -euo pipefail
 # disposable migrated database. An integration-test binary cannot reach those functions, while a
 # CLI test would replace the database proof with R2 and process-fixture coupling.
 #
+# 86 -> 87: `foundation-outbox-publisher/src/industrial_complex_address_source_collect/tests.rs`
+# reads the public source-endpoint catalog from the crate's own directory to prove every ILIS
+# dataset the collector declares is registered there. The catalog is the human-facing SSOT for what
+# we collect and from where; restating its three entries in the test would recreate exactly the
+# mirrored list the check exists to prevent, so the test reads the document instead of copying it.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-86}"
+COMPILE_TIME_READ_BASELINE="${3:-87}"
 
 cd "$repo_root"
 
