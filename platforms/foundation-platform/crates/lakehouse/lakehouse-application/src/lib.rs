@@ -17,6 +17,9 @@ pub mod building_register_unit_silver_plan;
 /// Use case for building canonical industrial-complex Silver handoff JSONL.
 pub mod build_industrial_complex_silver_handoff;
 
+/// Bronze JSONL normalization helpers for the industrial-complex profile source.
+pub mod industrial_complex_bronze_raw_plan;
+
 /// Silver handoff helpers for canonical industrial-complex rows.
 pub mod industrial_complex_silver_plan;
 
@@ -78,6 +81,13 @@ pub use building_register_unit_silver_plan::{
     BuildingRegisterUnitSilverOverride, BuildingRegisterUnitSilverOverrideIndex,
     BuildingRegisterUnitSilverPlanError, BuildingRegisterUnitSilverRow,
     BuildingRegisterUnitSilverRowsInput, BuildingRegisterUnitSourceRow,
+};
+pub use industrial_complex_bronze_raw_plan::{
+    industrial_complex_bronze_raw_row_to_jsonl, industrial_complex_labels_measured_for,
+    normalize_industrial_complex_bronze_raw_rows, IndustrialComplexAddress,
+    IndustrialComplexAddressBook, IndustrialComplexBronzeRawPlanError,
+    IndustrialComplexBronzeRawRow, IndustrialComplexBronzeRawRowsInput,
+    IndustrialComplexBronzeSourceRecord, INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
 };
 pub use industrial_complex_silver_plan::{
     build_industrial_complex_silver_handoff, normalize_industrial_complex_silver_rows,

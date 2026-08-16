@@ -44,3 +44,4 @@ last_reviewed: 2026-07-28
 - [0030 — 필지 발행 증거는 서로 다른 두 승인을 구별한다](./0030-parcel-publication-evidence-requires-two-distinct-approvals.md)
 - [0031 — 필지 mirror run이 발행 scope와 limit을 봉인한다](./0031-parcel-mirror-run-seals-publication-scope.md)
 - [0032 — 제공기관 ID는 도메인 라벨에서 파생한다](./0032-provider-identity-is-derived-from-domain-label.md)
+- [0033 — 주소 출처가 없는 산업단지는 표현할 수 없다](./0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md)

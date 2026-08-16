@@ -6,6 +6,9 @@ pub mod errors;
 /// Current Gold data pointers for industrial-complex artifacts.
 pub mod industrial_complex_gold_pointer;
 
+/// JSONL transport contract for the industrial-complex Bronze-to-Silver job.
+pub mod industrial_complex_jsonl_transport;
+
 /// Provider-neutral table contracts.
 pub mod lakehouse;
 
@@ -27,6 +30,11 @@ pub mod lakehouse_run_summary;
 pub use errors::LakehouseError;
 pub use industrial_complex_gold_pointer::{
     IndustrialComplexGoldPointer, IndustrialComplexGoldPointerPublished,
+};
+pub use industrial_complex_jsonl_transport::{
+    bronze_industrial_complexes_raw_jsonl_columns, BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL,
+    INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES, INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS,
+    INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
 };
 pub use lakehouse::{
     industrial_complex_lakehouse_contract_by_table_name, industrial_complex_lakehouse_contracts,

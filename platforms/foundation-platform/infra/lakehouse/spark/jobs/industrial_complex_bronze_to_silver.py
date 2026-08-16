@@ -26,10 +26,12 @@ from pyspark.storagelevel import StorageLevel
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
+    jsonl_transport_columns,
     load_lakehouse_contract,
     partition_spec_sql,
     required_column_names,
     required_string_column_names,
+    value_domain,
 )
 
 
@@ -47,25 +49,10 @@ BRONZE_DATASET_NAME = "bronze.industrial_complexes_raw_jsonl"
 RUN_SUMMARY_CONTRACT = "silver.industrial_complexes"
 TABLE_CONTRACT = load_lakehouse_contract(RUN_SUMMARY_CONTRACT)
 
-INPUT_COLUMNS: tuple[str, ...] = (
-    "official_complex_code",
-    "complex_name",
-    "complex_kind",
-    "status",
-    "sido_code",
-    "sigungu_code",
-    "primary_bjdong_code",
-    "address_text",
-    "management_agency_name",
-    "developer_name",
-    "designated_date",
-    "completion_date",
-    "official_area_sqm",
-    "source_record_id",
-    "source_snapshot_id",
-    "valid_from_utc",
-    "ingested_at_utc",
-)
+# The producer and this reader share one exported column list, so neither can drift alone.
+# `services/foundation-outbox-publisher` writes this dataset with
+# `export-industrial-complex-bronze-raw-jsonl`.
+INPUT_COLUMNS: tuple[str, ...] = jsonl_transport_columns(BRONZE_DATASET_NAME)
 
 OPTIONAL_INPUT_COLUMNS: tuple[str, ...] = (
     "complex_id",
@@ -79,21 +66,9 @@ CHECKSUM_COLUMNS: tuple[str, ...] = tuple(
 
 REQUIRED_SILVER_COLUMNS: tuple[str, ...] = required_column_names(TABLE_CONTRACT)
 
-ALLOWED_COMPLEX_KINDS: tuple[str, ...] = (
-    "national",
-    "general",
-    "agricultural",
-    "urban_high_tech",
-)
+ALLOWED_COMPLEX_KINDS: tuple[str, ...] = value_domain(RUN_SUMMARY_CONTRACT, "complex_kind")
 
-ALLOWED_STATUSES: tuple[str, ...] = (
-    "planned",
-    "developing",
-    "operating",
-    "changed",
-    "abolished",
-    "unknown",
-)
+ALLOWED_STATUSES: tuple[str, ...] = value_domain(RUN_SUMMARY_CONTRACT, "status")
 
 
 def trim_to_null(column_name: str) -> F.Column:

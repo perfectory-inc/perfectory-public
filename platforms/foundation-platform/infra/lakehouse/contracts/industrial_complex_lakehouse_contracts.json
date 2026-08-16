@@ -333,5 +333,41 @@
         "iceberg_snapshot_id is present"
       ]
     }
+  },
+  "jsonl_transports": {
+    "bronze.industrial_complexes_raw_jsonl": {
+      "target_contract": "silver.industrial_complexes",
+      "target_derived_columns": [
+        "complex_id",
+        "complex_name_normalized",
+        "valid_to_utc",
+        "row_checksum_sha256"
+      ],
+      "columns": [
+        "official_complex_code",
+        "complex_name",
+        "complex_kind",
+        "status",
+        "sido_code",
+        "sigungu_code",
+        "primary_bjdong_code",
+        "address_text",
+        "management_agency_name",
+        "developer_name",
+        "designated_date",
+        "completion_date",
+        "official_area_sqm",
+        "source_record_id",
+        "source_snapshot_id",
+        "valid_from_utc",
+        "ingested_at_utc"
+      ]
+    }
+  },
+  "value_domains": {
+    "silver.industrial_complexes": {
+      "complex_kind": ["national", "general", "agricultural", "urban_high_tech"],
+      "status": ["planned", "developing", "operating", "changed", "abolished", "unknown"]
+    }
   }
 }

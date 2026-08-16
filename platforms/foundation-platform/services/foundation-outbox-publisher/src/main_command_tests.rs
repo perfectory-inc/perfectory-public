@@ -717,6 +717,18 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn export_industrial_complex_bronze_raw_jsonl_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-industrial-complex-bronze-raw-jsonl",
+        ])?,
+        Command::ExportIndustrialComplexBronzeRawJsonl
+    );
+    Ok(())
+}
+
+#[test]
 fn artifact_batch_commands_run_with_expanded_stack() {
     assert!(command_requires_expanded_stack(
         Command::ExportParcelMarkerAnchorArtifacts

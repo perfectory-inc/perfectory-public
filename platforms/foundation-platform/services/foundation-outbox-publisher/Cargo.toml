@@ -17,6 +17,7 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
+calamine = { workspace = true }
 catalog-application = { workspace = true }
 catalog-domain = { workspace = true }
 catalog-infrastructure = { workspace = true }

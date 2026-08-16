@@ -2,7 +2,12 @@
 
 use std::{collections::BTreeMap, error::Error, path::Path};
 
-use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableContract};
+use lakehouse_domain::{
+    bronze_industrial_complexes_raw_jsonl_columns, industrial_complex_lakehouse_contracts,
+    LakehouseTableContract, BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL,
+    INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES, INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS,
+    INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+};
 use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -30,6 +35,51 @@ fn spark_contract_artifact_matches_rust_lakehouse_contracts() -> TestResult {
             "contract artifact drifted for {table_name}"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn spark_artifact_exports_the_bronze_jsonl_transport_contract() -> TestResult {
+    let raw = std::fs::read_to_string(contract_artifact_path()?)?;
+    let artifact: Value = serde_json::from_str(&raw)?;
+    let transports = artifact["jsonl_transports"]
+        .as_object()
+        .ok_or("jsonl_transports must be a JSON object")?;
+
+    assert_eq!(transports.len(), 1);
+    assert_eq!(
+        transports
+            .get(BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL)
+            .ok_or("missing exported jsonl transport")?,
+        &serde_json::json!({
+            "target_contract": "silver.industrial_complexes",
+            "target_derived_columns": INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS,
+            "columns": bronze_industrial_complexes_raw_jsonl_columns(),
+        }),
+        "jsonl transport artifact drifted for {BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL}"
+    );
+    Ok(())
+}
+
+#[test]
+fn spark_artifact_exports_the_industrial_complex_value_domains() -> TestResult {
+    let raw = std::fs::read_to_string(contract_artifact_path()?)?;
+    let artifact: Value = serde_json::from_str(&raw)?;
+    let domains = artifact["value_domains"]
+        .as_object()
+        .ok_or("value_domains must be a JSON object")?;
+
+    assert_eq!(domains.len(), 1);
+    assert_eq!(
+        domains
+            .get("silver.industrial_complexes")
+            .ok_or("missing exported value domains")?,
+        &serde_json::json!({
+            "complex_kind": INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
+            "status": INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+        }),
+        "value domain artifact drifted for silver.industrial_complexes"
+    );
     Ok(())
 }
 

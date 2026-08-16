@@ -66,6 +66,7 @@ mod canonical_silver_gold_cutover_evidence;
 mod github_actions_secret_configurator;
 mod github_cutover_artifact_fetch;
 mod github_cutover_dispatch;
+mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_source_readiness;
 mod industrial_complex_catalog_import;
 mod industrial_complex_gold_pointer_publish;
@@ -184,6 +185,7 @@ enum Command {
     ExportBuildingRegisterFloorSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
     ExportBuildingRegisterUnitSilverHandoff,
+    ExportIndustrialComplexBronzeRawJsonl,
     ExportIndustrialComplexSilverHandoff,
     ExportParcelMarkerAnchorArtifacts,
     ExportVWorldCadastralSilverHandoff,
@@ -348,6 +350,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportBuildingRegisterUnitSilverHandoff => {
             Box::pin(building_register_unit_silver_export::run())
+        }
+        Command::ExportIndustrialComplexBronzeRawJsonl => {
+            Box::pin(async { industrial_complex_bronze_raw_jsonl_export::run() })
         }
         Command::ExportIndustrialComplexSilverHandoff => {
             Box::pin(industrial_complex_silver_export::run())
@@ -1049,6 +1054,9 @@ where
         Some("ingest-vworld-dataset-files") => Ok(Command::IngestVWorldDatasetFiles),
         Some("ingest-vworld-land-register") => Ok(Command::IngestVWorldLandRegister),
         Some("ingest-vworld-ned-attribute") => Ok(Command::IngestVWorldNedAttribute),
+        Some("export-industrial-complex-bronze-raw-jsonl") => {
+            Ok(Command::ExportIndustrialComplexBronzeRawJsonl)
+        }
         Some("export-industrial-complex-silver-handoff") => {
             Ok(Command::ExportIndustrialComplexSilverHandoff)
         }

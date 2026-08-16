@@ -22,7 +22,7 @@ DEFAULT_CONTRACTS_PATH = (
 )
 
 
-def load_lakehouse_contract(table_name: str) -> dict[str, Any]:
+def load_lakehouse_artifact() -> dict[str, Any]:
     path = Path(os.getenv(CONTRACTS_PATH_ENV, str(DEFAULT_CONTRACTS_PATH)))
     artifact = json.loads(path.read_text(encoding="utf-8"))
     schema_version = artifact.get("schema_version")
@@ -31,6 +31,11 @@ def load_lakehouse_contract(table_name: str) -> dict[str, Any]:
             f"unsupported lakehouse contract schema_version {schema_version!r}; "
             f"expected {CONTRACTS_SCHEMA_VERSION!r}"
         )
+    return artifact
+
+
+def load_lakehouse_contract(table_name: str) -> dict[str, Any]:
+    artifact = load_lakehouse_artifact()
 
     contracts = artifact.get("contracts")
     if not isinstance(contracts, dict):
@@ -41,6 +46,44 @@ def load_lakehouse_contract(table_name: str) -> dict[str, Any]:
         raise ValueError(f"lakehouse contract artifact is missing {table_name}")
     current_row_predicate(contract)
     return contract
+
+
+def jsonl_transport_columns(dataset_name: str) -> tuple[str, ...]:
+    """Return the columns a JSONL producer must supply for ``dataset_name``.
+
+    The list is exported from the Rust lakehouse contract, so a job never keeps its own copy of
+    an input column list that can drift away from the table it feeds.
+    """
+
+    transports = load_lakehouse_artifact().get("jsonl_transports")
+    if not isinstance(transports, dict):
+        raise ValueError("lakehouse contract artifact must contain a jsonl_transports object")
+
+    transport = transports.get(dataset_name)
+    if not isinstance(transport, dict):
+        raise ValueError(f"lakehouse contract artifact is missing jsonl transport {dataset_name}")
+
+    names = transport.get("columns")
+    if not isinstance(names, list) or not names:
+        raise ValueError(f"jsonl transport {dataset_name} has no columns")
+    return tuple(names)
+
+
+def value_domain(table_name: str, column_name: str) -> tuple[str, ...]:
+    """Return the wire values ``column_name`` of ``table_name`` admits."""
+
+    domains = load_lakehouse_artifact().get("value_domains")
+    if not isinstance(domains, dict):
+        raise ValueError("lakehouse contract artifact must contain a value_domains object")
+
+    table_domains = domains.get(table_name)
+    if not isinstance(table_domains, dict):
+        raise ValueError(f"lakehouse contract artifact is missing value domains for {table_name}")
+
+    values = table_domains.get(column_name)
+    if not isinstance(values, list) or not values:
+        raise ValueError(f"value domain {table_name}.{column_name} is empty")
+    return tuple(values)
 
 
 def column_names(contract: dict[str, Any]) -> tuple[str, ...]:
