@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# This test builds real Git repositories. Under a pre-push hook the inherited
+# GIT_DIR made every `git -C "$root"` below address the real checkout instead,
+# which is how a fixture named scripts/example.sh ended up staged in it.
+# `fixture_git` pins the binding to the fixture and refuses any target outside
+# the directory `fixture_root` created.
+. "$(dirname "$0")/lib/fixture-repo.sh"
 cd "$(dirname "$0")/../.."
 
 checker="scripts/guard/judgment-position-exit-codes.sh"
-test_root="$(mktemp -d)"
+fixture_root
+test_root="$FIXTURE_ROOT"
 cleanup() {
   case "${test_root:-}" in
     /tmp/*|/var/tmp/*|[A-Za-z]:/*) rm -rf -- "$test_root" ;;
@@ -20,8 +27,8 @@ fixture() {
   local body="$2"
   mkdir -p "$root/scripts"
   printf '%s\n' "$body" >"$root/scripts/example.sh"
-  git -C "$root" init --quiet
-  git -C "$root" add scripts/example.sh
+  fixture_git "$root" init --quiet
+  fixture_git "$root" add scripts/example.sh
 }
 expect_allowed() {
   bash "$checker" "$1" >/dev/null || {
@@ -127,7 +134,7 @@ expect_allowed "$reviewed"
 # A scan that reads nothing must not report a pass.
 empty="$test_root/empty"
 mkdir -p "$empty"
-git -C "$empty" init --quiet
+fixture_git "$empty" init --quiet
 expect_rejected "$empty"
 
 echo "OK judgment-position-exit-codes-self-test"

@@ -3,6 +3,12 @@
 # licensing, mutable CI dependencies, or a path from untrusted PR code to a
 # self-hosted runner. This checks the tracked tree; gitleaks owns content/history.
 set -euo pipefail
+# Deliberately does NOT source scripts/guard/lib/fixture-repo.sh, unlike the
+# other fixture-building guards. public-tree-snapshot-self-test copies this one
+# file into a synthetic repository and runs it there, without its siblings, so a
+# dependency on a neighbouring path would break inside that fixture. Its one
+# throwaway repository is isolated at the call site instead (`env -u GIT_DIR ...`
+# below), and the runner releases the binding before this script starts.
 cd "$(dirname "$0")/../.."
 
 rc=0
@@ -63,6 +69,26 @@ non_executable_shebang_scripts="$(
 )"
 if [ -n "$non_executable_shebang_scripts" ]; then
   fail "tracked shebang scripts must be executable in the Git index:\n$non_executable_shebang_scripts"
+fi
+
+# The other half of the same rule. When the pre-push hook committed its own test
+# fixtures into this repository, one of them was `scripts/example.sh`, holding a
+# single line of sample shell. Nothing here noticed: the path matches no forbidden
+# pattern, and the guard that reads it found the line legitimately annotated. What
+# gave it away was that it is not a program -- a tracked script under scripts/ with
+# no interpreter line is debris, whatever it is called. All 135 tracked scripts
+# satisfy this today, so it costs nothing to require and does not depend on
+# recognising any particular fixture name.
+scripts_without_interpreter="$(
+  while IFS= read -r -d '' script_path; do
+    first_line="$(git show ":$script_path" | sed -n '1p')"
+    if [[ "$first_line" != '#!'* ]]; then
+      printf '%s\n' "$script_path"
+    fi
+  done < <(git ls-files -z -- 'scripts/*.sh')
+)"
+if [ -n "$scripts_without_interpreter" ]; then
+  fail "tracked scripts must begin with an interpreter line; these look like leftover fixtures:\n$scripts_without_interpreter"
 fi
 
 bash scripts/guard/check-tracked-blob-sizes.sh || rc=1

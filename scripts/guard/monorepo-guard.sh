@@ -1,52 +1,34 @@
 #!/usr/bin/env bash
 # Runs every monorepo guard. Each guard documents the incident it prevents.
 set -euo pipefail
-# Git for Windows exports drive-letter paths to hooks, while the repository
-# guards run under Git Bash/WSL.  Normalize that one path before any guard uses
-# `git -C`; otherwise linked worktrees resolve `.git` as a literal `C:/...`
-# child path and the guard either fails or can target the wrong index.
-normalize_git_path() {
-  local value="${1:-}"
-  if [[ "$value" =~ ^([A-Za-z]):[\\/](.*)$ ]]; then
-    if command -v wslpath >/dev/null 2>&1; then
-      wslpath -u "$value"
-      return
-    fi
-    if command -v cygpath >/dev/null 2>&1; then
-      cygpath -u "$value"
-      return
-    fi
-    local drive="${BASH_REMATCH[1],,}"
-    local rest="${BASH_REMATCH[2]//\\//}"
-    rest="${rest#/}"
-    printf '/mnt/%s/%s' "$drive" "$rest"
-  else
-    printf '%s' "$value"
-  fi
-}
-if [ -n "${GIT_DIR:-}" ]; then
-  export GIT_DIR="$(normalize_git_path "$GIT_DIR")"
-fi
-if [ -n "${GIT_WORK_TREE:-}" ]; then
-  export GIT_WORK_TREE="$(normalize_git_path "$GIT_WORK_TREE")"
-fi
-if [ -n "${GIT_COMMON_DIR:-}" ]; then
-  export GIT_COMMON_DIR="$(normalize_git_path "$GIT_COMMON_DIR")"
-fi
-if [ -n "${GIT_INDEX_FILE:-}" ]; then
-  export GIT_INDEX_FILE="$(normalize_git_path "$GIT_INDEX_FILE")"
-fi
-if [ -n "${GIT_OBJECT_DIRECTORY:-}" ]; then
-  export GIT_OBJECT_DIRECTORY="$(normalize_git_path "$GIT_OBJECT_DIRECTORY")"
-fi
 dir="$(cd "$(dirname "$0")" && pwd)"
+# Git starts a hook with GIT_DIR pointing at the real repository and
+# GIT_WORK_TREE unset. A guard that builds a temporary git fixture inherits that
+# binding, and every `git -C "$tmp" ...` it runs then addresses this checkout
+# with $tmp as the working tree: on 2026-08-16 that put five `fixture` commits on
+# the branch being pushed, one of which deleted 2,169 files -- including
+# .github/workflows, so the pull request matched no workflow and reported no CI
+# runs at all.
+#
+# This prologue used to normalize those variables and re-export them, which
+# handed every guard a *usable* pointer at the real repository. Nothing under
+# scripts/ reads them (guards address the repository by path), so the runner
+# releases them instead. scripts/guard/lib/fixture-repo.sh holds the single
+# definition of that release; hook-isolation-self-test.sh proves the children of
+# this script inherit no binding, and that an unprotected fixture builder would
+# still be corrupted by one.
+. "$dir/lib/fixture-repo.sh"
+# Lets a guard tell "run by the runner" from "run by hand" without handing it a
+# repository binding to do it with.
+export PERFECTORY_GUARD_RUNNER=monorepo-guard
 root="$(cd "$dir/../.." && pwd -P)"
 repository_identity_gate="$root/scripts/guard/repository-identity-ci.sh"
 legal_gate="$root/scripts/guard/legal-publication-ci.sh"
 bash "$repository_identity_gate"
 bash "$legal_gate"
 rc=0
-for g in no-subdir-github toolchain-consistency technology-version-consistency \
+for g in hook-isolation-self-test \
+         no-subdir-github toolchain-consistency technology-version-consistency \
          foundation-kafka-contract \
          backend-profile-consistency backend-profile-consistency-self-test \
          r2-env-namespace-consistency r2-env-namespace-consistency-self-test \
