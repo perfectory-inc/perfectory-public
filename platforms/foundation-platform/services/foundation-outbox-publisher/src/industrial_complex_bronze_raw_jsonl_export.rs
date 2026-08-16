@@ -375,6 +375,11 @@ mod tests {
     use uuid::Uuid;
     use zip::{write::SimpleFileOptions, ZipWriter};
 
+    /// The reserved 20991231DS9999x synthetic range; a captured provider object id is private
+    /// operational evidence and must not sit in a public fixture.
+    const SYNTHETIC_OBJECT_NAME: &str = "20991231DS99990-1.zip";
+    const SYNTHETIC_SECOND_OBJECT_NAME: &str = "20991231DS99990-2.zip";
+
     const ADDRESS_LINE_111010: &str = concat!(
         r#"{"official_complex_code":"111010","primary_bjdong_code":"1153010200","#,
         r#""address_text":"서울특별시 구로구 구로동","#,
@@ -451,7 +456,7 @@ mod tests {
             &root
                 .join("bronze")
                 .join(format!("source={DEFAULT_SOURCE_SLUG}"))
-                .join("30138-6.zip"),
+                .join(SYNTHETIC_OBJECT_NAME),
             &profile_rows(),
         )?;
         Ok(root)
@@ -470,7 +475,7 @@ mod tests {
         assert_eq!(report.address_resolution_count, 1);
         assert_eq!(
             report.bronze_object_key,
-            format!("bronze/source={DEFAULT_SOURCE_SLUG}/30138-6.zip")
+            format!("bronze/source={DEFAULT_SOURCE_SLUG}/{SYNTHETIC_OBJECT_NAME}")
         );
         assert_eq!(
             report.source_snapshot_id,
@@ -582,7 +587,7 @@ mod tests {
             &root
                 .join("bronze")
                 .join(format!("source={DEFAULT_SOURCE_SLUG}"))
-                .join("30138-7.zip"),
+                .join(SYNTHETIC_SECOND_OBJECT_NAME),
             &profile_rows(),
         )?;
         let address_source_path = root.join("addresses.jsonl");
@@ -595,7 +600,7 @@ mod tests {
             "{error:#}"
         );
 
-        config.source_object = Some("30138-7.zip".to_owned());
+        config.source_object = Some(SYNTHETIC_SECOND_OBJECT_NAME.to_owned());
         let report = export_bronze_raw_jsonl(&config)?;
         assert_eq!(report.row_count, 1);
 

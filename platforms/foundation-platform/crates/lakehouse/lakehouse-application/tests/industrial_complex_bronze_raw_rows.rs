@@ -15,7 +15,9 @@ use lakehouse_domain::{
 };
 use serde_json::Value;
 
-const BRONZE_OBJECT_KEY: &str = "bronze/source=vworldkr__sandan_profile/30138-6.zip";
+// The reserved 20991231DS9999x synthetic range; a captured provider object id is private
+// operational evidence and must not sit in a public fixture.
+const BRONZE_OBJECT_KEY: &str = "bronze/source=vworldkr__sandan_profile/20991231DS99990-1.zip";
 const SOURCE_SLUG: &str = "vworldkr__sandan_profile";
 
 type TestResult = anyhow::Result<()>;
