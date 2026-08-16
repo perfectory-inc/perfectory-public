@@ -71,6 +71,8 @@ http-body = "1"
 thiserror = "1"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# 표 형식 provider 파일(xlsx) 판독기. SpreadsheetML을 직접 파싱하지 않는다.
+calamine = { version = "0.36.1", default-features = false, features = ["dates"] }
 arrow-array = "59"
 arrow-schema = "59"
 parquet = { version = "59", default-features = false, features = ["arrow", "snap"] }
