@@ -2,10 +2,10 @@
 # Proves the tree-only importer starts from the live canonical main and cannot
 # be fooled by a poisoned local origin/main or an extra destination ancestor.
 set -euo pipefail
-# All repositories below are disposable fixtures.  In a hook Git exports the
-# real worktree context; clear it before creating synthetic commits.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
+# Fixtures below are disposable repositories. A hook runs with GIT_DIR pointing
+# at the real checkout, which would redirect their commits into it; sourcing the
+# shared definition releases that binding for the rest of this script.
+. "$(dirname "$0")/lib/fixture-repo.sh"
 cd "$(dirname "$0")/../.."
 
 test_root="$(mktemp -d)"

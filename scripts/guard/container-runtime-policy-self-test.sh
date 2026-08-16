@@ -2,10 +2,10 @@
 # Synthetic negative fixtures prove that mutable container images and
 # externally published development ports cannot bypass the repository policy.
 set -euo pipefail
-# These fixtures are disposable repositories; never inherit the hook's Git
-# context or their commits can target the real checkout.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
+# Fixtures below are disposable repositories. A hook runs with GIT_DIR pointing
+# at the real checkout, which would redirect their commits into it; sourcing the
+# shared definition releases that binding for the rest of this script.
+. "$(dirname "$0")/lib/fixture-repo.sh"
 cd "$(dirname "$0")/../.."
 
 checker="scripts/guard/check-container-runtime-policy.sh"

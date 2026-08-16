@@ -2,10 +2,10 @@
 # Proves publication verification uses disposable build state while normal local
 # verification retains the named caches that keep development runs practical.
 set -euo pipefail
-# Hooks export the caller's Git context.  All repositories in this test are
-# disposable, so keep their Git metadata isolated from the real worktree.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
+# Fixtures below are disposable repositories. A hook runs with GIT_DIR pointing
+# at the real checkout, which would redirect their commits into it; sourcing the
+# shared definition releases that binding for the rest of this script.
+. "$(dirname "$0")/lib/fixture-repo.sh"
 cd "$(dirname "$0")/../.."
 
 test_root="$(mktemp -d)"
