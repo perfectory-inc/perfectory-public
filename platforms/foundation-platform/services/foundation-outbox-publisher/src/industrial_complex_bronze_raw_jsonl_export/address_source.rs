@@ -35,6 +35,10 @@ pub(super) fn read_address_book(path: &Path) -> anyhow::Result<IndustrialComplex
 
 fn parse_address_book(raw: &str) -> anyhow::Result<IndustrialComplexAddressBook> {
     let mut book = IndustrialComplexAddressBook::new();
+    // Windows editors and PowerShell's `Set-Content -Encoding utf8` prefix a BOM. Left in place it
+    // reaches serde_json as `expected value at line 1 column 1`, which reads like malformed JSON
+    // rather than an encoding artifact; the first real run of this command hit exactly that.
+    let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
     for (index, line) in raw.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() {
@@ -107,6 +111,15 @@ mod tests {
         .expect_err("a resolution without provenance must be rejected");
 
         assert!(format!("{error:#}").contains("invalid JSONL"), "{error:#}");
+    }
+
+    #[test]
+    fn reads_a_resolution_written_with_a_utf8_bom() -> anyhow::Result<()> {
+        let book = parse_address_book(&format!("\u{feff}{VALID_LINE}\n"))?;
+
+        assert_eq!(book.len(), 1);
+        assert!(book.get("111010").is_some());
+        Ok(())
     }
 
     #[test]

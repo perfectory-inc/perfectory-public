@@ -21,27 +21,67 @@ use thiserror::Error;
 /// Number of unresolved complex codes named in a [`IndustrialComplexBronzeRawPlanError`] message.
 const MISSING_ADDRESS_SAMPLE_LIMIT: usize = 5;
 
-/// Source-side `lrstt_ty` labels mapped onto `complex_kind` wire values.
-const COMPLEX_KIND_LABELS: &[(&str, &str)] = &[
-    ("국가", "national"),
+/// Snapshot month whose full table backs every `OBSERVED` label list below.
+const MEASURED_SNAPSHOT_PERIOD: &str = "202506";
+
+/// `lrstt_ty` labels counted in the whole `MEASURED_SNAPSHOT_PERIOD` table (1,442 rows).
+///
+/// These four are the entire observed domain; the counts are the measurement, not an estimate.
+const COMPLEX_KIND_LABELS_OBSERVED: &[(&str, &str)] = &[
+    ("국가", "national"),            // 94 rows
+    ("일반", "general"),             // 812 rows
+    ("도시첨단", "urban_high_tech"), // 51 rows
+    ("농공", "agricultural"),        // 485 rows
+];
+
+/// `lrstt_ty` spellings that no measured snapshot has produced yet.
+///
+/// Kept because another month may spell the classification out in full. Nothing has confirmed
+/// them, which is why they are not in [`COMPLEX_KIND_LABELS_OBSERVED`].
+const COMPLEX_KIND_LABELS_PRESUMED: &[(&str, &str)] = &[
     ("국가산업단지", "national"),
-    ("일반", "general"),
     ("일반산업단지", "general"),
-    ("도시첨단", "urban_high_tech"),
     ("도시첨단산업단지", "urban_high_tech"),
-    ("농공", "agricultural"),
     ("농공단지", "agricultural"),
     ("농공산업단지", "agricultural"),
 ];
 
-/// Source-side `make_sttus_nm` labels mapped onto `status` wire values.
-const COMPLEX_STATUS_LABELS: &[(&str, &str)] = &[
+/// `make_sttus_nm` labels counted in the whole `MEASURED_SNAPSHOT_PERIOD` table (1,442 rows).
+///
+/// `준비중` and `보상중` map to `planned` on measured evidence rather than on the wording of the
+/// label. Per-status counts of `strwrk_de` (착공일자), `compet_cnfm_de` (준공인가일자), and the mean
+/// `make_procs_rt` (조성공정율) in that table:
+///
+/// | `make_sttus_nm` | rows | `strwrk_de` | `compet_cnfm_de` | mean `make_procs_rt` |
+/// |---|---:|---:|---:|---:|
+/// | `조성완료` | 1069 | 1069 | 1069 | 100.0 |
+/// | `조성중` | 289 | 289 | 1 | 59.9 |
+/// | `준비중` | 47 | 43 | 0 | 0.0 |
+/// | `보상중` | 37 | 37 | 0 | 0.0 |
+///
+/// Nothing has been built under either label: site-formation progress is 0% and no complex has a
+/// completion approval. `developing` is reserved for `조성중`, whose progress is 59.9%; calling a
+/// 0%-progress complex `developing` would assert site works that the source says have not started.
+///
+/// Known tension: most `준비중`/`보상중` rows do carry a `strwrk_de`. With `make_procs_rt` at 0 that
+/// column reads as a planned or designated date rather than an actual start, so it does not move
+/// the mapping. A later snapshot that shows progress under these labels should reopen this.
+const COMPLEX_STATUS_LABELS_OBSERVED: &[(&str, &str)] = &[
+    ("조성완료", "operating"), // 1069 rows
+    ("조성중", "developing"),  // 289 rows
+    ("준비중", "planned"),     // 47 rows
+    ("보상중", "planned"),     // 37 rows
+];
+
+/// `make_sttus_nm` labels that no measured snapshot has produced yet.
+///
+/// Kept because another month may use them. Nothing has confirmed them, which is why they are not
+/// in [`COMPLEX_STATUS_LABELS_OBSERVED`].
+const COMPLEX_STATUS_LABELS_PRESUMED: &[(&str, &str)] = &[
     ("계획", "planned"),
     ("계획중", "planned"),
     ("미개발", "planned"),
-    ("조성중", "developing"),
     ("개발중", "developing"),
-    ("조성완료", "operating"),
     ("개발완료", "operating"),
     ("변경", "changed"),
     ("해제", "abolished"),
@@ -352,14 +392,17 @@ pub fn normalize_industrial_complex_bronze_raw_rows(
                 record,
                 "complex_kind",
                 record.complex_kind_label.as_str(),
-                COMPLEX_KIND_LABELS,
+                &[COMPLEX_KIND_LABELS_OBSERVED, COMPLEX_KIND_LABELS_PRESUMED],
                 INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
             )?,
             status: map_label(
                 record,
                 "status",
                 record.status_label.as_str(),
-                COMPLEX_STATUS_LABELS,
+                &[
+                    COMPLEX_STATUS_LABELS_OBSERVED,
+                    COMPLEX_STATUS_LABELS_PRESUMED,
+                ],
                 INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
             )?,
             official_complex_code,
@@ -499,16 +542,21 @@ fn snapshot_period_start_utc(
         .ok_or_else(invalid)
 }
 
+/// Resolves a source label through the observed table first, then the presumed one.
+///
+/// Both are searched, but they stay separate values so a reader can tell a measured mapping from
+/// an unconfirmed one without trusting a comment.
 fn map_label(
     record: &IndustrialComplexBronzeSourceRecord,
     column: &str,
     label: &str,
-    table: &[(&str, &str)],
+    tables: &[&[(&str, &str)]],
     domain: &[&str],
 ) -> Result<String, IndustrialComplexBronzeRawPlanError> {
     let label = label.trim();
-    let wire = table
+    let wire = tables
         .iter()
+        .flat_map(|table| table.iter())
         .find(|(source_label, _)| *source_label == label)
         .map(|(_, wire)| (*wire).to_owned())
         .ok_or_else(|| {
@@ -632,4 +680,92 @@ fn require_address_part(
         ));
     }
     Ok(value.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        COMPLEX_KIND_LABELS_OBSERVED, COMPLEX_KIND_LABELS_PRESUMED, COMPLEX_STATUS_LABELS_OBSERVED,
+        COMPLEX_STATUS_LABELS_PRESUMED, MEASURED_SNAPSHOT_PERIOD,
+    };
+
+    /// The whole `202506` table, measured by reading the Bronze object: every distinct `lrstt_ty`
+    /// and `make_sttus_nm` with its row count. A label may only move into an `OBSERVED` list when a
+    /// snapshot has actually produced it, and this is that record.
+    const MEASURED_KIND_LABELS: &[(&str, u32)] =
+        &[("국가", 94), ("일반", 812), ("도시첨단", 51), ("농공", 485)];
+    const MEASURED_STATUS_LABELS: &[(&str, u32)] = &[
+        ("조성완료", 1069),
+        ("조성중", 289),
+        ("준비중", 47),
+        ("보상중", 37),
+    ];
+    const MEASURED_ROW_COUNT: u32 = 1442;
+
+    #[test]
+    fn observed_label_tables_hold_exactly_what_the_measured_snapshot_produced() {
+        assert_eq!(MEASURED_SNAPSHOT_PERIOD, "202506");
+        assert_eq!(
+            COMPLEX_KIND_LABELS_OBSERVED
+                .iter()
+                .map(|(label, _)| *label)
+                .collect::<Vec<_>>(),
+            MEASURED_KIND_LABELS
+                .iter()
+                .map(|(label, _)| *label)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            COMPLEX_STATUS_LABELS_OBSERVED
+                .iter()
+                .map(|(label, _)| *label)
+                .collect::<Vec<_>>(),
+            MEASURED_STATUS_LABELS
+                .iter()
+                .map(|(label, _)| *label)
+                .collect::<Vec<_>>()
+        );
+        for measured in [MEASURED_KIND_LABELS, MEASURED_STATUS_LABELS] {
+            assert_eq!(
+                measured.iter().map(|(_, count)| count).sum::<u32>(),
+                MEASURED_ROW_COUNT
+            );
+        }
+    }
+
+    #[test]
+    fn zero_progress_statuses_are_planned_not_developing() {
+        // `준비중`/`보상중` carry mean make_procs_rt 0.0 and no compet_cnfm_de in the measured
+        // table; only `조성중` (59.9%) is site work in progress.
+        let mapping = |label: &str| {
+            COMPLEX_STATUS_LABELS_OBSERVED
+                .iter()
+                .find(|(source_label, _)| *source_label == label)
+                .map(|(_, wire)| *wire)
+        };
+        assert_eq!(mapping("준비중"), Some("planned"));
+        assert_eq!(mapping("보상중"), Some("planned"));
+        assert_eq!(mapping("조성중"), Some("developing"));
+        assert_eq!(mapping("조성완료"), Some("operating"));
+    }
+
+    #[test]
+    fn a_label_is_listed_as_observed_or_presumed_but_never_both() {
+        for (observed, presumed) in [
+            (COMPLEX_KIND_LABELS_OBSERVED, COMPLEX_KIND_LABELS_PRESUMED),
+            (
+                COMPLEX_STATUS_LABELS_OBSERVED,
+                COMPLEX_STATUS_LABELS_PRESUMED,
+            ),
+        ] {
+            for (label, _) in observed {
+                assert!(
+                    !presumed
+                        .iter()
+                        .any(|(presumed_label, _)| presumed_label == label),
+                    "{label} is listed as both measured and presumed"
+                );
+            }
+        }
+    }
 }

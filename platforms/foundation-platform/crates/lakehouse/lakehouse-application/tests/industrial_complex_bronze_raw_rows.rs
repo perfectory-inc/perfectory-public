@@ -417,10 +417,14 @@ fn exported_kind_domain_matches_the_catalog_classification() -> TestResult {
 #[test]
 fn every_mapped_status_stays_inside_the_exported_domain() -> TestResult {
     for (label, expected) in [
+        // The four labels the 202506 Bronze object actually produced, all 1,442 rows.
+        ("조성완료", "operating"),
+        ("조성중", "developing"),
+        ("준비중", "planned"),
+        ("보상중", "planned"),
+        // Labels no measured snapshot has produced yet.
         ("계획", "planned"),
         ("미개발", "planned"),
-        ("조성중", "developing"),
-        ("조성완료", "operating"),
         ("변경", "changed"),
         ("폐지", "abolished"),
     ] {
