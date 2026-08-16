@@ -2,6 +2,10 @@
 # Proves the error-boundary guard rejects both React lifecycle traces while
 # accepting the adopted library and prose-like occurrences in source files.
 set -euo pipefail
+# Fixtures below are disposable repositories. A hook runs with GIT_DIR pointing
+# at the real checkout, which would redirect their commits into it; sourcing the
+# shared definition releases that binding for the rest of this script.
+. "$(dirname "$0")/lib/fixture-repo.sh"
 
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 checker="$root/scripts/guard/hand-rolled-error-boundary.sh"

@@ -7,6 +7,12 @@
 # paths need a fixture — the real repository sits at exactly the baseline by
 # construction, so it can only ever exercise the passing case.
 set -euo pipefail
+# This test builds real Git repositories. Under a pre-push hook the inherited
+# GIT_DIR made every `git -C "$dir"` below address the real checkout instead,
+# and the five fixture commits landed on the branch being pushed. `fixture_git`
+# pins the binding to $dir and refuses any target outside the directory
+# `fixture_root` created, so that outcome is no longer expressible here.
+. "$(dirname "$0")/lib/fixture-repo.sh"
 
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 checker="$root/scripts/guard/build-coupling-baseline.sh"
@@ -15,7 +21,8 @@ if [ ! -f "$checker" ]; then
   exit 1
 fi
 
-test_root="$(mktemp -d)"
+fixture_root
+test_root="$FIXTURE_ROOT"
 cleanup() {
   if [ -n "${test_root:-}" ] && [ -d "$test_root" ]; then
     rm -rf -- "$test_root"
@@ -29,9 +36,9 @@ trap cleanup EXIT
 make_fixture() {
   local dir="$1" build_scripts="$2" reads="$3"
   mkdir -p "$dir/crate/src"
-  git -C "$dir" init -q
-  git -C "$dir" config user.email guard@example.invalid
-  git -C "$dir" config user.name guard
+  fixture_git "$dir" init -q
+  fixture_git "$dir" config user.email guard@example.invalid
+  fixture_git "$dir" config user.name guard
 
   local index=0
   while [ "$index" -lt "$build_scripts" ]; do
@@ -49,8 +56,8 @@ make_fixture() {
     done
   } >"$dir/crate/src/lib.rs"
 
-  git -C "$dir" add -A
-  git -C "$dir" -c commit.gpgsign=false commit -q -m fixture
+  fixture_git "$dir" add -A
+  fixture_git "$dir" -c commit.gpgsign=false commit -q -m fixture
 }
 
 expect_accepted() {
