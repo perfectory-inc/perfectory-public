@@ -20,6 +20,8 @@ const EXPECTED_CURRENT_VERSION_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_EXPECTED_CURRENT_VERSION";
 const PROFILE_OBJECT_KEY_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_OBJECT_KEY";
+const PROFILE_URL_TEMPLATE_ENV: &str =
+    "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_URL_TEMPLATE";
 const SPATIAL_LOCATOR_OBJECT_KEY_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_SPATIAL_LOCATOR_OBJECT_KEY";
 const SOURCE_ENV: &str = "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_SOURCE";
@@ -106,6 +108,7 @@ impl PublishIndustrialComplexGoldPointerConfig {
                     EXPECTED_CURRENT_VERSION_ENV,
                 )?,
                 profile_object_key: required_lookup_value(&mut lookup, PROFILE_OBJECT_KEY_ENV)?,
+                profile_url_template: required_lookup_value(&mut lookup, PROFILE_URL_TEMPLATE_ENV)?,
                 spatial_locator_object_key: optional_lookup_value(
                     &mut lookup,
                     SPATIAL_LOCATOR_OBJECT_KEY_ENV,
@@ -187,9 +190,9 @@ mod tests {
         PublishIndustrialComplexGoldPointerConfig, COMPLEX_ID_ENV, CURRENT_VERSION_ENV,
         DATABASE_URL_ENV, EXPECTED_CURRENT_VERSION_ENV, ICEBERG_SNAPSHOT_ID_ENV,
         PROFILE_CHECKSUM_SHA256_ENV, PROFILE_OBJECT_KEY_ENV, PROFILE_ROW_COUNT_ENV,
-        PROFILE_SIZE_BYTES_ENV, PUBLISHED_AT_UTC_ENV, SOURCE_ENV, SOURCE_EXTERNAL_ID_ENV,
-        SOURCE_SNAPSHOT_ID_ENV, SOURCE_URL_ENV, SPATIAL_LOCATOR_OBJECT_KEY_ENV,
-        SPATIAL_LOCATOR_SIZE_BYTES_ENV,
+        PROFILE_SIZE_BYTES_ENV, PROFILE_URL_TEMPLATE_ENV, PUBLISHED_AT_UTC_ENV, SOURCE_ENV,
+        SOURCE_EXTERNAL_ID_ENV, SOURCE_SNAPSHOT_ID_ENV, SOURCE_URL_ENV,
+        SPATIAL_LOCATOR_OBJECT_KEY_ENV, SPATIAL_LOCATOR_SIZE_BYTES_ENV,
     };
     use chrono::{DateTime, SecondsFormat, Utc};
     use std::collections::BTreeMap;
@@ -210,6 +213,10 @@ mod tests {
             (
                 SPATIAL_LOCATOR_OBJECT_KEY_ENV,
                 "gold/industrial-complex/spatial-locators/0196e7e0-3c20-7000-8000-100000000002.parquet",
+            ),
+            (
+                PROFILE_URL_TEMPLATE_ENV,
+                "https://lakehouse.example.com/{object_key}",
             ),
             (
                 SOURCE_ENV,
@@ -267,6 +274,10 @@ mod tests {
                 "gold/industrial-complex/profiles/0196e7e0-3c20-7000-8000-100000000001.json",
             ),
             (
+                PROFILE_URL_TEMPLATE_ENV,
+                "https://lakehouse.example.com/{object_key}",
+            ),
+            (
                 SOURCE_ENV,
                 "foundation-platform.spark.industrial_complex_gold",
             ),
@@ -300,6 +311,10 @@ mod tests {
             (
                 PROFILE_OBJECT_KEY_ENV,
                 "gold/industrial-complex/profiles/0196e7e0-3c20-7000-8000-100000000001.json",
+            ),
+            (
+                PROFILE_URL_TEMPLATE_ENV,
+                "https://lakehouse.example.com/{object_key}",
             ),
             (
                 SOURCE_ENV,

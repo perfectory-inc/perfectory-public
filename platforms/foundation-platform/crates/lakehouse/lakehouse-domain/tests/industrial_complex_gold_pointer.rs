@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use foundation_shared_kernel::ids::{ComplexId, FileAssetId, SourceRecordId};
-use foundation_shared_kernel::ObjectKey;
+use foundation_shared_kernel::{ObjectKey, ObjectUrlTemplate};
 use lakehouse_domain::IndustrialComplexGoldPointer;
 use uuid::Uuid;
 
@@ -15,6 +15,9 @@ fn builds_publish_event_from_gold_pointer() -> Result<(), Box<dyn std::error::Er
         profile_file_asset_id: FileAssetId::new(Uuid::nil()),
         profile_object_key: ObjectKey::parse(
             "gold/industrial-complex/profiles/0196e7e0-3c20-7000-8000-100000000002.json",
+        )?,
+        profile_url_template: ObjectUrlTemplate::parse(
+            "https://lakehouse.example.com/{object_key}",
         )?,
         spatial_locator_file_asset_id: Some(FileAssetId::new(Uuid::nil())),
         spatial_locator_object_key: Some(ObjectKey::parse(

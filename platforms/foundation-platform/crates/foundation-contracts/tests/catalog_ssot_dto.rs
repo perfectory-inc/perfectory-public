@@ -105,6 +105,7 @@ fn industrial_complex_response_embeds_thin_gold_pointer_contract() -> Result<(),
             current_version: "gold-2026-05-18T00-00-00Z".to_owned(),
             previous_version: Some("gold-2026-05-17T00-00-00Z".to_owned()),
             profile_object_key: "gold/industrial-complex/profiles/0196e7e0-3c20-7000-8000-100000000002.json".to_owned(),
+            profile_url_template: "https://lakehouse.example.com/{object_key}".to_owned(),
             spatial_locator_object_key: Some(
                 "gold/industrial-complex/spatial-locators/0196e7e0-3c20-7000-8000-100000000002.parquet".to_owned(),
             ),

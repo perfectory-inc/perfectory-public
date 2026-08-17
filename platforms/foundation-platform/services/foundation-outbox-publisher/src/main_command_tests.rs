@@ -716,6 +716,20 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The producer of `gold/industrial-complex/profiles/{artifact_id}.json`. Its absence is what made
+/// `publish-industrial-complex-gold-pointer` able to point at an object nobody had written.
+#[test]
+fn export_industrial_complex_gold_profiles_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-industrial-complex-gold-profiles",
+        ])?,
+        Command::ExportIndustrialComplexGoldProfiles
+    );
+    Ok(())
+}
+
 #[test]
 fn export_industrial_complex_bronze_raw_jsonl_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(

@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::{ComplexId, FileAssetId, SourceRecordId};
-use foundation_shared_kernel::ObjectKey;
+use foundation_shared_kernel::{ObjectKey, ObjectUrlTemplate};
 use serde::{Deserialize, Serialize};
 
 /// Thin Lakehouse read model that points to R2/Iceberg Gold artifacts.
@@ -18,6 +18,8 @@ pub struct IndustrialComplexGoldPointer {
     pub profile_file_asset_id: FileAssetId,
     /// Provider-neutral object key for the Gold profile artifact.
     pub profile_object_key: ObjectKey,
+    /// Address template that turns either object key of this pointer into a fetchable URL.
+    pub profile_url_template: ObjectUrlTemplate,
     /// File asset row for the optional spatial locator artifact.
     pub spatial_locator_file_asset_id: Option<FileAssetId>,
     /// Provider-neutral object key for the optional spatial locator artifact.

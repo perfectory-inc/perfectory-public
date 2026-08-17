@@ -47,3 +47,5 @@ last_reviewed: 2026-07-28
 - [0033 — 주소 출처가 없는 산업단지는 표현할 수 없다](./0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md)
 - [0034 — 행정구역 코드는 자기 정밀도를 싣고 다닌다](./0034-an-administrative-code-carries-its-own-granularity.md)
 - [0035 — 쓰지 않는 지역은 필수가 아니다](./0035-a-region-the-pipeline-does-not-use-is-not-required.md)
+- [0036 — 가리켜지는 객체는 그것을 쓴 커맨드를 가진다](./0036-a-pointed-at-object-has-the-command-that-wrote-it.md)
+- [0037 — 포인터는 객체 키와 함께 주소 틀을 싣는다](./0037-a-pointer-carries-the-address-template-with-its-object-key.md)

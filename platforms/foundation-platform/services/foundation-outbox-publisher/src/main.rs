@@ -72,6 +72,7 @@ mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_source_readiness;
 mod industrial_complex_catalog_import;
 mod industrial_complex_gold_pointer_publish;
+mod industrial_complex_gold_profile_export;
 mod industrial_complex_silver_export;
 mod ingestion_run_recovery;
 mod lakehouse_quality_rules_evaluate;
@@ -190,6 +191,7 @@ enum Command {
     ExportBuildingRegisterUnitAreaSilverHandoff,
     ExportBuildingRegisterUnitSilverHandoff,
     ExportIndustrialComplexBronzeRawJsonl,
+    ExportIndustrialComplexGoldProfiles,
     ExportIndustrialComplexSilverHandoff,
     ExportParcelMarkerAnchorArtifacts,
     ExportVWorldCadastralSilverHandoff,
@@ -363,6 +365,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportIndustrialComplexBronzeRawJsonl => {
             Box::pin(async { industrial_complex_bronze_raw_jsonl_export::run() })
+        }
+        Command::ExportIndustrialComplexGoldProfiles => {
+            Box::pin(industrial_complex_gold_profile_export::run())
         }
         Command::ExportIndustrialComplexSilverHandoff => {
             Box::pin(industrial_complex_silver_export::run())
@@ -1072,6 +1077,9 @@ where
         }
         Some("export-industrial-complex-bronze-raw-jsonl") => {
             Ok(Command::ExportIndustrialComplexBronzeRawJsonl)
+        }
+        Some("export-industrial-complex-gold-profiles") => {
+            Ok(Command::ExportIndustrialComplexGoldProfiles)
         }
         Some("export-industrial-complex-silver-handoff") => {
             Ok(Command::ExportIndustrialComplexSilverHandoff)

@@ -86,6 +86,11 @@ pub struct IndustrialComplexGoldPointerResponse {
     pub previous_version: Option<String>,
     /// Provider-neutral object key for the Gold profile artifact.
     pub profile_object_key: String,
+    /// Address template that turns either object key of this pointer into a fetchable URL.
+    ///
+    /// Consumers substitute `{object_key}`; the pointer never carries a materialized URL so one
+    /// template addresses both the profile and the optional spatial locator.
+    pub profile_url_template: String,
     /// Provider-neutral object key for the optional spatial locator artifact.
     pub spatial_locator_object_key: Option<String>,
     /// Source record that describes the publish input.

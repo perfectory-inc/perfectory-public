@@ -11,6 +11,7 @@ pub const VECTOR_TILE_MANIFEST_ROOT: &str = "gold/vector-tiles/manifests";
 // `catalog_domain::STATIC_RELEASE_OBJECT_ROOT`, so keeping a second copy of the root would only
 // reintroduce the drift this change removed.
 pub const PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT: &str = "gold/parcel-marker-anchors/artifacts";
+pub const INDUSTRIAL_COMPLEX_GOLD_PROFILE_ROOT: &str = "gold/industrial-complex/profiles";
 pub const BRONZE_CATALOG_RECOVERY_EVIDENCE_ROOT: &str = "control/evidence/bronze-catalog-recovery";
 pub const PARCEL_PUBLICATION_EXECUTION_EVIDENCE_ROOT: &str =
     "control/evidence/parcel-publication/execution";
@@ -57,6 +58,14 @@ pub fn parcel_marker_anchor_artifact_prefix(artifact_id: &str) -> anyhow::Result
     let artifact_id = parse_artifact_id(artifact_id, "parcel marker anchor artifact_id")?;
     Ok(format!(
         "{PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT}/{artifact_id}"
+    ))
+}
+
+pub fn industrial_complex_gold_profile_key(artifact_id: &str) -> anyhow::Result<String> {
+    let artifact_id =
+        parse_artifact_id(artifact_id, "industrial complex gold profile artifact_id")?;
+    Ok(format!(
+        "{INDUSTRIAL_COMPLEX_GOLD_PROFILE_ROOT}/{artifact_id}.json"
     ))
 }
 
@@ -130,10 +139,10 @@ fn parse_artifact_id(raw: &str, label: &'static str) -> anyhow::Result<Uuid> {
 #[cfg(test)]
 mod tests {
     use super::{
-        bronze_catalog_recovery_evidence_key, is_bronze_catalog_recovery_evidence_key,
-        is_parcel_publication_execution_evidence_key, parcel_marker_anchor_artifact_prefix,
-        parcel_publication_execution_evidence_key, vector_tile_artifact_prefix,
-        vector_tile_manifest_key, vector_tile_release_key,
+        bronze_catalog_recovery_evidence_key, industrial_complex_gold_profile_key,
+        is_bronze_catalog_recovery_evidence_key, is_parcel_publication_execution_evidence_key,
+        parcel_marker_anchor_artifact_prefix, parcel_publication_execution_evidence_key,
+        vector_tile_artifact_prefix, vector_tile_manifest_key, vector_tile_release_key,
     };
 
     const ID: &str = "018f0000-0000-7000-8000-000000000001";
@@ -156,6 +165,10 @@ mod tests {
             vector_tile_release_key("parcels", ID)?,
             "gold/vector-tiles/releases/parcels-018f0000-0000-7000-8000-000000000001.pmtiles"
         );
+        assert_eq!(
+            industrial_complex_gold_profile_key(ID)?,
+            "gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json"
+        );
         Ok(())
     }
 
@@ -166,6 +179,7 @@ mod tests {
             assert!(vector_tile_manifest_key(invalid).is_err());
             assert!(parcel_marker_anchor_artifact_prefix(invalid).is_err());
             assert!(vector_tile_release_key("parcels", invalid).is_err());
+            assert!(industrial_complex_gold_profile_key(invalid).is_err());
         }
     }
 

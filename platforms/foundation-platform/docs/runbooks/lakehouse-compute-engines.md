@@ -286,27 +286,57 @@ job 다음 Silver-to-Gold job을 순서대로 실행한다. Silver job은
 writes `gold.complex_catalog_smoke`. The Gold run summary must show `input.kind = iceberg` and
 `input.qualified_table = r2.silver.industrial_complexes_smoke`.
 
+### Industrial-complex Gold profile artifact export
+
+`gold.complex_catalog` 를 Iceberg 카탈로그에서 읽어 산업단지 하나마다 프로필 객체 하나를
+`gold/industrial-complex/profiles/{artifact_id}.json` 에 create-only 로 쓴다(root ADR-0036).
+포인터는 발행하지 않는다 — 요약 JSON 이 다음 단계의 입력이다.
+
+```bash
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_CONFIRM_EXPORT=true
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_OUTPUT_STORAGE_DRIVER=local   # or r2
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_OUTPUT_ROOT=target/lakehouse/gold-profiles
+# 선택. 주면 요약이 각 산출물의 URL 을 함께 낸다. 서빙 호스트가 아직 없으면 비워 둔다 —
+# 주소는 포인터 발행 단계의 필수 입력이다(root ADR-0037).
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_URL_TEMPLATE="https://<public-lakehouse-host>/{object_key}"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_EXPECTED_ROW_COUNT=1442
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_SUMMARY_PATH=target/lakehouse/gold-profiles/summary.json
+
+cargo run -p foundation-outbox-publisher -- export-industrial-complex-gold-profiles
+```
+
+읽기에는 `FOUNDATION_PLATFORM_LAKEHOUSE_*`(Iceberg REST) 와
+`FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`(객체 저장소) 설정이 필요하다. 같은 Gold 스냅샷을 다시
+export 하면 같은 키에 바이트가 같은 객체가 나오므로 재실행은 `reused_object_count` 로 보고되고
+아무것도 덮어쓰지 않는다. 같은 키에 다른 바이트가 있으면 실패한다.
+
+산출된 프로필의 `attributes.parcel_count` 는 **모든 행에서 0** 이고
+`attributes.calculated_area_sqm` 는 **모든 행에서 null** 이다. 그 0 은 "필지가 없다"는 사실이
+아니라 자리표시다: 필지 소속을 계산하지 않기로 했으므로 Spark 잡이 상수를 넣는다. 소비자는 이
+값을 필지 수로 읽어서는 안 된다. 요약의 `placeholder_parcel_count_row_count` 가 그 규모를 낸다.
+
 ### Industrial-complex Gold pointer publish
 
-Spark/Iceberg가 Gold industrial-complex 산출물을 쓰고 검증한 뒤 얇은
-Catalog pointer through the Rust control plane. This records `source_record`, `file_asset`,
-`industrial_complex_gold_pointer`, and the outbox event in one transaction.
+위 export 가 낸 요약의 `artifacts[]` 항목 하나가 포인터 하나의 입력이다. 이 단계는
+`source_record`, `file_asset`, `industrial_complex_gold_pointer`, outbox event 를 한 트랜잭션에
+기록한다.
 
 ```bash
 export DATABASE_URL="postgres://foundation_platform:foundation_platform_dev_2026@localhost:15434/foundation_platform"
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_COMPLEX_ID="<complex-uuid>"
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_CURRENT_VERSION="gold-2026-05-18T000000Z"
+# 아래 값은 export 요약의 artifacts[] 한 항목에서 그대로 온다.
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_COMPLEX_ID="<artifacts[].complex_id>"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_CURRENT_VERSION="<artifacts[].current_version>"
 export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_EXPECTED_CURRENT_VERSION=""
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_OBJECT_KEY="gold/industrial-complex/profiles/gold-2026-05-18T000000Z.json"
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_SPATIAL_LOCATOR_OBJECT_KEY="gold/industrial-complex/spatial-locators/gold-2026-05-18T000000Z.parquet"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_OBJECT_KEY="<artifacts[].profile_object_key>"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_URL_TEMPLATE="https://<public-lakehouse-host>/{object_key}"
 export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_SOURCE="foundation-platform.spark.industrial_complex_gold"
 export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_SOURCE_EXTERNAL_ID="<spark-run-id>"
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_SOURCE_SNAPSHOT_ID="<source-snapshot-id>"
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_ICEBERG_SNAPSHOT_ID="<iceberg-snapshot-id>"
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_ROW_COUNT="1"
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_SIZE_BYTES="1024"
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_SPATIAL_LOCATOR_SIZE_BYTES="2048"
-export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_CHECKSUM_SHA256="<64-lowercase-hex>"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_SOURCE_SNAPSHOT_ID="<artifacts[].source_snapshot_id>"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_ICEBERG_SNAPSHOT_ID="<artifacts[].iceberg_snapshot_id>"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_ROW_COUNT="<artifacts[].profile_row_count>"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_SIZE_BYTES="<artifacts[].profile_size_bytes>"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PROFILE_CHECKSUM_SHA256="<artifacts[].profile_checksum_sha256>"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_PUBLISHED_AT_UTC="<artifacts[].published_at_utc>"
 
 cargo run -p foundation-outbox-publisher -- publish-industrial-complex-gold-pointer
 ```
@@ -314,6 +344,10 @@ cargo run -p foundation-outbox-publisher -- publish-industrial-complex-gold-poin
 기존 pointer를 바꿀 때 stale-write 방지를 위해
 `FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_POINTER_EXPECTED_CURRENT_VERSION`을 사용한다.
 첫 공개에서만 비워 둔다.
+
+`..._PROFILE_URL_TEMPLATE` 은 필수이며 `{object_key}` 를 정확히 한 번 담아야 한다(root ADR-0037).
+클라이언트가 그 자리를 `profile_object_key` 또는 `spatial_locator_object_key` 로 치환해 주소를
+만든다. export 요약의 `profile_url_template` 과 같은 값을 쓴다.
 
 Spark Iceberg runtime 은 `spark-submit --packages` 로 driver 시작 전에 주입한다. Docker Spark image 는
 기본 Ivy cache path 가 writable 이 아니므로 script 는 `spark.jars.ivy=/tmp/.ivy2` 를 명시한다.

@@ -12,8 +12,8 @@ use tokio::io::{self, AsyncWriteExt as _};
 use crate::errors::PublishError;
 
 use super::{
-    sha256_hex, ObjectStorageService, ObjectStorageStreamingService, ObjectWriteMode,
-    PutObjectRequest, StreamingObjectRehash, StreamingPutObjectRequest,
+    sha256_hex, EvidenceByteReader, ObjectStorageService, ObjectStorageStreamingService,
+    ObjectWriteMode, PutObjectRequest, StreamingObjectRehash, StreamingPutObjectRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -126,6 +126,15 @@ impl ObjectStorageService for FileObjectStorage {
                 path.display()
             ))),
         }
+    }
+}
+
+#[async_trait]
+impl EvidenceByteReader for FileObjectStorage {
+    /// Reads the stored bytes back so a `CreateOnly` collision can be reconciled locally the same
+    /// way it is against R2: by comparing exact bytes, never by trusting the key alone.
+    async fn read_evidence_bytes(&self, key: &str) -> Result<Vec<u8>, PublishError> {
+        self.get_object_bytes(key)
     }
 }
 
