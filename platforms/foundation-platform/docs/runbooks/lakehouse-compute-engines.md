@@ -305,10 +305,10 @@ export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_SUMMARY_PATH=target/l
 cargo run -p foundation-outbox-publisher -- export-industrial-complex-gold-profiles
 ```
 
-읽기에는 `FOUNDATION_PLATFORM_LAKEHOUSE_*`(Iceberg REST) 와
-`FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`(객체 저장소) 설정이 필요하다. **쓰기는 다른 버킷이다** —
-`r2` 드라이버는 serving-derivative 연결(`FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_*`)로 쓰며,
-lakehouse 버킷에는 쓸 수 없다(root ADR-0038). 같은 Gold 스냅샷을 다시
+읽기에도 쓰기에도 `FOUNDATION_PLATFORM_LAKEHOUSE_*`(Iceberg REST) 와
+`FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`(객체 저장소) 설정이 필요하다. 산출물은 lakehouse 버킷의
+`gold/industrial-complex/profiles/` 아래에 쓰이며, parcel marker anchor 아티팩트와 같은
+자리다(root ADR-0039). 요약의 `output_bucket` 이 실제로 쓴 버킷을 적는다. 같은 Gold 스냅샷을 다시
 export 하면 같은 키에 바이트가 같은 객체가 나오므로 재실행은 `reused_object_count` 로 보고되고
 아무것도 덮어쓰지 않는다. 같은 키에 다른 바이트가 있으면 실패한다.
 

@@ -1,6 +1,6 @@
 # ADR 0038: 가져가라고 만든 산출물은 정본 바이트와 버킷을 같이 쓰지 않는다
 
-- Status: Accepted
+- Status: Superseded by ADR-0039
 - Date: 2026-08-18
 
 ## Context

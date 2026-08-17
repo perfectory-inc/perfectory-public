@@ -155,7 +155,6 @@ mod remote_lakehouse_job;
 mod rt_molit_real_transaction_export_collection_plan;
 mod rt_molit_real_transaction_export_ingest;
 mod runtime_environment;
-mod serving_derivative_object_storage;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;

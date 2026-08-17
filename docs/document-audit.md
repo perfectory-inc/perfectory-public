@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **362개**
-- 언어 분류: **{'english': 34, 'korean': 167, 'mixed': 161}**
+- 감사 문서: **363개**
+- 언어 분류: **{'english': 34, 'korean': 168, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **200개 정상 / 0개 누락 / 162개 해당 없음**
+- 메타데이터: **200개 정상 / 0개 누락 / 163개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -60,7 +60,8 @@
 | `docs/adr/0035-a-region-the-pipeline-does-not-use-is-not-required.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0036-a-pointed-at-object-has-the-command-that-wrote-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0037-a-pointer-carries-the-address-template-with-its-object-key.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md` | Monorepo | ADR | Superseded by ADR-0039 | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0039-gold-serving-artifacts-live-in-the-lakehouse-bucket-and-tiles-do-not.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

@@ -4,11 +4,10 @@
 //! a separate storage security boundary: the publisher may create objects, while Martin receives
 //! a different read-only credential. No delete or overwrite operation is exposed here.
 
-use anyhow::{ensure, Context};
+use anyhow::{bail, ensure, Context};
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
 
 use crate::r2_layout::vector_tile_release_key;
-use crate::serving_derivative_object_storage::validate_serving_derivative_bucket;
 
 const ACCOUNT_ID: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID";
 const ENDPOINT: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT";
@@ -114,13 +113,33 @@ fn validate_endpoint(account_id: &str, endpoint: &str) -> anyhow::Result<()> {
 }
 
 fn validate_bucket(bucket: &str) -> anyhow::Result<()> {
-    // Name shape and the protected-bucket refusal are shared by every serving derivative, so
-    // they live in one module rather than once per artifact kind.
-    validate_serving_derivative_bucket(bucket)?;
+    ensure!(
+        bucket.len() >= 3
+            && bucket.len() <= 63
+            && bucket == bucket.to_ascii_lowercase()
+            && bucket
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            && !bucket.starts_with('-')
+            && !bucket.ends_with('-')
+            && !bucket.contains("--"),
+        "{BUCKET} is not a valid R2 bucket name"
+    );
     ensure!(
         bucket.contains("tile") || bucket.contains("derivative"),
         "{BUCKET} must be a dedicated tile-derivative bucket"
     );
+    for protected in [
+        "foundation-platform-lakehouse-prod",
+        "gongzzang-lakehouse-prod",
+        "foundation-platform-postgres-recovery-prod",
+        "agency-public-assets",
+        "dawneer-lakehouse-prod",
+    ] {
+        if bucket == protected {
+            bail!("{BUCKET} may not target protected bucket {protected}");
+        }
+    }
     Ok(())
 }
 

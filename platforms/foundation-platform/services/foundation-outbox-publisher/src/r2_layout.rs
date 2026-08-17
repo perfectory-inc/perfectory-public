@@ -69,6 +69,21 @@ pub fn industrial_complex_gold_profile_key(artifact_id: &str) -> anyhow::Result<
     ))
 }
 
+/// Returns whether `key` is the canonical key of one industrial-complex Gold profile.
+///
+/// Derived by round-tripping through `industrial_complex_gold_profile_key`, so a key this accepts
+/// is one this module would itself have produced. The profile export checks it immediately before
+/// writing: the export builds the key from the artifact id, and this is what makes an arbitrary
+/// caller-supplied key impossible to write under that command.
+pub fn is_industrial_complex_gold_profile_key(key: &str) -> bool {
+    key.strip_prefix(INDUSTRIAL_COMPLEX_GOLD_PROFILE_ROOT)
+        .and_then(|relative| relative.strip_prefix('/'))
+        .and_then(|file_name| file_name.strip_suffix(".json"))
+        .is_some_and(|artifact_id| {
+            industrial_complex_gold_profile_key(artifact_id).is_ok_and(|canonical| canonical == key)
+        })
+}
+
 pub fn bronze_catalog_recovery_evidence_key(kind: &str, sha256: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
         BRONZE_CATALOG_RECOVERY_EVIDENCE_KINDS.contains(&kind),
@@ -140,9 +155,10 @@ fn parse_artifact_id(raw: &str, label: &'static str) -> anyhow::Result<Uuid> {
 mod tests {
     use super::{
         bronze_catalog_recovery_evidence_key, industrial_complex_gold_profile_key,
-        is_bronze_catalog_recovery_evidence_key, is_parcel_publication_execution_evidence_key,
-        parcel_marker_anchor_artifact_prefix, parcel_publication_execution_evidence_key,
-        vector_tile_artifact_prefix, vector_tile_manifest_key, vector_tile_release_key,
+        is_bronze_catalog_recovery_evidence_key, is_industrial_complex_gold_profile_key,
+        is_parcel_publication_execution_evidence_key, parcel_marker_anchor_artifact_prefix,
+        parcel_publication_execution_evidence_key, vector_tile_artifact_prefix,
+        vector_tile_manifest_key, vector_tile_release_key,
     };
 
     const ID: &str = "018f0000-0000-7000-8000-000000000001";
@@ -188,6 +204,27 @@ mod tests {
         for unit in ["Parcels", "parcels/other", "parcels,anchors", "../parcels"] {
             assert!(vector_tile_release_key(unit, ID).is_err());
         }
+    }
+
+    #[test]
+    fn only_a_canonical_profile_key_is_recognised_as_one() -> anyhow::Result<()> {
+        let key = industrial_complex_gold_profile_key(ID)?;
+
+        assert!(is_industrial_complex_gold_profile_key(&key));
+        for other in [
+            "gold/industrial-complex/profiles/latest.json",
+            "gold/industrial-complex/profiles/nested/018f0000-0000-7000-8000-000000000001.json",
+            "gold/industrial-complex/profiles",
+            "gold/manifest.json",
+            "bronze/vworld/2026/raw.jsonl",
+            "silver/industrial-complexes/part-0.parquet",
+        ] {
+            assert!(
+                !is_industrial_complex_gold_profile_key(other),
+                "non-canonical key was recognised as a profile: {other}"
+            );
+        }
+        Ok(())
     }
 
     #[test]

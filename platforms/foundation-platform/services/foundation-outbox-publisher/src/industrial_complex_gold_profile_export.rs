@@ -9,9 +9,9 @@
 //! an address is a publication. Writing the artifact must not wait on a serving hostname, but
 //! pointing consumers at it must not proceed without one.
 //!
-//! The artifacts are written to the serving-derivative bucket, never the lakehouse bucket the rows
-//! are read from (root ADR-0038). A fetchable artifact must not share a bucket with the canonical
-//! collection sources.
+//! The artifacts are written to the lakehouse bucket under `gold/`, beside the other Gold
+//! artifacts a client fetches (root ADR-0039). The bucket that run wrote to is recorded in the
+//! summary, so a run that reached the wrong one says so in its own output.
 //!
 //! The command does not publish pointers. Producing the object and pointing at it are separate
 //! failures, and were separated so a half-run cannot leave a pointer aimed at nothing.
@@ -42,9 +42,7 @@ use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use uuid::Uuid;
 
-use crate::serving_derivative_object_storage::{
-    assert_serving_derivative_key, ServingDerivativeR2Config,
-};
+use crate::r2_layout::is_industrial_complex_gold_profile_key;
 use profile_document::{GoldSnapshotProvenance, ProfileArtifact, PROFILE_SCHEMA_VERSION};
 
 const SUMMARY_SCHEMA_VERSION: &str =
@@ -130,7 +128,7 @@ enum ProfileOutputConfig {
 #[derive(Clone)]
 enum ProfileOutput {
     Local(FileObjectStorage),
-    ServingDerivativeR2(Box<R2ObjectStorage>, String),
+    R2(Box<R2ObjectStorage>, String),
 }
 
 /// Reads the lakehouse objects the Iceberg snapshot points at.
@@ -234,11 +232,11 @@ impl ProfileOutput {
                 )?))
             }
             ProfileOutputConfig::R2 => {
-                let config = ServingDerivativeR2Config::from_env()
-                    .context("failed to configure the serving-derivative R2 output")?;
-                let bucket_name = config.writer.bucket_name.clone();
-                Ok(Self::ServingDerivativeR2(
-                    Box::new(R2ObjectStorage::from_config(config.writer)),
+                let config = R2ObjectStorageConfig::from_env()
+                    .context("failed to configure the R2 profile output")?;
+                let bucket_name = config.bucket_name.clone();
+                Ok(Self::R2(
+                    Box::new(R2ObjectStorage::from_config(config)),
                     bucket_name,
                 ))
             }
@@ -248,7 +246,7 @@ impl ProfileOutput {
     const fn storage_driver(&self) -> &'static str {
         match self {
             Self::Local(_) => "local",
-            Self::ServingDerivativeR2(_, _) => "serving-derivative-r2",
+            Self::R2(_, _) => "r2",
         }
     }
 
@@ -259,13 +257,17 @@ impl ProfileOutput {
     fn output_bucket(&self) -> Option<&str> {
         match self {
             Self::Local(_) => None,
-            Self::ServingDerivativeR2(_, bucket_name) => Some(bucket_name.as_str()),
+            Self::R2(_, bucket_name) => Some(bucket_name.as_str()),
         }
     }
 
     /// Writes one artifact create-only, reusing an existing object only when the bytes match.
     async fn write_create_only(&self, artifact: &ProfileArtifact) -> anyhow::Result<bool> {
-        assert_serving_derivative_key(artifact.object_key.as_str())?;
+        ensure!(
+            is_industrial_complex_gold_profile_key(artifact.object_key.as_str()),
+            "refusing to write {} : it is not a canonical industrial-complex Gold profile key",
+            artifact.object_key
+        );
         let request = PutObjectRequest {
             key: artifact.object_key.clone(),
             body: artifact.body.clone(),
@@ -276,7 +278,7 @@ impl ProfileOutput {
         };
         let outcome = match self {
             Self::Local(storage) => storage.put_object(request).await,
-            Self::ServingDerivativeR2(storage, _) => storage.put_object(request).await,
+            Self::R2(storage, _) => storage.put_object(request).await,
         };
         match outcome {
             Ok(()) => Ok(true),
@@ -297,7 +299,7 @@ impl ProfileOutput {
     async fn read_bytes(&self, key: &str) -> anyhow::Result<Vec<u8>> {
         match self {
             Self::Local(storage) => storage.read_evidence_bytes(key).await,
-            Self::ServingDerivativeR2(storage, _) => storage.read_evidence_bytes(key).await,
+            Self::R2(storage, _) => storage.read_evidence_bytes(key).await,
         }
         .with_context(|| format!("failed to read the colliding profile object {key}"))
     }
