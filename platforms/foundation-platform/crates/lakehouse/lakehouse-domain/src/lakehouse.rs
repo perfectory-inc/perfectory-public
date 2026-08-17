@@ -100,15 +100,18 @@ const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: true,
     },
+    // Region is optional for the whole administrative triple: the owner deferred per-region
+    // industrial-complex work, and requiring a code no source states would only be satisfiable by
+    // inventing one. Absent stays `null`, never `""` or a zero code (root ADR-0035).
     LakehouseColumn {
         name: "sido_code",
         logical_type: "string",
-        required: true,
+        required: false,
     },
     LakehouseColumn {
         name: "sigungu_code",
         logical_type: "string",
-        required: true,
+        required: false,
     },
     LakehouseColumn {
         name: "primary_bjdong_code",
@@ -886,15 +889,17 @@ const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: true,
     },
+    // The projection cannot require what the canonical table no longer carries for every row
+    // (root ADR-0035).
     LakehouseColumn {
         name: "sido_code",
         logical_type: "string",
-        required: true,
+        required: false,
     },
     LakehouseColumn {
         name: "sigungu_code",
         logical_type: "string",
-        required: true,
+        required: false,
     },
     LakehouseColumn {
         name: "address_text",
@@ -999,12 +1004,14 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
     columns: SILVER_INDUSTRIAL_COMPLEXES_COLUMNS,
-    partition_spec: &["sido_code", "bucket(32, complex_id)"],
-    sort_order: &[
-        "sigungu_code",
-        "complex_name_normalized",
-        "official_complex_code",
-    ],
+    // The snapshot, not the province. `sido_code` cannot partition a table that admits a row
+    // without one, and this table is loaded, re-read, and superseded one monthly snapshot at a
+    // time — `source_snapshot_id` is required, single-valued per load, and already the predicate
+    // the Iceberg read-back filters on. The `bucket(32, complex_id)` fan-out went with it: 1,442
+    // rows per snapshot is 45 rows a bucket, which is file overhead rather than pruning
+    // (root ADR-0035).
+    partition_spec: &["source_snapshot_id"],
+    sort_order: &["complex_name_normalized", "official_complex_code"],
     quality_gates: &[
         "(official_complex_code, source_snapshot_id) unique",
         "complex_name non-empty",
@@ -1147,8 +1154,10 @@ pub const GOLD_COMPLEX_CATALOG: LakehouseTableContract = LakehouseTableContract 
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
     columns: GOLD_COMPLEX_CATALOG_COLUMNS,
-    partition_spec: &["sido_code"],
-    sort_order: &["sigungu_code", "name", "complex_id"],
+    // Follows the canonical table it projects: the snapshot the rows were published from
+    // (root ADR-0035).
+    partition_spec: &["source_snapshot_id"],
+    sort_order: &["name", "complex_id"],
     quality_gates: &[
         "one active row per complex_id",
         "parcel_count is non-negative",

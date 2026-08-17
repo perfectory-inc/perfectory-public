@@ -44,10 +44,12 @@ fn valid_summary_value() -> Value {
             "complex_kind__empty_count": 0,
             "status__null_count": 0,
             "status__empty_count": 0,
-            "sido_code__null_count": 0,
             "sido_code__empty_count": 0,
-            "sigungu_code__null_count": 0,
             "sigungu_code__empty_count": 0,
+            "primary_bjdong_code__empty_count": 0,
+            "address_text__empty_count": 0,
+            "management_agency_name__empty_count": 0,
+            "developer_name__empty_count": 0,
             "source_record_id__null_count": 0,
             "source_record_id__empty_count": 0,
             "source_snapshot_id__null_count": 0,
@@ -60,7 +62,8 @@ fn valid_summary_value() -> Value {
             "invalid_status_count": 0,
             "invalid_official_area_count": 0,
             "invalid_complex_id_count": 0,
-            "invalid_checksum_count": 0
+            "invalid_checksum_count": 0,
+            "invalid_region_code_count": 0
         },
         "column_count": 21,
         "columns": [
@@ -93,8 +96,6 @@ fn valid_summary_value() -> Value {
             "complex_name_normalized",
             "complex_kind",
             "status",
-            "sido_code",
-            "sigungu_code",
             "source_record_id",
             "source_snapshot_id",
             "valid_from_utc",

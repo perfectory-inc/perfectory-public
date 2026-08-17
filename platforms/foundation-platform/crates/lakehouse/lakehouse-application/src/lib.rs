@@ -88,8 +88,9 @@ pub use building_register_unit_silver_plan::{
 pub use industrial_complex_address_resolution_plan::{
     resolve_industrial_complex_addresses, IndustrialComplexAddressResolution,
     IndustrialComplexAddressResolutionError, IndustrialComplexAddressResolutionInput,
-    ResolutionTier, ResolvedComplexAddress, SourceComplexRecord, SourceNoticeRecord,
-    UnresolvedComplex, UnresolvedReason, NOTICE_DATASET_SLUG_SUFFIX,
+    MissingAdministrativeCodeReason, ResolutionTier, ResolvedAdministrativeCode,
+    ResolvedComplexAddress, SourceComplexRecord, SourceNoticeRecord, UnresolvedComplex,
+    UnresolvedReason, NOTICE_DATASET_SLUG_SUFFIX,
 };
 pub use industrial_complex_bronze_raw_plan::{
     industrial_complex_bronze_raw_row_to_jsonl, industrial_complex_labels_measured_for,

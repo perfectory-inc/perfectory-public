@@ -17,6 +17,12 @@
 //! | [`ResolutionTier::SourceCodeInAuthority`] | the complex's own code is in the authority | exact |
 //! | [`ResolutionTier::ModalNoticeCode`] | the most frequent valid code among that complex's own notices | heuristic |
 //! | [`ResolutionTier::LearnedCodeMigration`] | a superseded code mapped through migrations observed in the tier above | derived |
+//! | [`ResolutionTier::AddressTextOnly`] | no rule produced a code; the official address text alone | none |
+//!
+//! The fourth row is not a fourth rule. It is what the derivation says when the three rules find
+//! nothing: the complex keeps its published address text and its region columns are `null`. Before
+//! root ADR-0035 that outcome failed the whole export, because region was a requirement; it no
+//! longer is, and a made-up district code would still be forbidden.
 //!
 //! The migration table is **learned, never typed**. A constant list of "old code -> new code" pairs
 //! in this file would be an unfalsifiable claim about the outside world; a table derived from what
@@ -54,6 +60,12 @@ pub enum ResolutionTier {
     ModalNoticeCode,
     /// A superseded code mapped through the learned migration table.
     LearnedCodeMigration,
+    /// No rule produced an administrative code; the source published only the address words.
+    ///
+    /// Distinct from the three above rather than a fourth way of getting a code, because there is
+    /// no code. The resolution still carries the official address text and its provenance, and the
+    /// exported row writes `null` for every region column (root ADR-0035).
+    AddressTextOnly,
 }
 
 impl ResolutionTier {
@@ -67,7 +79,18 @@ impl ResolutionTier {
             Self::SourceCodeInAuthority => "source_code_in_authority",
             Self::ModalNoticeCode => "modal_notice_code",
             Self::LearnedCodeMigration => "learned_code_migration",
+            Self::AddressTextOnly => "address_text_only",
         }
+    }
+
+    /// Returns whether a line of this tier carries an administrative code.
+    ///
+    /// The reader checks both directions. A line that says `address_text_only` and still carries a
+    /// code is claiming a rule produced a value it also says was never produced, and a line of any
+    /// other tier with no code names a rule that produces codes and then shows none.
+    #[must_use]
+    pub const fn carries_an_administrative_code(self) -> bool {
+        !matches!(self, Self::AddressTextOnly)
     }
 
     /// Parses a wire value read back out of a resolution file.
@@ -84,6 +107,7 @@ impl ResolutionTier {
             "source_code_in_authority" => Ok(Self::SourceCodeInAuthority),
             "modal_notice_code" => Ok(Self::ModalNoticeCode),
             "learned_code_migration" => Ok(Self::LearnedCodeMigration),
+            "address_text_only" => Ok(Self::AddressTextOnly),
             other => Err(
                 IndustrialComplexAddressResolutionError::UnknownResolutionTier(other.to_owned()),
             ),
@@ -103,7 +127,9 @@ impl ResolutionTier {
         let names_the_notices = dataset.trim().ends_with(NOTICE_DATASET_SLUG_SUFFIX);
         match self {
             Self::ModalNoticeCode => names_the_notices,
-            Self::SourceCodeInAuthority | Self::LearnedCodeMigration => !names_the_notices,
+            Self::SourceCodeInAuthority | Self::LearnedCodeMigration | Self::AddressTextOnly => {
+                !names_the_notices
+            }
         }
     }
 }
@@ -111,16 +137,15 @@ impl ResolutionTier {
 /// Dataset-slug suffix that identifies the notice dataset in a resolution line's provenance.
 pub const NOTICE_DATASET_SLUG_SUFFIX: &str = "industrial_complex_notice";
 
-/// Why one complex could not be resolved.
+/// Why one complex could not be resolved at all.
+///
+/// Both variants are about the address text, not the administrative code: a complex with no words
+/// and no code has no location to record, while a complex with words and no code is resolved with
+/// [`ResolutionTier::AddressTextOnly`] (root ADR-0035).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UnresolvedReason {
     /// The address source does not list this complex at all.
     MissingFromSourceList,
-    /// The source lists it but carries no administrative code.
-    SourceCodeAbsent,
-    /// The source's code is not in the authority, and neither the notices nor the learned
-    /// migrations offer a current one.
-    SourceCodeUnknownAndNoNoticeEvidence,
     /// The source lists it but carries no address text, so there is nothing to record as the
     /// official address.
     AddressTextAbsent,
@@ -132,11 +157,34 @@ impl UnresolvedReason {
     pub const fn wire_name(self) -> &'static str {
         match self {
             Self::MissingFromSourceList => "missing_from_source_list",
+            Self::AddressTextAbsent => "address_text_absent",
+        }
+    }
+}
+
+/// Why one resolved complex carries no administrative code.
+///
+/// Kept apart from [`UnresolvedReason`] because these complexes did resolve: the summary says how
+/// each of them came to have no code, which is the difference between a source that never stated
+/// one and a source whose code no longer exists.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MissingAdministrativeCodeReason {
+    /// The source lists the complex but carries no administrative code.
+    SourceCodeAbsent,
+    /// The source's code is not in the authority, and neither the notices nor the learned
+    /// migrations offer a current one.
+    SourceCodeUnknownAndNoNoticeEvidence,
+}
+
+impl MissingAdministrativeCodeReason {
+    /// Returns the stable wire value written into the run summary.
+    #[must_use]
+    pub const fn wire_name(self) -> &'static str {
+        match self {
             Self::SourceCodeAbsent => "source_code_absent",
             Self::SourceCodeUnknownAndNoNoticeEvidence => {
                 "source_code_unknown_and_no_notice_evidence"
             }
-            Self::AddressTextAbsent => "address_text_absent",
         }
     }
 }
@@ -186,15 +234,30 @@ pub struct IndustrialComplexAddressResolutionInput<'a> {
     pub notice_dataset: &'a str,
 }
 
+/// The administrative code a resolution ended up with, or why it has none.
+///
+/// One field rather than a code plus a nullable reason, so a resolution cannot claim both or
+/// neither.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ResolvedAdministrativeCode {
+    /// A rule produced a ten-digit code, and the code says what it names.
+    Sourced {
+        /// Ten-digit administrative code.
+        code: String,
+        /// How precise `code` is.
+        granularity: IndustrialComplexAddressGranularity,
+    },
+    /// No rule produced a code for this complex.
+    Missing(MissingAdministrativeCodeReason),
+}
+
 /// One resolved address, ready to be written as a resolution line.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedComplexAddress {
     /// `official_complex_code` the resolution is for.
     pub official_complex_code: String,
-    /// Ten-digit administrative code.
-    pub administrative_code: String,
-    /// How precise [`Self::administrative_code`] is.
-    pub granularity: IndustrialComplexAddressGranularity,
+    /// The administrative code, or the reason there is none.
+    pub administrative_code: ResolvedAdministrativeCode,
     /// Official address text, verbatim from the source.
     pub address_text: String,
     /// Bronze source slug the value came from.
@@ -249,6 +312,23 @@ impl IndustrialComplexAddressResolution {
             *counts.entry(unresolved.reason.wire_name()).or_insert(0) += 1;
         }
         counts
+    }
+
+    /// Returns the resolutions that carry no administrative code, with the reason for each.
+    ///
+    /// Named individually rather than counted, because "which complexes are these?" is the
+    /// question a reader of the evidence actually has.
+    #[must_use]
+    pub fn missing_administrative_codes(&self) -> Vec<(&str, MissingAdministrativeCodeReason)> {
+        self.resolved
+            .iter()
+            .filter_map(|resolution| match resolution.administrative_code {
+                ResolvedAdministrativeCode::Missing(reason) => {
+                    Some((resolution.official_complex_code.as_str(), reason))
+                }
+                ResolvedAdministrativeCode::Sourced { .. } => None,
+            })
+            .collect()
     }
 }
 
@@ -311,58 +391,14 @@ pub fn resolve_industrial_complex_addresses(
     let mut decisions = BTreeMap::<&str, Decision>::new();
     let mut learned = LearnedMigrations::default();
     for code in input.target_complex_codes {
-        let Some(record) = complexes.get(code.as_str()) else {
-            decisions.insert(
-                code.as_str(),
-                Decision::Unresolved(UnresolvedReason::MissingFromSourceList),
-            );
-            continue;
-        };
-        let Some(source_code) = normalized_code(record.administrative_code.as_deref()) else {
-            decisions.insert(
-                code.as_str(),
-                Decision::Unresolved(UnresolvedReason::SourceCodeAbsent),
-            );
-            continue;
-        };
-        let own_notices = notices_by_complex
-            .get(code.as_str())
-            .map_or(&[][..], Vec::as_slice);
-        if authority.contains(sigungu_prefix(&source_code)) {
-            // This complex is in a district the authority knows, and some of its own notices may
-            // still be filed under a code the authority does not. Each such pair is one more
-            // observation of the same superseded-to-current migration the notice-mode rule
-            // produces, and it is the evidence that lets a complex with no notices of its own be
-            // resolved at all.
-            observe_superseded_notice_codes(
-                own_notices,
-                &authority,
-                source_code.as_str(),
-                &mut learned,
-            )?;
-            decisions.insert(
-                code.as_str(),
-                Decision::Resolved {
-                    administrative_code: source_code,
-                    tier: ResolutionTier::SourceCodeInAuthority,
-                    notice_record_id: None,
-                },
-            );
-            continue;
-        }
-        if let Some(chosen) = modal_valid_notice_code(own_notices, &authority) {
-            learned.observe(source_code.as_str(), chosen.code.as_str())?;
-            decisions.insert(
-                code.as_str(),
-                Decision::Resolved {
-                    administrative_code: chosen.code,
-                    tier: ResolutionTier::ModalNoticeCode,
-                    notice_record_id: Some(chosen.notice_record_id),
-                },
-            );
-            continue;
-        }
-        decisions.insert(code.as_str(), Decision::PendingMigration(source_code));
+        let decision = decide_from_source_and_notices(
+            code.as_str(),
+            &complexes,
+            &notices_by_complex,
+            &authority,
+            &mut learned,
+        )?;
+        decisions.insert(code.as_str(), decision);
     }
 
     // Pass two: the learned migrations are only complete once every notice observation is in, so a
@@ -370,35 +406,13 @@ pub fn resolve_industrial_complex_addresses(
     let mut resolved = Vec::new();
     let mut unresolved = Vec::new();
     for code in input.target_complex_codes {
-        let decision = decisions.remove(code.as_str());
-        let record = complexes.get(code.as_str()).copied();
-        let outcome = match decision {
-            Some(Decision::Unresolved(reason)) => Err(reason),
-            Some(Decision::PendingMigration(source_code)) => {
-                learned.current_code_for(source_code.as_str()).map_or(
-                    Err(UnresolvedReason::SourceCodeUnknownAndNoNoticeEvidence),
-                    |current| {
-                        Ok(Decided {
-                            administrative_code: current.to_owned(),
-                            tier: ResolutionTier::LearnedCodeMigration,
-                            notice_record_id: None,
-                        })
-                    },
-                )
-            }
-            Some(Decision::Resolved {
-                administrative_code,
-                tier,
-                notice_record_id,
-            }) => Ok(Decided {
-                administrative_code,
-                tier,
-                notice_record_id,
-            }),
-            // A repeated target code was already decided on its first appearance; the profile
-            // producer rejects duplicates, so this is unreachable rather than a silent skip.
-            None => continue,
+        // A repeated target code was already decided on its first appearance; the profile producer
+        // rejects duplicates, so a second visit is unreachable rather than a silent skip.
+        let Some(decision) = decisions.remove(code.as_str()) else {
+            continue;
         };
+        let record = complexes.get(code.as_str()).copied();
+        let outcome = settle(decision, &learned);
         match outcome.and_then(|decided| resolution_for(input, code, record, decided)) {
             Ok(resolution) => resolved.push(resolution),
             Err(reason) => unresolved.push(UnresolvedComplex {
@@ -423,14 +437,111 @@ enum Decision {
         notice_record_id: Option<String>,
     },
     PendingMigration(String),
+    NoCode(MissingAdministrativeCodeReason),
     Unresolved(UnresolvedReason),
+}
+
+/// Applies the first two rules to one complex, recording whatever migrations it observes.
+///
+/// The third rule cannot run here: it reads a table that is only complete once every complex has
+/// been through this pass.
+fn decide_from_source_and_notices(
+    code: &str,
+    complexes: &BTreeMap<&str, &SourceComplexRecord>,
+    notices_by_complex: &BTreeMap<&str, Vec<&SourceNoticeRecord>>,
+    authority: &BTreeSet<String>,
+    learned: &mut LearnedMigrations,
+) -> Result<Decision, IndustrialComplexAddressResolutionError> {
+    let Some(record) = complexes.get(code) else {
+        return Ok(Decision::Unresolved(
+            UnresolvedReason::MissingFromSourceList,
+        ));
+    };
+    let Some(source_code) = normalized_code(record.administrative_code.as_deref()) else {
+        return Ok(Decision::NoCode(
+            MissingAdministrativeCodeReason::SourceCodeAbsent,
+        ));
+    };
+    let own_notices = notices_by_complex.get(code).map_or(&[][..], Vec::as_slice);
+    if authority.contains(sigungu_prefix(&source_code)) {
+        // This complex is in a district the authority knows, and some of its own notices may still
+        // be filed under a code the authority does not. Each such pair is one more observation of
+        // the same superseded-to-current migration the notice-mode rule produces, and it is the
+        // evidence that lets a complex with no notices of its own be resolved at all.
+        observe_superseded_notice_codes(own_notices, authority, source_code.as_str(), learned)?;
+        return Ok(Decision::Resolved {
+            administrative_code: source_code,
+            tier: ResolutionTier::SourceCodeInAuthority,
+            notice_record_id: None,
+        });
+    }
+    if let Some(chosen) = modal_valid_notice_code(own_notices, authority) {
+        learned.observe(source_code.as_str(), chosen.code.as_str())?;
+        return Ok(Decision::Resolved {
+            administrative_code: chosen.code,
+            tier: ResolutionTier::ModalNoticeCode,
+            notice_record_id: Some(chosen.notice_record_id),
+        });
+    }
+    Ok(Decision::PendingMigration(source_code))
+}
+
+/// Turns a pass-one decision into an outcome now that the learned migrations are complete.
+///
+/// A complex whose code no rule could establish is not an error here: it keeps whatever address the
+/// source published and its region columns are `null` (root ADR-0035).
+fn settle(decision: Decision, learned: &LearnedMigrations) -> Result<Decided, UnresolvedReason> {
+    match decision {
+        Decision::Unresolved(reason) => Err(reason),
+        Decision::NoCode(reason) => Ok(Decided::without_code(reason)),
+        Decision::PendingMigration(source_code) => {
+            Ok(learned.current_code_for(source_code.as_str()).map_or_else(
+                || {
+                    Decided::without_code(
+                        MissingAdministrativeCodeReason::SourceCodeUnknownAndNoNoticeEvidence,
+                    )
+                },
+                |current| Decided {
+                    administrative_code: ResolvedAdministrativeCode::Sourced {
+                        granularity: granularity_of(current),
+                        code: current.to_owned(),
+                    },
+                    tier: ResolutionTier::LearnedCodeMigration,
+                    notice_record_id: None,
+                },
+            ))
+        }
+        Decision::Resolved {
+            administrative_code,
+            tier,
+            notice_record_id,
+        } => Ok(Decided {
+            administrative_code: ResolvedAdministrativeCode::Sourced {
+                granularity: granularity_of(administrative_code.as_str()),
+                code: administrative_code,
+            },
+            tier,
+            notice_record_id,
+        }),
+    }
 }
 
 /// A code and the rule that produced it, before the address text is attached.
 struct Decided {
-    administrative_code: String,
+    administrative_code: ResolvedAdministrativeCode,
     tier: ResolutionTier,
     notice_record_id: Option<String>,
+}
+
+impl Decided {
+    /// The outcome for a complex no rule could give a code, which is still an address.
+    const fn without_code(reason: MissingAdministrativeCodeReason) -> Self {
+        Self {
+            administrative_code: ResolvedAdministrativeCode::Missing(reason),
+            tier: ResolutionTier::AddressTextOnly,
+            notice_record_id: None,
+        }
+    }
 }
 
 /// Attaches the source's address text and provenance to a decided code.
@@ -464,7 +575,6 @@ fn resolution_for(
         // Every code this derivation can produce is district-granularity: the source's own codes end
         // in five zeros and so do the notice codes. The value says so rather than the reader
         // assuming it (root ADR-0034).
-        granularity: granularity_of(decided.administrative_code.as_str()),
         administrative_code: decided.administrative_code,
         address_text: address_text.to_owned(),
         address_source_dataset: dataset.to_owned(),

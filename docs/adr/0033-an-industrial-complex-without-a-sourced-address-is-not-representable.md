@@ -7,7 +7,7 @@ last_reviewed: 2026-08-16
 
 # ADR 0033: 주소 출처가 없는 산업단지는 표현할 수 없다
 
-- Status: Accepted
+- Status: Accepted — 결정 2항의 파생 규칙과 Consequences의 계약 문장은 [ADR-0035](./0035-a-region-the-pipeline-does-not-use-is-not-required.md)가 대체
 - Date: 2026-08-16
 - 관련: [ADR-0027 모든 가드는 자기 위협 모델을 선언한다](./0027-every-guard-declares-its-threat-model.md), [ADR-0020 도형은 사실의 근거가 아니다](./0020-geometry-is-not-evidence-for-a-fact.md), [FP-ADR-0022 handoff와 저장 형식의 경계](../../platforms/foundation-platform/docs/adr/0022-lakehouse-handoff-vs-storage-format-boundary.md), [FP-ADR-0003 산업단지 Catalog SSOT](../../platforms/foundation-platform/docs/adr/0003-industrial-complex-catalog-ssot.md)
 
@@ -105,3 +105,18 @@ last_reviewed: 2026-08-16
 `industrial_complex_bronze_raw_plan.rs`의 `COMPLEX_STATUS_LABELS_OBSERVED` 문서 주석에 있다.
 이제 라벨 표는 측정된 것(`*_OBSERVED`)과 아직 어느 스냅샷도 내지 않은 것(`*_PRESUMED`)으로
 나뉘어 있다. 다른 기준월은 여전히 미측정이므로 (2)는 열린 채로 둔다.
+
+---
+
+## 개정 각주 — 2026-08-17
+
+[ADR-0035](./0035-a-region-the-pipeline-does-not-use-is-not-required.md)가 일부를 대체했다.
+소유자가 지역별 산업단지 기능을 지금 하지 않기로 했고, 그에 따라 `silver.industrial_complexes`와
+`gold.complex_catalog`가 `sido_code`·`sigungu_code`를 필수에서 내렸다. 위 Consequences의
+"`silver.industrial_complexes` 계약은 그대로 둔다. 필수 컬럼도 파티션 키도 바꾸지 않는다"는
+더 이상 현행이 아니다.
+
+**결정 1·3·5·6은 그대로다.** 특히 3항(한 행이라도 주소가 없으면 전체 실패)은 살아 있고, 결정
+2항의 "`IndustrialComplexBronzeRawRow`는 이 타입을 `Option`이 아니라 값으로 소유한다"도 그대로다.
+`Option`이 된 것은 주소가 아니라 주소 안의 행정구역 코드이고, 주소 글자와 출처 두 필드는 여전히
+값이다. 이 ADR의 제목은 계속 참이다.

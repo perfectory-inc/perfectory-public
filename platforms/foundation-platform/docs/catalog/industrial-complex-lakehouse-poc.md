@@ -108,10 +108,10 @@ Silver 에서 `EPSG:4326` 으로 정규화한다.
 | `complex_name_normalized` | string | yes | 검색/중복검사용 정규화명 |
 | `complex_kind` | string | yes | `national`, `general`, `agricultural`, `urban_high_tech` |
 | `status` | string | yes | `planned`, `developing`, `operating`, `changed`, `abolished`, `unknown` |
-| `sido_code` | string | yes | 시도 코드 |
-| `sigungu_code` | string | yes | 시군구 코드 |
-| `primary_bjdong_code` | string | no | 대표 법정동 코드 |
-| `address_text` | string | no | 공식 주소 텍스트 |
+| `sido_code` | string | no | 시도 코드. 출처가 행정구역 코드를 말했을 때만 채워진다 (root ADR-0035) |
+| `sigungu_code` | string | no | 시군구 코드. 같음 |
+| `primary_bjdong_code` | string | no | 대표 법정동 코드. 출처가 읍면동을 지목했을 때만 (root ADR-0034) |
+| `address_text` | string | no | 공식 주소 텍스트. 생산자 타입은 이 값을 필수로 요구한다 |
 | `management_agency_name` | string | no | 관리기관명 |
 | `developer_name` | string | no | 사업시행자 |
 | `designated_date` | date | no | 지정일 |
@@ -127,14 +127,12 @@ Silver 에서 `EPSG:4326` 으로 정규화한다.
 Partition:
 
 ```text
-sido_code
-bucket(32, complex_id)
+source_snapshot_id
 ```
 
 Sort:
 
 ```text
-sigungu_code
 complex_name_normalized
 official_complex_code
 ```
@@ -260,8 +258,8 @@ API list/detail 과 consumer read model 의 stable projection 이다.
 | `name` | string | yes | display name |
 | `kind` | string | yes | domain wire kind |
 | `status` | string | yes | serving status |
-| `sido_code` | string | yes | region filter |
-| `sigungu_code` | string | yes | region filter |
+| `sido_code` | string | no | region filter. canonical 표를 따라 선택 항목 (root ADR-0035) |
+| `sigungu_code` | string | no | region filter. 같음 |
 | `address_text` | string | no | official address |
 | `official_area_sqm` | decimal(18,2) | no | official area |
 | `calculated_area_sqm` | decimal(18,2) | no | boundary area |
@@ -274,13 +272,12 @@ API list/detail 과 consumer read model 의 stable projection 이다.
 Partition:
 
 ```text
-sido_code
+source_snapshot_id
 ```
 
 Sort:
 
 ```text
-sigungu_code
 name
 complex_id
 ```

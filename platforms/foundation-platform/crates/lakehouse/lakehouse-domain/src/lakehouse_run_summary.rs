@@ -623,6 +623,11 @@ fn required_quality_metric_names(contract: &LakehouseTableContract) -> Vec<Strin
                 "invalid_official_area_count",
                 "invalid_complex_id_count",
                 "invalid_checksum_count",
+                // Region columns are optional, so nullity is no longer gated for them. This is
+                // what still refuses a present-but-invented one — a `0`, a wrong width, or a run
+                // of zeros — and requiring the metric here is what stops the gate from being
+                // dropped from the job without a summary reader noticing (root ADR-0035).
+                "invalid_region_code_count",
             ]
             .into_iter()
             .map(str::to_owned),

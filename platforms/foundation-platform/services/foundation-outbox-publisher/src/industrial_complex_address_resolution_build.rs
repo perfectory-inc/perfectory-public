@@ -33,8 +33,8 @@ use anyhow::{bail, Context};
 use chrono::Utc;
 use lakehouse_application::{
     resolve_industrial_complex_addresses, IndustrialComplexAddressResolution,
-    IndustrialComplexAddressResolutionInput, ResolvedComplexAddress, SourceComplexRecord,
-    SourceNoticeRecord,
+    IndustrialComplexAddressResolutionInput, ResolvedAdministrativeCode, ResolvedComplexAddress,
+    SourceComplexRecord, SourceNoticeRecord,
 };
 use serde_json::{json, Value as JsonValue};
 use zip::ZipArchive;
@@ -409,10 +409,8 @@ fn write_resolution_jsonl(
     }
     let mut payload = Vec::new();
     for resolution in resolved {
-        let line = json!({
+        let mut line = json!({
             "official_complex_code": resolution.official_complex_code,
-            "administrative_code": resolution.administrative_code,
-            "administrative_code_granularity": resolution.granularity.wire_name(),
             "address_text": resolution.address_text,
             "address_source_dataset": resolution.address_source_dataset,
             "address_source_record_id": format!(
@@ -421,6 +419,22 @@ fn write_resolution_jsonl(
             ),
             "resolution_tier": resolution.resolution_tier.wire_name(),
         });
+        // The code and its granularity travel together or not at all. A complex no rule could give
+        // a code is written with neither key rather than with an empty string, so a reader has to
+        // decide what to do about an absent code instead of silently accepting a blank one
+        // (root ADR-0035).
+        if let ResolvedAdministrativeCode::Sourced { code, granularity } =
+            &resolution.administrative_code
+        {
+            let object = line
+                .as_object_mut()
+                .context("a resolution line must be a JSON object")?;
+            object.insert("administrative_code".to_owned(), json!(code));
+            object.insert(
+                "administrative_code_granularity".to_owned(),
+                json!(granularity.wire_name()),
+            );
+        }
         payload
             .write_all(serde_json::to_string(&line)?.as_bytes())
             .context("failed to buffer a resolution line")?;
@@ -453,6 +467,12 @@ fn summary_json(
     if !resolution.unresolved.is_empty() {
         evidence_limitations.push("some_complexes_have_no_sourced_address");
     }
+    let missing_administrative_codes = resolution.missing_administrative_codes();
+    if !missing_administrative_codes.is_empty() {
+        // Not a failure and not a silent pass: these complexes are exported with `null` region
+        // columns, and the artifact names every one of them (root ADR-0035).
+        evidence_limitations.push("some_complexes_have_no_administrative_code_only_address_text");
+    }
     json!({
         "schema_version": "foundation-platform.industrial_complex_address_resolution.v1",
         "generated_at_utc": Utc::now().to_rfc3339(),
@@ -477,6 +497,14 @@ fn summary_json(
             "unresolved_count": resolution.unresolved.len(),
             "tier_counts": resolution.tier_counts(),
             "unresolved_counts": resolution.unresolved_counts(),
+            "missing_administrative_code_count": missing_administrative_codes.len(),
+            "missing_administrative_codes": missing_administrative_codes
+                .iter()
+                .map(|(official_complex_code, reason)| json!({
+                    "official_complex_code": official_complex_code,
+                    "reason": reason.wire_name(),
+                }))
+                .collect::<Vec<_>>(),
             "unresolved_complex_codes": resolution
                 .unresolved
                 .iter()

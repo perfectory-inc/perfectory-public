@@ -2,10 +2,10 @@
 
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseLayer,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract, GOLD_COMPLEX_CATALOG,
     GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS, SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
-    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
+    SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
 };
 
 fn has_column(contract: &LakehouseTableContract, name: &str) -> bool {
@@ -48,6 +48,60 @@ fn silver_contracts_are_canonical() {
         .iter()
         .filter(|contract| contract.layer == LakehouseLayer::Silver)
         .all(|contract| contract.serving_role == LakehouseServingRole::Canonical));
+}
+
+/// A partition key is written into the path or the manifest of every row, so a null one has no
+/// value to write. Any contract that partitions on a column it does not require is unwritable for
+/// the rows the same contract says are legal, which is exactly the state
+/// `silver.industrial_complexes` was in once `sido_code` stopped being required (root ADR-0035).
+#[test]
+fn no_contract_partitions_on_a_column_it_does_not_require() {
+    for contract in industrial_complex_lakehouse_contracts() {
+        for entry in contract.partition_spec {
+            let Some(required) = column_required(contract, entry) else {
+                // A transform entry such as `bucket(32, complex_id)` names no column directly; the
+                // column it wraps is covered by the identity entries the same spec lists.
+                continue;
+            };
+            assert!(
+                required,
+                "{} partitions on optional column {entry}",
+                contract.table_name
+            );
+        }
+    }
+}
+
+/// The owner deferred per-region industrial-complex work, so neither the canonical table nor its
+/// projection may require a region or lean on one for physical layout (root ADR-0035). One complex
+/// in 1,442 has no district code from any source, and this is what lets it through without a code
+/// being invented for it.
+#[test]
+fn the_industrial_complex_tables_neither_require_nor_partition_on_a_region() {
+    for contract in [SILVER_INDUSTRIAL_COMPLEXES, GOLD_COMPLEX_CATALOG] {
+        for region in ["sido_code", "sigungu_code"] {
+            assert_eq!(
+                column_required(&contract, region),
+                Some(false),
+                "{} still requires {region}",
+                contract.table_name
+            );
+        }
+        assert_eq!(contract.partition_spec, &["source_snapshot_id"]);
+        for entry in contract.sort_order {
+            assert!(
+                !entry.contains("sido_code") && !entry.contains("sigungu_code"),
+                "{} still sorts on a region: {entry}",
+                contract.table_name
+            );
+        }
+    }
+    // The dong code was already optional and stays optional; nothing about this decision puts a
+    // district code back into that column (root ADR-0034).
+    assert_eq!(
+        column_required(&SILVER_INDUSTRIAL_COMPLEXES, "primary_bjdong_code"),
+        Some(false)
+    );
 }
 
 #[test]

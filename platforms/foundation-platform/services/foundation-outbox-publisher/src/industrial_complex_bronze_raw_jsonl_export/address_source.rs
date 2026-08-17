@@ -4,10 +4,10 @@
 //! separate source. This reader is the only way one enters the producer, and every field is
 //! validated by `IndustrialComplexAddress` before it can be stored.
 //!
-//! Each line also declares how it was resolved (`resolution_tier`). Two of the three tiers are
-//! exact and one is a heuristic, so "which city is this complex in?" and "how do we know?" have to
-//! be answerable from the same artifact — the export summary carries the per-tier counts forward
-//! (root ADR-0034).
+//! Each line also declares how it was resolved (`resolution_tier`). Two of the tiers are exact,
+//! one is a heuristic, and one says no rule produced an administrative code at all, so "which city
+//! is this complex in?" and "how do we know?" have to be answerable from the same artifact — the
+//! export summary carries the per-tier counts forward (root ADR-0034, ADR-0035).
 
 use std::{collections::BTreeMap, fs, path::Path};
 
@@ -21,11 +21,18 @@ use lakehouse_application::{
 use serde::Deserialize;
 
 /// One line of the address resolution JSONL.
+///
+/// The code and its granularity are the only optional fields, and they are optional together: a
+/// line either states both or states neither. `Option` here means "the key is absent or `null`",
+/// which is not the same as a key whose value is `""` — that reaches
+/// `IndustrialComplexAddress::try_new` and is refused there (root ADR-0035).
 #[derive(Debug, Deserialize)]
 struct RawAddressResolution {
     official_complex_code: String,
-    administrative_code: String,
-    administrative_code_granularity: String,
+    #[serde(default)]
+    administrative_code: Option<String>,
+    #[serde(default)]
+    administrative_code_granularity: Option<String>,
     address_text: String,
     address_source_dataset: String,
     address_source_record_id: String,
@@ -83,24 +90,62 @@ fn parse_address_book(raw: &str) -> anyhow::Result<AddressResolution> {
                 ResolutionTier::ModalNoticeCode.wire_name()
             );
         }
-        let granularity = IndustrialComplexAddressGranularity::from_wire(
-            resolution.administrative_code_granularity.as_str(),
-        )
-        .with_context(|| format!("invalid address at resolution line {line_number}"))?;
-        let address = IndustrialComplexAddress::try_new(
-            resolution.administrative_code.as_str(),
-            granularity,
-            resolution.address_text.as_str(),
-            resolution.address_source_dataset.as_str(),
-            resolution.address_source_record_id.as_str(),
-        )
-        .with_context(|| format!("invalid address at resolution line {line_number}"))?;
+        let (address, granularity) = match (
+            resolution.administrative_code.as_deref(),
+            resolution.administrative_code_granularity.as_deref(),
+        ) {
+            (Some(code), Some(declared)) => {
+                let granularity = IndustrialComplexAddressGranularity::from_wire(declared)
+                    .with_context(|| format!("invalid address at resolution line {line_number}"))?;
+                let address = IndustrialComplexAddress::try_new(
+                    code,
+                    granularity,
+                    resolution.address_text.as_str(),
+                    resolution.address_source_dataset.as_str(),
+                    resolution.address_source_record_id.as_str(),
+                )
+                .with_context(|| format!("invalid address at resolution line {line_number}"))?;
+                (address, Some(granularity))
+            }
+            (None, None) => {
+                let address = IndustrialComplexAddress::try_new_without_administrative_code(
+                    resolution.address_text.as_str(),
+                    resolution.address_source_dataset.as_str(),
+                    resolution.address_source_record_id.as_str(),
+                )
+                .with_context(|| format!("invalid address at resolution line {line_number}"))?;
+                (address, None)
+            }
+            // A code with no granularity does not say what it names, and a granularity with no code
+            // describes nothing. Either half alone is a line that was edited rather than derived.
+            _ => anyhow::bail!(
+                "invalid address at resolution line {line_number}: administrative_code and \
+                 administrative_code_granularity are stated together or not at all"
+            ),
+        };
+        // The tier is the line's own claim about whether a rule produced a code, so it has to agree
+        // with whether one is there. Checking both directions is what stops `address_text_only`
+        // from becoming a label anyone can paste onto a line that does carry a code.
+        if tier.carries_an_administrative_code() != granularity.is_some() {
+            anyhow::bail!(
+                "invalid address at resolution line {line_number}: resolution_tier {:?} {} an \
+                 administrative_code",
+                tier.wire_name(),
+                if tier.carries_an_administrative_code() {
+                    "requires"
+                } else {
+                    "cannot carry"
+                }
+            );
+        }
         book.insert(resolution.official_complex_code.as_str(), address)
             .with_context(|| format!("invalid address at resolution line {line_number}"))?;
         *tier_counts.entry(tier.wire_name()).or_insert(0) += 1;
-        *granularity_counts
-            .entry(granularity.wire_name())
-            .or_insert(0) += 1;
+        if let Some(granularity) = granularity {
+            *granularity_counts
+                .entry(granularity.wire_name())
+                .or_insert(0) += 1;
+        }
     }
     if book.is_empty() {
         anyhow::bail!(
@@ -137,6 +182,15 @@ mod tests {
         r#""resolution_tier":"source_code_in_authority"}"#
     );
 
+    /// The 446400 shape: official address text and provenance, and no administrative code at all.
+    const VALID_CODELESS_LINE: &str = concat!(
+        r#"{"official_complex_code":"446400","#,
+        r#""address_text":"전라남도 신안군 지도읍","#,
+        r#""address_source_dataset":"industrylandorkr__industrial_complex_list","#,
+        r#""address_source_record_id":"industrylandorkr:danji_cd=446400","#,
+        r#""resolution_tier":"address_text_only"}"#
+    );
+
     #[test]
     fn reads_one_resolution_per_line() -> anyhow::Result<()> {
         let resolution = parse_address_book(&format!("\n{VALID_LINE}\n\n"))?;
@@ -146,8 +200,8 @@ mod tests {
             .book
             .get("111010")
             .ok_or_else(|| anyhow::anyhow!("missing resolution"))?;
-        assert_eq!(address.sido_code(), "11");
-        assert_eq!(address.sigungu_code(), "11530");
+        assert_eq!(address.sido_code(), Some("11"));
+        assert_eq!(address.sigungu_code(), Some("11530"));
         // The source named a district, so there is no legal dong to report.
         assert_eq!(address.primary_bjdong_code(), None);
         assert_eq!(
@@ -201,7 +255,108 @@ mod tests {
         let error =
             parse_address_book(&line).expect_err("an undeclared granularity must be rejected");
 
-        assert!(format!("{error:#}").contains("invalid JSONL"), "{error:#}");
+        assert!(
+            format!("{error:#}").contains("stated together or not at all"),
+            "{error:#}"
+        );
+    }
+
+    /// Region is optional now, and this is the shape that says so: the words and their provenance,
+    /// no administrative code, and a tier that admits no rule produced one (root ADR-0035).
+    #[test]
+    fn reads_a_resolution_that_has_no_administrative_code() -> anyhow::Result<()> {
+        let resolution = parse_address_book(VALID_CODELESS_LINE)?;
+
+        let address = resolution
+            .book
+            .get("446400")
+            .ok_or_else(|| anyhow::anyhow!("missing resolution"))?;
+        assert_eq!(address.administrative_code(), None);
+        assert_eq!(address.sido_code(), None);
+        assert_eq!(address.sigungu_code(), None);
+        assert_eq!(address.primary_bjdong_code(), None);
+        assert_eq!(address.address_text(), "전라남도 신안군 지도읍");
+        assert_eq!(resolution.tier_counts.get("address_text_only"), Some(&1));
+        // No code means no granularity to count, not a granularity counted as unknown.
+        assert!(resolution.granularity_counts.is_empty());
+        Ok(())
+    }
+
+    /// The loosening is "a code may be absent", not "a code may be anything". A blank, a `0`, and a
+    /// zero code are all still refused, whether or not a granularity is stated beside them.
+    #[test]
+    fn rejects_an_invented_administrative_code_in_place_of_an_absent_one() {
+        for code in ["", "   ", "0", "00000000000", "0000000000"] {
+            let line = VALID_LINE.replace(
+                r#""administrative_code":"1153000000""#,
+                &format!(r#""administrative_code":"{code}""#),
+            );
+            let error = parse_address_book(&line)
+                .expect_err("an invented administrative code must be rejected");
+            assert!(
+                format!("{error:#}").contains("administrative_code"),
+                "{code:?} produced {error:#}"
+            );
+        }
+    }
+
+    /// Half a statement is not an absence. A code with no granularity does not say what it names,
+    /// and a granularity with no code describes nothing.
+    #[test]
+    fn rejects_a_resolution_that_states_only_half_of_the_administrative_code() {
+        for line in [
+            VALID_LINE.replace(r#""administrative_code":"1153000000","#, ""),
+            VALID_CODELESS_LINE.replace(
+                r#""address_text""#,
+                r#""administrative_code_granularity":"sigungu","address_text""#,
+            ),
+        ] {
+            let error = parse_address_book(&line)
+                .expect_err("half an administrative code must be rejected");
+            assert!(
+                format!("{error:#}").contains("stated together or not at all"),
+                "{error:#}"
+            );
+        }
+    }
+
+    /// The tier is the line's own claim about whether a rule produced a code. Both directions are
+    /// checked, so `address_text_only` cannot be pasted onto a line that carries a code and a
+    /// code-producing tier cannot be claimed by a line that shows none.
+    #[test]
+    fn rejects_a_tier_that_contradicts_whether_a_code_is_there() {
+        for line in [
+            VALID_LINE.replace(
+                r#""resolution_tier":"source_code_in_authority""#,
+                r#""resolution_tier":"address_text_only""#,
+            ),
+            VALID_CODELESS_LINE.replace(
+                r#""resolution_tier":"address_text_only""#,
+                r#""resolution_tier":"source_code_in_authority""#,
+            ),
+        ] {
+            let error = parse_address_book(&line)
+                .expect_err("a tier contradicting the code's presence must be rejected");
+            assert!(
+                format!("{error:#}").contains("resolution_tier"),
+                "{error:#}"
+            );
+        }
+    }
+
+    /// Dropping the code does not drop the words: a codeless line with no address text has no
+    /// location left to record and is refused (root ADR-0035 keeps `address_text` required).
+    #[test]
+    fn rejects_a_codeless_resolution_that_also_leaves_the_address_text_blank() {
+        let line = VALID_CODELESS_LINE.replace(
+            r#""address_text":"전라남도 신안군 지도읍""#,
+            r#""address_text":"""#,
+        );
+
+        let error =
+            parse_address_book(&line).expect_err("a codeless line with no words must be rejected");
+
+        assert!(format!("{error:#}").contains("address_text"), "{error:#}");
     }
 
     #[test]
@@ -256,10 +411,6 @@ mod tests {
     #[test]
     fn rejects_a_resolution_that_leaves_the_location_blank() {
         for line in [
-            VALID_LINE.replace(
-                r#""administrative_code":"1153000000""#,
-                r#""administrative_code":"""#,
-            ),
             VALID_LINE.replace(
                 r#""address_text":"서울특별시 구로구 구로동""#,
                 r#""address_text":"""#,

@@ -3,10 +3,15 @@
 //! The Spark job `industrial_complex_bronze_to_silver` reads
 //! `bronze.industrial_complexes_raw_jsonl`. The profile source carries the complex identity,
 //! classification, dates, and area, but carries no administrative location at all. Rather than let
-//! a producer paper over that with an empty string or a `null`, an
-//! [`IndustrialComplexBronzeRawRow`] owns an [`IndustrialComplexAddress`] by value: there is no
-//! row shape that can exist without a sourced address, so "an industrial complex whose location we
-//! do not know" cannot be serialized. See root ADR-0033.
+//! a producer paper over that with an empty string, an [`IndustrialComplexBronzeRawRow`] owns an
+//! [`IndustrialComplexAddress`] by value: there is no row shape that can exist without a sourced
+//! address text and its provenance. See root ADR-0033.
+//!
+//! What the address may leave out is the administrative code. Region is not a requirement of this
+//! pipeline today, and for one complex in 1,442 no source states a current district code at all;
+//! the row writes `null` for `sido_code`, `sigungu_code`, and `primary_bjdong_code` rather than a
+//! blank or a zero, and only [`IndustrialComplexAddress::try_new_without_administrative_code`]
+//! produces that shape. See root ADR-0035.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -20,6 +25,9 @@ use thiserror::Error;
 
 /// Number of unresolved complex codes named in a [`IndustrialComplexBronzeRawPlanError`] message.
 const MISSING_ADDRESS_SAMPLE_LIMIT: usize = 5;
+
+/// Length of the city/county/district prefix inside a ten-digit administrative code.
+const SIGUNGU_CODE_LEN: usize = 5;
 
 /// Snapshot month whose full table backs every `*_OBSERVED` label list below.
 ///
@@ -163,32 +171,91 @@ impl IndustrialComplexAddressGranularity {
     }
 }
 
+/// A ten-digit administrative code together with what it actually names.
+///
+/// Private fields and one validating constructor, so holding a value of this type is evidence that
+/// the code was checked: ten ASCII digits, a district prefix that is not all zeros, and a shape
+/// that agrees with the declared granularity (root ADR-0034).
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SourcedAdministrativeCode {
+    code: String,
+    granularity: IndustrialComplexAddressGranularity,
+}
+
+impl SourcedAdministrativeCode {
+    fn try_new(
+        code: &str,
+        granularity: IndustrialComplexAddressGranularity,
+    ) -> Result<Self, IndustrialComplexBronzeRawPlanError> {
+        let code = code.trim();
+        if code.len() != 10 || !code.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(IndustrialComplexBronzeRawPlanError::InvalidAddress(
+                format!("administrative_code must be exactly 10 ASCII digits: {code:?}"),
+            ));
+        }
+        // `0000000000` is ten ASCII digits and ends in five zeros, so both checks below would pass
+        // it and the row would carry `sido_code` `00` — a filler that reads as a real province.
+        // No Korean district code starts with `00`, so an all-zero district prefix is not a code
+        // that was found anywhere; it is one that was made up in place of `null`.
+        if code[0..SIGUNGU_CODE_LEN].bytes().all(|byte| byte == b'0') {
+            return Err(IndustrialComplexBronzeRawPlanError::InvalidAddress(
+                format!(
+                    "administrative_code {code:?} has an all-zero district prefix, which names no \
+                     district; an unknown location is null, not a zero code"
+                ),
+            ));
+        }
+        // The shape check is what makes the granularity evidence rather than a label. A sigungu
+        // code declared `legal_dong` would otherwise put five zeros into the dong position and
+        // read downstream as "dong 00000 of this district".
+        if !granularity.matches_code(code) {
+            return Err(IndustrialComplexBronzeRawPlanError::InvalidAddress(
+                format!(
+                    "administrative_code {code:?} does not have {} granularity: a sigungu code \
+                     ends in five zeros and a legal-dong code does not",
+                    granularity.wire_name()
+                ),
+            ));
+        }
+        Ok(Self {
+            code: code.to_owned(),
+            granularity,
+        })
+    }
+}
+
 /// Administrative location of one industrial complex, proven by an external address source.
 ///
-/// The fields are private and the only constructor validates every one of them, so a value of this
+/// The fields are private and the only constructors validate every one of them, so a value of this
 /// type is evidence that a location was sourced. `sido_code` and `sigungu_code` are derived from
 /// the administrative code rather than accepted separately, which is the same derivation the
 /// Catalog handoff uses and leaves no way to inject three mutually inconsistent codes.
+///
+/// The administrative code itself is optional and the address text is not. A complex whose official
+/// address text every source publishes but whose district code no source states is representable —
+/// [`Self::try_new_without_administrative_code`] is the only way to build one, and the resulting
+/// row writes `null` for all three code columns. There is no constructor that accepts a blank or
+/// zero code, so "unknown" cannot be spelled as a value (root ADR-0035).
 ///
 /// [`Self::primary_bjdong_code`] returns `Option` because a sigungu-granularity source has not
 /// named a legal dong. That is the whole point: the only way to put a value in the
 /// `primary_bjdong_code` column is to hold a code that actually names one (root ADR-0034).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IndustrialComplexAddress {
-    administrative_code: String,
-    granularity: IndustrialComplexAddressGranularity,
+    administrative_code: Option<SourcedAdministrativeCode>,
     address_text: String,
     source_dataset: String,
     source_record_id: String,
 }
 
 impl IndustrialComplexAddress {
-    /// Builds a validated address from an external address source.
+    /// Builds a validated address whose source named an administrative code.
     ///
     /// # Errors
     /// Returns [`IndustrialComplexBronzeRawPlanError::InvalidAddress`] when the administrative code
-    /// is not exactly ten ASCII digits, when the code's shape contradicts the declared granularity,
-    /// or when the address text or either provenance field is blank.
+    /// is not exactly ten ASCII digits, when its district prefix is all zeros, when the code's
+    /// shape contradicts the declared granularity, or when the address text or either provenance
+    /// field is blank.
     pub fn try_new(
         administrative_code: &str,
         granularity: IndustrialComplexAddressGranularity,
@@ -196,33 +263,43 @@ impl IndustrialComplexAddress {
         source_dataset: &str,
         source_record_id: &str,
     ) -> Result<Self, IndustrialComplexBronzeRawPlanError> {
-        let administrative_code = administrative_code.trim();
-        if administrative_code.len() != 10
-            || !administrative_code
-                .bytes()
-                .all(|byte| byte.is_ascii_digit())
-        {
-            return Err(IndustrialComplexBronzeRawPlanError::InvalidAddress(
-                format!(
-                    "administrative_code must be exactly 10 ASCII digits: {administrative_code:?}"
-                ),
-            ));
-        }
-        // The shape check is what makes the granularity evidence rather than a label. A sigungu
-        // code declared `legal_dong` would otherwise put five zeros into the dong position and
-        // read downstream as "dong 00000 of this district".
-        if !granularity.matches_code(administrative_code) {
-            return Err(IndustrialComplexBronzeRawPlanError::InvalidAddress(
-                format!(
-                    "administrative_code {administrative_code:?} does not have {} granularity: a \
-                 sigungu code ends in five zeros and a legal-dong code does not",
-                    granularity.wire_name()
-                ),
-            ));
-        }
+        let administrative_code =
+            SourcedAdministrativeCode::try_new(administrative_code, granularity)?;
+        Self::build(
+            Some(administrative_code),
+            address_text,
+            source_dataset,
+            source_record_id,
+        )
+    }
+
+    /// Builds a validated address whose source published the words but no administrative code.
+    ///
+    /// The absence has to be stated by calling this constructor rather than by passing something
+    /// empty to [`Self::try_new`]: an argument that could be blank is an argument a caller can
+    /// leave blank by accident, and the whole point is that "we do not know" is a different fact
+    /// from any code.
+    ///
+    /// # Errors
+    /// Returns [`IndustrialComplexBronzeRawPlanError::InvalidAddress`] when the address text or
+    /// either provenance field is blank. The address text stays required: this loosening is about
+    /// the region codes, not about locations nobody published at all.
+    pub fn try_new_without_administrative_code(
+        address_text: &str,
+        source_dataset: &str,
+        source_record_id: &str,
+    ) -> Result<Self, IndustrialComplexBronzeRawPlanError> {
+        Self::build(None, address_text, source_dataset, source_record_id)
+    }
+
+    fn build(
+        administrative_code: Option<SourcedAdministrativeCode>,
+        address_text: &str,
+        source_dataset: &str,
+        source_record_id: &str,
+    ) -> Result<Self, IndustrialComplexBronzeRawPlanError> {
         Ok(Self {
-            administrative_code: administrative_code.to_owned(),
-            granularity,
+            administrative_code,
             address_text: require_address_part("address_text", address_text)?,
             source_dataset: require_address_part("address_source_dataset", source_dataset)?,
             source_record_id: require_address_part("address_source_record_id", source_record_id)?,
@@ -231,37 +308,46 @@ impl IndustrialComplexAddress {
 
     /// Returns the two-digit province/city code derived from the administrative code.
     #[must_use]
-    pub fn sido_code(&self) -> &str {
-        &self.administrative_code[0..2]
+    pub fn sido_code(&self) -> Option<&str> {
+        self.administrative_code
+            .as_ref()
+            .map(|sourced| &sourced.code[0..2])
     }
 
     /// Returns the five-digit city/county/district code derived from the administrative code.
     #[must_use]
-    pub fn sigungu_code(&self) -> &str {
-        &self.administrative_code[0..5]
+    pub fn sigungu_code(&self) -> Option<&str> {
+        self.administrative_code
+            .as_ref()
+            .map(|sourced| &sourced.code[0..SIGUNGU_CODE_LEN])
     }
 
-    /// Returns the ten-digit legal-dong code, or `None` when the source named only a district.
+    /// Returns the ten-digit legal-dong code, or `None` when the source named only a district or
+    /// no code at all.
     #[must_use]
-    pub const fn primary_bjdong_code(&self) -> Option<&str> {
-        match self.granularity {
-            IndustrialComplexAddressGranularity::LegalDong => {
-                Some(self.administrative_code.as_str())
-            }
+    pub fn primary_bjdong_code(&self) -> Option<&str> {
+        let sourced = self.administrative_code.as_ref()?;
+        match sourced.granularity {
+            IndustrialComplexAddressGranularity::LegalDong => Some(sourced.code.as_str()),
             IndustrialComplexAddressGranularity::Sigungu => None,
         }
     }
 
-    /// Returns the ten-digit administrative code exactly as the source supplied it.
+    /// Returns the ten-digit administrative code exactly as the source supplied it, when there was
+    /// one.
     #[must_use]
-    pub const fn administrative_code(&self) -> &str {
-        self.administrative_code.as_str()
+    pub fn administrative_code(&self) -> Option<&str> {
+        self.administrative_code
+            .as_ref()
+            .map(|sourced| sourced.code.as_str())
     }
 
-    /// Returns how precise [`Self::administrative_code`] is.
+    /// Returns how precise [`Self::administrative_code`] is, when there is one.
     #[must_use]
-    pub const fn granularity(&self) -> IndustrialComplexAddressGranularity {
-        self.granularity
+    pub fn granularity(&self) -> Option<IndustrialComplexAddressGranularity> {
+        self.administrative_code
+            .as_ref()
+            .map(|sourced| sourced.granularity)
     }
 
     /// Returns the official address text.
@@ -571,16 +657,14 @@ fn column_value(row: &IndustrialComplexBronzeRawRow, column: &str) -> Option<Jso
         "complex_name" => JsonValue::String(row.complex_name.clone()),
         "complex_kind" => JsonValue::String(row.complex_kind.clone()),
         "status" => JsonValue::String(row.status.clone()),
-        "sido_code" => JsonValue::String(row.address.sido_code().to_owned()),
-        "sigungu_code" => JsonValue::String(row.address.sigungu_code().to_owned()),
-        // `null`, not the sigungu code, when the source named only a district. `sido_code` and
-        // `sigungu_code` above stay populated because those the source did name; `required: false`
-        // on this column in the `silver.industrial_complexes` contract is what makes the honest
-        // answer representable (root ADR-0034).
-        "primary_bjdong_code" => row
-            .address
-            .primary_bjdong_code()
-            .map_or(JsonValue::Null, |code| JsonValue::String(code.to_owned())),
+        // All three are `null` when no source stated an administrative code, and `sido_code` and
+        // `sigungu_code` carry only what a real code derives into. `primary_bjdong_code` is `null`
+        // even when a code exists, unless that code actually names a dong. Never `""` and never a
+        // zero code: `required: false` on these columns in the `silver.industrial_complexes`
+        // contract is what makes the honest answer representable (root ADR-0034, ADR-0035).
+        "sido_code" => optional_str_json(row.address.sido_code()),
+        "sigungu_code" => optional_str_json(row.address.sigungu_code()),
+        "primary_bjdong_code" => optional_str_json(row.address.primary_bjdong_code()),
         "address_text" => JsonValue::String(row.address.address_text().to_owned()),
         "management_agency_name" => optional_string_json(row.management_agency_name.as_ref()),
         "developer_name" => optional_string_json(row.developer_name.as_ref()),
@@ -750,6 +834,10 @@ fn normalize_optional_area(
 
 fn optional_string_json(value: Option<&String>) -> JsonValue {
     value.map_or(JsonValue::Null, |value| JsonValue::String(value.clone()))
+}
+
+fn optional_str_json(value: Option<&str>) -> JsonValue {
+    value.map_or(JsonValue::Null, |value| JsonValue::String(value.to_owned()))
 }
 
 fn optional_text(value: Option<&str>) -> Option<String> {
