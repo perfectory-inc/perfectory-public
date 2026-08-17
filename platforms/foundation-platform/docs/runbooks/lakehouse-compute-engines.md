@@ -306,7 +306,9 @@ cargo run -p foundation-outbox-publisher -- export-industrial-complex-gold-profi
 ```
 
 읽기에는 `FOUNDATION_PLATFORM_LAKEHOUSE_*`(Iceberg REST) 와
-`FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`(객체 저장소) 설정이 필요하다. 같은 Gold 스냅샷을 다시
+`FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`(객체 저장소) 설정이 필요하다. **쓰기는 다른 버킷이다** —
+`r2` 드라이버는 serving-derivative 연결(`FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_*`)로 쓰며,
+lakehouse 버킷에는 쓸 수 없다(root ADR-0038). 같은 Gold 스냅샷을 다시
 export 하면 같은 키에 바이트가 같은 객체가 나오므로 재실행은 `reused_object_count` 로 보고되고
 아무것도 덮어쓰지 않는다. 같은 키에 다른 바이트가 있으면 실패한다.
 

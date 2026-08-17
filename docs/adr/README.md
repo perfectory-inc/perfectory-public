@@ -49,3 +49,4 @@ last_reviewed: 2026-07-28
 - [0035 — 쓰지 않는 지역은 필수가 아니다](./0035-a-region-the-pipeline-does-not-use-is-not-required.md)
 - [0036 — 가리켜지는 객체는 그것을 쓴 커맨드를 가진다](./0036-a-pointed-at-object-has-the-command-that-wrote-it.md)
 - [0037 — 포인터는 객체 키와 함께 주소 틀을 싣는다](./0037-a-pointer-carries-the-address-template-with-its-object-key.md)
+- [0038 — 가져가라고 만든 산출물은 정본 바이트와 버킷을 같이 쓰지 않는다](./0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md)

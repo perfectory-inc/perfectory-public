@@ -9,6 +9,10 @@
 //! an address is a publication. Writing the artifact must not wait on a serving hostname, but
 //! pointing consumers at it must not proceed without one.
 //!
+//! The artifacts are written to the serving-derivative bucket, never the lakehouse bucket the rows
+//! are read from (root ADR-0038). A fetchable artifact must not share a bucket with the canonical
+//! collection sources.
+//!
 //! The command does not publish pointers. Producing the object and pointing at it are separate
 //! failures, and were separated so a half-run cannot leave a pointer aimed at nothing.
 
@@ -38,6 +42,9 @@ use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use uuid::Uuid;
 
+use crate::serving_derivative_object_storage::{
+    assert_serving_derivative_key, ServingDerivativeR2Config,
+};
 use profile_document::{GoldSnapshotProvenance, ProfileArtifact, PROFILE_SCHEMA_VERSION};
 
 const SUMMARY_SCHEMA_VERSION: &str =
@@ -92,6 +99,7 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     tracing::info!(
+        output_bucket = summary.output_bucket.as_deref().unwrap_or("(local)"),
         gold_table = %summary.gold_table,
         gold_iceberg_snapshot_id = %summary.gold_iceberg_snapshot_id,
         scanned_row_count = summary.scanned_row_count,
@@ -122,7 +130,7 @@ enum ProfileOutputConfig {
 #[derive(Clone)]
 enum ProfileOutput {
     Local(FileObjectStorage),
-    R2(Box<R2ObjectStorage>),
+    ServingDerivativeR2(Box<R2ObjectStorage>, String),
 }
 
 /// Reads the lakehouse objects the Iceberg snapshot points at.
@@ -145,6 +153,7 @@ struct ProfileExportSummary {
     data_file_count: u64,
     scanned_row_count: u64,
     output_storage_driver: &'static str,
+    output_bucket: Option<String>,
     profile_url_template: Option<String>,
     artifact_count: u64,
     created_object_count: u64,
@@ -224,21 +233,39 @@ impl ProfileOutput {
                     || format!("failed to configure local output root {}", root.display()),
                 )?))
             }
-            ProfileOutputConfig::R2 => Ok(Self::R2(Box::new(
-                R2ObjectStorage::from_env().context("failed to configure R2 profile output")?,
-            ))),
+            ProfileOutputConfig::R2 => {
+                let config = ServingDerivativeR2Config::from_env()
+                    .context("failed to configure the serving-derivative R2 output")?;
+                let bucket_name = config.writer.bucket_name.clone();
+                Ok(Self::ServingDerivativeR2(
+                    Box::new(R2ObjectStorage::from_config(config.writer)),
+                    bucket_name,
+                ))
+            }
         }
     }
 
     const fn storage_driver(&self) -> &'static str {
         match self {
             Self::Local(_) => "local",
-            Self::R2(_) => "r2",
+            Self::ServingDerivativeR2(_, _) => "serving-derivative-r2",
+        }
+    }
+
+    /// The bucket the artifacts were actually written to.
+    ///
+    /// Recorded in the summary so a run that reached the wrong bucket says so in its own output
+    /// instead of having to be discovered by listing the buckets afterwards.
+    fn output_bucket(&self) -> Option<&str> {
+        match self {
+            Self::Local(_) => None,
+            Self::ServingDerivativeR2(_, bucket_name) => Some(bucket_name.as_str()),
         }
     }
 
     /// Writes one artifact create-only, reusing an existing object only when the bytes match.
     async fn write_create_only(&self, artifact: &ProfileArtifact) -> anyhow::Result<bool> {
+        assert_serving_derivative_key(artifact.object_key.as_str())?;
         let request = PutObjectRequest {
             key: artifact.object_key.clone(),
             body: artifact.body.clone(),
@@ -249,7 +276,7 @@ impl ProfileOutput {
         };
         let outcome = match self {
             Self::Local(storage) => storage.put_object(request).await,
-            Self::R2(storage) => storage.put_object(request).await,
+            Self::ServingDerivativeR2(storage, _) => storage.put_object(request).await,
         };
         match outcome {
             Ok(()) => Ok(true),
@@ -270,7 +297,7 @@ impl ProfileOutput {
     async fn read_bytes(&self, key: &str) -> anyhow::Result<Vec<u8>> {
         match self {
             Self::Local(storage) => storage.read_evidence_bytes(key).await,
-            Self::R2(storage) => storage.read_evidence_bytes(key).await,
+            Self::ServingDerivativeR2(storage, _) => storage.read_evidence_bytes(key).await,
         }
         .with_context(|| format!("failed to read the colliding profile object {key}"))
     }
@@ -376,6 +403,7 @@ async fn export(
         data_file_count,
         scanned_row_count,
         output_storage_driver: output.storage_driver(),
+        output_bucket: output.output_bucket().map(ToOwned::to_owned),
         profile_url_template: config
             .profile_url_template
             .as_ref()
