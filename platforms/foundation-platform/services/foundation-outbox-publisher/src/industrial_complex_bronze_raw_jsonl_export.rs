@@ -364,12 +364,20 @@ fn write_summary(
     let mut status_counts = BTreeMap::<String, u64>::new();
     let mut sido_counts = BTreeMap::<String, u64>::new();
     let mut rows_with_a_legal_dong = 0_u64;
+    let mut rows_with_an_administrative_code = 0_u64;
+    let mut rows_without_an_administrative_code = Vec::<&str>::new();
     for row in rows {
         *kind_counts.entry(row.complex_kind.clone()).or_insert(0) += 1;
         *status_counts.entry(row.status.clone()).or_insert(0) += 1;
-        *sido_counts
-            .entry(row.address.sido_code().to_owned())
-            .or_insert(0) += 1;
+        // Counted over the rows that have one rather than under a `""` or `"unknown"` key: a
+        // histogram bucket named for a missing value is the same invention the row refuses to make.
+        match row.address.sido_code() {
+            Some(sido_code) => {
+                *sido_counts.entry(sido_code.to_owned()).or_insert(0) += 1;
+                rows_with_an_administrative_code += 1;
+            }
+            None => rows_without_an_administrative_code.push(row.official_complex_code.as_str()),
+        }
         if row.address.primary_bjdong_code().is_some() {
             rows_with_a_legal_dong += 1;
         }
@@ -386,11 +394,18 @@ fn write_summary(
         // artifact is the difference between a mapping that was verified and one that was assumed.
         evidence_limitations.push("label_tables_not_measured_for_this_snapshot_period");
     }
+    if !rows_without_an_administrative_code.is_empty() {
+        // Region is not a requirement of this pipeline (root ADR-0035), so these rows are exported
+        // with `null` region columns rather than dropped or filled. A consumer that needs a region
+        // has to read that off the artifact instead of assuming the columns are populated.
+        evidence_limitations.push("some_rows_have_no_administrative_code_only_an_address_text");
+    }
     if rows_with_a_legal_dong < rows.len() as u64 {
         // Most industrial complexes span several eup/myeon/dong and some span several provinces,
-        // so no address source names one. The rows carry `sido_code` and `sigungu_code` and a null
-        // `primary_bjdong_code`; a consumer that needs dong-level identity has to know that from
-        // the artifact rather than discover it downstream (root ADR-0034).
+        // so no address source names one. Those rows carry `sido_code` and `sigungu_code` and a
+        // null `primary_bjdong_code` — the ones counted above carry nothing at all — and a consumer
+        // that needs dong-level identity has to know that from the artifact rather than discover it
+        // downstream (root ADR-0034).
         evidence_limitations.push("some_rows_have_no_legal_dong_code_only_a_sigungu_code");
     }
     if report
@@ -422,6 +437,10 @@ fn write_summary(
             "granularity_counts": report.address_granularity_counts,
             "rows_with_a_legal_dong_code": rows_with_a_legal_dong,
             "rows_without_a_legal_dong_code": rows.len() as u64 - rows_with_a_legal_dong,
+            "rows_with_an_administrative_code": rows_with_an_administrative_code,
+            "rows_without_an_administrative_code": rows_without_an_administrative_code.len(),
+            "official_complex_codes_without_an_administrative_code":
+                rows_without_an_administrative_code,
         },
         "label_tables": {
             "measured_snapshot_period": INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,

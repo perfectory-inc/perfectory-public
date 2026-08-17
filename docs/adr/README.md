@@ -46,3 +46,4 @@ last_reviewed: 2026-07-28
 - [0032 — 제공기관 ID는 도메인 라벨에서 파생한다](./0032-provider-identity-is-derived-from-domain-label.md)
 - [0033 — 주소 출처가 없는 산업단지는 표현할 수 없다](./0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md)
 - [0034 — 행정구역 코드는 자기 정밀도를 싣고 다닌다](./0034-an-administrative-code-carries-its-own-granularity.md)
+- [0035 — 쓰지 않는 지역은 필수가 아니다](./0035-a-region-the-pipeline-does-not-use-is-not-required.md)

@@ -7,7 +7,7 @@ last_reviewed: 2026-08-16
 
 # ADR 0034: 행정구역 코드는 자기 정밀도를 싣고 다닌다
 
-- Status: Accepted
+- Status: Accepted — 결정 4항의 계약 문장은 [ADR-0035](./0035-a-region-the-pipeline-does-not-use-is-not-required.md)가 대체
 - Date: 2026-08-16
 - 관련: [ADR-0033 주소 출처가 없는 산업단지는 표현할 수 없다](./0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md), [ADR-0020 도형은 사실의 근거가 아니다](./0020-geometry-is-not-evidence-for-a-fact.md), [ADR-0032 제공기관 신원은 도메인 라벨에서 파생한다](./0032-provider-identity-is-derived-from-domain-label.md), [ADR-0027 모든 가드는 자기 위협 모델을 선언한다](./0027-every-guard-declares-its-threat-model.md)
 
@@ -136,3 +136,21 @@ last_reviewed: 2026-08-16
 - 남은 일: (1) 읍면동 단위 산업단지 경계 출처가 생기면 `legal_dong` 정밀도가 실제로 쓰인다.
   (2) `446400`의 주소 출처. (3) `modal_notice_code` 138건은 휴리스틱이므로, 시군구 두 곳에
   걸친 단지(`129030 빛그린` 등)에서 어느 쪽이 대표인지는 여전히 열린 질문이다.
+
+---
+
+## 개정 각주 — 2026-08-17
+
+[ADR-0035](./0035-a-region-the-pipeline-does-not-use-is-not-required.md)가 위 Consequences가
+남겨 둔 선택지 (b)를 골랐다. 소유자가 지역별 산업단지 기능을 지금 하지 않기로 했으므로
+`sido_code`·`sigungu_code`는 두 표에서 필수가 아니고, 파티션 키는 `source_snapshot_id`다.
+따라서 결정 4항의 "`silver.industrial_complexes` 계약은 **바꾸지 않는다.** 이미 이 모양을
+허용하고 있다"는 더 이상 현행이 아니고, 같은 항의 "`sido_code`와 `sigungu_code`는 그대로
+채운다"는 **코드가 있을 때만** 참이다. 해소 파일 한 줄(결정 5항)에는 `address_text_only` tier와,
+함께 있거나 함께 없는 두 선택 필드가 더해졌다.
+
+**결정 1·2·3·6·7은 그대로다.** 코드가 있을 때 정밀도를 싣고 모양이 라벨을 검증하는 규칙은 손대지
+않았고, 시군구 코드가 `primary_bjdong_code` 자리에 앉는 경로는 여전히 타입에 없다. 위
+Consequences의 "이 단지를 통과시키려면 주소 출처가 생기거나 ADR-0033이 개정되어야 한다"는
+후자가 일어난 것이다 — `446400`의 주소 출처를 구한 것이 아니라, 지역을 모른다고 적을 수 있게
+만들었다. 남은 일 (2)는 열린 채로 둔다.

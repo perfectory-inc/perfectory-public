@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **358개**
+- 문서 파일: **359개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 57 |
+| Monorepo | 58 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 116 |
+| ADR | 117 |
 | README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -402,6 +402,7 @@ docs/adr/0031-parcel-mirror-run-seals-publication-scope.md
 docs/adr/0032-provider-identity-is-derived-from-domain-label.md
 docs/adr/0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md
 docs/adr/0034-an-administrative-code-carries-its-own-granularity.md
+docs/adr/0035-a-region-the-pipeline-does-not-use-is-not-required.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -471,6 +472,7 @@ tools/github/README.md
 | `docs/adr/0032-provider-identity-is-derived-from-domain-label.md` | Monorepo | ADR | current |
 | `docs/adr/0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md` | Monorepo | ADR | current |
 | `docs/adr/0034-an-administrative-code-carries-its-own-granularity.md` | Monorepo | ADR | current |
+| `docs/adr/0035-a-region-the-pipeline-does-not-use-is-not-required.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

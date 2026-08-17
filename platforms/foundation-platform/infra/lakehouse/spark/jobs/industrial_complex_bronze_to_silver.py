@@ -28,9 +28,11 @@ from platform_contracts import (
     create_table_columns_sql,
     jsonl_transport_columns,
     load_lakehouse_contract,
+    partition_column_names,
     partition_spec_sql,
     required_column_names,
-    required_string_column_names,
+    sort_order,
+    string_column_names,
     value_domain,
 )
 
@@ -66,14 +68,44 @@ CHECKSUM_COLUMNS: tuple[str, ...] = tuple(
 
 REQUIRED_SILVER_COLUMNS: tuple[str, ...] = required_column_names(TABLE_CONTRACT)
 
+# Partitioning and sorting come off the same contract the columns do. A local writer that spelled
+# them itself is how `sido_code` stayed the partition key after the contract stopped requiring one.
+PARTITION_COLUMNS: tuple[str, ...] = partition_column_names(TABLE_CONTRACT)
+
+SORT_COLUMNS: tuple[str, ...] = sort_order(TABLE_CONTRACT)
+
 ALLOWED_COMPLEX_KINDS: tuple[str, ...] = value_domain(RUN_SUMMARY_CONTRACT, "complex_kind")
 
 ALLOWED_STATUSES: tuple[str, ...] = value_domain(RUN_SUMMARY_CONTRACT, "status")
 
 
+# Digit width of each region column, and the reason a gate exists for columns nothing requires.
+# Optional means "may be absent", not "may be anything": once the contract stopped requiring a
+# region, a `0` or a run of zeros became the cheapest way to fill the column while looking like a
+# code. The producer's type refuses those (root ADR-0035), and this is the second place that says
+# so, at the boundary where rows enter the canonical table.
+REGION_CODE_WIDTHS: tuple[tuple[str, int], ...] = (
+    ("sido_code", 2),
+    ("sigungu_code", 5),
+    ("primary_bjdong_code", 10),
+)
+
+
 def trim_to_null(column_name: str) -> F.Column:
     trimmed = F.trim(F.col(column_name))
     return F.when(F.length(trimmed) == 0, F.lit(None)).otherwise(trimmed)
+
+
+def invalid_region_code() -> F.Column:
+    """Return a predicate matching any region column that is present but not a real code."""
+
+    predicate = F.lit(False)
+    for column, width in REGION_CODE_WIDTHS:
+        code = F.col(column)
+        malformed = ~code.rlike(f"^[0-9]{{{width}}}$")
+        all_zero = code.rlike("^0+$")
+        predicate = predicate | (code.isNotNull() & (malformed | all_zero))
+    return predicate
 
 
 def parse_args() -> argparse.Namespace:
@@ -252,9 +284,12 @@ def build_silver_frame(bronze: DataFrame) -> DataFrame:
         normalized_name.alias("complex_name_normalized"),
         F.trim(F.col("complex_kind")).alias("complex_kind"),
         F.trim(F.col("status")).alias("status"),
+        # The three region columns are read without `trim_to_null`. A JSON null stays null, and a
+        # `""` stays `""` so the empty-string gate below can refuse it. Coercing blank to null here
+        # would erase exactly the difference this change is about (root ADR-0035).
         F.trim(F.col("sido_code")).alias("sido_code"),
         F.trim(F.col("sigungu_code")).alias("sigungu_code"),
-        trim_to_null("primary_bjdong_code").alias("primary_bjdong_code"),
+        F.trim(F.col("primary_bjdong_code")).alias("primary_bjdong_code"),
         trim_to_null("address_text").alias("address_text"),
         trim_to_null("management_agency_name").alias("management_agency_name"),
         trim_to_null("developer_name").alias("developer_name"),
@@ -308,8 +343,15 @@ def invalid_count(predicate: F.Column, alias: str) -> F.Column:
     return F.sum(F.when(predicate, F.lit(1)).otherwise(F.lit(0))).cast("long").alias(alias)
 
 
-def required_string_columns() -> tuple[str, ...]:
-    return required_string_column_names(TABLE_CONTRACT)
+def gated_string_columns() -> tuple[str, ...]:
+    """Return the string columns whose emptiness is a defect.
+
+    Every string column, not just the required ones. `sido_code` and `sigungu_code` are optional
+    now, which makes null a legitimate answer and `""` a producer that filled the column with
+    nothing rather than saying so (root ADR-0035).
+    """
+
+    return string_column_names(TABLE_CONTRACT)
 
 
 def collect_quality_metrics(silver: DataFrame) -> dict[str, int]:
@@ -318,7 +360,7 @@ def collect_quality_metrics(silver: DataFrame) -> dict[str, int]:
     for column in REQUIRED_SILVER_COLUMNS:
         expressions.append(invalid_count(F.col(column).isNull(), f"{column}__null_count"))
 
-    for column in required_string_columns():
+    for column in gated_string_columns():
         expressions.append(invalid_count(F.length(F.col(column)) == 0, f"{column}__empty_count"))
 
     expressions.extend(
@@ -346,6 +388,7 @@ def collect_quality_metrics(silver: DataFrame) -> dict[str, int]:
                 ~F.col("row_checksum_sha256").rlike("^[0-9a-f]{64}$"),
                 "invalid_checksum_count",
             ),
+            invalid_count(invalid_region_code(), "invalid_region_code_count"),
         )
     )
 
@@ -364,7 +407,7 @@ def assert_quality_metrics(silver: DataFrame, metrics: dict[str, int]) -> None:
             f"{column} must not be null",
         )
 
-    for column in required_string_columns():
+    for column in gated_string_columns():
         assert_no_invalid_rows(
             silver,
             metrics[f"{column}__empty_count"],
@@ -403,6 +446,13 @@ def assert_quality_metrics(silver: DataFrame, metrics: dict[str, int]) -> None:
         metrics["invalid_checksum_count"],
         ~F.col("row_checksum_sha256").rlike("^[0-9a-f]{64}$"),
         "row_checksum_sha256 must be lowercase sha256 hex",
+    )
+    assert_no_invalid_rows(
+        silver,
+        metrics["invalid_region_code_count"],
+        invalid_region_code(),
+        "a region code that is present must be all digits of its own width and must not be all "
+        "zeros; an unknown region is null",
     )
 
 
@@ -590,7 +640,7 @@ def column_lineage() -> list[dict[str, Any]]:
             {"dataset": BRONZE_DATASET_NAME, "column": "sigungu_code", "transform": "trim"}
         ],
         "primary_bjdong_code": [
-            {"dataset": BRONZE_DATASET_NAME, "column": "primary_bjdong_code", "transform": "trim_to_null"}
+            {"dataset": BRONZE_DATASET_NAME, "column": "primary_bjdong_code", "transform": "trim"}
         ],
         "address_text": [
             {"dataset": BRONZE_DATASET_NAME, "column": "address_text", "transform": "trim_to_null"}
@@ -701,17 +751,15 @@ def emit_lineage_event(event: dict[str, Any], output_path: str | None) -> None:
 
 
 def write_silver_parquet(silver: DataFrame, output_path: str) -> None:
-    (
-        silver.repartition("sido_code")
-        .sortWithinPartitions(
-            "sigungu_code",
-            "complex_name_normalized",
-            "official_complex_code",
-        )
-        .write.mode("overwrite")
-        .partitionBy("sido_code")
-        .parquet(output_path)
-    )
+    frame = silver
+    if PARTITION_COLUMNS:
+        frame = frame.repartition(*[F.col(column) for column in PARTITION_COLUMNS])
+    if SORT_COLUMNS:
+        frame = frame.sortWithinPartitions(*SORT_COLUMNS)
+    writer = frame.write.mode("overwrite")
+    if PARTITION_COLUMNS:
+        writer = writer.partitionBy(*PARTITION_COLUMNS)
+    writer.parquet(output_path)
 
 
 def qualified_iceberg_table(args: argparse.Namespace) -> str:

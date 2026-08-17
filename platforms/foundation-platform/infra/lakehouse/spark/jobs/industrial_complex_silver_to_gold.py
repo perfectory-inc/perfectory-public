@@ -22,9 +22,11 @@ from platform_contracts import (
     column_names,
     create_table_columns_sql,
     load_lakehouse_contract,
+    partition_column_names,
     partition_spec_sql,
     required_column_names,
-    required_string_column_names,
+    sort_order,
+    string_column_names,
 )
 
 
@@ -44,6 +46,12 @@ GOLD_CONTRACT = load_lakehouse_contract(GOLD_CONTRACT_NAME)
 SILVER_COLUMNS: tuple[str, ...] = column_names(SILVER_CONTRACT)
 GOLD_COLUMNS: tuple[str, ...] = column_names(GOLD_CONTRACT)
 REQUIRED_GOLD_COLUMNS: tuple[str, ...] = required_column_names(GOLD_CONTRACT)
+
+# Read off the contract rather than spelled here, so the projection cannot keep partitioning by a
+# column the canonical table stopped requiring (root ADR-0035).
+GOLD_PARTITION_COLUMNS: tuple[str, ...] = partition_column_names(GOLD_CONTRACT)
+
+GOLD_SORT_COLUMNS: tuple[str, ...] = sort_order(GOLD_CONTRACT)
 
 
 def parse_args() -> argparse.Namespace:
@@ -289,8 +297,14 @@ def invalid_count(predicate: F.Column, alias: str) -> F.Column:
     return F.sum(F.when(predicate, F.lit(1)).otherwise(F.lit(0))).cast("long").alias(alias)
 
 
-def required_string_columns() -> tuple[str, ...]:
-    return required_string_column_names(GOLD_CONTRACT)
+def gated_string_columns() -> tuple[str, ...]:
+    """Return the string columns whose emptiness is a defect.
+
+    Every string column, not just the required ones: an optional column may be null and may never
+    be `""` (root ADR-0035).
+    """
+
+    return string_column_names(GOLD_CONTRACT)
 
 
 def sample_invalid_rows(frame: DataFrame, predicate: F.Column) -> list[str]:
@@ -316,7 +330,7 @@ def collect_quality_metrics(gold: DataFrame) -> dict[str, int]:
     for column in REQUIRED_GOLD_COLUMNS:
         expressions.append(invalid_count(F.col(column).isNull(), f"{column}__null_count"))
 
-    for column in required_string_columns():
+    for column in gated_string_columns():
         expressions.append(invalid_count(F.length(F.col(column)) == 0, f"{column}__empty_count"))
 
     expressions.extend(
@@ -344,7 +358,7 @@ def assert_quality_metrics(gold: DataFrame, metrics: dict[str, int]) -> None:
             f"{column} must not be null",
         )
 
-    for column in required_string_columns():
+    for column in gated_string_columns():
         assert_no_invalid_rows(
             gold,
             metrics[f"{column}__empty_count"],
@@ -677,13 +691,15 @@ def emit_lineage_event(event: dict[str, Any], output_path: str | None) -> None:
 
 
 def write_gold_parquet(gold: DataFrame, output_path: str) -> None:
-    (
-        gold.repartition("sido_code")
-        .sortWithinPartitions("sigungu_code", "name", "complex_id")
-        .write.mode("overwrite")
-        .partitionBy("sido_code")
-        .parquet(output_path)
-    )
+    frame = gold
+    if GOLD_PARTITION_COLUMNS:
+        frame = frame.repartition(*[F.col(column) for column in GOLD_PARTITION_COLUMNS])
+    if GOLD_SORT_COLUMNS:
+        frame = frame.sortWithinPartitions(*GOLD_SORT_COLUMNS)
+    writer = frame.write.mode("overwrite")
+    if GOLD_PARTITION_COLUMNS:
+        writer = writer.partitionBy(*GOLD_PARTITION_COLUMNS)
+    writer.parquet(output_path)
 
 
 def create_gold_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespace) -> None:

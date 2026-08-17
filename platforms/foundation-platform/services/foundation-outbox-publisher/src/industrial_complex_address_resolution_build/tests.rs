@@ -5,7 +5,8 @@ use std::{env, fs, path::PathBuf};
 use lakehouse_application::{
     resolve_industrial_complex_addresses, IndustrialComplexAddressGranularity,
     IndustrialComplexAddressResolutionError, IndustrialComplexAddressResolutionInput,
-    ResolutionTier, ResolvedComplexAddress, SourceComplexRecord, SourceNoticeRecord,
+    ResolutionTier, ResolvedAdministrativeCode, ResolvedComplexAddress, SourceComplexRecord,
+    SourceNoticeRecord,
 };
 use serde_json::json;
 use std::collections::BTreeSet;
@@ -13,6 +14,14 @@ use uuid::Uuid;
 
 const COMPLEX_DATASET: &str = "industrylandorkr__industrial_complex_list";
 const NOTICE_DATASET: &str = "industrylandorkr__industrial_complex_notice";
+
+/// Returns the ten-digit code a resolution ended up with, or `None` when it has none.
+fn code_of(resolved: &ResolvedComplexAddress) -> Option<&str> {
+    match &resolved.administrative_code {
+        ResolvedAdministrativeCode::Sourced { code, .. } => Some(code.as_str()),
+        ResolvedAdministrativeCode::Missing(_) => None,
+    }
+}
 
 fn authority(codes: &[&str]) -> BTreeSet<String> {
     codes.iter().map(|code| (*code).to_owned()).collect()
@@ -65,7 +74,7 @@ fn a_code_the_authority_knows_resolves_from_the_source_itself() -> anyhow::Resul
 
     assert_eq!(resolution.unresolved.len(), 0);
     let resolved = &resolution.resolved[0];
-    assert_eq!(resolved.administrative_code, "1153000000");
+    assert_eq!(code_of(resolved), Some("1153000000"));
     assert_eq!(
         resolved.resolution_tier,
         ResolutionTier::SourceCodeInAuthority
@@ -74,8 +83,11 @@ fn a_code_the_authority_knows_resolves_from_the_source_itself() -> anyhow::Resul
     // Every code the source publishes is district-granularity, and the value says so rather than
     // letting a reader assume a dong.
     assert_eq!(
-        resolved.granularity,
-        IndustrialComplexAddressGranularity::Sigungu
+        resolved.administrative_code,
+        ResolvedAdministrativeCode::Sourced {
+            code: "1153000000".to_owned(),
+            granularity: IndustrialComplexAddressGranularity::Sigungu,
+        }
     );
     Ok(())
 }
@@ -98,7 +110,7 @@ fn a_superseded_code_falls_back_to_the_modal_code_among_its_own_notices() -> any
     )?;
 
     let resolved = &resolution.resolved[0];
-    assert_eq!(resolved.administrative_code, "2917000000");
+    assert_eq!(code_of(resolved), Some("2917000000"));
     assert_eq!(resolved.resolution_tier, ResolutionTier::ModalNoticeCode);
     assert_eq!(resolved.address_source_dataset, NOTICE_DATASET);
     assert_eq!(resolved.address_source_record_id, "ref_seq=1");
@@ -131,7 +143,7 @@ fn a_complex_without_notices_is_resolved_through_the_learned_migration() -> anyh
         .iter()
         .find(|resolved| resolved.official_complex_code == "100002")
         .expect("the second complex must resolve");
-    assert_eq!(learned.administrative_code, "2917000000");
+    assert_eq!(code_of(learned), Some("2917000000"));
     assert_eq!(
         learned.resolution_tier,
         ResolutionTier::LearnedCodeMigration
@@ -211,17 +223,15 @@ fn a_non_district_authority_code_is_refused() {
     );
 }
 
+/// A complex is unresolved only when there is no location to record at all. Missing words, not a
+/// missing code, is what stops a complex now (root ADR-0035).
 #[test]
 fn every_way_a_complex_can_stay_unresolved_is_named() -> anyhow::Result<()> {
     let mut without_text = complex("400004", Some("1153000000"));
     without_text.address_text = Some("   ".to_owned());
     let resolution = resolve(
-        &["400001", "400002", "400003", "400004"],
-        &[
-            complex("400002", None),
-            complex("400003", Some("9999900000")),
-            without_text,
-        ],
+        &["400001", "400004"],
+        &[without_text],
         &[],
         &authority(&["11530"]),
     )?;
@@ -240,11 +250,48 @@ fn every_way_a_complex_can_stay_unresolved_is_named() -> anyhow::Result<()> {
         reasons,
         vec![
             ("400001", "missing_from_source_list"),
-            ("400002", "source_code_absent"),
-            ("400003", "source_code_unknown_and_no_notice_evidence"),
             ("400004", "address_text_absent"),
         ]
     );
+    Ok(())
+}
+
+/// The two ways a complex ends up with words but no district: the source never stated a code, and
+/// the source stated one no authority knows and no notice migrates. Both resolve — `446400` is the
+/// second — and both say which one they were.
+#[test]
+fn a_complex_with_words_but_no_district_code_resolves_and_says_why() -> anyhow::Result<()> {
+    let resolution = resolve(
+        &["400002", "400003"],
+        &[
+            complex("400002", None),
+            complex("400003", Some("1287000000")),
+        ],
+        &[],
+        &authority(&["11530"]),
+    )?;
+
+    assert_eq!(resolution.unresolved.len(), 0);
+    assert_eq!(resolution.resolved.len(), 2);
+    for resolved in &resolution.resolved {
+        assert_eq!(code_of(resolved), None);
+        assert_eq!(resolved.resolution_tier, ResolutionTier::AddressTextOnly);
+        // The words and their provenance survive; only the code is gone.
+        assert_eq!(resolved.address_text, "서울특별시 구로구 구로동 일원");
+        assert_eq!(resolved.address_source_dataset, COMPLEX_DATASET);
+    }
+    assert_eq!(
+        resolution
+            .missing_administrative_codes()
+            .into_iter()
+            .map(|(code, reason)| (code, reason.wire_name()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("400002", "source_code_absent"),
+            ("400003", "source_code_unknown_and_no_notice_evidence"),
+        ]
+    );
+    assert_eq!(resolution.tier_counts().get("address_text_only"), Some(&2));
     Ok(())
 }
 
@@ -325,12 +372,27 @@ fn temp_path(name: &str) -> PathBuf {
 fn resolved_line() -> ResolvedComplexAddress {
     ResolvedComplexAddress {
         official_complex_code: "111010".to_owned(),
-        administrative_code: "1153000000".to_owned(),
-        granularity: IndustrialComplexAddressGranularity::Sigungu,
+        administrative_code: ResolvedAdministrativeCode::Sourced {
+            code: "1153000000".to_owned(),
+            granularity: IndustrialComplexAddressGranularity::Sigungu,
+        },
         address_text: "서울특별시 구로구 구로동 일원".to_owned(),
         address_source_dataset: COMPLEX_DATASET.to_owned(),
         address_source_record_id: "danji_cd=111010".to_owned(),
         resolution_tier: ResolutionTier::SourceCodeInAuthority,
+    }
+}
+
+fn codeless_line() -> ResolvedComplexAddress {
+    ResolvedComplexAddress {
+        official_complex_code: "446400".to_owned(),
+        administrative_code: ResolvedAdministrativeCode::Missing(
+            lakehouse_application::MissingAdministrativeCodeReason::SourceCodeUnknownAndNoNoticeEvidence,
+        ),
+        address_text: "전라남도 신안군 지도읍".to_owned(),
+        address_source_dataset: COMPLEX_DATASET.to_owned(),
+        address_source_record_id: "danji_cd=446400".to_owned(),
+        resolution_tier: ResolutionTier::AddressTextOnly,
     }
 }
 
@@ -351,6 +413,30 @@ fn the_written_resolution_carries_the_granularity_and_the_tier() -> anyhow::Resu
         "industrylandorkr:danji_cd=111010"
     );
     assert_eq!(line["resolution_tier"], "source_code_in_authority");
+    fs::remove_dir_all(path.parent().expect("parent"))?;
+    Ok(())
+}
+
+/// A complex with no district code is written with neither key rather than with `""`. An absent key
+/// makes the reader decide; a blank one lets it slide through as if a source had said something
+/// (root ADR-0035).
+#[test]
+fn a_resolution_without_a_code_omits_both_code_keys() -> anyhow::Result<()> {
+    let path = temp_path("industrial-complex-address-resolution-codeless").join("addresses.jsonl");
+
+    write_resolution_jsonl(&path, &[codeless_line()])?;
+
+    let written = fs::read_to_string(&path)?;
+    let line = serde_json::from_str::<serde_json::Value>(written.trim())?;
+    let object = line.as_object().expect("a resolution line is an object");
+    assert!(!object.contains_key("administrative_code"), "{written}");
+    assert!(
+        !object.contains_key("administrative_code_granularity"),
+        "{written}"
+    );
+    assert_eq!(line["official_complex_code"], "446400");
+    assert_eq!(line["address_text"], "전라남도 신안군 지도읍");
+    assert_eq!(line["resolution_tier"], "address_text_only");
     fs::remove_dir_all(path.parent().expect("parent"))?;
     Ok(())
 }

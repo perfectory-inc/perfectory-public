@@ -13,8 +13,8 @@
         { "name": "complex_name_normalized", "logical_type": "string", "required": true },
         { "name": "complex_kind", "logical_type": "string", "required": true },
         { "name": "status", "logical_type": "string", "required": true },
-        { "name": "sido_code", "logical_type": "string", "required": true },
-        { "name": "sigungu_code", "logical_type": "string", "required": true },
+        { "name": "sido_code", "logical_type": "string", "required": false },
+        { "name": "sigungu_code", "logical_type": "string", "required": false },
         { "name": "primary_bjdong_code", "logical_type": "string", "required": false },
         { "name": "address_text", "logical_type": "string", "required": false },
         { "name": "management_agency_name", "logical_type": "string", "required": false },
@@ -29,8 +29,8 @@
         { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true },
         { "name": "row_checksum_sha256", "logical_type": "string", "required": true }
       ],
-      "partition_spec": ["sido_code", "bucket(32, complex_id)"],
-      "sort_order": ["sigungu_code", "complex_name_normalized", "official_complex_code"],
+      "partition_spec": ["source_snapshot_id"],
+      "sort_order": ["complex_name_normalized", "official_complex_code"],
       "quality_gates": [
         "(official_complex_code, source_snapshot_id) unique",
         "complex_name non-empty",
@@ -287,8 +287,8 @@
         { "name": "name", "logical_type": "string", "required": true },
         { "name": "kind", "logical_type": "string", "required": true },
         { "name": "status", "logical_type": "string", "required": true },
-        { "name": "sido_code", "logical_type": "string", "required": true },
-        { "name": "sigungu_code", "logical_type": "string", "required": true },
+        { "name": "sido_code", "logical_type": "string", "required": false },
+        { "name": "sigungu_code", "logical_type": "string", "required": false },
         { "name": "address_text", "logical_type": "string", "required": false },
         { "name": "official_area_sqm", "logical_type": "decimal(18,2)", "required": false },
         { "name": "calculated_area_sqm", "logical_type": "decimal(18,2)", "required": false },
@@ -298,8 +298,8 @@
         { "name": "iceberg_snapshot_id", "logical_type": "string", "required": true },
         { "name": "published_at_utc", "logical_type": "timestamp", "required": true }
       ],
-      "partition_spec": ["sido_code"],
-      "sort_order": ["sigungu_code", "name", "complex_id"],
+      "partition_spec": ["source_snapshot_id"],
+      "sort_order": ["name", "complex_id"],
       "quality_gates": [
         "one active row per complex_id",
         "parcel_count is non-negative",

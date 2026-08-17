@@ -102,6 +102,22 @@ def required_string_column_names(contract: dict[str, Any]) -> tuple[str, ...]:
     )
 
 
+def string_column_names(contract: dict[str, Any]) -> tuple[str, ...]:
+    """Return every string column, required or not.
+
+    An optional string column may be null, but it may never be the empty string: null says the
+    source did not state a value and ``""`` says it stated nothing, which is the same claim with the
+    absence hidden. Jobs gate every string column on emptiness and only the required ones on
+    nullity (root ADR-0035).
+    """
+
+    return tuple(
+        column["name"]
+        for column in columns(contract)
+        if column["logical_type"] == "string"
+    )
+
+
 def current_row_predicate(contract: dict[str, Any]) -> str | None:
     if "current_row_predicate" not in contract:
         raise ValueError(
@@ -129,7 +145,36 @@ def create_table_columns_sql(contract: dict[str, Any], indent: int = 12) -> str:
 
 
 def partition_spec_sql(contract: dict[str, Any]) -> str:
-    return ", ".join(contract["partition_spec"])
+    return ", ".join(partition_spec(contract))
+
+
+def partition_spec(contract: dict[str, Any]) -> tuple[str, ...]:
+    value = contract.get("partition_spec")
+    if not isinstance(value, list):
+        raise ValueError(
+            f"lakehouse contract {contract.get('table_name')} has no partition_spec"
+        )
+    return tuple(value)
+
+
+def partition_column_names(contract: dict[str, Any]) -> tuple[str, ...]:
+    """Return the partition-spec entries that name a column directly.
+
+    Iceberg partitions on transforms (``bucket(32, complex_id)``) as well as on plain columns; a
+    local Parquet writer can only do the latter. Reading both off the one contract is what keeps a
+    job from carrying its own copy of the partitioning, which is how the writer kept saying
+    ``sido_code`` after the contract stopped requiring one.
+    """
+
+    names = column_names(contract)
+    return tuple(entry for entry in partition_spec(contract) if entry in names)
+
+
+def sort_order(contract: dict[str, Any]) -> tuple[str, ...]:
+    value = contract.get("sort_order")
+    if not isinstance(value, list):
+        raise ValueError(f"lakehouse contract {contract.get('table_name')} has no sort_order")
+    return tuple(value)
 
 
 def columns(contract: dict[str, Any]) -> list[dict[str, Any]]:

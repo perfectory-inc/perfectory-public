@@ -605,7 +605,18 @@ fn required_column_names(contract: &LakehouseTableContract) -> Vec<String> {
         .collect()
 }
 
-fn required_quality_metric_names(contract: &LakehouseTableContract) -> Vec<String> {
+/// Returns every quality metric a run summary for `contract` must carry.
+///
+/// Public because a caller that has to *build* a valid summary — a fixture, a producer, a
+/// backfill — otherwise has to restate this list by hand, and a restated list is one nobody
+/// updates. That is not hypothetical: when the industrial-complex contract stopped requiring a
+/// region, four hand-written copies of this list had to be found and edited, and the one that ran
+/// only behind `--ignored` was missed until CI failed on it (root ADR-0035).
+///
+/// A caller that derives its metrics from here cannot then also prove this list is right; that job
+/// belongs to the tests that spell the metrics out literally.
+#[must_use]
+pub fn required_quality_metric_names(contract: &LakehouseTableContract) -> Vec<String> {
     let mut names = Vec::from(["row_count".to_owned()]);
 
     for column in contract.columns.iter().filter(|column| column.required) {
@@ -623,6 +634,11 @@ fn required_quality_metric_names(contract: &LakehouseTableContract) -> Vec<Strin
                 "invalid_official_area_count",
                 "invalid_complex_id_count",
                 "invalid_checksum_count",
+                // Region columns are optional, so nullity is no longer gated for them. This is
+                // what still refuses a present-but-invented one — a `0`, a wrong width, or a run
+                // of zeros — and requiring the metric here is what stops the gate from being
+                // dropped from the job without a summary reader noticing (root ADR-0035).
+                "invalid_region_code_count",
             ]
             .into_iter()
             .map(str::to_owned),

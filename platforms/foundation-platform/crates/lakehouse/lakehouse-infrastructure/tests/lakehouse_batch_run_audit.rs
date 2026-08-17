@@ -8,8 +8,8 @@ use lakehouse_application::ports::{
     LakehouseBatchRunAudit, LakehouseBatchRunAuditCommand, LakehouseBatchRunRepository,
 };
 use lakehouse_domain::{
-    LakehouseError, SparkRunInput, SparkRunSummary, SparkRunTarget, SparkRunWriteDisposition,
-    SparkRunWriteMode, SILVER_INDUSTRIAL_COMPLEXES,
+    required_quality_metric_names, LakehouseError, SparkRunInput, SparkRunSummary, SparkRunTarget,
+    SparkRunWriteDisposition, SparkRunWriteMode, SILVER_INDUSTRIAL_COMPLEXES,
 };
 use lakehouse_infrastructure::{PgLakehouseBatchRunAudit, PgLakehouseBatchRunRepository};
 use sqlx::{PgPool, Postgres, Transaction};
@@ -60,6 +60,36 @@ fn parsed_utc(value: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
     DateTime::parse_from_rfc3339(value).map(|parsed| parsed.with_timezone(&Utc))
 }
 
+/// A clean run's quality metrics, read off the contract rather than spelled out here.
+///
+/// These suites are about the Postgres round-trip, not about which metrics the contract demands.
+/// A hand-written copy of that list made them fail for a reason that had nothing to do with the
+/// database: the industrial-complex contract stopped requiring a region, the required metric set
+/// moved with it, and this copy — reachable only behind `--ignored` — still named
+/// `sido_code__null_count`. Deriving it means the next contract change cannot leave this file
+/// behind. What the list should contain is proven by `lakehouse_spark_run_summary.rs`, which
+/// still spells every metric out.
+fn clean_quality_metrics() -> BTreeMap<String, u64> {
+    // The Spark job gates emptiness on every string column, not only the required ones, so a real
+    // summary carries those too. Derived from the same contract for the same reason.
+    let optional_string_empty_counts = SILVER_INDUSTRIAL_COMPLEXES
+        .columns
+        .iter()
+        .filter(|column| column.logical_type == "string")
+        .map(|column| format!("{}__empty_count", column.name));
+
+    required_quality_metric_names(&SILVER_INDUSTRIAL_COMPLEXES)
+        .into_iter()
+        .chain(optional_string_empty_counts)
+        .map(|metric| {
+            // `row_count` is the one required metric that counts rows rather than defects, and the
+            // fixture has two rows. Everything else is a defect count, and a clean run has none.
+            let value = u64::from(metric == "row_count") * 2;
+            (metric, value)
+        })
+        .collect()
+}
+
 fn summary(suffix: &str, created_at: &str) -> Result<SparkRunSummary, chrono::ParseError> {
     Ok(SparkRunSummary {
         schema_version: "foundation-platform.spark_run_summary.v1".to_owned(),
@@ -78,38 +108,7 @@ fn summary(suffix: &str, created_at: &str) -> Result<SparkRunSummary, chrono::Pa
         iceberg_readback_validation: None,
         row_count: 2,
         persisted_row_count: Some(2),
-        quality_metrics: BTreeMap::from([
-            ("row_count".to_owned(), 2),
-            ("complex_id__null_count".to_owned(), 0),
-            ("complex_id__empty_count".to_owned(), 0),
-            ("official_complex_code__null_count".to_owned(), 0),
-            ("official_complex_code__empty_count".to_owned(), 0),
-            ("complex_name__null_count".to_owned(), 0),
-            ("complex_name__empty_count".to_owned(), 0),
-            ("complex_name_normalized__null_count".to_owned(), 0),
-            ("complex_name_normalized__empty_count".to_owned(), 0),
-            ("complex_kind__null_count".to_owned(), 0),
-            ("complex_kind__empty_count".to_owned(), 0),
-            ("status__null_count".to_owned(), 0),
-            ("status__empty_count".to_owned(), 0),
-            ("sido_code__null_count".to_owned(), 0),
-            ("sido_code__empty_count".to_owned(), 0),
-            ("sigungu_code__null_count".to_owned(), 0),
-            ("sigungu_code__empty_count".to_owned(), 0),
-            ("source_record_id__null_count".to_owned(), 0),
-            ("source_record_id__empty_count".to_owned(), 0),
-            ("source_snapshot_id__null_count".to_owned(), 0),
-            ("source_snapshot_id__empty_count".to_owned(), 0),
-            ("valid_from_utc__null_count".to_owned(), 0),
-            ("ingested_at_utc__null_count".to_owned(), 0),
-            ("row_checksum_sha256__null_count".to_owned(), 0),
-            ("row_checksum_sha256__empty_count".to_owned(), 0),
-            ("invalid_complex_kind_count".to_owned(), 0),
-            ("invalid_status_count".to_owned(), 0),
-            ("invalid_official_area_count".to_owned(), 0),
-            ("invalid_complex_id_count".to_owned(), 0),
-            ("invalid_checksum_count".to_owned(), 0),
-        ]),
+        quality_metrics: clean_quality_metrics(),
         column_count: SILVER_INDUSTRIAL_COMPLEXES.columns.len(),
         columns: SILVER_INDUSTRIAL_COMPLEXES
             .columns
@@ -133,6 +132,21 @@ fn parquet_target_path(summary: &SparkRunSummary) -> &str {
         SparkRunTarget::Parquet { path } => path,
         SparkRunTarget::Iceberg { .. } => "",
     }
+}
+
+/// The fixture below is only useful if the audit would accept it, and what the audit checks first
+/// is `validate_for_contract` — which needs no database at all.
+///
+/// This case is not `#[ignore]`d on purpose. Every suite in this file is, so the whole file used to
+/// be invisible to `cargo test --locked --workspace --all-features`; the contract drift that broke
+/// it was found only by CI's `-- --ignored` lane, on a claim of local green. Nothing about a
+/// mismatched quality-metric set needs Postgres to detect, so this asserts it where an ordinary
+/// test run will see it.
+#[test]
+fn the_fixture_summary_satisfies_the_contract_it_names() -> Result<(), Box<dyn std::error::Error>> {
+    summary("fixture", "2026-05-14T05:27:05Z")?
+        .validate_for_contract(&SILVER_INDUSTRIAL_COMPLEXES)?;
+    Ok(())
 }
 
 const fn audit_command(

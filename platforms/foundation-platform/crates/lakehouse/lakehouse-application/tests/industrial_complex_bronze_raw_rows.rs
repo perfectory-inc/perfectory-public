@@ -220,11 +220,97 @@ fn administrative_codes_are_derived_from_the_administrative_code() -> TestResult
         " record ",
     )?;
 
-    assert_eq!(address.sido_code(), "41");
-    assert_eq!(address.sigungu_code(), "41117");
+    assert_eq!(address.sido_code(), Some("41"));
+    assert_eq!(address.sigungu_code(), Some("41117"));
     assert_eq!(address.primary_bjdong_code(), Some("4111710300"));
     assert_eq!(address.address_text(), "경기도 수원시 장안구");
     Ok(())
+}
+
+/// `0000000000` is ten ASCII digits and ends in five zeros, so both of the shape checks would pass
+/// it and the row would claim province `00`. It is the shape a filler takes once the region columns
+/// stop being required, so the constructor has to refuse it by name (root ADR-0035).
+#[test]
+fn address_rejects_an_all_zero_administrative_code() {
+    for (code, granularity) in [
+        ("0000000000", IndustrialComplexAddressGranularity::Sigungu),
+        ("0000000001", IndustrialComplexAddressGranularity::LegalDong),
+    ] {
+        let error =
+            IndustrialComplexAddress::try_new(code, granularity, "주소", "dataset", "record")
+                .expect_err("an all-zero district prefix must be rejected");
+        assert!(
+            matches!(
+                error,
+                IndustrialComplexBronzeRawPlanError::InvalidAddress(ref message)
+                    if message.contains("all-zero")
+            ),
+            "{code:?} produced {error}"
+        );
+    }
+}
+
+/// The one complex in 1,442 whose district code no source states. The words are published and the
+/// row keeps them; all three region columns are `null`, and no constructor exists that would let a
+/// blank or a zero take their place (root ADR-0035).
+#[test]
+fn an_address_without_an_administrative_code_writes_null_for_every_region_column() -> TestResult {
+    let address = IndustrialComplexAddress::try_new_without_administrative_code(
+        " 전라남도 신안군 지도읍 ",
+        " industrylandorkr__industrial_complex_list ",
+        " industrylandorkr:danji_cd=446400 ",
+    )?;
+
+    assert_eq!(address.administrative_code(), None);
+    assert_eq!(address.granularity(), None);
+    assert_eq!(address.sido_code(), None);
+    assert_eq!(address.sigungu_code(), None);
+    assert_eq!(address.primary_bjdong_code(), None);
+    assert_eq!(address.address_text(), "전라남도 신안군 지도읍");
+
+    let records = vec![source_record("446400")];
+    let mut addresses = IndustrialComplexAddressBook::new();
+    addresses.insert("446400", address)?;
+    let rows =
+        normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+            records: &records,
+            addresses: &addresses,
+            bronze_object_key: BRONZE_OBJECT_KEY,
+            source_slug: SOURCE_SLUG,
+            ingested_at_utc: ingested_at()?,
+        })?;
+    let line = industrial_complex_bronze_raw_row_to_jsonl(&rows[0])?;
+    let record = serde_json::from_str::<Value>(line.as_str())?;
+
+    assert_eq!(record["sido_code"], Value::Null);
+    assert_eq!(record["sigungu_code"], Value::Null);
+    assert_eq!(record["primary_bjdong_code"], Value::Null);
+    // The words are the location this row does have, and they stay required.
+    assert_eq!(record["address_text"], "전라남도 신안군 지도읍");
+    Ok(())
+}
+
+/// Dropping the code does not drop the provenance: a row with no district still has to say which
+/// dataset published the words it carries.
+#[test]
+fn an_address_without_an_administrative_code_still_rejects_blank_text_and_provenance() {
+    for (text, dataset, record_id) in [
+        ("", "dataset", "record"),
+        ("   ", "dataset", "record"),
+        ("주소", "", "record"),
+        ("주소", "dataset", "   "),
+    ] {
+        let error =
+            IndustrialComplexAddress::try_new_without_administrative_code(text, dataset, record_id)
+                .expect_err("a codeless address must still prove where its words came from");
+        assert!(
+            matches!(
+                error,
+                IndustrialComplexBronzeRawPlanError::InvalidAddress(_)
+            ),
+            "{text:?}/{dataset:?}/{record_id:?} produced {error}"
+        );
+    }
 }
 
 /// A district-granularity source still proves the province and the district — those it named. It
@@ -232,10 +318,10 @@ fn administrative_codes_are_derived_from_the_administrative_code() -> TestResult
 #[test]
 fn a_district_granularity_address_reports_no_legal_dong_and_the_row_writes_null() -> TestResult {
     let address = sigungu_address("1153000000")?;
-    assert_eq!(address.sido_code(), "11");
-    assert_eq!(address.sigungu_code(), "11530");
+    assert_eq!(address.sido_code(), Some("11"));
+    assert_eq!(address.sigungu_code(), Some("11530"));
     assert_eq!(address.primary_bjdong_code(), None);
-    assert_eq!(address.administrative_code(), "1153000000");
+    assert_eq!(address.administrative_code(), Some("1153000000"));
 
     let records = vec![source_record("111010")];
     let mut addresses = IndustrialComplexAddressBook::new();
