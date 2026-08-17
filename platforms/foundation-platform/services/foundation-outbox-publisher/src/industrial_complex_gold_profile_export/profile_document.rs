@@ -103,10 +103,14 @@ mod tests {
 
     use super::{build, GoldSnapshotProvenance};
 
+    // Snapshot ids here sit in the repository-reserved synthetic namespace
+    // (`scripts/guard/public-fixture-safety.py`), not the production values: a real Iceberg
+    // snapshot id is a 19-digit integer and is indistinguishable by shape from a parcel number.
+    // The production snapshot this command was proven against is recorded in root ADR-0036.
     fn provenance() -> GoldSnapshotProvenance {
         GoldSnapshotProvenance {
             table: "gold.complex_catalog".to_owned(),
-            iceberg_snapshot_id: "1859666716850025456".to_owned(),
+            iceberg_snapshot_id: "999990000000000001".to_owned(),
             metadata_location: "s3://lakehouse/metadata/00001.metadata.json".to_owned(),
             manifest_list_location: "s3://lakehouse/metadata/snap-1.avro".to_owned(),
         }
@@ -127,7 +131,7 @@ mod tests {
             "parcel_count": 0,
             "boundary_object_key": null,
             "source_snapshot_id": "vworldkr__sandan_profile-202506",
-            "iceberg_snapshot_id": "3061575794473687004",
+            "iceberg_snapshot_id": "999990000000000003",
             "published_at_utc": "2026-08-18T00:00:00Z"
         }) else {
             unreachable!("fixture literal is an object")
@@ -155,7 +159,7 @@ mod tests {
     fn a_different_gold_snapshot_produces_a_different_artifact() -> anyhow::Result<()> {
         let first = build(&provenance(), &attributes())?;
         let mut next_snapshot = provenance();
-        next_snapshot.iceberg_snapshot_id = "1859666716850025457".to_owned();
+        next_snapshot.iceberg_snapshot_id = "999990000000000002".to_owned();
         let second = build(&next_snapshot, &attributes())?;
 
         assert_ne!(first.artifact_id, second.artifact_id);

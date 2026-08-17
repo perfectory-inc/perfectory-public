@@ -18,10 +18,14 @@ fn temporary_root(label: &str) -> PathBuf {
     ))
 }
 
+// Snapshot ids here sit in the repository-reserved synthetic namespace
+// (`scripts/guard/public-fixture-safety.py`), not the production values: a real Iceberg
+// snapshot id is a 19-digit integer and is indistinguishable by shape from a parcel number.
+// The production snapshot this command was proven against is recorded in root ADR-0036.
 fn provenance() -> GoldSnapshotProvenance {
     GoldSnapshotProvenance {
         table: "gold.complex_catalog".to_owned(),
-        iceberg_snapshot_id: "1859666716850025456".to_owned(),
+        iceberg_snapshot_id: "999990000000000001".to_owned(),
         metadata_location:
             "s3://foundation-platform-lakehouse-prod/__r2_data_catalog/t/metadata/00001.metadata.json"
                 .to_owned(),
@@ -46,7 +50,7 @@ fn row() -> JsonMap<String, JsonValue> {
         "parcel_count": 0,
         "boundary_object_key": JsonValue::Null,
         "source_snapshot_id": "vworldkr__sandan_profile-202506",
-        "iceberg_snapshot_id": "3061575794473687004",
+        "iceberg_snapshot_id": "999990000000000003",
         "published_at_utc": "2026-08-18T00:00:00Z"
     }) else {
         unreachable!("fixture literal is an object")
@@ -135,7 +139,7 @@ fn export_entries_carry_the_pointer_publish_inputs() -> anyhow::Result<()> {
     assert_eq!(entry.profile_checksum_sha256, artifact.checksum_sha256);
     assert_eq!(entry.source_snapshot_id, "vworldkr__sandan_profile-202506");
     // The scanned Gold snapshot, not the `iceberg_snapshot_id` column the projection job wrote.
-    assert_eq!(entry.iceberg_snapshot_id, "1859666716850025456");
+    assert_eq!(entry.iceberg_snapshot_id, "999990000000000001");
     assert_eq!(entry.published_at_utc, "2026-08-18T00:00:00Z");
     Ok(())
 }
