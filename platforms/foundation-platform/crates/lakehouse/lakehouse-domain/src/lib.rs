@@ -65,6 +65,7 @@ pub use lakehouse_registry::{
     ParseLakehouseRegistryWireError,
 };
 pub use lakehouse_run_summary::{
-    SparkRunIcebergReadbackValidation, SparkRunInput, SparkRunSummary, SparkRunSummaryError,
-    SparkRunTarget, SparkRunWriteDisposition, SparkRunWriteMode, SPARK_RUN_SUMMARY_SCHEMA_VERSION,
+    required_quality_metric_names, SparkRunIcebergReadbackValidation, SparkRunInput,
+    SparkRunSummary, SparkRunSummaryError, SparkRunTarget, SparkRunWriteDisposition,
+    SparkRunWriteMode, SPARK_RUN_SUMMARY_SCHEMA_VERSION,
 };
