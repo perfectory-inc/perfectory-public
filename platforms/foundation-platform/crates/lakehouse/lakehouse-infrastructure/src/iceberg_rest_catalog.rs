@@ -28,6 +28,23 @@ const PROVIDER: &str = "Iceberg REST catalog";
 const ICEBERG_ACCESS_DELEGATION_HEADER: &str = "X-Iceberg-Access-Delegation";
 const VENDED_CREDENTIALS_DELEGATION: &str = "vended-credentials";
 
+/// Where one Iceberg snapshot's manifest list lives, as the catalog reports it.
+///
+/// `LakehouseTableSnapshot` answers the control-plane question ("which snapshot is current").
+/// Scanning the rows of that snapshot needs one more fact the catalog already returns: the
+/// manifest list every data file is reachable from.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IcebergSnapshotManifestList {
+    /// Fully qualified `namespace.table` that was loaded.
+    pub table_name: String,
+    /// Snapshot the manifest list belongs to.
+    pub snapshot_id: i64,
+    /// Storage location of the snapshot's manifest list Avro object.
+    pub manifest_list_location: String,
+    /// Storage location of the table metadata document the snapshot was read from.
+    pub metadata_location: String,
+}
+
 /// Provider-neutral Iceberg REST catalog client.
 #[derive(Clone, Debug)]
 pub struct IcebergRestCatalog {
@@ -255,6 +272,46 @@ impl IcebergRestCatalog {
             .transpose()
     }
 
+    /// Resolves the manifest list of the table's current snapshot.
+    ///
+    /// Returns `Ok(None)` when the table does not exist or carries no current snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached, or when the current snapshot
+    /// is present but the catalog omitted its manifest list.
+    pub async fn load_current_snapshot_manifest_list(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<IcebergSnapshotManifestList>, LakehouseError> {
+        let Some(payload) = self.load_table_response(table_name).await? else {
+            return Ok(None);
+        };
+        let Some(snapshot_id) = payload.current_snapshot_id_i64() else {
+            return Ok(None);
+        };
+        let manifest_list_location = payload
+            .metadata
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.snapshot_id == snapshot_id)
+            .and_then(|snapshot| snapshot.manifest_list.as_deref())
+            .filter(|location| !location.is_empty())
+            .ok_or_else(|| {
+                LakehouseError::Upstream(format!(
+                    "Iceberg REST load table response omitted the manifest list of snapshot {snapshot_id}"
+                ))
+            })?
+            .to_owned();
+
+        Ok(Some(IcebergSnapshotManifestList {
+            table_name: table_name.to_owned(),
+            snapshot_id,
+            manifest_list_location,
+            metadata_location: payload.metadata_location,
+        }))
+    }
+
     async fn load_table_response(
         &self,
         table_name: &str,
@@ -404,6 +461,8 @@ struct IcebergTableMetadata {
 struct IcebergSnapshotMetadata {
     #[serde(rename = "snapshot-id")]
     snapshot_id: i64,
+    #[serde(rename = "manifest-list", default)]
+    manifest_list: Option<String>,
 }
 
 fn parse_table_name(table_name: &str) -> Result<(Vec<&str>, &str), LakehouseError> {

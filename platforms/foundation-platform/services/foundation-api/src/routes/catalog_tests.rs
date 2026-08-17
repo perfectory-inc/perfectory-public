@@ -22,7 +22,7 @@ use foundation_shared_kernel::ids::{
     BuildingId, ComplexId, FileAssetId, ManufacturerId, ParcelId, SourceRecordId,
     VectorTileArtifactId, VectorTileManifestId,
 };
-use foundation_shared_kernel::{ObjectKey, ObjectKeyPrefix};
+use foundation_shared_kernel::{ObjectKey, ObjectKeyPrefix, ObjectUrlTemplate};
 use lakehouse_domain::IndustrialComplexGoldPointer;
 use sqlx::PgPool;
 use std::{collections::HashMap, sync::Arc};
@@ -276,6 +276,8 @@ fn industrial_complex_response_includes_thin_gold_pointer() {
         profile_file_asset_id: FileAssetId::new(Uuid::now_v7()),
         profile_object_key: ObjectKey::parse("gold/industrial-complex/profiles/0196e7e0-3c20-7000-8000-100000000002.json")
             .expect("valid profile object key"),
+        profile_url_template: ObjectUrlTemplate::parse("https://lakehouse.example.com/{object_key}")
+            .expect("valid profile url template"),
         spatial_locator_file_asset_id: Some(FileAssetId::new(Uuid::now_v7())),
         spatial_locator_object_key: Some(
             ObjectKey::parse("gold/industrial-complex/spatial-locators/0196e7e0-3c20-7000-8000-100000000002.parquet")
@@ -382,6 +384,10 @@ fn industrial_complex_list_response_attaches_gold_pointer_by_complex_id() {
             profile_file_asset_id: FileAssetId::new(Uuid::now_v7()),
             profile_object_key: ObjectKey::parse("gold/industrial-complex/profiles/list.json")
                 .expect("valid profile object key"),
+            profile_url_template: ObjectUrlTemplate::parse(
+                "https://lakehouse.example.com/{object_key}",
+            )
+            .expect("valid profile url template"),
             spatial_locator_file_asset_id: None,
             spatial_locator_object_key: None,
             source_record_id,

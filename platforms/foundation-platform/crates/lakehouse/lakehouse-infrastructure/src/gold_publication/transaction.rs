@@ -193,8 +193,8 @@ async fn upsert_gold_pointer(
          (complex_id, current_version, previous_version, profile_file_asset_id,
           spatial_locator_file_asset_id, source_record_id, source_snapshot_id,
           iceberg_snapshot_id, profile_row_count, profile_checksum_sha256,
-          published_at, updated_at, version)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), 1)
+          profile_url_template, published_at, updated_at, version)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), 1)
          ON CONFLICT (complex_id) DO UPDATE
          SET current_version = EXCLUDED.current_version,
              previous_version = EXCLUDED.previous_version,
@@ -205,6 +205,7 @@ async fn upsert_gold_pointer(
              iceberg_snapshot_id = EXCLUDED.iceberg_snapshot_id,
              profile_row_count = EXCLUDED.profile_row_count,
              profile_checksum_sha256 = EXCLUDED.profile_checksum_sha256,
+             profile_url_template = EXCLUDED.profile_url_template,
              published_at = EXCLUDED.published_at,
              updated_at = now(),
              version = catalog.industrial_complex_gold_pointer.version + 1",
@@ -219,6 +220,7 @@ async fn upsert_gold_pointer(
     .bind(command.iceberg_snapshot_id.as_str())
     .bind(u64_to_i64("profile_row_count", command.profile_row_count)?)
     .bind(command.profile_checksum_sha256.as_str())
+    .bind(command.profile_url_template.as_str())
     .bind(command.published_at)
     .execute(&mut **tx)
     .await

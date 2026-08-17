@@ -47,3 +47,7 @@ last_reviewed: 2026-07-28
 - [0033 — 주소 출처가 없는 산업단지는 표현할 수 없다](./0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md)
 - [0034 — 행정구역 코드는 자기 정밀도를 싣고 다닌다](./0034-an-administrative-code-carries-its-own-granularity.md)
 - [0035 — 쓰지 않는 지역은 필수가 아니다](./0035-a-region-the-pipeline-does-not-use-is-not-required.md)
+- [0036 — 가리켜지는 객체는 그것을 쓴 커맨드를 가진다](./0036-a-pointed-at-object-has-the-command-that-wrote-it.md)
+- [0037 — 포인터는 객체 키와 함께 주소 틀을 싣는다](./0037-a-pointer-carries-the-address-template-with-its-object-key.md)
+- [0038 — 가져가라고 만든 산출물은 정본 바이트와 버킷을 같이 쓰지 않는다](./0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md) (ADR-0039 로 대체됨)
+- [0039 — Gold 서빙 아티팩트는 lakehouse 버킷에 살고, 타일만 나간다](./0039-gold-serving-artifacts-live-in-the-lakehouse-bucket-and-tiles-do-not.md)

@@ -75,7 +75,9 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 calamine = { version = "0.36.1", default-features = false, features = ["dates"] }
 arrow-array = "59"
 arrow-schema = "59"
-parquet = { version = "59", default-features = false, features = ["arrow", "snap"] }
+# zstd is the compression the Gold Iceberg tables are written with; a reader without it fails at
+# the first record batch rather than at configuration time.
+parquet = { version = "59", default-features = false, features = ["arrow", "snap", "zstd"] }
 
 # DB
 sqlx = { version = "0.8", default-features = false, features = [

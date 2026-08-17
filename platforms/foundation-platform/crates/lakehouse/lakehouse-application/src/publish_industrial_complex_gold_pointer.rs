@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::ComplexId;
-use foundation_shared_kernel::ObjectKey;
+use foundation_shared_kernel::{ObjectKey, ObjectUrlTemplate};
 use lakehouse_domain::{IndustrialComplexGoldPointer, LakehouseError};
 
 use crate::ports::LakehousePublicationUnitOfWork;
@@ -20,6 +20,8 @@ pub struct PublishIndustrialComplexGoldPointerInput {
     pub expected_current_version: Option<String>,
     /// Gold profile object key.
     pub profile_object_key: String,
+    /// Address template that turns this pointer's object keys into fetchable URLs.
+    pub profile_url_template: String,
     /// Optional Gold spatial locator object key.
     pub spatial_locator_object_key: Option<String>,
     /// Source system or pipeline name.
@@ -55,6 +57,8 @@ pub struct PublishIndustrialComplexGoldPointerCommand {
     pub expected_current_version: Option<String>,
     /// Gold profile object key.
     pub profile_object_key: String,
+    /// Address template that turns this pointer's object keys into fetchable URLs.
+    pub profile_url_template: String,
     /// Optional Gold spatial locator object key.
     pub spatial_locator_object_key: Option<String>,
     /// Source system or pipeline name.
@@ -122,6 +126,8 @@ impl PublishIndustrialComplexGoldPointerCommand {
         }
         ObjectKey::parse(self.profile_object_key.as_str())
             .map_err(|error| LakehouseError::InvalidContract(error.to_string()))?;
+        ObjectUrlTemplate::parse(self.profile_url_template.as_str())
+            .map_err(|error| LakehouseError::InvalidContract(error.to_string()))?;
         if let Some(key) = &self.spatial_locator_object_key {
             ObjectKey::parse(key)
                 .map_err(|error| LakehouseError::InvalidContract(error.to_string()))?;
@@ -167,6 +173,7 @@ impl From<PublishIndustrialComplexGoldPointerInput> for PublishIndustrialComplex
             current_version: input.current_version,
             expected_current_version: input.expected_current_version,
             profile_object_key: input.profile_object_key,
+            profile_url_template: input.profile_url_template,
             spatial_locator_object_key: input.spatial_locator_object_key,
             source: input.source,
             source_url: input.source_url,

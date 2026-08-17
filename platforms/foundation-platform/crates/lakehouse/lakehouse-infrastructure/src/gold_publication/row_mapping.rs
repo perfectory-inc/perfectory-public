@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::{ComplexId, FileAssetId, SourceRecordId};
-use foundation_shared_kernel::ObjectKey;
+use foundation_shared_kernel::{ObjectKey, ObjectUrlTemplate};
 use lakehouse_domain::{IndustrialComplexGoldPointer, LakehouseError};
 use sqlx::postgres::PgRow;
 use sqlx::Row;
@@ -14,7 +14,8 @@ pub(super) const GOLD_POINTER_COLUMNS: &str = "gp.complex_id, gp.current_version
  gp.previous_version, gp.profile_file_asset_id, profile_file.object_key AS profile_object_key,
  gp.spatial_locator_file_asset_id, spatial_file.object_key AS spatial_locator_object_key,
  gp.source_record_id, gp.source_snapshot_id, gp.iceberg_snapshot_id, gp.profile_row_count,
- gp.profile_checksum_sha256, gp.published_at, gp.updated_at, gp.version";
+ gp.profile_checksum_sha256, gp.profile_url_template, gp.published_at, gp.updated_at,
+ gp.version";
 
 pub(super) fn row_to_gold_pointer(
     row: &PgRow,
@@ -31,6 +32,12 @@ pub(super) fn row_to_gold_pointer(
         .transpose()
         .map_err(|error| LakehouseError::Persistence(error.to_string()))?;
 
+    let profile_url_template = ObjectUrlTemplate::parse(
+        &row.try_get::<String, _>("profile_url_template")
+            .map_err(map_sqlx)?,
+    )
+    .map_err(|error| LakehouseError::Persistence(error.to_string()))?;
+
     Ok(IndustrialComplexGoldPointer {
         complex_id: ComplexId::new(row.try_get::<Uuid, _>("complex_id").map_err(map_sqlx)?),
         current_version: row.try_get("current_version").map_err(map_sqlx)?,
@@ -40,6 +47,7 @@ pub(super) fn row_to_gold_pointer(
                 .map_err(map_sqlx)?,
         ),
         profile_object_key,
+        profile_url_template,
         spatial_locator_file_asset_id: row
             .try_get::<Option<Uuid>, _>("spatial_locator_file_asset_id")
             .map_err(map_sqlx)?

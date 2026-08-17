@@ -874,6 +874,7 @@ fn industrial_complex_gold_pointer_response(
         current_version: pointer.current_version,
         previous_version: pointer.previous_version,
         profile_object_key: pointer.profile_object_key.as_str().to_owned(),
+        profile_url_template: pointer.profile_url_template.as_str().to_owned(),
         spatial_locator_object_key: pointer
             .spatial_locator_object_key
             .as_ref()

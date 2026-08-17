@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+apache-avro = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
@@ -45,7 +46,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres"] }
 foundation-outbox = { workspace = true }
 outbound-http-infrastructure = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
+uuid = { workspace = true, features = ["v4", "v5"] }
 zip = { workspace = true }
 
 [dev-dependencies]

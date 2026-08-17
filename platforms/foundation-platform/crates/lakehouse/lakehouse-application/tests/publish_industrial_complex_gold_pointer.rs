@@ -37,6 +37,10 @@ impl LakehousePublicationUnitOfWork for RecordingLakehousePublicationUnitOfWork 
                 &command.profile_object_key,
             )
             .map_err(|error| LakehouseError::InvalidContract(error.to_string()))?,
+            profile_url_template: foundation_shared_kernel::ObjectUrlTemplate::parse(
+                &command.profile_url_template,
+            )
+            .map_err(|error| LakehouseError::InvalidContract(error.to_string()))?,
             spatial_locator_file_asset_id: None,
             spatial_locator_object_key: None,
             source_record_id: SourceRecordId::new(Uuid::nil()),
@@ -58,6 +62,7 @@ fn valid_input() -> PublishIndustrialComplexGoldPointerInput {
         expected_current_version: None,
         profile_object_key:
             "gold/industrial-complex/profiles/0196e7e0-3c20-7000-8000-100000000002.json".to_owned(),
+        profile_url_template: "https://lakehouse.example.com/{object_key}".to_owned(),
         spatial_locator_object_key: None,
         source: "foundation-platform.spark.industrial_complex_gold".to_owned(),
         source_url: None,
@@ -111,6 +116,32 @@ async fn rejects_invalid_object_key_before_writing() {
         .commands
         .lock()
         .is_ok_and(|commands| commands.is_empty()));
+}
+
+#[tokio::test]
+async fn rejects_unaddressable_profile_url_template_before_writing() {
+    for template in [
+        "",
+        "https://lakehouse.example.com/gold/profiles.json",
+        "http://lakehouse.example.com/{object_key}",
+        "https://lakehouse.example.com/{object_key}?token=x",
+    ] {
+        let unit_of_work = Arc::new(RecordingLakehousePublicationUnitOfWork::default());
+        let use_case = PublishIndustrialComplexGoldPointer::new(unit_of_work.clone());
+        let mut input = valid_input();
+        input.profile_url_template = template.to_owned();
+
+        let result = use_case.execute(input).await;
+
+        assert!(
+            matches!(result, Err(LakehouseError::InvalidContract(_))),
+            "unaddressable profile URL template was published: {template:?}"
+        );
+        assert!(unit_of_work
+            .commands
+            .lock()
+            .is_ok_and(|commands| commands.is_empty()));
+    }
 }
 
 #[tokio::test]

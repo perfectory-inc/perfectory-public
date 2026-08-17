@@ -129,6 +129,7 @@ fn publish_command(
         current_version: current_version.to_owned(),
         expected_current_version,
         profile_object_key: format!("gold/industrial-complex/profiles/{suffix}.json"),
+        profile_url_template: "https://lakehouse.example.com/{object_key}".to_owned(),
         spatial_locator_object_key: Some(format!(
             "gold/industrial-complex/spatial-locators/{suffix}.parquet"
         )),

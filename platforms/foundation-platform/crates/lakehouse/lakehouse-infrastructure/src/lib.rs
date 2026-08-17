@@ -30,7 +30,7 @@ pub use catalog_materialization::CatalogIndustrialComplexMaterializationReader;
 pub use gold_publication::{
     PgIndustrialComplexGoldPointerReader, PgLakehousePublicationUnitOfWork,
 };
-pub use iceberg_rest_catalog::IcebergRestCatalog;
+pub use iceberg_rest_catalog::{IcebergRestCatalog, IcebergSnapshotManifestList};
 pub use lakehouse_batch_audit::{PgLakehouseBatchRunAudit, PgLakehouseBatchRunRepository};
 pub use lakehouse_config::{
     live_lakehouse_smoke_enabled, validate_lakehouse_smoke_table_name, LakehouseCatalogConfig,
