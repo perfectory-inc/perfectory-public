@@ -10,7 +10,7 @@ use catalog_domain::{
     ALL_ACTIVE_MARKER_FILTER_HASH, PARCEL_ANCHOR_MARKER_TILE_LAYER,
     PNU_ANCHOR_PBF_MARKER_TILE_CONTRACT,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -57,6 +57,12 @@ pub struct ArchiveComplexRequest {
 pub struct IndustrialComplexResponse {
     /// Stable foundation-platform identifier for the complex.
     pub id: Uuid,
+    /// Identifier the same complex carries in the lakehouse, when it was sourced from there.
+    ///
+    /// Unrelated to `id`: that one is minted locally, this one is derived and is what Gold
+    /// artifact object keys are computed from. A client that wants the complex's Gold profile
+    /// object needs this value, not `id`. `null` for a complex registered through this API.
+    pub lakehouse_complex_id: Option<Uuid>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.
@@ -70,6 +76,29 @@ pub struct IndustrialComplexResponse {
     pub primary_bjdong_code: Option<String>,
     /// Official complex area in square meters.
     pub area_m2: u64,
+    /// Where the complex is in its development lifecycle.
+    ///
+    /// Wire values: `planned`, `developing`, `operating`, `changed`, `abolished`, `unknown`.
+    /// `unknown` and `null` are different answers — `unknown` means the source stated a lifecycle
+    /// this contract does not recognize, `null` means it stated none.
+    pub status: Option<String>,
+    /// Province-level administrative code, when one was sourced.
+    pub sido_code: Option<String>,
+    /// City/county/district administrative code, when one was sourced.
+    pub sigungu_code: Option<String>,
+    /// Address the source stated for the complex.
+    ///
+    /// One complex spans many legal divisions and sometimes several provinces, so this is the
+    /// source's own wording rather than anything reconstructed from the codes above.
+    pub address_text: Option<String>,
+    /// Organization that manages the complex.
+    pub management_agency_name: Option<String>,
+    /// Organization that developed the complex.
+    pub developer_name: Option<String>,
+    /// Date the complex was officially designated, as `YYYY-MM-DD`.
+    pub designated_date: Option<NaiveDate>,
+    /// Date the complex's site formation was approved as complete, as `YYYY-MM-DD`.
+    pub completion_date: Option<NaiveDate>,
     /// Monotonic record version used for optimistic concurrency.
     pub version: i64,
     /// UTC timestamp of the last canonical Catalog update.

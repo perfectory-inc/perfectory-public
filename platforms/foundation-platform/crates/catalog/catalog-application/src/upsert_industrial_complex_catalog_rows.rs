@@ -6,10 +6,13 @@
 
 use std::sync::Arc;
 
-use catalog_domain::{CatalogError, IndustrialComplexKind};
+use catalog_domain::{CatalogError, IndustrialComplexKind, IndustrialComplexStatus};
+use chrono::NaiveDate;
+use foundation_shared_kernel::ids::LakehouseComplexId;
 
 use crate::industrial_complex_input::{
-    validate_clean_required, validate_optional_primary_bjdong_code,
+    validate_clean_required, validate_optional_clean_text, validate_optional_primary_bjdong_code,
+    validate_optional_sido_code, validate_optional_sigungu_code,
     validate_source_official_complex_code,
 };
 use crate::ports::{
@@ -19,6 +22,8 @@ use crate::ports::{
 /// Source-side row that establishes canonical industrial-complex identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IndustrialComplexCatalogRow {
+    /// Lakehouse identifier of the same complex, when the producer read one.
+    pub lakehouse_complex_id: Option<LakehouseComplexId>,
     /// Source-side official industrial-complex code. The natural key of the upsert.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.
@@ -29,6 +34,22 @@ pub struct IndustrialComplexCatalogRow {
     pub primary_bjdong_code: Option<String>,
     /// Official complex area in square meters.
     pub area_m2: u64,
+    /// Lifecycle status the source stated.
+    pub status: Option<IndustrialComplexStatus>,
+    /// Province-level administrative code the address resolution produced.
+    pub sido_code: Option<String>,
+    /// City/county/district administrative code the address resolution produced.
+    pub sigungu_code: Option<String>,
+    /// Address the source stated, verbatim.
+    pub address_text: Option<String>,
+    /// Organization that manages the complex.
+    pub management_agency_name: Option<String>,
+    /// Organization that developed the complex.
+    pub developer_name: Option<String>,
+    /// Date the complex was officially designated.
+    pub designated_date: Option<NaiveDate>,
+    /// Date the complex's site formation was approved as complete.
+    pub completion_date: Option<NaiveDate>,
 }
 
 /// Input for writing source-side industrial-complex rows into Catalog.
@@ -107,12 +128,32 @@ fn catalog_row_to_upsert_command(
     validate_source_official_complex_code(row.official_complex_code.as_str())?;
     validate_clean_required("name", row.name.as_str())?;
     validate_optional_primary_bjdong_code(row.primary_bjdong_code.as_deref())?;
+    validate_optional_sido_code(row.sido_code.as_deref())?;
+    validate_optional_sigungu_code(row.sigungu_code.as_deref())?;
+    // A present value must be real text. `Some("")` and `Some("  ")` are how "the source said
+    // nothing" gets smuggled in as a value, which is the one thing this loader must not do; the
+    // caller has to send `None` instead.
+    validate_optional_clean_text("address_text", row.address_text.as_deref())?;
+    validate_optional_clean_text(
+        "management_agency_name",
+        row.management_agency_name.as_deref(),
+    )?;
+    validate_optional_clean_text("developer_name", row.developer_name.as_deref())?;
     Ok(UpsertIndustrialComplexCommand {
+        lakehouse_complex_id: row.lakehouse_complex_id,
         official_complex_code: row.official_complex_code.clone(),
         name: row.name.clone(),
         kind: row.kind,
         primary_bjdong_code: row.primary_bjdong_code.clone(),
         area_m2: row.area_m2,
+        status: row.status,
+        sido_code: row.sido_code.clone(),
+        sigungu_code: row.sigungu_code.clone(),
+        address_text: row.address_text.clone(),
+        management_agency_name: row.management_agency_name.clone(),
+        developer_name: row.developer_name.clone(),
+        designated_date: row.designated_date,
+        completion_date: row.completion_date,
     })
 }
 
@@ -128,6 +169,15 @@ mod tests {
             kind: IndustrialComplexKind::National,
             primary_bjdong_code: primary_bjdong_code.map(ToOwned::to_owned),
             area_m2: 3_708_451,
+            lakehouse_complex_id: None,
+            status: None,
+            sido_code: None,
+            sigungu_code: None,
+            address_text: None,
+            management_agency_name: None,
+            developer_name: None,
+            designated_date: None,
+            completion_date: None,
         }
     }
 

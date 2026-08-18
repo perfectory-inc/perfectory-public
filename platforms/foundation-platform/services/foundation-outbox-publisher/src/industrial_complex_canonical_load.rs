@@ -10,11 +10,19 @@
 //!
 //! - `official_complex_code` is the natural key. A code already in the table updates that row in
 //!   place, keeping its `id`, because nine foreign keys point at that `id`. Nothing is deleted.
-//! - `primary_bjdong_code` is always `NULL`. `gold.complex_catalog` has no such column, and a
-//!   canonical row must not claim an administrative code its source never carried.
-//! - Address, status, designation date, and managing agency are **not** loaded. They exist in
-//!   Silver and Gold but not in `catalog.industrial_complex`; widening that table is a separate
-//!   decision that the OpenAPI contract has to follow.
+//! - Address, status, the designation and completion dates, the managing and developing
+//!   organizations, and the two administrative codes are loaded from the same Gold row as the
+//!   identity fields. They reached Gold only once the projection stopped dropping them; before
+//!   that this command recorded them in its summary as columns it could not load.
+//! - `lakehouse_complex_id` carries the Gold row's own `complex_id`. That id is what Gold artifact
+//!   object keys are derived from, and the canonical `id` is minted locally, so a row without it
+//!   can name no object in R2.
+//! - `primary_bjdong_code` is always `NULL`. Silver declares the column and zero of its rows fill
+//!   it, so the Gold projection does not carry it at all; a canonical row must not claim an
+//!   administrative code no source ever stated.
+//! - A value the Gold row does not carry is written as `NULL`. Not `""`, not a zero, not the value
+//!   from a neighbouring row: a complex whose source states no completion date has no completion
+//!   date, and the canonical row says so.
 
 use std::{env, sync::Arc};
 
@@ -24,9 +32,10 @@ use catalog_application::{
     IndustrialComplexCatalogRow, UpsertIndustrialComplexCatalogRows,
     UpsertIndustrialComplexCatalogRowsInput,
 };
-use catalog_domain::IndustrialComplexKind;
+use catalog_domain::{IndustrialComplexKind, IndustrialComplexStatus};
 use catalog_infrastructure::PgCatalogUnitOfWork;
-use chrono::{SecondsFormat, Utc};
+use chrono::{NaiveDate, SecondsFormat, Utc};
+use foundation_shared_kernel::ids::LakehouseComplexId;
 use lakehouse_domain::GOLD_COMPLEX_CATALOG;
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde::Serialize;
@@ -187,25 +196,48 @@ struct CanonicalLoadSummary {
     skipped_row_count: u64,
     skipped_rows: Vec<SkippedRow>,
     /// Canonical columns this load leaves `NULL` because the Gold projection has no such column.
+    ///
+    /// Only `primary_bjdong_code`, and it is not a gap this command can close: zero Silver rows
+    /// carry a legal-dong code, so the Gold projection declares no such column to read.
     columns_left_null: &'static [&'static str],
-    /// Gold columns this load does not write because `catalog.industrial_complex` has no column
+    /// Gold columns this load does not write, because `catalog.industrial_complex` has no column
     /// for them. Recorded so a reader of this summary sees what the API still cannot serve.
-    gold_columns_not_loaded: &'static [&'static str],
+    gold_columns_not_loaded: Vec<&'static str>,
 }
 
 const COLUMNS_LEFT_NULL: &[&str] = &["primary_bjdong_code"];
-const GOLD_COLUMNS_NOT_LOADED: &[&str] = &[
+
+/// Gold columns [`plan_catalog_rows`] reads into a canonical row.
+///
+/// The summary reports the *complement* of this against the Gold contract rather than a second
+/// hand-written list. A column added to `gold.complex_catalog` and not read here then shows up as
+/// unloaded on the next run; a hand-written list would have kept reporting the old answer, which is
+/// how this command described `address_text` as unloadable for as long as it was true and no longer.
+const GOLD_COLUMNS_LOADED: &[&str] = &[
+    "complex_id",
+    "official_complex_code",
+    "name",
+    "kind",
     "status",
     "sido_code",
     "sigungu_code",
     "address_text",
-    "calculated_area_sqm",
-    "parcel_count",
-    "boundary_object_key",
-    "source_snapshot_id",
-    "iceberg_snapshot_id",
-    "published_at_utc",
+    "management_agency_name",
+    "developer_name",
+    "designated_date",
+    "completion_date",
+    "official_area_sqm",
 ];
+
+/// Gold contract columns this load does not consume.
+fn gold_columns_not_loaded() -> Vec<&'static str> {
+    GOLD_COMPLEX_CATALOG
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .filter(|name| !GOLD_COLUMNS_LOADED.contains(name))
+        .collect()
+}
 
 impl CanonicalLoadSummary {
     #[allow(clippy::too_many_arguments)]
@@ -238,7 +270,7 @@ impl CanonicalLoadSummary {
                 .context("skipped row count overflow")?,
             skipped_rows: plan.skipped.clone(),
             columns_left_null: COLUMNS_LEFT_NULL,
-            gold_columns_not_loaded: GOLD_COLUMNS_NOT_LOADED,
+            gold_columns_not_loaded: gold_columns_not_loaded(),
         })
     }
 }
@@ -268,6 +300,11 @@ fn plan_catalog_rows(rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<Cano
             seen_codes.insert(official_complex_code.clone()),
             "Gold snapshot carries more than one row for official_complex_code {official_complex_code}"
         );
+        let lakehouse_complex_id = LakehouseComplexId::new(
+            Uuid::parse_str(required_row_string(row, "complex_id")?.as_str()).with_context(
+                || format!("Gold row {official_complex_code} carries an unreadable complex_id"),
+            )?,
+        );
         let name = required_row_string(row, "name")?;
         // A classification outside the contract is a broken contract, not a gap in the source, so
         // it fails the whole load instead of being hidden as one skipped row.
@@ -276,14 +313,35 @@ fn plan_catalog_rows(rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<Cano
             anyhow::anyhow!("Gold row {official_complex_code} carries an unknown kind: {error}")
         })?;
 
+        // A lifecycle value outside the contract is the same class of defect as an unknown kind:
+        // the projection broke its own value domain, so it fails the load rather than being
+        // written as `NULL`, which would spell "the source said nothing".
+        let status = optional_row_string(row, "status")
+            .map(|wire| IndustrialComplexStatus::from_wire(wire.as_str()))
+            .transpose()
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Gold row {official_complex_code} carries an unknown status: {error}"
+                )
+            })?;
+
         match canonical_area_m2(row.get("official_area_sqm")) {
             Ok(area_m2) => planned.push(IndustrialComplexCatalogRow {
+                lakehouse_complex_id: Some(lakehouse_complex_id),
                 official_complex_code,
                 name,
                 kind,
                 // gold.complex_catalog has no legal-dong column; see the module comment.
                 primary_bjdong_code: None,
                 area_m2,
+                status,
+                sido_code: optional_row_string(row, "sido_code"),
+                sigungu_code: optional_row_string(row, "sigungu_code"),
+                address_text: optional_row_string(row, "address_text"),
+                management_agency_name: optional_row_string(row, "management_agency_name"),
+                developer_name: optional_row_string(row, "developer_name"),
+                designated_date: optional_row_date(row, "designated_date")?,
+                completion_date: optional_row_date(row, "completion_date")?,
             }),
             Err(reason) => skipped.push(SkippedRow {
                 official_complex_code,
@@ -323,6 +381,35 @@ fn required_row_string(row: &JsonMap<String, JsonValue>, name: &str) -> anyhow::
         .and_then(JsonValue::as_str)
         .map(ToOwned::to_owned)
         .with_context(|| format!("Gold catalog row is missing {name}"))
+}
+
+/// Reads an optional Gold string, treating a blank as absence.
+///
+/// The Gold quality gate rejects `""` in any string column, so a blank should never arrive. Folding
+/// one to `None` anyway is what keeps a blank from becoming a canonical value if it ever does: the
+/// canonical column would then claim the source stated an empty address.
+fn optional_row_string(row: &JsonMap<String, JsonValue>, name: &str) -> Option<String> {
+    row.get(name)
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+/// Reads an optional Gold `date`, which the snapshot scan renders as `YYYY-MM-DD`.
+///
+/// An unparseable date fails the load. It is not a missing value — the source stated something and
+/// this command could not read it, and writing `NULL` would report that as "no date stated".
+fn optional_row_date(
+    row: &JsonMap<String, JsonValue>,
+    name: &str,
+) -> anyhow::Result<Option<NaiveDate>> {
+    optional_row_string(row, name)
+        .map(|raw| {
+            NaiveDate::parse_from_str(raw.as_str(), "%Y-%m-%d")
+                .with_context(|| format!("Gold catalog row carries an unreadable {name}: {raw}"))
+        })
+        .transpose()
 }
 
 fn write_summary(path: &Path, summary: &CanonicalLoadSummary) -> anyhow::Result<()> {

@@ -901,9 +901,37 @@ const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: false,
     },
+    // The next five columns describe the complex itself and reach Gold unchanged from Silver. They
+    // are optional here for the same reason they are optional there: the profile source leaves a
+    // cell blank rather than stating a value, and a projection may not fill one in.
+    //
+    // `primary_bjdong_code` is deliberately not among them. Silver declares the column, but zero of
+    // its 1,442 rows carry a value — the address resolution reaches sigungu granularity at best
+    // (root ADR-0034). Projecting it would add a column no producer fills, which is the shape root
+    // ADR-0040 exists to refuse. It reaches Gold when something fills it in Silver, not before.
     LakehouseColumn {
         name: "address_text",
         logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "management_agency_name",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "developer_name",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "designated_date",
+        logical_type: "date",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "completion_date",
+        logical_type: "date",
         required: false,
     },
     LakehouseColumn {

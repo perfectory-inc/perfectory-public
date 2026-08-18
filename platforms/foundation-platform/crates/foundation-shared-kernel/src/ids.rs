@@ -99,6 +99,24 @@ id_newtype!(
     "Lakehouse Registry object artifact identifier."
 );
 id_newtype!(
+    LakehouseComplexId,
+    "Lakehouse identifier of an industrial complex, distinct from its Catalog `ComplexId`.\n\n\
+     Two different identities name the same complex. `ComplexId` is minted locally with\n\
+     `Uuid::now_v7()` when the canonical row is created; the lakehouse id is derived\n\
+     deterministically (`UUIDv5`) in the Bronze-to-Silver job and is what Gold artifact keys are\n\
+     computed from. Neither can be reconstructed from the other, so a canonical row that wants to\n\
+     address its Gold profile object has to carry both.\n\n\
+     Separate types because the confusion is the whole point: passing a locally minted id where a\n\
+     lakehouse id is required names an object that does not exist.\n\n\
+     ```compile_fail,E0308\n\
+     use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};\n\
+     use uuid::Uuid;\n\n\
+     fn requires_lakehouse_id(_: LakehouseComplexId) {}\n\n\
+     let complex_id = ComplexId::new(Uuid::nil());\n\
+     requires_lakehouse_id(complex_id);\n\
+     ```"
+);
+id_newtype!(
     PrincipalId,
     "Opaque Foundation-local identifier for an authorized principal.\n\n\
      A Catalog entity identifier cannot be used where a principal is required.\n\n\

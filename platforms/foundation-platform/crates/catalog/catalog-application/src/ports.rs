@@ -9,15 +9,17 @@ use async_trait::async_trait;
 use catalog_domain::{
     Blueprint, BuildEvidenceDigest, Building, CanonicalIcebergSnapshotId, CatalogError,
     CatalogMutationKind, ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset,
-    FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup, IndustryGroupMember,
-    MarkerAnchorAlgorithm, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
-    PmtilesChecksum, RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer,
-    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
-    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
+    FileAsset, IndustrialComplex, IndustrialComplexKind, IndustrialComplexStatus, IndustryGroup,
+    IndustryGroupMember, MarkerAnchorAlgorithm, MarkerTileRequest, Parcel,
+    ParcelIndustryAssignment, ParcelKind, PmtilesChecksum, RequestFingerprint,
+    RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
+    ServingGeneration, SpatialLayer, VectorTileBuildOutcome, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
+use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
-    ComplexId, FileAssetId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId,
-    VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
+    ComplexId, FileAssetId, LakehouseComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId,
+    StaffId, VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
 };
 use foundation_shared_kernel::pnu::Pnu;
 use uuid::Uuid;
@@ -485,6 +487,11 @@ pub trait ParcelMarkerAnchorRebuildPort: Send + Sync {
 /// Command for creating or updating a Catalog industrial complex by official source code.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpsertIndustrialComplexCommand {
+    /// Lakehouse identifier of the same complex, or `None` when the writer has no snapshot.
+    ///
+    /// The value to store, like every other field on this command: `None` clears it. Only a loader
+    /// reading a Gold snapshot can supply one.
+    pub lakehouse_complex_id: Option<LakehouseComplexId>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.
@@ -499,6 +506,26 @@ pub struct UpsertIndustrialComplexCommand {
     pub primary_bjdong_code: Option<String>,
     /// Official complex area in square meters.
     pub area_m2: u64,
+    /// Lifecycle status to write, or `None` to record that the source stated none.
+    ///
+    /// The same rule as `primary_bjdong_code` governs every sourced field below: the command
+    /// carries the value to store, so `None` clears whatever the row held. A loader whose snapshot
+    /// dropped a value is saying the canonical row must stop claiming it.
+    pub status: Option<IndustrialComplexStatus>,
+    /// Province-level administrative code to write.
+    pub sido_code: Option<String>,
+    /// City/county/district administrative code to write.
+    pub sigungu_code: Option<String>,
+    /// Address text to write.
+    pub address_text: Option<String>,
+    /// Managing organization to write.
+    pub management_agency_name: Option<String>,
+    /// Developing organization to write.
+    pub developer_name: Option<String>,
+    /// Official designation date to write.
+    pub designated_date: Option<NaiveDate>,
+    /// Site-formation completion date to write.
+    pub completion_date: Option<NaiveDate>,
 }
 
 /// What one upsert command did to the canonical table.

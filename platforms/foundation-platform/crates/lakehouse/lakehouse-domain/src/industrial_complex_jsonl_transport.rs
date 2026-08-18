@@ -31,6 +31,11 @@ pub const INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES: &[&str] =
     &["national", "general", "agricultural", "urban_high_tech"];
 
 /// Wire values allowed in the `silver.industrial_complexes` `status` column.
+///
+/// `crates/lakehouse/lakehouse-application/tests/industrial_complex_bronze_raw_rows.rs` pins this
+/// list to `catalog_domain::IndustrialComplexStatus`, which owns the lifecycle domain — the same
+/// arrangement as the classification above. Until the canonical table carried a status this list
+/// had no owner to be pinned to.
 pub const INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES: &[&str] = &[
     "planned",
     "developing",

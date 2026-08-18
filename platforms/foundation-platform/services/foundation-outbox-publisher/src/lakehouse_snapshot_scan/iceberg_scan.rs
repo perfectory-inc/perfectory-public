@@ -9,11 +9,12 @@
 use anyhow::{bail, ensure, Context};
 use apache_avro::{types::Value as AvroValue, Reader as AvroReader};
 use arrow_array::{
-    Array, Decimal128Array, Int64Array, RecordBatch, StringArray, TimestampMicrosecondArray,
+    Array, Date32Array, Decimal128Array, Int64Array, RecordBatch, StringArray,
+    TimestampMicrosecondArray,
 };
 use arrow_schema::{DataType, TimeUnit};
 use bytes::Bytes;
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, NaiveDate, SecondsFormat, TimeDelta, Utc};
 use lakehouse_domain::LakehouseTableContract;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -162,6 +163,7 @@ fn decode_value(
     match logical_type {
         "string" => decode_string(column_name, array, index),
         "long" => decode_long(column_name, array, index),
+        "date" => decode_date(column_name, array, index),
         "timestamp" => decode_timestamp(column_name, array, index),
         decimal if decimal.starts_with("decimal(") => {
             decode_decimal(decimal, column_name, array, index)
@@ -184,6 +186,27 @@ fn decode_long(column_name: &str, array: &dyn Array, index: usize) -> anyhow::Re
         .downcast_ref::<Int64Array>()
         .with_context(|| format!("column {column_name} is not a Parquet 64-bit integer column"))?;
     Ok(JsonValue::Number(values.value(index).into()))
+}
+
+/// Renders an Iceberg `date` as an ISO-8601 calendar date.
+///
+/// Iceberg stores a date as days since the epoch, which is a number a JSON reader would have to
+/// know the encoding of to interpret. The scan hands on `YYYY-MM-DD` for the same reason it hands
+/// on decimals as exact text: the reader should not need the storage encoding to read the value.
+fn decode_date(column_name: &str, array: &dyn Array, index: usize) -> anyhow::Result<JsonValue> {
+    match array.data_type() {
+        DataType::Date32 => {}
+        other => bail!("column {column_name} is a {other} rather than a 32-bit date"),
+    }
+    let values = array
+        .as_any()
+        .downcast_ref::<Date32Array>()
+        .with_context(|| format!("column {column_name} is not a Parquet date column"))?;
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).context("1970-01-01 must parse as a date")?;
+    let date = epoch
+        .checked_add_signed(TimeDelta::days(i64::from(values.value(index))))
+        .with_context(|| format!("column {column_name} carries an out-of-range date"))?;
+    Ok(JsonValue::String(date.format("%Y-%m-%d").to_string()))
 }
 
 fn decode_timestamp(

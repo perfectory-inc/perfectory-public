@@ -1,10 +1,10 @@
 //! Industrial complex aggregate and wire classification.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use foundation_shared_kernel::events::catalog_v1::{
     IndustrialComplexArchivedV1, IndustrialComplexCreatedV3, IndustrialComplexUpdatedV1,
 };
-use foundation_shared_kernel::ids::{ComplexId, StaffId};
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, StaffId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -56,11 +56,86 @@ pub enum ParseIndustrialComplexKindError {
     Unknown(String),
 }
 
+/// Where an industrial complex is in its development lifecycle.
+///
+/// The wire values are the ones `silver.industrial_complexes` already admits. That table's exported
+/// contract carries the same six strings, and the `industrial_complex_bronze_raw_rows` test pins
+/// that list to this enum, the way it already pins the classification. Two spellings of one domain
+/// is how the two drift apart, so the domain has exactly one owner — this enum — and the exported
+/// list is checked against it rather than maintained beside it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum IndustrialComplexStatus {
+    /// Designated or under compensation; no site formation has started.
+    Planned,
+    /// Site formation is under way.
+    Developing,
+    /// Site formation is complete and the complex is in service.
+    Operating,
+    /// The designation changed and the current shape is not yet settled.
+    Changed,
+    /// The designation was withdrawn.
+    Abolished,
+    /// The source stated a lifecycle label this domain does not recognize.
+    ///
+    /// Distinct from `None`: `None` means the source said nothing, `Unknown` means it said
+    /// something unreadable. Collapsing the two would delete the difference.
+    Unknown,
+}
+
+impl IndustrialComplexStatus {
+    /// Returns the stable wire value used by DB rows and HTTP DTOs.
+    #[must_use]
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::Developing => "developing",
+            Self::Operating => "operating",
+            Self::Changed => "changed",
+            Self::Abolished => "abolished",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// Parses a stable wire value into a domain status.
+    ///
+    /// # Errors
+    /// Returns `ParseIndustrialComplexStatusError::Unknown` for unsupported wire values.
+    pub fn from_wire(raw: &str) -> Result<Self, ParseIndustrialComplexStatusError> {
+        match raw {
+            "planned" => Ok(Self::Planned),
+            "developing" => Ok(Self::Developing),
+            "operating" => Ok(Self::Operating),
+            "changed" => Ok(Self::Changed),
+            "abolished" => Ok(Self::Abolished),
+            "unknown" => Ok(Self::Unknown),
+            other => Err(ParseIndustrialComplexStatusError::Unknown(other.to_owned())),
+        }
+    }
+}
+
+/// Error returned while parsing an industrial complex status.
+#[derive(Debug, Error)]
+pub enum ParseIndustrialComplexStatusError {
+    /// Unsupported wire value.
+    #[error("unknown IndustrialComplexStatus wire value: {0:?}")]
+    Unknown(String),
+}
+
 /// Canonical industrial complex aggregate root.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndustrialComplex {
     /// Stable foundation-platform complex identifier.
     pub id: ComplexId,
+    /// Identifier the same complex carries in the lakehouse, when it was sourced from there.
+    ///
+    /// [`Self::id`] is minted locally with `Uuid::now_v7()`, so it is unrelated to the `UUIDv5` the
+    /// Bronze-to-Silver job derives — and Gold profile object keys are computed from the latter.
+    /// Without this column a canonical row names no object in R2, which is the only reason it
+    /// exists; it is not a second primary key.
+    ///
+    /// `None` for a complex registered through the API rather than loaded from a Gold snapshot:
+    /// such a complex is in no lakehouse table and has no artifact to address.
+    pub lakehouse_complex_id: Option<LakehouseComplexId>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.
@@ -75,6 +150,27 @@ pub struct IndustrialComplex {
     pub primary_bjdong_code: Option<String>,
     /// Official complex area in square meters.
     pub area_m2: u64,
+    /// Where the complex is in its development lifecycle, when the source stated one.
+    ///
+    /// Every field from here to `completion_date` is sourced description rather than identity: the
+    /// Gold projection carries it, the canonical row records it, and nothing derives it. All are
+    /// optional because the source workbook leaves cells blank, and a blank cell is `None` — never
+    /// `""`, never a zero, never a substituted neighbour value.
+    pub status: Option<IndustrialComplexStatus>,
+    /// Province-level administrative code, when the address resolution produced one.
+    pub sido_code: Option<String>,
+    /// City/county/district administrative code, when the address resolution produced one.
+    pub sigungu_code: Option<String>,
+    /// Address the source stated for the complex, verbatim.
+    pub address_text: Option<String>,
+    /// Organization that manages the complex.
+    pub management_agency_name: Option<String>,
+    /// Organization that developed the complex.
+    pub developer_name: Option<String>,
+    /// Date the complex was officially designated.
+    pub designated_date: Option<NaiveDate>,
+    /// Date the complex's site formation was approved as complete.
+    pub completion_date: Option<NaiveDate>,
     /// UTC timestamp when the complex was created.
     pub created_at: DateTime<Utc>,
     /// UTC timestamp when the complex was last updated.

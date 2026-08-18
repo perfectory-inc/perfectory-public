@@ -20,12 +20,14 @@ from pyspark.storagelevel import StorageLevel
 
 from platform_contracts import (
     column_names,
+    columns,
     create_table_columns_sql,
     load_lakehouse_contract,
     partition_column_names,
     partition_spec_sql,
     required_column_names,
     sort_order,
+    spark_sql_type,
     string_column_names,
 )
 
@@ -272,6 +274,10 @@ def build_gold_catalog_frame(
         F.col("sido_code"),
         F.col("sigungu_code"),
         F.col("address_text"),
+        F.col("management_agency_name"),
+        F.col("developer_name"),
+        F.col("designated_date").cast(T.DateType()).alias("designated_date"),
+        F.col("completion_date").cast(T.DateType()).alias("completion_date"),
         F.col("official_area_sqm").cast(T.DecimalType(18, 2)).alias("official_area_sqm"),
         F.lit(None).cast(T.DecimalType(18, 2)).alias("calculated_area_sqm"),
         F.lit(0).cast(T.LongType()).alias("parcel_count"),
@@ -506,6 +512,7 @@ def build_run_summary(
     persisted_row_count: int | None,
     quality_metrics: dict[str, int],
     source_snapshot_summary: dict[str, Any],
+    schema_evolution_added_columns: Sequence[str] = (),
 ) -> dict[str, Any]:
     return {
         "schema_version": RUN_SUMMARY_SCHEMA_VERSION,
@@ -524,6 +531,9 @@ def build_run_summary(
         "column_count": len(GOLD_COLUMNS),
         "columns": list(GOLD_COLUMNS),
         "required_columns": list(REQUIRED_GOLD_COLUMNS),
+        # Which contract columns this run had to add to the live table. Empty on every run whose
+        # target already matched the contract, which is what a steady state looks like.
+        "schema_evolution_added_columns": list(schema_evolution_added_columns),
         **source_snapshot_summary,
     }
 
@@ -588,6 +598,30 @@ def column_lineage() -> list[dict[str, Any]]:
         ],
         "address_text": [
             {"dataset": SILVER_CONTRACT_NAME, "column": "address_text", "transform": "identity"}
+        ],
+        "management_agency_name": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "management_agency_name",
+                "transform": "identity",
+            }
+        ],
+        "developer_name": [
+            {"dataset": SILVER_CONTRACT_NAME, "column": "developer_name", "transform": "identity"}
+        ],
+        "designated_date": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "designated_date",
+                "transform": "cast_date",
+            }
+        ],
+        "completion_date": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "completion_date",
+                "transform": "cast_date",
+            }
         ],
         "official_area_sqm": [
             {
@@ -723,15 +757,72 @@ def create_gold_iceberg_table_if_missing(spark: SparkSession, args: argparse.Nam
     )
 
 
+def gold_iceberg_table_columns(spark: SparkSession, table: str) -> tuple[str, ...]:
+    """Return the live column order of the Gold Iceberg table."""
+
+    return tuple(field.name for field in spark.table(table).schema.fields)
+
+
+def evolve_gold_iceberg_table_to_contract(spark: SparkSession, table: str) -> tuple[str, ...]:
+    """Add contract columns the live Iceberg table does not have yet, in contract order.
+
+    ``CREATE TABLE IF NOT EXISTS`` only ever describes a table that does not exist. The published
+    table was created from an earlier contract, so a widened contract reaches it here or not at
+    all: the INSERT below writes one value per contract column and a narrower table has nowhere to
+    put the extra ones.
+
+    Which columns are missing is read off the contract against the live table rather than spelled
+    out here. A hardcoded list of whichever columns this release happens to add is the same drift
+    one layer down — right for exactly one release and silently wrong for the next.
+
+    ``INSERT`` resolves the select list against the table **by position**, so a table holding the
+    contract's columns in a different order would take every value into the wrong column without
+    erroring. That is why new columns are placed with ``AFTER`` and why the final order is asserted
+    rather than assumed.
+    """
+
+    actual = gold_iceberg_table_columns(spark, table)
+    unknown = tuple(name for name in actual if name not in GOLD_COLUMNS)
+    if unknown:
+        raise ValueError(
+            f"{table} carries columns the contract does not declare: {list(unknown)}. "
+            "Reconcile the contract before writing."
+        )
+
+    added: list[str] = []
+    for index, column in enumerate(columns(GOLD_CONTRACT)):
+        name = column["name"]
+        if name in actual:
+            continue
+        validate_identifier("gold contract column", name)
+        # Processing in contract order means the predecessor is already present, either from the
+        # original table or from an earlier iteration of this loop.
+        position = "FIRST" if index == 0 else f"AFTER {GOLD_COLUMNS[index - 1]}"
+        spark.sql(
+            f"ALTER TABLE {table} ADD COLUMN "
+            f"{name} {spark_sql_type(column['logical_type'])} {position}"
+        )
+        added.append(name)
+
+    evolved = gold_iceberg_table_columns(spark, table)
+    if evolved != GOLD_COLUMNS:
+        raise ValueError(
+            "Gold table columns do not match the contract after schema evolution. "
+            f"expected={list(GOLD_COLUMNS)} actual={list(evolved)}"
+        )
+    return tuple(added)
+
+
 def write_gold_iceberg(
     spark: SparkSession,
     gold: DataFrame,
     args: argparse.Namespace,
-) -> None:
+) -> tuple[str, ...]:
     table = qualified_target_table(args)
     temp_view = "gold_complex_catalog_candidate"
 
     create_gold_iceberg_table_if_missing(spark, args)
+    added_columns = evolve_gold_iceberg_table_to_contract(spark, table)
     gold.select(*GOLD_COLUMNS).createOrReplaceTempView(temp_view)
 
     statement = "INSERT INTO"
@@ -745,6 +836,7 @@ def write_gold_iceberg(
         FROM {temp_view}
         """
     )
+    return added_columns
 
 
 def build_spark_session(args: argparse.Namespace) -> SparkSession:
@@ -857,13 +949,14 @@ def main() -> int:
             print(f"gold-complex-catalog-validate-ok rows={row_count}")
             return 0
 
+        added_columns: tuple[str, ...] = ()
         if args.write_mode == "parquet":
             write_gold_parquet(gold, args.output)
             persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
             success_target = f"output={args.output}"
             success_label = "gold-complex-catalog-write-ok"
         else:
-            write_gold_iceberg(spark, gold, args)
+            added_columns = write_gold_iceberg(spark, gold, args)
             persisted = read_iceberg_snapshot_for_batch(spark, gold, args)
             success_target = f"table={args.target_iceberg_namespace}.{args.target_iceberg_table}"
             success_label = "gold-complex-catalog-iceberg-write-ok"
@@ -884,6 +977,7 @@ def main() -> int:
                 persisted_row_count=persisted_count,
                 quality_metrics=persisted_quality_metrics,
                 source_snapshot_summary=source_snapshot_summary,
+                schema_evolution_added_columns=added_columns,
             ),
             args.summary_output,
         )

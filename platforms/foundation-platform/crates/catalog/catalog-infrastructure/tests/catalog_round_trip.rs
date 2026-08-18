@@ -19,10 +19,10 @@ use catalog_application::ports::{
     CatalogRepository, CatalogUnitOfWork, UpsertIndustrialComplexCommand,
     UpsertIndustrialComplexEffect,
 };
-use catalog_domain::{IndustrialComplex, IndustrialComplexKind};
+use catalog_domain::{IndustrialComplex, IndustrialComplexKind, IndustrialComplexStatus};
 use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork};
-use chrono::Utc;
-use foundation_shared_kernel::ids::ComplexId;
+use chrono::{NaiveDate, Utc};
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -165,6 +165,15 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
             kind: IndustrialComplexKind::General,
             primary_bjdong_code: Some(first_primary_bjdong_code.clone()),
             area_m2: 1_000,
+            lakehouse_complex_id: None,
+            status: None,
+            sido_code: None,
+            sigungu_code: None,
+            address_text: None,
+            management_agency_name: None,
+            developer_name: None,
+            designated_date: None,
+            completion_date: None,
         }])
         .await
         .expect("create via upsert")
@@ -183,6 +192,15 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
             kind: IndustrialComplexKind::National,
             primary_bjdong_code: Some(second_primary_bjdong_code.clone()),
             area_m2: 2_000,
+            lakehouse_complex_id: None,
+            status: None,
+            sido_code: None,
+            sigungu_code: None,
+            address_text: None,
+            management_agency_name: None,
+            developer_name: None,
+            designated_date: None,
+            completion_date: None,
         }])
         .await
         .expect("update via upsert")
@@ -245,6 +263,15 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
                 kind: IndustrialComplexKind::General,
                 primary_bjdong_code: Some(shared_bjdong_code.clone()),
                 area_m2: 1_000,
+                lakehouse_complex_id: None,
+                status: None,
+                sido_code: None,
+                sigungu_code: None,
+                address_text: None,
+                management_agency_name: None,
+                developer_name: None,
+                designated_date: None,
+                completion_date: None,
             },
             UpsertIndustrialComplexCommand {
                 official_complex_code: second_official_code,
@@ -252,6 +279,15 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
                 kind: IndustrialComplexKind::National,
                 primary_bjdong_code: Some(shared_bjdong_code),
                 area_m2: 2_000,
+                lakehouse_complex_id: None,
+                status: None,
+                sido_code: None,
+                sigungu_code: None,
+                address_text: None,
+                management_agency_name: None,
+                developer_name: None,
+                designated_date: None,
+                completion_date: None,
             },
         ])
         .await
@@ -286,6 +322,15 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
             kind: IndustrialComplexKind::Agricultural,
             primary_bjdong_code: None,
             area_m2: 11_081,
+            lakehouse_complex_id: None,
+            status: None,
+            sido_code: None,
+            sigungu_code: None,
+            address_text: None,
+            management_agency_name: None,
+            developer_name: None,
+            designated_date: None,
+            completion_date: None,
         }])
         .await
         .expect("create via upsert without a legal-dong code")
@@ -326,6 +371,15 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
             kind: IndustrialComplexKind::Agricultural,
             primary_bjdong_code: None,
             area_m2: 11_081,
+            lakehouse_complex_id: None,
+            status: None,
+            sido_code: None,
+            sigungu_code: None,
+            address_text: None,
+            management_agency_name: None,
+            developer_name: None,
+            designated_date: None,
+            completion_date: None,
         }])
         .await
         .expect("repeat upsert")
@@ -333,6 +387,111 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
         .expect("one repeated complex");
     assert_eq!(repeated.effect, UpsertIndustrialComplexEffect::Unchanged);
     assert_eq!(repeated.complex.version, 1);
+
+    cleanup_by_complex_id(&pool, created.id).await;
+}
+
+/// Everything the Gold loader now writes must survive Postgres and come back unchanged.
+///
+/// The write path spells eight description columns plus the lakehouse identity into two SQL
+/// statements and reads them back through a shared projection list. A column present in the
+/// migration and missed by one of those is a runtime failure, not a compile error, so the round
+/// trip is what pins it. The second half checks the other direction: a later snapshot that stops
+/// carrying a value must clear the canonical column rather than leave the old one standing.
+#[tokio::test]
+#[ignore = "requires local docker stack"]
+async fn upsert_by_official_code_round_trips_every_sourced_column() {
+    let pool = pool().await;
+
+    let uow = PgCatalogUnitOfWork::new(pool.clone());
+    let repo = PgCatalogRepository::new(pool.clone());
+    let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
+    let lakehouse_complex_id = synthetic_lakehouse_complex_id();
+
+    let sourced = UpsertIndustrialComplexCommand {
+        official_complex_code: official_complex_code.clone(),
+        name: "E2E fully sourced complex".to_owned(),
+        kind: IndustrialComplexKind::Agricultural,
+        primary_bjdong_code: None,
+        area_m2: 272_089,
+        lakehouse_complex_id: Some(lakehouse_complex_id),
+        status: Some(IndustrialComplexStatus::Operating),
+        sido_code: Some("46".to_owned()),
+        sigungu_code: Some("46840".to_owned()),
+        address_text: Some("E2E 시 E2E 군 E2E 읍 일원".to_owned()),
+        management_agency_name: Some("E2E 관리기관".to_owned()),
+        developer_name: Some("E2E 시행자".to_owned()),
+        designated_date: NaiveDate::from_ymd_opt(1964, 4, 15),
+        completion_date: NaiveDate::from_ymd_opt(1974, 11, 5),
+    };
+
+    let created = uow
+        .upsert_complexes_by_official_code(std::slice::from_ref(&sourced))
+        .await
+        .expect("create a fully sourced complex")
+        .pop()
+        .expect("one created complex");
+    assert_eq!(created.effect, UpsertIndustrialComplexEffect::Inserted);
+    let created = created.complex;
+
+    // Read through the repository rather than the write path's own return value: the two use the
+    // same projection, and a column missing from it would otherwise be invisible here.
+    let stored = repo
+        .find_complex(created.id)
+        .await
+        .expect("find the stored complex")
+        .expect("the complex exists");
+    assert_eq!(stored.lakehouse_complex_id, Some(lakehouse_complex_id));
+    assert_eq!(stored.status, Some(IndustrialComplexStatus::Operating));
+    assert_eq!(stored.sido_code.as_deref(), Some("46"));
+    assert_eq!(stored.sigungu_code.as_deref(), Some("46840"));
+    assert_eq!(
+        stored.address_text.as_deref(),
+        Some("E2E 시 E2E 군 E2E 읍 일원")
+    );
+    assert_eq!(
+        stored.management_agency_name.as_deref(),
+        Some("E2E 관리기관")
+    );
+    assert_eq!(stored.developer_name.as_deref(), Some("E2E 시행자"));
+    assert_eq!(stored.designated_date, NaiveDate::from_ymd_opt(1964, 4, 15));
+    assert_eq!(stored.completion_date, NaiveDate::from_ymd_opt(1974, 11, 5));
+
+    // Re-applying the same snapshot must be a no-op, not a version bump.
+    let repeated = uow
+        .upsert_complexes_by_official_code(std::slice::from_ref(&sourced))
+        .await
+        .expect("repeat the same upsert")
+        .pop()
+        .expect("one repeated complex");
+    assert_eq!(repeated.effect, UpsertIndustrialComplexEffect::Unchanged);
+    assert_eq!(repeated.complex.version, 1);
+
+    // A snapshot that stopped carrying the values clears them.
+    let cleared = uow
+        .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
+            lakehouse_complex_id: Some(lakehouse_complex_id),
+            status: None,
+            sido_code: None,
+            sigungu_code: None,
+            address_text: None,
+            management_agency_name: None,
+            developer_name: None,
+            designated_date: None,
+            completion_date: None,
+            ..sourced
+        }])
+        .await
+        .expect("clear the sourced columns")
+        .pop()
+        .expect("one cleared complex");
+    assert_eq!(cleared.effect, UpsertIndustrialComplexEffect::Updated);
+    let cleared = cleared.complex;
+    assert_eq!(cleared.id, created.id, "the natural key must keep its id");
+    assert_eq!(cleared.status, None);
+    assert_eq!(cleared.address_text, None);
+    assert_eq!(cleared.designated_date, None);
+    assert_eq!(cleared.completion_date, None);
 
     cleanup_by_complex_id(&pool, created.id).await;
 }
@@ -346,6 +505,15 @@ fn sample_complex() -> IndustrialComplex {
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: Some(random_primary_bjdong_code()),
         area_m2: 1_234_567,
+        lakehouse_complex_id: None,
+        status: None,
+        sido_code: None,
+        sigungu_code: None,
+        address_text: None,
+        management_agency_name: None,
+        developer_name: None,
+        designated_date: None,
+        completion_date: None,
         created_at: now,
         updated_at: now,
         archived_at: None,
@@ -386,6 +554,19 @@ async fn cleanup_by_complex_id(pool: &PgPool, complex_id: ComplexId) {
     .execute(pool)
     .await
     .expect("cleanup outbox");
+}
+
+/// A unique id in the shape a derived lakehouse `complex_id` has: UUID version 5, RFC 4122 variant.
+///
+/// Shaped rather than actually derived. The stored column's CHECK is what this exercises — it
+/// rejects a locally minted v7, which is the confusion the column exists to prevent — and this
+/// crate does not carry the `v5` feature because nothing in it derives one. Uniqueness matters
+/// because the column is unique where present, so two runs must not collide.
+fn synthetic_lakehouse_complex_id() -> LakehouseComplexId {
+    let mut bytes = *Uuid::new_v4().as_bytes();
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    LakehouseComplexId::new(Uuid::from_bytes(bytes))
 }
 
 fn random_primary_bjdong_code() -> String {

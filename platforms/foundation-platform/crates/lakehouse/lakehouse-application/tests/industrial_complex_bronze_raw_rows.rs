@@ -2,7 +2,7 @@
 
 #![allow(clippy::err_expect, clippy::expect_used)]
 
-use catalog_domain::IndustrialComplexKind;
+use catalog_domain::{IndustrialComplexKind, IndustrialComplexStatus};
 use chrono::{DateTime, Utc};
 use lakehouse_application::{
     industrial_complex_bronze_raw_row_to_jsonl, normalize_industrial_complex_bronze_raw_rows,
@@ -574,6 +574,44 @@ fn impossible_calendar_dates_fail() -> TestResult {
         matches!(error, IndustrialComplexBronzeRawPlanError::InvalidInput(_)),
         "{error}"
     );
+    Ok(())
+}
+
+#[test]
+fn exported_status_domain_matches_the_catalog_lifecycle() -> TestResult {
+    let statuses = [
+        IndustrialComplexStatus::Planned,
+        IndustrialComplexStatus::Developing,
+        IndustrialComplexStatus::Operating,
+        IndustrialComplexStatus::Changed,
+        IndustrialComplexStatus::Abolished,
+        IndustrialComplexStatus::Unknown,
+    ];
+    for status in statuses {
+        // Adding a variant to IndustrialComplexStatus breaks this match, which is the point:
+        // the exported domain below must be extended in the same change.
+        match status {
+            IndustrialComplexStatus::Planned
+            | IndustrialComplexStatus::Developing
+            | IndustrialComplexStatus::Operating
+            | IndustrialComplexStatus::Changed
+            | IndustrialComplexStatus::Abolished
+            | IndustrialComplexStatus::Unknown => {}
+        }
+    }
+
+    let mut expected = statuses
+        .iter()
+        .map(|status| status.wire_name())
+        .collect::<Vec<_>>();
+    expected.sort_unstable();
+    let mut exported = INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES.to_vec();
+    exported.sort_unstable();
+    assert_eq!(exported, expected);
+
+    for wire in INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES {
+        assert_eq!(IndustrialComplexStatus::from_wire(wire)?.wire_name(), *wire);
+    }
     Ok(())
 }
 

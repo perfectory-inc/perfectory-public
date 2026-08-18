@@ -19,9 +19,9 @@ use catalog_application::ports::{
     VectorTileSourceRecordCommand,
 };
 use catalog_domain::{
-    CatalogError, CatalogMutationKind, ComplexMutation, IndustrialComplex, Parcel, ParcelKind,
-    RuntimeTileLayer, ServingGeneration, VectorTileArtifact, VectorTileManifest,
-    VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+    CatalogError, CatalogMutationKind, ComplexMutation, IndustrialComplex, IndustrialComplexStatus,
+    Parcel, ParcelKind, RuntimeTileLayer, ServingGeneration, VectorTileArtifact,
+    VectorTileManifest, VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use chrono::Utc;
 use foundation_shared_kernel::events::catalog_v1::{
@@ -39,7 +39,7 @@ use uuid::Uuid;
 
 use crate::row_map::{
     is_unique_violation_code, map_sqlx, row_to_complex, row_to_parcel, row_to_vector_tile_artifact,
-    row_to_vector_tile_manifest, u64_to_i64,
+    row_to_vector_tile_manifest, u64_to_i64, INDUSTRIAL_COMPLEX_COLUMNS,
 };
 use crate::sqlx_repository::load_vector_tile_runtime_manifest_by_id;
 
@@ -87,16 +87,28 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         let area_i64 = u64_to_i64(complex.area_m2)?;
         let insert_res = sqlx::query(
             "INSERT INTO catalog.industrial_complex
-             (id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
+             (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+              area_m2, status, sido_code, sigungu_code, address_text, management_agency_name,
+              developer_name, designated_date, completion_date,
               created_at, updated_at, version)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                     $18)",
         )
         .bind(complex.id.as_uuid())
+        .bind(complex.lakehouse_complex_id.map(|id| id.as_uuid()))
         .bind(&complex.official_complex_code)
         .bind(&complex.name)
         .bind(complex.kind.wire_name())
         .bind(complex.primary_bjdong_code.as_deref())
         .bind(area_i64)
+        .bind(complex.status.map(IndustrialComplexStatus::wire_name))
+        .bind(complex.sido_code.as_deref())
+        .bind(complex.sigungu_code.as_deref())
+        .bind(complex.address_text.as_deref())
+        .bind(complex.management_agency_name.as_deref())
+        .bind(complex.developer_name.as_deref())
+        .bind(complex.designated_date)
+        .bind(complex.completion_date)
         .bind(complex.created_at)
         .bind(complex.updated_at)
         .bind(complex.version)
@@ -138,16 +150,15 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
 
         let area_i64 = mutate.area_m2.map(u64_to_i64).transpose()?;
 
-        let row = sqlx::query(
+        let row = sqlx::query(&format!(
             "UPDATE catalog.industrial_complex
              SET name      = COALESCE($3, name),
                  area_m2   = COALESCE($4, area_m2),
                  updated_at = now(),
                  version   = version + 1
              WHERE id = $1 AND version = $2 AND archived_at IS NULL
-             RETURNING id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
-                       created_at, updated_at, archived_at, version",
-        )
+             RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
+        ))
         .bind(id.as_uuid())
         .bind(expected_version)
         .bind(mutate.name.as_deref())
@@ -199,7 +210,7 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
     ) -> Result<IndustrialComplex, CatalogError> {
         let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
 
-        let row = sqlx::query(
+        let row = sqlx::query(&format!(
             "UPDATE catalog.industrial_complex
              SET archived_at = now(),
                  archived_by_staff_id = $3,
@@ -207,9 +218,8 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
                  updated_at = now(),
                  version = version + 1
              WHERE id = $1 AND version = $2 AND archived_at IS NULL
-             RETURNING id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
-                       created_at, updated_at, archived_at, version",
-        )
+             RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
+        ))
         .bind(id.as_uuid())
         .bind(expected_version)
         .bind(operator_staff_id.as_uuid())
@@ -1315,14 +1325,13 @@ async fn upsert_industrial_complexes_by_official_code(
     let mut outcomes = Vec::with_capacity(commands.len());
 
     for command in commands {
-        let existing_row = sqlx::query(
-            "SELECT id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
-                    created_at, updated_at, archived_at, version
+        let existing_row = sqlx::query(&format!(
+            "SELECT {INDUSTRIAL_COMPLEX_COLUMNS}
              FROM catalog.industrial_complex
              WHERE official_complex_code = $1
                AND archived_at IS NULL
-             FOR UPDATE",
-        )
+             FOR UPDATE"
+        ))
         .bind(&command.official_complex_code)
         .fetch_optional(&mut *tx)
         .await
@@ -1373,23 +1382,40 @@ async fn update_industrial_complex_from_upsert(
     command: &UpsertIndustrialComplexCommand,
 ) -> Result<IndustrialComplex, CatalogError> {
     let area_i64 = u64_to_i64(command.area_m2)?;
-    let updated_row = sqlx::query(
+    let updated_row = sqlx::query(&format!(
         "UPDATE catalog.industrial_complex
          SET name = $2,
              kind = $3,
              primary_bjdong_code = $4,
              area_m2 = $5,
+             status = $6,
+             sido_code = $7,
+             sigungu_code = $8,
+             address_text = $9,
+             management_agency_name = $10,
+             developer_name = $11,
+             designated_date = $12,
+             completion_date = $13,
+             lakehouse_complex_id = $14,
              updated_at = now(),
              version = version + 1
          WHERE id = $1
-         RETURNING id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
-                   created_at, updated_at, archived_at, version",
-    )
+         RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
+    ))
     .bind(existing.id.as_uuid())
     .bind(&command.name)
     .bind(command.kind.wire_name())
     .bind(command.primary_bjdong_code.as_deref())
     .bind(area_i64)
+    .bind(command.status.map(IndustrialComplexStatus::wire_name))
+    .bind(command.sido_code.as_deref())
+    .bind(command.sigungu_code.as_deref())
+    .bind(command.address_text.as_deref())
+    .bind(command.management_agency_name.as_deref())
+    .bind(command.developer_name.as_deref())
+    .bind(command.designated_date)
+    .bind(command.completion_date)
+    .bind(command.lakehouse_complex_id.map(|id| id.as_uuid()))
     .fetch_one(&mut **tx)
     .await;
 
@@ -1411,20 +1437,30 @@ async fn insert_industrial_complex_from_upsert(
 ) -> Result<IndustrialComplex, CatalogError> {
     let now = Utc::now();
     let area_i64 = u64_to_i64(command.area_m2)?;
-    let inserted_row = sqlx::query(
+    let inserted_row = sqlx::query(&format!(
         "INSERT INTO catalog.industrial_complex
-         (id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
+         (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+          area_m2, status, sido_code, sigungu_code, address_text, management_agency_name,
+          developer_name, designated_date, completion_date,
           created_at, updated_at, version)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1)
-         RETURNING id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
-                   created_at, updated_at, archived_at, version",
-    )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 1)
+         RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
+    ))
     .bind(Uuid::now_v7())
+    .bind(command.lakehouse_complex_id.map(|id| id.as_uuid()))
     .bind(&command.official_complex_code)
     .bind(&command.name)
     .bind(command.kind.wire_name())
     .bind(command.primary_bjdong_code.as_deref())
     .bind(area_i64)
+    .bind(command.status.map(IndustrialComplexStatus::wire_name))
+    .bind(command.sido_code.as_deref())
+    .bind(command.sigungu_code.as_deref())
+    .bind(command.address_text.as_deref())
+    .bind(command.management_agency_name.as_deref())
+    .bind(command.developer_name.as_deref())
+    .bind(command.designated_date)
+    .bind(command.completion_date)
     .bind(now)
     .bind(now)
     .fetch_one(&mut **tx)
@@ -1449,7 +1485,10 @@ fn changed_industrial_complex_fields(
     existing: &IndustrialComplex,
     command: &UpsertIndustrialComplexCommand,
 ) -> Vec<String> {
-    let mut fields = Vec::with_capacity(4);
+    let mut fields = Vec::new();
+    if existing.lakehouse_complex_id != command.lakehouse_complex_id {
+        fields.push("lakehouse_complex_id".to_owned());
+    }
     if existing.name != command.name {
         fields.push("name".to_owned());
     }
@@ -1461,6 +1500,30 @@ fn changed_industrial_complex_fields(
     }
     if existing.area_m2 != command.area_m2 {
         fields.push("area_m2".to_owned());
+    }
+    if existing.status != command.status {
+        fields.push("status".to_owned());
+    }
+    if existing.sido_code != command.sido_code {
+        fields.push("sido_code".to_owned());
+    }
+    if existing.sigungu_code != command.sigungu_code {
+        fields.push("sigungu_code".to_owned());
+    }
+    if existing.address_text != command.address_text {
+        fields.push("address_text".to_owned());
+    }
+    if existing.management_agency_name != command.management_agency_name {
+        fields.push("management_agency_name".to_owned());
+    }
+    if existing.developer_name != command.developer_name {
+        fields.push("developer_name".to_owned());
+    }
+    if existing.designated_date != command.designated_date {
+        fields.push("designated_date".to_owned());
+    }
+    if existing.completion_date != command.completion_date {
+        fields.push("completion_date".to_owned());
     }
     fields
 }
