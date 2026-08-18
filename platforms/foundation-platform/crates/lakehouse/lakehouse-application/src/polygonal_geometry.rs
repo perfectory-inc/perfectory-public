@@ -239,12 +239,44 @@ fn ring_centroid_and_area(ring: &[GeoPoint]) -> Option<(GeoPoint, f64)> {
     ))
 }
 
-/// Returns twice the shoelace area of a ring: positive counter-clockwise, negative clockwise.
+/// Which way a ring is wound, for the sources that state a ring's role that way.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RingWinding {
+    /// Vertices run clockwise; the shoelace sum is negative.
+    Clockwise,
+    /// Vertices run counter-clockwise; the shoelace sum is positive.
+    CounterClockwise,
+}
+
+/// Returns which way a ring winds, or `None` when its own coordinates do not determine that.
 ///
-/// The doubling is deliberate — every caller either halves it or only reads its sign, and dividing
-/// here would add a rounding step to the sign test that decides which rings are holes.
+/// A shapefile states ring roles by winding, so this sign decides whether a ring is an exterior
+/// ring or a hole — and a ring can be too small for its coordinates to answer. In a projected CRS
+/// the coordinates run to six figures, so each shoelace term is around 1e11 and carries roughly
+/// 3e-5 of rounding error; a ring whose segments have collapsed onto each other produces a sum
+/// smaller than that, and its sign is then rounding noise rather than a fact about the ring. The
+/// comparison is against the error the ring's own terms carry, not a fixed tolerance, so a ring
+/// that really does enclose a square metre still answers.
 #[must_use]
-pub fn ring_signed_double_area(ring: &[GeoPoint]) -> f64 {
+pub fn ring_winding(ring: &[GeoPoint]) -> Option<RingWinding> {
+    let mut sum = 0.0_f64;
+    let mut magnitude = 0.0_f64;
+    for pair in ring.windows(2) {
+        let (current, next) = (pair[0], pair[1]);
+        sum += current.x.mul_add(next.y, -(next.x * current.y));
+        magnitude += (current.x * next.y).abs() + (next.x * current.y).abs();
+    }
+    if sum.abs() <= 3.0 * f64::EPSILON * magnitude {
+        return None;
+    }
+    if sum < 0.0 {
+        return Some(RingWinding::Clockwise);
+    }
+    Some(RingWinding::CounterClockwise)
+}
+
+/// Returns twice the shoelace area of a ring: positive counter-clockwise, negative clockwise.
+fn ring_signed_double_area(ring: &[GeoPoint]) -> f64 {
     ring.windows(2)
         .map(|pair| pair[0].x.mul_add(pair[1].y, -(pair[1].x * pair[0].y)))
         .sum()
@@ -321,8 +353,8 @@ mod tests {
     use anyhow::Context as _;
 
     use super::{
-        geometry_area, geometry_bounding_box, geometry_centroid, ring_signed_double_area, GeoPoint,
-        ParsedPolygonalGeometry,
+        geometry_area, geometry_bounding_box, geometry_centroid, ring_winding, GeoPoint,
+        ParsedPolygonalGeometry, RingWinding,
     };
 
     fn ring(points: &[(f64, f64)]) -> Vec<GeoPoint> {
@@ -464,7 +496,35 @@ mod tests {
         let mut clockwise = counter_clockwise.clone();
         clockwise.reverse();
 
-        assert!(ring_signed_double_area(&counter_clockwise) > 0.0);
-        assert!(ring_signed_double_area(&clockwise) < 0.0);
+        assert_eq!(
+            ring_winding(&counter_clockwise),
+            Some(RingWinding::CounterClockwise)
+        );
+        assert_eq!(ring_winding(&clockwise), Some(RingWinding::Clockwise));
+    }
+
+    /// The provider's own boundary file carries one of these: three vertices where two are 4.5e-9
+    /// metres apart, at coordinates around 2.5e5. Its shoelace sum is 1.5e-5, which is smaller than
+    /// the rounding error its own terms carry, so its sign says nothing and calling it a hole would
+    /// reject the 50,000 m² ring beside it.
+    #[test]
+    fn a_ring_collapsed_to_rounding_error_has_no_winding() {
+        let collapsed = ring(&[
+            (248_592.392_248_501_16, 513_262.824_836_841_4),
+            (248_592.392_248_505_67, 513_262.824_836_841_4),
+            (248_592.346_986_101_24, 513_262.405_135_691_6),
+            (248_592.392_248_501_16, 513_262.824_836_841_4),
+        ]);
+
+        assert_eq!(ring_winding(&collapsed), None);
+    }
+
+    /// One square metre at the same six-figure coordinates still answers, so the bound rejects
+    /// noise rather than small rings.
+    #[test]
+    fn a_one_square_metre_ring_at_projected_coordinates_still_winds() {
+        let tiny = square(248_592.0, 513_262.0, 1.0);
+
+        assert_eq!(ring_winding(&tiny), Some(RingWinding::CounterClockwise));
     }
 }

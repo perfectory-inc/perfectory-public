@@ -746,6 +746,19 @@ fn export_industrial_complex_bronze_raw_jsonl_command_is_explicit() -> anyhow::R
     Ok(())
 }
 
+/// The reading half of the `silver.industrial_complex_boundaries` producer.
+#[test]
+fn export_industrial_complex_boundary_silver_handoff_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-industrial-complex-boundary-silver-handoff",
+        ])?,
+        Command::ExportIndustrialComplexBoundarySilverHandoff
+    );
+    Ok(())
+}
+
 /// The two halves of the industrial-complex address source: collect it into Bronze, then derive
 /// the resolution the producer above refuses to run without.
 #[test]

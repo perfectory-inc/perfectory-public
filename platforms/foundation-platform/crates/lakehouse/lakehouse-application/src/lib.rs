@@ -122,9 +122,9 @@ pub use industrial_complex_silver_plan::{
 
 pub use get_lakehouse_promotion_candidate::GetLakehousePromotionCandidate;
 pub use polygonal_geometry::{
-    geometry_area, geometry_bounding_box, geometry_centroid, geometry_to_wkb,
-    ring_signed_double_area, BoundingBoxAccumulator, GeoPoint, GeometryBoundingBox, LinearRing,
-    ParsedPolygonalGeometry, PolygonRings, PolygonalGeometryError,
+    geometry_area, geometry_bounding_box, geometry_centroid, geometry_to_wkb, ring_winding,
+    BoundingBoxAccumulator, GeoPoint, GeometryBoundingBox, LinearRing, ParsedPolygonalGeometry,
+    PolygonRings, PolygonalGeometryError, RingWinding,
 };
 pub use publish_industrial_complex_gold_pointer::{
     PublishIndustrialComplexGoldPointer, PublishIndustrialComplexGoldPointerCommand,
