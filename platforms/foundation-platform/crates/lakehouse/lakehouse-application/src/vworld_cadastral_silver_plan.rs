@@ -10,20 +10,12 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-const GEOMETRY_SRID: i32 = 4326;
+use crate::polygonal_geometry::{
+    geometry_bounding_box, geometry_to_wkb, GeoPoint, GeometryBoundingBox, LinearRing,
+    ParsedPolygonalGeometry, PolygonRings, PolygonalGeometryError,
+};
 
-/// Bounding box derived from canonical Silver parcel-boundary geometry.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct VWorldCadastralBoundingBox {
-    /// Minimum X coordinate in the request CRS.
-    pub min_x: f64,
-    /// Minimum Y coordinate in the request CRS.
-    pub min_y: f64,
-    /// Maximum X coordinate in the request CRS.
-    pub max_x: f64,
-    /// Maximum Y coordinate in the request CRS.
-    pub max_y: f64,
-}
+const GEOMETRY_SRID: i32 = 4326;
 
 /// Input required to normalize deduplicated `VWorld` cadastral features into Silver rows.
 pub struct VWorldCadastralSilverParcelBoundaryRowsInput<'a> {
@@ -63,7 +55,7 @@ pub struct VWorldCadastralSilverParcelBoundaryRow {
     /// Spatial reference id for the geometry.
     pub geometry_srid: i32,
     /// Bounding box derived from the full polygon geometry.
-    pub bbox: VWorldCadastralBoundingBox,
+    pub bbox: GeometryBoundingBox,
     /// Lowercase SHA-256 checksum of `geometry_wkb`.
     pub geometry_checksum_sha256: String,
     /// Source-record lineage id.
@@ -106,6 +98,12 @@ pub enum VWorldCadastralSilverPlanError {
     /// Input data cannot be represented as a Silver parcel-boundary row.
     #[error("invalid VWorld cadastral Silver parcel-boundary input: {0}")]
     InvalidInput(String),
+}
+
+impl From<PolygonalGeometryError> for VWorldCadastralSilverPlanError {
+    fn from(error: PolygonalGeometryError) -> Self {
+        Self::InvalidInput(error.to_string())
+    }
 }
 
 /// Normalizes deduplicated `VWorld` cadastral features into Silver parcel-boundary rows.
@@ -196,7 +194,7 @@ fn normalize_record(
         VWorldCadastralSilverPlanError::InvalidInput(format!("invalid pnu {}: {error}", record.pnu))
     })?;
     let parsed_geometry = parse_geojson_polygonal_geometry(&record.geometry, pnu.as_str())?;
-    let bbox = geometry_bbox(&parsed_geometry)?;
+    let bbox = geometry_bounding_box(&parsed_geometry)?;
     let geometry_wkb = geometry_to_wkb(&parsed_geometry)?;
     let geometry_checksum_sha256 = sha256_hex(&geometry_wkb);
 
@@ -422,7 +420,7 @@ fn vworld_cadastral_parcel_boundary_transport_columns() -> Vec<String> {
     .collect()
 }
 
-fn valid_bbox(bbox: VWorldCadastralBoundingBox) -> bool {
+fn valid_bbox(bbox: GeometryBoundingBox) -> bool {
     bbox.min_x.is_finite()
         && bbox.min_y.is_finite()
         && bbox.max_x.is_finite()
@@ -462,21 +460,6 @@ fn optional_property_string(
             "property {field} for pnu {pnu} must be a string when present"
         ))),
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct GeoPoint {
-    x: f64,
-    y: f64,
-}
-
-type LinearRing = Vec<GeoPoint>;
-type PolygonRings = Vec<LinearRing>;
-
-#[derive(Clone, Debug, PartialEq)]
-enum ParsedPolygonalGeometry {
-    Polygon(PolygonRings),
-    MultiPolygon(Vec<PolygonRings>),
 }
 
 fn parse_geojson_polygonal_geometry(
@@ -593,122 +576,6 @@ fn coordinate_number(
     }
     let reason = format!("coordinate {label} must be finite");
     Err(invalid_geometry(pnu, &reason))
-}
-
-fn geometry_bbox(
-    geometry: &ParsedPolygonalGeometry,
-) -> Result<VWorldCadastralBoundingBox, VWorldCadastralSilverPlanError> {
-    let mut accumulator = BBoxAccumulator::default();
-    match geometry {
-        ParsedPolygonalGeometry::Polygon(polygon) => accumulator.record_polygon(polygon),
-        ParsedPolygonalGeometry::MultiPolygon(polygons) => {
-            for polygon in polygons {
-                accumulator.record_polygon(polygon);
-            }
-        }
-    }
-    accumulator.finish()
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-struct BBoxAccumulator {
-    bbox: Option<VWorldCadastralBoundingBox>,
-}
-
-impl BBoxAccumulator {
-    fn record_polygon(&mut self, polygon: &[LinearRing]) {
-        for ring in polygon {
-            for point in ring {
-                self.record_point(*point);
-            }
-        }
-    }
-
-    const fn record_point(&mut self, point: GeoPoint) {
-        self.bbox = Some(match self.bbox {
-            Some(bbox) => VWorldCadastralBoundingBox {
-                min_x: bbox.min_x.min(point.x),
-                min_y: bbox.min_y.min(point.y),
-                max_x: bbox.max_x.max(point.x),
-                max_y: bbox.max_y.max(point.y),
-            },
-            None => VWorldCadastralBoundingBox {
-                min_x: point.x,
-                min_y: point.y,
-                max_x: point.x,
-                max_y: point.y,
-            },
-        });
-    }
-
-    fn finish(self) -> Result<VWorldCadastralBoundingBox, VWorldCadastralSilverPlanError> {
-        self.bbox.ok_or_else(|| {
-            VWorldCadastralSilverPlanError::InvalidInput(
-                "geometry must contain at least one coordinate".to_owned(),
-            )
-        })
-    }
-}
-
-fn geometry_to_wkb(
-    geometry: &ParsedPolygonalGeometry,
-) -> Result<Vec<u8>, VWorldCadastralSilverPlanError> {
-    let mut bytes = Vec::new();
-    match geometry {
-        ParsedPolygonalGeometry::Polygon(polygon) => write_polygon_wkb(&mut bytes, polygon)?,
-        ParsedPolygonalGeometry::MultiPolygon(polygons) => {
-            write_u8(&mut bytes, 1);
-            write_u32_le(&mut bytes, 6);
-            write_len_u32(&mut bytes, polygons.len(), "MultiPolygon polygon count")?;
-            for polygon in polygons {
-                write_polygon_wkb(&mut bytes, polygon)?;
-            }
-        }
-    }
-    Ok(bytes)
-}
-
-fn write_polygon_wkb(
-    bytes: &mut Vec<u8>,
-    polygon: &[LinearRing],
-) -> Result<(), VWorldCadastralSilverPlanError> {
-    write_u8(bytes, 1);
-    write_u32_le(bytes, 3);
-    write_len_u32(bytes, polygon.len(), "Polygon ring count")?;
-    for ring in polygon {
-        write_len_u32(bytes, ring.len(), "linear ring point count")?;
-        for point in ring {
-            write_f64_le(bytes, point.x);
-            write_f64_le(bytes, point.y);
-        }
-    }
-    Ok(())
-}
-
-fn write_len_u32(
-    bytes: &mut Vec<u8>,
-    len: usize,
-    label: &'static str,
-) -> Result<(), VWorldCadastralSilverPlanError> {
-    let value = u32::try_from(len).map_err(|_| {
-        VWorldCadastralSilverPlanError::InvalidInput(format!(
-            "{label} exceeds WKB u32 length capacity"
-        ))
-    })?;
-    write_u32_le(bytes, value);
-    Ok(())
-}
-
-fn write_u8(bytes: &mut Vec<u8>, value: u8) {
-    bytes.push(value);
-}
-
-fn write_u32_le(bytes: &mut Vec<u8>, value: u32) {
-    bytes.extend_from_slice(&value.to_le_bytes());
-}
-
-fn write_f64_le(bytes: &mut Vec<u8>, value: f64) {
-    bytes.extend_from_slice(&value.to_le_bytes());
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

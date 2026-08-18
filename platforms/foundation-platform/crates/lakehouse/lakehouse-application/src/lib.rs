@@ -29,6 +29,9 @@ pub mod industrial_complex_silver_plan;
 /// Outbound ports implemented by Lakehouse infrastructure.
 pub mod ports;
 
+/// Polygonal geometry primitives shared by the Silver boundary normalizers.
+pub mod polygonal_geometry;
+
 /// Use case for selecting validated Lakehouse batch promotion candidates.
 pub mod get_lakehouse_promotion_candidate;
 
@@ -107,6 +110,10 @@ pub use industrial_complex_silver_plan::{
 };
 
 pub use get_lakehouse_promotion_candidate::GetLakehousePromotionCandidate;
+pub use polygonal_geometry::{
+    geometry_bounding_box, geometry_to_wkb, BoundingBoxAccumulator, GeoPoint, GeometryBoundingBox,
+    LinearRing, ParsedPolygonalGeometry, PolygonRings, PolygonalGeometryError,
+};
 pub use publish_industrial_complex_gold_pointer::{
     PublishIndustrialComplexGoldPointer, PublishIndustrialComplexGoldPointerCommand,
     PublishIndustrialComplexGoldPointerInput,
@@ -118,7 +125,7 @@ pub use register_lakehouse_object_artifact::{
 };
 pub use vworld_cadastral_silver_plan::{
     build_vworld_cadastral_silver_parcel_boundary_handoff,
-    normalize_vworld_cadastral_silver_parcel_boundary_rows, VWorldCadastralBoundingBox,
+    normalize_vworld_cadastral_silver_parcel_boundary_rows,
     VWorldCadastralSilverParcelBoundaryHandoff, VWorldCadastralSilverParcelBoundaryRow,
     VWorldCadastralSilverParcelBoundaryRowsInput, VWorldCadastralSilverPlanError,
 };
