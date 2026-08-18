@@ -63,6 +63,7 @@ mod building_register_unit_silver_export;
 mod bulk_streaming_bronze;
 mod canonical_release_proof;
 mod canonical_silver_gold_cutover_evidence;
+mod dbase_table;
 mod github_actions_secret_configurator;
 mod github_cutover_artifact_fetch;
 mod github_cutover_dispatch;

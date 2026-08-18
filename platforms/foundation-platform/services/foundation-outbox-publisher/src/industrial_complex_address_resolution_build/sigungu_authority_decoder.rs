@@ -5,13 +5,19 @@
 //! district a complex belongs to (root ADR-0020) — the codes are, and they are plain text in the
 //! attribute table.
 //!
-//! dBase III/5 layout, which is all this needs to know: a 32-byte header carrying the record count,
-//! the header length, and the record length; then 32-byte field descriptors terminated by `0x0D`;
-//! then fixed-width records, each prefixed by a one-byte deletion flag.
+//! That rule is about *membership*, not about geometry as such. Drawing a boundary the provider
+//! published, and saying which district a complex belongs to, are different questions; the
+//! industrial-complex boundary reader opens the same kind of shapefile for the first question
+//! without touching this one.
+//!
+//! The file format itself lives in [`crate::dbase_table`]; this module only knows which column
+//! answers the district question and what a district code looks like.
 
 use std::collections::BTreeSet;
 
 use anyhow::{bail, Context as _};
+
+use crate::dbase_table::DbaseTable;
 
 /// Column carrying the administrative code in the V-World boundary attribute tables.
 const CODE_COLUMN: &str = "BJCD";
@@ -25,62 +31,33 @@ const ADMINISTRATIVE_CODE_LEN: usize = 10;
 /// The five trailing digits a district code carries in its full ten-digit form.
 const SIGUNGU_CODE_SUFFIX: &str = "00000";
 
-/// Fixed size of the dBase file header and of one field descriptor.
-const DBF_HEADER_LEN: usize = 32;
-
-/// Terminator byte that ends the field-descriptor block.
-const DBF_FIELD_TERMINATOR: u8 = 0x0D;
-
-/// Deletion flag written on a record that has been marked deleted.
-const DBF_DELETED_FLAG: u8 = b'*';
-
-/// Where the code column sits inside one fixed-width record.
-struct DbfField {
-    offset: usize,
-    length: usize,
-}
-
 /// Reads the set of current five-digit district codes out of a dBase attribute table.
 ///
 /// # Errors
 /// Returns an error when the bytes are not a readable dBase table, when the code column is absent,
 /// when a value is not a five-digit code, or when the table yields no codes at all.
 pub(super) fn decode_sigungu_authority(bytes: &[u8]) -> anyhow::Result<BTreeSet<String>> {
-    if bytes.len() < DBF_HEADER_LEN {
+    let table = DbaseTable::open(bytes).context("the district authority is unreadable")?;
+    let Some(field) = table.field(CODE_COLUMN) else {
         bail!(
-            "the district authority is not a dBase table: {} bytes",
-            bytes.len()
+            "the district authority has no {CODE_COLUMN} column; columns present: {}",
+            table
+                .fields()
+                .iter()
+                .map(|field| field.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
-    }
-    let record_count = u32::from_le_bytes(header_slice(bytes, 4, 4)?.try_into()?) as usize;
-    let header_len = u16::from_le_bytes(header_slice(bytes, 8, 2)?.try_into()?) as usize;
-    let record_len = u16::from_le_bytes(header_slice(bytes, 10, 2)?.try_into()?) as usize;
-    if header_len < DBF_HEADER_LEN || record_len == 0 {
-        bail!(
-            "the district authority declares an unusable dBase layout: header {header_len}, \
-             record {record_len}"
-        );
-    }
+    };
 
-    let field = code_field(bytes, header_len)?;
     let mut codes = BTreeSet::new();
-    for index in 0..record_count {
-        let start = header_len + index * record_len;
-        let end = start + record_len;
-        let Some(record) = bytes.get(start..end) else {
-            bail!(
-                "the district authority declares {record_count} records but ends after {index}; \
-                 the file is truncated"
-            );
-        };
-        if record.first() == Some(&DBF_DELETED_FLAG) {
+    for index in 0..table.record_count() {
+        let Some(record) = table.record(index)? else {
             continue;
-        }
-        let raw = record
-            .get(field.offset..field.offset + field.length)
-            .with_context(|| {
-                format!("dBase record {index} is shorter than its {CODE_COLUMN} column")
-            })?;
+        };
+        let raw = record.raw(field).with_context(|| {
+            format!("dBase record {index} is shorter than its {CODE_COLUMN} column")
+        })?;
         let value = std::str::from_utf8(raw)
             .with_context(|| format!("dBase record {index} {CODE_COLUMN} is not ASCII"))?
             .trim();
@@ -120,77 +97,18 @@ fn district_prefix(value: &str) -> Option<&str> {
     }
 }
 
-fn code_field(bytes: &[u8], header_len: usize) -> anyhow::Result<DbfField> {
-    let mut offset = DBF_HEADER_LEN;
-    // The deletion flag occupies the first byte of every record, so field offsets start at one.
-    let mut record_offset = 1_usize;
-    let mut observed = Vec::new();
-    while offset + DBF_HEADER_LEN <= header_len {
-        let descriptor = bytes
-            .get(offset..offset + DBF_HEADER_LEN)
-            .context("dBase field descriptor block is truncated")?;
-        if descriptor[0] == DBF_FIELD_TERMINATOR {
-            break;
-        }
-        let name = descriptor
-            .iter()
-            .take(11)
-            .take_while(|byte| **byte != 0)
-            .map(|byte| char::from(*byte))
-            .collect::<String>();
-        let length = usize::from(descriptor[16]);
-        observed.push(name.clone());
-        if name == CODE_COLUMN {
-            return Ok(DbfField {
-                offset: record_offset,
-                length,
-            });
-        }
-        record_offset += length;
-        offset += DBF_HEADER_LEN;
-    }
-    bail!(
-        "the district authority has no {CODE_COLUMN} column; columns present: {}",
-        observed.join(", ")
-    )
-}
-
-fn header_slice(bytes: &[u8], start: usize, length: usize) -> anyhow::Result<&[u8]> {
-    bytes
-        .get(start..start + length)
-        .context("dBase header is truncated")
-}
-
 #[cfg(test)]
 mod tests {
     use super::decode_sigungu_authority;
+    use crate::dbase_table::test_support::dbase_bytes;
 
-    /// Builds a minimal dBase III table with the given columns and rows.
+    /// Builds a minimal dBase III table with the given columns and text rows.
     fn dbf(columns: &[(&str, usize)], rows: &[Vec<&str>]) -> Vec<u8> {
-        let header_len = 32 + columns.len() * 32 + 1;
-        let record_len = 1 + columns.iter().map(|(_, length)| *length).sum::<usize>();
-        let mut bytes = vec![0_u8; 32];
-        bytes[0] = 0x03;
-        bytes[4..8].copy_from_slice(&(rows.len() as u32).to_le_bytes());
-        bytes[8..10].copy_from_slice(&(header_len as u16).to_le_bytes());
-        bytes[10..12].copy_from_slice(&(record_len as u16).to_le_bytes());
-        for (name, length) in columns {
-            let mut descriptor = vec![0_u8; 32];
-            descriptor[..name.len()].copy_from_slice(name.as_bytes());
-            descriptor[11] = b'C';
-            descriptor[16] = u8::try_from(*length).expect("column length fits a byte");
-            bytes.extend_from_slice(&descriptor);
-        }
-        bytes.push(0x0D);
-        for row in rows {
-            bytes.push(b' ');
-            for ((_, length), value) in columns.iter().zip(row) {
-                let mut cell = vec![b' '; *length];
-                cell[..value.len()].copy_from_slice(value.as_bytes());
-                bytes.extend_from_slice(&cell);
-            }
-        }
-        bytes
+        let rows = rows
+            .iter()
+            .map(|row| row.iter().map(|value| value.as_bytes()).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        dbase_bytes(columns, &rows)
     }
 
     /// The V-World district layer writes the code in its full ten-digit form, so the decoder has to
