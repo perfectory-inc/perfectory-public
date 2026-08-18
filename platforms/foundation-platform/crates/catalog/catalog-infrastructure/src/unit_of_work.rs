@@ -19,9 +19,10 @@ use catalog_application::ports::{
     VectorTileSourceRecordCommand,
 };
 use catalog_domain::{
-    CatalogError, CatalogMutationKind, ComplexMutation, IndustrialComplex, IndustrialComplexStatus,
-    Parcel, ParcelKind, RuntimeTileLayer, ServingGeneration, VectorTileArtifact,
-    VectorTileManifest, VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+    CatalogError, CatalogMutationKind, ComplexMutation, IndustrialComplex,
+    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, Parcel, ParcelKind, RuntimeTileLayer,
+    ServingGeneration, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use chrono::Utc;
 use foundation_shared_kernel::events::catalog_v1::{
@@ -86,13 +87,19 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
 
         let area_i64 = u64_to_i64(complex.area_m2)?;
         let insert_res = sqlx::query(
+            // `$21::numeric` because the progress percentage travels as exact decimal text: the
+            // column is `numeric(5,2)` and binding an `f64` would store a value the source never
+            // stated. The cast is what lets Postgres parse the text it will store.
             "INSERT INTO catalog.industrial_complex
              (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
               area_m2, status, sido_code, sigungu_code, address_text, management_agency_name,
-              developer_name, designated_date, completion_date,
+              developer_name, designated_date, construction_start_date, completion_date,
+              lot_sales_status, business_period_raw, business_period_start_month,
+              business_period_end_month, development_progress_percent, designation_basis_law_raw,
+              development_method_raw, development_purpose_raw, invited_industries_raw,
               created_at, updated_at, version)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                     $18)",
+                     $18, $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, $28)",
         )
         .bind(complex.id.as_uuid())
         .bind(complex.lakehouse_complex_id.map(|id| id.as_uuid()))
@@ -108,7 +115,21 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         .bind(complex.management_agency_name.as_deref())
         .bind(complex.developer_name.as_deref())
         .bind(complex.designated_date)
+        .bind(complex.construction_start_date)
         .bind(complex.completion_date)
+        .bind(
+            complex
+                .lot_sales_status
+                .map(IndustrialComplexLotSalesStatus::wire_name),
+        )
+        .bind(complex.business_period_raw.as_deref())
+        .bind(complex.business_period_start_month.as_deref())
+        .bind(complex.business_period_end_month.as_deref())
+        .bind(complex.development_progress_percent.as_deref())
+        .bind(complex.designation_basis_law_raw.as_deref())
+        .bind(complex.development_method_raw.as_deref())
+        .bind(complex.development_purpose_raw.as_deref())
+        .bind(complex.invited_industries_raw.as_deref())
         .bind(complex.created_at)
         .bind(complex.updated_at)
         .bind(complex.version)
@@ -1397,6 +1418,16 @@ async fn update_industrial_complex_from_upsert(
              designated_date = $12,
              completion_date = $13,
              lakehouse_complex_id = $14,
+             construction_start_date = $15,
+             development_progress_percent = $16::numeric,
+             lot_sales_status = $17,
+             business_period_raw = $18,
+             business_period_start_month = $19,
+             business_period_end_month = $20,
+             designation_basis_law_raw = $21,
+             development_method_raw = $22,
+             development_purpose_raw = $23,
+             invited_industries_raw = $24,
              updated_at = now(),
              version = version + 1
          WHERE id = $1
@@ -1416,6 +1447,20 @@ async fn update_industrial_complex_from_upsert(
     .bind(command.designated_date)
     .bind(command.completion_date)
     .bind(command.lakehouse_complex_id.map(|id| id.as_uuid()))
+    .bind(command.construction_start_date)
+    .bind(command.development_progress_percent.as_deref())
+    .bind(
+        command
+            .lot_sales_status
+            .map(IndustrialComplexLotSalesStatus::wire_name),
+    )
+    .bind(command.business_period_raw.as_deref())
+    .bind(command.business_period_start_month.as_deref())
+    .bind(command.business_period_end_month.as_deref())
+    .bind(command.designation_basis_law_raw.as_deref())
+    .bind(command.development_method_raw.as_deref())
+    .bind(command.development_purpose_raw.as_deref())
+    .bind(command.invited_industries_raw.as_deref())
     .fetch_one(&mut **tx)
     .await;
 
@@ -1441,9 +1486,13 @@ async fn insert_industrial_complex_from_upsert(
         "INSERT INTO catalog.industrial_complex
          (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
           area_m2, status, sido_code, sigungu_code, address_text, management_agency_name,
-          developer_name, designated_date, completion_date,
+          developer_name, designated_date, construction_start_date, completion_date,
+          lot_sales_status, business_period_raw, business_period_start_month,
+          business_period_end_month, development_progress_percent, designation_basis_law_raw,
+          development_method_raw, development_purpose_raw, invited_industries_raw,
           created_at, updated_at, version)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 1)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                 $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, 1)
          RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
     ))
     .bind(Uuid::now_v7())
@@ -1460,7 +1509,21 @@ async fn insert_industrial_complex_from_upsert(
     .bind(command.management_agency_name.as_deref())
     .bind(command.developer_name.as_deref())
     .bind(command.designated_date)
+    .bind(command.construction_start_date)
     .bind(command.completion_date)
+    .bind(
+        command
+            .lot_sales_status
+            .map(IndustrialComplexLotSalesStatus::wire_name),
+    )
+    .bind(command.business_period_raw.as_deref())
+    .bind(command.business_period_start_month.as_deref())
+    .bind(command.business_period_end_month.as_deref())
+    .bind(command.development_progress_percent.as_deref())
+    .bind(command.designation_basis_law_raw.as_deref())
+    .bind(command.development_method_raw.as_deref())
+    .bind(command.development_purpose_raw.as_deref())
+    .bind(command.invited_industries_raw.as_deref())
     .bind(now)
     .bind(now)
     .fetch_one(&mut **tx)
@@ -1524,6 +1587,40 @@ fn changed_industrial_complex_fields(
     }
     if existing.completion_date != command.completion_date {
         fields.push("completion_date".to_owned());
+    }
+    if existing.construction_start_date != command.construction_start_date {
+        fields.push("construction_start_date".to_owned());
+    }
+    // Compared as text, which is how the row carries it. `59.90` and `59.9` are the same number and
+    // different text, and the comparison would call a re-load a change; the producer emits two
+    // decimal places for every value, and Postgres renders `numeric(5,2)` the same way, so both
+    // sides of this comparison are already normalized.
+    if existing.development_progress_percent != command.development_progress_percent {
+        fields.push("development_progress_percent".to_owned());
+    }
+    if existing.lot_sales_status != command.lot_sales_status {
+        fields.push("lot_sales_status".to_owned());
+    }
+    if existing.business_period_raw != command.business_period_raw {
+        fields.push("business_period_raw".to_owned());
+    }
+    if existing.business_period_start_month != command.business_period_start_month {
+        fields.push("business_period_start_month".to_owned());
+    }
+    if existing.business_period_end_month != command.business_period_end_month {
+        fields.push("business_period_end_month".to_owned());
+    }
+    if existing.designation_basis_law_raw != command.designation_basis_law_raw {
+        fields.push("designation_basis_law_raw".to_owned());
+    }
+    if existing.development_method_raw != command.development_method_raw {
+        fields.push("development_method_raw".to_owned());
+    }
+    if existing.development_purpose_raw != command.development_purpose_raw {
+        fields.push("development_purpose_raw".to_owned());
+    }
+    if existing.invited_industries_raw != command.invited_industries_raw {
+        fields.push("invited_industries_raw".to_owned());
     }
     fields
 }

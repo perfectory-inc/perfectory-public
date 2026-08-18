@@ -40,8 +40,10 @@ impl LakehouseBatchRunRepository for RecordingRepository {
     }
 }
 
-const fn valid_summary_json() -> &'static str {
-    r#"{
+/// One `foundation-platform.spark_run_summary.v1` payload that matches the
+/// `silver.industrial_complexes` contract. A `const` item rather than a function: it is a
+/// literal, and wrapping a literal in a function only hides how long it is.
+const VALID_SUMMARY_JSON: &str = r#"{
         "schema_version": "foundation-platform.spark_run_summary.v1",
         "job_name": "industrial_complex_bronze_to_silver",
         "contract": "silver.industrial_complexes",
@@ -93,7 +95,7 @@ const fn valid_summary_json() -> &'static str {
             "invalid_checksum_count": 0,
             "invalid_region_code_count": 0
         },
-        "column_count": 21,
+        "column_count": 31,
         "columns": [
             "complex_id",
             "official_complex_code",
@@ -108,8 +110,18 @@ const fn valid_summary_json() -> &'static str {
             "management_agency_name",
             "developer_name",
             "designated_date",
+            "construction_start_date",
             "completion_date",
             "official_area_sqm",
+            "development_progress_percent",
+            "lot_sales_status",
+            "business_period_raw",
+            "business_period_start_month",
+            "business_period_end_month",
+            "designation_basis_law_raw",
+            "development_method_raw",
+            "development_purpose_raw",
+            "invited_industries_raw",
             "source_record_id",
             "source_snapshot_id",
             "valid_from_utc",
@@ -133,15 +145,14 @@ const fn valid_summary_json() -> &'static str {
         "source_snapshot_count": 1,
         "source_snapshot_ids": ["bronze-snapshot-2026-05-14"],
         "source_snapshot_truncated": false
-    }"#
-}
+    }"#;
 
 fn parsed_utc(value: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
     DateTime::parse_from_rfc3339(value).map(|parsed| parsed.with_timezone(&Utc))
 }
 
 fn valid_summary() -> Result<SparkRunSummary, LakehouseError> {
-    SparkRunSummary::from_json_str(valid_summary_json())
+    SparkRunSummary::from_json_str(VALID_SUMMARY_JSON)
         .map_err(|error| LakehouseError::InvalidLakehouseBatchRun(error.to_string()))
 }
 

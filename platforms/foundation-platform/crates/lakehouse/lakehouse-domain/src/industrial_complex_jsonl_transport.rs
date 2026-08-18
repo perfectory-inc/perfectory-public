@@ -45,6 +45,21 @@ pub const INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES: &[&str] = &[
     "unknown",
 ];
 
+/// Wire values allowed in the `silver.industrial_complexes` `lot_sales_status` column.
+///
+/// `lttot_sttus_nm` (분양상태) is the one label column of the eight this contract took from the
+/// profile source that is an enumeration at all: three distinct values across the whole 1,442-row
+/// table. `appn_basis_law` (48 distinct) and `devlop_mth` (232) are free text and stay free text —
+/// mapping spelling variants onto codes would invent a classification the source never published.
+///
+/// There is no `unknown` member. An absent cell is `null`, and a label outside this domain fails
+/// the export loudly with its row number rather than being folded into a bucket, which is the same
+/// treatment `complex_kind` gets. `crates/lakehouse/lakehouse-application/tests/\
+/// industrial_complex_bronze_raw_rows.rs` pins this list to
+/// `catalog_domain::IndustrialComplexLotSalesStatus`, which owns the domain.
+pub const INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES: &[&str] =
+    &["planned", "in_progress", "completed"];
+
 /// Columns a `bronze.industrial_complexes_raw_jsonl` record must carry, in Silver contract order.
 #[must_use]
 pub fn bronze_industrial_complexes_raw_jsonl_columns() -> Vec<&'static str> {

@@ -20,14 +20,13 @@ from pyspark.storagelevel import StorageLevel
 
 from platform_contracts import (
     column_names,
-    columns,
     create_table_columns_sql,
+    evolve_iceberg_table_to_contract,
     load_lakehouse_contract,
     partition_column_names,
     partition_spec_sql,
     required_column_names,
     sort_order,
-    spark_sql_type,
     string_column_names,
 )
 
@@ -277,8 +276,20 @@ def build_gold_catalog_frame(
         F.col("management_agency_name"),
         F.col("developer_name"),
         F.col("designated_date").cast(T.DateType()).alias("designated_date"),
+        F.col("construction_start_date").cast(T.DateType()).alias("construction_start_date"),
         F.col("completion_date").cast(T.DateType()).alias("completion_date"),
         F.col("official_area_sqm").cast(T.DecimalType(18, 2)).alias("official_area_sqm"),
+        F.col("development_progress_percent")
+        .cast(T.DecimalType(5, 2))
+        .alias("development_progress_percent"),
+        F.col("lot_sales_status"),
+        F.col("business_period_raw"),
+        F.col("business_period_start_month"),
+        F.col("business_period_end_month"),
+        F.col("designation_basis_law_raw"),
+        F.col("development_method_raw"),
+        F.col("development_purpose_raw"),
+        F.col("invited_industries_raw"),
         F.lit(None).cast(T.DecimalType(18, 2)).alias("calculated_area_sqm"),
         F.lit(0).cast(T.LongType()).alias("parcel_count"),
         F.lit(boundary_object_key).cast(T.StringType()).alias("boundary_object_key"),
@@ -616,6 +627,13 @@ def column_lineage() -> list[dict[str, Any]]:
                 "transform": "cast_date",
             }
         ],
+        "construction_start_date": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "construction_start_date",
+                "transform": "cast_date",
+            }
+        ],
         "completion_date": [
             {
                 "dataset": SILVER_CONTRACT_NAME,
@@ -628,6 +646,65 @@ def column_lineage() -> list[dict[str, Any]]:
                 "dataset": SILVER_CONTRACT_NAME,
                 "column": "official_area_sqm",
                 "transform": "cast_decimal_18_2",
+            }
+        ],
+        "development_progress_percent": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "development_progress_percent",
+                "transform": "cast_decimal_5_2",
+            }
+        ],
+        "lot_sales_status": [
+            {"dataset": SILVER_CONTRACT_NAME, "column": "lot_sales_status", "transform": "identity"}
+        ],
+        "business_period_raw": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "business_period_raw",
+                "transform": "identity",
+            }
+        ],
+        "business_period_start_month": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "business_period_start_month",
+                "transform": "identity",
+            }
+        ],
+        "business_period_end_month": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "business_period_end_month",
+                "transform": "identity",
+            }
+        ],
+        "designation_basis_law_raw": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "designation_basis_law_raw",
+                "transform": "identity",
+            }
+        ],
+        "development_method_raw": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "development_method_raw",
+                "transform": "identity",
+            }
+        ],
+        "development_purpose_raw": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "development_purpose_raw",
+                "transform": "identity",
+            }
+        ],
+        "invited_industries_raw": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "invited_industries_raw",
+                "transform": "identity",
             }
         ],
         "calculated_area_sqm": [
@@ -757,60 +834,15 @@ def create_gold_iceberg_table_if_missing(spark: SparkSession, args: argparse.Nam
     )
 
 
-def gold_iceberg_table_columns(spark: SparkSession, table: str) -> tuple[str, ...]:
-    """Return the live column order of the Gold Iceberg table."""
-
-    return tuple(field.name for field in spark.table(table).schema.fields)
-
-
 def evolve_gold_iceberg_table_to_contract(spark: SparkSession, table: str) -> tuple[str, ...]:
-    """Add contract columns the live Iceberg table does not have yet, in contract order.
+    """Bring the live Gold table up to the Gold contract before the positional INSERT.
 
-    ``CREATE TABLE IF NOT EXISTS`` only ever describes a table that does not exist. The published
-    table was created from an earlier contract, so a widened contract reaches it here or not at
-    all: the INSERT below writes one value per contract column and a narrower table has nowhere to
-    put the extra ones.
-
-    Which columns are missing is read off the contract against the live table rather than spelled
-    out here. A hardcoded list of whichever columns this release happens to add is the same drift
-    one layer down — right for exactly one release and silently wrong for the next.
-
-    ``INSERT`` resolves the select list against the table **by position**, so a table holding the
-    contract's columns in a different order would take every value into the wrong column without
-    erroring. That is why new columns are placed with ``AFTER`` and why the final order is asserted
-    rather than assumed.
+    The step itself is shared with the Bronze-to-Silver job, because both target tables are
+    published and both contracts widen; see ``platform_contracts.evolve_iceberg_table_to_contract``
+    for why ``CREATE TABLE IF NOT EXISTS`` cannot do this and why column position matters.
     """
 
-    actual = gold_iceberg_table_columns(spark, table)
-    unknown = tuple(name for name in actual if name not in GOLD_COLUMNS)
-    if unknown:
-        raise ValueError(
-            f"{table} carries columns the contract does not declare: {list(unknown)}. "
-            "Reconcile the contract before writing."
-        )
-
-    added: list[str] = []
-    for index, column in enumerate(columns(GOLD_CONTRACT)):
-        name = column["name"]
-        if name in actual:
-            continue
-        validate_identifier("gold contract column", name)
-        # Processing in contract order means the predecessor is already present, either from the
-        # original table or from an earlier iteration of this loop.
-        position = "FIRST" if index == 0 else f"AFTER {GOLD_COLUMNS[index - 1]}"
-        spark.sql(
-            f"ALTER TABLE {table} ADD COLUMN "
-            f"{name} {spark_sql_type(column['logical_type'])} {position}"
-        )
-        added.append(name)
-
-    evolved = gold_iceberg_table_columns(spark, table)
-    if evolved != GOLD_COLUMNS:
-        raise ValueError(
-            "Gold table columns do not match the contract after schema evolution. "
-            f"expected={list(GOLD_COLUMNS)} actual={list(evolved)}"
-        )
-    return tuple(added)
+    return evolve_iceberg_table_to_contract(spark, table, GOLD_CONTRACT)
 
 
 def write_gold_iceberg(

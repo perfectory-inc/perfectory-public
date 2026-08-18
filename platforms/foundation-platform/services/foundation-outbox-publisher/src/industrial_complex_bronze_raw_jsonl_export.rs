@@ -72,6 +72,9 @@ struct BronzeRawJsonlExportReport {
     resolution_tier_counts: BTreeMap<&'static str, u64>,
     /// How many rows each administrative granularity accounts for, keyed by granularity wire name.
     address_granularity_counts: BTreeMap<&'static str, u64>,
+    /// Optional provider headers the worksheet did not carry, so their columns are null for every
+    /// row of this export because the column was absent rather than because the cells were blank.
+    absent_optional_headers: Vec<&'static str>,
 }
 
 /// Runs the industrial-complex Bronze profile to JSONL export.
@@ -103,12 +106,23 @@ fn export_bronze_raw_jsonl(
     let addresses = &resolution.book;
     let object_path = locate_source_object(config)?;
     let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
-    let records = decode_profile_rows_from_bronze_zip(
+    let sheet = decode_profile_rows_from_bronze_zip(
         &object_path,
         config.sheet_name.as_deref(),
         config.max_rows,
     )
     .with_context(|| format!("failed to decode industrial-complex profile {bronze_object_key}"))?;
+    let records = sheet.records;
+    if !sheet.absent_optional_headers.is_empty() {
+        // Not a failure: an absent optional header costs one column, and failing would cost all
+        // 1,442 rows. It is reported here and in the summary because a column of nulls looks
+        // exactly like a provider that stopped filling the cells, and the two need different work.
+        tracing::warn!(
+            absent_optional_headers = ?sheet.absent_optional_headers,
+            "the industrial-complex profile worksheet no longer carries every column this decoder \
+             reads; those columns are null for every row of this export"
+        );
+    }
 
     let rows = normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
         records: &records,
@@ -148,6 +162,7 @@ fn export_bronze_raw_jsonl(
         labels_measured_for_snapshot,
         resolution_tier_counts: resolution.tier_counts,
         address_granularity_counts: resolution.granularity_counts,
+        absent_optional_headers: sheet.absent_optional_headers,
     };
     if let Some(summary_path) = &config.summary_path {
         write_summary(config, &rows, &report, summary_path)?;
@@ -271,7 +286,7 @@ pub(crate) fn decode_profile_rows_from_bronze_zip(
     object_path: &Path,
     sheet_name: Option<&str>,
     max_rows: Option<usize>,
-) -> anyhow::Result<Vec<lakehouse_application::IndustrialComplexBronzeSourceRecord>> {
+) -> anyhow::Result<profile_workbook_decoder::DecodedProfileSheet> {
     let workbook_bytes = read_single_workbook_entry(object_path)?;
     profile_workbook_decoder::decode_profile_rows(workbook_bytes, sheet_name, max_rows)
         .with_context(|| {
@@ -362,13 +377,33 @@ fn write_summary(
 ) -> anyhow::Result<()> {
     let mut kind_counts = BTreeMap::<String, u64>::new();
     let mut status_counts = BTreeMap::<String, u64>::new();
+    let mut lot_sales_status_counts = BTreeMap::<String, u64>::new();
     let mut sido_counts = BTreeMap::<String, u64>::new();
     let mut rows_with_a_legal_dong = 0_u64;
     let mut rows_with_an_administrative_code = 0_u64;
     let mut rows_without_an_administrative_code = Vec::<&str>::new();
+    // A period the split does not recognize keeps its raw text and derives no months. Counting the
+    // rows that end up that way, and naming the first few, is what keeps the outcome from reading
+    // as "every period parsed" — an export that reported nothing here would look identical whether
+    // one row failed to parse or every row did.
+    let mut rows_with_a_business_period = 0_u64;
+    let mut rows_with_unparsed_business_period = Vec::<&str>::new();
     for row in rows {
         *kind_counts.entry(row.complex_kind.clone()).or_insert(0) += 1;
         *status_counts.entry(row.status.clone()).or_insert(0) += 1;
+        // Counted only over the rows that state one: a bucket named for a missing value is the
+        // same invention the row itself refuses to make.
+        if let Some(lot_sales_status) = &row.lot_sales_status {
+            *lot_sales_status_counts
+                .entry(lot_sales_status.clone())
+                .or_insert(0) += 1;
+        }
+        if row.business_period_raw.is_some() {
+            rows_with_a_business_period += 1;
+            if row.business_period_start_month.is_none() {
+                rows_with_unparsed_business_period.push(row.official_complex_code.as_str());
+            }
+        }
         // Counted over the rows that have one rather than under a `""` or `"unknown"` key: a
         // histogram bucket named for a missing value is the same invention the row refuses to make.
         match row.address.sido_code() {
@@ -408,6 +443,16 @@ fn write_summary(
         // downstream (root ADR-0034).
         evidence_limitations.push("some_rows_have_no_legal_dong_code_only_a_sigungu_code");
     }
+    if !rows_with_unparsed_business_period.is_empty() {
+        // The raw text is intact for these rows; only the two derived month columns are null. A
+        // consumer that reads the months without reading this will think the period is absent.
+        evidence_limitations.push("some_business_periods_state_no_months_and_derive_none");
+    }
+    if !report.absent_optional_headers.is_empty() {
+        // The provider stopped publishing a column this decoder reads. Its rows are null because
+        // the column was gone, which is a different fact from a blank cell.
+        evidence_limitations.push("the_worksheet_did_not_carry_every_optional_column_read");
+    }
     if report
         .resolution_tier_counts
         .get("modal_notice_code")
@@ -431,6 +476,14 @@ fn write_summary(
             "address_source_path": config.address_source_path.display().to_string(),
             "address_resolution_count": report.address_resolution_count,
             "snapshot_period": report.snapshot_period,
+            "absent_optional_headers": report.absent_optional_headers,
+        },
+        "business_period": {
+            "rows_with_a_business_period": rows_with_a_business_period,
+            "rows_with_parsed_months":
+                rows_with_a_business_period - rows_with_unparsed_business_period.len() as u64,
+            "rows_without_parsed_months": rows_with_unparsed_business_period.len(),
+            "official_complex_codes_without_parsed_months": rows_with_unparsed_business_period,
         },
         "address_resolution": {
             "tier_counts": report.resolution_tier_counts,
@@ -453,6 +506,7 @@ fn write_summary(
             "source_snapshot_id": report.source_snapshot_id,
             "complex_kind_counts": kind_counts,
             "status_counts": status_counts,
+            "lot_sales_status_counts": lot_sales_status_counts,
             "sido_code_counts": sido_counts,
         },
         "evidence_limitations": evidence_limitations
@@ -547,20 +601,32 @@ mod tests {
         Ok(())
     }
 
+    fn profile_header() -> &'static [&'static str] {
+        &[
+            "sta_ym",
+            "krihs_irstt_code",
+            "krihs_irstt_nm",
+            "lrstt_ty",
+            "make_sttus_nm",
+            "manage_instt_nm",
+            "bsms_opertn_entrps_nm",
+            "appn_de",
+            "compet_cnfm_de",
+            "appn_ar",
+            "strwrk_de",
+            "make_procs_rt",
+            "lttot_sttus_nm",
+            "bsms_pd",
+            "appn_basis_law",
+            "devlop_mth",
+            "make_purps_cn",
+            "invite_upj",
+        ]
+    }
+
     fn profile_rows() -> Vec<&'static [&'static str]> {
         vec![
-            &[
-                "sta_ym",
-                "krihs_irstt_code",
-                "krihs_irstt_nm",
-                "lrstt_ty",
-                "make_sttus_nm",
-                "manage_instt_nm",
-                "bsms_opertn_entrps_nm",
-                "appn_de",
-                "compet_cnfm_de",
-                "appn_ar",
-            ],
+            profile_header(),
             &[
                 "202506",
                 "111010",
@@ -572,6 +638,14 @@ mod tests {
                 "19640415",
                 "19730101",
                 "1925368.7",
+                "19650312",
+                "100",
+                "분양완료",
+                "1964-04~1974-11",
+                "산업입지 및 개발에 관한 법률",
+                "공영개발",
+                "수출산업 육성",
+                "전자부품",
             ],
         ]
     }
@@ -618,6 +692,14 @@ mod tests {
             "19640415",
             "19730101",
             "1925368.7",
+            "19650312",
+            "100",
+            "분양완료",
+            "1964-04~1974-11",
+            "산업입지 및 개발에 관한 법률",
+            "공영개발",
+            "수출산업 육성",
+            "전자부품",
         ];
         rows[1] = &unmeasured;
         write_profile_zip(
@@ -704,6 +786,14 @@ mod tests {
         assert_eq!(record["address_text"], "서울특별시 구로구 구로동");
         assert_eq!(record["completion_date"], "1973-01-01");
         assert_eq!(record["valid_from_utc"], "2025-06-01T00:00:00Z");
+        assert_eq!(record["construction_start_date"], "1965-03-12");
+        assert_eq!(record["development_progress_percent"], "100.00");
+        assert_eq!(record["lot_sales_status"], "completed");
+        assert_eq!(record["business_period_raw"], "1964-04~1974-11");
+        assert_eq!(record["business_period_start_month"], "1964-04");
+        assert_eq!(record["business_period_end_month"], "1974-11");
+        assert_eq!(record["development_method_raw"], "공영개발");
+        assert_eq!(record["invited_industries_raw"], "전자부품");
 
         let summary_path = config
             .summary_path
@@ -716,7 +806,15 @@ mod tests {
             BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL
         );
         assert_eq!(summary["output"]["row_count"], 1);
+        assert_eq!(summary["output"]["lot_sales_status_counts"]["completed"], 1);
         assert_eq!(summary["source"]["snapshot_period"], "202506");
+        assert_eq!(
+            summary["source"]["absent_optional_headers"],
+            serde_json::json!([])
+        );
+        assert_eq!(summary["business_period"]["rows_with_a_business_period"], 1);
+        assert_eq!(summary["business_period"]["rows_with_parsed_months"], 1);
+        assert_eq!(summary["business_period"]["rows_without_parsed_months"], 0);
         assert_eq!(
             summary["label_tables"]["measured_for_this_snapshot_period"],
             true
@@ -739,6 +837,137 @@ mod tests {
         assert!(limitations
             .iter()
             .any(|value| value == "some_rows_have_no_legal_dong_code_only_a_sigungu_code"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    /// The `2020-~2024-` row: its raw text reaches the export whole, its two derived months are
+    /// null, and the summary says how many rows ended up that way and which. Reporting is the
+    /// difference between "one period states no months" and an export that silently looks as if
+    /// every period parsed.
+    #[test]
+    fn a_business_period_that_states_no_months_is_counted_in_the_summary() -> anyhow::Result<()> {
+        let root = temp_root("foundation-platform-industrial-complex-bronze-jsonl-period");
+        let mut rows = profile_rows();
+        let no_months = [
+            "202506",
+            "111010",
+            "구로디지털단지",
+            "국가",
+            "조성완료",
+            "한국산업단지공단",
+            "",
+            "19640415",
+            "19730101",
+            "1925368.7",
+            "19650312",
+            "100",
+            "분양완료",
+            "2020-~2024-",
+            "산업입지 및 개발에 관한 법률",
+            "공영개발",
+            "수출산업 육성",
+            "전자부품",
+        ];
+        rows[1] = &no_months;
+        write_profile_zip(
+            &root
+                .join("bronze")
+                .join(format!("source={DEFAULT_SOURCE_SLUG}"))
+                .join(SYNTHETIC_OBJECT_NAME),
+            &rows,
+        )?;
+        let address_source_path = root.join("addresses.jsonl");
+        fs::write(&address_source_path, format!("{ADDRESS_LINE_111010}\n"))?;
+        let config = config(&root, address_source_path);
+
+        export_bronze_raw_jsonl(&config)?;
+
+        let written = fs::read_to_string(&config.output_path)?;
+        let record = serde_json::from_str::<serde_json::Value>(written.trim())?;
+        assert_eq!(record["business_period_raw"], "2020-~2024-");
+        assert_eq!(
+            record["business_period_start_month"],
+            serde_json::Value::Null
+        );
+        assert_eq!(record["business_period_end_month"], serde_json::Value::Null);
+
+        let summary_path = config
+            .summary_path
+            .as_ref()
+            .context("summary path was configured")?;
+        let summary =
+            serde_json::from_str::<serde_json::Value>(&fs::read_to_string(summary_path)?)?;
+        assert_eq!(summary["business_period"]["rows_with_a_business_period"], 1);
+        assert_eq!(summary["business_period"]["rows_with_parsed_months"], 0);
+        assert_eq!(summary["business_period"]["rows_without_parsed_months"], 1);
+        assert_eq!(
+            summary["business_period"]["official_complex_codes_without_parsed_months"],
+            serde_json::json!(["111010"])
+        );
+        let limitations = summary["evidence_limitations"]
+            .as_array()
+            .context("evidence_limitations must be an array")?;
+        assert!(limitations
+            .iter()
+            .any(|value| value == "some_business_periods_state_no_months_and_derive_none"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    /// A provider that drops an optional column costs that column, not the export. The summary
+    /// names the header so a reader can tell an absent column from blank cells.
+    #[test]
+    fn a_worksheet_missing_an_optional_column_still_exports_and_says_so() -> anyhow::Result<()> {
+        let root = temp_root("foundation-platform-industrial-complex-bronze-jsonl-absent-header");
+        let mut headers = profile_header().to_vec();
+        let mut values = profile_rows()[1].to_vec();
+        let dropped = headers
+            .iter()
+            .position(|name| *name == "invite_upj")
+            .context("the fixture header carries invite_upj")?;
+        headers.remove(dropped);
+        values.remove(dropped);
+        write_profile_zip(
+            &root
+                .join("bronze")
+                .join(format!("source={DEFAULT_SOURCE_SLUG}"))
+                .join(SYNTHETIC_OBJECT_NAME),
+            &[&headers, &values],
+        )?;
+        let address_source_path = root.join("addresses.jsonl");
+        fs::write(&address_source_path, format!("{ADDRESS_LINE_111010}\n"))?;
+        let config = config(&root, address_source_path);
+
+        let report = export_bronze_raw_jsonl(&config)?;
+
+        assert_eq!(report.row_count, 1);
+        assert_eq!(report.absent_optional_headers, vec!["invite_upj"]);
+
+        let written = fs::read_to_string(&config.output_path)?;
+        let record = serde_json::from_str::<serde_json::Value>(written.trim())?;
+        assert_eq!(record["invited_industries_raw"], serde_json::Value::Null);
+        // Everything else still arrives.
+        assert_eq!(record["development_method_raw"], "공영개발");
+
+        let summary_path = config
+            .summary_path
+            .as_ref()
+            .context("summary path was configured")?;
+        let summary =
+            serde_json::from_str::<serde_json::Value>(&fs::read_to_string(summary_path)?)?;
+        assert_eq!(
+            summary["source"]["absent_optional_headers"],
+            serde_json::json!(["invite_upj"])
+        );
+        let limitations = summary["evidence_limitations"]
+            .as_array()
+            .context("evidence_limitations must be an array")?;
+        assert!(limitations
+            .iter()
+            .any(|value| value == "the_worksheet_did_not_carry_every_optional_column_read"));
 
         fs::remove_dir_all(root)?;
         Ok(())

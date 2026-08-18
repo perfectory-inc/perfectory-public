@@ -121,6 +121,62 @@ pub enum ParseIndustrialComplexStatusError {
     Unknown(String),
 }
 
+/// How far the complex has got in selling or leasing its developed lots.
+///
+/// Distinct from [`IndustrialComplexStatus`], which is about building the complex: a complex can be
+/// `Operating` and still have lots for sale. The source states both in separate columns
+/// (`make_sttus_nm` and `lttot_sttus_nm`) and so does this domain.
+///
+/// Unlike [`IndustrialComplexStatus`] there is no `Unknown` member. That one exists because the
+/// canonical table already held rows whose lifecycle label nothing had read; this domain starts
+/// from a measured source whose whole 1,442-row table carries exactly the three labels below, and a
+/// fourth would be a fact about the source worth failing over rather than a bucket to hide in.
+/// Absence stays `None`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum IndustrialComplexLotSalesStatus {
+    /// Lots are not on sale yet (`분양계획`).
+    Planned,
+    /// Lots are on sale (`분양중`).
+    InProgress,
+    /// Every lot has been sold or leased (`분양완료`).
+    Completed,
+}
+
+impl IndustrialComplexLotSalesStatus {
+    /// Returns the stable wire value used by DB rows, lakehouse columns, and HTTP DTOs.
+    #[must_use]
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::InProgress => "in_progress",
+            Self::Completed => "completed",
+        }
+    }
+
+    /// Parses a stable wire value into a domain lot-sales status.
+    ///
+    /// # Errors
+    /// Returns `ParseIndustrialComplexLotSalesStatusError::Unknown` for unsupported wire values.
+    pub fn from_wire(raw: &str) -> Result<Self, ParseIndustrialComplexLotSalesStatusError> {
+        match raw {
+            "planned" => Ok(Self::Planned),
+            "in_progress" => Ok(Self::InProgress),
+            "completed" => Ok(Self::Completed),
+            other => Err(ParseIndustrialComplexLotSalesStatusError::Unknown(
+                other.to_owned(),
+            )),
+        }
+    }
+}
+
+/// Error returned while parsing an industrial complex lot-sales status.
+#[derive(Debug, Error)]
+pub enum ParseIndustrialComplexLotSalesStatusError {
+    /// Unsupported wire value.
+    #[error("unknown IndustrialComplexLotSalesStatus wire value: {0:?}")]
+    Unknown(String),
+}
+
 /// Canonical industrial complex aggregate root.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndustrialComplex {
@@ -169,8 +225,42 @@ pub struct IndustrialComplex {
     pub developer_name: Option<String>,
     /// Date the complex was officially designated.
     pub designated_date: Option<NaiveDate>,
+    /// Date site works started.
+    pub construction_start_date: Option<NaiveDate>,
     /// Date the complex's site formation was approved as complete.
     pub completion_date: Option<NaiveDate>,
+    /// Site-formation progress as an exact decimal percentage between `0.00` and `100.00`.
+    ///
+    /// Text rather than a float: the column is `numeric(5,2)` and `59.9` has no exact binary
+    /// representation, so an `f64` here would republish a progress figure no source stated. This
+    /// workspace has adopted no decimal type (`docs/technology-stack.md`), and the Bronze transport
+    /// row already carries `official_area_sqm` as exact two-decimal text for the same reason.
+    /// Postgres owns the arithmetic domain through the column type and its range CHECK.
+    pub development_progress_percent: Option<String>,
+    /// How far the complex has got in selling or leasing its lots, when the source stated it.
+    pub lot_sales_status: Option<IndustrialComplexLotSalesStatus>,
+    /// Business period exactly as the source wrote it, normally `YYYY-MM~YYYY-MM`.
+    pub business_period_raw: Option<String>,
+    /// First month of [`Self::business_period_raw`] as `YYYY-MM`, when that text parses.
+    ///
+    /// Null together with [`Self::business_period_end_month`]: one month without the other would be
+    /// a period with an invented end. One of the 1,441 source values (`2020-~2024-`) states no
+    /// months at all, and for that complex both are null while the raw text survives intact.
+    pub business_period_start_month: Option<String>,
+    /// Last month of [`Self::business_period_raw`] as `YYYY-MM`, when that text parses.
+    pub business_period_end_month: Option<String>,
+    /// Statute the designation was made under, verbatim.
+    pub designation_basis_law_raw: Option<String>,
+    /// Development method, verbatim.
+    ///
+    /// Verbatim is the contract for this and the three columns around it. The source spells one
+    /// method several ways — `공영개발`, `공영개발방식`, `공영개발 방식` — and folding those together
+    /// would assert a classification nobody published.
+    pub development_method_raw: Option<String>,
+    /// Stated purpose the complex was developed for, verbatim.
+    pub development_purpose_raw: Option<String>,
+    /// Industry types the complex set out to attract, verbatim.
+    pub invited_industries_raw: Option<String>,
     /// UTC timestamp when the complex was created.
     pub created_at: DateTime<Utc>,
     /// UTC timestamp when the complex was last updated.

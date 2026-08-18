@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{DateTime, NaiveDate, Utc};
 use lakehouse_domain::{
     bronze_industrial_complexes_raw_jsonl_columns, INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
-    INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+    INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES, INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use thiserror::Error;
@@ -95,6 +95,22 @@ const COMPLEX_STATUS_LABELS_OBSERVED: &[(&str, &str)] = &[
     ("조성중", "developing"),  // 289 rows
     ("준비중", "planned"),     // 47 rows
     ("보상중", "planned"),     // 37 rows
+];
+
+/// `lttot_sttus_nm` labels counted in the whole
+/// [`INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD`] table (1,442 rows).
+///
+/// Three labels, every row filled. This is the only one of the eight columns this producer took
+/// from the profile source that is an enumeration; the counts are the measurement, not an estimate.
+///
+/// There is no presumed table beside it. A presumed table exists for `lrstt_ty` and
+/// `make_sttus_nm` because other months plausibly spell the same classification out in full; here
+/// there is no longer spelling to guess at, and inventing one would put an unmeasured mapping in
+/// the path of a real load.
+const COMPLEX_LOT_SALES_STATUS_LABELS_OBSERVED: &[(&str, &str)] = &[
+    ("분양완료", "completed"), // 992 rows
+    ("분양중", "in_progress"), // 294 rows
+    ("분양계획", "planned"),   // 156 rows
 ];
 
 /// `make_sttus_nm` labels that no measured snapshot has produced yet.
@@ -439,10 +455,26 @@ pub struct IndustrialComplexBronzeSourceRecord {
     pub developer_name: Option<String>,
     /// Designation date (`appn_de`), `yyyymmdd` or `yyyy-mm-dd`.
     pub designated_date_raw: Option<String>,
+    /// Site-works start date (`strwrk_de`), `yyyymmdd` or `yyyy-mm-dd`.
+    pub construction_start_date_raw: Option<String>,
     /// Completion confirmation date (`compet_cnfm_de`), `yyyymmdd` or `yyyy-mm-dd`.
     pub completion_date_raw: Option<String>,
     /// Official designated area in square meters (`appn_ar`).
     pub official_area_sqm_raw: Option<String>,
+    /// Site-formation progress percentage (`make_procs_rt`).
+    pub development_progress_percent_raw: Option<String>,
+    /// Source lot-sales status label (`lttot_sttus_nm`).
+    pub lot_sales_status_label: Option<String>,
+    /// Business period (`bsms_pd`), normally `YYYY-MM~YYYY-MM`.
+    pub business_period_raw: Option<String>,
+    /// Statute the designation was made under (`appn_basis_law`).
+    pub designation_basis_law_raw: Option<String>,
+    /// Development method (`devlop_mth`).
+    pub development_method_raw: Option<String>,
+    /// Stated development purpose (`make_purps_cn`).
+    pub development_purpose_raw: Option<String>,
+    /// Industry types the complex set out to attract (`invite_upj`).
+    pub invited_industries_raw: Option<String>,
     /// Snapshot month of the source table (`sta_ym`), `yyyymm`.
     pub snapshot_period: String,
     /// One-based row number inside the decoded sheet, used only in error messages.
@@ -482,10 +514,30 @@ pub struct IndustrialComplexBronzeRawRow {
     pub developer_name: Option<String>,
     /// Designation date as `yyyy-mm-dd`.
     pub designated_date: Option<String>,
+    /// Site-works start date as `yyyy-mm-dd`.
+    pub construction_start_date: Option<String>,
     /// Completion confirmation date as `yyyy-mm-dd`.
     pub completion_date: Option<String>,
     /// Official designated area in square meters with two decimal places.
     pub official_area_sqm: Option<String>,
+    /// Site-formation progress percentage with two decimal places, `0.00` to `100.00`.
+    pub development_progress_percent: Option<String>,
+    /// `lot_sales_status` wire value.
+    pub lot_sales_status: Option<String>,
+    /// Business period exactly as the source wrote it.
+    pub business_period_raw: Option<String>,
+    /// First month of the business period as `yyyy-MM`, when the raw text parses.
+    pub business_period_start_month: Option<String>,
+    /// Last month of the business period as `yyyy-MM`, when the raw text parses.
+    pub business_period_end_month: Option<String>,
+    /// Statute the designation was made under, verbatim.
+    pub designation_basis_law_raw: Option<String>,
+    /// Development method, verbatim.
+    pub development_method_raw: Option<String>,
+    /// Stated development purpose, verbatim.
+    pub development_purpose_raw: Option<String>,
+    /// Industry types the complex set out to attract, verbatim.
+    pub invited_industries_raw: Option<String>,
     /// Stable lineage id pointing at the Bronze object and the source row key.
     pub source_record_id: String,
     /// Source-snapshot lineage id derived from the source slug and snapshot month.
@@ -581,52 +633,116 @@ pub fn normalize_industrial_complex_bronze_raw_rows(
             })?
             .clone();
 
-        rows.push(IndustrialComplexBronzeRawRow {
-            source_record_id: format!(
-                "foundation-platform:bronze:{bronze_object_key}#{official_complex_code}"
-            ),
-            complex_name: require_row_text(record, "complex_name", record.complex_name.as_str())?,
-            complex_kind: map_label(
-                record,
-                "complex_kind",
-                record.complex_kind_label.as_str(),
-                &[COMPLEX_KIND_LABELS_OBSERVED, COMPLEX_KIND_LABELS_PRESUMED],
-                INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
-            )?,
-            status: map_label(
-                record,
-                "status",
-                record.status_label.as_str(),
-                &[
-                    COMPLEX_STATUS_LABELS_OBSERVED,
-                    COMPLEX_STATUS_LABELS_PRESUMED,
-                ],
-                INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
-            )?,
+        rows.push(normalize_one_row(
+            record,
             official_complex_code,
             address,
-            management_agency_name: optional_text(record.management_agency_name.as_deref()),
-            developer_name: optional_text(record.developer_name.as_deref()),
-            designated_date: normalize_optional_date(
-                record,
-                "designated_date",
-                record.designated_date_raw.as_deref(),
-            )?,
-            completion_date: normalize_optional_date(
-                record,
-                "completion_date",
-                record.completion_date_raw.as_deref(),
-            )?,
-            official_area_sqm: normalize_optional_area(
-                record,
-                record.official_area_sqm_raw.as_deref(),
-            )?,
-            source_snapshot_id: source_snapshot_id.clone(),
-            valid_from_utc,
-            ingested_at_utc: input.ingested_at_utc,
-        });
+            &RowLineage {
+                bronze_object_key: bronze_object_key.as_str(),
+                source_snapshot_id: source_snapshot_id.as_str(),
+                valid_from_utc,
+                ingested_at_utc: input.ingested_at_utc,
+            },
+        )?);
     }
     Ok(rows)
+}
+
+/// Lineage every row of one export shares.
+struct RowLineage<'a> {
+    bronze_object_key: &'a str,
+    source_snapshot_id: &'a str,
+    valid_from_utc: DateTime<Utc>,
+    ingested_at_utc: DateTime<Utc>,
+}
+
+/// Turns one decoded source record into one Bronze JSONL row.
+fn normalize_one_row(
+    record: &IndustrialComplexBronzeSourceRecord,
+    official_complex_code: String,
+    address: IndustrialComplexAddress,
+    lineage: &RowLineage<'_>,
+) -> Result<IndustrialComplexBronzeRawRow, IndustrialComplexBronzeRawPlanError> {
+    // Parsed once and destructured, so the two derived columns cannot come from two different
+    // readings of the same text: they are the halves of one parse or they are both absent.
+    let business_period = business_period_months(record.business_period_raw.as_deref());
+    let lot_sales_status = optional_text(record.lot_sales_status_label.as_deref())
+        .map(|label| {
+            map_label(
+                record,
+                "lot_sales_status",
+                label.as_str(),
+                &[COMPLEX_LOT_SALES_STATUS_LABELS_OBSERVED],
+                INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES,
+            )
+        })
+        .transpose()?;
+    let bronze_object_key = lineage.bronze_object_key;
+
+    Ok(IndustrialComplexBronzeRawRow {
+        source_record_id: format!(
+            "foundation-platform:bronze:{bronze_object_key}#{official_complex_code}"
+        ),
+        complex_name: require_row_text(record, "complex_name", record.complex_name.as_str())?,
+        complex_kind: map_label(
+            record,
+            "complex_kind",
+            record.complex_kind_label.as_str(),
+            &[COMPLEX_KIND_LABELS_OBSERVED, COMPLEX_KIND_LABELS_PRESUMED],
+            INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
+        )?,
+        status: map_label(
+            record,
+            "status",
+            record.status_label.as_str(),
+            &[
+                COMPLEX_STATUS_LABELS_OBSERVED,
+                COMPLEX_STATUS_LABELS_PRESUMED,
+            ],
+            INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+        )?,
+        official_complex_code,
+        address,
+        management_agency_name: optional_text(record.management_agency_name.as_deref()),
+        developer_name: optional_text(record.developer_name.as_deref()),
+        designated_date: normalize_optional_date(
+            record,
+            "designated_date",
+            record.designated_date_raw.as_deref(),
+        )?,
+        // The same parser the designation date goes through, deliberately. `strwrk_de` has the
+        // identical `yyyymmdd` shape, and a second date parser is a second place for the two to
+        // disagree about what a date is.
+        construction_start_date: normalize_optional_date(
+            record,
+            "construction_start_date",
+            record.construction_start_date_raw.as_deref(),
+        )?,
+        completion_date: normalize_optional_date(
+            record,
+            "completion_date",
+            record.completion_date_raw.as_deref(),
+        )?,
+        official_area_sqm: normalize_optional_area(
+            record,
+            record.official_area_sqm_raw.as_deref(),
+        )?,
+        development_progress_percent: normalize_optional_progress_percent(
+            record,
+            record.development_progress_percent_raw.as_deref(),
+        )?,
+        lot_sales_status,
+        business_period_start_month: business_period.as_ref().map(|(start, _)| start.clone()),
+        business_period_end_month: business_period.map(|(_, end)| end),
+        business_period_raw: optional_text(record.business_period_raw.as_deref()),
+        designation_basis_law_raw: optional_text(record.designation_basis_law_raw.as_deref()),
+        development_method_raw: optional_text(record.development_method_raw.as_deref()),
+        development_purpose_raw: optional_text(record.development_purpose_raw.as_deref()),
+        invited_industries_raw: optional_text(record.invited_industries_raw.as_deref()),
+        source_snapshot_id: lineage.source_snapshot_id.to_owned(),
+        valid_from_utc: lineage.valid_from_utc,
+        ingested_at_utc: lineage.ingested_at_utc,
+    })
 }
 
 /// Serializes one row as a single-line `bronze.industrial_complexes_raw_jsonl` record.
@@ -669,8 +785,22 @@ fn column_value(row: &IndustrialComplexBronzeRawRow, column: &str) -> Option<Jso
         "management_agency_name" => optional_string_json(row.management_agency_name.as_ref()),
         "developer_name" => optional_string_json(row.developer_name.as_ref()),
         "designated_date" => optional_string_json(row.designated_date.as_ref()),
+        "construction_start_date" => optional_string_json(row.construction_start_date.as_ref()),
         "completion_date" => optional_string_json(row.completion_date.as_ref()),
         "official_area_sqm" => optional_string_json(row.official_area_sqm.as_ref()),
+        "development_progress_percent" => {
+            optional_string_json(row.development_progress_percent.as_ref())
+        }
+        "lot_sales_status" => optional_string_json(row.lot_sales_status.as_ref()),
+        "business_period_raw" => optional_string_json(row.business_period_raw.as_ref()),
+        "business_period_start_month" => {
+            optional_string_json(row.business_period_start_month.as_ref())
+        }
+        "business_period_end_month" => optional_string_json(row.business_period_end_month.as_ref()),
+        "designation_basis_law_raw" => optional_string_json(row.designation_basis_law_raw.as_ref()),
+        "development_method_raw" => optional_string_json(row.development_method_raw.as_ref()),
+        "development_purpose_raw" => optional_string_json(row.development_purpose_raw.as_ref()),
+        "invited_industries_raw" => optional_string_json(row.invited_industries_raw.as_ref()),
         "source_record_id" => JsonValue::String(row.source_record_id.clone()),
         "source_snapshot_id" => JsonValue::String(row.source_snapshot_id.clone()),
         "valid_from_utc" => JsonValue::String(timestamp_json(row.valid_from_utc)),
@@ -830,6 +960,73 @@ fn normalize_optional_area(
         return Ok(None);
     }
     Ok(Some(format!("{parsed:.2}")))
+}
+
+/// Normalizes `make_procs_rt` to two decimal places.
+///
+/// Unlike [`normalize_optional_area`], a recorded `0` is kept. Zero square meters is a defect —
+/// nothing occupies no land — but zero percent progress is what 84 complexes in the measured table
+/// actually report: `준비중` and `보상중` both average 0.0. Folding it to absence would turn "site
+/// works have not started" into "the source said nothing".
+///
+/// Out of range is a decode error rather than an absence. The column is a percentage of one
+/// complex's own site formation, so 120 is not a number the source can mean.
+fn normalize_optional_progress_percent(
+    record: &IndustrialComplexBronzeSourceRecord,
+    raw: Option<&str>,
+) -> Result<Option<String>, IndustrialComplexBronzeRawPlanError> {
+    let Some(raw) = optional_text(raw) else {
+        return Ok(None);
+    };
+    let invalid = || {
+        IndustrialComplexBronzeRawPlanError::InvalidInput(format!(
+            "row {} official_complex_code {}: development_progress_percent must be a number \
+             between 0 and 100: {raw:?}",
+            record.source_row_number,
+            record.official_complex_code.trim()
+        ))
+    };
+    let parsed = raw.replace(',', "").parse::<f64>().map_err(|_| invalid())?;
+    if !parsed.is_finite() || !(0.0..=100.0).contains(&parsed) {
+        return Err(invalid());
+    }
+    Ok(Some(format!("{parsed:.2}")))
+}
+
+/// Splits `bsms_pd` into its start and end month, or returns `None` when it does not split.
+///
+/// The whole value is `YYYY-MM~YYYY-MM` for 1,440 of the 1,441 rows that have one. The remaining
+/// row reads `2020-~2024-` — the years are there and the months are not — and there is nothing to
+/// recover from it without choosing a month the source never wrote. That row keeps its raw text
+/// and takes `None` here, which is why the two derived columns are `Option` and why they are
+/// always `None` together: a start month beside an absent end month would describe a period that
+/// nobody stated.
+///
+/// This never fails. A shape the split does not recognize is not a broken contract — the source is
+/// entitled to write what it likes in a free-text period — and the raw column carries it either
+/// way. The producer counts how many rows parsed so the ones that did not are visible in the export
+/// summary rather than silently uniform.
+fn business_period_months(raw: Option<&str>) -> Option<(String, String)> {
+    let raw = optional_text(raw)?;
+    let (start, end) = raw.split_once('~')?;
+    Some((month_text(start)?, month_text(end)?))
+}
+
+/// Returns `yyyy-MM` when `value` is exactly that, and `None` otherwise.
+fn month_text(value: &str) -> Option<String> {
+    let value = value.trim();
+    let (year, month) = value.split_once('-')?;
+    let shaped = year.len() == 4
+        && month.len() == 2
+        && year.bytes().all(|byte| byte.is_ascii_digit())
+        && month.bytes().all(|byte| byte.is_ascii_digit());
+    if !shaped {
+        return None;
+    }
+    // A month number outside 1..=12 is not a month, and passing it through would put a value into
+    // a column whose whole promise is that it holds one.
+    let month_number = month.parse::<u32>().ok()?;
+    (1..=12).contains(&month_number).then(|| value.to_owned())
 }
 
 fn optional_string_json(value: Option<&String>) -> JsonValue {

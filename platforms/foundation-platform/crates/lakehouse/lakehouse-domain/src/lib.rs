@@ -33,8 +33,8 @@ pub use industrial_complex_gold_pointer::{
 };
 pub use industrial_complex_jsonl_transport::{
     bronze_industrial_complexes_raw_jsonl_columns, BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL,
-    INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES, INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS,
-    INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+    INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES, INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES,
+    INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS, INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
 };
 pub use lakehouse::{
     industrial_complex_lakehouse_contract_by_table_name, industrial_complex_lakehouse_contracts,

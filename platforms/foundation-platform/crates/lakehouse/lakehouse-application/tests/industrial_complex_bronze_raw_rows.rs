@@ -2,7 +2,9 @@
 
 #![allow(clippy::err_expect, clippy::expect_used)]
 
-use catalog_domain::{IndustrialComplexKind, IndustrialComplexStatus};
+use catalog_domain::{
+    IndustrialComplexKind, IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
+};
 use chrono::{DateTime, Utc};
 use lakehouse_application::{
     industrial_complex_bronze_raw_row_to_jsonl, normalize_industrial_complex_bronze_raw_rows,
@@ -12,7 +14,7 @@ use lakehouse_application::{
 };
 use lakehouse_domain::{
     bronze_industrial_complexes_raw_jsonl_columns, INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
-    INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+    INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES, INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
 };
 use serde_json::Value;
 
@@ -36,8 +38,16 @@ fn source_record(code: &str) -> IndustrialComplexBronzeSourceRecord {
         management_agency_name: Some("한국산업단지공단".to_owned()),
         developer_name: Some("   ".to_owned()),
         designated_date_raw: Some("19640415".to_owned()),
+        construction_start_date_raw: Some("19650312".to_owned()),
         completion_date_raw: None,
         official_area_sqm_raw: Some("1925368.7".to_owned()),
+        development_progress_percent_raw: Some("100".to_owned()),
+        lot_sales_status_label: Some("분양완료".to_owned()),
+        business_period_raw: Some("1964-04~1974-11".to_owned()),
+        designation_basis_law_raw: Some("산업입지 및 개발에 관한 법률".to_owned()),
+        development_method_raw: Some("공영개발".to_owned()),
+        development_purpose_raw: Some("수출산업 육성".to_owned()),
+        invited_industries_raw: Some("전자부품, 의료정밀".to_owned()),
         snapshot_period: "202506".to_owned(),
         source_row_number: 2,
     }
@@ -105,8 +115,21 @@ fn bronze_rows_emit_exactly_the_exported_transport_columns() -> TestResult {
     assert_eq!(record["management_agency_name"], "한국산업단지공단");
     assert_eq!(record["developer_name"], Value::Null);
     assert_eq!(record["designated_date"], "1964-04-15");
+    assert_eq!(record["construction_start_date"], "1965-03-12");
     assert_eq!(record["completion_date"], Value::Null);
     assert_eq!(record["official_area_sqm"], "1925368.70");
+    assert_eq!(record["development_progress_percent"], "100.00");
+    assert_eq!(record["lot_sales_status"], "completed");
+    assert_eq!(record["business_period_raw"], "1964-04~1974-11");
+    assert_eq!(record["business_period_start_month"], "1964-04");
+    assert_eq!(record["business_period_end_month"], "1974-11");
+    assert_eq!(
+        record["designation_basis_law_raw"],
+        "산업입지 및 개발에 관한 법률"
+    );
+    assert_eq!(record["development_method_raw"], "공영개발");
+    assert_eq!(record["development_purpose_raw"], "수출산업 육성");
+    assert_eq!(record["invited_industries_raw"], "전자부품, 의료정밀");
     assert_eq!(
         record["source_record_id"],
         format!("foundation-platform:bronze:{BRONZE_OBJECT_KEY}#111010")
@@ -574,6 +597,298 @@ fn impossible_calendar_dates_fail() -> TestResult {
         matches!(error, IndustrialComplexBronzeRawPlanError::InvalidInput(_)),
         "{error}"
     );
+    Ok(())
+}
+
+/// The one `bsms_pd` value in 1,441 that states years and no months.
+///
+/// Option (b) of the three the owner listed: the raw text survives whole and the two derived
+/// columns are `null`. Neither the row nor the fact is dropped, and no month is invented for it.
+#[test]
+fn a_business_period_without_months_keeps_its_raw_text_and_derives_nothing() -> TestResult {
+    let mut record = source_record("111010");
+    record.business_period_raw = Some("2020-~2024-".to_owned());
+    let records = vec![record];
+    let addresses = address_book("111010")?;
+
+    let rows =
+        normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+            records: &records,
+            addresses: &addresses,
+            bronze_object_key: BRONZE_OBJECT_KEY,
+            source_slug: SOURCE_SLUG,
+            ingested_at_utc: ingested_at()?,
+        })?;
+
+    assert_eq!(rows[0].business_period_raw.as_deref(), Some("2020-~2024-"));
+    assert_eq!(rows[0].business_period_start_month, None);
+    assert_eq!(rows[0].business_period_end_month, None);
+
+    let record = serde_json::from_str::<Value>(
+        industrial_complex_bronze_raw_row_to_jsonl(&rows[0])?.as_str(),
+    )?;
+    assert_eq!(record["business_period_raw"], "2020-~2024-");
+    assert_eq!(record["business_period_start_month"], Value::Null);
+    assert_eq!(record["business_period_end_month"], Value::Null);
+    Ok(())
+}
+
+/// Whatever the raw text is, the two derived columns answer together or not at all. A start month
+/// beside an absent end month would describe a period the source never bounded.
+#[test]
+fn business_period_months_are_null_together() -> TestResult {
+    for raw in [
+        "2020-~2024-",
+        "1964-04~",
+        "~1974-11",
+        "1964~1974",
+        "1964-04",
+        "1964-04~1974-13",
+        "미상",
+        "   ",
+    ] {
+        let mut record = source_record("111010");
+        record.business_period_raw = Some(raw.to_owned());
+        let records = vec![record];
+        let addresses = address_book("111010")?;
+        let rows =
+            normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+                records: &records,
+                addresses: &addresses,
+                bronze_object_key: BRONZE_OBJECT_KEY,
+                source_slug: SOURCE_SLUG,
+                ingested_at_utc: ingested_at()?,
+            })?;
+
+        assert_eq!(rows[0].business_period_start_month, None, "{raw:?}");
+        assert_eq!(rows[0].business_period_end_month, None, "{raw:?}");
+    }
+    Ok(())
+}
+
+/// Zero progress is a value, not an absence — `준비중` and `보상중` average exactly 0.0 in the
+/// measured table. This is the one place the progress column deliberately differs from
+/// `official_area_sqm`, where zero is a defect.
+#[test]
+fn zero_progress_is_kept_and_out_of_range_progress_fails() -> TestResult {
+    let mut zero = source_record("111010");
+    zero.development_progress_percent_raw = Some("0".to_owned());
+    let records = vec![zero];
+    let addresses = address_book("111010")?;
+    let rows =
+        normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+            records: &records,
+            addresses: &addresses,
+            bronze_object_key: BRONZE_OBJECT_KEY,
+            source_slug: SOURCE_SLUG,
+            ingested_at_utc: ingested_at()?,
+        })?;
+    assert_eq!(
+        rows[0].development_progress_percent.as_deref(),
+        Some("0.00")
+    );
+
+    for out_of_range in ["-0.1", "100.01", "1000", "구십"] {
+        let mut record = source_record("111010");
+        record.development_progress_percent_raw = Some(out_of_range.to_owned());
+        let records = vec![record];
+        let error =
+            normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+                records: &records,
+                addresses: &addresses,
+                bronze_object_key: BRONZE_OBJECT_KEY,
+                source_slug: SOURCE_SLUG,
+                ingested_at_utc: ingested_at()?,
+            })
+            .expect_err("progress outside 0..=100 must fail");
+        assert!(
+            matches!(error, IndustrialComplexBronzeRawPlanError::InvalidInput(_)),
+            "{out_of_range:?} produced {error}"
+        );
+    }
+    Ok(())
+}
+
+/// Every blank descriptive cell is `null`, never `""`. There is no column here whose absence is
+/// spelled as a value.
+#[test]
+fn blank_descriptive_cells_become_null_rather_than_empty_text() -> TestResult {
+    let mut record = source_record("111010");
+    record.construction_start_date_raw = None;
+    record.development_progress_percent_raw = Some("   ".to_owned());
+    record.lot_sales_status_label = Some("  ".to_owned());
+    record.business_period_raw = None;
+    record.designation_basis_law_raw = Some(String::new());
+    record.development_method_raw = None;
+    record.development_purpose_raw = Some("  ".to_owned());
+    record.invited_industries_raw = None;
+    let records = vec![record];
+    let addresses = address_book("111010")?;
+
+    let rows =
+        normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+            records: &records,
+            addresses: &addresses,
+            bronze_object_key: BRONZE_OBJECT_KEY,
+            source_slug: SOURCE_SLUG,
+            ingested_at_utc: ingested_at()?,
+        })?;
+
+    let record = serde_json::from_str::<Value>(
+        industrial_complex_bronze_raw_row_to_jsonl(&rows[0])?.as_str(),
+    )?;
+    for column in [
+        "construction_start_date",
+        "development_progress_percent",
+        "lot_sales_status",
+        "business_period_raw",
+        "business_period_start_month",
+        "business_period_end_month",
+        "designation_basis_law_raw",
+        "development_method_raw",
+        "development_purpose_raw",
+        "invited_industries_raw",
+    ] {
+        assert_eq!(record[column], Value::Null, "{column}");
+    }
+    Ok(())
+}
+
+/// Free text stays free text. 232 spellings of a development method and 48 of a basis law reach the
+/// row exactly as written, including the ones that differ only by a suffix or a space.
+#[test]
+fn free_text_columns_carry_the_source_wording_unchanged() -> TestResult {
+    for method in ["공영개발", "공영개발방식", "공영개발 방식", "민간개발"] {
+        let mut record = source_record("111010");
+        record.development_method_raw = Some(format!("  {method}  "));
+        let records = vec![record];
+        let addresses = address_book("111010")?;
+        let rows =
+            normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+                records: &records,
+                addresses: &addresses,
+                bronze_object_key: BRONZE_OBJECT_KEY,
+                source_slug: SOURCE_SLUG,
+                ingested_at_utc: ingested_at()?,
+            })?;
+        // Trimmed, because surrounding whitespace is transport rather than content. Nothing else
+        // is touched: no casing, no suffix folding, no mapping onto a code.
+        assert_eq!(rows[0].development_method_raw.as_deref(), Some(method));
+    }
+    Ok(())
+}
+
+/// The longest values in the measured table are 521 and 485 characters. There is no truncation
+/// anywhere on this path, so there is no length at which a stated fact turns into a shorter one.
+#[test]
+fn long_free_text_reaches_the_row_whole() -> TestResult {
+    let long_purpose = "가".repeat(521);
+    let long_industries = "나".repeat(485);
+    let mut record = source_record("111010");
+    record.development_purpose_raw = Some(long_purpose.clone());
+    record.invited_industries_raw = Some(long_industries.clone());
+    let records = vec![record];
+    let addresses = address_book("111010")?;
+
+    let rows =
+        normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+            records: &records,
+            addresses: &addresses,
+            bronze_object_key: BRONZE_OBJECT_KEY,
+            source_slug: SOURCE_SLUG,
+            ingested_at_utc: ingested_at()?,
+        })?;
+
+    assert_eq!(
+        rows[0].development_purpose_raw.as_deref(),
+        Some(long_purpose.as_str())
+    );
+    assert_eq!(
+        rows[0].invited_industries_raw.as_deref(),
+        Some(long_industries.as_str())
+    );
+    Ok(())
+}
+
+#[test]
+fn every_measured_lot_sales_label_maps_and_anything_else_fails() -> TestResult {
+    let addresses = address_book("111010")?;
+    for (label, expected) in [
+        // The three labels the 202506 Bronze object produced, all 1,442 rows.
+        ("분양완료", "completed"),
+        ("분양중", "in_progress"),
+        ("분양계획", "planned"),
+    ] {
+        let mut record = source_record("111010");
+        record.lot_sales_status_label = Some(label.to_owned());
+        let records = vec![record];
+        let rows =
+            normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+                records: &records,
+                addresses: &addresses,
+                bronze_object_key: BRONZE_OBJECT_KEY,
+                source_slug: SOURCE_SLUG,
+                ingested_at_utc: ingested_at()?,
+            })?;
+        assert_eq!(rows[0].lot_sales_status.as_deref(), Some(expected));
+        assert!(INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES.contains(&expected));
+    }
+
+    // A fourth label is a fact about the source worth failing over. There is no `unknown` bucket
+    // on this column to hide it in.
+    for unmapped in ["분양", "미분양", "분양 완료", "completed"] {
+        let mut record = source_record("111010");
+        record.lot_sales_status_label = Some(unmapped.to_owned());
+        let records = vec![record];
+        let error =
+            normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+                records: &records,
+                addresses: &addresses,
+                bronze_object_key: BRONZE_OBJECT_KEY,
+                source_slug: SOURCE_SLUG,
+                ingested_at_utc: ingested_at()?,
+            })
+            .expect_err("an unmapped lot-sales label must fail");
+        assert!(
+            matches!(error, IndustrialComplexBronzeRawPlanError::InvalidInput(_)),
+            "{unmapped:?} produced {error}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn exported_lot_sales_domain_matches_the_catalog_domain() -> TestResult {
+    let statuses = [
+        IndustrialComplexLotSalesStatus::Planned,
+        IndustrialComplexLotSalesStatus::InProgress,
+        IndustrialComplexLotSalesStatus::Completed,
+    ];
+    for status in statuses {
+        // Adding a variant breaks this match, which is the point: the exported domain below must
+        // be extended in the same change.
+        match status {
+            IndustrialComplexLotSalesStatus::Planned
+            | IndustrialComplexLotSalesStatus::InProgress
+            | IndustrialComplexLotSalesStatus::Completed => {}
+        }
+    }
+
+    let mut expected = statuses
+        .iter()
+        .map(|status| status.wire_name())
+        .collect::<Vec<_>>();
+    expected.sort_unstable();
+    let mut exported = INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES.to_vec();
+    exported.sort_unstable();
+    assert_eq!(exported, expected);
+
+    for wire in INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES {
+        assert_eq!(
+            IndustrialComplexLotSalesStatus::from_wire(wire)?.wire_name(),
+            *wire
+        );
+    }
     Ok(())
 }
 

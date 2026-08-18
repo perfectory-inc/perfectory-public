@@ -264,19 +264,11 @@ fn industrial_complex_response_includes_thin_gold_pointer() {
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: Some("1234567890".to_owned()),
         area_m2: 1024,
-        lakehouse_complex_id: None,
-        status: None,
-        sido_code: None,
-        sigungu_code: None,
-        address_text: None,
-        management_agency_name: None,
-        developer_name: None,
-        designated_date: None,
-        completion_date: None,
         created_at: now,
         updated_at: now,
         archived_at: None,
         version: 7,
+        ..unsourced_complex()
     };
     let pointer = IndustrialComplexGoldPointer {
         complex_id,
@@ -353,6 +345,46 @@ fn complex_anchor_summary_response_preserves_anchor_source_and_extent() {
     assert_eq!(response.anchor_count, 2);
 }
 
+/// A complex whose sourced description columns are all absent.
+///
+/// These route tests are about the response shape and the Gold pointer join, not about the
+/// nineteen columns a Gold snapshot fills. Spelling `None` nineteen times per fixture buries what
+/// each test is actually asserting.
+fn unsourced_complex() -> IndustrialComplex {
+    let now = Utc::now();
+    IndustrialComplex {
+        id: ComplexId::new(Uuid::now_v7()),
+        official_complex_code: String::new(),
+        name: String::new(),
+        kind: IndustrialComplexKind::General,
+        primary_bjdong_code: None,
+        area_m2: 0,
+        lakehouse_complex_id: None,
+        status: None,
+        sido_code: None,
+        sigungu_code: None,
+        address_text: None,
+        management_agency_name: None,
+        developer_name: None,
+        designated_date: None,
+        construction_start_date: None,
+        completion_date: None,
+        development_progress_percent: None,
+        lot_sales_status: None,
+        business_period_raw: None,
+        business_period_start_month: None,
+        business_period_end_month: None,
+        designation_basis_law_raw: None,
+        development_method_raw: None,
+        development_purpose_raw: None,
+        invited_industries_raw: None,
+        created_at: now,
+        updated_at: now,
+        archived_at: None,
+        version: 1,
+    }
+}
+
 #[test]
 fn industrial_complex_list_response_attaches_gold_pointer_by_complex_id() {
     let first_id = ComplexId::new(Uuid::now_v7());
@@ -366,19 +398,11 @@ fn industrial_complex_list_response_attaches_gold_pointer_by_complex_id() {
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: Some("1234567890".to_owned()),
         area_m2: 1024,
-        lakehouse_complex_id: None,
-        status: None,
-        sido_code: None,
-        sigungu_code: None,
-        address_text: None,
-        management_agency_name: None,
-        developer_name: None,
-        designated_date: None,
-        completion_date: None,
         created_at: now,
         updated_at: now,
         archived_at: None,
         version: 1,
+        ..unsourced_complex()
     };
     let second = IndustrialComplex {
         id: second_id,
@@ -387,19 +411,11 @@ fn industrial_complex_list_response_attaches_gold_pointer_by_complex_id() {
         kind: IndustrialComplexKind::National,
         primary_bjdong_code: Some("1234567891".to_owned()),
         area_m2: 2048,
-        lakehouse_complex_id: None,
-        status: None,
-        sido_code: None,
-        sigungu_code: None,
-        address_text: None,
-        management_agency_name: None,
-        developer_name: None,
-        designated_date: None,
-        completion_date: None,
         created_at: now,
         updated_at: now,
         archived_at: None,
         version: 2,
+        ..unsourced_complex()
     };
     let mut gold_pointers = HashMap::new();
     gold_pointers.insert(

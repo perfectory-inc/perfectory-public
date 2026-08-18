@@ -6,14 +6,17 @@
 
 use std::sync::Arc;
 
-use catalog_domain::{CatalogError, IndustrialComplexKind, IndustrialComplexStatus};
+use catalog_domain::{
+    CatalogError, IndustrialComplexKind, IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
+};
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::LakehouseComplexId;
 
 use crate::industrial_complex_input::{
-    validate_clean_required, validate_optional_clean_text, validate_optional_primary_bjdong_code,
-    validate_optional_sido_code, validate_optional_sigungu_code,
-    validate_source_official_complex_code,
+    validate_clean_required, validate_optional_business_period_months,
+    validate_optional_clean_text, validate_optional_primary_bjdong_code,
+    validate_optional_progress_percent, validate_optional_sido_code,
+    validate_optional_sigungu_code, validate_source_official_complex_code,
 };
 use crate::ports::{
     CatalogUnitOfWork, UpsertIndustrialComplexCommand, UpsertIndustrialComplexOutcome,
@@ -48,8 +51,28 @@ pub struct IndustrialComplexCatalogRow {
     pub developer_name: Option<String>,
     /// Date the complex was officially designated.
     pub designated_date: Option<NaiveDate>,
+    /// Date site works started.
+    pub construction_start_date: Option<NaiveDate>,
     /// Date the complex's site formation was approved as complete.
     pub completion_date: Option<NaiveDate>,
+    /// Site-formation progress percentage as exact decimal text.
+    pub development_progress_percent: Option<String>,
+    /// Lot-sales status the source stated.
+    pub lot_sales_status: Option<IndustrialComplexLotSalesStatus>,
+    /// Business period exactly as the source wrote it.
+    pub business_period_raw: Option<String>,
+    /// First month of the business period as `yyyy-MM`.
+    pub business_period_start_month: Option<String>,
+    /// Last month of the business period as `yyyy-MM`.
+    pub business_period_end_month: Option<String>,
+    /// Statute the designation was made under, verbatim.
+    pub designation_basis_law_raw: Option<String>,
+    /// Development method, verbatim.
+    pub development_method_raw: Option<String>,
+    /// Stated development purpose, verbatim.
+    pub development_purpose_raw: Option<String>,
+    /// Industry types the complex set out to attract, verbatim.
+    pub invited_industries_raw: Option<String>,
 }
 
 /// Input for writing source-side industrial-complex rows into Catalog.
@@ -139,6 +162,32 @@ fn catalog_row_to_upsert_command(
         row.management_agency_name.as_deref(),
     )?;
     validate_optional_clean_text("developer_name", row.developer_name.as_deref())?;
+    for (label, value) in [
+        ("business_period_raw", row.business_period_raw.as_deref()),
+        (
+            "designation_basis_law_raw",
+            row.designation_basis_law_raw.as_deref(),
+        ),
+        (
+            "development_method_raw",
+            row.development_method_raw.as_deref(),
+        ),
+        (
+            "development_purpose_raw",
+            row.development_purpose_raw.as_deref(),
+        ),
+        (
+            "invited_industries_raw",
+            row.invited_industries_raw.as_deref(),
+        ),
+    ] {
+        validate_optional_clean_text(label, value)?;
+    }
+    validate_optional_progress_percent(row.development_progress_percent.as_deref())?;
+    validate_optional_business_period_months(
+        row.business_period_start_month.as_deref(),
+        row.business_period_end_month.as_deref(),
+    )?;
     Ok(UpsertIndustrialComplexCommand {
         lakehouse_complex_id: row.lakehouse_complex_id,
         official_complex_code: row.official_complex_code.clone(),
@@ -153,7 +202,17 @@ fn catalog_row_to_upsert_command(
         management_agency_name: row.management_agency_name.clone(),
         developer_name: row.developer_name.clone(),
         designated_date: row.designated_date,
+        construction_start_date: row.construction_start_date,
         completion_date: row.completion_date,
+        development_progress_percent: row.development_progress_percent.clone(),
+        lot_sales_status: row.lot_sales_status,
+        business_period_raw: row.business_period_raw.clone(),
+        business_period_start_month: row.business_period_start_month.clone(),
+        business_period_end_month: row.business_period_end_month.clone(),
+        designation_basis_law_raw: row.designation_basis_law_raw.clone(),
+        development_method_raw: row.development_method_raw.clone(),
+        development_purpose_raw: row.development_purpose_raw.clone(),
+        invited_industries_raw: row.invited_industries_raw.clone(),
     })
 }
 
@@ -177,7 +236,17 @@ mod tests {
             management_agency_name: None,
             developer_name: None,
             designated_date: None,
+            construction_start_date: None,
             completion_date: None,
+            development_progress_percent: None,
+            lot_sales_status: None,
+            business_period_raw: None,
+            business_period_start_month: None,
+            business_period_end_month: None,
+            designation_basis_law_raw: None,
+            development_method_raw: None,
+            development_purpose_raw: None,
+            invited_industries_raw: None,
         }
     }
 
@@ -202,5 +271,123 @@ mod tests {
         let command = catalog_row_to_upsert_command(&row(Some("1138010700")))?;
         assert_eq!(command.primary_bjdong_code.as_deref(), Some("1138010700"));
         Ok(())
+    }
+
+    #[test]
+    fn progress_outside_zero_to_one_hundred_is_refused() {
+        for percent in ["-0.01", "100.01", "1000", "", "  ", "구십"] {
+            let mut candidate = row(None);
+            candidate.development_progress_percent = Some(percent.to_owned());
+            assert!(
+                matches!(
+                    catalog_row_to_upsert_command(&candidate),
+                    Err(CatalogError::InvalidIndustrialComplexInput(_))
+                ),
+                "{percent:?} was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn zero_and_one_hundred_percent_are_both_accepted() -> Result<(), CatalogError> {
+        for percent in ["0", "0.00", "59.90", "100", "100.00"] {
+            let mut candidate = row(None);
+            candidate.development_progress_percent = Some(percent.to_owned());
+            let command = catalog_row_to_upsert_command(&candidate)?;
+            assert_eq!(
+                command.development_progress_percent.as_deref(),
+                Some(percent)
+            );
+        }
+        Ok(())
+    }
+
+    /// One month without the other would put a boundary on a period the source never bounded.
+    #[test]
+    fn one_business_period_month_without_the_other_is_refused() {
+        for (start, end) in [(Some("1964-04"), None), (None, Some("1974-11"))] {
+            let mut candidate = row(None);
+            candidate.business_period_start_month = start.map(ToOwned::to_owned);
+            candidate.business_period_end_month = end.map(ToOwned::to_owned);
+            assert!(
+                matches!(
+                    catalog_row_to_upsert_command(&candidate),
+                    Err(CatalogError::InvalidIndustrialComplexInput(_))
+                ),
+                "{start:?}/{end:?} was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_business_period_month_that_is_not_a_month_is_refused() {
+        for (start, end) in [
+            ("1964-13", "1974-11"),
+            ("1964-00", "1974-11"),
+            ("1964-04", "197411"),
+            ("1964-4", "1974-11"),
+            ("196404", "1974-11"),
+        ] {
+            let mut candidate = row(None);
+            candidate.business_period_start_month = Some(start.to_owned());
+            candidate.business_period_end_month = Some(end.to_owned());
+            assert!(
+                matches!(
+                    catalog_row_to_upsert_command(&candidate),
+                    Err(CatalogError::InvalidIndustrialComplexInput(_))
+                ),
+                "{start:?}/{end:?} was accepted"
+            );
+        }
+    }
+
+    /// The `2020-~2024-` complex: raw text present, both months absent. That row has to be
+    /// writable, because refusing it would drop a period the source did state.
+    #[test]
+    fn a_raw_business_period_without_months_is_accepted() -> Result<(), CatalogError> {
+        let mut candidate = row(None);
+        candidate.business_period_raw = Some("2020-~2024-".to_owned());
+        let command = catalog_row_to_upsert_command(&candidate)?;
+        assert_eq!(command.business_period_raw.as_deref(), Some("2020-~2024-"));
+        assert_eq!(command.business_period_start_month, None);
+        assert_eq!(command.business_period_end_month, None);
+        Ok(())
+    }
+
+    #[test]
+    fn blank_free_text_is_refused_rather_than_stored_as_an_empty_value() {
+        /// Sets one free-text column, so the loop below can walk all of them.
+        type SetFreeText = fn(&mut IndustrialComplexCatalogRow, String);
+
+        let blanks: [(&str, SetFreeText); 5] = [
+            ("business_period_raw", |row, value| {
+                row.business_period_raw = Some(value);
+            }),
+            ("designation_basis_law_raw", |row, value| {
+                row.designation_basis_law_raw = Some(value);
+            }),
+            ("development_method_raw", |row, value| {
+                row.development_method_raw = Some(value);
+            }),
+            ("development_purpose_raw", |row, value| {
+                row.development_purpose_raw = Some(value);
+            }),
+            ("invited_industries_raw", |row, value| {
+                row.invited_industries_raw = Some(value);
+            }),
+        ];
+        for (label, set) in blanks {
+            for blank in ["", "   "] {
+                let mut candidate = row(None);
+                set(&mut candidate, blank.to_owned());
+                assert!(
+                    matches!(
+                        catalog_row_to_upsert_command(&candidate),
+                        Err(CatalogError::InvalidIndustrialComplexInput(_))
+                    ),
+                    "{label} accepted {blank:?}"
+                );
+            }
+        }
     }
 }
