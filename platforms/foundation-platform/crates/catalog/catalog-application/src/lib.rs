@@ -15,8 +15,8 @@ mod industrial_complex_input;
 /// Catalog-owned parsing for canonical industrial-complex patch commands.
 pub mod industrial_complex_patch;
 
-/// Use case for importing source-side industrial-complex seed rows into Catalog.
-pub mod import_industrial_complex_catalog_seed;
+/// Use case for writing source-side industrial-complex rows into Catalog.
+pub mod upsert_industrial_complex_catalog_rows;
 
 /// Use case for activating a complete dynamic `PostGIS` tile source for one publication unit.
 pub mod mark_tile_layer_dynamic;
@@ -52,10 +52,6 @@ pub mod update_parcel_kind;
 pub mod vector_tile_build_lifecycle;
 
 pub use archive_complex::{ArchiveIndustrialComplex, ArchiveIndustrialComplexInput};
-pub use import_industrial_complex_catalog_seed::{
-    ImportIndustrialComplexCatalogSeed, ImportIndustrialComplexCatalogSeedInput,
-    ImportIndustrialComplexCatalogSeedReport, IndustrialComplexCatalogSeedRow,
-};
 pub use mark_tile_layer_dynamic::MarkTileLayerDynamic;
 pub use promote_tile_layer_static::PromoteTileLayerStatic;
 pub use promote_vector_tile_manifest::{PromoteVectorTileManifest, PromoteVectorTileManifestInput};
@@ -69,4 +65,8 @@ pub use rollback_vector_tile_manifest::{
 };
 pub use update_complex::{UpdateIndustrialComplex, UpdateIndustrialComplexInput};
 pub use update_parcel_kind::{UpdateParcelKind, UpdateParcelKindInput};
+pub use upsert_industrial_complex_catalog_rows::{
+    IndustrialComplexCatalogRow, UpsertIndustrialComplexCatalogRows,
+    UpsertIndustrialComplexCatalogRowsInput, UpsertIndustrialComplexCatalogRowsReport,
+};
 pub use vector_tile_build_lifecycle::VectorTileBuildLifecycle;

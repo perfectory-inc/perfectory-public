@@ -128,7 +128,7 @@ pub fn sample_complex() -> IndustrialComplex {
         official_complex_code: format!("IC-{}", Uuid::new_v4().simple()),
         name: format!("Normalization fixture {}", Uuid::new_v4()),
         kind: IndustrialComplexKind::General,
-        primary_bjdong_code: random_primary_bjdong_code(),
+        primary_bjdong_code: Some(random_primary_bjdong_code()),
         area_m2: 123_456,
         created_at: now,
         updated_at: now,

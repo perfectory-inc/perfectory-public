@@ -21,6 +21,15 @@ pub fn validate_source_official_complex_code(value: &str) -> Result<(), CatalogE
     ))
 }
 
+/// Validates a legal-dong code that the caller may not have.
+///
+/// Absence is accepted, malformation is not (root ADR-0040): a complex whose source resolved only
+/// to sigungu granularity carries `None`, and the shape rule still holds for every code that is
+/// actually present.
+pub fn validate_optional_primary_bjdong_code(value: Option<&str>) -> Result<(), CatalogError> {
+    value.map_or(Ok(()), validate_primary_bjdong_code)
+}
+
 pub fn validate_primary_bjdong_code(value: &str) -> Result<(), CatalogError> {
     if value.len() == 10 && value.bytes().all(|byte| byte.is_ascii_digit()) {
         return Ok(());

@@ -351,6 +351,36 @@ cargo run -p foundation-outbox-publisher -- publish-industrial-complex-gold-poin
 클라이언트가 그 자리를 `profile_object_key` 또는 `spatial_locator_object_key` 로 치환해 주소를
 만든다. export 요약의 `profile_url_template` 과 같은 값을 쓴다.
 
+### Industrial-complex canonical load (Gold → Postgres)
+
+`gold.complex_catalog` 의 현재 Iceberg 스냅샷을 읽어 `catalog.industrial_complex` 에
+`official_complex_code` 자연키로 upsert 한다(root ADR-0040). `GET /catalog/v1/complexes` 가 읽는
+표가 바로 이것이므로, 이 커맨드가 그 엔드포인트의 생산자다.
+
+```bash
+export DATABASE_URL="postgres://foundation_platform:<password>@localhost:15434/foundation_platform"
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_CANONICAL_LOAD_CONFIRM=true
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_CANONICAL_LOAD_EXPECTED_ROW_COUNT=1442   # 선택
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_CANONICAL_LOAD_SUMMARY_PATH=target/lakehouse/canonical-load/summary.json
+
+cargo run -p foundation-outbox-publisher -- load-industrial-complex-canonical
+```
+
+읽기에 `FOUNDATION_PLATFORM_LAKEHOUSE_*`(Iceberg REST) 와 `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`
+(객체 저장소) 설정이 필요하다. 요약 JSON 이 읽은 행수 · 삽입 · 갱신 · 무변경 · 건너뜀을 낸다.
+
+이 커맨드가 **쓰지 않는 것**을 요약이 스스로 적는다.
+
+- `columns_left_null` — `primary_bjdong_code` 는 항상 `null` 이다. Gold 계약에 그 컬럼이 없다.
+- `gold_columns_not_loaded` — `status`·`address_text`·`sido_code`·`sigungu_code` 등은
+  `catalog.industrial_complex` 에 자리가 없어서 적재되지 않는다. **화면에 산업단지 주소가
+  나오지 않는다는 뜻이다.** 표를 넓히는 것은 OpenAPI 계약이 함께 따라와야 하는 별개 결정이다.
+- `skipped_rows` — `official_area_sqm` 이 없거나 정수가 아니거나 음수인 행. `area_m2` 는
+  `bigint NOT NULL` 이고 반올림은 없는 값을 지어내는 것이므로 그런 행은 건너뛰고 사유와 함께 센다.
+
+재실행은 안전하다. 같은 스냅샷을 다시 적재하면 모든 행이 `unchanged` 로 보고되고 버전도 올라가지
+않는다. 지우는 경로는 없다 — 표에 있고 스냅샷에 없는 행은 그대로 남는다.
+
 Spark Iceberg runtime 은 `spark-submit --packages` 로 driver 시작 전에 주입한다. Docker Spark image 는
 기본 Ivy cache path 가 writable 이 아니므로 script 는 `spark.jars.ivy=/tmp/.ivy2` 를 명시한다.
 `FOUNDATION_PLATFORM_LAKEHOUSE_OAUTH2_SERVER_URI` 가 없으면 job 은 catalog URI 뒤에 `/v1/oauth/tokens` 를

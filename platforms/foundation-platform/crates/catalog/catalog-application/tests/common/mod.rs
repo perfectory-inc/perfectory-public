@@ -199,7 +199,10 @@ impl CatalogUnitOfWork for $double {
         async fn upsert_complexes_by_official_code(
             &self,
             _commands: &[UpsertIndustrialComplexCommand],
-        ) -> Result<Vec<IndustrialComplex>, CatalogError> {
+        ) -> Result<
+            Vec<catalog_application::ports::UpsertIndustrialComplexOutcome>,
+            CatalogError,
+        > {
             Err(unused("upsert_complexes_by_official_code"))
         }
 

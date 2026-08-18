@@ -23,6 +23,9 @@ pub enum CatalogEvent {
     /// An industrial complex was registered with source-side official identity.
     #[serde(rename = "catalog.industrial_complex.created.v2")]
     IndustrialComplexCreatedV2(IndustrialComplexCreatedV2),
+    /// An industrial complex was registered without requiring a legal-dong code.
+    #[serde(rename = "catalog.industrial_complex.created.v3")]
+    IndustrialComplexCreatedV3(IndustrialComplexCreatedV3),
     /// Canonical industrial complex metadata changed.
     #[serde(rename = "catalog.industrial_complex.updated.v1")]
     IndustrialComplexUpdated(IndustrialComplexUpdatedV1),
@@ -124,6 +127,27 @@ pub struct IndustrialComplexCreatedV2 {
     pub name: String,
     /// primary legal-dong code that identifies the complex scope.
     pub primary_bjdong_code: String,
+    /// UTC timestamp when the complex was created.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Event emitted when an industrial complex is registered, legal-dong code optional.
+///
+/// Separate from [`IndustrialComplexCreatedV2`] rather than a widened field on it: a consumer of
+/// `catalog.industrial_complex.created.v2` may assume `primary_bjdong_code` is a string, and
+/// `null` arriving under the same event type would break that assumption silently (root ADR-0040).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndustrialComplexCreatedV3 {
+    /// Payload schema version. Always `3` for this event type.
+    pub schema_version: u32,
+    /// Industrial complex that was created.
+    pub complex_id: ComplexId,
+    /// Source-side official industrial-complex code.
+    pub official_complex_code: String,
+    /// Human-readable industrial complex name.
+    pub name: String,
+    /// primary legal-dong code that identifies the complex scope, when one was sourced.
+    pub primary_bjdong_code: Option<String>,
     /// UTC timestamp when the complex was created.
     pub created_at: DateTime<Utc>,
 }
@@ -335,7 +359,7 @@ pub struct CollectionRawWrittenV1 {
 mod tests {
     use super::{
         CatalogEvent, CollectionRawWrittenV1, IndustrialComplexArchivedV1,
-        IndustrialComplexCreatedV1, IndustrialComplexCreatedV2,
+        IndustrialComplexCreatedV1, IndustrialComplexCreatedV2, IndustrialComplexCreatedV3,
         IndustrialComplexGoldPointerPublishedV1, ParcelMarkerAnchorSnapshotPublishedV1,
         VectorTileManifestPromotedV1, VectorTileManifestRolledBackV1,
         VectorTileRuntimeManifestPublishedV2, VectorTileRuntimeUnitSelectionV2,
@@ -376,6 +400,26 @@ mod tests {
         let json = serde_json::to_string(&event)?;
         assert!(json.contains("catalog.industrial_complex.created.v2"));
         assert!(json.contains("official_complex_code"));
+        let _back: CatalogEvent = serde_json::from_str(&json)?;
+        Ok(())
+    }
+
+    #[test]
+    fn round_trip_serializes_industrial_complex_created_v3_without_a_bjdong_code(
+    ) -> Result<(), serde_json::Error> {
+        let event = CatalogEvent::IndustrialComplexCreatedV3(IndustrialComplexCreatedV3 {
+            schema_version: 3,
+            complex_id: ComplexId::new(Uuid::nil()),
+            official_complex_code: "111010".into(),
+            name: "Synthetic Industrial Complex Alpha".into(),
+            primary_bjdong_code: None,
+            created_at: Utc::now(),
+        });
+        let json = serde_json::to_string(&event)?;
+        assert!(json.contains("catalog.industrial_complex.created.v3"));
+        // The absent code is carried as an explicit null, not dropped: a missing key and a known
+        // absence read the same to a consumer only if the key is never optional.
+        assert!(json.contains("\"primary_bjdong_code\":null"));
         let _back: CatalogEvent = serde_json::from_str(&json)?;
         Ok(())
     }

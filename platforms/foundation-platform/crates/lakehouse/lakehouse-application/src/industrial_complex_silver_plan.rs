@@ -36,10 +36,10 @@ pub struct IndustrialComplexSilverRow {
     pub complex_kind: String,
     /// Operational status wire value. `unknown` is used until a source provides status.
     pub status: String,
-    /// Two-digit province/city code derived from `primary_bjdong_code`.
-    pub sido_code: String,
-    /// Five-digit city/county/district code derived from `primary_bjdong_code`.
-    pub sigungu_code: String,
+    /// Two-digit province/city code derived from `primary_bjdong_code`, when one exists.
+    pub sido_code: Option<String>,
+    /// Five-digit city/county/district code derived from `primary_bjdong_code`, when one exists.
+    pub sigungu_code: Option<String>,
     /// Ten-digit legal-dong code derived from `primary_bjdong_code`.
     pub primary_bjdong_code: Option<String>,
     /// Optional official address text.
@@ -105,7 +105,9 @@ pub enum IndustrialComplexSilverPlanError {
 ///
 /// # Errors
 /// Returns `IndustrialComplexSilverPlanError` when lineage is empty, required Catalog identity
-/// fields are empty, or the `primary_bjdong_code` cannot provide administrative codes.
+/// fields are empty, or a `primary_bjdong_code` that is present is malformed. A complex that
+/// carries no legal-dong code is normalized with all three region columns null: the contract stops
+/// requiring them (root ADR-0035) and the canonical column stopped requiring one (root ADR-0040).
 pub fn normalize_industrial_complex_silver_rows(
     input: &IndustrialComplexSilverRowsInput<'_>,
 ) -> Result<Vec<IndustrialComplexSilverRow>, IndustrialComplexSilverPlanError> {
@@ -182,7 +184,11 @@ fn normalize_complex(
         complex.official_complex_code.as_str(),
     )?;
     let complex_name = require_clean_text("complex_name", complex.name.as_str())?;
-    validate_primary_bjdong_code(complex.primary_bjdong_code.as_str())?;
+    let primary_bjdong_code = complex
+        .primary_bjdong_code
+        .as_deref()
+        .map(validate_primary_bjdong_code)
+        .transpose()?;
 
     let mut row = IndustrialComplexSilverRow {
         complex_id: complex.id.to_string(),
@@ -191,9 +197,15 @@ fn normalize_complex(
         complex_name,
         complex_kind: complex.kind.wire_name().to_owned(),
         status: DEFAULT_COMPLEX_STATUS.to_owned(),
-        sido_code: complex.primary_bjdong_code[0..2].to_owned(),
-        sigungu_code: complex.primary_bjdong_code[0..5].to_owned(),
-        primary_bjdong_code: Some(complex.primary_bjdong_code.clone()),
+        // Both are prefixes of the legal-dong code, so both are unknown when it is
+        // (root ADR-0034: a code carries its own granularity, and an absent one carries none).
+        sido_code: primary_bjdong_code
+            .as_ref()
+            .map(|code| code[0..2].to_owned()),
+        sigungu_code: primary_bjdong_code
+            .as_ref()
+            .map(|code| code[0..5].to_owned()),
+        primary_bjdong_code,
         address_text: None,
         management_agency_name: None,
         developer_name: None,
@@ -232,8 +244,8 @@ fn validate_handoff_row(
     );
     record_required_string_quality("complex_kind", &row.complex_kind, quality_metrics);
     record_required_string_quality("status", &row.status, quality_metrics);
-    record_required_string_quality("sido_code", &row.sido_code, quality_metrics);
-    record_required_string_quality("sigungu_code", &row.sigungu_code, quality_metrics);
+    record_optional_string_quality("sido_code", row.sido_code.as_deref(), quality_metrics);
+    record_optional_string_quality("sigungu_code", row.sigungu_code.as_deref(), quality_metrics);
     record_required_string_quality("source_record_id", &row.source_record_id, quality_metrics);
     record_required_string_quality(
         "source_snapshot_id",
@@ -274,6 +286,21 @@ fn record_required_string_quality(
     }
 }
 
+/// Counts an optional string column that is present but blank.
+///
+/// Absent is legal for these columns and empty is not: every string column of the contract must be
+/// non-empty when it carries a value (root ADR-0035 decision 9). Collapsing the two would erase
+/// exactly the distinction that decision protects.
+fn record_optional_string_quality(
+    name: &'static str,
+    value: Option<&str>,
+    quality_metrics: &mut BTreeMap<String, u64>,
+) {
+    if value.is_some_and(str::is_empty) {
+        increment_metric(quality_metrics, &format!("{name}__empty_count"));
+    }
+}
+
 fn increment_metric(metrics: &mut BTreeMap<String, u64>, name: &str) {
     *metrics.entry(name.to_owned()).or_insert(0) += 1;
 }
@@ -303,11 +330,11 @@ fn row_to_json_value(row: &IndustrialComplexSilverRow) -> JsonValue {
     record.insert("status".to_owned(), JsonValue::String(row.status.clone()));
     record.insert(
         "sido_code".to_owned(),
-        JsonValue::String(row.sido_code.clone()),
+        optional_string_json(row.sido_code.as_ref()),
     );
     record.insert(
         "sigungu_code".to_owned(),
-        JsonValue::String(row.sigungu_code.clone()),
+        optional_string_json(row.sigungu_code.as_ref()),
     );
     record.insert(
         "primary_bjdong_code".to_owned(),
@@ -458,9 +485,9 @@ fn require_source_official_complex_code(
     ))
 }
 
-fn validate_primary_bjdong_code(value: &str) -> Result<(), IndustrialComplexSilverPlanError> {
+fn validate_primary_bjdong_code(value: &str) -> Result<String, IndustrialComplexSilverPlanError> {
     if value.len() == 10 && value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Ok(());
+        return Ok(value.to_owned());
     }
     Err(IndustrialComplexSilverPlanError::InvalidInput(format!(
         "primary_bjdong_code must be exactly 10 ASCII digits: {value}"

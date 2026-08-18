@@ -62,7 +62,7 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
     async fn upsert_complexes_by_official_code(
         &self,
         _commands: &[catalog_application::ports::UpsertIndustrialComplexCommand],
-    ) -> Result<Vec<IndustrialComplex>, CatalogError> {
+    ) -> Result<Vec<catalog_application::ports::UpsertIndustrialComplexOutcome>, CatalogError> {
         Err(unexpected_call("upsert_complexes_by_official_code"))
     }
 
@@ -88,7 +88,7 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
                 .name
                 .unwrap_or_else(|| "Synthetic Industrial Complex Alpha".to_owned()),
             kind: IndustrialComplexKind::General,
-            primary_bjdong_code: "9999900101".to_owned(),
+            primary_bjdong_code: Some("9999900101".to_owned()),
             area_m2: mutation.area_m2.unwrap_or(123_456),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -121,7 +121,7 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
             official_complex_code: "SYNTHETIC-COMPLEX-001".to_owned(),
             name: "Synthetic Industrial Complex Alpha".to_owned(),
             kind: IndustrialComplexKind::General,
-            primary_bjdong_code: "9999900101".to_owned(),
+            primary_bjdong_code: Some("9999900101".to_owned()),
             area_m2: 123_456,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

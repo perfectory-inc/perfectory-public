@@ -336,14 +336,14 @@ async fn archived_official_code_can_be_reused_by_a_new_active_row() -> TestResul
                 official_complex_code: complex.official_complex_code.clone(),
                 name: "Replacement Industrial Complex".to_owned(),
                 kind: IndustrialComplexKind::General,
-                primary_bjdong_code: "1111010100".to_owned(),
+                primary_bjdong_code: Some("1111010100".to_owned()),
                 area_m2: 100_000,
             }])
             .await?;
 
         assert_eq!(replacement.len(), 1);
-        assert_ne!(replacement[0].id, complex.id);
-        assert!(replacement[0].archived_at.is_none());
+        assert_ne!(replacement[0].complex.id, complex.id);
+        assert!(replacement[0].complex.archived_at.is_none());
         Ok(())
     })
     .await
@@ -388,7 +388,7 @@ async fn create_complex(pool: &PgPool) -> TestResult<IndustrialComplex> {
         official_complex_code: format!("participant-{}", Uuid::new_v4()),
         name: "Original Industrial Complex".to_owned(),
         kind: IndustrialComplexKind::General,
-        primary_bjdong_code: "1111010100".to_owned(),
+        primary_bjdong_code: Some("1111010100".to_owned()),
         area_m2: 95_000,
         created_at: Utc::now(),
         updated_at: Utc::now(),

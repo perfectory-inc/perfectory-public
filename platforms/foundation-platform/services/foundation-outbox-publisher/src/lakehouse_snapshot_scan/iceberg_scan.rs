@@ -26,15 +26,15 @@ const PARQUET_FILE_FORMAT: &str = "PARQUET";
 
 /// One Parquet data file reachable from the scanned snapshot.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct ScannedDataFile {
+pub(crate) struct ScannedDataFile {
     /// Storage location the manifest recorded for the data file.
-    pub(super) file_path: String,
+    pub(crate) file_path: String,
     /// Row count the manifest recorded for the data file.
-    pub(super) record_count: u64,
+    pub(crate) record_count: u64,
 }
 
 /// Returns the manifest locations a snapshot's manifest list points at.
-pub(super) fn manifest_locations(manifest_list_avro: &[u8]) -> anyhow::Result<Vec<String>> {
+pub(crate) fn manifest_locations(manifest_list_avro: &[u8]) -> anyhow::Result<Vec<String>> {
     let mut locations = Vec::new();
     for record in
         avro_records(manifest_list_avro).context("failed to read Iceberg manifest list")?
@@ -50,7 +50,7 @@ pub(super) fn manifest_locations(manifest_list_avro: &[u8]) -> anyhow::Result<Ve
 }
 
 /// Returns the live Parquet data files one manifest points at.
-pub(super) fn data_files(manifest_avro: &[u8]) -> anyhow::Result<Vec<ScannedDataFile>> {
+pub(crate) fn data_files(manifest_avro: &[u8]) -> anyhow::Result<Vec<ScannedDataFile>> {
     let mut data_files = Vec::new();
     for entry in avro_records(manifest_avro).context("failed to read Iceberg manifest")? {
         let status = optional_integer_field(&entry, "status")?.unwrap_or(CONTENT_DATA);
@@ -83,7 +83,7 @@ pub(super) fn data_files(manifest_avro: &[u8]) -> anyhow::Result<Vec<ScannedData
 }
 
 /// Decodes one Parquet data file into contract-shaped rows.
-pub(super) fn decode_rows(
+pub(crate) fn decode_rows(
     contract: &LakehouseTableContract,
     parquet_bytes: Vec<u8>,
 ) -> anyhow::Result<Vec<JsonMap<String, JsonValue>>> {

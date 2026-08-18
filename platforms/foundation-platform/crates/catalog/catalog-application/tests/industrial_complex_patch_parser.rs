@@ -314,7 +314,7 @@ fn canonical_complex() -> Result<IndustrialComplex, CatalogError> {
         official_complex_code: "IC-001".to_owned(),
         name: "Original Industrial Complex".to_owned(),
         kind: IndustrialComplexKind::General,
-        primary_bjdong_code: "1111010100".to_owned(),
+        primary_bjdong_code: Some("1111010100".to_owned()),
         area_m2: 95_000,
         created_at: now,
         updated_at: now,

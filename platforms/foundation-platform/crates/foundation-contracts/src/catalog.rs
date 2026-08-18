@@ -26,8 +26,8 @@ pub struct RegisterComplexRequest {
     pub name: String,
     /// Industrial complex kind. Wire values: `national`, `general`, `agricultural`, `urban_high_tech`.
     pub kind: String,
-    /// primary legal-dong code shared by parcels that belong to the complex.
-    pub primary_bjdong_code: String,
+    /// primary legal-dong code shared by parcels that belong to the complex, when one is known.
+    pub primary_bjdong_code: Option<String>,
     /// Official complex area in square meters.
     pub area_m2: u64,
 }
@@ -64,7 +64,10 @@ pub struct IndustrialComplexResponse {
     /// Industrial complex kind as a public wire value.
     pub kind: String,
     /// primary legal-dong code shared by parcels that belong to the complex.
-    pub primary_bjdong_code: String,
+    ///
+    /// `null` for every complex sourced from the Gold catalog: that projection resolves addresses
+    /// to sigungu granularity at best, so no legal-dong code exists to publish (root ADR-0040).
+    pub primary_bjdong_code: Option<String>,
     /// Official complex area in square meters.
     pub area_m2: u64,
     /// Monotonic record version used for optimistic concurrency.

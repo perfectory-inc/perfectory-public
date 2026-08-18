@@ -40,8 +40,8 @@ fn normalizes_catalog_complexes_into_silver_rows_without_rekeying() -> TestResul
     );
     assert_eq!(row.complex_kind, "general");
     assert_eq!(row.status, "unknown");
-    assert_eq!(row.sido_code, "99");
-    assert_eq!(row.sigungu_code, "99999");
+    assert_eq!(row.sido_code.as_deref(), Some("99"));
+    assert_eq!(row.sigungu_code.as_deref(), Some("99999"));
     assert_eq!(row.primary_bjdong_code.as_deref(), Some("9999900101"));
     assert_eq!(row.official_area_sqm, Some(123_456));
     assert_eq!(
@@ -127,13 +127,56 @@ fn sample_complex() -> TestResult<IndustrialComplex> {
         official_complex_code: "SYNTHETIC-COMPLEX-001".to_owned(),
         name: "Synthetic Industrial Complex Alpha".to_owned(),
         kind: IndustrialComplexKind::General,
-        primary_bjdong_code: "9999900101".to_owned(),
+        primary_bjdong_code: Some("9999900101".to_owned()),
         area_m2: 123_456,
         created_at: parse_utc(FIXTURE_VALID_FROM_UTC)?,
         updated_at: parse_utc(FIXTURE_VALID_FROM_UTC)?,
         archived_at: None,
         version: 1,
     })
+}
+
+/// A canonical complex without a legal-dong code normalizes with all three region columns null.
+///
+/// Both derived codes are prefixes of the one that is absent, so inventing either would be
+/// inventing the code itself (root ADR-0034/0035); the contract stopped requiring them.
+#[test]
+fn normalizes_a_complex_without_a_legal_dong_code_into_null_region_columns() -> TestResult {
+    let mut complex = sample_complex()?;
+    complex.primary_bjdong_code = None;
+
+    let rows = normalize_industrial_complex_silver_rows(&IndustrialComplexSilverRowsInput {
+        complexes: std::slice::from_ref(&complex),
+        source_snapshot_id: "synthetic-source-snapshot-industrial-complexes-20990101",
+        ingested_at_utc: parse_utc(FIXTURE_INGESTED_AT_UTC)?,
+    })?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].sido_code, None);
+    assert_eq!(rows[0].sigungu_code, None);
+    assert_eq!(rows[0].primary_bjdong_code, None);
+    Ok(())
+}
+
+/// A present-but-malformed code is still rejected: absence and malformation are different facts.
+#[test]
+fn rejects_a_malformed_legal_dong_code_even_though_absence_is_allowed() -> TestResult {
+    let mut complex = sample_complex()?;
+    complex.primary_bjdong_code = Some("28200".to_owned());
+
+    let result = normalize_industrial_complex_silver_rows(&IndustrialComplexSilverRowsInput {
+        complexes: std::slice::from_ref(&complex),
+        source_snapshot_id: "synthetic-source-snapshot-industrial-complexes-20990101",
+        ingested_at_utc: parse_utc(FIXTURE_INGESTED_AT_UTC)?,
+    });
+
+    let Err(error) = result else {
+        return Err("a malformed legal-dong code must be rejected".into());
+    };
+    assert!(error
+        .to_string()
+        .contains("primary_bjdong_code must be exactly 10 ASCII digits"));
+    Ok(())
 }
 
 fn parse_utc(raw: &str) -> Result<DateTime<Utc>, chrono::ParseError> {

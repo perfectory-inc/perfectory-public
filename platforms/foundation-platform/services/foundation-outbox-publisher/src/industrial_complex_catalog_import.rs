@@ -7,9 +7,10 @@ use std::{
 };
 
 use anyhow::Context;
+use catalog_application::ports::UpsertIndustrialComplexEffect;
 use catalog_application::{
-    ImportIndustrialComplexCatalogSeed, ImportIndustrialComplexCatalogSeedInput,
-    IndustrialComplexCatalogSeedRow,
+    IndustrialComplexCatalogRow, UpsertIndustrialComplexCatalogRows,
+    UpsertIndustrialComplexCatalogRowsInput,
 };
 use catalog_domain::IndustrialComplexKind;
 use catalog_infrastructure::PgCatalogUnitOfWork;
@@ -29,16 +30,18 @@ pub async fn run() -> anyhow::Result<()> {
         .await
         .context("failed to connect to database for industrial-complex Catalog seed import")?;
     let use_case =
-        ImportIndustrialComplexCatalogSeed::new(Arc::new(PgCatalogUnitOfWork::new(pool)));
+        UpsertIndustrialComplexCatalogRows::new(Arc::new(PgCatalogUnitOfWork::new(pool)));
     let report = use_case
-        .execute(ImportIndustrialComplexCatalogSeedInput { rows })
+        .execute(UpsertIndustrialComplexCatalogRowsInput { rows })
         .await
         .context("failed to import industrial-complex Catalog seed rows")?;
 
     tracing::info!(
         seed_path = %config.seed_path.display(),
-        imported_count = report.imported_count,
-        complex_ids = ?report.complex_ids,
+        imported_count = report.written_count(),
+        inserted_count = report.count_with(UpsertIndustrialComplexEffect::Inserted),
+        updated_count = report.count_with(UpsertIndustrialComplexEffect::Updated),
+        unchanged_count = report.count_with(UpsertIndustrialComplexEffect::Unchanged),
         "industrial-complex Catalog seed import succeeded"
     );
 
@@ -59,13 +62,13 @@ impl ImportIndustrialComplexCatalogSeedConfig {
     }
 }
 
-fn read_seed_rows(path: &Path) -> anyhow::Result<Vec<IndustrialComplexCatalogSeedRow>> {
+fn read_seed_rows(path: &Path) -> anyhow::Result<Vec<IndustrialComplexCatalogRow>> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("failed to read seed file {}", path.display()))?;
     parse_seed_jsonl(raw.as_str())
 }
 
-fn parse_seed_jsonl(raw: &str) -> anyhow::Result<Vec<IndustrialComplexCatalogSeedRow>> {
+fn parse_seed_jsonl(raw: &str) -> anyhow::Result<Vec<IndustrialComplexCatalogRow>> {
     raw.lines()
         .enumerate()
         .filter_map(|(index, line)| {
@@ -76,30 +79,29 @@ fn parse_seed_jsonl(raw: &str) -> anyhow::Result<Vec<IndustrialComplexCatalogSee
         .collect()
 }
 
-fn parse_seed_line(
-    line_number: usize,
-    line: &str,
-) -> anyhow::Result<IndustrialComplexCatalogSeedRow> {
-    let raw = serde_json::from_str::<RawIndustrialComplexCatalogSeedRow>(line)
+fn parse_seed_line(line_number: usize, line: &str) -> anyhow::Result<IndustrialComplexCatalogRow> {
+    let raw = serde_json::from_str::<RawIndustrialComplexCatalogRow>(line)
         .with_context(|| format!("invalid JSONL at seed line {line_number}"))?;
     raw.into_seed_row()
         .with_context(|| format!("invalid industrial-complex seed row at line {line_number}"))
 }
 
 #[derive(Debug, Deserialize)]
-struct RawIndustrialComplexCatalogSeedRow {
+struct RawIndustrialComplexCatalogRow {
     official_complex_code: String,
     name: String,
     kind: String,
-    primary_bjdong_code: String,
+    /// Absent or `null` for a complex whose source resolved no legal-dong code (root ADR-0040).
+    #[serde(default)]
+    primary_bjdong_code: Option<String>,
     area_m2: u64,
 }
 
-impl RawIndustrialComplexCatalogSeedRow {
-    fn into_seed_row(self) -> anyhow::Result<IndustrialComplexCatalogSeedRow> {
+impl RawIndustrialComplexCatalogRow {
+    fn into_seed_row(self) -> anyhow::Result<IndustrialComplexCatalogRow> {
         let kind = IndustrialComplexKind::from_wire(self.kind.as_str())
             .map_err(|error| anyhow::anyhow!(error))?;
-        Ok(IndustrialComplexCatalogSeedRow {
+        Ok(IndustrialComplexCatalogRow {
             official_complex_code: self.official_complex_code,
             name: self.name,
             kind,
@@ -123,7 +125,18 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].official_complex_code, "SYNTHETIC-COMPLEX-001");
         assert_eq!(rows[0].kind, IndustrialComplexKind::General);
-        assert_eq!(rows[0].primary_bjdong_code, "9999900101");
+        assert_eq!(rows[0].primary_bjdong_code.as_deref(), Some("9999900101"));
+        Ok(())
+    }
+
+    #[test]
+    fn parses_a_seed_row_without_a_legal_dong_code() -> anyhow::Result<()> {
+        let rows = parse_seed_jsonl(
+            r#"{"official_complex_code":"111010","name":"Complex Without A Legal Dong Code","kind":"national","area_m2":3708451}"#,
+        )?;
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].primary_bjdong_code, None);
         Ok(())
     }
 

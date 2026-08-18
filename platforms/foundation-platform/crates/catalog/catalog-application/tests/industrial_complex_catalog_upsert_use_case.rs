@@ -1,12 +1,15 @@
-//! Use-case tests for importing source-side industrial-complex seed rows into Catalog.
+//! Use-case tests for writing source-side industrial-complex rows into Catalog.
 
 use std::sync::Mutex;
 
 use async_trait::async_trait;
 use catalog_application::{
-    ports::{CatalogUnitOfWork, UpsertIndustrialComplexCommand},
-    ImportIndustrialComplexCatalogSeed, ImportIndustrialComplexCatalogSeedInput,
-    IndustrialComplexCatalogSeedRow,
+    ports::{
+        CatalogUnitOfWork, UpsertIndustrialComplexCommand, UpsertIndustrialComplexEffect,
+        UpsertIndustrialComplexOutcome,
+    },
+    IndustrialComplexCatalogRow, UpsertIndustrialComplexCatalogRows,
+    UpsertIndustrialComplexCatalogRowsInput,
 };
 use catalog_domain::{
     CatalogError, ComplexMutation, IndustrialComplex, IndustrialComplexKind, Parcel, ParcelKind,
@@ -38,24 +41,27 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
     async fn upsert_complexes_by_official_code(
         &self,
         commands: &[UpsertIndustrialComplexCommand],
-    ) -> Result<Vec<IndustrialComplex>, CatalogError> {
+    ) -> Result<Vec<UpsertIndustrialComplexOutcome>, CatalogError> {
         self.commands
             .lock()
             .map_err(|_| CatalogError::Infrastructure("commands mutex poisoned".to_owned()))?
             .extend(commands.iter().cloned());
         Ok(commands
             .iter()
-            .map(|command| IndustrialComplex {
-                id: ComplexId::new(Uuid::now_v7()),
-                official_complex_code: command.official_complex_code.clone(),
-                name: command.name.clone(),
-                kind: command.kind,
-                primary_bjdong_code: command.primary_bjdong_code.clone(),
-                area_m2: command.area_m2,
-                created_at: chrono::Utc::now(),
-                updated_at: chrono::Utc::now(),
-                archived_at: None,
-                version: 1,
+            .map(|command| UpsertIndustrialComplexOutcome {
+                complex: IndustrialComplex {
+                    id: ComplexId::new(Uuid::now_v7()),
+                    official_complex_code: command.official_complex_code.clone(),
+                    name: command.name.clone(),
+                    kind: command.kind,
+                    primary_bjdong_code: command.primary_bjdong_code.clone(),
+                    area_m2: command.area_m2,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                    archived_at: None,
+                    version: 1,
+                },
+                effect: UpsertIndustrialComplexEffect::Inserted,
             })
             .collect())
     }
@@ -101,23 +107,36 @@ fn unexpected_call(method: &'static str) -> CatalogError {
 }
 
 #[tokio::test]
-async fn imports_valid_source_side_seed_rows() -> Result<(), CatalogError> {
+async fn writes_valid_source_side_rows() -> Result<(), CatalogError> {
     let uow = std::sync::Arc::new(RecordingCatalogUnitOfWork::default());
-    let use_case = ImportIndustrialComplexCatalogSeed::new(uow.clone());
+    let use_case = UpsertIndustrialComplexCatalogRows::new(uow.clone());
 
     let report = use_case
-        .execute(ImportIndustrialComplexCatalogSeedInput {
-            rows: vec![IndustrialComplexCatalogSeedRow {
-                official_complex_code: "SYNTHETIC-COMPLEX-001".to_owned(),
-                name: "Synthetic Industrial Complex Alpha".to_owned(),
-                kind: IndustrialComplexKind::General,
-                primary_bjdong_code: "9999900101".to_owned(),
-                area_m2: 123_456,
-            }],
+        .execute(UpsertIndustrialComplexCatalogRowsInput {
+            rows: vec![
+                IndustrialComplexCatalogRow {
+                    official_complex_code: "SYNTHETIC-COMPLEX-001".to_owned(),
+                    name: "Synthetic Industrial Complex Alpha".to_owned(),
+                    kind: IndustrialComplexKind::General,
+                    primary_bjdong_code: Some("9999900101".to_owned()),
+                    area_m2: 123_456,
+                },
+                IndustrialComplexCatalogRow {
+                    official_complex_code: "111010".to_owned(),
+                    name: "Sourced Industrial Complex".to_owned(),
+                    kind: IndustrialComplexKind::National,
+                    primary_bjdong_code: None,
+                    area_m2: 3_708_451,
+                },
+            ],
         })
         .await?;
 
-    assert_eq!(report.imported_count, 1);
+    assert_eq!(report.written_count(), 2);
+    assert_eq!(
+        report.count_with(UpsertIndustrialComplexEffect::Inserted),
+        2
+    );
     let commands = {
         let commands = uow
             .commands
@@ -125,25 +144,31 @@ async fn imports_valid_source_side_seed_rows() -> Result<(), CatalogError> {
             .map_err(|_| CatalogError::Infrastructure("commands mutex poisoned".to_owned()))?;
         commands.clone()
     };
-    assert_eq!(commands.len(), 1);
+    assert_eq!(commands.len(), 2);
     assert_eq!(commands[0].official_complex_code, "SYNTHETIC-COMPLEX-001");
-    assert_eq!(commands[0].primary_bjdong_code, "9999900101");
+    assert_eq!(
+        commands[0].primary_bjdong_code.as_deref(),
+        Some("9999900101")
+    );
+    // A complex whose source resolved no legal-dong code reaches the write path unchanged rather
+    // than being rejected or filled in (root ADR-0040).
+    assert_eq!(commands[1].primary_bjdong_code, None);
     Ok(())
 }
 
 #[tokio::test]
 async fn rejects_placeholder_official_codes_before_writing() {
     let uow = std::sync::Arc::new(RecordingCatalogUnitOfWork::default());
-    let use_case = ImportIndustrialComplexCatalogSeed::new(uow);
+    let use_case = UpsertIndustrialComplexCatalogRows::new(uow);
 
     let result = use_case
-        .execute(ImportIndustrialComplexCatalogSeedInput {
-            rows: vec![IndustrialComplexCatalogSeedRow {
+        .execute(UpsertIndustrialComplexCatalogRowsInput {
+            rows: vec![IndustrialComplexCatalogRow {
                 official_complex_code: "foundation-platform:00000000-0000-7000-8000-000000000001"
                     .to_owned(),
                 name: "Synthetic Industrial Complex Alpha".to_owned(),
                 kind: IndustrialComplexKind::General,
-                primary_bjdong_code: "9999900101".to_owned(),
+                primary_bjdong_code: Some("9999900101".to_owned()),
                 area_m2: 123_456,
             }],
         })
