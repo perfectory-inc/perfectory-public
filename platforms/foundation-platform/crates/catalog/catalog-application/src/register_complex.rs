@@ -50,11 +50,25 @@ impl RegisterIndustrialComplex {
         let now = Utc::now();
         let complex = IndustrialComplex {
             id: ComplexId::new(uuid::Uuid::now_v7()),
+            // Registering a complex does not put it in the lakehouse, so there is no Gold artifact
+            // for it to address.
+            lakehouse_complex_id: None,
             official_complex_code: input.official_complex_code,
             name: input.name,
             kind: input.kind,
             primary_bjdong_code: input.primary_bjdong_code,
             area_m2: input.area_m2,
+            // Registration establishes identity, not description. The sourced fields belong to the
+            // Gold loader, which is the only producer that has a snapshot to read them from; a
+            // registration request that carried them would be a second, unsourced producer.
+            status: None,
+            sido_code: None,
+            sigungu_code: None,
+            address_text: None,
+            management_agency_name: None,
+            developer_name: None,
+            designated_date: None,
+            completion_date: None,
             created_at: now,
             updated_at: now,
             archived_at: None,

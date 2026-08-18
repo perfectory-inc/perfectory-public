@@ -273,6 +273,27 @@ docker exec -i \
   --lineage-output /workspace/target/lakehouse/smoke/summaries/gold_complex_catalog_iceberg_lineage.json
 ```
 
+#### 실 테이블 재실행 (`gold.complex_catalog`)
+
+계약이 넓어졌을 때 실 테이블을 다시 만드는 경로다. smoke 실행과 다른 점은 세 가지다.
+
+```bash
+  --source-iceberg-table industrial_complexes \
+  --target-iceberg-table complex_catalog \
+  --iceberg-write-mode overwrite \
+  --allow-non-smoke-overwrite \
+```
+
+- **`overwrite` 이지 `append` 가 아니다.** `gold.complex_catalog` 는 투영이고 품질 게이트가
+  `complex_id` 당 한 행을 요구한다. append 하면 같은 단지가 두 행이 되고, 잡이 쓴 뒤 다시 읽어
+  검증하는 `assert_unique_complex_ids` 가 그 자리에서 실패한다. 통과하더라도 canonical 적재기가
+  `official_complex_code` 중복으로 전체를 거부한다. 데이터를 잃는 선택이 아니다 — Iceberg 의
+  overwrite 는 새 스냅샷을 만들 뿐이고 이전 스냅샷은 시간여행으로 그대로 남는다.
+- **`--allow-non-smoke-overwrite` 가 필요하다.** 잡이 실 테이블 overwrite 를 기본으로 거부한다.
+- **스키마 진화가 먼저 돈다.** 실 테이블은 이전 계약으로 만들어져 있으므로, 쓰기 전에 계약에
+  있고 표에 없는 컬럼을 `ALTER TABLE ... ADD COLUMN` 으로 맞춘다. 어떤 컬럼이 더해졌는지는
+  실행 요약의 `schema_evolution_added_columns` 에 나온다. 이미 맞는 표에는 아무것도 하지 않는다.
+
 기본 target은 `gold.complex_catalog_smoke`다. job은 non-smoke
 flag is present, and it refuses fixture input for non-smoke targets. The Spark job emits a
 `foundation-platform.spark_run_summary.v1` summary with `contract = gold.complex_catalog`,
@@ -369,14 +390,24 @@ cargo run -p foundation-outbox-publisher -- load-industrial-complex-canonical
 읽기에 `FOUNDATION_PLATFORM_LAKEHOUSE_*`(Iceberg REST) 와 `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`
 (객체 저장소) 설정이 필요하다. 요약 JSON 이 읽은 행수 · 삽입 · 갱신 · 무변경 · 건너뜀을 낸다.
 
+주소·상태·지정일·준공일·관리기관·시행자·시도/시군구 코드는 이제 신원 필드와 같은 Gold 행에서
+함께 적재된다. `lakehouse_complex_id` 도 함께 쓴다 — Gold 프로필 오브젝트 키가 그 값에서
+파생되므로, 그 칸이 없으면 canonical 행이 R2 의 어떤 오브젝트도 가리키지 못한다.
+
 이 커맨드가 **쓰지 않는 것**을 요약이 스스로 적는다.
 
-- `columns_left_null` — `primary_bjdong_code` 는 항상 `null` 이다. Gold 계약에 그 컬럼이 없다.
-- `gold_columns_not_loaded` — `status`·`address_text`·`sido_code`·`sigungu_code` 등은
-  `catalog.industrial_complex` 에 자리가 없어서 적재되지 않는다. **화면에 산업단지 주소가
-  나오지 않는다는 뜻이다.** 표를 넓히는 것은 OpenAPI 계약이 함께 따라와야 하는 별개 결정이다.
+- `columns_left_null` — `primary_bjdong_code` 는 항상 `null` 이다. `silver.industrial_complexes`
+  1,442행 중 그 값을 담은 행이 **0건**이라 Gold 투영이 그 컬럼을 아예 나르지 않는다. 채우는
+  생산자가 생기면 그때 Silver → Gold → canonical 순으로 따라온다.
+- `gold_columns_not_loaded` — Gold 계약 컬럼에서 이 커맨드가 읽는 것을 뺀 나머지다. 하드코딩된
+  목록이 아니라 계약과 대조해 만들므로, Gold 에 컬럼이 늘고 여기서 읽지 않으면 다음 실행의
+  요약에 그대로 드러난다.
 - `skipped_rows` — `official_area_sqm` 이 없거나 정수가 아니거나 음수인 행. `area_m2` 는
   `bigint NOT NULL` 이고 반올림은 없는 값을 지어내는 것이므로 그런 행은 건너뛰고 사유와 함께 센다.
+
+빈 값은 빈 값으로 적재된다. 준공일이 없는 단지는 `completion_date` 가 `NULL` 이고, 빈 문자열도
+0 도 아니다. `status` 가 계약 밖 값이면 한 행을 건너뛰지 않고 **전체가 실패한다** — 출처의 공백과
+깨진 계약은 다른 사실이다.
 
 재실행은 안전하다. 같은 스냅샷을 다시 적재하면 모든 행이 `unchanged` 로 보고되고 버전도 올라가지
 않는다. 지우는 경로는 없다 — 표에 있고 스냅샷에 없는 행은 그대로 남는다.

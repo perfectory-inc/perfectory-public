@@ -26,6 +26,7 @@ use crate::row_map::{
     row_to_digital_twin_asset, row_to_file_asset, row_to_industry_group,
     row_to_industry_group_member, row_to_parcel, row_to_parcel_industry_assignment,
     row_to_spatial_layer, row_to_vector_tile_artifact, row_to_vector_tile_manifest,
+    INDUSTRIAL_COMPLEX_COLUMNS,
 };
 use serde_json::Value as JsonValue;
 
@@ -101,13 +102,12 @@ impl PgCatalogRepository {
     }
 
     async fn fetch_industrial_complexes(&self) -> Result<Vec<IndustrialComplex>, CatalogError> {
-        let rows = sqlx::query(
-            "SELECT id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
-                    created_at, updated_at, archived_at, version
+        let rows = sqlx::query(&format!(
+            "SELECT {INDUSTRIAL_COMPLEX_COLUMNS}
              FROM catalog.industrial_complex
              WHERE archived_at IS NULL
-             ORDER BY official_complex_code, id",
-        )
+             ORDER BY official_complex_code, id"
+        ))
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
@@ -123,12 +123,11 @@ impl CatalogRepository for PgCatalogRepository {
     }
 
     async fn find_complex(&self, id: ComplexId) -> Result<Option<IndustrialComplex>, CatalogError> {
-        let row_opt = sqlx::query(
-            "SELECT id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
-                    created_at, updated_at, archived_at, version
+        let row_opt = sqlx::query(&format!(
+            "SELECT {INDUSTRIAL_COMPLEX_COLUMNS}
              FROM catalog.industrial_complex
-             WHERE id = $1",
-        )
+             WHERE id = $1"
+        ))
         .bind(id.as_uuid())
         .fetch_optional(&self.pool)
         .await

@@ -6,15 +6,16 @@
 use catalog_domain::{
     Blueprint, BlueprintKind, Building, CatalogError, ComplexNotice, DigitalTwinAsset,
     DigitalTwinAssetKind, FileAsset, FileAssetVisibility, IndustrialComplex, IndustrialComplexKind,
-    IndustryAssignmentKind, IndustryCodeSystem, IndustryGroup, IndustryGroupMember, NoticeType,
-    Parcel, ParcelIndustryAssignment, ParcelKind, SpatialLayer, SpatialLayerKind, TilesUrlTemplate,
-    VectorTileArtifact, VectorTileLineage, VectorTileManifest, ZoomRange,
+    IndustrialComplexStatus, IndustryAssignmentKind, IndustryCodeSystem, IndustryGroup,
+    IndustryGroupMember, NoticeType, Parcel, ParcelIndustryAssignment, ParcelKind, SpatialLayer,
+    SpatialLayerKind, TilesUrlTemplate, VectorTileArtifact, VectorTileLineage, VectorTileManifest,
+    ZoomRange,
 };
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::{
     BlueprintId, BuildingId, ComplexId, DigitalTwinAssetId, FileAssetId, IndustryAssignmentId,
-    IndustryGroupId, NoticeId, ParcelId, SourceRecordId, SpatialLayerId, VectorTileArtifactId,
-    VectorTileManifestId,
+    IndustryGroupId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId, SpatialLayerId,
+    VectorTileArtifactId, VectorTileManifestId,
 };
 use foundation_shared_kernel::pnu::Pnu;
 use foundation_shared_kernel::{ObjectKey, ObjectKeyPrefix};
@@ -22,19 +23,51 @@ use sqlx::postgres::PgRow;
 use sqlx::Row;
 use uuid::Uuid;
 
+/// Every `catalog.industrial_complex` column [`row_to_complex`] reads, as a SQL projection list.
+///
+/// Nine `SELECT`/`RETURNING` clauses across three modules used to spell this list out, and all nine
+/// were identical — which is what made them a defect rather than nine choices. Widening the row
+/// would have had to touch every one, and a column reaching the reader but not one of the nine
+/// fails at runtime with a missing-column error, not at compile time. The list lives beside its only
+/// consumer because the reader is what decides which columns a canonical complex needs.
+pub const INDUSTRIAL_COMPLEX_COLUMNS: &str = "id, lakehouse_complex_id, official_complex_code, \
+     name, kind, primary_bjdong_code, area_m2, status, sido_code, sigungu_code, address_text, \
+     management_agency_name, developer_name, designated_date, completion_date, \
+     created_at, updated_at, archived_at, version";
+
 pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
     let kind_raw: String = row.try_get("kind").map_err(map_sqlx)?;
     let kind = IndustrialComplexKind::from_wire(&kind_raw)
         .map_err(|e| CatalogError::Infrastructure(e.to_string()))?;
     let area_i64: i64 = row.try_get("area_m2").map_err(map_sqlx)?;
     let area = i64_to_u64(area_i64)?;
+    // A stored status outside the domain is a corrupted row, not a missing value, so it fails the
+    // read rather than being folded into `None`.
+    let status = row
+        .try_get::<Option<String>, _>("status")
+        .map_err(map_sqlx)?
+        .map(|raw| IndustrialComplexStatus::from_wire(raw.as_str()))
+        .transpose()
+        .map_err(|error| CatalogError::Infrastructure(error.to_string()))?;
     Ok(IndustrialComplex {
         id: ComplexId::new(row.try_get::<Uuid, _>("id").map_err(map_sqlx)?),
+        lakehouse_complex_id: row
+            .try_get::<Option<Uuid>, _>("lakehouse_complex_id")
+            .map_err(map_sqlx)?
+            .map(LakehouseComplexId::new),
         official_complex_code: row.try_get("official_complex_code").map_err(map_sqlx)?,
         name: row.try_get("name").map_err(map_sqlx)?,
         kind,
         primary_bjdong_code: row.try_get("primary_bjdong_code").map_err(map_sqlx)?,
         area_m2: area,
+        status,
+        sido_code: row.try_get("sido_code").map_err(map_sqlx)?,
+        sigungu_code: row.try_get("sigungu_code").map_err(map_sqlx)?,
+        address_text: row.try_get("address_text").map_err(map_sqlx)?,
+        management_agency_name: row.try_get("management_agency_name").map_err(map_sqlx)?,
+        developer_name: row.try_get("developer_name").map_err(map_sqlx)?,
+        designated_date: row.try_get("designated_date").map_err(map_sqlx)?,
+        completion_date: row.try_get("completion_date").map_err(map_sqlx)?,
         created_at: row
             .try_get::<DateTime<Utc>, _>("created_at")
             .map_err(map_sqlx)?,

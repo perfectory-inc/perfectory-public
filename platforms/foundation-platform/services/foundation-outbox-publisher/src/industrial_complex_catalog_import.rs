@@ -102,11 +102,23 @@ impl RawIndustrialComplexCatalogRow {
         let kind = IndustrialComplexKind::from_wire(self.kind.as_str())
             .map_err(|error| anyhow::anyhow!(error))?;
         Ok(IndustrialComplexCatalogRow {
+            // A hand-written seed states identity. Everything below is sourced description that
+            // only the Gold loader has a snapshot to read, so the seed asserts none of it rather
+            // than inventing values a reviewer would have to trust.
+            lakehouse_complex_id: None,
             official_complex_code: self.official_complex_code,
             name: self.name,
             kind,
             primary_bjdong_code: self.primary_bjdong_code,
             area_m2: self.area_m2,
+            status: None,
+            sido_code: None,
+            sigungu_code: None,
+            address_text: None,
+            management_agency_name: None,
+            developer_name: None,
+            designated_date: None,
+            completion_date: None,
         })
     }
 }

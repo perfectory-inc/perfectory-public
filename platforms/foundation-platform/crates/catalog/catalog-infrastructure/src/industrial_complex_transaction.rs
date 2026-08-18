@@ -10,7 +10,7 @@ use serde_json::Value as JsonValue;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::row_map::{map_sqlx, row_to_complex, u64_to_i64};
+use crate::row_map::{map_sqlx, row_to_complex, u64_to_i64, INDUSTRIAL_COMPLEX_COLUMNS};
 use crate::unit_of_work::insert_outbox_event;
 
 /// JSON snapshot of canonical industrial-complex fields stored around a mutation.
@@ -120,13 +120,12 @@ async fn lock_industrial_complex(
     tx: &mut Transaction<'_, Postgres>,
     complex_id: ComplexId,
 ) -> Result<IndustrialComplex, CatalogError> {
-    let row = sqlx::query(
-        "SELECT id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
-                created_at, updated_at, archived_at, version
+    let row = sqlx::query(&format!(
+        "SELECT {INDUSTRIAL_COMPLEX_COLUMNS}
          FROM catalog.industrial_complex
          WHERE id = $1
-         FOR UPDATE",
-    )
+         FOR UPDATE"
+    ))
     .bind(complex_id.as_uuid())
     .fetch_optional(&mut **tx)
     .await
@@ -159,16 +158,15 @@ async fn update_industrial_complex(
     mutation: &ComplexMutation,
 ) -> Result<IndustrialComplex, CatalogError> {
     let area_i64 = mutation.area_m2.map(u64_to_i64).transpose()?;
-    let row = sqlx::query(
+    let row = sqlx::query(&format!(
         "UPDATE catalog.industrial_complex
          SET name = COALESCE($2, name),
              area_m2 = COALESCE($3, area_m2),
              updated_at = now(),
              version = version + 1
          WHERE id = $1 AND archived_at IS NULL
-         RETURNING id, official_complex_code, name, kind, primary_bjdong_code, area_m2,
-                   created_at, updated_at, archived_at, version",
-    )
+         RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
+    ))
     .bind(complex_id.as_uuid())
     .bind(mutation.name.as_deref())
     .bind(area_i64)
