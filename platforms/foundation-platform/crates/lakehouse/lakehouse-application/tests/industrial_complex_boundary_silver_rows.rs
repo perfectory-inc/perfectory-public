@@ -171,7 +171,7 @@ fn quality_metrics_do_not_charge_this_stage_for_the_writers_columns() -> TestRes
 /// A shape with no area cannot state where a complex is, so it fails rather than travelling with a
 /// centroid nobody can compute.
 #[test]
-fn a_boundary_that_encloses_no_area_is_rejected() {
+fn a_boundary_that_encloses_no_area_is_rejected() -> TestResult {
     let collinear = vec![vec![
         GeoPoint { x: 0.0, y: 0.0 },
         GeoPoint { x: 1.0, y: 0.0 },
@@ -179,24 +179,25 @@ fn a_boundary_that_encloses_no_area_is_rejected() {
         GeoPoint { x: 0.0, y: 0.0 },
     ]];
 
-    let error = normalize(&[boundary(
+    let Err(error) = normalize(&[boundary(
         FIXTURE_COMPLEX_CODE,
         ParsedPolygonalGeometry::Polygon(collinear),
-    )])
-    .map(|_| ())
-    .expect_err("a zero-area boundary must be rejected");
+    )]) else {
+        return Err("a zero-area boundary must be rejected".into());
+    };
 
     assert!(format!("{error}").contains("encloses no area"), "{error}");
+    Ok(())
 }
 
 #[test]
-fn empty_lineage_is_rejected() {
+fn empty_lineage_is_rejected() -> TestResult {
     let boundaries = [boundary(
         FIXTURE_COMPLEX_CODE,
         ParsedPolygonalGeometry::Polygon(vec![square(0.0, 0.0, 10.0)]),
     )];
 
-    let error = normalize_industrial_complex_boundary_silver_rows(
+    let Err(error) = normalize_industrial_complex_boundary_silver_rows(
         &IndustrialComplexBoundarySilverRowsInput {
             boundaries: &boundaries,
             source_record_id: "",
@@ -204,11 +205,12 @@ fn empty_lineage_is_rejected() {
             valid_from_utc: Utc::now(),
             ingested_at_utc: Utc::now(),
         },
-    )
-    .map(|_| ())
-    .expect_err("an empty source_record_id must be rejected");
+    ) else {
+        return Err("an empty source_record_id must be rejected".into());
+    };
 
     assert!(format!("{error}").contains("source_record_id"), "{error}");
+    Ok(())
 }
 
 fn normalize(
