@@ -125,6 +125,135 @@ pub fn geometry_bounding_box(
     accumulator.finish()
 }
 
+/// Returns the area of a polygonal geometry in the squared unit of its own SRID.
+///
+/// Holes are subtracted. The result is meaningful only when that unit is a length: a geometry in a
+/// geographic CRS returns square degrees, which is not an area anyone wants. The caller knows its
+/// SRID and is responsible for that judgement.
+///
+/// Ring winding does not matter here — each ring contributes the absolute value of its shoelace
+/// area and its role comes from its position, exterior first — so a reader that has already sorted
+/// exterior rings from holes cannot make the total come out negative by winding them either way.
+#[must_use]
+pub fn geometry_area(geometry: &ParsedPolygonalGeometry) -> f64 {
+    match geometry {
+        ParsedPolygonalGeometry::Polygon(polygon) => polygon_area(polygon),
+        ParsedPolygonalGeometry::MultiPolygon(polygons) => {
+            polygons.iter().map(|polygon| polygon_area(polygon)).sum()
+        }
+    }
+}
+
+/// Returns the area-weighted centroid of a polygonal geometry, in its own SRID.
+///
+/// Returns `None` when the geometry encloses no area, which is the only case where the centroid is
+/// undefined. A degenerate ring — every point collinear, or a ring whose holes cancel it out — is
+/// the shape that produces it.
+#[must_use]
+pub fn geometry_centroid(geometry: &ParsedPolygonalGeometry) -> Option<GeoPoint> {
+    let polygons: &[PolygonRings] = match geometry {
+        ParsedPolygonalGeometry::Polygon(polygon) => std::slice::from_ref(polygon),
+        ParsedPolygonalGeometry::MultiPolygon(polygons) => polygons,
+    };
+    let mut area_total = 0.0_f64;
+    let mut moment_x = 0.0_f64;
+    let mut moment_y = 0.0_f64;
+    for polygon in polygons {
+        let Some((centroid, area)) = polygon_centroid_and_area(polygon) else {
+            continue;
+        };
+        area_total += area;
+        moment_x = centroid.x.mul_add(area, moment_x);
+        moment_y = centroid.y.mul_add(area, moment_y);
+    }
+    if area_total <= 0.0 {
+        return None;
+    }
+    Some(GeoPoint {
+        x: moment_x / area_total,
+        y: moment_y / area_total,
+    })
+}
+
+fn polygon_area(polygon: &[LinearRing]) -> f64 {
+    let mut rings = polygon.iter();
+    let Some(exterior) = rings.next() else {
+        return 0.0;
+    };
+    let holes: f64 = rings.map(|ring| ring_signed_area(ring).abs()).sum();
+    ring_signed_area(exterior).abs() - holes
+}
+
+/// Returns the polygon's centroid and its area, or `None` when it encloses no area.
+fn polygon_centroid_and_area(polygon: &[LinearRing]) -> Option<(GeoPoint, f64)> {
+    let mut rings = polygon.iter();
+    let exterior = rings.next()?;
+    let (exterior_centroid, exterior_area) = ring_centroid_and_area(exterior)?;
+    let mut area = exterior_area;
+    let mut moment_x = exterior_centroid.x * exterior_area;
+    let mut moment_y = exterior_centroid.y * exterior_area;
+    for hole in rings {
+        let Some((hole_centroid, hole_area)) = ring_centroid_and_area(hole) else {
+            continue;
+        };
+        area -= hole_area;
+        moment_x = hole_centroid.x.mul_add(-hole_area, moment_x);
+        moment_y = hole_centroid.y.mul_add(-hole_area, moment_y);
+    }
+    if area <= 0.0 {
+        return None;
+    }
+    Some((
+        GeoPoint {
+            x: moment_x / area,
+            y: moment_y / area,
+        },
+        area,
+    ))
+}
+
+/// Returns one ring's centroid and its unsigned area, or `None` for a ring that encloses none.
+///
+/// The centroid itself does not depend on winding: reversing a ring flips the sign of both the
+/// moment sums and the signed area, and they divide out.
+fn ring_centroid_and_area(ring: &[GeoPoint]) -> Option<(GeoPoint, f64)> {
+    let mut signed_area = 0.0_f64;
+    let mut moment_x = 0.0_f64;
+    let mut moment_y = 0.0_f64;
+    for pair in ring.windows(2) {
+        let (current, next) = (pair[0], pair[1]);
+        let cross = current.x.mul_add(next.y, -(next.x * current.y));
+        signed_area += cross;
+        moment_x = (current.x + next.x).mul_add(cross, moment_x);
+        moment_y = (current.y + next.y).mul_add(cross, moment_y);
+    }
+    if signed_area == 0.0 {
+        return None;
+    }
+    Some((
+        GeoPoint {
+            x: moment_x / (3.0 * signed_area),
+            y: moment_y / (3.0 * signed_area),
+        },
+        (signed_area / 2.0).abs(),
+    ))
+}
+
+/// Returns twice the shoelace area of a ring: positive counter-clockwise, negative clockwise.
+///
+/// The doubling is deliberate — every caller either halves it or only reads its sign, and dividing
+/// here would add a rounding step to the sign test that decides which rings are holes.
+#[must_use]
+pub fn ring_signed_double_area(ring: &[GeoPoint]) -> f64 {
+    ring.windows(2)
+        .map(|pair| pair[0].x.mul_add(pair[1].y, -(pair[1].x * pair[0].y)))
+        .sum()
+}
+
+fn ring_signed_area(ring: &[GeoPoint]) -> f64 {
+    ring_signed_double_area(ring) / 2.0
+}
+
 /// Encodes polygonal geometry as standard little-endian WKB for `GeoParquet` writers.
 ///
 /// # Errors
@@ -185,4 +314,157 @@ fn write_u32_le(bytes: &mut Vec<u8>, value: u32) {
 
 fn write_f64_le(bytes: &mut Vec<u8>, value: f64) {
     bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Context as _;
+
+    use super::{
+        geometry_area, geometry_bounding_box, geometry_centroid, ring_signed_double_area, GeoPoint,
+        ParsedPolygonalGeometry,
+    };
+
+    fn ring(points: &[(f64, f64)]) -> Vec<GeoPoint> {
+        points
+            .iter()
+            .map(|(x, y)| GeoPoint { x: *x, y: *y })
+            .collect()
+    }
+
+    /// Closed counter-clockwise square of the given side, anchored at `(x0, y0)`.
+    fn square(x0: f64, y0: f64, side: f64) -> Vec<GeoPoint> {
+        ring(&[
+            (x0, y0),
+            (x0 + side, y0),
+            (x0 + side, y0 + side),
+            (x0, y0 + side),
+            (x0, y0),
+        ])
+    }
+
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn a_square_has_its_side_squared_as_area() {
+        let geometry = ParsedPolygonalGeometry::Polygon(vec![square(0.0, 0.0, 10.0)]);
+
+        assert_close(geometry_area(&geometry), 100.0);
+    }
+
+    /// The hole is what makes this worth testing: a reader that mistook it for a second exterior
+    /// ring would report 100 + 4 instead of 100 - 4, and nothing downstream could tell.
+    #[test]
+    fn a_hole_is_subtracted_not_added() {
+        let geometry =
+            ParsedPolygonalGeometry::Polygon(vec![square(0.0, 0.0, 10.0), square(4.0, 4.0, 2.0)]);
+
+        assert_close(geometry_area(&geometry), 96.0);
+    }
+
+    /// Shapefiles wind exterior rings clockwise, `GeoJSON` counter-clockwise. Area must not depend
+    /// on which convention the source used, only on which ring the reader called exterior.
+    #[test]
+    fn area_does_not_depend_on_winding() {
+        let mut reversed = square(0.0, 0.0, 10.0);
+        reversed.reverse();
+
+        let clockwise = ParsedPolygonalGeometry::Polygon(vec![reversed]);
+        let counter_clockwise = ParsedPolygonalGeometry::Polygon(vec![square(0.0, 0.0, 10.0)]);
+
+        assert_close(geometry_area(&clockwise), geometry_area(&counter_clockwise));
+    }
+
+    #[test]
+    fn a_square_centroid_is_its_middle() -> anyhow::Result<()> {
+        let geometry = ParsedPolygonalGeometry::Polygon(vec![square(0.0, 0.0, 10.0)]);
+
+        let centroid = geometry_centroid(&geometry).context("a square encloses area")?;
+
+        assert_close(centroid.x, 5.0);
+        assert_close(centroid.y, 5.0);
+        Ok(())
+    }
+
+    /// An off-centre hole pulls the centroid away from it — the check that the hole enters the
+    /// moment sum with a negative weight rather than being ignored.
+    #[test]
+    fn an_off_centre_hole_moves_the_centroid_away_from_itself() -> anyhow::Result<()> {
+        let geometry =
+            ParsedPolygonalGeometry::Polygon(vec![square(0.0, 0.0, 10.0), square(1.0, 1.0, 2.0)]);
+
+        let centroid = geometry_centroid(&geometry).context("the ring still encloses area")?;
+
+        assert!(centroid.x > 5.0, "{}", centroid.x);
+        assert!(centroid.y > 5.0, "{}", centroid.y);
+        Ok(())
+    }
+
+    /// Two equal parts put the centroid halfway between them, weighted by area.
+    #[test]
+    fn a_multipolygon_centroid_is_area_weighted() -> anyhow::Result<()> {
+        let geometry = ParsedPolygonalGeometry::MultiPolygon(vec![
+            vec![square(0.0, 0.0, 2.0)],
+            vec![square(10.0, 0.0, 2.0)],
+        ]);
+
+        let centroid = geometry_centroid(&geometry).context("both parts enclose area")?;
+
+        assert_close(geometry_area(&geometry), 8.0);
+        assert_close(centroid.x, 6.0);
+        assert_close(centroid.y, 1.0);
+        Ok(())
+    }
+
+    /// The contract gate says the centroid sits inside the bbox. For an area-weighted centroid of
+    /// disjoint parts that is a consequence, not a coincidence — it is a convex combination.
+    #[test]
+    fn a_multipolygon_centroid_stays_inside_the_bounding_box() -> anyhow::Result<()> {
+        let geometry = ParsedPolygonalGeometry::MultiPolygon(vec![
+            vec![square(0.0, 0.0, 1.0)],
+            vec![square(100.0, 50.0, 3.0)],
+        ]);
+
+        let centroid = geometry_centroid(&geometry).context("both parts enclose area")?;
+        let bbox = geometry_bounding_box(&geometry)?;
+
+        assert!(
+            centroid.x >= bbox.min_x && centroid.x <= bbox.max_x,
+            "{centroid:?}"
+        );
+        assert!(
+            centroid.y >= bbox.min_y && centroid.y <= bbox.max_y,
+            "{centroid:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_collinear_ring_has_no_centroid() {
+        let geometry = ParsedPolygonalGeometry::Polygon(vec![ring(&[
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (2.0, 0.0),
+            (0.0, 0.0),
+        ])]);
+
+        assert!(geometry_centroid(&geometry).is_none());
+    }
+
+    /// The sign is the whole point: it is what a shapefile reader uses to tell an exterior ring
+    /// from a hole.
+    #[test]
+    fn the_shoelace_sign_says_which_way_a_ring_winds() {
+        let counter_clockwise = square(0.0, 0.0, 1.0);
+        let mut clockwise = counter_clockwise.clone();
+        clockwise.reverse();
+
+        assert!(ring_signed_double_area(&counter_clockwise) > 0.0);
+        assert!(ring_signed_double_area(&clockwise) < 0.0);
+    }
 }

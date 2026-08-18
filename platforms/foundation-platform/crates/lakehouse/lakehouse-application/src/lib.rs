@@ -20,6 +20,9 @@ pub mod build_industrial_complex_silver_handoff;
 /// Derivation of the injected address resolution for the industrial-complex producer.
 pub mod industrial_complex_address_resolution_plan;
 
+/// Silver normalization helpers for industrial-complex boundary rows.
+pub mod industrial_complex_boundary_silver_plan;
+
 /// Bronze JSONL normalization helpers for the industrial-complex profile source.
 pub mod industrial_complex_bronze_raw_plan;
 
@@ -95,6 +98,14 @@ pub use industrial_complex_address_resolution_plan::{
     ResolvedComplexAddress, SourceComplexRecord, SourceNoticeRecord, UnresolvedComplex,
     UnresolvedReason, NOTICE_DATASET_SLUG_SUFFIX,
 };
+pub use industrial_complex_boundary_silver_plan::{
+    build_industrial_complex_boundary_silver_handoff,
+    industrial_complex_boundary_transport_columns,
+    normalize_industrial_complex_boundary_silver_rows, IndustrialComplexBoundarySilverHandoff,
+    IndustrialComplexBoundarySilverPlanError, IndustrialComplexBoundarySilverRow,
+    IndustrialComplexBoundarySilverRowsInput, IndustrialComplexBoundarySource,
+    BOUNDARY_KIND_OFFICIAL, INDUSTRIAL_COMPLEX_BOUNDARY_SRID,
+};
 pub use industrial_complex_bronze_raw_plan::{
     industrial_complex_bronze_raw_row_to_jsonl, industrial_complex_labels_measured_for,
     normalize_industrial_complex_bronze_raw_rows, IndustrialComplexAddress,
@@ -111,8 +122,9 @@ pub use industrial_complex_silver_plan::{
 
 pub use get_lakehouse_promotion_candidate::GetLakehousePromotionCandidate;
 pub use polygonal_geometry::{
-    geometry_bounding_box, geometry_to_wkb, BoundingBoxAccumulator, GeoPoint, GeometryBoundingBox,
-    LinearRing, ParsedPolygonalGeometry, PolygonRings, PolygonalGeometryError,
+    geometry_area, geometry_bounding_box, geometry_centroid, geometry_to_wkb,
+    ring_signed_double_area, BoundingBoxAccumulator, GeoPoint, GeometryBoundingBox, LinearRing,
+    ParsedPolygonalGeometry, PolygonRings, PolygonalGeometryError,
 };
 pub use publish_industrial_complex_gold_pointer::{
     PublishIndustrialComplexGoldPointer, PublishIndustrialComplexGoldPointerCommand,
