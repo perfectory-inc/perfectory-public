@@ -50,10 +50,30 @@ pub struct IndustrialComplexSilverRow {
     pub developer_name: Option<String>,
     /// Optional designation date.
     pub designated_date: Option<String>,
+    /// Optional site-works start date.
+    pub construction_start_date: Option<String>,
     /// Optional completion date.
     pub completion_date: Option<String>,
     /// Official complex area in square meters.
     pub official_area_sqm: Option<u64>,
+    /// Optional site-formation progress percentage as exact decimal text.
+    pub development_progress_percent: Option<String>,
+    /// Optional `lot_sales_status` wire value.
+    pub lot_sales_status: Option<String>,
+    /// Optional business period exactly as the source wrote it.
+    pub business_period_raw: Option<String>,
+    /// Optional first month of the business period as `yyyy-MM`.
+    pub business_period_start_month: Option<String>,
+    /// Optional last month of the business period as `yyyy-MM`.
+    pub business_period_end_month: Option<String>,
+    /// Optional statute the designation was made under, verbatim.
+    pub designation_basis_law_raw: Option<String>,
+    /// Optional development method, verbatim.
+    pub development_method_raw: Option<String>,
+    /// Optional development purpose, verbatim.
+    pub development_purpose_raw: Option<String>,
+    /// Optional invited industry types, verbatim.
+    pub invited_industries_raw: Option<String>,
     /// Stable lineage id for the Catalog source row.
     pub source_record_id: String,
     /// Source-snapshot lineage id.
@@ -210,8 +230,26 @@ fn normalize_complex(
         management_agency_name: None,
         developer_name: None,
         designated_date: None,
+        // Read off the aggregate rather than nulled, unlike the five above. Those five predate the
+        // canonical columns that now hold them and are a separate gap; these ten have a canonical
+        // value from the day the column exists, and writing null beside a value the row carries
+        // would claim the source stated nothing.
+        construction_start_date: complex
+            .construction_start_date
+            .map(|date| date.format("%Y-%m-%d").to_string()),
         completion_date: None,
         official_area_sqm: (complex.area_m2 > 0).then_some(complex.area_m2),
+        development_progress_percent: complex.development_progress_percent.clone(),
+        lot_sales_status: complex
+            .lot_sales_status
+            .map(|status| status.wire_name().to_owned()),
+        business_period_raw: complex.business_period_raw.clone(),
+        business_period_start_month: complex.business_period_start_month.clone(),
+        business_period_end_month: complex.business_period_end_month.clone(),
+        designation_basis_law_raw: complex.designation_basis_law_raw.clone(),
+        development_method_raw: complex.development_method_raw.clone(),
+        development_purpose_raw: complex.development_purpose_raw.clone(),
+        invited_industries_raw: complex.invited_industries_raw.clone(),
         source_record_id: format!(
             "foundation-platform:catalog.industrial_complex:{}",
             complex.id
@@ -305,88 +343,103 @@ fn increment_metric(metrics: &mut BTreeMap<String, u64>, name: &str) {
     *metrics.entry(name.to_owned()).or_insert(0) += 1;
 }
 
+/// Renders one row as the JSON object a `silver.industrial_complexes` writer consumes.
+///
+/// Written as a name/value table rather than a run of `insert` calls so the emitted key set is
+/// readable next to the contract it has to equal. `tests/industrial_complex_silver_rows.rs` pins
+/// that equality: this emitter spells every key by hand, and without the pin a widened contract
+/// would leave a handoff a Spark job rejects at run time for a column nothing here could catch.
 fn row_to_json_value(row: &IndustrialComplexSilverRow) -> JsonValue {
-    let mut record = JsonMap::new();
-    record.insert(
-        "complex_id".to_owned(),
-        JsonValue::String(row.complex_id.clone()),
-    );
-    record.insert(
-        "official_complex_code".to_owned(),
-        JsonValue::String(row.official_complex_code.clone()),
-    );
-    record.insert(
-        "complex_name".to_owned(),
-        JsonValue::String(row.complex_name.clone()),
-    );
-    record.insert(
-        "complex_name_normalized".to_owned(),
-        JsonValue::String(row.complex_name_normalized.clone()),
-    );
-    record.insert(
-        "complex_kind".to_owned(),
-        JsonValue::String(row.complex_kind.clone()),
-    );
-    record.insert("status".to_owned(), JsonValue::String(row.status.clone()));
-    record.insert(
-        "sido_code".to_owned(),
-        optional_string_json(row.sido_code.as_ref()),
-    );
-    record.insert(
-        "sigungu_code".to_owned(),
-        optional_string_json(row.sigungu_code.as_ref()),
-    );
-    record.insert(
-        "primary_bjdong_code".to_owned(),
-        optional_string_json(row.primary_bjdong_code.as_ref()),
-    );
-    record.insert(
-        "address_text".to_owned(),
-        optional_string_json(row.address_text.as_ref()),
-    );
-    record.insert(
-        "management_agency_name".to_owned(),
-        optional_string_json(row.management_agency_name.as_ref()),
-    );
-    record.insert(
-        "developer_name".to_owned(),
-        optional_string_json(row.developer_name.as_ref()),
-    );
-    record.insert(
-        "designated_date".to_owned(),
-        optional_string_json(row.designated_date.as_ref()),
-    );
-    record.insert(
-        "completion_date".to_owned(),
-        optional_string_json(row.completion_date.as_ref()),
-    );
-    record.insert(
-        "official_area_sqm".to_owned(),
-        row.official_area_sqm
-            .map_or(JsonValue::Null, JsonValue::from),
-    );
-    record.insert(
-        "source_record_id".to_owned(),
-        JsonValue::String(row.source_record_id.clone()),
-    );
-    record.insert(
-        "source_snapshot_id".to_owned(),
-        JsonValue::String(row.source_snapshot_id.clone()),
-    );
-    record.insert(
-        "valid_from_utc".to_owned(),
-        JsonValue::String(timestamp_json(row.valid_from_utc)),
-    );
-    record.insert("valid_to_utc".to_owned(), JsonValue::Null);
-    record.insert(
-        "ingested_at_utc".to_owned(),
-        JsonValue::String(timestamp_json(row.ingested_at_utc)),
-    );
-    record.insert(
-        "row_checksum_sha256".to_owned(),
-        JsonValue::String(row.row_checksum_sha256.clone()),
-    );
-    JsonValue::Object(record)
+    let required = |value: &String| JsonValue::String(value.clone());
+    let optional = optional_string_json;
+    let entries: [(&str, JsonValue); 31] = [
+        ("complex_id", required(&row.complex_id)),
+        (
+            "official_complex_code",
+            required(&row.official_complex_code),
+        ),
+        ("complex_name", required(&row.complex_name)),
+        (
+            "complex_name_normalized",
+            required(&row.complex_name_normalized),
+        ),
+        ("complex_kind", required(&row.complex_kind)),
+        ("status", required(&row.status)),
+        ("sido_code", optional(row.sido_code.as_ref())),
+        ("sigungu_code", optional(row.sigungu_code.as_ref())),
+        (
+            "primary_bjdong_code",
+            optional(row.primary_bjdong_code.as_ref()),
+        ),
+        ("address_text", optional(row.address_text.as_ref())),
+        (
+            "management_agency_name",
+            optional(row.management_agency_name.as_ref()),
+        ),
+        ("developer_name", optional(row.developer_name.as_ref())),
+        ("designated_date", optional(row.designated_date.as_ref())),
+        (
+            "construction_start_date",
+            optional(row.construction_start_date.as_ref()),
+        ),
+        ("completion_date", optional(row.completion_date.as_ref())),
+        (
+            "official_area_sqm",
+            row.official_area_sqm
+                .map_or(JsonValue::Null, JsonValue::from),
+        ),
+        (
+            "development_progress_percent",
+            optional(row.development_progress_percent.as_ref()),
+        ),
+        ("lot_sales_status", optional(row.lot_sales_status.as_ref())),
+        (
+            "business_period_raw",
+            optional(row.business_period_raw.as_ref()),
+        ),
+        (
+            "business_period_start_month",
+            optional(row.business_period_start_month.as_ref()),
+        ),
+        (
+            "business_period_end_month",
+            optional(row.business_period_end_month.as_ref()),
+        ),
+        (
+            "designation_basis_law_raw",
+            optional(row.designation_basis_law_raw.as_ref()),
+        ),
+        (
+            "development_method_raw",
+            optional(row.development_method_raw.as_ref()),
+        ),
+        (
+            "development_purpose_raw",
+            optional(row.development_purpose_raw.as_ref()),
+        ),
+        (
+            "invited_industries_raw",
+            optional(row.invited_industries_raw.as_ref()),
+        ),
+        ("source_record_id", required(&row.source_record_id)),
+        ("source_snapshot_id", required(&row.source_snapshot_id)),
+        (
+            "valid_from_utc",
+            JsonValue::String(timestamp_json(row.valid_from_utc)),
+        ),
+        ("valid_to_utc", JsonValue::Null),
+        (
+            "ingested_at_utc",
+            JsonValue::String(timestamp_json(row.ingested_at_utc)),
+        ),
+        ("row_checksum_sha256", required(&row.row_checksum_sha256)),
+    ];
+    JsonValue::Object(
+        entries
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect::<JsonMap<_, _>>(),
+    )
 }
 
 fn row_checksum(
@@ -420,31 +473,22 @@ fn column_names(contract: &LakehouseTableContract) -> Vec<String> {
         .collect()
 }
 
+/// Contract columns this handoff supplies: everything except the two the writer derives.
+///
+/// Read off the contract rather than listed here. A hand-written copy of a column list beside the
+/// contract it copies is the defect, not the drift it later produces: widening the contract left a
+/// second list behind, silently, with nothing that could fail. `tests/industrial_complex_silver_\
+/// rows.rs` pins both this list and the emitted record's key set to the contract.
+const HANDOFF_WRITER_DERIVED_COLUMNS: &[&str] = &["complex_name_normalized", "valid_to_utc"];
+
 fn industrial_complex_transport_columns() -> Vec<String> {
-    [
-        "complex_id",
-        "official_complex_code",
-        "complex_name",
-        "complex_kind",
-        "status",
-        "sido_code",
-        "sigungu_code",
-        "primary_bjdong_code",
-        "address_text",
-        "management_agency_name",
-        "developer_name",
-        "designated_date",
-        "completion_date",
-        "official_area_sqm",
-        "source_record_id",
-        "source_snapshot_id",
-        "valid_from_utc",
-        "ingested_at_utc",
-        "row_checksum_sha256",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
+    SILVER_INDUSTRIAL_COMPLEXES
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .filter(|name| !HANDOFF_WRITER_DERIVED_COLUMNS.contains(name))
+        .map(str::to_owned)
+        .collect()
 }
 
 fn validate_lineage_part(

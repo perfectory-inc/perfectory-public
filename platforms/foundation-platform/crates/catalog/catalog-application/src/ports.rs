@@ -9,12 +9,12 @@ use async_trait::async_trait;
 use catalog_domain::{
     Blueprint, BuildEvidenceDigest, Building, CanonicalIcebergSnapshotId, CatalogError,
     CatalogMutationKind, ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset,
-    FileAsset, IndustrialComplex, IndustrialComplexKind, IndustrialComplexStatus, IndustryGroup,
-    IndustryGroupMember, MarkerAnchorAlgorithm, MarkerTileRequest, Parcel,
-    ParcelIndustryAssignment, ParcelKind, PmtilesChecksum, RequestFingerprint,
-    RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
-    ServingGeneration, SpatialLayer, VectorTileBuildOutcome, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    FileAsset, IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
+    IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, PmtilesChecksum,
+    RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
+    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, VectorTileBuildOutcome,
+    VectorTileManifest, VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
@@ -524,8 +524,28 @@ pub struct UpsertIndustrialComplexCommand {
     pub developer_name: Option<String>,
     /// Official designation date to write.
     pub designated_date: Option<NaiveDate>,
+    /// Site-works start date to write.
+    pub construction_start_date: Option<NaiveDate>,
     /// Site-formation completion date to write.
     pub completion_date: Option<NaiveDate>,
+    /// Site-formation progress percentage to write, as exact decimal text.
+    pub development_progress_percent: Option<String>,
+    /// Lot-sales status to write.
+    pub lot_sales_status: Option<IndustrialComplexLotSalesStatus>,
+    /// Business period to write, exactly as the source wrote it.
+    pub business_period_raw: Option<String>,
+    /// First month of the business period to write, as `yyyy-MM`.
+    pub business_period_start_month: Option<String>,
+    /// Last month of the business period to write, as `yyyy-MM`.
+    pub business_period_end_month: Option<String>,
+    /// Designation basis statute to write, verbatim.
+    pub designation_basis_law_raw: Option<String>,
+    /// Development method to write, verbatim.
+    pub development_method_raw: Option<String>,
+    /// Development purpose to write, verbatim.
+    pub development_purpose_raw: Option<String>,
+    /// Invited industry types to write, verbatim.
+    pub invited_industries_raw: Option<String>,
 }
 
 /// What one upsert command did to the canonical table.

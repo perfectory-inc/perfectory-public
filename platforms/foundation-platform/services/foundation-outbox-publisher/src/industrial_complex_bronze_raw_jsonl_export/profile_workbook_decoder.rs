@@ -21,7 +21,33 @@ const HEADER_DEVELOPER: &str = "bsms_opertn_entrps_nm";
 const HEADER_DESIGNATED_DATE: &str = "appn_de";
 const HEADER_COMPLETION_DATE: &str = "compet_cnfm_de";
 const HEADER_AREA: &str = "appn_ar";
+const HEADER_CONSTRUCTION_START_DATE: &str = "strwrk_de";
+const HEADER_DEVELOPMENT_PROGRESS: &str = "make_procs_rt";
+const HEADER_LOT_SALES_STATUS: &str = "lttot_sttus_nm";
+const HEADER_BUSINESS_PERIOD: &str = "bsms_pd";
+const HEADER_DESIGNATION_BASIS_LAW: &str = "appn_basis_law";
+const HEADER_DEVELOPMENT_METHOD: &str = "devlop_mth";
+const HEADER_DEVELOPMENT_PURPOSE: &str = "make_purps_cn";
+const HEADER_INVITED_INDUSTRIES: &str = "invite_upj";
 
+// The worksheet has twenty header columns and this decoder reads eighteen of them. The two it
+// leaves alone are left alone on measured evidence, recorded here because the next reader will
+// otherwise see two unread columns and assume they were forgotten. Root ADR-0044 holds the full
+// argument.
+//
+// `frst_regist_de` carries the Excel serial `45809` in all 1,442 rows — `1899-12-30 + 45809 days`
+// is `2025-06-01`, which is the first day of the snapshot month `sta_ym=202506`. It is the date the
+// provider's system wrote these rows, not the date any complex was first registered. Reading it
+// into a column named for the latter would attach the same fabricated fact to all 1,442 complexes.
+//
+// `rent_hsmp_se_code` is blank in all 1,442 rows. A column no snapshot fills is a column with no
+// producer, and root ADR-0040 exists to refuse exactly that shape.
+
+/// Headers a row cannot be decoded without.
+///
+/// Identity, classification, lineage — everything the row's shape depends on. A worksheet missing
+/// one of these does not describe industrial complexes this pipeline can represent, so the decode
+/// fails naming what is gone.
 const REQUIRED_HEADERS: &[&str] = &[
     HEADER_SNAPSHOT_PERIOD,
     HEADER_COMPLEX_CODE,
@@ -35,12 +61,42 @@ const REQUIRED_HEADERS: &[&str] = &[
     HEADER_AREA,
 ];
 
+/// Headers this decoder reads but does not require.
+///
+/// The 202506 workbook has all eight. Requiring them would mean a provider that drops one column
+/// next month keeps all 1,442 complexes out of the lakehouse, and this provider does empty columns:
+/// `rent_hsmp_se_code` is a header it publishes with nothing under it in every row.
+///
+/// Not requiring them cannot mean not noticing them. A header that disappears would otherwise show
+/// up as a column of nulls — a shape indistinguishable from a provider that stopped filling the
+/// cells, and one nobody would investigate. [`DecodedProfileSheet::absent_optional_headers`] names
+/// every one that was missing so the export summary reports the absence as an absence.
+const OPTIONAL_HEADERS: &[&str] = &[
+    HEADER_CONSTRUCTION_START_DATE,
+    HEADER_DEVELOPMENT_PROGRESS,
+    HEADER_LOT_SALES_STATUS,
+    HEADER_BUSINESS_PERIOD,
+    HEADER_DESIGNATION_BASIS_LAW,
+    HEADER_DEVELOPMENT_METHOD,
+    HEADER_DEVELOPMENT_PURPOSE,
+    HEADER_INVITED_INDUSTRIES,
+];
+
+/// One decoded worksheet: its rows, and what the header row did not have.
+#[derive(Debug)]
+pub(crate) struct DecodedProfileSheet {
+    /// Decoded source records in sheet order.
+    pub(crate) records: Vec<IndustrialComplexBronzeSourceRecord>,
+    /// [`OPTIONAL_HEADERS`] the worksheet did not carry, in contract order.
+    pub(crate) absent_optional_headers: Vec<&'static str>,
+}
+
 /// Decodes the profile worksheet into source records.
 pub(super) fn decode_profile_rows(
     workbook_bytes: Vec<u8>,
     sheet_name: Option<&str>,
     max_rows: Option<usize>,
-) -> anyhow::Result<Vec<IndustrialComplexBronzeSourceRecord>> {
+) -> anyhow::Result<DecodedProfileSheet> {
     let mut workbook: Xlsx<_> = open_workbook_from_rs(Cursor::new(workbook_bytes))
         .context("failed to open the industrial-complex profile workbook")?;
     let sheet_name = select_sheet(&workbook, sheet_name)?;
@@ -84,6 +140,22 @@ pub(super) fn decode_profile_rows(
             designated_date_raw: optional_cell(row, &headers, HEADER_DESIGNATED_DATE),
             completion_date_raw: optional_cell(row, &headers, HEADER_COMPLETION_DATE),
             official_area_sqm_raw: optional_cell(row, &headers, HEADER_AREA),
+            construction_start_date_raw: optional_cell(
+                row,
+                &headers,
+                HEADER_CONSTRUCTION_START_DATE,
+            ),
+            development_progress_percent_raw: optional_cell(
+                row,
+                &headers,
+                HEADER_DEVELOPMENT_PROGRESS,
+            ),
+            lot_sales_status_label: optional_cell(row, &headers, HEADER_LOT_SALES_STATUS),
+            business_period_raw: optional_cell(row, &headers, HEADER_BUSINESS_PERIOD),
+            designation_basis_law_raw: optional_cell(row, &headers, HEADER_DESIGNATION_BASIS_LAW),
+            development_method_raw: optional_cell(row, &headers, HEADER_DEVELOPMENT_METHOD),
+            development_purpose_raw: optional_cell(row, &headers, HEADER_DEVELOPMENT_PURPOSE),
+            invited_industries_raw: optional_cell(row, &headers, HEADER_INVITED_INDUSTRIES),
             snapshot_period: required_cell(
                 row,
                 &headers,
@@ -96,7 +168,14 @@ pub(super) fn decode_profile_rows(
     if records.is_empty() {
         bail!("the profile worksheet {sheet_name} has no data rows");
     }
-    Ok(records)
+    Ok(DecodedProfileSheet {
+        records,
+        absent_optional_headers: OPTIONAL_HEADERS
+            .iter()
+            .filter(|header| !headers.contains_key(**header))
+            .copied()
+            .collect(),
+    })
 }
 
 fn select_sheet<RS>(workbook: &Xlsx<RS>, pinned: Option<&str>) -> anyhow::Result<String>
@@ -270,8 +349,12 @@ pub(super) mod tests_support {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_profile_rows, tests_support::build_profile_workbook};
+    use super::{
+        decode_profile_rows, tests_support::build_profile_workbook, OPTIONAL_HEADERS,
+        REQUIRED_HEADERS,
+    };
 
+    /// The eighteen headers this decoder reads, in the order the fixture rows below use.
     fn header() -> &'static [&'static str] {
         &[
             "sta_ym",
@@ -284,28 +367,46 @@ mod tests {
             "appn_de",
             "compet_cnfm_de",
             "appn_ar",
+            "strwrk_de",
+            "make_procs_rt",
+            "lttot_sttus_nm",
+            "bsms_pd",
+            "appn_basis_law",
+            "devlop_mth",
+            "make_purps_cn",
+            "invite_upj",
+        ]
+    }
+
+    fn full_row() -> &'static [&'static str] {
+        &[
+            "202506",
+            "111010",
+            "구로디지털단지",
+            "국가",
+            "조성완료",
+            "한국산업단지공단",
+            "",
+            "19640415",
+            "",
+            "1925368.7",
+            "19650312",
+            "100",
+            "분양완료",
+            "1964-04~1974-11",
+            "산업입지 및 개발에 관한 법률",
+            "공영개발",
+            "수출산업 육성",
+            "전자부품",
         ]
     }
 
     #[test]
     fn decodes_numeric_cells_without_a_trailing_decimal_point() -> anyhow::Result<()> {
-        let workbook = build_profile_workbook(&[
-            header(),
-            &[
-                "202506",
-                "111010",
-                "구로디지털단지",
-                "국가",
-                "조성완료",
-                "한국산업단지공단",
-                "",
-                "19640415",
-                "",
-                "1925368.7",
-            ],
-        ])?;
+        let workbook = build_profile_workbook(&[header(), full_row()])?;
 
-        let records = decode_profile_rows(workbook, None, None)?;
+        let sheet = decode_profile_rows(workbook, None, None)?;
+        let records = sheet.records;
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].snapshot_period, "202506");
@@ -319,6 +420,69 @@ mod tests {
             Some("1925368.7")
         );
         assert_eq!(records[0].source_row_number, 2);
+        assert!(sheet.absent_optional_headers.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn reads_every_column_the_eight_new_contract_columns_come_from() -> anyhow::Result<()> {
+        let sheet =
+            decode_profile_rows(build_profile_workbook(&[header(), full_row()])?, None, None)?;
+        let record = &sheet.records[0];
+
+        assert_eq!(
+            record.construction_start_date_raw.as_deref(),
+            Some("19650312")
+        );
+        // `100` is written as a numeric cell by the fixture builder, so this also pins that a whole
+        // number does not come back as `100.0`.
+        assert_eq!(
+            record.development_progress_percent_raw.as_deref(),
+            Some("100")
+        );
+        assert_eq!(record.lot_sales_status_label.as_deref(), Some("분양완료"));
+        assert_eq!(
+            record.business_period_raw.as_deref(),
+            Some("1964-04~1974-11")
+        );
+        assert_eq!(
+            record.designation_basis_law_raw.as_deref(),
+            Some("산업입지 및 개발에 관한 법률")
+        );
+        assert_eq!(record.development_method_raw.as_deref(), Some("공영개발"));
+        assert_eq!(
+            record.development_purpose_raw.as_deref(),
+            Some("수출산업 육성")
+        );
+        assert_eq!(record.invited_industries_raw.as_deref(), Some("전자부품"));
+        Ok(())
+    }
+
+    /// A dropped optional header does not stop the decode, and it does not pass unremarked either.
+    /// Silence here would be a column of nulls that reads exactly like a provider who stopped
+    /// filling the cells.
+    #[test]
+    fn a_missing_optional_header_is_named_rather_than_decoded_as_null() -> anyhow::Result<()> {
+        let mut headers = header().to_vec();
+        let mut values = full_row().to_vec();
+        let dropped = headers
+            .iter()
+            .position(|name| *name == "bsms_pd")
+            .expect("the fixture header carries bsms_pd");
+        headers.remove(dropped);
+        values.remove(dropped);
+
+        let sheet = decode_profile_rows(build_profile_workbook(&[&headers, &values])?, None, None)?;
+
+        assert_eq!(sheet.records.len(), 1);
+        assert_eq!(sheet.records[0].business_period_raw, None);
+        assert_eq!(sheet.absent_optional_headers, vec!["bsms_pd"]);
+        // The rest of the row is unaffected: one absent column is not a reason to lose 1,442 rows.
+        assert_eq!(sheet.records[0].official_complex_code, "111010");
+        assert_eq!(
+            sheet.records[0].lot_sales_status_label.as_deref(),
+            Some("분양완료")
+        );
         Ok(())
     }
 
@@ -327,22 +491,13 @@ mod tests {
         let mut shuffled = header().to_vec();
         shuffled.reverse();
         shuffled.insert(0, "unrelated_new_provider_column");
-        let mut values = vec![
-            "1925368.7",
-            "",
-            "19640415",
-            "",
-            "한국산업단지공단",
-            "조성완료",
-            "국가",
-            "구로디지털단지",
-            "111010",
-            "202506",
-        ];
+        let mut values = full_row().to_vec();
+        values.reverse();
         values.insert(0, "noise");
 
-        let records =
+        let sheet =
             decode_profile_rows(build_profile_workbook(&[&shuffled, &values])?, None, None)?;
+        let records = sheet.records;
 
         assert_eq!(records[0].official_complex_code, "111010");
         assert_eq!(records[0].snapshot_period, "202506");
@@ -350,6 +505,21 @@ mod tests {
             records[0].official_area_sqm_raw.as_deref(),
             Some("1925368.7")
         );
+        // The eight columns this change added are located the same way, so an inserted provider
+        // column shifts none of them either.
+        assert_eq!(
+            records[0].lot_sales_status_label.as_deref(),
+            Some("분양완료")
+        );
+        assert_eq!(
+            records[0].construction_start_date_raw.as_deref(),
+            Some("19650312")
+        );
+        assert_eq!(
+            records[0].invited_industries_raw.as_deref(),
+            Some("전자부품")
+        );
+        assert!(sheet.absent_optional_headers.is_empty());
         Ok(())
     }
 
@@ -411,14 +581,27 @@ mod tests {
             "",
             "2",
         ];
-        let records = decode_profile_rows(
+        let sheet = decode_profile_rows(
             build_profile_workbook(&[header(), row_a, row_b])?,
             None,
             Some(1),
         )?;
 
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].official_complex_code, "111010");
+        assert_eq!(sheet.records.len(), 1);
+        assert_eq!(sheet.records[0].official_complex_code, "111010");
         Ok(())
+    }
+
+    /// The two provider columns this decoder deliberately does not read. Naming them in a test is
+    /// what stops a later reader from "fixing" the omission: root ADR-0044 records why, and this
+    /// fails if either header quietly acquires a constant here.
+    #[test]
+    fn the_two_excluded_provider_columns_stay_unread() {
+        for excluded in ["frst_regist_de", "rent_hsmp_se_code"] {
+            assert!(
+                !REQUIRED_HEADERS.contains(&excluded) && !OPTIONAL_HEADERS.contains(&excluded),
+                "{excluded} is read despite root ADR-0044"
+            );
+        }
     }
 }

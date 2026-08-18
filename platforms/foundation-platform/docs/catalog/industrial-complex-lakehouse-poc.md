@@ -130,8 +130,18 @@ PostGIS `ST_Transform` 이 한다 — 근거: [ADR-0042](../../../../docs/adr/00
 | `management_agency_name` | string | no | 관리기관명 |
 | `developer_name` | string | no | 사업시행자 |
 | `designated_date` | date | no | 지정일 |
+| `construction_start_date` | date | no | 착공일 (root ADR-0044) |
 | `completion_date` | date | no | 준공일 |
 | `official_area_sqm` | decimal(18,2) | no | 공식 면적 |
+| `development_progress_percent` | decimal(5,2) | no | 조성진행률 0.00~100.00. `0` 은 값이며 부재가 아니다 |
+| `lot_sales_status` | string | no | `planned`, `in_progress`, `completed` |
+| `business_period_raw` | string | no | 사업기간 원문. 보통 `YYYY-MM~YYYY-MM` |
+| `business_period_start_month` | string | no | 파싱된 시작월 `yyyy-MM`. 종료월과 항상 함께 null 이거나 함께 있다 |
+| `business_period_end_month` | string | no | 파싱된 종료월 `yyyy-MM` |
+| `designation_basis_law_raw` | string | no | 지정근거법 원문. 열거형이 아니다 |
+| `development_method_raw` | string | no | 개발방식 원문. 열거형이 아니다 |
+| `development_purpose_raw` | string | no | 조성목적 원문 |
+| `invited_industries_raw` | string | no | 유치업종 원문 |
 | `source_record_id` | string | yes | foundation-platform source record id |
 | `source_snapshot_id` | string | yes | 원천 snapshot/batch id |
 | `valid_from_utc` | timestamp | yes | fact 유효 시작 |
@@ -276,7 +286,21 @@ API list/detail 과 consumer read model 의 stable projection 이다.
 | `sido_code` | string | no | region filter. canonical 표를 따라 선택 항목 (root ADR-0035) |
 | `sigungu_code` | string | no | region filter. 같음 |
 | `address_text` | string | no | official address |
+| `management_agency_name` | string | no | 관리기관명 |
+| `developer_name` | string | no | 사업시행자 |
+| `designated_date` | date | no | 지정일 |
+| `construction_start_date` | date | no | 착공일 |
+| `completion_date` | date | no | 준공일 |
 | `official_area_sqm` | decimal(18,2) | no | official area |
+| `development_progress_percent` | decimal(5,2) | no | 조성진행률 0.00~100.00 |
+| `lot_sales_status` | string | no | `planned`, `in_progress`, `completed` |
+| `business_period_raw` | string | no | 사업기간 원문 |
+| `business_period_start_month` | string | no | 파싱된 시작월 `yyyy-MM` |
+| `business_period_end_month` | string | no | 파싱된 종료월 `yyyy-MM` |
+| `designation_basis_law_raw` | string | no | 지정근거법 원문 |
+| `development_method_raw` | string | no | 개발방식 원문 |
+| `development_purpose_raw` | string | no | 조성목적 원문 |
+| `invited_industries_raw` | string | no | 유치업종 원문 |
 | `calculated_area_sqm` | decimal(18,2) | no | boundary area |
 | `parcel_count` | long | yes | active membership count |
 | `boundary_object_key` | string | no | derived GeoParquet object reference |

@@ -6,10 +6,10 @@
 use catalog_domain::{
     Blueprint, BlueprintKind, Building, CatalogError, ComplexNotice, DigitalTwinAsset,
     DigitalTwinAssetKind, FileAsset, FileAssetVisibility, IndustrialComplex, IndustrialComplexKind,
-    IndustrialComplexStatus, IndustryAssignmentKind, IndustryCodeSystem, IndustryGroup,
-    IndustryGroupMember, NoticeType, Parcel, ParcelIndustryAssignment, ParcelKind, SpatialLayer,
-    SpatialLayerKind, TilesUrlTemplate, VectorTileArtifact, VectorTileLineage, VectorTileManifest,
-    ZoomRange,
+    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, IndustryAssignmentKind,
+    IndustryCodeSystem, IndustryGroup, IndustryGroupMember, NoticeType, Parcel,
+    ParcelIndustryAssignment, ParcelKind, SpatialLayer, SpatialLayerKind, TilesUrlTemplate,
+    VectorTileArtifact, VectorTileLineage, VectorTileManifest, ZoomRange,
 };
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::{
@@ -30,9 +30,17 @@ use uuid::Uuid;
 /// would have had to touch every one, and a column reaching the reader but not one of the nine
 /// fails at runtime with a missing-column error, not at compile time. The list lives beside its only
 /// consumer because the reader is what decides which columns a canonical complex needs.
+/// `development_progress_percent` is projected as text, not as a number. The column is
+/// `numeric(5,2)` and this workspace has adopted no decimal type, so the alternative would be an
+/// `f64` that cannot hold `59.9` — a progress figure republished as one nobody stated. Postgres
+/// renders the exact decimal and the row carries that text unchanged.
 pub const INDUSTRIAL_COMPLEX_COLUMNS: &str = "id, lakehouse_complex_id, official_complex_code, \
      name, kind, primary_bjdong_code, area_m2, status, sido_code, sigungu_code, address_text, \
-     management_agency_name, developer_name, designated_date, completion_date, \
+     management_agency_name, developer_name, designated_date, construction_start_date, \
+     completion_date, development_progress_percent::text AS development_progress_percent, \
+     lot_sales_status, business_period_raw, business_period_start_month, \
+     business_period_end_month, designation_basis_law_raw, development_method_raw, \
+     development_purpose_raw, invited_industries_raw, \
      created_at, updated_at, archived_at, version";
 
 pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
@@ -47,6 +55,14 @@ pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
         .try_get::<Option<String>, _>("status")
         .map_err(map_sqlx)?
         .map(|raw| IndustrialComplexStatus::from_wire(raw.as_str()))
+        .transpose()
+        .map_err(|error| CatalogError::Infrastructure(error.to_string()))?;
+    // Same rule as `status`: a stored value outside the domain is a corrupted row, and folding it
+    // into `None` would report a broken write as a source that said nothing.
+    let lot_sales_status = row
+        .try_get::<Option<String>, _>("lot_sales_status")
+        .map_err(map_sqlx)?
+        .map(|raw| IndustrialComplexLotSalesStatus::from_wire(raw.as_str()))
         .transpose()
         .map_err(|error| CatalogError::Infrastructure(error.to_string()))?;
     Ok(IndustrialComplex {
@@ -67,7 +83,21 @@ pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
         management_agency_name: row.try_get("management_agency_name").map_err(map_sqlx)?,
         developer_name: row.try_get("developer_name").map_err(map_sqlx)?,
         designated_date: row.try_get("designated_date").map_err(map_sqlx)?,
+        construction_start_date: row.try_get("construction_start_date").map_err(map_sqlx)?,
         completion_date: row.try_get("completion_date").map_err(map_sqlx)?,
+        development_progress_percent: row
+            .try_get("development_progress_percent")
+            .map_err(map_sqlx)?,
+        lot_sales_status,
+        business_period_raw: row.try_get("business_period_raw").map_err(map_sqlx)?,
+        business_period_start_month: row
+            .try_get("business_period_start_month")
+            .map_err(map_sqlx)?,
+        business_period_end_month: row.try_get("business_period_end_month").map_err(map_sqlx)?,
+        designation_basis_law_raw: row.try_get("designation_basis_law_raw").map_err(map_sqlx)?,
+        development_method_raw: row.try_get("development_method_raw").map_err(map_sqlx)?,
+        development_purpose_raw: row.try_get("development_purpose_raw").map_err(map_sqlx)?,
+        invited_industries_raw: row.try_get("invited_industries_raw").map_err(map_sqlx)?,
         created_at: row
             .try_get::<DateTime<Utc>, _>("created_at")
             .map_err(map_sqlx)?,

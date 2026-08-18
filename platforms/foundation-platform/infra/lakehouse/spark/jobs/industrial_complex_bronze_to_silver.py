@@ -22,6 +22,7 @@ from typing import Any
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
+    evolve_iceberg_table_to_contract,
     jsonl_transport_columns,
     load_lakehouse_contract,
     partition_column_names,
@@ -76,6 +77,14 @@ SORT_COLUMNS: tuple[str, ...] = sort_order(TABLE_CONTRACT)
 ALLOWED_COMPLEX_KINDS: tuple[str, ...] = value_domain(RUN_SUMMARY_CONTRACT, "complex_kind")
 
 ALLOWED_STATUSES: tuple[str, ...] = value_domain(RUN_SUMMARY_CONTRACT, "status")
+
+ALLOWED_LOT_SALES_STATUSES: tuple[str, ...] = value_domain(
+    RUN_SUMMARY_CONTRACT, "lot_sales_status"
+)
+
+# `yyyy-MM` with a real month. The producer only ever writes this shape, and this is the second
+# place that says so, at the boundary where rows enter the canonical table.
+BUSINESS_PERIOD_MONTH_PATTERN = r"^[0-9]{4}-(0[1-9]|1[0-2])$"
 
 
 # Digit width of each region column, and the reason a gate exists for columns nothing requires.
@@ -137,6 +146,43 @@ def stable_uuid_v5_string(seed: str | None) -> str | None:
 def trim_to_null(column_name: str) -> F.Column:
     trimmed = F.trim(F.col(column_name))
     return F.when(F.length(trimmed) == 0, F.lit(None)).otherwise(trimmed)
+
+
+def invalid_lot_sales_status() -> F.Column:
+    """Return a predicate matching a lot-sales status that is present and off-domain."""
+
+    return F.col("lot_sales_status").isNotNull() & ~F.col("lot_sales_status").isin(
+        *ALLOWED_LOT_SALES_STATUSES
+    )
+
+
+def invalid_development_progress_percent() -> F.Column:
+    """Return a predicate matching a progress percentage outside 0..=100.
+
+    Zero is not matched. `준비중` and `보상중` complexes report exactly zero site-formation progress,
+    so unlike `official_area_sqm` — where zero is a defect, because nothing occupies no land — zero
+    here is the value the source states.
+    """
+
+    percent = F.col("development_progress_percent")
+    return percent.isNotNull() & ((percent < 0) | (percent > 100))
+
+
+def invalid_business_period_months() -> F.Column:
+    """Return a predicate matching a business period whose two derived months do not agree.
+
+    Two failures, both of which would put a boundary on a period the source did not bound: one
+    month present without the other, and a month that is not `yyyy-MM`. The complex whose source
+    period states years and no months carries null in both and is matched by neither.
+    """
+
+    start = F.col("business_period_start_month")
+    end = F.col("business_period_end_month")
+    only_one = start.isNull() != end.isNull()
+    malformed = (start.isNotNull() & ~start.rlike(BUSINESS_PERIOD_MONTH_PATTERN)) | (
+        end.isNotNull() & ~end.rlike(BUSINESS_PERIOD_MONTH_PATTERN)
+    )
+    return only_one | malformed
 
 
 def invalid_region_code() -> F.Column:
@@ -320,8 +366,25 @@ def build_silver_frame(bronze: DataFrame) -> DataFrame:
         trim_to_null("management_agency_name").alias("management_agency_name"),
         trim_to_null("developer_name").alias("developer_name"),
         F.to_date(F.col("designated_date"), "yyyy-MM-dd").alias("designated_date"),
+        # The same `to_date` the designation date takes. `strwrk_de` reaches this job in the same
+        # `yyyy-MM-dd` shape because the Rust producer normalizes both with one parser.
+        F.to_date(F.col("construction_start_date"), "yyyy-MM-dd").alias("construction_start_date"),
         F.to_date(F.col("completion_date"), "yyyy-MM-dd").alias("completion_date"),
         F.col("official_area_sqm").cast(T.DecimalType(18, 2)).alias("official_area_sqm"),
+        F.col("development_progress_percent")
+        .cast(T.DecimalType(5, 2))
+        .alias("development_progress_percent"),
+        # Read without `trim_to_null` for the reason the region columns are: a JSON null stays null
+        # and a `""` stays `""`, so the empty-string gate below can refuse the producer that filled
+        # a column with nothing instead of saying so.
+        F.trim(F.col("lot_sales_status")).alias("lot_sales_status"),
+        F.trim(F.col("business_period_raw")).alias("business_period_raw"),
+        F.trim(F.col("business_period_start_month")).alias("business_period_start_month"),
+        F.trim(F.col("business_period_end_month")).alias("business_period_end_month"),
+        F.trim(F.col("designation_basis_law_raw")).alias("designation_basis_law_raw"),
+        F.trim(F.col("development_method_raw")).alias("development_method_raw"),
+        F.trim(F.col("development_purpose_raw")).alias("development_purpose_raw"),
+        F.trim(F.col("invited_industries_raw")).alias("invited_industries_raw"),
         F.trim(F.col("source_record_id")).alias("source_record_id"),
         F.trim(F.col("source_snapshot_id")).alias("source_snapshot_id"),
         F.to_timestamp(F.col("valid_from_utc"), "yyyy-MM-dd'T'HH:mm:ssX").alias(
@@ -415,6 +478,15 @@ def collect_quality_metrics(silver: DataFrame) -> dict[str, int]:
                 "invalid_checksum_count",
             ),
             invalid_count(invalid_region_code(), "invalid_region_code_count"),
+            invalid_count(invalid_lot_sales_status(), "invalid_lot_sales_status_count"),
+            invalid_count(
+                invalid_development_progress_percent(),
+                "invalid_development_progress_percent_count",
+            ),
+            invalid_count(
+                invalid_business_period_months(),
+                "invalid_business_period_months_count",
+            ),
         )
     )
 
@@ -479,6 +551,25 @@ def assert_quality_metrics(silver: DataFrame, metrics: dict[str, int]) -> None:
         invalid_region_code(),
         "a region code that is present must be all digits of its own width and must not be all "
         "zeros; an unknown region is null",
+    )
+    assert_no_invalid_rows(
+        silver,
+        metrics["invalid_lot_sales_status_count"],
+        invalid_lot_sales_status(),
+        "lot_sales_status is outside the allowed domain",
+    )
+    assert_no_invalid_rows(
+        silver,
+        metrics["invalid_development_progress_percent_count"],
+        invalid_development_progress_percent(),
+        "development_progress_percent must be between 0 and 100 when present",
+    )
+    assert_no_invalid_rows(
+        silver,
+        metrics["invalid_business_period_months_count"],
+        invalid_business_period_months(),
+        "business_period_start_month and business_period_end_month must be present together and "
+        "must both be yyyy-MM; a period with one boundary states one the source did not",
     )
 
 
@@ -574,6 +665,7 @@ def build_run_summary(
     persisted_row_count: int | None,
     quality_metrics: dict[str, int],
     source_snapshot_summary: dict[str, Any],
+    schema_evolution_added_columns: Sequence[str] = (),
 ) -> dict[str, Any]:
     return {
         "schema_version": RUN_SUMMARY_SCHEMA_VERSION,
@@ -595,6 +687,9 @@ def build_run_summary(
         "column_count": len(SILVER_COLUMNS),
         "columns": list(SILVER_COLUMNS),
         "required_columns": list(REQUIRED_SILVER_COLUMNS),
+        # Which contract columns this run had to add to the live table. Empty on every run whose
+        # target already matched the contract, which is what a steady state looks like.
+        "schema_evolution_added_columns": list(schema_evolution_added_columns),
         **source_snapshot_summary,
     }
 
@@ -684,6 +779,13 @@ def column_lineage() -> list[dict[str, Any]]:
         "designated_date": [
             {"dataset": BRONZE_DATASET_NAME, "column": "designated_date", "transform": "to_date"}
         ],
+        "construction_start_date": [
+            {
+                "dataset": BRONZE_DATASET_NAME,
+                "column": "construction_start_date",
+                "transform": "to_date",
+            }
+        ],
         "completion_date": [
             {"dataset": BRONZE_DATASET_NAME, "column": "completion_date", "transform": "to_date"}
         ],
@@ -692,6 +794,61 @@ def column_lineage() -> list[dict[str, Any]]:
                 "dataset": BRONZE_DATASET_NAME,
                 "column": "official_area_sqm",
                 "transform": "cast_decimal_18_2",
+            }
+        ],
+        "development_progress_percent": [
+            {
+                "dataset": BRONZE_DATASET_NAME,
+                "column": "development_progress_percent",
+                "transform": "cast_decimal_5_2",
+            }
+        ],
+        "lot_sales_status": [
+            {"dataset": BRONZE_DATASET_NAME, "column": "lot_sales_status", "transform": "trim"}
+        ],
+        "business_period_raw": [
+            {"dataset": BRONZE_DATASET_NAME, "column": "business_period_raw", "transform": "trim"}
+        ],
+        "business_period_start_month": [
+            {
+                "dataset": BRONZE_DATASET_NAME,
+                "column": "business_period_start_month",
+                "transform": "trim",
+            }
+        ],
+        "business_period_end_month": [
+            {
+                "dataset": BRONZE_DATASET_NAME,
+                "column": "business_period_end_month",
+                "transform": "trim",
+            }
+        ],
+        "designation_basis_law_raw": [
+            {
+                "dataset": BRONZE_DATASET_NAME,
+                "column": "designation_basis_law_raw",
+                "transform": "trim",
+            }
+        ],
+        "development_method_raw": [
+            {
+                "dataset": BRONZE_DATASET_NAME,
+                "column": "development_method_raw",
+                "transform": "trim",
+            }
+        ],
+        "development_purpose_raw": [
+            {
+                "dataset": BRONZE_DATASET_NAME,
+                "column": "development_purpose_raw",
+                "transform": "trim",
+            }
+        ],
+        "invited_industries_raw": [
+            {
+                "dataset": BRONZE_DATASET_NAME,
+                "column": "invited_industries_raw",
+                "transform": "trim",
             }
         ],
         "source_record_id": [
@@ -817,15 +974,28 @@ def create_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespac
     )
 
 
+def evolve_silver_iceberg_table_to_contract(spark: SparkSession, table: str) -> tuple[str, ...]:
+    """Bring the live Silver table up to the Silver contract before the positional INSERT.
+
+    The published `silver.industrial_complexes` was created from an earlier contract, and
+    ``CREATE TABLE IF NOT EXISTS`` only describes a table that does not exist — so a widened
+    contract reaches the live table here or not at all. The step is shared with the Silver-to-Gold
+    job; see ``platform_contracts.evolve_iceberg_table_to_contract``.
+    """
+
+    return evolve_iceberg_table_to_contract(spark, table, TABLE_CONTRACT)
+
+
 def write_silver_iceberg(
     spark: SparkSession,
     silver: DataFrame,
     args: argparse.Namespace,
-) -> None:
+) -> tuple[str, ...]:
     table = qualified_iceberg_table(args)
     temp_view = "silver_industrial_complexes_candidate"
 
     create_iceberg_table_if_missing(spark, args)
+    added_columns = evolve_silver_iceberg_table_to_contract(spark, table)
     silver.select(*SILVER_COLUMNS).createOrReplaceTempView(temp_view)
 
     statement = "INSERT INTO"
@@ -839,6 +1009,7 @@ def write_silver_iceberg(
         FROM {temp_view}
         """
     )
+    return added_columns
 
 
 def build_spark_session(args: argparse.Namespace) -> SparkSession:
@@ -949,13 +1120,14 @@ def main() -> int:
             print(f"silver-industrial-complexes-validate-ok rows={row_count}")
             return 0
 
+        added_columns: tuple[str, ...] = ()
         if args.write_mode == "parquet":
             write_silver_parquet(silver, args.output)
             persisted = spark.read.parquet(args.output).select(*SILVER_COLUMNS)
             success_target = f"output={args.output}"
             success_label = "silver-industrial-complexes-write-ok"
         else:
-            write_silver_iceberg(spark, silver, args)
+            added_columns = write_silver_iceberg(spark, silver, args)
             persisted = read_iceberg_snapshot_for_batch(spark, silver, args)
             success_target = f"table={args.iceberg_namespace}.{args.iceberg_table}"
             success_label = "silver-industrial-complexes-iceberg-write-ok"
@@ -976,6 +1148,7 @@ def main() -> int:
                 persisted_row_count=persisted_count,
                 quality_metrics=persisted_quality_metrics,
                 source_snapshot_summary=source_snapshot_summary,
+                schema_evolution_added_columns=added_columns,
             ),
             args.summary_output,
         )

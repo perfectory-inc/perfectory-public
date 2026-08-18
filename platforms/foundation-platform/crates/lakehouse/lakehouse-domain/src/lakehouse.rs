@@ -138,6 +138,12 @@ const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "date",
         required: false,
     },
+    // Designation, ground-breaking, completion — the three dates in the order they happen.
+    LakehouseColumn {
+        name: "construction_start_date",
+        logical_type: "date",
+        required: false,
+    },
     LakehouseColumn {
         name: "completion_date",
         logical_type: "date",
@@ -146,6 +152,69 @@ const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "official_area_sqm",
         logical_type: "decimal(18,2)",
+        required: false,
+    },
+    // What the profile source says about the complex beyond its identity and its dates. Every one
+    // of these is optional for the same reason the columns above are: the provider leaves a cell
+    // blank rather than stating a value, and one column of its twenty (`rent_hsmp_se_code`) is
+    // blank in all 1,442 rows — a provider that empties a whole column empties single cells too.
+    // Requiring any of them would mean one blank cell rejects the entire snapshot.
+    //
+    // `frst_regist_de` is deliberately absent. See root ADR-0044 and the header block in
+    // `services/foundation-outbox-publisher/src/industrial_complex_bronze_raw_jsonl_export/\
+    // profile_workbook_decoder.rs`.
+    LakehouseColumn {
+        name: "development_progress_percent",
+        logical_type: "decimal(5,2)",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "lot_sales_status",
+        logical_type: "string",
+        required: false,
+    },
+    // The business period as the source wrote it, plus the two months a parse could recover. The
+    // raw text is the contract: 1,440 of 1,441 values are `YYYY-MM~YYYY-MM` and one is `2020-~2024-`
+    // with no months at all, so a shape that only held the parse would drop that row's fact
+    // entirely. The two derived columns are null together whenever the parse does not apply.
+    LakehouseColumn {
+        name: "business_period_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "business_period_start_month",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "business_period_end_month",
+        logical_type: "string",
+        required: false,
+    },
+    // Four free-text columns, carried verbatim. `devlop_mth` has 232 distinct values and
+    // `appn_basis_law` 48, and the distinctness is spelling rather than meaning — `공영개발`,
+    // `공영개발방식`, and `공영개발 방식` are three of them. Mapping those onto an enumeration would
+    // invent a classification nobody published, so the `_raw` suffix is the contract: this column
+    // holds what the source wrote and normalization is a separate, evidenced decision.
+    LakehouseColumn {
+        name: "designation_basis_law_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "development_method_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "development_purpose_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "invited_industries_raw",
+        logical_type: "string",
         required: false,
     },
     LakehouseColumn {
@@ -901,9 +970,10 @@ const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: false,
     },
-    // The next five columns describe the complex itself and reach Gold unchanged from Silver. They
-    // are optional here for the same reason they are optional there: the profile source leaves a
-    // cell blank rather than stating a value, and a projection may not fill one in.
+    // The columns from here to `invited_industries_raw` describe the complex itself and reach Gold
+    // unchanged from Silver. They are optional here for the same reason they are optional there:
+    // the profile source leaves a cell blank rather than stating a value, and a projection may not
+    // fill one in.
     //
     // `primary_bjdong_code` is deliberately not among them. Silver declares the column, but zero of
     // its 1,442 rows carry a value — the address resolution reaches sigungu granularity at best
@@ -930,6 +1000,11 @@ const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
         required: false,
     },
     LakehouseColumn {
+        name: "construction_start_date",
+        logical_type: "date",
+        required: false,
+    },
+    LakehouseColumn {
         name: "completion_date",
         logical_type: "date",
         required: false,
@@ -937,6 +1012,53 @@ const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "official_area_sqm",
         logical_type: "decimal(18,2)",
+        required: false,
+    },
+    // The remaining ten Silver columns the profile source fills, projected unchanged. Same rule as
+    // the block above: the projection carries what Silver carries and fills nothing in.
+    LakehouseColumn {
+        name: "development_progress_percent",
+        logical_type: "decimal(5,2)",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "lot_sales_status",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "business_period_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "business_period_start_month",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "business_period_end_month",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "designation_basis_law_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "development_method_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "development_purpose_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "invited_industries_raw",
+        logical_type: "string",
         required: false,
     },
     LakehouseColumn {
@@ -1045,6 +1167,10 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
         "complex_name non-empty",
         "complex_kind is a supported domain wire value",
         "official_area_sqm > 0 when present",
+        "lot_sales_status is a supported domain wire value when present",
+        "development_progress_percent is between 0 and 100 when present",
+        "business_period_start_month and business_period_end_month are present together",
+        "business_period months are yyyy-MM",
         "active rows for the same complex_id do not overlap",
     ],
 };

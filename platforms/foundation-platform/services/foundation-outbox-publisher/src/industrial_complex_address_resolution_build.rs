@@ -128,7 +128,8 @@ fn build_resolution(
         &profile_path,
         config.profile_sheet_name.as_deref(),
         None,
-    )?;
+    )?
+    .records;
     let target_complex_codes = profile_records
         .iter()
         .map(|record| record.official_complex_code.trim().to_owned())

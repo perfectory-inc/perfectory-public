@@ -216,6 +216,75 @@ def columns(contract: dict[str, Any]) -> list[dict[str, Any]]:
     return value
 
 
+IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def iceberg_table_columns(spark: Any, table: str) -> tuple[str, ...]:
+    """Return the live column order of an Iceberg table."""
+
+    return tuple(field.name for field in spark.table(table).schema.fields)
+
+
+def evolve_iceberg_table_to_contract(
+    spark: Any,
+    table: str,
+    contract: dict[str, Any],
+) -> tuple[str, ...]:
+    """Add contract columns the live Iceberg table does not have yet, in contract order.
+
+    ``CREATE TABLE IF NOT EXISTS`` only ever describes a table that does not exist. A published
+    table was created from an earlier contract, so a widened contract reaches it here or not at
+    all: an ``INSERT`` writes one value per contract column and a narrower table has nowhere to put
+    the extra ones.
+
+    Which columns are missing is read off the contract against the live table rather than spelled
+    out by the caller. A hardcoded list of whichever columns this release happens to add is drift
+    one layer down — right for exactly one release and silently wrong for the next.
+
+    ``INSERT`` resolves the select list against the table **by position**, so a table holding the
+    contract's columns in a different order would take every value into the wrong column without
+    erroring. That is why new columns are placed with ``AFTER`` and why the final order is asserted
+    rather than assumed.
+
+    This lives here rather than in one job because both the Silver and the Gold table are published
+    and both contracts widen. Two copies of it would be two chances to widen one job's target and
+    not the other's.
+    """
+
+    expected = column_names(contract)
+    actual = iceberg_table_columns(spark, table)
+    unknown = tuple(name for name in actual if name not in expected)
+    if unknown:
+        raise ValueError(
+            f"{table} carries columns the contract does not declare: {list(unknown)}. "
+            "Reconcile the contract before writing."
+        )
+
+    added: list[str] = []
+    for index, column in enumerate(columns(contract)):
+        name = column["name"]
+        if name in actual:
+            continue
+        if IDENTIFIER_PATTERN.fullmatch(name) is None:
+            raise ValueError(f"contract column must be a simple identifier: {name}")
+        # Processing in contract order means the predecessor is already present, either from the
+        # original table or from an earlier iteration of this loop.
+        position = "FIRST" if index == 0 else f"AFTER {expected[index - 1]}"
+        spark.sql(
+            f"ALTER TABLE {table} ADD COLUMN "
+            f"{name} {spark_sql_type(column['logical_type'])} {position}"
+        )
+        added.append(name)
+
+    evolved = iceberg_table_columns(spark, table)
+    if evolved != expected:
+        raise ValueError(
+            f"{table} columns do not match the contract after schema evolution. "
+            f"expected={list(expected)} actual={list(evolved)}"
+        )
+    return tuple(added)
+
+
 def spark_sql_type(logical_type: str) -> str:
     match logical_type:
         case "string":

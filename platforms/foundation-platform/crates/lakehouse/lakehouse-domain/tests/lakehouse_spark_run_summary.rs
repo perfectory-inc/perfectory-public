@@ -12,6 +12,59 @@ use serde_json::{json, Value};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// The `silver.industrial_complexes` columns a Spark summary must report, written out rather than
+/// read off the contract. A fixture derived from the thing under test agrees with it by
+/// construction: this list is what makes `spark_run_summary_validates_against_silver_contract` a
+/// check rather than a tautology.
+const SILVER_INDUSTRIAL_COMPLEX_COLUMNS: &[&str] = &[
+    "complex_id",
+    "official_complex_code",
+    "complex_name",
+    "complex_name_normalized",
+    "complex_kind",
+    "status",
+    "sido_code",
+    "sigungu_code",
+    "primary_bjdong_code",
+    "address_text",
+    "management_agency_name",
+    "developer_name",
+    "designated_date",
+    "construction_start_date",
+    "completion_date",
+    "official_area_sqm",
+    "development_progress_percent",
+    "lot_sales_status",
+    "business_period_raw",
+    "business_period_start_month",
+    "business_period_end_month",
+    "designation_basis_law_raw",
+    "development_method_raw",
+    "development_purpose_raw",
+    "invited_industries_raw",
+    "source_record_id",
+    "source_snapshot_id",
+    "valid_from_utc",
+    "valid_to_utc",
+    "ingested_at_utc",
+    "row_checksum_sha256",
+];
+
+/// The subset of the above the contract requires to be present and non-null.
+const SILVER_INDUSTRIAL_COMPLEX_REQUIRED_COLUMNS: &[&str] = &[
+    "complex_id",
+    "official_complex_code",
+    "complex_name",
+    "complex_name_normalized",
+    "complex_kind",
+    "status",
+    "source_record_id",
+    "source_snapshot_id",
+    "valid_from_utc",
+    "ingested_at_utc",
+    "row_checksum_sha256",
+];
+
 fn valid_summary_value() -> Value {
     json!({
         "schema_version": "foundation-platform.spark_run_summary.v1",
@@ -65,43 +118,9 @@ fn valid_summary_value() -> Value {
             "invalid_checksum_count": 0,
             "invalid_region_code_count": 0
         },
-        "column_count": 21,
-        "columns": [
-            "complex_id",
-            "official_complex_code",
-            "complex_name",
-            "complex_name_normalized",
-            "complex_kind",
-            "status",
-            "sido_code",
-            "sigungu_code",
-            "primary_bjdong_code",
-            "address_text",
-            "management_agency_name",
-            "developer_name",
-            "designated_date",
-            "completion_date",
-            "official_area_sqm",
-            "source_record_id",
-            "source_snapshot_id",
-            "valid_from_utc",
-            "valid_to_utc",
-            "ingested_at_utc",
-            "row_checksum_sha256"
-        ],
-        "required_columns": [
-            "complex_id",
-            "official_complex_code",
-            "complex_name",
-            "complex_name_normalized",
-            "complex_kind",
-            "status",
-            "source_record_id",
-            "source_snapshot_id",
-            "valid_from_utc",
-            "ingested_at_utc",
-            "row_checksum_sha256"
-        ],
+        "column_count": SILVER_INDUSTRIAL_COMPLEX_COLUMNS.len(),
+        "columns": SILVER_INDUSTRIAL_COMPLEX_COLUMNS,
+        "required_columns": SILVER_INDUSTRIAL_COMPLEX_REQUIRED_COLUMNS,
         "source_snapshot_count": 1,
         "source_snapshot_ids": ["bronze-snapshot-2026-05-14"],
         "source_snapshot_truncated": false

@@ -19,7 +19,10 @@ use catalog_application::ports::{
     CatalogRepository, CatalogUnitOfWork, UpsertIndustrialComplexCommand,
     UpsertIndustrialComplexEffect,
 };
-use catalog_domain::{IndustrialComplex, IndustrialComplexKind, IndustrialComplexStatus};
+use catalog_domain::{
+    IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
+    IndustrialComplexStatus,
+};
 use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork};
 use chrono::{NaiveDate, Utc};
 use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
@@ -165,15 +168,7 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
             kind: IndustrialComplexKind::General,
             primary_bjdong_code: Some(first_primary_bjdong_code.clone()),
             area_m2: 1_000,
-            lakehouse_complex_id: None,
-            status: None,
-            sido_code: None,
-            sigungu_code: None,
-            address_text: None,
-            management_agency_name: None,
-            developer_name: None,
-            designated_date: None,
-            completion_date: None,
+            ..identity_only_command()
         }])
         .await
         .expect("create via upsert")
@@ -192,15 +187,7 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
             kind: IndustrialComplexKind::National,
             primary_bjdong_code: Some(second_primary_bjdong_code.clone()),
             area_m2: 2_000,
-            lakehouse_complex_id: None,
-            status: None,
-            sido_code: None,
-            sigungu_code: None,
-            address_text: None,
-            management_agency_name: None,
-            developer_name: None,
-            designated_date: None,
-            completion_date: None,
+            ..identity_only_command()
         }])
         .await
         .expect("update via upsert")
@@ -271,7 +258,17 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
                 management_agency_name: None,
                 developer_name: None,
                 designated_date: None,
+                construction_start_date: None,
                 completion_date: None,
+                development_progress_percent: None,
+                lot_sales_status: None,
+                business_period_raw: None,
+                business_period_start_month: None,
+                business_period_end_month: None,
+                designation_basis_law_raw: None,
+                development_method_raw: None,
+                development_purpose_raw: None,
+                invited_industries_raw: None,
             },
             UpsertIndustrialComplexCommand {
                 official_complex_code: second_official_code,
@@ -287,7 +284,17 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
                 management_agency_name: None,
                 developer_name: None,
                 designated_date: None,
+                construction_start_date: None,
                 completion_date: None,
+                development_progress_percent: None,
+                lot_sales_status: None,
+                business_period_raw: None,
+                business_period_start_month: None,
+                business_period_end_month: None,
+                designation_basis_law_raw: None,
+                development_method_raw: None,
+                development_purpose_raw: None,
+                invited_industries_raw: None,
             },
         ])
         .await
@@ -322,15 +329,7 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
             kind: IndustrialComplexKind::Agricultural,
             primary_bjdong_code: None,
             area_m2: 11_081,
-            lakehouse_complex_id: None,
-            status: None,
-            sido_code: None,
-            sigungu_code: None,
-            address_text: None,
-            management_agency_name: None,
-            developer_name: None,
-            designated_date: None,
-            completion_date: None,
+            ..identity_only_command()
         }])
         .await
         .expect("create via upsert without a legal-dong code")
@@ -371,15 +370,7 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
             kind: IndustrialComplexKind::Agricultural,
             primary_bjdong_code: None,
             area_m2: 11_081,
-            lakehouse_complex_id: None,
-            status: None,
-            sido_code: None,
-            sigungu_code: None,
-            address_text: None,
-            management_agency_name: None,
-            developer_name: None,
-            designated_date: None,
-            completion_date: None,
+            ..identity_only_command()
         }])
         .await
         .expect("repeat upsert")
@@ -408,22 +399,7 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
     let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
     let lakehouse_complex_id = synthetic_lakehouse_complex_id();
 
-    let sourced = UpsertIndustrialComplexCommand {
-        official_complex_code: official_complex_code.clone(),
-        name: "E2E fully sourced complex".to_owned(),
-        kind: IndustrialComplexKind::Agricultural,
-        primary_bjdong_code: None,
-        area_m2: 272_089,
-        lakehouse_complex_id: Some(lakehouse_complex_id),
-        status: Some(IndustrialComplexStatus::Operating),
-        sido_code: Some("46".to_owned()),
-        sigungu_code: Some("46840".to_owned()),
-        address_text: Some("E2E 시 E2E 군 E2E 읍 일원".to_owned()),
-        management_agency_name: Some("E2E 관리기관".to_owned()),
-        developer_name: Some("E2E 시행자".to_owned()),
-        designated_date: NaiveDate::from_ymd_opt(1964, 4, 15),
-        completion_date: NaiveDate::from_ymd_opt(1974, 11, 5),
-    };
+    let sourced = fully_sourced_command(official_complex_code.clone(), lakehouse_complex_id);
 
     let created = uow
         .upsert_complexes_by_official_code(std::slice::from_ref(&sourced))
@@ -441,21 +417,7 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
         .await
         .expect("find the stored complex")
         .expect("the complex exists");
-    assert_eq!(stored.lakehouse_complex_id, Some(lakehouse_complex_id));
-    assert_eq!(stored.status, Some(IndustrialComplexStatus::Operating));
-    assert_eq!(stored.sido_code.as_deref(), Some("46"));
-    assert_eq!(stored.sigungu_code.as_deref(), Some("46840"));
-    assert_eq!(
-        stored.address_text.as_deref(),
-        Some("E2E 시 E2E 군 E2E 읍 일원")
-    );
-    assert_eq!(
-        stored.management_agency_name.as_deref(),
-        Some("E2E 관리기관")
-    );
-    assert_eq!(stored.developer_name.as_deref(), Some("E2E 시행자"));
-    assert_eq!(stored.designated_date, NaiveDate::from_ymd_opt(1964, 4, 15));
-    assert_eq!(stored.completion_date, NaiveDate::from_ymd_opt(1974, 11, 5));
+    assert_every_sourced_column_round_tripped(&stored, lakehouse_complex_id);
 
     // Re-applying the same snapshot must be a no-op, not a version bump.
     let repeated = uow
@@ -478,7 +440,17 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
             management_agency_name: None,
             developer_name: None,
             designated_date: None,
+            construction_start_date: None,
             completion_date: None,
+            development_progress_percent: None,
+            lot_sales_status: None,
+            business_period_raw: None,
+            business_period_start_month: None,
+            business_period_end_month: None,
+            designation_basis_law_raw: None,
+            development_method_raw: None,
+            development_purpose_raw: None,
+            invited_industries_raw: None,
             ..sourced
         }])
         .await
@@ -491,9 +463,152 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
     assert_eq!(cleared.status, None);
     assert_eq!(cleared.address_text, None);
     assert_eq!(cleared.designated_date, None);
+    assert_eq!(cleared.construction_start_date, None);
     assert_eq!(cleared.completion_date, None);
+    assert_eq!(cleared.development_progress_percent, None);
+    assert_eq!(cleared.lot_sales_status, None);
+    assert_eq!(cleared.business_period_raw, None);
+    assert_eq!(cleared.business_period_start_month, None);
+    assert_eq!(cleared.business_period_end_month, None);
+    assert_eq!(cleared.designation_basis_law_raw, None);
+    assert_eq!(cleared.development_method_raw, None);
+    assert_eq!(cleared.development_purpose_raw, None);
+    assert_eq!(cleared.invited_industries_raw, None);
 
     cleanup_by_complex_id(&pool, created.id).await;
+}
+
+/// Every column `fully_sourced_command` states, read back off the stored aggregate.
+fn assert_every_sourced_column_round_tripped(
+    stored: &IndustrialComplex,
+    lakehouse_complex_id: LakehouseComplexId,
+) {
+    assert_eq!(stored.lakehouse_complex_id, Some(lakehouse_complex_id));
+    assert_eq!(stored.status, Some(IndustrialComplexStatus::Operating));
+    assert_eq!(stored.sido_code.as_deref(), Some("46"));
+    assert_eq!(stored.sigungu_code.as_deref(), Some("46840"));
+    assert_eq!(
+        stored.address_text.as_deref(),
+        Some("E2E 시 E2E 군 E2E 읍 일원")
+    );
+    assert_eq!(
+        stored.management_agency_name.as_deref(),
+        Some("E2E 관리기관")
+    );
+    assert_eq!(stored.developer_name.as_deref(), Some("E2E 시행자"));
+    assert_eq!(stored.designated_date, NaiveDate::from_ymd_opt(1964, 4, 15));
+    assert_eq!(
+        stored.construction_start_date,
+        NaiveDate::from_ymd_opt(1965, 3, 12)
+    );
+    assert_eq!(stored.completion_date, NaiveDate::from_ymd_opt(1974, 11, 5));
+    // Exactly the digits that went in. `59.9` has no exact binary representation, so anything
+    // that had passed through an `f64` would come back as a number nobody stated.
+    assert_eq!(
+        stored.development_progress_percent.as_deref(),
+        Some("59.90")
+    );
+    assert_eq!(
+        stored.lot_sales_status,
+        Some(IndustrialComplexLotSalesStatus::InProgress)
+    );
+    assert_eq!(
+        stored.business_period_raw.as_deref(),
+        Some("1964-04~1974-11")
+    );
+    assert_eq!(
+        stored.business_period_start_month.as_deref(),
+        Some("1964-04")
+    );
+    assert_eq!(stored.business_period_end_month.as_deref(), Some("1974-11"));
+    assert_eq!(
+        stored.designation_basis_law_raw.as_deref(),
+        Some("산업입지 및 개발에 관한 법률")
+    );
+    // The spelling the source used, suffix and space intact: this column is not an enumeration.
+    assert_eq!(
+        stored.development_method_raw.as_deref(),
+        Some("공영개발 방식")
+    );
+    assert_eq!(
+        stored.development_purpose_raw.as_deref(),
+        Some("E2E 조성목적")
+    );
+    assert_eq!(
+        stored.invited_industries_raw.as_deref(),
+        Some("E2E 유치업종")
+    );
+}
+
+/// The command a Gold snapshot produces when every sourced column carries a value.
+fn fully_sourced_command(
+    official_complex_code: String,
+    lakehouse_complex_id: LakehouseComplexId,
+) -> UpsertIndustrialComplexCommand {
+    UpsertIndustrialComplexCommand {
+        official_complex_code,
+        name: "E2E fully sourced complex".to_owned(),
+        kind: IndustrialComplexKind::Agricultural,
+        primary_bjdong_code: None,
+        area_m2: 272_089,
+        lakehouse_complex_id: Some(lakehouse_complex_id),
+        status: Some(IndustrialComplexStatus::Operating),
+        sido_code: Some("46".to_owned()),
+        sigungu_code: Some("46840".to_owned()),
+        address_text: Some("E2E 시 E2E 군 E2E 읍 일원".to_owned()),
+        management_agency_name: Some("E2E 관리기관".to_owned()),
+        developer_name: Some("E2E 시행자".to_owned()),
+        designated_date: NaiveDate::from_ymd_opt(1964, 4, 15),
+        construction_start_date: NaiveDate::from_ymd_opt(1965, 3, 12),
+        completion_date: NaiveDate::from_ymd_opt(1974, 11, 5),
+        // `59.90` rather than a round number on purpose: it is the value an `f64` cannot hold
+        // exactly, so a round trip that returns it unchanged is the evidence that no float is on
+        // this path. The column is `numeric(5,2)`, the bind is `$n::numeric`, and the projection
+        // reads it back as `::text`.
+        development_progress_percent: Some("59.90".to_owned()),
+        lot_sales_status: Some(IndustrialComplexLotSalesStatus::InProgress),
+        business_period_raw: Some("1964-04~1974-11".to_owned()),
+        business_period_start_month: Some("1964-04".to_owned()),
+        business_period_end_month: Some("1974-11".to_owned()),
+        designation_basis_law_raw: Some("산업입지 및 개발에 관한 법률".to_owned()),
+        development_method_raw: Some("공영개발 방식".to_owned()),
+        development_purpose_raw: Some("E2E 조성목적".to_owned()),
+        invited_industries_raw: Some("E2E 유치업종".to_owned()),
+    }
+}
+
+/// An upsert command that establishes identity and states nothing else.
+///
+/// Most of these tests are about the natural key, the version, and the outbox — not about the
+/// nineteen sourced columns a Gold snapshot fills. Spelling `None` nineteen times in each of them
+/// buries the field that the test is actually about.
+const fn identity_only_command() -> UpsertIndustrialComplexCommand {
+    UpsertIndustrialComplexCommand {
+        official_complex_code: String::new(),
+        name: String::new(),
+        kind: IndustrialComplexKind::General,
+        primary_bjdong_code: None,
+        area_m2: 0,
+        lakehouse_complex_id: None,
+        status: None,
+        sido_code: None,
+        sigungu_code: None,
+        address_text: None,
+        management_agency_name: None,
+        developer_name: None,
+        designated_date: None,
+        construction_start_date: None,
+        completion_date: None,
+        development_progress_percent: None,
+        lot_sales_status: None,
+        business_period_raw: None,
+        business_period_start_month: None,
+        business_period_end_month: None,
+        designation_basis_law_raw: None,
+        development_method_raw: None,
+        development_purpose_raw: None,
+        invited_industries_raw: None,
+    }
 }
 
 fn sample_complex() -> IndustrialComplex {
@@ -513,7 +628,17 @@ fn sample_complex() -> IndustrialComplex {
         management_agency_name: None,
         developer_name: None,
         designated_date: None,
+        construction_start_date: None,
         completion_date: None,
+        development_progress_percent: None,
+        lot_sales_status: None,
+        business_period_raw: None,
+        business_period_start_month: None,
+        business_period_end_month: None,
+        designation_basis_law_raw: None,
+        development_method_raw: None,
+        development_purpose_raw: None,
+        invited_industries_raw: None,
         created_at: now,
         updated_at: now,
         archived_at: None,

@@ -77,7 +77,19 @@ fn builds_writer_neutral_jsonl_handoff_for_silver_industrial_complexes() -> Test
             .map(|column| column.name.to_owned())
             .collect::<Vec<_>>()
     );
-    assert!(handoff.transport_columns.contains(&"complex_id".to_owned()));
+    // The transport list is the contract minus the two columns the writer derives. Pinned rather
+    // than spot-checked: a hand-kept copy of this list is what let a widened contract leave the
+    // handoff behind with nothing failing.
+    assert_eq!(
+        handoff.transport_columns,
+        SILVER_INDUSTRIAL_COMPLEXES
+            .columns
+            .iter()
+            .map(|column| column.name)
+            .filter(|name| !["complex_name_normalized", "valid_to_utc"].contains(name))
+            .map(ToOwned::to_owned)
+            .collect::<Vec<String>>()
+    );
     assert_eq!(handoff.quality_metrics["row_count"], 1);
     assert_eq!(handoff.quality_metrics["complex_id__null_count"], 0);
     assert_eq!(handoff.quality_metrics["complex_id__empty_count"], 0);
@@ -99,6 +111,24 @@ fn builds_writer_neutral_jsonl_handoff_for_silver_industrial_complexes() -> Test
     assert_eq!(record["valid_from_utc"], FIXTURE_VALID_FROM_UTC);
     assert!(record["valid_to_utc"].is_null());
     assert_eq!(record["ingested_at_utc"], FIXTURE_INGESTED_AT_UTC);
+
+    // The record's key set is the contract's column set. This is the check that was missing: the
+    // emitter spells every key by hand, so without it a widened contract leaves a handoff that a
+    // Spark job rejects at run time for a column nothing in this workspace could have caught.
+    let mut emitted = record
+        .as_object()
+        .ok_or("handoff record must be a JSON object")?
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    emitted.sort_unstable();
+    let mut expected = SILVER_INDUSTRIAL_COMPLEXES
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    expected.sort_unstable();
+    assert_eq!(emitted, expected);
     Ok(())
 }
 
@@ -137,7 +167,17 @@ fn sample_complex() -> TestResult<IndustrialComplex> {
         management_agency_name: None,
         developer_name: None,
         designated_date: None,
+        construction_start_date: None,
         completion_date: None,
+        development_progress_percent: None,
+        lot_sales_status: None,
+        business_period_raw: None,
+        business_period_start_month: None,
+        business_period_end_month: None,
+        designation_basis_law_raw: None,
+        development_method_raw: None,
+        development_purpose_raw: None,
+        invited_industries_raw: None,
         created_at: parse_utc(FIXTURE_VALID_FROM_UTC)?,
         updated_at: parse_utc(FIXTURE_VALID_FROM_UTC)?,
         archived_at: None,

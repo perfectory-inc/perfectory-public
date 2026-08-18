@@ -5,8 +5,8 @@ use std::{collections::BTreeMap, error::Error, path::Path};
 use lakehouse_domain::{
     bronze_industrial_complexes_raw_jsonl_columns, industrial_complex_lakehouse_contracts,
     LakehouseTableContract, BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL,
-    INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES, INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS,
-    INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+    INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES, INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES,
+    INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS, INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
 };
 use serde_json::Value;
 
@@ -77,6 +77,7 @@ fn spark_artifact_exports_the_industrial_complex_value_domains() -> TestResult {
         &serde_json::json!({
             "complex_kind": INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
             "status": INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+            "lot_sales_status": INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES,
         }),
         "value domain artifact drifted for silver.industrial_complexes"
     );

@@ -10,10 +10,12 @@
 //!
 //! - `official_complex_code` is the natural key. A code already in the table updates that row in
 //!   place, keeping its `id`, because nine foreign keys point at that `id`. Nothing is deleted.
-//! - Address, status, the designation and completion dates, the managing and developing
-//!   organizations, and the two administrative codes are loaded from the same Gold row as the
-//!   identity fields. They reached Gold only once the projection stopped dropping them; before
-//!   that this command recorded them in its summary as columns it could not load.
+//! - Everything the profile source says about the complex — address, both lifecycle columns, the
+//!   three dates, the managing and developing organizations, the two administrative codes, the
+//!   site-formation progress, the business period, and the four free-text descriptions — is loaded
+//!   from the same Gold row as the identity fields. Each reached Gold only once the projection
+//!   stopped dropping it; before that this command recorded it in its summary as a column it could
+//!   not load.
 //! - `lakehouse_complex_id` carries the Gold row's own `complex_id`. That id is what Gold artifact
 //!   object keys are derived from, and the canonical `id` is minted locally, so a row without it
 //!   can name no object in R2.
@@ -32,7 +34,9 @@ use catalog_application::{
     IndustrialComplexCatalogRow, UpsertIndustrialComplexCatalogRows,
     UpsertIndustrialComplexCatalogRowsInput,
 };
-use catalog_domain::{IndustrialComplexKind, IndustrialComplexStatus};
+use catalog_domain::{
+    IndustrialComplexKind, IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
+};
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use chrono::{NaiveDate, SecondsFormat, Utc};
 use foundation_shared_kernel::ids::LakehouseComplexId;
@@ -225,8 +229,18 @@ const GOLD_COLUMNS_LOADED: &[&str] = &[
     "management_agency_name",
     "developer_name",
     "designated_date",
+    "construction_start_date",
     "completion_date",
     "official_area_sqm",
+    "development_progress_percent",
+    "lot_sales_status",
+    "business_period_raw",
+    "business_period_start_month",
+    "business_period_end_month",
+    "designation_basis_law_raw",
+    "development_method_raw",
+    "development_purpose_raw",
+    "invited_industries_raw",
 ];
 
 /// Gold contract columns this load does not consume.
@@ -325,6 +339,17 @@ fn plan_catalog_rows(rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<Cano
                 )
             })?;
 
+        // Same treatment for the lot-sales domain, and for the same reason: a value outside it did
+        // not come from the source's three labels, so the projection broke its own value domain.
+        let lot_sales_status = optional_row_string(row, "lot_sales_status")
+            .map(|wire| IndustrialComplexLotSalesStatus::from_wire(wire.as_str()))
+            .transpose()
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Gold row {official_complex_code} carries an unknown lot_sales_status: {error}"
+                )
+            })?;
+
         match canonical_area_m2(row.get("official_area_sqm")) {
             Ok(area_m2) => planned.push(IndustrialComplexCatalogRow {
                 lakehouse_complex_id: Some(lakehouse_complex_id),
@@ -341,7 +366,25 @@ fn plan_catalog_rows(rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<Cano
                 management_agency_name: optional_row_string(row, "management_agency_name"),
                 developer_name: optional_row_string(row, "developer_name"),
                 designated_date: optional_row_date(row, "designated_date")?,
+                construction_start_date: optional_row_date(row, "construction_start_date")?,
                 completion_date: optional_row_date(row, "completion_date")?,
+                // `iceberg_scan` renders a Gold decimal as exact base-10 text, which is exactly the
+                // shape the canonical `numeric(5,2)` column takes. No float appears on this path.
+                development_progress_percent: optional_row_string(
+                    row,
+                    "development_progress_percent",
+                ),
+                lot_sales_status,
+                business_period_raw: optional_row_string(row, "business_period_raw"),
+                business_period_start_month: optional_row_string(
+                    row,
+                    "business_period_start_month",
+                ),
+                business_period_end_month: optional_row_string(row, "business_period_end_month"),
+                designation_basis_law_raw: optional_row_string(row, "designation_basis_law_raw"),
+                development_method_raw: optional_row_string(row, "development_method_raw"),
+                development_purpose_raw: optional_row_string(row, "development_purpose_raw"),
+                invited_industries_raw: optional_row_string(row, "invited_industries_raw"),
             }),
             Err(reason) => skipped.push(SkippedRow {
                 official_complex_code,

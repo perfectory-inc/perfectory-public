@@ -307,6 +307,27 @@ job 다음 Silver-to-Gold job을 순서대로 실행한다. Silver job은
 writes `gold.complex_catalog_smoke`. The Gold run summary must show `input.kind = iceberg` and
 `input.qualified_table = r2.silver.industrial_complexes_smoke`.
 
+### 계약이 넓어졌을 때의 실 테이블 재실행 3단계 (root ADR-0044)
+
+원천 컬럼을 계약에 새로 올리면 **Bronze JSONL 재생성 → Silver 재실행 → Gold 재실행** 순서를
+전부 돌려야 새 컬럼이 실제로 채워진다. 중간부터 시작하면 아래 층의 값이 없으므로 새 컬럼이
+전부 `null` 인 채로 승격된다.
+
+1. **Bronze JSONL 재생성** — `export-industrial-complex-bronze-raw-jsonl`.
+   출력 경로가 이미 있으면 **거부한다**(append-only 증거). 새 경로를 준다.
+2. **Silver 재실행** — `--iceberg-write-mode overwrite --allow-non-smoke-overwrite`.
+   `append` 는 안 된다: 같은 `source_snapshot_id` 로 두 번 쓰면
+   `(official_complex_code, source_snapshot_id)` 유일성 게이트가 쓰고 다시 읽는 자리에서 실패한다.
+3. **Gold 재실행** — 같은 이유로 `overwrite` + `--allow-non-smoke-overwrite`, 그리고 2단계가 만든
+   Silver 스냅샷 id 를 `--iceberg-snapshot-id` 로 넘긴다.
+
+두 잡 모두 쓰기 직전에 **스키마 진화 단계**를 돈다. 발행된 표는 이전 계약으로 만들어져 있고
+`CREATE TABLE IF NOT EXISTS` 는 없는 표만 만들므로, 넓힌 계약이 살아 있는 표에 닿는 길은 이
+단계뿐이다. 어떤 컬럼이 더해졌는지는 실행 요약의 `schema_evolution_added_columns` 에 나오고,
+이미 계약과 같은 표에는 아무것도 하지 않는다. 단계 자체는 두 잡이 공유하는
+`platform_contracts.evolve_iceberg_table_to_contract` 하나다 — 같은 코드를 두 벌 두면 한쪽 표만
+넓히는 일이 가능해진다.
+
 ### Industrial-complex Gold profile artifact export
 
 `gold.complex_catalog` 를 Iceberg 카탈로그에서 읽어 산업단지 하나마다 프로필 객체 하나를
@@ -390,9 +411,10 @@ cargo run -p foundation-outbox-publisher -- load-industrial-complex-canonical
 읽기에 `FOUNDATION_PLATFORM_LAKEHOUSE_*`(Iceberg REST) 와 `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`
 (객체 저장소) 설정이 필요하다. 요약 JSON 이 읽은 행수 · 삽입 · 갱신 · 무변경 · 건너뜀을 낸다.
 
-주소·상태·지정일·준공일·관리기관·시행자·시도/시군구 코드는 이제 신원 필드와 같은 Gold 행에서
-함께 적재된다. `lakehouse_complex_id` 도 함께 쓴다 — Gold 프로필 오브젝트 키가 그 값에서
-파생되므로, 그 칸이 없으면 canonical 행이 R2 의 어떤 오브젝트도 가리키지 못한다.
+주소·상태·지정일·착공일·준공일·관리기관·시행자·시도/시군구 코드에 더해, 분양상태·조성진행률·
+사업기간(원문과 파생 두 달)·지정근거법·개발방식·조성목적·유치업종이 모두 신원 필드와 같은 Gold
+행에서 함께 적재된다(root ADR-0044). `lakehouse_complex_id` 도 함께 쓴다 — Gold 프로필 오브젝트
+키가 그 값에서 파생되므로, 그 칸이 없으면 canonical 행이 R2 의 어떤 오브젝트도 가리키지 못한다.
 
 이 커맨드가 **쓰지 않는 것**을 요약이 스스로 적는다.
 

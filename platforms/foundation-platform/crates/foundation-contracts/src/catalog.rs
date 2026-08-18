@@ -97,8 +97,43 @@ pub struct IndustrialComplexResponse {
     pub developer_name: Option<String>,
     /// Date the complex was officially designated, as `YYYY-MM-DD`.
     pub designated_date: Option<NaiveDate>,
+    /// Date site works started, as `YYYY-MM-DD`.
+    pub construction_start_date: Option<NaiveDate>,
     /// Date the complex's site formation was approved as complete, as `YYYY-MM-DD`.
     pub completion_date: Option<NaiveDate>,
+    /// Site-formation progress as an exact decimal percentage between `0.00` and `100.00`.
+    ///
+    /// A string, not a number: the canonical column is `numeric(5,2)` and a JSON number is a
+    /// double for most clients, which cannot hold `59.9`. The text is the exact value the source
+    /// stated. `0.00` is a real answer — site works that have not started — and is not the same as
+    /// `null`, which means the source stated no progress at all.
+    pub development_progress_percent: Option<String>,
+    /// How far the complex has got in selling or leasing its lots.
+    ///
+    /// Wire values: `planned`, `in_progress`, `completed`. Independent of `status`, which is about
+    /// building the complex: a complex can be `operating` with lots still on sale.
+    pub lot_sales_status: Option<String>,
+    /// Business period exactly as the source wrote it, normally `YYYY-MM~YYYY-MM`.
+    pub business_period_raw: Option<String>,
+    /// First month of `business_period_raw` as `YYYY-MM`, when that text parses.
+    ///
+    /// Null together with `business_period_end_month`. One complex's source period states years
+    /// without months, and for it both are null while `business_period_raw` still carries the text.
+    pub business_period_start_month: Option<String>,
+    /// Last month of `business_period_raw` as `YYYY-MM`, when that text parses.
+    pub business_period_end_month: Option<String>,
+    /// Statute the designation was made under, in the source's own words.
+    pub designation_basis_law_raw: Option<String>,
+    /// Development method, in the source's own words.
+    ///
+    /// Free text, and the `_raw` suffix says so: the source spells one method several ways and
+    /// nothing here folds them together, because that would assert a classification the source
+    /// never published.
+    pub development_method_raw: Option<String>,
+    /// Stated purpose the complex was developed for, in the source's own words.
+    pub development_purpose_raw: Option<String>,
+    /// Industry types the complex set out to attract, in the source's own words.
+    pub invited_industries_raw: Option<String>,
     /// Monotonic record version used for optimistic concurrency.
     pub version: i64,
     /// UTC timestamp of the last canonical Catalog update.
