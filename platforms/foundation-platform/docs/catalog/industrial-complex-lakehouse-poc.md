@@ -57,13 +57,20 @@ Geometry ADR 에서 결정한다.
 ### ID
 
 Iceberg table 의 foundation-platform ID 는 UUID 문자열로 저장한다. UUID 값은 가능한 경우 자연키에서
-deterministic 하게 생성한다.
+deterministic 하게 생성한다. 방식은 **RFC 4122 version-5 UUID, namespace 는 `NAMESPACE_URL`**
+(`6ba7b811-9dad-11d1-80b4-00c04fd430c8`) 이고, seed 는 아래 표의 문자열 그대로다.
 
 | Entity | Deterministic seed |
 |---|---|
-| Industrial complex | `industrial_complex:{official_complex_code}` |
+| Industrial complex | `foundation-platform:catalog:industrial_complex:{official_complex_code}` |
 | Complex boundary | `spatial_layer:complex_boundary:{complex_id}:{source_record_id}` |
 | Parcel membership | `complex_parcel_membership:{complex_id}:{pnu}` |
+
+산업단지 seed 의 유일한 정본은
+`infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py` 의 `COMPLEX_ID_SEED_PREFIX` ·
+`stable_uuid_v5_string` 이고, 값은 `infra/lakehouse/spark/tests/test_industrial_complex_bronze_to_silver.py`
+의 벡터에 고정되어 있다. **하위 생산자는 `complex_id` 를 다시 계산하지 않는다** —
+`silver.industrial_complexes` 에서 읽는다([ADR-0043](../../../../docs/adr/0043-a-canonical-id-is-read-not-recomputed.md)).
 
 자연키가 불안정한 원천은 `source_record_id` 와 source-specific external key 를 함께 저장하고,
 identity resolution 정책을 별도 문서화한다.

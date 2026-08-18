@@ -52,3 +52,4 @@ last_reviewed: 2026-07-28
 - [0038 — 가져가라고 만든 산출물은 정본 바이트와 버킷을 같이 쓰지 않는다](./0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md) (ADR-0039 로 대체됨)
 - [0039 — Gold 서빙 아티팩트는 lakehouse 버킷에 살고, 타일만 나간다](./0039-gold-serving-artifacts-live-in-the-lakehouse-bucket-and-tiles-do-not.md)
 - [0040 — 아무도 채우지 않는 컬럼은 필수일 수 없다](./0040-a-column-no-producer-fills-cannot-be-required.md)
+- [0043 — 정본 id 는 다시 계산하지 않고 읽는다](./0043-a-canonical-id-is-read-not-recomputed.md)

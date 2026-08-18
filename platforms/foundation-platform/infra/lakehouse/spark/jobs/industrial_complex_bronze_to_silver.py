@@ -13,15 +13,11 @@ import hashlib
 import json
 import os
 import re
+import uuid
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql import types as T
-from pyspark.storagelevel import StorageLevel
 
 from platform_contracts import (
     column_names,
@@ -37,7 +33,6 @@ from platform_contracts import (
 )
 
 
-UUID_NAMESPACE_URL_HEX = "6ba7b8119dad11d180b400c04fd430c8"
 DEFAULT_ICEBERG_PACKAGES = (
     "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
     "org.apache.iceberg:iceberg-aws-bundle:1.6.1"
@@ -50,6 +45,10 @@ LINEAGE_EVENT_TYPE = "lakehouse.lineage.dataset_materialized.v1"
 BRONZE_DATASET_NAME = "bronze.industrial_complexes_raw_jsonl"
 RUN_SUMMARY_CONTRACT = "silver.industrial_complexes"
 TABLE_CONTRACT = load_lakehouse_contract(RUN_SUMMARY_CONTRACT)
+
+# The text `complex_id` is derived from. It is part of the identity, not a formatting
+# detail: change it and every canonical address downstream changes with it.
+COMPLEX_ID_SEED_PREFIX = "foundation-platform:catalog:industrial_complex:"
 
 # The producer and this reader share one exported column list, so neither can drift alone.
 # `services/foundation-outbox-publisher` writes this dataset with
@@ -89,6 +88,50 @@ REGION_CODE_WIDTHS: tuple[tuple[str, int], ...] = (
     ("sigungu_code", 5),
     ("primary_bjdong_code", 10),
 )
+
+
+def load_pyspark() -> None:
+    """Bind the PySpark namespaces this job uses.
+
+    The import is deferred, the way `silver_scalar_handoff_to_lakehouse` defers it, so that
+    the plain-Python rules in this module can be imported and executed by
+    `infra/lakehouse/spark/tests` on a machine with no PySpark install. `complex_id` is
+    derived here, and a derivation nothing outside Spark can run is a derivation nothing
+    checks.
+    """
+
+    global DataFrame, SparkSession, F, T, StorageLevel
+
+    from pyspark.sql import DataFrame, SparkSession
+    from pyspark.sql import functions as F
+    from pyspark.sql import types as T
+    from pyspark.storagelevel import StorageLevel
+
+
+def complex_id_seed(official_complex_code: str) -> str:
+    """Return the text whose UUIDv5 is `complex_id`."""
+
+    return f"{COMPLEX_ID_SEED_PREFIX}{official_complex_code}"
+
+
+def stable_uuid_v5_string(seed: str | None) -> str | None:
+    """Return the RFC 4122 version-5 UUID text for `seed` under `NAMESPACE_URL`.
+
+    `uuid.uuid5` is the entire implementation, deliberately. This used to assemble the UUID
+    out of the SHA-1 hex text itself, and the variant field it wrote was `nibble >> 2` where
+    RFC 4122 4.1.1 sets only the top two bits of octet 8 to `10` and **preserves the two
+    bits below them** -- `nibble & 3`. Every id it derived was one nibble away from the
+    version-5 UUID of the same seed, while still looking like a lowercase UUID (ADR-0043).
+    The rule is not restated here in any form that could drift from it: the standard library
+    owns those bits and this module does not get a second opinion.
+
+    A null seed stays null so that a Bronze row with no `official_complex_code` is reported
+    by the `complex_id must not be null` gate rather than by a stack trace.
+    """
+
+    if seed is None:
+        return None
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
 
 
 def trim_to_null(column_name: str) -> F.Column:
@@ -227,31 +270,14 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def stable_uuid_v5(seed: F.Column) -> F.Column:
-    """Return a deterministic RFC 4122 version-5 UUID string from a seed."""
+    """Apply `stable_uuid_v5_string` to a seed column.
 
-    digest = F.sha1(F.concat(F.unhex(F.lit(UUID_NAMESPACE_URL_HEX)), F.encode(seed, "UTF-8")))
-    variant_source = F.lower(F.substring(digest, 17, 1))
-    variant_nibble = (
-        F.when(variant_source.isin("0", "1", "2", "3"), F.lit("8"))
-        .when(variant_source.isin("4", "5", "6", "7"), F.lit("9"))
-        .when(variant_source.isin("8", "9", "a", "b"), F.lit("a"))
-        .otherwise(F.lit("b"))
-    )
+    Spark is asked to move rows here, not to implement RFC 4122. The function body lives in
+    this module, which `spark-submit` loads as `__main__`, so Spark serialises it by value
+    and a Python worker needs nothing beyond the standard library to evaluate it.
+    """
 
-    return F.lower(
-        F.concat(
-            F.substring(digest, 1, 8),
-            F.lit("-"),
-            F.substring(digest, 9, 4),
-            F.lit("-5"),
-            F.substring(digest, 14, 3),
-            F.lit("-"),
-            variant_nibble,
-            F.substring(digest, 18, 3),
-            F.lit("-"),
-            F.substring(digest, 21, 12),
-        )
-    )
+    return F.udf(stable_uuid_v5_string, T.StringType())(seed)
 
 
 def read_bronze_jsonl(spark: SparkSession, input_path: str) -> DataFrame:
@@ -271,7 +297,7 @@ def build_silver_frame(bronze: DataFrame) -> DataFrame:
     trimmed_code = F.trim(F.col("official_complex_code"))
     name = F.trim(F.col("complex_name"))
     normalized_name = F.lower(F.trim(F.regexp_replace(name, r"\s+", " ")))
-    seed = F.concat(F.lit("foundation-platform:catalog:industrial_complex:"), trimmed_code)
+    seed = F.concat(F.lit(COMPLEX_ID_SEED_PREFIX), trimmed_code)
     complex_id = stable_uuid_v5(seed)
     if "complex_id" in bronze.columns:
         supplied_complex_id = trim_to_null("complex_id")
@@ -898,6 +924,7 @@ def read_iceberg_snapshot_for_batch(
 
 
 def main() -> int:
+    load_pyspark()
     args = parse_args()
     validate_args(args)
     spark = build_spark_session(args)
