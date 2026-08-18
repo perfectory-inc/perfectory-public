@@ -1060,7 +1060,7 @@ pub const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES: LakehouseTableContract = Lakehou
     partition_spec: &["sido_code", "bucket(32, complex_id)"],
     sort_order: &["complex_id", "boundary_kind", "valid_from_utc"],
     quality_gates: &[
-        "geometry_srid = 4326",
+        "geometry_srid = 5186",
         "bbox min/max ordering is valid",
         "centroid is inside bbox",
         "geometry_wkb is valid polygon or multipolygon",

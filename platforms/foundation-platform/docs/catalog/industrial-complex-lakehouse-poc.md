@@ -63,7 +63,7 @@ deterministic 하게 생성한다. 방식은 **RFC 4122 version-5 UUID, namespac
 | Entity | Deterministic seed |
 |---|---|
 | Industrial complex | `foundation-platform:catalog:industrial_complex:{official_complex_code}` |
-| Complex boundary | `spatial_layer:complex_boundary:{complex_id}:{source_record_id}` |
+| Complex boundary | `boundary_id` 는 UUID 가 아니다 — 아래 |
 | Parcel membership | `complex_parcel_membership:{complex_id}:{pnu}` |
 
 산업단지 seed 의 유일한 정본은
@@ -74,6 +74,13 @@ deterministic 하게 생성한다. 방식은 **RFC 4122 version-5 UUID, namespac
 
 자연키가 불안정한 원천은 `source_record_id` 와 source-specific external key 를 함께 저장하고,
 identity resolution 정책을 별도 문서화한다.
+
+`boundary_id` 는 읽을 수 있는 urn 이다. `silver.parcel_boundaries` 가 먼저 그렇게 했고
+(`vworld-cadastral:parcel-boundary:pnu:{pnu}`), `silver.industrial_complex_boundaries` 는
+`vworldkr-sandan-boundary:complex-boundary:official:{official_complex_code}` 를 쓴다. 원천을 읽는
+단계는 `complex_id` 를 아직 모른다 — 그것은 `silver.industrial_complexes` 를 조인해야 나오고,
+정의는 그 표를 쓰는 job 한 곳에만 있다. `complex_id` 로 id 를 만들려면 그 정의를 한 벌 더
+만들어야 하고, 그 두 벌이 어긋나는 날 조인은 조용히 0 이 된다.
 
 ### 시간
 
@@ -98,8 +105,9 @@ centroid_y
 geometry_checksum_sha256
 ```
 
-초기 CRS 는 `EPSG:4326` 을 기본으로 한다. 원천 CRS 가 다르면 Bronze lineage 에 원천 CRS 를 남기고,
-Silver 에서 `EPSG:4326` 으로 정규화한다.
+Silver 는 원천 CRS 를 그대로 싣고 `geometry_srid` 로 선언한다. 재투영은 서빙 가장자리에서
+PostGIS `ST_Transform` 이 한다 — 근거: [ADR-0042](../../../../docs/adr/0042-a-silver-boundary-carries-its-source-crs.md).
+표마다 실제 값은 그 표의 `quality_gates` 가 정본이다.
 
 ## 4. Silver Tables
 
@@ -164,13 +172,13 @@ Quality gate:
 | `complex_id` | string | yes | parent complex id |
 | `boundary_kind` | string | yes | `official`, `derived`, `corrected`, `draft` |
 | `geometry_wkb` | binary | yes | GeoParquet WKB geometry |
-| `geometry_srid` | int | yes | 초기 기본값 4326 |
-| `bbox_min_x` | double | yes | min longitude |
-| `bbox_min_y` | double | yes | min latitude |
-| `bbox_max_x` | double | yes | max longitude |
-| `bbox_max_y` | double | yes | max latitude |
-| `centroid_x` | double | yes | centroid longitude |
-| `centroid_y` | double | yes | centroid latitude |
+| `geometry_srid` | int | yes | 5186. 원천 CRS 를 그대로 싣는다 (root ADR-0042) |
+| `bbox_min_x` | double | yes | 최소 X. 단위는 `geometry_srid` 를 따른다 |
+| `bbox_min_y` | double | yes | 최소 Y. 같음 |
+| `bbox_max_x` | double | yes | 최대 X. 같음 |
+| `bbox_max_y` | double | yes | 최대 Y. 같음 |
+| `centroid_x` | double | yes | 면적 가중 중심 X. 같음 |
+| `centroid_y` | double | yes | 면적 가중 중심 Y. 같음 |
 | `area_sqm_calculated` | decimal(18,2) | no | geometry 기반 계산 면적 |
 | `geometry_checksum_sha256` | string | yes | WKB checksum |
 | `source_record_id` | string | yes | source lineage |
@@ -198,7 +206,7 @@ valid_from_utc
 
 Quality gate:
 
-- `geometry_srid = 4326`
+- `geometry_srid = 5186`
 - bbox min/max ordering is valid
 - centroid is inside bbox
 - WKB is valid polygon or multipolygon

@@ -20,6 +20,9 @@ pub mod build_industrial_complex_silver_handoff;
 /// Derivation of the injected address resolution for the industrial-complex producer.
 pub mod industrial_complex_address_resolution_plan;
 
+/// Silver normalization helpers for industrial-complex boundary rows.
+pub mod industrial_complex_boundary_silver_plan;
+
 /// Bronze JSONL normalization helpers for the industrial-complex profile source.
 pub mod industrial_complex_bronze_raw_plan;
 
@@ -28,6 +31,9 @@ pub mod industrial_complex_silver_plan;
 
 /// Outbound ports implemented by Lakehouse infrastructure.
 pub mod ports;
+
+/// Polygonal geometry primitives shared by the Silver boundary normalizers.
+pub mod polygonal_geometry;
 
 /// Use case for selecting validated Lakehouse batch promotion candidates.
 pub mod get_lakehouse_promotion_candidate;
@@ -92,6 +98,14 @@ pub use industrial_complex_address_resolution_plan::{
     ResolvedComplexAddress, SourceComplexRecord, SourceNoticeRecord, UnresolvedComplex,
     UnresolvedReason, NOTICE_DATASET_SLUG_SUFFIX,
 };
+pub use industrial_complex_boundary_silver_plan::{
+    build_industrial_complex_boundary_silver_handoff,
+    industrial_complex_boundary_transport_columns,
+    normalize_industrial_complex_boundary_silver_rows, IndustrialComplexBoundarySilverHandoff,
+    IndustrialComplexBoundarySilverPlanError, IndustrialComplexBoundarySilverRow,
+    IndustrialComplexBoundarySilverRowsInput, IndustrialComplexBoundarySource,
+    BOUNDARY_KIND_OFFICIAL, INDUSTRIAL_COMPLEX_BOUNDARY_SRID,
+};
 pub use industrial_complex_bronze_raw_plan::{
     industrial_complex_bronze_raw_row_to_jsonl, industrial_complex_labels_measured_for,
     normalize_industrial_complex_bronze_raw_rows, IndustrialComplexAddress,
@@ -107,6 +121,11 @@ pub use industrial_complex_silver_plan::{
 };
 
 pub use get_lakehouse_promotion_candidate::GetLakehousePromotionCandidate;
+pub use polygonal_geometry::{
+    geometry_area, geometry_bounding_box, geometry_centroid, geometry_to_wkb, ring_winding,
+    BoundingBoxAccumulator, GeoPoint, GeometryBoundingBox, LinearRing, ParsedPolygonalGeometry,
+    PolygonRings, PolygonalGeometryError, RingWinding,
+};
 pub use publish_industrial_complex_gold_pointer::{
     PublishIndustrialComplexGoldPointer, PublishIndustrialComplexGoldPointerCommand,
     PublishIndustrialComplexGoldPointerInput,
@@ -118,7 +137,7 @@ pub use register_lakehouse_object_artifact::{
 };
 pub use vworld_cadastral_silver_plan::{
     build_vworld_cadastral_silver_parcel_boundary_handoff,
-    normalize_vworld_cadastral_silver_parcel_boundary_rows, VWorldCadastralBoundingBox,
+    normalize_vworld_cadastral_silver_parcel_boundary_rows,
     VWorldCadastralSilverParcelBoundaryHandoff, VWorldCadastralSilverParcelBoundaryRow,
     VWorldCadastralSilverParcelBoundaryRowsInput, VWorldCadastralSilverPlanError,
 };

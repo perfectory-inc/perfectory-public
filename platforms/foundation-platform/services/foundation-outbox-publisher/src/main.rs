@@ -63,11 +63,13 @@ mod building_register_unit_silver_export;
 mod bulk_streaming_bronze;
 mod canonical_release_proof;
 mod canonical_silver_gold_cutover_evidence;
+mod dbase_table;
 mod github_actions_secret_configurator;
 mod github_cutover_artifact_fetch;
 mod github_cutover_dispatch;
 mod industrial_complex_address_resolution_build;
 mod industrial_complex_address_source_collect;
+mod industrial_complex_boundary_silver_export;
 mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_load;
 mod industrial_complex_canonical_source_readiness;
@@ -157,6 +159,7 @@ mod remote_lakehouse_job;
 mod rt_molit_real_transaction_export_collection_plan;
 mod rt_molit_real_transaction_export_ingest;
 mod runtime_environment;
+mod shapefile_polygon_reader;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;
@@ -192,6 +195,7 @@ enum Command {
     ExportBuildingRegisterFloorSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
     ExportBuildingRegisterUnitSilverHandoff,
+    ExportIndustrialComplexBoundarySilverHandoff,
     ExportIndustrialComplexBronzeRawJsonl,
     ExportIndustrialComplexGoldProfiles,
     ExportIndustrialComplexSilverHandoff,
@@ -365,6 +369,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportBuildingRegisterUnitSilverHandoff => {
             Box::pin(building_register_unit_silver_export::run())
+        }
+        Command::ExportIndustrialComplexBoundarySilverHandoff => {
+            Box::pin(async { industrial_complex_boundary_silver_export::run() })
         }
         Command::ExportIndustrialComplexBronzeRawJsonl => {
             Box::pin(async { industrial_complex_bronze_raw_jsonl_export::run() })
@@ -1080,6 +1087,9 @@ where
         }
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)
+        }
+        Some("export-industrial-complex-boundary-silver-handoff") => {
+            Ok(Command::ExportIndustrialComplexBoundarySilverHandoff)
         }
         Some("export-industrial-complex-bronze-raw-jsonl") => {
             Ok(Command::ExportIndustrialComplexBronzeRawJsonl)
