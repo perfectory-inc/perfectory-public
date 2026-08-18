@@ -27,10 +27,7 @@ pub fn validate_source_official_complex_code(value: &str) -> Result<(), CatalogE
 /// to sigungu granularity carries `None`, and the shape rule still holds for every code that is
 /// actually present.
 pub fn validate_optional_primary_bjdong_code(value: Option<&str>) -> Result<(), CatalogError> {
-    match value {
-        None => Ok(()),
-        Some(code) => validate_primary_bjdong_code(code),
-    }
+    value.map_or(Ok(()), validate_primary_bjdong_code)
 }
 
 pub fn validate_primary_bjdong_code(value: &str) -> Result<(), CatalogError> {

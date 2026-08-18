@@ -47,7 +47,7 @@ pub struct UpsertIndustrialComplexCatalogRowsReport {
 impl UpsertIndustrialComplexCatalogRowsReport {
     /// Number of rows the write path created, updated, or left alone.
     #[must_use]
-    pub fn written_count(&self) -> usize {
+    pub const fn written_count(&self) -> usize {
         self.outcomes.len()
     }
 
