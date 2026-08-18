@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use catalog_application::ports::{
     CatalogUnitOfWork, MarkTileLayerDynamicCommand, PublishedRuntimeManifest,
     RuntimeManifestPublicationCapability, UpsertIndustrialComplexCommand,
+    UpsertIndustrialComplexEffect, UpsertIndustrialComplexOutcome,
     VectorTileArtifactPromotionCommand, VectorTileFileAssetCommand,
     VectorTileManifestPromotionCommand, VectorTileManifestRollbackCommand,
     VectorTileSourceRecordCommand,
@@ -94,7 +95,7 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         .bind(&complex.official_complex_code)
         .bind(&complex.name)
         .bind(complex.kind.wire_name())
-        .bind(&complex.primary_bjdong_code)
+        .bind(complex.primary_bjdong_code.as_deref())
         .bind(area_i64)
         .bind(complex.created_at)
         .bind(complex.updated_at)
@@ -113,7 +114,7 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
             Err(e) => return Err(map_sqlx(e)),
         }
 
-        let event = CatalogEvent::IndustrialComplexCreatedV2(complex.created_event());
+        let event = CatalogEvent::IndustrialComplexCreatedV3(complex.created_event());
         insert_outbox_event(&mut tx, &event).await?;
 
         tx.commit().await.map_err(map_sqlx)?;
@@ -123,7 +124,7 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
     async fn upsert_complexes_by_official_code(
         &self,
         commands: &[UpsertIndustrialComplexCommand],
-    ) -> Result<Vec<IndustrialComplex>, CatalogError> {
+    ) -> Result<Vec<UpsertIndustrialComplexOutcome>, CatalogError> {
         upsert_industrial_complexes_by_official_code(&self.pool, commands).await
     }
 
@@ -1305,13 +1306,13 @@ fn runtime_manifest_published_event(manifest: &VectorTileRuntimeManifest) -> Cat
 async fn upsert_industrial_complexes_by_official_code(
     pool: &PgPool,
     commands: &[UpsertIndustrialComplexCommand],
-) -> Result<Vec<IndustrialComplex>, CatalogError> {
+) -> Result<Vec<UpsertIndustrialComplexOutcome>, CatalogError> {
     if commands.is_empty() {
         return Ok(Vec::new());
     }
 
     let mut tx = pool.begin().await.map_err(map_sqlx)?;
-    let mut complexes = Vec::with_capacity(commands.len());
+    let mut outcomes = Vec::with_capacity(commands.len());
 
     for command in commands {
         let existing_row = sqlx::query(
@@ -1327,34 +1328,43 @@ async fn upsert_industrial_complexes_by_official_code(
         .await
         .map_err(map_sqlx)?;
 
-        let complex = if let Some(row) = existing_row {
+        let outcome = if let Some(row) = existing_row {
             upsert_existing_industrial_complex(&mut tx, command, &row).await?
         } else {
-            insert_industrial_complex_from_upsert(&mut tx, command).await?
+            UpsertIndustrialComplexOutcome {
+                complex: insert_industrial_complex_from_upsert(&mut tx, command).await?,
+                effect: UpsertIndustrialComplexEffect::Inserted,
+            }
         };
-        complexes.push(complex);
+        outcomes.push(outcome);
     }
 
     tx.commit().await.map_err(map_sqlx)?;
-    Ok(complexes)
+    Ok(outcomes)
 }
 
 async fn upsert_existing_industrial_complex(
     tx: &mut Transaction<'_, Postgres>,
     command: &UpsertIndustrialComplexCommand,
     row: &sqlx::postgres::PgRow,
-) -> Result<IndustrialComplex, CatalogError> {
+) -> Result<UpsertIndustrialComplexOutcome, CatalogError> {
     let existing = row_to_complex(row)?;
     let changed_fields = changed_industrial_complex_fields(&existing, command);
     if changed_fields.is_empty() {
-        return Ok(existing);
+        return Ok(UpsertIndustrialComplexOutcome {
+            complex: existing,
+            effect: UpsertIndustrialComplexEffect::Unchanged,
+        });
     }
 
     let updated = update_industrial_complex_from_upsert(tx, &existing, command).await?;
     let event =
         CatalogEvent::IndustrialComplexUpdated(updated.updated_fields_event(changed_fields));
     insert_outbox_event(tx, &event).await?;
-    Ok(updated)
+    Ok(UpsertIndustrialComplexOutcome {
+        complex: updated,
+        effect: UpsertIndustrialComplexEffect::Updated,
+    })
 }
 
 async fn update_industrial_complex_from_upsert(
@@ -1378,7 +1388,7 @@ async fn update_industrial_complex_from_upsert(
     .bind(existing.id.as_uuid())
     .bind(&command.name)
     .bind(command.kind.wire_name())
-    .bind(&command.primary_bjdong_code)
+    .bind(command.primary_bjdong_code.as_deref())
     .bind(area_i64)
     .fetch_one(&mut **tx)
     .await;
@@ -1413,7 +1423,7 @@ async fn insert_industrial_complex_from_upsert(
     .bind(&command.official_complex_code)
     .bind(&command.name)
     .bind(command.kind.wire_name())
-    .bind(&command.primary_bjdong_code)
+    .bind(command.primary_bjdong_code.as_deref())
     .bind(area_i64)
     .bind(now)
     .bind(now)
@@ -1430,7 +1440,7 @@ async fn insert_industrial_complex_from_upsert(
         }
         Err(error) => return Err(map_sqlx(error)),
     };
-    let event = CatalogEvent::IndustrialComplexCreatedV2(inserted.created_event());
+    let event = CatalogEvent::IndustrialComplexCreatedV3(inserted.created_event());
     insert_outbox_event(tx, &event).await?;
     Ok(inserted)
 }

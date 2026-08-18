@@ -69,6 +69,7 @@ mod github_cutover_dispatch;
 mod industrial_complex_address_resolution_build;
 mod industrial_complex_address_source_collect;
 mod industrial_complex_bronze_raw_jsonl_export;
+mod industrial_complex_canonical_load;
 mod industrial_complex_canonical_source_readiness;
 mod industrial_complex_catalog_import;
 mod industrial_complex_gold_pointer_publish;
@@ -77,6 +78,7 @@ mod industrial_complex_silver_export;
 mod ingestion_run_recovery;
 mod lakehouse_quality_rules_evaluate;
 mod lakehouse_registry_control;
+mod lakehouse_snapshot_scan;
 mod loopback_http;
 #[cfg(test)]
 mod main_tests;
@@ -256,6 +258,7 @@ enum Command {
     WriteSilverGoldNationalPromotionPlan,
     ImportIndustrialComplexCatalogSeed,
     ImportProviderAcquisitionLanding,
+    LoadIndustrialComplexCanonical,
     IngestBuildingRegister,
     IngestRealTransaction,
     IngestRtMolitRealTransactionExport,
@@ -400,6 +403,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(industrial_complex_catalog_import::run())
         }
         Command::ImportProviderAcquisitionLanding => Box::pin(provider_acquisition_import::run()),
+        Command::LoadIndustrialComplexCanonical => {
+            Box::pin(industrial_complex_canonical_load::run())
+        }
         Command::IngestBuildingHubBulkCollection => {
             Box::pin(building_hub_bulk_ingest::run_collection())
         }
@@ -1111,6 +1117,7 @@ where
         Some("import-provider-acquisition-landing") => {
             Ok(Command::ImportProviderAcquisitionLanding)
         }
+        Some("load-industrial-complex-canonical") => Ok(Command::LoadIndustrialComplexCanonical),
         Some("publish-industrial-complex-gold-pointer") => {
             Ok(Command::PublishIndustrialComplexGoldPointer)
         }

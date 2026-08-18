@@ -7,7 +7,8 @@ use chrono::Utc;
 use foundation_shared_kernel::ids::ComplexId;
 
 use crate::industrial_complex_input::{
-    validate_clean_required, validate_primary_bjdong_code, validate_source_official_complex_code,
+    validate_clean_required, validate_optional_primary_bjdong_code,
+    validate_source_official_complex_code,
 };
 use crate::ports::CatalogUnitOfWork;
 
@@ -19,8 +20,8 @@ pub struct RegisterIndustrialComplexInput {
     pub name: String,
     /// Domain-level industrial complex kind.
     pub kind: IndustrialComplexKind,
-    /// primary legal-dong code shared by parcels that belong to the complex.
-    pub primary_bjdong_code: String,
+    /// primary legal-dong code shared by parcels that belong to the complex, when one is known.
+    pub primary_bjdong_code: Option<String>,
     /// Official complex area in square meters.
     pub area_m2: u64,
 }
@@ -72,7 +73,7 @@ fn validate_register_input(input: &RegisterIndustrialComplexInput) -> Result<(),
     )?;
     validate_source_official_complex_code(input.official_complex_code.as_str())?;
     validate_clean_required("name", input.name.as_str())?;
-    validate_primary_bjdong_code(input.primary_bjdong_code.as_str())?;
+    validate_optional_primary_bjdong_code(input.primary_bjdong_code.as_deref())?;
     Ok(())
 }
 
@@ -87,7 +88,7 @@ mod tests {
             official_complex_code: " ".to_owned(),
             name: "Synthetic Industrial Complex Alpha".to_owned(),
             kind: IndustrialComplexKind::General,
-            primary_bjdong_code: "9999900101".to_owned(),
+            primary_bjdong_code: Some("9999900101".to_owned()),
             area_m2: 123_456,
         };
 
@@ -108,7 +109,7 @@ mod tests {
             official_complex_code: "SYNTHETIC-COMPLEX-001".to_owned(),
             name: "Synthetic Industrial Complex Alpha".to_owned(),
             kind: IndustrialComplexKind::General,
-            primary_bjdong_code: "28200".to_owned(),
+            primary_bjdong_code: Some("28200".to_owned()),
             area_m2: 123_456,
         };
 
@@ -130,7 +131,7 @@ mod tests {
                 .to_owned(),
             name: "Synthetic Industrial Complex Alpha".to_owned(),
             kind: IndustrialComplexKind::General,
-            primary_bjdong_code: "9999900101".to_owned(),
+            primary_bjdong_code: Some("9999900101".to_owned()),
             area_m2: 123_456,
         };
 

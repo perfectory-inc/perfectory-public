@@ -196,7 +196,7 @@ impl SsotFixture {
                 official_complex_code: format!("IC-{}", Uuid::new_v4().simple()),
                 name: "SSOT read fixture".to_owned(),
                 kind: IndustrialComplexKind::General,
-                primary_bjdong_code,
+                primary_bjdong_code: Some(primary_bjdong_code),
                 area_m2: 100_000,
                 created_at: now,
                 updated_at: now,

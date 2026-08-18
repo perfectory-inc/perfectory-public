@@ -17,6 +17,7 @@
 
 use catalog_application::ports::{
     CatalogRepository, CatalogUnitOfWork, UpsertIndustrialComplexCommand,
+    UpsertIndustrialComplexEffect,
 };
 use catalog_domain::{IndustrialComplex, IndustrialComplexKind};
 use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork};
@@ -71,22 +72,22 @@ async fn happy_path_uow_creates_complex_and_outbox_atomically() {
          WHERE payload->>'type' = $1 AND payload->>'complex_id' = $2
          ORDER BY occurred_at DESC LIMIT 1",
     )
-    .bind("catalog.industrial_complex.created.v2")
+    .bind("catalog.industrial_complex.created.v3")
     .bind(complex.id.to_string())
     .fetch_one(&pool)
     .await
     .expect("outbox row");
-    assert_eq!(row.0, "catalog.industrial_complex.created.v2");
+    assert_eq!(row.0, "catalog.industrial_complex.created.v3");
     assert_eq!(
         row.1["official_complex_code"].as_str(),
         Some(complex.official_complex_code.as_str())
     );
     assert_eq!(
         row.1["primary_bjdong_code"].as_str(),
-        Some(complex.primary_bjdong_code.as_str())
+        complex.primary_bjdong_code.as_deref()
     );
 
-    cleanup(&pool, complex.id, &complex.primary_bjdong_code).await;
+    cleanup(&pool, complex.id, complex.primary_bjdong_code.as_deref()).await;
 }
 
 #[tokio::test]
@@ -134,7 +135,7 @@ async fn rollback_path_official_code_conflict_leaves_no_partial_state() {
         "SELECT event_id FROM catalog.outbox_event
          WHERE payload->>'type' = $1 AND payload->>'complex_id' = $2",
     )
-    .bind("catalog.industrial_complex.created.v2")
+    .bind("catalog.industrial_complex.created.v3")
     .bind(conflict.id.to_string())
     .fetch_optional(&pool)
     .await
@@ -144,7 +145,7 @@ async fn rollback_path_official_code_conflict_leaves_no_partial_state() {
         "atomicity violated — outbox row leaked for failed insert"
     );
 
-    cleanup(&pool, first.id, &first.primary_bjdong_code).await;
+    cleanup(&pool, first.id, first.primary_bjdong_code.as_deref()).await;
 }
 
 #[tokio::test]
@@ -162,7 +163,7 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
             official_complex_code: official_complex_code.clone(),
             name: "E2E imported complex".to_owned(),
             kind: IndustrialComplexKind::General,
-            primary_bjdong_code: first_primary_bjdong_code.clone(),
+            primary_bjdong_code: Some(first_primary_bjdong_code.clone()),
             area_m2: 1_000,
         }])
         .await
@@ -170,6 +171,8 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
         .pop()
         .expect("one created complex");
 
+    assert_eq!(created.effect, UpsertIndustrialComplexEffect::Inserted);
+    let created = created.complex;
     assert_eq!(created.official_complex_code, official_complex_code);
     assert_eq!(created.version, 1);
 
@@ -178,7 +181,7 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
             official_complex_code: official_complex_code.clone(),
             name: "E2E imported complex updated".to_owned(),
             kind: IndustrialComplexKind::National,
-            primary_bjdong_code: second_primary_bjdong_code.clone(),
+            primary_bjdong_code: Some(second_primary_bjdong_code.clone()),
             area_m2: 2_000,
         }])
         .await
@@ -186,9 +189,14 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
         .pop()
         .expect("one updated complex");
 
+    assert_eq!(updated.effect, UpsertIndustrialComplexEffect::Updated);
+    let updated = updated.complex;
     assert_eq!(updated.id, created.id);
     assert_eq!(updated.official_complex_code, official_complex_code);
-    assert_eq!(updated.primary_bjdong_code, second_primary_bjdong_code);
+    assert_eq!(
+        updated.primary_bjdong_code.as_deref(),
+        Some(second_primary_bjdong_code.as_str())
+    );
     assert_eq!(updated.area_m2, 2_000);
     assert_eq!(updated.version, 2);
 
@@ -235,14 +243,14 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
                 official_complex_code: first_official_code,
                 name: "E2E shared bjdong complex A".to_owned(),
                 kind: IndustrialComplexKind::General,
-                primary_bjdong_code: shared_bjdong_code.clone(),
+                primary_bjdong_code: Some(shared_bjdong_code.clone()),
                 area_m2: 1_000,
             },
             UpsertIndustrialComplexCommand {
                 official_complex_code: second_official_code,
                 name: "E2E shared bjdong complex B".to_owned(),
                 kind: IndustrialComplexKind::National,
-                primary_bjdong_code: shared_bjdong_code,
+                primary_bjdong_code: Some(shared_bjdong_code),
                 area_m2: 2_000,
             },
         ])
@@ -250,15 +258,83 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
         .expect("distinct official codes may share one legal-dong locator");
 
     assert_eq!(complexes.len(), 2);
-    assert_ne!(complexes[0].id, complexes[1].id);
+    assert_ne!(complexes[0].complex.id, complexes[1].complex.id);
     assert_eq!(
-        complexes[0].primary_bjdong_code,
-        complexes[1].primary_bjdong_code
+        complexes[0].complex.primary_bjdong_code,
+        complexes[1].complex.primary_bjdong_code
     );
 
-    for complex in complexes {
-        cleanup_by_complex_id(&pool, complex.id).await;
+    for outcome in complexes {
+        cleanup_by_complex_id(&pool, outcome.complex.id).await;
     }
+}
+
+/// A complex whose source resolved no legal-dong code must survive a round trip as `None` rather
+/// than being rejected by the write path or read back as an invented value (root ADR-0040).
+#[tokio::test]
+#[ignore = "requires local docker stack"]
+async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
+    let pool = pool().await;
+
+    let uow = PgCatalogUnitOfWork::new(pool.clone());
+    let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
+
+    let created = uow
+        .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
+            official_complex_code: official_complex_code.clone(),
+            name: "E2E complex without a legal-dong code".to_owned(),
+            kind: IndustrialComplexKind::Agricultural,
+            primary_bjdong_code: None,
+            area_m2: 11_081,
+        }])
+        .await
+        .expect("create via upsert without a legal-dong code")
+        .pop()
+        .expect("one created complex");
+
+    assert_eq!(created.effect, UpsertIndustrialComplexEffect::Inserted);
+    let created = created.complex;
+    assert_eq!(created.primary_bjdong_code, None);
+
+    let stored: Option<String> = sqlx::query_scalar(
+        "SELECT primary_bjdong_code FROM catalog.industrial_complex WHERE id = $1",
+    )
+    .bind(created.id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .expect("stored complex");
+    assert_eq!(stored, None);
+
+    let payload: serde_json::Value = sqlx::query_scalar(
+        "SELECT payload FROM catalog.outbox_event
+         WHERE payload->>'type' = 'catalog.industrial_complex.created.v3'
+           AND payload->>'complex_id' = $1
+         ORDER BY occurred_at DESC
+         LIMIT 1",
+    )
+    .bind(created.id.to_string())
+    .fetch_one(&pool)
+    .await
+    .expect("created outbox row");
+    assert!(payload["primary_bjdong_code"].is_null());
+
+    // A second identical command must change nothing rather than bump the version.
+    let repeated = uow
+        .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
+            official_complex_code,
+            name: "E2E complex without a legal-dong code".to_owned(),
+            kind: IndustrialComplexKind::Agricultural,
+            primary_bjdong_code: None,
+            area_m2: 11_081,
+        }])
+        .await
+        .expect("repeat upsert")
+        .pop()
+        .expect("one repeated complex");
+    assert_eq!(repeated.effect, UpsertIndustrialComplexEffect::Unchanged);
+    assert_eq!(repeated.complex.version, 1);
+
+    cleanup_by_complex_id(&pool, created.id).await;
 }
 
 fn sample_complex() -> IndustrialComplex {
@@ -268,7 +344,7 @@ fn sample_complex() -> IndustrialComplex {
         official_complex_code: format!("IC-{}", Uuid::new_v4().simple()),
         name: format!("E2E 테스트 산단 {}", Uuid::new_v4()),
         kind: IndustrialComplexKind::General,
-        primary_bjdong_code: random_primary_bjdong_code(),
+        primary_bjdong_code: Some(random_primary_bjdong_code()),
         area_m2: 1_234_567,
         created_at: now,
         updated_at: now,
@@ -277,7 +353,7 @@ fn sample_complex() -> IndustrialComplex {
     }
 }
 
-async fn cleanup(pool: &PgPool, complex_id: ComplexId, primary_bjdong_code: &str) {
+async fn cleanup(pool: &PgPool, complex_id: ComplexId, primary_bjdong_code: Option<&str>) {
     sqlx::query("DELETE FROM catalog.industrial_complex WHERE id = $1 OR primary_bjdong_code = $2")
         .bind(complex_id.as_uuid())
         .bind(primary_bjdong_code)

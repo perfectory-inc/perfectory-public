@@ -492,9 +492,36 @@ pub struct UpsertIndustrialComplexCommand {
     /// Domain-level industrial complex kind.
     pub kind: IndustrialComplexKind,
     /// primary legal-dong code shared by parcels that belong to the complex.
-    pub primary_bjdong_code: String,
+    ///
+    /// This is the value to write, so `None` clears an existing code rather than leaving it in
+    /// place. A caller whose source does not carry the column is saying the canonical row must not
+    /// claim one either (root ADR-0040 decision 5).
+    pub primary_bjdong_code: Option<String>,
     /// Official complex area in square meters.
     pub area_m2: u64,
+}
+
+/// What one upsert command did to the canonical table.
+///
+/// Reported by the write path rather than inferred afterwards from `version` or timestamps: a
+/// loader that counts inserts and updates by guessing would keep reporting whatever its guess was.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UpsertIndustrialComplexEffect {
+    /// No row carried this official code, so one was created.
+    Inserted,
+    /// A row carried this official code and at least one canonical field changed.
+    Updated,
+    /// A row carried this official code and every canonical field already matched.
+    Unchanged,
+}
+
+/// One command's result: the stored complex and what the write actually did.
+#[derive(Clone, Debug)]
+pub struct UpsertIndustrialComplexOutcome {
+    /// Canonical complex as stored after the command.
+    pub complex: IndustrialComplex,
+    /// Effect the command had on the canonical table.
+    pub effect: UpsertIndustrialComplexEffect,
 }
 
 /// Read-only Catalog queries.
@@ -659,7 +686,7 @@ pub trait CatalogUnitOfWork: Send + Sync {
     async fn upsert_complexes_by_official_code(
         &self,
         commands: &[UpsertIndustrialComplexCommand],
-    ) -> Result<Vec<IndustrialComplex>, CatalogError>;
+    ) -> Result<Vec<UpsertIndustrialComplexOutcome>, CatalogError>;
 
     /// Updates an industrial complex and emits its update event in the same transaction.
     ///

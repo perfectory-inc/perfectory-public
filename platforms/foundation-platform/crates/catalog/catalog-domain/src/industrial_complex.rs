@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::events::catalog_v1::{
-    IndustrialComplexArchivedV1, IndustrialComplexCreatedV2, IndustrialComplexUpdatedV1,
+    IndustrialComplexArchivedV1, IndustrialComplexCreatedV3, IndustrialComplexUpdatedV1,
 };
 use foundation_shared_kernel::ids::{ComplexId, StaffId};
 use serde::{Deserialize, Serialize};
@@ -67,8 +67,12 @@ pub struct IndustrialComplex {
     pub name: String,
     /// Canonical industrial complex classification.
     pub kind: IndustrialComplexKind,
-    /// primary legal-dong code that defines the complex parcel scope.
-    pub primary_bjdong_code: String,
+    /// primary legal-dong code that defines the complex parcel scope, when one was sourced.
+    ///
+    /// `None` is a fact, not a gap to be filled: the sourced industrial complexes resolve to
+    /// sigungu granularity at best (root ADR-0034), and root ADR-0040 dropped the column's
+    /// `NOT NULL` rather than let a producer invent ten digits.
+    pub primary_bjdong_code: Option<String>,
     /// Official complex area in square meters.
     pub area_m2: u64,
     /// UTC timestamp when the complex was created.
@@ -90,9 +94,9 @@ impl IndustrialComplex {
 
     /// Builds the creation outbox payload for this aggregate.
     #[must_use]
-    pub fn created_event(&self) -> IndustrialComplexCreatedV2 {
-        IndustrialComplexCreatedV2 {
-            schema_version: 2,
+    pub fn created_event(&self) -> IndustrialComplexCreatedV3 {
+        IndustrialComplexCreatedV3 {
+            schema_version: 3,
             complex_id: self.id,
             official_complex_code: self.official_complex_code.clone(),
             name: self.name.clone(),

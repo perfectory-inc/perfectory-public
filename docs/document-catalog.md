@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **363개**
+- 문서 파일: **364개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 62 |
+| Monorepo | 63 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 121 |
+| ADR | 122 |
 | README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -407,6 +407,7 @@ docs/adr/0036-a-pointed-at-object-has-the-command-that-wrote-it.md
 docs/adr/0037-a-pointer-carries-the-address-template-with-its-object-key.md
 docs/adr/0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md
 docs/adr/0039-gold-serving-artifacts-live-in-the-lakehouse-bucket-and-tiles-do-not.md
+docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -481,6 +482,7 @@ tools/github/README.md
 | `docs/adr/0037-a-pointer-carries-the-address-template-with-its-object-key.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md` | Monorepo | ADR | Superseded by ADR-0039 |
 | `docs/adr/0039-gold-serving-artifacts-live-in-the-lakehouse-bucket-and-tiles-do-not.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

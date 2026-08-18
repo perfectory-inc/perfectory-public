@@ -16,7 +16,6 @@
 //! The command does not publish pointers. Producing the object and pointing at it are separate
 //! failures, and were separated so a half-run cannot leave a pointer aimed at nothing.
 
-mod iceberg_scan;
 mod profile_document;
 
 use std::{
@@ -42,6 +41,7 @@ use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use uuid::Uuid;
 
+use crate::lakehouse_snapshot_scan::{scan_snapshot_rows, LakehouseObjectReader};
 use crate::r2_layout::is_industrial_complex_gold_profile_key;
 use profile_document::{GoldSnapshotProvenance, ProfileArtifact, PROFILE_SCHEMA_VERSION};
 
@@ -129,13 +129,6 @@ enum ProfileOutputConfig {
 enum ProfileOutput {
     Local(FileObjectStorage),
     R2(Box<R2ObjectStorage>, String),
-}
-
-/// Reads the lakehouse objects the Iceberg snapshot points at.
-#[derive(Clone)]
-struct LakehouseObjectReader {
-    storage: R2ObjectStorage,
-    bucket_name: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -305,53 +298,6 @@ impl ProfileOutput {
     }
 }
 
-impl LakehouseObjectReader {
-    fn from_env() -> anyhow::Result<Self> {
-        let config =
-            R2ObjectStorageConfig::from_env().context("failed to configure lakehouse R2 reads")?;
-        let bucket_name = config.bucket_name.clone();
-        Ok(Self {
-            storage: R2ObjectStorage::from_config(config),
-            bucket_name,
-        })
-    }
-
-    async fn read(&self, location: &str) -> anyhow::Result<Vec<u8>> {
-        let key = self.object_key(location)?;
-        self.storage
-            .get_object_bytes(key.as_str())
-            .await
-            .with_context(|| format!("failed to read lakehouse object {location}"))
-    }
-
-    fn object_key(&self, location: &str) -> anyhow::Result<String> {
-        lakehouse_object_key(location, self.bucket_name.as_str())
-    }
-}
-
-/// Maps an Iceberg storage location onto a key in the configured lakehouse bucket.
-///
-/// A location in another bucket is a configuration error, not something to read past: the scan
-/// would silently return the wrong table's rows.
-fn lakehouse_object_key(location: &str, bucket_name: &str) -> anyhow::Result<String> {
-    let rest = location
-        .strip_prefix("s3://")
-        .or_else(|| location.strip_prefix("s3a://"))
-        .with_context(|| format!("lakehouse location {location} is not an S3 URI"))?;
-    let (bucket, key) = rest
-        .split_once('/')
-        .with_context(|| format!("lakehouse location {location} carries no object key"))?;
-    ensure!(
-        bucket == bucket_name,
-        "lakehouse location {location} lives in bucket {bucket}, not the configured {bucket_name}"
-    );
-    ensure!(
-        !key.is_empty(),
-        "lakehouse location {location} carries no object key"
-    );
-    Ok(key.to_owned())
-}
-
 async fn export(
     config: &ProfileExportConfig,
     lakehouse: &LakehouseObjectReader,
@@ -365,7 +311,7 @@ async fn export(
         manifest_list_location: snapshot.manifest_list_location.clone(),
     };
 
-    let rows = scan_rows(lakehouse, snapshot).await?;
+    let rows = scan_snapshot_rows(&GOLD_COMPLEX_CATALOG, lakehouse, snapshot).await?;
     let data_file_count = rows.data_file_count;
     let scanned_row_count = u64::try_from(rows.rows.len()).context("scanned row count overflow")?;
     if let Some(expected_row_count) = config.expected_row_count {
@@ -423,44 +369,6 @@ async fn export(
                 .is_none_or(JsonValue::is_null)
         })?,
         artifacts: entries,
-    })
-}
-
-struct ScannedRows {
-    rows: Vec<JsonMap<String, JsonValue>>,
-    data_file_count: u64,
-    manifest_record_count: u64,
-}
-
-async fn scan_rows(
-    lakehouse: &LakehouseObjectReader,
-    snapshot: &IcebergSnapshotManifestList,
-) -> anyhow::Result<ScannedRows> {
-    let manifest_list = lakehouse
-        .read(snapshot.manifest_list_location.as_str())
-        .await?;
-    let manifest_locations = iceberg_scan::manifest_locations(&manifest_list)?;
-
-    let mut data_files = Vec::new();
-    for location in manifest_locations {
-        let manifest = lakehouse.read(location.as_str()).await?;
-        data_files.extend(iceberg_scan::data_files(&manifest)?);
-    }
-
-    let mut rows = Vec::new();
-    let mut manifest_record_count = 0_u64;
-    for data_file in &data_files {
-        manifest_record_count = manifest_record_count
-            .checked_add(data_file.record_count)
-            .context("manifest record count overflow")?;
-        let bytes = lakehouse.read(data_file.file_path.as_str()).await?;
-        rows.extend(iceberg_scan::decode_rows(&GOLD_COMPLEX_CATALOG, bytes)?);
-    }
-
-    Ok(ScannedRows {
-        rows,
-        data_file_count: u64::try_from(data_files.len()).context("data file count overflow")?,
-        manifest_record_count,
     })
 }
 

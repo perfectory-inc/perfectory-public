@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 use super::{
-    export_entry, lakehouse_object_key, parse_max_concurrency, profile_document,
-    ProfileExportConfig, ProfileOutput, ProfileOutputConfig,
+    export_entry, parse_max_concurrency, profile_document, ProfileExportConfig, ProfileOutput,
+    ProfileOutputConfig,
 };
 use foundation_shared_kernel::ObjectUrlTemplate;
 use profile_document::GoldSnapshotProvenance;
@@ -158,29 +158,6 @@ fn an_export_without_an_address_template_still_produces_the_artifact() -> anyhow
 
     assert_eq!(entry.profile_url, None);
     assert_eq!(entry.profile_object_key, artifact.object_key);
-    Ok(())
-}
-
-#[test]
-fn lakehouse_locations_outside_the_configured_bucket_are_refused() -> anyhow::Result<()> {
-    assert_eq!(
-        lakehouse_object_key(
-            "s3://foundation-platform-lakehouse-prod/metadata/snap-1.avro",
-            "foundation-platform-lakehouse-prod"
-        )?,
-        "metadata/snap-1.avro"
-    );
-    for location in [
-        "s3://another-bucket/metadata/snap-1.avro",
-        "https://foundation-platform-lakehouse-prod/metadata/snap-1.avro",
-        "s3://foundation-platform-lakehouse-prod",
-        "s3://foundation-platform-lakehouse-prod/",
-    ] {
-        assert!(
-            lakehouse_object_key(location, "foundation-platform-lakehouse-prod").is_err(),
-            "unsafe lakehouse location was accepted: {location}"
-        );
-    }
     Ok(())
 }
 

@@ -686,6 +686,10 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
             "import-industrial-complex-catalog-seed",
             Command::ImportIndustrialComplexCatalogSeed,
         ),
+        (
+            "load-industrial-complex-canonical",
+            Command::LoadIndustrialComplexCanonical,
+        ),
         ("migrate-r2-bronze-keys", Command::MigrateR2BronzeKeys),
         (
             "publish-industrial-complex-gold-pointer",

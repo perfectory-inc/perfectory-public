@@ -110,7 +110,7 @@ fn sample_complex() -> TestResult<IndustrialComplex> {
         official_complex_code: "SYNTHETIC-COMPLEX-001".to_owned(),
         name: "Synthetic Industrial Complex Alpha".to_owned(),
         kind: IndustrialComplexKind::General,
-        primary_bjdong_code: "9999900101".to_owned(),
+        primary_bjdong_code: Some("9999900101".to_owned()),
         area_m2: 123_456,
         created_at: parse_utc("2099-01-01T00:00:00Z")?,
         updated_at: parse_utc("2099-01-01T00:00:00Z")?,
