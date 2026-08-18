@@ -98,8 +98,9 @@ centroid_y
 geometry_checksum_sha256
 ```
 
-초기 CRS 는 `EPSG:4326` 을 기본으로 한다. 원천 CRS 가 다르면 Bronze lineage 에 원천 CRS 를 남기고,
-Silver 에서 `EPSG:4326` 으로 정규화한다.
+Silver 는 원천 CRS 를 그대로 싣고 `geometry_srid` 로 선언한다. 재투영은 서빙 가장자리에서
+PostGIS `ST_Transform` 이 한다 — 근거: [ADR-0042](../../../../docs/adr/0042-a-silver-boundary-carries-its-source-crs.md).
+표마다 실제 값은 그 표의 `quality_gates` 가 정본이다.
 
 ## 4. Silver Tables
 
@@ -164,13 +165,13 @@ Quality gate:
 | `complex_id` | string | yes | parent complex id |
 | `boundary_kind` | string | yes | `official`, `derived`, `corrected`, `draft` |
 | `geometry_wkb` | binary | yes | GeoParquet WKB geometry |
-| `geometry_srid` | int | yes | 초기 기본값 4326 |
-| `bbox_min_x` | double | yes | min longitude |
-| `bbox_min_y` | double | yes | min latitude |
-| `bbox_max_x` | double | yes | max longitude |
-| `bbox_max_y` | double | yes | max latitude |
-| `centroid_x` | double | yes | centroid longitude |
-| `centroid_y` | double | yes | centroid latitude |
+| `geometry_srid` | int | yes | 5186. 원천 CRS 를 그대로 싣는다 (root ADR-0042) |
+| `bbox_min_x` | double | yes | 최소 X. 단위는 `geometry_srid` 를 따른다 |
+| `bbox_min_y` | double | yes | 최소 Y. 같음 |
+| `bbox_max_x` | double | yes | 최대 X. 같음 |
+| `bbox_max_y` | double | yes | 최대 Y. 같음 |
+| `centroid_x` | double | yes | 면적 가중 중심 X. 같음 |
+| `centroid_y` | double | yes | 면적 가중 중심 Y. 같음 |
 | `area_sqm_calculated` | decimal(18,2) | no | geometry 기반 계산 면적 |
 | `geometry_checksum_sha256` | string | yes | WKB checksum |
 | `source_record_id` | string | yes | source lineage |
@@ -198,7 +199,7 @@ valid_from_utc
 
 Quality gate:
 
-- `geometry_srid = 4326`
+- `geometry_srid = 5186`
 - bbox min/max ordering is valid
 - centroid is inside bbox
 - WKB is valid polygon or multipolygon
