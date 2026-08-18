@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,37 @@ def value_domain(table_name: str, column_name: str) -> tuple[str, ...]:
     if not isinstance(values, list) or not values:
         raise ValueError(f"value domain {table_name}.{column_name} is empty")
     return tuple(values)
+
+
+GEOMETRY_SRID_GATE = re.compile(r"^geometry_srid\s*=\s*(\d+)$")
+
+
+def declared_geometry_srid(contract: dict[str, Any]) -> int:
+    """Return the spatial reference id ``contract`` declares in its quality gates.
+
+    Silver geometry tables carry the CRS their source published and declare it per table (root
+    ADR-0042): parcel boundaries are 4326 because V-World serves GeoJSON, industrial-complex
+    boundaries are 5186 because the provider ships Korea 2000 Central Belt in metres. A job that
+    hardcoded either would be a second place the answer lives, and the one that drifts is the job.
+    """
+
+    gates = contract.get("quality_gates")
+    if not isinstance(gates, list):
+        raise ValueError(f"lakehouse contract {contract.get('table_name')} has no quality_gates")
+
+    matches = [
+        int(match.group(1))
+        for gate in gates
+        if isinstance(gate, str)
+        for match in [GEOMETRY_SRID_GATE.fullmatch(gate.strip())]
+        if match is not None
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"lakehouse contract {contract.get('table_name')} must declare exactly one "
+            f"'geometry_srid = <n>' quality gate; found {len(matches)}"
+        )
+    return matches[0]
 
 
 def column_names(contract: dict[str, Any]) -> tuple[str, ...]:

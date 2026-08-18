@@ -27,6 +27,7 @@ from platform_contracts import (
     column_names,
     create_table_columns_sql,
     current_row_predicate,
+    declared_geometry_srid,
     load_lakehouse_contract,
     partition_spec_sql,
     required_column_names,
@@ -49,6 +50,11 @@ if CURRENT_ROW_PREDICATE is None:
     raise ValueError(f"{RUN_SUMMARY_CONTRACT} must define a current-row predicate")
 
 SILVER_COLUMNS: tuple[str, ...] = column_names(TABLE_CONTRACT)
+
+# Read off the contract rather than written here. Silver geometry tables carry the CRS their source
+# published and declare it per table (root ADR-0042), so a job that spelled the number out would be
+# the second place the answer lives.
+GEOMETRY_SRID: int = declared_geometry_srid(TABLE_CONTRACT)
 
 HANDOFF_INPUT_COLUMNS: tuple[str, ...] = (
     *SILVER_COLUMNS,
@@ -355,7 +361,9 @@ def collect_quality_metrics(frame: DataFrame, include_transport: bool) -> dict[s
         (
             invalid_count(pnu_is_invalid(), "invalid_pnu_count"),
             invalid_count(code_derivation_is_invalid(), "invalid_code_derivation_count"),
-            invalid_count(F.col("geometry_srid") != 4326, "invalid_geometry_srid_count"),
+            invalid_count(
+                F.col("geometry_srid") != GEOMETRY_SRID, "invalid_geometry_srid_count"
+            ),
             invalid_count(invalid_encoding, "invalid_geometry_encoding_count"),
             invalid_count(invalid_hex, "invalid_geometry_wkb_hex_count"),
             invalid_count(geometry_wkb_is_invalid(), "invalid_geometry_wkb_count"),
@@ -429,8 +437,8 @@ def assert_quality_metrics(
     assert_no_invalid_rows(
         frame,
         metrics["invalid_geometry_srid_count"],
-        F.col("geometry_srid") != 4326,
-        "geometry_srid must be 4326",
+        F.col("geometry_srid") != GEOMETRY_SRID,
+        f"geometry_srid must be {GEOMETRY_SRID}",
     )
     if include_transport:
         assert_no_invalid_rows(

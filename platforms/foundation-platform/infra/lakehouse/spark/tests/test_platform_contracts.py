@@ -16,6 +16,7 @@ from platform_contracts import (  # noqa: E402
     CONTRACTS_PATH_ENV,
     column_names,
     current_row_predicate,
+    declared_geometry_srid,
     jsonl_transport_columns,
     load_lakehouse_contract,
     partition_column_names,
@@ -295,6 +296,39 @@ class RegionOptionalContractTest(unittest.TestCase):
                     self.assertIsInstance(value, ast.Call)
                     self.assertIsInstance(value.func, ast.Name)
                     self.assertEqual(value.func.id, helper)
+
+
+class DeclaredGeometrySridTest(unittest.TestCase):
+    """The CRS a geometry table carries is declared per table (root ADR-0042).
+
+    Reading it off the contract is what keeps a Spark job from holding a second copy of the answer;
+    the job that holds the copy is the one that drifts when a source changes projection.
+    """
+
+    def test_each_geometry_table_declares_its_own_srid(self) -> None:
+        self.assertEqual(
+            declared_geometry_srid(
+                load_lakehouse_contract("silver.industrial_complex_boundaries")
+            ),
+            5186,
+        )
+        self.assertEqual(
+            declared_geometry_srid(load_lakehouse_contract("silver.parcel_boundaries")),
+            4326,
+        )
+
+    def test_a_table_without_the_gate_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "geometry_srid"):
+            declared_geometry_srid(load_lakehouse_contract(SILVER_INDUSTRIAL_COMPLEXES))
+
+    def test_two_srid_gates_are_refused(self) -> None:
+        contract = {
+            "table_name": "silver.confused",
+            "quality_gates": ["geometry_srid = 4326", "geometry_srid = 5186"],
+        }
+
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            declared_geometry_srid(contract)
 
 
 if __name__ == "__main__":

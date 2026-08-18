@@ -63,7 +63,7 @@ deterministic 하게 생성한다. 방식은 **RFC 4122 version-5 UUID, namespac
 | Entity | Deterministic seed |
 |---|---|
 | Industrial complex | `foundation-platform:catalog:industrial_complex:{official_complex_code}` |
-| Complex boundary | `spatial_layer:complex_boundary:{complex_id}:{source_record_id}` |
+| Complex boundary | `boundary_id` 는 UUID 가 아니다 — 아래 |
 | Parcel membership | `complex_parcel_membership:{complex_id}:{pnu}` |
 
 산업단지 seed 의 유일한 정본은
@@ -74,6 +74,13 @@ deterministic 하게 생성한다. 방식은 **RFC 4122 version-5 UUID, namespac
 
 자연키가 불안정한 원천은 `source_record_id` 와 source-specific external key 를 함께 저장하고,
 identity resolution 정책을 별도 문서화한다.
+
+`boundary_id` 는 읽을 수 있는 urn 이다. `silver.parcel_boundaries` 가 먼저 그렇게 했고
+(`vworld-cadastral:parcel-boundary:pnu:{pnu}`), `silver.industrial_complex_boundaries` 는
+`vworldkr-sandan-boundary:complex-boundary:official:{official_complex_code}` 를 쓴다. 원천을 읽는
+단계는 `complex_id` 를 아직 모른다 — 그것은 `silver.industrial_complexes` 를 조인해야 나오고,
+정의는 그 표를 쓰는 job 한 곳에만 있다. `complex_id` 로 id 를 만들려면 그 정의를 한 벌 더
+만들어야 하고, 그 두 벌이 어긋나는 날 조인은 조용히 0 이 된다.
 
 ### 시간
 
