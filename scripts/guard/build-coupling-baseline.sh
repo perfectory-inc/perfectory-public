@@ -83,13 +83,21 @@ set -euo pipefail
 # we collect and from where; restating its three entries in the test would recreate exactly the
 # mirrored list the check exists to prevent, so the test reads the document instead of copying it.
 #
+# 87 -> 88: `foundation-outbox-publisher/tests/industrial_complex_boundary_publication.rs`
+# declares the fourth migrator site in that crate, for the reason the second one names. The only
+# production writer of the industrial-complex serving projection creates the `complex` publication
+# unit, and the promotion gate counts publication units globally — a unit left in the shared harness
+# database would fail every promotion test elsewhere while reading as a promotion bug. The suite also
+# has to reproject EPSG:5186 metres through PostGIS and watch an unpromoted load stay invisible, and
+# neither is answerable outside a migrated database.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-87}"
+COMPILE_TIME_READ_BASELINE="${3:-88}"
 
 cd "$repo_root"
 
