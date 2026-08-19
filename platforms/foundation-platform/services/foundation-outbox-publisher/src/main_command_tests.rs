@@ -203,6 +203,10 @@ fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Resu
             Command::PublishAdministrativeBoundaryPostgis,
         ),
         (
+            "publish-industrial-complex-boundary-postgis",
+            Command::PublishIndustrialComplexBoundaryPostgis,
+        ),
+        (
             "publish-parcel-boundary-postgis",
             Command::PublishParcelBoundaryPostgis,
         ),

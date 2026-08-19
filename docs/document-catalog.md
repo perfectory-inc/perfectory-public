@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **367개**
+- 문서 파일: **368개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 66 |
+| Monorepo | 67 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 125 |
+| ADR | 126 |
 | README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -411,6 +411,7 @@ docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md
 docs/adr/0042-a-silver-boundary-carries-its-source-crs.md
 docs/adr/0043-a-canonical-id-is-read-not-recomputed.md
 docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md
+docs/adr/0045-a-serving-projection-row-names-its-load-not-its-revision.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -489,6 +490,7 @@ tools/github/README.md
 | `docs/adr/0042-a-silver-boundary-carries-its-source-crs.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0043-a-canonical-id-is-read-not-recomputed.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0045-a-serving-projection-row-names-its-load-not-its-revision.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
