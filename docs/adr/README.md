@@ -55,3 +55,4 @@ last_reviewed: 2026-07-28
 - [0042 — Silver 경계는 원천 CRS 를 그대로 싣는다](./0042-a-silver-boundary-carries-its-source-crs.md)
 - [0043 — 정본 id 는 다시 계산하지 않고 읽는다](./0043-a-canonical-id-is-read-not-recomputed.md)
 - [0044 — 사실의 이름을 단 컬럼은 그 사실을 담아야 한다](./0044-a-column-named-for-a-fact-must-hold-that-fact.md)
+- [0045 — 서빙 투영의 행은 리비전이 아니라 적재를 이름한다](./0045-a-serving-projection-row-names-its-load-not-its-revision.md)

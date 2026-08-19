@@ -69,6 +69,7 @@ mod github_cutover_artifact_fetch;
 mod github_cutover_dispatch;
 mod industrial_complex_address_resolution_build;
 mod industrial_complex_address_source_collect;
+mod industrial_complex_boundary_postgis_publish;
 mod industrial_complex_boundary_silver_export;
 mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_load;
@@ -232,6 +233,7 @@ enum Command {
     CheckNationalDataCollectionRolloutApproval,
     CheckAdministrativeSpatialScopeRegistry,
     PublishAdministrativeBoundaryPostgis,
+    PublishIndustrialComplexBoundaryPostgis,
     PublishParcelBoundaryPostgis,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
@@ -459,6 +461,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::PublishAdministrativeBoundaryPostgis => {
             Box::pin(administrative_boundary_postgis_publish::run())
+        }
+        Command::PublishIndustrialComplexBoundaryPostgis => {
+            Box::pin(industrial_complex_boundary_postgis_publish::run())
         }
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
         Command::SealParcelPublicationEvidence => {
@@ -993,6 +998,9 @@ where
         }
         Some("publish-administrative-boundary-postgis") => {
             Ok(Command::PublishAdministrativeBoundaryPostgis)
+        }
+        Some("publish-industrial-complex-boundary-postgis") => {
+            Ok(Command::PublishIndustrialComplexBoundaryPostgis)
         }
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
