@@ -7,7 +7,7 @@
 //! reads.
 //!
 //! Until now the only thing that exercised either end to end was
-//! `scripts/tiles/administrative-boundary-slice-proof.sh`, which needs Docker Compose and a Martin
+//! `scripts/tiles/boundary-slice-proof.sh`, which needs Docker Compose and a Martin
 //! deployment and therefore is not in CI. ADR-0016 records that absence as the reason earlier
 //! regressions in exactly this path reached the branch uncaught. Neither command needs any of that:
 //! both are `DATABASE_URL` and their own inputs. Martin enters only where the slice proof goes on to

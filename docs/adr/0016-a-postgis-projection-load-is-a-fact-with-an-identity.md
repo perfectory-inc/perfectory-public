@@ -227,7 +227,7 @@ DTO를 직렬화해 `catalog_domain::VectorTileRuntimeManifest`로 역직렬화�
    > 선행조건의 소유자 문제**이고, 코드로 닫히지 않는다.
 4. **`publish-administrative-boundary-postgis`에는 단위 테스트가 없다.** 원장 삽입·`projection_load_id`
    바인딩·재키잉된 `ON CONFLICT`을 실제로 통과시키는 것은
-   `scripts/tiles/administrative-boundary-slice-proof.sh` 하나뿐이고, 그것은 Docker가 필요해서 **CI에
+   `scripts/tiles/boundary-slice-proof.sh` 하나뿐이고, 그것은 Docker가 필요해서 **CI에
    없다.** 앞선 회귀를 아무 검사도 잡지 못한 것이 이 때문이다.
 
    > **해소 (2026-08-05):** `foundation-outbox-publisher`의

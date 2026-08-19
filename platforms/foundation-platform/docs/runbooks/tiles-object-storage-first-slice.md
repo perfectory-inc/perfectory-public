@@ -165,19 +165,53 @@ foundation-outbox-publisher promote-administrative-boundary-runtime
 function을 호출한다. 브라우저는 기존 MapLibre bridge로 v2 `admin` unit을 읽을 수 있으며 해당
 release가 promote될 때까지 legacy v1 `admin` artifact를 fallback으로 유지한다.
 
+### 산업단지 경계 승격
+
+`complex` 단위도 같은 절차를 따른다. 두 가지만 다르다. **revision UUID는 운영자가 정하지 않는다** —
+`publish-industrial-complex-boundary-postgis`가 canonical snapshot 하나에 revision 하나를 발급하므로,
+발행이 남긴 `serving_postgis.spatial_projection_load` 행에서 적재 id와 함께 읽는다.
+
+```bash
+psql "$DATABASE_URL" -At -F '|' -c "SELECT load.id, load.data_revision
+  FROM serving_postgis.spatial_projection_load AS load
+  JOIN catalog.vector_tile_publication_unit AS unit ON unit.id = load.publication_unit_id
+ WHERE unit.unit_key = 'complex' AND load.status = 'succeeded'
+ ORDER BY load.started_at DESC LIMIT 1;"
+
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_CONFIRM=1
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_PROJECTION_LOAD_ID='<load UUID>'
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_DATA_REVISION='<revision UUID>'
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_CANONICAL_ICEBERG_SNAPSHOT_ID='<positive decimal>'
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_SOURCE_RECORD_ID='<source-record UUID>'
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_SOURCE_FILE_ASSET_ID='<file-asset UUID>'
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_EXPECTED_MANIFEST_ID='<current manifest UUID>'
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_RELEASE_ID='<new release UUID>'
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_MANIFEST_ID='<new manifest UUID>'
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_TILES_URL_TEMPLATE='http://127.0.0.1:3110/complex/{z}/{x}/{y}'
+
+foundation-outbox-publisher promote-industrial-complex-boundary-runtime
+```
+
+`EXPECTED_MANIFEST_ID`를 비워 두지 말 것. 이미 pointer가 있는 배포에서 그것을 생략하면 CAS
+전제가 "pointer 없음"이 되어 승격이 거부된다 — 그리고 두 승격이 겹칠 때 나중 것이 앞의 것을
+조용히 덮는 것을 막는 것이 이 변수다.
+
 ### 폐기 가능한 종단 간 smoke 증명
 
 공식 정부 경계 snapshot이 없으면 예약 좌표를 사용하는 synthetic fixture로 저장소의 증명을
 실행한다.
 
 ```bash
-bash scripts/tiles/administrative-boundary-slice-proof.sh
+bash scripts/tiles/boundary-slice-proof.sh
 ```
 
 일회용 PostGIS와 Martin 컨테이너를 시작하고 synthetic 법정동·시군구 source snapshot을
 작성한 뒤 레지스트리를 검증하고 PostGIS geometry를 발행하며 CAS runtime manifest를 승격하고
-결과 Martin MVT를 디코드한다. 이 fixture는 의도적으로 비공식 데이터이므로 운영에 승격하지
-않는다. 실제 release 전에는 검증된 공식 source snapshot으로 교체한다.
+결과 Martin MVT를 디코드한다. 같은 컨테이너로 `complex` 단위도 끝까지 통과시키며, 거기서는
+**승격 전후 대비**까지 확인한다 — 적재는 끝났지만 아무 manifest도 그것을 고르지 않은 상태에서
+Martin이 자른 타일에는 `complex` 레이어가 없고, 승격 뒤 같은 타일에는 두 폴리곤이 들어 있다.
+이 fixture는 의도적으로 비공식 데이터이므로 운영에 승격하지 않는다. 실제 release 전에는 검증된
+공식 source snapshot으로 교체한다.
 
 ## Local PMTiles fallback
 
