@@ -11,7 +11,11 @@
 //!   * an unpromoted load is invisible through `serving_postgis.industrial_complex_boundary_current`,
 //!     and a view that is *always* empty would pass that assertion without meaning anything — so the
 //!     same test promotes the load through `catalog.promote_vector_tile_runtime_manifest` and
-//!     watches the rows appear.
+//!     watches the rows appear;
+//!   * the geometry repair (root ADR-0047) is `PostGIS`'s `ST_MakeValid` and its gates are the
+//!     table's own constraints, so both what it produces and what refuses it are questions only
+//!     `PostGIS` can answer. Two of those tests take the gate away and publish again, because a
+//!     refusal proves nothing until the same run without the gate is shown to succeed.
 //!
 //! The command is a process, not a function: it reads its whole configuration from the environment.
 //! These tests drive the built binary, which keeps the environment-variable contract under test too.
@@ -71,6 +75,26 @@ const LOCALLY_MINTED_COMPLEX_ID: &str = "01a0136d-0000-7e61-8000-000000000003";
 const EASTING: f64 = 200_000.0;
 const NORTHING: f64 = 400_000.0;
 const SIDE_METRES: f64 = 100.0;
+/// Where [`bowtie_wkb`] pinches in, in the same metres: short of the far side, so the two lobes are
+/// different sizes and the crossed ring encloses a positive area to compare the repair's against.
+const BOWTIE_WAIST_METRES: f64 = 40.0;
+const BOWTIE_HEIGHT_METRES: f64 = 60.0;
+/// How far [`spiked_wkb`]'s zero-width spur reaches past the corner it leaves from.
+const SPUR_METRES: f64 = 100.0;
+
+/// The area [`self_touching_wkb`] encloses, in the source's own square metres: two triangles of
+/// `SIDE_METRES²/4` meeting at the ring's own midpoint. Stated here rather than derived from the
+/// repair, so the assertion that the repair preserved it has something independent to compare to.
+const SELF_TOUCHING_AREA_SQM: f64 = SIDE_METRES * SIDE_METRES / 2.0;
+/// What repairing [`bowtie_wkb`] does to its area: `ST_Area` of the crossed ring is the difference
+/// of the two lobes and `ST_Area` of the repair is their sum. Measured on `PostGIS` 3.5 / GEOS 3.14.
+const BOWTIE_AREA_CHANGE_RATIO: f64 = 1.125;
+
+/// The two bounds `complex_boundary_publication_repair_tolerance_check` states, restated here so
+/// that moving either one has to move this file as well. `20260821190721` is where they are decided
+/// and where the reasoning for the numbers lives; nothing in the publisher holds a copy.
+const MAX_REPAIR_HAUSDORFF_DISTANCE_M: f64 = 0.000_001;
+const MAX_REPAIR_AREA_CHANGE_RATIO: f64 = 0.000_000_001;
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
@@ -209,7 +233,13 @@ async fn a_locally_minted_complex_id_is_refused_by_the_database() -> TestResult 
     // The control: the same statement with the lakehouse's UUIDv5 lands. Without it a typo anywhere
     // else in the insert would produce the rejection this test is looking for.
     let accepted = fixture
-        .insert_boundary_directly(&pool, load.id, COMPLEX_C, "999ZZ2")
+        .insert_boundary_directly(
+            &pool,
+            load.id,
+            COMPLEX_C,
+            "999ZZ2",
+            RepairEvidence::untouched(),
+        )
         .await;
     assert!(
         accepted.is_ok(),
@@ -217,7 +247,13 @@ async fn a_locally_minted_complex_id_is_refused_by_the_database() -> TestResult 
     );
 
     let refused = fixture
-        .insert_boundary_directly(&pool, load.id, LOCALLY_MINTED_COMPLEX_ID, "999ZZ3")
+        .insert_boundary_directly(
+            &pool,
+            load.id,
+            LOCALLY_MINTED_COMPLEX_ID,
+            "999ZZ3",
+            RepairEvidence::untouched(),
+        )
         .await
         .expect_err("a UUIDv7 complex_id must be refused by the CHECK");
     assert!(
@@ -308,6 +344,308 @@ async fn a_publish_naming_another_object_is_refused() -> TestResult {
     fixture.finish(pool).await
 }
 
+/// A boundary that is invalid in the source coordinates is repaired, published, and said so.
+///
+/// The valid square beside it is the control: `geometry_repaired` has to be able to be false in the
+/// same load, or the column would be reporting the run rather than the row.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn a_self_touching_boundary_is_repaired_rather_than_dropped() -> TestResult {
+    let fixture = Fixture::create("complex_publish_repair").await?;
+    let pool = fixture.pool().await?;
+    let export = fixture.root.join("self-touching.jsonl");
+    Fixture::write_source_rows(
+        &export,
+        OBJECT_KEY,
+        &[
+            (COMPLEX_A, CODE_A, square_wkb(EASTING, NORTHING)),
+            (
+                COMPLEX_B,
+                CODE_B,
+                self_touching_wkb(EASTING + 1_000.0, NORTHING + 1_000.0),
+            ),
+        ],
+    )?;
+
+    let output = fixture.publish_from(&export, OBJECT_KEY, OBJECT_SHA256)?;
+    assert!(
+        output.status.success(),
+        "the repairable boundary must publish: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Repairing quietly is what the summary exists to prevent, so the run has to name the complex.
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        stdout.contains(&format!(
+            "industrial-complex-boundary-postgis-publish-repaired official_complex_code={CODE_B}"
+        )),
+        "the run did not report the repair: {stdout}"
+    );
+    assert!(
+        !stdout.contains(&format!("publish-repaired official_complex_code={CODE_A}")),
+        "the untouched boundary must not be reported as repaired: {stdout}"
+    );
+    assert!(
+        stdout.contains("repaired_rows=1"),
+        "the summary must count the repair: {stdout}"
+    );
+
+    let load = fixture.loads(&pool).await?.remove(0);
+    assert_eq!(load.loaded_row_count, Some(Fixture::BOUNDARY_ROWS));
+    assert_eq!(load.rejected_row_count, Some(0));
+
+    // The square: published, and not marked as something it is not.
+    let untouched = fixture.published_row(&pool, load.id, CODE_A).await?;
+    assert!(!untouched.geometry_repaired);
+    assert_eq!(untouched.repair_hausdorff_distance_m, None);
+    assert_eq!(untouched.repair_area_change_ratio, None);
+
+    // The repaired one: two parts, valid, and — the point of the whole exercise — the same outline.
+    // The area is read back through the source CRS so it can be compared with the metres the ring
+    // was written in; `AREA_SQM` is Silver's own number and says nothing about this ring.
+    let repaired = fixture.published_row(&pool, load.id, CODE_B).await?;
+    assert!(repaired.geometry_repaired);
+    assert_eq!(repaired.repair_hausdorff_distance_m, Some(0.0));
+    assert_eq!(repaired.repair_area_change_ratio, Some(0.0));
+    assert_eq!(repaired.geometry_type, "MULTIPOLYGON");
+    assert!(repaired.is_valid);
+    assert_eq!(repaired.parts, 2);
+    assert!(
+        (repaired.source_crs_area_sqm - SELF_TOUCHING_AREA_SQM).abs() < 0.01,
+        "the repair enclosed {} m² where the source ring enclosed {SELF_TOUCHING_AREA_SQM} m²",
+        repaired.source_crs_area_sqm
+    );
+
+    fixture.finish(pool).await
+}
+
+/// A repair that changes the area is refused, and removing the tolerance is what stops refusing it.
+///
+/// Both halves are needed. The first alone would also pass if the geometry were being rejected for
+/// some unrelated reason; the second is the same command, the same file and the same database with
+/// one constraint dropped, so what changed is the only thing that can explain the difference.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn a_repair_that_changes_the_area_is_refused_by_the_tolerance() -> TestResult {
+    let fixture = Fixture::create("complex_publish_bowtie").await?;
+    let pool = fixture.pool().await?;
+    let export = fixture.root.join("bowtie.jsonl");
+    Fixture::write_source_rows(
+        &export,
+        OBJECT_KEY,
+        &[(COMPLEX_A, CODE_A, bowtie_wkb(EASTING, NORTHING))],
+    )?;
+
+    let refused = fixture.publish_from(&export, OBJECT_KEY, OBJECT_SHA256)?;
+    assert!(
+        !refused.status.success(),
+        "a repair that changes the area must not publish"
+    );
+    let message = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(
+        message.contains("complex_boundary_publication_repair_tolerance_check"),
+        "unexpected error: {message}"
+    );
+    assert!(
+        fixture.loads(&pool).await?.is_empty(),
+        "a refused publish leaves no load"
+    );
+
+    sqlx::query(
+        "ALTER TABLE serving_postgis.industrial_complex_boundary_publication
+           DROP CONSTRAINT complex_boundary_publication_repair_tolerance_check",
+    )
+    .execute(&pool)
+    .await?;
+
+    let accepted = fixture.publish_from(&export, OBJECT_KEY, OBJECT_SHA256)?;
+    assert!(
+        accepted.status.success(),
+        "without the tolerance the same publish must succeed, or the tolerance is not what refused \
+         it: {}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    let load = fixture.loads(&pool).await?.remove(0);
+    let admitted = fixture.published_row(&pool, load.id, CODE_A).await?;
+    assert!(admitted.geometry_repaired);
+    assert_eq!(
+        admitted.repair_area_change_ratio,
+        Some(BOWTIE_AREA_CHANGE_RATIO),
+        "the repair the tolerance refused enlarges the boundary by more than its own area"
+    );
+    // And it was refused for its area alone: nothing moved, and the result is a valid MultiPolygon.
+    assert_eq!(admitted.repair_hausdorff_distance_m, Some(0.0));
+    assert_eq!(admitted.geometry_type, "MULTIPOLYGON");
+    assert!(admitted.is_valid);
+
+    fixture.finish(pool).await
+}
+
+/// A repair that stops being polygonal is refused, and the column's own type is what refuses it.
+///
+/// This is the failure neither tolerance can see: the spur `ST_MakeValid` hands back beside the
+/// square moves no vertex and changes no area, and `ST_IsValid` is perfectly happy with a collection
+/// of a polygon and a line. Relaxing the column type and publishing again shows the collection
+/// landing with both measurements reading zero.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn a_repair_that_is_not_polygonal_is_refused_by_the_column_type() -> TestResult {
+    let fixture = Fixture::create("complex_publish_collection").await?;
+    let pool = fixture.pool().await?;
+    let export = fixture.root.join("spiked.jsonl");
+    Fixture::write_source_rows(
+        &export,
+        OBJECT_KEY,
+        &[(COMPLEX_A, CODE_A, spiked_wkb(EASTING, NORTHING))],
+    )?;
+
+    let refused = fixture.publish_from(&export, OBJECT_KEY, OBJECT_SHA256)?;
+    assert!(
+        !refused.status.success(),
+        "a repair that is not polygonal must not publish"
+    );
+    let message = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(
+        message.contains("GeometryCollection") && message.contains("MultiPolygon"),
+        "unexpected error: {message}"
+    );
+    assert!(fixture.loads(&pool).await?.is_empty());
+
+    // The view has to go first — a column type cannot be relaxed underneath one — and it is not
+    // this test's subject. Dropped rather than recreated afterwards: re-stating the view here would
+    // put a second copy of `20260819030646`'s joins in a test file, free to drift from the real one.
+    // The database is thrown away at the end of this function either way.
+    sqlx::query("DROP VIEW serving_postgis.industrial_complex_boundary_current")
+        .execute(&pool)
+        .await?;
+    sqlx::query(
+        "ALTER TABLE serving_postgis.industrial_complex_boundary_publication
+           ALTER COLUMN geom TYPE public.geometry(Geometry, 4326)",
+    )
+    .execute(&pool)
+    .await?;
+
+    let accepted = fixture.publish_from(&export, OBJECT_KEY, OBJECT_SHA256)?;
+    assert!(
+        accepted.status.success(),
+        "without the declared type the same publish must succeed, or the type is not what refused \
+         it: {}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    let load = fixture.loads(&pool).await?.remove(0);
+    let admitted = fixture.published_row(&pool, load.id, CODE_A).await?;
+    assert_eq!(admitted.geometry_type, "GEOMETRYCOLLECTION");
+    assert!(
+        admitted.is_valid,
+        "ST_IsValid does not refuse a collection either, which is why the type gate is the one \
+         that has to"
+    );
+    assert_eq!(admitted.repair_hausdorff_distance_m, Some(0.0));
+    assert_eq!(admitted.repair_area_change_ratio, Some(0.0));
+
+    fixture.finish(pool).await
+}
+
+/// Where the two tolerances sit, and that the flag and its evidence have to agree — attacked in SQL.
+///
+/// The publish reaches the tolerances only through whatever `ST_MakeValid` happens to produce, so
+/// nothing driving the command can say where the bound is or show that a value just outside it is
+/// refused. These rows say it directly, under the publisher capability, with the same valid square
+/// as their geometry so that the three repair columns are the only thing under test.
+///
+/// The accepted row sits **on** both bounds. Without it the refusals below would also hold for a
+/// constraint that refuses everything.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn the_repair_tolerances_are_where_the_migration_says_they_are() -> TestResult {
+    let fixture = Fixture::create("complex_publish_tolerance").await?;
+    let pool = fixture.pool().await?;
+    assert!(fixture.publish()?.status.success());
+    let load = fixture.loads(&pool).await?.remove(0);
+
+    let accepted = fixture
+        .insert_boundary_directly(
+            &pool,
+            load.id,
+            &synthetic_complex_id(10),
+            "999Y10",
+            RepairEvidence::measured(
+                MAX_REPAIR_HAUSDORFF_DISTANCE_M,
+                MAX_REPAIR_AREA_CHANGE_RATIO,
+            ),
+        )
+        .await;
+    assert!(
+        accepted.is_ok(),
+        "a repair exactly on both bounds must be accepted: {accepted:?}"
+    );
+
+    for (index, code, evidence, constraint, what) in [
+        (
+            11,
+            "999Y11",
+            RepairEvidence::measured(MAX_REPAIR_HAUSDORFF_DISTANCE_M * 10.0, 0.0),
+            "repair_tolerance_check",
+            "a repair that moved a vertex ten times further than the bound",
+        ),
+        (
+            12,
+            "999Y12",
+            RepairEvidence::measured(0.0, MAX_REPAIR_AREA_CHANGE_RATIO * 10.0),
+            "repair_tolerance_check",
+            "a repair that changed the area ten times more than the bound",
+        ),
+        (
+            13,
+            "999Y13",
+            RepairEvidence::measured(f64::NAN, 0.0),
+            "repair_tolerance_check",
+            "a distance that is not a number",
+        ),
+        (
+            14,
+            "999Y14",
+            RepairEvidence::measured(-1.0, 0.0),
+            "repair_tolerance_check",
+            "a distance below zero",
+        ),
+        (
+            15,
+            "999Y15",
+            RepairEvidence {
+                repaired: true,
+                hausdorff_distance_m: None,
+                area_change_ratio: None,
+            },
+            "repair_evidence_check",
+            "a repair claimed with nothing measured",
+        ),
+        (
+            16,
+            "999Y16",
+            RepairEvidence {
+                repaired: false,
+                hausdorff_distance_m: Some(0.0),
+                area_change_ratio: Some(0.0),
+            },
+            "repair_evidence_check",
+            "measurements under a row claiming no repair",
+        ),
+    ] {
+        let refused = fixture
+            .insert_boundary_directly(&pool, load.id, &synthetic_complex_id(index), code, evidence)
+            .await
+            .expect_err(what);
+        assert!(
+            refused.to_string().contains(constraint),
+            "{what} was refused by something other than {constraint}: {refused}"
+        );
+    }
+
+    fixture.finish(pool).await
+}
+
 /// A re-publish is a second load, not an edit of the first.
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
@@ -379,6 +717,49 @@ struct ProjectionLoad {
     status: String,
     loaded_row_count: Option<i64>,
     rejected_row_count: Option<i64>,
+}
+
+/// What the three repair columns of a directly-inserted row say.
+///
+/// One value rather than three arguments, because the constraint under test is about the three
+/// agreeing: a caller has to state a combination, including the combinations that must be refused.
+struct RepairEvidence {
+    repaired: bool,
+    hausdorff_distance_m: Option<f64>,
+    area_change_ratio: Option<f64>,
+}
+
+impl RepairEvidence {
+    /// A geometry that was published as it arrived.
+    const fn untouched() -> Self {
+        Self {
+            repaired: false,
+            hausdorff_distance_m: None,
+            area_change_ratio: None,
+        }
+    }
+
+    /// A repair that measured these two numbers.
+    const fn measured(hausdorff_distance_m: f64, area_change_ratio: f64) -> Self {
+        Self {
+            repaired: true,
+            hausdorff_distance_m: Some(hausdorff_distance_m),
+            area_change_ratio: Some(area_change_ratio),
+        }
+    }
+}
+
+/// One published boundary, with what `PostGIS` says about the geometry that was stored.
+struct PublishedRow {
+    geometry_repaired: bool,
+    repair_hausdorff_distance_m: Option<f64>,
+    repair_area_change_ratio: Option<f64>,
+    geometry_type: String,
+    is_valid: bool,
+    parts: i32,
+    /// `ST_Area` of the stored geometry taken back to the source CRS, so it can be compared with the
+    /// metres the fixture ring was written in.
+    source_crs_area_sqm: f64,
 }
 
 struct Fixture {
@@ -512,17 +893,40 @@ impl Fixture {
 
     /// The same export, citing whichever Bronze object key the caller names.
     fn write_source_at(path: &Path, object_key: &str) -> TestResult {
+        Self::write_source_rows(
+            path,
+            object_key,
+            &[
+                (COMPLEX_A, CODE_A, square_wkb(EASTING, NORTHING)),
+                (
+                    COMPLEX_B,
+                    CODE_B,
+                    square_wkb(EASTING + 1_000.0, NORTHING + 1_000.0),
+                ),
+            ],
+        )
+    }
+
+    /// An export of exactly the geometries the caller hands over.
+    ///
+    /// `area_sqm_calculated` stays [`Self::AREA_SQM`] for every row, because it is Silver's own
+    /// number and the publish neither recomputes it nor compares it to the geometry. A fixture that
+    /// derived it from the ring would be asserting a relationship the command does not have.
+    fn write_source_rows(
+        path: &Path,
+        object_key: &str,
+        rows: &[(&str, &str, Vec<u8>)],
+    ) -> TestResult {
         let mut body = String::new();
-        for (complex_id, code, offset) in [(COMPLEX_A, CODE_A, 0.0), (COMPLEX_B, CODE_B, 1_000.0)] {
-            let wkb = square_wkb(EASTING + offset, NORTHING + offset);
+        for (complex_id, code, wkb) in rows {
             let row = json!({
                 "complex_id": complex_id,
                 "official_complex_code": code,
                 "boundary_kind": "official",
-                "geometry_wkb_hex": hex_lower(&wkb),
+                "geometry_wkb_hex": hex_lower(wkb),
                 "geometry_srid": 5186,
                 "area_sqm_calculated": Self::AREA_SQM,
-                "geometry_checksum_sha256": format!("{:x}", Sha256::digest(&wkb)),
+                "geometry_checksum_sha256": format!("{:x}", Sha256::digest(wkb)),
                 "source_record_id": object_key,
                 "source_snapshot_id": SOURCE_SNAPSHOT_ID,
             });
@@ -648,19 +1052,26 @@ impl Fixture {
         projection_load_id: Uuid,
         complex_id: &str,
         official_complex_code: &str,
+        repair: RepairEvidence,
     ) -> Result<(), sqlx::Error> {
         let mut transaction = pool.begin().await?;
         sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
             .execute(&mut *transaction)
             .await?;
         sqlx::query(
+            // `geometry_repaired` is stated rather than defaulted: `20260821190721` takes the
+            // default away so that a repaired geometry cannot be recorded as untouched by omission,
+            // and this insert is the shape the command's own is. The geometry is always the valid
+            // square, so a refusal here is about the three repair columns and nothing else.
             "INSERT INTO serving_postgis.industrial_complex_boundary_publication
                 (complex_id, official_complex_code, projection_load_id, boundary_kind,
                  source_snapshot_id, bronze_object_id, source_object_key, area_sqm_calculated,
-                 source_geometry_checksum_sha256, geom)
+                 source_geometry_checksum_sha256, geom, geometry_repaired,
+                 repair_hausdorff_distance_m, repair_area_change_ratio)
              SELECT $1::uuid, $2, $3, 'official', $4, $5, $6, 1.00, repeat('a', 64),
                     public.st_multi(public.st_transform(
-                        public.st_setsrid(public.st_geomfromwkb(decode($7, 'hex')), 5186), 4326))",
+                        public.st_setsrid(public.st_geomfromwkb(decode($7, 'hex')), 5186), 4326)),
+                    $8, $9, $10",
         )
         .bind(complex_id)
         .bind(official_complex_code)
@@ -669,6 +1080,9 @@ impl Fixture {
         .bind(self.bronze_object_id)
         .bind(OBJECT_KEY)
         .bind(hex_lower(&square_wkb(EASTING, NORTHING)))
+        .bind(repair.repaired)
+        .bind(repair.hausdorff_distance_m)
+        .bind(repair.area_change_ratio)
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await
@@ -701,6 +1115,37 @@ impl Fixture {
             .collect()
     }
 
+    /// One row of one load, by the code the layer contract publishes it under.
+    async fn published_row(
+        &self,
+        pool: &PgPool,
+        load_id: Uuid,
+        official_complex_code: &str,
+    ) -> TestResult<PublishedRow> {
+        let row = sqlx::query(
+            "SELECT geometry_repaired, repair_hausdorff_distance_m, repair_area_change_ratio,
+                    public.geometrytype(geom) AS geometry_type,
+                    public.st_isvalid(geom) AS is_valid,
+                    public.st_numgeometries(geom) AS parts,
+                    public.st_area(public.st_transform(geom, 5186)) AS source_crs_area_sqm
+               FROM serving_postgis.industrial_complex_boundary_publication
+              WHERE projection_load_id = $1 AND official_complex_code = $2",
+        )
+        .bind(load_id)
+        .bind(official_complex_code)
+        .fetch_one(pool)
+        .await?;
+        Ok(PublishedRow {
+            geometry_repaired: row.try_get("geometry_repaired")?,
+            repair_hausdorff_distance_m: row.try_get("repair_hausdorff_distance_m")?,
+            repair_area_change_ratio: row.try_get("repair_area_change_ratio")?,
+            geometry_type: row.try_get("geometry_type")?,
+            is_valid: row.try_get("is_valid")?,
+            parts: row.try_get("parts")?,
+            source_crs_area_sqm: row.try_get("source_crs_area_sqm")?,
+        })
+    }
+
     async fn publication_rows(&self, pool: &PgPool, load_id: Uuid) -> TestResult<i64> {
         Ok(sqlx::query_scalar(
             "SELECT count(*) FROM serving_postgis.industrial_complex_boundary_publication
@@ -721,17 +1166,84 @@ impl Fixture {
 }
 
 /// A closed, counter-clockwise square as standard little-endian WKB, in the source's own metres.
-///
-/// Built here rather than fetched from `PostGIS`: the point of the fixture is to be the bytes Silver
-/// stores, and asking the database to produce them would make the test agree with itself.
 fn square_wkb(easting: f64, northing: f64) -> Vec<u8> {
-    let corners = [
+    ring_wkb(&[
         (easting, northing),
         (easting + SIDE_METRES, northing),
         (easting + SIDE_METRES, northing + SIDE_METRES),
         (easting, northing + SIDE_METRES),
         (easting, northing),
-    ];
+    ])
+}
+
+/// A ring that revisits a place it has already been: the defect the two real boundaries carry.
+///
+/// The midpoint appears twice, so the loop closes against itself there and encloses two triangles.
+/// No pair of segments crosses — they meet at a shared endpoint — which is why `ST_MakeValid` can
+/// cut the ring at that vertex without inventing a coordinate. On `247920` the two occurrences are
+/// 0.000000 m apart, as they are here; on `141060` they are 0.0008 m apart.
+fn self_touching_wkb(easting: f64, northing: f64) -> Vec<u8> {
+    let middle = (easting + SIDE_METRES / 2.0, northing + SIDE_METRES / 2.0);
+    ring_wkb(&[
+        (easting, northing),
+        (easting + SIDE_METRES, northing),
+        middle,
+        (easting + SIDE_METRES, northing + SIDE_METRES),
+        (easting, northing + SIDE_METRES),
+        middle,
+        (easting, northing),
+    ])
+}
+
+/// A ring whose two lobes genuinely cross, so that repairing it changes the area it encloses.
+///
+/// This is the case the tolerance exists for and the one the real boundaries are not: the crossing
+/// point is on no vertex, `ST_Area` of the crossed ring counts the lobes against each other, and the
+/// repair returns their sum. Deliberately lopsided — with equal lobes the crossed ring encloses zero
+/// and the ratio is infinity, which is a second, easier thing to refuse.
+fn bowtie_wkb(easting: f64, northing: f64) -> Vec<u8> {
+    ring_wkb(&[
+        (easting, northing),
+        (easting + SIDE_METRES, northing),
+        (
+            easting + BOWTIE_WAIST_METRES,
+            northing + BOWTIE_HEIGHT_METRES,
+        ),
+        (easting + SIDE_METRES, northing + BOWTIE_HEIGHT_METRES),
+        (easting, northing),
+    ])
+}
+
+/// A square with a zero-width spur, which `ST_MakeValid` repairs into a `GEOMETRYCOLLECTION`.
+///
+/// The spur is a line, so it cannot be part of a polygon and `ST_MakeValid` hands it back beside
+/// one. Neither tolerance sees anything wrong: the square's area is untouched and no vertex moves.
+fn spiked_wkb(easting: f64, northing: f64) -> Vec<u8> {
+    let corner = (easting + SIDE_METRES, northing + SIDE_METRES);
+    ring_wkb(&[
+        (easting, northing),
+        (easting + SIDE_METRES, northing),
+        corner,
+        (corner.0 + SPUR_METRES, corner.1),
+        corner,
+        (easting, northing + SIDE_METRES),
+        (easting, northing),
+    ])
+}
+
+/// A `UUIDv5` in the lakehouse's shape, distinct per `index`, for rows inserted straight into the
+/// table. Each attempt needs its own id: a repeat would be refused by the primary key instead of by
+/// the constraint under test, which reads identically from the outside.
+fn synthetic_complex_id(index: u8) -> String {
+    format!("7df3859c-0000-51fa-8000-{index:012}")
+}
+
+/// One closed ring as a standard little-endian WKB polygon, in the source's own metres.
+///
+/// Built here rather than fetched from `PostGIS`: the point of the fixture is to be the bytes Silver
+/// stores, and asking the database to produce them would make the test agree with itself — which
+/// matters most for the invalid rings above, where `PostGIS` would have refused to hand them back.
+fn ring_wkb(corners: &[(f64, f64)]) -> Vec<u8> {
     let mut wkb = Vec::with_capacity(9 + 8 + corners.len() * 16);
     wkb.push(1); // little endian
     wkb.extend_from_slice(&3_u32.to_le_bytes()); // Polygon
