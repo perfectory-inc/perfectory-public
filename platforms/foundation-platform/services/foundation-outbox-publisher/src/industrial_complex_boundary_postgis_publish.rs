@@ -20,6 +20,11 @@
 //!
 //! Nothing here invents a row. The 98 complexes with no polygon in the source have no Silver
 //! boundary and therefore no row in this table.
+//!
+//! **The provenance this publish records is the collected object, not a hand-written record of one**
+//! (root ADR-0046). `catalog.bronze_object` is what the Bronze committer always writes (FP-ADR-0016)
+//! and what Silver's own `source_record_id` already names by key, so the anchor is looked up from
+//! the key the export cites rather than supplied as a second identifier the operator could invent.
 
 use std::{
     collections::BTreeSet,
@@ -45,10 +50,10 @@ const CANONICAL_SNAPSHOT_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_CANONICAL_ICEBERG_SNAPSHOT_ID";
 const SOURCE_SNAPSHOT_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_SNAPSHOT_ID";
-const SOURCE_RECORD_ENV: &str =
-    "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_RECORD_ID";
 const SOURCE_OBJECT_KEY_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_KEY";
+const SOURCE_OBJECT_CHECKSUM_ENV: &str =
+    "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_CHECKSUM_SHA256";
 
 const DEFAULT_SOURCE_PATH: &str = "target/source/industrial-complex-boundary-postgis-source.jsonl";
 
@@ -78,10 +83,15 @@ pub async fn run() -> anyhow::Result<()> {
         .execute(&mut *transaction)
         .await?;
 
-    verify_source_record(&mut transaction, &config).await?;
+    let bronze_object_id = resolve_bronze_object(&mut transaction, &config).await?;
     let publication_unit_id = ensure_complex_unit(&mut transaction).await?;
-    let data_revision =
-        register_or_reuse_revision(&mut transaction, publication_unit_id, &config).await?;
+    let data_revision = register_or_reuse_revision(
+        &mut transaction,
+        publication_unit_id,
+        &config,
+        bronze_object_id,
+    )
+    .await?;
 
     // Opened before a single geometry lands, so the rows this run writes carry the identity of the
     // run that wrote them. Keying the projection on the load rather than on the revision is what
@@ -101,7 +111,14 @@ pub async fn run() -> anyhow::Result<()> {
     .context("failed to open the industrial complex PostGIS projection load")?;
 
     for row in &rows {
-        publish_boundary(&mut transaction, &config, row, projection_load_id).await?;
+        publish_boundary(
+            &mut transaction,
+            &config,
+            row,
+            projection_load_id,
+            bronze_object_id,
+        )
+        .await?;
     }
 
     // Counted from the table, by load. A count derived from the input would report what this run
@@ -147,13 +164,15 @@ pub async fn run() -> anyhow::Result<()> {
 
     println!(
         "industrial-complex-boundary-postgis-publish-ok source_boundaries={} publication_rows={} \
-         rejected_rows={} canonical_iceberg_snapshot_id={} data_revision={} projection_load_id={}",
+         rejected_rows={} canonical_iceberg_snapshot_id={} data_revision={} projection_load_id={} \
+         bronze_object_id={}",
         rows.len(),
         publication_count,
         rejected_count,
         config.canonical_snapshot_id,
         data_revision,
-        projection_load_id
+        projection_load_id,
+        bronze_object_id
     );
     Ok(())
 }
@@ -163,8 +182,12 @@ struct Config {
     source_path: PathBuf,
     canonical_snapshot_id: String,
     source_snapshot_id: String,
-    source_record_id: Uuid,
+    /// The immutable Bronze object key the export cites on every row.
     source_object_key: String,
+    /// What the operator measured over the bytes the export was built from, compared against what
+    /// the collector recorded for that key. The publish never sees the zip, so this is the only
+    /// place a byte-level disagreement between the two can be caught.
+    source_object_checksum_sha256: String,
 }
 
 impl Config {
@@ -183,6 +206,12 @@ impl Config {
             !source_object_key.starts_with('/') && !source_object_key.contains(".."),
             "{SOURCE_OBJECT_KEY_ENV} must be a relative immutable object key"
         );
+        let source_object_checksum_sha256 = required_env_value(SOURCE_OBJECT_CHECKSUM_ENV)?;
+        ensure!(
+            is_sha256_hex(&source_object_checksum_sha256),
+            "{SOURCE_OBJECT_CHECKSUM_ENV} must be 64 lowercase hex characters, as \
+             `catalog.bronze_object.checksum_sha256` stores them"
+        );
         Ok(Self {
             database_url: required_env_value("DATABASE_URL")?,
             source_path: PathBuf::from(
@@ -191,9 +220,8 @@ impl Config {
             ),
             canonical_snapshot_id,
             source_snapshot_id,
-            source_record_id: Uuid::parse_str(&required_env_value(SOURCE_RECORD_ENV)?)
-                .with_context(|| format!("{SOURCE_RECORD_ENV} must be a UUID"))?,
             source_object_key,
+            source_object_checksum_sha256,
         })
     }
 }
@@ -262,7 +290,9 @@ fn validate_row(row: &SourceRow, config: &Config, line: usize) -> anyhow::Result
     );
     // The export carries Silver's own lineage id, which the boundary Silver export sets to the
     // Bronze object key. Comparing it to the key the operator named is what stops a publish from
-    // attributing one snapshot's polygons to another snapshot's `catalog.source_record`.
+    // attributing one snapshot's polygons to another snapshot's collected object — and it is also
+    // why the operator has no separate provenance id to supply: `resolve_bronze_object` reads the
+    // `catalog.bronze_object` row addressed by this same key.
     ensure!(
         row.source_record_id == config.source_object_key,
         "source_record_id mismatch at line {line}: the export cites {} and {SOURCE_OBJECT_KEY_ENV} \
@@ -313,25 +343,50 @@ fn validate_row(row: &SourceRow, config: &Config, line: usize) -> anyhow::Result
     Ok(())
 }
 
-/// Confirms the `catalog.source_record` the operator named exists and addresses the same object.
-async fn verify_source_record(
+/// Resolves the collected Bronze object these polygons came from, and proves it is that object.
+///
+/// The id is **read, not named** (root ADR-0043's rule, applied to provenance). The operator names
+/// the object key, which `validate_row` has already required every exported row to cite, so there
+/// is no separate identifier for a hand to get wrong — and the failure this replaces was exactly
+/// that: an operator minting a fresh uuid for a `catalog.source_record` nothing had collected.
+///
+/// Two facts are checked, and both have to hold:
+///
+///   * `catalog.bronze_object` holds **exactly one** row at that key. `bronze_object` is unique on
+///     `(source_catalog_id, object_key)`, not on the key alone, so several source catalogs could in
+///     principle record one key. Picking one of them here would be a silent choice among facts, so
+///     several is refused as loudly as none.
+///   * that row's `checksum_sha256` equals what the operator measured over the bytes the export was
+///     built from. The key says *which* object; the checksum says it is the **same** object. Without
+///     it a local file renamed onto a real key would publish under provenance it does not have —
+///     which is the mistake this command's own history records.
+async fn resolve_bronze_object(
     transaction: &mut Transaction<'_, Postgres>,
     config: &Config,
-) -> anyhow::Result<()> {
-    let raw_object_key: Option<String> =
-        sqlx::query_scalar("SELECT raw_object_key FROM catalog.source_record WHERE id = $1")
-            .bind(config.source_record_id)
-            .fetch_optional(&mut **transaction)
-            .await?
-            .context("the industrial complex boundary source_record does not exist")?;
+) -> anyhow::Result<Uuid> {
+    let candidates =
+        sqlx::query("SELECT id, checksum_sha256 FROM catalog.bronze_object WHERE object_key = $1")
+            .bind(&config.source_object_key)
+            .fetch_all(&mut **transaction)
+            .await?;
+    let [row] = candidates.as_slice() else {
+        bail!(
+            "catalog.bronze_object holds {} objects at {}; a publish names the one collected object \
+             it was built from",
+            candidates.len(),
+            config.source_object_key
+        );
+    };
+    let bronze_object_id: Uuid = row.try_get("id")?;
+    let checksum: String = row.try_get("checksum_sha256")?;
     ensure!(
-        raw_object_key.as_deref() == Some(config.source_object_key.as_str()),
-        "catalog.source_record {} addresses {:?} rather than {}",
-        config.source_record_id,
-        raw_object_key,
-        config.source_object_key
+        checksum == config.source_object_checksum_sha256,
+        "catalog.bronze_object {bronze_object_id} at {} was collected as {checksum}, and \
+         {SOURCE_OBJECT_CHECKSUM_ENV} names {}; these are not the same object",
+        config.source_object_key,
+        config.source_object_checksum_sha256
     );
-    Ok(())
+    Ok(bronze_object_id)
 }
 
 /// Provisions the `complex` publication unit if this deployment has not published one yet.
@@ -369,23 +424,24 @@ async fn register_or_reuse_revision(
     transaction: &mut Transaction<'_, Postgres>,
     publication_unit_id: Uuid,
     config: &Config,
+    bronze_object_id: Uuid,
 ) -> anyhow::Result<Uuid> {
     sqlx::query(
         "INSERT INTO catalog.publication_revision
-            (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
+            (id, publication_unit_id, canonical_iceberg_snapshot_id, bronze_object_id)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (publication_unit_id, canonical_iceberg_snapshot_id) DO NOTHING",
     )
     .bind(Uuid::new_v4())
     .bind(publication_unit_id)
     .bind(&config.canonical_snapshot_id)
-    .bind(config.source_record_id)
+    .bind(bronze_object_id)
     .execute(&mut **transaction)
     .await
     .context("failed to register the industrial complex publication revision")?;
 
     let stored = sqlx::query(
-        "SELECT id, source_record_id, derived_from_administrative_revision
+        "SELECT id, bronze_object_id, derived_from_administrative_revision
            FROM catalog.publication_revision
           WHERE publication_unit_id = $1 AND canonical_iceberg_snapshot_id = $2
           FOR SHARE",
@@ -395,7 +451,10 @@ async fn register_or_reuse_revision(
     .fetch_one(&mut **transaction)
     .await?;
     let stored_id: Uuid = stored.try_get("id")?;
-    let stored_source_record: Uuid = stored.try_get("source_record_id")?;
+    // `Option`, because the column is one arm of `publication_revision_one_provenance_anchor_check`.
+    // A revision of this unit registered against a `catalog.source_record` instead would read as
+    // `None` here and is refused below rather than decoded into a mismatch it is not.
+    let stored_bronze_object: Option<Uuid> = stored.try_get("bronze_object_id")?;
     let stored_lineage: Option<Uuid> = stored.try_get("derived_from_administrative_revision")?;
     ensure!(
         stored_lineage.is_none(),
@@ -403,10 +462,9 @@ async fn register_or_reuse_revision(
          boundary revision has none"
     );
     ensure!(
-        stored_source_record == config.source_record_id,
-        "publication revision {stored_id} was registered against source_record {stored_source_record}, \
-         not the {} this publish names",
-        config.source_record_id
+        stored_bronze_object == Some(bronze_object_id),
+        "publication revision {stored_id} was registered against bronze object {stored_bronze_object:?}, \
+         not the {bronze_object_id} this publish names"
     );
     Ok(stored_id)
 }
@@ -426,11 +484,12 @@ async fn publish_boundary(
     config: &Config,
     row: &SourceRow,
     projection_load_id: Uuid,
+    bronze_object_id: Uuid,
 ) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO serving_postgis.industrial_complex_boundary_publication
             (complex_id, official_complex_code, projection_load_id, boundary_kind,
-             source_snapshot_id, source_record_id, source_object_key, area_sqm_calculated,
+             source_snapshot_id, bronze_object_id, source_object_key, area_sqm_calculated,
              source_geometry_checksum_sha256, geom)
          SELECT $1::uuid, $2, $3, $4, $5, $6, $7, $8::numeric, $9,
                 public.st_multi(public.st_force2d(public.st_transform(
@@ -442,7 +501,7 @@ async fn publish_boundary(
     .bind(projection_load_id)
     .bind(&row.boundary_kind)
     .bind(&row.source_snapshot_id)
-    .bind(config.source_record_id)
+    .bind(bronze_object_id)
     .bind(&config.source_object_key)
     .bind(&row.area_sqm_calculated)
     .bind(&row.geometry_checksum_sha256)
@@ -461,6 +520,15 @@ async fn publish_boundary(
 
 fn is_positive_digits(value: &str) -> bool {
     !value.is_empty() && value != "0" && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// The exact shape `bronze_object_checksum_sha256_check` stores, so a mistyped checksum is refused
+/// as a mistyped checksum rather than surviving to be compared and reported as a different object.
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// Accepts the exact decimal text `decimal(18,2)` round-trips through JSON, when it is above zero.

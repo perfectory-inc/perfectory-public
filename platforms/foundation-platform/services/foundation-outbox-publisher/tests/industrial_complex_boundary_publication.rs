@@ -23,7 +23,11 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::{env, fs, path::PathBuf, process::Command};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use foundation_disposable_database::{disposable_database_url, DisposableDatabaseUrl, TestResult};
 use serde_json::json;
@@ -40,6 +44,13 @@ const COMPLEX_UNIT_KEY: &str = "complex";
 const CANONICAL_SNAPSHOT_ID: &str = "841361364657368624";
 const SOURCE_SNAPSHOT_ID: &str = "vworldkr__sandan_boundary-publication-test";
 const OBJECT_KEY: &str = "bronze/vworldkr__sandan_boundary/publication-test.zip";
+/// What the collector recorded for [`OBJECT_KEY`], in the lowercase hex
+/// `bronze_object_checksum_sha256_check` requires.
+const OBJECT_SHA256: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+/// Well formed, and not [`OBJECT_SHA256`]. Naming this is naming a different object.
+const OTHER_SHA256: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+/// A key `catalog.bronze_object` holds nothing at.
+const UNCOLLECTED_OBJECT_KEY: &str = "bronze/vworldkr__sandan_boundary/never-collected.zip";
 const TILES_URL_TEMPLATE: &str = "http://127.0.0.1:3112/complex/{z}/{x}/{y}";
 
 /// Synthetic complex codes, six characters like the source's, in a range the source does not use.
@@ -85,9 +96,12 @@ async fn a_publish_reprojects_into_one_load_and_stays_invisible_until_promotion(
     assert_eq!(load.rejected_row_count, Some(0));
 
     // The revision belongs to the unit it revises and carries no administrative lineage: an
-    // industrial-complex boundary asserts nothing about an administrative boundary.
+    // industrial-complex boundary asserts nothing about an administrative boundary. Its provenance
+    // is the collected object, and the `catalog.source_record` this fixture also seeded — the one
+    // the release will name — is deliberately not it (root ADR-0046).
     let revision = sqlx::query(
-        "SELECT unit.unit_key, revision.derived_from_administrative_revision
+        "SELECT unit.unit_key, revision.derived_from_administrative_revision,
+                revision.bronze_object_id, revision.source_record_id
            FROM catalog.publication_revision AS revision
            JOIN catalog.vector_tile_publication_unit AS unit
              ON unit.id = revision.publication_unit_id
@@ -101,6 +115,25 @@ async fn a_publish_reprojects_into_one_load_and_stays_invisible_until_promotion(
         revision.try_get::<Option<Uuid>, _>("derived_from_administrative_revision")?,
         None
     );
+    assert_eq!(
+        revision.try_get::<Option<Uuid>, _>("bronze_object_id")?,
+        Some(fixture.bronze_object_id)
+    );
+    assert_eq!(
+        revision.try_get::<Option<Uuid>, _>("source_record_id")?,
+        None
+    );
+
+    // Every geometry row reaches the same object.
+    let anchored: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM serving_postgis.industrial_complex_boundary_publication
+          WHERE projection_load_id = $1 AND bronze_object_id = $2",
+    )
+    .bind(load.id)
+    .bind(fixture.bronze_object_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(anchored, Fixture::BOUNDARY_ROWS);
 
     // The reprojection. Metres in, degrees out: an identity load would leave the centroid at the
     // easting, which is five orders of magnitude outside the bound below. The bounds are integers so
@@ -195,6 +228,86 @@ async fn a_locally_minted_complex_id_is_refused_by_the_database() -> TestResult 
     fixture.finish(pool).await
 }
 
+/// The provenance check, attacked three ways.
+///
+/// The publish that succeeds elsewhere in this file is the control: the same command, the same
+/// export, the same database, and only the two values naming the object changed. Without these the
+/// check would be indistinguishable from no check at all — the anchor is *resolved* from a key the
+/// export already carries, so a resolution that always found something would still look green.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
+async fn a_publish_naming_another_object_is_refused() -> TestResult {
+    let fixture = Fixture::create("complex_publish_wrong_object").await?;
+    let pool = fixture.pool().await?;
+
+    // 1. The right key, a checksum the collector did not record. Same address, different bytes.
+    let wrong_checksum = fixture.publish_naming(OBJECT_KEY, OTHER_SHA256)?;
+    assert!(!wrong_checksum.status.success());
+    let message = String::from_utf8_lossy(&wrong_checksum.stderr).into_owned();
+    assert!(
+        message.contains("these are not the same object"),
+        "unexpected error: {message}"
+    );
+
+    // 2a. A key nothing was collected at, while the export still cites the real one. The file check
+    //     answers first, and says which of the two disagrees.
+    let mismatched = fixture.publish_naming(UNCOLLECTED_OBJECT_KEY, OBJECT_SHA256)?;
+    assert!(!mismatched.status.success());
+    let message = String::from_utf8_lossy(&mismatched.stderr).into_owned();
+    assert!(
+        message.contains("source_record_id mismatch"),
+        "unexpected error: {message}"
+    );
+
+    // 2b. Now an export that agrees with the argument, and both name an object that was never
+    //     collected. This is the case the old command could not refuse: a hand-made row would have
+    //     satisfied it, and here there is nothing to hand-make.
+    let uncollected_export = fixture.root.join("never-collected.jsonl");
+    Fixture::write_source_at(&uncollected_export, UNCOLLECTED_OBJECT_KEY)?;
+    let uncollected =
+        fixture.publish_from(&uncollected_export, UNCOLLECTED_OBJECT_KEY, OBJECT_SHA256)?;
+    assert!(!uncollected.status.success());
+    let message = String::from_utf8_lossy(&uncollected.stderr).into_owned();
+    assert!(
+        message.contains("holds 0 objects"),
+        "unexpected error: {message}"
+    );
+
+    // 3. Two source catalogs recording the same key. `bronze_object` is unique on
+    //    `(source_catalog_id, object_key)`, so this is representable, and resolving by key alone
+    //    would have to pick one. It refuses instead.
+    let second_catalog = fixture
+        .seed_source_catalog(&pool, "vworldkr-sandan-boundary-mirror")
+        .await?;
+    fixture
+        .seed_bronze_object(
+            &pool,
+            second_catalog,
+            Uuid::new_v4(),
+            OBJECT_KEY,
+            OTHER_SHA256,
+        )
+        .await?;
+    let ambiguous = fixture.publish_naming(OBJECT_KEY, OBJECT_SHA256)?;
+    assert!(!ambiguous.status.success());
+    let message = String::from_utf8_lossy(&ambiguous.stderr).into_owned();
+    assert!(
+        message.contains("holds 2 objects"),
+        "unexpected error: {message}"
+    );
+
+    // Nothing survived any of the three: a refused publish leaves no load, and therefore no rows.
+    assert!(fixture.loads(&pool).await?.is_empty());
+    let published: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM serving_postgis.industrial_complex_boundary_publication",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(published, 0);
+
+    fixture.finish(pool).await
+}
+
 /// A re-publish is a second load, not an edit of the first.
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with PostGIS and permission to create disposable databases"]
@@ -271,6 +384,10 @@ struct ProjectionLoad {
 struct Fixture {
     database: DisposableDatabaseUrl,
     root: PathBuf,
+    /// The collected object the publish anchors to (root ADR-0046).
+    bronze_object_id: Uuid,
+    /// The release's own lineage record, which `promote` still writes into
+    /// `catalog.vector_tile_release`. Deliberately not what the publish names.
     source_record_id: Uuid,
 }
 
@@ -286,12 +403,28 @@ impl Fixture {
         let fixture = Self {
             database,
             root,
+            bronze_object_id: Uuid::new_v4(),
             source_record_id: Uuid::new_v4(),
         };
         fixture.write_source()?;
 
         let pool = fixture.pool().await?;
         MIGRATOR.run(&pool).await?;
+        // The collection side, in full. A `catalog.bronze_object` cannot exist without the source
+        // catalog and ingestion run that produced it, and seeding it through those two is what makes
+        // this fixture the shape a real collection leaves behind rather than a row shaped like one.
+        let source_catalog_id = fixture
+            .seed_source_catalog(&pool, "vworldkr-sandan-boundary")
+            .await?;
+        fixture
+            .seed_bronze_object(
+                &pool,
+                source_catalog_id,
+                fixture.bronze_object_id,
+                OBJECT_KEY,
+                OBJECT_SHA256,
+            )
+            .await?;
         sqlx::query(
             "INSERT INTO catalog.source_record
                 (id, source, external_id, checksum_sha256, raw_object_key)
@@ -304,6 +437,57 @@ impl Fixture {
         .await?;
         pool.close().await;
         Ok(fixture)
+    }
+
+    /// Inserts one source catalog and its ingestion run, returning the catalog id.
+    async fn seed_source_catalog(&self, pool: &PgPool, slug: &str) -> TestResult<Uuid> {
+        let source_catalog_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO catalog.source_catalog
+                (id, slug, name, provider, dataset_name, auth_kind, payload_format)
+             VALUES ($1, $2, $2, 'vworld.kr', 'sandan-boundary', 'none', 'zip')",
+        )
+        .bind(source_catalog_id)
+        .bind(slug)
+        .execute(pool)
+        .await?;
+        Ok(source_catalog_id)
+    }
+
+    /// Appends one collected object, the way a Bronze commit leaves it.
+    async fn seed_bronze_object(
+        &self,
+        pool: &PgPool,
+        source_catalog_id: Uuid,
+        bronze_object_id: Uuid,
+        object_key: &str,
+        checksum_sha256: &str,
+    ) -> TestResult<()> {
+        let ingestion_run_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO catalog.ingestion_run (id, source_catalog_id, trigger, status)
+             VALUES ($1, $2, 'test', 'succeeded')",
+        )
+        .bind(ingestion_run_id)
+        .bind(source_catalog_id)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO catalog.bronze_object
+                (id, source_catalog_id, ingestion_run_id, dedupe_key, object_key, checksum_sha256,
+                 content_type, size_bytes, source_identity_key, snapshot_date, snapshot_granularity,
+                 snapshot_basis)
+             VALUES ($1, $2, $3, $4, $4, $5, 'application/zip', 1, $4, DATE '2026-07-21', 'day',
+                     'collected_at_fallback')",
+        )
+        .bind(bronze_object_id)
+        .bind(source_catalog_id)
+        .bind(ingestion_run_id)
+        .bind(object_key)
+        .bind(checksum_sha256)
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 
     async fn pool(&self) -> TestResult<PgPool> {
@@ -323,6 +507,11 @@ impl Fixture {
     /// Writes the export in the shape
     /// `industrial_complex_boundaries_silver_to_postgis_handoff.py` emits.
     fn write_source(&self) -> TestResult {
+        Self::write_source_at(&self.source_path(), OBJECT_KEY)
+    }
+
+    /// The same export, citing whichever Bronze object key the caller names.
+    fn write_source_at(path: &Path, object_key: &str) -> TestResult {
         let mut body = String::new();
         for (complex_id, code, offset) in [(COMPLEX_A, CODE_A, 0.0), (COMPLEX_B, CODE_B, 1_000.0)] {
             let wkb = square_wkb(EASTING + offset, NORTHING + offset);
@@ -334,17 +523,36 @@ impl Fixture {
                 "geometry_srid": 5186,
                 "area_sqm_calculated": Self::AREA_SQM,
                 "geometry_checksum_sha256": format!("{:x}", Sha256::digest(&wkb)),
-                "source_record_id": OBJECT_KEY,
+                "source_record_id": object_key,
                 "source_snapshot_id": SOURCE_SNAPSHOT_ID,
             });
             body.push_str(&serde_json::to_string(&row)?);
             body.push('\n');
         }
-        fs::write(self.source_path(), body)?;
+        fs::write(path, body)?;
         Ok(())
     }
 
     fn publish(&self) -> TestResult<std::process::Output> {
+        self.publish_naming(OBJECT_KEY, OBJECT_SHA256)
+    }
+
+    /// The same command, with the two values that say *which object* under the caller's control.
+    fn publish_naming(
+        &self,
+        object_key: &str,
+        checksum_sha256: &str,
+    ) -> TestResult<std::process::Output> {
+        self.publish_from(&self.source_path(), object_key, checksum_sha256)
+    }
+
+    /// The same command again, reading whichever export the caller wrote.
+    fn publish_from(
+        &self,
+        source_path: &Path,
+        object_key: &str,
+        checksum_sha256: &str,
+    ) -> TestResult<std::process::Output> {
         Command::new(BINARY)
             .arg("publish-industrial-complex-boundary-postgis")
             .env("DATABASE_URL", self.database.url())
@@ -354,7 +562,7 @@ impl Fixture {
             )
             .env(
                 "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_PATH",
-                self.source_path(),
+                source_path,
             )
             .env(
                 "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_CANONICAL_ICEBERG_SNAPSHOT_ID",
@@ -365,12 +573,12 @@ impl Fixture {
                 SOURCE_SNAPSHOT_ID,
             )
             .env(
-                "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_RECORD_ID",
-                self.source_record_id.to_string(),
+                "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_KEY",
+                object_key,
             )
             .env(
-                "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_KEY",
-                OBJECT_KEY,
+                "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_CHECKSUM_SHA256",
+                checksum_sha256,
             )
             .output()
             .map_err(Into::into)
@@ -448,7 +656,7 @@ impl Fixture {
         sqlx::query(
             "INSERT INTO serving_postgis.industrial_complex_boundary_publication
                 (complex_id, official_complex_code, projection_load_id, boundary_kind,
-                 source_snapshot_id, source_record_id, source_object_key, area_sqm_calculated,
+                 source_snapshot_id, bronze_object_id, source_object_key, area_sqm_calculated,
                  source_geometry_checksum_sha256, geom)
              SELECT $1::uuid, $2, $3, 'official', $4, $5, $6, 1.00, repeat('a', 64),
                     public.st_multi(public.st_transform(
@@ -458,7 +666,7 @@ impl Fixture {
         .bind(official_complex_code)
         .bind(projection_load_id)
         .bind(SOURCE_SNAPSHOT_ID)
-        .bind(self.source_record_id)
+        .bind(self.bronze_object_id)
         .bind(OBJECT_KEY)
         .bind(hex_lower(&square_wkb(EASTING, NORTHING)))
         .execute(&mut *transaction)

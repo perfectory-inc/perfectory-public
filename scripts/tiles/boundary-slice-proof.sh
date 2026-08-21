@@ -286,9 +286,10 @@ manifest_pointer="$(psql_value "SELECT pointer.manifest_id || '|' || manifest.ma
 # ---------------------------------------------------------------------------
 # The industrial-complex designation boundary, through the same Postgres and the same Martin.
 #
-# `019d2b87-3fd1-7e3a-8d88-0b72c8742005` / `...2006` are the source record and file asset
-# `industrial-complex-boundary-fixture.sql` seeded; `841361364657368625` is this unit's canonical
-# snapshot, distinct from the administrative one because it is a different table's version.
+# `019d2b87-3fd1-7e3a-8d88-0b72c8742005` / `...2006` are the release's source record and file asset,
+# and `...2009` is the collected `catalog.bronze_object` the publish anchors to (root ADR-0046) —
+# all three seeded by `industrial-complex-boundary-fixture.sql`. `841361364657368625` is this unit's
+# canonical snapshot, distinct from the administrative one because it is a different table's version.
 # ---------------------------------------------------------------------------
 
 COMPLEX_TILE_ROUTE='complex/6/54/25'
@@ -306,8 +307,8 @@ run_publisher \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_PATH=/work/scripts/tiles/industrial-complex-boundary-fixture.jsonl \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_CANONICAL_ICEBERG_SNAPSHOT_ID=841361364657368625 \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_SNAPSHOT_ID=vworldkr__sandan_boundary-synthetic-fixture \
-  -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_RECORD_ID=019d2b87-3fd1-7e3a-8d88-0b72c8742005 \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_KEY=tiles-slice-proof/synthetic-industrial-complex-boundary/fixture.zip \
+  -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_POSTGIS_PUBLISH_SOURCE_OBJECT_CHECKSUM_SHA256=7777777777777777777777777777777777777777777777777777777777777777 \
   cargo run --locked --quiet -p foundation-outbox-publisher -- \
   publish-industrial-complex-boundary-postgis
 
@@ -347,6 +348,7 @@ run_publisher \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_CANONICAL_ICEBERG_SNAPSHOT_ID=841361364657368625 \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_SOURCE_RECORD_ID=019d2b87-3fd1-7e3a-8d88-0b72c8742005 \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_SOURCE_FILE_ASSET_ID=019d2b87-3fd1-7e3a-8d88-0b72c8742006 \
+  -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_BRONZE_OBJECT_ID=019d2b87-3fd1-7e3a-8d88-0b72c8742009 \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_EXPECTED_MANIFEST_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743805 \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_RELEASE_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743803 \
   -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_MANIFEST_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743806 \

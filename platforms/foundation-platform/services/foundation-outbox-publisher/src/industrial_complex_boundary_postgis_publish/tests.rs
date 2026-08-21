@@ -13,7 +13,7 @@ use std::{
 
 use uuid::Uuid;
 
-use super::{is_positive_decimal, is_uuid_v5, read_rows, Config};
+use super::{is_positive_decimal, is_sha256_hex, is_uuid_v5, read_rows, Config};
 
 /// A UUIDv5 in the shape the lakehouse derives, and the v7 shape a locally minted id has.
 const LAKEHOUSE_COMPLEX_ID: &str = "7df3859c-1111-51fa-8222-333344445555";
@@ -27,6 +27,10 @@ const GEOMETRY_WKB_HEX: &str = "0103000000";
 /// A well-formed but wrong checksum: 64 lowercase hex characters that are not this geometry's.
 const WRONG_GEOMETRY_SHA256: &str =
     "b6e0dfd0a8b2c9c8a0dbc19b3f28c7d5cd80b1b2f6e2ab89ae2f96c3d6f4a1d2";
+/// Stands in for what an operator measured over the Bronze zip. Nothing in `read_rows` reads it;
+/// it is compared against `catalog.bronze_object.checksum_sha256` once a connection is open.
+const SOURCE_OBJECT_SHA256: &str =
+    "f86332c2000000000000000000000000000000000000000000000000000000aa";
 
 fn config(root: &Path) -> Config {
     Config {
@@ -34,8 +38,8 @@ fn config(root: &Path) -> Config {
         source_path: root.join("boundaries.jsonl"),
         canonical_snapshot_id: "841361364657368624".to_owned(),
         source_snapshot_id: SOURCE_SNAPSHOT_ID.to_owned(),
-        source_record_id: Uuid::new_v4(),
         source_object_key: SOURCE_OBJECT_KEY.to_owned(),
+        source_object_checksum_sha256: SOURCE_OBJECT_SHA256.to_owned(),
     }
 }
 
@@ -245,6 +249,20 @@ fn the_uuid_version_nibble_is_what_decides() {
     assert!(!is_uuid_v5("7df3859c111151fa8222333344445555"));
     // The variant nibble matters too: RFC 9562 reserves `8`-`b` for it.
     assert!(!is_uuid_v5("7df3859c-1111-51fa-c222-333344445555"));
+}
+
+/// The shape gate on the checksum the operator measures, which is the only input the command
+/// cannot recompute for itself.
+#[test]
+fn a_source_object_checksum_is_accepted_only_in_the_shape_the_catalog_stores() {
+    assert!(is_sha256_hex(SOURCE_OBJECT_SHA256));
+    // Uppercase is the same bytes and a different string; `bronze_object_checksum_sha256_check`
+    // stores lowercase, so a comparison against it would report "not the same object".
+    assert!(!is_sha256_hex(&SOURCE_OBJECT_SHA256.to_ascii_uppercase()));
+    assert!(!is_sha256_hex(&SOURCE_OBJECT_SHA256[..63]));
+    assert!(!is_sha256_hex(&format!("{SOURCE_OBJECT_SHA256}0")));
+    assert!(!is_sha256_hex(""));
+    assert!(!is_sha256_hex(&"g".repeat(64)));
 }
 
 #[test]

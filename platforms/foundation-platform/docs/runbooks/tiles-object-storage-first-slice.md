@@ -167,14 +167,22 @@ release가 promote될 때까지 legacy v1 `admin` artifact를 fallback으로 유
 
 ### 산업단지 경계 승격
 
-`complex` 단위도 같은 절차를 따른다. 두 가지만 다르다. **revision UUID는 운영자가 정하지 않는다** —
-`publish-industrial-complex-boundary-postgis`가 canonical snapshot 하나에 revision 하나를 발급하므로,
-발행이 남긴 `serving_postgis.spatial_projection_load` 행에서 적재 id와 함께 읽는다.
+`complex` 단위도 같은 절차를 따른다. 세 가지가 다르다.
+
+1. **revision UUID는 운영자가 정하지 않는다** — `publish-industrial-complex-boundary-postgis`가
+   canonical snapshot 하나에 revision 하나를 발급하므로, 발행이 남긴
+   `serving_postgis.spatial_projection_load` 행에서 적재 id와 함께 읽는다.
+2. **`BRONZE_OBJECT_ID`가 추가로 필요하다.** 이 단위의 revision은 폴리곤을 꺼낸 수집 객체를
+   이름한다(루트 ADR-0046). 값은 발행 명령의 성공 줄 `bronze_object_id=` 또는
+   `catalog.publication_revision.bronze_object_id`에서 읽는다 — 새로 만들지 않는다.
+3. **`SOURCE_RECORD_ID`는 그것과 다른 행이다.** 이쪽은 승격이 만드는 release의 계보 기록이고,
+   `catalog.vector_tile_release.source_record_id`가 아직 요구한다. 수집 객체가 아니다.
 
 ```bash
-psql "$DATABASE_URL" -At -F '|' -c "SELECT load.id, load.data_revision
+psql "$DATABASE_URL" -At -F '|' -c "SELECT load.id, load.data_revision, revision.bronze_object_id
   FROM serving_postgis.spatial_projection_load AS load
   JOIN catalog.vector_tile_publication_unit AS unit ON unit.id = load.publication_unit_id
+  JOIN catalog.publication_revision AS revision ON revision.id = load.data_revision
  WHERE unit.unit_key = 'complex' AND load.status = 'succeeded'
  ORDER BY load.started_at DESC LIMIT 1;"
 
@@ -182,6 +190,7 @@ export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_CONFIRM=1
 export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_PROJECTION_LOAD_ID='<load UUID>'
 export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_DATA_REVISION='<revision UUID>'
 export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_CANONICAL_ICEBERG_SNAPSHOT_ID='<positive decimal>'
+export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_BRONZE_OBJECT_ID='<bronze-object UUID>'
 export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_SOURCE_RECORD_ID='<source-record UUID>'
 export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_SOURCE_FILE_ASSET_ID='<file-asset UUID>'
 export FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_EXPECTED_MANIFEST_ID='<current manifest UUID>'

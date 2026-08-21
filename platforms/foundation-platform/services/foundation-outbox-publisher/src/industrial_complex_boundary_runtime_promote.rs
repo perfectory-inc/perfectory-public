@@ -23,6 +23,11 @@ const CANONICAL_SNAPSHOT_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_CANONICAL_ICEBERG_SNAPSHOT_ID";
 const SOURCE_RECORD_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_SOURCE_RECORD_ID";
+/// The collected object `publish-industrial-complex-boundary-postgis` registered this revision
+/// against (root ADR-0046). Distinct from `SOURCE_RECORD_ENV`, which names the release's own
+/// lineage record: one is the file the polygons came from, the other describes the release.
+const BRONZE_OBJECT_ENV: &str =
+    "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_BRONZE_OBJECT_ID";
 const SOURCE_FILE_ASSET_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_RUNTIME_PROMOTE_SOURCE_FILE_ASSET_ID";
 const EXPECTED_MANIFEST_ENV: &str =
@@ -81,8 +86,10 @@ fn unit() -> UnitPromotion {
         },
         // `publish-industrial-complex-boundary-postgis` registers its revision in
         // `catalog.publication_revision`, scoped to this unit, and never in the administrative
-        // ledger: a designation boundary asserts nothing about an administrative boundary.
-        revision_ledger: RevisionLedger::PublicationRevision,
+        // ledger: a designation boundary asserts nothing about an administrative boundary. That
+        // revision names the Bronze object the polygons were decoded from, so this promotion is
+        // checked against the same object rather than against a record of one (root ADR-0046).
+        revision_ledger: RevisionLedger::PublicationRevisionOnBronzeObject(BRONZE_OBJECT_ENV),
         // The lakehouse id, which is what `silver.industrial_complex_boundaries` and every Gold
         // artifact key on, and the column `serving_postgis.industrial_complex_boundary_current`
         // exposes for exactly this. It is the feature's own identity, not a claim about anything
