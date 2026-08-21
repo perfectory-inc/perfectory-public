@@ -39,6 +39,37 @@ postgres:
         scope_kind: Administrative scope kind
         canonical_code: Official administrative code
         display_name: Official administrative name
+    complex:
+      schema: serving_postgis
+      table: industrial_complex_boundary_current
+      # Already EPSG:4326 in the table: `publish-industrial-complex-boundary-postgis` reprojects
+      # from the EPSG:5186 metres Silver stores, in PostGIS, because that is where the projection
+      # library is (root ADR-0042).
+      srid: 4326
+      geometry_column: geom
+      geometry_type: MULTIPOLYGON
+      layer_id: complex
+      # Wider at the low end than `parcels` (14) and one step narrower than `admin` (5). There are
+      # 1,343 designation polygons in the whole country, so a z6 tile holds every complex in view
+      # rather than thousands of them, and the median polygon — hundreds of thousands of square
+      # metres — is still several tile units across at that zoom. At z5 it is a dot, and a marker
+      # layer, not a polygon layer, is the honest answer for that. 16 is where this file stops
+      # cutting dynamic tiles for every other layer; clients overzoom past it.
+      minzoom: 6
+      maxzoom: 16
+      # A complex feature answers "which industrial complex is this polygon", so unlike `parcels` it
+      # carries `official_complex_code`: here the code is the feature's own identity rather than a
+      # dated membership claim about someone else's geometry (ADR-0024, ADR-0020).
+      #
+      # Both properties are identities and neither expires. What is deliberately absent is
+      # everything that moves — designation status, development progress, occupancy — because a tile
+      # is cached by clients and proxies, and a value baked into one goes stale silently while the
+      # geometry stays correct. Those belong to an API response that can be re-read, not to a tile.
+      # `serving_postgis.industrial_complex_boundary_current` exposes exactly these two columns, so
+      # the view is what makes that a structural fact rather than a convention.
+      properties:
+        complex_id: Stable lakehouse industrial-complex identity
+        official_complex_code: Official industrial-complex code
     parcel_anchor_aggregate:
       schema: serving_postgis
       table: tiles_slice_parcel_anchor_aggregate

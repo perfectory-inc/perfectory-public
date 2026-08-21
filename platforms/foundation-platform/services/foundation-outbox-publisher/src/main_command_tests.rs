@@ -215,6 +215,10 @@ fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Resu
             Command::PromoteAdministrativeBoundaryRuntime,
         ),
         (
+            "promote-industrial-complex-boundary-runtime",
+            Command::PromoteIndustrialComplexBoundaryRuntime,
+        ),
+        (
             "check-bounded-live-ingestion-gate",
             Command::CheckBoundedLiveIngestionGate,
         ),

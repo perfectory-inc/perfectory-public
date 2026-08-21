@@ -233,6 +233,7 @@ fn local_manifest_and_martin_sources_cannot_drift() {
         yaml_mapping_keys(&table_lines, 4),
         BTreeSet::from([
             "admin",
+            "complex",
             "parcel_anchor",
             "parcel_anchor_aggregate",
             "parcels"
@@ -255,6 +256,14 @@ fn local_manifest_and_martin_sources_cannot_drift() {
             4326,
             "MULTIPOLYGON",
             5,
+            16,
+        ),
+        (
+            "complex",
+            "industrial_complex_boundary_current",
+            4326,
+            "MULTIPOLYGON",
+            6,
             16,
         ),
         (
@@ -329,6 +338,11 @@ fn local_manifest_and_martin_sources_cannot_drift() {
             // is its own identity. `parcels` and `parcel_anchor` are per-parcel and carry only the
             // PNU — a parcel feature must not ship a membership claim (ADR-0024).
             "parcel_anchor_aggregate" => BTreeSet::from(["count", "official_complex_code", "pnu"]),
+            // Same reason as the aggregate, and the two columns
+            // `serving_postgis.industrial_complex_boundary_current` exposes. Both are identities.
+            // Designation status, development progress and occupancy are deliberately not here: a
+            // tile is cached, and a value that moves goes stale in it without the geometry doing so.
+            "complex" => BTreeSet::from(["complex_id", "official_complex_code"]),
             "parcels" | "parcel_anchor" => BTreeSet::from(["pnu"]),
             _ => unreachable!("expected_tables contains only guarded source IDs"),
         };

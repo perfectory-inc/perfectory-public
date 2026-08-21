@@ -88,12 +88,12 @@ last_reviewed: 2026-08-11
 
 **지표.** CI가 끝까지 덮는 수직 경로 = **1** — 2026-08-06 달성 (동적 경로)
 
-**재측정.** `required/foundation`의 `needs`에 `administrative-boundary-slice`가 있는지
+**재측정.** `required/foundation`의 `needs`에 `boundary-slice`가 있는지
 
 지금 양 끝은 실물이다. 수집은 실제 규모로 돌고 API는 32개 경로를 서빙한다. 승격 경로도
 2026-08-05에 CI(postgres 레인)로 들어왔다. **그러나 승격 결과가 타일로 나오는지는 여전히 CI
 밖이다** — Martin 기동·타일 요청·MVT 디코드는 Docker Compose가 필요한
-`scripts/tiles/administrative-boundary-slice-proof.sh`만 통과시킨다.
+`scripts/tiles/boundary-slice-proof.sh`만 통과시킨다.
 
 행정경계를 슬라이스로 쓴다. 생산자가 있는 유일한 공간 단위이므로 G1의 결정을 기다리지 않는다.
 가운데가 비어 있다는 진단은 **수직 슬라이스 하나로만 반증되거나 확증된다** — 단계별 테스트를

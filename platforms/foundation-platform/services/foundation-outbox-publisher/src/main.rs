@@ -70,6 +70,7 @@ mod github_cutover_dispatch;
 mod industrial_complex_address_resolution_build;
 mod industrial_complex_address_source_collect;
 mod industrial_complex_boundary_postgis_publish;
+mod industrial_complex_boundary_runtime_promote;
 mod industrial_complex_boundary_silver_export;
 mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_load;
@@ -166,6 +167,7 @@ mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;
 mod tile_derivative_object_storage;
 mod trino_ready_wait;
+mod vector_tile_runtime_promote;
 mod vworld_bronze_catalog_recovery;
 mod vworld_cadastral_ingest;
 mod vworld_cadastral_silver_export;
@@ -238,6 +240,7 @@ enum Command {
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
+    PromoteIndustrialComplexBoundaryRuntime,
     CheckIndustrialComplexCanonicalSourceReadiness,
     CheckNationalBronzeObjectManifest,
     ConfigureGitHubActionsSecrets,
@@ -474,6 +477,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::PromoteAdministrativeBoundaryRuntime => {
             Box::pin(administrative_boundary_runtime_promote::run())
+        }
+        Command::PromoteIndustrialComplexBoundaryRuntime => {
+            Box::pin(industrial_complex_boundary_runtime_promote::run())
         }
         Command::CheckBoundedLiveIngestionGate => {
             Box::pin(async { bounded_live_ingestion_gate_check::run() })
@@ -1007,6 +1013,9 @@ where
         Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),
         Some("promote-administrative-boundary-runtime") => {
             Ok(Command::PromoteAdministrativeBoundaryRuntime)
+        }
+        Some("promote-industrial-complex-boundary-runtime") => {
+            Ok(Command::PromoteIndustrialComplexBoundaryRuntime)
         }
         Some("check-bounded-live-ingestion-gate") => Ok(Command::CheckBoundedLiveIngestionGate),
         Some("check-r2-runtime-target") => Ok(Command::CheckR2RuntimeTarget),

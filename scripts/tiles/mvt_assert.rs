@@ -13,6 +13,7 @@ const USAGE: &str = "Usage:\n\
   mvt_assert dump <tile.pbf> --content-encoding identity\n\
   mvt_assert assert <tile.pbf> --content-encoding identity\n\
       --expect-layer <name>=<count> [--expect-layer ...]\n\
+      (a <count> of 0 asserts the layer is absent from the tile)\n\
       [--expect-pnu <pnu>]... [--expect-complex-code <code>]...\n\
       [--expect-identity <layer>|<pnu>]...\n\
       [--expect-property <key>=<value>]...\n\
@@ -698,10 +699,16 @@ fn quote(value: &str) -> String {
 
 fn assert_tile(tile: &Tile, expectations: &Expectations) -> Result<(), String> {
     let actual_layers = tile.layers.keys().cloned().collect::<BTreeSet<_>>();
+    // A count of zero expects the layer to be *absent*, not present and empty. MVT has no encoding
+    // for a layer with no features — a source that returns no rows contributes no `Tile.layers`
+    // entry at all, and Martin answers `204 No Content` with a zero-byte body. So
+    // `--expect-layer <name>=0` is how a proof states "this layer serves nothing right now", which
+    // is the assertion that gives "and now it does" its meaning.
     let expected_layers = expectations
         .layers
-        .keys()
-        .cloned()
+        .iter()
+        .filter(|(_, count)| **count > 0)
+        .map(|(name, _)| name.clone())
         .chain(expectations.nonempty_layers.iter().cloned())
         .collect::<BTreeSet<_>>();
     if actual_layers != expected_layers {
@@ -711,7 +718,10 @@ fn assert_tile(tile: &Tile, expectations: &Expectations) -> Result<(), String> {
     }
 
     for (name, expected_count) in &expectations.layers {
-        let actual_count = tile.layers[name].features.len();
+        let actual_count = tile
+            .layers
+            .get(name)
+            .map_or(0, |layer| layer.features.len());
         if actual_count != *expected_count {
             return Err(format!(
                 "layer {name:?} feature count mismatch: expected {expected_count}, got {actual_count}"
@@ -1145,6 +1155,52 @@ mod tests {
         let expectations = parse_expectations(&arguments).unwrap();
 
         assert_tile(&decoded, &expectations).unwrap();
+    }
+
+    /// An empty tile is the only shape a "this layer serves nothing" assertion can have.
+    ///
+    /// Martin answers a source with no rows with `204 No Content` and a zero-byte body, so the
+    /// proof's before/after contrast has to be expressible against zero bytes. The negative half is
+    /// worthless unless the same expectation *fails* once the layer is there, which is the second
+    /// half of this test.
+    #[test]
+    fn a_zero_count_asserts_the_layer_is_absent() {
+        let empty = parse_tile(&[]).unwrap();
+        let arguments = vec![
+            "--content-encoding".to_owned(),
+            "identity".to_owned(),
+            "--expect-layer".to_owned(),
+            "complex=0".to_owned(),
+        ];
+        let expectations = parse_expectations(&arguments).unwrap();
+        assert_tile(&empty, &expectations).unwrap();
+
+        let populated = parse_tile(&tile(&[layer(
+            "complex",
+            &[feature(&[0, 0], 3, &polygon_geometry())],
+            &["official_complex_code"],
+            &[string_value("999ZZ0")],
+        )]))
+        .unwrap();
+        assert!(assert_tile(&populated, &expectations)
+            .unwrap_err()
+            .contains("layer set mismatch"));
+
+        // And the same tile satisfies the count the promoted half of the proof asserts, so the two
+        // expectations differ only in the number.
+        let promoted = parse_expectations(&[
+            "--content-encoding".to_owned(),
+            "identity".to_owned(),
+            "--expect-layer".to_owned(),
+            "complex=1".to_owned(),
+            "--expect-property".to_owned(),
+            "official_complex_code=999ZZ0".to_owned(),
+        ])
+        .unwrap();
+        assert_tile(&populated, &promoted).unwrap();
+        assert!(assert_tile(&empty, &promoted)
+            .unwrap_err()
+            .contains("layer set mismatch"));
     }
 
     #[test]

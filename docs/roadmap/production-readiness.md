@@ -149,8 +149,8 @@ last_reviewed: 2026-08-05
 - [x] 적재 경로와 승격 경로를 CI가 실행하는 검사로 덮는다 — 발행이 적재를 열고 닫는 것부터
       런타임 포인터가 그 적재를 서빙하도록 전진하는 것까지
       ([ADR-0016](../adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md) 남은 부채 4 해소)
-- [x] 타일이 실제로 나오는지를 CI에서 확인한다 — `administrative-boundary-slice` 잡이
-      `scripts/tiles/administrative-boundary-slice-proof.sh`를 돌리고 `required/foundation`이
+- [x] 타일이 실제로 나오는지를 CI에서 확인한다 — `boundary-slice` 잡이
+      `scripts/tiles/boundary-slice-proof.sh`를 돌리고 `required/foundation`이
       그것을 센다 ([기반 목표](./foundation-goals.md) G2).
 
       > **정정 (2026-08-06):** 이 항목은 그 스크립트가 "Docker Compose가 필요하다"고 적었으나
@@ -207,7 +207,7 @@ ADR-0011의 후속 작업은 발견한 테스트를 나중에 잡는 데서 멈�
 
 - [ ] 라이브 테스트 자원 요구사항을 테스트 선언에서 직접 파생한다.
 - [ ] 일회용 하네스가 자기 저장소를 흘리지 않는지 기계적으로 검사한다. `scripts/verify/integration.sh`와
-      `scripts/tiles/administrative-boundary-slice-proof.sh`는 `docker rm`에 `-v`가 빠져 실행마다
+      `scripts/tiles/boundary-slice-proof.sh`는 `docker rm`에 `-v`가 빠져 실행마다
       PostgreSQL 익명 볼륨을 하나씩 남겼다. 107개(개당 약 115MB)가 쌓여 디스크가 차고 검증 실행이
       죽고 나서야 드러났다. 두 스크립트는 고쳤지만 세 번째가 같은 형태로 들어오는 것을 막는 것은 없다.
 - [x] R2 환경변수 가드를 알려진 레거시 거부 목록에서 허용 목록으로 강화한다.
