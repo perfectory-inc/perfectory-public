@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **369개**
+- 문서 파일: **370개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 68 |
+| Monorepo | 69 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 127 |
+| ADR | 128 |
 | README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -413,6 +413,7 @@ docs/adr/0043-a-canonical-id-is-read-not-recomputed.md
 docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md
 docs/adr/0045-a-serving-projection-row-names-its-load-not-its-revision.md
 docs/adr/0046-a-publication-names-the-object-it-was-collected-from.md
+docs/adr/0047-a-repairable-boundary-is-repaired-not-dropped.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -493,6 +494,7 @@ tools/github/README.md
 | `docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0045-a-serving-projection-row-names-its-load-not-its-revision.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0046-a-publication-names-the-object-it-was-collected-from.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0047-a-repairable-boundary-is-repaired-not-dropped.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

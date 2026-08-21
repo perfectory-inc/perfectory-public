@@ -25,6 +25,14 @@
 //! (root ADR-0046). `catalog.bronze_object` is what the Bronze committer always writes (FP-ADR-0016)
 //! and what Silver's own `source_record_id` already names by key, so the anchor is looked up from
 //! the key the export cites rather than supplied as a second identifier the operator could invent.
+//!
+//! **Two of the 1,343 boundaries are invalid in the source coordinates, and are repaired rather than
+//! dropped** (root ADR-0047). Their rings revisit a place they have already been, so the loop closes
+//! against itself at a point; `ST_MakeValid` cuts it there and creates no coordinate. The table
+//! decides whether a given repair is one — the `geometry(MultiPolygon, 4326)` column type, the
+//! unchanged `st_isvalid` CHECK, and `complex_boundary_publication_repair_tolerance_check` over the
+//! two measurements this command records. What this command must not do is repair quietly, so every
+//! repaired complex is named on stdout with what its repair measured.
 
 use std::{
     collections::BTreeSet,
@@ -110,15 +118,19 @@ pub async fn run() -> anyhow::Result<()> {
     .await
     .context("failed to open the industrial complex PostGIS projection load")?;
 
+    let mut repairs = Vec::new();
     for row in &rows {
-        publish_boundary(
+        if let Some(repair) = publish_boundary(
             &mut transaction,
             &config,
             row,
             projection_load_id,
             bronze_object_id,
         )
-        .await?;
+        .await?
+        {
+            repairs.push(repair);
+        }
     }
 
     // Counted from the table, by load. A count derived from the input would report what this run
@@ -145,6 +157,21 @@ pub async fn run() -> anyhow::Result<()> {
         "the projection committed {publication_count} of {} source boundaries",
         rows.len()
     );
+    // Also counted from the table. The summary printed below is the only place a repair is
+    // announced, so it has to describe the rows that committed rather than the returns this process
+    // happened to collect.
+    let repaired_count = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM serving_postgis.industrial_complex_boundary_publication
+          WHERE projection_load_id = $1 AND geometry_repaired",
+    )
+    .bind(projection_load_id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    ensure!(
+        repaired_count == i64::try_from(repairs.len())?,
+        "the load holds {repaired_count} repaired boundaries and this run is about to report {}",
+        repairs.len()
+    );
 
     sqlx::query(
         "UPDATE serving_postgis.spatial_projection_load
@@ -162,19 +189,39 @@ pub async fn run() -> anyhow::Result<()> {
     .context("failed to close the industrial complex PostGIS projection load")?;
     transaction.commit().await?;
 
+    // Printed before the summary line and one complex per line, because "which ones" is the
+    // question a repaired count leaves open. Repairing quietly is as bad as dropping quietly, and a
+    // count alone is quiet about the only thing an operator can check against the source.
+    for repair in &repairs {
+        println!(
+            "industrial-complex-boundary-postgis-publish-repaired official_complex_code={} \
+             hausdorff_distance_m={:e} area_change_ratio={:e}",
+            repair.official_complex_code, repair.hausdorff_distance_m, repair.area_change_ratio
+        );
+    }
     println!(
         "industrial-complex-boundary-postgis-publish-ok source_boundaries={} publication_rows={} \
-         rejected_rows={} canonical_iceberg_snapshot_id={} data_revision={} projection_load_id={} \
-         bronze_object_id={}",
+         rejected_rows={} repaired_rows={} canonical_iceberg_snapshot_id={} data_revision={} \
+         projection_load_id={} bronze_object_id={}",
         rows.len(),
         publication_count,
         rejected_count,
+        repaired_count,
         config.canonical_snapshot_id,
         data_revision,
         projection_load_id,
         bronze_object_id
     );
     Ok(())
+}
+
+/// What one repaired boundary's repair measured, for the run summary.
+struct Repair {
+    official_complex_code: String,
+    /// `ST_HausdorffDistance` between the source geometry and its repair, in source-CRS metres.
+    hausdorff_distance_m: f64,
+    /// Relative change in `ST_Area` between the two, in the source CRS.
+    area_change_ratio: f64,
 }
 
 struct Config {
@@ -469,32 +516,79 @@ async fn register_or_reuse_revision(
     Ok(stored_id)
 }
 
-/// Appends one boundary, reprojected by PostGIS from the source CRS to EPSG:4326.
+/// Appends one boundary, reprojected by PostGIS from the source CRS to EPSG:4326, repairing a source
+/// geometry that is invalid in its own coordinates. Returns what the repair measured, if there was
+/// one.
 ///
 /// `ST_Multi` promotes the single polygons in the source; the shapefile mixes single-ring records
 /// with multi-ring ones and the column admits only `MultiPolygon`. `ST_Force2D` drops any Z the WKB
 /// carries, because the serving geometry is planar and a 3D geometry would fail the column's type.
+/// It runs before anything else rather than after the reprojection, so that the geometry measured
+/// and the geometry stored are the same planar outline.
 ///
-/// Nothing filters an invalid geometry out. `complex_boundary_publication_geometry_check` requires
-/// `st_isvalid`, so a geometry the reprojection breaks aborts the whole transaction and the load
-/// leaves no ledger row — which is the honest outcome, rather than a `succeeded` load quietly
-/// missing a complex.
+/// **`ST_MakeValid` runs in the source CRS, and only when the source is invalid there.** That is
+/// where the two failing boundaries are broken — the shapefile's own coordinates are, before any
+/// code here reads them — and it is the CRS whose unit a tolerance can be stated in.
+/// `ST_Buffer(geom, 0)` is deliberately not the idiom used: it is the older one, and it changes area
+/// without saying so.
+///
+/// **Nothing here decides whether a repair is acceptable.** The measurements are written into the
+/// row and `complex_boundary_publication_repair_tolerance_check` is what refuses one that moved the
+/// outline or changed its area, exactly as `complex_boundary_publication_geometry_check` is what
+/// refuses an invalid result and the column's own `geometry(MultiPolygon, 4326)` type is what
+/// refuses the `GEOMETRYCOLLECTION` that `ST_MakeValid` returns for other kinds of damage. Holding
+/// the same thresholds here as well would be the same numbers in two files, free to drift; a
+/// failure aborts the transaction and the load leaves no ledger row, which is the honest outcome.
 async fn publish_boundary(
     transaction: &mut Transaction<'_, Postgres>,
     config: &Config,
     row: &SourceRow,
     projection_load_id: Uuid,
     bronze_object_id: Uuid,
-) -> anyhow::Result<()> {
-    sqlx::query(
-        "INSERT INTO serving_postgis.industrial_complex_boundary_publication
+) -> anyhow::Result<Option<Repair>> {
+    // Each step is its own `MATERIALIZED` CTE, so `ST_MakeValid` runs once and the geometry the
+    // measurements describe is the geometry that is stored. PostgreSQL inlines a CTE referenced once
+    // by default, and every step below is read more than once by the ones after it.
+    let inserted = sqlx::query(
+        "WITH source AS MATERIALIZED (
+             SELECT public.st_force2d(public.st_setsrid(
+                        public.st_geomfromwkb(decode($10, 'hex')), $11::integer)) AS geom
+         ),
+         checked AS MATERIALIZED (
+             SELECT source.geom, public.st_isvalid(source.geom) AS is_valid FROM source
+         ),
+         candidate AS MATERIALIZED (
+             SELECT checked.geom AS source_geom,
+                    NOT checked.is_valid AS repaired,
+                    CASE WHEN checked.is_valid THEN checked.geom
+                         ELSE public.st_makevalid(checked.geom) END AS geom
+               FROM checked
+         ),
+         measured AS MATERIALIZED (
+             SELECT candidate.source_geom, candidate.geom, candidate.repaired,
+                    CASE WHEN candidate.repaired
+                         THEN public.st_area(candidate.source_geom) END AS area_before,
+                    CASE WHEN candidate.repaired
+                         THEN public.st_area(candidate.geom) END AS area_after,
+                    CASE WHEN candidate.repaired
+                         THEN public.st_hausdorffdistance(candidate.source_geom, candidate.geom)
+                         END AS hausdorff_distance_m
+               FROM candidate
+         )
+         INSERT INTO serving_postgis.industrial_complex_boundary_publication
             (complex_id, official_complex_code, projection_load_id, boundary_kind,
              source_snapshot_id, bronze_object_id, source_object_key, area_sqm_calculated,
-             source_geometry_checksum_sha256, geom)
+             source_geometry_checksum_sha256, geom, geometry_repaired,
+             repair_hausdorff_distance_m, repair_area_change_ratio)
          SELECT $1::uuid, $2, $3, $4, $5, $6, $7, $8::numeric, $9,
-                public.st_multi(public.st_force2d(public.st_transform(
-                    public.st_setsrid(public.st_geomfromwkb(decode($10, 'hex')), $11::integer),
-                    4326)))",
+                public.st_multi(public.st_transform(measured.geom, 4326)),
+                measured.repaired,
+                measured.hausdorff_distance_m,
+                CASE WHEN measured.area_before > 0
+                     THEN abs(measured.area_after - measured.area_before) / measured.area_before
+                     WHEN measured.repaired THEN 'Infinity'::double precision END
+           FROM measured
+         RETURNING geometry_repaired, repair_hausdorff_distance_m, repair_area_change_ratio",
     )
     .bind(&row.complex_id)
     .bind(&row.official_complex_code)
@@ -507,15 +601,26 @@ async fn publish_boundary(
     .bind(&row.geometry_checksum_sha256)
     .bind(&row.geometry_wkb_hex)
     .bind(INDUSTRIAL_COMPLEX_BOUNDARY_SRID)
-    .execute(&mut **transaction)
+    .fetch_one(&mut **transaction)
     .await
     .with_context(|| {
         format!(
-            "failed to append the industrial complex boundary for {}",
+            "failed to append the industrial complex boundary for {}; if PostGIS had to repair this \
+             geometry, the refusal is the repair failing one of the column's own gates — the \
+             MultiPolygon type, st_isvalid, or \
+             complex_boundary_publication_repair_tolerance_check",
             row.official_complex_code
         )
     })?;
-    Ok(())
+
+    if !inserted.try_get::<bool, _>("geometry_repaired")? {
+        return Ok(None);
+    }
+    Ok(Some(Repair {
+        official_complex_code: row.official_complex_code.clone(),
+        hausdorff_distance_m: inserted.try_get("repair_hausdorff_distance_m")?,
+        area_change_ratio: inserted.try_get("repair_area_change_ratio")?,
+    }))
 }
 
 fn is_positive_digits(value: &str) -> bool {
