@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **368개**
-- 언어 분류: **{'english': 34, 'korean': 173, 'mixed': 161}**
+- 감사 문서: **369개**
+- 언어 분류: **{'english': 34, 'korean': 174, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **200개 정상 / 0개 누락 / 168개 해당 없음**
+- 메타데이터: **200개 정상 / 0개 누락 / 169개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -48,11 +48,11 @@
 | `docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0024-the-serving-projection-carries-only-what-the-tile-contract-names.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0025-parcel-publication-names-one-sealed-iceberg-evidence.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 6 |
-| `docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 3 |
+| `docs/adr/0026-parcel-evidence-sealer-is-the-only-append-boundary.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 4 |
 | `docs/adr/0027-every-guard-declares-its-threat-model.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 14 |
 | `docs/adr/0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0029-parcel-publication-evidence-is-written-from-the-terminal-run.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 3 |
-| `docs/adr/0030-parcel-publication-evidence-requires-two-distinct-approvals.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0029-parcel-publication-evidence-is-written-from-the-terminal-run.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 4 |
+| `docs/adr/0030-parcel-publication-evidence-requires-two-distinct-approvals.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0031-parcel-mirror-run-seals-publication-scope.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 1 |
 | `docs/adr/0032-provider-identity-is-derived-from-domain-label.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 7 |
@@ -62,11 +62,12 @@
 | `docs/adr/0037-a-pointer-carries-the-address-template-with-its-object-key.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md` | Monorepo | ADR | Superseded by ADR-0039 | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0039-gold-serving-artifacts-live-in-the-lakehouse-bucket-and-tiles-do-not.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0042-a-silver-boundary-carries-its-source-crs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0043-a-canonical-id-is-read-not-recomputed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0045-a-serving-projection-row-names-its-load-not-its-revision.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0043-a-canonical-id-is-read-not-recomputed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0045-a-serving-projection-row-names-its-load-not-its-revision.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0046-a-publication-names-the-object-it-was-collected-from.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

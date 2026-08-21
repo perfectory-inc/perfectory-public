@@ -51,9 +51,14 @@ pub(crate) struct EnvNames {
 pub(crate) enum RevisionLedger {
     /// `catalog.administrative_boundary_revision`, whose status must be `validated` or `published`.
     AdministrativeBoundary,
-    /// `catalog.publication_revision`, which must belong to this unit and carry no administrative
-    /// lineage.
-    PublicationRevision,
+    /// `catalog.publication_revision`, which must belong to this unit, carry no administrative
+    /// lineage, and name the collected `catalog.bronze_object` its publish was built from
+    /// (root ADR-0046). The field is the environment variable carrying that object's id.
+    ///
+    /// One variant, because one unit registers here. `catalog.publication_revision` also admits a
+    /// `catalog.source_record` anchor — `publish-parcel-boundary-postgis` writes one — and the arm
+    /// that reads it belongs in this enum on the day a parcels promotion command exists, not before.
+    PublicationRevisionOnBronzeObject(&'static str),
 }
 
 /// Everything that differs between one publication unit's promotion and another's.
@@ -198,8 +203,13 @@ struct Config {
     database_url: String,
     data_revision: Uuid,
     canonical_snapshot_id: String,
+    /// The release's own lineage record, which `catalog.vector_tile_release.source_record_id` and
+    /// the runtime manifest contract still require. It describes the release this command mints,
+    /// not the file the projection was built from — root ADR-0046 separates the two.
     source_record_id: Uuid,
     source_file_asset_id: Uuid,
+    /// The collected object the *revision* was published from, for a ledger that names one.
+    bronze_object_id: Option<Uuid>,
     expected_manifest_id: Option<Uuid>,
     release_id: Uuid,
     manifest_id: Uuid,
@@ -254,6 +264,10 @@ impl Config {
             canonical_snapshot_id,
             source_record_id: parse_uuid(unit.env.source_record)?,
             source_file_asset_id: parse_uuid(unit.env.source_file_asset)?,
+            bronze_object_id: match unit.revision_ledger {
+                RevisionLedger::AdministrativeBoundary => None,
+                RevisionLedger::PublicationRevisionOnBronzeObject(env) => Some(parse_uuid(env)?),
+            },
             expected_manifest_id: optional_env_value(expected_manifest_env)?
                 .map(|value| {
                     Uuid::parse_str(&value)
@@ -329,6 +343,21 @@ async fn verify_inputs(
             .await?;
     if source_count != 1 || file_count != 1 {
         bail!("runtime promotion lineage source_record/file_asset is missing");
+    }
+    // The revision's anchor is a different row from the release's lineage record, so it is a
+    // different existence check. Asked before the comparison in `verify_revision` so an operator who
+    // named an object that was never collected reads that, rather than "provenance is not
+    // promotable" — which would also be true of a real object named for the wrong revision.
+    if let Some(bronze_object_id) = config.bronze_object_id {
+        let bronze_count = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM catalog.bronze_object WHERE id = $1",
+        )
+        .bind(bronze_object_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+        if bronze_count != 1 {
+            bail!("collected object {bronze_object_id} is not in catalog.bronze_object");
+        }
     }
     // `catalog.promote_vector_tile_runtime_manifest` refuses on the same conditions and is the
     // authority. Answering first only changes which sentence the operator reads: the gate can say no
@@ -413,13 +442,13 @@ async fn verify_revision(
                 bail!("administrative revision provenance/status is not promotable");
             }
         }
-        RevisionLedger::PublicationRevision => {
+        RevisionLedger::PublicationRevisionOnBronzeObject(_) => {
             // Joined to the unit rather than looked up by id alone. `publication_revision_scoped_key`
             // exists so a release cannot name another unit's revision, and reading the revision
             // without that join would hand the whole check back to the schema — which refuses the
             // release, not the promotion, and says so in a constraint name.
             let row = sqlx::query(
-                "SELECT revision.canonical_iceberg_snapshot_id, revision.source_record_id,
+                "SELECT revision.canonical_iceberg_snapshot_id, revision.bronze_object_id,
                         revision.derived_from_administrative_revision
                    FROM catalog.publication_revision AS revision
                    JOIN catalog.vector_tile_publication_unit AS unit
@@ -436,13 +465,17 @@ async fn verify_revision(
                     config.data_revision, unit.unit_key
                 )
             })?;
+            // `Option`, because `publication_revision_one_provenance_anchor_check` admits the other
+            // arm: a revision registered against a `catalog.source_record` reads as `None` here and
+            // is refused as not promotable by this command, which is the honest answer — the object
+            // it was published from is not the kind of provenance this unit's promotion states.
             if row.try_get::<String, _>("canonical_iceberg_snapshot_id")?
                 != config.canonical_snapshot_id
-                || row.try_get::<Uuid, _>("source_record_id")? != config.source_record_id
+                || row.try_get::<Option<Uuid>, _>("bronze_object_id")? != config.bronze_object_id
             {
                 bail!(
                     "{} revision provenance is not promotable: the revision was registered against \
-                     another canonical snapshot or source record",
+                     another canonical snapshot or another collected object",
                     unit.label
                 );
             }
