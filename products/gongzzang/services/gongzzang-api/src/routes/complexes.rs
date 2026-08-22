@@ -368,7 +368,7 @@ mod tests {
     async fn reader_failure_is_502_without_leaking_the_backend_message() {
         let response = get_complex(
             state(StubReader(Err(
-                "foundation says: connection refused to 10.0.0.7",
+                "foundation says: connection refused to 192.0.2.10",
             ))),
             authenticated_user(),
             Path(LAKEHOUSE_ID.to_owned()),
