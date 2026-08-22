@@ -1,6 +1,10 @@
 // apps/web/lib/panel/codec.ts
 
-import { LISTING_ID_PATTERN, PNU_PATTERN } from "@/lib/identity/patterns";
+import {
+  LAKEHOUSE_COMPLEX_ID_PATTERN,
+  LISTING_ID_PATTERN,
+  PNU_PATTERN,
+} from "@/lib/identity/patterns";
 import type { PanelKind, PanelStack, PanelStackEntry, PanelView } from "./types";
 import { PANEL_DEPTH_MAX } from "./types";
 
@@ -20,13 +24,19 @@ export const ParseError = {
 } as const;
 export type ParseError = (typeof ParseError)[keyof typeof ParseError];
 
-interface KindMeta {
+export interface KindMeta {
   views: ReadonlySet<string>;
   idPattern: RegExp;
 }
 
-/** SSOT for kind regex + valid views. spec § 5.3 + § 6. */
-const KINDS: Record<PanelKind, KindMeta> = {
+/**
+ * SSOT for kind regex + valid views. spec § 5.3 + § 6.
+ *
+ * Exported so that anything else which has to answer "which kind/view pairs exist" — the panel
+ * header label lookup, and the test that proves every pair has one — reads this rather than
+ * carrying its own list.
+ */
+export const KINDS: Record<PanelKind, KindMeta> = {
   parcel: {
     views: new Set(["summary", "buildings", "floors", "listings"]),
     idPattern: PNU_PATTERN,
@@ -34,6 +44,10 @@ const KINDS: Record<PanelKind, KindMeta> = {
   listing: {
     views: new Set(["summary"]),
     idPattern: LISTING_ID_PATTERN,
+  },
+  complex: {
+    views: new Set(["summary"]),
+    idPattern: LAKEHOUSE_COMPLEX_ID_PATTERN,
   },
 };
 

@@ -115,6 +115,8 @@ export function ListingMap() {
         (pnu) => pushPanel({ kind: "parcel", id: pnu, view: "summary" }),
         (listingId) => pushPanel({ kind: "listing", id: listingId, view: "summary" }),
         setMapboxInstance,
+        (lakehouseComplexId) =>
+          pushPanel({ kind: "complex", id: lakehouseComplexId, view: "summary" }),
       ).catch((e: unknown) => {
         if (!cancelled) {
           console.warn(

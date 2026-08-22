@@ -638,6 +638,14 @@
       "rate_profile": "api_proxy.authenticated_read"
     },
     {
+      "id": "gongzzang.api_proxy.complex_read",
+      "target_path_kind": "template",
+      "target_path": "api/complexes/:lakehouse_complex_id",
+      "methods": ["GET"],
+      "exposure_class": "authenticated_user",
+      "rate_profile": "api_proxy.authenticated_read"
+    },
+    {
       "id": "gongzzang.api_proxy.buildings_read",
       "target_path_kind": "exact",
       "target_path": "api/buildings",
@@ -871,6 +879,15 @@
       "rate_profile": "api_proxy.authenticated_read"
     },
     {
+      "id": "gongzzang.backend.complex_read",
+      "path": "/api/complexes/:lakehouse_complex_id",
+      "methods": ["GET"],
+      "router_group": "protected",
+      "exposure_class": "authenticated_user",
+      "auth_policy": "bearer_jwt",
+      "rate_profile": "api_proxy.authenticated_read"
+    },
+    {
       "id": "gongzzang.backend.buildings_read",
       "path": "/api/buildings",
       "methods": ["GET"],
@@ -985,6 +1002,7 @@
       },
       "allowed_contracts": [
         "foundation-platform.catalog.parcel_by_pnu",
+        "foundation-platform.catalog.complex_by_lakehouse_id",
         "foundation-platform.catalog.vector_tile_manifest",
         "foundation-platform.catalog.marker_tile_contract"
       ],

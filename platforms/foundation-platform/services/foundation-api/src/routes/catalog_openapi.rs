@@ -36,6 +36,7 @@ use super::{HealthResponse, ReadinessResponse};
         super::metrics,
         super::catalog::register_complex,
         super::catalog::get_complex,
+        super::catalog::get_complex_by_lakehouse_id,
         super::catalog::get_complex_anchor_summary,
         super::catalog::update_complex,
         super::catalog::archive_complex,

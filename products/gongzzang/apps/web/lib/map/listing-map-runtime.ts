@@ -1,4 +1,6 @@
 import {
+  COMPLEX_CLICK_YIELDS_TO_LAYER_IDS,
+  foundationVectorFillLayerId,
   registerFoundationVectorFillLayers,
   registerFoundationVectorRuntimeUnit,
 } from "@/lib/map/foundation-vector-fill-layers";
@@ -39,6 +41,10 @@ export type MapboxGLLike = {
   isStyleLoaded?: () => boolean;
   once?: (event: string, handler: () => void) => void;
   setFilter?: (layerId: string, filter: unknown[]) => void;
+  queryRenderedFeatures?: (
+    point: unknown,
+    options?: { layers?: readonly string[] },
+  ) => readonly unknown[];
 };
 
 type MapboxLayerApi = MapboxGLLike & {
@@ -57,6 +63,7 @@ export async function setupMapboxRuntime(
   onParcelClick: (pnu: string) => void,
   onListingClick: (listingId: string) => void,
   onMapboxReady: (mb: MapboxGLLike) => void,
+  onComplexClick: (lakehouseComplexId: string) => void,
 ): Promise<void> {
   const mb = await waitForMapbox(map);
   if (isCancelled()) return;
@@ -71,7 +78,7 @@ export async function setupMapboxRuntime(
     loadFoundationPlatformVectorTileManifest(),
     loadFoundationPlatformVectorTileRuntimeManifest(),
   ]);
-  await setupPolygonLayers(mb, onParcelClick, manifest, runtimeManifest);
+  await setupPolygonLayers(mb, onParcelClick, manifest, runtimeManifest, onComplexClick);
   await setupMarkerTileLayers(mb, onParcelClick, manifest);
   await setupListingMarkerTileLayers(mb, onListingClick);
   if (isCancelled()) return;
@@ -146,6 +153,7 @@ export function setupPolygonLayers(
   onParcelClick: (pnu: string) => void,
   manifest: VectorTileManifest | null,
   runtimeManifest: VectorTileRuntimeManifest | null,
+  onComplexClick: (lakehouseComplexId: string) => void,
 ): void {
   if (!hasMapboxLayerApi(mb)) {
     console.warn("[ListingMap] mapbox addSource/addLayer unavailable; polygon layer setup skipped");
@@ -157,7 +165,7 @@ export function setupPolygonLayers(
   // `complex` first, so it is the bottom of this repo's stack even before any `beforeId` applies:
   // an industrial complex is the context a listing sits in, and it must never be what a user's
   // click or eye lands on instead of the parcel or the marker.
-  setupComplexLayers(mb, manifest, runtime);
+  setupComplexLayers(mb, manifest, runtime, onComplexClick);
   setupParcelLayers(mb, onParcelClick, manifest, runtime);
   setupAdminLayers(mb, manifest, runtime);
 }
@@ -284,10 +292,12 @@ function setupComplexLayers(
   mb: MapboxLayerApi,
   manifest: VectorTileManifest | null,
   runtimeManifest: VectorTileRuntimeManifest | null,
+  onComplexClick: (lakehouseComplexId: string) => void,
 ): void {
   try {
     if (runtimeManifest?.publication_units.complex) {
-      registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "complex");
+      const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "complex");
+      if (registered.length > 0) registerComplexClick(mb, onComplexClick);
       return;
     }
     const artifact = manifest ? getVectorTileArtifact(manifest, "complex") : undefined;
@@ -295,15 +305,57 @@ function setupComplexLayers(
       logMapLayerUnavailable("complex");
       return;
     }
-    registerFoundationVectorFillLayers(mb, "complex", {
+    const registered = registerFoundationVectorFillLayers(mb, "complex", {
       sourceId: "complex",
       source: buildVectorTileSource(manifest, "complex"),
       sourceLayer: artifact.source_layer,
       minzoom: artifact.render_min_zoom,
       maxzoom: artifact.render_max_zoom,
     });
+    if (registered.length > 0) registerComplexClick(mb, onComplexClick);
   } catch (err) {
     logMapLayerFailure("complex-fill", err, { kind: "optional", source: "complex" });
+  }
+}
+
+/**
+ * Opens the complex panel for a click on the boundary fill, unless something more specific was hit.
+ *
+ * Exported because the precedence rule — not the registration — is the part worth testing, and a
+ * live Naver GL bridge is not available to a unit test.
+ */
+export function registerComplexClick(
+  mb: MapboxGLLike,
+  onComplexClick: (lakehouseComplexId: string) => void,
+): void {
+  if (typeof mb.on !== "function") return;
+  mb.on("click", foundationVectorFillLayerId("complex"), (e: unknown) => {
+    const evt = e as {
+      point?: unknown;
+      features?: Array<{ id?: string | number; properties?: { complex_id?: string } }>;
+    };
+    if (aMoreSpecificLayerOwnsTheClick(mb, evt.point)) return;
+    const feature = evt.features?.[0];
+    // `properties.complex_id` first and `feature.id` as the fallback: `promoteId` is what puts the
+    // value on `feature.id`, and a source registered from the v1 static manifest carries no
+    // `promoteId`, so only the property is guaranteed to be there.
+    const id =
+      feature?.properties?.complex_id ?? (typeof feature?.id === "string" ? feature.id : undefined);
+    if (typeof id === "string" && id.length > 0) onComplexClick(id);
+  });
+}
+
+function aMoreSpecificLayerOwnsTheClick(mb: MapboxGLLike, point: unknown): boolean {
+  // No query API means no way to tell. Opening the panel is the failure that leaves the feature
+  // working; staying silent is the one that looks like the layer is not clickable at all.
+  if (typeof mb.queryRenderedFeatures !== "function" || point === undefined) return false;
+  const present = COMPLEX_CLICK_YIELDS_TO_LAYER_IDS.filter((layerId) => mb.getLayer?.(layerId));
+  if (present.length === 0) return false;
+  try {
+    return mb.queryRenderedFeatures(point, { layers: present }).length > 0;
+  } catch (err) {
+    logMapLayerFailure("complex-click-precedence", err, { kind: "optional", source: "complex" });
+    return false;
   }
 }
 

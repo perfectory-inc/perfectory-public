@@ -28,10 +28,14 @@
       "parcel": {
         "summary": "필지",
         "buildings": "건축물",
+        "floors": "층 구성",
         "listings": "이 필지의 매물"
       },
       "listing": {
         "summary": "매물"
+      },
+      "complex": {
+        "summary": "산업단지"
       }
     }
   },
@@ -251,6 +255,51 @@
       "listings": {
         "title": "이 필지의 매물 ({count})",
         "none": "이 필지에 등록된 매물이 없어요"
+      }
+    },
+    "complex": {
+      "empty": "산업단지 정보가 없어요",
+      "errors": {
+        "loadFailed": "산업단지 정보를 불러오지 못했어요"
+      },
+      "summary": {
+        "officialCode": "단지번호 {code}",
+        "address": "주소",
+        "status": "조성 단계",
+        "lotSales": "분양",
+        "progress": "조성진행률",
+        "progressPercent": "{value}%",
+        "area": "지정면적",
+        "areaM2": "{value} ㎡",
+        "designatedDate": "지정일",
+        "constructionStartDate": "착공일",
+        "completionDate": "준공일",
+        "businessPeriod": "사업기간",
+        "managementAgency": "관리기관",
+        "developer": "시행자",
+        "designationBasisLaw": "지정 근거 법률",
+        "developmentMethod": "개발 방식",
+        "developmentPurpose": "조성 목적",
+        "invitedIndustries": "유치 업종",
+        "kindValue": {
+          "national": "국가산업단지",
+          "general": "일반산업단지",
+          "agricultural": "농공단지",
+          "urban_high_tech": "도시첨단산업단지"
+        },
+        "statusValue": {
+          "planned": "지정",
+          "developing": "조성중",
+          "operating": "운영중",
+          "changed": "변경",
+          "abolished": "해제",
+          "unknown": "원천 미분류"
+        },
+        "lotSalesValue": {
+          "planned": "분양 예정",
+          "in_progress": "분양중",
+          "completed": "분양 완료"
+        }
       }
     },
     "listing": {

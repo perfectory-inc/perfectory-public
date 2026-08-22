@@ -3,6 +3,7 @@
 
 import { MEDIA_QUERIES } from "@gongzzang/ui/tokens.js";
 import { useEffect, useState } from "react";
+import "@/components/panels/complex/register";
 import "@/components/panels/listing/register";
 import "@/components/panels/parcel/register";
 import { FullScreenStack } from "./full-screen-stack";

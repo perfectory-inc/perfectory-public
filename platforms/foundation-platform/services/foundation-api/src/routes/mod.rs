@@ -122,6 +122,14 @@ fn complex_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                 Some("id"),
             ),
         )
+        // Same payload as `GET /catalog/v1/complexes/{id}` under the other identity a complex
+        // carries, and therefore the same (unprotected) exposure: `listComplexes` already hands
+        // every canonical row, `lakehouse_complex_id` included, to an anonymous caller. Gating one
+        // key of an open resource would assert a confidentiality this surface does not have.
+        .route(
+            "/catalog/v1/complexes/by-lakehouse-id/{lakehouse_complex_id}",
+            get(catalog::get_complex_by_lakehouse_id),
+        )
         .route(
             "/catalog/v1/complexes/{id}/anchor-summary",
             get(catalog::get_complex_anchor_summary),

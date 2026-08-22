@@ -6,11 +6,12 @@
  * Framework 본체 (`lib/panel/*`) 는 kind 폴더 (`components/panels/*`) 를 import 하지 않음.
  */
 
-export type PanelKind = "parcel" | "listing";
+export type PanelKind = "parcel" | "listing" | "complex";
 
 export type PanelView<K extends PanelKind> =
   | (K extends "parcel" ? "summary" | "buildings" | "floors" | "listings" : never)
-  | (K extends "listing" ? "summary" : never);
+  | (K extends "listing" ? "summary" : never)
+  | (K extends "complex" ? "summary" : never);
 
 export type PanelStackEntry = {
   [K in PanelKind]: { kind: K; id: string; view: PanelView<K> };

@@ -8,9 +8,9 @@ use thiserror::Error;
 mod catalog;
 
 pub use catalog::{
-    CatalogBuildingResponse, CatalogParcelResponse, FoundationCatalogClient,
-    FoundationCatalogClientConfigError, FoundationCatalogClientRequestError,
-    FoundationCatalogHttpError,
+    CatalogBuildingResponse, CatalogIndustrialComplexResponse, CatalogParcelResponse,
+    FoundationCatalogClient, FoundationCatalogClientConfigError,
+    FoundationCatalogClientRequestError, FoundationCatalogHttpError,
 };
 
 /// Parses and validates a Foundation Platform endpoint URL.

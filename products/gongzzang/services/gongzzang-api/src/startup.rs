@@ -8,6 +8,7 @@ use product_identity_infrastructure::verifier::{JwtVerifier, Verifier};
 use sqlx::postgres::PgPoolOptions;
 
 use crate::building_reader;
+use crate::complex_reader;
 use crate::foundation_parcel_lookup;
 use crate::photo_upload;
 use crate::routes;
@@ -34,6 +35,30 @@ impl routes::buildings::BuildingRegisterReader for NoOpBuildingRegisterReader {
         >,
     > {
         Box::pin(async { Ok(Vec::new()) })
+    }
+}
+
+/// Dev-only industrial-complex reader fallback.
+/// Production requires Foundation Platform Catalog because canonical industrial-complex data is
+/// owned there, not by the Gongzzang API service.
+struct NoOpComplexCatalogReader;
+
+impl routes::complexes::ComplexCatalogReader for NoOpComplexCatalogReader {
+    fn find_by_lakehouse_id<'a>(
+        &'a self,
+        _lakehouse_complex_id: &'a shared_kernel::lakehouse_complex_id::LakehouseComplexId,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        Option<routes::complexes::ComplexCatalogRecord>,
+                        routes::complexes::ComplexCatalogError,
+                    >,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async { Ok(None) })
     }
 }
 
@@ -405,6 +430,51 @@ fn build_building_reader_from_foundation_config(
         "building_register: FOUNDATION_PLATFORM_API_BASE_URL missing - NoOp empty list (dev only)"
     );
     Ok(Arc::new(NoOpBuildingRegisterReader))
+}
+
+/// Builds the industrial-complex reader from the process environment.
+///
+/// # Errors
+///
+/// Returns a startup error when production is missing the Foundation Platform endpoint or when the
+/// endpoint fails validation.
+pub fn build_complex_reader(
+    is_production: bool,
+) -> Result<Arc<dyn routes::complexes::ComplexCatalogReader>, StartupError> {
+    build_complex_reader_from_foundation_config(
+        is_production,
+        optional_env("FOUNDATION_PLATFORM_API_BASE_URL"),
+        optional_env("FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE"),
+    )
+}
+
+fn build_complex_reader_from_foundation_config(
+    is_production: bool,
+    base_url: Option<String>,
+    workload_identity_token_file: Option<String>,
+) -> Result<Arc<dyn routes::complexes::ComplexCatalogReader>, StartupError> {
+    if let Some(base_url) = base_url {
+        let auth = build_foundation_service_auth(workload_identity_token_file)?;
+        tracing::info!("complex_catalog: Foundation Platform Catalog live");
+        return complex_reader::build_foundation_platform_complex_catalog_reader(
+            &base_url,
+            Some(auth),
+        )
+        .map_err(|error| {
+            production_config_error(format!(
+                "FOUNDATION_PLATFORM_API_BASE_URL invalid for complex_catalog: {error}"
+            ))
+        });
+    }
+    if is_production {
+        return Err(production_config_error(
+            "FOUNDATION_PLATFORM_API_BASE_URL must be set for complex_catalog because Foundation Platform owns catalog industrial-complex data",
+        ));
+    }
+    tracing::warn!(
+        "complex_catalog: FOUNDATION_PLATFORM_API_BASE_URL missing - NoOp empty result (dev only)"
+    );
+    Ok(Arc::new(NoOpComplexCatalogReader))
 }
 
 #[cfg(test)]

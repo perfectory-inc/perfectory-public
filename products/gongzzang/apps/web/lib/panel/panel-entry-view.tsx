@@ -90,14 +90,11 @@ export function PanelEntryView({
     );
   }
 
-  const viewLabel =
-    entry.kind === "parcel"
-      ? entry.view === "summary"
-        ? t("labels.parcel.summary")
-        : entry.view === "buildings"
-          ? t("labels.parcel.buildings")
-          : t("labels.parcel.listings")
-      : t("labels.listing.summary");
+  // Keyed on the entry rather than branched on it. The ternary this replaces labelled every
+  // non-parcel kind "매물" and every parcel view that was not summary/buildings "이 필지의 매물",
+  // so adding a kind or a view silently mislabelled the panel. `panel.labels.<kind>.<view>` has one
+  // entry per pair in `KINDS`, and a test proves none is missing.
+  const viewLabel = t(`labels.${entry.kind}.${entry.view}` as never);
 
   return (
     <PanelCard

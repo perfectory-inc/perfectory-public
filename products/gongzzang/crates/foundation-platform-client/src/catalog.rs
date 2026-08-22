@@ -10,6 +10,12 @@ use crate::{
 };
 
 const PARCEL_BY_PNU_PATH_PREFIX: &str = "catalog/v1/parcels/by-pnu/";
+/// Keyed on the lakehouse id, not on `catalog.industrial_complex.id`.
+///
+/// The two are different identities and neither is computable from the other. What a Gongzzang
+/// caller holds is the lakehouse one: it is what the `complex` vector tile publishes as its feature
+/// id and what every Gold artifact key is derived from.
+const COMPLEX_BY_LAKEHOUSE_ID_PATH_PREFIX: &str = "catalog/v1/complexes/by-lakehouse-id/";
 
 /// Foundation Catalog parcel wire response.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -49,6 +55,67 @@ pub struct CatalogBuildingResponse {
     pub built_year: i32,
     /// Foundation Catalog update timestamp.
     pub updated_at: String,
+}
+
+/// Foundation Catalog industrial-complex wire response.
+///
+/// Carries the description Gongzzang shows, not the whole provider contract: `version`,
+/// `updated_at`, `archived_at` and `gold_pointer` are Catalog's own bookkeeping and R2 addressing,
+/// and a consumer that deserialized them would be claiming a use it does not have.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct CatalogIndustrialComplexResponse {
+    /// Lakehouse identity of the complex, echoed back by the provider.
+    pub lakehouse_complex_id: Option<String>,
+    /// Source-side official industrial-complex code.
+    pub official_complex_code: String,
+    /// Human-readable industrial complex name.
+    pub name: String,
+    /// Industrial complex kind wire value.
+    pub kind: String,
+    /// Development lifecycle wire value. `unknown` and absent mean different things.
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Address the source stated, in the source's own wording.
+    #[serde(default)]
+    pub address_text: Option<String>,
+    /// Official complex area in square meters.
+    pub area_m2: u64,
+    /// Organization that manages the complex.
+    #[serde(default)]
+    pub management_agency_name: Option<String>,
+    /// Organization that developed the complex.
+    #[serde(default)]
+    pub developer_name: Option<String>,
+    /// Designation date as `YYYY-MM-DD`.
+    #[serde(default)]
+    pub designated_date: Option<String>,
+    /// Site-works start date as `YYYY-MM-DD`.
+    #[serde(default)]
+    pub construction_start_date: Option<String>,
+    /// Site-formation completion date as `YYYY-MM-DD`.
+    #[serde(default)]
+    pub completion_date: Option<String>,
+    /// Site-formation progress as exact decimal text. `"0.00"` is a real answer.
+    #[serde(default)]
+    pub development_progress_percent: Option<String>,
+    /// Lot sales/lease progress wire value.
+    #[serde(default)]
+    pub lot_sales_status: Option<String>,
+    /// Business period exactly as the source wrote it.
+    #[serde(default)]
+    pub business_period_raw: Option<String>,
+    /// Statute the designation was made under, verbatim.
+    #[serde(default)]
+    pub designation_basis_law_raw: Option<String>,
+    /// Development method, verbatim.
+    #[serde(default)]
+    pub development_method_raw: Option<String>,
+    /// Stated development purpose, verbatim.
+    #[serde(default)]
+    pub development_purpose_raw: Option<String>,
+    /// Industry types the complex set out to attract, verbatim.
+    #[serde(default)]
+    pub invited_industries_raw: Option<String>,
 }
 
 /// Shared HTTP transport for Foundation Catalog v1 reads.
@@ -114,6 +181,22 @@ impl FoundationCatalogClient {
         self.execute_get(
             "foundation_platform.catalog.list_parcel_buildings_by_pnu",
             &format!("{PARCEL_BY_PNU_PATH_PREFIX}{pnu}/buildings"),
+        )
+        .await
+    }
+
+    /// Sends one complex-by-lakehouse-id request through the published Catalog v1 path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failures, invalid workload credentials, and retriable status.
+    pub async fn get_complex_by_lakehouse_id_response(
+        &self,
+        lakehouse_complex_id: &str,
+    ) -> Result<reqwest::Response, FoundationCatalogClientRequestError> {
+        self.execute_get(
+            "foundation_platform.catalog.get_complex_by_lakehouse_id",
+            &format!("{COMPLEX_BY_LAKEHOUSE_ID_PATH_PREFIX}{lakehouse_complex_id}"),
         )
         .await
     }

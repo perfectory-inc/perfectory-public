@@ -85,4 +85,29 @@ describe("g1Codec", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.entries).toHaveLength(0);
   });
+
+  it("round-trips a complex summary entry", () => {
+    const s = "complex:7df3859c-1e0a-51fa-8b7d-9a1c2e3f4a5b.summary";
+    const parsed = g1Codec.deserialize(s);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.entries[0]).toMatchObject({ kind: "complex", view: "summary" });
+      expect(g1Codec.serialize(parsed.value)).toBe(s);
+    }
+  });
+
+  it("rejects a Catalog complex id in the complex slot", () => {
+    // `01a0136d-…-7e61-…` is what `Uuid::now_v7()` mints for `catalog.industrial_complex.id`. It
+    // names a real complex — a different identity of it — and is not what the tile publishes, so a
+    // URL carrying it must fail here rather than resolve to nothing at fetch time.
+    const r = g1Codec.deserialize("complex:01a0136d-2b3c-7e61-8f90-a1b2c3d4e5f6.summary");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(ParseError.IdPatternViolation);
+  });
+
+  it("rejects an uppercase complex id", () => {
+    const r = g1Codec.deserialize("complex:7DF3859C-1E0A-51FA-8B7D-9A1C2E3F4A5B.summary");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(ParseError.IdPatternViolation);
+  });
 });

@@ -20,7 +20,7 @@ use crate::backend_rate_limit::{
 };
 use crate::listing_marker_serving::ListingMarkerServingGateway;
 use crate::startup::{
-    build_building_reader, build_internal_auth_secret, build_parcel_lookup,
+    build_building_reader, build_complex_reader, build_internal_auth_secret, build_parcel_lookup,
     build_photo_download_issuer, build_photo_upload_issuer, build_redis_pool_shared,
     build_verifier, connect_postgres, is_production_env, required_env, StartupError,
 };
@@ -270,6 +270,28 @@ async fn async_main() -> Result<(), StartupError> {
             auth_layer,
         ));
 
+    let complexes_state = routes::complexes::ComplexesState {
+        reader: build_complex_reader(is_production)?,
+    };
+    let complexes_router: Router<()> = Router::new()
+        .route(
+            "/api/complexes/{lakehouse_complex_id}",
+            get(routes::complexes::get_complex),
+        )
+        .with_state(complexes_state)
+        .layer(middleware::from_fn_with_state(
+            backend_authorization_state.clone(),
+            enforce_backend_roles,
+        ))
+        .layer(middleware::from_fn_with_state(
+            backend_rate_limit_state.clone(),
+            enforce_backend_rate_limit,
+        ))
+        .layer(middleware::from_fn_with_state(
+            auth_state.clone(),
+            auth_layer,
+        ));
+
     let building_reader = build_building_reader(is_production)?;
     let buildings_state = routes::buildings::BuildingsState {
         reader: building_reader,
@@ -434,6 +456,7 @@ async fn async_main() -> Result<(), StartupError> {
         .merge(listing_marker_deltas_router)
         .merge(listings_router)
         .merge(parcels_router)
+        .merge(complexes_router)
         .merge(buildings_router)
         .merge(floors_router)
         .merge(bookmarks_router)
