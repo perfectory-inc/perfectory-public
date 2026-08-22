@@ -28,6 +28,20 @@ export const FOUNDATION_VECTOR_LAYER_REGISTRY: Record<string, FoundationVectorLa
     sourceLayer: "admin",
     promoteId: "administrative_unit_id",
   },
+  // `promoteId` is the property the publisher writes into
+  // `catalog.vector_tile_release_layer.feature_id_property`, and that value is
+  // `feature_id_property: "complex_id"` in
+  // `platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_boundary_runtime_promote.rs`.
+  // `official_complex_code` also rides in the tile, but it is the code a human quotes, not the
+  // identity the lakehouse and every Gold artifact key on, and `buildFoundationVectorSource` below
+  // rejects the manifest outright if the two disagree.
+  complex: {
+    sourceId: "complex",
+    dynamicMartinSourceId: "complex",
+    layerName: "complex",
+    sourceLayer: "complex",
+    promoteId: "complex_id",
+  },
 };
 
 /** Builds the source descriptor using the registry's identity rather than runtime string copies. */
