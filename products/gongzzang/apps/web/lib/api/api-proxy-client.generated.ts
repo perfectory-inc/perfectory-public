@@ -143,6 +143,11 @@ export const API_PROXY_CLIENT_OPERATIONS = {
     targetPath: "api/parcels/:pnu",
     methods: ["GET"],
   },
+  complexesCollectionRead: {
+    sourcePolicyId: "gongzzang.api_proxy.complexes_collection_read",
+    targetPath: "api/complexes",
+    methods: ["GET"],
+  },
   complexRead: {
     sourcePolicyId: "gongzzang.api_proxy.complex_read",
     targetPath: "api/complexes/:lakehouse_complex_id",
@@ -412,6 +417,10 @@ export const apiProxyClient = {
       api.get(`api/parcels/${encodePathParam(params.pnu)}`, options),
     getJson: <T>(params: { readonly pnu: string }, options?: ApiProxyRequestOptions) =>
       api.get(`api/parcels/${encodePathParam(params.pnu)}`, options).json<T>(),
+  },
+  complexesCollectionRead: {
+    get: (options?: ApiProxyRequestOptions) => api.get("api/complexes", options),
+    getJson: <T>(options?: ApiProxyRequestOptions) => api.get("api/complexes", options).json<T>(),
   },
   complexRead: {
     get: (params: { readonly lakehouse_complex_id: string }, options?: ApiProxyRequestOptions) =>

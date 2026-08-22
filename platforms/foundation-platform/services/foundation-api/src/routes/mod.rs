@@ -97,7 +97,7 @@ fn complex_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route(
             "/catalog/v1/complexes",
-            get(catalog::list_complexes).merge(protected_route(
+            get(catalog::complex_search::list_complexes).merge(protected_route(
                 post(catalog::register_complex),
                 state,
                 STAFF_CATALOG_WRITE,

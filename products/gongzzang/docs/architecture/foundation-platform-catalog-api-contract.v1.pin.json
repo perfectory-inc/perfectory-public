@@ -3,7 +3,7 @@
   "source_repo": "foundation-platform",
   "source_path": "docs/openapi/catalog.v1.json",
   "snapshot_path": "crates/foundation-platform-client/openapi/catalog.v1.json",
-  "source_sha256": "80df35cb22a4425d4ee7653ccdfeff0a2debbb4b47f75962c433df4ca19d430e",
+  "source_sha256": "a02030ae36d2cf52a113d982bd7fcab6d503244e7318d696456a8ee66ca2f274",
   "source_schema_version": "foundation-platform.openapi.catalog.v1",
   "consumer_slug": "gongzzang",
   "base_env": "FOUNDATION_PLATFORM_API_BASE_URL",
@@ -37,6 +37,17 @@
       "success_shape": "object",
       "not_found_behavior": "none",
       "required_response_fields": ["official_complex_code", "name", "kind", "area_m2"]
+    },
+    {
+      "operation_id": "listComplexes",
+      "transport_module": "crates/foundation-platform-client/src/catalog.rs",
+      "adapter_module": "services/gongzzang-api/src/complex_reader.rs",
+      "method": "GET",
+      "path_template": "/catalog/v1/complexes",
+      "path_pattern_literal": "catalog/v1/complexes",
+      "success_shape": "object",
+      "not_found_behavior": "none",
+      "required_response_fields": ["complexes", "total", "page", "size", "has_next"]
     },
     {
       "operation_id": "listParcelBuildingsByPnu",

@@ -144,6 +144,25 @@ pub struct IndustrialComplexResponse {
     pub gold_pointer: Option<IndustrialComplexGoldPointerResponse>,
 }
 
+/// One page of canonical industrial complexes.
+///
+/// An envelope rather than a bare array because a page without its collection size is unreadable:
+/// a screen showing "20 of ?" cannot tell a filter that matched nothing from a filter it has not
+/// finished paging. `total` counts the rows the filters match, not the rows on this page.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct IndustrialComplexListResponse {
+    /// Complexes on this page, in the requested order.
+    pub complexes: Vec<IndustrialComplexResponse>,
+    /// Complexes the filters match in total.
+    pub total: u64,
+    /// Zero-indexed page number that was served.
+    pub page: u32,
+    /// Page size that was served.
+    pub size: u32,
+    /// Whether a further page exists behind `total`.
+    pub has_next: bool,
+}
+
 /// Thin pointer to R2/Iceberg Gold industrial-complex data.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct IndustrialComplexGoldPointerResponse {

@@ -14,6 +14,7 @@ workspace = true
 async-trait = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 uuid = { workspace = true }
 catalog-domain = { workspace = true }
 foundation-shared-kernel = { workspace = true }

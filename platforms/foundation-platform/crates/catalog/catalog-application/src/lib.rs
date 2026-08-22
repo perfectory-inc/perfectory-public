@@ -9,6 +9,9 @@
 /// Use case for archiving an industrial complex without hard deletion.
 pub mod archive_complex;
 
+/// Query shape and bounds for the paged industrial-complex search.
+pub mod complex_search;
+
 /// Shared industrial-complex input validation helpers.
 mod industrial_complex_input;
 
@@ -52,6 +55,10 @@ pub mod update_parcel_kind;
 pub mod vector_tile_build_lifecycle;
 
 pub use archive_complex::{ArchiveIndustrialComplex, ArchiveIndustrialComplexInput};
+pub use complex_search::{
+    ComplexSearchPaging, ComplexSearchQuery, ComplexSearchQueryError, ComplexSearchResult,
+    ComplexSearchSort, ComplexSearchText, SidoCodeFilter,
+};
 pub use mark_tile_layer_dynamic::MarkTileLayerDynamic;
 pub use promote_tile_layer_static::PromoteTileLayerStatic;
 pub use promote_vector_tile_manifest::{PromoteVectorTileManifest, PromoteVectorTileManifestInput};

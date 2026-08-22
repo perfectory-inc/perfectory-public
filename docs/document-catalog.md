@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **371개**
+- 문서 파일: **372개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 70 |
+| Monorepo | 71 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 129 |
+| ADR | 130 |
 | README | 106 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -415,6 +415,7 @@ docs/adr/0045-a-serving-projection-row-names-its-load-not-its-revision.md
 docs/adr/0046-a-publication-names-the-object-it-was-collected-from.md
 docs/adr/0047-a-repairable-boundary-is-repaired-not-dropped.md
 docs/adr/0048-a-published-feature-id-needs-a-read-keyed-on-it.md
+docs/adr/0049-a-browsable-collection-is-paged-filtered-and-counted.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -497,6 +498,7 @@ tools/github/README.md
 | `docs/adr/0046-a-publication-names-the-object-it-was-collected-from.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0047-a-repairable-boundary-is-repaired-not-dropped.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0048-a-published-feature-id-needs-a-read-keyed-on-it.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0049-a-browsable-collection-is-paged-filtered-and-counted.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

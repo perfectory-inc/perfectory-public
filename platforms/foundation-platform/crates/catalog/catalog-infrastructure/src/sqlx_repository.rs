@@ -4,6 +4,9 @@
 //! ADR 0032 기둥 2 의 At-least-once invariant 를 명확히 만들기 위함이다.
 
 use async_trait::async_trait;
+use catalog_application::complex_search::{
+    ComplexSearchQuery, ComplexSearchResult, ComplexSearchSort, SidoCodeFilter,
+};
 use catalog_application::ports::CatalogRepository;
 use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError,
@@ -116,10 +119,116 @@ impl PgCatalogRepository {
     }
 }
 
+/// `ORDER BY` clause for one search order.
+///
+/// Every clause ends in the same `official_complex_code, id` tiebreak so the order is total. Two
+/// complexes share a name (`반월특수지역` variants) and many share an area; without the tiebreak
+/// Postgres may order them differently between the page-1 and page-2 statements, and a row then
+/// appears twice or not at all.
+const fn complex_search_order_by(sort: ComplexSearchSort) -> &'static str {
+    match sort {
+        ComplexSearchSort::Name => "name ASC, official_complex_code ASC, id ASC",
+        ComplexSearchSort::AreaDesc => "area_m2 DESC, official_complex_code ASC, id ASC",
+        ComplexSearchSort::OfficialCode => "official_complex_code ASC, id ASC",
+    }
+}
+
 #[async_trait]
 impl CatalogRepository for PgCatalogRepository {
     async fn list_complexes(&self) -> Result<Vec<IndustrialComplex>, CatalogError> {
         self.fetch_industrial_complexes().await
+    }
+
+    /// One filtered page plus the size of the filtered collection, in a single statement.
+    ///
+    /// `q` matches with `ILIKE '%…%'`, which **cannot use an index** — Postgres scans all 1,448
+    /// canonical rows for every search. That is deliberate and it is fine at this size: the table
+    /// is written by a batch job a few times a year and read by one screen. It stops being fine
+    /// when the table grows past roughly a hundred thousand rows or when this route starts being
+    /// called per keystroke by many sessions at once; the fix then is a `pg_trgm` GIN index on
+    /// `name`, which does not exist today. Nothing here claims one does.
+    ///
+    /// The count lives in its own CTE rather than a `COUNT(*) OVER ()` on the page, because a
+    /// window function on an empty page returns no row at all — and a request for a page past the
+    /// end would then report a total of zero for a collection that is not empty.
+    async fn search_complexes(
+        &self,
+        query: &ComplexSearchQuery,
+    ) -> Result<ComplexSearchResult<IndustrialComplex>, CatalogError> {
+        let order_by = complex_search_order_by(query.sort);
+        let text_pattern = query
+            .text
+            .as_ref()
+            .map(catalog_application::complex_search::ComplexSearchText::contains_pattern);
+        let sido_code = query.sido_code.as_ref().map(SidoCodeFilter::as_str);
+        let statuses: Option<Vec<&str>> = (!query.statuses.is_empty()).then(|| {
+            query
+                .statuses
+                .iter()
+                .map(|status| status.wire_name())
+                .collect()
+        });
+
+        let sql = format!(
+            r"
+            WITH filtered AS (
+                SELECT {INDUSTRIAL_COMPLEX_COLUMNS}
+                FROM catalog.industrial_complex
+                WHERE archived_at IS NULL
+                  AND ($1::text IS NULL
+                       OR name ILIKE $1 ESCAPE '\'
+                       OR official_complex_code ILIKE $1 ESCAPE '\')
+                  AND ($2::text IS NULL OR sido_code = $2)
+                  AND ($3::text[] IS NULL OR status = ANY($3::text[]))
+            ),
+            total AS (SELECT COUNT(*)::bigint AS total_count FROM filtered),
+            page AS (
+                SELECT * FROM filtered
+                ORDER BY {order_by}
+                LIMIT $4 OFFSET $5
+            )
+            SELECT total.total_count, page.*
+            FROM total LEFT JOIN page ON true
+            ORDER BY {order_by}
+            "
+        );
+
+        let rows = sqlx::query(&sql)
+            .bind(text_pattern.as_deref())
+            .bind(sido_code)
+            .bind(statuses.as_deref())
+            .bind(query.paging.limit())
+            .bind(query.paging.offset())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_sqlx)?;
+
+        // `total` yields exactly one row, so the join always yields at least one; an absent first
+        // row would mean the statement above stopped being the statement this reads.
+        let first = rows.first().ok_or_else(|| {
+            CatalogError::Infrastructure(
+                "industrial complex search returned no total row".to_owned(),
+            )
+        })?;
+        let total_count: i64 = first.try_get("total_count").map_err(map_sqlx)?;
+        let total = u64::try_from(total_count).map_err(|error| {
+            CatalogError::Infrastructure(format!("industrial complex total overflow: {error}"))
+        })?;
+
+        // A page past the end is one row of NULL complex columns from the `LEFT JOIN`, not a row.
+        let is_empty_page = first
+            .try_get::<Option<Uuid>, _>("id")
+            .map_err(map_sqlx)?
+            .is_none();
+        let rows = if is_empty_page {
+            Vec::new()
+        } else {
+            rows.iter()
+                .map(row_to_complex)
+                .collect::<Result<Vec<_>, _>>()?
+        };
+
+        Ok(ComplexSearchResult { rows, total })
     }
 
     async fn find_complex(&self, id: ComplexId) -> Result<Option<IndustrialComplex>, CatalogError> {

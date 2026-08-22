@@ -474,6 +474,22 @@
       }
     },
     {
+      "source_policy_id": "gongzzang.api_proxy.complexes_collection_read",
+      "edge_path": "/api/proxy/api/complexes",
+      "target_path": "api/complexes",
+      "target_path_kind": "exact",
+      "methods": ["GET"],
+      "exposure_class": "authenticated_user",
+      "required_roles": [],
+      "rate": {
+        "key_strategy": "session_sub",
+        "key_prefix": "api-proxy:authenticated-read",
+        "limit": 240,
+        "window_seconds": 60,
+        "problem_type": "proxy/too-many-requests"
+      }
+    },
+    {
       "source_policy_id": "gongzzang.api_proxy.complex_read",
       "edge_path": "/api/proxy/api/complexes/:lakehouse_complex_id",
       "target_path": "api/complexes/:lakehouse_complex_id",

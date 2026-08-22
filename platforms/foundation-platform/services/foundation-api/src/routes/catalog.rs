@@ -1,5 +1,8 @@
 //! Catalog HTTP handler.
 
+/// `GET /catalog/v1/complexes` — the paged, filtered industrial-complex collection.
+pub mod complex_search;
+
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -267,34 +270,6 @@ pub async fn archive_complex(
         .await?;
 
     Ok(Json(industrial_complex_response(archived, gold_pointer)))
-}
-
-#[utoipa::path(
-    get,
-    path = "/catalog/v1/complexes",
-    operation_id = "listComplexes",
-    responses((status = 200, body = [IndustrialComplexResponse]))
-)]
-pub async fn list_complexes(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<IndustrialComplexResponse>>, ApiError> {
-    let complexes = state.catalog_repo.list_complexes().await?;
-    let complex_ids = complexes
-        .iter()
-        .map(|complex| complex.id)
-        .collect::<Vec<_>>();
-    let gold_pointers = state
-        .industrial_complex_gold_pointer_reader
-        .list_industrial_complex_gold_pointers(&complex_ids)
-        .await?
-        .into_iter()
-        .map(|pointer| (pointer.complex_id, pointer))
-        .collect::<HashMap<_, _>>();
-
-    Ok(Json(industrial_complex_list_response(
-        complexes,
-        gold_pointers,
-    )))
 }
 
 #[utoipa::path(

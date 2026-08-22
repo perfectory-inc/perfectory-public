@@ -4,7 +4,12 @@
     "loading": "불러오는 중이에요",
     "error": "오류가 발생했어요",
     "retry": "다시 시도해 주세요",
-    "notFound": "페이지를 찾을 수 없어요"
+    "notFound": "페이지를 찾을 수 없어요",
+    "nav": {
+      "label": "주요 메뉴",
+      "listings": "매물",
+      "complexes": "산업단지"
+    }
   },
   "notFoundPage": {
     "title": "페이지를 찾을 수 없어요",
@@ -280,26 +285,7 @@
         "designationBasisLaw": "지정 근거 법률",
         "developmentMethod": "개발 방식",
         "developmentPurpose": "조성 목적",
-        "invitedIndustries": "유치 업종",
-        "kindValue": {
-          "national": "국가산업단지",
-          "general": "일반산업단지",
-          "agricultural": "농공단지",
-          "urban_high_tech": "도시첨단산업단지"
-        },
-        "statusValue": {
-          "planned": "지정",
-          "developing": "조성중",
-          "operating": "운영중",
-          "changed": "변경",
-          "abolished": "해제",
-          "unknown": "원천 미분류"
-        },
-        "lotSalesValue": {
-          "planned": "분양 예정",
-          "in_progress": "분양중",
-          "completed": "분양 완료"
-        }
+        "invitedIndustries": "유치 업종"
       }
     },
     "listing": {
@@ -325,6 +311,79 @@
           "jeonse": "전세"
         }
       }
+    }
+  },
+  "complexValues": {
+    "kind": {
+      "national": "국가산업단지",
+      "general": "일반산업단지",
+      "agricultural": "농공단지",
+      "urban_high_tech": "도시첨단산업단지"
+    },
+    "status": {
+      "planned": "지정",
+      "developing": "조성중",
+      "operating": "운영중",
+      "changed": "변경",
+      "abolished": "해제",
+      "unknown": "원천 미분류"
+    },
+    "lotSales": {
+      "planned": "분양 예정",
+      "in_progress": "분양중",
+      "completed": "분양 완료"
+    }
+  },
+  "complexes": {
+    "page": {
+      "title": "산업단지"
+    },
+    "search": {
+      "placeholder": "단지명 또는 단지번호로 검색해 주세요"
+    },
+    "filter": {
+      "sido": "시도",
+      "anySido": "전체",
+      "status": "조성 단계",
+      "sort": "정렬"
+    },
+    "sido": {
+      "11": "서울특별시",
+      "26": "부산광역시",
+      "27": "대구광역시",
+      "28": "인천광역시",
+      "29": "광주광역시",
+      "30": "대전광역시",
+      "31": "울산광역시",
+      "36": "세종특별자치시",
+      "41": "경기도",
+      "43": "충청북도",
+      "44": "충청남도",
+      "46": "전라남도",
+      "47": "경상북도",
+      "48": "경상남도",
+      "50": "제주특별자치도",
+      "51": "강원특별자치도",
+      "52": "전북특별자치도"
+    },
+    "sort": {
+      "name_asc": "이름순",
+      "area_desc": "면적 넓은 순",
+      "official_complex_code_asc": "단지번호순"
+    },
+    "countOfTotal": "{total}곳 중 {shown}곳",
+    "empty": "조건에 맞는 산업단지가 없어요",
+    "row": {
+      "noDetail": "상세 정보가 아직 없어요"
+    },
+    "pager": {
+      "label": "산업단지 목록 쪽 이동",
+      "previous": "이전",
+      "next": "다음",
+      "position": "{page} / {pageCount} 쪽"
+    },
+    "errors": {
+      "fetchFailed": "산업단지 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요."
     }
   }
 }
