@@ -42,7 +42,7 @@ use foundation_contracts::catalog::{
     VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
     VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
-use foundation_shared_kernel::ids::{ComplexId, ParcelId, StaffId};
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId, StaffId};
 use foundation_shared_kernel::pnu::Pnu;
 use lakehouse_application::RecordLakehouseBatchRunInput;
 use lakehouse_domain::IndustrialComplexGoldPointer;
@@ -142,6 +142,38 @@ pub async fn get_complex(
         .find_complex(ComplexId::new(id))
         .await?
         .ok_or_else(|| ApiError::NotFound(id.to_string()))?;
+    let gold_pointer = state
+        .industrial_complex_gold_pointer_reader
+        .find_industrial_complex_gold_pointer(complex.id)
+        .await?;
+
+    Ok(Json(industrial_complex_response(complex, gold_pointer)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/catalog/v1/complexes/by-lakehouse-id/{lakehouse_complex_id}",
+    operation_id = "getComplexByLakehouseId",
+    params((
+        "lakehouse_complex_id" = Uuid,
+        Path,
+        description = "Lakehouse industrial-complex id (UUIDv5), as published in Gold artifact keys and `complex` vector tile feature ids",
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    )),
+    responses(
+        (status = 200, body = IndustrialComplexResponse),
+        (status = 404, description = "No canonical complex carries that lakehouse id")
+    )
+)]
+pub async fn get_complex_by_lakehouse_id(
+    State(state): State<Arc<AppState>>,
+    Path(lakehouse_complex_id): Path<Uuid>,
+) -> Result<Json<IndustrialComplexResponse>, ApiError> {
+    let complex = state
+        .catalog_repo
+        .find_complex_by_lakehouse_id(LakehouseComplexId::new(lakehouse_complex_id))
+        .await?
+        .ok_or_else(|| ApiError::NotFound(lakehouse_complex_id.to_string()))?;
     let gold_pointer = state
         .industrial_complex_gold_pointer_reader
         .find_industrial_complex_gold_pointer(complex.id)

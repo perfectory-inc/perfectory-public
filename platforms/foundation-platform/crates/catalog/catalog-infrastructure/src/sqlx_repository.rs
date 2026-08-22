@@ -14,8 +14,8 @@ use catalog_domain::{
     SpatialLayer, StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
-    ComplexId, FileAssetId, NoticeId, ParcelId, SourceRecordId, VectorTileDataRevisionId,
-    VectorTileReleaseId, VectorTileRuntimeManifestId,
+    ComplexId, FileAssetId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId,
+    VectorTileDataRevisionId, VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
 use foundation_shared_kernel::pnu::Pnu;
 use sqlx::{PgConnection, PgPool, Row};
@@ -129,6 +129,25 @@ impl CatalogRepository for PgCatalogRepository {
              WHERE id = $1"
         ))
         .bind(id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+
+        row_opt.as_ref().map(row_to_complex).transpose()
+    }
+
+    async fn find_complex_by_lakehouse_id(
+        &self,
+        lakehouse_complex_id: LakehouseComplexId,
+    ) -> Result<Option<IndustrialComplex>, CatalogError> {
+        // `industrial_complex_lakehouse_complex_id_idx` is a partial unique index over exactly this
+        // predicate, so at most one row can match and no `LIMIT` is hiding a second answer.
+        let row_opt = sqlx::query(&format!(
+            "SELECT {INDUSTRIAL_COMPLEX_COLUMNS}
+             FROM catalog.industrial_complex
+             WHERE lakehouse_complex_id = $1"
+        ))
+        .bind(lakehouse_complex_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx)?;

@@ -3,7 +3,7 @@
   "source_repo": "foundation-platform",
   "source_path": "docs/openapi/catalog.v1.json",
   "snapshot_path": "crates/foundation-platform-client/openapi/catalog.v1.json",
-  "source_sha256": "b21057a8b3cf7fcfda50e8a26e2bd4c98c5c31fbfbd1cba53f8e7682aede30ea",
+  "source_sha256": "80df35cb22a4425d4ee7653ccdfeff0a2debbb4b47f75962c433df4ca19d430e",
   "source_schema_version": "foundation-platform.openapi.catalog.v1",
   "consumer_slug": "gongzzang",
   "base_env": "FOUNDATION_PLATFORM_API_BASE_URL",
@@ -26,6 +26,17 @@
       "success_shape": "object",
       "not_found_behavior": "none",
       "required_response_fields": ["pnu", "kind"]
+    },
+    {
+      "operation_id": "getComplexByLakehouseId",
+      "transport_module": "crates/foundation-platform-client/src/catalog.rs",
+      "adapter_module": "services/gongzzang-api/src/complex_reader.rs",
+      "method": "GET",
+      "path_template": "/catalog/v1/complexes/by-lakehouse-id/{lakehouse_complex_id}",
+      "path_pattern_literal": "catalog/v1/complexes/by-lakehouse-id/",
+      "success_shape": "object",
+      "not_found_behavior": "none",
+      "required_response_fields": ["official_complex_code", "name", "kind", "area_m2"]
     },
     {
       "operation_id": "listParcelBuildingsByPnu",

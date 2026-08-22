@@ -586,6 +586,21 @@ pub trait CatalogRepository: Send + Sync {
     /// Returns `CatalogError` when repository access fails.
     async fn find_complex(&self, id: ComplexId) -> Result<Option<IndustrialComplex>, CatalogError>;
 
+    /// Finds an industrial complex by the lakehouse identity it was sourced under.
+    ///
+    /// A separate lookup rather than a variant of [`Self::find_complex`] because the two ids are
+    /// different identities, not two spellings of one: `ComplexId` is minted here with
+    /// `Uuid::now_v7()`, `LakehouseComplexId` is derived as a `UUIDv5` in the Bronze-to-Silver job,
+    /// and neither is computable from the other. Callers holding a published artifact — a Gold
+    /// object key, a `complex` vector tile feature id — hold the second one.
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
+    async fn find_complex_by_lakehouse_id(
+        &self,
+        lakehouse_complex_id: LakehouseComplexId,
+    ) -> Result<Option<IndustrialComplex>, CatalogError>;
+
     /// Summarizes active PNU marker anchors for one industrial complex.
     ///
     /// # Errors

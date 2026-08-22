@@ -19,6 +19,7 @@ pub mod email;
 pub mod geometry;
 pub mod id;
 pub mod ksic_code;
+pub mod lakehouse_complex_id;
 pub mod land_use_type;
 pub mod listing_status;
 pub mod listing_title;

@@ -11,7 +11,7 @@ import {
   FOUNDATION_VECTOR_LAYER_REGISTRY,
   validateFoundationVectorManifest,
 } from "@/lib/map/foundation-vector-layer-registry";
-import { setupPolygonLayers } from "@/lib/map/listing-map-runtime";
+import { registerComplexClick, setupPolygonLayers } from "@/lib/map/listing-map-runtime";
 import {
   LISTING_MARKER_TILE_CIRCLE_LAYER_ID,
   PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID,
@@ -228,6 +228,7 @@ describe("Foundation polygon layer setup", () => {
       () => undefined,
       null,
       runtimeManifest({ parcels: parcelsUnit(), complex: complexUnit() }),
+      () => undefined,
     );
 
     expect(mb.layerIds()).toEqual(["complex-fill", "complex-outline", "parcels-fill"]);
@@ -239,7 +240,13 @@ describe("Foundation polygon layer setup", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const mb = fakeMapbox();
     try {
-      setupPolygonLayers(mb, () => undefined, null, runtimeManifest({ parcels: parcelsUnit() }));
+      setupPolygonLayers(
+        mb,
+        () => undefined,
+        null,
+        runtimeManifest({ parcels: parcelsUnit() }),
+        () => undefined,
+      );
 
       expect(mb.layerIds()).toEqual(["parcels-fill"]);
       expect(mb.sources.has("complex")).toBe(false);
@@ -274,7 +281,13 @@ describe("Foundation polygon layer setup", () => {
       expect(() => validateFoundationVectorManifest(unowned)).toThrow(
         /unregistered Foundation publication unit/,
       );
-      setupPolygonLayers(mb, () => undefined, null, unowned);
+      setupPolygonLayers(
+        mb,
+        () => undefined,
+        null,
+        unowned,
+        () => undefined,
+      );
 
       expect(mb.added).toEqual([]);
       expect(mb.sources.size).toBe(0);
@@ -283,5 +296,116 @@ describe("Foundation polygon layer setup", () => {
       error.mockRestore();
       info.mockRestore();
     }
+  });
+});
+
+/**
+ * A fake bridge that can answer clicks.
+ *
+ * `queryRenderedFeatures` reports a hit for every layer id in `hitLayerIds`, which is how a test
+ * says "a parcel / a marker is drawn at the point the user clicked".
+ */
+function clickableMapbox(options: { existingLayerIds?: string[]; hitLayerIds?: string[] } = {}) {
+  const existing = new Set(options.existingLayerIds ?? []);
+  const hits = new Set(options.hitLayerIds ?? []);
+  const handlers = new Map<string, (e: unknown) => void>();
+  return {
+    handlers,
+    on: (event: string, layerId: string, handler: (e: unknown) => void) => {
+      if (event === "click") handlers.set(layerId, handler);
+    },
+    getLayer: (id: string) => (existing.has(id) || hits.has(id) ? { id } : undefined),
+    queryRenderedFeatures: (_point: unknown, opts?: { layers?: readonly string[] }) =>
+      (opts?.layers ?? []).filter((layerId) => hits.has(layerId)).map((layerId) => ({ layerId })),
+  };
+}
+
+const COMPLEX_ID = "7df3859c-1e0a-51fa-8b7d-9a1c2e3f4a5b";
+
+describe("industrial-complex boundary click", () => {
+  it("opens the panel on the lakehouse id the tile promotes", () => {
+    const opened: string[] = [];
+    const mb = clickableMapbox();
+    registerComplexClick(mb, (id) => opened.push(id));
+
+    mb.handlers.get("complex-fill")?.({
+      point: { x: 1, y: 2 },
+      features: [{ id: COMPLEX_ID, properties: { complex_id: COMPLEX_ID } }],
+    });
+
+    expect(opened).toEqual([COMPLEX_ID]);
+  });
+
+  it("falls back to the promoted feature id when the property is absent", () => {
+    const opened: string[] = [];
+    const mb = clickableMapbox();
+    registerComplexClick(mb, (id) => opened.push(id));
+
+    mb.handlers.get("complex-fill")?.({ point: { x: 1, y: 2 }, features: [{ id: COMPLEX_ID }] });
+
+    expect(opened).toEqual([COMPLEX_ID]);
+  });
+
+  it("yields the click to a parcel drawn at the same point", () => {
+    // The failure this prevents: a complex spans kilometres, so every parcel click inside one is
+    // also a complex click, and both panels would open from one tap.
+    const opened: string[] = [];
+    const mb = clickableMapbox({ hitLayerIds: [foundationVectorFillLayerId("parcels")] });
+    registerComplexClick(mb, (id) => opened.push(id));
+
+    mb.handlers.get("complex-fill")?.({
+      point: { x: 1, y: 2 },
+      features: [{ properties: { complex_id: COMPLEX_ID } }],
+    });
+
+    expect(opened).toEqual([]);
+  });
+
+  it("yields the click to a listing marker drawn at the same point", () => {
+    const opened: string[] = [];
+    const mb = clickableMapbox({ hitLayerIds: [LISTING_MARKER_TILE_CIRCLE_LAYER_ID] });
+    registerComplexClick(mb, (id) => opened.push(id));
+
+    mb.handlers.get("complex-fill")?.({
+      point: { x: 1, y: 2 },
+      features: [{ properties: { complex_id: COMPLEX_ID } }],
+    });
+
+    expect(opened).toEqual([]);
+  });
+
+  it("still opens when only the nationwide admin tint is under the cursor", () => {
+    // `admin-fill` is drawn above `complex-fill` and covers the whole country. Treating it as a
+    // more specific answer would make the boundary unclickable everywhere.
+    const opened: string[] = [];
+    const mb = clickableMapbox({ hitLayerIds: [foundationVectorFillLayerId("admin")] });
+    registerComplexClick(mb, (id) => opened.push(id));
+
+    mb.handlers.get("complex-fill")?.({
+      point: { x: 1, y: 2 },
+      features: [{ properties: { complex_id: COMPLEX_ID } }],
+    });
+
+    expect(opened).toEqual([COMPLEX_ID]);
+  });
+
+  it("opens when the bridge cannot answer which layers were hit", () => {
+    const opened: string[] = [];
+    const handlers = new Map<string, (e: unknown) => void>();
+    registerComplexClick(
+      {
+        on: (event: string, layerId: string, handler: (e: unknown) => void) => {
+          if (event === "click") handlers.set(layerId, handler);
+        },
+      },
+      (id) => opened.push(id),
+    );
+
+    handlers.get("complex-fill")?.({
+      point: { x: 1, y: 2 },
+      features: [{ properties: { complex_id: COMPLEX_ID } }],
+    });
+
+    expect(opened).toEqual([COMPLEX_ID]);
   });
 });

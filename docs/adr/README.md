@@ -58,3 +58,4 @@ last_reviewed: 2026-07-28
 - [0045 — 서빙 투영의 행은 리비전이 아니라 적재를 이름한다](./0045-a-serving-projection-row-names-its-load-not-its-revision.md)
 - [0046 — 수집된 파일에서 온 발행은 그 수집 기록을 이름한다](./0046-a-publication-names-the-object-it-was-collected-from.md)
 - [0047 — 고칠 수 있는 경계는 버리지 않고 고쳐서 싣는다](./0047-a-repairable-boundary-is-repaired-not-dropped.md)
+- [0048 — 발행된 feature id 에는 그 id 로 여는 조회구가 필요하다](./0048-a-published-feature-id-needs-a-read-keyed-on-it.md)

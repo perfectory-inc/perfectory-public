@@ -55,6 +55,26 @@ export function foundationVectorOutlineLayerId(unitName: string): string {
   return `${unitName}${OUTLINE_LAYER_SUFFIX}`;
 }
 
+/**
+ * Layers whose feature owns a click that also lands on the `complex` boundary.
+ *
+ * A designation boundary is kilometres across and covers everything inside it, so without this a
+ * click on a parcel inside a complex opens both panels. `complex` is the context, not the subject
+ * (see the `insertBelowLayerIds` note below): if anything more specific is drawn at the point, that
+ * is what the user aimed at.
+ *
+ * Deliberately **not** `insertBelowLayerIds`, even though the members overlap. That list answers
+ * "what must this be drawn under", and it includes `admin-fill` — a nationwide background tint that
+ * is under the cursor everywhere and answers nothing when clicked. Yielding to it would mean the
+ * complex boundary is never clickable at all.
+ */
+export const COMPLEX_CLICK_YIELDS_TO_LAYER_IDS: readonly string[] = [
+  foundationVectorFillLayerId("parcels"),
+  PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID,
+  LISTING_MARKER_TILE_CIRCLE_LAYER_ID,
+  LISTING_MARKER_DELTA_TILE_CIRCLE_LAYER_ID,
+];
+
 export const FOUNDATION_VECTOR_FILL_STYLES: Record<string, FoundationVectorFillStyle> = {
   parcels: {
     fillColor: MAP_LAYER_COLORS.parcel.fill,
