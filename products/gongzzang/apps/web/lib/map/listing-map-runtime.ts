@@ -1,8 +1,8 @@
-import { MAP_LAYER_COLORS } from "@gongzzang/ui/tokens.js";
 import {
-  buildFoundationVectorSource,
-  validateFoundationVectorManifest,
-} from "@/lib/map/foundation-vector-layer-registry";
+  registerFoundationVectorFillLayers,
+  registerFoundationVectorRuntimeUnit,
+} from "@/lib/map/foundation-vector-fill-layers";
+import { validateFoundationVectorManifest } from "@/lib/map/foundation-vector-layer-registry";
 import {
   refreshFoundationVectorSources,
   startFoundationVectorManifestPolling,
@@ -133,7 +133,15 @@ async function waitForMapboxStyle(mb: MapboxGLLike, isCancelled: () => boolean):
   }
 }
 
-function setupPolygonLayers(
+/**
+ * Registers every Foundation polygon unit the two manifests describe.
+ *
+ * Exported because this is where "which polygons does a given pair of manifests put on the map"
+ * is decided, and the answers that matter — an unpromoted unit draws nothing and breaks nothing, a
+ * manifest carrying an unowned unit draws none of them — are not observable from
+ * {@link setupMapboxRuntime}, which needs a live Naver GL bridge before it reaches this line.
+ */
+export function setupPolygonLayers(
   mb: MapboxGLLike,
   onParcelClick: (pnu: string) => void,
   manifest: VectorTileManifest | null,
@@ -145,10 +153,38 @@ function setupPolygonLayers(
   }
   if (!manifest && !runtimeManifest) return;
 
-  setupParcelLayers(mb, onParcelClick, manifest, runtimeManifest);
-  setupRuntimeAdminLayer(mb, runtimeManifest);
-  setupStaticAdminLayer(mb, manifest, runtimeManifest);
-  setupComplexLayer(mb, manifest);
+  const runtime = acceptRuntimeManifest(runtimeManifest);
+  // `complex` first, so it is the bottom of this repo's stack even before any `beforeId` applies:
+  // an industrial complex is the context a listing sits in, and it must never be what a user's
+  // click or eye lands on instead of the parcel or the marker.
+  setupComplexLayers(mb, manifest, runtime);
+  setupParcelLayers(mb, onParcelClick, manifest, runtime);
+  setupAdminLayers(mb, manifest, runtime);
+}
+
+/**
+ * Runs the registry gate once for the whole runtime manifest, and drops the manifest entirely if it
+ * fails.
+ *
+ * The gate used to run inside the `parcels` registration, which made it a statement about one layer
+ * when it is a statement about the document: a manifest carrying a unit this client does not own
+ * disabled `parcels` and then registered `admin` from that same unchecked manifest. Failing here
+ * leaves the static v1 paths — a different, separately validated document — to serve what they can.
+ */
+function acceptRuntimeManifest(
+  runtimeManifest: VectorTileRuntimeManifest | null,
+): VectorTileRuntimeManifest | null {
+  if (!runtimeManifest) return null;
+  try {
+    validateFoundationVectorManifest(runtimeManifest);
+    return runtimeManifest;
+  } catch (err) {
+    logMapLayerFailure("vector-tile-runtime-manifest", err, {
+      kind: "core",
+      source: "foundation-platform",
+    });
+    return null;
+  }
 }
 
 function hasMapboxLayerApi(mb: MapboxGLLike): mb is MapboxLayerApi {
@@ -162,45 +198,24 @@ function setupParcelLayers(
   runtimeManifest: VectorTileRuntimeManifest | null,
 ): void {
   try {
-    if (runtimeManifest) validateFoundationVectorManifest(runtimeManifest);
-    const runtimeUnit = runtimeManifest?.publication_units.parcels;
-    const artifact = manifest ? getVectorTileArtifact(manifest, "parcels") : undefined;
-    if (runtimeUnit && !mb.getSource?.("parcels")) {
-      const runtimeLayer = runtimeUnit.layers.parcels;
-      if (!runtimeLayer) throw new Error("v2 parcels unit is missing the parcels layer");
-      mb.addSource("parcels", buildFoundationVectorSource(runtimeManifest, "parcels", "parcels"));
-      mb.addLayer({
-        id: "parcels-fill",
-        type: "fill",
-        source: "parcels",
-        "source-layer": runtimeLayer.source_layer,
-        minzoom: runtimeLayer.render_min_zoom,
-        maxzoom: runtimeLayer.render_max_zoom,
-        promoteId: runtimeLayer.feature_id_property,
-        paint: {
-          "fill-color": MAP_LAYER_COLORS.parcel.fill,
-          "fill-opacity": 0.1,
-          "fill-outline-color": MAP_LAYER_COLORS.parcel.outline,
-        },
-      });
-      registerRuntimeParcelClick(mb, onParcelClick);
-    } else if (artifact && manifest && !mb.getSource?.("parcels")) {
-      mb.addSource("parcels", buildVectorTileSource(manifest, "parcels", { promoteId: "pnu" }));
-      mb.addLayer({
-        id: "parcels-fill",
-        type: "fill",
-        source: "parcels",
-        "source-layer": artifact.source_layer,
-        minzoom: artifact.render_min_zoom,
-        maxzoom: artifact.render_max_zoom,
-        paint: {
-          "fill-color": MAP_LAYER_COLORS.parcel.fill,
-          "fill-opacity": 0.1,
-          "fill-outline-color": MAP_LAYER_COLORS.parcel.outline,
-        },
-      });
-      registerLegacyParcelClick(mb, onParcelClick);
+    if (runtimeManifest?.publication_units.parcels) {
+      const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "parcels");
+      if (registered.length > 0) registerRuntimeParcelClick(mb, onParcelClick);
+      return;
     }
+    const artifact = manifest ? getVectorTileArtifact(manifest, "parcels") : undefined;
+    if (!manifest || !artifact) {
+      logMapLayerUnavailable("parcels");
+      return;
+    }
+    const registered = registerFoundationVectorFillLayers(mb, "parcels", {
+      sourceId: "parcels",
+      source: buildVectorTileSource(manifest, "parcels", { promoteId: "pnu" }),
+      sourceLayer: artifact.source_layer,
+      minzoom: artifact.render_min_zoom,
+      maxzoom: artifact.render_max_zoom,
+    });
+    if (registered.length > 0) registerLegacyParcelClick(mb, onParcelClick);
   } catch (err) {
     logMapLayerFailure("parcels-fill", err, { kind: "core", source: "parcels" });
   }
@@ -227,88 +242,66 @@ function registerLegacyParcelClick(mb: MapboxGLLike, onParcelClick: (pnu: string
   });
 }
 
-function setupRuntimeAdminLayer(
-  mb: MapboxLayerApi,
-  runtimeManifest: VectorTileRuntimeManifest | null,
-): void {
-  try {
-    const runtimeAdminUnit = runtimeManifest?.publication_units.admin;
-    if (runtimeAdminUnit && !mb.getSource?.("admin")) {
-      const runtimeLayer = runtimeAdminUnit.layers.admin;
-      if (!runtimeLayer) throw new Error("v2 admin unit is missing the admin layer");
-      mb.addSource("admin", buildFoundationVectorSource(runtimeManifest, "admin", "admin"));
-      mb.addLayer({
-        id: "admin-fill",
-        type: "fill",
-        source: "admin",
-        "source-layer": runtimeLayer.source_layer,
-        minzoom: runtimeLayer.render_min_zoom,
-        maxzoom: runtimeLayer.render_max_zoom,
-        promoteId: runtimeLayer.feature_id_property,
-        paint: {
-          "fill-color": MAP_LAYER_COLORS.admin.fill,
-          "fill-opacity": 0.05,
-          "fill-outline-color": MAP_LAYER_COLORS.admin.outline,
-        },
-      });
-    }
-  } catch (err) {
-    logMapLayerFailure("admin-fill", err, { kind: "optional", source: "admin" });
-  }
-}
-
-function setupStaticAdminLayer(
+function setupAdminLayers(
   mb: MapboxLayerApi,
   manifest: VectorTileManifest | null,
   runtimeManifest: VectorTileRuntimeManifest | null,
 ): void {
   try {
-    const artifact = manifest ? getVectorTileArtifact(manifest, "admin") : undefined;
-    if (
-      manifest &&
-      artifact &&
-      !runtimeManifest?.publication_units.admin &&
-      !mb.getSource?.("admin")
-    ) {
-      mb.addSource("admin", buildVectorTileSource(manifest, "admin"));
-      mb.addLayer({
-        id: "admin-fill",
-        type: "fill",
-        source: "admin",
-        "source-layer": artifact.source_layer,
-        minzoom: artifact.render_min_zoom,
-        maxzoom: artifact.render_max_zoom,
-        paint: {
-          "fill-color": MAP_LAYER_COLORS.admin.fill,
-          "fill-opacity": 0.05,
-          "fill-outline-color": MAP_LAYER_COLORS.admin.outline,
-        },
-      });
+    if (runtimeManifest?.publication_units.admin) {
+      registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "admin");
+      return;
     }
+    const artifact = manifest ? getVectorTileArtifact(manifest, "admin") : undefined;
+    if (!manifest || !artifact) {
+      logMapLayerUnavailable("admin");
+      return;
+    }
+    registerFoundationVectorFillLayers(mb, "admin", {
+      sourceId: "admin",
+      source: buildVectorTileSource(manifest, "admin"),
+      sourceLayer: artifact.source_layer,
+      minzoom: artifact.render_min_zoom,
+      maxzoom: artifact.render_max_zoom,
+    });
   } catch (err) {
     logMapLayerFailure("admin-fill", err, { kind: "optional", source: "admin" });
   }
 }
 
-function setupComplexLayer(mb: MapboxLayerApi, manifest: VectorTileManifest | null): void {
+/**
+ * Draws the industrial-complex designation boundaries.
+ *
+ * The runtime manifest is the only path that carries them today — ADR-0006 leaves the static
+ * PMTiles release for later — so the v1 branch below exists for the shape of the contract, not for
+ * anything a deployment currently publishes. What matters more is the third case: a Catalog that
+ * has not promoted this unit is a *normal* environment, not a broken one, and the map must come up
+ * with everything else intact. That case is a silent no-op by construction, which is precisely how
+ * "the promotion never ran" and "the layer registration threw" become indistinguishable from the
+ * outside, so it says so.
+ */
+function setupComplexLayers(
+  mb: MapboxLayerApi,
+  manifest: VectorTileManifest | null,
+  runtimeManifest: VectorTileRuntimeManifest | null,
+): void {
   try {
-    const artifact = manifest ? getVectorTileArtifact(manifest, "complex") : undefined;
-    if (manifest && artifact && !mb.getSource?.("complex")) {
-      mb.addSource("complex", buildVectorTileSource(manifest, "complex"));
-      mb.addLayer({
-        id: "complex-fill",
-        type: "fill",
-        source: "complex",
-        "source-layer": artifact.source_layer,
-        minzoom: artifact.render_min_zoom,
-        maxzoom: artifact.render_max_zoom,
-        paint: {
-          "fill-color": MAP_LAYER_COLORS.complex.fill,
-          "fill-opacity": 0.15,
-          "fill-outline-color": MAP_LAYER_COLORS.complex.outline,
-        },
-      });
+    if (runtimeManifest?.publication_units.complex) {
+      registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "complex");
+      return;
     }
+    const artifact = manifest ? getVectorTileArtifact(manifest, "complex") : undefined;
+    if (!manifest || !artifact) {
+      logMapLayerUnavailable("complex");
+      return;
+    }
+    registerFoundationVectorFillLayers(mb, "complex", {
+      sourceId: "complex",
+      source: buildVectorTileSource(manifest, "complex"),
+      sourceLayer: artifact.source_layer,
+      minzoom: artifact.render_min_zoom,
+      maxzoom: artifact.render_max_zoom,
+    });
   } catch (err) {
     logMapLayerFailure("complex-fill", err, { kind: "optional", source: "complex" });
   }
@@ -458,6 +451,24 @@ async function loadFoundationPlatformVectorTileRuntimeManifest(): Promise<Vector
       });
       return null;
     });
+}
+
+/**
+ * Says that a publication unit had no source to register at all.
+ *
+ * Not a failure: an environment that has not promoted a unit is the state every environment starts
+ * in. It is logged so that "nothing is published yet" reads differently from "registration threw"
+ * and from "the tiles are empty", which otherwise all look the same — a map with no polygons on it.
+ */
+function logMapLayerUnavailable(unitName: string): void {
+  console.info(
+    "[ListingMap]",
+    JSON.stringify({
+      event: "map_layer_unavailable",
+      unit: unitName,
+      reason: "no_publication_unit_or_artifact",
+    }),
+  );
 }
 
 function logMapLayerFailure(
