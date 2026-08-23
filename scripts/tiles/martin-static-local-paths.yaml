@@ -1,0 +1,18 @@
+# Offline Martin static-source contract: the production discovery mode, without object storage.
+#
+# `scripts/tiles/martin-static-production.yaml` reads the release prefix out of R2 over S3, and
+# `scripts/tiles/martin-static.yaml` names one archive by URL. Neither can serve a locally built
+# archive the way production serves a released one, and that difference is exactly what a static
+# proof has to cover: `pmtiles.paths` derives each source id from the archive's own filename, so an
+# archive named `{publication-unit}-{release-id}.pmtiles` is reachable at the release-addressed
+# route `catalog_domain::static_release_martin_source_id` requires — while a named
+# `pmtiles.sources` entry would let any filename answer at a route the operator chose. A proof that
+# used the named form could not tell those apart.
+#
+# The directory is a container path rather than a bind of the whole artifact tree: only archives
+# that a run deliberately publishes into it become sources.
+listen_addresses: 0.0.0.0:3000
+on_invalid: abort
+pmtiles:
+  paths:
+    - /artifacts/static
