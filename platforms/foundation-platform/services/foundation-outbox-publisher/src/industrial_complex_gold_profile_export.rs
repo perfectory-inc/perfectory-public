@@ -26,11 +26,6 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use chrono::{SecondsFormat, Utc};
-use foundation_outbox::{
-    object_storage::R2ObjectStorageConfig,
-    object_storage::{ObjectWriteMode, PutObjectRequest},
-    EvidenceByteReader, FileObjectStorage, ObjectStorageService, PublishError, R2ObjectStorage,
-};
 use foundation_shared_kernel::{ObjectKey, ObjectUrlTemplate};
 use futures_util::{stream, StreamExt as _, TryStreamExt as _};
 use lakehouse_domain::GOLD_COMPLEX_CATALOG;
@@ -41,14 +36,14 @@ use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use uuid::Uuid;
 
+use crate::industrial_complex_gold_profile_store::{
+    local_root, ProfileObjectStore as ProfileOutput, ProfileStoreConfig as ProfileOutputConfig,
+};
 use crate::lakehouse_snapshot_scan::{scan_snapshot_rows, LakehouseObjectReader};
-use crate::r2_layout::is_industrial_complex_gold_profile_key;
 use profile_document::{GoldSnapshotProvenance, ProfileArtifact, PROFILE_SCHEMA_VERSION};
 
 const SUMMARY_SCHEMA_VERSION: &str =
     "foundation-platform.industrial_complex_gold_profile_export_summary.v1";
-const PROFILE_CONTENT_TYPE: &str = "application/json; charset=utf-8";
-const PROFILE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_CONFIRM_EXPORT";
 const OUTPUT_STORAGE_DRIVER_ENV: &str =
     "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_OUTPUT_STORAGE_DRIVER";
@@ -82,7 +77,7 @@ pub async fn run() -> anyhow::Result<()> {
         })?;
 
     let lakehouse = LakehouseObjectReader::from_env()?;
-    let output = ProfileOutput::from_config(&config.output)?;
+    let output = ProfileOutput::open(&config.output)?;
     let summary = export(&config, &lakehouse, &output, &snapshot).await?;
 
     if let Some(summary_path) = &config.summary_path {
@@ -117,18 +112,6 @@ struct ProfileExportConfig {
     expected_row_count: Option<u64>,
     max_concurrency: usize,
     summary_path: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum ProfileOutputConfig {
-    Local { root: PathBuf },
-    R2,
-}
-
-#[derive(Clone)]
-enum ProfileOutput {
-    Local(FileObjectStorage),
-    R2(Box<R2ObjectStorage>, String),
 }
 
 #[derive(Debug, Serialize)]
@@ -187,7 +170,13 @@ impl ProfileExportConfig {
             .transpose()?;
 
         Ok(Self {
-            output: ProfileOutputConfig::from_env()?,
+            output: ProfileOutputConfig::parse(
+                optional_env(OUTPUT_STORAGE_DRIVER_ENV)?
+                    .unwrap_or_else(|| "local".to_owned())
+                    .as_str(),
+                local_root(optional_env(OUTPUT_ROOT_ENV)?),
+            )
+            .with_context(|| format!("{OUTPUT_STORAGE_DRIVER_ENV}/{OUTPUT_ROOT_ENV}"))?,
             profile_url_template,
             expected_row_count: optional_env(EXPECTED_ROW_COUNT_ENV)?
                 .map(|value| parse_positive_u64(value.as_str(), EXPECTED_ROW_COUNT_ENV))
@@ -201,101 +190,21 @@ impl ProfileExportConfig {
     }
 }
 
-impl ProfileOutputConfig {
-    fn from_env() -> anyhow::Result<Self> {
-        let driver = optional_env(OUTPUT_STORAGE_DRIVER_ENV)?
-            .unwrap_or_else(|| "local".to_owned())
-            .to_ascii_lowercase();
-        match driver.as_str() {
-            "local" => Ok(Self::Local {
-                root: PathBuf::from(required_env(OUTPUT_ROOT_ENV)?),
-            }),
-            "r2" => Ok(Self::R2),
-            other => bail!("{OUTPUT_STORAGE_DRIVER_ENV} must be 'local' or 'r2', got '{other}'"),
-        }
-    }
-}
-
-impl ProfileOutput {
-    fn from_config(config: &ProfileOutputConfig) -> anyhow::Result<Self> {
-        match config {
-            ProfileOutputConfig::Local { root } => {
-                Ok(Self::Local(FileObjectStorage::new(root).with_context(
-                    || format!("failed to configure local output root {}", root.display()),
-                )?))
-            }
-            ProfileOutputConfig::R2 => {
-                let config = R2ObjectStorageConfig::from_env()
-                    .context("failed to configure the R2 profile output")?;
-                let bucket_name = config.bucket_name.clone();
-                Ok(Self::R2(
-                    Box::new(R2ObjectStorage::from_config(config)),
-                    bucket_name,
-                ))
-            }
-        }
-    }
-
-    const fn storage_driver(&self) -> &'static str {
-        match self {
-            Self::Local(_) => "local",
-            Self::R2(_, _) => "r2",
-        }
-    }
-
-    /// The bucket the artifacts were actually written to.
-    ///
-    /// Recorded in the summary so a run that reached the wrong bucket says so in its own output
-    /// instead of having to be discovered by listing the buckets afterwards.
-    fn output_bucket(&self) -> Option<&str> {
-        match self {
-            Self::Local(_) => None,
-            Self::R2(_, bucket_name) => Some(bucket_name.as_str()),
-        }
-    }
-
-    /// Writes one artifact create-only, reusing an existing object only when the bytes match.
-    async fn write_create_only(&self, artifact: &ProfileArtifact) -> anyhow::Result<bool> {
-        ensure!(
-            is_industrial_complex_gold_profile_key(artifact.object_key.as_str()),
-            "refusing to write {} : it is not a canonical industrial-complex Gold profile key",
-            artifact.object_key
-        );
-        let request = PutObjectRequest {
-            key: artifact.object_key.clone(),
-            body: artifact.body.clone(),
-            content_type: PROFILE_CONTENT_TYPE.to_owned(),
-            cache_control: PROFILE_CACHE_CONTROL.to_owned(),
-            write_mode: ObjectWriteMode::CreateOnly,
-            sha256: Some(artifact.checksum_sha256.clone()),
-        };
-        let outcome = match self {
-            Self::Local(storage) => storage.put_object(request).await,
-            Self::R2(storage, _) => storage.put_object(request).await,
-        };
-        match outcome {
-            Ok(()) => Ok(true),
-            Err(PublishError::ObjectAlreadyExists { key }) if key == artifact.object_key => {
-                let stored = self.read_bytes(&artifact.object_key).await?;
-                ensure!(
-                    stored == artifact.body,
-                    "profile object {} already exists with different exact bytes",
-                    artifact.object_key
-                );
-                Ok(false)
-            }
-            Err(error) => Err(error)
-                .with_context(|| format!("failed to write profile object {}", artifact.object_key)),
-        }
-    }
-
-    async fn read_bytes(&self, key: &str) -> anyhow::Result<Vec<u8>> {
-        match self {
-            Self::Local(storage) => storage.read_evidence_bytes(key).await,
-            Self::R2(storage, _) => storage.read_evidence_bytes(key).await,
-        }
-        .with_context(|| format!("failed to read the colliding profile object {key}"))
-    }
+/// Writes one built artifact to the profile store.
+///
+/// The store owns create-only semantics and the canonical-key refusal; this is only the seam
+/// between the document the export built and the bytes the store writes.
+async fn write_artifact_create_only(
+    output: &ProfileOutput,
+    artifact: &ProfileArtifact,
+) -> anyhow::Result<bool> {
+    output
+        .write_create_only(
+            artifact.object_key.as_str(),
+            &artifact.body,
+            artifact.checksum_sha256.as_str(),
+        )
+        .await
 }
 
 async fn export(
@@ -351,7 +260,7 @@ async fn export(
         data_file_count,
         scanned_row_count,
         output_storage_driver: output.storage_driver(),
-        output_bucket: output.output_bucket().map(ToOwned::to_owned),
+        output_bucket: output.bucket().map(ToOwned::to_owned),
         profile_url_template: config
             .profile_url_template
             .as_ref()
@@ -401,7 +310,7 @@ async fn write_artifact(
     index: usize,
 ) -> anyhow::Result<(usize, ProfileExportEntry)> {
     let artifact = profile_document::build(provenance, row)?;
-    let created = output.write_create_only(&artifact).await?;
+    let created = write_artifact_create_only(output, &artifact).await?;
     let entry = export_entry(config, provenance, row, &artifact, created)?;
     Ok((index, entry))
 }
@@ -466,10 +375,6 @@ fn write_summary(path: &Path, summary: &ProfileExportSummary) -> anyhow::Result<
         .context("failed to serialize the Gold profile export summary")?;
     std::fs::write(path, payload)
         .with_context(|| format!("failed to write the summary {}", path.display()))
-}
-
-fn required_env(name: &str) -> anyhow::Result<String> {
-    optional_env(name)?.with_context(|| format!("{name} is required"))
 }
 
 fn optional_env(name: &str) -> anyhow::Result<Option<String>> {

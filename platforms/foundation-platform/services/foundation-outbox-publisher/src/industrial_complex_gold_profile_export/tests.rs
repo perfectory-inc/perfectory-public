@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 use super::{
-    export_entry, parse_max_concurrency, profile_document, ProfileExportConfig, ProfileOutput,
-    ProfileOutputConfig,
+    export_entry, parse_max_concurrency, profile_document, write_artifact_create_only,
+    ProfileExportConfig, ProfileOutput, ProfileOutputConfig,
 };
 use foundation_shared_kernel::ObjectUrlTemplate;
 use profile_document::GoldSnapshotProvenance;
@@ -73,11 +73,11 @@ fn config(root: PathBuf) -> anyhow::Result<ProfileExportConfig> {
 #[tokio::test]
 async fn re_running_the_same_snapshot_reuses_the_identical_object() -> anyhow::Result<()> {
     let root = temporary_root("idempotent");
-    let output = ProfileOutput::from_config(&ProfileOutputConfig::Local { root: root.clone() })?;
+    let output = ProfileOutput::open(&ProfileOutputConfig::Local { root: root.clone() })?;
     let artifact = profile_document::build(&provenance(), &row())?;
 
-    let created = output.write_create_only(&artifact).await?;
-    let recreated = output.write_create_only(&artifact).await?;
+    let created = write_artifact_create_only(&output, &artifact).await?;
+    let recreated = write_artifact_create_only(&output, &artifact).await?;
 
     std::fs::remove_dir_all(&root)?;
     assert!(created, "first create-only write did not create the object");
@@ -91,13 +91,13 @@ async fn re_running_the_same_snapshot_reuses_the_identical_object() -> anyhow::R
 #[tokio::test]
 async fn a_colliding_key_with_different_bytes_fails_instead_of_overwriting() -> anyhow::Result<()> {
     let root = temporary_root("collision");
-    let output = ProfileOutput::from_config(&ProfileOutputConfig::Local { root: root.clone() })?;
+    let output = ProfileOutput::open(&ProfileOutputConfig::Local { root: root.clone() })?;
     let artifact = profile_document::build(&provenance(), &row())?;
-    output.write_create_only(&artifact).await?;
+    write_artifact_create_only(&output, &artifact).await?;
 
     let mut different = artifact.clone();
     different.body = b"{\"schema_version\":\"other\"}\n".to_vec();
-    let result = output.write_create_only(&different).await;
+    let result = write_artifact_create_only(&output, &different).await;
 
     let stored = std::fs::read(
         root.join("gold/industrial-complex/profiles")
