@@ -418,6 +418,7 @@ docs/adr/0048-a-published-feature-id-needs-a-read-keyed-on-it.md
 docs/adr/0049-a-browsable-collection-is-paged-filtered-and-counted.md
 docs/adr/0050-provider-escaped-text-is-unescaped-once-in-one-place.md
 docs/adr/0051-a-pointer-is-published-only-against-bytes-that-were-read-back.md
+docs/adr/0052-a-static-archive-reads-its-build-conditions-from-the-source-it-replaces.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -503,6 +504,7 @@ tools/github/README.md
 | `docs/adr/0049-a-browsable-collection-is-paged-filtered-and-counted.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0050-provider-escaped-text-is-unescaped-once-in-one-place.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0051-a-pointer-is-published-only-against-bytes-that-were-read-back.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0052-a-static-archive-reads-its-build-conditions-from-the-source-it-replaces.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
