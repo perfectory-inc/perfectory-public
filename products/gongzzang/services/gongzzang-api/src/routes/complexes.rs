@@ -129,11 +129,29 @@ pub struct ComplexesState {
     pub reader: Arc<dyn ComplexCatalogReader>,
 }
 
+/// 패널이 나머지 설명을 **직접 받아 오는** 자리.
+///
+/// 루트 ADR-0006 은 카탈로그 단건 조회를 R2/CDN 의 미리 만든 JSON 으로 서빙하기로 정했어요.
+/// 그래서 이 API 는 그 JSON 을 대신 받아다 주지 않고 **어디 있는지만** 알려 줘요 — 대신 받아다
+/// 주면 R2 로 옮긴 이유(사용자 트래픽 경로에서 API 를 빼는 것)가 그대로 사라지니까요.
+///
+/// `checksum_sha256` 이 같이 가는 이유: 브라우저는 이 API 가 아니라 CDN 에서 바이트를 읽어요.
+/// 받은 것이 발행된 그 물건인지 확인할 방법이 없으면 "포인터가 가리키는 것"과 "실제로 그린 것"이
+/// 어긋나도 아무도 모르게 돼요.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComplexGoldProfileRef {
+    /// 프로필 JSON 을 받을 절대 URL.
+    pub url: String,
+    /// 발행된 아티팩트 버전. 프로필 문서의 `artifact_id` 와 같아요.
+    pub version: String,
+    /// 받은 바이트가 반드시 해시되어야 하는 SHA-256.
+    pub checksum_sha256: String,
+}
+
 /// 라우트 대면 산업단지 레코드.
 ///
 /// Catalog 응답 전부가 아니라 요약 카드가 그리는 칸만 실어요. `version`·`updated_at`·`archived_at`
-/// 과 Gold 포인터는 Catalog 의 장부와 R2 주소지정이고, 그것까지 옮기면 쓰지도 않는 용도를
-/// 주장하는 셈이에요.
+/// 은 Catalog 의 장부고, 그것까지 옮기면 쓰지도 않는 용도를 주장하는 셈이에요.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComplexCatalogRecord {
     /// 원천 산업단지 고유번호.
@@ -173,6 +191,8 @@ pub struct ComplexCatalogRecord {
     pub development_purpose_raw: Option<String>,
     /// 유치 업종 원문.
     pub invited_industries_raw: Option<String>,
+    /// 나머지 설명이 있는 자리. 아직 내보내기가 돌지 않았으면 없어요.
+    pub gold_profile: Option<ComplexGoldProfileRef>,
 }
 
 /// 산업단지 요약 응답.
@@ -233,6 +253,20 @@ pub struct ComplexInfoResponse {
     /// 유치 업종 원문.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invited_industries_raw: Option<String>,
+    /// 나머지 설명을 받아 올 자리. 아직 발행되지 않았으면 **키 자체가 빠져요**.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gold_profile: Option<ComplexGoldProfileResponse>,
+}
+
+/// 프로필 JSON 의 주소와 그것을 믿을 근거.
+#[derive(Debug, Serialize)]
+pub struct ComplexGoldProfileResponse {
+    /// 프로필 JSON 절대 URL.
+    pub url: String,
+    /// 발행된 아티팩트 버전.
+    pub version: String,
+    /// 받은 바이트가 해시되어야 하는 SHA-256.
+    pub checksum_sha256: String,
 }
 
 impl ComplexInfoResponse {
@@ -260,6 +294,13 @@ impl ComplexInfoResponse {
             development_method_raw: record.development_method_raw,
             development_purpose_raw: record.development_purpose_raw,
             invited_industries_raw: record.invited_industries_raw,
+            gold_profile: record
+                .gold_profile
+                .map(|profile| ComplexGoldProfileResponse {
+                    url: profile.url,
+                    version: profile.version,
+                    checksum_sha256: profile.checksum_sha256,
+                }),
         }
     }
 }
@@ -426,6 +467,8 @@ mod tests {
             development_method_raw: None,
             development_purpose_raw: None,
             invited_industries_raw: None,
+            // 아직 내보내기가 돌지 않은 상태 — 정본 1,448행 전부가 지금 이 상태예요.
+            gold_profile: None,
         }
     }
 
