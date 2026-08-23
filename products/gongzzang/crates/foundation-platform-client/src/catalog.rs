@@ -59,11 +59,57 @@ pub struct CatalogBuildingResponse {
     pub updated_at: String,
 }
 
+/// Where the pre-rendered Gold profile for one complex lives, and what it must hash to.
+///
+/// Root ADR-0006 serves catalog point-lookups from pre-rendered JSON on R2/CDN, so the description
+/// a panel draws is split in two: the columns the canonical table carries come back on this
+/// response, and the rest are in an object this pointer addresses. Only the fields a consumer needs
+/// to *fetch and trust* that object are deserialized — the pointer's lineage columns
+/// (`source_record_id`, `iceberg_snapshot_id`, …) are Catalog's own bookkeeping.
+///
+/// `profile_checksum_sha256` is not decoration. A consumer that fetches the object is reading bytes
+/// from a CDN rather than from the API it authenticated to, and the checksum is what lets it tell
+/// the published artifact from a stale or substituted one.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct CatalogIndustrialComplexGoldPointer {
+    /// Active Gold artifact version, which is also the profile object's `artifact_id`.
+    pub current_version: String,
+    /// Provider-neutral object key for the profile artifact.
+    pub profile_object_key: String,
+    /// Address template the object key is substituted into.
+    ///
+    /// The pointer carries a template rather than a materialized URL so that moving the serving
+    /// host does not require rewriting immutable objects (root ADR-0037).
+    pub profile_url_template: String,
+    /// SHA-256 the fetched profile bytes must hash to.
+    pub profile_checksum_sha256: String,
+}
+
+impl CatalogIndustrialComplexGoldPointer {
+    /// Substitution token the address template carries.
+    const OBJECT_KEY_TOKEN: &'static str = "{object_key}";
+
+    /// Resolves the fetchable profile URL, or `None` when the template has no substitution point.
+    ///
+    /// A template that does not name `{object_key}` addresses something other than this pointer's
+    /// object, and returning its literal text would hand a consumer a URL that silently fetches the
+    /// wrong artifact — or the same artifact for every complex.
+    #[must_use]
+    pub fn profile_url(&self) -> Option<String> {
+        self.profile_url_template
+            .contains(Self::OBJECT_KEY_TOKEN)
+            .then(|| {
+                self.profile_url_template
+                    .replace(Self::OBJECT_KEY_TOKEN, self.profile_object_key.as_str())
+            })
+    }
+}
+
 /// Foundation Catalog industrial-complex wire response.
 ///
 /// Carries the description Gongzzang shows, not the whole provider contract: `version`,
-/// `updated_at`, `archived_at` and `gold_pointer` are Catalog's own bookkeeping and R2 addressing,
-/// and a consumer that deserialized them would be claiming a use it does not have.
+/// `updated_at` and `archived_at` are Catalog's own bookkeeping, and a consumer that deserialized
+/// them would be claiming a use it does not have.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct CatalogIndustrialComplexResponse {
     /// Lakehouse identity of the complex, echoed back by the provider.
@@ -118,6 +164,12 @@ pub struct CatalogIndustrialComplexResponse {
     /// Industry types the complex set out to attract, verbatim.
     #[serde(default)]
     pub invited_industries_raw: Option<String>,
+    /// Where the rest of the description lives, when it has been published.
+    ///
+    /// Absent until an export has run and its pointer has been published. Every consumer therefore
+    /// has to work without it, which is the state the whole catalog is in today.
+    #[serde(default)]
+    pub gold_pointer: Option<CatalogIndustrialComplexGoldPointer>,
 }
 
 /// Foundation Catalog paged industrial-complex collection response.
@@ -396,4 +448,44 @@ pub enum FoundationCatalogHttpError {
         #[source]
         source: FoundationServiceAuthError,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CatalogIndustrialComplexGoldPointer;
+
+    fn pointer(template: &str) -> CatalogIndustrialComplexGoldPointer {
+        CatalogIndustrialComplexGoldPointer {
+            current_version: "018f0000-0000-7000-8000-000000000001".to_owned(),
+            profile_object_key:
+                "gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json"
+                    .to_owned(),
+            profile_url_template: template.to_owned(),
+            profile_checksum_sha256: "a".repeat(64),
+        }
+    }
+
+    #[test]
+    fn resolves_the_object_key_into_the_address_template() {
+        assert_eq!(
+            pointer("https://lakehouse.example.com/{object_key}").profile_url(),
+            Some(
+                "https://lakehouse.example.com/gold/industrial-complex/profiles/\
+                 018f0000-0000-7000-8000-000000000001.json"
+                    .to_owned()
+            )
+        );
+    }
+
+    /// A template with no substitution point would resolve to the same address for every complex.
+    /// Returning its literal text would hand a consumer a URL that fetches the wrong artifact
+    /// while looking entirely well-formed, so there is no URL rather than a plausible wrong one.
+    #[test]
+    fn a_template_without_a_substitution_point_resolves_to_no_url() {
+        assert_eq!(
+            pointer("https://lakehouse.example.com/profile.json").profile_url(),
+            None
+        );
+        assert_eq!(pointer("").profile_url(), None);
+    }
 }

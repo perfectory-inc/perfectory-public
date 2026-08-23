@@ -60,3 +60,4 @@ last_reviewed: 2026-07-28
 - [0047 — 고칠 수 있는 경계는 버리지 않고 고쳐서 싣는다](./0047-a-repairable-boundary-is-repaired-not-dropped.md)
 - [0048 — 발행된 feature id 에는 그 id 로 여는 조회구가 필요하다](./0048-a-published-feature-id-needs-a-read-keyed-on-it.md)
 - [0049 — 사람이 훑는 컬렉션은 쪽나눔·필터·전체건수를 함께 발행한다](./0049-a-browsable-collection-is-paged-filtered-and-counted.md)
+- [0051 — 포인터는 읽어 본 바이트에 대해서만 발행된다](./0051-a-pointer-is-published-only-against-bytes-that-were-read-back.md)

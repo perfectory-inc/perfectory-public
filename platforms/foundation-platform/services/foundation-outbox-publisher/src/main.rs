@@ -78,6 +78,7 @@ mod industrial_complex_canonical_source_readiness;
 mod industrial_complex_catalog_import;
 mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
+mod industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
 mod ingestion_run_recovery;
 mod lakehouse_quality_rules_evaluate;
@@ -281,6 +282,7 @@ enum Command {
     ProbeSpatialTileWap,
     ProbeVWorldPageCountBatch,
     PublishIndustrialComplexGoldPointer,
+    PublishIndustrialComplexGoldPointers,
     PublishLakehouseLineageEvent,
     PublishOutboxOnce,
     R2BillingUsageMetrics,
@@ -559,6 +561,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::PublishIndustrialComplexGoldPointer => {
             Box::pin(industrial_complex_gold_pointer_publish::run())
+        }
+        Command::PublishIndustrialComplexGoldPointers => {
+            Box::pin(industrial_complex_gold_pointer_publish::run_from_export_summary())
         }
         Command::PublishLakehouseLineageEvent => Box::pin(publish_lakehouse_lineage_event::run()),
         Command::PublishOutboxOnce => Box::pin(run_publisher_once()),
@@ -1147,6 +1152,9 @@ where
         Some("load-industrial-complex-canonical") => Ok(Command::LoadIndustrialComplexCanonical),
         Some("publish-industrial-complex-gold-pointer") => {
             Ok(Command::PublishIndustrialComplexGoldPointer)
+        }
+        Some("publish-industrial-complex-gold-pointers") => {
+            Ok(Command::PublishIndustrialComplexGoldPointers)
         }
         Some("publish-lakehouse-lineage-event") => Ok(Command::PublishLakehouseLineageEvent),
         Some("publish-outbox-once") => Ok(Command::PublishOutboxOnce),

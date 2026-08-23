@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::routes::complexes::search::ComplexSearchRequest;
 use crate::routes::complexes::{
     ComplexCatalogError, ComplexCatalogListRecord, ComplexCatalogPage, ComplexCatalogReader,
-    ComplexCatalogRecord, ComplexSearchRejected,
+    ComplexCatalogRecord, ComplexGoldProfileRef, ComplexSearchRejected,
 };
 use foundation_platform_client::{
     CatalogIndustrialComplexListResponse, CatalogIndustrialComplexResponse,
@@ -224,6 +224,18 @@ fn complex_record_from_response(
         development_method_raw: response.development_method_raw,
         development_purpose_raw: response.development_purpose_raw,
         invited_industries_raw: response.invited_industries_raw,
+        // A pointer whose template carries no substitution point resolves to no URL, and a
+        // profile reference without one is dropped rather than passed on half-built: the panel's
+        // contract is "here is where the rest is", and a reference that cannot be fetched makes
+        // that a promise the response cannot keep. Dropping it lands the panel in the
+        // no-pointer state, which is the state it already has to handle.
+        gold_profile: response.gold_pointer.and_then(|pointer| {
+            pointer.profile_url().map(|url| ComplexGoldProfileRef {
+                url,
+                version: pointer.current_version,
+                checksum_sha256: pointer.profile_checksum_sha256,
+            })
+        }),
     })
 }
 
@@ -439,5 +451,94 @@ mod tests {
                 "updated_at":"2026-08-01T00:00:00Z"
             }}"#
         )
+    }
+
+    /// A `gold_pointer` block as Catalog serializes it, with the address template under test.
+    fn gold_pointer_json(template: &str) -> String {
+        format!(
+            r#""gold_pointer":{{
+                "current_version":"018f0000-0000-7000-8000-000000000001",
+                "previous_version":null,
+                "profile_object_key":"gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json",
+                "profile_url_template":"{template}",
+                "spatial_locator_object_key":null,
+                "source_record_id":"018f0000-0000-7000-8000-0000000000ff",
+                "source_snapshot_id":"snapshot-1",
+                "iceberg_snapshot_id":"999990000000000001",
+                "profile_row_count":1,
+                "profile_checksum_sha256":"{checksum}",
+                "published_at":"2026-08-01T00:00:00Z"
+            }},"#,
+            checksum = "a".repeat(64)
+        )
+    }
+
+    /// The state every one of the 1,448 canonical rows is in today: nothing has been exported, so
+    /// no pointer exists. The panel's contract has to survive that, because that is the only state
+    /// it has ever been observed in.
+    #[tokio::test]
+    async fn a_complex_without_a_published_profile_maps_to_no_reference() {
+        let base_url = spawn_foundation_response("HTTP/1.1 200 OK", &complex_json(REQUEST_ID, ""));
+        let reader = FoundationPlatformComplexCatalogReader::new(&base_url, None).unwrap();
+
+        let record = reader
+            .find_by_lakehouse_id(&requested())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.gold_profile, None);
+        assert_eq!(record.name, "테스트산업단지");
+    }
+
+    #[tokio::test]
+    async fn a_published_pointer_becomes_a_fetchable_reference() {
+        let base_url = spawn_foundation_response(
+            "HTTP/1.1 200 OK",
+            &complex_json(
+                REQUEST_ID,
+                &gold_pointer_json("https://lakehouse.example.com/{object_key}"),
+            ),
+        );
+        let reader = FoundationPlatformComplexCatalogReader::new(&base_url, None).unwrap();
+
+        let record = reader
+            .find_by_lakehouse_id(&requested())
+            .await
+            .unwrap()
+            .unwrap();
+
+        let profile = record
+            .gold_profile
+            .expect("a published pointer maps through");
+        assert_eq!(
+            profile.url,
+            "https://lakehouse.example.com/gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json"
+        );
+        assert_eq!(profile.version, "018f0000-0000-7000-8000-000000000001");
+        assert_eq!(profile.checksum_sha256, "a".repeat(64));
+    }
+
+    /// A template that names no substitution point cannot address this complex's object, so the
+    /// reference is dropped and the panel lands in the no-profile state rather than being handed a
+    /// URL that would fetch some other complex's description.
+    #[tokio::test]
+    async fn a_pointer_whose_template_cannot_address_the_object_is_dropped() {
+        let base_url = spawn_foundation_response(
+            "HTTP/1.1 200 OK",
+            &complex_json(
+                REQUEST_ID,
+                &gold_pointer_json("https://lakehouse.example.com/profile.json"),
+            ),
+        );
+        let reader = FoundationPlatformComplexCatalogReader::new(&base_url, None).unwrap();
+
+        let record = reader
+            .find_by_lakehouse_id(&requested())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.gold_profile, None);
     }
 }
