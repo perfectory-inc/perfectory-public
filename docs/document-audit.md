@@ -71,7 +71,7 @@
 | `docs/adr/0047-a-repairable-boundary-is-repaired-not-dropped.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0048-a-published-feature-id-needs-a-read-keyed-on-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0049-a-browsable-collection-is-paged-filtered-and-counted.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0050-a-pointer-is-published-only-against-bytes-that-were-read-back.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0051-a-pointer-is-published-only-against-bytes-that-were-read-back.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
