@@ -21,6 +21,9 @@ pub mod object_url_template;
 /// Parcel Number Unit value object.
 pub mod pnu;
 
+/// Unescaping for provider text that arrives HTML-escaped.
+pub mod provider_text;
+
 pub use errors::KernelError;
 pub use ids::{
     BuildingId, ComplexId, ManufacturerId, ParcelId, PostgisProjectionRevisionId, PrincipalId,
@@ -29,3 +32,4 @@ pub use ids::{
 pub use object_key::{ObjectKey, ObjectKeyError, ObjectKeyPrefix};
 pub use object_url_template::{ObjectUrlTemplate, ObjectUrlTemplateError, OBJECT_KEY_PLACEHOLDER};
 pub use pnu::Pnu;
+pub use provider_text::{decode_provider_html_text, entity_references};
