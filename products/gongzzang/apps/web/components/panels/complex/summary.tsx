@@ -3,39 +3,14 @@
 import { Badge } from "@gongzzang/ui";
 import { useTranslations } from "next-intl";
 import type { ComplexInfo } from "@/lib/api/complexes";
+import {
+  COMPLEX_VALUES_NAMESPACE,
+  complexKindLabel,
+  complexStatusLabel,
+  lotSalesStatusLabel,
+  stated,
+} from "@/lib/complexes/wire-values";
 import type { PanelStackEntry } from "@/lib/panel/types";
-
-/**
- * Wire values this card knows how to say in Korean.
- *
- * Explicit sets rather than `t(\`kind.${value}\`)`, because an unmapped wire value would otherwise
- * render as a message-key path. A value outside the set falls through to the source's own string:
- * showing what the source said is honest, inventing a label for it is not.
- */
-const COMPLEX_KINDS = ["national", "general", "agricultural", "urban_high_tech"] as const;
-const COMPLEX_STATUSES = [
-  "planned",
-  "developing",
-  "operating",
-  "changed",
-  "abolished",
-  "unknown",
-] as const;
-const LOT_SALES_STATUSES = ["planned", "in_progress", "completed"] as const;
-
-function isKnown<T extends readonly string[]>(
-  known: T,
-  value: string,
-): value is T[number] & string {
-  return (known as readonly string[]).includes(value);
-}
-
-/** A value the source actually stated. Blank-but-present text is not a statement. */
-function stated(value: string | null | undefined): string | undefined {
-  if (value == null) return undefined;
-  const trimmed = value.trim();
-  return trimmed === "" ? undefined : trimmed;
-}
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -119,21 +94,14 @@ export function ComplexSummaryCard({
   data: ComplexInfo;
 }) {
   const t = useTranslations("panels.complex.summary");
+  // The wire-value labels live in `complexValues` because the list screen has to say the same
+  // words; `lib/complexes/wire-values.ts` owns which values are known.
+  const tValues = useTranslations(COMPLEX_VALUES_NAMESPACE);
 
-  const kind = stated(data.kind);
-  const kindLabel =
-    kind !== undefined && isKnown(COMPLEX_KINDS, kind) ? t(`kindValue.${kind}`) : kind;
-
-  const status = stated(data.status);
-  const statusLabel =
-    status !== undefined && isKnown(COMPLEX_STATUSES, status) ? t(`statusValue.${status}`) : status;
-
+  const kindLabel = complexKindLabel(tValues, data.kind);
+  const statusLabel = complexStatusLabel(tValues, data.status);
   const progress = stated(data.development_progress_percent);
-  const lotSales = stated(data.lot_sales_status);
-  const lotSalesLabel =
-    lotSales !== undefined && isKnown(LOT_SALES_STATUSES, lotSales)
-      ? t(`lotSalesValue.${lotSales}`)
-      : lotSales;
+  const lotSalesLabel = lotSalesStatusLabel(tValues, data.lot_sales_status);
 
   return (
     <div className="flex flex-col gap-4 p-6">

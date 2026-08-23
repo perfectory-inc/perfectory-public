@@ -16,6 +16,8 @@ const PARCEL_BY_PNU_PATH_PREFIX: &str = "catalog/v1/parcels/by-pnu/";
 /// caller holds is the lakehouse one: it is what the `complex` vector tile publishes as its feature
 /// id and what every Gold artifact key is derived from.
 const COMPLEX_BY_LAKEHOUSE_ID_PATH_PREFIX: &str = "catalog/v1/complexes/by-lakehouse-id/";
+/// Paged industrial-complex collection.
+const COMPLEXES_PATH: &str = "catalog/v1/complexes";
 
 /// Foundation Catalog parcel wire response.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -118,6 +120,73 @@ pub struct CatalogIndustrialComplexResponse {
     pub invited_industries_raw: Option<String>,
 }
 
+/// Foundation Catalog paged industrial-complex collection response.
+///
+/// The envelope, not the array: a page without `total` cannot tell a screen how much of the
+/// collection it is showing, and `has_next` alone cannot tell it how much is left.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct CatalogIndustrialComplexListResponse {
+    /// Complexes on this page, in the order the provider was asked for.
+    pub complexes: Vec<CatalogIndustrialComplexResponse>,
+    /// Complexes the filters match in total.
+    pub total: u64,
+    /// Zero-indexed page number the provider served.
+    pub page: u32,
+    /// Page size the provider served.
+    pub size: u32,
+    /// Whether a further page exists.
+    pub has_next: bool,
+}
+
+/// Query parameters for the Foundation Catalog industrial-complex collection.
+///
+/// The provider's parameter *names* live here and nowhere else in Gongzzang. A route that spelled
+/// them itself would be a second copy of somebody else's contract, and the copy is what goes stale.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CatalogComplexListQuery {
+    /// Substring of the complex name or official complex code.
+    pub q: Option<String>,
+    /// Two-digit province code.
+    pub sido_code: Option<String>,
+    /// Comma-separated development lifecycle filter.
+    pub status: Option<String>,
+    /// Zero-indexed page number.
+    pub page: Option<u32>,
+    /// Page size.
+    pub size: Option<u32>,
+    /// Row order.
+    pub sort: Option<String>,
+}
+
+impl CatalogComplexListQuery {
+    /// Renders the stated parameters as URL query pairs, omitting the absent ones.
+    ///
+    /// Absent rather than empty: `q=` and no `q` are the same request to the provider today, but
+    /// sending a parameter the caller did not state asserts a filter they did not ask for.
+    fn to_query_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut pairs = Vec::with_capacity(6);
+        if let Some(q) = &self.q {
+            pairs.push(("q", q.clone()));
+        }
+        if let Some(sido_code) = &self.sido_code {
+            pairs.push(("sido_code", sido_code.clone()));
+        }
+        if let Some(status) = &self.status {
+            pairs.push(("status", status.clone()));
+        }
+        if let Some(page) = self.page {
+            pairs.push(("page", page.to_string()));
+        }
+        if let Some(size) = self.size {
+            pairs.push(("size", size.to_string()));
+        }
+        if let Some(sort) = &self.sort {
+            pairs.push(("sort", sort.clone()));
+        }
+        pairs
+    }
+}
+
 /// Shared HTTP transport for Foundation Catalog v1 reads.
 pub struct FoundationCatalogClient {
     base_url: reqwest::Url,
@@ -165,6 +234,7 @@ impl FoundationCatalogClient {
         self.execute_get(
             "foundation_platform.catalog.get_parcel_by_pnu",
             &format!("{PARCEL_BY_PNU_PATH_PREFIX}{pnu}"),
+            &[],
         )
         .await
     }
@@ -181,6 +251,7 @@ impl FoundationCatalogClient {
         self.execute_get(
             "foundation_platform.catalog.list_parcel_buildings_by_pnu",
             &format!("{PARCEL_BY_PNU_PATH_PREFIX}{pnu}/buildings"),
+            &[],
         )
         .await
     }
@@ -197,6 +268,25 @@ impl FoundationCatalogClient {
         self.execute_get(
             "foundation_platform.catalog.get_complex_by_lakehouse_id",
             &format!("{COMPLEX_BY_LAKEHOUSE_ID_PATH_PREFIX}{lakehouse_complex_id}"),
+            &[],
+        )
+        .await
+    }
+
+    /// Sends one industrial-complex collection request through the published Catalog v1 path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failures, invalid workload credentials, and retriable status.
+    pub async fn list_complexes_response(
+        &self,
+        query: &CatalogComplexListQuery,
+    ) -> Result<reqwest::Response, FoundationCatalogClientRequestError> {
+        let pairs = query.to_query_pairs();
+        self.execute_get(
+            "foundation_platform.catalog.list_complexes",
+            COMPLEXES_PATH,
+            &pairs,
         )
         .await
     }
@@ -205,9 +295,10 @@ impl FoundationCatalogClient {
         &self,
         operation_name: &'static str,
         relative_path: &str,
+        query: &[(&'static str, String)],
     ) -> Result<reqwest::Response, FoundationCatalogClientRequestError> {
         execute(&self.breaker, &self.policy, operation_name, || {
-            self.send_get_attempt(relative_path)
+            self.send_get_attempt(relative_path, query)
         })
         .await
         .map_err(|source| FoundationCatalogClientRequestError::Circuit { source })
@@ -216,12 +307,21 @@ impl FoundationCatalogClient {
     async fn send_get_attempt(
         &self,
         relative_path: &str,
+        query: &[(&'static str, String)],
     ) -> Result<reqwest::Response, FoundationCatalogHttpError> {
-        let url = self.base_url.join(relative_path).map_err(|source| {
+        let mut url = self.base_url.join(relative_path).map_err(|source| {
             FoundationCatalogHttpError::BuildUrl {
                 detail: source.to_string(),
             }
         })?;
+        if !query.is_empty() {
+            // `query_pairs_mut` percent-encodes, so a Korean `q` reaches the provider intact
+            // instead of arriving as whatever the caller happened to paste into a path.
+            let mut serializer = url.query_pairs_mut();
+            for (name, value) in query {
+                serializer.append_pair(name, value);
+            }
+        }
         let request = self.client.get(url);
         let request = if let Some(auth) = &self.auth {
             auth.apply(request)

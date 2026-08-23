@@ -28,6 +28,11 @@ export const ROUTES = {
     detail: (id: string) => `/listings/${id}` as const,
     edit: (id: string) => `/listings/${id}/edit` as const,
   },
+  /** 산업단지 목록·검색 (`(authenticated)/complexes/page.tsx`). 단지 상세는 경로가 아니라
+   * 패널 스택(`?p=complex:<lakehouse id>.summary`)이라 detail 자리가 없다. */
+  complexes: {
+    index: "/complexes",
+  },
   me: {
     notifications: "/me/notifications",
   },

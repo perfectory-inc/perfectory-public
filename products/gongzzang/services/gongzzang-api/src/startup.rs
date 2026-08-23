@@ -60,6 +60,33 @@ impl routes::complexes::ComplexCatalogReader for NoOpComplexCatalogReader {
     > {
         Box::pin(async { Ok(None) })
     }
+
+    fn search<'a>(
+        &'a self,
+        query: &'a routes::complexes::search::ComplexSearchRequest,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        routes::complexes::ComplexCatalogPage,
+                        routes::complexes::ComplexCatalogError,
+                    >,
+                > + Send
+                + 'a,
+        >,
+    > {
+        // An empty page with a total of zero, not a fabricated one: a dev fallback that invented
+        // rows would make the screen look finished while the Catalog endpoint was unset.
+        Box::pin(async move {
+            Ok(routes::complexes::ComplexCatalogPage {
+                complexes: Vec::new(),
+                total: 0,
+                page: query.page,
+                size: query.size,
+                has_next: false,
+            })
+        })
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

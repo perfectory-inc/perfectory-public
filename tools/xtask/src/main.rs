@@ -478,6 +478,10 @@ const AREAS: &[Area] = &[
                     },
                     LaneTarget {
                         package: "catalog-infrastructure",
+                        test: "industrial_complex_search",
+                    },
+                    LaneTarget {
+                        package: "catalog-infrastructure",
                         test: "industrial_complex_transaction_participant",
                     },
                     LaneTarget {

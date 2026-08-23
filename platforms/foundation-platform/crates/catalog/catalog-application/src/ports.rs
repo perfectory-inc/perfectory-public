@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::complex_search::{ComplexSearchQuery, ComplexSearchResult};
 use async_trait::async_trait;
 use catalog_domain::{
     Blueprint, BuildEvidenceDigest, Building, CanonicalIcebergSnapshotId, CatalogError,
@@ -576,9 +577,27 @@ pub struct UpsertIndustrialComplexOutcome {
 pub trait CatalogRepository: Send + Sync {
     /// Lists canonical industrial complexes in stable Catalog order.
     ///
+    /// Unbounded. The batch consumers that read the whole canonical table — the lakehouse
+    /// materialization job — need every row, so the bound belongs on the request-facing
+    /// [`Self::search_complexes`] rather than here.
+    ///
     /// # Errors
     /// Returns `CatalogError` when repository access fails.
     async fn list_complexes(&self) -> Result<Vec<IndustrialComplex>, CatalogError>;
+
+    /// Serves one filtered, ordered page of canonical industrial complexes with its total.
+    ///
+    /// Separate from [`Self::list_complexes`] rather than a parameterized variant of it: the two
+    /// have different callers with different needs. A batch job that took a page would silently
+    /// process the first 20 rows, and a request handler that took the unbounded list would answer
+    /// with the whole table.
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
+    async fn search_complexes(
+        &self,
+        query: &ComplexSearchQuery,
+    ) -> Result<ComplexSearchResult<IndustrialComplex>, CatalogError>;
 
     /// Finds an industrial complex by id.
     ///

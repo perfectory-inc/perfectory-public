@@ -67,7 +67,7 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 
 | 이 필요가 생기면 | 이것을 쓴다 | 직접 만들면 생기는 일 |
 |---|---|---|
-| `debounce`, `throttle`, `groupBy`, `chunk`, deep clone/equal 같은 범용 유틸리티 | [es-toolkit](https://github.com/toss/es-toolkit) | 같은 함수가 파일마다 조금씩 다르게 존재하고, 어느 것이 맞는지 판정할 SSOT가 없다 |
+| `debounce`, `throttle`, `groupBy`, `chunk`, deep clone/equal 같은 범용 유틸리티 | [es-toolkit](https://github.com/toss/es-toolkit) `1.51.0` | 같은 함수가 파일마다 조금씩 다르게 존재하고, 어느 것이 맞는지 판정할 SSOT가 없다 |
 | error boundary, Suspense 경계, loading flash 방지, client-only 렌더 | [@suspensive/react](https://github.com/toss/suspensive) `3.21.3` | 클래스 컴포넌트로 boundary를 매번 새로 짠다. reset·selective catch·중첩 boundary는 대개 빠진 채로 남는다 |
 | 모달·다이얼로그·시트를 여닫고 결과를 돌려받기 | [overlay-kit](https://github.com/toss/overlay-kit) | 화면마다 `isOpen` state와 콜백이 흩어지고, 오버레이 UI가 그것을 띄운 화면에 묶여 재사용이 안 된다 |
 | 초성 검색, 조사(은/는·이/가) 자동 선택, 한글 분해·조합 | [es-hangul](https://github.com/toss/es-hangul) | 자모 배열과 유니코드 산술을 손으로 적게 된다. 한국어가 1차 언어인 제품에서 가장 조용히 틀리는 자리다 |
@@ -76,9 +76,11 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 
 1. **버전은 첫 도입 시점에 이 표에 고정한다.** 표의 버전은 manifest 범위가 아니라 lockfile의
    정확한 해소 버전이다. `@suspensive/react`는 manifest의 `^3.21.3`이 lockfile에서 `3.21.3`으로
-   해소된 첫 도입 상태이며 React peer 범위는 `^18 || ^19`다. 나머지 세 라이브러리는 아직 어느
-   manifest에도 없으므로 첫 도입 커밋이 그 정확한 버전을 표에 더한다. `overlay-kit` peer 범위는
-   `^16.8 || ^17 || ^18 || ^19`, `es-hangul`은 런타임 의존성이 없고, 넷 다 MIT다.
+   해소된 첫 도입 상태이며 React peer 범위는 `^18 || ^19`다. `es-toolkit`은 `apps/web`의
+   `^1.51.0`이 lockfile에서 `1.51.0`으로 해소된 첫 도입 상태이며, 런타임 의존성도 peer 의존성도
+   없다. 남은 두 라이브러리는 아직 어느 manifest에도 없으므로 첫 도입 커밋이 그 정확한 버전을
+   표에 더한다. `overlay-kit` peer 범위는 `^16.8 || ^17 || ^18 || ^19`, `es-hangul`은 런타임
+   의존성이 없고, 넷 다 MIT다.
 2. **같은 역할의 두 번째 라이브러리는 들어올 수 없다.** `scripts/guard/utility-library-policy.sh`가
    package manifest의 dependency key만 읽어 거부한다.
 3. **표를 바꾸는 것이 결정이다.** 다른 것을 쓰려면 이 표와 가드를 같은 커밋에서 함께 고친다.

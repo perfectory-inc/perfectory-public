@@ -11,6 +11,7 @@ import { getSession } from "@/lib/session/store";
 // cast: typed route generation (next build) 전 단계에서도 타입 오류 없이 redirect 가능
 const LOGIN_ROUTE = ROUTES.login as Route;
 const LISTINGS_ROUTE = ROUTES.listings.index as Route;
+const COMPLEXES_ROUTE = ROUTES.complexes.index as Route;
 
 export const dynamic = "force-dynamic";
 
@@ -28,9 +29,17 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
   return (
     <>
       <header className="flex items-center justify-between border-b border-[var(--color-hairline)] px-4 py-2">
-        <Link href={LISTINGS_ROUTE} className="text-sm font-medium text-[var(--color-ink)]">
-          {t("brandName")}
-        </Link>
+        <nav className="flex items-center gap-5" aria-label={t("nav.label")}>
+          <Link href={LISTINGS_ROUTE} className="text-sm font-medium text-[var(--color-ink)]">
+            {t("brandName")}
+          </Link>
+          <Link href={LISTINGS_ROUTE} className="text-sm text-[var(--color-muted)]">
+            {t("nav.listings")}
+          </Link>
+          <Link href={COMPLEXES_ROUTE} className="text-sm text-[var(--color-muted)]">
+            {t("nav.complexes")}
+          </Link>
+        </nav>
         <NotificationBell />
       </header>
       {children}

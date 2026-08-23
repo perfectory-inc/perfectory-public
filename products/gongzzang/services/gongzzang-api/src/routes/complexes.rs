@@ -6,6 +6,13 @@
 //! 경로 키가 lakehouse id 인 이유: 지도의 `complex` 레이어가 feature id 로 발행하는 값이 그것이고,
 //! Catalog 의 `id` 와는 서로 계산되지 않는 **다른 식별자**예요. 둘을 섞으면 조회가 조용히 비므로
 //! [`shared_kernel::lakehouse_complex_id::LakehouseComplexId`] 가 입구에서 형식을 거부해요.
+//!
+//! 목록(`GET /api/complexes`)은 [`search`] 에 있어요. 두 라우트가 같은 reader 포트를 쓰는 이유는
+//! 같은 정본 표를 읽기 때문이고, 목록 행이 `lakehouse_complex_id` 를 실어 보내는 이유는 그 값이
+//! 단건 조회의 열쇠이기 때문이에요 — 목록에서 한 줄을 눌러 패널을 열 수 있는 근거가 그거예요.
+
+/// `GET /api/complexes` — 산업단지 목록·검색.
+pub mod search;
 
 use std::sync::Arc;
 
@@ -43,6 +50,76 @@ pub trait ComplexCatalogReader: Send + Sync {
                 + 'a,
         >,
     >;
+
+    /// 검증된 검색 조건으로 산업단지 한 쪽(page)을 읽어요.
+    ///
+    /// # Errors
+    ///
+    /// 뒷단 Foundation Platform 호출이나 응답 변환이 실패하면 reader 에러를 반환해요.
+    fn search<'a>(
+        &'a self,
+        query: &'a search::ComplexSearchRequest,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<ComplexCatalogPage, ComplexCatalogError>>
+                + Send
+                + 'a,
+        >,
+    >;
+}
+
+/// 뒷단이 **요청 자체를 거절**했어요 — 답을 못 준 것이 아니라.
+///
+/// 이 라우트는 자기가 아는 조건(`size`·`sido_code`·`sort`)만 문 앞에서 검사해요. Catalog 가
+/// 소유한 어휘(`status` 의 조성 단계 값 같은 것)를 여기에 베껴 두면 그 사본이 낡고, 낡은 사본은
+/// 원천이 값을 하나 늘린 날 멀쩡한 요청을 거절해요. 그래서 검사하지 않고 넘기되, 뒷단이 4xx 로
+/// 답하면 그것은 "게이트웨이 고장"이 아니라 "그런 조건은 서빙하지 않는다"이므로 `400` 으로
+/// 옮겨요. 이 구분이 없으면 사용자는 고칠 수 있는 입력 오류를 "잠시 후 다시 시도해 주세요"로
+/// 돌려받아요.
+#[derive(Debug, thiserror::Error)]
+#[error("catalog refused the search parameters: {detail}")]
+pub struct ComplexSearchRejected {
+    /// 뒷단이 돌려준 상태 코드 등, 로그에만 남는 설명.
+    pub detail: String,
+}
+
+/// 목록 한 줄이 그리는 칸만 실은 레코드.
+///
+/// 요약 카드(`ComplexCatalogRecord`)보다 좁아요. 목록은 이름으로 하나를 찾는 화면이고, 한 줄이
+/// 답해야 하는 질문은 "이게 내가 찾던 그 단지인가"뿐이에요. 나머지는 눌러서 열리는 패널의 몫이고,
+/// 목록 응답이 그것까지 실으면 1,448행의 정본 표를 20행씩 그대로 내보내는 셈이에요.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComplexCatalogListRecord {
+    /// lakehouse 식별자. 패널을 여는 열쇠예요.
+    ///
+    /// `None` 인 단지가 실제로 있어요(쓰기 API 로 등록된 행 — 2026-08-23 정본 1,448행 중 6행).
+    /// 그런 줄은 열 패널이 없으므로 화면이 누를 수 없는 줄로 그려요.
+    pub lakehouse_complex_id: Option<String>,
+    /// 원천 산업단지 고유번호.
+    pub official_complex_code: String,
+    /// 산업단지명.
+    pub name: String,
+    /// 단지 종류 wire 값.
+    pub kind: String,
+    /// 조성 단계 wire 값.
+    pub status: Option<String>,
+    /// 원천이 적은 주소 문구.
+    pub address_text: Option<String>,
+}
+
+/// 산업단지 목록 한 쪽과 그 쪽이 잘라 온 전체 건수.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComplexCatalogPage {
+    /// 이 쪽의 줄들.
+    pub complexes: Vec<ComplexCatalogListRecord>,
+    /// 조건에 맞는 전체 건수.
+    pub total: u64,
+    /// 0부터 세는 쪽 번호.
+    pub page: u32,
+    /// 쪽 크기.
+    pub size: u32,
+    /// 다음 쪽 존재 여부.
+    pub has_next: bool,
 }
 
 /// `/api/complexes` 핸들러 공유 상태.
@@ -272,6 +349,27 @@ mod tests {
                     Ok(record) => Ok(record.clone()),
                     Err(message) => Err(Box::<dyn std::error::Error + Send + Sync>::from(*message)),
                 }
+            })
+        }
+
+        fn search<'a>(
+            &'a self,
+            query: &'a search::ComplexSearchRequest,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<ComplexCatalogPage, ComplexCatalogError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                Ok(ComplexCatalogPage {
+                    complexes: Vec::new(),
+                    total: 0,
+                    page: query.page,
+                    size: query.size,
+                    has_next: false,
+                })
             })
         }
     }

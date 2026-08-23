@@ -11,10 +11,14 @@ use std::sync::Arc;
 use shared_kernel::lakehouse_complex_id::LakehouseComplexId;
 use thiserror::Error;
 
-use crate::routes::complexes::{ComplexCatalogError, ComplexCatalogReader, ComplexCatalogRecord};
+use crate::routes::complexes::search::ComplexSearchRequest;
+use crate::routes::complexes::{
+    ComplexCatalogError, ComplexCatalogListRecord, ComplexCatalogPage, ComplexCatalogReader,
+    ComplexCatalogRecord, ComplexSearchRejected,
+};
 use foundation_platform_client::{
-    CatalogIndustrialComplexResponse, FoundationCatalogClient, FoundationCatalogClientConfigError,
-    FoundationServiceAuth,
+    CatalogIndustrialComplexListResponse, CatalogIndustrialComplexResponse,
+    FoundationCatalogClient, FoundationCatalogClientConfigError, FoundationServiceAuth,
 };
 
 /// Configuration error for the Foundation Platform complex reader.
@@ -106,6 +110,70 @@ impl ComplexCatalogReader for FoundationPlatformComplexCatalogReader {
                 .map(Some)
                 .map_err(|source| Box::new(source) as ComplexCatalogError)
         })
+    }
+
+    fn search<'a>(
+        &'a self,
+        query: &'a ComplexSearchRequest,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<ComplexCatalogPage, ComplexCatalogError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let response = self
+                .catalog_client
+                .list_complexes_response(&query.to_catalog_query())
+                .await
+                .map_err(|source| Box::new(source) as ComplexCatalogError)?;
+            let status = response.status();
+            if status.is_client_error() {
+                // 뒷단이 요청을 거절한 것이지 답을 못 준 것이 아니에요. 라우트가 이것을 `400` 으로
+                // 옮겨, 고칠 수 있는 입력 오류가 "잠시 후 다시 시도해 주세요"로 끝나지 않게 해요.
+                return Err(Box::new(ComplexSearchRejected {
+                    detail: format!("catalog answered {status}"),
+                }) as ComplexCatalogError);
+            }
+            if !status.is_success() {
+                return Err(
+                    Box::new(FoundationPlatformComplexReaderError::Status { status })
+                        as ComplexCatalogError,
+                );
+            }
+
+            let page = response
+                .json::<CatalogIndustrialComplexListResponse>()
+                .await
+                .map_err(|source| {
+                    Box::new(FoundationPlatformComplexReaderError::Request { source })
+                        as ComplexCatalogError
+                })?;
+
+            Ok(complex_page_from_response(page))
+        })
+    }
+}
+
+fn complex_page_from_response(page: CatalogIndustrialComplexListResponse) -> ComplexCatalogPage {
+    ComplexCatalogPage {
+        complexes: page
+            .complexes
+            .into_iter()
+            .map(|complex| ComplexCatalogListRecord {
+                lakehouse_complex_id: complex.lakehouse_complex_id,
+                official_complex_code: complex.official_complex_code,
+                name: complex.name,
+                kind: complex.kind,
+                status: complex.status,
+                address_text: complex.address_text,
+            })
+            .collect(),
+        total: page.total,
+        page: page.page,
+        size: page.size,
+        has_next: page.has_next,
     }
 }
 

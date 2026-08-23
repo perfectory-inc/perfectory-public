@@ -59,3 +59,4 @@ last_reviewed: 2026-07-28
 - [0046 — 수집된 파일에서 온 발행은 그 수집 기록을 이름한다](./0046-a-publication-names-the-object-it-was-collected-from.md)
 - [0047 — 고칠 수 있는 경계는 버리지 않고 고쳐서 싣는다](./0047-a-repairable-boundary-is-repaired-not-dropped.md)
 - [0048 — 발행된 feature id 에는 그 id 로 여는 조회구가 필요하다](./0048-a-published-feature-id-needs-a-read-keyed-on-it.md)
+- [0049 — 사람이 훑는 컬렉션은 쪽나눔·필터·전체건수를 함께 발행한다](./0049-a-browsable-collection-is-paged-filtered-and-counted.md)

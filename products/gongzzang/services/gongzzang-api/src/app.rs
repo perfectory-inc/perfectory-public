@@ -275,6 +275,10 @@ async fn async_main() -> Result<(), StartupError> {
     };
     let complexes_router: Router<()> = Router::new()
         .route(
+            "/api/complexes",
+            get(routes::complexes::search::list_complexes),
+        )
+        .route(
             "/api/complexes/{lakehouse_complex_id}",
             get(routes::complexes::get_complex),
         )
