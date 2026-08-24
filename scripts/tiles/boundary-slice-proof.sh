@@ -460,28 +460,72 @@ COMPLEX_IDENTITY=(--identity-property complex_id --identity-property official_co
 
 mkdir -p "$RUN_DIR/static" "$RUN_DIR/unpacked"
 
+# Martin worked out this source's extent with `auto_bounds: calc` when it started, and that was
+# before the unit was promoted: the view returned nothing, so it advertises no extent at all. It
+# never recomputes. Measured on this Martin (1.12.0), a table that was empty at startup and then
+# filled still reports the startup answer:
+#
+#   started against an empty table          -> TileJSON has no `bounds` key
+#   row inserted, same process still up     -> still no `bounds` key
+#   process restarted, table now populated  -> "bounds":[127.0,36.0,127.1,36.1]
+#
+# The middle line is the one that matters. Absent bounds stop the bake loudly, which is how CI found
+# this; but a Martin that started with *some* rows keeps advertising that older, smaller extent after
+# a load adds more, and a bake keyed on it would quietly cut a bbox that omits every complex outside
+# it. Restarting is what makes the advertisement describe what the source now serves, and it is the
+# state a deployed Martin is in anyway, because it is brought up against a projection that has
+# already been published. The empty-before/populated-after proof above is finished by now, and
+# `cache: disable` means no tile answer is carried across the restart.
+docker restart "$MARTIN" >/dev/null
+martin_restarted=false
+for _ in $(seq 1 60); do
+  if curl --fail --silent "http://127.0.0.1:$MARTIN_PORT/catalog" >/dev/null 2>&1; then
+    martin_restarted=true
+    break
+  fi
+  sleep 1
+done
+$martin_restarted || fail "dynamic Martin did not come back after the restart"
+
 COMPLEX_TILEJSON_RELATIVE="$RUN_RELATIVE/complex-dynamic.tilejson.json"
 (cd "$REPO_ROOT" && curl --fail --silent --show-error -H 'Accept: application/json' \
   -o "$COMPLEX_TILEJSON_RELATIVE" "http://127.0.0.1:$MARTIN_PORT/complex")
 complex_tilejson="$(tr -d '\r\n\t' < "$RUN_DIR/complex-dynamic.tilejson.json")"
 
+# The layer array is read on its own terms. Keying it to whatever Martin emits next — it used to
+# require `,"bounds":` to follow — makes the parse fail for a reason that has nothing to do with
+# layers, which is exactly the error CI reported. Its entries carry no brackets of their own, so the
+# first `]` closes the array.
 COMPLEX_VECTOR_LAYERS="$(printf '%s' "$complex_tilejson" \
-  | sed -n 's/^.*\("vector_layers":\[.*\]\),"bounds":.*$/{\1}/p')"
+  | sed -n 's/^.*\("vector_layers":\[[^]]*\]\).*$/{\1}/p')"
 [[ -n "$COMPLEX_VECTOR_LAYERS" ]] \
   || fail "the dynamic complex TileJSON carries no parseable vector_layers metadata"
 
-# Everything after the first `"bounds":`. `vector_layers` precedes it and carries its own per-layer
-# minzoom/maxzoom, so reading the tileset's zooms out of the whole document would find a layer's.
-complex_tilejson_tail="${complex_tilejson#*\"bounds\":}"
-COMPLEX_BOUNDS="$(printf '%s' "$complex_tilejson_tail" \
-  | sed -n 's/^\[\([-0-9.,eE+]*\)\].*$/\1/p')"
-COMPLEX_MIN_ZOOM="$(printf '%s' "$complex_tilejson_tail" \
+# The tileset's own keys, with the per-layer ones lifted out rather than skipped past, so nothing
+# below depends on the order Martin happens to serialise in.
+complex_tileset="$(printf '%s' "$complex_tilejson" | sed 's/"vector_layers":\[[^]]*\],*//')"
+COMPLEX_BOUNDS="$(printf '%s' "$complex_tileset" \
+  | sed -n 's/^.*"bounds":\[\([-0-9.,eE+]*\)\].*$/\1/p')"
+COMPLEX_MIN_ZOOM="$(printf '%s' "$complex_tileset" \
   | sed -n 's/^.*"minzoom":\([0-9][0-9]*\).*$/\1/p')"
-COMPLEX_MAX_ZOOM="$(printf '%s' "$complex_tilejson_tail" \
+COMPLEX_MAX_ZOOM="$(printf '%s' "$complex_tileset" \
   | sed -n 's/^.*"maxzoom":\([0-9][0-9]*\).*$/\1/p')"
-[[ "$COMPLEX_BOUNDS" =~ ^-?[0-9] ]] || fail "could not read bounds from the complex TileJSON"
+[[ "$COMPLEX_BOUNDS" =~ ^-?[0-9] ]] \
+  || fail "the dynamic complex source advertises no bounds; its auto_bounds ran before the unit held rows"
 [[ "$COMPLEX_MIN_ZOOM" =~ ^[0-9]+$ && "$COMPLEX_MAX_ZOOM" =~ ^[0-9]+$ ]] \
   || fail "could not read the tile zoom range from the complex TileJSON"
+
+# And the extent it advertises has to contain the rows it serves. Absent and stale bounds are one
+# defect wearing two faces: absent stops the bake above, stale would reach martin-cp and cut a bbox
+# short of the data with nothing to show for it. PostGIS holds both numbers, so the comparison is
+# made there. The expansion is 1e-9 degrees — about 0.1 mm — so a rounded advertisement is not read
+# as a missing corner.
+bounds_cover_rows="$(psql_value "SELECT ST_Covers(
+        ST_Expand(ST_MakeEnvelope($COMPLEX_BOUNDS, 4326), 1e-9),
+        ST_SetSRID(ST_Extent(geom)::geometry, 4326))
+      FROM serving_postgis.industrial_complex_boundary_current;")"
+[[ "$bounds_cover_rows" == "t" ]] \
+  || fail "the complex source advertises $COMPLEX_BOUNDS, which does not cover the rows it serves"
 
 # The zooms Martin serves and the zooms the promoted release says it serves are the same fact. If
 # they ever differ, the archive built below would be correct about one of them and wrong about the
