@@ -13,10 +13,12 @@
 # publishing leaves PostGIS for one immutable PMTiles archive, and the chain that builds it is fixed:
 #
 #   PostGIS view -> martin-cp -> MBTiles -> mbtiles validate -> pmtiles convert -> pmtiles verify
-#     -> Martin
+#     -> create-only object -> exact readback -> Martin decode -> build-ledger registration -> CAS
 #
-# The archive is built here and verified here; it is never uploaded. What the last section proves is
-# that the two lanes answer identically and that a unit cannot occupy both states at once.
+# The archive is built here and verified against `FileObjectStorage`, the repository's local R2
+# replacement; this proof never writes R2. What the last section proves is that the two lanes answer
+# identically, every promotion fact comes from a validated build row, and a unit cannot occupy both
+# states at once.
 set -euo pipefail
 set +x
 IFS=$'\n\t'
@@ -230,6 +232,20 @@ docker run --rm --network "$NET" \
   -e SQLX_OFFLINE=true \
   -e FOUNDATION_MIGRATOR_DATABASE_URL="postgres://postgres:$DB_PASSWORD@$DB:5432/tiles_slice_proof" \
   "$RUST_IMAGE" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
+
+# The production command has no local-storage mode, because an operator accidentally selecting it
+# would turn a production publication into a proof. Its destructive guard experiments instead run
+# against the repository's `FileObjectStorage`: create-only rejects a second write while explicitly
+# removing that guard overwrites, missing or mismatched exact readback blocks registration, and an
+# object Martin cannot read blocks registration/pointer movement. The final SQL section then proves
+# the real static UOW contract: release/file/layer/object facts are derived from the validated build
+# row and the dynamic/static XOR is enforced. The proof is a runtime command rather than a private
+# `cargo test` selection, because ADR-0011 reserves all test target selection for xtask.
+run_publisher \
+  -e SQLX_OFFLINE=true \
+  -e FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_STATIC_RELEASE_LOCAL_PROOF_CONFIRM=1 \
+  cargo run --locked --quiet -p foundation-outbox-publisher -- \
+  prove-industrial-complex-boundary-static-release-mutation-guards
 
 psql_file "$SCRIPT_DIR/fixture.sql"
 psql_file "$REPO_ROOT/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql"
@@ -450,9 +466,11 @@ manifest_pointer="$(psql_value "SELECT pointer.manifest_id || '|' || manifest.ma
 # `catalog_domain::static_release_martin_source_id` derives the source name from the unit key and
 # the release, and `static_release_pmtiles_object_key` derives the object key from that name. Both
 # are derived here too rather than written out, so a rename in the domain breaks this proof.
-STATIC_RELEASE_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743804
+STATIC_RELEASE_ID=9b531cf4-34da-8a21-af94-293d67f5b493
 STATIC_MANIFEST_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743807
-STATIC_FILE_ASSET_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743808
+STATIC_FILE_ASSET_ID=243965b4-21f2-884a-bdf8-778362dce483
+STATIC_BUILD_JOB_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743809
+STATIC_OPERATOR_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743810
 STATIC_SOURCE_ID="complex-$STATIC_RELEASE_ID"
 STATIC_ARCHIVE_NAME="$STATIC_SOURCE_ID.pmtiles"
 STATIC_OBJECT_KEY="gold/vector-tiles/releases/$STATIC_ARCHIVE_NAME"
@@ -677,33 +695,63 @@ static_vector_layers="$(printf '%s' "$static_tilejson" \
 # CAS gate and then reads the dynamic route, which is the only place the enforcement is observable.
 # ---------------------------------------------------------------------------
 
-# The release describes the archive that was just built and verified. Its revision, snapshot and
-# lineage are copied from the release it replaces, because a static build is the same data revision
+# Seal the archive facts on the build ledger only after Martin decoded the release-addressed file.
+# The release, file asset and copied layer set below derive from that row and its input release:
 # served differently — `promote_vector_tile_runtime_manifest` refuses it otherwise.
+psql_value "INSERT INTO catalog.vector_tile_build_job (
+        id, publication_unit_id, input_release_id, input_data_revision,
+        frozen_source_snapshot_id, status, idempotency_key, result_snapshot_id,
+        result_evidence_sha256, result_release_id, result_pmtiles_file_asset_id,
+        result_pmtiles_object_key, result_tiles_url_template, result_pmtiles_sha256,
+        result_pmtiles_bytes, result_recorded_by_staff_id)
+      SELECT '$STATIC_BUILD_JOB_ID', unit.id, active.id, unit.active_data_revision,
+             active.canonical_iceberg_snapshot_id, 'validated',
+             'boundary-slice-static-build-$RUN_ID', active.canonical_iceberg_snapshot_id,
+             '$archive_sha256', '$STATIC_RELEASE_ID', '$STATIC_FILE_ASSET_ID',
+             '$STATIC_OBJECT_KEY',
+             'http://127.0.0.1:$STATIC_MARTIN_PORT/$STATIC_SOURCE_ID/{z}/{x}/{y}',
+             '$archive_sha256', $archive_bytes, '$STATIC_OPERATOR_ID'
+        FROM catalog.vector_tile_publication_unit AS unit
+        JOIN catalog.vector_tile_release AS active ON active.id = unit.active_release_id
+       WHERE unit.unit_key = 'complex';" > /dev/null
+
+psql_value "INSERT INTO catalog.file_asset (
+        id, object_key, mime_type, size_bytes, checksum_sha256,
+        source_record_id, visibility, version)
+      SELECT build.result_pmtiles_file_asset_id, build.result_pmtiles_object_key,
+             'application/vnd.pmtiles', build.result_pmtiles_bytes,
+             build.result_pmtiles_sha256, active.source_record_id, 'private', 1
+        FROM catalog.vector_tile_build_job AS build
+        JOIN catalog.vector_tile_release AS active ON active.id = build.input_release_id
+       WHERE build.id = '$STATIC_BUILD_JOB_ID' AND build.status = 'validated';" > /dev/null
+
 psql_value "INSERT INTO catalog.vector_tile_release (
         id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id, source_record_id,
         source_file_asset_ids, source_kind, martin_source_id, tiles_url_template,
         pmtiles_object_key, pmtiles_file_asset_id, pmtiles_sha256, pmtiles_bytes,
         validated_at, validation_evidence_sha256)
-      SELECT '$STATIC_RELEASE_ID', unit.id, unit.active_data_revision,
+      SELECT build.result_release_id, unit.id, build.input_data_revision,
              active.canonical_iceberg_snapshot_id, active.source_record_id,
              active.source_file_asset_ids, 'static_pmtiles', '$STATIC_SOURCE_ID',
-             'http://127.0.0.1:$STATIC_MARTIN_PORT/$STATIC_SOURCE_ID/{z}/{x}/{y}',
-             '$STATIC_OBJECT_KEY', '$STATIC_FILE_ASSET_ID', '$archive_sha256', $archive_bytes,
-             now(), '$archive_sha256'
-        FROM catalog.vector_tile_publication_unit AS unit
-        JOIN catalog.vector_tile_release AS active ON active.id = unit.active_release_id
-       WHERE unit.unit_key = 'complex';" > /dev/null
+             build.result_tiles_url_template, build.result_pmtiles_object_key,
+             build.result_pmtiles_file_asset_id, build.result_pmtiles_sha256,
+             build.result_pmtiles_bytes, now(), build.result_evidence_sha256
+        FROM catalog.vector_tile_build_job AS build
+        JOIN catalog.vector_tile_publication_unit AS unit
+          ON unit.id = build.publication_unit_id
+        JOIN catalog.vector_tile_release AS active ON active.id = build.input_release_id
+       WHERE build.id = '$STATIC_BUILD_JOB_ID' AND build.status = 'validated';" > /dev/null
 
 psql_value "INSERT INTO catalog.vector_tile_release_layer (
         release_id, layer_id, source_layer, feature_id_property,
         tile_min_zoom, tile_max_zoom, render_min_zoom, render_max_zoom, feature_filter_properties)
-      SELECT '$STATIC_RELEASE_ID', layer.layer_id, layer.source_layer, layer.feature_id_property,
-             layer.tile_min_zoom, layer.tile_max_zoom, layer.render_min_zoom, layer.render_max_zoom,
-             layer.feature_filter_properties
-        FROM catalog.vector_tile_release_layer AS layer
-        JOIN catalog.vector_tile_publication_unit AS unit ON unit.active_release_id = layer.release_id
-       WHERE unit.unit_key = 'complex';" > /dev/null
+      SELECT build.result_release_id, layer.layer_id, layer.source_layer,
+             layer.feature_id_property, layer.tile_min_zoom, layer.tile_max_zoom,
+             layer.render_min_zoom, layer.render_max_zoom, layer.feature_filter_properties
+        FROM catalog.vector_tile_build_job AS build
+        JOIN catalog.vector_tile_release_layer AS layer
+          ON layer.release_id = build.input_release_id
+       WHERE build.id = '$STATIC_BUILD_JOB_ID' AND build.status = 'validated';" > /dev/null
 
 # A manifest is a complete publication, so the next one restates every unit. Copying the current
 # rows and overriding the one that changes is what keeps `admin` and `parcels` selected; composing
@@ -724,7 +772,9 @@ psql_value "INSERT INTO catalog.vector_tile_runtime_manifest_unit (
           ON pointer.manifest_id = manifest_unit.manifest_id
        WHERE pointer.singleton;" > /dev/null
 psql_value "UPDATE catalog.vector_tile_runtime_manifest_unit AS manifest_unit
-         SET release_id = '$STATIC_RELEASE_ID',
+         SET release_id = (SELECT result_release_id
+                             FROM catalog.vector_tile_build_job
+                            WHERE id = '$STATIC_BUILD_JOB_ID' AND status = 'validated'),
              serving_generation = manifest_unit.serving_generation + 1
         FROM catalog.vector_tile_publication_unit AS unit
        WHERE manifest_unit.manifest_id = '$STATIC_MANIFEST_ID'
@@ -752,6 +802,24 @@ fi
 static_generation="$(psql_value "SELECT catalog.promote_vector_tile_runtime_manifest(
       '019d2b87-3fd1-7e3a-8d88-0b72c8743806', '$STATIC_MANIFEST_ID');")"
 [[ "$static_generation" == "4" ]] || fail "static promotion returned generation $static_generation"
+psql_value "UPDATE catalog.vector_tile_build_job
+               SET status = 'promoted', updated_at = now()
+             WHERE id = '$STATIC_BUILD_JOB_ID' AND status = 'validated';" > /dev/null
+ledger_facts_match="$(psql_value "SELECT
+        build.result_release_id = release.id
+        AND build.result_pmtiles_file_asset_id = asset.id
+        AND build.result_pmtiles_object_key = release.pmtiles_object_key
+        AND build.result_pmtiles_sha256 = release.pmtiles_sha256
+        AND build.result_pmtiles_bytes = release.pmtiles_bytes
+        AND build.result_pmtiles_object_key = asset.object_key
+        AND build.result_pmtiles_sha256 = asset.checksum_sha256
+        AND build.result_pmtiles_bytes = asset.size_bytes
+      FROM catalog.vector_tile_build_job AS build
+      JOIN catalog.vector_tile_release AS release ON release.id = build.result_release_id
+      JOIN catalog.file_asset AS asset ON asset.id = build.result_pmtiles_file_asset_id
+     WHERE build.id = '$STATIC_BUILD_JOB_ID' AND build.status = 'promoted';")"
+[[ "$ledger_facts_match" == "t" ]] \
+  || fail "the promoted release/file facts do not equal the sealed build-ledger facts"
 
 # `serving_postgis.industrial_complex_boundary_current` joins the selected release and requires
 # `source_kind = 'dynamic_postgis'`, so selecting the static release empties the dynamic projection.
@@ -777,3 +845,5 @@ printf 'COMPLEX STATIC ARCHIVE OK zooms=%s-%s bbox=%s tiles=%s mbtiles_seconds=%
   "$bake_seconds" "$archive_bytes" "$archive_sha256" "$STATIC_SOURCE_ID"
 printf 'COMPLEX SOURCE XOR OK dynamic_rows_after_static=%s static_features=2 manifest_generation=%s\n' \
   "$complex_dynamic_after" "$static_generation"
+printf 'COMPLEX STATIC LEDGER OK build=%s release=%s file_asset=%s facts_match=%s\n' \
+  "$STATIC_BUILD_JOB_ID" "$STATIC_RELEASE_ID" "$STATIC_FILE_ASSET_ID" "$ledger_facts_match"

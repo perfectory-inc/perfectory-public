@@ -82,7 +82,14 @@ fn normalize_outcome(
     outcome: VectorTileBuildOutcome,
 ) -> Result<VectorTileBuildOutcome, CatalogError> {
     match outcome {
-        VectorTileBuildOutcome::Validated(digest) => Ok(VectorTileBuildOutcome::Validated(digest)),
+        VectorTileBuildOutcome::Validated { evidence, artifact } => {
+            if artifact.size_bytes == 0 {
+                return Err(invalid(
+                    "validated PMTiles size_bytes must be greater than zero",
+                ));
+            }
+            Ok(VectorTileBuildOutcome::Validated { evidence, artifact })
+        }
         VectorTileBuildOutcome::Failed(reason) => Ok(VectorTileBuildOutcome::Failed(
             normalize_required(&reason, "failure reason")?,
         )),

@@ -87,12 +87,13 @@ pub use notice::{ComplexNotice, NoticeAttachment, NoticeType, ParseNoticeTypeErr
 pub use parcel::{Parcel, ParcelKind, ParseParcelKindError};
 pub use parcel_complex_membership::MembershipAssertedBy;
 pub use serving_publication::{
-    is_publication_unit_key, static_release_martin_source_id, static_release_pmtiles_object_key,
-    validate_build_promotion, validate_build_result_report, validate_build_snapshot_binding,
-    validate_serving_transition, ActiveTileSource, BuildEvidenceDigest, CanonicalIcebergSnapshotId,
-    DynamicPostgisSource, FeatureIdProperty, ManifestGeneration, PmtilesChecksum, PublicationUnit,
-    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
-    ServingSelection, ServingSourceKind, StaticPmtilesSource, VectorTileBuildOutcome,
+    is_publication_unit_key, static_file_asset_id_for_build, static_release_id_for_build,
+    static_release_martin_source_id, static_release_pmtiles_object_key, validate_build_promotion,
+    validate_build_result_report, validate_build_snapshot_binding, validate_serving_transition,
+    ActiveTileSource, BuildEvidenceDigest, CanonicalIcebergSnapshotId, DynamicPostgisSource,
+    FeatureIdProperty, ManifestGeneration, PmtilesChecksum, PublicationUnit, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, ServingSelection,
+    ServingSourceKind, StaticPmtilesSource, ValidatedPmtilesArtifact, VectorTileBuildOutcome,
     VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict, VectorTileBuildStatus,
     VectorTileRuntimeManifest, STATIC_RELEASE_OBJECT_ROOT,
 };

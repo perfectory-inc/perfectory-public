@@ -1,13 +1,16 @@
 //! Contract tests for the single-source v2 spatial publication manifest.
 
 use catalog_domain::{
-    validate_build_promotion, validate_build_result_report, validate_build_snapshot_binding,
-    validate_serving_transition, BuildEvidenceDigest, CanonicalIcebergSnapshotId,
-    ServingGeneration, ServingSelection, ServingSourceKind, VectorTileBuildOutcome,
-    VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict, VectorTileBuildStatus,
-    VectorTileRuntimeManifest,
+    static_file_asset_id_for_build, static_release_id_for_build, validate_build_promotion,
+    validate_build_result_report, validate_build_snapshot_binding, validate_serving_transition,
+    BuildEvidenceDigest, CanonicalIcebergSnapshotId, PmtilesChecksum, RuntimeTilesUrlTemplate,
+    ServingGeneration, ServingSelection, ServingSourceKind, ValidatedPmtilesArtifact,
+    VectorTileBuildOutcome, VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict,
+    VectorTileBuildStatus, VectorTileRuntimeManifest,
 };
-use foundation_shared_kernel::ids::{VectorTileDataRevisionId, VectorTileReleaseId};
+use foundation_shared_kernel::ids::{
+    FileAssetId, VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
+};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -386,7 +389,7 @@ fn evidence_digest_accepts_only_lowercase_hex_of_exactly_sha256_length() -> Resu
 
 #[test]
 fn a_build_can_only_report_the_two_outcomes_it_owns() -> Result<(), String> {
-    let validated = VectorTileBuildOutcome::Validated(BuildEvidenceDigest::new("a".repeat(64))?);
+    let validated = validated_build_outcome()?;
     assert_eq!(validated.status(), VectorTileBuildStatus::Validated);
 
     let failed = VectorTileBuildOutcome::Failed("tippecanoe exited 1".to_owned());
@@ -405,7 +408,7 @@ fn a_build_can_only_report_the_two_outcomes_it_owns() -> Result<(), String> {
 
 #[test]
 fn a_terminal_build_cannot_be_reported_again() -> Result<(), String> {
-    let outcome = VectorTileBuildOutcome::Validated(BuildEvidenceDigest::new("b".repeat(64))?);
+    let outcome = validated_build_outcome()?;
 
     // A running attempt may report; it has not been acted on yet.
     validate_build_result_report(VectorTileBuildStatus::Planned, &outcome)?;
@@ -431,5 +434,50 @@ fn a_terminal_build_cannot_be_reported_again() -> Result<(), String> {
     // re-reporting it with fresh evidence is a retry of the same attempt, not a rewrite of a
     // decision. Refusing it here would strand builds that revalidate.
     validate_build_result_report(VectorTileBuildStatus::Validated, &outcome)?;
+
+    // Validation is immutable evidence even though promotion has not made the build terminal yet.
+    // A later failure report must not erase it; exact validated retries are reconciled by the
+    // infrastructure against the already-recorded artifact facts.
+    let failed = VectorTileBuildOutcome::Failed("late worker timeout".to_owned());
+    let message = validate_build_result_report(VectorTileBuildStatus::Validated, &failed)
+        .err()
+        .unwrap_or_default();
+    assert!(message.contains("validated"), "got: {message}");
+    Ok(())
+}
+
+fn validated_build_outcome() -> Result<VectorTileBuildOutcome, String> {
+    Ok(VectorTileBuildOutcome::Validated {
+        evidence: BuildEvidenceDigest::new("a".repeat(64))?,
+        artifact: ValidatedPmtilesArtifact {
+            release_id: VectorTileReleaseId::new(Uuid::now_v7()),
+            file_asset_id: FileAssetId::new(Uuid::now_v7()),
+            object_key: "gold/vector-tiles/releases/complex-release.pmtiles".to_owned(),
+            tiles_url_template: RuntimeTilesUrlTemplate::new(
+                "https://tiles.example.test/complex-release/{z}/{x}/{y}".to_owned(),
+            )?,
+            checksum: PmtilesChecksum::new("b".repeat(64))?,
+            size_bytes: 123,
+        },
+    })
+}
+
+#[test]
+fn a_build_retry_derives_the_same_distinct_static_identities() -> Result<(), uuid::Error> {
+    let build = VectorTileBuildJobId::new(Uuid::parse_str("019d2b87-3fd1-7e3a-8d88-0b72c8743809")?);
+    let first_release = static_release_id_for_build(build);
+    let second_release = static_release_id_for_build(build);
+    let file_asset = static_file_asset_id_for_build(build);
+
+    assert_eq!(first_release, second_release);
+    assert_ne!(first_release.as_uuid(), file_asset.as_uuid());
+    assert_eq!(
+        first_release.to_string(),
+        "9b531cf4-34da-8a21-af94-293d67f5b493"
+    );
+    assert_eq!(
+        file_asset.to_string(),
+        "243965b4-21f2-884a-bdf8-778362dce483"
+    );
     Ok(())
 }

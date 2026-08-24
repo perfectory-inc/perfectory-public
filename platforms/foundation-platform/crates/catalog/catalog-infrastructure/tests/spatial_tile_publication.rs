@@ -12,16 +12,20 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use catalog_application::{
     ports::{
-        CatalogUnitOfWork, MarkTileLayerDynamicCommand, PublishedRuntimeManifest,
-        RuntimeManifestPublicationCapability,
+        CatalogUnitOfWork, MarkTileLayerDynamicCommand, PromoteTileLayerStaticCommand,
+        PublishedRuntimeManifest, RecordVectorTileBuildResultCommand,
+        RuntimeManifestPublicationCapability, StartVectorTileBuildCommand,
     },
-    MarkTileLayerDynamic,
+    MarkTileLayerDynamic, PromoteTileLayerStatic, VectorTileBuildLifecycle,
 };
 use catalog_domain::{
-    ActiveTileSource, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind,
-    FeatureIdProperty, MembershipAssertedBy, RuntimeTileLayer, RuntimeTileLineage,
-    RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind, VectorTileBuildStatus,
-    VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+    static_file_asset_id_for_build, static_release_id_for_build, static_release_martin_source_id,
+    static_release_pmtiles_object_key, ActiveTileSource, BuildEvidenceDigest,
+    CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind, FeatureIdProperty,
+    MembershipAssertedBy, PmtilesChecksum, RuntimeTileLayer, RuntimeTileLineage,
+    RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind, ValidatedPmtilesArtifact,
+    VectorTileBuildOutcome, VectorTileBuildStatus, VectorTileRuntimeManifest,
+    CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use foundation_shared_kernel::events::catalog_v1::vector_tile_runtime_manifest_object_key;
@@ -181,6 +185,164 @@ async fn a_first_activation_publishes_a_complete_dynamic_manifest() -> TestResul
         assert_eq!(
             ledger_outbox_event_id(&pool, &format!("activate-parcels-{revision}")).await?,
             emitted.first().copied()
+        );
+        Ok(())
+    })
+    .await
+}
+
+/// The static vertical slice consumes artifact facts only from the build ledger.
+///
+/// The promotion command deliberately has no release id, file asset id, checksum, size, URL,
+/// snapshot, or layer set. If this test publishes those values, the transaction necessarily read
+/// them from the build row and copied the input release's immutable layers.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_validated_build_is_the_only_source_of_static_release_object_facts() -> TestResult {
+    run_in_disposable_database("tile_static_build_promotion", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let source_record_id = seed_source_record(&pool).await?;
+        seed_publication_unit(&pool, "complex").await?;
+        let revision =
+            seed_data_revision(&pool, "complex", COMPLEX_SNAPSHOT, source_record_id).await?;
+        let dynamic = use_case(&pool, RuntimeManifestPublicationCapability::disabled())
+            .execute(activation_command(
+                "complex",
+                revision,
+                COMPLEX_SNAPSHOT,
+                source_record_id,
+                None,
+            )?)
+            .await?;
+        let dynamic_unit = published_unit(&dynamic, "complex")?;
+
+        let uow = Arc::new(PgCatalogUnitOfWork::new(pool.clone()));
+        let lifecycle = VectorTileBuildLifecycle::new(uow.clone());
+        let build_job_id = lifecycle
+            .start(StartVectorTileBuildCommand {
+                unit_key: "complex".to_owned(),
+                input_release_id: dynamic_unit.active_release_id,
+                input_data_revision: dynamic_unit.data_revision,
+                frozen_source_snapshot_id: dynamic_unit.canonical_iceberg_snapshot_id.clone(),
+                idempotency_key: "build-complex-static-1".to_owned(),
+                operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
+            })
+            .await?;
+
+        let release_id = static_release_id_for_build(build_job_id);
+        let file_asset_id = static_file_asset_id_for_build(build_job_id);
+        let source_id = static_release_martin_source_id("complex", release_id);
+        let object_key = static_release_pmtiles_object_key("complex", release_id);
+        let checksum = "c".repeat(64);
+
+        let wrong_release = VectorTileReleaseId::new(Uuid::now_v7());
+        let wrong_source_id = static_release_martin_source_id("complex", wrong_release);
+        let wrong = lifecycle
+            .record_result(RecordVectorTileBuildResultCommand {
+                build_job_id,
+                outcome: VectorTileBuildOutcome::Validated {
+                    evidence: BuildEvidenceDigest::new("d".repeat(64))?,
+                    artifact: ValidatedPmtilesArtifact {
+                        release_id: wrong_release,
+                        file_asset_id,
+                        object_key: static_release_pmtiles_object_key("complex", wrong_release),
+                        tiles_url_template: RuntimeTilesUrlTemplate::new(format!(
+                            "https://tiles.example.test/{wrong_source_id}/{{z}}/{{x}}/{{y}}"
+                        ))?,
+                        checksum: PmtilesChecksum::new(checksum.clone())?,
+                        size_bytes: 321_987,
+                    },
+                },
+                operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
+            })
+            .await
+            .err()
+            .map(|error| error.to_string())
+            .unwrap_or_default();
+        assert!(wrong.contains("build-derived"), "got: {wrong}");
+
+        lifecycle
+            .record_result(RecordVectorTileBuildResultCommand {
+                build_job_id,
+                outcome: VectorTileBuildOutcome::Validated {
+                    evidence: BuildEvidenceDigest::new("d".repeat(64))?,
+                    artifact: ValidatedPmtilesArtifact {
+                        release_id,
+                        file_asset_id,
+                        object_key: object_key.clone(),
+                        tiles_url_template: RuntimeTilesUrlTemplate::new(format!(
+                            "https://tiles.example.test/{source_id}/{{z}}/{{x}}/{{y}}"
+                        ))?,
+                        checksum: PmtilesChecksum::new(checksum.clone())?,
+                        size_bytes: 321_987,
+                    },
+                },
+                operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
+            })
+            .await?;
+
+        let promoted = PromoteTileLayerStatic::new(uow)
+            .execute(PromoteTileLayerStaticCommand {
+                unit_key: "complex".to_owned(),
+                build_job_id,
+                expected_active_release_id: dynamic_unit.active_release_id,
+                expected_serving_generation: dynamic_unit.serving_generation,
+                idempotency_key: "promote-complex-static-1".to_owned(),
+                operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
+            })
+            .await?;
+
+        let unit = published_unit(&promoted, "complex")?;
+        assert_eq!(unit.active_release_id, release_id);
+        assert_eq!(
+            serde_json::to_value(&unit.layers)?,
+            serde_json::to_value(&dynamic_unit.layers)?
+        );
+        let ActiveTileSource::StaticPmtiles(source) = &unit.source else {
+            return Err("the promoted unit did not select static_pmtiles".into());
+        };
+        assert_eq!(source.martin_source_id, source_id);
+        assert_eq!(source.pmtiles_object_key, object_key);
+        assert_eq!(source.pmtiles_file_asset_id, file_asset_id);
+        assert_eq!(source.pmtiles_sha256, checksum);
+        assert_eq!(source.pmtiles_bytes, 321_987);
+
+        let row = sqlx::query(
+            "SELECT status, result_release_id, result_pmtiles_file_asset_id,
+                    result_pmtiles_sha256, result_pmtiles_bytes
+             FROM catalog.vector_tile_build_job WHERE id = $1",
+        )
+        .bind(build_job_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(row.try_get::<String, _>("status")?, "promoted");
+        assert_eq!(
+            row.try_get::<Uuid, _>("result_release_id")?,
+            release_id.as_uuid()
+        );
+        assert_eq!(
+            row.try_get::<Uuid, _>("result_pmtiles_file_asset_id")?,
+            file_asset_id.as_uuid()
+        );
+        assert_eq!(
+            row.try_get::<String, _>("result_pmtiles_sha256")?.trim(),
+            checksum
+        );
+        assert_eq!(row.try_get::<i64, _>("result_pmtiles_bytes")?, 321_987);
+
+        let unit_row = sqlx::query(
+            "SELECT active_release_id, fallback_release_id FROM catalog.vector_tile_publication_unit
+             WHERE unit_key = 'complex'",
+        )
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(
+            unit_row.try_get::<Uuid, _>("active_release_id")?,
+            release_id.as_uuid()
+        );
+        assert_eq!(
+            unit_row.try_get::<Uuid, _>("fallback_release_id")?,
+            dynamic_unit.active_release_id.as_uuid()
         );
         Ok(())
     })

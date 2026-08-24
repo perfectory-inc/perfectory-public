@@ -72,6 +72,7 @@ mod industrial_complex_address_source_collect;
 mod industrial_complex_boundary_postgis_publish;
 mod industrial_complex_boundary_runtime_promote;
 mod industrial_complex_boundary_silver_export;
+mod industrial_complex_boundary_static_release_publish;
 mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_load;
 mod industrial_complex_canonical_source_readiness;
@@ -237,6 +238,8 @@ enum Command {
     CheckAdministrativeSpatialScopeRegistry,
     PublishAdministrativeBoundaryPostgis,
     PublishIndustrialComplexBoundaryPostgis,
+    PublishIndustrialComplexBoundaryStaticRelease,
+    ProveIndustrialComplexBoundaryStaticReleaseMutationGuards,
     PublishParcelBoundaryPostgis,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
@@ -470,6 +473,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishIndustrialComplexBoundaryPostgis => {
             Box::pin(industrial_complex_boundary_postgis_publish::run())
         }
+        Command::PublishIndustrialComplexBoundaryStaticRelease => {
+            Box::pin(industrial_complex_boundary_static_release_publish::run())
+        }
+        Command::ProveIndustrialComplexBoundaryStaticReleaseMutationGuards => Box::pin(
+            industrial_complex_boundary_static_release_publish::run_local_mutation_guard_proof(),
+        ),
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
         Command::SealParcelPublicationEvidence => {
             Box::pin(parcel_publication_evidence_sealer::run())
@@ -1012,6 +1021,12 @@ where
         }
         Some("publish-industrial-complex-boundary-postgis") => {
             Ok(Command::PublishIndustrialComplexBoundaryPostgis)
+        }
+        Some("publish-industrial-complex-boundary-static-release") => {
+            Ok(Command::PublishIndustrialComplexBoundaryStaticRelease)
+        }
+        Some("prove-industrial-complex-boundary-static-release-mutation-guards") => {
+            Ok(Command::ProveIndustrialComplexBoundaryStaticReleaseMutationGuards)
         }
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),

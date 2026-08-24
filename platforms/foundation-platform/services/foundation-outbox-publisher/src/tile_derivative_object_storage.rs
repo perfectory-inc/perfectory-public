@@ -78,6 +78,18 @@ impl TileDerivativeR2Config {
     pub fn release_key(&self, publication_unit: &str, release_id: &str) -> anyhow::Result<String> {
         vector_tile_release_key(publication_unit, release_id)
     }
+
+    /// Builds the read-only configuration used by Martin and by the publisher's exact GET gate.
+    #[must_use]
+    pub fn reader_config(&self) -> R2ObjectStorageConfig {
+        R2ObjectStorageConfig {
+            bucket_name: self.writer.bucket_name.clone(),
+            endpoint: self.writer.endpoint.clone(),
+            region: self.writer.region.clone(),
+            access_key_id: self.martin_read_access_key_id.clone(),
+            secret_access_key: self.martin_read_secret_access_key.clone(),
+        }
+    }
 }
 
 /// Validates the dedicated R2 boundary without performing any network operation or write.
@@ -187,6 +199,9 @@ mod tests {
             config.writer.access_key_id,
             config.martin_read_access_key_id
         );
+        let reader = config.reader_config();
+        assert_eq!(reader.access_key_id, config.martin_read_access_key_id);
+        assert_eq!(reader.bucket_name, config.writer.bucket_name);
         assert_eq!(
             config
                 .release_key("parcels", "018f0000-0000-7000-8000-000000000001")
