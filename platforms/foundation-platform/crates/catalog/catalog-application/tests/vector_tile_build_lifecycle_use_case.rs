@@ -12,11 +12,12 @@ use std::sync::Arc;
 use catalog_application::ports::{RecordVectorTileBuildResultCommand, StartVectorTileBuildCommand};
 use catalog_application::VectorTileBuildLifecycle;
 use catalog_domain::{
-    BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError, VectorTileBuildOutcome,
+    BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError, PmtilesChecksum,
+    RuntimeTilesUrlTemplate, ValidatedPmtilesArtifact, VectorTileBuildOutcome,
     VectorTileBuildStatus,
 };
 use foundation_shared_kernel::ids::{
-    StaffId, VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
+    FileAssetId, StaffId, VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
 };
 use uuid::Uuid;
 
@@ -45,6 +46,24 @@ fn result_command(outcome: VectorTileBuildOutcome) -> RecordVectorTileBuildResul
 
 fn evidence() -> Result<BuildEvidenceDigest, CatalogError> {
     BuildEvidenceDigest::new("c".repeat(64)).map_err(CatalogError::InvalidVectorTileRuntimeManifest)
+}
+
+fn validated_outcome(size_bytes: u64) -> Result<VectorTileBuildOutcome, CatalogError> {
+    Ok(VectorTileBuildOutcome::Validated {
+        evidence: evidence()?,
+        artifact: ValidatedPmtilesArtifact {
+            release_id: VectorTileReleaseId::new(Uuid::now_v7()),
+            file_asset_id: FileAssetId::new(Uuid::now_v7()),
+            object_key: "gold/vector-tiles/releases/parcels-release.pmtiles".to_owned(),
+            tiles_url_template: RuntimeTilesUrlTemplate::new(
+                "https://tiles.example.test/parcels-release/{z}/{x}/{y}".to_owned(),
+            )
+            .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?,
+            checksum: PmtilesChecksum::new("d".repeat(64))
+                .map_err(CatalogError::InvalidVectorTileRuntimeManifest)?,
+            size_bytes,
+        },
+    })
 }
 
 fn lifecycle(uow: Arc<RecordingUnitOfWork>) -> VectorTileBuildLifecycle {
@@ -121,9 +140,7 @@ async fn a_reported_outcome_reaches_the_unit_of_work_trimmed() -> Result<(), Cat
         )))
         .await?;
     use_case
-        .record_result(result_command(VectorTileBuildOutcome::Validated(
-            evidence()?
-        )))
+        .record_result(result_command(validated_outcome(987_654_321)?))
         .await?;
 
     let recorded = uow.recorded_results()?;
@@ -148,6 +165,24 @@ async fn a_reported_outcome_reaches_the_unit_of_work_trimmed() -> Result<(), Cat
 }
 
 #[tokio::test]
+async fn a_zero_byte_validated_artifact_never_reaches_the_ledger() -> Result<(), CatalogError> {
+    let uow = Arc::new(RecordingUnitOfWork::default());
+    let message = lifecycle(uow.clone())
+        .record_result(result_command(validated_outcome(0)?))
+        .await
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+
+    assert!(
+        message.contains("size_bytes must be greater than zero"),
+        "got: {message}"
+    );
+    assert!(uow.recorded_results()?.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_unit_of_work_that_ignores_the_build_ledger_cannot_report_success(
 ) -> Result<(), CatalogError> {
     let use_case = VectorTileBuildLifecycle::new(Arc::new(SilentUnitOfWork));
@@ -164,9 +199,7 @@ async fn a_unit_of_work_that_ignores_the_build_ledger_cannot_report_success(
     );
 
     let record = use_case
-        .record_result(result_command(VectorTileBuildOutcome::Validated(
-            evidence()?
-        )))
+        .record_result(result_command(validated_outcome(987_654_321)?))
         .await
         .err()
         .map(|error| error.to_string())

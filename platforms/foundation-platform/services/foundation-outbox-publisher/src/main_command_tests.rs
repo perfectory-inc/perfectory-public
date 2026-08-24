@@ -359,6 +359,31 @@ fn derivative_r2_preflight_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn industrial_complex_static_release_publish_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "publish-industrial-complex-boundary-static-release",
+        ])?,
+        Command::PublishIndustrialComplexBoundaryStaticRelease
+    );
+    Ok(())
+}
+
+#[test]
+fn industrial_complex_static_release_mutation_guard_proof_command_is_explicit() -> anyhow::Result<()>
+{
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "prove-industrial-complex-boundary-static-release-mutation-guards",
+        ])?,
+        Command::ProveIndustrialComplexBoundaryStaticReleaseMutationGuards
+    );
+    Ok(())
+}
+
+#[test]
 fn delete_r2_candidates_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "delete-r2-candidates"])?,

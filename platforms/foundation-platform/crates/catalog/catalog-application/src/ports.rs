@@ -8,19 +8,19 @@ use std::collections::BTreeMap;
 use crate::complex_search::{ComplexSearchQuery, ComplexSearchResult};
 use async_trait::async_trait;
 use catalog_domain::{
-    Blueprint, BuildEvidenceDigest, Building, CanonicalIcebergSnapshotId, CatalogError,
-    CatalogMutationKind, ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset,
-    FileAsset, IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
+    Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind,
+    ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
+    IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
-    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, PmtilesChecksum,
-    RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
-    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, VectorTileBuildOutcome,
-    VectorTileManifest, VectorTileRuntimeManifest,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, RequestFingerprint,
+    RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
+    ServingGeneration, SpatialLayer, VectorTileBuildOutcome, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
-    ComplexId, FileAssetId, LakehouseComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId,
-    StaffId, VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
+    ComplexId, LakehouseComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId,
+    VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
 };
 use foundation_shared_kernel::pnu::Pnu;
 use uuid::Uuid;
@@ -292,6 +292,20 @@ pub struct StartVectorTileBuildCommand {
     pub operator_staff_id: StaffId,
 }
 
+impl StartVectorTileBuildCommand {
+    /// Digests the immutable build inputs and actor; the idempotency key itself is excluded.
+    #[must_use]
+    pub fn request_fingerprint(&self) -> RequestFingerprint {
+        RequestFingerprintBuilder::new(CatalogMutationKind::StartVectorTileBuild)
+            .text(&self.unit_key)
+            .displayed(&self.input_release_id)
+            .displayed(&self.input_data_revision)
+            .text(self.frozen_source_snapshot_id.as_str())
+            .displayed(&self.operator_staff_id)
+            .finish()
+    }
+}
+
 /// Command for recording what one static build attempt produced.
 #[derive(Clone, Debug)]
 pub struct RecordVectorTileBuildResultCommand {
@@ -311,21 +325,16 @@ pub struct RecordVectorTileBuildResultCommand {
 /// release, which makes "static serves different layers than dynamic" unrepresentable rather than
 /// merely checked.
 ///
-/// The Martin source name and the `PMTiles` object key are absent for the same kind of reason. Both
-/// are derived from `unit_key` and `release_id` by
-/// `catalog_domain::static_release_pmtiles_object_key`, so accepting them would only allow a caller
-/// to disagree with the one definition.
+/// Release identity, object address, checksum, size, Martin URL, validation evidence, input release,
+/// snapshot and layers are absent on purpose. They are facts already sealed on the validated build
+/// row (or copied from its input release); accepting any of them again would let promotion disagree
+/// with the bytes the publisher actually read back.
 #[derive(Clone, Debug)]
 pub struct PromoteTileLayerStaticCommand {
     /// Publication unit being switched to its static release.
     pub unit_key: String,
     /// Validated build whose artifacts are being promoted.
     pub build_job_id: VectorTileBuildJobId,
-    /// Release identity the artifact was uploaded under.
-    ///
-    /// Preallocated by the caller, as the immutable manifest's `file_asset` identity is: the object
-    /// key embeds the release, so the id has to exist before the upload.
-    pub release_id: VectorTileReleaseId,
     /// Release the caller observed as active.
     ///
     /// Not optional. The first publication of a unit is always dynamic, so a static promotion
@@ -333,24 +342,24 @@ pub struct PromoteTileLayerStaticCommand {
     pub expected_active_release_id: VectorTileReleaseId,
     /// Serving generation the caller observed. Not optional, for the same reason.
     pub expected_serving_generation: ServingGeneration,
-    /// Release the build took as its input.
-    pub input_release_id: VectorTileReleaseId,
-    /// Immutable Iceberg snapshot the build froze.
-    pub frozen_source_snapshot_id: CanonicalIcebergSnapshotId,
-    /// Evidence the candidate artifacts were validated against.
-    pub validation_evidence: BuildEvidenceDigest,
-    /// Query-free tile URL template the Catalog pointer publishes.
-    pub tiles_url_template: RuntimeTilesUrlTemplate,
-    /// File asset row for the uploaded `PMTiles` object.
-    pub pmtiles_file_asset_id: FileAssetId,
-    /// Checksum of the uploaded `PMTiles` object bytes.
-    pub pmtiles_sha256: PmtilesChecksum,
-    /// Byte size of the uploaded `PMTiles` object. Zero is refused by the database.
-    pub pmtiles_bytes: u64,
     /// Caller-chosen key that makes a retried promotion return the first outcome.
     pub idempotency_key: String,
     /// Staff operator that requested the promotion.
     pub operator_staff_id: StaffId,
+}
+
+impl PromoteTileLayerStaticCommand {
+    /// Digests only the promotion decision; artifact facts belong to the build ledger.
+    #[must_use]
+    pub fn request_fingerprint(&self) -> RequestFingerprint {
+        RequestFingerprintBuilder::new(CatalogMutationKind::PromoteTileLayerStatic)
+            .text(&self.unit_key)
+            .displayed(&self.build_job_id)
+            .displayed(&self.expected_active_release_id)
+            .integer(self.expected_serving_generation.value())
+            .displayed(&self.operator_staff_id)
+            .finish()
+    }
 }
 
 /// Command for returning one publication unit to its preserved same-revision dynamic release.

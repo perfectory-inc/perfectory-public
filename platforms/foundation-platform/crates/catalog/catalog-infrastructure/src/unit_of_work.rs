@@ -11,18 +11,23 @@
 
 use async_trait::async_trait;
 use catalog_application::ports::{
-    CatalogUnitOfWork, MarkTileLayerDynamicCommand, PublishedRuntimeManifest,
-    RuntimeManifestPublicationCapability, UpsertIndustrialComplexCommand,
-    UpsertIndustrialComplexEffect, UpsertIndustrialComplexOutcome,
+    CatalogUnitOfWork, MarkTileLayerDynamicCommand, PromoteTileLayerStaticCommand,
+    PublishedRuntimeManifest, RecordVectorTileBuildResultCommand,
+    RuntimeManifestPublicationCapability, StartVectorTileBuildCommand,
+    UpsertIndustrialComplexCommand, UpsertIndustrialComplexEffect, UpsertIndustrialComplexOutcome,
     VectorTileArtifactPromotionCommand, VectorTileFileAssetCommand,
     VectorTileManifestPromotionCommand, VectorTileManifestRollbackCommand,
     VectorTileSourceRecordCommand,
 };
 use catalog_domain::{
-    CatalogError, CatalogMutationKind, ComplexMutation, IndustrialComplex,
-    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, Parcel, ParcelKind, RuntimeTileLayer,
-    ServingGeneration, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
-    CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+    static_file_asset_id_for_build, static_release_id_for_build, static_release_martin_source_id,
+    static_release_pmtiles_object_key, validate_build_promotion, validate_build_result_report,
+    validate_build_snapshot_binding, BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError,
+    CatalogMutationKind, ComplexMutation, IndustrialComplex, IndustrialComplexLotSalesStatus,
+    IndustrialComplexStatus, Parcel, ParcelKind, RequestFingerprint, RuntimeTileLayer,
+    ServingGeneration, VectorTileArtifact, VectorTileBuildOutcome, VectorTileBuildPromotionInput,
+    VectorTileBuildPromotionVerdict, VectorTileBuildStatus, VectorTileManifest,
+    VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use chrono::Utc;
 use foundation_shared_kernel::events::catalog_v1::{
@@ -31,7 +36,8 @@ use foundation_shared_kernel::events::catalog_v1::{
     VectorTileRuntimeUnitSelectionV2,
 };
 use foundation_shared_kernel::ids::{
-    ComplexId, FileAssetId, ParcelId, StaffId, VectorTileManifestId, VectorTileRuntimeManifestId,
+    ComplexId, FileAssetId, ParcelId, StaffId, VectorTileBuildJobId, VectorTileManifestId,
+    VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
 use serde_json::Value as JsonValue;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -641,6 +647,278 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         tx.commit().await.map_err(map_sqlx)?;
         Ok(PublishedRuntimeManifest::Published(manifest))
     }
+
+    async fn start_vector_tile_build(
+        &self,
+        command: StartVectorTileBuildCommand,
+    ) -> Result<VectorTileBuildJobId, CatalogError> {
+        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        set_lock_timeout_tx(&mut tx).await?;
+        let build_job_id = VectorTileBuildJobId::new(Uuid::now_v7());
+
+        if !claim_build_start_key_tx(&mut tx, &command).await? {
+            let existing: Option<Uuid> = sqlx::query_scalar(
+                "SELECT build.id
+                 FROM catalog.vector_tile_build_job AS build
+                 JOIN catalog.vector_tile_publication_unit AS unit
+                   ON unit.id = build.publication_unit_id
+                 WHERE unit.unit_key = $1 AND build.idempotency_key = $2",
+            )
+            .bind(&command.unit_key)
+            .bind(&command.idempotency_key)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+            let existing = existing.ok_or_else(|| {
+                CatalogError::Infrastructure(format!(
+                    "build-start ledger key {} has no vector_tile_build_job outcome",
+                    command.idempotency_key
+                ))
+            })?;
+            tx.commit().await.map_err(map_sqlx)?;
+            return Ok(VectorTileBuildJobId::new(existing));
+        }
+
+        let row = sqlx::query(
+            "SELECT unit.id AS publication_unit_id, unit.active_release_id,
+                    release.data_revision, release.canonical_iceberg_snapshot_id,
+                    release.source_kind
+             FROM catalog.vector_tile_publication_unit AS unit
+             JOIN catalog.vector_tile_release AS release
+               ON release.id = $2 AND release.publication_unit_id = unit.id
+             WHERE unit.unit_key = $1
+             FOR UPDATE OF unit FOR SHARE OF release",
+        )
+        .bind(&command.unit_key)
+        .bind(command.input_release_id.as_uuid())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(|| {
+            invalid_runtime(format!(
+                "publication unit {} has no input release {}",
+                command.unit_key, command.input_release_id
+            ))
+        })?;
+
+        let publication_unit_id: Uuid = row.try_get("publication_unit_id").map_err(map_sqlx)?;
+        let active_release_id: Option<Uuid> = row.try_get("active_release_id").map_err(map_sqlx)?;
+        if active_release_id != Some(command.input_release_id.as_uuid()) {
+            return Err(invalid_runtime(format!(
+                "static build input release {} is not active for publication unit {}",
+                command.input_release_id, command.unit_key
+            )));
+        }
+        let source_kind: String = row.try_get("source_kind").map_err(map_sqlx)?;
+        if source_kind != "dynamic_postgis" {
+            return Err(invalid_runtime(format!(
+                "static build input release must be dynamic_postgis, got {source_kind}"
+            )));
+        }
+        let data_revision: Uuid = row.try_get("data_revision").map_err(map_sqlx)?;
+        if data_revision != command.input_data_revision.as_uuid() {
+            return Err(invalid_runtime(format!(
+                "static build input data revision does not match release {}",
+                command.input_release_id
+            )));
+        }
+        let release_snapshot = CanonicalIcebergSnapshotId::new(
+            row.try_get::<String, _>("canonical_iceberg_snapshot_id")
+                .map_err(map_sqlx)?,
+        )
+        .map_err(invalid_runtime)?;
+        validate_build_snapshot_binding(&command.frozen_source_snapshot_id, &release_snapshot)
+            .map_err(invalid_runtime)?;
+
+        sqlx::query(
+            "INSERT INTO catalog.vector_tile_build_job
+             (id, publication_unit_id, input_release_id, input_data_revision,
+              frozen_source_snapshot_id, status, idempotency_key)
+             VALUES ($1, $2, $3, $4, $5, 'running', $6)",
+        )
+        .bind(build_job_id.as_uuid())
+        .bind(publication_unit_id)
+        .bind(command.input_release_id.as_uuid())
+        .bind(command.input_data_revision.as_uuid())
+        .bind(command.frozen_source_snapshot_id.as_str())
+        .bind(&command.idempotency_key)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok(build_job_id)
+    }
+
+    async fn record_vector_tile_build_result(
+        &self,
+        command: RecordVectorTileBuildResultCommand,
+    ) -> Result<(), CatalogError> {
+        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        let row = sqlx::query(
+            "SELECT build.status, build.frozen_source_snapshot_id, unit.unit_key,
+                    build.result_release_id, build.result_pmtiles_file_asset_id,
+                    build.result_pmtiles_object_key, build.result_tiles_url_template,
+                    build.result_pmtiles_sha256, build.result_pmtiles_bytes,
+                    build.result_evidence_sha256, build.result_recorded_by_staff_id,
+                    build.failure_reason
+             FROM catalog.vector_tile_build_job AS build
+             JOIN catalog.vector_tile_publication_unit AS unit
+               ON unit.id = build.publication_unit_id
+             WHERE build.id = $1
+             FOR UPDATE OF build",
+        )
+        .bind(command.build_job_id.as_uuid())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(|| {
+            invalid_runtime(format!(
+                "vector tile build job {} does not exist",
+                command.build_job_id
+            ))
+        })?;
+
+        let status = VectorTileBuildStatus::try_from(
+            row.try_get::<String, _>("status")
+                .map_err(map_sqlx)?
+                .as_str(),
+        )
+        .map_err(invalid_runtime)?;
+        validate_build_result_report(status, &command.outcome).map_err(invalid_runtime)?;
+
+        match &command.outcome {
+            VectorTileBuildOutcome::Validated { evidence, artifact } => {
+                let unit_key: String = row.try_get("unit_key").map_err(map_sqlx)?;
+                validate_build_artifact_identity(&unit_key, command.build_job_id, artifact)?;
+                if status == VectorTileBuildStatus::Validated {
+                    ensure_recorded_artifact_matches(
+                        &row,
+                        evidence,
+                        artifact,
+                        command.operator_staff_id,
+                    )?;
+                    tx.commit().await.map_err(map_sqlx)?;
+                    return Ok(());
+                }
+                let size_bytes = u64_to_i64(artifact.size_bytes)?;
+                sqlx::query(
+                    "UPDATE catalog.vector_tile_build_job
+                     SET status = 'validated',
+                         result_snapshot_id = frozen_source_snapshot_id,
+                         result_evidence_sha256 = $2,
+                         result_release_id = $3,
+                         result_pmtiles_file_asset_id = $4,
+                         result_pmtiles_object_key = $5,
+                         result_tiles_url_template = $6,
+                         result_pmtiles_sha256 = $7,
+                         result_pmtiles_bytes = $8,
+                         result_recorded_by_staff_id = $9,
+                         failure_reason = NULL,
+                         updated_at = now()
+                     WHERE id = $1",
+                )
+                .bind(command.build_job_id.as_uuid())
+                .bind(evidence.as_str())
+                .bind(artifact.release_id.as_uuid())
+                .bind(artifact.file_asset_id.as_uuid())
+                .bind(&artifact.object_key)
+                .bind(artifact.tiles_url_template.as_str())
+                .bind(artifact.checksum.as_str())
+                .bind(size_bytes)
+                .bind(command.operator_staff_id.as_uuid())
+                .execute(&mut *tx)
+                .await
+                .map_err(map_sqlx)?;
+            }
+            VectorTileBuildOutcome::Failed(reason) => {
+                sqlx::query(
+                    "UPDATE catalog.vector_tile_build_job
+                     SET status = 'failed', failure_reason = $2,
+                         result_recorded_by_staff_id = $3, updated_at = now()
+                     WHERE id = $1",
+                )
+                .bind(command.build_job_id.as_uuid())
+                .bind(reason)
+                .bind(command.operator_staff_id.as_uuid())
+                .execute(&mut *tx)
+                .await
+                .map_err(map_sqlx)?;
+            }
+        }
+
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn promote_tile_layer_static(
+        &self,
+        command: PromoteTileLayerStaticCommand,
+    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        set_lock_timeout_tx(&mut tx).await?;
+        let manifest_id = Uuid::now_v7();
+        match claim_manifest_mutation_key_tx(
+            &mut tx,
+            &command.idempotency_key,
+            CatalogMutationKind::PromoteTileLayerStatic,
+            &command.request_fingerprint(),
+            manifest_id,
+            command.operator_staff_id,
+        )
+        .await?
+        {
+            MutationClaim::Replay(recorded_manifest_id) => {
+                let manifest =
+                    load_vector_tile_runtime_manifest_by_id(&mut tx, recorded_manifest_id)
+                        .await?
+                        .ok_or_else(|| {
+                            CatalogError::Infrastructure(format!(
+                                "static promotion ledger key {} records absent manifest {}",
+                                command.idempotency_key, recorded_manifest_id
+                            ))
+                        })?;
+                tx.commit().await.map_err(map_sqlx)?;
+                return Ok(manifest);
+            }
+            MutationClaim::Claimed => {}
+        }
+
+        let current_manifest_id = lock_runtime_manifest_pointer_tx(&mut tx).await?;
+        let units = lock_publication_units_tx(&mut tx).await?;
+        let carried = current_manifest_selections_tx(&mut tx, current_manifest_id).await?;
+        let target = find_publication_unit(&units, &command.unit_key)?;
+        let build = lock_validated_build_tx(&mut tx, command.build_job_id, target.id).await?;
+
+        if mark_superseded_build_tx(&mut tx, target, &build, &command).await? {
+            tx.commit().await.map_err(map_sqlx)?;
+            return Err(invalid_runtime(format!(
+                "build {} was superseded because its input release is no longer active",
+                command.build_job_id
+            )));
+        }
+
+        let manifest = publish_static_release_tx(
+            &mut tx,
+            StaticPromotionPlan {
+                current_manifest_id,
+                manifest_id,
+                units: &units,
+                carried: &carried,
+                target,
+                build: &build,
+                command: &command,
+            },
+        )
+        .await?;
+        if self.runtime_manifest_publication.is_enabled() {
+            let event_id =
+                insert_outbox_event(&mut tx, &runtime_manifest_published_event(&manifest)).await?;
+            record_mutation_outbox_event_tx(&mut tx, &command.idempotency_key, event_id).await?;
+        }
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok(manifest)
+    }
 }
 
 /// Whether this transaction owns the idempotency key or is answering a prior use of it.
@@ -649,6 +927,364 @@ enum MutationClaim {
     Claimed,
     /// A prior transaction recorded the same request; answer with the manifest it published.
     Replay(VectorTileRuntimeManifestId),
+}
+
+struct LockedValidatedBuild {
+    unit_key: String,
+    status: VectorTileBuildStatus,
+    input_release_id: Uuid,
+    input_data_revision: Uuid,
+    frozen_source_snapshot_id: String,
+    input_source_record_id: Uuid,
+    input_source_file_asset_ids: Vec<Uuid>,
+    release_id: Uuid,
+    file_asset_id: Uuid,
+    object_key: String,
+    tiles_url_template: String,
+    pmtiles_sha256: String,
+    pmtiles_bytes: i64,
+    validation_evidence_sha256: String,
+}
+
+struct StaticPromotionPlan<'a> {
+    current_manifest_id: Option<Uuid>,
+    manifest_id: Uuid,
+    units: &'a [LockedPublicationUnit],
+    carried: &'a BTreeMap<Uuid, CarriedSelection>,
+    target: &'a LockedPublicationUnit,
+    build: &'a LockedValidatedBuild,
+    command: &'a PromoteTileLayerStaticCommand,
+}
+
+async fn mark_superseded_build_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    target: &LockedPublicationUnit,
+    build: &LockedValidatedBuild,
+    command: &PromoteTileLayerStaticCommand,
+) -> Result<bool, CatalogError> {
+    let verdict = validate_build_promotion(VectorTileBuildPromotionInput {
+        status: build.status,
+        input_release_id: VectorTileReleaseId::new(build.input_release_id),
+        active_release_id: VectorTileReleaseId::new(target.active_release_id.ok_or_else(|| {
+            invalid_runtime(format!(
+                "publication unit {} has no active release",
+                command.unit_key
+            ))
+        })?),
+    })
+    .map_err(invalid_runtime)?;
+    if verdict == VectorTileBuildPromotionVerdict::Promotable {
+        return Ok(false);
+    }
+
+    sqlx::query(
+        "UPDATE catalog.vector_tile_build_job
+         SET status = 'superseded', updated_at = now() WHERE id = $1",
+    )
+    .bind(command.build_job_id.as_uuid())
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    // A superseded attempt has no manifest answer. Failed mutations do not retain an idempotency
+    // row; the terminal build status is the durable outcome instead.
+    sqlx::query("DELETE FROM catalog.catalog_mutation_idempotency WHERE idempotency_key = $1")
+        .bind(&command.idempotency_key)
+        .execute(&mut **tx)
+        .await
+        .map_err(map_sqlx)?;
+    Ok(true)
+}
+
+async fn publish_static_release_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    plan: StaticPromotionPlan<'_>,
+) -> Result<VectorTileRuntimeManifest, CatalogError> {
+    validate_static_serving_observation(plan.target, plan.command)?;
+    let selections = plan_static_activation(plan.units, plan.target, plan.carried, plan.build)?;
+    let mut releases_to_lock = carried_release_ids(&selections, plan.build.release_id);
+    releases_to_lock.push(plan.build.input_release_id);
+    releases_to_lock.sort_unstable();
+    releases_to_lock.dedup();
+    lock_release_rows_tx(tx, &releases_to_lock).await?;
+
+    insert_static_release_tx(tx, plan.target.id, plan.build).await?;
+    copy_release_layers_tx(tx, plan.build.input_release_id, plan.build.release_id).await?;
+    insert_static_runtime_manifest_tx(tx, plan.manifest_id, plan.build.input_source_record_id)
+        .await?;
+    insert_manifest_units_tx(tx, plan.manifest_id, &selections).await?;
+
+    sqlx::query_scalar::<_, i64>("SELECT catalog.promote_vector_tile_runtime_manifest($1, $2)")
+        .bind(plan.current_manifest_id)
+        .bind(plan.manifest_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(map_runtime_manifest_gate_error)?;
+
+    // The gate has already changed active_release_id, so the old dynamic release can now be stored
+    // as a distinct same-revision fallback without violating the column CHECK.
+    sqlx::query(
+        "UPDATE catalog.vector_tile_publication_unit
+         SET fallback_release_id = $2, fallback_data_revision = $3, updated_at = now()
+         WHERE id = $1",
+    )
+    .bind(plan.target.id)
+    .bind(plan.build.input_release_id)
+    .bind(plan.build.input_data_revision)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    sqlx::query(
+        "UPDATE catalog.vector_tile_build_job
+         SET status = 'promoted', updated_at = now() WHERE id = $1",
+    )
+    .bind(plan.command.build_job_id.as_uuid())
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+
+    load_vector_tile_runtime_manifest_by_id(tx, VectorTileRuntimeManifestId::new(plan.manifest_id))
+        .await?
+        .ok_or_else(|| {
+            invalid_runtime("the static promotion gate left no runtime manifest under its id")
+        })
+}
+
+async fn lock_validated_build_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    build_job_id: VectorTileBuildJobId,
+    publication_unit_id: Uuid,
+) -> Result<LockedValidatedBuild, CatalogError> {
+    let row = sqlx::query(
+        "SELECT unit.unit_key, build.status, build.input_release_id, build.input_data_revision,
+                build.frozen_source_snapshot_id, build.result_release_id,
+                build.result_pmtiles_file_asset_id, build.result_pmtiles_object_key,
+                build.result_tiles_url_template, build.result_pmtiles_sha256,
+                build.result_pmtiles_bytes, build.result_evidence_sha256,
+                input.source_record_id, input.source_file_asset_ids, input.source_kind
+         FROM catalog.vector_tile_build_job AS build
+         JOIN catalog.vector_tile_publication_unit AS unit
+           ON unit.id = build.publication_unit_id
+         JOIN catalog.vector_tile_release AS input ON input.id = build.input_release_id
+         WHERE build.id = $1 AND build.publication_unit_id = $2
+         FOR UPDATE OF build FOR SHARE OF input",
+    )
+    .bind(build_job_id.as_uuid())
+    .bind(publication_unit_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(|| {
+        invalid_runtime(format!(
+            "validated build {build_job_id} does not belong to the requested publication unit"
+        ))
+    })?;
+    let status_raw: String = row.try_get("status").map_err(map_sqlx)?;
+    let status = VectorTileBuildStatus::try_from(status_raw.as_str()).map_err(invalid_runtime)?;
+    let input_source_kind: String = row.try_get("source_kind").map_err(map_sqlx)?;
+    if input_source_kind != "dynamic_postgis" {
+        return Err(invalid_runtime(format!(
+            "static promotion build input must be dynamic_postgis, got {input_source_kind}"
+        )));
+    }
+    let required_uuid = |column: &str| -> Result<Uuid, CatalogError> {
+        row.try_get::<Option<Uuid>, _>(column)
+            .map_err(map_sqlx)?
+            .ok_or_else(|| invalid_runtime(format!("validated build is missing {column}")))
+    };
+    let required_text = |column: &str| -> Result<String, CatalogError> {
+        row.try_get::<Option<String>, _>(column)
+            .map_err(map_sqlx)?
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| invalid_runtime(format!("validated build is missing {column}")))
+    };
+    Ok(LockedValidatedBuild {
+        unit_key: row.try_get("unit_key").map_err(map_sqlx)?,
+        status,
+        input_release_id: row.try_get("input_release_id").map_err(map_sqlx)?,
+        input_data_revision: row.try_get("input_data_revision").map_err(map_sqlx)?,
+        frozen_source_snapshot_id: row.try_get("frozen_source_snapshot_id").map_err(map_sqlx)?,
+        input_source_record_id: row.try_get("source_record_id").map_err(map_sqlx)?,
+        input_source_file_asset_ids: row.try_get("source_file_asset_ids").map_err(map_sqlx)?,
+        release_id: required_uuid("result_release_id")?,
+        file_asset_id: required_uuid("result_pmtiles_file_asset_id")?,
+        object_key: required_text("result_pmtiles_object_key")?,
+        tiles_url_template: required_text("result_tiles_url_template")?,
+        pmtiles_sha256: required_text("result_pmtiles_sha256")?,
+        pmtiles_bytes: row
+            .try_get::<Option<i64>, _>("result_pmtiles_bytes")
+            .map_err(map_sqlx)?
+            .ok_or_else(|| invalid_runtime("validated build is missing result_pmtiles_bytes"))?,
+        validation_evidence_sha256: required_text("result_evidence_sha256")?,
+    })
+}
+
+fn validate_static_serving_observation(
+    unit: &LockedPublicationUnit,
+    command: &PromoteTileLayerStaticCommand,
+) -> Result<(), CatalogError> {
+    let current_release = unit.active_release_id;
+    let current_generation = observed_serving_generation(unit)?;
+    if current_release != Some(command.expected_active_release_id.as_uuid())
+        || current_generation != command.expected_serving_generation.value()
+    {
+        return Err(serving_state_conflict(
+            unit,
+            Some(command.expected_active_release_id.as_uuid()),
+            Some(command.expected_serving_generation.value()),
+        ));
+    }
+    Ok(())
+}
+
+fn plan_static_activation(
+    units: &[LockedPublicationUnit],
+    target: &LockedPublicationUnit,
+    carried: &BTreeMap<Uuid, CarriedSelection>,
+    build: &LockedValidatedBuild,
+) -> Result<Vec<ManifestUnitSelection>, CatalogError> {
+    units
+        .iter()
+        .map(|unit| {
+            if unit.id == target.id {
+                return Ok(ManifestUnitSelection {
+                    publication_unit_id: unit.id,
+                    release_id: build.release_id,
+                    serving_generation: advance_serving_generation(unit)?,
+                    data_revision: build.input_data_revision,
+                    canonical_iceberg_snapshot_id: build.frozen_source_snapshot_id.clone(),
+                });
+            }
+            let selection = carried.get(&unit.id).ok_or_else(|| {
+                invalid_runtime(format!(
+                    "publication unit {} has no carried selection for static promotion",
+                    unit.unit_key
+                ))
+            })?;
+            Ok(ManifestUnitSelection {
+                publication_unit_id: unit.id,
+                release_id: selection.release_id,
+                serving_generation: unit.serving_generation,
+                data_revision: selection.data_revision,
+                canonical_iceberg_snapshot_id: selection.canonical_iceberg_snapshot_id.clone(),
+            })
+        })
+        .collect()
+}
+
+async fn insert_static_release_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    publication_unit_id: Uuid,
+    build: &LockedValidatedBuild,
+) -> Result<(), CatalogError> {
+    let source_id = static_release_martin_source_id(
+        &build.unit_key,
+        VectorTileReleaseId::new(build.release_id),
+    );
+    sqlx::query(
+        "INSERT INTO catalog.file_asset
+         (id, object_key, mime_type, size_bytes, checksum_sha256,
+          source_record_id, visibility, version)
+         VALUES ($1, $2, 'application/vnd.pmtiles', $3, $4, $5, 'private', 1)",
+    )
+    .bind(build.file_asset_id)
+    .bind(&build.object_key)
+    .bind(build.pmtiles_bytes)
+    .bind(&build.pmtiles_sha256)
+    .bind(build.input_source_record_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_release
+         (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
+          source_record_id, source_file_asset_ids, source_kind, martin_source_id,
+          tiles_url_template, pmtiles_object_key, pmtiles_file_asset_id,
+          pmtiles_sha256, pmtiles_bytes, validated_at, validation_evidence_sha256)
+         VALUES ($1, $2, $3, $4, $5, $6, 'static_pmtiles', $7, $8, $9, $10, $11, $12,
+                 now(), $13)",
+    )
+    .bind(build.release_id)
+    .bind(publication_unit_id)
+    .bind(build.input_data_revision)
+    .bind(&build.frozen_source_snapshot_id)
+    .bind(build.input_source_record_id)
+    .bind(&build.input_source_file_asset_ids)
+    .bind(source_id)
+    .bind(&build.tiles_url_template)
+    .bind(&build.object_key)
+    .bind(build.file_asset_id)
+    .bind(&build.pmtiles_sha256)
+    .bind(build.pmtiles_bytes)
+    .bind(&build.validation_evidence_sha256)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(())
+}
+
+async fn copy_release_layers_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    input_release_id: Uuid,
+    release_id: Uuid,
+) -> Result<(), CatalogError> {
+    let inserted = sqlx::query(
+        "INSERT INTO catalog.vector_tile_release_layer
+         (release_id, layer_id, source_layer, feature_id_property,
+          tile_min_zoom, tile_max_zoom, render_min_zoom, render_max_zoom,
+          feature_filter_properties)
+         SELECT $2, layer_id, source_layer, feature_id_property,
+                tile_min_zoom, tile_max_zoom, render_min_zoom, render_max_zoom,
+                feature_filter_properties
+         FROM catalog.vector_tile_release_layer
+         WHERE release_id = $1",
+    )
+    .bind(input_release_id)
+    .bind(release_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?
+    .rows_affected();
+    if inserted == 0 {
+        return Err(invalid_runtime(
+            "static promotion input release has no layers to copy",
+        ));
+    }
+    Ok(())
+}
+
+async fn insert_static_runtime_manifest_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    manifest_id: Uuid,
+    source_record_id: Uuid,
+) -> Result<(), CatalogError> {
+    let manifest_file_asset_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO catalog.file_asset
+         (id, object_key, mime_type, size_bytes, source_record_id, visibility, version)
+         VALUES ($1, $2, 'application/json', 0, $3, 'public', 1)",
+    )
+    .bind(manifest_file_asset_id)
+    .bind(vector_tile_runtime_manifest_object_key(
+        VectorTileRuntimeManifestId::new(manifest_id),
+    ))
+    .bind(source_record_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_runtime_manifest
+         (id, manifest_generation, manifest_file_asset_id)
+         SELECT $1, coalesce(max(manifest_generation), 0) + 1, $2
+         FROM catalog.vector_tile_runtime_manifest",
+    )
+    .bind(manifest_id)
+    .bind(manifest_file_asset_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(())
 }
 
 /// Bounds every lock wait in this transaction so contention is answerable instead of opaque.
@@ -663,6 +1299,228 @@ async fn set_lock_timeout_tx(tx: &mut Transaction<'_, Postgres>) -> Result<(), C
         .execute(&mut **tx)
         .await
         .map_err(map_sqlx)?;
+    Ok(())
+}
+
+fn invalid_runtime(message: impl Into<String>) -> CatalogError {
+    CatalogError::InvalidVectorTileRuntimeManifest(message.into())
+}
+
+/// Claims a build-start idempotency key; `false` means the identical committed start is replayed.
+async fn claim_build_start_key_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    command: &StartVectorTileBuildCommand,
+) -> Result<bool, CatalogError> {
+    let fingerprint = command.request_fingerprint();
+    let claimed: Option<String> = sqlx::query_scalar(
+        "INSERT INTO catalog.catalog_mutation_idempotency
+         (idempotency_key, command_kind, request_fingerprint_sha256,
+          request_fingerprint_schema_version, outcome_manifest_id, operator_staff_id)
+         VALUES ($1, $2, $3, $4, NULL, $5)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING idempotency_key",
+    )
+    .bind(&command.idempotency_key)
+    .bind(CatalogMutationKind::StartVectorTileBuild.as_str())
+    .bind(fingerprint.as_str())
+    .bind(CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION)
+    .bind(command.operator_staff_id.as_uuid())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_contention_error(&command.idempotency_key, error))?;
+    if claimed.is_some() {
+        return Ok(true);
+    }
+
+    let row = read_mutation_claim_tx(tx, &command.idempotency_key).await?;
+    verify_mutation_claim(
+        &row,
+        &command.idempotency_key,
+        CatalogMutationKind::StartVectorTileBuild,
+        &fingerprint,
+    )?;
+    Ok(false)
+}
+
+async fn claim_manifest_mutation_key_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    idempotency_key: &str,
+    kind: CatalogMutationKind,
+    fingerprint: &RequestFingerprint,
+    manifest_id: Uuid,
+    operator_staff_id: StaffId,
+) -> Result<MutationClaim, CatalogError> {
+    let claimed: Option<String> = sqlx::query_scalar(
+        "INSERT INTO catalog.catalog_mutation_idempotency
+         (idempotency_key, command_kind, request_fingerprint_sha256,
+          request_fingerprint_schema_version, outcome_manifest_id, operator_staff_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING idempotency_key",
+    )
+    .bind(idempotency_key)
+    .bind(kind.as_str())
+    .bind(fingerprint.as_str())
+    .bind(CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION)
+    .bind(manifest_id)
+    .bind(operator_staff_id.as_uuid())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_contention_error(idempotency_key, error))?;
+    if claimed.is_some() {
+        return Ok(MutationClaim::Claimed);
+    }
+    let row = read_mutation_claim_tx(tx, idempotency_key).await?;
+    verify_mutation_claim(&row, idempotency_key, kind, fingerprint)?;
+    row.try_get::<Option<Uuid>, _>("outcome_manifest_id")
+        .map_err(map_sqlx)?
+        .map(|id| MutationClaim::Replay(VectorTileRuntimeManifestId::new(id)))
+        .ok_or_else(|| {
+            CatalogError::Infrastructure(format!(
+                "manifest-answering ledger key {idempotency_key} has no outcome manifest"
+            ))
+        })
+}
+
+async fn read_mutation_claim_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    idempotency_key: &str,
+) -> Result<sqlx::postgres::PgRow, CatalogError> {
+    sqlx::query(
+        "SELECT command_kind, request_fingerprint_sha256,
+                request_fingerprint_schema_version, outcome_manifest_id
+         FROM catalog.catalog_mutation_idempotency
+         WHERE idempotency_key = $1",
+    )
+    .bind(idempotency_key)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_contention_error(idempotency_key, error))?
+    .ok_or_else(|| CatalogError::MutationContended {
+        idempotency_key: idempotency_key.to_owned(),
+    })
+}
+
+fn verify_mutation_claim(
+    row: &sqlx::postgres::PgRow,
+    idempotency_key: &str,
+    expected_kind: CatalogMutationKind,
+    expected_fingerprint: &RequestFingerprint,
+) -> Result<(), CatalogError> {
+    let version: String = row
+        .try_get("request_fingerprint_schema_version")
+        .map_err(map_sqlx)?;
+    if version.trim() != CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION {
+        return Err(CatalogError::MutationFingerprintVersionChanged {
+            idempotency_key: idempotency_key.to_owned(),
+            recorded: version,
+            current: CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION.to_owned(),
+        });
+    }
+    let kind: String = row.try_get("command_kind").map_err(map_sqlx)?;
+    let fingerprint: String = row
+        .try_get("request_fingerprint_sha256")
+        .map_err(map_sqlx)?;
+    if kind != expected_kind.as_str() || fingerprint.trim() != expected_fingerprint.as_str() {
+        return Err(CatalogError::MutationIdempotencyKeyReused {
+            idempotency_key: idempotency_key.to_owned(),
+            command_kind: kind,
+        });
+    }
+    Ok(())
+}
+
+fn validate_build_artifact_identity(
+    unit_key: &str,
+    build_job_id: VectorTileBuildJobId,
+    artifact: &catalog_domain::ValidatedPmtilesArtifact,
+) -> Result<(), CatalogError> {
+    let expected_release_id = static_release_id_for_build(build_job_id);
+    if artifact.release_id != expected_release_id {
+        return Err(invalid_runtime(format!(
+            "validated PMTiles release id must equal build-derived {expected_release_id}"
+        )));
+    }
+    let expected_file_asset_id = static_file_asset_id_for_build(build_job_id);
+    if artifact.file_asset_id != expected_file_asset_id {
+        return Err(invalid_runtime(format!(
+            "validated PMTiles file asset id must equal build-derived {expected_file_asset_id}"
+        )));
+    }
+    let expected_key = static_release_pmtiles_object_key(unit_key, artifact.release_id);
+    if artifact.object_key != expected_key {
+        return Err(invalid_runtime(format!(
+            "validated PMTiles object key must equal {expected_key}"
+        )));
+    }
+    let source_id = static_release_martin_source_id(unit_key, artifact.release_id);
+    let expected_route = format!("/{source_id}/{{z}}/{{x}}/{{y}}");
+    if !artifact
+        .tiles_url_template
+        .as_str()
+        .ends_with(&expected_route)
+    {
+        return Err(invalid_runtime(format!(
+            "validated PMTiles URL must address the release-derived Martin source {source_id}"
+        )));
+    }
+    if artifact.size_bytes == 0 {
+        return Err(invalid_runtime(
+            "validated PMTiles size_bytes must be greater than zero",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_recorded_artifact_matches(
+    row: &sqlx::postgres::PgRow,
+    evidence: &BuildEvidenceDigest,
+    artifact: &catalog_domain::ValidatedPmtilesArtifact,
+    operator: StaffId,
+) -> Result<(), CatalogError> {
+    let same = row
+        .try_get::<Option<Uuid>, _>("result_release_id")
+        .map_err(map_sqlx)?
+        == Some(artifact.release_id.as_uuid())
+        && row
+            .try_get::<Option<Uuid>, _>("result_pmtiles_file_asset_id")
+            .map_err(map_sqlx)?
+            == Some(artifact.file_asset_id.as_uuid())
+        && row
+            .try_get::<Option<String>, _>("result_pmtiles_object_key")
+            .map_err(map_sqlx)?
+            .as_deref()
+            == Some(artifact.object_key.as_str())
+        && row
+            .try_get::<Option<String>, _>("result_tiles_url_template")
+            .map_err(map_sqlx)?
+            .as_deref()
+            == Some(artifact.tiles_url_template.as_str())
+        && row
+            .try_get::<Option<String>, _>("result_pmtiles_sha256")
+            .map_err(map_sqlx)?
+            .as_deref()
+            .map(str::trim)
+            == Some(artifact.checksum.as_str())
+        && row
+            .try_get::<Option<i64>, _>("result_pmtiles_bytes")
+            .map_err(map_sqlx)?
+            == i64::try_from(artifact.size_bytes).ok()
+        && row
+            .try_get::<Option<String>, _>("result_evidence_sha256")
+            .map_err(map_sqlx)?
+            .as_deref()
+            .map(str::trim)
+            == Some(evidence.as_str())
+        && row
+            .try_get::<Option<Uuid>, _>("result_recorded_by_staff_id")
+            .map_err(map_sqlx)?
+            == Some(operator.as_uuid());
+    if !same {
+        return Err(invalid_runtime(
+            "validated build result is immutable and the repeated report differs",
+        ));
+    }
     Ok(())
 }
 

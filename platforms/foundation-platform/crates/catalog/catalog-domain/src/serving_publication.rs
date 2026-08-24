@@ -8,10 +8,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use foundation_shared_kernel::ids::{
-    FileAssetId, SourceRecordId, VectorTileDataRevisionId, VectorTileReleaseId,
-    VectorTileRuntimeManifestId,
+    FileAssetId, SourceRecordId, VectorTileBuildJobId, VectorTileDataRevisionId,
+    VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
+use sha2::{Digest as _, Sha256};
+use uuid::Uuid;
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -591,6 +593,27 @@ impl PmtilesChecksum {
     }
 }
 
+/// Immutable object facts obtained by reading a validated `PMTiles` upload back from storage.
+///
+/// These values enter the build ledger together and are later consumed by the promotion
+/// transaction. Keeping them in one value prevents a result recorder from reporting a checksum
+/// without the object identity and byte size that checksum describes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedPmtilesArtifact {
+    /// Preallocated immutable static release identity embedded in the object address.
+    pub release_id: VectorTileReleaseId,
+    /// Preallocated Catalog file-asset identity for the uploaded object.
+    pub file_asset_id: FileAssetId,
+    /// Provider-relative immutable object address used for the create-only write and exact GET.
+    pub object_key: String,
+    /// Release-addressed Martin route that decoded the uploaded object.
+    pub tiles_url_template: RuntimeTilesUrlTemplate,
+    /// SHA-256 obtained by rehashing the exact bytes read back from object storage.
+    pub checksum: PmtilesChecksum,
+    /// Byte size observed during the same exact readback.
+    pub size_bytes: u64,
+}
+
 /// The shape both digest columns enforce: `character(64)` matching `^[0-9a-f]{64}$`.
 fn lowercase_sha256(value: String, label: &str) -> Result<String, String> {
     let lowercase_hex = value
@@ -614,8 +637,13 @@ fn lowercase_sha256(value: String, label: &str) -> Result<String, String> {
 /// frozen snapshot, so a caller-supplied copy could only ever agree or be wrong.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum VectorTileBuildOutcome {
-    /// Artifacts were produced and validated. Carries the evidence they were validated against.
-    Validated(BuildEvidenceDigest),
+    /// Artifacts were produced, read back, and validated.
+    Validated {
+        /// Evidence digest for the full validation transcript.
+        evidence: BuildEvidenceDigest,
+        /// Object identity, checksum, and size observed from storage.
+        artifact: ValidatedPmtilesArtifact,
+    },
     /// The attempt could not produce validated artifacts. Carries the operator-facing reason.
     Failed(String),
 }
@@ -625,13 +653,13 @@ impl VectorTileBuildOutcome {
     #[must_use]
     pub const fn status(&self) -> VectorTileBuildStatus {
         match self {
-            Self::Validated(_) => VectorTileBuildStatus::Validated,
+            Self::Validated { .. } => VectorTileBuildStatus::Validated,
             Self::Failed(_) => VectorTileBuildStatus::Failed,
         }
     }
 }
 
-/// Rejects a result reported against a build that has already reached a terminal state.
+/// Rejects a result that would rewrite already-recorded build evidence or terminal state.
 ///
 /// A terminal build's row is evidence of a decision that was already acted on: `promoted` moved the
 /// pointer, `superseded` recorded that the unit had moved on, `failed` closed the attempt.
@@ -639,7 +667,8 @@ impl VectorTileBuildOutcome {
 ///
 /// # Errors
 ///
-/// Returns an error when the observed status is terminal.
+/// Returns an error when the observed status is terminal or when a failure tries to replace a
+/// validated result.
 pub fn validate_build_result_report(
     observed: VectorTileBuildStatus,
     outcome: &VectorTileBuildOutcome,
@@ -648,6 +677,14 @@ pub fn validate_build_result_report(
         return Err(format!(
             "build already reached the terminal status {}; it cannot be reported as {}",
             observed.as_str(),
+            outcome.status().as_str()
+        ));
+    }
+    if observed == VectorTileBuildStatus::Validated
+        && outcome.status() != VectorTileBuildStatus::Validated
+    {
+        return Err(format!(
+            "build already recorded validated artifact evidence; it cannot be reported as {}",
             outcome.status().as_str()
         ));
     }
@@ -947,6 +984,40 @@ pub fn is_publication_unit_key(candidate: &str) -> bool {
 #[must_use]
 pub fn static_release_martin_source_id(unit_key: &str, release_id: VectorTileReleaseId) -> String {
     format!("{}-{release_id}", unit_key.trim())
+}
+
+/// Derives the immutable release identity owned by one build attempt.
+///
+/// A retry of the same idempotent build must address the same create-only object. Randomly
+/// allocating this identity after the build starts would make a crash between upload and ledger
+/// recording unrecoverable, so the build UUID is the sole input to this RFC 9562 `UUIDv8` value.
+#[must_use]
+pub fn static_release_id_for_build(build_job_id: VectorTileBuildJobId) -> VectorTileReleaseId {
+    VectorTileReleaseId::new(static_build_scoped_uuid(build_job_id, b"static-release"))
+}
+
+/// Derives the immutable file-asset identity owned by one build attempt.
+#[must_use]
+pub fn static_file_asset_id_for_build(build_job_id: VectorTileBuildJobId) -> FileAssetId {
+    FileAssetId::new(static_build_scoped_uuid(
+        build_job_id,
+        b"pmtiles-file-asset",
+    ))
+}
+
+fn static_build_scoped_uuid(build_job_id: VectorTileBuildJobId, role: &[u8]) -> Uuid {
+    let mut hasher = Sha256::new();
+    hasher.update(b"perfectory.catalog.vector-tile-build.v1\0");
+    hasher.update(build_job_id.as_uuid().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(role);
+    let digest = hasher.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    // RFC 9562 UUIDv8: custom bytes with the standard variant and explicit version bits.
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
 }
 
 /// Derives the write-once `PMTiles` object key for a static release.

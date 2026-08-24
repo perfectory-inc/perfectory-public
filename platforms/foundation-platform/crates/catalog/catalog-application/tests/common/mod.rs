@@ -130,25 +130,27 @@ fn promoted_manifest(
     command: &PromoteTileLayerStaticCommand,
 ) -> Result<VectorTileRuntimeManifest, CatalogError> {
     let invalid = CatalogError::InvalidVectorTileRuntimeManifest;
+    let release_id = VectorTileReleaseId::new(Uuid::now_v7());
+    let martin_source_id = static_release_martin_source_id(&command.unit_key, release_id);
     let unit = PublicationUnit {
         data_revision: VectorTileDataRevisionId::new(Uuid::now_v7()),
         serving_generation: ServingGeneration::new(command.expected_serving_generation.value() + 1)
             .map_err(invalid)?,
-        active_release_id: command.release_id,
-        canonical_iceberg_snapshot_id: command.frozen_source_snapshot_id.clone(),
+        active_release_id: release_id,
+        canonical_iceberg_snapshot_id: catalog_domain::CanonicalIcebergSnapshotId::new(
+            "70000000000000001".to_owned(),
+        )
+        .map_err(invalid)?,
         source: ActiveTileSource::StaticPmtiles(StaticPmtilesSource {
-            martin_source_id: static_release_martin_source_id(
-                &command.unit_key,
-                command.release_id,
-            ),
-            tiles_url_template: command.tiles_url_template.clone(),
-            pmtiles_object_key: static_release_pmtiles_object_key(
-                &command.unit_key,
-                command.release_id,
-            ),
-            pmtiles_file_asset_id: command.pmtiles_file_asset_id,
-            pmtiles_sha256: command.pmtiles_sha256.as_str().to_owned(),
-            pmtiles_bytes: command.pmtiles_bytes,
+            martin_source_id: martin_source_id.clone(),
+            tiles_url_template: catalog_domain::RuntimeTilesUrlTemplate::new(format!(
+                "https://tiles.example.test/{martin_source_id}/{{z}}/{{x}}/{{y}}"
+            ))
+            .map_err(invalid)?,
+            pmtiles_object_key: static_release_pmtiles_object_key(&command.unit_key, release_id),
+            pmtiles_file_asset_id: FileAssetId::new(Uuid::now_v7()),
+            pmtiles_sha256: "e".repeat(64),
+            pmtiles_bytes: 987_654_321,
         }),
         layers: BTreeMap::from([("parcels".to_owned(), promoted_layer()?)]),
         lineage: RuntimeTileLineage {

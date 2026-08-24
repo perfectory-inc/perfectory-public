@@ -21,6 +21,4 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 foundation-shared-kernel = { workspace = true }
-
-[dev-dependencies]
 uuid = { workspace = true }

@@ -10,13 +10,8 @@ use std::sync::Arc;
 
 use catalog_application::ports::{PromoteTileLayerStaticCommand, RollbackTileLayerSourceCommand};
 use catalog_application::{PromoteTileLayerStatic, RollbackTileLayerSource};
-use catalog_domain::{
-    static_release_martin_source_id, BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError,
-    PmtilesChecksum, RuntimeTilesUrlTemplate, ServingGeneration,
-};
-use foundation_shared_kernel::ids::{
-    FileAssetId, StaffId, VectorTileBuildJobId, VectorTileReleaseId,
-};
+use catalog_domain::{CatalogError, ServingGeneration};
+use foundation_shared_kernel::ids::{StaffId, VectorTileBuildJobId, VectorTileReleaseId};
 use uuid::Uuid;
 
 use common::{unused, RecordingUnitOfWork, SilentUnitOfWork};
@@ -28,25 +23,11 @@ const fn invalid(message: String) -> CatalogError {
 /// A promotion whose URL template addresses the release-derived Martin source, with padded text so
 /// trimming is observable at the port.
 fn promotion() -> Result<PromoteTileLayerStaticCommand, CatalogError> {
-    let release_id = VectorTileReleaseId::new(Uuid::now_v7());
-    let martin_source_id = static_release_martin_source_id("parcels", release_id);
     Ok(PromoteTileLayerStaticCommand {
         unit_key: " parcels ".to_owned(),
         build_job_id: VectorTileBuildJobId::new(Uuid::now_v7()),
-        release_id,
         expected_active_release_id: VectorTileReleaseId::new(Uuid::now_v7()),
         expected_serving_generation: ServingGeneration::new(4).map_err(invalid)?,
-        input_release_id: VectorTileReleaseId::new(Uuid::now_v7()),
-        frozen_source_snapshot_id: CanonicalIcebergSnapshotId::new("70000000000000001".to_owned())
-            .map_err(invalid)?,
-        validation_evidence: BuildEvidenceDigest::new("d".repeat(64)).map_err(invalid)?,
-        tiles_url_template: RuntimeTilesUrlTemplate::new(format!(
-            "https://tiles.example.com/{martin_source_id}/{{z}}/{{x}}/{{y}}"
-        ))
-        .map_err(invalid)?,
-        pmtiles_file_asset_id: FileAssetId::new(Uuid::now_v7()),
-        pmtiles_sha256: PmtilesChecksum::new("e".repeat(64)).map_err(invalid)?,
-        pmtiles_bytes: 987_654_321,
         idempotency_key: " promotion-1 ".to_owned(),
         operator_staff_id: StaffId::new(Uuid::now_v7()),
     })
@@ -63,26 +44,11 @@ fn rollback() -> Result<RollbackTileLayerSourceCommand, CatalogError> {
     })
 }
 
-async fn promotion_refusal(command: PromoteTileLayerStaticCommand) -> Result<String, CatalogError> {
-    let uow = Arc::new(RecordingUnitOfWork::default());
-    let error = PromoteTileLayerStatic::new(uow.clone())
-        .execute(command)
-        .await
-        .err();
-    assert!(
-        uow.static_promotions()?.is_empty(),
-        "a refused promotion must not reach the unit of work"
-    );
-    Ok(error.map(|error| error.to_string()).unwrap_or_default())
-}
-
 #[tokio::test]
 async fn a_promotion_is_normalized_and_publishes_the_derived_static_source(
 ) -> Result<(), CatalogError> {
     let uow = Arc::new(RecordingUnitOfWork::default());
     let command = promotion()?;
-    let expected_source_id = static_release_martin_source_id("parcels", command.release_id);
-
     let manifest = PromoteTileLayerStatic::new(uow.clone())
         .execute(command)
         .await?;
@@ -102,53 +68,11 @@ async fn a_promotion_is_normalized_and_publishes_the_derived_static_source(
         .publication_units
         .get("parcels")
         .ok_or_else(|| unused("promoted unit"))?;
-    assert_eq!(unit.source.martin_source_id(), expected_source_id);
+    assert!(matches!(
+        unit.source,
+        catalog_domain::ActiveTileSource::StaticPmtiles(_)
+    ));
     assert_eq!(unit.serving_generation.value(), 5);
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_promotion_that_republishes_the_observed_release_is_refused() -> Result<(), CatalogError>
-{
-    let mut command = promotion()?;
-    command.expected_active_release_id = command.release_id;
-
-    let message = promotion_refusal(command).await?;
-    assert!(
-        message.contains("must differ from expected_active_release_id"),
-        "got: {message}"
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn an_empty_pmtiles_artifact_is_refused_by_name() -> Result<(), CatalogError> {
-    let mut command = promotion()?;
-    command.pmtiles_bytes = 0;
-
-    let message = promotion_refusal(command).await?;
-    assert!(
-        message.contains("pmtiles_bytes must be greater than zero"),
-        "got: {message}"
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_promotion_url_addressing_the_unit_instead_of_the_release_is_refused(
-) -> Result<(), CatalogError> {
-    let mut command = promotion()?;
-    // The unit-addressed form a dynamic source uses. For a static release the Martin source is
-    // release-addressed, so this URL would serve a different source than the pointer claims.
-    command.tiles_url_template =
-        RuntimeTilesUrlTemplate::new("https://tiles.example.com/parcels/{z}/{x}/{y}".to_owned())
-            .map_err(invalid)?;
-
-    let message = promotion_refusal(command).await?;
-    assert!(
-        message.contains("must address the release-derived Martin source"),
-        "got: {message}"
-    );
     Ok(())
 }
 
