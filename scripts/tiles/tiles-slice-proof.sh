@@ -685,7 +685,13 @@ DYNAMIC_Z14="$ARTIFACT_DIR/dynamic-z14.pbf"
 fetch_tile "http://127.0.0.1:3110/parcels,parcel_anchor_aggregate,parcel_anchor/11/1747/803" "$DYNAMIC_Z11"
 fetch_tile "http://127.0.0.1:3110/parcels,parcel_anchor_aggregate,parcel_anchor/14/13977/6426" "$DYNAMIC_Z14"
 
+# Every layer in this fixture is identified by its PNU, so one key spells identity for all of them.
+# `mvt_assert` makes the caller name the keys instead of assuming `pnu`, because the property that
+# identifies a feature is a per-layer fact: an industrial-complex boundary has no PNU at all.
+IDENTITY_KEYS=(--identity-property pnu)
+
 mvt_assert assert "$RUN_RELATIVE/dynamic-z11.pbf" --content-encoding identity \
+  "${IDENTITY_KEYS[@]}" \
   --expect-layer parcel_anchor_aggregate=1 \
   --expect-identity "parcel_anchor_aggregate|${PNUS[0]}" \
   --expect-property count=3
@@ -697,10 +703,13 @@ for pnu in "${PNUS[@]}"; do
   z14_expectations+=(--expect-property "pnu=$pnu")
 done
 mvt_assert assert "$RUN_RELATIVE/dynamic-z14.pbf" --content-encoding identity \
+  "${IDENTITY_KEYS[@]}" \
   --expect-layer parcels=3 --expect-layer parcel_anchor=3 "${z14_expectations[@]}"
 mvt_assert dump "$RUN_RELATIVE/dynamic-z11.pbf" --content-encoding identity \
+  "${IDENTITY_KEYS[@]}" \
   > "$ARTIFACT_DIR/dynamic-z11.identities"
 mvt_assert dump "$RUN_RELATIVE/dynamic-z14.pbf" --content-encoding identity \
+  "${IDENTITY_KEYS[@]}" \
   > "$ARTIFACT_DIR/dynamic-z14.identities"
 
 MBTILES_CONTAINER="/artifacts/tiles-slice-proof/local/foundation-static.mbtiles"
@@ -754,7 +763,8 @@ for zoom in $(seq 0 16); do
   : > "$zoom_identities"
   for tile in "${zoom_tiles[@]}"; do
     relative_tile="${tile#"$REPO_ROOT/"}"
-    mvt_assert dump "$relative_tile" --content-encoding identity >> "$zoom_identities"
+    mvt_assert dump "$relative_tile" --content-encoding identity "${IDENTITY_KEYS[@]}" \
+      >> "$zoom_identities"
   done
   actual_layers="$(sed -n 's/^layer="\([^"]*\)".*/\1/p' "$zoom_identities" \
     | sort -u | tr '\n' ',' | sed 's/,$//')"
@@ -919,14 +929,18 @@ STATIC_Z14="$ARTIFACT_DIR/static-z14.pbf"
 fetch_tile "http://127.0.0.1:3101/$STATIC_SOURCE_ID/11/1747/803" "$STATIC_Z11"
 fetch_tile "http://127.0.0.1:3101/$STATIC_SOURCE_ID/14/13977/6426" "$STATIC_Z14"
 mvt_assert assert "$RUN_RELATIVE/static-z11.pbf" --content-encoding identity \
+  "${IDENTITY_KEYS[@]}" \
   --expect-layer parcel_anchor_aggregate=1 \
   --expect-identity "parcel_anchor_aggregate|${PNUS[0]}" \
   --expect-property count=3
 mvt_assert assert "$RUN_RELATIVE/static-z14.pbf" --content-encoding identity \
+  "${IDENTITY_KEYS[@]}" \
   --expect-layer parcels=3 --expect-layer parcel_anchor=3 "${z14_expectations[@]}"
 mvt_assert dump "$RUN_RELATIVE/static-z11.pbf" --content-encoding identity \
+  "${IDENTITY_KEYS[@]}" \
   > "$ARTIFACT_DIR/static-z11.identities"
 mvt_assert dump "$RUN_RELATIVE/static-z14.pbf" --content-encoding identity \
+  "${IDENTITY_KEYS[@]}" \
   > "$ARTIFACT_DIR/static-z14.identities"
 cmp --silent "$ARTIFACT_DIR/dynamic-z11.identities" "$ARTIFACT_DIR/static-z11.identities" \
   || fail "z11 static feature identities differ from dynamic"

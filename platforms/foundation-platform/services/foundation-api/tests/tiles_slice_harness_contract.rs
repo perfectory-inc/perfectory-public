@@ -2,6 +2,7 @@
 
 #![allow(clippy::expect_used)]
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -776,6 +777,59 @@ fn production_runbook_locks_private_derivative_bucket_and_pointer_safety() {
         assert!(
             !runbook.contains(forbidden),
             "private derivative-bucket runbook must not restore obsolete public-default wording: {forbidden}"
+        );
+    }
+}
+
+/// Every tile-derivative variable the runbook names is one the connection contract defines.
+///
+/// The runbook is the sheet an operator copies an `export` line from, and it named four variables
+/// that do not exist: `..._PUBLISHER_ACCESS_KEY_ID`, `..._PUBLISHER_SECRET_ACCESS_KEY`,
+/// `..._MARTIN_READ_ACCESS_KEY_ID`, `..._MARTIN_READ_SECRET_ACCESS_KEY`, where
+/// `config/r2-connections.contract.json` and `validate-tile-derivative-r2` both say `..._WRITER_*`
+/// and `..._READER_*`. Nothing failed: the same document also spelled the real names correctly
+/// twelve lines later, so a reader could not tell which half was the contract. The exported-but-
+/// wrong name is silently empty and the preflight reports a missing variable the operator believes
+/// they just set.
+///
+/// The contract file is the source both sides are compared against, so this cannot be satisfied by
+/// editing prose — only by naming a variable the connection contract actually declares.
+#[test]
+fn the_runbook_only_names_tile_derivative_variables_the_contract_declares() {
+    const PREFIX: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_";
+
+    let contract = read("platforms/foundation-platform/config/r2-connections.contract.json");
+    let runbook =
+        read("platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md");
+
+    // The runbook abbreviates the prefix as `...` after naming it in full, so both spellings are
+    // resolved to the same full variable name before the comparison.
+    let mut named = BTreeSet::new();
+    for (marker, cut) in [(PREFIX, 0), ("`..._", 1)] {
+        let mut rest = runbook.as_str();
+        while let Some(start) = rest.find(marker) {
+            let tail = &rest[start + marker.len() - cut..];
+            let suffix: String = tail
+                .chars()
+                .take_while(|character| character.is_ascii_uppercase() || *character == '_')
+                .collect();
+            let suffix = suffix.trim_start_matches('_').trim_end_matches('_');
+            if !suffix.is_empty() && suffix != "*" {
+                named.insert(format!("{PREFIX}{suffix}"));
+            }
+            rest = &rest[start + marker.len()..];
+        }
+    }
+    assert!(
+        named.len() >= 6,
+        "the runbook should name the tile-derivative connection variables; found {named:?}"
+    );
+
+    for variable in &named {
+        assert!(
+            contract.contains(variable.as_str()),
+            "the tile runbook names {variable}, which config/r2-connections.contract.json does not \
+             declare; an operator exporting it sets nothing"
         );
     }
 }

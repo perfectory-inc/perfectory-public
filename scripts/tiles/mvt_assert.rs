@@ -10,12 +10,13 @@ use std::fs;
 use std::process;
 
 const USAGE: &str = "Usage:\n\
-  mvt_assert dump <tile.pbf> --content-encoding identity\n\
+  mvt_assert dump <tile.pbf>... --content-encoding identity\n\
+      --identity-property <key> [--identity-property ...]\n\
   mvt_assert assert <tile.pbf> --content-encoding identity\n\
       --expect-layer <name>=<count> [--expect-layer ...]\n\
       (a <count> of 0 asserts the layer is absent from the tile)\n\
       [--expect-pnu <pnu>]... [--expect-complex-code <code>]...\n\
-      [--expect-identity <layer>|<pnu>]...\n\
+      [--identity-property <key>]... [--expect-identity <layer>|<value>...]...\n\
       [--expect-property <key>=<value>]...\n\
       [--expect-nonempty-layer <name>]...";
 
@@ -90,22 +91,37 @@ struct Tile {
 /// from: a parcel feature does not carry a membership claim, because membership is a dated fact
 /// read from data and a tile that freezes it becomes a second answer a designation change
 /// invalidates without telling anyone (ADR-0024, ADR-0020). A parcel's identity is its PNU.
+///
+/// Which properties spell an identity is therefore the caller's to name, and the caller names them
+/// with `--identity-property`. This used to be the single literal `pnu`, which is why the tool
+/// could not dump a `complex` tile at all: an industrial-complex feature is identified by
+/// `complex_id` and `official_complex_code` and carries no `pnu`, so every feature of the layer
+/// this repository has served since #95 failed the decoder's own identity rule. The keys travel
+/// inside the identity rather than beside it so that two dumps taken with different keys can never
+/// compare equal.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Identity {
     layer: String,
-    pnu: String,
+    properties: Vec<(String, String)>,
 }
 
 impl Identity {
-    fn new(layer: impl Into<String>, pnu: impl Into<String>) -> Self {
+    fn new(layer: impl Into<String>, properties: Vec<(String, String)>) -> Self {
         Self {
             layer: layer.into(),
-            pnu: pnu.into(),
+            properties,
         }
     }
 
     fn canonical_line(&self) -> String {
-        format!("layer={}\tpnu={}", quote(&self.layer), quote(&self.pnu))
+        let mut line = format!("layer={}", quote(&self.layer));
+        for (key, value) in &self.properties {
+            line.push('\t');
+            line.push_str(key);
+            line.push('=');
+            line.push_str(&quote(value));
+        }
+        line
     }
 }
 
@@ -116,12 +132,8 @@ struct Expectations {
     pnus: BTreeSet<String>,
     complex_codes: BTreeSet<String>,
     properties: Vec<(String, String)>,
+    identity_properties: Vec<String>,
     identities: Vec<Identity>,
-}
-
-enum Operation {
-    Dump,
-    Assert(Expectations),
 }
 
 #[derive(Clone, Copy)]
@@ -631,19 +643,23 @@ fn to_u32(value: u64, context: &str) -> Result<u32, String> {
     u32::try_from(value).map_err(|_| format!("{context} {value} exceeds u32"))
 }
 
-fn canonical_identity_lines(tile: &Tile) -> Result<Vec<String>, String> {
-    Ok(tile_identities(tile)?
+fn canonical_identity_lines(tile: &Tile, keys: &[String]) -> Result<Vec<String>, String> {
+    Ok(tile_identities(tile, keys)?
         .into_iter()
         .map(|identity| identity.canonical_line())
         .collect())
 }
 
-fn tile_identities(tile: &Tile) -> Result<Vec<Identity>, String> {
+fn tile_identities(tile: &Tile, keys: &[String]) -> Result<Vec<Identity>, String> {
     let mut identities = Vec::new();
     for (layer_name, layer) in &tile.layers {
         for (index, feature) in layer.features.iter().enumerate() {
-            let pnu = required_string_property(feature, "pnu", layer_name, index)?;
-            identities.push(Identity::new(layer_name, pnu));
+            let mut properties = Vec::with_capacity(keys.len());
+            for key in keys {
+                let value = required_string_property(feature, key, layer_name, index)?;
+                properties.push((key.clone(), value.to_owned()));
+            }
+            identities.push(Identity::new(layer_name, properties));
         }
     }
     identities.sort_unstable();
@@ -758,7 +774,7 @@ fn assert_tile(tile: &Tile, expectations: &Expectations) -> Result<(), String> {
         }
     }
     if !expectations.identities.is_empty() {
-        let actual = tile_identities(tile)?;
+        let actual = tile_identities(tile, &expectations.identity_properties)?;
         let mut expected = expectations.identities.clone();
         expected.sort_unstable();
         if actual != expected {
@@ -810,6 +826,9 @@ fn identity_set(tile: &Tile, key: &str) -> Result<BTreeSet<String>, String> {
 fn parse_expectations(arguments: &[String]) -> Result<Expectations, String> {
     let mut expectations = Expectations::default();
     let mut has_content_encoding = false;
+    // Collected verbatim and resolved after the loop, so `--expect-identity` may appear before the
+    // `--identity-property` keys that give its fields their names.
+    let mut raw_identities: Vec<String> = Vec::new();
     let mut index = 0;
     while index < arguments.len() {
         let option = &arguments[index];
@@ -851,8 +870,15 @@ fn parse_expectations(arguments: &[String]) -> Result<Expectations, String> {
                     return Err(format!("duplicate --expect-complex-code {value:?}"));
                 }
             }
+            "--identity-property" => {
+                require_nonempty(value, "identity property")?;
+                if expectations.identity_properties.contains(value) {
+                    return Err(format!("duplicate --identity-property {value:?}"));
+                }
+                expectations.identity_properties.push(value.clone());
+            }
             "--expect-identity" => {
-                expectations.identities.push(parse_identity(value)?);
+                raw_identities.push(value.clone());
             }
             "--expect-property" => {
                 let (key, expected) = split_assignment(value, "property expectation")?;
@@ -872,19 +898,34 @@ fn parse_expectations(arguments: &[String]) -> Result<Expectations, String> {
             "assert requires at least one --expect-layer\n{USAGE}"
         ));
     }
+    if !raw_identities.is_empty() && expectations.identity_properties.is_empty() {
+        return Err(format!(
+            "--expect-identity requires at least one --identity-property\n{USAGE}"
+        ));
+    }
+    for raw in &raw_identities {
+        expectations
+            .identities
+            .push(parse_identity(raw, &expectations.identity_properties)?);
+    }
     Ok(expectations)
 }
 
-fn parse_identity(value: &str) -> Result<Identity, String> {
+fn parse_identity(value: &str, keys: &[String]) -> Result<Identity, String> {
     let fields = value.split('|').collect::<Vec<_>>();
-    if fields.len() != 2 {
+    if fields.len() != keys.len() + 1 {
         return Err(format!(
-            "identity expectation must have the form layer|pnu, got {value:?}"
+            "identity expectation must have the form layer|{}, got {value:?}",
+            keys.join("|")
         ));
     }
     require_nonempty(fields[0], "identity layer")?;
-    require_nonempty(fields[1], "identity PNU")?;
-    Ok(Identity::new(fields[0], fields[1]))
+    let mut properties = Vec::with_capacity(keys.len());
+    for (key, field) in keys.iter().zip(fields[1..].iter()) {
+        require_nonempty(field, &format!("identity {key}"))?;
+        properties.push((key.clone(), (*field).to_owned()));
+    }
+    Ok(Identity::new(fields[0], properties))
 }
 
 fn require_identity_content_encoding(value: &str) -> Result<(), String> {
@@ -897,16 +938,48 @@ fn require_identity_content_encoding(value: &str) -> Result<(), String> {
     }
 }
 
-fn parse_dump_options(arguments: &[String]) -> Result<(), String> {
-    match arguments {
-        [option, value] if option == "--content-encoding" => {
-            require_identity_content_encoding(value)
+/// Parses `dump`'s options into the identity properties the dump is keyed on.
+///
+/// A dump with no named property would be a list of layer names, which compares equal between two
+/// tiles that share a layer and agree on nothing else — so the keys are required rather than
+/// defaulted.
+fn parse_dump_options(arguments: &[String]) -> Result<Vec<String>, String> {
+    let mut has_content_encoding = false;
+    let mut keys: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < arguments.len() {
+        let option = &arguments[index];
+        let value = arguments
+            .get(index + 1)
+            .ok_or_else(|| format!("{option} requires a value\n{USAGE}"))?;
+        match option.as_str() {
+            "--content-encoding" => {
+                if has_content_encoding {
+                    return Err("duplicate --content-encoding option".to_owned());
+                }
+                require_identity_content_encoding(value)?;
+                has_content_encoding = true;
+            }
+            "--identity-property" => {
+                require_nonempty(value, "identity property")?;
+                if keys.contains(value) {
+                    return Err(format!("duplicate --identity-property {value:?}"));
+                }
+                keys.push(value.clone());
+            }
+            _ => return Err(format!("unknown option {option:?}\n{USAGE}")),
         }
-        [] => Err(format!("--content-encoding identity is required\n{USAGE}")),
-        _ => Err(format!(
-            "dump requires exactly --content-encoding identity\n{USAGE}"
-        )),
+        index += 2;
     }
+    if !has_content_encoding {
+        return Err(format!("--content-encoding identity is required\n{USAGE}"));
+    }
+    if keys.is_empty() {
+        return Err(format!(
+            "dump requires at least one --identity-property\n{USAGE}"
+        ));
+    }
+    Ok(keys)
 }
 
 fn split_assignment<'a>(value: &'a str, context: &str) -> Result<(&'a str, &'a str), String> {
@@ -926,24 +999,41 @@ fn require_nonempty(value: &str, context: &str) -> Result<(), String> {
     }
 }
 
+fn read_tile(path: &str) -> Result<Tile, String> {
+    let bytes = fs::read(path).map_err(|error| format!("cannot read {path:?}: {error}"))?;
+    parse_tile(&bytes).map_err(|error| format!("cannot decode {path:?}: {error}"))
+}
+
 fn execute(arguments: &[String]) -> Result<String, String> {
     let command = arguments.first().ok_or_else(|| USAGE.to_owned())?;
-    let path = arguments.get(1).ok_or_else(|| USAGE.to_owned())?;
-    let operation = match command.as_str() {
+    match command.as_str() {
+        // `dump` takes every leading non-option argument as a tile, because an archive is decoded
+        // whole: one unpacked MBTiles is hundreds of tiles even for two polygons, and decoding them
+        // one process at a time is what makes "decode every zoom" expensive enough to be skipped.
         "dump" => {
-            parse_dump_options(&arguments[2..])?;
-            Operation::Dump
+            let mut paths = Vec::new();
+            let mut index = 1;
+            while let Some(argument) = arguments.get(index) {
+                if argument.starts_with("--") {
+                    break;
+                }
+                paths.push(argument.clone());
+                index += 1;
+            }
+            if paths.is_empty() {
+                return Err(USAGE.to_owned());
+            }
+            let keys = parse_dump_options(&arguments[index..])?;
+            let mut lines = Vec::new();
+            for path in &paths {
+                lines.extend(canonical_identity_lines(&read_tile(path)?, &keys)?);
+            }
+            Ok(lines.join("\n"))
         }
-        "assert" => Operation::Assert(parse_expectations(&arguments[2..])?),
-        _ => return Err(format!("unknown command {command:?}\n{USAGE}")),
-    };
-
-    let bytes = fs::read(path).map_err(|error| format!("cannot read {path:?}: {error}"))?;
-    let tile = parse_tile(&bytes).map_err(|error| format!("cannot decode {path:?}: {error}"))?;
-
-    match operation {
-        Operation::Dump => Ok(canonical_identity_lines(&tile)?.join("\n")),
-        Operation::Assert(expectations) => {
+        "assert" => {
+            let path = arguments.get(1).ok_or_else(|| USAGE.to_owned())?;
+            let expectations = parse_expectations(&arguments[2..])?;
+            let tile = read_tile(path)?;
             assert_tile(&tile, &expectations)?;
             let feature_count = tile
                 .layers
@@ -955,6 +1045,7 @@ fn execute(arguments: &[String]) -> Result<String, String> {
                 tile.layers.len()
             ))
         }
+        _ => Err(format!("unknown command {command:?}\n{USAGE}")),
     }
 }
 
@@ -1056,6 +1147,10 @@ mod tests {
         encoded
     }
 
+    fn pnu_identity(layer: &str, pnu: &str) -> Identity {
+        Identity::new(layer, vec![("pnu".to_owned(), pnu.to_owned())])
+    }
+
     fn tile(layers: &[Vec<u8>]) -> Vec<u8> {
         layers
             .iter()
@@ -1120,13 +1215,142 @@ mod tests {
     fn canonical_identity_output_is_sorted_and_preserves_duplicates() {
         let decoded = parse_tile(&sample_tile()).unwrap();
         assert_eq!(
-            canonical_identity_lines(&decoded).unwrap(),
+            canonical_identity_lines(&decoded, &["pnu".to_owned()]).unwrap(),
             vec![
                 "layer=\"parcel_anchor_aggregate\"\tpnu=\"9999900000000000001\"",
                 "layer=\"parcels\"\tpnu=\"9999900000000000001\"",
                 "layer=\"parcels\"\tpnu=\"9999900000000000002\"",
             ]
         );
+    }
+
+    /// A layer whose features carry no `pnu` is dumpable, and its dump names the keys it used.
+    ///
+    /// This is the case the tool could not express at all: `complex` features carry `complex_id`
+    /// and `official_complex_code`, so a `pnu`-keyed dump failed on the first feature. The second
+    /// half is why the keys live inside the identity — a dump keyed on the code alone must not
+    /// compare equal to one keyed on both.
+    #[test]
+    fn identity_keys_are_named_by_the_caller_and_travel_with_the_dump() {
+        let decoded = parse_tile(&tile(&[layer(
+            "complex",
+            &[feature(&[0, 0, 1, 1], 3, &polygon_geometry())],
+            &["complex_id", "official_complex_code"],
+            &[
+                string_value("00000000-0000-5000-8000-000000000001"),
+                string_value("999ZZ0"),
+            ],
+        )]))
+        .unwrap();
+
+        assert!(canonical_identity_lines(&decoded, &["pnu".to_owned()])
+            .unwrap_err()
+            .contains("missing property \"pnu\""));
+        assert_eq!(
+            canonical_identity_lines(
+                &decoded,
+                &["complex_id".to_owned(), "official_complex_code".to_owned()],
+            )
+            .unwrap(),
+            vec![concat!(
+                "layer=\"complex\"",
+                "\tcomplex_id=\"00000000-0000-5000-8000-000000000001\"",
+                "\tofficial_complex_code=\"999ZZ0\"",
+            )],
+        );
+        assert_ne!(
+            canonical_identity_lines(&decoded, &["official_complex_code".to_owned()]).unwrap(),
+            canonical_identity_lines(
+                &decoded,
+                &["complex_id".to_owned(), "official_complex_code".to_owned()],
+            )
+            .unwrap(),
+        );
+    }
+
+    /// One invocation decodes many tiles, in the order they were named.
+    ///
+    /// Whole-archive decoding is the check that catches an empty zoom or a missing layer, and it is
+    /// the check a proof drops first when each tile costs a process. Order is preserved rather than
+    /// globally sorted so the output equals what appending one dump per tile produced.
+    #[test]
+    fn dump_decodes_every_named_tile_in_order() {
+        let directory =
+            std::env::temp_dir().join(format!("mvt-assert-dump-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let first = directory.join("first.pbf");
+        let second = directory.join("second.pbf");
+        fs::write(
+            &first,
+            tile(&[layer(
+                "complex",
+                &[feature(&[0, 0], 3, &polygon_geometry())],
+                &["official_complex_code"],
+                &[string_value("999ZZ1")],
+            )]),
+        )
+        .unwrap();
+        fs::write(
+            &second,
+            tile(&[layer(
+                "complex",
+                &[feature(&[0, 0], 3, &polygon_geometry())],
+                &["official_complex_code"],
+                &[string_value("999ZZ0")],
+            )]),
+        )
+        .unwrap();
+
+        let output = execute(&[
+            "dump".to_owned(),
+            first.to_string_lossy().into_owned(),
+            second.to_string_lossy().into_owned(),
+            "--content-encoding".to_owned(),
+            "identity".to_owned(),
+            "--identity-property".to_owned(),
+            "official_complex_code".to_owned(),
+        ])
+        .unwrap();
+        assert_eq!(
+            output,
+            concat!(
+                "layer=\"complex\"\tofficial_complex_code=\"999ZZ1\"\n",
+                "layer=\"complex\"\tofficial_complex_code=\"999ZZ0\"",
+            )
+        );
+
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn dump_requires_the_identity_properties_it_is_keyed_on() {
+        assert!(
+            parse_dump_options(&["--content-encoding".to_owned(), "identity".to_owned(),])
+                .unwrap_err()
+                .contains("at least one --identity-property")
+        );
+        assert_eq!(
+            parse_dump_options(&[
+                "--content-encoding".to_owned(),
+                "identity".to_owned(),
+                "--identity-property".to_owned(),
+                "complex_id".to_owned(),
+                "--identity-property".to_owned(),
+                "official_complex_code".to_owned(),
+            ])
+            .unwrap(),
+            vec!["complex_id".to_owned(), "official_complex_code".to_owned()],
+        );
+        assert!(parse_dump_options(&[
+            "--content-encoding".to_owned(),
+            "identity".to_owned(),
+            "--identity-property".to_owned(),
+            "pnu".to_owned(),
+            "--identity-property".to_owned(),
+            "pnu".to_owned(),
+        ])
+        .unwrap_err()
+        .contains("duplicate --identity-property"));
     }
 
     #[test]
@@ -1218,10 +1442,11 @@ mod tests {
             ]),
             complex_codes: BTreeSet::from(["IC-SYNTHETIC-001".to_owned()]),
             properties: vec![("count".to_owned(), "3".to_owned())],
+            identity_properties: vec!["pnu".to_owned()],
             identities: vec![
-                Identity::new("parcel_anchor_aggregate", "9999900000000000001"),
-                Identity::new("parcels", "9999900000000000001"),
-                Identity::new("parcels", "9999900000000000002"),
+                pnu_identity("parcel_anchor_aggregate", "9999900000000000001"),
+                pnu_identity("parcels", "9999900000000000001"),
+                pnu_identity("parcels", "9999900000000000002"),
             ],
         };
         assert_tile(&decoded, &expectations).unwrap();
@@ -1247,10 +1472,11 @@ mod tests {
                 ("parcel_anchor_aggregate".to_owned(), 1),
                 ("parcels".to_owned(), 2),
             ]),
+            identity_properties: vec!["pnu".to_owned()],
             identities: vec![
-                Identity::new("parcel_anchor_aggregate", "9999900000000000001"),
-                Identity::new("parcels", "9999900000000000001"),
-                Identity::new("parcels", "9999900000000000002"),
+                pnu_identity("parcel_anchor_aggregate", "9999900000000000001"),
+                pnu_identity("parcels", "9999900000000000001"),
+                pnu_identity("parcels", "9999900000000000002"),
             ],
             ..Expectations::default()
         };
@@ -1258,9 +1484,9 @@ mod tests {
 
         let mut swapped = base.clone();
         swapped.identities = vec![
-            Identity::new("parcel_anchor_aggregate", "9999900000000000002"),
-            Identity::new("parcels", "9999900000000000001"),
-            Identity::new("parcels", "9999900000000000001"),
+            pnu_identity("parcel_anchor_aggregate", "9999900000000000002"),
+            pnu_identity("parcels", "9999900000000000001"),
+            pnu_identity("parcels", "9999900000000000001"),
         ];
         assert!(assert_tile(&decoded, &swapped)
             .unwrap_err()
@@ -1430,8 +1656,12 @@ mod tests {
             "identity".to_owned(),
             "--expect-layer".to_owned(),
             "parcels=2".to_owned(),
+            // Deliberately before the key that names its field: the resolution happens after the
+            // whole argument list is read, so flag order is not a hidden contract.
             "--expect-identity".to_owned(),
             "parcels|9999900000000000001".to_owned(),
+            "--identity-property".to_owned(),
+            "pnu".to_owned(),
             "--expect-identity".to_owned(),
             "parcels|9999900000000000002".to_owned(),
         ])
@@ -1440,10 +1670,40 @@ mod tests {
         assert_eq!(
             parsed.identities,
             vec![
-                Identity::new("parcels", "9999900000000000001"),
-                Identity::new("parcels", "9999900000000000002"),
+                pnu_identity("parcels", "9999900000000000001"),
+                pnu_identity("parcels", "9999900000000000002"),
             ]
         );
+    }
+
+    /// An identity expectation is only meaningful against the keys it was written for.
+    #[test]
+    fn identity_expectations_need_their_keys_and_must_match_them_in_arity() {
+        assert!(parse_expectations(&[
+            "--content-encoding".to_owned(),
+            "identity".to_owned(),
+            "--expect-layer".to_owned(),
+            "complex=1".to_owned(),
+            "--expect-identity".to_owned(),
+            "complex|999ZZ0".to_owned(),
+        ])
+        .unwrap_err()
+        .contains("requires at least one --identity-property"));
+
+        assert!(parse_expectations(&[
+            "--content-encoding".to_owned(),
+            "identity".to_owned(),
+            "--expect-layer".to_owned(),
+            "complex=1".to_owned(),
+            "--identity-property".to_owned(),
+            "complex_id".to_owned(),
+            "--identity-property".to_owned(),
+            "official_complex_code".to_owned(),
+            "--expect-identity".to_owned(),
+            "complex|999ZZ0".to_owned(),
+        ])
+        .unwrap_err()
+        .contains("layer|complex_id|official_complex_code"));
     }
 
     #[test]

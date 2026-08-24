@@ -362,9 +362,9 @@ foundation-outbox-publisher validate-tile-derivative-r2
 ```
 
 다음 환경을 요구한다: `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID`, `..._ENDPOINT`,
-`..._BUCKET`, 별도의
-`..._PUBLISHER_ACCESS_KEY_ID`/`..._PUBLISHER_SECRET_ACCESS_KEY`, and separate Martin
-`..._MARTIN_READ_ACCESS_KEY_ID`/`..._MARTIN_READ_SECRET_ACCESS_KEY`. The bucket must be a dedicated tile/derivative
+`..._BUCKET`, 쓰기용
+`..._WRITER_ACCESS_KEY_ID`/`..._WRITER_SECRET_ACCESS_KEY`, and separate Martin
+`..._READER_ACCESS_KEY_ID`/`..._READER_SECRET_ACCESS_KEY`. The bucket must be a dedicated tile/derivative
 bucket and the immutable prefix is fixed to `gold/vector-tiles/releases`. Release objects are
 derived mechanically as `gold/vector-tiles/releases/{publication_unit}-{release_id}.pmtiles`;
 callers cannot supply an arbitrary key. The publisher only uses create-only writes; Martin receives
