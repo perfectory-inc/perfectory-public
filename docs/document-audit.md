@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **373개**
-- 언어 분류: **{'english': 34, 'korean': 178, 'mixed': 161}**
+- 감사 문서: **374개**
+- 언어 분류: **{'english': 34, 'korean': 179, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **200개 정상 / 0개 누락 / 173개 해당 없음**
+- 메타데이터: **200개 정상 / 0개 누락 / 174개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -20,7 +20,7 @@
 
 | 경로 | 소유자 | 유형 | 상태 | 언어 | 메타데이터 | 유입 링크 |
 |---|---|---|---|---|---|---:|
-| `AGENTS.md` | Monorepo | agent rules | current | korean | not applicable: agent router | 12 |
+| `AGENTS.md` | Monorepo | agent rules | current | korean | not applicable: agent router | 13 |
 | `CLAUDE.md` | Monorepo | documentation | current | korean | not applicable: agent router | 0 |
 | `CONTRIBUTING.md` | Monorepo | documentation | current | korean | ok | 0 |
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 13 |
@@ -65,12 +65,13 @@
 | `docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 9 |
 | `docs/adr/0042-a-silver-boundary-carries-its-source-crs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0043-a-canonical-id-is-read-not-recomputed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
-| `docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0045-a-serving-projection-row-names-its-load-not-its-revision.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0046-a-publication-names-the-object-it-was-collected-from.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0047-a-repairable-boundary-is-repaired-not-dropped.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0048-a-published-feature-id-needs-a-read-keyed-on-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0049-a-browsable-collection-is-paged-filtered-and-counted.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0050-provider-escaped-text-is-unescaped-once-in-one-place.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0051-a-pointer-is-published-only-against-bytes-that-were-read-back.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
@@ -88,7 +89,7 @@
 | `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current | korean | ok | 6 |
 | `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 17 |
 | `docs/roadmap/README.md` | Monorepo | README | current | korean | ok | 0 |
-| `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 5 |
+| `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 6 |
 | `platforms/foundation-platform/AGENTS.md` | Foundation Platform | agent rules | current | mixed | not applicable: agent router | 2 |
 | `platforms/foundation-platform/CLAUDE.md` | Foundation Platform | documentation | current | english | not applicable: agent router | 0 |
 | `platforms/foundation-platform/crates/catalog/README.md` | Foundation Platform | README | current | korean | ok | 0 |
@@ -120,7 +121,7 @@
 | `platforms/foundation-platform/docs/adr/0019-bronze-readable-object-lake-postgres-catalog-ssot.md` | Foundation Platform | ADR | Accepted | mixed | not applicable: ADR fields | 5 |
 | `platforms/foundation-platform/docs/adr/0020-real-transaction-bronze-source-strategy.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 0 |
 | `platforms/foundation-platform/docs/adr/0021-adopt-horizontal-platform-redefinition.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |
-| `platforms/foundation-platform/docs/adr/0022-lakehouse-handoff-vs-storage-format-boundary.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 1 |
+| `platforms/foundation-platform/docs/adr/0022-lakehouse-handoff-vs-storage-format-boundary.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0023-standard-pnu-canonical-dialect.md` | Foundation Platform | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `platforms/foundation-platform/docs/adr/0024-foundation-dbt-sql-modeling-layer.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 0 |
 | `platforms/foundation-platform/docs/adr/0025-bronze-catalog-recovery-evidence-sealing.md` | Foundation Platform | ADR | Accepted | mixed | not applicable: ADR fields | 2 |

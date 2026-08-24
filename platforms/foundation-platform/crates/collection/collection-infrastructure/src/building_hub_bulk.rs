@@ -2,6 +2,7 @@
 
 use bytes::Bytes;
 use collection_domain::CollectionError;
+use foundation_shared_kernel::provider_text::decode_provider_html_text;
 use futures_util::{stream::BoxStream, StreamExt as _};
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_TYPE};
 
@@ -459,15 +460,14 @@ fn text_after_class_marker(segment: &str, marker: &str, closing_tag: &str) -> Op
     Some(clean_html_text(&text_rest[..text_end]))
 }
 
+/// Unescapes one inventory-page text node and trims its ends.
+///
+/// The unescaping is [`decode_provider_html_text`], shared with the `VWorld` inventory reader and
+/// the industrial-complex profile workbook. Only the whitespace policy is local: an inventory
+/// label is a single line, so its ends are trimmed and its interior is left as the page wrote it.
+/// The `VWorld` reader collapses interior runs instead, because its file titles wrap across lines.
 fn clean_html_text(raw: &str) -> String {
-    raw.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .trim()
-        .to_owned()
+    decode_provider_html_text(raw).trim().to_owned()
 }
 
 fn split_service_title(title: &str) -> (String, String) {

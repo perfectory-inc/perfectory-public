@@ -75,6 +75,12 @@ struct BronzeRawJsonlExportReport {
     /// Optional provider headers the worksheet did not carry, so their columns are null for every
     /// row of this export because the column was absent rather than because the cells were blank.
     absent_optional_headers: Vec<&'static str>,
+    /// Entity-shaped tokens one unescaping pass left in the cells, and how many cells carry each.
+    ///
+    /// A reference outside the shared table, or one the provider escaped twice. Non-empty is not a
+    /// failure and it is not a shrug either: this is where an operator reads what the export could
+    /// not state the meaning of. See [`profile_workbook_decoder::DecodedProfileSheet`].
+    residual_entity_references: BTreeMap<String, u64>,
 }
 
 /// Runs the industrial-complex Bronze profile to JSONL export.
@@ -113,6 +119,18 @@ fn export_bronze_raw_jsonl(
     )
     .with_context(|| format!("failed to decode industrial-complex profile {bronze_object_key}"))?;
     let records = sheet.records;
+    if !sheet.residual_entity_references.is_empty() {
+        // Not a failure, for the same reason an absent optional header is not: the `202506`
+        // snapshot really does carry twelve references the provider escaped twice, and refusing
+        // them would cost all 1,442 rows to gain nothing. Unescaping a second time is the option
+        // that is actually forbidden — it is what turns `&amp;lt;` into a tag the source never
+        // wrote — so the export names what it left instead (root ADR-0050).
+        tracing::warn!(
+            residual_entity_references = ?sheet.residual_entity_references,
+            "the industrial-complex profile worksheet carries entity references one unescaping \
+             pass did not resolve; they reach the lakehouse exactly as one pass left them"
+        );
+    }
     if !sheet.absent_optional_headers.is_empty() {
         // Not a failure: an absent optional header costs one column, and failing would cost all
         // 1,442 rows. It is reported here and in the summary because a column of nulls looks
@@ -163,6 +181,7 @@ fn export_bronze_raw_jsonl(
         resolution_tier_counts: resolution.tier_counts,
         address_granularity_counts: resolution.granularity_counts,
         absent_optional_headers: sheet.absent_optional_headers,
+        residual_entity_references: sheet.residual_entity_references,
     };
     if let Some(summary_path) = &config.summary_path {
         write_summary(config, &rows, &report, summary_path)?;
@@ -453,6 +472,11 @@ fn write_summary(
         // the column was gone, which is a different fact from a blank cell.
         evidence_limitations.push("the_worksheet_did_not_carry_every_optional_column_read");
     }
+    if !report.residual_entity_references.is_empty() {
+        // One unescaping pass, deliberately. What it did not resolve is carried forward verbatim
+        // and counted below rather than dropped or unescaped again (root ADR-0050).
+        evidence_limitations.push("some_provider_escapes_did_not_resolve_in_one_pass");
+    }
     if report
         .resolution_tier_counts
         .get("modal_notice_code")
@@ -477,6 +501,9 @@ fn write_summary(
             "address_resolution_count": report.address_resolution_count,
             "snapshot_period": report.snapshot_period,
             "absent_optional_headers": report.absent_optional_headers,
+        },
+        "provider_text": {
+            "residual_entity_reference_counts": report.residual_entity_references,
         },
         "business_period": {
             "rows_with_a_business_period": rows_with_a_business_period,
@@ -648,6 +675,13 @@ mod tests {
                 "전자부품",
             ],
         ]
+    }
+
+    fn profile_column(header_name: &str) -> anyhow::Result<usize> {
+        profile_header()
+            .iter()
+            .position(|name| *name == header_name)
+            .with_context(|| format!("the fixture header carries {header_name}"))
     }
 
     fn config(root: &Path, address_source_path: PathBuf) -> BronzeRawJsonlExportConfig {
@@ -912,6 +946,65 @@ mod tests {
         assert!(limitations
             .iter()
             .any(|value| value == "some_business_periods_state_no_months_and_derive_none"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    /// The escaped text reaches the JSONL unescaped, and what one pass could not resolve reaches
+    /// the summary instead of the screen. This is the whole path the 580 escaped canonical rows
+    /// travelled with nothing on it (root ADR-0050).
+    #[test]
+    fn provider_escapes_are_unescaped_once_and_the_remainder_reaches_the_summary(
+    ) -> anyhow::Result<()> {
+        let root = temp_root("foundation-platform-industrial-complex-bronze-jsonl-escapes");
+        let mut values = profile_rows()[1].to_vec();
+        values[profile_column("make_purps_cn")?] = "R&amp;D 및 &amp;ldquo;신기술산업&amp;rdquo;";
+        values[profile_column("invite_upj")?] = "전자부품&middot;컴퓨터&middot;영상";
+        write_profile_zip(
+            &root
+                .join("bronze")
+                .join(format!("source={DEFAULT_SOURCE_SLUG}"))
+                .join(SYNTHETIC_OBJECT_NAME),
+            &[profile_header(), &values],
+        )?;
+        let address_source_path = root.join("addresses.jsonl");
+        fs::write(&address_source_path, format!("{ADDRESS_LINE_111010}\n"))?;
+        let config = config(&root, address_source_path);
+
+        let report = export_bronze_raw_jsonl(&config)?;
+
+        let written = fs::read_to_string(&config.output_path)?;
+        let record = serde_json::from_str::<serde_json::Value>(written.trim())?;
+        assert_eq!(record["invited_industries_raw"], "전자부품·컴퓨터·영상");
+        assert_eq!(
+            record["development_purpose_raw"], "R&D 및 &ldquo;신기술산업&rdquo;",
+            "the ampersand is unescaped once; a second pass would resolve the quotation marks the \
+             provider escaped twice, and the same second pass turns `&amp;lt;` into a tag"
+        );
+        assert_eq!(
+            report.residual_entity_references,
+            [("&ldquo;".to_owned(), 1), ("&rdquo;".to_owned(), 1)]
+                .into_iter()
+                .collect()
+        );
+
+        let summary_path = config
+            .summary_path
+            .as_ref()
+            .context("summary path was configured")?;
+        let summary =
+            serde_json::from_str::<serde_json::Value>(&fs::read_to_string(summary_path)?)?;
+        assert_eq!(
+            summary["provider_text"]["residual_entity_reference_counts"],
+            serde_json::json!({"&ldquo;": 1, "&rdquo;": 1})
+        );
+        let limitations = summary["evidence_limitations"]
+            .as_array()
+            .context("evidence_limitations must be an array")?;
+        assert!(limitations
+            .iter()
+            .any(|value| value == "some_provider_escapes_did_not_resolve_in_one_pass"));
 
         fs::remove_dir_all(root)?;
         Ok(())

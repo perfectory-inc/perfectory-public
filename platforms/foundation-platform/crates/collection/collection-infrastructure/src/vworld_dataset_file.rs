@@ -3,6 +3,7 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use bytes::Bytes;
 use collection_domain::CollectionError;
+use foundation_shared_kernel::provider_text::decode_provider_html_text;
 use futures_util::{stream::BoxStream, StreamExt as _};
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_TYPE, SET_COOKIE};
 
@@ -1153,13 +1154,14 @@ fn em_text_values(segment: &str) -> Vec<String> {
     values
 }
 
+/// Unescapes one dataset-page text node and collapses its whitespace to single spaces.
+///
+/// The unescaping is [`decode_provider_html_text`], shared with the `hub.go.kr` inventory reader
+/// and the industrial-complex profile workbook. Only the whitespace policy is local: this page
+/// wraps a file title across source lines and indents it, so interior runs are collapsed rather
+/// than preserved. The `hub.go.kr` reader trims the ends only.
 fn clean_html_text(raw: &str) -> String {
-    raw.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
+    decode_provider_html_text(raw)
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")

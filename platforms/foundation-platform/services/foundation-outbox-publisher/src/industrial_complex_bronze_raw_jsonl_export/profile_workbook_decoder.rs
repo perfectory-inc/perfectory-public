@@ -2,11 +2,20 @@
 //!
 //! Columns are located by header name, never by position, so a provider that inserts a column does
 //! not silently shift every field by one.
+//!
+//! Every cell this decoder reads also goes through
+//! [`foundation_shared_kernel::provider_text::decode_provider_html_text`]. The provider writes
+//! HTML-escaped text into these cells — `전자부품&middot;컴퓨터` — and nothing downstream unescapes
+//! it, so before this the escape reached the canonical table and the screen. Unescaping here rather
+//! than per column is deliberate: a column added to the contract next month inherits it instead of
+//! being the next one somebody forgets. The Bronze object itself is untouched; it stays the bytes
+//! the provider sent (root ADR-0050).
 
 use std::{collections::BTreeMap, io::Cursor};
 
 use anyhow::{bail, Context as _};
 use calamine::{open_workbook_from_rs, Data, Reader, Xlsx};
+use foundation_shared_kernel::provider_text::{decode_provider_html_text, entity_references};
 use lakehouse_application::IndustrialComplexBronzeSourceRecord;
 
 const HEADER_SNAPSHOT_PERIOD: &str = "sta_ym";
@@ -82,13 +91,22 @@ const OPTIONAL_HEADERS: &[&str] = &[
     HEADER_INVITED_INDUSTRIES,
 ];
 
-/// One decoded worksheet: its rows, and what the header row did not have.
+/// One decoded worksheet: its rows, what the header row did not have, and what the unescaping
+/// could not resolve.
 #[derive(Debug)]
 pub(crate) struct DecodedProfileSheet {
     /// Decoded source records in sheet order.
     pub(crate) records: Vec<IndustrialComplexBronzeSourceRecord>,
     /// [`OPTIONAL_HEADERS`] the worksheet did not carry, in contract order.
     pub(crate) absent_optional_headers: Vec<&'static str>,
+    /// Entity-shaped tokens still present after one unescaping pass, and how many cells carry each.
+    ///
+    /// Two things land here and both are worth seeing. A reference outside the shared table is one
+    /// nobody has decided the meaning of. A reference the provider escaped twice — `&amp;ldquo;`
+    /// occurs four times in the `202506` snapshot — decodes once to `&ldquo;` and stops there,
+    /// because decoding a decode's output is what turns `&amp;lt;` into `<`. Neither is dropped and
+    /// neither is guessed at; the export summary carries this map so the operator sees them.
+    pub(crate) residual_entity_references: BTreeMap<String, u64>,
 }
 
 /// Decodes the profile worksheet into source records.
@@ -111,6 +129,7 @@ pub(super) fn decode_profile_rows(
     let headers = header_index(header_row)?;
 
     let mut records = Vec::new();
+    let mut residual_entity_references = BTreeMap::new();
     for (offset, row) in rows.enumerate() {
         if matches!(max_rows, Some(limit) if records.len() >= limit) {
             break;
@@ -118,6 +137,7 @@ pub(super) fn decode_profile_rows(
         if row.iter().all(|cell| cell_text(cell).is_none()) {
             continue;
         }
+        tally_residual_entity_references(row, &headers, &mut residual_entity_references);
         // Row 1 is the header, so the first data row is row 2.
         let source_row_number = u64::try_from(offset + 2).context("row number exceeded u64")?;
         records.push(IndustrialComplexBronzeSourceRecord {
@@ -175,7 +195,29 @@ pub(super) fn decode_profile_rows(
             .filter(|header| !headers.contains_key(**header))
             .copied()
             .collect(),
+        residual_entity_references,
     })
+}
+
+/// Counts what one unescaped row still carries that is shaped like an entity reference.
+///
+/// Walks the two header contracts rather than a third list of text columns: a column added to
+/// [`REQUIRED_HEADERS`] or [`OPTIONAL_HEADERS`] is reported without anyone remembering to add it
+/// here, and the two provider columns this decoder deliberately does not read stay unreported
+/// because they are not in either list (root ADR-0044).
+fn tally_residual_entity_references(
+    row: &[Data],
+    headers: &BTreeMap<String, usize>,
+    into: &mut BTreeMap<String, u64>,
+) {
+    for header in REQUIRED_HEADERS.iter().chain(OPTIONAL_HEADERS) {
+        let Some(value) = optional_cell(row, headers, header) else {
+            continue;
+        };
+        for reference in entity_references(value.as_str()) {
+            *into.entry(reference).or_default() += 1;
+        }
+    }
 }
 
 fn select_sheet<RS>(workbook: &Xlsx<RS>, pinned: Option<&str>) -> anyhow::Result<String>
@@ -228,11 +270,19 @@ fn required_cell(
         .with_context(|| format!("row {source_row_number}: required column {header} is blank"))
 }
 
+/// Reads one cell as unescaped text, treating a blank cell as absent.
+///
+/// The unescaping happens here, at the single point where a provider cell becomes a Rust `String`,
+/// so every column the contracts name inherits it. The trim runs again afterwards because a
+/// reference can decode to whitespace — `&nbsp;` names U+00A0 — and a cell holding only that says
+/// nothing, exactly like a cell holding only spaces.
 fn optional_cell(row: &[Data], headers: &BTreeMap<String, usize>, header: &str) -> Option<String> {
     headers
         .get(header)
         .and_then(|index| row.get(*index))
         .and_then(cell_text)
+        .map(|text| decode_provider_html_text(text.as_str()).trim().to_owned())
+        .filter(|text| !text.is_empty())
 }
 
 /// Renders one cell as trimmed text, treating a blank cell as absent.
@@ -590,6 +640,109 @@ mod tests {
         assert_eq!(sheet.records.len(), 1);
         assert_eq!(sheet.records[0].official_complex_code, "111010");
         Ok(())
+    }
+
+    /// The escape the provider writes into free-text cells, on the column that carries 437 of the
+    /// 580 escaped canonical rows. Before this the interpunct reached the screen as `&middot;`.
+    #[test]
+    fn provider_escapes_are_unescaped_out_of_the_cell() -> anyhow::Result<()> {
+        let mut values = full_row().to_vec();
+        let invited = column_of("invite_upj");
+        let purpose = column_of("make_purps_cn");
+        let name = column_of("krihs_irstt_nm");
+        values[invited] = "전자부품&middot;컴퓨터&middot;영상&middot;음향및통신장비제조업";
+        values[purpose] = "R&amp;D 및 &ldquo;신기술산업&rdquo;, &#39;인큐베이터&#39;";
+        values[name] = "구미국가산업단지(제2&middot;3&middot;4&middot;확장단지)";
+
+        let sheet = decode_profile_rows(build_profile_workbook(&[header(), &values])?, None, None)?;
+        let record = &sheet.records[0];
+
+        assert_eq!(
+            record.invited_industries_raw.as_deref(),
+            Some("전자부품·컴퓨터·영상·음향및통신장비제조업")
+        );
+        assert_eq!(
+            record.development_purpose_raw.as_deref(),
+            Some("R&D 및 “신기술산업”, '인큐베이터'")
+        );
+        assert_eq!(record.complex_name, "구미국가산업단지(제2·3·4·확장단지)");
+        assert!(sheet.residual_entity_references.is_empty());
+        Ok(())
+    }
+
+    /// One pass, and the row that proves the boundary. `&amp;lt;` must reach the lakehouse as
+    /// `&lt;`; a second pass would make it `<`, which is a tag the source never wrote.
+    #[test]
+    fn an_escaped_ampersand_is_unescaped_exactly_once_and_the_remainder_is_reported(
+    ) -> anyhow::Result<()> {
+        let mut values = full_row().to_vec();
+        values[column_of("make_purps_cn")] = "&amp;lt;태그&amp;gt;";
+        // Row 244710 of the measured snapshot: the provider escaped these references twice.
+        values[column_of("invite_upj")] = "&amp;ldquo;지역전략산업&amp;rdquo;";
+
+        let sheet = decode_profile_rows(build_profile_workbook(&[header(), &values])?, None, None)?;
+        let record = &sheet.records[0];
+
+        assert_eq!(
+            record.development_purpose_raw.as_deref(),
+            Some("&lt;태그&gt;"),
+            "a second unescaping pass would have produced a tag the source never wrote"
+        );
+        assert_eq!(
+            record.invited_industries_raw.as_deref(),
+            Some("&ldquo;지역전략산업&rdquo;")
+        );
+        assert_eq!(
+            sheet.residual_entity_references,
+            [
+                ("&gt;".to_owned(), 1),
+                ("&ldquo;".to_owned(), 1),
+                ("&lt;".to_owned(), 1),
+                ("&rdquo;".to_owned(), 1),
+            ]
+            .into_iter()
+            .collect(),
+            "what one pass could not resolve is reported, not dropped and not decoded again"
+        );
+        Ok(())
+    }
+
+    /// A reference nobody has decided the meaning of survives the cell and is named.
+    #[test]
+    fn an_undecided_reference_is_neither_dropped_nor_guessed_at() -> anyhow::Result<()> {
+        let mut values = full_row().to_vec();
+        values[column_of("make_purps_cn")] = "수출산업&hellip;육성";
+
+        let sheet = decode_profile_rows(build_profile_workbook(&[header(), &values])?, None, None)?;
+
+        assert_eq!(
+            sheet.records[0].development_purpose_raw.as_deref(),
+            Some("수출산업&hellip;육성")
+        );
+        assert_eq!(
+            sheet.residual_entity_references,
+            [("&hellip;".to_owned(), 1)].into_iter().collect()
+        );
+        Ok(())
+    }
+
+    /// A cell whose only content is a reference to whitespace states nothing, and says so.
+    #[test]
+    fn a_cell_holding_only_a_whitespace_reference_is_absent() -> anyhow::Result<()> {
+        let mut values = full_row().to_vec();
+        values[column_of("make_purps_cn")] = "&nbsp;";
+
+        let sheet = decode_profile_rows(build_profile_workbook(&[header(), &values])?, None, None)?;
+
+        assert_eq!(sheet.records[0].development_purpose_raw, None);
+        Ok(())
+    }
+
+    fn column_of(header_name: &str) -> usize {
+        header()
+            .iter()
+            .position(|name| *name == header_name)
+            .expect("the fixture header carries every column this decoder reads")
     }
 
     /// The two provider columns this decoder deliberately does not read. Naming them in a test is
