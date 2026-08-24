@@ -64,7 +64,7 @@ jobs:
         uses: example/tool@1111111111111111111111111111111111111111
   test:
     name: Test
-    runs-on: ubuntu-24.04
+    runs-on: windows-2022
     steps:
       - run: echo synthetic
   required:
@@ -95,6 +95,11 @@ expect_rejected() {
     exit 1
   fi
 }
+
+mkdir "$test_root/untrusted-runner"
+sed 's/runs-on: windows-2022/runs-on: macos-15/' \
+  "$test_root/valid/example.yml" >"$test_root/untrusted-runner/example.yml"
+expect_rejected untrusted-runner "$test_root/untrusted-runner"
 
 mkdir "$test_root/actionlint-duplicate"
 sed '0,/    runs-on: ubuntu-24.04/{s/    runs-on: ubuntu-24.04/    runs-on: ubuntu-24.04\n    runs-on: self-hosted/}' \

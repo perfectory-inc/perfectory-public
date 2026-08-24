@@ -9,8 +9,6 @@ use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const POSTGIS_IMAGE: &str = "postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da";
-const MARTIN_IMAGE: &str = "ghcr.io/maplibre/martin:1.12.0@sha256:6cb9f6fbe3f3aa9d76841120ac02ba562037bd2d303f38a93e80764298a0d21f";
-const PMTILES_IMAGE: &str = "protomaps/go-pmtiles:v1.31.1@sha256:057f8e5a6c77e89b46eebd40d62d295a0b69009371542bc0abfe1ecbc7ee6285";
 const RUST_IMAGE: &str =
     "rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc";
 
@@ -124,7 +122,7 @@ fn compose_is_disposable_digest_pinned_and_loopback_only() {
     let compose = read("scripts/tiles/compose.yaml");
 
     assert_eq!(compose.matches(POSTGIS_IMAGE).count(), 1);
-    assert_eq!(compose.matches(MARTIN_IMAGE).count(), 2);
+    assert_eq!(compose.matches("${PERFECTORY_MARTIN_IMAGE:?").count(), 2);
     require_all(
         &compose,
         &[
@@ -207,6 +205,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "docker() { command \"$DOCKER_EXECUTABLE\" \"$@\"; }",
             "COMPOSE_ENV_FILE_PATH=",
             "write_compose_env()",
+            "static_release_toolchain_contract.py\" image-env --shell",
             "write_static_martin_env()",
             "--env-file \"$DOCKER_COMPOSE_ENV_FILE\"",
             "rm -f -- \"$COMPOSE_ENV_FILE_PATH\"",
@@ -215,7 +214,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "MSYS_NO_PATHCONV=1 docker run",
             RUST_IMAGE,
             "RUSTUP_TOOLCHAIN=1.96.0-x86_64-unknown-linux-gnu",
-            PMTILES_IMAGE,
+            "PERFECTORY_PMTILES_IMAGE",
             "--entrypoint martin-cp",
             "--entrypoint mbtiles",
             "--source parcel_anchor_aggregate",
@@ -302,7 +301,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "FOUNDATION_PLATFORM_R2_TILE_PROOF_OBJECT_KEY",
             "declare -p \"$name\"",
             "validate_r2_test_bucket",
-            "must be query-free for Martin 1.12",
+            "must be query-free for the contracted Martin",
             "--validate-r2-config-only",
             "protected_names=\"$(repository_protected_bucket_names)\"",
             "repository protected bucket SSOT is empty",
@@ -572,6 +571,16 @@ fn root_tile_contract_inputs_trigger_their_authoritative_ci_lanes() {
         1,
         "Foundation CI must rerun the cross-workflow tile-contract guard when Gongzzang CI routing changes"
     );
+    require_all(
+        &foundation_ci,
+        &[
+            "static_release_toolchain_contract.py install",
+            "--platform linux-x86_64",
+            "--platform windows-x86_64",
+            "verify-static-release-toolchain",
+        ],
+        "Foundation executable-toolchain preflight",
+    );
     assert_eq!(
         gongzzang_frontend_ci
             .matches("- \"scripts/tiles/vector-tile-manifest.local.json\"")
@@ -747,7 +756,7 @@ fn production_runbook_locks_private_derivative_bucket_and_pointer_safety() {
             "not an IAM boundary",
             "create-only precondition",
             "`FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`",
-            "Martin 1.12",
+            "static-release-toolchain.contract.json",
             "`pmtiles.paths`",
             "named sources are startup snapshots",
             "The R2 bucket itself needs no public domain",

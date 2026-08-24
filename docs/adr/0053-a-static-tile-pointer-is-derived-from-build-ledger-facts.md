@@ -12,7 +12,7 @@ Catalog 포인터를 옮기는 실행이 서로 다른 바이트를 주장할 �
 포인터에서 제거한 것과 같은 신뢰 경계 결함이다.
 
 Cloudflare R2의 S3 호환 API는 `If-None-Match: *` 조건부 쓰기를 지원하고 조건 불일치를 `412`로
-응답한다. Martin 1.12는 원격 PMTiles 경로를 발견하고 PMTiles를 직접 읽으며, `martin-cp`,
+응답한다. 계약에 고정된 Martin은 원격 PMTiles 경로를 발견하고 PMTiles를 직접 읽으며, `martin-cp`,
 MBTiles 검증, `pmtiles convert`, `pmtiles verify`가 저장 포맷 생성·검증의 채택된 데이터
 플레인이다. 이 저장소의 `FileObjectStorage`는 create-only 쓰기와 exact readback rehash를 같은
 포트로 구현하므로 로컬 증명에서 R2의 불변 조건을 재현할 수 있다.

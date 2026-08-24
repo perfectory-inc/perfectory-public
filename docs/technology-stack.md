@@ -47,6 +47,7 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 | Frontend build/test | Tailwind `4.2.4`, Vite `6.4.2`, Vitest `4.1.7`, Turborepo `2.9.15`, Biome `2.4.14` | Gongzzang manifests/lockfile exact pin |
 | Relational database | PostgreSQL `17` | 모노레포 ADR 0001의 전역 규칙. 모든 Compose DB 이미지 통일 |
 | Spatial database | PostGIS `3.5` on PostgreSQL `17` | Foundation/Gongzzang/tile proof Compose 통일 |
+| Static tile release toolchain | `martin-cp`, `mbtiles`, `pmtiles` | 버전·배포물·실행 파일·이미지 신원은 [`static-release-toolchain.contract.json`](../platforms/foundation-platform/config/static-release-toolchain.contract.json)만 소유 |
 | Cache | Valkey `8` (Redis protocol) | Gongzzang ADR 0007 및 모든 앱 Compose 통일 |
 | Object storage | Cloudflare R2, S3 API | `aws-sdk-s3` adapter. 출시 전에는 private 설정으로 production R2 공유; 이후 dev R2 분리. MinIO 미채택 |
 | C2 broker | Redpanda `v24.3.6` | Intelligence local/CI compose 전용 |

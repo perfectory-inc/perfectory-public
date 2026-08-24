@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "purpose": "Single source of truth for the external tools that build and validate static vector-tile releases.",
+  "tools": {
+    "martin-cp": {
+      "version": "1.12.0",
+      "version_command": ["--version"],
+      "banner_prefix": "martin ",
+      "banner_suffix": "",
+      "distribution": "maplibre-martin",
+      "compatibility_reason": "The archive builder and the serving image must use the same Martin release contract."
+    },
+    "mbtiles": {
+      "version": "0.18.1",
+      "version_command": ["--version"],
+      "banner_prefix": "mbtiles ",
+      "banner_suffix": "",
+      "distribution": "maplibre-martin",
+      "compatibility_reason": "This is the independent MBTiles release bundled by the selected Martin distribution; it is not Martin's version."
+    },
+    "pmtiles": {
+      "version": "1.31.1",
+      "version_command": ["version"],
+      "banner_prefix": "pmtiles ",
+      "banner_suffix": ", commit b9f2dac4172f75737eb508e06b672fd27fe1554a, built at 2026-07-13T17:06:44Z",
+      "distribution": "protomaps-go-pmtiles",
+      "compatibility_reason": "This converter is the release measured against the selected Martin and MBTiles archive path."
+    }
+  },
+  "distributions": {
+    "maplibre-martin": {
+      "source": "MapLibre Martin GitHub release assets and GHCR image",
+      "oci": {
+        "environment_variable": "PERFECTORY_MARTIN_IMAGE",
+        "repository": "ghcr.io/maplibre/martin",
+        "tag_tool": "martin-cp",
+        "tag_prefix": "",
+        "digest": "6cb9f6fbe3f3aa9d76841120ac02ba562037bd2d303f38a93e80764298a0d21f"
+      },
+      "platforms": {
+        "windows-x86_64": {
+          "url": "https://github.com/maplibre/martin/releases/download/martin-v1.12.0/martin-x86_64-pc-windows-msvc.zip",
+          "archive_format": "zip",
+          "sha256": "f9d1f3a78657e14ff36c67d6c1b9893e55ce649c493e0ac135313bcca30c4eec",
+          "executables": {
+            "martin-cp": {
+              "member": "martin-cp.exe",
+              "filename": "martin-cp.exe",
+              "sha256": "398688572f9d6fac2d39f1991f0a36f9726556e36b9709804ab4a4516fff7d8d"
+            },
+            "mbtiles": {
+              "member": "mbtiles.exe",
+              "filename": "mbtiles.exe",
+              "sha256": "dee0f966c663adbf625bd48920b49318cd08841e9deb6b50d9112f9f2f9d4247"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "url": "https://github.com/maplibre/martin/releases/download/martin-v1.12.0/martin-x86_64-unknown-linux-gnu.tar.gz",
+          "archive_format": "tar.gz",
+          "sha256": "dcf11cf1e78a3f9702a9e9e8680e35c3993f505b9b326b9b176b13c17d2d01d1",
+          "executables": {
+            "martin-cp": {
+              "member": "martin-cp",
+              "filename": "martin-cp",
+              "sha256": "67ac0a8c998e9d4b4afe8eafdcba1eba592e0510f70ca12343581f44a5beeca5"
+            },
+            "mbtiles": {
+              "member": "mbtiles",
+              "filename": "mbtiles",
+              "sha256": "43f2449385d25b48bb3c4dd81730248c2add99c6747bd5d5251538caaa99ae25"
+            }
+          }
+        }
+      }
+    },
+    "protomaps-go-pmtiles": {
+      "source": "Protomaps go-pmtiles GitHub release assets and GHCR image",
+      "oci": {
+        "environment_variable": "PERFECTORY_PMTILES_IMAGE",
+        "repository": "protomaps/go-pmtiles",
+        "tag_tool": "pmtiles",
+        "tag_prefix": "v",
+        "digest": "057f8e5a6c77e89b46eebd40d62d295a0b69009371542bc0abfe1ecbc7ee6285"
+      },
+      "platforms": {
+        "windows-x86_64": {
+          "url": "https://github.com/protomaps/go-pmtiles/releases/download/v1.31.1/go-pmtiles_1.31.1_Windows_x86_64.zip",
+          "archive_format": "zip",
+          "sha256": "31a99061f0a775d2854512d279d97fe58b265a5d69d222db8748caffcc09fef8",
+          "executables": {
+            "pmtiles": {
+              "member": "pmtiles.exe",
+              "filename": "pmtiles.exe",
+              "sha256": "275aea77e05e09cecea924527f5ce3f4b4b6c400ef2a27e6126ef8d5cac8b013"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "url": "https://github.com/protomaps/go-pmtiles/releases/download/v1.31.1/go-pmtiles_1.31.1_Linux_x86_64.tar.gz",
+          "archive_format": "tar.gz",
+          "sha256": "71b2212d6796e172b8ba27c21e662c25ec93cacdb88adc35e508617e720f6292",
+          "executables": {
+            "pmtiles": {
+              "member": "pmtiles",
+              "filename": "pmtiles",
+              "sha256": "02a6b2c59e17dfac0a971df2ee0e77b0edfcbf070e19567d37cac9ead2ac8863"
+            }
+          }
+        }
+      }
+    }
+  }
+}

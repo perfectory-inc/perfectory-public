@@ -26,9 +26,7 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 RUST_IMAGE="rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc"
-MARTIN_IMAGE="ghcr.io/maplibre/martin:1.12.0@sha256:6cb9f6fbe3f3aa9d76841120ac02ba562037bd2d303f38a93e80764298a0d21f"
 POSTGIS_IMAGE="postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da"
-PMTILES_IMAGE="protomaps/go-pmtiles:v1.31.1@sha256:057f8e5a6c77e89b46eebd40d62d295a0b69009371542bc0abfe1ecbc7ee6285"
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
 RUN_RELATIVE="target/boundary-slice-proof/$RUN_ID"
@@ -57,12 +55,17 @@ else
 fi
 docker() { command "$DOCKER_EXECUTABLE" "$@"; }
 
-for command in docker curl date mkdir find sort cmp wc sed grep sha256sum; do
+for command in docker curl date mkdir find sort cmp wc sed grep sha256sum python3; do
   command -v "$command" >/dev/null 2>&1 || {
     printf 'boundary-slice-proof: missing command %s\n' "$command" >&2
     exit 1
   }
 done
+
+toolchain_environment="$(
+  python3 "$REPO_ROOT/scripts/tiles/static_release_toolchain_contract.py" image-env --shell
+)" || fail "static-release toolchain contract is invalid"
+eval "$toolchain_environment"
 
 host_path() {
   if command -v cygpath >/dev/null 2>&1; then
@@ -325,7 +328,7 @@ docker run -d --name "$MARTIN" --network "$NET" \
   -p "127.0.0.1:$MARTIN_PORT:3000" \
   -v "$(host_path "$SCRIPT_DIR/martin-dynamic.yaml"):/etc/martin/config.yaml:ro" \
   -e DATABASE_URL="postgresql://postgres:$DB_PASSWORD@$DB:5432/tiles_slice_proof" \
-  "$MARTIN_IMAGE" --config /etc/martin/config.yaml >/dev/null
+  "$PERFECTORY_MARTIN_IMAGE" --config /etc/martin/config.yaml >/dev/null
 
 for _ in $(seq 1 60); do
   if curl --fail --silent "http://127.0.0.1:$MARTIN_PORT/catalog" >/dev/null 2>&1; then
@@ -480,7 +483,7 @@ mkdir -p "$RUN_DIR/static" "$RUN_DIR/unpacked"
 
 # Martin worked out this source's extent with `auto_bounds: calc` when it started, and that was
 # before the unit was promoted: the view returned nothing, so it advertises no extent at all. It
-# never recomputes. Measured on this Martin (1.12.0), a table that was empty at startup and then
+# never recomputes. Measured on the contracted Martin, a table that was empty at startup and then
 # filled still reports the startup answer:
 #
 #   started against an empty table          -> TileJSON has no `bounds` key
@@ -577,11 +580,11 @@ martin_tool() {
     -v "$(host_path "$SCRIPT_DIR/martin-dynamic.yaml"):/etc/martin/config.yaml:ro" \
     -v "$(host_path "$RUN_DIR"):/artifacts" \
     -e DATABASE_URL="postgresql://postgres:$DB_PASSWORD@$DB:5432/tiles_slice_proof" \
-    "$MARTIN_IMAGE" "$@"
+    "$PERFECTORY_MARTIN_IMAGE" "$@"
 }
 
 pmtiles_tool() {
-  docker run --rm -v "$(host_path "$RUN_DIR"):/artifacts" "$PMTILES_IMAGE" "$@"
+  docker run --rm -v "$(host_path "$RUN_DIR"):/artifacts" "$PERFECTORY_PMTILES_IMAGE" "$@"
 }
 
 bake_started_at="$(date -u +%s)"
@@ -648,7 +651,7 @@ docker run -d --name "$STATIC_MARTIN" --network "$NET" \
   -p "127.0.0.1:$STATIC_MARTIN_PORT:3000" \
   -v "$(host_path "$SCRIPT_DIR/martin-static-local-paths.yaml"):/etc/martin/config.yaml:ro" \
   -v "$(host_path "$RUN_DIR"):/artifacts:ro" \
-  "$MARTIN_IMAGE" --config /etc/martin/config.yaml >/dev/null
+  "$PERFECTORY_MARTIN_IMAGE" --config /etc/martin/config.yaml >/dev/null
 
 static_ready=false
 for _ in $(seq 1 60); do

@@ -14,6 +14,7 @@ python3 - "$root" <<'PY'
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 import posixpath
 import re
@@ -34,6 +35,26 @@ SAFE_BIND = re.compile(
 )
 SECRET_KEY = re.compile(r"(?:^|_)(?:PASSWORD|MASTERKEY|SECRET|TOKEN|KEY)(?:$|_)")
 REQUIRED_ENV = re.compile(r"\$\{[A-Z][A-Z0-9_]*:\?[^}]+\}")
+REQUIRED_CONTRACT_IMAGE = re.compile(
+    r"\$\{([A-Z][A-Z0-9_]*IMAGE[A-Z0-9_]*):\?[^}]+\}"
+)
+STATIC_RELEASE_CONTRACT = pathlib.PurePosixPath(
+    "platforms/foundation-platform/config/static-release-toolchain.contract.json"
+)
+STATIC_RELEASE_PROJECTOR = pathlib.PurePosixPath(
+    "scripts/tiles/static_release_toolchain_contract.py"
+)
+STATIC_RELEASE_PROJECTION = re.compile(
+    r'toolchain_environment="\$\(\s*python3\s+"\$REPO_ROOT/'
+    + re.escape(STATIC_RELEASE_PROJECTOR.as_posix())
+    + r'"\s+image-env\s+--shell\s*\)"[^\n]*\n\s*'
+    r'eval\s+"\$toolchain_environment"',
+    flags=re.MULTILINE,
+)
+CONTRACT_COMPOSE_OWNER = re.compile(
+    r"^x-perfectory-contract-image-owner:\s*([^\s#]+)\s*(?:#.*)?$",
+    flags=re.MULTILINE,
+)
 
 
 def fail(path: str, line: int, message: str) -> None:
@@ -80,6 +101,108 @@ def image_is_immutable(reference: str) -> bool:
         return False
     _, tag = final_component.rsplit(":", 1)
     return bool(tag) and not any(token in named for token in ("$", "{", "}"))
+
+
+def load_contract_images() -> dict[str, str]:
+    contract_present = STATIC_RELEASE_CONTRACT.as_posix() in tracked_set
+    projector_present = STATIC_RELEASE_PROJECTOR.as_posix() in tracked_set
+    if not contract_present and not projector_present:
+        return {}
+    if not contract_present or not projector_present:
+        raise RuntimeError(
+            "static-release contract projection requires both its tracked contract and projector"
+        )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / STATIC_RELEASE_PROJECTOR),
+            "--contract",
+            str(ROOT / STATIC_RELEASE_CONTRACT),
+            "image-env",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    value = json.loads(completed.stdout)
+    if not isinstance(value, dict) or not value:
+        raise RuntimeError("static-release projector returned no image environment")
+    images: dict[str, str] = {}
+    for raw_name, raw_reference in value.items():
+        if (
+            not isinstance(raw_name, str)
+            or not IMAGE_VARIABLE.fullmatch(f"${raw_name}")
+            or not isinstance(raw_reference, str)
+            or not image_is_immutable(raw_reference)
+        ):
+            raise RuntimeError("static-release projector returned an invalid image environment")
+        images[raw_name] = raw_reference
+    return images
+
+
+def line_number(text: str, position: int) -> int:
+    return text.count("\n", 0, position) + 1
+
+
+def contract_projection_precedes(text: str, use_line: int) -> bool:
+    matches = list(STATIC_RELEASE_PROJECTION.finditer(text))
+    return len(matches) == 1 and line_number(text, matches[0].end()) <= use_line
+
+
+def contract_image_has_no_assignment(text: str, name: str) -> bool:
+    return not assignment_values(text, name)
+
+
+def contract_compose_owner_is_valid(path: str, text: str) -> bool:
+    owners = list(CONTRACT_COMPOSE_OWNER.finditer(text))
+    if len(owners) != 1:
+        return False
+    owner = pathlib.PurePosixPath(owners[0].group(1))
+    owner_name = owner.as_posix()
+    if (
+        owner.is_absolute()
+        or ".." in owner.parts
+        or any(token in owner_name for token in ("$", "{", "}", "\\", "://"))
+        or not owner_name.endswith((".sh", ".bash"))
+        or owner_name not in tracked_set
+    ):
+        return False
+    owner_text = read_text(owner_name)
+    if owner_text is None:
+        return False
+    relative_assignment = re.compile(
+        r'^\s*COMPOSE_FILE_RELATIVE=(["\'])'
+        + re.escape(path)
+        + r'\1\s*$',
+        flags=re.MULTILINE,
+    )
+    compose_command = re.search(
+        r'docker\s+compose\b[\s\S]{0,800}?--file\s+'
+        r'"\$\(host_path\s+"\$REPO_ROOT/\$COMPOSE_FILE_RELATIVE"\)"',
+        owner_text,
+    )
+    if relative_assignment.search(owner_text) is None or compose_command is None:
+        return False
+    if not contract_projection_precedes(
+        owner_text, line_number(owner_text, compose_command.start())
+    ):
+        return False
+    return all(
+        contract_image_has_no_assignment(owner_text, name) for name in contract_images
+    )
+
+
+def compose_image_is_immutable(path: str, text: str, reference: str) -> bool:
+    if image_is_immutable(reference):
+        return True
+    token = unquote_yaml_scalar(reference)
+    variable = REQUIRED_CONTRACT_IMAGE.fullmatch(token)
+    return bool(
+        variable
+        and variable.group(1) in contract_images
+        and contract_compose_owner_is_valid(path, text)
+    )
 
 
 def is_compose_path(relative: str) -> bool:
@@ -264,7 +387,7 @@ def check_compose(path: str, text: str) -> None:
                 fail(path, index + 1, "secret-like Compose environment values require ${NAME:?message}")
 
         image_match = re.match(r"^\s*image:\s*(.+?)\s*$", raw)
-        if image_match and not image_is_immutable(image_match.group(1)):
+        if image_match and not compose_image_is_immutable(path, text, image_match.group(1)):
             fail(path, index + 1, "external Compose images require tag@sha256; only *:local may omit a digest")
 
         ports_match = re.match(r"^(\s*)ports:\s*(.*?)\s*$", raw)
@@ -391,7 +514,7 @@ def assignment_values(text: str, name: str) -> list[str]:
     return [unquote_yaml_scalar(match.group(1)) for match in assignment.finditer(text)]
 
 
-def resolve_image_variable(path: str, text: str, token: str) -> str | None:
+def resolve_image_variable(path: str, text: str, token: str, use_line: int) -> str | None:
     with_default = IMAGE_WITH_DEFAULT.fullmatch(token)
     if with_default:
         return with_default.group(2)
@@ -399,6 +522,13 @@ def resolve_image_variable(path: str, text: str, token: str) -> str | None:
     if not variable:
         return None
     name = variable.group(1)
+    if name in contract_images:
+        if (
+            contract_projection_precedes(text, use_line)
+            and contract_image_has_no_assignment(text, name)
+        ):
+            return contract_images[name]
+        return None
     local = assignment_values(text, name)
     if local:
         return local[0] if len(local) == 1 else None
@@ -523,7 +653,11 @@ def check_shell(path: str, text: str) -> None:
             if reference is None:
                 fail(path, line, f"cannot identify docker {command} image")
                 continue
-            resolved = resolve_image_variable(path, text, reference) if reference.startswith("$") else reference
+            resolved = (
+                resolve_image_variable(path, text, reference, line)
+                if reference.startswith("$")
+                else reference
+            )
             if resolved is None or not image_is_immutable(resolved):
                 fail(path, line, f"docker {command} image must resolve to tag@sha256 (or *:local)")
 
@@ -535,6 +669,17 @@ except (OSError, subprocess.CalledProcessError) as error:
     print(f"FAIL container-runtime-policy: cannot enumerate tracked files: {error}", file=sys.stderr)
     raise SystemExit(1)
 tracked_set = set(files)
+try:
+    contract_images = load_contract_images()
+except (
+    OSError,
+    RuntimeError,
+    json.JSONDecodeError,
+    subprocess.CalledProcessError,
+    subprocess.TimeoutExpired,
+) as error:
+    print(f"FAIL container-runtime-policy: cannot load contract images: {error}", file=sys.stderr)
+    raise SystemExit(1)
 
 for relative in files:
     text = read_text(relative)

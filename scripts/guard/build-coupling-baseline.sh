@@ -91,13 +91,20 @@ set -euo pipefail
 # has to reproject EPSG:5186 metres through PostGIS and watch an unpromoted load stay invisible, and
 # neither is answerable outside a migrated database.
 #
+# 88 -> 89: `foundation-outbox-publisher/src/static_release_toolchain.rs` embeds the
+# static-release executable identity contract. The publisher must verify the same
+# contract that owns installer and CI pins even when the working tree is absent at
+# runtime; reading a second runtime copy would permit the built binary and its
+# archive commands to disagree. This one explicit build input is therefore the
+# cost of preserving that contract as an SSOT and failing closed for stale binaries.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-88}"
+COMPILE_TIME_READ_BASELINE="${3:-89}"
 
 cd "$repo_root"
 

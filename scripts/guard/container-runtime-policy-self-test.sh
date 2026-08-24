@@ -13,6 +13,15 @@ if [ ! -f "$checker" ]; then
   echo "FAIL container-runtime-policy-self-test: missing $checker" >&2
   exit 1
 fi
+ssot_checker="scripts/guard/static-release-toolchain-ssot.py"
+contract="platforms/foundation-platform/config/static-release-toolchain.contract.json"
+projector="scripts/tiles/static_release_toolchain_contract.py"
+for required in "$ssot_checker" "$contract" "$projector"; do
+  if [ ! -f "$required" ]; then
+    echo "FAIL container-runtime-policy-self-test: missing $required" >&2
+    exit 1
+  fi
+done
 
 test_root="$(mktemp -d)"
 cleanup() {
@@ -36,6 +45,47 @@ expect_rejected() {
     echo "FAIL container-runtime-policy-self-test: accepted $label" >&2
     exit 1
   fi
+}
+
+expect_accepted() {
+  local label="$1"
+  local root="$2"
+  git -C "$root" add -A
+  if ! bash "$checker" "$root" >/dev/null 2>&1; then
+    echo "FAIL container-runtime-policy-self-test: rejected $label" >&2
+    exit 1
+  fi
+}
+
+make_contract_projection_fixture() {
+  local fixture_root="$1"
+  make_repo "$fixture_root"
+  mkdir -p \
+    "$fixture_root/platforms/foundation-platform/config" \
+    "$fixture_root/scripts/tiles"
+  cp -- "$contract" \
+    "$fixture_root/platforms/foundation-platform/config/static-release-toolchain.contract.json"
+  cp -- "$projector" "$fixture_root/scripts/tiles/static_release_toolchain_contract.py"
+  cat >"$fixture_root/scripts/tiles/run.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+COMPOSE_FILE_RELATIVE="scripts/tiles/compose.yaml"
+toolchain_environment="$(
+  python3 "$REPO_ROOT/scripts/tiles/static_release_toolchain_contract.py" image-env --shell
+)" || exit 1
+eval "$toolchain_environment"
+host_path() { printf '%s' "$1"; }
+docker run --rm "$PERFECTORY_MARTIN_IMAGE" true
+docker run --rm "$PERFECTORY_PMTILES_IMAGE" true
+docker compose --file "$(host_path "$REPO_ROOT/$COMPOSE_FILE_RELATIVE")" config
+SH
+  cat >"$fixture_root/scripts/tiles/compose.yaml" <<'YAML'
+x-perfectory-contract-image-owner: scripts/tiles/run.sh
+services:
+  application:
+    image: ${PERFECTORY_MARTIN_IMAGE:?load the static-release toolchain contract}
+YAML
 }
 
 valid="$test_root/valid"
@@ -70,6 +120,45 @@ docker run --rm --pids-limit 512 "$SYNTHETIC_IMAGE" true
 SH
 git -C "$valid" add -A
 bash "$checker" "$valid" >/dev/null
+
+# A contract projector is a stronger source than a copied image literal: it
+# derives the immutable reference from the one contract at runtime. The
+# Compose owner is explicit so the policy can follow that same projection into
+# the tracked Compose declaration. Both guards must accept this one fixture or
+# their requirements contradict each other.
+contract_projection="$test_root/contract-projection"
+make_contract_projection_fixture "$contract_projection"
+expect_accepted contract-projected-shell-and-compose-images "$contract_projection"
+if ! python3 "$ssot_checker" --root "$contract_projection" >/dev/null 2>&1; then
+  echo "FAIL container-runtime-policy-self-test: SSOT guard rejected contract projection" >&2
+  exit 1
+fi
+
+missing_projection="$test_root/missing-contract-projection"
+make_contract_projection_fixture "$missing_projection"
+python3 - "$missing_projection/scripts/tiles/run.sh" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+start = text.index('toolchain_environment="$(')
+end = text.index('host_path()', start)
+path.write_text(text[:start] + text[end:], encoding="utf-8")
+PY
+expect_rejected contract-image-variable-without-projector "$missing_projection"
+
+overridden_projection="$test_root/overridden-contract-projection"
+make_contract_projection_fixture "$overridden_projection"
+printf '%s\n' 'PERFECTORY_MARTIN_IMAGE=example/tool:latest' \
+  >>"$overridden_projection/scripts/tiles/run.sh"
+expect_rejected contract-image-overridden-after-projection "$overridden_projection"
+
+false_owner="$test_root/false-contract-compose-owner"
+make_contract_projection_fixture "$false_owner"
+sed -i 's#scripts/tiles/run.sh#scripts/tiles/not-an-owner.sh#' \
+  "$false_owner/scripts/tiles/compose.yaml"
+expect_rejected contract-compose-image-with-false-owner "$false_owner"
 
 mutable_compose="$test_root/mutable-compose"
 make_repo "$mutable_compose"

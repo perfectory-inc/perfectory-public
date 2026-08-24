@@ -94,9 +94,50 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: cargo xtask verify foundation
 
+      - name: Verify exact static-release executable toolchain
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool_directory="$RUNNER_TEMP/static-release-toolchain"
+          python3 scripts/tiles/static_release_toolchain_contract.py install \
+            --destination "$tool_directory" --platform linux-x86_64 --timeout-seconds 30
+          export PATH="$tool_directory:$PATH"
+          cd platforms/foundation-platform
+          timeout --foreground 300s cargo run --locked -p foundation-outbox-publisher -- \
+            verify-static-release-toolchain
+
       - name: Verify R2 live lane fails closed without credentials
         working-directory: ${{ github.workspace }}
         run: bash scripts/guard/foundation-r2-lakehouse-live-self-test.sh
+
+  static-release-toolchain-windows:
+    name: Static-release executable toolchain (Windows)
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+          rustup default $env:RUST_TOOLCHAIN
+
+      - name: Verify exact static-release executable toolchain
+        working-directory: ${{ github.workspace }}
+        shell: pwsh
+        run: |
+          $toolDirectory = Join-Path $env:RUNNER_TEMP "static-release-toolchain"
+          python scripts/tiles/static_release_toolchain_contract.py install `
+            --destination $toolDirectory --platform windows-x86_64 --timeout-seconds 30
+          $env:PATH = "$toolDirectory$([IO.Path]::PathSeparator)$env:PATH"
+          Set-Location platforms/foundation-platform
+          cargo run --locked -p foundation-outbox-publisher -- verify-static-release-toolchain
 
   supply-chain:
     name: Supply-chain release gates
@@ -413,7 +454,7 @@ jobs:
   required:
     name: required/foundation
     if: ${{ always() }}
-    needs: [rust-quality, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice]
+    needs: [rust-quality, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -423,6 +464,7 @@ jobs:
       - name: Require every Foundation gate
         env:
           REQUIRED_RESULT_RUST_QUALITY: ${{ needs.rust-quality.result }}
+          REQUIRED_RESULT_STATIC_RELEASE_TOOLCHAIN_WINDOWS: ${{ needs.static-release-toolchain-windows.result }}
           REQUIRED_RESULT_SUPPLY_CHAIN: ${{ needs.supply-chain.result }}
           REQUIRED_RESULT_POSTGRES_INTEGRATION: ${{ needs.postgres-integration.result }}
           REQUIRED_RESULT_KAFKA_INTEGRATION: ${{ needs.kafka-integration.result }}

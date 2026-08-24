@@ -1,3 +1,5 @@
+x-perfectory-contract-image-owner: scripts/tiles/tiles-slice-proof.sh
+
 services:
   postgis:
     image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
@@ -17,7 +19,7 @@ services:
       start_period: 5s
 
   dynamic-martin:
-    image: ghcr.io/maplibre/martin:1.12.0@sha256:6cb9f6fbe3f3aa9d76841120ac02ba562037bd2d303f38a93e80764298a0d21f
+    image: ${PERFECTORY_MARTIN_IMAGE:?load the static-release toolchain contract}
     command:
       - --config
       - /etc/martin/config.yaml
@@ -40,7 +42,7 @@ services:
         target: /artifacts
 
   static-martin:
-    image: ghcr.io/maplibre/martin:1.12.0@sha256:6cb9f6fbe3f3aa9d76841120ac02ba562037bd2d303f38a93e80764298a0d21f
+    image: ${PERFECTORY_MARTIN_IMAGE:?load the static-release toolchain contract}
     profiles:
       - static
     command:
