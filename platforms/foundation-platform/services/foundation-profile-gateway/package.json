@@ -20,7 +20,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "4.20260426.1",
     "@types/node": "20.19.11",
-    "esbuild": "0.27.7",
+    "esbuild": "0.28.1",
     "miniflare": "4.20260426.0",
     "typescript": "5.9.3",
     "vitest": "4.1.7",
@@ -30,7 +30,7 @@
     "overrides": {
       "undici": "7.29.0",
       "ws": "8.21.0",
-      "esbuild": "0.27.7",
+      "esbuild": "0.28.1",
       "sharp": "0.35.0"
     }
   }
