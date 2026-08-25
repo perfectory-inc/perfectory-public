@@ -176,6 +176,14 @@ docker_args=(
   -e SQLX_OFFLINE=true
   -e GIT_OPTIONAL_LOCKS=0
   -e CARGO_TERM_COLOR=always
+  -e COREPACK_HOME=/opt/corepack
+  -e PNPM_HOME=/opt/pnpm
+  # pnpm reads ordinary config through npm_config_* environment variables.
+  # Passing PNPM_CONFIG_OFFLINE looks plausible but is ignored, which used to
+  # let verification retry the public registry despite `--network none`.
+  -e npm_config_store_dir=/pnpm/store
+  -e npm_config_offline=true
+  -e WRANGLER_SEND_METRICS=false
   -e "PERFECTORY_VERIFY_AREA=$AREA"
 )
 
@@ -202,6 +210,11 @@ if [ "$clean_verify" -eq 1 ]; then
   if [ "$AREA" != "tools/xtask" ]; then
     docker_args+=(--mount "type=volume,target=/work/tools/xtask/target,volume-nocopy")
   fi
+  if [ "$AREA" = "platforms/foundation-platform" ]; then
+    docker_args+=(
+      --mount "type=volume,target=/work/platforms/foundation-platform/services/foundation-profile-gateway/node_modules,volume-nocopy"
+    )
+  fi
 else
   # Named caches are an intentional performance optimization for ordinary
   # local/CI verification; they are never used by the publication audit.
@@ -215,6 +228,11 @@ else
   )
   if [ "$AREA" != "tools/xtask" ]; then
     docker_args+=(-v perfectory-target-xtask:/work/tools/xtask/target)
+  fi
+  if [ "$AREA" = "platforms/foundation-platform" ]; then
+    docker_args+=(
+      -v perfectory-node-foundation-profile-gateway:/work/platforms/foundation-platform/services/foundation-profile-gateway/node_modules
+    )
   fi
 fi
 

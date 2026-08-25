@@ -24,6 +24,8 @@ struct Area {
     /// Non-Rust tests owned by this area and required by the same authoritative
     /// verification entrypoint. Empty means the area has no such suite.
     python_tests: &'static [PythonTests],
+    /// Node package suites owned by this area and run by the same verification SSOT.
+    node_tests: &'static [NodeTests],
     /// Live-resource lanes, each naming the exact targets that need that backend.
     ///
     /// This replaced an `Option<Integration>` whose `None` was an escape hatch:
@@ -265,11 +267,27 @@ struct PythonTests {
     covers: &'static [&'static str],
 }
 
+struct NodeTests {
+    /// Working directory relative to the area root and containing the lockfile.
+    dir: &'static str,
+    /// Package scripts that collectively define verification for this package.
+    scripts: &'static [&'static str],
+    /// Script whose Vitest summary must prove that at least one test executed.
+    test_script: &'static str,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct PythonCommandPlan {
     current_dir: PathBuf,
     python_path: Option<&'static str>,
     args: &'static [&'static str],
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct NodeCommandPlan {
+    current_dir: PathBuf,
+    scripts: &'static [&'static str],
+    test_script: &'static str,
 }
 
 const AREAS: &[Area] = &[
@@ -278,6 +296,7 @@ const AREAS: &[Area] = &[
         dir: "products/gongzzang",
         apt_deps: &[],
         python_tests: &[],
+        node_tests: &[],
 
         // Gated by `#![cfg(feature = "integration")]` rather than `#[ignore]`.
         // `verify` reads that gating back off this table to keep the package out
@@ -455,6 +474,11 @@ const AREAS: &[Area] = &[
                 covers: &["tests/static_release_toolchain"],
             },
         ],
+        node_tests: &[NodeTests {
+            dir: "services/foundation-profile-gateway",
+            scripts: &["config:check", "typecheck", "test", "build:check"],
+            test_script: "test",
+        }],
         // Foundation's DB-backed reads tests (catalog_*_reads, …) are `#[ignore]`
         // and need a migrated + seeded Postgres. scripts/verify/integration.sh
         // provisions one locally; CI's postgres-integration job provides its own.
@@ -706,6 +730,7 @@ const AREAS: &[Area] = &[
         dir: "platforms/identity-platform",
         apt_deps: &[],
         python_tests: &[],
+        node_tests: &[],
 
         // identity-ci.yml runs these two through a raw `cargo test --ignored`
         // written straight into the workflow, so they exist in CI but cannot be
@@ -754,6 +779,7 @@ const AREAS: &[Area] = &[
             "zlib1g-dev",
         ],
         python_tests: &[],
+        node_tests: &[],
 
         live_lanes: &[
             LiveLane {
@@ -810,6 +836,7 @@ const AREAS: &[Area] = &[
         dir: "tools/xtask",
         apt_deps: &[],
         python_tests: &[],
+        node_tests: &[],
         live_lanes: &[],
     },
 ];
@@ -999,6 +1026,35 @@ fn verify(area: &Area, log: &mut FailureLog) {
             ));
         }
     }
+
+    for (suite, plan) in area.node_tests.iter().zip(node_test_plans(area, &dir)) {
+        if !plan.current_dir.join("package.json").is_file()
+            || !plan.current_dir.join("pnpm-lock.yaml").is_file()
+        {
+            log.record(format!(
+                "{} node suite '{}' must contain package.json and pnpm-lock.yaml",
+                area.slug, suite.dir
+            ));
+            continue;
+        }
+        log.absorb(node_capturing_output(
+            &plan.current_dir,
+            &["install", "--frozen-lockfile"],
+        ));
+        for script in plan.scripts {
+            let Some(output) =
+                log.absorb(node_capturing_output(&plan.current_dir, &["run", script]))
+            else {
+                continue;
+            };
+            if *script == plan.test_script && executed_vitest_test_count(&output) == 0 {
+                log.record(format!(
+                    "{} node suite '{}' script '{}' executed 0 tests",
+                    area.slug, suite.dir, script
+                ));
+            }
+        }
+    }
 }
 
 /// unittest reports `Ran N tests` on stderr; pytest reports `N passed` on stdout.
@@ -1080,6 +1136,58 @@ fn python_test_plans(area: &Area, area_dir: &Path) -> Vec<PythonCommandPlan> {
             args: suite.args,
         })
         .collect()
+}
+
+fn node_test_plans(area: &Area, area_dir: &Path) -> Vec<NodeCommandPlan> {
+    area.node_tests
+        .iter()
+        .map(|suite| NodeCommandPlan {
+            current_dir: area_dir.join(suite.dir),
+            scripts: suite.scripts,
+            test_script: suite.test_script,
+        })
+        .collect()
+}
+
+/// Vitest prints `Tests  N passed (...)`; the test count, not the process exit code, proves
+/// discovery selected something. A missing or changed summary fails closed as zero.
+fn executed_vitest_test_count(output: &str) -> usize {
+    output
+        .lines()
+        .filter_map(|line| {
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            if tokens.first().copied() != Some("Tests") {
+                return None;
+            }
+            let passed = tokens.iter().position(|token| *token == "passed")?;
+            tokens.get(passed.checked_sub(1)?)?.parse::<usize>().ok()
+        })
+        .sum()
+}
+
+fn node_capturing_output(dir: &Path, args: &[&str]) -> Result<String, String> {
+    let mut command = Command::new("corepack");
+    command
+        .current_dir(dir)
+        .env("CI", "true")
+        .env("NO_COLOR", "1")
+        .env("WRANGLER_SEND_METRICS", "false")
+        .arg("pnpm")
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let rendered = format!("{command:?}");
+    let output = command
+        .output()
+        .map_err(|error| format!("could not spawn {rendered}: {error}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    print!("{stdout}");
+    eprint!("{stderr}");
+    if !output.status.success() {
+        return Err(format!("({}) {rendered}", output.status));
+    }
+    Ok(format!("{stdout}{stderr}"))
 }
 
 /// Run the fast repository-structure checks before any expensive area build.
@@ -1924,6 +2032,30 @@ mod tests {
         );
         // No summary at all is zero, never "assume it was fine".
         assert_eq!(executed_python_test_count("collecting ...\n"), 0);
+    }
+
+    #[test]
+    fn foundation_node_suite_plan_is_owned_by_verify_ssot() {
+        let foundation = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
+        let plans = node_test_plans(foundation, Path::new("platforms/foundation-platform"));
+
+        assert_eq!(plans.len(), 1);
+        assert_eq!(
+            plans[0].current_dir,
+            PathBuf::from("platforms/foundation-platform/services/foundation-profile-gateway")
+        );
+        assert_eq!(
+            plans[0].scripts,
+            &["config:check", "typecheck", "test", "build:check"]
+        );
+        assert_eq!(plans[0].test_script, "test");
+    }
+
+    #[test]
+    fn executed_vitest_count_fails_closed_on_zero_or_missing_summary() {
+        assert_eq!(executed_vitest_test_count("Tests  24 passed (24)\n"), 24);
+        assert_eq!(executed_vitest_test_count("Tests  no tests\n"), 0);
+        assert_eq!(executed_vitest_test_count("Test Files  1 passed (1)\n"), 0);
     }
 
     #[test]

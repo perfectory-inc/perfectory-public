@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-18
 - Supersedes: ADR-0038
+- Amended by: ADR-0055 (공개 경계는 CDN prefix 설정이 아니라 비공개 버킷 앞의 허용 목록 Worker)
 
 ## Context
 
@@ -59,8 +60,7 @@ ADR-0038 은 이 셋을 확인하지 않고 썼다. 그 결과 실제로 존재�
 
 - Gold 아티팩트의 배치가 하나로 통일된다: parcel marker anchor 도 산업단지 프로필도 lakehouse
   버킷의 `gold/` 아래. 새 Gold 아티팩트도 그 자리를 따른다.
-- 그 버킷을 공개 주소로 노출할 때 `gold/` 아래만 노출하는 것은 CDN/도메인 설정의 몫이다.
-  `bronze/`·`silver/`·`__r2_data_catalog/` 가 같은 버킷에 있다는 사실은 그대로이므로, 노출
-  범위는 접두사 단위로 제한되어야 한다. 이것은 코드가 아니라 Cloudflare 설정에서 정해지며
-  소유자가 수행한다.
+- 버킷 공개 주소나 bucket-bound domain은 prefix 권한을 제공하지 않는다. ADR-0055의 비공개
+  버킷 앞 Worker가 `r2_layout` 정본 프로필 키만 허용하며, Bronze·Silver·Iceberg 공간은 계속
+  공개 경계 밖에 둔다.
 - ADR-0038 은 폐기되지 않고 대체된다. 왜 잘못된 경계를 한 번 그었는지가 기록으로 남는다.

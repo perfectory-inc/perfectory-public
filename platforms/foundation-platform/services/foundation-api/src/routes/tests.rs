@@ -1,7 +1,7 @@
 use super::{
     canonical_route_label, cors_allowed_origins_from, enforce_concurrency_limit, metrics,
-    metrics_body, readiness_status, record_http_metrics, router, MetricsBodyInput,
-    TrafficMiddlewareState,
+    metrics_body, parse_cors_origins, readiness_status, record_http_metrics, router,
+    MetricsBodyInput, TrafficMiddlewareState,
 };
 use crate::identity_authorization::{
     AuthorizedPrincipal, IdentityAuthorization, IdentityAuthorizationError, RequiredPrincipalKind,

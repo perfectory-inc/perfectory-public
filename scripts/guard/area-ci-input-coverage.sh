@@ -76,6 +76,13 @@ for workflow in "$workflows_dir"/*.yml; do
     [ -n "$literal" ] || continue
     # Area-local: the area's own glob already retriggers the workflow.
     [ -e "$repo_root/$area/$literal" ] && continue
+    # If a relative literal did not resolve inside the area, it is assertion data
+    # rather than a repository-root input. Never follow it outside the repository:
+    # on Linux, strings such as `../../etc/passwd` otherwise make this guard inspect
+    # the host filesystem and demand impossible CI path filters for `/etc`.
+    case "/$literal/" in
+      */../*) continue ;;
+    esac
     # Not a path at either root: an assertion fragment, or a generated artifact.
     [ -e "$repo_root/$literal" ] || continue
     checked=$((checked + 1))

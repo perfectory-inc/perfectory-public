@@ -1,0 +1,37 @@
+{
+  "name": "@perfectory/foundation-profile-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": "20.19.0",
+    "pnpm": "9.12.0"
+  },
+  "scripts": {
+    "build:check": "node scripts/verify-build.mjs",
+    "config:check": "node scripts/render-wrangler-config.mjs --check",
+    "config:render": "node scripts/render-wrangler-config.mjs --write",
+    "test": "vitest run --passWithNoTests=false",
+    "typecheck": "tsc --noEmit",
+    "verify:local": "node scripts/verify-local.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260426.1",
+    "@types/node": "20.19.11",
+    "esbuild": "0.28.1",
+    "miniflare": "4.20260426.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.7",
+    "wrangler": "4.86.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "undici": "7.29.0",
+      "ws": "8.21.0",
+      "esbuild": "0.28.1",
+      "sharp": "0.35.0"
+    }
+  }
+}

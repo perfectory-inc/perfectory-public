@@ -14,7 +14,34 @@
 # That makes this the second copy of a value `tools/container-images.env` also holds, so
 # `technology-version-consistency` asserts the two are equal. This image layers onto the harness's
 # toolchain; a drift between them would verify against something other than what CI runs.
+FROM node:20.19.0-bookworm@sha256:a5fb035ac1dff34a4ecaea85f90f7321185695d3fd22c12ba12f4535a4647cc5 AS node-tools
+
+ENV COREPACK_HOME=/opt/corepack \
+    PNPM_HOME=/opt/pnpm \
+    PATH=/opt/pnpm:$PATH
+RUN mkdir -p "$COREPACK_HOME" "$PNPM_HOME" /pnpm/store \
+  && corepack enable --install-directory "$PNPM_HOME" \
+  && corepack prepare pnpm@9.12.0 --activate
+WORKDIR /warm/profile-gateway
+COPY platforms/foundation-platform/services/foundation-profile-gateway/package.json ./package.json
+COPY platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml ./pnpm-lock.yaml
+# `pnpm fetch` omits platform-specific optional packages in pnpm 9 even when the
+# lockfile contains them.  workerd and esbuild resolve their Linux binaries
+# through optionalDependencies, so perform the exact Linux install while the
+# image still has network access and retain its content-addressed store only.
+RUN pnpm install --frozen-lockfile --store-dir /pnpm/store \
+  && rm -rf node_modules
+
 FROM rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc
+
+COPY --from=node-tools /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-tools /usr/local/lib/node_modules/corepack /usr/local/lib/node_modules/corepack
+COPY --from=node-tools /opt/corepack /opt/corepack
+COPY --from=node-tools /opt/pnpm /opt/pnpm
+COPY --from=node-tools /pnpm/store /pnpm/store
+ENV COREPACK_HOME=/opt/corepack \
+    PNPM_HOME=/opt/pnpm \
+    PATH=/opt/pnpm:$PATH
 
 # The union of `Area::apt_deps` in tools/xtask/src/main.rs. Keep the two in step: a dependency listed
 # there and missing here makes `ensure_apt` reach for apt, which a network-less run cannot do — the
@@ -66,3 +93,7 @@ RUN set -eu; \
     > /warm/.github/workflows/warm.yml; \
   cd /warm && bash scripts/ci/actionlint.sh .github/workflows; \
   rm -rf /warm
+
+# Docker COPY dereferences `/usr/local/bin/corepack` from the Node image. Recreate
+# the relative symlink after copying the module so its internal imports resolve.
+RUN ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack

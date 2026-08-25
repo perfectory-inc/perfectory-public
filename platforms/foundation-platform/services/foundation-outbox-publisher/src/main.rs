@@ -88,6 +88,7 @@ mod lakehouse_snapshot_scan;
 mod loopback_http;
 #[cfg(test)]
 mod main_tests;
+mod profile_gateway_contract;
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::sync::OnceLock;

@@ -78,6 +78,16 @@ jobs:
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
 
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093  # v6.0.8 (SHA pin, ADR 0028)
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0 (SHA pin, ADR 0028)
+        with:
+          node-version: "20.19.0"
+          cache: pnpm
+          cache-dependency-path: platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml
+
       # Foundation-specific: the committed Catalog OpenAPI artifact must match a
       # fresh export (this builds+runs export-catalog-openapi, which compiles what
       # it needs — the standalone build step is redundant with xtask clippy below).

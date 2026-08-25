@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **377개**
-- 언어 분류: **{'english': 34, 'korean': 182, 'mixed': 161}**
-- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
+- 감사 문서: **379개**
+- 언어 분류: **{'english': 34, 'korean': 183, 'mixed': 162}**
+- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 86개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **200개 정상 / 0개 누락 / 177개 해당 없음**
+- 메타데이터: **201개 정상 / 0개 누락 / 178개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -76,6 +76,7 @@
 | `docs/adr/0052-a-static-archive-reads-its-build-conditions-from-the-source-it-replaces.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0053-a-static-tile-pointer-is-derived-from-build-ledger-facts.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0054-static-release-tools-have-one-executable-identity-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0055-private-r2-profile-gateway.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 0 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -199,6 +200,7 @@
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current | mixed | ok | 2 |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
+| `platforms/foundation-platform/services/foundation-profile-gateway/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
 | `platforms/foundation-platform/services/foundation-provider-acquisition-worker/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/identity-platform/AGENTS.md` | Identity Platform | agent rules | current | mixed | not applicable: agent router | 1 |
 | `platforms/identity-platform/CLAUDE.md` | Identity Platform | documentation | current | english | not applicable: agent router | 0 |

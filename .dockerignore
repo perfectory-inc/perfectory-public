@@ -16,3 +16,7 @@
 # checksum into the Dockerfile instead would put the pin in two places.
 !tools/actionlint.env
 !scripts/ci/actionlint.sh
+# Foundation's Node suite is fetched into the offline verification image from its lockfile. No
+# source enters the image; the current source is still supplied by the audited /work bind at run time.
+!platforms/foundation-platform/services/foundation-profile-gateway/package.json
+!platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml

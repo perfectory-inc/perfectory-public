@@ -40,7 +40,16 @@ FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_ACCESS_KEY_ID=
 FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY=
 EOF
 {
-  printf '{\n  "canonical_keys": [\n'
+  printf '%s\n' '{' \
+    '  "schema_version": 2,' \
+    '  "profile_gateway": {' \
+    '    "connection": "lakehouse",' \
+    '    "r2_binding": "LAKEHOUSE",' \
+    '    "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",' \
+    '    "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL"' \
+    '  },' \
+    '  "connections": {"lakehouse": {}},' \
+    '  "canonical_keys": ['
   for key in \
     FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID \
     FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT \
@@ -78,6 +87,34 @@ git -C "$fixture" init -q
 git -C "$fixture" config user.email guard@example.invalid
 git -C "$fixture" config user.name guard
 git -C "$fixture" add .
+bash "$checker" "$fixture" >/dev/null
+
+cp -- "$fixture/platforms/foundation-platform/config/r2-connections.contract.json" \
+  "$fixture/r2-connections.contract.clean.json"
+sed 's/FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS/FOUNDATION_PLATFORM_CORS_OTHER/' \
+  "$fixture/r2-connections.contract.clean.json" \
+  > "$fixture/platforms/foundation-platform/config/r2-connections.contract.json"
+git -C "$fixture" add .
+if bash "$checker" "$fixture" >/dev/null 2>&1; then
+  echo 'FAIL r2-env-namespace-consistency-self-test: profile gateway accepted a second CORS namespace' >&2
+  exit 1
+fi
+cp -- "$fixture/r2-connections.contract.clean.json" \
+  "$fixture/platforms/foundation-platform/config/r2-connections.contract.json"
+git -C "$fixture" add .
+bash "$checker" "$fixture" >/dev/null
+
+mkdir -p "$fixture/platforms/foundation-platform/services/example/src"
+printf '%s\n' \
+  'pub const INDUSTRIAL_COMPLEX_GOLD_PROFILE_ROOT: &str = "gold/industrial-complex/profiles";' \
+  > "$fixture/platforms/foundation-platform/services/example/src/lib.rs"
+git -C "$fixture" add .
+if bash "$checker" "$fixture" >/dev/null 2>&1; then
+  echo 'FAIL r2-env-namespace-consistency-self-test: duplicate profile root constant was accepted' >&2
+  exit 1
+fi
+rm -- "$fixture/platforms/foundation-platform/services/example/src/lib.rs"
+git -C "$fixture" add -u
 bash "$checker" "$fixture" >/dev/null
 
 printf '%s\n' 'R2_BUCKET_NAME=legacy' > "$fixture/platforms/foundation-platform/.env.local"

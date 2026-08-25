@@ -509,11 +509,25 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
         // --all-features compiles+checks the whole workspace); the standalone
         // `cargo build --locked --workspace` step was retired as redundant.
         "cargo xtask verify foundation",
+        "uses: pnpm/action-setup@",
+        "version: 9.12.0",
+        "uses: actions/setup-node@",
+        "node-version: \"20.19.0\"",
+        "platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml",
         "scripts/compose-smoke.sh -- start-api",
         "docker compose down -v --remove-orphans",
     ] {
         assert!(ci.contains(required), "CI is missing {required}");
     }
+    assert_eq!(
+        ci.matches("cargo xtask verify foundation").count(),
+        1,
+        "CI must invoke the Foundation verification SSOT exactly once"
+    );
+    assert!(
+        !ci.contains("pnpm run") && !ci.contains("pnpm --dir"),
+        "CI must not bypass cargo xtask verify with a second Node verification path"
+    );
     Ok(())
 }
 
@@ -521,7 +535,7 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
 fn r2_connection_contract_is_the_single_non_secret_source_for_examples() -> TestResult {
     let contract_text = read_area_file("config/r2-connections.contract.json")?;
     let contract: serde_json::Value = serde_json::from_str(&contract_text)?;
-    assert_eq!(contract["schema_version"], 1);
+    assert_eq!(contract["schema_version"], 2);
     assert_eq!(contract["provider"], "cloudflare-r2");
 
     let connections = contract["connections"]
@@ -570,6 +584,90 @@ fn r2_connection_contract_is_the_single_non_secret_source_for_examples() -> Test
         }
     }
 
+    Ok(())
+}
+
+#[test]
+fn profile_gateway_policy_is_versioned_and_complete() -> TestResult {
+    let contract: serde_json::Value =
+        serde_json::from_str(&read_area_file("config/r2-connections.contract.json")?)?;
+    assert_eq!(contract["schema_version"], 2);
+
+    let gateway = contract["profile_gateway"]
+        .as_object()
+        .ok_or("R2 connection contract must contain profile_gateway")?;
+    for key in [
+        "worker_name",
+        "connection",
+        "r2_binding",
+        "allowed_origins_binding",
+        "public_base_url_env",
+        "compatibility_date",
+        "content_type",
+        "cache_control",
+    ] {
+        assert!(
+            gateway.get(key).is_some_and(serde_json::Value::is_string),
+            "profile_gateway.{key} must be a string"
+        );
+    }
+
+    let object_key = gateway["object_key"]
+        .as_object()
+        .ok_or("profile_gateway.object_key must be an object")?;
+    for key in ["root", "artifact_id_pattern", "suffix"] {
+        assert!(
+            object_key
+                .get(key)
+                .is_some_and(serde_json::Value::is_string),
+            "profile_gateway.object_key.{key} must be a string"
+        );
+    }
+
+    let cors = gateway["cors"]
+        .as_object()
+        .ok_or("profile_gateway.cors must be an object")?;
+    assert_eq!(
+        cors["grammar"],
+        "comma-separated-serialized-http-origins-v1"
+    );
+    assert_eq!(cors["allow_wildcard"], false);
+    assert!(cors["accepted"].is_array());
+    assert!(cors["rejected"].is_array());
+    Ok(())
+}
+
+#[test]
+fn profile_gateway_reuses_existing_public_url_and_cors_env_contract() -> TestResult {
+    let contract: serde_json::Value =
+        serde_json::from_str(&read_area_file("config/r2-connections.contract.json")?)?;
+    let gateway = &contract["profile_gateway"];
+    let expected = [
+        (
+            "allowed_origins_binding",
+            "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+        ),
+        (
+            "public_base_url_env",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
+        ),
+    ];
+    let example = read_area_file(".env.example")?;
+    let local_example = read_area_file(".env.local.example")?;
+
+    for (field, key) in expected {
+        assert_eq!(gateway[field], key, "profile_gateway.{field} drifted");
+        assert_eq!(
+            env_assignment_count(&example, key),
+            1,
+            ".env.example must declare {key} exactly once"
+        );
+        assert_eq!(
+            env_assignment_count(&local_example, key),
+            1,
+            ".env.local.example must declare {key} exactly once"
+        );
+    }
     Ok(())
 }
 

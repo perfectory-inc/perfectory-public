@@ -33,6 +33,7 @@ fi
 package_files=$( {
   git ls-files 'products/gongzzang/**/package.json'
   git ls-files --error-unmatch 'products/gongzzang/package.json' 2>/dev/null || true
+  git ls-files 'platforms/foundation-platform/**/package.json'
 } | sort -u )
 if [ -n "$package_files" ]; then
   check_exact_manifest_value() {
@@ -86,14 +87,26 @@ verify_dockerfile=tools/verify-image/Dockerfile
 pin_file=tools/container-images.env
 if [ -f "$verify_dockerfile" ] && [ -f "$pin_file" ]; then
   pinned_toolchain=$(sed -n 's/^RUST_TOOLCHAIN_IMAGE=//p' "$pin_file" | tr -d '\r')
-  verify_base=$(sed -n 's/^FROM[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$verify_dockerfile" | head -1)
-  if [ -z "$pinned_toolchain" ] || [ -z "$verify_base" ]; then
+  verify_rust_base=$(sed -n 's/^FROM[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$verify_dockerfile" | grep '^rust:' | head -1)
+  if [ -z "$pinned_toolchain" ] || [ -z "$verify_rust_base" ]; then
     echo "FAIL technology-version: could not read the toolchain pin or the verification image base" >&2
     fail=1
-  elif [ "$pinned_toolchain" != "$verify_base" ]; then
+  elif [ "$pinned_toolchain" != "$verify_rust_base" ]; then
     echo 'FAIL technology-version: the verification image base does not match the pinned toolchain:' >&2
     echo "  $pin_file:           $pinned_toolchain" >&2
-    echo "  $verify_dockerfile:  $verify_base" >&2
+    echo "  $verify_dockerfile:  $verify_rust_base" >&2
+    fail=1
+  fi
+
+  pinned_node=$(sed -n 's/^NODE_VERIFY_IMAGE=//p' "$pin_file" | tr -d '\r')
+  verify_node_base=$(sed -n 's/^FROM[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$verify_dockerfile" | grep '^node:' | head -1)
+  if [ -z "$pinned_node" ] || [ -z "$verify_node_base" ]; then
+    echo "FAIL technology-version: could not read the Node pin or verification image Node stage" >&2
+    fail=1
+  elif [ "$pinned_node" != "$verify_node_base" ]; then
+    echo 'FAIL technology-version: verification Node stage does not match NODE_VERIFY_IMAGE:' >&2
+    echo "  $pin_file:           $pinned_node" >&2
+    echo "  $verify_dockerfile:  $verify_node_base" >&2
     fail=1
   fi
 fi
