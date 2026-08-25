@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **379개**
-- 언어 분류: **{'english': 34, 'korean': 183, 'mixed': 162}**
+- 감사 문서: **380개**
+- 언어 분류: **{'english': 34, 'korean': 184, 'mixed': 162}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 86개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **201개 정상 / 0개 누락 / 178개 해당 없음**
+- 메타데이터: **201개 정상 / 0개 누락 / 179개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -26,15 +26,15 @@
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 13 |
 | `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 10 |
+| `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 11 |
 | `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | current | korean | ok | 2 |
 | `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 11 |
 | `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 18 |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
-| `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 4 |
-| `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 8 |
+| `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 9 |
 | `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 11 |
 | `docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 10 |
 | `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
@@ -75,8 +75,9 @@
 | `docs/adr/0051-a-pointer-is-published-only-against-bytes-that-were-read-back.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0052-a-static-archive-reads-its-build-conditions-from-the-source-it-replaces.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0053-a-static-tile-pointer-is-derived-from-build-ledger-facts.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0054-static-release-tools-have-one-executable-identity-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0055-private-r2-profile-gateway.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 0 |
+| `docs/adr/0054-static-release-tools-have-one-executable-identity-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0055-private-r2-profile-gateway.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0056-heavy-foundation-gates-run-only-for-owned-inputs.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

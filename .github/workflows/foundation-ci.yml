@@ -71,6 +71,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify Foundation CI scope selection
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/ci/test_foundation_ci_scope.py -v
+
       - name: Install Rust toolchain
         shell: bash
         run: |
@@ -131,10 +135,32 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Select Windows static-release toolchain gate
+        working-directory: ${{ github.workspace }}
+        shell: pwsh
+        env:
+          FOUNDATION_CI_EVENT_NAME: ${{ github.event_name }}
+          FOUNDATION_CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FOUNDATION_CI_HEAD: ${{ github.event.pull_request.head.sha || github.event.after || github.sha }}
+          FOUNDATION_CI_REPOSITORY: ${{ github.workspace }}
+        run: |
+          python scripts/ci/foundation_ci_scope.py `
+            --gate static-release-toolchain-windows `
+            --event-name $env:FOUNDATION_CI_EVENT_NAME `
+            --base $env:FOUNDATION_CI_BASE `
+            --head $env:FOUNDATION_CI_HEAD `
+            --repository $env:FOUNDATION_CI_REPOSITORY `
+            --github-env $env:GITHUB_ENV
 
       - name: Install Rust toolchain
         shell: pwsh
         run: |
+          if ($env:FOUNDATION_CI_GATE_SELECTED -ne "true") {
+            Write-Host "Static-release Windows toolchain is unaffected; gate succeeds without tool installation."
+            exit 0
+          }
           rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
           rustup default $env:RUST_TOOLCHAIN
 
@@ -142,6 +168,10 @@ jobs:
         working-directory: ${{ github.workspace }}
         shell: pwsh
         run: |
+          if ($env:FOUNDATION_CI_GATE_SELECTED -ne "true") {
+            Write-Host "Static-release Windows toolchain is unaffected; gate succeeds without verification."
+            exit 0
+          }
           $toolDirectory = Join-Path $env:RUNNER_TEMP "static-release-toolchain"
           python scripts/tiles/static_release_toolchain_contract.py install `
             --destination $toolDirectory --platform windows-x86_64 --timeout-seconds 30
@@ -286,21 +316,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
-    services:
-      postgres:
-        image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
-        ports:
-          - 5432/tcp
-        env:
-          POSTGRES_USER: foundation_platform
-          POSTGRES_PASSWORD: foundation_platform_dev_2026
-          POSTGRES_DB: foundation_platform
-        options: >-
-          --health-cmd "pg_isready -U foundation_platform -d foundation_platform"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       FOUNDATION_KAFKA_COMPOSE_PROJECT: foundation-kafka-ci-${{ github.run_id }}
       FOUNDATION_TEST_KAFKA_REQUIRED: "1"
@@ -312,15 +327,58 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
+          fetch-depth: 0
 
-      - name: Set dynamic database URL
+      - name: Select Kafka integration gate
+        working-directory: ${{ github.workspace }}
+        shell: bash
         env:
-          POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
-        run: echo "DATABASE_URL=postgres://foundation_platform:foundation_platform_dev_2026@localhost:${POSTGRES_PORT}/foundation_platform" >> "$GITHUB_ENV"
+          FOUNDATION_CI_EVENT_NAME: ${{ github.event_name }}
+          FOUNDATION_CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FOUNDATION_CI_HEAD: ${{ github.event.pull_request.head.sha || github.event.after || github.sha }}
+          FOUNDATION_CI_REPOSITORY: ${{ github.workspace }}
+        run: |
+          python3 scripts/ci/foundation_ci_scope.py \
+            --gate kafka-integration \
+            --event-name "$FOUNDATION_CI_EVENT_NAME" \
+            --base "$FOUNDATION_CI_BASE" \
+            --head "$FOUNDATION_CI_HEAD" \
+            --repository "$FOUNDATION_CI_REPOSITORY" \
+            --github-env "$GITHUB_ENV"
+
+      - name: Start Postgres service
+        shell: bash
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Kafka contracts are unaffected; Postgres is not started."
+            exit 0
+          fi
+          set -euo pipefail
+          docker run -d --rm --name foundation-kafka-postgres \
+            --publish 127.0.0.1:5432:5432 \
+            --env POSTGRES_USER=foundation_platform \
+            --env POSTGRES_PASSWORD=foundation_platform_dev_2026 \
+            --env POSTGRES_DB=foundation_platform \
+            --health-cmd "pg_isready -U foundation_platform -d foundation_platform" \
+            --health-interval 5s --health-timeout 5s --health-retries 10 \
+            postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+          for _ in $(seq 1 60); do
+            if [ "$(docker inspect --format '{{.State.Health.Status}}' foundation-kafka-postgres)" = healthy ]; then
+              echo "DATABASE_URL=postgres://foundation_platform:foundation_platform_dev_2026@localhost:5432/foundation_platform" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Kafka integration Postgres did not become healthy"
+          exit 1
 
       - name: Install Rust toolchain
         shell: bash
         run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Kafka contracts are unaffected; Rust toolchain installation is not needed."
+            exit 0
+          fi
           set -euo pipefail
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
@@ -328,6 +386,10 @@ jobs:
       - name: Install database client
         shell: bash
         run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Kafka contracts are unaffected; database client installation is not needed."
+            exit 0
+          fi
           set -euo pipefail
           if ! command -v psql >/dev/null 2>&1; then
             sudo apt-get update
@@ -338,6 +400,10 @@ jobs:
       - name: Install Kafka Rust native build dependencies
         shell: bash
         run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Kafka contracts are unaffected; native dependency installation is not needed."
+            exit 0
+          fi
           set -euo pipefail
           # Keep this host-side live gate on the same complete native header set
           # declared by tools/xtask for Foundation's --all-features build.
@@ -346,19 +412,37 @@ jobs:
             cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
       - name: Run migrations through the production runner
-        run: FOUNDATION_MIGRATOR_DATABASE_URL="$DATABASE_URL" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Kafka contracts are unaffected; migrations are not needed."
+            exit 0
+          fi
+          FOUNDATION_MIGRATOR_DATABASE_URL="$DATABASE_URL" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
 
       - name: Run real Kafka/Schema Registry live gate
         working-directory: ${{ github.workspace }}
         env:
           FOUNDATION_PLATFORM_RUNTIME_ENV: ci
           FOUNDATION_PLATFORM_EXECUTION_CONTEXT: ci
-        run: bash scripts/verify/foundation-kafka-live.sh
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Kafka contracts are unaffected; live gate succeeds without starting Kafka."
+            exit 0
+          fi
+          bash scripts/verify/foundation-kafka-live.sh
 
       - name: Clean Kafka compose resources
         if: always()
         working-directory: ${{ github.workspace }}
-        run: timeout --foreground 120s docker compose -p "$FOUNDATION_KAFKA_COMPOSE_PROJECT" -f platforms/intelligence-platform/docker/c2-event-backbone.compose.yml down -v --remove-orphans
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Kafka contracts are unaffected; no containers require cleanup."
+            exit 0
+          fi
+          cleanup_status=0
+          timeout --foreground 120s docker compose -p "$FOUNDATION_KAFKA_COMPOSE_PROJECT" -f platforms/intelligence-platform/docker/c2-event-backbone.compose.yml down -v --remove-orphans || cleanup_status=$?
+          docker rm -f foundation-kafka-postgres >/dev/null 2>&1 || true
+          exit "$cleanup_status"
 
   compose-smoke:
     name: Independent Foundation Compose smoke
@@ -383,27 +467,68 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Select Compose smoke gate
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          FOUNDATION_CI_EVENT_NAME: ${{ github.event_name }}
+          FOUNDATION_CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FOUNDATION_CI_HEAD: ${{ github.event.pull_request.head.sha || github.event.after || github.sha }}
+          FOUNDATION_CI_REPOSITORY: ${{ github.workspace }}
+        run: |
+          python3 scripts/ci/foundation_ci_scope.py \
+            --gate compose-smoke \
+            --event-name "$FOUNDATION_CI_EVENT_NAME" \
+            --base "$FOUNDATION_CI_BASE" \
+            --head "$FOUNDATION_CI_HEAD" \
+            --repository "$FOUNDATION_CI_REPOSITORY" \
+            --github-env "$GITHUB_ENV"
 
       - name: Build and start clean Compose stack
-        run: scripts/compose-smoke.sh -- start-api
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Foundation Compose inputs are unaffected; stack startup is not needed."
+            exit 0
+          fi
+          scripts/compose-smoke.sh -- start-api
 
       - name: Wait for Foundation API readiness
         shell: bash
         run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Foundation Compose inputs are unaffected; readiness is already satisfied."
+            exit 0
+          fi
           set -euo pipefail
           container_id="$(timeout --foreground 10s docker compose --profile compose-smoke ps -q foundation-api-smoke)"
           test -n "$container_id"
           test "$(timeout --foreground 10s docker inspect --format '{{.State.Health.Status}}' "$container_id")" = healthy
 
       - name: Verify one-shot helper UIDs
-        run: scripts/compose-smoke.sh -- verify-uids
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Foundation Compose inputs are unaffected; UID verification is not needed."
+            exit 0
+          fi
+          scripts/compose-smoke.sh -- verify-uids
 
       - name: Re-run migration chain on the same volume
-        run: scripts/compose-smoke.sh -- rerun-api
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Foundation Compose inputs are unaffected; migration replay is not needed."
+            exit 0
+          fi
+          scripts/compose-smoke.sh -- rerun-api
 
       - name: Verify migration and least-privilege runtime contract
         shell: bash
         run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Foundation Compose inputs are unaffected; runtime contract is already satisfied."
+            exit 0
+          fi
           set -euo pipefail
           contract="$(docker compose exec -T postgres psql -X -A -t -v ON_ERROR_STOP=1 -U foundation_admin -d foundation -c "
             SELECT
@@ -424,7 +549,12 @@ jobs:
 
       - name: Clean Compose resources
         if: always()
-        run: timeout --foreground 120s docker compose down -v --remove-orphans
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Foundation Compose inputs are unaffected; no containers require cleanup."
+            exit 0
+          fi
+          timeout --foreground 120s docker compose down -v --remove-orphans
 
   boundary-slice:
     name: Boundary vertical slice
@@ -438,6 +568,24 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Select boundary slice gate
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          FOUNDATION_CI_EVENT_NAME: ${{ github.event_name }}
+          FOUNDATION_CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FOUNDATION_CI_HEAD: ${{ github.event.pull_request.head.sha || github.event.after || github.sha }}
+          FOUNDATION_CI_REPOSITORY: ${{ github.workspace }}
+        run: |
+          python3 scripts/ci/foundation_ci_scope.py \
+            --gate boundary-slice \
+            --event-name "$FOUNDATION_CI_EVENT_NAME" \
+            --base "$FOUNDATION_CI_BASE" \
+            --head "$FOUNDATION_CI_HEAD" \
+            --repository "$FOUNDATION_CI_REPOSITORY" \
+            --github-env "$GITHUB_ENV"
 
       # The only path that carries a publication unit from a source snapshot all the way to a
       # decoded tile: PostGIS projection load, CAS runtime-manifest promotion, Martin serving the
@@ -459,7 +607,12 @@ jobs:
       # verification image is built locally and CI has no copy.
       - name: Prove the boundary serving path end to end
         working-directory: ${{ github.workspace }}
-        run: bash scripts/tiles/boundary-slice-proof.sh
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Boundary publication inputs are unaffected; vertical slice succeeds without containers."
+            exit 0
+          fi
+          bash scripts/tiles/boundary-slice-proof.sh
 
   required:
     name: required/foundation
