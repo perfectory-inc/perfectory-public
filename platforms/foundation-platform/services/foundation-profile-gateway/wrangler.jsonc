@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "foundation-profile-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-26",
+  "workers_dev": false,
+  "keep_vars": true,
+  "r2_buckets": [
+    {
+      "binding": "LAKEHOUSE",
+      "bucket_name": "foundation-platform-lakehouse-prod"
+    }
+  ]
+}

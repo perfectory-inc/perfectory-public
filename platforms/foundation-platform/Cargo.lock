@@ -1458,6 +1458,7 @@ dependencies = [
  "lakehouse-infrastructure",
  "outbound-http-infrastructure",
  "parquet",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

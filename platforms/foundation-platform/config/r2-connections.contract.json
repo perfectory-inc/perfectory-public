@@ -1,8 +1,36 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "provider": "cloudflare-r2",
   "environment": "production",
   "purpose": "Non-secret R2 connection metadata and environment-key contract for Foundation Platform.",
+  "profile_gateway": {
+    "worker_name": "foundation-profile-gateway",
+    "connection": "lakehouse",
+    "r2_binding": "LAKEHOUSE",
+    "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+    "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
+    "compatibility_date": "2026-04-26",
+    "object_key": {
+      "root": "gold/industrial-complex/profiles",
+      "artifact_id_pattern": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+      "suffix": ".json"
+    },
+    "cors": {
+      "grammar": "comma-separated-serialized-http-origins-v1",
+      "allow_wildcard": false,
+      "accepted": [
+        "https://app.example.test",
+        " http://localhost:3000 , https://app.example.test "
+      ],
+      "rejected": [
+        "*",
+        "file:///tmp/app",
+        "https://app.example.test/path"
+      ]
+    },
+    "content_type": "application/json; charset=utf-8",
+    "cache_control": "public, max-age=31536000, immutable"
+  },
   "connections": {
     "lakehouse": {
       "required_env": [

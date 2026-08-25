@@ -424,6 +424,81 @@ ts_local_only="$(
                        if (m != "") { print m "\t" s; m = "" } }' || true
 )"
 
+# Node suites are owned by the same `cargo xtask verify <area>` entrypoint as Rust/Python. Parse the
+# declarative Area table instead of forcing workflows to repeat those package commands beside the
+# verification SSOT. The parser understands balanced Rust blocks and ignores strings/comments, so
+# adding a nested lane or a brace in prose cannot silently move a suite between areas.
+ts_xtask_declared="$(python3 - "$xtask_src" <<'PY'
+import re
+import sys
+from pathlib import PurePosixPath
+
+text = open(sys.argv[1], encoding="utf-8").read().split("#[cfg(test)]", 1)[0]
+
+def balanced(source: str, start: int, opener: str, closer: str) -> tuple[str, int]:
+    depth = 0
+    index = start
+    quote = None
+    while index < len(source):
+        char = source[index]
+        pair = source[index:index + 2]
+        if quote is not None:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if pair == "//":
+            newline = source.find("\n", index + 2)
+            index = len(source) if newline < 0 else newline + 1
+            continue
+        if pair == "/*":
+            end = source.find("*/", index + 2)
+            index = len(source) if end < 0 else end + 2
+            continue
+        if char == '"':
+            quote = char
+        elif char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return source[start:index + 1], index + 1
+        index += 1
+    raise ValueError(f"unbalanced {opener}{closer} in xtask Area table")
+
+cursor = 0
+while True:
+    match = re.search(r"\bArea\s*\{", text[cursor:])
+    if match is None:
+        break
+    start = cursor + match.start() + match.group(0).rfind("{")
+    area, cursor = balanced(text, start, "{", "}")
+    area_dir = re.search(r"\bdir:\s*\"([^\"]+)\"", area)
+    node_marker = re.search(r"\bnode_tests:\s*&\[", area)
+    if area_dir is None or node_marker is None:
+        continue
+    list_start = node_marker.end() - 1
+    node_list, _ = balanced(area, list_start, "[", "]")
+    node_cursor = 0
+    while True:
+        suite_match = re.search(r"\bNodeTests\s*\{", node_list[node_cursor:])
+        if suite_match is None:
+            break
+        suite_start = node_cursor + suite_match.start() + suite_match.group(0).rfind("{")
+        suite, node_cursor = balanced(node_list, suite_start, "{", "}")
+        suite_dir = re.search(r"\bdir:\s*\"([^\"]+)\"", suite)
+        scripts = re.search(r"\bscripts:\s*&\[(.*?)\]", suite, re.DOTALL)
+        if suite_dir is None or scripts is None:
+            continue
+        manifest = PurePosixPath(area_dir.group(1), suite_dir.group(1), "package.json")
+        for script in re.findall(r'"([^\"]+)"', scripts.group(1)):
+            print(f"{manifest}\t{script}")
+PY
+)"
+
 ts_report=""
 while IFS="$(printf '\t')" read -r manifest script; do
   [ -n "$script" ] || continue
@@ -431,6 +506,19 @@ while IFS="$(printf '\t')" read -r manifest script; do
   # workspace-wide sweep counts as an invocation for each of them.
   if grep -rqE "run ${script}\b|turbo ${script}\b|turbo run ${script}\b" \
     "$workflows_dir" 2>/dev/null; then
+    continue
+  fi
+  xtask_owned=0
+  while IFS="$(printf '\t')" read -r declared_manifest declared_script; do
+    [ -n "$declared_script" ] || continue
+    [ "$declared_script" = "$script" ] || continue
+    case "$manifest" in
+      *"/$declared_manifest" | "$declared_manifest") xtask_owned=1 ;;
+    esac
+  done <<INNER
+$ts_xtask_declared
+INNER
+  if [ "$xtask_owned" -eq 1 ]; then
     continue
   fi
   # Declarations are repository-relative; discovered manifests are whatever the

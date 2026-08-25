@@ -89,6 +89,15 @@ not_a_path="$test_root/not-a-path"
 fixture "$not_a_path" "docs/architecture/contract.md" nowhere
 expect_allowed "$not_a_path"
 
+# A traversal-shaped assertion can resolve to a real file outside the synthetic
+# repository. It is not a CI input, and the guard must never leave repo_root while
+# deciding whether a quoted string is one.
+outside_assertion="$test_root/escape-root/a/b"
+fixture "$outside_assertion" "../../../etc/passwd" nowhere
+mkdir -p "$test_root/etc"
+printf 'synthetic\n' >"$test_root/etc/passwd"
+expect_allowed "$outside_assertion"
+
 # An unfiltered workflow always runs, so it cannot miss an input.
 unfiltered="$test_root/unfiltered"
 fixture "$unfiltered" "docs/architecture/contract.md" repo

@@ -2,7 +2,11 @@
 
 use anyhow::Context;
 use foundation_shared_kernel::ids::VectorTileReleaseId;
+use regex::Regex;
+use std::sync::OnceLock;
 use uuid::Uuid;
+
+use crate::profile_gateway_contract::profile_gateway_policy;
 
 pub const VECTOR_TILE_ARTIFACT_ROOT: &str = "gold/vector-tiles/artifacts";
 pub const VECTOR_TILE_MANIFEST_ROOT: &str = "gold/vector-tiles/manifests";
@@ -11,7 +15,6 @@ pub const VECTOR_TILE_MANIFEST_ROOT: &str = "gold/vector-tiles/manifests";
 // `catalog_domain::STATIC_RELEASE_OBJECT_ROOT`, so keeping a second copy of the root would only
 // reintroduce the drift this change removed.
 pub const PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT: &str = "gold/parcel-marker-anchors/artifacts";
-pub const INDUSTRIAL_COMPLEX_GOLD_PROFILE_ROOT: &str = "gold/industrial-complex/profiles";
 pub const BRONZE_CATALOG_RECOVERY_EVIDENCE_ROOT: &str = "control/evidence/bronze-catalog-recovery";
 pub const PARCEL_PUBLICATION_EXECUTION_EVIDENCE_ROOT: &str =
     "control/evidence/parcel-publication/execution";
@@ -64,9 +67,13 @@ pub fn parcel_marker_anchor_artifact_prefix(artifact_id: &str) -> anyhow::Result
 pub fn industrial_complex_gold_profile_key(artifact_id: &str) -> anyhow::Result<String> {
     let artifact_id =
         parse_artifact_id(artifact_id, "industrial complex gold profile artifact_id")?;
-    Ok(format!(
-        "{INDUSTRIAL_COMPLEX_GOLD_PROFILE_ROOT}/{artifact_id}.json"
-    ))
+    let artifact_id = artifact_id.to_string();
+    anyhow::ensure!(
+        profile_artifact_id_regex()?.is_match(&artifact_id),
+        "industrial complex gold profile artifact_id violates the R2 connection contract"
+    );
+    let layout = &profile_gateway_policy()?.object_key;
+    Ok(format!("{}/{artifact_id}{}", layout.root, layout.suffix))
 }
 
 /// Returns whether `key` is the canonical key of one industrial-complex Gold profile.
@@ -76,12 +83,30 @@ pub fn industrial_complex_gold_profile_key(artifact_id: &str) -> anyhow::Result<
 /// writing: the export builds the key from the artifact id, and this is what makes an arbitrary
 /// caller-supplied key impossible to write under that command.
 pub fn is_industrial_complex_gold_profile_key(key: &str) -> bool {
-    key.strip_prefix(INDUSTRIAL_COMPLEX_GOLD_PROFILE_ROOT)
+    let Ok(policy) = profile_gateway_policy() else {
+        return false;
+    };
+    let layout = &policy.object_key;
+    key.strip_prefix(layout.root.as_str())
         .and_then(|relative| relative.strip_prefix('/'))
-        .and_then(|file_name| file_name.strip_suffix(".json"))
+        .and_then(|file_name| file_name.strip_suffix(layout.suffix.as_str()))
         .is_some_and(|artifact_id| {
             industrial_complex_gold_profile_key(artifact_id).is_ok_and(|canonical| canonical == key)
         })
+}
+
+fn profile_artifact_id_regex() -> anyhow::Result<&'static Regex> {
+    static ARTIFACT_ID_REGEX: OnceLock<Result<Regex, String>> = OnceLock::new();
+    ARTIFACT_ID_REGEX
+        .get_or_init(|| {
+            let pattern = &profile_gateway_policy()
+                .map_err(|error| error.to_string())?
+                .object_key
+                .artifact_id_pattern;
+            Regex::new(&format!("^(?:{pattern})$")).map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|message| anyhow::anyhow!(message.clone()))
 }
 
 pub fn bronze_catalog_recovery_evidence_key(kind: &str, sha256: &str) -> anyhow::Result<String> {
@@ -160,8 +185,26 @@ mod tests {
         parcel_publication_execution_evidence_key, vector_tile_artifact_prefix,
         vector_tile_manifest_key, vector_tile_release_key,
     };
+    use crate::profile_gateway_contract::profile_gateway_policy;
 
     const ID: &str = "018f0000-0000-7000-8000-000000000001";
+
+    #[test]
+    fn profile_layout_matches_gateway_contract() -> anyhow::Result<()> {
+        let policy = &profile_gateway_policy()?.object_key;
+        let artifact_regex = regex::Regex::new(&format!("^(?:{})$", policy.artifact_id_pattern))?;
+
+        assert!(artifact_regex.is_match(ID), "UUIDv7 must remain accepted");
+        assert_eq!(
+            industrial_complex_gold_profile_key(ID)?,
+            format!("{}/{ID}{}", policy.root, policy.suffix)
+        );
+        assert!(is_industrial_complex_gold_profile_key(&format!(
+            "{}/{ID}{}",
+            policy.root, policy.suffix
+        )));
+        Ok(())
+    }
 
     #[test]
     fn compiles_artifact_ids_into_canonical_physical_paths() -> anyhow::Result<()> {

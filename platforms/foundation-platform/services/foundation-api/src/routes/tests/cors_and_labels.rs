@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn cors_grammar_matches_profile_gateway_contract_corpus() -> Result<(), Box<dyn Error>> {
+    let contract: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../config/r2-connections.contract.json"
+    ))?;
+    let cors = &contract["profile_gateway"]["cors"];
+
+    for accepted in cors["accepted"].as_array().ok_or("accepted corpus")? {
+        let raw = accepted.as_str().ok_or("accepted value")?;
+        assert!(
+            !parse_cors_origins(raw).is_empty(),
+            "accepted CORS corpus entry was rejected: {raw:?}"
+        );
+    }
+    for rejected in cors["rejected"].as_array().ok_or("rejected corpus")? {
+        let raw = rejected.as_str().ok_or("rejected value")?;
+        assert!(
+            parse_cors_origins(raw).is_empty(),
+            "rejected CORS corpus entry was accepted: {raw:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn cors_production_without_explicit_origins_allows_no_origins() {
     let origins = super::cors_allowed_origins_from(None, Some("production"));
 

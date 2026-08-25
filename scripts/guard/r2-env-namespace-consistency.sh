@@ -56,6 +56,43 @@ else
       fail=1
     fi
   done
+  if ! python3 - "$contract" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+if contract.get("schema_version") != 2:
+    raise SystemExit("R2 connection contract schema_version must be 2")
+gateway = contract.get("profile_gateway")
+if not isinstance(gateway, dict):
+    raise SystemExit("R2 connection contract is missing profile_gateway")
+connection = gateway.get("connection")
+if connection not in contract.get("connections", {}):
+    raise SystemExit("profile_gateway.connection does not name a declared connection")
+expected = {
+    "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+    "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
+}
+for field, value in expected.items():
+    if gateway.get(field) != value:
+        raise SystemExit(f"profile_gateway.{field} must reuse {value}")
+PY
+  then
+    printf 'FAIL r2-env-namespace: invalid profile gateway environment contract\n' >&2
+    fail=1
+  fi
+
+  # The profile object root belongs to profile_gateway.object_key. Reintroducing
+  # a Rust constant would create a second source that can drift from the Worker.
+  if git -C "$root" grep -q -E \
+    'pub[[:space:]]+const[[:space:]]+INDUSTRIAL_COMPLEX_GOLD_PROFILE_ROOT' -- \
+    'platforms/foundation-platform/**/*.rs'; then
+    printf 'FAIL r2-env-namespace: profile root must come from the R2 connection contract\n' >&2
+    fail=1
+  fi
 fi
 
 # When a developer-local profile exists, reject stale assignments without ever printing their values.

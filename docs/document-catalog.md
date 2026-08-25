@@ -8,26 +8,26 @@
 
 ## 문서 규모
 
-- 문서 파일: **377개**
+- 문서 파일: **379개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 107 |
+| Foundation Platform | 108 |
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 76 |
+| Monorepo | 77 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 135 |
-| README | 106 |
+| ADR | 136 |
+| README | 107 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 3 |
@@ -151,6 +151,7 @@ platforms/foundation-platform/infra/lakehouse/dbt/README.md
 platforms/foundation-platform/README.md
 platforms/foundation-platform/services/foundation-api/README.md
 platforms/foundation-platform/services/foundation-outbox-publisher/README.md
+platforms/foundation-platform/services/foundation-profile-gateway/README.md
 platforms/foundation-platform/services/foundation-provider-acquisition-worker/README.md
 ```
 
@@ -421,6 +422,7 @@ docs/adr/0051-a-pointer-is-published-only-against-bytes-that-were-read-back.md
 docs/adr/0052-a-static-archive-reads-its-build-conditions-from-the-source-it-replaces.md
 docs/adr/0053-a-static-tile-pointer-is-derived-from-build-ledger-facts.md
 docs/adr/0054-static-release-tools-have-one-executable-identity-contract.md
+docs/adr/0055-private-r2-profile-gateway.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -509,6 +511,7 @@ tools/github/README.md
 | `docs/adr/0052-a-static-archive-reads-its-build-conditions-from-the-source-it-replaces.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0053-a-static-tile-pointer-is-derived-from-build-ledger-facts.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0054-static-release-tools-have-one-executable-identity-contract.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0055-private-r2-profile-gateway.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -632,6 +635,7 @@ tools/github/README.md
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current |
+| `platforms/foundation-platform/services/foundation-profile-gateway/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-provider-acquisition-worker/README.md` | Foundation Platform | README | current |
 | `platforms/identity-platform/AGENTS.md` | Identity Platform | agent rules | current |
 | `platforms/identity-platform/CLAUDE.md` | Identity Platform | documentation | current |

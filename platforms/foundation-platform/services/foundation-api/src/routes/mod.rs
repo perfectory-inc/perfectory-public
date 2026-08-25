@@ -950,6 +950,23 @@ fn parse_cors_origins(raw: &str) -> Vec<HeaderValue> {
             if origin.is_empty() {
                 return None;
             }
+            let parsed = match reqwest::Url::parse(origin) {
+                Ok(parsed)
+                    if matches!(parsed.scheme(), "http" | "https")
+                        && parsed.username().is_empty()
+                        && parsed.password().is_none()
+                        && parsed.query().is_none()
+                        && parsed.fragment().is_none()
+                        && parsed.origin().ascii_serialization() == origin =>
+                {
+                    parsed
+                }
+                Ok(_) | Err(_) => {
+                    warn!(%origin, "ignoring CORS value that is not a serialized HTTP origin");
+                    return None;
+                }
+            };
+            debug_assert_eq!(parsed.origin().ascii_serialization(), origin);
             match HeaderValue::from_str(origin) {
                 Ok(value) => Some(value),
                 Err(err) => {

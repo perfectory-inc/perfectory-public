@@ -37,6 +37,7 @@ target/release-artifacts/*
 *.iml
 *.log
 .playwright-mcp/
+.wrangler/
 .superpowers/
 .understand-anything/
 .worktrees/

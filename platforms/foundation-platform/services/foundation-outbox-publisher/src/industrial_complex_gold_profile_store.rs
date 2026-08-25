@@ -20,12 +20,8 @@ use foundation_outbox::{
     EvidenceByteReader, FileObjectStorage, ObjectStorageService, PublishError, R2ObjectStorage,
 };
 
+use crate::profile_gateway_contract::profile_gateway_policy;
 use crate::r2_layout::is_industrial_complex_gold_profile_key;
-
-/// Content type every profile object is stored with.
-pub(crate) const PROFILE_CONTENT_TYPE: &str = "application/json; charset=utf-8";
-/// Cache policy every profile object is stored with; the objects are immutable and content-addressed.
-pub(crate) const PROFILE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 const LOCAL_DRIVER: &str = "local";
 const R2_DRIVER: &str = "r2";
@@ -132,14 +128,7 @@ impl ProfileObjectStore {
             is_industrial_complex_gold_profile_key(key),
             "refusing to write {key} : it is not a canonical industrial-complex Gold profile key"
         );
-        let request = PutObjectRequest {
-            key: key.to_owned(),
-            body: body.to_vec(),
-            content_type: PROFILE_CONTENT_TYPE.to_owned(),
-            cache_control: PROFILE_CACHE_CONTROL.to_owned(),
-            write_mode: ObjectWriteMode::CreateOnly,
-            sha256: Some(sha256.to_owned()),
-        };
+        let request = profile_put_request(key, body, sha256)?;
         let outcome = match self {
             Self::Local(storage) => storage.put_object(request).await,
             Self::R2(storage, _) => storage.put_object(request).await,
@@ -173,6 +162,18 @@ impl ProfileObjectStore {
     }
 }
 
+fn profile_put_request(key: &str, body: &[u8], sha256: &str) -> anyhow::Result<PutObjectRequest> {
+    let policy = profile_gateway_policy()?;
+    Ok(PutObjectRequest {
+        key: key.to_owned(),
+        body: body.to_vec(),
+        content_type: policy.content_type.clone(),
+        cache_control: policy.cache_control.clone(),
+        write_mode: ObjectWriteMode::CreateOnly,
+        sha256: Some(sha256.to_owned()),
+    })
+}
+
 /// Reads a local root out of an optional raw value.
 pub(crate) fn local_root(raw: Option<String>) -> Option<PathBuf> {
     raw.map(|value| Path::new(value.as_str()).to_path_buf())
@@ -180,7 +181,9 @@ pub(crate) fn local_root(raw: Option<String>) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProfileObjectStore, ProfileStoreConfig};
+    use super::{profile_put_request, ProfileObjectStore, ProfileStoreConfig};
+    use crate::profile_gateway_contract::profile_gateway_policy;
+    use foundation_outbox::object_storage::ObjectWriteMode;
     use std::path::PathBuf;
 
     fn temporary_root(label: &str) -> PathBuf {
@@ -188,6 +191,21 @@ mod tests {
             "foundation-platform-gold-profile-store-{label}-{}",
             uuid::Uuid::now_v7()
         ))
+    }
+
+    #[test]
+    fn upload_request_metadata_comes_from_profile_gateway_contract() -> anyhow::Result<()> {
+        let request = profile_put_request(
+            "gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json",
+            b"{}\n",
+            &"a".repeat(64),
+        )?;
+        let policy = profile_gateway_policy()?;
+
+        assert_eq!(request.content_type, policy.content_type);
+        assert_eq!(request.cache_control, policy.cache_control);
+        assert_eq!(request.write_mode, ObjectWriteMode::CreateOnly);
+        Ok(())
     }
 
     #[test]

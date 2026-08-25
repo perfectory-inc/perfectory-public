@@ -405,6 +405,27 @@ make_workspace "$ts_ok" example-area
 make_package_json "$ts_ok" apps/web '"test": "vitest run", "test:integration": "vitest run --config x"'
 expect_ts_accepted "npm scripts invoked by a workflow" "$xtask_local_only" "$ts_ok"
 
+# accepted: an area-owned Node suite is reached through cargo xtask verify, so a workflow must not
+# duplicate the package command beside the verification SSOT.
+ts_xtask="$test_root/ts-xtask"
+make_workspace "$ts_xtask" example-area
+make_package_json "$ts_xtask" example-area/apps/worker '"test:worker": "vitest run"'
+xtask_node_suite="$test_root/xtask-node-suite.rs"
+cat >"$xtask_node_suite" <<'RUST'
+const AREAS: &[Area] = &[Area {
+    slug: "example",
+    dir: "example-area",
+    python_tests: &[],
+    node_tests: &[NodeTests {
+        dir: "apps/worker",
+        scripts: &["test:worker"],
+        test_script: "test:worker",
+    }],
+    live_lanes: &[],
+}];
+RUST
+expect_ts_accepted "npm script owned by xtask Node suite" "$xtask_node_suite" "$ts_xtask"
+
 # rejected: a test-shaped script no workflow names and no declaration excuses.
 ts_orphan="$test_root/ts-orphan"
 make_workspace "$ts_orphan" example-area
