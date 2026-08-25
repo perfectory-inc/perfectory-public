@@ -440,6 +440,20 @@ const AREAS: &[Area] = &[
                 ],
                 covers: &["services/foundation-api/tests"],
             },
+            PythonTests {
+                dir: ".",
+                python_path: None,
+                args: &[
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "tests/static_release_toolchain",
+                    "-p",
+                    "test_*.py",
+                ],
+                covers: &["tests/static_release_toolchain"],
+            },
         ],
         // Foundation's DB-backed reads tests (catalog_*_reads, …) are `#[ignore]`
         // and need a migrated + seeded Postgres. scripts/verify/integration.sh
@@ -1758,7 +1772,7 @@ mod tests {
 
         let plans = python_test_plans(area, area_dir);
 
-        assert_eq!(plans.len(), 4);
+        assert_eq!(plans.len(), 5);
         assert_eq!(
             plans[0].current_dir,
             area_dir.join("services/foundation-provider-acquisition-worker")
@@ -1802,6 +1816,18 @@ mod tests {
                 "discover",
                 "-s",
                 "services/foundation-api/tests",
+                "-p",
+                "test_*.py",
+            ],
+        );
+        assert_eq!(
+            plans[4].args,
+            &[
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "tests/static_release_toolchain",
                 "-p",
                 "test_*.py",
             ],

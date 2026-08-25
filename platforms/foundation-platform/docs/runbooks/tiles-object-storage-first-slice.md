@@ -14,7 +14,7 @@ Mapbox Vector Tile로 제공한다.
 
 - **Dynamic:** 명시적 PostGIS view → Martin → MVT.
 - **Static:** 같은 view → `martin-cp` → MBTiles → PMTiles → Martin → MVT. 로컬 파일 또는 검증 전용
-  R2 HTTP Range를 사용할 수 있다. 운영은 아래의 인증된 S3 호환 R2 경로를 사용한다. Martin 1.12의
+  R2 HTTP Range를 사용할 수 있다. 운영은 아래의 인증된 S3 호환 R2 경로를 사용한다. 계약된 Martin의
   `pmtiles.paths`가 운영 검색 지점이며 private R2 S3 endpoint와 읽기 전용 자격증명을 사용하고
   release PMTiles만 허용한다.
   실제 R2 증명은 private S3 경로를 직접 사용하며 public HTTP Range는 선택적인 레거시 호환 확인이다.
@@ -350,8 +350,8 @@ export R2_TILES_READ_URL='<exact query-free HTTPS read URL for that key>'
 scripts/tiles/tiles-slice-proof.sh
 ```
 
-경로는 정확히 `R2_TILES_OBJECT_KEY`로 끝나야 한다. Martin
-1.12 must receive a query-free HTTP PMTiles source. Setting both read modes, omitting both, or
+경로는 정확히 `R2_TILES_OBJECT_KEY`로 끝나야 한다. The contracted Martin must receive a
+query-free HTTP PMTiles source. Setting both read modes, omitting both, or
 supplying a key outside `tiles-slice-proof/` fails before upload.
 
 운영 publisher/serving 경계에서는 일반 `R2_*` 환경을 재사용하지 않는다. Rust
@@ -392,8 +392,20 @@ env \
   foundation-outbox-publisher publish-industrial-complex-boundary-static-release
 ```
 
-`martin-cp`와 `mbtiles`는 Martin `1.12.x`, `pmtiles`는 `1.31.x`가 PATH에 있어야 한다.
-명령은 도구 부재·버전 불일치·timeout을 모두 실패로 기록한다. 재시도에는 같은 build/promote
+정확한 도구 신원은
+[`static-release-toolchain.contract.json`](../../config/static-release-toolchain.contract.json)만
+소유한다. 설치기와 발행기 사전 검증은 archive SHA-256, PATH 실행 파일 SHA-256과 정확한 버전 배너를
+검사한다. 계약된 도구를 설치하고 발행 전에 같은 프로덕션 검증 경로를 실행한다.
+
+```bash
+python3 scripts/tiles/static_release_toolchain_contract.py install \
+  --destination target/static-release-toolchain
+PATH="$PWD/target/static-release-toolchain:$PATH" \
+  cargo run --locked --manifest-path platforms/foundation-platform/Cargo.toml \
+    -p foundation-outbox-publisher -- verify-static-release-toolchain
+```
+
+명령은 도구 부재·신원 불일치·timeout을 모두 실패로 기록한다. 재시도에는 같은 build/promote
 idempotency key를 사용하며, 새 시도일 때만 새 key를 발급한다. 이 명령은 overwrite/delete 경로를
 제공하지 않는다.
 
@@ -542,7 +554,7 @@ serving releases remain subject to explicit retention policy.
 
 Martin 문서는 Cloudflare R2를 지원되는 S3 호환 PMTiles 저장소로 설명하며,
 `pmtiles.paths`를 통한 remote-prefix polling과 named source의 시작 snapshot 동작을
-[Martin file sources](https://github.com/maplibre/martin/blob/martin-v1.12.0/docs/content/sources-files.md).
+[Martin PMTiles sources](https://maplibre.org/martin/sources-pmtiles.html).
 
 ## Health and observability exception
 

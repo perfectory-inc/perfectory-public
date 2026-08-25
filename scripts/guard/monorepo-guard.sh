@@ -29,6 +29,7 @@ bash "$legal_gate"
 rc=0
 for g in hook-isolation-self-test \
          no-subdir-github toolchain-consistency technology-version-consistency \
+         static-release-toolchain-ssot-self-test static-release-toolchain-ssot \
          foundation-kafka-contract \
          backend-profile-consistency backend-profile-consistency-self-test \
          r2-env-namespace-consistency r2-env-namespace-consistency-self-test \

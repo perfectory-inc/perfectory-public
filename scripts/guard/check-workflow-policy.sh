@@ -359,8 +359,8 @@ for workflow in "${workflows[@]}"; do
       if (job_count == 0) fail("has no jobs")
       for (i=1; i<=job_count; i++) {
         candidate=job_ids[i]
-        if (job_runners[candidate] != "ubuntu-24.04") {
-          fail("job " candidate " must use literal runner ubuntu-24.04")
+        if (job_runners[candidate] !~ /^(ubuntu-24[.]04|windows-2022)$/) {
+          fail("job " candidate " must use a literal trusted hosted runner")
         }
         if (job_names[candidate] ~ /^required\//) {
           required_count++

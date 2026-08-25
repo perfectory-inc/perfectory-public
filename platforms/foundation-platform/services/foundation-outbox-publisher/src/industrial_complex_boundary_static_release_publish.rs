@@ -40,9 +40,10 @@ use reqwest::Client;
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use sqlx::{PgPool, Postgres, Row as _, Transaction};
-use tokio::{io::AsyncReadExt as _, process::Command, time};
+use tokio::{io::AsyncReadExt as _, time};
 use uuid::Uuid;
 
+use crate::static_release_toolchain::VerifiedToolchain;
 use crate::tile_derivative_object_storage::TileDerivativeR2Config;
 
 const UNIT_KEY: &str = "complex";
@@ -149,7 +150,7 @@ pub async fn run() -> anyhow::Result<()> {
         .context("failed to build bounded Martin HTTP client")?;
 
     let active = read_active_dynamic_release(&pool).await?;
-    preflight_tools(&config).await?;
+    let toolchain = crate::static_release_toolchain::verify(config.tool_timeout).await?;
     let projection_snapshot =
         lock_active_dynamic_projection(&pool, active.release_id, config.tool_timeout).await?;
     let tilejson = read_dynamic_tilejson(&http, &config).await?;
@@ -171,7 +172,7 @@ pub async fn run() -> anyhow::Result<()> {
         })
         .await?;
 
-    let publication = publish_candidate(&http, &config, &tilejson, build_job_id).await;
+    let publication = publish_candidate(&http, &config, &toolchain, &tilejson, build_job_id).await;
     projection_snapshot
         .rollback()
         .await
@@ -313,6 +314,7 @@ async fn lock_active_dynamic_projection(
 async fn publish_candidate(
     http: &Client,
     config: &Config,
+    toolchain: &VerifiedToolchain,
     tilejson: &DynamicTileJson,
     build_job_id: VectorTileBuildJobId,
 ) -> anyhow::Result<(
@@ -344,7 +346,7 @@ async fn publish_candidate(
         pmtiles: run_dir.join(format!("{source_id}.pmtiles")),
         unpacked: run_dir.join("unpacked"),
     };
-    build_archives(config, tilejson, &source_id, &files).await?;
+    build_archives(config, toolchain, tilejson, &source_id, &files).await?;
     let representative = representative_tile(&files.unpacked)?;
 
     let storage_config = TileDerivativeR2Config::from_env()?;
@@ -486,31 +488,9 @@ async fn validate_dynamic_build_conditions(
     Ok(())
 }
 
-async fn preflight_tools(config: &Config) -> anyhow::Result<()> {
-    let martin = run_tool("martin-cp", ["--version"], config.tool_timeout, None).await?;
-    require_version("martin-cp", &martin, "1.12")?;
-    let mbtiles = run_tool("mbtiles", ["--version"], config.tool_timeout, None).await?;
-    require_version("mbtiles", &mbtiles, "1.12")?;
-    let pmtiles = run_tool("pmtiles", ["version"], config.tool_timeout, None).await?;
-    require_version("pmtiles", &pmtiles, "1.31")
-}
-
-fn require_version(tool: &str, output: &Output, required: &str) -> anyhow::Result<()> {
-    ensure_tool_success(tool, output)?;
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    ensure!(
-        combined.contains(required),
-        "{tool} must be version {required}.x; got {combined:?}"
-    );
-    Ok(())
-}
-
 async fn build_archives(
     config: &Config,
+    toolchain: &VerifiedToolchain,
     tilejson: &DynamicTileJson,
     source_id: &str,
     files: &BuildFiles,
@@ -548,7 +528,9 @@ async fn build_archives(
     ];
     ensure_tool_success(
         "martin-cp",
-        &run_tool("martin-cp", martin_args, config.tool_timeout, None).await?,
+        &toolchain
+            .run("martin-cp", martin_args, config.tool_timeout, None)
+            .await?,
     )?;
     for args in [
         vec![
@@ -575,35 +557,39 @@ async fn build_archives(
     ] {
         ensure_tool_success(
             "mbtiles",
-            &run_tool("mbtiles", args, config.tool_timeout, None).await?,
+            &toolchain
+                .run("mbtiles", args, config.tool_timeout, None)
+                .await?,
         )?;
     }
     ensure_tool_success(
         "pmtiles convert",
-        &run_tool(
-            "pmtiles",
-            [
-                OsString::from("convert"),
-                files.mbtiles.as_os_str().to_owned(),
-                files.pmtiles.as_os_str().to_owned(),
-            ],
-            config.tool_timeout,
-            None,
-        )
-        .await?,
+        &toolchain
+            .run(
+                "pmtiles",
+                [
+                    OsString::from("convert"),
+                    files.mbtiles.as_os_str().to_owned(),
+                    files.pmtiles.as_os_str().to_owned(),
+                ],
+                config.tool_timeout,
+                None,
+            )
+            .await?,
     )?;
     ensure_tool_success(
         "pmtiles verify",
-        &run_tool(
-            "pmtiles",
-            [
-                OsString::from("verify"),
-                files.pmtiles.as_os_str().to_owned(),
-            ],
-            config.tool_timeout,
-            None,
-        )
-        .await?,
+        &toolchain
+            .run(
+                "pmtiles",
+                [
+                    OsString::from("verify"),
+                    files.pmtiles.as_os_str().to_owned(),
+                ],
+                config.tool_timeout,
+                None,
+            )
+            .await?,
     )
 }
 
@@ -950,27 +936,6 @@ async fn fetch_tile(
         .to_vec())
 }
 
-async fn run_tool<I, S>(
-    program: &str,
-    args: I,
-    timeout: Duration,
-    cwd: Option<&Path>,
-) -> anyhow::Result<Output>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    let mut command = Command::new(program);
-    command.args(args).kill_on_drop(true);
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    time::timeout(timeout, command.output())
-        .await
-        .with_context(|| format!("external tool {program} exceeded {}s", timeout.as_secs()))?
-        .with_context(|| format!("required external tool {program} is unavailable"))
-}
-
 fn ensure_tool_success(tool: &str, output: &Output) -> anyhow::Result<()> {
     if output.status.success() {
         return Ok(());
@@ -1039,45 +1004,5 @@ mod tests {
         prove_unreadable_martin_is_refused(&root).await?;
         std::fs::remove_dir_all(root)?;
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn missing_and_stalled_external_tools_fail_loudly() -> anyhow::Result<()> {
-        let missing = run_tool(
-            "perfectory-tool-that-does-not-exist",
-            std::iter::empty::<&str>(),
-            Duration::from_secs(1),
-            None,
-        )
-        .await
-        .err()
-        .map(|error| error.to_string())
-        .unwrap_or_default();
-        assert!(missing.contains("unavailable"), "got: {missing}");
-
-        let current_exe = std::env::current_exe()?;
-        let current_exe = current_exe.to_string_lossy();
-        let stalled = run_tool(
-            &current_exe,
-            [
-                "--ignored",
-                "--exact",
-                "industrial_complex_boundary_static_release_publish::tests::external_tool_stall_helper",
-            ],
-            Duration::from_millis(100),
-            None,
-        )
-        .await
-        .err()
-        .map(|error| error.to_string())
-        .unwrap_or_default();
-        assert!(stalled.contains("exceeded"), "got: {stalled}");
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "spawned by the bounded external-tool test"]
-    fn external_tool_stall_helper() {
-        std::thread::sleep(Duration::from_secs(5));
     }
 }

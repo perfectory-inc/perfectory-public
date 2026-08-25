@@ -176,7 +176,7 @@ Foundation과 Gongzzang 양쪽에서 검증한다.
 - [Administrative boundary and parcel identity versioning](../architecture/administrative-boundary-versioning.md)
 - [Foundation ADR 0004 - Vector tile publication contract](../../platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md)
 - GZ-ADR-0036 — vector tile runtime contract (legacy flat-object v1 and single-source v2)
-- [Martin file sources](https://github.com/maplibre/martin/blob/martin-v1.12.0/docs/content/sources-files.md)
+- [Martin PMTiles sources](https://maplibre.org/martin/sources-pmtiles.html)
   — Rust PostGIS / PMTiles / MBTiles serving, S3-compatible R2, and remote-prefix polling
 - ADR-0004 — verification SSOT (same "one definition" discipline, applied to serving)
 - Internal foundation pipeline audit, 2026-07-21

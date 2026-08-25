@@ -167,6 +167,7 @@ mod shapefile_polygon_reader;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;
+mod static_release_toolchain;
 mod tile_derivative_object_storage;
 mod trino_ready_wait;
 mod vector_tile_runtime_promote;
@@ -305,6 +306,7 @@ enum Command {
     SeedLakehouseRegistry,
     SmokeR2,
     SmokeVWorldCadastral,
+    VerifyStaticReleaseToolchain,
     VerifyLakehouseRegistry,
     VerifyR2Cleanup,
     ValidateTileDerivativeR2,
@@ -631,6 +633,11 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::SeedLakehouseRegistry => Box::pin(lakehouse_registry_control::seed()),
         Command::SmokeR2 => Box::pin(run_r2_smoke()),
         Command::SmokeVWorldCadastral => Box::pin(vworld_cadastral_smoke::run()),
+        Command::VerifyStaticReleaseToolchain => Box::pin(async {
+            static_release_toolchain::verify(std::time::Duration::from_secs(30))
+                .await
+                .map(|_| ())
+        }),
         Command::VerifyLakehouseRegistry => Box::pin(lakehouse_registry_control::verify()),
         Command::VerifyR2Cleanup => Box::pin(async { r2_cleanup_verify::run() }),
         Command::ValidateTileDerivativeR2 => {
@@ -1204,6 +1211,7 @@ where
         Some("seed-lakehouse-registry") => Ok(Command::SeedLakehouseRegistry),
         Some("smoke-r2") => Ok(Command::SmokeR2),
         Some("smoke-vworld-cadastral") => Ok(Command::SmokeVWorldCadastral),
+        Some("verify-static-release-toolchain") => Ok(Command::VerifyStaticReleaseToolchain),
         Some("verify-lakehouse-registry") => Ok(Command::VerifyLakehouseRegistry),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),

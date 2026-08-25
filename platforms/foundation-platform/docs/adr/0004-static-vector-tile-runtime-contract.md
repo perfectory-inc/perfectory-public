@@ -501,6 +501,6 @@ bucket-scoped read-only credential이다.
 ## References
 
 - [Root ADR 0006 - Object-storage-first serving](../../../../docs/adr/0006-object-storage-first-serving.md)
-- [Martin file sources and remote-prefix reload](https://github.com/maplibre/martin/blob/martin-v1.12.0/docs/content/sources-files.md)
+- [Martin PMTiles sources and remote-prefix reload](https://maplibre.org/martin/sources-pmtiles.html)
 - [Apache Iceberg branching and WAP](https://iceberg.apache.org/docs/latest/branching/)
 - [Cloudflare R2 S3 conditional `PutObject`](https://developers.cloudflare.com/r2/api/s3/api/)

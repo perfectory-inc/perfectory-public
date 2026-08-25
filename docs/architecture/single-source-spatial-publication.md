@@ -219,7 +219,7 @@ scheduler는 최신 리비전에서 debounce 후 재시도할 수 있다. 변경
 Martin은 같은 pinned Martin image를 독립적으로 설정한 두 deployment로 사용한다.
 
 - `martin-dynamic`은 안정적이고 명시적인 PostGIS source를 가지며 static release 때문에 재시작하지 않는다.
-- `martin-static`은 전용 private serving-derivative R2 bucket에 대해서만 Martin 1.12의
+- `martin-static`은 전용 private serving-derivative R2 bucket에 대해서만 계약된 Martin의
   `pmtiles.paths` remote-prefix discovery를 사용한다. 별도 bucket 범위 읽기 전용 R2 credential이
   bucket list/read 권한을 준다. 설정 prefix는 source discovery 범위일 뿐 IAM 경계가 아니다.
 
@@ -234,7 +234,7 @@ endpoint나 custom domain이 필요 없다. Cloudflare CDN은 public Martin MVT 
 인증된 R2 origin client다. 직접 public/custom-domain PMTiles는 명시적으로 승인한 대안이지 기본값이 아니다.
 
 이는 Martin이 문서화한
-[S3-compatible PMTiles source and remote-prefix hot reload](https://github.com/maplibre/martin/blob/martin-v1.12.0/docs/content/sources-files.md)
+[S3-compatible PMTiles source and remote-prefix hot reload](https://maplibre.org/martin/sources-pmtiles.html)
 경로를 재사용하며 공개 경로에 custom watcher, Docker socket, service restart를 만들지 않는다. local
 fallback도 감시하는 local directory로 같은 계약을 사용한다. 이름이 있는 `pmtiles.sources` 항목은
 계속 startup snapshot이고 prefix polling은 `pmtiles.paths`만 제공한다.

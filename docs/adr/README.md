@@ -64,3 +64,4 @@ last_reviewed: 2026-07-28
 - [0051 — 포인터는 읽어 본 바이트에 대해서만 발행된다](./0051-a-pointer-is-published-only-against-bytes-that-were-read-back.md)
 - [0052 — 정적 아카이브는 자기가 대체하는 소스에서 굽는 조건을 읽는다](./0052-a-static-archive-reads-its-build-conditions-from-the-source-it-replaces.md)
 - [0053 — 정적 타일 포인터는 build ledger의 객체 사실에서 파생한다](./0053-a-static-tile-pointer-is-derived-from-build-ledger-facts.md)
+- [0054 — 정적 릴리스 도구는 실행 파일 신원 계약 하나를 가진다](./0054-static-release-tools-have-one-executable-identity-contract.md)

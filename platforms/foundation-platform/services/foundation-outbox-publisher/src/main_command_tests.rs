@@ -359,6 +359,18 @@ fn derivative_r2_preflight_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn static_release_toolchain_preflight_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "verify-static-release-toolchain",
+        ])?,
+        Command::VerifyStaticReleaseToolchain
+    );
+    Ok(())
+}
+
+#[test]
 fn industrial_complex_static_release_publish_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

@@ -9,12 +9,11 @@ IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
-COMPOSE_FILE="$SCRIPT_DIR/compose.yaml"
+COMPOSE_FILE_RELATIVE="scripts/tiles/compose.yaml"
 HTTP_EVIDENCE_HELPER="$SCRIPT_DIR/http-evidence.sh"
 source "$HTTP_EVIDENCE_HELPER"
 
 RUST_IMAGE="rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc"
-PMTILES_IMAGE="protomaps/go-pmtiles:v1.31.1@sha256:057f8e5a6c77e89b46eebd40d62d295a0b69009371542bc0abfe1ecbc7ee6285"
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
 COMPOSE_PROJECT="tiles-slice-proof-$$-${RANDOM}"
@@ -389,7 +388,7 @@ configure_r2_mode() {
     [[ "$R2_TILES_READ_URL" == https://* && "$R2_TILES_READ_URL" != *\#* ]] \
       || fail "R2_TILES_READ_URL must be an HTTPS URL without a fragment"
     [[ "$R2_TILES_READ_URL" != *\?* ]] \
-      || fail "R2_TILES_READ_URL must be query-free for Martin 1.12; use R2_TILES_READ_BASE_URL or production pmtiles.paths for a private R2 object"
+      || fail "R2_TILES_READ_URL must be query-free for the contracted Martin; use R2_TILES_READ_BASE_URL or production pmtiles.paths for a private R2 object"
     local read_path="${R2_TILES_READ_URL%%\?*}"
     case "$read_path" in
       *"/$R2_OBJECT_KEY") ;;
@@ -415,9 +414,15 @@ if [[ "$VALIDATE_R2_CONFIG_ONLY" == true ]]; then
   exit 0
 fi
 
-for command in docker curl sed grep find sort wc cmp tr date mkdir rm sha256sum tail head; do
+for command in docker curl sed grep find sort wc cmp tr date mkdir rm sha256sum tail head python3; do
   require_command "$command"
 done
+
+
+toolchain_environment="$(
+  python3 "$REPO_ROOT/scripts/tiles/static_release_toolchain_contract.py" image-env --shell
+)" || fail "static-release toolchain contract is invalid"
+eval "$toolchain_environment"
 
 # Git Bash on Windows can resolve the Linux Docker CLI first. That CLI defaults to
 # /var/run/docker.sock and cannot reach Docker Desktop's named pipe; prefer docker.exe when the
@@ -437,7 +442,6 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose is required"
 
 mkdir -p "$(dirname -- "$ARCHIVE_PATH")" "$ARTIFACT_DIR/http"
 REPO_HOST_PATH="$(host_path "$REPO_ROOT")"
-COMPOSE_FILE_HOST="$(host_path "$COMPOSE_FILE")"
 export TILES_SLICE_ARTIFACT_DIR
 export TILES_SLICE_ARTIFACT_DIR="$(host_path "$ARTIFACT_DIR")"
 COMPOSE_ENV_FILE_PATH="$ARTIFACT_DIR/.compose.env"
@@ -480,7 +484,8 @@ write_compose_env() {
 compose() {
   # Scope this to Docker: exporting it globally breaks Git Bash curl /dev/null.
   MSYS_NO_PATHCONV=1 docker compose --env-file "$DOCKER_COMPOSE_ENV_FILE" \
-    --project-name "$COMPOSE_PROJECT" --file "$COMPOSE_FILE_HOST" "$@"
+    --project-name "$COMPOSE_PROJECT" \
+    --file "$(host_path "$REPO_ROOT/$COMPOSE_FILE_RELATIVE")" "$@"
 }
 
 clean_curl() {
@@ -798,9 +803,9 @@ for value in "${manifest_bytes[@]}"; do
 done
 
 MSYS_NO_PATHCONV=1 docker run --rm --volume "$TILES_SLICE_ARTIFACT_DIR:/artifacts" \
-  "$PMTILES_IMAGE" convert "$MBTILES_CONTAINER" "$ARCHIVE_CONTAINER"
+  "$PERFECTORY_PMTILES_IMAGE" convert "$MBTILES_CONTAINER" "$ARCHIVE_CONTAINER"
 MSYS_NO_PATHCONV=1 docker run --rm --volume "$TILES_SLICE_ARTIFACT_DIR:/artifacts" \
-  "$PMTILES_IMAGE" verify "$ARCHIVE_CONTAINER"
+  "$PERFECTORY_PMTILES_IMAGE" verify "$ARCHIVE_CONTAINER"
 [[ -s "$ARCHIVE_PATH" ]] || fail "PMTiles conversion produced an empty archive"
 archive_bytes="$(wc -c < "$ARCHIVE_PATH" | tr -d '[:space:]')"
 archive_sha256="$(sha256sum "$ARCHIVE_PATH" | sed 's/[[:space:]].*$//')"

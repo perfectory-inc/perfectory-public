@@ -1,7 +1,7 @@
 listen_addresses: 0.0.0.0:3000
 on_invalid: abort
 # Dynamic PostGIS is a mutable projection. Martin's supported cache switch is the explicit
-# `cache: disable` mapping. A numeric `cache_size_mb` key is not part of Martin 1.12's config
+# `cache: disable` mapping. A numeric `cache_size_mb` key is not part of the contracted schema
 # schema and would make the server reject this file (or silently leave stale tiles in place).
 cache: disable
 postgres:
