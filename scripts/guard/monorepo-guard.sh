@@ -52,6 +52,7 @@ for g in hook-isolation-self-test \
          osv-vulnerability-ratchet-self-test \
          actions-cache-controls-self-test billing-budgets-self-test \
          tiles-slice-proof-env-self-test \
+         foundation-ci-scope-self-test \
          live-lane-completeness-self-test live-lane-completeness \
          build-coupling-baseline-self-test build-coupling-baseline \
          no-silent-test-skip-self-test no-silent-test-skip \

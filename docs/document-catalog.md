@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **379개**
+- 문서 파일: **380개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 77 |
+| Monorepo | 78 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 136 |
+| ADR | 137 |
 | README | 107 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -423,6 +423,7 @@ docs/adr/0052-a-static-archive-reads-its-build-conditions-from-the-source-it-rep
 docs/adr/0053-a-static-tile-pointer-is-derived-from-build-ledger-facts.md
 docs/adr/0054-static-release-tools-have-one-executable-identity-contract.md
 docs/adr/0055-private-r2-profile-gateway.md
+docs/adr/0056-heavy-foundation-gates-run-only-for-owned-inputs.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -512,6 +513,7 @@ tools/github/README.md
 | `docs/adr/0053-a-static-tile-pointer-is-derived-from-build-ledger-facts.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0054-static-release-tools-have-one-executable-identity-contract.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0055-private-r2-profile-gateway.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0056-heavy-foundation-gates-run-only-for-owned-inputs.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

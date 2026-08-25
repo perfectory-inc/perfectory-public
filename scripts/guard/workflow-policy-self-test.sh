@@ -346,5 +346,10 @@ if REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=failure \
   echo "FAIL workflow-policy-self-test: terminal helper accepted a failed dependency" >&2
   exit 1
 fi
+if REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=skipped \
+  scripts/ci/require-successful-needs.sh >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: terminal helper accepted a skipped dependency" >&2
+  exit 1
+fi
 
 echo "OK workflow-policy-self-test"
