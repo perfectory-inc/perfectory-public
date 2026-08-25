@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-26
 ---
 
 # foundation-outbox-publisher
@@ -14,3 +14,5 @@ Foundation 운영 CLI입니다. 국가 공공데이터 수집, Bronze ledger res
 - 실행 절차: [`docs/runbooks/public-data-bronze-lane-orchestration.md`](../../docs/runbooks/public-data-bronze-lane-orchestration.md)
 - 실행: `cargo run -p foundation-outbox-publisher -- --help`
 - 검증: `cargo test -p foundation-outbox-publisher`
+- 레이크하우스 표 재고: `cargo run -p foundation-outbox-publisher -- inventory-lakehouse`
+  ([운영 절차](../../docs/runbooks/lakehouse-registry.md#iceberg-table-inventory))

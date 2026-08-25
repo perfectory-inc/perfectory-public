@@ -32,6 +32,8 @@ pub(crate) struct ScannedDataFile {
     pub(crate) file_path: String,
     /// Row count the manifest recorded for the data file.
     pub(crate) record_count: u64,
+    /// Compressed byte size the manifest recorded for the data file.
+    pub(crate) file_size_in_bytes: u64,
 }
 
 /// Returns the manifest locations a snapshot's manifest list points at.
@@ -74,10 +76,14 @@ pub(crate) fn data_files(manifest_avro: &[u8]) -> anyhow::Result<Vec<ScannedData
         );
         let record_count = optional_integer_field(data_file, "record_count")?
             .context("Iceberg data file is missing its record_count")?;
+        let file_size_in_bytes = optional_integer_field(data_file, "file_size_in_bytes")?
+            .context("Iceberg data file is missing its file_size_in_bytes")?;
         data_files.push(ScannedDataFile {
             file_path: string_field(data_file, "file_path")?,
             record_count: u64::try_from(record_count)
                 .context("Iceberg data file record_count must not be negative")?,
+            file_size_in_bytes: u64::try_from(file_size_in_bytes)
+                .context("Iceberg data file file_size_in_bytes must not be negative")?,
         });
     }
     Ok(data_files)
@@ -320,8 +326,61 @@ fn optional_integer_field(record: &AvroValue, name: &str) -> anyhow::Result<Opti
 
 #[cfg(test)]
 mod tests {
-    use super::{format_decimal, parse_decimal_type, resolve};
-    use apache_avro::types::Value as AvroValue;
+    use super::{data_files, format_decimal, parse_decimal_type, resolve};
+    use apache_avro::{types::Value as AvroValue, Schema, Writer};
+
+    #[test]
+    fn data_files_read_manifest_record_count_and_size_without_opening_parquet() -> anyhow::Result<()>
+    {
+        let schema = Schema::parse_str(
+            r#"{
+              "type": "record",
+              "name": "manifest_entry",
+              "fields": [
+                {"name": "status", "type": "long"},
+                {"name": "data_file", "type": {
+                  "type": "record",
+                  "name": "data_file",
+                  "fields": [
+                    {"name": "content", "type": "long"},
+                    {"name": "file_path", "type": "string"},
+                    {"name": "file_format", "type": "string"},
+                    {"name": "record_count", "type": "long"},
+                    {"name": "file_size_in_bytes", "type": "long"}
+                  ]
+                }}
+              ]
+            }"#,
+        )?;
+        let mut writer = Writer::new(&schema, Vec::new());
+        writer.append(AvroValue::Record(vec![
+            ("status".to_owned(), AvroValue::Long(1)),
+            (
+                "data_file".to_owned(),
+                AvroValue::Record(vec![
+                    ("content".to_owned(), AvroValue::Long(0)),
+                    (
+                        "file_path".to_owned(),
+                        AvroValue::String("s3://lakehouse/silver/table/part-0.parquet".to_owned()),
+                    ),
+                    (
+                        "file_format".to_owned(),
+                        AvroValue::String("PARQUET".to_owned()),
+                    ),
+                    ("record_count".to_owned(), AvroValue::Long(37)),
+                    ("file_size_in_bytes".to_owned(), AvroValue::Long(4_096)),
+                ]),
+            ),
+        ]))?;
+        let bytes = writer.into_inner()?;
+
+        let files = data_files(&bytes)?;
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].record_count, 37);
+        assert_eq!(files[0].file_size_in_bytes, 4_096);
+        Ok(())
+    }
 
     #[test]
     fn decimals_render_as_exact_base_ten_text() {

@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **380개**
-- 언어 분류: **{'english': 34, 'korean': 184, 'mixed': 162}**
-- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 86개** (기계 계약·라우터·법률 예외 제외)
+- 감사 문서: **381개**
+- 언어 분류: **{'english': 34, 'korean': 186, 'mixed': 161}**
+- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **201개 정상 / 0개 누락 / 179개 해당 없음**
+- 메타데이터: **201개 정상 / 0개 누락 / 180개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -34,7 +34,7 @@
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0011-test-execution-set-completeness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
-| `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 9 |
+| `docs/adr/0012-verification-results-must-mean-what-they-say.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 10 |
 | `docs/adr/0013-release-uniqueness-admits-both-source-kinds.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 11 |
 | `docs/adr/0014-serving-generation-tracks-one-unit-source-selection.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 10 |
 | `docs/adr/0015-one-idempotency-ledger-for-keyed-catalog-mutations.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
@@ -62,7 +62,7 @@
 | `docs/adr/0037-a-pointer-carries-the-address-template-with-its-object-key.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md` | Monorepo | ADR | Superseded by ADR-0039 | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0039-gold-serving-artifacts-live-in-the-lakehouse-bucket-and-tiles-do-not.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 10 |
+| `docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 11 |
 | `docs/adr/0042-a-silver-boundary-carries-its-source-crs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0043-a-canonical-id-is-read-not-recomputed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
@@ -78,6 +78,7 @@
 | `docs/adr/0054-static-release-tools-have-one-executable-identity-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0055-private-r2-profile-gateway.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0056-heavy-foundation-gates-run-only-for-owned-inputs.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0057-lakehouse-inventory-reads-current-iceberg-metadata.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -180,7 +181,7 @@
 | `platforms/foundation-platform/docs/runbooks/lakehouse-catalog-smoke.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md` | Foundation Platform | runbook | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/runbooks/lakehouse-registry.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
+| `platforms/foundation-platform/docs/runbooks/lakehouse-registry.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
@@ -200,7 +201,7 @@
 | `platforms/foundation-platform/infra/lakehouse/dbt/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current | mixed | ok | 2 |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current | korean | ok | 0 |
-| `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
+| `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-profile-gateway/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
 | `platforms/foundation-platform/services/foundation-provider-acquisition-worker/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/identity-platform/AGENTS.md` | Identity Platform | agent rules | current | mixed | not applicable: agent router | 1 |

@@ -52,6 +52,15 @@ fn inventory_r2_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn inventory_lakehouse_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "inventory-lakehouse"])?,
+        Command::InventoryLakehouse
+    );
+    Ok(())
+}
+
+#[test]
 fn plan_provider_acquisition_jobs_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

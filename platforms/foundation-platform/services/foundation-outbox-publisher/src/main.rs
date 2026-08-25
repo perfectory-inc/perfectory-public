@@ -82,6 +82,7 @@ mod industrial_complex_gold_profile_export;
 mod industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
 mod ingestion_run_recovery;
+mod lakehouse_inventory;
 mod lakehouse_quality_rules_evaluate;
 mod lakehouse_registry_control;
 mod lakehouse_snapshot_scan;
@@ -302,6 +303,7 @@ enum Command {
     RecordLakehouseBronzeRunEvidence,
     RunBuildingRegisterLocalBronzeProof,
     RunPublisher,
+    InventoryLakehouse,
     InventoryR2,
     MigrateR2BronzeKeys,
     SeedLakehouseRegistry,
@@ -623,6 +625,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(lakehouse_registry_control::record_bronze_run_evidence())
         }
         Command::RunPublisher => Box::pin(run_publisher()),
+        Command::InventoryLakehouse => Box::pin(lakehouse_inventory::run()),
         Command::InventoryR2 => Box::pin(run_r2_inventory()),
         Command::MigrateR2BronzeKeys => Box::pin(r2_bronze_key_migration::run()),
         Command::WriteR2BronzeKeyCleanupCandidates => {
@@ -1203,6 +1206,7 @@ where
         Some("record-lakehouse-bronze-run-evidence") => {
             Ok(Command::RecordLakehouseBronzeRunEvidence)
         }
+        Some("inventory-lakehouse") => Ok(Command::InventoryLakehouse),
         Some("inventory-r2") => Ok(Command::InventoryR2),
         Some("migrate-r2-bronze-keys") => Ok(Command::MigrateR2BronzeKeys),
         Some("write-r2-bronze-key-cleanup-candidates") => {
