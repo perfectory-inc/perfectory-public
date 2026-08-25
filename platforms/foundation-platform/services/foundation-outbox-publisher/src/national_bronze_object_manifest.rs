@@ -11,6 +11,7 @@ use serde_json::Value as JsonValue;
 use crate::public_data_control_support::{
     env_path, git_head, read_json, repo_relative_path, resolve_repo_path, utc_now, write_json_file,
 };
+use crate::vworld_credentials::sensitive_vworld_environment_name_in;
 
 const REPORT_SCHEMA_VERSION: &str = "foundation-platform.national_bronze_object_manifest.v1";
 const ENTRY_SCHEMA_VERSION: &str = "foundation-platform.national_bronze_object_manifest_entry.v1";
@@ -975,9 +976,17 @@ fn add_forbidden_token_blockers_from_content(
     label: &str,
     blockers: &mut Vec<String>,
 ) {
+    match sensitive_vworld_environment_name_in(content) {
+        Ok(Some(forbidden)) => blockers.push(format!(
+            "{label} must not contain forbidden token: {forbidden}"
+        )),
+        Ok(None) => {}
+        Err(error) => blockers.push(format!(
+            "{label} cannot validate VWorld credential tokens: {error}"
+        )),
+    }
     for forbidden in [
         "DATA_GO_KR_SERVICE_KEY",
-        "VWORLD_API_KEY",
         "serviceKey",
         "raw_payload",
         "unit-test-key",

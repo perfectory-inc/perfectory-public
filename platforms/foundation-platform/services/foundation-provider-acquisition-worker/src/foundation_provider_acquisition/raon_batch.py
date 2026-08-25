@@ -19,6 +19,10 @@ from foundation_provider_acquisition.raon import (
     write_private_replay_request,
     write_replay_proof,
 )
+from foundation_provider_acquisition.vworld_credentials import (
+    normalize_vworld_credentials,
+    resolve_vworld_credential,
+)
 
 
 @dataclass(frozen=True)
@@ -209,7 +213,7 @@ def _build_import_env(
     paths: RaonBatchPaths,
     observed_filename: str,
 ) -> dict[str, str]:
-    env = dict(base_env)
+    env = normalize_vworld_credentials(base_env)
     env.pop("FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_LANDING_PAYLOAD_PATH", None)
     env["FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER"] = "r2"
     env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_REPLAY_REQUEST_PATH"] = str(
@@ -262,10 +266,8 @@ def _default_acquire_fn(
     )
     if use_vworld_login and not cookie_header:
         cookie_header = fetch_vworld_cookie_header(
-            username=env.get("FOUNDATION_PLATFORM_VWORLD_DATASET_USERNAME")
-            or env.get("VWORLD_USERNAME", ""),
-            password=env.get("FOUNDATION_PLATFORM_VWORLD_DATASET_PASSWORD")
-            or env.get("VWORLD_PASSWORD", ""),
+            username=resolve_vworld_credential(env, "username") or "",
+            password=resolve_vworld_credential(env, "password") or "",
             user_agent=user_agent,
         )
 

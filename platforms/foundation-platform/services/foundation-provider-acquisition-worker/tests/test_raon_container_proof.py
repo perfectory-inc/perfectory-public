@@ -8,6 +8,10 @@ ENTRYPOINT = REPO_ROOT / "services/foundation-provider-acquisition-worker/script
 BATCH_ENTRYPOINT = REPO_ROOT / "services/foundation-provider-acquisition-worker/scripts/raon-batch-entrypoint.sh"
 PYPROJECT = REPO_ROOT / "services/foundation-provider-acquisition-worker/pyproject.toml"
 RUNBOOK = REPO_ROOT / "docs/runbooks/provider-acquisition-fargate.md"
+NAMING_CONTRACT_COPY = (
+    "COPY config/environment-variable-naming.contract.json "
+    "/app/config/environment-variable-naming.contract.json"
+)
 
 
 def test_dockerignore_excludes_secret_and_heavy_paths_from_image_context() -> None:
@@ -87,6 +91,15 @@ def test_raon_batch_container_includes_rust_importer_and_batch_entrypoint() -> N
     assert "/opt/raonk-2018/raonk-2018 --no-sandbox" in entrypoint
     assert "powershell" not in entrypoint.lower()
     assert ".ps1" not in entrypoint.lower()
+
+
+def test_raon_images_carry_the_naming_contract_consumed_by_python_and_rust() -> None:
+    proof_dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    batch_dockerfile = BATCH_DOCKERFILE.read_text(encoding="utf-8")
+
+    assert NAMING_CONTRACT_COPY in proof_dockerfile
+    assert NAMING_CONTRACT_COPY in batch_dockerfile
+    assert "COPY config /src/config" in batch_dockerfile
 
 
 def test_provider_acquisition_worker_installs_scrapling_browser_fetcher_extra() -> None:

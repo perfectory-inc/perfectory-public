@@ -26,6 +26,7 @@ use foundation_shared_kernel::ids::IngestionRunId;
 
 use crate::bronze_object_storage::live_write_bronze_object_storage_from_env;
 use crate::provider_rate_limiter::{OutcomeSignal, ProviderRateLimiter, ReserveOutcome};
+use crate::vworld_credentials::redact_sensitive_vworld_environment_names;
 
 mod bronze_ingest;
 mod building_register;
@@ -1031,10 +1032,9 @@ fn git_head() -> String {
 }
 
 fn redact_sensitive_error(error: &str) -> String {
-    let mut redacted = error.to_owned();
+    let mut redacted = redact_sensitive_vworld_environment_names(error);
     for token in [
         "DATA_GO_KR_SERVICE_KEY",
-        "VWORLD_API_KEY",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
         "serviceKey",

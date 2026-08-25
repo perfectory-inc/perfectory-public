@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-26
 ---
 
 # VWorld 데이터 파일 Bronze 수집 런북
@@ -112,8 +112,13 @@ VWorld 파일 다운로드:
 | Variable | Purpose |
 |---|---|
 | `FOUNDATION_PLATFORM_VWORLD_DATASET_COOKIE_HEADER` | Optional pre-authenticated provider Cookie header |
-| `FOUNDATION_PLATFORM_VWORLD_DATASET_USERNAME` or `VWORLD_USERNAME` | Provider login username when Cookie header is not supplied |
-| `FOUNDATION_PLATFORM_VWORLD_DATASET_PASSWORD` or `VWORLD_PASSWORD` | Provider login password when Cookie header is not supplied |
+| `FOUNDATION_PLATFORM_VWORLD_USERNAME` | Cookie header가 없을 때 쓰는 공급자 로그인 사용자명 |
+| `FOUNDATION_PLATFORM_VWORLD_PASSWORD` | Cookie header가 없을 때 쓰는 공급자 로그인 비밀번호 |
+
+호환 기간에는 `VWORLD_API_KEY`, `VWORLD_DOMAIN`, `VWORLD_USERNAME`, `VWORLD_PASSWORD`와
+기존 dataset 전용 사용자명·비밀번호 이름도 읽지만, 그 이름이 실제 값을 공급하면 이름만 포함한
+폐기 예정 경고를 남긴다. 운영자는 `.env.local`에서 값을 출력하지 말고 왼쪽 이름만 위 canonical
+이름으로 옮긴다. canonical 이름과 구 이름이 함께 있으면 canonical 값이 우선한다.
 
 Cookie header가 없으면 ingestor는 실행마다 한 번 로그인하고 반환된 session Cookie를 선택 파일마다
 재사용한다. credential은 log·evidence·shell 출력에 남기면 안 된다.

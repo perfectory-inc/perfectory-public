@@ -59,7 +59,13 @@ def test_run_batch_imports_replay_directly_to_bronze_and_deletes_private_request
         output_root=tmp_path,
         acquire=acquire,
         import_replay=import_replay,
-        base_env={"DATABASE_URL": "postgres://example"},
+        base_env={
+            "DATABASE_URL": "postgres://example",
+            "FOUNDATION_PLATFORM_VWORLD_USERNAME": "canonical-user",
+            "FOUNDATION_PLATFORM_VWORLD_DATASET_USERNAME": "dataset-user",
+            "VWORLD_USERNAME": "legacy-user",
+            "VWORLD_PASSWORD": "legacy-password",
+        },
     )
 
     assert summary["selected_count"] == 1
@@ -74,6 +80,11 @@ def test_run_batch_imports_replay_directly_to_bronze_and_deletes_private_request
     ]
     assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_COMMIT_BRONZE"] == "1"
     assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_DIRECT_TO_BRONZE"] == "1"
+    assert seen_env["FOUNDATION_PLATFORM_VWORLD_USERNAME"] == "canonical-user"
+    assert seen_env["FOUNDATION_PLATFORM_VWORLD_PASSWORD"] == "legacy-password"
+    assert "FOUNDATION_PLATFORM_VWORLD_DATASET_USERNAME" not in seen_env
+    assert "VWORLD_USERNAME" not in seen_env
+    assert "VWORLD_PASSWORD" not in seen_env
     assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_PROVIDER"] == "vworld.kr"
     assert (
         seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_SOURCE_NAME"]

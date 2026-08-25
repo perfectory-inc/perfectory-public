@@ -11,6 +11,7 @@ describe("generated Wrangler configuration", () => {
     const gateway = connectionContract.profile_gateway;
     const lakehouse = connectionContract.connections.lakehouse;
 
+    expect(gateway.r2_binding).toMatch(/^FOUNDATION_PLATFORM_(?!R2_)[A-Z0-9_]+$/);
     expect(config.name).toBe(gateway.worker_name);
     expect(config.main).toBe("src/index.ts");
     expect(config.compatibility_date).toBe(gateway.compatibility_date);

@@ -19,8 +19,9 @@ use sha2::{Digest, Sha256};
 
 use crate::public_data_control_support::{
     optional_duration_millis_env, optional_duration_seconds_env, optional_env_value,
-    optional_positive_u32_env, optional_usize_env, required_env_value,
+    optional_positive_u32_env, optional_usize_env,
 };
+use crate::vworld_credentials::{optional_vworld_domain, required_vworld_api_key};
 
 const PLAN_SCHEMA_VERSION: &str = "foundation-platform.vworld_page_count_plan.v1";
 const SCOPE_ROW_SCHEMA_VERSION: &str = "foundation-platform.national_data_collection_scope_row.v1";
@@ -808,8 +809,8 @@ impl VWorldPageCountBatchConfig {
                 .unwrap_or_else(|| DEFAULT_DATA_BASE_URI.to_owned()),
             ned_base_uri: optional_env_value("FOUNDATION_PLATFORM_VWORLD_NED_BASE_URI")?
                 .unwrap_or_else(|| DEFAULT_NED_BASE_URI.to_owned()),
-            api_key: required_env_value("VWORLD_API_KEY")?,
-            domain: optional_env_value("VWORLD_DOMAIN")?,
+            api_key: required_vworld_api_key()?,
+            domain: optional_vworld_domain()?,
             user_agent: optional_env_value("FOUNDATION_PLATFORM_VWORLD_USER_AGENT")?
                 .unwrap_or_else(|| DEFAULT_USER_AGENT.to_owned()),
             request_policy: VWorldRequestPolicy::new(

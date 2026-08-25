@@ -104,13 +104,18 @@ set -euo pipefail
 # grammar test. These are the two deliberate build inputs; layout tests consume
 # the typed embedded policy instead of rereading the JSON.
 #
+# 91 -> 92: `foundation-outbox-publisher/src/vworld_credentials.rs` embeds the
+# environment-variable naming contract. Rust and Python resolve the same canonical
+# VWorld names and temporary aliases from that one contract; embedding it keeps the
+# Rust binary fail-closed and avoids a second hand-written credential-name table.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-91}"
+COMPILE_TIME_READ_BASELINE="${3:-92}"
 
 cd "$repo_root"
 

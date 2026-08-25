@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "purpose": "Foundation-owned environment variables carry the Foundation owner namespace; external tool inputs retain the exact names consumed by those tools.",
+  "owned_namespaces": {
+    "foundation-platform": "FOUNDATION_PLATFORM_"
+  },
+  "external_tool_exceptions": [
+    {
+      "selector": "DATABASE_URL",
+      "selector_kind": "exact",
+      "consumer": "sqlx",
+      "reference": "https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md"
+    },
+    {
+      "selector": "SCCACHE_",
+      "selector_kind": "prefix",
+      "consumer": "sccache",
+      "reference": "https://github.com/mozilla/sccache/blob/main/docs/Configuration.md"
+    },
+    {
+      "selector": "CLOUDFLARE_",
+      "selector_kind": "prefix",
+      "consumer": "wrangler",
+      "reference": "https://developers.cloudflare.com/workers/wrangler/system-environment-variables/"
+    },
+    {
+      "selector": "GH_TOKEN",
+      "selector_kind": "exact",
+      "consumer": "gh",
+      "reference": "https://cli.github.com/manual/gh_help_environment"
+    }
+  ],
+  "compatibility_migrations": {
+    "foundation-vworld-credentials": {
+      "status": "temporary",
+      "precedence": "canonical-first",
+      "warning": {
+        "emit": "names-only",
+        "when": "deprecated-alias-supplies-value"
+      },
+      "removal_gate": {
+        "tracked_examples": "canonical-only",
+        "private_operator_profiles": "canonical-only",
+        "alias_warning_executions": 0
+      },
+      "credentials": {
+        "api_key": {
+          "canonical": "FOUNDATION_PLATFORM_VWORLD_API_KEY",
+          "deprecated_aliases": [
+            "VWORLD_API_KEY"
+          ],
+          "sensitive": true
+        },
+        "domain": {
+          "canonical": "FOUNDATION_PLATFORM_VWORLD_DOMAIN",
+          "deprecated_aliases": [
+            "VWORLD_DOMAIN"
+          ],
+          "sensitive": false
+        },
+        "username": {
+          "canonical": "FOUNDATION_PLATFORM_VWORLD_USERNAME",
+          "deprecated_aliases": [
+            "FOUNDATION_PLATFORM_VWORLD_DATASET_USERNAME",
+            "VWORLD_USERNAME"
+          ],
+          "sensitive": true
+        },
+        "password": {
+          "canonical": "FOUNDATION_PLATFORM_VWORLD_PASSWORD",
+          "deprecated_aliases": [
+            "FOUNDATION_PLATFORM_VWORLD_DATASET_PASSWORD",
+            "VWORLD_PASSWORD"
+          ],
+          "sensitive": true
+        }
+      }
+    }
+  }
+}

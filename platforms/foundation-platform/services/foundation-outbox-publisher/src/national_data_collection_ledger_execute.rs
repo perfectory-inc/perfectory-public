@@ -6,6 +6,7 @@ use serde_json::Value as JsonValue;
 use crate::public_data_control_support::{
     read_json, repo_relative_path, resolve_repo_path, write_json_file,
 };
+use crate::vworld_credentials::normalize_vworld_credentials_in_map;
 
 mod support;
 
@@ -161,7 +162,8 @@ impl Executor {
 
     fn execute_jobs(&self, selected: SelectedJobs, reuse: ReuseIndex) -> anyhow::Result<()> {
         validate_execution_inputs(&self.config, &selected.jobs, &reuse)?;
-        let dotenv = import_dotenv(&self.config.env_file)?;
+        let mut dotenv = import_dotenv(&self.config.env_file)?;
+        normalize_vworld_credentials_in_map(&mut dotenv)?;
         let jobs_needing_provider = selected
             .jobs
             .iter()

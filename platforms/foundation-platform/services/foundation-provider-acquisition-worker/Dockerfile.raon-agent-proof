@@ -61,6 +61,7 @@ RUN curl -fsSL "${RAON_DEB_URL}" -o /tmp/raonk-2018_amd64.deb \
 
 WORKDIR /app
 
+COPY config/environment-variable-naming.contract.json /app/config/environment-variable-naming.contract.json
 COPY services/foundation-provider-acquisition-worker/pyproject.toml /app/services/foundation-provider-acquisition-worker/pyproject.toml
 COPY services/foundation-provider-acquisition-worker/requirements.lock /app/services/foundation-provider-acquisition-worker/requirements.lock
 COPY services/foundation-provider-acquisition-worker/src /app/services/foundation-provider-acquisition-worker/src

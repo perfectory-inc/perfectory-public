@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **381개**
+- 문서 파일: **382개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 79 |
+| Monorepo | 80 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 138 |
+| ADR | 139 |
 | README | 107 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -425,6 +425,7 @@ docs/adr/0054-static-release-tools-have-one-executable-identity-contract.md
 docs/adr/0055-private-r2-profile-gateway.md
 docs/adr/0056-heavy-foundation-gates-run-only-for-owned-inputs.md
 docs/adr/0057-lakehouse-inventory-reads-current-iceberg-metadata.md
+docs/adr/0058-repository-owned-environment-names-have-one-contract.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -516,6 +517,7 @@ tools/github/README.md
 | `docs/adr/0055-private-r2-profile-gateway.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0056-heavy-foundation-gates-run-only-for-owned-inputs.md` | Monorepo | ADR | current |
 | `docs/adr/0057-lakehouse-inventory-reads-current-iceberg-metadata.md` | Monorepo | ADR | current |
+| `docs/adr/0058-repository-owned-environment-names-have-one-contract.md` | Monorepo | ADR | current |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

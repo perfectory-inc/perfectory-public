@@ -11,6 +11,7 @@ use serde_json::Value as JsonValue;
 use crate::public_data_control_support::{
     env_path, git_head, read_json, repo_relative_path, resolve_repo_path, utc_now, write_json_file,
 };
+use crate::vworld_credentials::sensitive_vworld_environment_name_in;
 
 const SCHEMA_VERSION: &str = "foundation-platform.national_data_collection_coverage_ledger.v1";
 const PLAN_SCHEMA_VERSION: &str = "foundation-platform.national_data_collection_plan.v1";
@@ -25,7 +26,6 @@ const DEFAULT_EVIDENCE_GLOB: &str =
 const DEFAULT_REPORT_PATH: &str = "target/audit/national-data-collection-coverage-ledger.json";
 const FORBIDDEN_TOKENS: &[&str] = &[
     "DATA_GO_KR_SERVICE_KEY",
-    "VWORLD_API_KEY",
     "serviceKey",
     "raw_payload",
     "unit-test-key",
@@ -848,6 +848,15 @@ fn add_forbidden_token_blockers(path: &Path, label: &str, blockers: &mut Vec<Str
         return;
     }
     if let Ok(content) = fs::read_to_string(path) {
+        match sensitive_vworld_environment_name_in(&content) {
+            Ok(Some(token)) => {
+                blockers.push(format!("{label} must not contain forbidden token: {token}"));
+            }
+            Ok(None) => {}
+            Err(error) => blockers.push(format!(
+                "{label} cannot validate VWorld credential tokens: {error}"
+            )),
+        }
         for token in FORBIDDEN_TOKENS {
             if content.contains(token) {
                 blockers.push(format!("{label} must not contain forbidden token: {token}"));

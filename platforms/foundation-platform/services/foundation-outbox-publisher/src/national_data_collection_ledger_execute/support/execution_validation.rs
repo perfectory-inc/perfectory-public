@@ -3,6 +3,8 @@ use std::fs;
 use anyhow::bail;
 use serde_json::Value as JsonValue;
 
+use crate::vworld_credentials::{normalize_vworld_credentials_in_map, vworld_api_key_name};
+
 use super::{
     import_dotenv, is_provider_empty_job, require_env, require_r2_env, string_prop, Config,
     ReuseIndex, StorageDriver,
@@ -19,7 +21,8 @@ pub(in crate::national_data_collection_ledger_execute) fn validate_execution_inp
     if !config.confirm_national_ledger_execution {
         bail!("ConfirmNationalLedgerExecution is required when -Execute is used");
     }
-    let dotenv = import_dotenv(&config.env_file)?;
+    let mut dotenv = import_dotenv(&config.env_file)?;
+    normalize_vworld_credentials_in_map(&mut dotenv)?;
     let jobs_needing_provider = jobs
         .iter()
         .filter(|job| !reuse.contains(job) && !is_provider_empty_job(job))
@@ -43,7 +46,7 @@ pub(in crate::national_data_collection_ledger_execute) fn validate_execution_inp
         .iter()
         .any(|job| string_prop(job, "provider") == "vworld.kr")
     {
-        require_env(&dotenv, "VWORLD_API_KEY")?;
+        require_env(&dotenv, vworld_api_key_name()?)?;
     }
     if config.bronze_storage_driver == StorageDriver::R2 && !jobs_needing_provider.is_empty() {
         require_r2_env(&dotenv)?;
