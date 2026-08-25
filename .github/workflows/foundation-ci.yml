@@ -441,7 +441,11 @@ jobs:
           fi
           cleanup_status=0
           timeout --foreground 120s docker compose -p "$FOUNDATION_KAFKA_COMPOSE_PROJECT" -f platforms/intelligence-platform/docker/c2-event-backbone.compose.yml down -v --remove-orphans || cleanup_status=$?
-          docker rm -f foundation-kafka-postgres >/dev/null 2>&1 || true
+          # 컨테이너가 이미 없을 수 있다. 존재할 때만 지우므로 실패를 삼킬 필요가 없다
+          # (`|| true` 는 진짜 실패도 함께 감춘다).
+          if [ -n "$(docker ps -aq -f name=^foundation-kafka-postgres$)" ]; then
+            docker rm -f foundation-kafka-postgres >/dev/null
+          fi
           exit "$cleanup_status"
 
   compose-smoke:
