@@ -1,3 +1,10 @@
+---
+status: current
+owner: foundation-platform
+doc_type: README
+last_reviewed: 2026-08-25
+---
+
 # Foundation Profile Gateway
 
 비공개 lakehouse R2에서 정본 산업단지 Gold 프로필 하나만 읽어 주는 Cloudflare module Worker다.

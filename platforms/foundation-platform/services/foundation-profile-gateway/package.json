@@ -25,5 +25,11 @@
     "typescript": "5.9.3",
     "vitest": "4.1.7",
     "wrangler": "4.86.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "undici": "7.25.0",
+      "ws": "8.21.0"
+    }
   }
 }
