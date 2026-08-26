@@ -44,7 +44,7 @@ EOF
     '  "schema_version": 2,' \
     '  "profile_gateway": {' \
     '    "connection": "lakehouse",' \
-    '    "r2_binding": "LAKEHOUSE",' \
+    '    "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",' \
     '    "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",' \
     '    "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL"' \
     '  },' \

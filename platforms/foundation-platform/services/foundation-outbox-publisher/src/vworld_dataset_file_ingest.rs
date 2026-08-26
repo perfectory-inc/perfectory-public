@@ -33,6 +33,9 @@ use uuid::Uuid;
 use crate::bronze_object_storage::live_write_bronze_streaming_object_storage_from_env;
 use crate::bulk_streaming_bronze::BronzeStreamingObjectStorageWriter;
 use crate::public_data_control_support::{optional_env_value, required_env_value};
+use crate::vworld_credentials::{
+    optional_vworld_password, optional_vworld_username, vworld_password_name, vworld_username_name,
+};
 
 const DEFAULT_FILE_INVENTORY_PATH: &str = "target/audit/vworld-dataset-file-inventory.json";
 const DEFAULT_EVIDENCE_PATH: &str = "target/audit/vworld-dataset-file-ingest-evidence.json";
@@ -211,14 +214,8 @@ impl VWorldDatasetFileIngestConfig {
                 .transpose()?
                 .unwrap_or(DEFAULT_PAGE_SIZE),
             cookie_header: optional_env_value("FOUNDATION_PLATFORM_VWORLD_DATASET_COOKIE_HEADER")?,
-            username: optional_env_value_any(&[
-                "FOUNDATION_PLATFORM_VWORLD_DATASET_USERNAME",
-                "VWORLD_USERNAME",
-            ])?,
-            password: optional_env_value_any(&[
-                "FOUNDATION_PLATFORM_VWORLD_DATASET_PASSWORD",
-                "VWORLD_PASSWORD",
-            ])?,
+            username: optional_vworld_username()?,
+            password: optional_vworld_password()?,
             live_write: optional_env_value("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE")?,
             max_jobs: optional_env_value("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_JOBS")?
                 .map(|value| {
@@ -671,8 +668,10 @@ async fn resolve_vworld_dataset_cookie_header(
     };
     let Some(login_config) = vworld_dataset_login_config(config, &first_selected_file.job.base_uri)
     else {
+        let username_name = vworld_username_name()?;
+        let password_name = vworld_password_name()?;
         bail!(
-            "VWorld dataset file ingest requires FOUNDATION_PLATFORM_VWORLD_DATASET_COOKIE_HEADER or provider credentials via FOUNDATION_PLATFORM_VWORLD_DATASET_USERNAME/VWORLD_USERNAME and FOUNDATION_PLATFORM_VWORLD_DATASET_PASSWORD/VWORLD_PASSWORD"
+            "VWorld dataset file ingest requires FOUNDATION_PLATFORM_VWORLD_DATASET_COOKIE_HEADER or provider credentials via {username_name} and {password_name}"
         );
     };
     let client = VWorldDatasetLoginClient::new(&login_config)
@@ -1054,15 +1053,6 @@ fn write_evidence(
             path.display()
         )
     })
-}
-
-fn optional_env_value_any(names: &[&str]) -> anyhow::Result<Option<String>> {
-    for name in names {
-        if let Some(value) = optional_env_value(name)? {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
 }
 
 fn parse_positive_u64(name: &str, value: &str) -> anyhow::Result<u64> {

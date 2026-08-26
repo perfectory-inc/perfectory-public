@@ -33,6 +33,7 @@ for g in hook-isolation-self-test \
          foundation-kafka-contract \
          backend-profile-consistency backend-profile-consistency-self-test \
          r2-env-namespace-consistency r2-env-namespace-consistency-self-test \
+         environment-variable-naming-self-test environment-variable-naming \
          technology-version-consistency-self-test migration-naming \
          unique-package-names no-stale-sibling-paths health-route-conformance \
          utility-library-policy-self-test utility-library-policy \

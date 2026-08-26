@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from foundation_provider_acquisition.vworld_credentials import resolve_vworld_credential
+
 
 RaonProbeStatus = Literal["acquired", "provider_acquisition_blocked", "probe_error"]
 
@@ -914,10 +916,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.use_vworld_login and not cookie_header:
         cookie_header = fetch_vworld_cookie_header(
-            username=env.get("FOUNDATION_PLATFORM_VWORLD_DATASET_USERNAME")
-            or env.get("VWORLD_USERNAME", ""),
-            password=env.get("FOUNDATION_PLATFORM_VWORLD_DATASET_PASSWORD")
-            or env.get("VWORLD_PASSWORD", ""),
+            username=resolve_vworld_credential(env, "username") or "",
+            password=resolve_vworld_credential(env, "password") or "",
             user_agent=user_agent,
         )
 

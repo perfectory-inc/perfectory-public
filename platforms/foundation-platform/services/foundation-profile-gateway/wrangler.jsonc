@@ -7,7 +7,7 @@
   "keep_vars": true,
   "r2_buckets": [
     {
-      "binding": "LAKEHOUSE",
+      "binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
       "bucket_name": "foundation-platform-lakehouse-prod"
     }
   ]

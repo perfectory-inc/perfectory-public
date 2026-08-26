@@ -178,6 +178,7 @@ mod vworld_cadastral_ingest;
 mod vworld_cadastral_silver_export;
 mod vworld_cadastral_silver_shard_export;
 mod vworld_cadastral_smoke;
+mod vworld_credentials;
 mod vworld_dataset_collection_plan;
 mod vworld_dataset_file_ingest;
 mod vworld_dataset_file_inventory;

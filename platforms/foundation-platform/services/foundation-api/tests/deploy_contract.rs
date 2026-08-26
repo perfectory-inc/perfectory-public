@@ -210,6 +210,7 @@ fn all_docker_and_compose_images_are_immutable_and_helpers_are_non_root() -> Tes
     let lakehouse_control =
         read_area_file("services/foundation-outbox-publisher/Dockerfile.lakehouse-control")?;
     assert!(lakehouse_control.contains("USER 10001:10001"));
+    assert!(lakehouse_control.contains("COPY config /src/config"));
     assert!(!compose.contains("chown -R"));
     assert!(!lakehouse_compose.contains("chown -R"));
     let lakehouse_user_contract = [
@@ -611,6 +612,11 @@ fn profile_gateway_policy_is_versioned_and_complete() -> TestResult {
             "profile_gateway.{key} must be a string"
         );
     }
+    let r2_binding = gateway["r2_binding"]
+        .as_str()
+        .ok_or("profile_gateway.r2_binding must be a string")?;
+    assert!(r2_binding.starts_with("FOUNDATION_PLATFORM_"));
+    assert!(!r2_binding.contains("_R2_"));
 
     let object_key = gateway["object_key"]
         .as_object()

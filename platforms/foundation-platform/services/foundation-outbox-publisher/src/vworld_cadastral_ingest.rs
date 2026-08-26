@@ -31,6 +31,7 @@ use crate::public_data_control_support::{
     optional_duration_seconds_env, optional_env_value, optional_positive_u32_env, optional_u32_env,
     optional_u64_env, required_env_value,
 };
+use crate::vworld_credentials::{optional_vworld_domain, required_vworld_api_key};
 
 const SOURCE_NAME: &str = "VWorld Cadastral Parcel Boundaries";
 const PROVIDER: &str = "vworld";
@@ -493,8 +494,8 @@ impl VWorldCadastralIngestConfig {
             )?,
             base_uri: optional_env_value("FOUNDATION_PLATFORM_VWORLD_DATA_BASE_URI")?
                 .unwrap_or_else(|| DEFAULT_BASE_URI.to_owned()),
-            api_key: required_env_value("VWORLD_API_KEY")?,
-            domain: optional_env_value("VWORLD_DOMAIN")?,
+            api_key: required_vworld_api_key()?,
+            domain: optional_vworld_domain()?,
             user_agent: optional_env_value("FOUNDATION_PLATFORM_VWORLD_USER_AGENT")?
                 .unwrap_or_else(|| DEFAULT_USER_AGENT.to_owned()),
             requests: cadastral_requests_from_env(VWorldCadastralRequestSeed {

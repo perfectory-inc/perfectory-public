@@ -13,6 +13,7 @@ const PROFILE_URL = `https://profiles.example.test/${PROFILE_KEY}`;
 const ALLOWED_ORIGIN = "https://app.example.test";
 const SECOND_ALLOWED_ORIGIN = "https://admin.example.test";
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+const R2_BINDING = connectionContract.profile_gateway.r2_binding;
 
 describe("foundation profile gateway", () => {
   let runtime: Miniflare | undefined;
@@ -33,13 +34,13 @@ describe("foundation profile gateway", () => {
     runtime = new Miniflare({
       compatibilityDate: "2026-04-26",
       modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
-      r2Buckets: ["LAKEHOUSE"],
+      r2Buckets: [R2_BINDING],
       bindings: {
         FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: `${ALLOWED_ORIGIN}, ${SECOND_ALLOWED_ORIGIN}`,
       },
       cache: true,
     });
-    const bucket = await runtime.getR2Bucket("LAKEHOUSE");
+    const bucket = await runtime.getR2Bucket(R2_BINDING);
     await bucket.put(PROFILE_KEY, profileBody, {
       httpMetadata: { contentType: "application/json; charset=utf-8" },
     });
@@ -179,7 +180,7 @@ describe("foundation profile gateway", () => {
 
   it("conditional GET returns 304 on cold R2 and warm Cache API matches", async () => {
     if (runtime === undefined) throw new Error("Miniflare did not start");
-    const bucket = await runtime.getR2Bucket("LAKEHOUSE");
+    const bucket = await runtime.getR2Bucket(R2_BINDING);
     const stored = await bucket.head(PROFILE_KEY);
     if (stored === null) throw new Error("profile fixture is missing");
 
@@ -206,7 +207,7 @@ describe("foundation profile gateway", () => {
 
   it("conditional HEAD returns headers without a body", async () => {
     if (runtime === undefined) throw new Error("Miniflare did not start");
-    const bucket = await runtime.getR2Bucket("LAKEHOUSE");
+    const bucket = await runtime.getR2Bucket(R2_BINDING);
     const stored = await bucket.head(PROFILE_KEY);
     if (stored === null) throw new Error("profile fixture is missing");
 

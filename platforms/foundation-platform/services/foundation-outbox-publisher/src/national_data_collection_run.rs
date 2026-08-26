@@ -16,6 +16,7 @@ use crate::public_api_metric_writer;
 use crate::public_data_control_support::{
     env_path, git_head, read_json, repo_relative_path, resolve_repo_path, utc_now, write_json_file,
 };
+use crate::vworld_credentials::{normalize_vworld_credentials_in_map, vworld_api_key_name};
 
 mod bronze_report;
 mod child_env;
@@ -90,11 +91,12 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     validate_execution_confirmations(&config)?;
-    let dotenv = import_dotenv(&config.env_file)?;
+    let mut dotenv = import_dotenv(&config.env_file)?;
+    normalize_vworld_credentials_in_map(&mut dotenv)?;
     require_env(&dotenv, "DATABASE_URL")?;
     require_env(&dotenv, "DATA_GO_KR_SERVICE_KEY")?;
     if config.include_vworld_cadastral {
-        require_env(&dotenv, "VWORLD_API_KEY")?;
+        require_env(&dotenv, vworld_api_key_name()?)?;
     }
 
     fs::create_dir_all(&config.local_object_root)?;

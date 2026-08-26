@@ -10,6 +10,7 @@ use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
 use crate::public_api_metric_writer;
+use crate::vworld_credentials::redact_sensitive_vworld_environment_names;
 
 use super::{EVENT_SCHEMA_VERSION, MODE, PLAN_SCHEMA_VERSION};
 
@@ -172,15 +173,15 @@ pub(super) fn safe_runner_error_message(output: &[String]) -> String {
         .cloned()
         .collect::<Vec<_>>();
     message.reverse();
-    let mut message = if message.is_empty() {
+    let message = if message.is_empty() {
         "runner exited non-zero without output".to_owned()
     } else {
         message.join(" | ")
     };
+    let mut message = redact_sensitive_vworld_environment_names(&message);
     for token in [
         "serviceKey",
         "DATA_GO_KR_SERVICE_KEY",
-        "VWORLD_API_KEY",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
         "unit-test-key",
