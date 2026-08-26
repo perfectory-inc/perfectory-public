@@ -14,8 +14,11 @@ mod from_export_summary;
 use std::{env, sync::Arc};
 
 use anyhow::{bail, Context};
+use async_trait::async_trait;
+use catalog_application::ports::CatalogRepository as _;
+use catalog_infrastructure::PgCatalogRepository;
 use chrono::{DateTime, Utc};
-use foundation_shared_kernel::ids::ComplexId;
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
 use lakehouse_application::PublishIndustrialComplexGoldPointer;
 use lakehouse_infrastructure::PgLakehousePublicationUnitOfWork;
 use sqlx::PgPool;
@@ -68,25 +71,34 @@ const PROFILE_LOCAL_ROOT_ENV: &str =
 /// Publishes the current Gold pointer for one industrial complex.
 pub async fn run() -> anyhow::Result<()> {
     let config = PublishIndustrialComplexGoldPointerConfig::from_env(Utc::now())?;
+    let pool = PgPool::connect(config.database_url.as_str())
+        .await
+        .context("failed to connect to database for industrial-complex Gold pointer publish")?;
+    let catalog_repository = PgCatalogRepository::new(pool.clone());
+    let mut resolved_complex_ids =
+        resolve_catalog_complex_ids(&catalog_repository, &[config.claim.lakehouse_complex_id])
+            .await?;
+    let complex_id = resolved_complex_ids
+        .pop()
+        .context("one Gold artifact identity did not produce one Catalog identity")?;
+
     let store = ProfileObjectStore::open(&config.store)?;
     let verified = VerifiedGoldProfileArtifact::verify(&store, config.claim).await?;
 
     tracing::info!(
-        complex_id = %verified.complex_id().as_uuid(),
+        complex_id = %complex_id,
+        lakehouse_complex_id = %verified.lakehouse_complex_id(),
         profile_object_key = verified.object_key(),
         profile_storage_driver = store.storage_driver(),
         profile_bucket = store.bucket().unwrap_or("(local)"),
         "industrial-complex Gold profile object matched the pointer's claims"
     );
 
-    let pool = PgPool::connect(config.database_url.as_str())
-        .await
-        .context("failed to connect to database for industrial-complex Gold pointer publish")?;
     let use_case = PublishIndustrialComplexGoldPointer::new(Arc::new(
         PgLakehousePublicationUnitOfWork::new(pool),
     ));
     let pointer = use_case
-        .execute(verified.into_publish_input(config.publication))
+        .execute(verified.into_publish_input(complex_id, config.publication))
         .await
         .context("failed to publish industrial-complex Gold pointer")?;
 
@@ -142,7 +154,7 @@ impl PublishIndustrialComplexGoldPointerConfig {
             database_url,
             store,
             claim: ClaimedGoldProfileArtifact {
-                complex_id: ComplexId::new(complex_id),
+                lakehouse_complex_id: LakehouseComplexId::new(complex_id),
                 current_version: required_lookup_value(&mut lookup, CURRENT_VERSION_ENV)?,
                 object_key: required_lookup_value(&mut lookup, PROFILE_OBJECT_KEY_ENV)?,
                 checksum_sha256: required_lookup_value(&mut lookup, PROFILE_CHECKSUM_SHA256_ENV)?,
@@ -172,6 +184,73 @@ impl PublishIndustrialComplexGoldPointerConfig {
             },
         })
     }
+}
+
+/// The one capability the pointer publisher needs from the Catalog projection.
+///
+/// This stays narrow so both publish commands share one translation boundary while the Catalog
+/// repository remains the source of the actual lookup definition.
+#[async_trait]
+trait ArtifactComplexIdentityResolver: Send + Sync {
+    async fn find_catalog_complex_id(
+        &self,
+        lakehouse_complex_id: LakehouseComplexId,
+    ) -> anyhow::Result<Option<ComplexId>>;
+}
+
+#[async_trait]
+impl ArtifactComplexIdentityResolver for PgCatalogRepository {
+    async fn find_catalog_complex_id(
+        &self,
+        lakehouse_complex_id: LakehouseComplexId,
+    ) -> anyhow::Result<Option<ComplexId>> {
+        self.find_complex_by_lakehouse_id(lakehouse_complex_id)
+            .await
+            .map(|complex| complex.map(|complex| complex.id))
+            .context("failed to find a Catalog complex by its lakehouse id")
+    }
+}
+
+/// Resolves every Gold identity before any pointer write starts.
+///
+/// All misses are collected instead of silently skipped or hidden behind the first miss. The
+/// caller receives no partial result when even one identity is absent.
+async fn resolve_catalog_complex_ids<R>(
+    resolver: &R,
+    lakehouse_complex_ids: &[LakehouseComplexId],
+) -> anyhow::Result<Vec<ComplexId>>
+where
+    R: ArtifactComplexIdentityResolver + ?Sized,
+{
+    let mut resolved = Vec::with_capacity(lakehouse_complex_ids.len());
+    let mut missing = Vec::new();
+    for &lakehouse_complex_id in lakehouse_complex_ids {
+        match resolver
+            .find_catalog_complex_id(lakehouse_complex_id)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to resolve lakehouse complex id {lakehouse_complex_id} to its Catalog id"
+                )
+            })? {
+            Some(complex_id) => resolved.push(complex_id),
+            None => missing.push(lakehouse_complex_id),
+        }
+    }
+
+    if !missing.is_empty() {
+        let missing_ids = missing
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        bail!(
+            "{} Gold artifact complex ids do not map to catalog.industrial_complex.id: {missing_ids}",
+            missing.len()
+        );
+    }
+
+    Ok(resolved)
 }
 
 fn required_lookup_value<F>(lookup: &mut F, name: &str) -> anyhow::Result<String>
@@ -227,6 +306,7 @@ fn parse_utc_env(name: &str, raw: &str) -> anyhow::Result<DateTime<Utc>> {
 #[cfg(test)]
 mod tests {
     use super::{
+        resolve_catalog_complex_ids, ArtifactComplexIdentityResolver,
         PublishIndustrialComplexGoldPointerConfig, COMPLEX_ID_ENV, CURRENT_VERSION_ENV,
         DATABASE_URL_ENV, EXPECTED_CURRENT_VERSION_ENV, ICEBERG_SNAPSHOT_ID_ENV,
         PROFILE_CHECKSUM_SHA256_ENV, PROFILE_LOCAL_ROOT_ENV, PROFILE_OBJECT_KEY_ENV,
@@ -236,14 +316,39 @@ mod tests {
         SPATIAL_LOCATOR_SIZE_BYTES_ENV,
     };
     use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
+    use async_trait::async_trait;
     use chrono::{DateTime, SecondsFormat, Utc};
-    use std::collections::BTreeMap;
+    use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+    use std::collections::{BTreeMap, HashMap};
     use std::path::PathBuf;
+    use uuid::Uuid;
+
+    struct FakeArtifactComplexIdentityResolver {
+        matches: HashMap<LakehouseComplexId, ComplexId>,
+    }
+
+    #[async_trait]
+    impl ArtifactComplexIdentityResolver for FakeArtifactComplexIdentityResolver {
+        async fn find_catalog_complex_id(
+            &self,
+            lakehouse_complex_id: LakehouseComplexId,
+        ) -> anyhow::Result<Option<ComplexId>> {
+            Ok(self.matches.get(&lakehouse_complex_id).copied())
+        }
+    }
+
+    fn lakehouse_id(raw: &str) -> anyhow::Result<LakehouseComplexId> {
+        Ok(LakehouseComplexId::new(Uuid::parse_str(raw)?))
+    }
+
+    fn catalog_id(raw: &str) -> anyhow::Result<ComplexId> {
+        Ok(ComplexId::new(Uuid::parse_str(raw)?))
+    }
 
     fn minimal() -> BTreeMap<&'static str, &'static str> {
         BTreeMap::from([
             (DATABASE_URL_ENV, "postgres://example"),
-            (COMPLEX_ID_ENV, "00000000-0000-7000-8000-000000000001"),
+            (COMPLEX_ID_ENV, "001533c1-8504-5651-bd49-d9df4e87bc37"),
             (CURRENT_VERSION_ENV, "0196e7e0-3c20-7000-8000-100000000001"),
             (
                 PROFILE_OBJECT_KEY_ENV,
@@ -285,7 +390,7 @@ mod tests {
 
     #[test]
     fn parses_gold_pointer_publish_config() -> anyhow::Result<()> {
-        let complex_id = "00000000-0000-7000-8000-000000000001";
+        let lakehouse_complex_id = "001533c1-8504-5651-bd49-d9df4e87bc37";
         let mut values = minimal();
         values.insert(CURRENT_VERSION_ENV, "0196e7e0-3c20-7000-8000-100000000002");
         values.insert(
@@ -308,7 +413,10 @@ mod tests {
         let config = parse(&values, now()?)?;
 
         assert_eq!(config.database_url, "postgres://example");
-        assert_eq!(config.claim.complex_id.as_uuid().to_string(), complex_id);
+        assert_eq!(
+            config.claim.lakehouse_complex_id.as_uuid().to_string(),
+            lakehouse_complex_id
+        );
         assert_eq!(
             config.claim.current_version,
             "0196e7e0-3c20-7000-8000-100000000002"
@@ -327,6 +435,50 @@ mod tests {
                 .to_rfc3339_opts(SecondsFormat::Secs, true),
             "2026-05-17T16:02:03Z"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resolves_gold_ids_to_the_catalog_ids_the_pointer_table_uses() -> anyhow::Result<()> {
+        let lakehouse_ids = [
+            lakehouse_id("001533c1-8504-5651-bd49-d9df4e87bc37")?,
+            lakehouse_id("7df3859c-768f-51fa-a78d-6398acd5f052")?,
+        ];
+        let catalog_ids = [
+            catalog_id("019c0000-0000-7000-8000-000000000001")?,
+            catalog_id("019c0000-0000-7000-8000-000000000002")?,
+        ];
+        let resolver = FakeArtifactComplexIdentityResolver {
+            matches: HashMap::from([
+                (lakehouse_ids[0], catalog_ids[0]),
+                (lakehouse_ids[1], catalog_ids[1]),
+            ]),
+        };
+
+        let resolved = resolve_catalog_complex_ids(&resolver, &lakehouse_ids).await?;
+
+        assert_eq!(resolved, catalog_ids);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn every_unmapped_gold_id_is_reported_before_publication_starts() -> anyhow::Result<()> {
+        let missing = [
+            lakehouse_id("001533c1-8504-5651-bd49-d9df4e87bc37")?,
+            lakehouse_id("7df3859c-768f-51fa-a78d-6398acd5f052")?,
+        ];
+        let resolver = FakeArtifactComplexIdentityResolver {
+            matches: HashMap::new(),
+        };
+
+        let error = resolve_catalog_complex_ids(&resolver, &missing)
+            .await
+            .expect_err("unmapped Gold ids must stop the run");
+        let message = error.to_string();
+
+        assert!(message.contains("2 Gold artifact complex ids"));
+        assert!(message.contains(&missing[0].to_string()));
+        assert!(message.contains(&missing[1].to_string()));
         Ok(())
     }
 
