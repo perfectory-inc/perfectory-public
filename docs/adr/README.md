@@ -70,3 +70,4 @@ last_reviewed: 2026-07-28
 - [0057 — 레이크하우스 재고는 현재 Iceberg 메타데이터를 읽는다](./0057-lakehouse-inventory-reads-current-iceberg-metadata.md)
 - [0058 — Foundation이 소유한 환경 이름은 소유자 계약 하나에서 나온다](./0058-repository-owned-environment-names-have-one-contract.md)
 - [0059 — Shapefile 파일은 API 봉투가 아닌 스트리밍 입구를 가진다](./0059-shapefile-files-have-a-first-class-streaming-ingress.md)
+- [0061 — 거부된 필지 번호는 합계가 아니라 이름으로 남긴다](./0061-refused-parcel-numbers-are-named-not-totalled.md)

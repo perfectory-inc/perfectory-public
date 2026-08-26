@@ -67,6 +67,7 @@ struct ExportReport {
     input_feature_count: u64,
     valid_pnu_count: u64,
     invalid_pnu_count: u64,
+    invalid_pnu_reasons: BTreeMap<String, u64>,
     output_row_count: u64,
     output_bytes: u64,
     elapsed_milliseconds: u128,
@@ -77,6 +78,7 @@ struct StreamReport {
     input_feature_count: u64,
     valid_pnu_count: u64,
     invalid_pnu_count: u64,
+    invalid_pnu_reasons: BTreeMap<String, u64>,
     output_row_count: u64,
     contract_table_name: &'static str,
     quality_metrics: BTreeMap<String, u64>,
@@ -93,6 +95,21 @@ impl ExportConfig {
             valid_from_utc: parse_utc_env(VALID_FROM_UTC_ENV)?,
         })
     }
+}
+
+/// Names why one source PNU was refused, without deciding what the name means.
+///
+/// `Pnu::parse` accepts only the standard 대장구분 table (1/2/8/9). Real national cadastral
+/// extracts also carry other digits in that position; the repository has no source that
+/// defines them, so this reports the digit it saw instead of inventing a category for it.
+fn classify_rejected_pnu(raw: &str) -> String {
+    if raw.len() != 19 {
+        return format!("length_{}", raw.len());
+    }
+    if !raw.bytes().all(|b| b.is_ascii_digit()) {
+        return "non_digit".to_owned();
+    }
+    format!("daejang_digit_{}", &raw[10..11])
 }
 
 fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
@@ -141,6 +158,7 @@ fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
         input_feature_count: stream_report.input_feature_count,
         valid_pnu_count: stream_report.valid_pnu_count,
         invalid_pnu_count: stream_report.invalid_pnu_count,
+        invalid_pnu_reasons: stream_report.invalid_pnu_reasons.clone(),
         output_row_count: stream_report.output_row_count,
         output_bytes,
         elapsed_milliseconds: started.elapsed().as_millis(),
@@ -169,14 +187,22 @@ fn stream_silver_rows(
     let mut quality_metrics = empty_handoff.quality_metrics;
     let mut valid_pnu_count = 0_u64;
     let mut invalid_pnu_count = 0_u64;
+    // A single rejection total cannot be acted on: it does not say whether the source is
+    // damaged or whether it carries a register class this repository does not admit. The
+    // breakdown is the observation; what each class means is not decided here.
+    let mut invalid_pnu_reasons: BTreeMap<String, u64> = BTreeMap::new();
     let mut output_row_count = 0_u64;
     let input_feature_count = reader.for_each_feature(|source_feature| {
         let Some(raw_pnu) = source_feature.optional_text("PNU")? else {
             invalid_pnu_count += 1;
+            *invalid_pnu_reasons.entry("absent".to_owned()).or_insert(0) += 1;
             return Ok(());
         };
         let Ok(pnu) = Pnu::parse(raw_pnu.to_owned()) else {
             invalid_pnu_count += 1;
+            *invalid_pnu_reasons
+                .entry(classify_rejected_pnu(raw_pnu))
+                .or_insert(0) += 1;
             return Ok(());
         };
         let jibun = source_feature.required_text("JIBUN")?;
@@ -222,6 +248,7 @@ fn stream_silver_rows(
         input_feature_count,
         valid_pnu_count,
         invalid_pnu_count,
+        invalid_pnu_reasons,
         output_row_count,
         contract_table_name: empty_handoff.contract_table_name,
         quality_metrics,
@@ -267,6 +294,7 @@ fn write_summary(
             "row_count": report.output_row_count,
             "bytes": report.output_bytes
         },
+        "invalid_pnu_reasons": report.invalid_pnu_reasons,
         "quality_metrics": quality_metrics,
         "performance": {
             "elapsed_milliseconds": report.elapsed_milliseconds
@@ -452,6 +480,9 @@ mod tests {
         let summary: serde_json::Value = serde_json::from_slice(&fs::read(summary_path)?)?;
         assert_eq!(summary["source"]["kind"], "vworld_shapefile_zip");
         assert_eq!(summary["quality_metrics"]["invalid_pnu_count"], 2);
+        // A total alone cannot be acted on; the run must say which refusal it saw.
+        assert_eq!(summary["invalid_pnu_reasons"]["daejang_digit_0"], 1);
+        assert_eq!(summary["invalid_pnu_reasons"]["absent"], 1);
         assert_eq!(summary["output"]["row_count"], 1);
         assert_eq!(summary["output"]["contract"], "silver.parcel_boundaries");
         fs::remove_dir_all(root)?;

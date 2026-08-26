@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **383개**
+- 문서 파일: **384개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 81 |
+| Monorepo | 82 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 140 |
+| ADR | 141 |
 | README | 107 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -427,6 +427,7 @@ docs/adr/0056-heavy-foundation-gates-run-only-for-owned-inputs.md
 docs/adr/0057-lakehouse-inventory-reads-current-iceberg-metadata.md
 docs/adr/0058-repository-owned-environment-names-have-one-contract.md
 docs/adr/0059-shapefile-files-have-a-first-class-streaming-ingress.md
+docs/adr/0061-refused-parcel-numbers-are-named-not-totalled.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -520,6 +521,7 @@ tools/github/README.md
 | `docs/adr/0057-lakehouse-inventory-reads-current-iceberg-metadata.md` | Monorepo | ADR | current |
 | `docs/adr/0058-repository-owned-environment-names-have-one-contract.md` | Monorepo | ADR | current |
 | `docs/adr/0059-shapefile-files-have-a-first-class-streaming-ingress.md` | Monorepo | ADR | current |
+| `docs/adr/0061-refused-parcel-numbers-are-named-not-totalled.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
