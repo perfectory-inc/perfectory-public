@@ -1,0 +1,21 @@
+[package]
+name = "foundation-shapefile"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+encoding_rs = { workspace = true }
+geo-types = { workspace = true }
+proj4rs = { workspace = true }
+proj4wkt = { workspace = true }
+serde_json = { workspace = true }
+shapefile = { workspace = true }
+zip = { workspace = true }

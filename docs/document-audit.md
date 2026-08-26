@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **382개**
-- 언어 분류: **{'english': 34, 'korean': 187, 'mixed': 161}**
+- 감사 문서: **383개**
+- 언어 분류: **{'english': 34, 'korean': 188, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **201개 정상 / 0개 누락 / 181개 해당 없음**
+- 메타데이터: **201개 정상 / 0개 누락 / 182개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -80,6 +80,7 @@
 | `docs/adr/0056-heavy-foundation-gates-run-only-for-owned-inputs.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0057-lakehouse-inventory-reads-current-iceberg-metadata.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0058-repository-owned-environment-names-have-one-contract.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0059-shapefile-files-have-a-first-class-streaming-ingress.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
