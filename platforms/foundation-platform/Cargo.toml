@@ -16,6 +16,7 @@ members = [
     "crates/catalog/catalog-application",
     "crates/catalog/catalog-infrastructure",
     "crates/technical/outbound-http-infrastructure",
+    "crates/technical/foundation-shapefile",
     "crates/technical/foundation-disposable-database",
     "crates/foundation-outbox",
     "services/foundation-api",
@@ -72,6 +73,11 @@ http-body = "1"
 thiserror = "1"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+encoding_rs = "0.8"
+geo-types = "0.7"
+proj4rs = { version = "0.1.10", default-features = false }
+proj4wkt = "0.1.1"
+shapefile = { version = "0.9.0", default-features = false, features = ["encoding_rs", "geo-types"] }
 # 표 형식 provider 파일(xlsx) 판독기. SpreadsheetML을 직접 파싱하지 않는다.
 calamine = { version = "0.36.1", default-features = false, features = ["dates"] }
 arrow-array = "59"
@@ -125,6 +131,7 @@ catalog-domain          = { path = "crates/catalog/catalog-domain" }
 catalog-application             = { path = "crates/catalog/catalog-application" }
 catalog-infrastructure           = { path = "crates/catalog/catalog-infrastructure" }
 outbound-http-infrastructure = { path = "crates/technical/outbound-http-infrastructure" }
+foundation-shapefile = { path = "crates/technical/foundation-shapefile" }
 foundation-disposable-database = { path = "crates/technical/foundation-disposable-database" }
 foundation-outbox       = { path = "crates/foundation-outbox" }
 

@@ -210,6 +210,7 @@ enum Command {
     ExportIndustrialComplexSilverHandoff,
     ExportParcelMarkerAnchorArtifacts,
     ExportVWorldCadastralSilverHandoff,
+    ExportVWorldCadastralShapefileSilverHandoff,
     ExportVWorldCadastralSilverHandoffShard,
     ExecuteNationalDataCollectionAsync,
     ExecuteNationalDataCollectionLedger,
@@ -404,6 +405,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportVWorldCadastralSilverHandoff => {
             Box::pin(async { vworld_cadastral_silver_export::run() })
         }
+        Command::ExportVWorldCadastralShapefileSilverHandoff => Box::pin(async {
+            foundation_outbox_publisher::vworld_cadastral_shapefile_silver_export::run()
+        }),
         Command::ExportVWorldCadastralSilverHandoffShard => {
             Box::pin(vworld_cadastral_silver_shard_export::run())
         }
@@ -1163,6 +1167,9 @@ where
         }
         Some("export-vworld-cadastral-silver-handoff") => {
             Ok(Command::ExportVWorldCadastralSilverHandoff)
+        }
+        Some("export-vworld-cadastral-shapefile-silver-handoff") => {
+            Ok(Command::ExportVWorldCadastralShapefileSilverHandoff)
         }
         Some("export-vworld-cadastral-silver-handoff-shard") => {
             Ok(Command::ExportVWorldCadastralSilverHandoffShard)

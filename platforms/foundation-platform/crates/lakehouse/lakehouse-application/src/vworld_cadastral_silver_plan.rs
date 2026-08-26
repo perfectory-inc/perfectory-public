@@ -201,9 +201,9 @@ fn normalize_record(
     Ok(VWorldCadastralSilverParcelBoundaryRow {
         boundary_id: format!("vworld-cadastral:parcel-boundary:pnu:{}", pnu.as_str()),
         pnu: pnu.as_str().to_owned(),
-        sido_code: pnu.as_str()[0..2].to_owned(),
-        sigungu_code: pnu.as_str()[0..5].to_owned(),
-        bjdong_code: pnu.as_str()[0..10].to_owned(),
+        sido_code: pnu.sido_code().to_owned(),
+        sigungu_code: pnu.sigungu_code().to_owned(),
+        bjdong_code: pnu.bjdong_code().to_owned(),
         jibun: optional_property_string(&record.properties, "jibun", pnu.as_str())?,
         bonbun: optional_property_string(&record.properties, "bonbun", pnu.as_str())?,
         bubun: optional_property_string(&record.properties, "bubun", pnu.as_str())?,

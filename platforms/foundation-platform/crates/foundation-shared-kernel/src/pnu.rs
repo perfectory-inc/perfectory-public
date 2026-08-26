@@ -54,6 +54,36 @@ impl Pnu {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Returns the two-digit province or metropolitan-city code.
+    #[must_use]
+    pub fn sido_code(&self) -> &str {
+        &self.0[0..2]
+    }
+
+    /// Returns the five-digit city, county, or district code.
+    #[must_use]
+    pub fn sigungu_code(&self) -> &str {
+        &self.0[0..5]
+    }
+
+    /// Returns the ten-digit legal-dong code.
+    #[must_use]
+    pub fn bjdong_code(&self) -> &str {
+        &self.0[0..10]
+    }
+
+    /// Returns the zero-padded four-digit main lot number.
+    #[must_use]
+    pub fn bonbun(&self) -> &str {
+        &self.0[11..15]
+    }
+
+    /// Returns the zero-padded four-digit sub lot number.
+    #[must_use]
+    pub fn bubun(&self) -> &str {
+        &self.0[15..19]
+    }
 }
 
 impl TryFrom<String> for Pnu {
@@ -129,6 +159,18 @@ mod tests {
     fn parses_19_digit_pnu() -> Result<(), PnuError> {
         let pnu = Pnu::parse("9999900101100010001")?;
         assert_eq!(pnu.as_str(), "9999900101100010001");
+        Ok(())
+    }
+
+    #[test]
+    fn exposes_canonical_location_and_lot_components() -> Result<(), PnuError> {
+        let pnu = Pnu::parse("9999938029105800001")?;
+
+        assert_eq!(pnu.sido_code(), "99");
+        assert_eq!(pnu.sigungu_code(), "99999");
+        assert_eq!(pnu.bjdong_code(), "9999938029");
+        assert_eq!(pnu.bonbun(), "0580");
+        assert_eq!(pnu.bubun(), "0001");
         Ok(())
     }
 
