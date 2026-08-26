@@ -127,6 +127,40 @@ async fn loads_table_uuid_and_complete_snapshot_identity_set() -> Result<(), Box
 }
 
 #[tokio::test]
+async fn current_manifest_list_carries_the_snapshot_update_timestamp() -> Result<(), Box<dyn Error>>
+{
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/v1/cloudflare-catalog-prefix/namespaces/silver/tables/parcel_boundaries",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "s3://foundation-platform-lakehouse-prod/silver/parcel_boundaries/metadata/00003.json",
+            "metadata": {
+                "current-snapshot-id": 841_361_364_657_368_626_i64,
+                "snapshots": [{
+                    "snapshot-id": 841_361_364_657_368_626_i64,
+                    "timestamp-ms": 1_777_777_777_000_i64,
+                    "manifest-list": "s3://foundation-platform-lakehouse-prod/silver/parcel_boundaries/metadata/snap-3.avro"
+                }]
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let snapshot = catalog
+        .load_current_snapshot_manifest_list("silver.parcel_boundaries")
+        .await?
+        .ok_or_else(|| std::io::Error::other("current snapshot should exist"))?;
+
+    assert_eq!(snapshot.snapshot_id, 841_361_364_657_368_626);
+    assert_eq!(snapshot.snapshot_timestamp_ms, 1_777_777_777_000);
+    Ok(())
+}
+
+#[tokio::test]
 async fn accepts_catalog_uri_that_already_ends_with_v1() -> Result<(), Box<dyn Error>> {
     let server = MockServer::start().await;
     mount_catalog_config(&server, "cloudflare-catalog-prefix").await;

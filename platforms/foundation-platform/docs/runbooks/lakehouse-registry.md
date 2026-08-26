@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-26
 ---
 
 # Lakehouse Registry Runbook
@@ -93,6 +93,55 @@ preflight가 실패하면 public API 호출과 Bronze object write는 시작하�
 
 ```bash
 cargo run -p foundation-outbox-publisher -- verify-lakehouse-registry
+```
+
+## Iceberg Table Inventory
+
+`verify-lakehouse-registry`가 namespace 등록을 확인한 뒤, 계약에 선언된 각 Iceberg 표의 실물 상태는
+다음 read-only 명령으로 관측한다.
+
+```bash
+cd platforms/foundation-platform
+cargo run -p foundation-outbox-publisher -- inventory-lakehouse
+```
+
+기본 env 파일은 현재 디렉터리의 `.env.local`이다. 다른 위치를 써야 할 때만
+`FOUNDATION_PLATFORM_LAKEHOUSE_INVENTORY_ENV_FILE`에 경로를 지정한다. 파일에는 기존 catalog
+설정과 다음 lakehouse reader 자격증명이 있어야 한다.
+
+```text
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
+```
+
+커맨드는 `lakehouse-domain/src/lakehouse.rs`의 계약 slice를 직접 순회한다. `row_count`와 `bytes`는
+각 data file manifest의 `record_count`와 `file_size_in_bytes` 합이며 Parquet 본문을 읽지 않는다.
+`state=absent`는 정상 관측이고, `state=read_failed`는 권한/손상/transport 실패로서 `0행`과 다르다.
+하나라도 `read_failed`면 모든 계약 표의 JSON을 먼저 출력한 뒤 비정상 종료한다. 출력에는 token,
+key, account id와 실제 자격증명 값이 없다.
+
+```json
+{
+  "schema_version": "foundation-platform.lakehouse_inventory.v1",
+  "status": "complete",
+  "declared_table_count": 1,
+  "present_table_count": 1,
+  "absent_table_count": 0,
+  "failed_table_count": 0,
+  "tables": [
+    {
+      "table_name": "silver.example",
+      "state": "present",
+      "exists": true,
+      "current_snapshot_id": 42,
+      "row_count": 100,
+      "data_file_count": 2,
+      "bytes": 4096,
+      "updated_at_utc": "2026-08-26T00:00:00.000Z",
+      "error_kind": null
+    }
+  ]
+}
 ```
 
 정상 출력 예:

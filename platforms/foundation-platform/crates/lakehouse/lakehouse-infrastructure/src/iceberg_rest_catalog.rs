@@ -39,6 +39,8 @@ pub struct IcebergSnapshotManifestList {
     pub table_name: String,
     /// Snapshot the manifest list belongs to.
     pub snapshot_id: i64,
+    /// UTC update instant from the Iceberg snapshot's required `timestamp-ms` field.
+    pub snapshot_timestamp_ms: i64,
     /// Storage location of the snapshot's manifest list Avro object.
     pub manifest_list_location: String,
     /// Storage location of the table metadata document the snapshot was read from.
@@ -290,12 +292,19 @@ impl IcebergRestCatalog {
         let Some(snapshot_id) = payload.current_snapshot_id_i64() else {
             return Ok(None);
         };
-        let manifest_list_location = payload
+        let snapshot = payload
             .metadata
             .snapshots
             .iter()
             .find(|snapshot| snapshot.snapshot_id == snapshot_id)
-            .and_then(|snapshot| snapshot.manifest_list.as_deref())
+            .ok_or_else(|| {
+                LakehouseError::Upstream(format!(
+                    "Iceberg REST load table response omitted metadata for current snapshot {snapshot_id}"
+                ))
+            })?;
+        let manifest_list_location = snapshot
+            .manifest_list
+            .as_deref()
             .filter(|location| !location.is_empty())
             .ok_or_else(|| {
                 LakehouseError::Upstream(format!(
@@ -303,10 +312,16 @@ impl IcebergRestCatalog {
                 ))
             })?
             .to_owned();
+        let snapshot_timestamp_ms = snapshot.timestamp_ms.ok_or_else(|| {
+            LakehouseError::Upstream(format!(
+                "Iceberg REST load table response omitted timestamp-ms for snapshot {snapshot_id}"
+            ))
+        })?;
 
         Ok(Some(IcebergSnapshotManifestList {
             table_name: table_name.to_owned(),
             snapshot_id,
+            snapshot_timestamp_ms,
             manifest_list_location,
             metadata_location: payload.metadata_location,
         }))
@@ -461,6 +476,8 @@ struct IcebergTableMetadata {
 struct IcebergSnapshotMetadata {
     #[serde(rename = "snapshot-id")]
     snapshot_id: i64,
+    #[serde(rename = "timestamp-ms", default)]
+    timestamp_ms: Option<i64>,
     #[serde(rename = "manifest-list", default)]
     manifest_list: Option<String>,
 }

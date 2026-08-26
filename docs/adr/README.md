@@ -67,3 +67,4 @@ last_reviewed: 2026-07-28
 - [0054 — 정적 릴리스 도구는 실행 파일 신원 계약 하나를 가진다](./0054-static-release-tools-have-one-executable-identity-contract.md)
 - [0055 — 비공개 R2 Gold 프로필은 gateway를 통해 제공한다](./0055-private-r2-profile-gateway.md)
 - [0056 — Foundation의 무거운 게이트는 소유 입력이 바뀔 때만 일을 한다](./0056-heavy-foundation-gates-run-only-for-owned-inputs.md)
+- [0057 — 레이크하우스 재고는 현재 Iceberg 메타데이터를 읽는다](./0057-lakehouse-inventory-reads-current-iceberg-metadata.md)
