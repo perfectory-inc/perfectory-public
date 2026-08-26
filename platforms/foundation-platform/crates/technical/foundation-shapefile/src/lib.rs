@@ -18,7 +18,9 @@ use shapefile::{
 use zip::ZipArchive;
 
 const EPSG_4326_PROJ: &str = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs";
-const SUPPORTED_CENTRAL_MERIDIANS: [f64; 4] = [125.0, 127.0, 129.0, 131.0];
+// public-repository-safety: reviewed-runtime-coordinate — these are the belt central
+// meridians the PRJ validator accepts, not sample data.
+const SUPPORTED_CENTRAL_MERIDIANS: [f64; 4] = [125.0, 127.0, 129.0, 131.0]; // public-repository-safety: reviewed-runtime-coordinate
 const REQUIRED_MEMBER_EXTENSIONS: [&str; 5] = ["shp", "shx", "dbf", "prj", "cpg"];
 
 type InMemoryShapefileReader = shapefile::Reader<Cursor<Vec<u8>>, Cursor<Vec<u8>>>;
@@ -515,7 +517,7 @@ mod tests {
         r#"PROJECTION["Transverse_Mercator"],"#,
         r#"PARAMETER["False_Easting",200000.0],"#,
         r#"PARAMETER["False_Northing",600000.0],"#,
-        r#"PARAMETER["Central_Meridian",127.0],"#,
+        r#"PARAMETER["Central_Meridian",127.0],"#, // public-repository-safety: reviewed-runtime-coordinate
         r#"PARAMETER["Scale_Factor",1.0],"#,
         r#"PARAMETER["Latitude_Of_Origin",38.0],UNIT["Meter",1.0]]"#,
     );
@@ -526,16 +528,16 @@ mod tests {
 
         let (longitude, latitude) = projection.to_epsg4326(200_000.0, 600_000.0)?;
 
-        assert!((longitude - 127.0).abs() < 1e-8, "longitude={longitude}");
+        assert!((longitude - 127.0).abs() < 1e-8, "longitude={longitude}"); // public-repository-safety: reviewed-runtime-coordinate
         assert!((latitude - 38.0).abs() < 1e-8, "latitude={latitude}");
         Ok(())
     }
 
     #[test]
     fn every_korea_2000_2010_belt_origin_is_accepted() -> anyhow::Result<()> {
-        for central_meridian in [125.0_f64, 127.0, 129.0, 131.0] {
+        for central_meridian in [125.0_f64, 127.0, 129.0, 131.0] { // public-repository-safety: reviewed-runtime-coordinate
             let prj = KOREA_CENTRAL_BELT_2010.replace(
-                r#"PARAMETER["Central_Meridian",127.0]"#,
+                r#"PARAMETER["Central_Meridian",127.0]"#, // public-repository-safety: reviewed-runtime-coordinate
                 &format!(r#"PARAMETER["Central_Meridian",{central_meridian:.1}]"#),
             );
             let projection = SourceProjection::from_prj(&prj)?;
@@ -557,19 +559,19 @@ mod tests {
             (
                 392_496.179_031_357_87,
                 410_159.621_975_078_36,
-                129.142_145_037_217_6,
+                129.142_145_037_217_6, // public-repository-safety: reviewed-runtime-coordinate
                 36.270_233_874_260_01,
             ),
             (
                 419_772.708_181_663_9,
                 544_153.508_251_463_4,
-                129.484_227_180_631_05,
+                129.484_227_180_631_05, // public-repository-safety: reviewed-runtime-coordinate
                 37.470_716_064_375_72,
             ),
             (
                 406_134.443_606_510_9,
                 477_156.565_113_270_9,
-                129.311_726_799_184_44,
+                129.311_726_799_184_44, // public-repository-safety: reviewed-runtime-coordinate
                 36.870_672_528_988_02,
             ),
         ];
@@ -616,13 +618,13 @@ mod tests {
         })?;
 
         assert_eq!(feature_count, 2);
-        assert_eq!(seen[0].0, "4777038029105800001");
+        assert_eq!(seen[0].0, "9999938029105800001");
         assert_eq!(seen[0].1, "산 580-1");
         assert_eq!(seen[0].2["type"], "MultiPolygon");
         let first = &seen[0].2["coordinates"][0][0][0];
-        assert!((first[0].as_f64().unwrap_or_default() - 127.0).abs() < 1e-8);
+        assert!((first[0].as_f64().unwrap_or_default() - 127.0).abs() < 1e-8); // public-repository-safety: reviewed-runtime-coordinate
         assert!((first[1].as_f64().unwrap_or_default() - 38.0).abs() < 1e-8);
-        assert_eq!(seen[1].0, "4777038029105810000");
+        assert_eq!(seen[1].0, "9999938029105810000");
         Ok(())
     }
 
@@ -657,10 +659,10 @@ mod tests {
             let mut writer = Writer::new(shape_writer, dbase_writer);
 
             let first_shape = square(200_000.0, 600_000.0);
-            let first_record = record("4777038029105800001", "산 580-1");
+            let first_record = record("9999938029105800001", "산 580-1");
             writer.write_shape_and_record(&first_shape, &first_record)?;
             let second_shape = square(200_100.0, 600_100.0);
-            let second_record = record("4777038029105810000", "581");
+            let second_record = record("9999938029105810000", "581");
             writer.write_shape_and_record(&second_shape, &second_record)?;
         }
 

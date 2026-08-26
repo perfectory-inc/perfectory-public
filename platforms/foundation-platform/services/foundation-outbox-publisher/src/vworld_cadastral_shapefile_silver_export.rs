@@ -402,7 +402,7 @@ mod tests {
         r#"PROJECTION["Transverse_Mercator"],"#,
         r#"PARAMETER["False_Easting",200000.0],"#,
         r#"PARAMETER["False_Northing",600000.0],"#,
-        r#"PARAMETER["Central_Meridian",127.0],"#,
+        r#"PARAMETER["Central_Meridian",127.0],"#, // public-repository-safety: reviewed-runtime-coordinate
         r#"PARAMETER["Scale_Factor",1.0],"#,
         r#"PARAMETER["Latitude_Of_Origin",38.0],UNIT["Meter",1.0]]"#,
     );
@@ -439,10 +439,10 @@ mod tests {
             .map(serde_json::from_str::<serde_json::Value>)
             .collect::<Result<Vec<_>, _>>()?;
         assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0]["pnu"], "4777038029105800001");
-        assert_eq!(lines[0]["sido_code"], "47");
-        assert_eq!(lines[0]["sigungu_code"], "47770");
-        assert_eq!(lines[0]["bjdong_code"], "4777038029");
+        assert_eq!(lines[0]["pnu"], "9999938029105800001");
+        assert_eq!(lines[0]["sido_code"], "99");
+        assert_eq!(lines[0]["sigungu_code"], "99999");
+        assert_eq!(lines[0]["bjdong_code"], "9999938029");
         assert_eq!(lines[0]["jibun"], "산 580-1");
         assert_eq!(lines[0]["bonbun"], "0580");
         assert_eq!(lines[0]["bubun"], "0001");
@@ -472,11 +472,11 @@ mod tests {
             let mut writer = Writer::new(shape_writer, dbase_writer);
             writer.write_shape_and_record(
                 &square(200_000.0, 600_000.0),
-                &record("4777038029105800001", "산 580-1"),
+                &record("9999938029105800001", "산 580-1"),
             )?;
             writer.write_shape_and_record(
                 &square(200_100.0, 600_100.0),
-                &record("4777038029005810000", "581"),
+                &record("9999938029005810000", "581"),
             )?;
             writer.write_shape_and_record(
                 &square(200_200.0, 600_200.0),
