@@ -7,6 +7,7 @@ use serde_json::json;
 use std::path::PathBuf;
 
 const TEMPLATE: &str = "https://lakehouse.example.com/{object_key}";
+const LAKEHOUSE_COMPLEX_ID: &str = "001533c1-8504-5651-bd49-d9df4e87bc37";
 
 fn temporary_path(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
@@ -38,7 +39,7 @@ fn summary_json(profile_url_template: Option<&str>) -> serde_json::Value {
         "placeholder_parcel_count_row_count": 1,
         "null_calculated_area_row_count": 1,
         "artifacts": [{
-            "complex_id": "0196e7e0-3c20-7000-8000-100000000002",
+            "complex_id": LAKEHOUSE_COMPLEX_ID,
             "official_complex_code": "446400",
             "current_version": "018f0000-0000-7000-8000-000000000001",
             "profile_object_key":
@@ -77,7 +78,10 @@ fn reads_the_publish_inputs_the_export_wrote() -> anyhow::Result<()> {
     assert_eq!(summary.artifacts.len(), 1);
 
     let artifact = &summary.artifacts[0];
-    assert_eq!(artifact.complex_id, "0196e7e0-3c20-7000-8000-100000000002");
+    assert_eq!(
+        artifact.lakehouse_complex_id.to_string(),
+        LAKEHOUSE_COMPLEX_ID
+    );
     assert_eq!(
         artifact.current_version,
         "018f0000-0000-7000-8000-000000000001"

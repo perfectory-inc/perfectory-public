@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use foundation_shared_kernel::ids::ComplexId;
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -65,7 +65,7 @@ async fn store_with_fixture(label: &str) -> anyhow::Result<(ProfileObjectStore, 
 
 fn claim(body: &[u8]) -> anyhow::Result<ClaimedGoldProfileArtifact> {
     Ok(ClaimedGoldProfileArtifact {
-        complex_id: ComplexId::new(Uuid::parse_str(COMPLEX_ID)?),
+        lakehouse_complex_id: LakehouseComplexId::new(Uuid::parse_str(COMPLEX_ID)?),
         current_version: ARTIFACT_ID.to_owned(),
         object_key: object_key(ARTIFACT_ID),
         checksum_sha256: checksum(body),
@@ -93,15 +93,17 @@ fn publication() -> anyhow::Result<PointerPublication> {
 async fn a_truthful_claim_verifies_and_carries_the_read_values_into_the_input() -> anyhow::Result<()>
 {
     let (store, root, body) = store_with_fixture("ok").await?;
+    let catalog_complex_id = ComplexId::new(Uuid::now_v7());
 
     let verified = VerifiedGoldProfileArtifact::verify(&store, claim(&body)?).await?;
-    let input = verified.into_publish_input(publication()?);
+    let input = verified.into_publish_input(catalog_complex_id, publication()?);
 
     std::fs::remove_dir_all(&root)?;
     assert_eq!(input.profile_checksum_sha256, checksum(&body));
     assert_eq!(input.profile_size_bytes, u64::try_from(body.len())?);
     assert_eq!(input.profile_object_key, object_key(ARTIFACT_ID));
     assert_eq!(input.current_version, ARTIFACT_ID);
+    assert_eq!(input.complex_id, catalog_complex_id);
     Ok(())
 }
 
@@ -162,7 +164,8 @@ async fn a_pointer_at_an_object_that_does_not_exist_is_refused() -> anyhow::Resu
 async fn an_object_describing_another_complex_is_refused() -> anyhow::Result<()> {
     let (store, root, body) = store_with_fixture("wrong-complex").await?;
     let mut lying = claim(&body)?;
-    lying.complex_id = ComplexId::new(Uuid::parse_str("0196e7e0-3c20-7000-8000-100000000009")?);
+    lying.lakehouse_complex_id =
+        LakehouseComplexId::new(Uuid::parse_str("0196e7e0-3c20-5000-8000-100000000009")?);
 
     let result = VerifiedGoldProfileArtifact::verify(&store, lying).await;
 

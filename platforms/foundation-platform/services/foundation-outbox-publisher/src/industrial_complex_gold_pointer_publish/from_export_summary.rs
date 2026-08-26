@@ -23,7 +23,7 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, SecondsFormat, Utc};
-use foundation_shared_kernel::ids::ComplexId;
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
 use lakehouse_application::ports::IndustrialComplexGoldPointerReader as _;
 use lakehouse_application::PublishIndustrialComplexGoldPointer;
 use lakehouse_domain::LakehouseError;
@@ -34,12 +34,16 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use super::artifact_verification::{
-    ClaimedGoldProfileArtifact, PointerPublication, VerifiedGoldProfileArtifact,
+use super::{
+    artifact_verification::{
+        ClaimedGoldProfileArtifact, PointerPublication, VerifiedGoldProfileArtifact,
+    },
+    resolve_catalog_complex_ids,
 };
 use crate::industrial_complex_gold_profile_store::{
     local_root, ProfileObjectStore, ProfileStoreConfig,
 };
+use catalog_infrastructure::PgCatalogRepository;
 
 const RUN_SCHEMA_VERSION: &str =
     "foundation-platform.industrial_complex_gold_pointer_publish_run.v1";
@@ -84,7 +88,8 @@ struct ExportSummary {
 /// One exported profile, named exactly as the export wrote it.
 #[derive(Debug, Deserialize)]
 struct ExportedArtifact {
-    complex_id: String,
+    #[serde(rename = "complex_id")]
+    lakehouse_complex_id: LakehouseComplexId,
     current_version: String,
     profile_object_key: String,
     profile_size_bytes: u64,
@@ -180,6 +185,14 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let pool = PgPool::connect(config.database_url.as_str())
         .await
         .context("failed to connect to database for industrial-complex Gold pointer publish")?;
+    let catalog_repository = PgCatalogRepository::new(pool.clone());
+    let lakehouse_complex_ids = summary
+        .artifacts
+        .iter()
+        .map(|artifact| artifact.lakehouse_complex_id)
+        .collect::<Vec<_>>();
+    let complex_ids =
+        resolve_catalog_complex_ids(&catalog_repository, &lakehouse_complex_ids).await?;
     let reader = PgIndustrialComplexGoldPointerReader::new(pool.clone());
     let use_case = PublishIndustrialComplexGoldPointer::new(Arc::new(
         PgLakehousePublicationUnitOfWork::new(pool),
@@ -187,22 +200,14 @@ pub(crate) async fn run() -> anyhow::Result<()> {
 
     let mut published_complex_ids = Vec::new();
     let mut already_current_count = 0_u64;
-    for (index, artifact) in summary.artifacts.iter().enumerate() {
-        let complex_id = ComplexId::new(
-            Uuid::parse_str(artifact.complex_id.as_str()).with_context(|| {
-                format!(
-                    "artifacts[{index}].complex_id is not a UUID: {}",
-                    artifact.complex_id
-                )
-            })?,
-        );
+    for (index, (artifact, complex_id)) in summary.artifacts.iter().zip(complex_ids).enumerate() {
         let existing_version = reader
             .find_industrial_complex_gold_pointer(complex_id)
             .await
             .with_context(|| {
                 format!(
                     "failed to read the existing pointer for complex {}",
-                    artifact.complex_id
+                    artifact.lakehouse_complex_id
                 )
             })?
             .map(|pointer| pointer.current_version);
@@ -216,6 +221,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             &use_case,
             &store,
             artifact,
+            complex_id,
             existing_version,
             &config,
             &profile_url_template,
@@ -224,10 +230,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .with_context(|| {
             format!(
                 "failed to publish the Gold pointer for complex {} (artifacts[{index}])",
-                artifact.complex_id
+                artifact.lakehouse_complex_id
             )
         })?;
-        published_complex_ids.push(artifact.complex_id.clone());
+        published_complex_ids.push(artifact.lakehouse_complex_id.to_string());
     }
 
     let published_count =
@@ -269,15 +275,15 @@ async fn publish_one(
     use_case: &PublishIndustrialComplexGoldPointer,
     store: &ProfileObjectStore,
     artifact: &ExportedArtifact,
+    complex_id: ComplexId,
     expected_current_version: Option<String>,
     config: &Config,
     profile_url_template: &str,
 ) -> anyhow::Result<()> {
-    let complex_id = ComplexId::new(Uuid::parse_str(artifact.complex_id.as_str())?);
     let verified = VerifiedGoldProfileArtifact::verify(
         store,
         ClaimedGoldProfileArtifact {
-            complex_id,
+            lakehouse_complex_id: artifact.lakehouse_complex_id,
             current_version: artifact.current_version.clone(),
             object_key: artifact.profile_object_key.clone(),
             checksum_sha256: artifact.profile_checksum_sha256.clone(),
@@ -296,19 +302,22 @@ async fn publish_one(
         })?;
 
     let result = use_case
-        .execute(verified.into_publish_input(PointerPublication {
-            expected_current_version,
-            profile_url_template: profile_url_template.to_owned(),
-            spatial_locator_object_key: None,
-            source: config.source.clone(),
-            source_url: config.source_url.clone(),
-            source_external_id: config.source_external_id.clone(),
-            source_snapshot_id: artifact.source_snapshot_id.clone(),
-            iceberg_snapshot_id: artifact.iceberg_snapshot_id.clone(),
-            profile_row_count: artifact.profile_row_count,
-            spatial_locator_size_bytes: None,
-            published_at,
-        }))
+        .execute(verified.into_publish_input(
+            complex_id,
+            PointerPublication {
+                expected_current_version,
+                profile_url_template: profile_url_template.to_owned(),
+                spatial_locator_object_key: None,
+                source: config.source.clone(),
+                source_url: config.source_url.clone(),
+                source_external_id: config.source_external_id.clone(),
+                source_snapshot_id: artifact.source_snapshot_id.clone(),
+                iceberg_snapshot_id: artifact.iceberg_snapshot_id.clone(),
+                profile_row_count: artifact.profile_row_count,
+                spatial_locator_size_bytes: None,
+                published_at,
+            },
+        ))
         .await;
 
     match result {
