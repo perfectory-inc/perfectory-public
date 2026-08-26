@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn every_korea_2000_2010_belt_origin_is_accepted() -> anyhow::Result<()> {
-        for central_meridian in [125.0_f64, 127.0, 129.0, 131.0] { // public-repository-safety: reviewed-runtime-coordinate
+        for central_meridian in super::SUPPORTED_CENTRAL_MERIDIANS {
             let prj = KOREA_CENTRAL_BELT_2010.replace(
                 r#"PARAMETER["Central_Meridian",127.0]"#, // public-repository-safety: reviewed-runtime-coordinate
                 &format!(r#"PARAMETER["Central_Meridian",{central_meridian:.1}]"#),
