@@ -51,6 +51,11 @@ if CURRENT_ROW_PREDICATE is None:
 
 SILVER_COLUMNS: tuple[str, ...] = column_names(TABLE_CONTRACT)
 
+# How many Bronze objects one run may append before its read-back predicate grows unwieldy.
+# The national parcel extract is 255 objects and does not fit one Spark run on a small host,
+# so it arrives in batches; this bounds a batch rather than the dataset.
+MAX_READBACK_SOURCE_RECORDS = 64
+
 # Read off the contract rather than written here. Silver geometry tables carry the CRS their source
 # published and declare it per table (root ADR-0042), so a job that spelled the number out would be
 # the second place the answer lives.
@@ -725,16 +730,30 @@ def read_iceberg_snapshot_for_batch(
     silver: DataFrame,
     args: argparse.Namespace,
 ) -> DataFrame:
-    snapshot_rows = silver.select("source_snapshot_id").distinct().limit(17).collect()
-    snapshot_ids = [row.source_snapshot_id for row in snapshot_rows]
-    if not snapshot_ids:
-        raise ValueError("Cannot verify Iceberg write because source_snapshot_id is empty")
-    if len(snapshot_ids) > 16:
-        raise ValueError("Iceberg write verification supports at most 16 source snapshots")
+    """Reads back exactly the rows this run appended, and nothing else.
+
+    `source_snapshot_id` names the provider snapshot, so every national extract of one period
+    shares it. Filtering the table by it made a second append read the first append's rows back
+    too, and the uniqueness gate then reported every earlier parcel as a duplicate of itself —
+    a run that had written correctly was reported as failed. `source_record_id` names the
+    Bronze object a row came from, so it separates one append from another.
+    """
+    record_rows = (
+        silver.select("source_record_id").distinct().limit(MAX_READBACK_SOURCE_RECORDS + 1).collect()
+    )
+    record_ids = [row.source_record_id for row in record_rows]
+    if not record_ids:
+        raise ValueError("Cannot verify Iceberg write because source_record_id is empty")
+    if len(record_ids) > MAX_READBACK_SOURCE_RECORDS:
+        raise ValueError(
+            "Iceberg write verification supports at most "
+            f"{MAX_READBACK_SOURCE_RECORDS} source records per run; "
+            "split the input into smaller batches"
+        )
 
     return (
         spark.table(qualified_iceberg_table(args))
-        .where(F.col("source_snapshot_id").isin(snapshot_ids))
+        .where(F.col("source_record_id").isin(record_ids))
         .select(*SILVER_COLUMNS)
     )
 
