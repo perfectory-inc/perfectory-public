@@ -552,7 +552,6 @@ mod tests {
         Ok(())
     }
 
-    #[test]
     /// The same belt reaches us in two PRJ dialects. The OGC form renders its null datum shift as
     /// `0.0,0.0,...` and the ESRI form as `0,0,...`; comparing that text refused sixteen of 272
     /// national extracts over notation. Both must be accepted, and a real shift must still fail.
@@ -609,6 +608,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn every_korea_2000_2010_belt_origin_is_accepted() -> anyhow::Result<()> {
         for central_meridian in super::SUPPORTED_CENTRAL_MERIDIANS {
             let prj = KOREA_CENTRAL_BELT_2010.replace(
