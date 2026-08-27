@@ -205,7 +205,11 @@ fn stream_silver_rows(
                 .or_insert(0) += 1;
             return Ok(());
         };
-        let jibun = source_feature.required_text("JIBUN")?;
+        // The Silver contract does not require `jibun`, and `VWorldCadastralSilverParcelBoundaryRow`
+        // holds it as `Option<String>`. A blank one is a parcel whose descriptive label the source
+        // left empty, not a broken record: 17 of 584,553 rows across four national extracts. Demanding
+        // it here refused those four files whole and discarded 584,536 sound parcels with them.
+        let jibun = source_feature.optional_text("JIBUN")?;
         let properties = json!({
             "pnu": pnu.as_str(),
             "jibun": jibun,

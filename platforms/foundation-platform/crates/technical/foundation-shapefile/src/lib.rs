@@ -463,7 +463,7 @@ fn validate_supported_korea_belt(proj_string: &str) -> anyhow::Result<()> {
         && numeric_param_in(&params, "lon_0", &SUPPORTED_CENTRAL_MERIDIANS)
         && params
             .get("towgs84")
-            .is_some_and(|value| *value == "0,0,0,0,0,0,0");
+            .is_some_and(|value| is_null_towgs84(value));
     if !supported {
         bail!(
             "PRJ is not a supported Korea 2000 2010 belt (GRS80 tmerc, lon_0 125/127/129/131); parsed definition: {proj_string}"
@@ -477,6 +477,25 @@ fn proj_parameters(proj_string: &str) -> BTreeMap<&str, &str> {
         .split_ascii_whitespace()
         .filter_map(|part| part.strip_prefix('+')?.split_once('='))
         .collect()
+}
+
+/// Reports whether a `+towgs84=` list is the seven-term identity.
+///
+/// The same Korea 2000 belt reaches us in two PRJ dialects, and the projection library renders
+/// their datum shifts as `0,0,0,0,0,0,0` and `0.0,0.0,0.0,0.0,0.0,0.0,0.0`. Comparing the text
+/// refused sixteen of 272 national extracts over notation, not over a different datum.
+fn is_null_towgs84(value: &str) -> bool {
+    let mut terms = 0_usize;
+    for term in value.split(',') {
+        let Ok(parsed) = term.trim().parse::<f64>() else {
+            return false;
+        };
+        if parsed.abs() >= 1e-9 {
+            return false;
+        }
+        terms += 1;
+    }
+    terms == 7
 }
 
 fn numeric_param_is(params: &BTreeMap<&str, &str>, name: &str, expected: f64) -> bool {
@@ -531,6 +550,62 @@ mod tests {
         assert!((longitude - 127.0).abs() < 1e-8, "longitude={longitude}"); // public-repository-safety: reviewed-runtime-coordinate
         assert!((latitude - 38.0).abs() < 1e-8, "latitude={latitude}");
         Ok(())
+    }
+
+    /// The same belt reaches us in two PRJ dialects. The OGC form renders its null datum shift as
+    /// `0.0,0.0,...` and the ESRI form as `0,0,...`; comparing that text refused sixteen of 272
+    /// national extracts over notation. Both must be accepted, and a real shift must still fail.
+    #[test]
+    fn ogc_dialect_null_datum_shift_is_accepted_and_a_real_shift_is_not() -> anyhow::Result<()> {
+        const OGC_CENTRAL_BELT: &str = concat!(
+            r#"PROJCS["Korea 2000 / Central Belt 2010", GEOGCS["Korea 2000", "#,
+            r#"DATUM["Geocentric datum of Korea", "#,
+            r#"SPHEROID["GRS 1980", 6378137.0, 298.257222101, AUTHORITY["EPSG","7019"]], "#,
+            r#"TOWGS84[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], AUTHORITY["EPSG","6737"]], "#,
+            r#"PRIMEM["Greenwich", 0.0, AUTHORITY["EPSG","8901"]], "#,
+            r#"UNIT["degree", 0.017453292519943295], "#,
+            r#"AXIS["Geodetic longitude", EAST], AXIS["Geodetic latitude", NORTH]], "#,
+            r#"PROJECTION["Transverse Mercator"], "#,
+            r#"PARAMETER["central_meridian", 127.0], "#, // public-repository-safety: reviewed-runtime-coordinate
+            r#"PARAMETER["latitude_of_origin", 38.0], "#,
+            r#"PARAMETER["scale_factor", 1.0], "#,
+            r#"PARAMETER["false_easting", 200000.0], "#,
+            r#"PARAMETER["false_northing", 600000.0], "#,
+            r#"UNIT["m", 1.0], AXIS["Easting", EAST], AXIS["Northing", NORTH]]"#,
+        );
+        SourceProjection::from_prj(OGC_CENTRAL_BELT)?;
+
+        let shifted = OGC_CENTRAL_BELT.replace(
+            "TOWGS84[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]",
+            "TOWGS84[-146.43, 507.89, 681.46, 0.0, 0.0, 0.0, 0.0]",
+        );
+        assert!(
+            SourceProjection::from_prj(&shifted).is_err(),
+            "a non-null datum shift must still be refused"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn null_datum_shift_is_read_as_numbers_not_text() {
+        assert!(super::is_null_towgs84("0,0,0,0,0,0,0"));
+        assert!(super::is_null_towgs84("0.0,0.0,0.0,0.0,0.0,0.0,0.0"));
+        assert!(
+            !super::is_null_towgs84("0,0,0,0,0,0"),
+            "six terms is not the identity"
+        );
+        assert!(
+            !super::is_null_towgs84("0,0,0,0,0,0,0,0"),
+            "eight terms is not the identity"
+        );
+        assert!(
+            !super::is_null_towgs84("0,0,1,0,0,0,0"),
+            "a real shift is not the identity"
+        );
+        assert!(
+            !super::is_null_towgs84("0,0,x,0,0,0,0"),
+            "a non-number is not the identity"
+        );
     }
 
     #[test]
