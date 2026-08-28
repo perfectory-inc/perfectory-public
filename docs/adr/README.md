@@ -72,3 +72,4 @@ last_reviewed: 2026-07-28
 - [0059 — Shapefile 파일은 API 봉투가 아닌 스트리밍 입구를 가진다](./0059-shapefile-files-have-a-first-class-streaming-ingress.md)
 - [0060 — Gold 아티팩트 정체성은 Catalog 쓰기 경계에서 푼다](./0060-gold-artifact-identity-is-resolved-at-the-catalog-write-boundary.md)
 - [0061 — 거부된 필지 번호는 합계가 아니라 이름으로 남긴다](./0061-refused-parcel-numbers-are-named-not-totalled.md)
+- [0062 — 적재 묶음은 자기가 쓴 표 안에 스스로를 기록한다](./0062-an-ingest-batch-records-itself-in-the-table-it-writes.md)

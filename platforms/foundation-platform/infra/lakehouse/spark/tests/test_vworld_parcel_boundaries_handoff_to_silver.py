@@ -31,6 +31,7 @@ sys.path.insert(0, str(JOBS_DIR))
 from vworld_parcel_boundaries_handoff_to_silver import (  # noqa: E402
     INGEST_BATCH_TOKEN_KEY,
     MAX_READBACK_SOURCE_RECORDS,
+    decide_whether_to_append,
     ingest_batch_token,
 )
 
@@ -125,16 +126,66 @@ class RetryIsIdempotentTest(unittest.TestCase):
             "INSERT INTO 는 snapshot-property 를 받지 못한다 — DataFrame writer 여야 한다",
         )
 
+    def test_the_decision_is_keyed_on_the_object_not_on_the_batch(self) -> None:
+        """묶는 크기를 바꿔도 같은 객체가 두 번 들어가면 안 된다.
+
+        묶음은 그날 적재기가 파일을 몇 개씩 묶었는지일 뿐 데이터의 성질이 아니다. 묶음
+        단위로만 판단하면 같은 객체를 다르게 묶은 순간 표가 처음 보는 토큰이 되어 다시
+        들어간다. 실제로 2026-08-28 에 2개짜리 증명 묶음을 넣은 표 위로 8개짜리 적재 묶음이
+        올 뻔했다.
+        """
+        ingested = {"a.zip": 111, "b.zip": 111}
+
+        self.assertEqual(
+            decide_whether_to_append(ingested, ["a.zip", "b.zip"]),
+            [],
+            "다 들어간 묶음은 붙일 것이 없어야 한다",
+        )
+        self.assertEqual(
+            decide_whether_to_append({}, ["a.zip", "b.zip"]),
+            ["a.zip", "b.zip"],
+            "하나도 안 들어간 묶음은 전부 붙여야 한다",
+        )
+        self.assertEqual(
+            decide_whether_to_append(ingested, ["c.zip", "d.zip"]),
+            ["c.zip", "d.zip"],
+            "겹치지 않는 묶음은 앞선 적재와 무관하다",
+        )
+
+    def test_a_batch_that_is_half_in_is_refused_rather_than_half_appended(self) -> None:
+        """일부만 들어간 묶음은 재개가 아니라 사고다.
+
+        적재기가 도중에 묶는 법을 바꿨거나 두 적재기가 같이 돌고 있다는 뜻이다. 남은 것만
+        붙이면 그 실행이 쓴 행을 적재 후 읽기가 가둘 수 없다. 무엇이 걸쳐 있는지 말하고 선다.
+        """
+        with self.assertRaises(ValueError) as caught:
+            decide_whether_to_append({"a.zip": 111}, ["a.zip", "b.zip"])
+
+        message = str(caught.exception)
+        self.assertIn("a.zip", message, "이미 들어간 객체를 이름으로 말해야 한다")
+        self.assertIn("b.zip", message, "아직 안 들어간 객체를 이름으로 말해야 한다")
+
     def test_the_skip_decision_reads_the_table_not_a_file_beside_it(self) -> None:
         """이미 넣었는지는 표의 커밋 기록에서 답이 나와야 한다.
 
         적재기 옆의 마커 파일은 표와 다른 매체에 따로 커밋된 두 번째 사실이라, 실행이 그
         사이에서 죽으면 둘이 어긋난다. 표의 스냅숏 요약을 읽으면 데이터와 같은 곳을 본다.
         """
-        body = function_body(job_source(), "find_committed_batch_snapshot")
+        body = function_body(job_source(), "read_ingested_objects")
 
         self.assertIn(".snapshots", body, "판단 근거는 표 자신의 스냅숏 요약이어야 한다")
         self.assertIn("summary", body, "판단 근거는 표 자신의 스냅숏 요약이어야 한다")
+        self.assertIn(
+            "INGEST_BATCH_OBJECTS_KEY",
+            body,
+            "요약에서 읽을 것은 객체 목록이다 — 묶음 토큰을 읽으면 묶는 크기가 바뀔 때 "
+            "같은 객체가 처음 보는 것이 되어 다시 들어간다",
+        )
+        self.assertNotIn(
+            "INGEST_BATCH_TOKEN_KEY",
+            body,
+            "묶음 토큰은 사람이 스냅숏을 짚을 때 쓰는 이름이지 적재 여부의 근거가 아니다",
+        )
         self.assertNotIn(
             "open(",
             body,
@@ -154,9 +205,10 @@ class RetryIsIdempotentTest(unittest.TestCase):
         source = job_source()
         body = function_body(source, "main")
 
-        self.assertIn("find_committed_batch_snapshot(", body, "붙이기 전에 물어야 한다")
+        self.assertIn("read_ingested_objects(", body, "붙이기 전에 물어야 한다")
+        self.assertIn("decide_whether_to_append(", body, "답을 판단에 써야 한다")
         self.assertLess(
-            body.index("find_committed_batch_snapshot("),
+            body.index("decide_whether_to_append("),
             body.index("write_silver_iceberg("),
             "확인이 쓰기보다 먼저 와야 막을 수 있다",
         )

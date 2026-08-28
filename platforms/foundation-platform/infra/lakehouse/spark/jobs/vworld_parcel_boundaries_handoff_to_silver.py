@@ -811,29 +811,59 @@ def ingest_batch_token(record_ids: Sequence[str]) -> str:
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
-def find_committed_batch_snapshot(
+def read_ingested_objects(
     spark: SparkSession,
     args: argparse.Namespace,
-    token: str,
-) -> int | None:
-    """Returns the snapshot that already appended this batch, or None if no snapshot did.
+) -> dict[str, int]:
+    """Maps every Bronze object already appended to the snapshot that appended it.
 
     Reads the table's own snapshot summaries, so the answer comes from the same commit log
     that holds the rows. Iceberg drops summaries when snapshots expire, so a retention
-    window shorter than a load leaves an appended batch looking un-appended; keep the
+    window shorter than a load leaves an appended object looking un-appended; keep the
     snapshots a load produced until the load is finished.
     """
     if not spark.catalog.tableExists(unquoted_qualified_iceberg_table(args)):
-        return None
+        return {}
 
+    ingested: dict[str, int] = {}
     rows = spark.sql(
         f"SELECT snapshot_id, summary FROM {qualified_iceberg_table(args)}.snapshots"
     ).collect()
     for row in rows:
-        summary = row.summary or {}
-        if summary.get(INGEST_BATCH_TOKEN_KEY) == token:
-            return int(row.snapshot_id)
-    return None
+        recorded = (row.summary or {}).get(INGEST_BATCH_OBJECTS_KEY)
+        if not recorded:
+            continue
+        for name in recorded.split(","):
+            ingested.setdefault(name, int(row.snapshot_id))
+    return ingested
+
+
+def decide_whether_to_append(
+    ingested: dict[str, int],
+    record_ids: Sequence[str],
+) -> list[str]:
+    """Returns the objects still to append, or raises when the batch straddles the boundary.
+
+    Keyed on the Bronze object rather than on the batch, because the batch is a property of
+    the loader's mood — how many files it grouped that day — and not of the data. A batch
+    token alone would let regrouping the same objects produce a token the table has never
+    seen, and append them a second time.
+
+    A batch that is part in and part out is not a resume. Either the loader regrouped its
+    files mid-load or two loaders are running, and appending the remainder would write rows
+    whose run the read-back gate cannot bound. Say which objects straddle and stop.
+    """
+    already = [name for name in record_ids if name in ingested]
+    missing = [name for name in record_ids if name not in ingested]
+    if already and missing:
+        raise ValueError(
+            "Refusing to append a batch that is partly already in the table. "
+            f"in={already[:4]} out={missing[:4]} "
+            f"in_count={len(already)} out_count={len(missing)}. "
+            "Re-run with the object grouping the earlier run used, or load the "
+            "missing objects on their own."
+        )
+    return missing
 
 
 def main() -> int:
@@ -875,15 +905,15 @@ def main() -> int:
         else:
             record_ids = batch_source_record_ids(silver)
             token = ingest_batch_token(record_ids)
-            committed = find_committed_batch_snapshot(spark, args, token)
-            if committed is not None:
+            ingested = read_ingested_objects(spark, args)
+            if not decide_whether_to_append(ingested, record_ids):
                 # Count what is actually in the table rather than trusting the summary alone,
                 # so a skip reports the rows it is standing on instead of asserting them.
                 already = read_iceberg_snapshot_for_batch(spark, silver, args).count()
                 print(
                     "silver-parcel-boundaries-iceberg-already-ingested "
-                    f"rows={already} token={token} snapshot={committed} "
-                    f"objects={len(record_ids)}"
+                    f"rows={already} token={token} "
+                    f"snapshot={ingested[record_ids[0]]} objects={len(record_ids)}"
                 )
                 return 0
             write_silver_iceberg(spark, silver, args, record_ids, token)
