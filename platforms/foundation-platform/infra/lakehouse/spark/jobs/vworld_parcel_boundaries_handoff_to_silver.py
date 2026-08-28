@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lakehouse_engine import iceberg_packages
 from lakehouse_ingest import (
     decide_whether_to_append,
     ingest_batch_token,
@@ -36,10 +37,7 @@ from platform_contracts import (
 )
 
 
-DEFAULT_ICEBERG_PACKAGES = (
-    "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-    "org.apache.iceberg:iceberg-aws-bundle:1.6.1"
-)
+DEFAULT_ICEBERG_PACKAGES = iceberg_packages()
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 JOB_NAME = "vworld_parcel_boundaries_handoff_to_silver"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"

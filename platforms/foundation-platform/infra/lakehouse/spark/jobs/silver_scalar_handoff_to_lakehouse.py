@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lakehouse_engine import iceberg_packages
 from platform_contracts import (
     column_names,
     columns,
@@ -34,10 +35,7 @@ from platform_contracts import (
 )
 
 
-DEFAULT_ICEBERG_PACKAGES = (
-    "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-    "org.apache.iceberg:iceberg-aws-bundle:1.6.1"
-)
+DEFAULT_ICEBERG_PACKAGES = iceberg_packages()
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 BUCKET_PARTITION_PATTERN = re.compile(r"^bucket\((\d+),\s*([A-Za-z_][A-Za-z0-9_]*)\)$")
 ICEBERG_BUCKET_SPLIT_COUNT = 16

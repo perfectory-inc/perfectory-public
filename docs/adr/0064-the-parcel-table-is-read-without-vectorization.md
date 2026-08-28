@@ -90,6 +90,41 @@ silver.parcel_boundaries               최대 geometry_wkb  60,694 바이트   �
 하나에 담긴 양(29.6 MB 대 1 MB 미만)이며, 이는 위 Context 가 지목한 조건과 같은 방향이다.
 결정은 바뀌지 않는다. 다른 표의 파일이 커질 때 다시 재야 할 값이 무엇인지가 좁혀졌을 뿐이다.
 
+---
+
+*2026-08-29 정정. 위 Context 의 원인 지목이 틀렸다.* 파일 크기가 아니라 **Iceberg 판**이었다.
+
+합치기를 돌리다 `silver.building_register_units` 에서 같은 크래시가 났다. 그 표는 파일이
+1 MB 로 작다. 파일 크기 가설이 그 자리에서 무너졌다. 표 5개를 벡터화 켜고/끄고 8회 돌려
+재측정했다.
+
+```
+표                              행 수         파일     켜고     끄고
+building_register_unit_areas 113,813,264   6.80MB   CRASH     OK
+parcel_boundaries             39,861,511  22.69MB   CRASH     OK
+building_register_units       19,765,555   1.00MB   CRASH     OK
+industrial_complexes               1,442   0.36MB    OK       OK
+industrial_complex_boundaries      1,343   0.02MB    OK       OK
+```
+
+**파일 1 MB 가 죽고 0.02 MB 가 산다.** 크기로는 설명되지 않고 행 수와 정렬한다.
+
+원인은 우리 것이 아니었다. `apache/iceberg#12178`, *"Incorrect Results and SIGSEGV on Read"*,
+**1.8.0 에서 수정됨.** 우리는 1.6.1 이었다. 같은 서버·같은 표·벡터화 켠 채로 판만 바꿔 확인했다.
+
+```
+iceberg 1.6.1   →  CRASH
+iceberg 1.11.0  →  OK
+```
+
+**어제의 대조군이 변수를 하나만 바꾸지 않았다.** 대조로 삼은 두 표는 파일도 작고 행도 적어,
+두 후보가 같은 방향으로 움직였다. 가를 수 없는 대조군으로 갈랐다고 결론지은 것이 오류다.
+
+이 ADR 의 결정(표 속성으로 벡터화를 끈다)은 **판을 올리는 동안의 임시 조치로 격하한다.**
+판을 올린 뒤 속성을 되돌리는 것은 root ADR-0065 가 다룬다. 이슈 제목이 말하는 *Incorrect
+Results* 도 확인했다 — 작은 표 3개를 전 행 해시로 비교했고 켜고/끄고가 일치했으므로,
+발행된 데이터는 이 결함의 영향을 받지 않았다.
+
 **종료 코드가 원인을 가린다.** `docker compose run` 이 돌려준 127 은 "명령을 못 찾음"으로
 읽히지만 실제로는 JVM 이 죽은 것이었다. 적재기가 그 코드를 그대로 보고했고, 나는 처음 두 번을
 일시적 결함으로 읽었다. 크래시 보고서를 컨테이너 밖으로 꺼내는 것이 판단의 시작이었다.

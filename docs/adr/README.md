@@ -74,4 +74,5 @@ last_reviewed: 2026-07-28
 - [0061 — 거부된 필지 번호는 합계가 아니라 이름으로 남긴다](./0061-refused-parcel-numbers-are-named-not-totalled.md)
 - [0062 — 적재 묶음은 자기가 쓴 표 안에 스스로를 기록한다](./0062-an-ingest-batch-records-itself-in-the-table-it-writes.md)
 - [0063 — 검색을 못 좁히는 나누기는 파일만 쪼갠다](./0063-a-partition-that-cannot-narrow-a-search-only-splits-files.md)
-- [0064 — 필지 표는 벡터화 읽기 없이 읽는다](./0064-the-parcel-table-is-read-without-vectorization.md)
+- [0064 — 필지 표는 벡터화 읽기 없이 읽는다](./0064-the-parcel-table-is-read-without-vectorization.md) *(원인 지목이 틀렸다. 2026-08-29 정정: Iceberg 판 문제이며 ADR-0065 가 잇는다)*
+- [0065 — 엔진 판 번호는 한 곳에만 적는다](./0065-an-engine-version-is-written-once.md)

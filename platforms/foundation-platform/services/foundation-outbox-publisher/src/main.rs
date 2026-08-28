@@ -82,6 +82,7 @@ mod industrial_complex_gold_profile_export;
 mod industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
 mod ingestion_run_recovery;
+mod lakehouse_engine_contract;
 mod lakehouse_inventory;
 mod lakehouse_quality_rules_evaluate;
 mod lakehouse_registry_control;

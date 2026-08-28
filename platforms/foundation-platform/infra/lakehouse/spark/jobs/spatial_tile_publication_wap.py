@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lakehouse_engine import iceberg_packages
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
@@ -52,10 +53,7 @@ from spatial_tile_wap_evidence import (
 )
 
 
-ICEBERG_PACKAGES = (
-    "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-    "org.apache.iceberg:iceberg-aws-bundle:1.6.1"
-)
+ICEBERG_PACKAGES = iceberg_packages()
 SPARK_REDACTION_REGEX = (
     "(?i)secret|password|token|credential|access[.]?key"
 )

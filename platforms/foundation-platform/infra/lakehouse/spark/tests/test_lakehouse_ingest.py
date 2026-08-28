@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -243,6 +244,47 @@ class OneImplementationTest(unittest.TestCase):
             "옵션 이름은 snapshot_property_options() 가 조립한다. "
             "이 검사는 글자만 보므로 주석이나 docstring 에 적어도 걸린다 — "
             "형태를 적지 말고 lakehouse_ingest 를 가리켜라",
+        )
+
+
+class OneEngineVersionTest(unittest.TestCase):
+    """Iceberg 판 번호는 계약 파일 한 곳에만 적힌다 (root ADR-0064).
+
+    열두 곳에 적혀 있었고, 그래서 올리려면 열두 곳을 고쳐야 했고, 그래서 아무도 안 올렸다.
+    다섯 판이 지나가는 동안 1.6.1 에 머물렀고 그중 하나에 우리를 이틀 잡아먹은 수정이
+    들어 있었다. 감시할 것은 "낡았는가"가 아니라 "사본이 생겼는가"다 — 새 판이 나오는 것은
+    우리가 통제하지 못하지만, 사본이 생기는 것은 우리가 통제한다.
+    """
+
+    PATTERN = re.compile(r"iceberg-(?:spark-runtime-[\d.]+_[\d.]+|aws-bundle):\d")
+
+    def test_only_the_contract_spells_the_iceberg_version(self) -> None:
+        root = Path(__file__).resolve().parents[3]
+        allowed = {
+            "lakehouse-engine.contract.json",  # 정본
+            "lakehouse_engine_contract.rs",  # 정본을 읽는 Rust
+            "test_lakehouse_ingest.py",  # 이 검사 자신
+        }
+        offenders = []
+        for path in root.rglob("*"):
+            if not path.is_file() or path.name in allowed:
+                continue
+            if path.suffix not in {".py", ".rs", ".md", ".json", ".yml", ".yaml", ".sh", ".example"}:
+                continue
+            if any(part in {"target", "__pycache__", "node_modules", ".git"} for part in path.parts):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if self.PATTERN.search(text):
+                offenders.append(str(path.relative_to(root)))
+
+        self.assertEqual(
+            sorted(offenders),
+            [],
+            "Iceberg 판 번호는 lakehouse-engine.contract.json 에만 적는다. "
+            "여기에 뜨는 파일은 iceberg_packages() 를 부르도록 바꿔라",
         )
 
 

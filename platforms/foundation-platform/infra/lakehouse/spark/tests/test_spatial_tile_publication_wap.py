@@ -16,6 +16,8 @@ sys.path.insert(0, str(JOBS_DIR))
 
 import spatial_tile_publication_wap as wap  # noqa: E402
 
+from lakehouse_engine import iceberg_packages  # noqa: E402
+
 from platform_contracts import (  # noqa: E402
     load_lakehouse_contract,
     partition_spec_sql,
@@ -889,11 +891,14 @@ class SpatialTilePublicationWapTest(unittest.TestCase):
             any("oauth2-server-uri" in key for key in builder.values),
             "Cloudflare does not publish an OAuth endpoint for this static-token mode",
         )
-        self.assertEqual(
-            ICEBERG_PACKAGES,
-            "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-            "org.apache.iceberg:iceberg-aws-bundle:1.6.1",
-        )
+        # 계약에서 끌어온다. 값을 여기 적으면 판을 올릴 때 고쳐야 할 곳이 하나 늘고,
+        # 그 하나가 늘어난 탓에 아무도 안 올린 것이 root ADR-0064 다.
+        self.assertEqual(ICEBERG_PACKAGES, iceberg_packages())
+        for coordinate in ICEBERG_PACKAGES.split(","):
+            self.assertEqual(
+                len(coordinate.split(":")), 3,
+                "좌표는 group:artifact:version 이어야 한다 — 판이 빠지면 그때그때 최신을 받는다",
+            )
 
     def test_spark_builder_rejects_non_cloudflare_and_ambiguous_catalog_uris(self) -> None:
         account = "0123456789abcdef0123456789abcdef"

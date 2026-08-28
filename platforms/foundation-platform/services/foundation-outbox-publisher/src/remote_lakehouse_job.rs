@@ -1179,6 +1179,9 @@ fi
     } else {
         ""
     };
+    // Read off the engine contract, not written here. A remote submission that pinned its own
+    // Iceberg would load a different jar than the job it submits expects (root ADR-0064).
+    let iceberg_packages = crate::lakehouse_engine_contract::iceberg_packages();
     format!(
         "\
 set -euo pipefail
@@ -1245,7 +1248,7 @@ mkdir -p 'target/lakehouse/smoke'
   --driver-memory {spec_spark_driver_memory} \\
   --conf spark.jars.ivy=/tmp/.ivy2 \\
 {java_extra_options_args}\
-  --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,org.apache.iceberg:iceberg-aws-bundle:1.6.1 \\
+  --packages {iceberg_packages} \\
   /workspace/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py \\
   --input /workspace/{spec_input_path} \\
   --input-format {spec_input_format} \\
