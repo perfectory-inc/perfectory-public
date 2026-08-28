@@ -30,6 +30,7 @@ sys.path.insert(0, str(JOBS_DIR))
 # pyspark 가 없으므로 아래 검사가 전부 조용히 건너뛰어진다. 앞선 판이 정확히 그랬다.
 from vworld_parcel_boundaries_handoff_to_silver import (  # noqa: E402
     MAX_READBACK_SOURCE_RECORDS,
+    READ_PROPERTIES,
 )
 
 
@@ -123,6 +124,51 @@ class RetryIsIdempotentTest(unittest.TestCase):
             body.index("decide_whether_to_append("),
             body.index("write_silver_iceberg("),
             "확인이 쓰기보다 먼저 와야 막을 수 있다",
+        )
+
+
+class ReadableAfterWriteTest(unittest.TestCase):
+    """이 표는 쓰는 것으로 끝이 아니라 읽혀야 한다.
+
+    Iceberg 의 벡터화 Parquet 읽기가 이 표의 행에서 JVM 을 통째로 죽인다. 서로 무관한 두
+    호스트에서 재현했고, 매니페스트만 보는 count 는 통과하므로 파일 자체는 멀쩡하다
+    (root ADR-0064). 이 잡은 쓴 것을 되읽어 검사하므로, 막지 않으면 자기 검사에서 죽는다.
+    """
+
+    def test_the_table_carries_its_own_read_protection(self) -> None:
+        """설정은 실행 인자가 아니라 표에 붙어야 한다.
+
+        인자로 주면 이 잡만 안전하고, 같은 표를 여는 다른 엔진은 플래그를 알아야만 산다.
+        표 속성이면 아무것도 모르는 읽는 쪽도 보호된다.
+        """
+        self.assertIn(
+            ("read.parquet.vectorization.enabled", "false"),
+            READ_PROPERTIES,
+            "벡터화 읽기를 끄는 속성이 표에 선언돼 있어야 한다",
+        )
+
+        body = function_body(job_source(), "apply_read_properties")
+        self.assertIn("ALTER TABLE", body, "이미 있는 표에도 속성이 붙어야 한다")
+        self.assertNotIn(
+            "IF NOT EXISTS",
+            body,
+            "CREATE 는 이미 있는 표를 그냥 지나치므로 앞선 적재의 행을 보호하지 못한다",
+        )
+
+    def test_the_table_is_prepared_before_anything_reads_it(self) -> None:
+        """건너뛰는 경로도 행을 읽는다.
+
+        이미 들어간 묶음이면 잡은 붙이지 않고 행을 세는데, 그것도 파일을 읽는 일이다.
+        준비가 쓰기 직전에만 있으면 그 읽기가 보호 없이 먼저 일어난다 — 실제로 그 자리에서
+        세 번 죽었다.
+        """
+        body = function_body(job_source(), "main")
+
+        self.assertIn("create_iceberg_table_if_missing(", body, "main 이 표를 준비해야 한다")
+        self.assertLess(
+            body.index("create_iceberg_table_if_missing("),
+            body.index("read_iceberg_snapshot_for_batch("),
+            "준비가 어떤 읽기보다도 먼저 와야 한다",
         )
 
 

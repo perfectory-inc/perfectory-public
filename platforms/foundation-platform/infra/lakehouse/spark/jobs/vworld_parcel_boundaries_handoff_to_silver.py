@@ -637,6 +637,31 @@ def qualified_iceberg_table(args: argparse.Namespace) -> str:
     )
 
 
+# Iceberg's vectorized Parquet reader crashes the JVM on this table's rows. Reproduced on two
+# unrelated hosts, at 3,958,994 rows across 26 files: the process dies with `free(): invalid
+# pointer` inside `BaseReader`, taking the whole run with it — a scan, not a write. A count that
+# answers from manifests alone succeeds, so the files themselves are sound; reading them with the
+# non-vectorized path returns the same rows without incident. Recorded in root ADR-0064.
+#
+# Declared as a table property rather than a submit flag so it travels with the table. Every
+# engine that opens this table — this job, Trino, whatever reads it next — is protected without
+# knowing to ask, and nobody has to remember a flag to avoid killing their JVM.
+READ_PROPERTIES: tuple[tuple[str, str], ...] = (
+    ("read.parquet.vectorization.enabled", "false"),
+)
+
+
+def apply_read_properties(spark: SparkSession, args: argparse.Namespace) -> None:
+    """Set the read properties on the table, whether this run created it or found it.
+
+    A conditional create does nothing to a table that already exists, so a property added to
+    the DDL after the first load would never reach the rows already there. This alters.
+    """
+    table = qualified_iceberg_table(args)
+    settings = ", ".join(f"'{key}' = '{value}'" for key, value in READ_PROPERTIES)
+    spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES ({settings})")
+
+
 def create_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespace) -> None:
     namespace = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`"
     table = qualified_iceberg_table(args)
@@ -656,6 +681,7 @@ def create_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespac
         )
         """
     )
+    apply_read_properties(spark, args)
 
 
 def write_silver_iceberg(
@@ -670,9 +696,10 @@ def write_silver_iceberg(
     Written through the DataFrame writer rather than SQL because only the writer takes the
     snapshot-summary options `lakehouse_ingest` builds, and the whole point is that the
     record of the append rides in the same commit as the appended rows.
-    """
-    create_iceberg_table_if_missing(spark, args)
 
+    The table is prepared by `main` before the append decision, not here: the skip path reads
+    rows as well, and it must not read them before the read properties are on the table.
+    """
     writer = silver.select(*SILVER_COLUMNS).writeTo(qualified_iceberg_table(args))
     for key, value in snapshot_property_options(record_ids, token).items():
         writer = writer.option(key, value)
@@ -825,6 +852,8 @@ def main() -> int:
             success_target = f"output={args.output}"
             success_label = "silver-parcel-boundaries-write-ok"
         else:
+            # Before anything reads the table, including the read the skip path does.
+            create_iceberg_table_if_missing(spark, args)
             record_ids = batch_source_record_ids(silver)
             token = ingest_batch_token(record_ids)
             ingested = read_ingested_objects(
