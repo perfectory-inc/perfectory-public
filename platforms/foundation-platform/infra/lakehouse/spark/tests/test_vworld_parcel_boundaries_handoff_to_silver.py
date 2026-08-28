@@ -29,10 +29,7 @@ sys.path.insert(0, str(JOBS_DIR))
 # 이 import 가 곧 검사다. 잡이 pyspark 를 모듈 최상단에서 부르면 여기서 터지고, CI 레인에는
 # pyspark 가 없으므로 아래 검사가 전부 조용히 건너뛰어진다. 앞선 판이 정확히 그랬다.
 from vworld_parcel_boundaries_handoff_to_silver import (  # noqa: E402
-    INGEST_BATCH_TOKEN_KEY,
     MAX_READBACK_SOURCE_RECORDS,
-    decide_whether_to_append,
-    ingest_batch_token,
 )
 
 
@@ -86,26 +83,6 @@ class ReadBackScopeTest(unittest.TestCase):
 
 
 class RetryIsIdempotentTest(unittest.TestCase):
-    def test_batch_token_is_derived_from_content_not_from_order_or_time(self) -> None:
-        """같은 객체를 담은 묶음은 언제 어떤 순서로 돌아도 같은 토큰이어야 한다.
-
-        순번이었다면 재개한 적재기가 세 번째 실행에 "3"을 주는데, 두 번째가 들어갔는지에
-        따라 그 "3"이 가리키는 객체가 달라진다. 내용에서 뽑으면 그런 어긋남이 안 생긴다.
-        """
-        token = ingest_batch_token
-
-        self.assertEqual(token(["a", "b", "c"]), token(["a", "b", "c"]))
-        self.assertEqual(
-            token(["c", "a", "b"]),
-            token(["a", "b", "c"]),
-            "묶음의 정체는 파일을 훑은 순서가 아니라 담긴 객체다",
-        )
-        self.assertNotEqual(
-            token(["a", "b"]),
-            token(["a", "b", "c"]),
-            "객체가 다른 묶음이 같은 토큰을 받으면 넣지 않은 것을 넣었다고 본다",
-        )
-
     def test_the_already_ingested_marker_rides_in_the_write_commit(self) -> None:
         """표시는 데이터와 같은 커밋에 실려야 한다.
 
@@ -116,84 +93,19 @@ class RetryIsIdempotentTest(unittest.TestCase):
         body = function_body(job_source(), "write_silver_iceberg")
 
         self.assertIn(
-            'f"snapshot-property.{INGEST_BATCH_TOKEN_KEY}"',
+            "snapshot_property_options(",
             body,
-            "쓰기가 스냅숏 요약에 토큰을 같이 커밋해야 한다",
+            "쓰기가 스냅숏 요약에 기록을 같이 커밋해야 한다",
         )
         self.assertIn(
             ".writeTo(",
             body,
             "INSERT INTO 는 snapshot-property 를 받지 못한다 — DataFrame writer 여야 한다",
         )
-
-    def test_the_decision_is_keyed_on_the_object_not_on_the_batch(self) -> None:
-        """묶는 크기를 바꿔도 같은 객체가 두 번 들어가면 안 된다.
-
-        묶음은 그날 적재기가 파일을 몇 개씩 묶었는지일 뿐 데이터의 성질이 아니다. 묶음
-        단위로만 판단하면 같은 객체를 다르게 묶은 순간 표가 처음 보는 토큰이 되어 다시
-        들어간다. 실제로 2026-08-28 에 2개짜리 증명 묶음을 넣은 표 위로 8개짜리 적재 묶음이
-        올 뻔했다.
-        """
-        ingested = {"a.zip": 111, "b.zip": 111}
-
-        self.assertEqual(
-            decide_whether_to_append(ingested, ["a.zip", "b.zip"]),
-            [],
-            "다 들어간 묶음은 붙일 것이 없어야 한다",
-        )
-        self.assertEqual(
-            decide_whether_to_append({}, ["a.zip", "b.zip"]),
-            ["a.zip", "b.zip"],
-            "하나도 안 들어간 묶음은 전부 붙여야 한다",
-        )
-        self.assertEqual(
-            decide_whether_to_append(ingested, ["c.zip", "d.zip"]),
-            ["c.zip", "d.zip"],
-            "겹치지 않는 묶음은 앞선 적재와 무관하다",
-        )
-
-    def test_a_batch_that_is_half_in_is_refused_rather_than_half_appended(self) -> None:
-        """일부만 들어간 묶음은 재개가 아니라 사고다.
-
-        적재기가 도중에 묶는 법을 바꿨거나 두 적재기가 같이 돌고 있다는 뜻이다. 남은 것만
-        붙이면 그 실행이 쓴 행을 적재 후 읽기가 가둘 수 없다. 무엇이 걸쳐 있는지 말하고 선다.
-        """
-        with self.assertRaises(ValueError) as caught:
-            decide_whether_to_append({"a.zip": 111}, ["a.zip", "b.zip"])
-
-        message = str(caught.exception)
-        self.assertIn("a.zip", message, "이미 들어간 객체를 이름으로 말해야 한다")
-        self.assertIn("b.zip", message, "아직 안 들어간 객체를 이름으로 말해야 한다")
-
-    def test_the_skip_decision_reads_the_table_not_a_file_beside_it(self) -> None:
-        """이미 넣었는지는 표의 커밋 기록에서 답이 나와야 한다.
-
-        적재기 옆의 마커 파일은 표와 다른 매체에 따로 커밋된 두 번째 사실이라, 실행이 그
-        사이에서 죽으면 둘이 어긋난다. 표의 스냅숏 요약을 읽으면 데이터와 같은 곳을 본다.
-        """
-        body = function_body(job_source(), "read_ingested_objects")
-
-        self.assertIn(".snapshots", body, "판단 근거는 표 자신의 스냅숏 요약이어야 한다")
-        self.assertIn("summary", body, "판단 근거는 표 자신의 스냅숏 요약이어야 한다")
-        self.assertIn(
-            "INGEST_BATCH_OBJECTS_KEY",
-            body,
-            "요약에서 읽을 것은 객체 목록이다 — 묶음 토큰을 읽으면 묶는 크기가 바뀔 때 "
-            "같은 객체가 처음 보는 것이 되어 다시 들어간다",
-        )
         self.assertNotIn(
-            "INGEST_BATCH_TOKEN_KEY",
+            "INSERT INTO",
             body,
-            "묶음 토큰은 사람이 스냅숏을 짚을 때 쓰는 이름이지 적재 여부의 근거가 아니다",
-        )
-        self.assertNotIn(
-            "open(",
-            body,
-            "표시를 파일에서 읽으면 데이터와 다른 곳에 커밋된 사실을 믿는 것이다",
-        )
-        self.assertTrue(
-            INGEST_BATCH_TOKEN_KEY.startswith("foundation."),
-            "요약 키는 엔진 예약어와 섞이지 않게 우리 이름공간에 둔다",
+            "SQL 로 붙이면 옵션을 실을 자리가 없어 기록이 커밋 밖으로 나간다",
         )
 
     def test_the_write_path_asks_before_it_appends(self) -> None:

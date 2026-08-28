@@ -85,5 +85,25 @@
 
 **같은 형태의 결함이 다른 잡에도 있다.** `industrial_complex_bronze_to_silver.py`,
 `industrial_complex_silver_to_gold.py`, `industrial_complex_boundaries_handoff_to_silver.py`,
-`silver_scalar_handoff_to_lakehouse.py` 는 모두 붙인 뒤 확인하며, 어느 것도 자기가 붙였다는
-사실을 표에 남기지 않는다. 이 ADR 의 1–4 는 그 넷에도 적용되어야 하며, 아직 적용되지 않았다.
+`silver_scalar_handoff_to_lakehouse.py` 는 모두 SQL 로 붙인 뒤 확인하며, 어느 것도 자기가
+붙였다는 사실을 표에 남기지 않는다. 실물 대조로 확인했다.
+
+**그러나 넷에 같은 처방을 그대로 쓸 수는 없다.** 결정 1–3 은 "이 묶음이 담은 원천 객체"를
+전제하는데, 대상 표마다 그 객체를 가리키는 칸이 있기도 없기도 하다.
+
+```
+silver.industrial_complexes           source_record_id 있음
+silver.industrial_complex_boundaries  있음
+gold.complex_catalog                  없음 — Bronze 객체가 아니라 Silver 에서 파생된다
+gold.complex_spatial_locator          없음
+silver.building_register_units        없음
+```
+
+Gold 표의 한 실행은 Bronze 객체 묶음이 아니라 자기가 읽은 Silver 상태에서 나온다. 그것의
+정체를 무엇으로 삼을지는 이 ADR 이 답하지 않은 별도의 질문이며, 답하기 전에 저 넷을
+고치면 있지도 않은 칸을 전제한 코드가 된다. `source_snapshot_id` 로 대신하려는 유혹은
+특히 위험하다 — 그 칸을 적재 단위로 착각한 것이 애초에 2026-08-27 의 오검출을 만들었다.
+
+**공용 모듈은 먼저 세워 뒀다.** `infra/lakehouse/spark/jobs/lakehouse_ingest.py` 가 토큰·
+요약 옵션·판단을 한 곳에 갖고 있고, 필지 잡이 그것을 쓴다. 나머지 잡을 붙일 때 구현을
+다시 쓰지 않는다. 요약 키와 옵션 접두사를 다른 잡이 스스로 적으면 검사가 거부한다.

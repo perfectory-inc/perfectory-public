@@ -10,7 +10,6 @@ match `catalog_domain::SILVER_PARCEL_BOUNDARIES`.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -19,6 +18,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lakehouse_ingest import (
+    decide_whether_to_append,
+    ingest_batch_token,
+    read_ingested_objects,
+    snapshot_property_options,
+)
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
@@ -52,17 +57,6 @@ SILVER_COLUMNS: tuple[str, ...] = column_names(TABLE_CONTRACT)
 # so it arrives in batches; this bounds a batch rather than the dataset.
 MAX_READBACK_SOURCE_RECORDS = 64
 
-# Key under which a run records, in the Iceberg snapshot summary, which Bronze objects it
-# appended. The summary is written in the same commit as the data files, so the record of
-# "these objects are in" cannot survive without the rows, nor the rows without the record.
-#
-# A marker kept anywhere else — a file beside the loader, a row in another table — is a
-# second commit, and a run that dies between the two leaves the two disagreeing. On
-# 2026-08-27 that gap ran three times and put 1,865,891 parcels into the table three times
-# over. Apache Iceberg's own Flink sink solves it the same way, with
-# `flink.max-committed-checkpoint-id` in the snapshot summary.
-INGEST_BATCH_TOKEN_KEY = "foundation.ingest-batch-token"
-INGEST_BATCH_OBJECTS_KEY = "foundation.ingest-batch-objects"
 
 # Read off the contract rather than written here. Silver geometry tables carry the CRS their source
 # published and declare it per table (root ADR-0042), so a job that spelled the number out would be
@@ -673,18 +667,15 @@ def write_silver_iceberg(
 ) -> None:
     """Appends the batch and records which objects it appended, in one commit.
 
-    Written through the DataFrame writer rather than `INSERT INTO` because only the writer
-    takes `snapshot-property.*`, and the whole point is that the record of the append rides
-    in the same commit as the appended rows.
+    Written through the DataFrame writer rather than SQL because only the writer takes the
+    snapshot-summary options `lakehouse_ingest` builds, and the whole point is that the
+    record of the append rides in the same commit as the appended rows.
     """
     create_iceberg_table_if_missing(spark, args)
 
-    writer = (
-        silver.select(*SILVER_COLUMNS)
-        .writeTo(qualified_iceberg_table(args))
-        .option(f"snapshot-property.{INGEST_BATCH_TOKEN_KEY}", token)
-        .option(f"snapshot-property.{INGEST_BATCH_OBJECTS_KEY}", ",".join(record_ids))
-    )
+    writer = silver.select(*SILVER_COLUMNS).writeTo(qualified_iceberg_table(args))
+    for key, value in snapshot_property_options(record_ids, token).items():
+        writer = writer.option(key, value)
 
     if args.iceberg_write_mode == "overwrite":
         writer.overwritePartitions()
@@ -797,75 +788,6 @@ def batch_source_record_ids(silver: DataFrame) -> list[str]:
     return record_ids
 
 
-def ingest_batch_token(record_ids: Sequence[str]) -> str:
-    """Derives a batch's identity from what it contains, not from when it ran.
-
-    A counter would name the third run "3" whether or not the second one landed, so a
-    resumed loader could hand the same number to a different set of objects, or a different
-    number to the same set. The digest of the object names cannot drift from the batch:
-    re-running the same files always asks about the same token.
-
-    Sorted here rather than by the caller, so the guarantee holds for every caller.
-    """
-    joined = "\n".join(sorted(record_ids))
-    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
-
-
-def read_ingested_objects(
-    spark: SparkSession,
-    args: argparse.Namespace,
-) -> dict[str, int]:
-    """Maps every Bronze object already appended to the snapshot that appended it.
-
-    Reads the table's own snapshot summaries, so the answer comes from the same commit log
-    that holds the rows. Iceberg drops summaries when snapshots expire, so a retention
-    window shorter than a load leaves an appended object looking un-appended; keep the
-    snapshots a load produced until the load is finished.
-    """
-    if not spark.catalog.tableExists(unquoted_qualified_iceberg_table(args)):
-        return {}
-
-    ingested: dict[str, int] = {}
-    rows = spark.sql(
-        f"SELECT snapshot_id, summary FROM {qualified_iceberg_table(args)}.snapshots"
-    ).collect()
-    for row in rows:
-        recorded = (row.summary or {}).get(INGEST_BATCH_OBJECTS_KEY)
-        if not recorded:
-            continue
-        for name in recorded.split(","):
-            ingested.setdefault(name, int(row.snapshot_id))
-    return ingested
-
-
-def decide_whether_to_append(
-    ingested: dict[str, int],
-    record_ids: Sequence[str],
-) -> list[str]:
-    """Returns the objects still to append, or raises when the batch straddles the boundary.
-
-    Keyed on the Bronze object rather than on the batch, because the batch is a property of
-    the loader's mood — how many files it grouped that day — and not of the data. A batch
-    token alone would let regrouping the same objects produce a token the table has never
-    seen, and append them a second time.
-
-    A batch that is part in and part out is not a resume. Either the loader regrouped its
-    files mid-load or two loaders are running, and appending the remainder would write rows
-    whose run the read-back gate cannot bound. Say which objects straddle and stop.
-    """
-    already = [name for name in record_ids if name in ingested]
-    missing = [name for name in record_ids if name not in ingested]
-    if already and missing:
-        raise ValueError(
-            "Refusing to append a batch that is partly already in the table. "
-            f"in={already[:4]} out={missing[:4]} "
-            f"in_count={len(already)} out_count={len(missing)}. "
-            "Re-run with the object grouping the earlier run used, or load the "
-            "missing objects on their own."
-        )
-    return missing
-
-
 def main() -> int:
     load_pyspark()
     args = parse_args()
@@ -905,7 +827,11 @@ def main() -> int:
         else:
             record_ids = batch_source_record_ids(silver)
             token = ingest_batch_token(record_ids)
-            ingested = read_ingested_objects(spark, args)
+            ingested = read_ingested_objects(
+                spark,
+                qualified_iceberg_table(args),
+                unquoted_qualified_iceberg_table(args),
+            )
             if not decide_whether_to_append(ingested, record_ids):
                 # Count what is actually in the table rather than trusting the summary alone,
                 # so a skip reports the rows it is standing on instead of asserting them.
