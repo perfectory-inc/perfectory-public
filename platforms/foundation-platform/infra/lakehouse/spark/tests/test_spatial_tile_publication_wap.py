@@ -16,6 +16,11 @@ sys.path.insert(0, str(JOBS_DIR))
 
 import spatial_tile_publication_wap as wap  # noqa: E402
 
+from platform_contracts import (  # noqa: E402
+    load_lakehouse_contract,
+    partition_spec_sql,
+)
+
 from spatial_tile_publication_wap import (  # noqa: E402
     ICEBERG_PACKAGES,
     LOGICAL_CONTRACT,
@@ -688,8 +693,13 @@ class SpatialTilePublicationWapTest(unittest.TestCase):
         self.assertIn("boundary_id STRING", compact)
         self.assertIn("geometry_wkb BINARY", compact)
         self.assertIn("valid_to_utc TIMESTAMP", compact)
+        # Read off the contract rather than spelled here. This assertion used to carry its own
+        # copy of the partition spec, so changing the contract left a test insisting on the old
+        # layout — the check that claims the DDL comes from the contract was the one place that
+        # did not (root ADR-0063).
+        contract = load_lakehouse_contract(wap.LOGICAL_CONTRACT)
         self.assertIn(
-            "PARTITIONED BY (sigungu_code, bucket(256, pnu))",
+            f"PARTITIONED BY ({partition_spec_sql(contract)})",
             compact,
         )
         self.assertNotIn("DROP ", compact.upper())

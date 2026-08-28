@@ -117,7 +117,7 @@
         { "name": "valid_to_utc", "logical_type": "timestamp", "required": false },
         { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true }
       ],
-      "partition_spec": ["sigungu_code", "bucket(256, pnu)"],
+      "partition_spec": ["sigungu_code"],
       "sort_order": ["pnu", "valid_from_utc"],
       "quality_gates": [
         "pnu passes shared PNU validation",

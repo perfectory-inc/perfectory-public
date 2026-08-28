@@ -1203,7 +1203,15 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: Some("valid_to_utc IS NULL"),
     columns: SILVER_PARCEL_BOUNDARIES_COLUMNS,
-    partition_spec: &["sigungu_code", "bucket(256, pnu)"],
+    // Sigungu alone, without a `pnu` bucket beside it: a PNU begins with its sigungu code, so
+    // bucketing on `pnu` cannot narrow a PNU lookup that this partition has not narrowed
+    // already, and the sort order below carries the search the rest of the way. What the
+    // bucket did do was multiply the partition count by 256. Measured mid-load on 2026-08-28
+    // at 5.6M of 39.9M rows (root ADR-0063).
+    //
+    //   with the bucket     65,280 partitions   43,649 files   0.28 MB each
+    //   sigungu only           255 partitions      255 files      47 MB each
+    partition_spec: &["sigungu_code"],
     sort_order: &["pnu", "valid_from_utc"],
     quality_gates: &[
         "pnu passes shared PNU validation",

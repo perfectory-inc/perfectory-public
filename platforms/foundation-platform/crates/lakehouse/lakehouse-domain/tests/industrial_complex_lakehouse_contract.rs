@@ -124,7 +124,7 @@ fn boundary_contract_is_geoparquet_with_geometry_pruning_columns() {
 }
 
 #[test]
-fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_for_pnu_lookup() {
+fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_by_sigungu() {
     let contract = SILVER_PARCEL_BOUNDARIES;
 
     assert_eq!(contract.table_name, "silver.parcel_boundaries");
@@ -147,9 +147,47 @@ fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_for_pnu_lookup()
     assert!(has_column(&contract, "bbox_max_x"));
     assert!(has_column(&contract, "bbox_max_y"));
     assert!(has_column(&contract, "geometry_checksum_sha256"));
-    assert!(contract.partition_spec.contains(&"sigungu_code"));
-    assert!(contract.partition_spec.contains(&"bucket(256, pnu)"));
+    // Sigungu and nothing beside it. A PNU begins with its sigungu code, so a second
+    // partition field derived from `pnu` cannot narrow a PNU lookup this one has not narrowed
+    // already; the sort order below carries the search the rest of the way. What such a field
+    // did do was multiply 255 partitions into 65,280, which measured out at 0.28 MB per file
+    // against a 128 MB target (root ADR-0063).
+    assert_eq!(contract.partition_spec, &["sigungu_code"]);
     assert_eq!(contract.sort_order, &["pnu", "valid_from_utc"]);
+}
+
+/// A partition field must be able to exclude rows the other fields would have read.
+///
+/// `bucket(256, pnu)` sat beside `sigungu_code` here for exactly as long as nobody divided the
+/// row count by the partition count. It excluded nothing — a PNU's leading digits *are* the
+/// sigungu code — and cost 256x the files. This is the arithmetic that would have caught it.
+#[test]
+fn parcel_boundary_partitions_hold_enough_rows_to_fill_a_file() {
+    const NATIONAL_PARCEL_ROWS: u64 = 39_861_511;
+    const SIGUNGU_COUNT: u64 = 255;
+    // Below this, a partition cannot fill even a small Parquet file and the per-file footers
+    // start to outweigh the rows they describe.
+    const MIN_ROWS_PER_PARTITION: u64 = 50_000;
+
+    let contract = SILVER_PARCEL_BOUNDARIES;
+    let bucket_multiplier: u64 = contract
+        .partition_spec
+        .iter()
+        .filter_map(|field| field.strip_prefix("bucket("))
+        .filter_map(|rest| rest.split(',').next())
+        .filter_map(|count| count.trim().parse::<u64>().ok())
+        .product::<u64>()
+        .max(1);
+
+    let partitions = SIGUNGU_COUNT * bucket_multiplier;
+    let rows_per_partition = NATIONAL_PARCEL_ROWS / partitions;
+
+    assert!(
+        rows_per_partition >= MIN_ROWS_PER_PARTITION,
+        "{} partitions hold {rows_per_partition} rows each; a partition field that cannot \
+         narrow a search only splits files (root ADR-0063)",
+        partitions
+    );
 }
 
 #[test]
