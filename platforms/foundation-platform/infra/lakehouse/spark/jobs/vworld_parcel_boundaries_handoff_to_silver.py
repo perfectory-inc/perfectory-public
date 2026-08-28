@@ -10,6 +10,7 @@ match `catalog_domain::SILVER_PARCEL_BOUNDARIES`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -17,11 +18,6 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql import types as T
-from pyspark.storagelevel import StorageLevel
 
 from platform_contracts import (
     column_names,
@@ -56,6 +52,18 @@ SILVER_COLUMNS: tuple[str, ...] = column_names(TABLE_CONTRACT)
 # so it arrives in batches; this bounds a batch rather than the dataset.
 MAX_READBACK_SOURCE_RECORDS = 64
 
+# Key under which a run records, in the Iceberg snapshot summary, which Bronze objects it
+# appended. The summary is written in the same commit as the data files, so the record of
+# "these objects are in" cannot survive without the rows, nor the rows without the record.
+#
+# A marker kept anywhere else — a file beside the loader, a row in another table — is a
+# second commit, and a run that dies between the two leaves the two disagreeing. On
+# 2026-08-27 that gap ran three times and put 1,865,891 parcels into the table three times
+# over. Apache Iceberg's own Flink sink solves it the same way, with
+# `flink.max-committed-checkpoint-id` in the snapshot summary.
+INGEST_BATCH_TOKEN_KEY = "foundation.ingest-batch-token"
+INGEST_BATCH_OBJECTS_KEY = "foundation.ingest-batch-objects"
+
 # Read off the contract rather than written here. Silver geometry tables carry the CRS their source
 # published and declare it per table (root ADR-0042), so a job that spelled the number out would be
 # the second place the answer lives.
@@ -87,6 +95,24 @@ PARCEL_SPECIFIC_QUALITY_METRICS: tuple[str, ...] = (
     "invalid_checksum_count",
     "duplicate_active_pnu_count",
 )
+
+
+def load_pyspark() -> None:
+    """Bind the PySpark namespaces this job uses.
+
+    Deferred the way `industrial_complex_bronze_to_silver` defers it, so that the
+    plain-Python rules here can be imported by `infra/lakehouse/spark/tests` on a machine
+    with no PySpark install. The CI lane that runs those tests has no PySpark, so a
+    module-level import made every check in this job's test file skip itself — and a check
+    that skips reports the same green as a check that passes.
+    """
+
+    global DataFrame, SparkSession, F, T, StorageLevel
+
+    from pyspark.sql import DataFrame, SparkSession
+    from pyspark.sql import functions as F
+    from pyspark.sql import types as T
+    from pyspark.storagelevel import StorageLevel
 
 
 def trim_to_null(column_name: str) -> F.Column:
@@ -642,24 +668,28 @@ def write_silver_iceberg(
     spark: SparkSession,
     silver: DataFrame,
     args: argparse.Namespace,
+    record_ids: Sequence[str],
+    token: str,
 ) -> None:
-    table = qualified_iceberg_table(args)
-    temp_view = "silver_parcel_boundaries_candidate"
+    """Appends the batch and records which objects it appended, in one commit.
 
+    Written through the DataFrame writer rather than `INSERT INTO` because only the writer
+    takes `snapshot-property.*`, and the whole point is that the record of the append rides
+    in the same commit as the appended rows.
+    """
     create_iceberg_table_if_missing(spark, args)
-    silver.select(*SILVER_COLUMNS).createOrReplaceTempView(temp_view)
 
-    statement = "INSERT INTO"
-    if args.iceberg_write_mode == "overwrite":
-        statement = "INSERT OVERWRITE"
-
-    spark.sql(
-        f"""
-        {statement} {table}
-        SELECT {", ".join(SILVER_COLUMNS)}
-        FROM {temp_view}
-        """
+    writer = (
+        silver.select(*SILVER_COLUMNS)
+        .writeTo(qualified_iceberg_table(args))
+        .option(f"snapshot-property.{INGEST_BATCH_TOKEN_KEY}", token)
+        .option(f"snapshot-property.{INGEST_BATCH_OBJECTS_KEY}", ",".join(record_ids))
     )
+
+    if args.iceberg_write_mode == "overwrite":
+        writer.overwritePartitions()
+    else:
+        writer.append()
 
 
 def build_spark_session(args: argparse.Namespace) -> SparkSession:
@@ -738,10 +768,24 @@ def read_iceberg_snapshot_for_batch(
     a run that had written correctly was reported as failed. `source_record_id` names the
     Bronze object a row came from, so it separates one append from another.
     """
+    record_ids = batch_source_record_ids(silver)
+    return (
+        spark.table(qualified_iceberg_table(args))
+        .where(F.col("source_record_id").isin(record_ids))
+        .select(*SILVER_COLUMNS)
+    )
+
+
+def batch_source_record_ids(silver: DataFrame) -> list[str]:
+    """Names the Bronze objects this run carries, in a fixed order.
+
+    Sorted so that the same objects yield the same list however the input files were
+    globbed or ordered, which is what lets the token below identify a batch by content.
+    """
     record_rows = (
         silver.select("source_record_id").distinct().limit(MAX_READBACK_SOURCE_RECORDS + 1).collect()
     )
-    record_ids = [row.source_record_id for row in record_rows]
+    record_ids = sorted(row.source_record_id for row in record_rows)
     if not record_ids:
         raise ValueError("Cannot verify Iceberg write because source_record_id is empty")
     if len(record_ids) > MAX_READBACK_SOURCE_RECORDS:
@@ -750,15 +794,50 @@ def read_iceberg_snapshot_for_batch(
             f"{MAX_READBACK_SOURCE_RECORDS} source records per run; "
             "split the input into smaller batches"
         )
+    return record_ids
 
-    return (
-        spark.table(qualified_iceberg_table(args))
-        .where(F.col("source_record_id").isin(record_ids))
-        .select(*SILVER_COLUMNS)
-    )
+
+def ingest_batch_token(record_ids: Sequence[str]) -> str:
+    """Derives a batch's identity from what it contains, not from when it ran.
+
+    A counter would name the third run "3" whether or not the second one landed, so a
+    resumed loader could hand the same number to a different set of objects, or a different
+    number to the same set. The digest of the object names cannot drift from the batch:
+    re-running the same files always asks about the same token.
+
+    Sorted here rather than by the caller, so the guarantee holds for every caller.
+    """
+    joined = "\n".join(sorted(record_ids))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def find_committed_batch_snapshot(
+    spark: SparkSession,
+    args: argparse.Namespace,
+    token: str,
+) -> int | None:
+    """Returns the snapshot that already appended this batch, or None if no snapshot did.
+
+    Reads the table's own snapshot summaries, so the answer comes from the same commit log
+    that holds the rows. Iceberg drops summaries when snapshots expire, so a retention
+    window shorter than a load leaves an appended batch looking un-appended; keep the
+    snapshots a load produced until the load is finished.
+    """
+    if not spark.catalog.tableExists(unquoted_qualified_iceberg_table(args)):
+        return None
+
+    rows = spark.sql(
+        f"SELECT snapshot_id, summary FROM {qualified_iceberg_table(args)}.snapshots"
+    ).collect()
+    for row in rows:
+        summary = row.summary or {}
+        if summary.get(INGEST_BATCH_TOKEN_KEY) == token:
+            return int(row.snapshot_id)
+    return None
 
 
 def main() -> int:
+    load_pyspark()
     args = parse_args()
     validate_args(args)
     spark = build_spark_session(args)
@@ -794,7 +873,20 @@ def main() -> int:
             success_target = f"output={args.output}"
             success_label = "silver-parcel-boundaries-write-ok"
         else:
-            write_silver_iceberg(spark, silver, args)
+            record_ids = batch_source_record_ids(silver)
+            token = ingest_batch_token(record_ids)
+            committed = find_committed_batch_snapshot(spark, args, token)
+            if committed is not None:
+                # Count what is actually in the table rather than trusting the summary alone,
+                # so a skip reports the rows it is standing on instead of asserting them.
+                already = read_iceberg_snapshot_for_batch(spark, silver, args).count()
+                print(
+                    "silver-parcel-boundaries-iceberg-already-ingested "
+                    f"rows={already} token={token} snapshot={committed} "
+                    f"objects={len(record_ids)}"
+                )
+                return 0
+            write_silver_iceberg(spark, silver, args, record_ids, token)
             persisted = read_iceberg_snapshot_for_batch(spark, silver, args)
             success_target = f"table={args.iceberg_namespace}.{args.iceberg_table}"
             success_label = "silver-parcel-boundaries-iceberg-write-ok"
