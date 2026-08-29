@@ -38,6 +38,7 @@ from typing import Any
 
 from lakehouse_engine import iceberg_packages
 from platform_contracts import (
+    partition_clause_sql,
     column_names,
     create_table_columns_sql,
     current_row_predicate,
@@ -854,7 +855,7 @@ def create_iceberg_table_if_missing(spark: Any, args: argparse.Namespace) -> Non
 {create_table_columns_sql(TABLE_CONTRACT)}
         )
         USING iceberg
-        PARTITIONED BY ({partition_spec_sql(TABLE_CONTRACT)})
+        {partition_clause_sql(TABLE_CONTRACT)}
         TBLPROPERTIES (
             'format-version' = '2',
             'write.parquet.compression-codec' = 'zstd',

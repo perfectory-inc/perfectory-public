@@ -76,3 +76,4 @@ last_reviewed: 2026-07-28
 - [0063 — 검색을 못 좁히는 나누기는 파일만 쪼갠다](./0063-a-partition-that-cannot-narrow-a-search-only-splits-files.md)
 - [0064 — 필지 표는 벡터화 읽기 없이 읽는다](./0064-the-parcel-table-is-read-without-vectorization.md) *(원인 지목이 틀렸다. 2026-08-29 정정: Iceberg 판 문제이며 ADR-0065 가 잇는다)*
 - [0065 — 엔진 판 번호는 한 곳에만 적는다](./0065-an-engine-version-is-written-once.md)
+- [0066 — 한 파일에 들어가는 표는 나누지 않는다](./0066-a-table-that-fits-in-one-file-is-not-split.md)

@@ -22,6 +22,7 @@ from platform_contracts import (
     create_table_columns_sql,
     current_row_predicate,
     load_lakehouse_contract,
+    partition_clause_sql,
     partition_spec_sql,
 )
 from spatial_tile_wap_evidence import (
@@ -189,7 +190,7 @@ def build_create_table_sql(catalog: str, namespace: str, table: str) -> str:
 {create_table_columns_sql(contract)}
         )
         USING iceberg
-        PARTITIONED BY ({partition_spec_sql(contract)})
+        {partition_clause_sql(contract)}
         TBLPROPERTIES (
             'format-version' = '2',
             'write.parquet.compression-codec' = 'zstd'

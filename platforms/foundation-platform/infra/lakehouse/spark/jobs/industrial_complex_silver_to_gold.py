@@ -20,6 +20,7 @@ from pyspark.storagelevel import StorageLevel
 
 from lakehouse_engine import iceberg_packages
 from platform_contracts import (
+    partition_clause_sql,
     column_names,
     create_table_columns_sql,
     evolve_iceberg_table_to_contract,
@@ -822,7 +823,7 @@ def create_gold_iceberg_table_if_missing(spark: SparkSession, args: argparse.Nam
 {create_table_columns_sql(GOLD_CONTRACT)}
         )
         USING iceberg
-        PARTITIONED BY ({partition_spec_sql(GOLD_CONTRACT)})
+        {partition_clause_sql(GOLD_CONTRACT)}
         TBLPROPERTIES (
             'format-version' = '2',
             'write.parquet.compression-codec' = 'zstd',

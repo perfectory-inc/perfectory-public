@@ -119,8 +119,46 @@ fn boundary_contract_is_geoparquet_with_geometry_pruning_columns() {
     assert!(has_column(&contract, "bbox_max_x"));
     assert!(has_column(&contract, "bbox_max_y"));
     assert!(has_column(&contract, "geometry_checksum_sha256"));
-    assert!(contract.partition_spec.contains(&"sido_code"));
-    assert!(contract.partition_spec.contains(&"bucket(32, complex_id)"));
+    // Unpartitioned on purpose. Splitting 1,343 rows across 371 partitions produced 371 files of
+    // twenty kilobytes, and compaction could not merge them because it never crosses a partition
+    // (root ADR-0066). The sort order does the pruning a table this size needs.
+    assert_eq!(contract.partition_spec, &[] as &[&str]);
+    assert_eq!(
+        contract.sort_order,
+        &["complex_id", "boundary_kind", "valid_from_utc"]
+    );
+}
+
+/// A partition must hold enough data to be worth the file it forces into existence.
+///
+/// Iceberg writes at least one file per partition, so the partition count is the floor on the
+/// file count no matter how often compaction runs. Databricks calls a partition under a gigabyte
+/// over-partitioned; this asserts the weaker thing we can check without live sizes — that a table
+/// whose whole contents fit in one file is not split at all.
+#[test]
+fn a_table_that_fits_in_one_file_declares_no_partitions() {
+    // Measured 2026-08-29 from `.files` on the live tables.
+    const MEASURED_BYTES: [(&str, u64); 2] = [
+        ("silver.industrial_complex_boundaries", 8_000_000),
+        ("silver.industrial_complexes", 360_000),
+    ];
+    const TARGET_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
+    for (table_name, bytes) in MEASURED_BYTES {
+        let contract = industrial_complex_lakehouse_contracts()
+            .iter()
+            .find(|candidate| candidate.table_name == table_name)
+            .unwrap_or_else(|| panic!("{table_name} is missing from the contract set"));
+
+        if bytes < TARGET_FILE_BYTES {
+            assert!(
+                contract.partition_spec.len() <= 1,
+                "{table_name} holds {bytes} bytes, under one target file, yet declares {} \
+                 partition fields; every field multiplies the floor on its file count",
+                contract.partition_spec.len()
+            );
+        }
+    }
 }
 
 #[test]

@@ -79,7 +79,7 @@
         { "name": "valid_to_utc", "logical_type": "timestamp", "required": false },
         { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true }
       ],
-      "partition_spec": ["sido_code", "bucket(32, complex_id)"],
+      "partition_spec": [],
       "sort_order": ["complex_id", "boundary_kind", "valid_from_utc"],
       "quality_gates": [
         "geometry_srid = 5186",

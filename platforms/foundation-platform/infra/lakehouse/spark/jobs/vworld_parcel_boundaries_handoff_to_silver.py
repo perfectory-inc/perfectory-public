@@ -31,6 +31,7 @@ from platform_contracts import (
     current_row_predicate,
     declared_geometry_srid,
     load_lakehouse_contract,
+    partition_clause_sql,
     partition_spec_sql,
     required_column_names,
     required_string_column_names,
@@ -671,7 +672,7 @@ def create_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespac
 {create_table_columns_sql(TABLE_CONTRACT)}
         )
         USING iceberg
-        PARTITIONED BY ({partition_spec_sql(TABLE_CONTRACT)})
+        {partition_clause_sql(TABLE_CONTRACT)}
         TBLPROPERTIES (
             'format-version' = '2',
             'write.parquet.compression-codec' = 'zstd',

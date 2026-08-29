@@ -1183,7 +1183,13 @@ pub const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES: LakehouseTableContract = Lakehou
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
     columns: SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS,
-    partition_spec: &["sido_code", "bucket(32, complex_id)"],
+    // No partitions. 1,343 rows in 8 MB were split across 371 partitions, one file each, twenty
+    // kilobytes apiece — a layout compaction cannot repair, because it may only merge within a
+    // partition and every partition already held one file. Databricks puts the threshold for
+    // partitioning at a terabyte and calls a partition under a gigabyte over-partitioned; this
+    // table is four orders of magnitude below the first number. The sort order below carries what
+    // pruning there is to carry (root ADR-0066).
+    partition_spec: &[],
     sort_order: &["complex_id", "boundary_kind", "valid_from_utc"],
     quality_gates: &[
         "geometry_srid = 5186",
