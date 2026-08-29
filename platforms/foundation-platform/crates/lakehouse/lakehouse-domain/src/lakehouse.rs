@@ -1209,15 +1209,17 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: Some("valid_to_utc IS NULL"),
     columns: SILVER_PARCEL_BOUNDARIES_COLUMNS,
-    // Sigungu alone, without a `pnu` bucket beside it: a PNU begins with its sigungu code, so
-    // bucketing on `pnu` cannot narrow a PNU lookup that this partition has not narrowed
-    // already, and the sort order below carries the search the rest of the way. What the
-    // bucket did do was multiply the partition count by 256. Measured mid-load on 2026-08-28
-    // at 5.6M of 39.9M rows (root ADR-0063).
+    // No partitions. Root ADR-0063 removed the `pnu` bucket from beside `sigungu_code` and left
+    // sigungu in place; measuring afterwards showed sigungu is not earning its keep either. The
+    // table is 7.44 GB — fifteen target files — and every consumer reads it whole: the PostGIS
+    // mirror and the tile artifacts. A scan that skips nothing gains nothing from partitions,
+    // and the 257 partitions capped file size at 29 MB against a 512 MB target while giving two
+    // stray district codes a one-row file each (root ADR-0066).
     //
-    //   with the bucket     65,280 partitions   43,649 files   0.28 MB each
-    //   sigungu only           255 partitions      255 files      47 MB each
-    partition_spec: &["sigungu_code"],
+    //   sigungu + bucket    65,280 partitions   43,649 files   0.28 MB each
+    //   sigungu only           257 partitions      257 files     29.0 MB each
+    //   unpartitioned                          about 15 files    500 MB each
+    partition_spec: &[],
     sort_order: &["pnu", "valid_from_utc"],
     quality_gates: &[
         "pnu passes shared PNU validation",
@@ -1255,7 +1257,12 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
     columns: SILVER_BUILDING_REGISTER_UNITS_COLUMNS,
-    partition_spec: &["bucket(256, pnu)"],
+    // No partitions. 1.17 GB fits in three target files, and bucketing on `pnu` fought the
+    // sort order below: the bucket scatters neighbouring PNUs across 256 hash buckets while
+    // the sort gathers them, so a PNU-range read had to open every bucket. Without it the
+    // sort order alone gives file-level min/max that a range read can skip on
+    // (root ADR-0066).
+    partition_spec: &[],
     sort_order: &[
         "pnu",
         "building_mgm_bldrgst_pk",

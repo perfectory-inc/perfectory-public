@@ -162,7 +162,7 @@ fn a_table_that_fits_in_one_file_declares_no_partitions() {
 }
 
 #[test]
-fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_by_sigungu() {
+fn parcel_boundary_contract_is_canonical_geoparquet_and_unpartitioned() {
     let contract = SILVER_PARCEL_BOUNDARIES;
 
     assert_eq!(contract.table_name, "silver.parcel_boundaries");
@@ -185,13 +185,23 @@ fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_by_sigungu() {
     assert!(has_column(&contract, "bbox_max_x"));
     assert!(has_column(&contract, "bbox_max_y"));
     assert!(has_column(&contract, "geometry_checksum_sha256"));
-    // Sigungu and nothing beside it. A PNU begins with its sigungu code, so a second
-    // partition field derived from `pnu` cannot narrow a PNU lookup this one has not narrowed
-    // already; the sort order below carries the search the rest of the way. What such a field
-    // did do was multiply 255 partitions into 65,280, which measured out at 0.28 MB per file
-    // against a 128 MB target (root ADR-0063).
-    assert_eq!(contract.partition_spec, &["sigungu_code"]);
-    assert_eq!(contract.sort_order, &["pnu", "valid_from_utc"]);
+    // Unpartitioned, and the sort order is what prunes. ADR-0063 dropped the `pnu` bucket from
+    // beside `sigungu_code`; ADR-0066 dropped sigungu too, once measuring showed 257 partitions
+    // capping files at 29 MB against a 512 MB target while every consumer read the table whole.
+    //
+    // Asserted as a property rather than as a copy of the spec. Three tests in this file pinned
+    // the literal partition spec and all three had to be edited to make an intended change — an
+    // assertion that mirrors the contract catches the accident and blocks the decision equally.
+    assert!(
+        contract.partition_spec.is_empty(),
+        "parcel boundaries are read whole by every consumer; a partition here only caps file size"
+    );
+    assert_eq!(
+        contract.sort_order.first(),
+        Some(&"pnu"),
+        "with no partitions the sort order is the only thing left to prune on, and PNU is what \
+         the consumers key by"
+    );
 }
 
 /// A partition field must be able to exclude rows the other fields would have read.
@@ -279,7 +289,10 @@ fn building_register_units_contract_is_canonical_and_entity_keyed() {
     assert!(has_column(&contract, "source_snapshot_id"));
     assert!(has_column(&contract, "bronze_object_key"));
     assert!(has_column(&contract, "row_checksum_sha256"));
-    assert!(contract.partition_spec.contains(&"bucket(256, pnu)"));
+    // Unpartitioned on purpose. Bucketing on `pnu` scattered neighbouring PNUs across 256
+    // hash buckets while the sort order below gathers them, so a PNU-range read had to open
+    // every bucket to find what one file could have held (root ADR-0066).
+    assert_eq!(contract.partition_spec, &[] as &[&str]);
     assert_eq!(
         contract.sort_order,
         &[

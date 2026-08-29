@@ -117,7 +117,7 @@
         { "name": "valid_to_utc", "logical_type": "timestamp", "required": false },
         { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true }
       ],
-      "partition_spec": ["sigungu_code"],
+      "partition_spec": [],
       "sort_order": ["pnu", "valid_from_utc"],
       "quality_gates": [
         "pnu passes shared PNU validation",
@@ -197,7 +197,7 @@
         { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true },
         { "name": "row_checksum_sha256", "logical_type": "string", "required": true }
       ],
-      "partition_spec": ["bucket(256, pnu)"],
+      "partition_spec": [],
       "sort_order": ["pnu", "building_mgm_bldrgst_pk", "floor_index", "unit_number", "unit_row_id"],
       "quality_gates": [
         "unit_row_id_not_null",

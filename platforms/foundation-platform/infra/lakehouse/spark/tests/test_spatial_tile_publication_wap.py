@@ -19,6 +19,7 @@ import spatial_tile_publication_wap as wap  # noqa: E402
 from lakehouse_engine import iceberg_packages  # noqa: E402
 
 from platform_contracts import (  # noqa: E402
+    partition_clause_sql,
     load_lakehouse_contract,
     partition_spec_sql,
 )
@@ -699,11 +700,17 @@ class SpatialTilePublicationWapTest(unittest.TestCase):
         # copy of the partition spec, so changing the contract left a test insisting on the old
         # layout — the check that claims the DDL comes from the contract was the one place that
         # did not (root ADR-0063).
+        #
+        # The whole clause, not the field list wrapped in parentheses: the contract may declare
+        # no partitions, and `PARTITIONED BY ()` is a syntax error rather than an empty clause
+        # (root ADR-0066). Asking for the field list is what made this assertion wrong the day
+        # the parcel contract went unpartitioned.
         contract = load_lakehouse_contract(wap.LOGICAL_CONTRACT)
-        self.assertIn(
-            f"PARTITIONED BY ({partition_spec_sql(contract)})",
-            compact,
-        )
+        clause = partition_clause_sql(contract)
+        if clause:
+            self.assertIn(clause, compact)
+        else:
+            self.assertNotIn("PARTITIONED BY", compact)
         self.assertNotIn("DROP ", compact.upper())
         self.assertNotIn("DELETE FROM", compact.upper())
 
