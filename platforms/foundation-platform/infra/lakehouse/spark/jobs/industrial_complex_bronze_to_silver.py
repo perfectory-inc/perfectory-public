@@ -19,7 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lakehouse_engine import iceberg_packages
 from platform_contracts import (
+    partition_clause_sql,
     column_names,
     create_table_columns_sql,
     evolve_iceberg_table_to_contract,
@@ -34,10 +36,7 @@ from platform_contracts import (
 )
 
 
-DEFAULT_ICEBERG_PACKAGES = (
-    "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-    "org.apache.iceberg:iceberg-aws-bundle:1.6.1"
-)
+DEFAULT_ICEBERG_PACKAGES = iceberg_packages()
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 JOB_NAME = "industrial_complex_bronze_to_silver"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
@@ -964,7 +963,7 @@ def create_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespac
 {create_table_columns_sql(TABLE_CONTRACT)}
         )
         USING iceberg
-        PARTITIONED BY ({partition_spec_sql(TABLE_CONTRACT)})
+        {partition_clause_sql(TABLE_CONTRACT)}
         TBLPROPERTIES (
             'format-version' = '2',
             'write.parquet.compression-codec' = 'zstd',

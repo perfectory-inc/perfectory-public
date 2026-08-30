@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lakehouse_engine import iceberg_packages
 from platform_contracts import (
     column_names,
     declared_geometry_srid,
@@ -41,10 +42,7 @@ from platform_contracts import (
 )
 
 
-DEFAULT_ICEBERG_PACKAGES = (
-    "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-    "org.apache.iceberg:iceberg-aws-bundle:1.6.1"
-)
+DEFAULT_ICEBERG_PACKAGES = iceberg_packages()
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 JOB_NAME = "industrial_complex_boundaries_silver_to_postgis_handoff"
 SUMMARY_SCHEMA_VERSION = "foundation-platform.industrial_complex_boundary_postgis_handoff.v1"

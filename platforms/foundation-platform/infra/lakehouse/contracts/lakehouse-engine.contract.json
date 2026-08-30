@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "purpose": "Single source of truth for the Iceberg packages every lakehouse Spark job submits with. The version lived in twelve files before this one existed, so raising it meant editing twelve places and nobody ever did: the deployment sat on 1.6.1 while five releases went by.",
+  "iceberg": {
+    "version": "1.11.0",
+    "artifacts": [
+      "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12",
+      "org.apache.iceberg:iceberg-aws-bundle"
+    ],
+    "minimum_version": "1.8.0",
+    "minimum_version_reason": "Before 1.8.0 the vectorized Parquet reader corrupts native memory: apache/iceberg#12178, 'Incorrect Results and SIGSEGV on Read', fixed in 1.8.0. Measured on this deployment 2026-08-29 against silver.building_register_units with vectorization on and nothing else changed: 1.6.1 died with SIGSEGV, 1.11.0 read the table. The three tables above ten million rows all died; the two in the low thousands did not, which is why it stayed hidden until a compaction run touched a large table. Root ADR-0064."
+  },
+  "spark": {
+    "version": "3.5.6",
+    "scala_binary_version": "2.12",
+    "artifact_suffix_reason": "The Iceberg runtime artifact name embeds both, so the artifacts above are only valid for this pair."
+  }
+}

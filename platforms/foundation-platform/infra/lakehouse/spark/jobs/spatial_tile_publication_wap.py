@@ -16,11 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lakehouse_engine import iceberg_packages
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
     current_row_predicate,
     load_lakehouse_contract,
+    partition_clause_sql,
     partition_spec_sql,
 )
 from spatial_tile_wap_evidence import (
@@ -52,10 +54,7 @@ from spatial_tile_wap_evidence import (
 )
 
 
-ICEBERG_PACKAGES = (
-    "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-    "org.apache.iceberg:iceberg-aws-bundle:1.6.1"
-)
+ICEBERG_PACKAGES = iceberg_packages()
 SPARK_REDACTION_REGEX = (
     "(?i)secret|password|token|credential|access[.]?key"
 )
@@ -191,7 +190,7 @@ def build_create_table_sql(catalog: str, namespace: str, table: str) -> str:
 {create_table_columns_sql(contract)}
         )
         USING iceberg
-        PARTITIONED BY ({partition_spec_sql(contract)})
+        {partition_clause_sql(contract)}
         TBLPROPERTIES (
             'format-version' = '2',
             'write.parquet.compression-codec' = 'zstd'

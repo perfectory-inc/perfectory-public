@@ -34,6 +34,9 @@ struct RemoteLakehouseJobConfig {
     input_file_batch_size_override: Option<u32>,
     source_snapshot: BuildingRegisterSourceSnapshotConfig,
     audit: RemoteLakehouseAuditConfig,
+    /// Resolved once here rather than at each script builder, because the builders return a
+    /// `String` and a corrupt contract is not something a script body can report.
+    iceberg_packages: String,
 }
 
 impl RemoteLakehouseJobConfig {
@@ -74,6 +77,7 @@ impl RemoteLakehouseJobConfig {
             )?,
             source_snapshot,
             audit: RemoteLakehouseAuditConfig::from_lookup(&mut lookup)?,
+            iceberg_packages: crate::lakehouse_engine_contract::iceberg_packages()?.to_owned(),
         })
     }
 }
@@ -1179,6 +1183,10 @@ fi
     } else {
         ""
     };
+    // Read off the engine contract, not written here. A remote submission that pinned its own
+    // Iceberg would load a different jar than the job it submits expects (root ADR-0064). The
+    // config resolved it while it could still report a bad contract; this only formats it.
+    let iceberg_packages = &config.iceberg_packages;
     format!(
         "\
 set -euo pipefail
@@ -1245,7 +1253,7 @@ mkdir -p 'target/lakehouse/smoke'
   --driver-memory {spec_spark_driver_memory} \\
   --conf spark.jars.ivy=/tmp/.ivy2 \\
 {java_extra_options_args}\
-  --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,org.apache.iceberg:iceberg-aws-bundle:1.6.1 \\
+  --packages {iceberg_packages} \\
   /workspace/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py \\
   --input /workspace/{spec_input_path} \\
   --input-format {spec_input_format} \\

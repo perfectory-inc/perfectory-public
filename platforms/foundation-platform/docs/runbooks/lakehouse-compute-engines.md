@@ -224,7 +224,7 @@ docker exec -i \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN="<catalog-token>" \
   foundation-platform-spark spark-submit \
   --conf spark.jars.ivy=/tmp/.ivy2 \
-  --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,org.apache.iceberg:iceberg-aws-bundle:1.6.1 \
+  --packages "$(python3 -c 'import sys; sys.path.insert(0, "infra/lakehouse/spark/jobs"); from lakehouse_engine import iceberg_packages; print(iceberg_packages())')" \
   /workspace/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py \
   --input /workspace/infra/lakehouse/spark/fixtures/bronze/industrial_complexes.jsonl \
   --write-mode iceberg \
@@ -262,7 +262,7 @@ docker exec -i \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN="<catalog-token>" \
   foundation-platform-spark spark-submit \
   --conf spark.jars.ivy=/tmp/.ivy2 \
-  --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,org.apache.iceberg:iceberg-aws-bundle:1.6.1 \
+  --packages "$(python3 -c 'import sys; sys.path.insert(0, "infra/lakehouse/spark/jobs"); from lakehouse_engine import iceberg_packages; print(iceberg_packages())')" \
   /workspace/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py \
   --input-mode iceberg \
   --write-mode iceberg \

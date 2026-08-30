@@ -16,6 +16,14 @@ sys.path.insert(0, str(JOBS_DIR))
 
 import spatial_tile_publication_wap as wap  # noqa: E402
 
+from lakehouse_engine import iceberg_packages  # noqa: E402
+
+from platform_contracts import (  # noqa: E402
+    partition_clause_sql,
+    load_lakehouse_contract,
+    partition_spec_sql,
+)
+
 from spatial_tile_publication_wap import (  # noqa: E402
     ICEBERG_PACKAGES,
     LOGICAL_CONTRACT,
@@ -688,10 +696,21 @@ class SpatialTilePublicationWapTest(unittest.TestCase):
         self.assertIn("boundary_id STRING", compact)
         self.assertIn("geometry_wkb BINARY", compact)
         self.assertIn("valid_to_utc TIMESTAMP", compact)
-        self.assertIn(
-            "PARTITIONED BY (sigungu_code, bucket(256, pnu))",
-            compact,
-        )
+        # Read off the contract rather than spelled here. This assertion used to carry its own
+        # copy of the partition spec, so changing the contract left a test insisting on the old
+        # layout — the check that claims the DDL comes from the contract was the one place that
+        # did not (root ADR-0063).
+        #
+        # The whole clause, not the field list wrapped in parentheses: the contract may declare
+        # no partitions, and `PARTITIONED BY ()` is a syntax error rather than an empty clause
+        # (root ADR-0066). Asking for the field list is what made this assertion wrong the day
+        # the parcel contract went unpartitioned.
+        contract = load_lakehouse_contract(wap.LOGICAL_CONTRACT)
+        clause = partition_clause_sql(contract)
+        if clause:
+            self.assertIn(clause, compact)
+        else:
+            self.assertNotIn("PARTITIONED BY", compact)
         self.assertNotIn("DROP ", compact.upper())
         self.assertNotIn("DELETE FROM", compact.upper())
 
@@ -879,11 +898,14 @@ class SpatialTilePublicationWapTest(unittest.TestCase):
             any("oauth2-server-uri" in key for key in builder.values),
             "Cloudflare does not publish an OAuth endpoint for this static-token mode",
         )
-        self.assertEqual(
-            ICEBERG_PACKAGES,
-            "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-            "org.apache.iceberg:iceberg-aws-bundle:1.6.1",
-        )
+        # 계약에서 끌어온다. 값을 여기 적으면 판을 올릴 때 고쳐야 할 곳이 하나 늘고,
+        # 그 하나가 늘어난 탓에 아무도 안 올린 것이 root ADR-0064 다.
+        self.assertEqual(ICEBERG_PACKAGES, iceberg_packages())
+        for coordinate in ICEBERG_PACKAGES.split(","):
+            self.assertEqual(
+                len(coordinate.split(":")), 3,
+                "좌표는 group:artifact:version 이어야 한다 — 판이 빠지면 그때그때 최신을 받는다",
+            )
 
     def test_spark_builder_rejects_non_cloudflare_and_ambiguous_catalog_uris(self) -> None:
         account = "0123456789abcdef0123456789abcdef"

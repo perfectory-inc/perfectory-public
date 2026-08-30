@@ -1183,7 +1183,13 @@ pub const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES: LakehouseTableContract = Lakehou
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
     columns: SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS,
-    partition_spec: &["sido_code", "bucket(32, complex_id)"],
+    // No partitions. 1,343 rows in 8 MB were split across 371 partitions, one file each, twenty
+    // kilobytes apiece — a layout compaction cannot repair, because it may only merge within a
+    // partition and every partition already held one file. Databricks puts the threshold for
+    // partitioning at a terabyte and calls a partition under a gigabyte over-partitioned; this
+    // table is four orders of magnitude below the first number. The sort order below carries what
+    // pruning there is to carry (root ADR-0066).
+    partition_spec: &[],
     sort_order: &["complex_id", "boundary_kind", "valid_from_utc"],
     quality_gates: &[
         "geometry_srid = 5186",
@@ -1203,7 +1209,17 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: Some("valid_to_utc IS NULL"),
     columns: SILVER_PARCEL_BOUNDARIES_COLUMNS,
-    partition_spec: &["sigungu_code", "bucket(256, pnu)"],
+    // No partitions. Root ADR-0063 removed the `pnu` bucket from beside `sigungu_code` and left
+    // sigungu in place; measuring afterwards showed sigungu is not earning its keep either. The
+    // table is 7.44 GB — fifteen target files — and every consumer reads it whole: the PostGIS
+    // mirror and the tile artifacts. A scan that skips nothing gains nothing from partitions,
+    // and the 257 partitions capped file size at 29 MB against a 512 MB target while giving two
+    // stray district codes a one-row file each (root ADR-0066).
+    //
+    //   sigungu + bucket    65,280 partitions   43,649 files   0.28 MB each
+    //   sigungu only           257 partitions      257 files     29.0 MB each
+    //   unpartitioned                          about 15 files    500 MB each
+    partition_spec: &[],
     sort_order: &["pnu", "valid_from_utc"],
     quality_gates: &[
         "pnu passes shared PNU validation",
@@ -1241,7 +1257,12 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
     columns: SILVER_BUILDING_REGISTER_UNITS_COLUMNS,
-    partition_spec: &["bucket(256, pnu)"],
+    // No partitions. 1.17 GB fits in three target files, and bucketing on `pnu` fought the
+    // sort order below: the bucket scatters neighbouring PNUs across 256 hash buckets while
+    // the sort gathers them, so a PNU-range read had to open every bucket. Without it the
+    // sort order alone gives file-level min/max that a range read can skip on
+    // (root ADR-0066).
+    partition_spec: &[],
     sort_order: &[
         "pnu",
         "building_mgm_bldrgst_pk",

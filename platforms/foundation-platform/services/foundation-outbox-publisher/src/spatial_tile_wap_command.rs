@@ -42,10 +42,7 @@ const SPARK_JOB_PATH: &str =
     "/workspace/infra/lakehouse/spark/jobs/spatial_tile_publication_wap.py";
 const FOUNDATION_SPARK_JOB_PATH: &str =
     "infra/lakehouse/spark/jobs/spatial_tile_publication_wap.py";
-const ICEBERG_PACKAGES: &str = concat!(
-    "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,",
-    "org.apache.iceberg:iceberg-aws-bundle:1.6.1"
-);
+
 const CATALOG_ENV_NAMES: [&str; 3] = [
     "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
     "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
@@ -272,7 +269,7 @@ fn build_host_execution_plan(config: &SpatialTileWapConfig) -> anyhow::Result<Ho
         "--conf".to_owned(),
         "spark.jars.ivy=/tmp/.ivy2".to_owned(),
         "--packages".to_owned(),
-        ICEBERG_PACKAGES.to_owned(),
+        crate::lakehouse_engine_contract::iceberg_packages()?.to_owned(),
         SPARK_JOB_PATH.to_owned(),
         "probe".to_owned(),
         "--catalog".to_owned(),
@@ -831,7 +828,7 @@ mod tests {
                 "--conf",
                 "spark.jars.ivy=/tmp/.ivy2",
                 "--packages",
-                ICEBERG_PACKAGES,
+                crate::lakehouse_engine_contract::iceberg_packages()?,
                 "/workspace/infra/lakehouse/spark/jobs/spatial_tile_publication_wap.py",
                 "probe",
                 "--catalog",

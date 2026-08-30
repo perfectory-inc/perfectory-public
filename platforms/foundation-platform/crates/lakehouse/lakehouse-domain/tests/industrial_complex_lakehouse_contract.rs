@@ -1,5 +1,7 @@
 //! Contract tests for industrial-complex lakehouse table definitions.
 
+use std::{error::Error, io};
+
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseLayer,
     LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract, GOLD_COMPLEX_CATALOG,
@@ -7,6 +9,12 @@ use lakehouse_domain::{
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
     SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
 };
+
+type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+fn test_error(message: impl Into<String>) -> Box<dyn Error> {
+    Box::new(io::Error::other(message.into()))
+}
 
 fn has_column(contract: &LakehouseTableContract, name: &str) -> bool {
     contract.columns.iter().any(|column| column.name == name)
@@ -119,12 +127,53 @@ fn boundary_contract_is_geoparquet_with_geometry_pruning_columns() {
     assert!(has_column(&contract, "bbox_max_x"));
     assert!(has_column(&contract, "bbox_max_y"));
     assert!(has_column(&contract, "geometry_checksum_sha256"));
-    assert!(contract.partition_spec.contains(&"sido_code"));
-    assert!(contract.partition_spec.contains(&"bucket(32, complex_id)"));
+    // Unpartitioned on purpose. Splitting 1,343 rows across 371 partitions produced 371 files of
+    // twenty kilobytes, and compaction could not merge them because it never crosses a partition
+    // (root ADR-0066). The sort order does the pruning a table this size needs.
+    assert_eq!(contract.partition_spec, &[] as &[&str]);
+    assert_eq!(
+        contract.sort_order,
+        &["complex_id", "boundary_kind", "valid_from_utc"]
+    );
+}
+
+/// A partition must hold enough data to be worth the file it forces into existence.
+///
+/// Iceberg writes at least one file per partition, so the partition count is the floor on the
+/// file count no matter how often compaction runs. Databricks calls a partition under a gigabyte
+/// over-partitioned; this asserts the weaker thing we can check without live sizes — that a table
+/// whose whole contents fit in one file is not split at all.
+#[test]
+fn a_table_that_fits_in_one_file_declares_no_partitions() -> TestResult {
+    // Measured 2026-08-29 from `.files` on the live tables.
+    const MEASURED_BYTES: [(&str, u64); 2] = [
+        ("silver.industrial_complex_boundaries", 8_000_000),
+        ("silver.industrial_complexes", 360_000),
+    ];
+    const TARGET_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
+    for (table_name, bytes) in MEASURED_BYTES {
+        let contract = industrial_complex_lakehouse_contracts()
+            .iter()
+            .find(|candidate| candidate.table_name == table_name)
+            .ok_or_else(|| test_error(format!("{table_name} is missing from the contract set")))?;
+
+        if bytes < TARGET_FILE_BYTES {
+            let declared_fields = contract.partition_spec.len();
+            assert!(
+                declared_fields <= 1,
+                "{table_name} holds {bytes} bytes, under one target file, yet declares \
+                 {declared_fields} partition fields; every field multiplies the floor on its \
+                 file count"
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[test]
-fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_for_pnu_lookup() {
+fn parcel_boundary_contract_is_canonical_geoparquet_and_unpartitioned() {
     let contract = SILVER_PARCEL_BOUNDARIES;
 
     assert_eq!(contract.table_name, "silver.parcel_boundaries");
@@ -147,9 +196,56 @@ fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_for_pnu_lookup()
     assert!(has_column(&contract, "bbox_max_x"));
     assert!(has_column(&contract, "bbox_max_y"));
     assert!(has_column(&contract, "geometry_checksum_sha256"));
-    assert!(contract.partition_spec.contains(&"sigungu_code"));
-    assert!(contract.partition_spec.contains(&"bucket(256, pnu)"));
-    assert_eq!(contract.sort_order, &["pnu", "valid_from_utc"]);
+    // Unpartitioned, and the sort order is what prunes. ADR-0063 dropped the `pnu` bucket from
+    // beside `sigungu_code`; ADR-0066 dropped sigungu too, once measuring showed 257 partitions
+    // capping files at 29 MB against a 512 MB target while every consumer read the table whole.
+    //
+    // Asserted as a property rather than as a copy of the spec. Three tests in this file pinned
+    // the literal partition spec and all three had to be edited to make an intended change — an
+    // assertion that mirrors the contract catches the accident and blocks the decision equally.
+    assert!(
+        contract.partition_spec.is_empty(),
+        "parcel boundaries are read whole by every consumer; a partition here only caps file size"
+    );
+    assert_eq!(
+        contract.sort_order.first(),
+        Some(&"pnu"),
+        "with no partitions the sort order is the only thing left to prune on, and PNU is what \
+         the consumers key by"
+    );
+}
+
+/// A partition field must be able to exclude rows the other fields would have read.
+///
+/// `bucket(256, pnu)` sat beside `sigungu_code` here for exactly as long as nobody divided the
+/// row count by the partition count. It excluded nothing — a PNU's leading digits *are* the
+/// sigungu code — and cost 256x the files. This is the arithmetic that would have caught it.
+#[test]
+fn parcel_boundary_partitions_hold_enough_rows_to_fill_a_file() {
+    const NATIONAL_PARCEL_ROWS: u64 = 39_861_511;
+    const SIGUNGU_COUNT: u64 = 255;
+    // Below this, a partition cannot fill even a small Parquet file and the per-file footers
+    // start to outweigh the rows they describe.
+    const MIN_ROWS_PER_PARTITION: u64 = 50_000;
+
+    let contract = SILVER_PARCEL_BOUNDARIES;
+    let bucket_multiplier: u64 = contract
+        .partition_spec
+        .iter()
+        .filter_map(|field| field.strip_prefix("bucket("))
+        .filter_map(|rest| rest.split(',').next())
+        .filter_map(|count| count.trim().parse::<u64>().ok())
+        .product::<u64>()
+        .max(1);
+
+    let partitions = SIGUNGU_COUNT * bucket_multiplier;
+    let rows_per_partition = NATIONAL_PARCEL_ROWS / partitions;
+
+    assert!(
+        rows_per_partition >= MIN_ROWS_PER_PARTITION,
+        "{partitions} partitions hold {rows_per_partition} rows each; a partition field that \
+         cannot narrow a search only splits files (root ADR-0063)"
+    );
 }
 
 #[test]
@@ -203,7 +299,10 @@ fn building_register_units_contract_is_canonical_and_entity_keyed() {
     assert!(has_column(&contract, "source_snapshot_id"));
     assert!(has_column(&contract, "bronze_object_key"));
     assert!(has_column(&contract, "row_checksum_sha256"));
-    assert!(contract.partition_spec.contains(&"bucket(256, pnu)"));
+    // Unpartitioned on purpose. Bucketing on `pnu` scattered neighbouring PNUs across 256
+    // hash buckets while the sort order below gathers them, so a PNU-range read had to open
+    // every bucket to find what one file could have held (root ADR-0066).
+    assert_eq!(contract.partition_spec, &[] as &[&str]);
     assert_eq!(
         contract.sort_order,
         &[

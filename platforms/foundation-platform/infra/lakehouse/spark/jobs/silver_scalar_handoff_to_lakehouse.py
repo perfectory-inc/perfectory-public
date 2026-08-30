@@ -22,11 +22,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lakehouse_engine import iceberg_packages
 from platform_contracts import (
     column_names,
     columns,
     create_table_columns_sql,
     load_lakehouse_contract,
+    partition_clause_sql,
     partition_spec_sql,
     required_column_names,
     required_string_column_names,
@@ -34,10 +36,7 @@ from platform_contracts import (
 )
 
 
-DEFAULT_ICEBERG_PACKAGES = (
-    "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,"
-    "org.apache.iceberg:iceberg-aws-bundle:1.6.1"
-)
+DEFAULT_ICEBERG_PACKAGES = iceberg_packages()
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 BUCKET_PARTITION_PATTERN = re.compile(r"^bucket\((\d+),\s*([A-Za-z_][A-Za-z0-9_]*)\)$")
 ICEBERG_BUCKET_SPLIT_COUNT = 16
@@ -645,7 +644,7 @@ def create_iceberg_table_if_missing(spark: Any, args: argparse.Namespace, contra
 {create_table_columns_sql(contract)}
         )
         USING iceberg
-        PARTITIONED BY ({partition_spec_sql(contract)})
+        {partition_clause_sql(contract)}
         TBLPROPERTIES (
             'format-version' = '2',
             'write.parquet.compression-codec' = 'zstd',

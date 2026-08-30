@@ -180,6 +180,18 @@ def partition_spec_sql(contract: dict[str, Any]) -> str:
     return ", ".join(partition_spec(contract))
 
 
+def partition_clause_sql(contract: dict[str, Any]) -> str:
+    """Return the `PARTITIONED BY` clause, or nothing when the table declares no partitions.
+
+    An empty spec is a real answer, not a missing one: a table small enough that splitting it
+    only multiplies files should be able to say so. The clause has to disappear rather than
+    empty out, because `PARTITIONED BY ()` is a syntax error — which is why callers ask for the
+    whole clause here instead of wrapping `partition_spec_sql` themselves (root ADR-0066).
+    """
+    fields = partition_spec(contract)
+    return f"PARTITIONED BY ({', '.join(fields)})" if fields else ""
+
+
 def partition_spec(contract: dict[str, Any]) -> tuple[str, ...]:
     value = contract.get("partition_spec")
     if not isinstance(value, list):
