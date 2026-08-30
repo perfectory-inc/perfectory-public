@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "purpose": "Single source of truth for lakehouse table maintenance: what counts as a small file, how long snapshots are kept, and how long a file must be unreferenced before it is deleted. Every number here was a decision nobody had written down until 2026-08-30, and the tables showed it — 3,160 data files averaging 5 MB, snapshots never expired, orphan cleanup never run.",
+  "order": [
+    "compaction",
+    "snapshot_expiry",
+    "orphan_cleanup"
+  ],
+  "order_reason": "Compaction first, because it is what creates superseded files. Expiry second, because it releases the snapshots that were holding those files. Orphan cleanup last, because it is the only step that reaches files no snapshot ever referenced — the debris a job leaves when it dies mid-write, which expiry cannot see. Run out of order and the debris survives.",
+  "compaction": {
+    "target_file_bytes": 536870912,
+    "target_file_bytes_reason": "512 MB: the Iceberg default and the size Netflix targets. Below roughly 128 MB the per-file cost of finding, opening and reading a footer starts to outweigh the rows inside; above about 1 GB a file stops splitting across workers. Root ADR-0066.",
+    "min_input_files": 2,
+    "min_input_files_reason": "A partition holding one file has nothing to merge with. Iceberg skips it either way; stating it keeps the intent legible.",
+    "trigger_small_file_count": 10,
+    "trigger_small_file_fraction": 0.25,
+    "trigger_reason": "Compaction rewrites every byte it touches, so running it on a healthy table costs real money for no gain. Run when at least 10 files sit under a quarter of the target size. Apache Amoro triggers at 40 fragments; ours is lower because our tables are smaller and our loads are less frequent."
+  },
+  "snapshot_expiry": {
+    "retain_days": 7,
+    "retain_last": 1,
+    "retain_reason": "Seven days of rollback. Iceberg keeps every superseded data file alive for as long as a snapshot references it, which is why this lakehouse held 58 GB to serve 17 GB. `retain_last` guarantees the table never loses its current state even if every snapshot is older than the window."
+  },
+  "orphan_cleanup": {
+    "safety_days": 3,
+    "safety_reason": "A file that no snapshot references is either debris from a job that died mid-write or output from a job still running. Three days is the industry safety window and Iceberg itself refuses any interval under 24 hours, because deleting a live writer's output corrupts the commit it is about to make.",
+    "note": "Listing a table's whole location over object storage is slow — a single table timed out past ten minutes from a laptop on 2026-08-30. Run this where the bandwidth is."
+  }
+}
