@@ -109,13 +109,23 @@ set -euo pipefail
 # VWorld names and temporary aliases from that one contract; embedding it keeps the
 # Rust binary fail-closed and avoids a second hand-written credential-name table.
 #
+# 92 -> 93: `foundation-outbox-publisher/src/lakehouse_engine_contract.rs` embeds the
+# lakehouse engine contract, which names the Iceberg version every Spark submission
+# loads. That version was written out in twelve places; raising it meant editing all
+# twelve, so it was never raised, and the deployment ran a build whose vectorized
+# reader crashed the JVM on our larger tables through five releases (root ADR-0065).
+# The submitter is Rust and the jobs are Python, so the one thing that keeps them
+# from loading different engines is reading the same file. Embedded rather than read
+# at run time so a submitter that cannot find its contract fails to build instead of
+# failing in front of a load that has already started.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-92}"
+COMPILE_TIME_READ_BASELINE="${3:-93}"
 
 cd "$repo_root"
 
