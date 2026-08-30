@@ -1,5 +1,7 @@
 //! Contract tests for industrial-complex lakehouse table definitions.
 
+use std::{error::Error, io};
+
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseLayer,
     LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract, GOLD_COMPLEX_CATALOG,
@@ -7,6 +9,12 @@ use lakehouse_domain::{
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
     SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
 };
+
+type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+fn test_error(message: impl Into<String>) -> Box<dyn Error> {
+    Box::new(io::Error::other(message.into()))
+}
 
 fn has_column(contract: &LakehouseTableContract, name: &str) -> bool {
     contract.columns.iter().any(|column| column.name == name)
@@ -136,7 +144,7 @@ fn boundary_contract_is_geoparquet_with_geometry_pruning_columns() {
 /// over-partitioned; this asserts the weaker thing we can check without live sizes — that a table
 /// whose whole contents fit in one file is not split at all.
 #[test]
-fn a_table_that_fits_in_one_file_declares_no_partitions() {
+fn a_table_that_fits_in_one_file_declares_no_partitions() -> TestResult {
     // Measured 2026-08-29 from `.files` on the live tables.
     const MEASURED_BYTES: [(&str, u64); 2] = [
         ("silver.industrial_complex_boundaries", 8_000_000),
@@ -148,17 +156,20 @@ fn a_table_that_fits_in_one_file_declares_no_partitions() {
         let contract = industrial_complex_lakehouse_contracts()
             .iter()
             .find(|candidate| candidate.table_name == table_name)
-            .unwrap_or_else(|| panic!("{table_name} is missing from the contract set"));
+            .ok_or_else(|| test_error(format!("{table_name} is missing from the contract set")))?;
 
         if bytes < TARGET_FILE_BYTES {
+            let declared_fields = contract.partition_spec.len();
             assert!(
-                contract.partition_spec.len() <= 1,
-                "{table_name} holds {bytes} bytes, under one target file, yet declares {} \
-                 partition fields; every field multiplies the floor on its file count",
-                contract.partition_spec.len()
+                declared_fields <= 1,
+                "{table_name} holds {bytes} bytes, under one target file, yet declares \
+                 {declared_fields} partition fields; every field multiplies the floor on its \
+                 file count"
             );
         }
     }
+
+    Ok(())
 }
 
 #[test]
@@ -232,9 +243,8 @@ fn parcel_boundary_partitions_hold_enough_rows_to_fill_a_file() {
 
     assert!(
         rows_per_partition >= MIN_ROWS_PER_PARTITION,
-        "{} partitions hold {rows_per_partition} rows each; a partition field that cannot \
-         narrow a search only splits files (root ADR-0063)",
-        partitions
+        "{partitions} partitions hold {rows_per_partition} rows each; a partition field that \
+         cannot narrow a search only splits files (root ADR-0063)"
     );
 }
 
