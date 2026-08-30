@@ -3,7 +3,7 @@
 use std::{
     collections::BTreeMap,
     fmt,
-    io::{Cursor, Read, Seek},
+    io::{self, Cursor, Read, Seek, SeekFrom},
 };
 
 use anyhow::{bail, Context};
@@ -24,6 +24,8 @@ const SUPPORTED_CENTRAL_MERIDIANS: [f64; 4] = [125.0, 127.0, 129.0, 131.0]; // p
 const REQUIRED_MEMBER_EXTENSIONS: [&str; 5] = ["shp", "shx", "dbf", "prj", "cpg"];
 
 type InMemoryShapefileReader = shapefile::Reader<Cursor<Vec<u8>>, Cursor<Vec<u8>>>;
+
+type ForwardShapefileReader<S, D> = shapefile::Reader<ForwardOnlySeek<S>, ForwardOnlySeek<D>>;
 
 /// Metadata established before any feature is emitted from a zipped shapefile dataset.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,6 +49,113 @@ pub struct ShapefileMetadata {
 pub struct ShapefileFeature {
     record: dbase::Record,
     geometry: JsonValue,
+}
+
+/// Metadata established before a forward-only SHP/DBF pair emits any feature.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SequentialShapefileMetadata {
+    /// Basename shared by the shapefile members.
+    pub dataset_name: String,
+    /// Exact nonblank label read from the `.cpg` member.
+    pub cpg_label: String,
+    /// Projected CRS name read from the `.prj` WKT root.
+    pub source_crs_name: String,
+    /// Byte length declared by the SHP main header.
+    pub shp_declared_bytes: u64,
+    /// Record count declared by the DBF header.
+    pub dbf_record_count: u64,
+}
+
+/// A feature-at-a-time shapefile reader over forward-only SHP and DBF streams.
+///
+/// The adapter deliberately has no SHX input. It gives the upstream `shapefile` and `dbase`
+/// decoders only a forward-seek facade, so their format parsing remains the SSOT while random
+/// access and whole-member buffering are structurally unavailable.
+pub struct SequentialShapefileReader<S: Read, D: Read> {
+    reader: ForwardShapefileReader<S, D>,
+    projection: SourceProjection,
+    metadata: SequentialShapefileMetadata,
+}
+
+impl<S: Read, D: Read> fmt::Debug for SequentialShapefileReader<S, D> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SequentialShapefileReader")
+            .field("metadata", &self.metadata)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<S: Read, D: Read> SequentialShapefileReader<S, D> {
+    /// Opens one SHP/DBF pair without an SHX index or a seekable backing store.
+    ///
+    /// # Errors
+    /// Returns an error for blank dataset metadata, unknown CPG, unsupported PRJ, invalid SHP/DBF
+    /// headers, a backward-seek attempt by a decoder, or a count mismatch during iteration.
+    pub fn new(
+        shp: S,
+        dbf: D,
+        dataset_name: &str,
+        prj: &str,
+        cpg_label: &str,
+    ) -> anyhow::Result<Self> {
+        let dataset_name = dataset_name.trim();
+        if dataset_name.is_empty() {
+            bail!("shapefile dataset basename must not be blank");
+        }
+        let cpg_label = cpg_label.trim();
+        if cpg_label.is_empty() {
+            bail!("CPG member must not be blank");
+        }
+        let encoding = encoding_from_cpg(cpg_label)?;
+        let projection = SourceProjection::from_prj(prj)?;
+        let shape_reader = ShapeReader::new(ForwardOnlySeek::new(shp))
+            .context("failed to open forward-only SHP member")?;
+        let shp_declared_bytes = u64::try_from(shape_reader.header().file_length)
+            .context("SHP declared a negative file length")?
+            .checked_mul(2)
+            .context("SHP declared byte length overflow")?;
+        let dbase_reader = dbase::ReaderBuilder::new()
+            .with_encoding(EncodingRs::from(encoding))
+            .build(ForwardOnlySeek::new(dbf))
+            .context("failed to open forward-only DBF member with CPG encoding")?;
+        let dbf_record_count = u64::from(dbase_reader.header().num_records);
+        let metadata = SequentialShapefileMetadata {
+            dataset_name: dataset_name.to_owned(),
+            cpg_label: cpg_label.to_owned(),
+            source_crs_name: projection.source_name().to_owned(),
+            shp_declared_bytes,
+            dbf_record_count,
+        };
+        Ok(Self {
+            reader: shapefile::Reader::new(shape_reader, dbase_reader),
+            projection,
+            metadata,
+        })
+    }
+
+    /// Returns immutable source metadata established when the streams were opened.
+    #[must_use]
+    pub const fn metadata(&self) -> &SequentialShapefileMetadata {
+        &self.metadata
+    }
+
+    /// Visits every matching shape/record pair without collecting the feature set.
+    ///
+    /// # Errors
+    /// Returns an error when decoding, projection, the visitor, or the final SHP/DBF count check
+    /// fails.
+    pub fn for_each_feature<F>(&mut self, visitor: F) -> anyhow::Result<u64>
+    where
+        F: FnMut(ShapefileFeature) -> anyhow::Result<()>,
+    {
+        visit_features(
+            &mut self.reader,
+            &self.projection,
+            self.metadata.dbf_record_count,
+            visitor,
+        )
+    }
 }
 
 impl ShapefileFeature {
@@ -175,28 +284,100 @@ impl ZipShapefileReader {
     where
         F: FnMut(ShapefileFeature) -> anyhow::Result<()>,
     {
-        let projection = &self.projection;
-        let mut count = 0_u64;
-        for result in self.reader.iter_shapes_and_records() {
-            let (shape, record) = result.with_context(|| {
-                format!("failed to read shapefile feature at zero-based index {count}")
-            })?;
-            let geometry = shape_to_epsg4326_geojson(projection, shape).with_context(|| {
-                format!("failed to transform shapefile feature at zero-based index {count}")
-            })?;
-            visitor(ShapefileFeature { record, geometry }).with_context(|| {
-                format!("shapefile feature visitor failed at zero-based index {count}")
-            })?;
-            count += 1;
+        visit_features(
+            &mut self.reader,
+            &self.projection,
+            self.metadata.dbf_record_count,
+            &mut visitor,
+        )
+    }
+}
+
+fn visit_features<T, D, F>(
+    reader: &mut shapefile::Reader<T, D>,
+    projection: &SourceProjection,
+    expected_count: u64,
+    mut visitor: F,
+) -> anyhow::Result<u64>
+where
+    T: Read + Seek,
+    D: Read + Seek,
+    F: FnMut(ShapefileFeature) -> anyhow::Result<()>,
+{
+    let mut count = 0_u64;
+    for result in reader.iter_shapes_and_records() {
+        let (shape, record) = result.with_context(|| {
+            format!("failed to read shapefile feature at zero-based index {count}")
+        })?;
+        let geometry = shape_to_epsg4326_geojson(projection, shape).with_context(|| {
+            format!("failed to transform shapefile feature at zero-based index {count}")
+        })?;
+        visitor(ShapefileFeature { record, geometry }).with_context(|| {
+            format!("shapefile feature visitor failed at zero-based index {count}")
+        })?;
+        count += 1;
+    }
+    if count != expected_count {
+        bail!(
+            "shapefile shape/DBF count mismatch after sequential iteration: shapes={count}, dbf_records={expected_count}"
+        );
+    }
+    Ok(count)
+}
+
+#[derive(Debug)]
+struct ForwardOnlySeek<R> {
+    inner: R,
+    position: u64,
+}
+
+impl<R> ForwardOnlySeek<R> {
+    const fn new(inner: R) -> Self {
+        Self { inner, position: 0 }
+    }
+}
+
+impl<R: Read> Read for ForwardOnlySeek<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let read = self.inner.read(buffer)?;
+        self.position = self.position.checked_add(read as u64).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "stream position overflow")
+        })?;
+        Ok(read)
+    }
+}
+
+impl<R: Read> Seek for ForwardOnlySeek<R> {
+    fn seek(&mut self, seek_from: SeekFrom) -> io::Result<u64> {
+        let target = match seek_from {
+            SeekFrom::Start(target) => target,
+            SeekFrom::Current(offset) if offset >= 0 => self
+                .position
+                .checked_add_signed(offset)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "seek overflow"))?,
+            SeekFrom::Current(_) | SeekFrom::End(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "forward-only shapefile stream cannot seek backward or from end",
+                ))
+            }
+        };
+        if target < self.position {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "forward-only shapefile stream cannot seek backward",
+            ));
         }
-        if count != self.metadata.shape_count || count != self.metadata.dbf_record_count {
-            bail!(
-                "shapefile iteration count mismatch: visited={count}, shapes={}, dbf_records={}",
-                self.metadata.shape_count,
-                self.metadata.dbf_record_count
-            );
+        let mut remaining = target - self.position;
+        let mut discard = [0_u8; 8 * 1024];
+        while remaining > 0 {
+            let wanted = usize::try_from(remaining.min(discard.len() as u64)).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "seek distance overflow")
+            })?;
+            self.read_exact(&mut discard[..wanted])?;
+            remaining -= wanted as u64;
         }
-        Ok(count)
+        Ok(self.position)
     }
 }
 
@@ -518,9 +699,9 @@ fn numeric_param_in(params: &BTreeMap<&str, &str>, name: &str, expected: &[f64])
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Cursor, Write as _};
+    use std::io::{Cursor, Read, Write as _};
 
-    use super::{SourceProjection, ZipShapefileReader};
+    use super::{SequentialShapefileReader, SourceProjection, ZipShapefileReader};
     use anyhow::bail;
     use shapefile::{
         dbase::{self, encoding::EncodingRs, FieldName, FieldValue},
@@ -704,6 +885,30 @@ mod tests {
     }
 
     #[test]
+    fn sequential_dataset_needs_only_forward_readers_and_no_shx() -> anyhow::Result<()> {
+        let (shp, _shx, dbf) = fixture_members()?;
+        let mut reader = SequentialShapefileReader::new(
+            ReadOnly::new(shp),
+            ReadOnly::new(dbf),
+            "parcel",
+            KOREA_CENTRAL_BELT_2010,
+            "EUC-KR",
+        )?;
+
+        assert_eq!(reader.metadata().dataset_name, "parcel");
+        assert_eq!(reader.metadata().dbf_record_count, 2);
+        let mut pnus = Vec::new();
+        let feature_count = reader.for_each_feature(|feature| {
+            pnus.push(feature.required_text("PNU")?.to_owned());
+            Ok(())
+        })?;
+
+        assert_eq!(feature_count, 2);
+        assert_eq!(pnus, ["9999938029105800001", "9999938029105810000"]);
+        Ok(())
+    }
+
+    #[test]
     fn unknown_cpg_fails_instead_of_guessing() -> anyhow::Result<()> {
         let bytes = fixture_zip("NOT-A-REAL-CODEPAGE", KOREA_CENTRAL_BELT_2010)?;
         let Err(error) = ZipShapefileReader::new(Cursor::new(bytes)) else {
@@ -715,6 +920,24 @@ mod tests {
     }
 
     fn fixture_zip(cpg: &str, prj: &str) -> anyhow::Result<Vec<u8>> {
+        let (shp, shx, dbf) = fixture_members()?;
+
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        for (name, bytes) in [
+            ("parcel.shp", shp),
+            ("parcel.shx", shx),
+            ("parcel.dbf", dbf),
+            ("parcel.prj", prj.as_bytes().to_vec()),
+            ("parcel.cpg", cpg.as_bytes().to_vec()),
+        ] {
+            zip.start_file(name, options)?;
+            zip.write_all(&bytes)?;
+        }
+        Ok(zip.finish()?.into_inner())
+    }
+
+    fn fixture_members() -> anyhow::Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
         let mut shp = Cursor::new(Vec::new());
         let mut shx = Cursor::new(Vec::new());
         let mut dbf = Cursor::new(Vec::new());
@@ -732,28 +955,34 @@ mod tests {
                     )
                     .build_with_dest(&mut dbf);
             let mut writer = Writer::new(shape_writer, dbase_writer);
-
-            let first_shape = square(200_000.0, 600_000.0);
-            let first_record = record("9999938029105800001", "산 580-1");
-            writer.write_shape_and_record(&first_shape, &first_record)?;
-            let second_shape = square(200_100.0, 600_100.0);
-            let second_record = record("9999938029105810000", "581");
-            writer.write_shape_and_record(&second_shape, &second_record)?;
+            writer.write_shape_and_record(
+                &square(200_000.0, 600_000.0),
+                &record("9999938029105800001", "산 580-1"),
+            )?;
+            writer.write_shape_and_record(
+                &square(200_100.0, 600_100.0),
+                &record("9999938029105810000", "581"),
+            )?;
         }
+        Ok((shp.into_inner(), shx.into_inner(), dbf.into_inner()))
+    }
 
-        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-        for (name, bytes) in [
-            ("parcel.shp", shp.into_inner()),
-            ("parcel.shx", shx.into_inner()),
-            ("parcel.dbf", dbf.into_inner()),
-            ("parcel.prj", prj.as_bytes().to_vec()),
-            ("parcel.cpg", cpg.as_bytes().to_vec()),
-        ] {
-            zip.start_file(name, options)?;
-            zip.write_all(&bytes)?;
+    struct ReadOnly {
+        inner: Cursor<Vec<u8>>,
+    }
+
+    impl ReadOnly {
+        fn new(bytes: Vec<u8>) -> Self {
+            Self {
+                inner: Cursor::new(bytes),
+            }
         }
-        Ok(zip.finish()?.into_inner())
+    }
+
+    impl Read for ReadOnly {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.inner.read(buffer)
+        }
     }
 
     fn square(min_x: f64, min_y: f64) -> Polygon {

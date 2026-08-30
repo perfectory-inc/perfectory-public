@@ -22,8 +22,9 @@ pub use inventory::{
 };
 pub use logging::LoggingObjectStorage;
 pub use r2::{
-    validate_r2_bronze_key_migration_pair, validate_r2_smoke_object_key, R2ObjectStorage,
-    R2ObjectStorageConfig, DEFAULT_R2_SMOKE_OBJECT_KEY,
+    validate_r2_bronze_key_migration_pair, validate_r2_smoke_object_key, R2MultipartUploadReport,
+    R2MultipartUploadWriter, R2ObjectStorage, R2ObjectStorageConfig, R2ReadRequestMetrics,
+    R2SeekableObjectReader, DEFAULT_R2_SMOKE_OBJECT_KEY,
 };
 pub use requests::{
     ByteStream, ObjectStorageSmokeReport, ObjectWriteMode, PutObjectRequest, StreamingObjectRehash,

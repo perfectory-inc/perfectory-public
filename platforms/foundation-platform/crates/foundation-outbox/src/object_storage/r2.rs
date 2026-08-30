@@ -1,5 +1,11 @@
 //! Cloudflare R2 (S3-compatible) object storage adapter and its supporting helpers.
 
+mod streaming;
+
+pub use streaming::{
+    R2MultipartUploadReport, R2MultipartUploadWriter, R2ReadRequestMetrics, R2SeekableObjectReader,
+};
+
 use std::{env, time::Duration};
 
 use async_trait::async_trait;
