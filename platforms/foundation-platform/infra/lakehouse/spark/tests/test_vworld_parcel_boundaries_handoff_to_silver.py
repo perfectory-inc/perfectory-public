@@ -30,7 +30,6 @@ sys.path.insert(0, str(JOBS_DIR))
 # pyspark 가 없으므로 아래 검사가 전부 조용히 건너뛰어진다. 앞선 판이 정확히 그랬다.
 from vworld_parcel_boundaries_handoff_to_silver import (  # noqa: E402
     MAX_READBACK_SOURCE_RECORDS,
-    READ_PROPERTIES,
 )
 
 
@@ -130,30 +129,12 @@ class RetryIsIdempotentTest(unittest.TestCase):
 class ReadableAfterWriteTest(unittest.TestCase):
     """이 표는 쓰는 것으로 끝이 아니라 읽혀야 한다.
 
-    Iceberg 의 벡터화 Parquet 읽기가 이 표의 행에서 JVM 을 통째로 죽인다. 서로 무관한 두
-    호스트에서 재현했고, 매니페스트만 보는 count 는 통과하므로 파일 자체는 멀쩡하다
-    (root ADR-0064). 이 잡은 쓴 것을 되읽어 검사하므로, 막지 않으면 자기 검사에서 죽는다.
+    이 잡은 쓴 것을 되읽어 검사하고, 이미 들어간 묶음을 건너뛸 때도 행을 센다. 둘 다 파일을
+    여는 일이므로 표가 준비되기 전에 일어나면 안 된다.
+
+    2026-08-28~30 에는 여기에 벡터화 읽기를 끄는 검사도 있었다. Iceberg 1.6.1 의 결함
+    (root ADR-0064) 때문이었고, 1.11.0 으로 올려 이유가 사라져 함께 지웠다 (root ADR-0065).
     """
-
-    def test_the_table_carries_its_own_read_protection(self) -> None:
-        """설정은 실행 인자가 아니라 표에 붙어야 한다.
-
-        인자로 주면 이 잡만 안전하고, 같은 표를 여는 다른 엔진은 플래그를 알아야만 산다.
-        표 속성이면 아무것도 모르는 읽는 쪽도 보호된다.
-        """
-        self.assertIn(
-            ("read.parquet.vectorization.enabled", "false"),
-            READ_PROPERTIES,
-            "벡터화 읽기를 끄는 속성이 표에 선언돼 있어야 한다",
-        )
-
-        body = function_body(job_source(), "apply_read_properties")
-        self.assertIn("ALTER TABLE", body, "이미 있는 표에도 속성이 붙어야 한다")
-        self.assertNotIn(
-            "IF NOT EXISTS",
-            body,
-            "CREATE 는 이미 있는 표를 그냥 지나치므로 앞선 적재의 행을 보호하지 못한다",
-        )
 
     def test_the_table_is_prepared_before_anything_reads_it(self) -> None:
         """건너뛰는 경로도 행을 읽는다.

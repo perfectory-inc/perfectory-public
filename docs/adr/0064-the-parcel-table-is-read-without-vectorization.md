@@ -1,6 +1,6 @@
 # ADR 0064: 필지 표는 벡터화 읽기 없이 읽는다
 
-- Status: Accepted
+- Status: Superseded by ADR-0065
 - Date: 2026-08-28
 
 ## Context
@@ -128,3 +128,22 @@ Results* 도 확인했다 — 작은 표 3개를 전 행 해시로 비교했고 
 **종료 코드가 원인을 가린다.** `docker compose run` 이 돌려준 127 은 "명령을 못 찾음"으로
 읽히지만 실제로는 JVM 이 죽은 것이었다. 적재기가 그 코드를 그대로 보고했고, 나는 처음 두 번을
 일시적 결함으로 읽었다. 크래시 보고서를 컨테이너 밖으로 꺼내는 것이 판단의 시작이었다.
+
+---
+
+*2026-08-30, 되돌림.* 이 ADR 이 세운 표 속성을 6개 표 전부에서 제거했다. 원인이던
+Iceberg 1.6.1 의 결함은 1.8.0 에서 수정됐고 root ADR-0065 가 이 배포를 1.11.0 으로 올렸다.
+
+제거 뒤 벡터화 기본값(켜짐)으로 전 표를 읽어 확인했다.
+
+```
+building_register_unit_areas  113,813,264행   22초
+parcel_boundaries              39,861,511행    5초
+building_register_units        19,765,555행    3초
+industrial_complex_boundaries       1,343행    2초
+industrial_complexes                1,442행    2초
+gold.complex_catalog                1,442행    2초
+```
+
+**원인이 사라진 우회는 남기지 않는다.** 남겨 두면 다음 사람이 그것을 먼저 반증해야 손을
+댈 수 있고, 반증에 드는 시간은 이 ADR 을 쓰는 데 든 시간과 같다.

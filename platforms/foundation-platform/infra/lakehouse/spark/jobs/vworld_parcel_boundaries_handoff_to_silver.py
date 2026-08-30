@@ -636,31 +636,10 @@ def qualified_iceberg_table(args: argparse.Namespace) -> str:
     )
 
 
-# Iceberg's vectorized Parquet reader crashes the JVM on this table's rows. Reproduced on two
-# unrelated hosts, at 3,958,994 rows across 26 files: the process dies with `free(): invalid
-# pointer` inside `BaseReader`, taking the whole run with it — a scan, not a write. A count that
-# answers from manifests alone succeeds, so the files themselves are sound; reading them with the
-# non-vectorized path returns the same rows without incident. Recorded in root ADR-0064.
-#
-# Declared as a table property rather than a submit flag so it travels with the table. Every
-# engine that opens this table — this job, Trino, whatever reads it next — is protected without
-# knowing to ask, and nobody has to remember a flag to avoid killing their JVM.
-READ_PROPERTIES: tuple[tuple[str, str], ...] = (
-    ("read.parquet.vectorization.enabled", "false"),
-)
-
-
-def apply_read_properties(spark: SparkSession, args: argparse.Namespace) -> None:
-    """Set the read properties on the table, whether this run created it or found it.
-
-    A conditional create does nothing to a table that already exists, so a property added to
-    the DDL after the first load would never reach the rows already there. This alters.
-    """
-    table = qualified_iceberg_table(args)
-    settings = ", ".join(f"'{key}' = '{value}'" for key, value in READ_PROPERTIES)
-    spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES ({settings})")
-
-
+# This table carried `read.parquet.vectorization.enabled = false` from 2026-08-28 to 08-30. It
+# was a workaround for a defect in Iceberg 1.6.1 whose fix shipped in 1.8.0, and root ADR-0065
+# raised this deployment to 1.11.0. The reason is gone, so the property is gone: a workaround
+# left standing after its cause is a setting the next reader has to disprove before touching.
 def create_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespace) -> None:
     namespace = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`"
     table = qualified_iceberg_table(args)
@@ -680,7 +659,6 @@ def create_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespac
         )
         """
     )
-    apply_read_properties(spark, args)
 
 
 def write_silver_iceberg(
