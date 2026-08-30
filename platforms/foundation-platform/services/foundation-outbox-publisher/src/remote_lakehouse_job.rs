@@ -34,6 +34,9 @@ struct RemoteLakehouseJobConfig {
     input_file_batch_size_override: Option<u32>,
     source_snapshot: BuildingRegisterSourceSnapshotConfig,
     audit: RemoteLakehouseAuditConfig,
+    /// Resolved once here rather than at each script builder, because the builders return a
+    /// `String` and a corrupt contract is not something a script body can report.
+    iceberg_packages: String,
 }
 
 impl RemoteLakehouseJobConfig {
@@ -74,6 +77,7 @@ impl RemoteLakehouseJobConfig {
             )?,
             source_snapshot,
             audit: RemoteLakehouseAuditConfig::from_lookup(&mut lookup)?,
+            iceberg_packages: crate::lakehouse_engine_contract::iceberg_packages()?.to_owned(),
         })
     }
 }
@@ -1180,8 +1184,9 @@ fi
         ""
     };
     // Read off the engine contract, not written here. A remote submission that pinned its own
-    // Iceberg would load a different jar than the job it submits expects (root ADR-0064).
-    let iceberg_packages = crate::lakehouse_engine_contract::iceberg_packages();
+    // Iceberg would load a different jar than the job it submits expects (root ADR-0064). The
+    // config resolved it while it could still report a bad contract; this only formats it.
+    let iceberg_packages = &config.iceberg_packages;
     format!(
         "\
 set -euo pipefail

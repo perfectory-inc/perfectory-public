@@ -13,6 +13,12 @@ fn smoke_config() -> RemoteLakehouseJobConfig {
         input_file_batch_size_override: None,
         source_snapshot: BuildingRegisterSourceSnapshotConfig::NotRequired,
         audit: RemoteLakehouseAuditConfig::Disabled,
+        // The real coordinates, not a stand-in: the assertions below pin the exact remote
+        // command, so a fixture that invented its own packages would pass while the shipped
+        // command loaded something else.
+        iceberg_packages: crate::lakehouse_engine_contract::iceberg_packages()
+            .expect("the embedded engine contract must resolve")
+            .to_owned(),
     }
 }
 

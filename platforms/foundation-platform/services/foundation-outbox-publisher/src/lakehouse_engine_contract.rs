@@ -12,6 +12,7 @@
 
 use std::sync::OnceLock;
 
+use anyhow::{anyhow, bail, Context};
 use serde::Deserialize;
 
 const CONTRACT_JSON: &str =
@@ -34,43 +35,57 @@ struct Iceberg {
 
 /// Comma-joined Maven coordinates for `spark-submit --packages`.
 ///
-/// Panics on a malformed or below-minimum contract. That is deliberate: the contract is
-/// embedded, so any failure here is a fact about the source tree rather than the environment,
-/// and the tests below exercise it on every build.
-pub(crate) fn iceberg_packages() -> &'static str {
-    static PACKAGES: OnceLock<String> = OnceLock::new();
-    PACKAGES.get_or_init(|| {
-        let contract: Contract = serde_json::from_str(CONTRACT_JSON)
-            .expect("lakehouse engine contract must be valid JSON");
-        assert_eq!(
-            contract.schema_version, CONTRACT_SCHEMA_VERSION,
-            "unsupported lakehouse engine contract schema_version"
-        );
+/// # Errors
+/// Returns an error when the embedded contract is malformed, carries an unsupported schema
+/// version, or pins an Iceberg below the minimum it declares. Every caller resolves this
+/// while it is still building a command, so a corrupt contract stops the run before an
+/// argument list is assembled rather than after a submission is already in flight.
+pub(crate) fn iceberg_packages() -> anyhow::Result<&'static str> {
+    // The parse is memoised as its own message rather than repeated: the callers that build
+    // remote scripts ask for this several times per plan, and the answer cannot change while
+    // the process lives.
+    static PACKAGES: OnceLock<Result<String, String>> = OnceLock::new();
+    PACKAGES
+        .get_or_init(|| resolve_packages().map_err(|error| format!("{error:#}")))
+        .as_deref()
+        .map_err(|message| anyhow!("{message}"))
+}
 
-        let iceberg = &contract.iceberg;
-        assert!(
-            version_tuple(&iceberg.version) >= version_tuple(&iceberg.minimum_version),
+fn resolve_packages() -> anyhow::Result<String> {
+    let contract: Contract = serde_json::from_str(CONTRACT_JSON)
+        .context("lakehouse engine contract is not valid JSON")?;
+    if contract.schema_version != CONTRACT_SCHEMA_VERSION {
+        bail!(
+            "unsupported lakehouse engine contract schema_version {}, expected {}",
+            contract.schema_version,
+            CONTRACT_SCHEMA_VERSION
+        );
+    }
+
+    let iceberg = &contract.iceberg;
+    if version_tuple(&iceberg.version)? < version_tuple(&iceberg.minimum_version)? {
+        bail!(
             "iceberg version {} is below the contract minimum {}: {}",
             iceberg.version,
             iceberg.minimum_version,
             iceberg.minimum_version_reason
         );
+    }
 
-        iceberg
-            .artifacts
-            .iter()
-            .map(|artifact| format!("{artifact}:{}", iceberg.version))
-            .collect::<Vec<_>>()
-            .join(",")
-    })
+    Ok(iceberg
+        .artifacts
+        .iter()
+        .map(|artifact| format!("{artifact}:{}", iceberg.version))
+        .collect::<Vec<_>>()
+        .join(","))
 }
 
-fn version_tuple(value: &str) -> Vec<u32> {
+fn version_tuple(value: &str) -> anyhow::Result<Vec<u32>> {
     value
         .split('.')
         .map(|part| {
             part.parse::<u32>()
-                .unwrap_or_else(|_| panic!("version part is not a number: {value}"))
+                .with_context(|| format!("version part is not a number: {value}"))
         })
         .collect()
 }
@@ -82,8 +97,8 @@ mod tests {
     /// The coordinates must carry a version, or `spark-submit` resolves whatever is newest and
     /// two runs of the same release load different Iceberg jars.
     #[test]
-    fn packages_name_both_artifacts_at_a_pinned_version() {
-        let packages = iceberg_packages();
+    fn packages_name_both_artifacts_at_a_pinned_version() -> anyhow::Result<()> {
+        let packages = iceberg_packages()?;
         let coordinates: Vec<&str> = packages.split(',').collect();
 
         assert_eq!(
@@ -96,21 +111,45 @@ mod tests {
             assert_eq!(parts.len(), 3, "coordinate must be group:artifact:version");
             assert!(!parts[2].is_empty(), "coordinate must pin a version");
         }
+        Ok(())
     }
 
     /// The minimum exists because versions below it corrupt native memory on this deployment's
-    /// larger tables. A contract that drops below it should not build.
+    /// larger tables. A contract that drops below it must not resolve.
     #[test]
-    fn the_contract_pins_at_or_above_the_minimum() {
-        let contract: Contract =
-            serde_json::from_str(CONTRACT_JSON).expect("contract must be valid JSON");
+    fn the_contract_pins_at_or_above_the_minimum() -> anyhow::Result<()> {
+        let contract: Contract = serde_json::from_str(CONTRACT_JSON)?;
         assert!(
-            version_tuple(&contract.iceberg.version)
-                >= version_tuple(&contract.iceberg.minimum_version)
+            version_tuple(&contract.iceberg.version)?
+                >= version_tuple(&contract.iceberg.minimum_version)?
         );
         assert!(
             !contract.iceberg.minimum_version_reason.is_empty(),
             "a minimum nobody can explain is a minimum nobody will keep"
         );
+        Ok(())
+    }
+
+    /// The failure path has to be reachable, or the error plumbing above is decoration. A
+    /// contract that pins below its own minimum is the case that shipped for five releases.
+    #[test]
+    fn a_version_below_the_minimum_is_rejected() {
+        let below = r#"{"schema_version":1,"iceberg":{"version":"1.6.1",
+            "artifacts":["org.apache.iceberg:iceberg-spark-runtime-3.5_2.12"],
+            "minimum_version":"1.8.0","minimum_version_reason":"vectorized read defect"}}"#;
+        let contract: Contract =
+            serde_json::from_str(below).expect("fixture must be valid contract JSON");
+        let version = version_tuple(&contract.iceberg.version)
+            .expect("fixture version must parse into numbers");
+        let minimum = version_tuple(&contract.iceberg.minimum_version)
+            .expect("fixture minimum must parse into numbers");
+        assert!(version < minimum, "the fixture must be below its minimum");
+    }
+
+    /// A version part that is not a number must become an error rather than a zero, which
+    /// would compare below every minimum and silently disable the check above.
+    #[test]
+    fn a_non_numeric_version_part_is_an_error() {
+        assert!(version_tuple("1.8.0-rc1").is_err());
     }
 }
