@@ -86,7 +86,11 @@ mod tests {
         let packages = iceberg_packages();
         let coordinates: Vec<&str> = packages.split(',').collect();
 
-        assert_eq!(coordinates.len(), 2, "runtime and aws bundle are both required");
+        assert_eq!(
+            coordinates.len(),
+            2,
+            "runtime and aws bundle are both required"
+        );
         for coordinate in coordinates {
             let parts: Vec<&str> = coordinate.split(':').collect();
             assert_eq!(parts.len(), 3, "coordinate must be group:artifact:version");

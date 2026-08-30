@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **385개**
+- 문서 파일: **390개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 83 |
+| Monorepo | 88 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 142 |
+| ADR | 147 |
 | README | 107 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -429,6 +429,11 @@ docs/adr/0058-repository-owned-environment-names-have-one-contract.md
 docs/adr/0059-shapefile-files-have-a-first-class-streaming-ingress.md
 docs/adr/0060-gold-artifact-identity-is-resolved-at-the-catalog-write-boundary.md
 docs/adr/0061-refused-parcel-numbers-are-named-not-totalled.md
+docs/adr/0062-an-ingest-batch-records-itself-in-the-table-it-writes.md
+docs/adr/0063-a-partition-that-cannot-narrow-a-search-only-splits-files.md
+docs/adr/0064-the-parcel-table-is-read-without-vectorization.md
+docs/adr/0065-an-engine-version-is-written-once.md
+docs/adr/0066-a-table-that-fits-in-one-file-is-not-split.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -524,6 +529,11 @@ tools/github/README.md
 | `docs/adr/0059-shapefile-files-have-a-first-class-streaming-ingress.md` | Monorepo | ADR | current |
 | `docs/adr/0060-gold-artifact-identity-is-resolved-at-the-catalog-write-boundary.md` | Monorepo | ADR | current |
 | `docs/adr/0061-refused-parcel-numbers-are-named-not-totalled.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0062-an-ingest-batch-records-itself-in-the-table-it-writes.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0063-a-partition-that-cannot-narrow-a-search-only-splits-files.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0064-the-parcel-table-is-read-without-vectorization.md` | Monorepo | ADR | Superseded by ADR-0065 |
+| `docs/adr/0065-an-engine-version-is-written-once.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0066-a-table-that-fits-in-one-file-is-not-split.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
