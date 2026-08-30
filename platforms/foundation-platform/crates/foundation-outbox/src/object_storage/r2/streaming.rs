@@ -134,7 +134,7 @@ impl R2SeekableObjectReader {
         self.metrics.clone()
     }
 
-    fn buffer_contains_position(&self) -> bool {
+    const fn buffer_contains_position(&self) -> bool {
         self.position >= self.buffer_start
             && self.position < self.buffer_start + self.buffer.len() as u64
     }
@@ -147,10 +147,7 @@ impl R2SeekableObjectReader {
         }
         let chunk_bytes = self.chunk_bytes as u64;
         let start = (self.position / chunk_bytes) * chunk_bytes;
-        let end = start
-            .checked_add(chunk_bytes - 1)
-            .unwrap_or(u64::MAX)
-            .min(object_bytes - 1);
+        let end = start.saturating_add(chunk_bytes - 1).min(object_bytes - 1);
         let bytes = self.backend.read_range(start, end)?;
         let expected = usize::try_from(end - start + 1)
             .map_err(|_| io::Error::other("R2 byte range length does not fit usize"))?;
@@ -367,10 +364,7 @@ impl R2MultipartUploadWriter {
             .backend
             .upload_part(part_number, body)
             .map_err(io::Error::other)?;
-        self.parts.push(UploadedPart {
-            part_number,
-            e_tag,
-        });
+        self.parts.push(UploadedPart { part_number, e_tag });
         Ok(())
     }
 
@@ -525,8 +519,8 @@ impl MultipartBackend for R2MultipartBackend {
 impl R2ObjectStorage {
     /// Opens an immutable R2 object as a bounded-cache `Read + Seek` source.
     ///
-    /// The initial `HeadObject` fixes content length and ETag. Every subsequent ranged GET carries
-    /// `If-Match` when R2 supplied an ETag, so a source mutation fails closed.
+    /// The initial `HeadObject` fixes content length and `ETag`. Every subsequent ranged GET
+    /// carries `If-Match` when R2 supplied an `ETag`, so a source mutation fails closed.
     ///
     /// # Errors
     /// Returns `PublishError` when the key or chunk size is invalid, R2 rejects the head request,
@@ -623,7 +617,10 @@ impl R2ObjectStorage {
 }
 
 fn publish_io_error(error: PublishError) -> io::Error {
-    io::Error::other(error.to_string())
+    // Carried rather than stringified: the caller sees `Read`/`Write` errors, and the original
+    // variant is the only thing that says whether R2 refused the request or the range was built
+    // wrong here.
+    io::Error::other(error)
 }
 
 #[cfg(test)]
@@ -651,7 +648,9 @@ mod tests {
 
         fn read_range(&self, start: u64, end: u64) -> std::io::Result<Vec<u8>> {
             self.calls.lock().map_err(lock_error)?.push((start, end));
-            Ok(self.bytes[start as usize..=end as usize].to_vec())
+            let start = usize::try_from(start).map_err(std::io::Error::other)?;
+            let end = usize::try_from(end).map_err(std::io::Error::other)?;
+            Ok(self.bytes[start..=end].to_vec())
         }
     }
 
@@ -705,10 +704,7 @@ mod tests {
         }
 
         fn abort(&self) -> Result<(), String> {
-            *self
-                .abort_count
-                .lock()
-                .map_err(|error| error.to_string())? += 1;
+            *self.abort_count.lock().map_err(|error| error.to_string())? += 1;
             Ok(())
         }
     }
@@ -751,7 +747,11 @@ mod tests {
     }
 
     fn lock_error<T>(error: std::sync::PoisonError<T>) -> std::io::Error {
-        std::io::Error::other(error.to_string())
+        // The guard is taken and dropped rather than borrowed for its message: a poisoned lock
+        // here means another test thread panicked while holding it, and releasing it is the
+        // only thing left to do with what it was guarding.
+        drop(error.into_inner());
+        std::io::Error::other("a fake backend lock was poisoned by a panicking test")
     }
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;

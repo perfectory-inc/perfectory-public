@@ -25,8 +25,7 @@ const REQUIRED_MEMBER_EXTENSIONS: [&str; 5] = ["shp", "shx", "dbf", "prj", "cpg"
 
 type InMemoryShapefileReader = shapefile::Reader<Cursor<Vec<u8>>, Cursor<Vec<u8>>>;
 
-type ForwardShapefileReader<S, D> =
-    shapefile::Reader<ForwardOnlySeek<S>, ForwardOnlySeek<D>>;
+type ForwardShapefileReader<S, D> = shapefile::Reader<ForwardOnlySeek<S>, ForwardOnlySeek<D>>;
 
 /// Metadata established before any feature is emitted from a zipped shapefile dataset.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -341,10 +340,9 @@ impl<R> ForwardOnlySeek<R> {
 impl<R: Read> Read for ForwardOnlySeek<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         let read = self.inner.read(buffer)?;
-        self.position = self
-            .position
-            .checked_add(read as u64)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "stream position overflow"))?;
+        self.position = self.position.checked_add(read as u64).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "stream position overflow")
+        })?;
         Ok(read)
     }
 }
@@ -355,7 +353,7 @@ impl<R: Read> Seek for ForwardOnlySeek<R> {
             SeekFrom::Start(target) => target,
             SeekFrom::Current(offset) if offset >= 0 => self
                 .position
-                .checked_add(offset as u64)
+                .checked_add_signed(offset)
                 .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "seek overflow"))?,
             SeekFrom::Current(_) | SeekFrom::End(_) => {
                 return Err(io::Error::new(

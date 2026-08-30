@@ -3,8 +3,7 @@
 mod streaming;
 
 pub use streaming::{
-    R2MultipartUploadReport, R2MultipartUploadWriter, R2ReadRequestMetrics,
-    R2SeekableObjectReader,
+    R2MultipartUploadReport, R2MultipartUploadWriter, R2ReadRequestMetrics, R2SeekableObjectReader,
 };
 
 use std::{env, time::Duration};
