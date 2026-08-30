@@ -406,9 +406,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportVWorldCadastralSilverHandoff => {
             Box::pin(async { vworld_cadastral_silver_export::run() })
         }
-        Command::ExportVWorldCadastralShapefileSilverHandoff => Box::pin(async {
-            foundation_outbox_publisher::vworld_cadastral_shapefile_silver_export::run()
-        }),
+        Command::ExportVWorldCadastralShapefileSilverHandoff => {
+            Box::pin(foundation_outbox_publisher::vworld_cadastral_shapefile_silver_export::run())
+        }
         Command::ExportVWorldCadastralSilverHandoffShard => {
             Box::pin(vworld_cadastral_silver_shard_export::run())
         }

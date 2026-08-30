@@ -3,7 +3,7 @@
 use std::{
     collections::BTreeMap,
     env, fs,
-    io::{BufReader, BufWriter, Write},
+    io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -11,6 +11,10 @@ use std::{
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use collection_domain::VWorldCadastralDedupedFeature;
+use foundation_outbox::{
+    object_storage::{R2MultipartUploadWriter, R2SeekableObjectReader},
+    R2ObjectStorage,
+};
 use foundation_shapefile::{ShapefileMetadata, ZipShapefileReader};
 use foundation_shared_kernel::Pnu;
 use lakehouse_application::{
@@ -29,16 +33,44 @@ const SOURCE_RECORD_ID_ENV: &str =
 const SOURCE_SNAPSHOT_ID_ENV: &str =
     "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_SOURCE_SNAPSHOT_ID";
 const VALID_FROM_UTC_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_VALID_FROM_UTC";
+const INPUT_OBJECT_KEY_ENV: &str =
+    "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_INPUT_OBJECT_KEY";
+const OUTPUT_OBJECT_KEY_ENV: &str =
+    "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_OUTPUT_OBJECT_KEY";
 
-/// Runs one local `VWorld` cadastral shapefile ZIP to Silver JSONL handoff conversion.
+/// How much of an R2 object one ranged request fetches.
+///
+/// A ZIP is read by seeking to its central directory at the end and then back to the member
+/// it names, so a per-call request count would be dominated by two jumps rather than by the
+/// bytes wanted. Eight mebibytes keeps that scan to a handful of requests while never holding
+/// more than one chunk.
+const R2_READ_CHUNK_BYTES: usize = 8 * 1024 * 1024;
+
+/// How much handoff JSONL accumulates before a part is uploaded.
+///
+/// R2 requires at least five mebibytes for every part but the last, and caps an upload at
+/// 10,000 parts. Sixteen mebibytes clears the floor and still admits a 156 GB output — an
+/// order of magnitude above the 45.7 GB the national parcel run produced.
+const R2_UPLOAD_PART_BYTES: usize = 16 * 1024 * 1024;
+
+const HANDOFF_CONTENT_TYPE: &str = "application/x-ndjson";
+/// The handoff is an input to a load, not something served. Nothing should cache it.
+const HANDOFF_CACHE_CONTROL: &str = "no-store";
+
+/// Runs one `VWorld` cadastral shapefile ZIP to Silver JSONL handoff conversion.
+///
+/// Either end may be a local path or an R2 object key. With keys on both, the archive is read
+/// by ranged request and the handoff is uploaded as it is produced, so a national extract
+/// never lands on a disk — the run that produced 45.7 GB of intermediate JSONL staged all of
+/// it, and routed it through a laptop on the way.
 ///
 /// # Errors
 ///
-/// Returns an error when configuration, source validation, normalization, or an atomic output
-/// write fails.
-pub fn run() -> anyhow::Result<()> {
+/// Returns an error when configuration, source validation, normalization, or publishing the
+/// output fails.
+pub async fn run() -> anyhow::Result<()> {
     let config = ExportConfig::from_env()?;
-    let report = export_handoff(&config)?;
+    let report = export_handoff(&config).await?;
     tracing::info!(
         input_feature_count = report.input_feature_count,
         valid_pnu_count = report.valid_pnu_count,
@@ -46,16 +78,80 @@ pub fn run() -> anyhow::Result<()> {
         output_row_count = report.output_row_count,
         output_bytes = report.output_bytes,
         elapsed_milliseconds = report.elapsed_milliseconds,
-        output_path = %config.output_path.display(),
+        input = %config.input.describe(),
+        output = %config.output.describe(),
         "VWorld cadastral shapefile Silver handoff export succeeded"
     );
     Ok(())
 }
 
+/// Where the source ZIP is read from.
+///
+/// A local path and an R2 key are both legitimate: a single file being examined by hand is a
+/// path, and a national run is a key. Naming them as one type keeps the conversion below from
+/// caring which it got.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum InputSource {
+    LocalPath(PathBuf),
+    R2Object(String),
+}
+
+/// Where the handoff JSONL is written.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum OutputSink {
+    LocalPath(PathBuf),
+    R2Object(String),
+}
+
+impl InputSource {
+    fn describe(&self) -> String {
+        match self {
+            Self::LocalPath(path) => path.display().to_string(),
+            Self::R2Object(key) => format!("r2://{key}"),
+        }
+    }
+
+    const fn is_r2(&self) -> bool {
+        matches!(self, Self::R2Object(_))
+    }
+}
+
+impl OutputSink {
+    fn describe(&self) -> String {
+        match self {
+            Self::LocalPath(path) => path.display().to_string(),
+            Self::R2Object(key) => format!("r2://{key}"),
+        }
+    }
+
+    const fn is_r2(&self) -> bool {
+        matches!(self, Self::R2Object(_))
+    }
+}
+
+/// Reads exactly one of a path variable and a key variable.
+///
+/// Both set is refused rather than resolved by precedence: a run configured with two sources
+/// is a run whose operator believed something about it that is not true, and silently
+/// preferring one writes the wrong lineage into the summary.
+fn one_of_path_or_key(path_env: &str, key_env: &str) -> anyhow::Result<PathOrKey> {
+    match (optional_env(path_env)?, optional_env(key_env)?) {
+        (Some(path), None) => Ok(PathOrKey::Path(PathBuf::from(path))),
+        (None, Some(key)) => Ok(PathOrKey::Key(key)),
+        (Some(_), Some(_)) => bail!("set {path_env} or {key_env}, not both"),
+        (None, None) => bail!("{path_env} or {key_env} is required"),
+    }
+}
+
+enum PathOrKey {
+    Path(PathBuf),
+    Key(String),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ExportConfig {
-    input_path: PathBuf,
-    output_path: PathBuf,
+    input: InputSource,
+    output: OutputSink,
     summary_path: Option<PathBuf>,
     source_record_id: String,
     source_snapshot_id: String,
@@ -86,14 +182,111 @@ struct StreamReport {
 
 impl ExportConfig {
     fn from_env() -> anyhow::Result<Self> {
+        let input = match one_of_path_or_key(INPUT_PATH_ENV, INPUT_OBJECT_KEY_ENV)? {
+            PathOrKey::Path(path) => InputSource::LocalPath(path),
+            PathOrKey::Key(key) => InputSource::R2Object(key),
+        };
+        let output = match one_of_path_or_key(OUTPUT_PATH_ENV, OUTPUT_OBJECT_KEY_ENV)? {
+            PathOrKey::Path(path) => OutputSink::LocalPath(path),
+            PathOrKey::Key(key) => OutputSink::R2Object(key),
+        };
         Ok(Self {
-            input_path: PathBuf::from(required_env(INPUT_PATH_ENV)?),
-            output_path: PathBuf::from(required_env(OUTPUT_PATH_ENV)?),
+            input,
+            output,
             summary_path: optional_env(SUMMARY_PATH_ENV)?.map(PathBuf::from),
             source_record_id: required_env(SOURCE_RECORD_ID_ENV)?,
             source_snapshot_id: required_env(SOURCE_SNAPSHOT_ID_ENV)?,
             valid_from_utc: parse_utc_env(VALID_FROM_UTC_ENV)?,
         })
+    }
+
+    const fn uses_r2(&self) -> bool {
+        self.input.is_r2() || self.output.is_r2()
+    }
+}
+
+/// A ZIP source the shapefile reader can seek in, wherever it lives.
+enum ShapefileSource {
+    Local(BufReader<fs::File>),
+    R2(Box<R2SeekableObjectReader>),
+}
+
+impl Read for ShapefileSource {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Local(source) => source.read(output),
+            Self::R2(source) => source.read(output),
+        }
+    }
+}
+
+impl Seek for ShapefileSource {
+    fn seek(&mut self, seek_from: SeekFrom) -> io::Result<u64> {
+        match self {
+            Self::Local(source) => source.seek(seek_from),
+            Self::R2(source) => source.seek(seek_from),
+        }
+    }
+}
+
+/// A handoff destination that only becomes visible once the whole conversion succeeded.
+///
+/// Both variants hold that property by construction and neither one can be half-written: the
+/// local one stages beside its final name and renames, and the R2 one uploads parts that no
+/// reader can address until the upload is completed.
+enum HandoffSink {
+    Local {
+        pending: PendingOutput,
+        final_path: PathBuf,
+    },
+    R2(Box<R2MultipartUploadWriter>),
+}
+
+impl Write for HandoffSink {
+    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Local { pending, .. } => pending
+                .file_mut()
+                .map_err(io::Error::other)
+                .and_then(|file| file.write(input)),
+            Self::R2(writer) => writer.write(input),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Local { pending, .. } => pending
+                .file_mut()
+                .map_err(io::Error::other)
+                .and_then(std::io::Write::flush),
+            Self::R2(writer) => writer.flush(),
+        }
+    }
+}
+
+impl HandoffSink {
+    /// Publishes the handoff and reports how many bytes it holds.
+    fn finish(self) -> anyhow::Result<u64> {
+        match self {
+            Self::Local {
+                mut pending,
+                final_path,
+            } => {
+                let output_bytes = pending
+                    .file_mut()?
+                    .metadata()
+                    .context("failed to inspect staged shapefile JSONL")?
+                    .len();
+                pending.sync_and_commit(&final_path)?;
+                Ok(output_bytes)
+            }
+            Self::R2(writer) => {
+                let report = writer
+                    .complete()
+                    .context("failed to complete the handoff upload to R2")?;
+                Ok(report.output_bytes)
+            }
+        }
     }
 }
 
@@ -112,12 +305,52 @@ fn classify_rejected_pnu(raw: &str) -> String {
     format!("daejang_digit_{}", &raw[10..11])
 }
 
-fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
-    if config.output_path.exists() {
-        bail!(
-            "refusing to overwrite existing shapefile JSONL output {}",
-            config.output_path.display()
-        );
+/// Opens both ends, then converts on a thread that is allowed to block.
+///
+/// The split is not stylistic. `R2SeekableObjectReader` and `R2MultipartUploadWriter` are
+/// synchronous by design — the shapefile and ZIP readers want `Read + Seek`, not futures — and
+/// they reach R2 by blocking the calling thread on a request. A Tokio worker thread must never
+/// be blocked that way, so the conversion runs on the blocking pool while the two handles,
+/// which need a runtime to be created at all, are opened here.
+async fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
+    refuse_existing_outputs(config)?;
+
+    let storage = if config.uses_r2() {
+        Some(R2ObjectStorage::from_env().context("failed to configure R2 for a streamed handoff")?)
+    } else {
+        None
+    };
+    let source = open_source(&config.input, storage.as_ref()).await?;
+    let sink = open_sink(&config.output, storage.as_ref()).await?;
+
+    let owned = config.clone();
+    run_where_blocking_is_allowed(move || convert(source, sink, &owned)).await
+}
+
+/// Runs `work` on a thread that may block on the runtime.
+///
+/// Both R2 handles block the calling thread on every request. Doing that on a runtime worker
+/// thread panics, and the writer takes its cleanup path while unwinding — so the mistake
+/// surfaces as a dead process during a national run rather than as an error. This function is
+/// separate so that property has one place to be stated and one place to be tested.
+async fn run_where_blocking_is_allowed<F, T>(work: F) -> anyhow::Result<T>
+where
+    F: FnOnce() -> anyhow::Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .context("failed to join the shapefile Silver handoff conversion")?
+}
+
+fn refuse_existing_outputs(config: &ExportConfig) -> anyhow::Result<()> {
+    if let OutputSink::LocalPath(path) = &config.output {
+        if path.exists() {
+            bail!(
+                "refusing to overwrite existing shapefile JSONL output {}",
+                path.display()
+            );
+        }
     }
     if config
         .summary_path
@@ -126,26 +359,72 @@ fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
     {
         bail!("refusing to overwrite existing shapefile summary output");
     }
+    Ok(())
+}
+
+async fn open_source(
+    input: &InputSource,
+    storage: Option<&R2ObjectStorage>,
+) -> anyhow::Result<ShapefileSource> {
+    match input {
+        InputSource::LocalPath(path) => {
+            let file = fs::File::open(path).with_context(|| {
+                format!(
+                    "failed to open VWorld cadastral shapefile ZIP {}",
+                    path.display()
+                )
+            })?;
+            Ok(ShapefileSource::Local(BufReader::new(file)))
+        }
+        InputSource::R2Object(key) => {
+            let storage = storage.context("an R2 input key needs R2 configuration")?;
+            let reader = storage
+                .open_seekable_object(key, R2_READ_CHUNK_BYTES)
+                .await
+                .with_context(|| format!("failed to open R2 shapefile ZIP {key}"))?;
+            Ok(ShapefileSource::R2(Box::new(reader)))
+        }
+    }
+}
+
+async fn open_sink(
+    output: &OutputSink,
+    storage: Option<&R2ObjectStorage>,
+) -> anyhow::Result<HandoffSink> {
+    match output {
+        OutputSink::LocalPath(path) => Ok(HandoffSink::Local {
+            pending: PendingOutput::create(path)?,
+            final_path: path.clone(),
+        }),
+        OutputSink::R2Object(key) => {
+            let storage = storage.context("an R2 output key needs R2 configuration")?;
+            let writer = storage
+                .start_create_only_multipart_upload(
+                    key,
+                    HANDOFF_CONTENT_TYPE,
+                    HANDOFF_CACHE_CONTROL,
+                    R2_UPLOAD_PART_BYTES,
+                )
+                .await
+                .with_context(|| format!("failed to start the handoff upload to R2 {key}"))?;
+            Ok(HandoffSink::R2(Box::new(writer)))
+        }
+    }
+}
+
+fn convert(
+    source: ShapefileSource,
+    mut sink: HandoffSink,
+    config: &ExportConfig,
+) -> anyhow::Result<ExportReport> {
     let started = Instant::now();
-    let input = fs::File::open(&config.input_path).with_context(|| {
-        format!(
-            "failed to open VWorld cadastral shapefile ZIP {}",
-            config.input_path.display()
-        )
-    })?;
-    let mut reader = ZipShapefileReader::new(BufReader::new(input))?;
+    let mut reader = ZipShapefileReader::new(source)?;
     let metadata = reader.metadata().clone();
-    let mut pending_output = PendingOutput::create(&config.output_path)?;
-    let mut writer = BufWriter::new(pending_output.file_mut()?);
+    let mut writer = BufWriter::new(&mut sink);
     let mut stream_report = stream_silver_rows(&mut reader, &mut writer, config)?;
     writer.flush().context("failed to flush shapefile JSONL")?;
     drop(writer);
-    let output_bytes = pending_output
-        .file_mut()?
-        .metadata()
-        .context("failed to inspect staged shapefile JSONL")?
-        .len();
-    pending_output.sync_and_commit(&config.output_path)?;
+    let output_bytes = sink.finish()?;
     stream_report
         .quality_metrics
         .insert("row_count".to_owned(), stream_report.output_row_count);
@@ -259,6 +538,26 @@ fn stream_silver_rows(
     })
 }
 
+/// States what this run did not prove, for the run it actually was.
+///
+/// The list was a constant that always claimed the handoff touched neither R2 nor a local-only
+/// path. A summary that says it wrote nothing to R2 beside an object it just uploaded is worse
+/// than no summary: it is the document somebody reads instead of looking.
+fn evidence_limitations(config: &ExportConfig) -> Vec<&'static str> {
+    let mut limitations = vec![
+        "does_not_write_iceberg_table",
+        "does_not_approve_national_rollout",
+    ];
+    if !config.input.is_r2() {
+        limitations.push("read_a_local_file_not_a_collected_object");
+    }
+    if !config.output.is_r2() {
+        limitations.push("does_not_write_r2");
+    }
+    limitations.sort_unstable();
+    limitations
+}
+
 fn add_quality_metrics(target: &mut BTreeMap<String, u64>, row: &BTreeMap<String, u64>) {
     for (name, count) in row {
         *target.entry(name.clone()).or_insert(0) += count;
@@ -281,7 +580,7 @@ fn write_summary(
         "national_rollout_allowed": false,
         "source": {
             "kind": "vworld_shapefile_zip",
-            "input_path": config.input_path.display().to_string(),
+            "input": config.input.describe(),
             "dataset_name": report.metadata.dataset_name,
             "cpg_label": report.metadata.cpg_label,
             "source_crs_name": report.metadata.source_crs_name,
@@ -293,7 +592,7 @@ fn write_summary(
             "source_snapshot_id": config.source_snapshot_id
         },
         "output": {
-            "path": config.output_path.display().to_string(),
+            "destination": config.output.describe(),
             "contract": contract_table_name,
             "row_count": report.output_row_count,
             "bytes": report.output_bytes
@@ -303,12 +602,7 @@ fn write_summary(
         "performance": {
             "elapsed_milliseconds": report.elapsed_milliseconds
         },
-        "evidence_limitations": [
-            "local_shapefile_to_silver_handoff_only",
-            "does_not_write_iceberg_table",
-            "does_not_write_r2",
-            "does_not_approve_national_rollout"
-        ]
+        "evidence_limitations": evidence_limitations(config)
     });
     let bytes = serde_json::to_vec_pretty(&summary)
         .context("failed to serialize shapefile export summary")?;
@@ -424,7 +718,12 @@ mod tests {
     use uuid::Uuid;
     use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
-    use super::{export_handoff, ExportConfig};
+    use std::path::PathBuf;
+
+    use super::{
+        evidence_limitations, export_handoff, run_where_blocking_is_allowed, ExportConfig,
+        InputSource, OutputSink,
+    };
 
     const KOREA_CENTRAL_BELT_2010: &str = concat!(
         r#"PROJCS["Korea_2000_Korea_Central_Belt_2010","#,
@@ -439,8 +738,8 @@ mod tests {
         r#"PARAMETER["Latitude_Of_Origin",38.0],UNIT["Meter",1.0]]"#,
     );
 
-    #[test]
-    fn streams_file_source_rows_through_the_existing_silver_contract() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn streams_file_source_rows_through_the_existing_silver_contract() -> anyhow::Result<()> {
         let root = std::env::temp_dir().join(format!(
             "foundation-vworld-shapefile-export-{}",
             Uuid::new_v4()
@@ -451,8 +750,8 @@ mod tests {
         let output_path = root.join("parcel.jsonl");
         let summary_path = root.join("parcel.summary.json");
         let config = ExportConfig {
-            input_path,
-            output_path: output_path.clone(),
+            input: InputSource::LocalPath(input_path),
+            output: OutputSink::LocalPath(output_path.clone()),
             summary_path: Some(summary_path.clone()),
             source_record_id: "bronze:vworldkr__parcel:fixture".to_owned(),
             source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
@@ -460,7 +759,7 @@ mod tests {
                 .with_timezone(&Utc),
         };
 
-        let report = export_handoff(&config)?;
+        let report = export_handoff(&config).await?;
 
         assert_eq!(report.input_feature_count, 3);
         assert_eq!(report.valid_pnu_count, 1);
@@ -490,6 +789,55 @@ mod tests {
         assert_eq!(summary["output"]["row_count"], 1);
         assert_eq!(summary["output"]["contract"], "silver.parcel_boundaries");
         fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    /// The conversion must land where blocking the thread is allowed.
+    ///
+    /// This is the whole reason the conversion is not simply awaited inline. Both R2 handles
+    /// are synchronous and reach R2 by blocking whatever thread calls them; a runtime worker
+    /// thread refuses to be blocked, and the refusal arrives as a panic inside the multipart
+    /// writer's cleanup — which is to say, during a national run, as a dead process rather
+    /// than an error anyone can read.
+    ///
+    /// The body does exactly what the R2 handles do. Move the work back inline and this test
+    /// stops passing; the local-path mode, which never blocks on R2, would not have noticed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_conversion_runs_where_r2_may_block() -> anyhow::Result<()> {
+        let observed = run_where_blocking_is_allowed(|| {
+            Ok(tokio::runtime::Handle::current().block_on(async { "blocked" }))
+        })
+        .await?;
+
+        assert_eq!(observed, "blocked");
+        Ok(())
+    }
+
+    /// A summary that claims a run wrote nothing to R2 beside the object it just uploaded is
+    /// the document somebody reads instead of looking at the bucket.
+    #[test]
+    fn the_summary_states_the_limitations_of_the_run_it_actually_was() -> anyhow::Result<()> {
+        let base = ExportConfig {
+            input: InputSource::LocalPath(PathBuf::from("parcel.zip")),
+            output: OutputSink::LocalPath(PathBuf::from("parcel.jsonl")),
+            summary_path: None,
+            source_record_id: "bronze:vworldkr__parcel:fixture".to_owned(),
+            source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?
+                .with_timezone(&Utc),
+        };
+        assert!(evidence_limitations(&base).contains(&"does_not_write_r2"));
+
+        let streamed = ExportConfig {
+            input: InputSource::R2Object("bronze/parcel.zip".to_owned()),
+            output: OutputSink::R2Object("silver/parcel.jsonl".to_owned()),
+            ..base
+        };
+        let limitations = evidence_limitations(&streamed);
+        assert!(!limitations.contains(&"does_not_write_r2"));
+        assert!(!limitations.contains(&"read_a_local_file_not_a_collected_object"));
+        // What this command still does not do is unchanged by where the bytes came from.
+        assert!(limitations.contains(&"does_not_write_iceberg_table"));
         Ok(())
     }
 
