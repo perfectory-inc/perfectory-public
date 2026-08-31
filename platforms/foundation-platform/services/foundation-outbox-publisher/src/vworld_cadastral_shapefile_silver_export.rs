@@ -70,6 +70,18 @@ const HANDOFF_CACHE_CONTROL: &str = "no-store";
 /// output fails.
 pub async fn run() -> anyhow::Result<()> {
     let config = ExportConfig::from_env()?;
+
+    // Offered every object on every run, the way the loader is offered every batch. Whether this
+    // one is already done is answered by the bucket rather than by a record beside the runner,
+    // because a record in a third place is a record that can disagree with the other two.
+    if already_exported(&config).await? {
+        tracing::info!(
+            output = %config.output.describe(),
+            "VWorld cadastral shapefile Silver handoff already exists; nothing to do"
+        );
+        return Ok(());
+    }
+
     let report = export_handoff(&config).await?;
     tracing::info!(
         input_feature_count = report.input_feature_count,
@@ -341,6 +353,23 @@ where
     tokio::task::spawn_blocking(work)
         .await
         .context("failed to join the shapefile Silver handoff conversion")?
+}
+
+/// Whether this run's output is already in the bucket.
+///
+/// Only asked of an R2 output. A local one is answered by `refuse_existing_outputs`, which stops
+/// rather than skips: a path the operator typed twice is a mistake worth hearing about, while a
+/// key the runner derived is the same key it derived last time.
+async fn already_exported(config: &ExportConfig) -> anyhow::Result<bool> {
+    let OutputSink::R2Object(key) = &config.output else {
+        return Ok(false);
+    };
+    let storage = R2ObjectStorage::from_env()
+        .context("failed to configure R2 while checking for an existing handoff")?;
+    storage
+        .object_exists(key)
+        .await
+        .with_context(|| format!("failed to check whether the handoff {key} already exists"))
 }
 
 fn refuse_existing_outputs(config: &ExportConfig) -> anyhow::Result<()> {

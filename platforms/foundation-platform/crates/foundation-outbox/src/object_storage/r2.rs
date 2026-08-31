@@ -514,6 +514,48 @@ impl R2ObjectStorage {
     /// # Errors
     ///
     /// Returns `PublishError` when the provider rejects the delete operation.
+    /// Reports whether an object is already there.
+    ///
+    /// A step that produces objects needs this to be resumable without keeping its own record of
+    /// what it produced. A record beside the step is a second commit to a different medium, and a
+    /// run that dies between the two leaves them disagreeing — which is how 1,865,891 parcels
+    /// landed three times (root ADR-0062). The bucket is the record.
+    ///
+    /// # Errors
+    /// Returns `PublishError` for an unsafe key, or when R2 answers with anything other than the
+    /// object's metadata or a plain absence. A network failure is not an absence, and returning
+    /// `false` for one would silently redo work that is already done.
+    pub async fn object_exists(&self, key: &str) -> Result<bool, PublishError> {
+        validate_relative_r2_object_key(key, "key")?;
+        match self
+            .client
+            .head_object()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error) => {
+                if error
+                    .as_service_error()
+                    .is_some_and(aws_sdk_s3::operation::head_object::HeadObjectError::is_not_found)
+                {
+                    return Ok(false);
+                }
+                Err(PublishError::Broadcaster(format!(
+                    "failed to ask R2 whether {key} exists: {error}"
+                )))
+            }
+        }
+    }
+
+    /// Removes one object from the lakehouse bucket.
+    ///
+    /// # Errors
+    /// Returns `PublishError` when R2 rejects the delete. Deleting a key that is not there is not
+    /// an error — S3 delete is idempotent, and a caller cleaning up cannot tell the difference
+    /// between a key it already removed and one that was never written.
     pub async fn delete_object(&self, key: &str) -> Result<(), PublishError> {
         self.client
             .delete_object()
