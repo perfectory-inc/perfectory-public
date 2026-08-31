@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from lakehouse_engine import iceberg_packages
+from lakehouse_object_store import apply_object_store_settings, is_object_store_path
 from lakehouse_ingest import (
     append_batch_once,
     batch_source_record_ids,
@@ -660,6 +661,12 @@ def build_spark_session(args: argparse.Namespace) -> SparkSession:
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.shuffle.partitions", "2")
     )
+
+    # Only when the input actually is an object. The settings need R2 reader credentials, and
+    # demanding them for a local-file run would make a job that touches no bucket fail on a
+    # missing bucket variable.
+    if is_object_store_path(args.input):
+        builder = apply_object_store_settings(builder)
 
     if args.write_mode == "iceberg":
         catalog = args.iceberg_catalog_name

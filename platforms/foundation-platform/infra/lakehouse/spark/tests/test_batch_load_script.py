@@ -84,6 +84,42 @@ class BatchLoadScriptTest(unittest.TestCase):
             "판 번호는 계약에서 읽어야 한다",
         )
 
+    def test_the_jar_cache_outlives_the_container(self) -> None:
+        """받은 jar 는 컨테이너보다 오래 살아야 한다.
+
+        적재기는 묶음마다 컨테이너를 새로 띄우고 `--rm` 으로 버린다. 캐시가 컨테이너 안에
+        있으면 `--packages` 가 같은 jar 를 묶음 수만큼 다시 내려받는다. 전국 필지 한 번에
+        열여섯 번이다.
+
+        **이 결함은 실패하지 않는다. 조용히 느려질 뿐이다.** 그래서 검사가 필요하다.
+        """
+        self.assertNotIn(
+            "spark.jars.ivy=/tmp/",
+            self.source,
+            "컨테이너 안 임시 폴더는 --rm 과 함께 사라진다",
+        )
+        self.assertIn(
+            "spark.jars.ivy=/home/spark/.ivy2",
+            self.source,
+            "캐시는 compose 가 호스트에 붙여 주는 경로를 가리켜야 한다",
+        )
+
+    def test_the_cache_directory_exists_before_the_container_wants_it(self) -> None:
+        """붙일 폴더가 없으면 도커가 root 소유로 만들고, 컨테이너 사용자는 못 쓴다.
+
+        컨테이너는 uid 185 로 돌고 이미지에 `/home/spark` 가 없다. 없는 경로에 볼륨을 붙이면
+        쓰기가 막히는데, 그때도 적재는 성공한다 — jar 를 매번 다시 받으면서.
+        """
+        code = "\n".join(
+            line
+            for line in self.source.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        make = code.index("mkdir -p")
+        submit = code.index("spark.jars.ivy")
+        self.assertLess(make, submit, "폴더를 먼저 만들고 나서 컨테이너를 띄워야 한다")
+        self.assertIn("IVY_CACHE", code, "캐시 위치를 이름 있는 값으로 둬야 한다")
+
 
 if __name__ == "__main__":
     unittest.main()

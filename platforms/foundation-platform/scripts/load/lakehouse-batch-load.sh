@@ -21,6 +21,7 @@ TABLE="${2:-parcel_boundaries}"
 SRC="${LAKEHOUSE_HANDOFF_DIR:-$HOME/parcel-handoff}"
 STATE="${LAKEHOUSE_LOAD_STATE_DIR:-$HOME/parcel-load-state}"
 WORK_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-$HOME/lakehouse-state}"
+IVY_CACHE="${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-$HOME/lakehouse-ivy}"
 RELEASE="${FOUNDATION_PLATFORM_RELEASE_DIR:-/opt/foundation-platform/current}"
 FILES_PER_BATCH="${FILES_PER_BATCH:-16}"
 DRIVER_MEM="${DRIVER_MEM:-24g}"
@@ -37,17 +38,27 @@ for v in FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \
 done
 export FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER="${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER:-r2_data_catalog}"
 export FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="$WORK_ROOT"
+export FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="$IVY_CACHE"
 
-mkdir -p "$STATE" "$WORK_ROOT"
-chmod 777 "$WORK_ROOT" 2>/dev/null || true
+# The jar cache outlives the container on purpose. `run --rm` throws the container away after
+# every batch, so a cache inside it means `--packages` downloads the same jars once per batch —
+# sixteen times for one national parcel load.
+mkdir -p "$STATE" "$WORK_ROOT" "$IVY_CACHE"
+chmod 777 "$WORK_ROOT" "$IVY_CACHE" 2>/dev/null || true
 cd "$RELEASE" || { echo "릴리스 디렉터리 없음: $RELEASE" >&2; exit 1; }
 
 # 판은 계약이 정한다. 여기 적으면 잡과 다른 Iceberg 가 실린다 (root ADR-0065).
 PACKAGES=$(python3 -c "
-import json
+import json, sys
 c = json.load(open('$RELEASE/infra/lakehouse/contracts/lakehouse-engine.contract.json'))
-i = c['iceberg']
-print(','.join(a + ':' + i['version'] for a in i['artifacts']))")
+if c['schema_version'] != 2:
+    sys.exit('engine contract schema_version %r is not the 2 this script reads' % c['schema_version'])
+# Every block the contract names. Reading only 'iceberg' would submit without the s3a
+# filesystem and the failure would be a job that cannot open its own input.
+print(','.join(
+    a + ':' + b['version']
+    for b in (c['iceberg'], c['hadoop'])
+    for a in b['artifacts']))") || { echo "패키지 목록을 못 만들었다" >&2; exit 1; }
 
 submit() {
   docker compose -p "$COMPOSE_PROJECT" -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
@@ -57,7 +68,7 @@ submit() {
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
     spark \
     spark-submit --master "local[$TASKS]" --driver-memory "$DRIVER_MEM" \
-    --packages "$PACKAGES" --conf spark.jars.ivy=/tmp/.ivy2 "$@"
+    --packages "$PACKAGES" --conf spark.jars.ivy=/home/spark/.ivy2 "$@"
 }
 
 mapfile -t all < <(ls "$SRC"/*.jsonl 2>/dev/null | xargs -n1 basename | sort)
