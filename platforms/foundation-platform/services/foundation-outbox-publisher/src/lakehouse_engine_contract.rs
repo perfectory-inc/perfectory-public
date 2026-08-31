@@ -63,6 +63,13 @@ pub(crate) fn iceberg_packages() -> anyhow::Result<&'static str> {
 fn resolve_packages() -> anyhow::Result<String> {
     let contract: Contract = serde_json::from_str(CONTRACT_JSON)
         .context("lakehouse engine contract is not valid JSON")?;
+    packages_from(&contract)
+}
+
+/// Split from the embedded read so a test can hand it a contract the repository does not
+/// contain. A test that only compares two version numbers proves `version_tuple` works; it
+/// does not prove anything refuses to submit.
+fn packages_from(contract: &Contract) -> anyhow::Result<String> {
     if contract.schema_version != CONTRACT_SCHEMA_VERSION {
         bail!(
             "unsupported lakehouse engine contract schema_version {}, expected {}",
@@ -159,16 +166,39 @@ mod tests {
     /// contract that pins below its own minimum is the case that shipped for five releases.
     #[test]
     fn a_version_below_the_minimum_is_rejected() {
-        let below = r#"{"schema_version":1,"iceberg":{"version":"1.6.1",
+        let below = r#"{"schema_version":2,"iceberg":{"version":"1.6.1",
             "artifacts":["org.apache.iceberg:iceberg-spark-runtime-3.5_2.12"],
-            "minimum_version":"1.8.0","minimum_version_reason":"vectorized read defect"}}"#;
+            "minimum_version":"1.8.0","minimum_version_reason":"vectorized read defect"},
+            "hadoop":{"version":"3.3.4","artifacts":["org.apache.hadoop:hadoop-aws"]}}"#;
         let contract: Contract =
             serde_json::from_str(below).expect("fixture must be valid contract JSON");
-        let version = version_tuple(&contract.iceberg.version)
-            .expect("fixture version must parse into numbers");
-        let minimum = version_tuple(&contract.iceberg.minimum_version)
-            .expect("fixture minimum must parse into numbers");
-        assert!(version < minimum, "the fixture must be below its minimum");
+
+        let refused = packages_from(&contract);
+
+        assert!(
+            refused.is_err(),
+            "a contract below its own minimum must not produce a submission: {refused:?}"
+        );
+        assert!(
+            format!("{:#}", refused.unwrap_err()).contains("1.6.1"),
+            "the error must name the version it refused"
+        );
+    }
+
+    /// A contract from a newer schema must be refused rather than read for the parts this
+    /// build happens to recognise. Adding the Hadoop block bumped the version for exactly
+    /// this reason: a reader left behind would have submitted without the s3a filesystem and
+    /// the job would have failed on its own input.
+    #[test]
+    fn a_contract_from_another_schema_version_is_refused() {
+        let newer = r#"{"schema_version":3,"iceberg":{"version":"1.11.0",
+            "artifacts":["org.apache.iceberg:iceberg-spark-runtime-3.5_2.12"],
+            "minimum_version":"1.8.0","minimum_version_reason":"vectorized read defect"},
+            "hadoop":{"version":"3.3.4","artifacts":["org.apache.hadoop:hadoop-aws"]}}"#;
+        let contract: Contract =
+            serde_json::from_str(newer).expect("fixture must be valid contract JSON");
+
+        assert!(packages_from(&contract).is_err());
     }
 
     /// A version part that is not a number must become an error rather than a zero, which
