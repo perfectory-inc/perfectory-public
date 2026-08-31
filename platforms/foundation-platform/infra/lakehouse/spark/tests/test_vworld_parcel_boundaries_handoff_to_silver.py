@@ -29,12 +29,22 @@ sys.path.insert(0, str(JOBS_DIR))
 # 이 import 가 곧 검사다. 잡이 pyspark 를 모듈 최상단에서 부르면 여기서 터지고, CI 레인에는
 # pyspark 가 없으므로 아래 검사가 전부 조용히 건너뛰어진다. 앞선 판이 정확히 그랬다.
 from vworld_parcel_boundaries_handoff_to_silver import (  # noqa: E402
-    MAX_READBACK_SOURCE_RECORDS,
+    SILVER_COLUMNS,
 )
+
+# 적재 규칙은 이 잡이 아니라 공용 모듈이 정본이다(2026-08-31). 잡마다 같은 규칙을 다시 적으면
+# 잡마다 달라지고, 실제로 네 잡이 SQL 로 붙이면서 기록을 남길 자리조차 없었다.
+from lakehouse_ingest import MAX_BATCH_SOURCE_RECORDS  # noqa: E402
+
+INGEST_PATH = JOBS_DIR / "lakehouse_ingest.py"
 
 
 def job_source() -> str:
     return JOB_PATH.read_text(encoding="utf-8")
+
+
+def ingest_source() -> str:
+    return INGEST_PATH.read_text(encoding="utf-8")
 
 
 def function_body(source: str, name: str) -> str:
@@ -71,7 +81,7 @@ class ReadBackScopeTest(unittest.TestCase):
         상한이 없으면 읽기 조건이 무한정 길어진다. 전국 필지는 255개 객체라 한 실행에
         다 담기지 않으며, 이 상한은 묶음 하나를 제한하는 것이지 데이터셋을 제한하지 않는다.
         """
-        limit = MAX_READBACK_SOURCE_RECORDS
+        limit = MAX_BATCH_SOURCE_RECORDS
 
         self.assertIsInstance(limit, int, "상한이 정수로 선언돼 있어야 한다")
         self.assertGreater(limit, 0, "상한이 정수로 선언돼 있어야 한다")
@@ -90,7 +100,7 @@ class RetryIsIdempotentTest(unittest.TestCase):
         커밋한다. 이 옵션 대신 파일이나 다른 표에 표시를 남기면 커밋이 둘로 갈라지고,
         그 사이에서 죽은 실행이 재시도 때 중복을 만든다.
         """
-        body = function_body(job_source(), "write_silver_iceberg")
+        body = function_body(ingest_source(), "append_batch_once")
 
         self.assertIn(
             "snapshot_property_options(",
@@ -100,12 +110,7 @@ class RetryIsIdempotentTest(unittest.TestCase):
         self.assertIn(
             ".writeTo(",
             body,
-            "INSERT INTO 는 snapshot-property 를 받지 못한다 — DataFrame writer 여야 한다",
-        )
-        self.assertNotIn(
-            "INSERT INTO",
-            body,
-            "SQL 로 붙이면 옵션을 실을 자리가 없어 기록이 커밋 밖으로 나간다",
+            "SQL 의 INSERT 는 snapshot-property 를 받지 못한다 — DataFrame writer 여야 한다",
         )
 
     def test_the_write_path_asks_before_it_appends(self) -> None:
@@ -114,15 +119,35 @@ class RetryIsIdempotentTest(unittest.TestCase):
         확인 없이 붙이면 토큰은 "무엇이 들어갔는지"를 기록만 할 뿐 두 번째 적재를 막지
         못한다. 막는 것은 붙이기 전에 묻는 이 순서다.
         """
-        source = job_source()
-        body = function_body(source, "main")
+        body = function_body(ingest_source(), "append_batch_once")
 
         self.assertIn("read_ingested_objects(", body, "붙이기 전에 물어야 한다")
         self.assertIn("decide_whether_to_append(", body, "답을 판단에 써야 한다")
         self.assertLess(
             body.index("decide_whether_to_append("),
-            body.index("write_silver_iceberg("),
+            body.index(".writeTo("),
             "확인이 쓰기보다 먼저 와야 막을 수 있다",
+        )
+
+    def test_this_job_does_not_keep_its_own_copy_of_the_rule(self) -> None:
+        """규칙은 공용 모듈 하나가 정본이어야 한다.
+
+        같은 규칙을 잡마다 다시 적으면 잡마다 달라진다. 2026-08-31 에 실제로 그랬다 —
+        필지 잡만 이 규칙을 갖고 있었고 나머지 넷은 SQL 로 붙어서 기록을 실을 자리조차
+        없었다. 이 검사는 사본이 다시 생기는 것을 막는다.
+        """
+        source = job_source()
+
+        self.assertIn("append_batch_once(", source, "공용 결정 함수를 써야 한다")
+        self.assertNotIn(
+            "snapshot_property_options(",
+            source,
+            "옵션 조립을 여기서 다시 하면 정본이 둘이 된다",
+        )
+        self.assertNotIn(
+            "def batch_source_record_ids",
+            source,
+            "배치 식별을 여기서 다시 정의하면 정본이 둘이 된다",
         )
 
 

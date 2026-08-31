@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from lakehouse_engine import iceberg_packages
+from lakehouse_ingest import append_batch_once, batch_source_record_ids
 from platform_contracts import (
     partition_clause_sql,
     column_names,
@@ -865,23 +866,21 @@ def create_iceberg_table_if_missing(spark: Any, args: argparse.Namespace) -> Non
     )
 
 
-def write_silver_iceberg(spark: Any, silver: Any, args: argparse.Namespace) -> None:
-    table = qualified_iceberg_table(args)
-    temp_view = "silver_industrial_complex_boundaries_candidate"
+def write_silver_iceberg(spark: Any, silver: Any, args: argparse.Namespace) -> dict[str, Any]:
+    """Appends this batch once, whatever a re-run does.
 
+    Was a SQL `INSERT`, which cannot carry writer options, so nothing recorded what the
+    commit appended and a second run appended it again. `silver.parcel_boundaries` is what
+    that costs when the table is large enough to notice: 1,865,891 rows, three times over
+    (root ADR-0062).
+    """
     create_iceberg_table_if_missing(spark, args)
-    silver.select(*SILVER_COLUMNS).createOrReplaceTempView(temp_view)
-
-    statement = "INSERT INTO"
-    if args.iceberg_write_mode == "overwrite":
-        statement = "INSERT OVERWRITE"
-
-    spark.sql(
-        f"""
-        {statement} {table}
-        SELECT {", ".join(SILVER_COLUMNS)}
-        FROM {temp_view}
-        """
+    return append_batch_once(
+        spark,
+        silver,
+        SILVER_COLUMNS,
+        qualified_iceberg_table(args),
+        write_mode=args.iceberg_write_mode,
     )
 
 
@@ -943,16 +942,17 @@ def assert_iceberg_runtime_loaded(spark: Any, packages: str) -> None:
 
 
 def read_iceberg_snapshot_for_batch(spark: Any, silver: Any, args: argparse.Namespace, F: Any) -> Any:
-    snapshot_rows = silver.select("source_snapshot_id").distinct().limit(17).collect()
-    snapshot_ids = [row.source_snapshot_id for row in snapshot_rows]
-    if not snapshot_ids:
-        raise ValueError("Cannot verify Iceberg write because source_snapshot_id is empty")
-    if len(snapshot_ids) > 16:
-        raise ValueError("Iceberg write verification supports at most 16 source snapshots")
+    """Reads back only the rows this run appended.
 
+    Filtered on the source object, not on `source_snapshot_id`. The snapshot id names the
+    provider's extract, so every object of one national extract carries the same value and a
+    second batch would read the first batch's rows back as its own — then fail the count
+    check that follows, reporting a write problem where there is none.
+    """
+    record_ids = batch_source_record_ids(silver)
     return (
         spark.table(qualified_iceberg_table(args))
-        .where(F.col("source_snapshot_id").isin(snapshot_ids))
+        .where(F.col("source_record_id").isin(record_ids))
         .select(*SILVER_COLUMNS)
     )
 
@@ -998,7 +998,18 @@ def main(argv: list[str] | None = None) -> int:
             success_target = f"output={args.output}"
             success_label = "silver-industrial-complex-boundaries-write-ok"
         else:
-            write_silver_iceberg(spark, silver, args)
+            outcome = write_silver_iceberg(spark, silver, args)
+            if not outcome["appended"]:
+                # Count what the table holds rather than trusting the summary alone, so a
+                # skip reports the rows it is standing on instead of asserting them.
+                already = read_iceberg_snapshot_for_batch(spark, silver, args, F).count()
+                print(
+                    "silver-industrial-complex-boundaries-iceberg-already-ingested "
+                    f"rows={already} token={outcome['token']} "
+                    f"snapshot={outcome['existing_snapshot']} "
+                    f"objects={len(outcome['record_ids'])}"
+                )
+                return 0
             persisted = read_iceberg_snapshot_for_batch(spark, silver, args, F)
             success_target = f"table={args.iceberg_namespace}.{args.iceberg_table}"
             success_label = "silver-industrial-complex-boundaries-iceberg-write-ok"

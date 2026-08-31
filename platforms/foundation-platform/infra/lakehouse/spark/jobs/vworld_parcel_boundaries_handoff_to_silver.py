@@ -20,10 +20,8 @@ from typing import Any
 
 from lakehouse_engine import iceberg_packages
 from lakehouse_ingest import (
-    decide_whether_to_append,
-    ingest_batch_token,
-    read_ingested_objects,
-    snapshot_property_options,
+    append_batch_once,
+    batch_source_record_ids,
 )
 from platform_contracts import (
     column_names,
@@ -50,11 +48,6 @@ if CURRENT_ROW_PREDICATE is None:
     raise ValueError(f"{RUN_SUMMARY_CONTRACT} must define a current-row predicate")
 
 SILVER_COLUMNS: tuple[str, ...] = column_names(TABLE_CONTRACT)
-
-# How many Bronze objects one run may append before its read-back predicate grows unwieldy.
-# The national parcel extract is 255 objects and does not fit one Spark run on a small host,
-# so it arrives in batches; this bounds a batch rather than the dataset.
-MAX_READBACK_SOURCE_RECORDS = 64
 
 
 # Read off the contract rather than written here. Silver geometry tables carry the CRS their source
@@ -661,32 +654,6 @@ def create_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespac
     )
 
 
-def write_silver_iceberg(
-    spark: SparkSession,
-    silver: DataFrame,
-    args: argparse.Namespace,
-    record_ids: Sequence[str],
-    token: str,
-) -> None:
-    """Appends the batch and records which objects it appended, in one commit.
-
-    Written through the DataFrame writer rather than SQL because only the writer takes the
-    snapshot-summary options `lakehouse_ingest` builds, and the whole point is that the
-    record of the append rides in the same commit as the appended rows.
-
-    The table is prepared by `main` before the append decision, not here: the skip path reads
-    rows as well, and it must not read them before the read properties are on the table.
-    """
-    writer = silver.select(*SILVER_COLUMNS).writeTo(qualified_iceberg_table(args))
-    for key, value in snapshot_property_options(record_ids, token).items():
-        writer = writer.option(key, value)
-
-    if args.iceberg_write_mode == "overwrite":
-        writer.overwritePartitions()
-    else:
-        writer.append()
-
-
 def build_spark_session(args: argparse.Namespace) -> SparkSession:
     builder = (
         SparkSession.builder.appName("foundation-platform-vworld-parcel-boundaries-handoff-to-silver")
@@ -771,27 +738,6 @@ def read_iceberg_snapshot_for_batch(
     )
 
 
-def batch_source_record_ids(silver: DataFrame) -> list[str]:
-    """Names the Bronze objects this run carries, in a fixed order.
-
-    Sorted so that the same objects yield the same list however the input files were
-    globbed or ordered, which is what lets the token below identify a batch by content.
-    """
-    record_rows = (
-        silver.select("source_record_id").distinct().limit(MAX_READBACK_SOURCE_RECORDS + 1).collect()
-    )
-    record_ids = sorted(row.source_record_id for row in record_rows)
-    if not record_ids:
-        raise ValueError("Cannot verify Iceberg write because source_record_id is empty")
-    if len(record_ids) > MAX_READBACK_SOURCE_RECORDS:
-        raise ValueError(
-            "Iceberg write verification supports at most "
-            f"{MAX_READBACK_SOURCE_RECORDS} source records per run; "
-            "split the input into smaller batches"
-        )
-    return record_ids
-
-
 def main() -> int:
     load_pyspark()
     args = parse_args()
@@ -831,24 +777,24 @@ def main() -> int:
         else:
             # Before anything reads the table, including the read the skip path does.
             create_iceberg_table_if_missing(spark, args)
-            record_ids = batch_source_record_ids(silver)
-            token = ingest_batch_token(record_ids)
-            ingested = read_ingested_objects(
+            outcome = append_batch_once(
                 spark,
+                silver,
+                SILVER_COLUMNS,
                 qualified_iceberg_table(args),
-                unquoted_qualified_iceberg_table(args),
+                write_mode=args.iceberg_write_mode,
             )
-            if not decide_whether_to_append(ingested, record_ids):
+            if not outcome["appended"]:
                 # Count what is actually in the table rather than trusting the summary alone,
                 # so a skip reports the rows it is standing on instead of asserting them.
                 already = read_iceberg_snapshot_for_batch(spark, silver, args).count()
                 print(
                     "silver-parcel-boundaries-iceberg-already-ingested "
-                    f"rows={already} token={token} "
-                    f"snapshot={ingested[record_ids[0]]} objects={len(record_ids)}"
+                    f"rows={already} token={outcome['token']} "
+                    f"snapshot={outcome['existing_snapshot']} "
+                    f"objects={len(outcome['record_ids'])}"
                 )
                 return 0
-            write_silver_iceberg(spark, silver, args, record_ids, token)
             persisted = read_iceberg_snapshot_for_batch(spark, silver, args)
             success_target = f"table={args.iceberg_namespace}.{args.iceberg_table}"
             success_label = "silver-parcel-boundaries-iceberg-write-ok"

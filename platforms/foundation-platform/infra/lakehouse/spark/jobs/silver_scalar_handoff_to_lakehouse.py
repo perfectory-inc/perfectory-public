@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from lakehouse_engine import iceberg_packages
+from lakehouse_ingest import append_batch_once
 from platform_contracts import (
     column_names,
     columns,
@@ -702,26 +703,29 @@ def write_silver_iceberg(
     contract: dict[str, Any],
     F: Any,
     iceberg_write_mode: str | None = None,
-) -> None:
-    table = qualified_iceberg_table(args)
-    temp_view = "silver_scalar_handoff_candidate"
+) -> dict[str, Any]:
+    """Appends this batch once, whatever a re-run does.
+
+    Was a SQL `INSERT`, which cannot carry writer options, so nothing recorded what the commit
+    appended and a second run appended it again. `silver.parcel_boundaries` is what that costs
+    once a table is large enough to notice: 1,865,891 rows, three times over (root ADR-0062).
+
+    The clustering stays in front of the write. It decides how rows are laid out inside the
+    files this commit produces, and the append below writes whatever frame it is handed.
+    """
     create_iceberg_table_if_missing(spark, args, contract)
     add_missing_nullable_iceberg_columns(spark, args, contract)
-    cluster_frame_for_iceberg_write(
+    clustered = cluster_frame_for_iceberg_write(
         frame.select(*column_names(contract)),
         contract,
         F,
-    ).createOrReplaceTempView(temp_view)
-    statement = "INSERT INTO"
-    if (iceberg_write_mode or args.iceberg_write_mode) == "overwrite":
-        statement = "INSERT OVERWRITE"
-    target_columns = ", ".join(column_names(contract))
-    spark.sql(
-        f"""
-        {statement} {table} ({target_columns})
-        SELECT {target_columns}
-        FROM {temp_view}
-        """
+    )
+    return append_batch_once(
+        spark,
+        clustered,
+        column_names(contract),
+        qualified_iceberg_table(args),
+        write_mode=(iceberg_write_mode or args.iceberg_write_mode),
     )
 
 
@@ -838,7 +842,7 @@ def run_batched_input(
             )
 
             if not args.validate_only:
-                write_silver_iceberg(
+                outcome = write_silver_iceberg(
                     spark,
                     frame,
                     args,
@@ -846,6 +850,16 @@ def run_batched_input(
                     F,
                     iceberg_write_mode_for_input_batch(args, batch_index),
                 )
+                if not outcome["appended"]:
+                    # The loader offers every batch on every run, so a resumed load walks
+                    # batches the table already holds. Saying so and moving on is the resume;
+                    # stopping here would make a resume look like a failure.
+                    print(
+                        "silver-scalar-handoff-iceberg-already-ingested "
+                        f"batch={batch_index} token={outcome['token']} "
+                        f"snapshot={outcome['existing_snapshot']} "
+                        f"objects={len(outcome['record_ids'])}"
+                    )
         finally:
             if frame is not None:
                 frame.unpersist()
@@ -953,7 +967,15 @@ def main() -> int:
             success_target = f"output={args.output}"
             success_label = "silver-scalar-handoff-write-ok"
         else:
-            write_silver_iceberg(spark, frame, args, contract, F)
+            outcome = write_silver_iceberg(spark, frame, args, contract, F)
+            if not outcome["appended"]:
+                print(
+                    "silver-scalar-handoff-iceberg-already-ingested "
+                    f"token={outcome['token']} "
+                    f"snapshot={outcome['existing_snapshot']} "
+                    f"objects={len(outcome['record_ids'])}"
+                )
+                return 0
             success_target = (
                 f"table={resolve_iceberg_namespace(args)}.{resolve_iceberg_table(args)}"
             )
