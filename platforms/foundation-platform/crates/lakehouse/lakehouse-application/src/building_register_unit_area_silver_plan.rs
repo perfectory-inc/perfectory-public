@@ -7,6 +7,7 @@
 //! shared `unit_designation`, converts parcel identity per ADR 0023, and types
 //! the 전유/공용 split plus the ㎡ area value.
 
+use crate::building_register_row_identity::row_identity;
 use chrono::{DateTime, Utc};
 use foundation_normalization_domain::{
     building_register_unit_designation, normalize_building_register_floor, RawBuildingRegisterFloor,
@@ -216,7 +217,7 @@ pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line(
     }
 
     Ok(BuildingRegisterUnitAreaSourceRow {
-        source_record_id: format!("{bronze_object_key}#line-{one_based_line_number:06}"),
+        source_record_id: bronze_object_key.to_owned(),
         mgm_bldrgst_pk: mgm_bldrgst_pk.to_owned(),
         register_kind_name_raw: fields[REGISTER_KIND_NAME_INDEX].trim().to_owned(),
         register_type_name_raw: fields[REGISTER_TYPE_NAME_INDEX].trim().to_owned(),
@@ -339,7 +340,11 @@ fn build_area_silver_row(
     };
 
     let mut row = BuildingRegisterUnitAreaSilverRow {
-        area_row_id: format!("building-register-unit-area:{}", record.source_record_id),
+        area_row_id: row_identity(
+            "building-register-unit-area",
+            record.source_record_id.as_str(),
+            record.source_line_number,
+        ),
         mgm_bldrgst_pk: record.mgm_bldrgst_pk.clone(),
         register_kind_name_raw: record.register_kind_name_raw.clone(),
         register_type_name_raw: record.register_type_name_raw.clone(),

@@ -302,19 +302,37 @@ class SilverScalarHandoffToLakehouseTest(unittest.TestCase):
         )
         frame = FakeIcebergFrame()
 
-        write_silver_iceberg(spark, frame, args, contract, FakeFunctions)
+        outcome = write_silver_iceberg(spark, frame, args, contract, FakeFunctions)
 
         self.assertIn(
             "ALTER TABLE `r2`.`silver`.`building_register_units` ADD COLUMNS (normalization_application_id STRING)",
             compact_sql_statements(spark.sql_statements),
         )
-        self.assertLess(
-            compact_sql_statements(spark.sql_statements).index("ALTER TABLE"),
-            compact_sql_statements(spark.sql_statements).index("INSERT OVERWRITE"),
-        )
+        # The column has to exist before the write names it. The write is no longer a SQL
+        # statement — SQL cannot carry the options that record what a commit appended — so the
+        # ordering is asserted against the writer rather than against a second statement.
+        self.assertIsNotNone(frame.writer, "the append must go through the DataFrame writer")
+        self.assertEqual(frame.writer.mode, "overwritePartitions")
+        self.assertEqual(outcome["appended"], True)
         self.assertIn(
-            "INSERT OVERWRITE `r2`.`silver`.`building_register_units` (unit_row_id, normalization_application_id, row_checksum_sha256)",
+            "snapshot-property.foundation.ingest-batch-objects",
+            frame.writer.options,
+            "the commit must record which objects it appended",
+        )
+        self.assertEqual(
+            frame.writer.table,
+            "`r2`.`silver`.`building_register_units`",
+            "the write must name the same table the ALTER prepared",
+        )
+        self.assertEqual(
+            frame.selected_columns,
+            ("unit_row_id", "normalization_application_id", "row_checksum_sha256"),
+            "the write must carry the contract's columns, in the contract's order",
+        )
+        self.assertNotIn(
+            "INSERT",
             compact_sql_statements(spark.sql_statements),
+            "a SQL append cannot carry the record of what it appended",
         )
 
 
@@ -410,10 +428,27 @@ class FakeDescribeResult:
         return [FakeDescribeRow(column) for column in self.columns]
 
 
+class FakeCatalog:
+    """Answers the one question the append decision asks before it reads a table."""
+
+    def __init__(self, table_exists: bool) -> None:
+        self.table_exists = table_exists
+        self.asked_about: list[str] = []
+
+    def tableExists(self, name: str) -> bool:  # noqa: N802 - mirrors the Spark API
+        self.asked_about.append(name)
+        return self.table_exists
+
+
 class FakeIcebergSpark:
-    def __init__(self, existing_columns: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        existing_columns: tuple[str, ...],
+        table_exists: bool = False,
+    ) -> None:
         self.existing_columns = existing_columns
         self.sql_statements: list[str] = []
+        self.catalog = FakeCatalog(table_exists)
 
     def sql(self, statement: str) -> FakeDescribeResult | None:
         self.sql_statements.append(statement)
@@ -422,10 +457,36 @@ class FakeIcebergSpark:
         return None
 
 
+class FakeRecordRow:
+    def __init__(self, value: str) -> None:
+        self.source_record_id = value
+
+
+class FakeIcebergWriter:
+    """Records what a `writeTo` chain was asked to do, without a Spark session."""
+
+    def __init__(self, table: str) -> None:
+        self.table = table
+        self.options: dict[str, str] = {}
+        self.mode: str | None = None
+
+    def option(self, key: str, value: str) -> "FakeIcebergWriter":
+        self.options[key] = value
+        return self
+
+    def append(self) -> None:
+        self.mode = "append"
+
+    def overwritePartitions(self) -> None:
+        self.mode = "overwritePartitions"
+
+
 class FakeIcebergFrame:
-    def __init__(self) -> None:
+    def __init__(self, record_ids: tuple[str, ...] = ("bronze/source=x/a.zip",)) -> None:
         self.selected_columns: tuple[str, ...] | None = None
         self.view_name: str | None = None
+        self.record_ids = record_ids
+        self.writer: FakeIcebergWriter | None = None
 
     def select(self, *columns: str) -> "FakeIcebergFrame":
         self.selected_columns = tuple(columns)
@@ -445,6 +506,19 @@ class FakeIcebergFrame:
 
     def createOrReplaceTempView(self, view_name: str) -> None:
         self.view_name = view_name
+
+    def distinct(self) -> "FakeIcebergFrame":
+        return self
+
+    def limit(self, _count: int) -> "FakeIcebergFrame":
+        return self
+
+    def collect(self) -> list[FakeRecordRow]:
+        return [FakeRecordRow(value) for value in self.record_ids]
+
+    def writeTo(self, table: str) -> FakeIcebergWriter:
+        self.writer = FakeIcebergWriter(table)
+        return self.writer
 
 
 def compact_sql_statements(statements: list[str]) -> str:

@@ -36,6 +36,14 @@ SNAPSHOT_PROPERTY_PREFIX = "snapshot-property."
 # into two names and the skip decision would ask about objects that do not exist.
 OBJECT_NAME_SEPARATOR = ","
 
+# The column every load carries that names the Bronze object a row came from.
+SOURCE_RECORD_COLUMN = "source_record_id"
+
+# How many source objects one run may append before its read-back predicate grows unwieldy.
+# The national parcel extract is 255 objects and does not fit one Spark run on a small host,
+# so it arrives in batches; this bounds a batch rather than the dataset.
+MAX_BATCH_SOURCE_RECORDS = 64
+
 
 def ingest_batch_token(record_ids: Sequence[str]) -> str:
     """Derive a batch's identity from what it contains, not from when it ran.
@@ -119,3 +127,95 @@ def decide_whether_to_append(
             "objects on their own."
         )
     return missing
+
+
+def batch_source_record_ids(
+    frame: Any,
+    column: str = SOURCE_RECORD_COLUMN,
+    limit: int = MAX_BATCH_SOURCE_RECORDS,
+) -> list[str]:
+    """Name the source objects this run carries, in a fixed order.
+
+    Sorted so that the same objects yield the same list however the input files were globbed
+    or ordered, which is what lets the token identify a batch by its content.
+
+    One more than the limit is fetched so that exceeding it is an error rather than a silent
+    truncation. A truncated list would produce a token for a batch nobody ran, and record
+    fewer objects than the commit actually appended — which is the defect this module exists
+    to remove, reintroduced one layer down.
+    """
+    rows = frame.select(column).distinct().limit(limit + 1).collect()
+    record_ids = sorted(getattr(row, column) for row in rows)
+    if not record_ids:
+        raise ValueError(f"Cannot identify this batch because {column} is empty")
+    if len(record_ids) > limit:
+        raise ValueError(
+            f"An ingest batch may carry at most {limit} source objects; "
+            "split the input into smaller batches"
+        )
+    return record_ids
+
+
+def unquoted_table_name(qualified_table: str) -> str:
+    """Strip the identifier quotes a `spark.sql` name carries.
+
+    `spark.catalog.tableExists` wants the plain name and `spark.sql` wants the quoted one, so
+    the two spellings existed side by side and were passed as two arguments. A caller that got
+    one of them wrong would ask about a table that does not exist and append a batch the table
+    already held — the exact answer the whole check is here to avoid — so the second spelling
+    is derived rather than supplied.
+    """
+    return qualified_table.replace("`", "")
+
+
+def append_batch_once(
+    spark: Any,
+    frame: Any,
+    columns: Sequence[str],
+    qualified_table: str,
+    write_mode: str = "append",
+    record_id_column: str = SOURCE_RECORD_COLUMN,
+) -> dict[str, Any]:
+    """Append this batch, or report that the table already holds it.
+
+    The whole decision lives here rather than in each job because it is one rule, and a rule
+    restated once per job is a rule that will differ per job. Four jobs wrote through SQL
+    `INSERT`, which cannot carry writer options at all, so each of them had no record of what
+    it appended and no way to acquire one — the same shape that put 1,865,891 parcels into a
+    table three times.
+
+    Returns what happened, so the caller can log its own line without repeating the decision:
+    `appended` says whether rows were written, `record_ids` and `token` name the batch, and
+    `existing_snapshot` is the snapshot that already holds it when nothing was written.
+    """
+    record_ids = batch_source_record_ids(frame, record_id_column)
+    token = ingest_batch_token(record_ids)
+    ingested = read_ingested_objects(
+        spark, qualified_table, unquoted_table_name(qualified_table)
+    )
+
+    if not decide_whether_to_append(ingested, record_ids):
+        return {
+            "appended": False,
+            "record_ids": record_ids,
+            "token": token,
+            "existing_snapshot": ingested[record_ids[0]],
+        }
+
+    # The DataFrame writer, not SQL: only this writer accepts the options that carry the
+    # record of the append into the same commit as the rows.
+    writer = frame.select(*columns).writeTo(qualified_table)
+    for key, value in snapshot_property_options(record_ids, token).items():
+        writer = writer.option(key, value)
+
+    if write_mode == "overwrite":
+        writer.overwritePartitions()
+    else:
+        writer.append()
+
+    return {
+        "appended": True,
+        "record_ids": record_ids,
+        "token": token,
+        "existing_snapshot": None,
+    }

@@ -1,5 +1,6 @@
 //! Silver handoff helpers for official building-register floor rows.
 
+use crate::building_register_row_identity::row_identity;
 use std::collections::{BTreeMap, HashMap};
 
 mod columns;
@@ -601,7 +602,11 @@ fn build_silver_row(
     input: &BuildingRegisterFloorSilverRowsInput<'_>,
 ) -> Result<BuildingRegisterFloorSilverRow, BuildingRegisterFloorSilverPlanError> {
     let mut row = BuildingRegisterFloorSilverRow {
-        floor_row_id: format!("building-register-floor:{}", record.source_record_id),
+        floor_row_id: row_identity(
+            "building-register-floor",
+            record.source_record_id.as_str(),
+            record.source_line_number,
+        ),
         mgm_bldrgst_pk: record.mgm_bldrgst_pk.clone(),
         floor_type_code_raw: record.floor_type_code_raw.clone(),
         floor_type_name_raw: record.floor_type_name_raw.clone(),

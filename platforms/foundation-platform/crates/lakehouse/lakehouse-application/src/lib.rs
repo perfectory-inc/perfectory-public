@@ -6,6 +6,7 @@
 pub mod building_register_floor_silver_plan;
 
 /// Building-register main title parsing for floor-count and building-link witnesses.
+pub mod building_register_row_identity;
 pub mod building_register_title;
 
 /// Silver normalization helpers for official building-register unit-area rows.

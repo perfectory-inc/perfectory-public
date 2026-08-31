@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from lakehouse_engine import iceberg_packages
+from lakehouse_ingest import append_batch_once, batch_source_record_ids
 from platform_contracts import (
     partition_clause_sql,
     column_names,
@@ -989,26 +990,25 @@ def write_silver_iceberg(
     spark: SparkSession,
     silver: DataFrame,
     args: argparse.Namespace,
-) -> tuple[str, ...]:
+) -> tuple[tuple[str, ...], dict[str, Any]]:
+    """Appends this batch once, whatever a re-run does, and reports what the schema gained.
+
+    Was a SQL `INSERT`, which cannot carry writer options, so nothing recorded what the commit
+    appended and a second run appended it again. `silver.parcel_boundaries` is what that costs
+    once a table is large enough to notice: 1,865,891 rows, three times over (root ADR-0062).
+    """
     table = qualified_iceberg_table(args)
-    temp_view = "silver_industrial_complexes_candidate"
 
     create_iceberg_table_if_missing(spark, args)
     added_columns = evolve_silver_iceberg_table_to_contract(spark, table)
-    silver.select(*SILVER_COLUMNS).createOrReplaceTempView(temp_view)
-
-    statement = "INSERT INTO"
-    if args.iceberg_write_mode == "overwrite":
-        statement = "INSERT OVERWRITE"
-
-    spark.sql(
-        f"""
-        {statement} {table}
-        SELECT {", ".join(SILVER_COLUMNS)}
-        FROM {temp_view}
-        """
+    outcome = append_batch_once(
+        spark,
+        silver,
+        SILVER_COLUMNS,
+        table,
+        write_mode=args.iceberg_write_mode,
     )
-    return added_columns
+    return added_columns, outcome
 
 
 def build_spark_session(args: argparse.Namespace) -> SparkSession:
@@ -1079,16 +1079,17 @@ def read_iceberg_snapshot_for_batch(
     silver: DataFrame,
     args: argparse.Namespace,
 ) -> DataFrame:
-    snapshot_rows = silver.select("source_snapshot_id").distinct().limit(17).collect()
-    snapshot_ids = [row.source_snapshot_id for row in snapshot_rows]
-    if not snapshot_ids:
-        raise ValueError("Cannot verify Iceberg write because source_snapshot_id is empty")
-    if len(snapshot_ids) > 16:
-        raise ValueError("Iceberg write verification supports at most 16 source snapshots")
+    """Reads back only the rows this run appended.
 
+    Filtered on the source object, not on `source_snapshot_id`. The snapshot id names the
+    provider's extract, so every object of one extract carries the same value and a second
+    batch would read the first batch's rows back as its own — then fail the count check that
+    follows, reporting a write problem where there is none.
+    """
+    record_ids = batch_source_record_ids(silver)
     return (
         spark.table(qualified_iceberg_table(args))
-        .where(F.col("source_snapshot_id").isin(snapshot_ids))
+        .where(F.col("source_record_id").isin(record_ids))
         .select(*SILVER_COLUMNS)
     )
 
@@ -1126,7 +1127,18 @@ def main() -> int:
             success_target = f"output={args.output}"
             success_label = "silver-industrial-complexes-write-ok"
         else:
-            added_columns = write_silver_iceberg(spark, silver, args)
+            added_columns, outcome = write_silver_iceberg(spark, silver, args)
+            if not outcome["appended"]:
+                # Count what the table holds rather than trusting the summary alone, so a skip
+                # reports the rows it is standing on instead of asserting them.
+                already = read_iceberg_snapshot_for_batch(spark, silver, args).count()
+                print(
+                    "silver-industrial-complexes-iceberg-already-ingested "
+                    f"rows={already} token={outcome['token']} "
+                    f"snapshot={outcome['existing_snapshot']} "
+                    f"objects={len(outcome['record_ids'])}"
+                )
+                return 0
             persisted = read_iceberg_snapshot_for_batch(spark, silver, args)
             success_target = f"table={args.iceberg_namespace}.{args.iceberg_table}"
             success_label = "silver-industrial-complexes-iceberg-write-ok"
