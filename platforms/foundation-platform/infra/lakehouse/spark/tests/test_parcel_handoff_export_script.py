@@ -251,13 +251,22 @@ class ExportScriptTest(unittest.TestCase):
         # 읽기 자격증명은 이 명령이 읽지 않는다. 검사하면 없는 조건으로 거절하게 된다.
         self.assertNotIn("READER_ACCESS_KEY_ID", code, "변환기는 읽기 자격증명을 쓰지 않는다")
 
-    def test_the_source_record_id_is_the_object_it_read(self) -> None:
-        """계보 칸은 원천 객체 이름이어야 한다.
+    def test_it_does_not_name_the_object_for_the_command(self) -> None:
+        """계보 값은 명령이 정한다. 이 스크립트가 넘기면 안 된다 (root ADR-0068).
 
-        적재기의 재실행 안전장치가 이 값으로 "이 객체를 이미 넣었나"를 판단한다. 다른 것을
-        넣으면 안전장치가 엉뚱한 것을 세게 된다.
+        넘기던 시절, 이 스크립트는 계약의 전체 키를 넘겼고 3일 전 실행은 파일 이름만
+        넘겼다. 안전장치는 그 값을 글자로 비교하므로 같은 파일을 둘로 보고 이미 표에 있는
+        116만 행을 다시 넣었다.
+
+        고친 방향이 "형태를 맞춘다"가 아니라 "넘기지 않는다"인 이유는, 형태를 맞추는 것은
+        다음 호출자에게 아무 구속력이 없기 때문이다. 명령은 자기가 연 객체 키를 이미 알고
+        있다.
         """
-        self.assertIn('SOURCE_RECORD_ID="$key"', self._code())
+        code = self._code()
+
+        self.assertNotIn("SOURCE_RECORD_ID", code, "명령에게 객체 이름을 알려 주지 마라")
+        # 무엇을 열지는 여전히 넘긴다 — 그것이 이 스크립트의 일이다.
+        self.assertIn("INPUT_OBJECT_KEY", code)
 
     def _code(self) -> str:
         return "\n".join(

@@ -56,6 +56,7 @@ for g in hook-isolation-self-test \
          foundation-ci-scope-self-test \
          live-lane-completeness-self-test live-lane-completeness \
          build-coupling-baseline-self-test build-coupling-baseline \
+         lineage-is-derived-not-passed-self-test lineage-is-derived-not-passed \
          no-silent-test-skip-self-test no-silent-test-skip \
          no-env-access-in-domain-layers-self-test no-env-access-in-domain-layers \
          area-ci-input-coverage-self-test area-ci-input-coverage \

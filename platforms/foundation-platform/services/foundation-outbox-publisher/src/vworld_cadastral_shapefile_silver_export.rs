@@ -29,8 +29,6 @@ use uuid::Uuid;
 const INPUT_PATH_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_INPUT_PATH";
 const OUTPUT_PATH_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_OUTPUT_PATH";
 const SUMMARY_PATH_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_SUMMARY_PATH";
-const SOURCE_RECORD_ID_ENV: &str =
-    "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_SOURCE_RECORD_ID";
 const SOURCE_SNAPSHOT_ID_ENV: &str =
     "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_SOURCE_SNAPSHOT_ID";
 const VALID_FROM_UTC_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_VALID_FROM_UTC";
@@ -209,9 +207,30 @@ struct ExportConfig {
     input: InputSource,
     output: OutputSink,
     summary_path: Option<PathBuf>,
-    source_record_id: String,
     source_snapshot_id: String,
     valid_from_utc: DateTime<Utc>,
+}
+
+impl ExportConfig {
+    /// Names the object this run opened, in the one shape the re-run guard compares.
+    ///
+    /// Derived rather than accepted. When it was accepted, two callers spelled the same archive
+    /// two ways — `30563-196.zip` and `bronze/source=vworldkr__parcel/30563-196.zip` — and the
+    /// guard, which compares strings, read them as two archives and appended 1,164,467 rows that
+    /// were already in the table (root ADR-0068). A value nobody can pass cannot be passed wrong.
+    ///
+    /// The bare shape is not merely shorter. Sampling the bucket found `export.csv` under twelve
+    /// datasets and `page-000001.json` under four; loading one would mark the others ingested,
+    /// and they would be absent from a table reporting success.
+    fn source_record_id(&self) -> String {
+        match &self.input {
+            InputSource::R2Object(key) => key.clone(),
+            // A local path names something real, and the summary says the run read a local file
+            // rather than a collected object. Publication refuses it downstream on that ground,
+            // which is the right answer for a run that did not read the bucket.
+            InputSource::LocalPath(path) => path.display().to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -250,7 +269,6 @@ impl ExportConfig {
             input,
             output,
             summary_path: optional_env(SUMMARY_PATH_ENV)?.map(PathBuf::from),
-            source_record_id: required_env(SOURCE_RECORD_ID_ENV)?,
             source_snapshot_id: required_env(SOURCE_SNAPSHOT_ID_ENV)?,
             valid_from_utc: parse_utc_env(VALID_FROM_UTC_ENV)?,
         })
@@ -599,7 +617,7 @@ fn stream_silver_rows(
         let rows = normalize_vworld_cadastral_silver_parcel_boundary_rows(
             &VWorldCadastralSilverParcelBoundaryRowsInput {
                 records: std::slice::from_ref(&record),
-                source_record_id: &config.source_record_id,
+                source_record_id: &config.source_record_id(),
                 source_snapshot_id: &config.source_snapshot_id,
                 valid_from_utc: config.valid_from_utc,
                 ingested_at_utc,
@@ -677,7 +695,7 @@ fn write_already_present_summary(config: &ExportConfig) -> anyhow::Result<()> {
         "source": {
             "kind": "vworld_shapefile_zip",
             "input": config.input.describe(),
-            "source_record_id": config.source_record_id,
+            "source_record_id": config.source_record_id(),
             "source_snapshot_id": config.source_snapshot_id
         },
         "output": {
@@ -714,7 +732,7 @@ fn write_summary(
             "dbf_record_count": report.metadata.dbf_record_count,
             "seekable_member_bytes": report.metadata.seekable_member_bytes,
             "input_feature_count": report.input_feature_count,
-            "source_record_id": config.source_record_id,
+            "source_record_id": config.source_record_id(),
             "source_snapshot_id": config.source_snapshot_id
         },
         "output": {
@@ -883,7 +901,6 @@ mod tests {
             input: InputSource::LocalPath(input_path),
             output: OutputSink::LocalPath(output_path.clone()),
             summary_path: Some(summary_path.clone()),
-            source_record_id: "bronze:vworldkr__parcel:fixture".to_owned(),
             source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
             valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?
                 .with_timezone(&Utc),
@@ -909,7 +926,7 @@ mod tests {
         assert_eq!(lines[0]["bubun"], "0001");
         assert_eq!(lines[0]["geometry_srid"], 4326);
         assert_eq!(lines[0]["geometry_wkb_encoding"], "hex");
-        assert_eq!(lines[0]["source_record_id"], config.source_record_id);
+        assert_eq!(lines[0]["source_record_id"], config.source_record_id());
         let summary: serde_json::Value = serde_json::from_slice(&fs::read(summary_path)?)?;
         assert_eq!(summary["source"]["kind"], "vworld_shapefile_zip");
         assert_eq!(summary["quality_metrics"]["invalid_pnu_count"], 2);
@@ -993,7 +1010,6 @@ mod tests {
             input: InputSource::LocalPath(PathBuf::from("parcel.zip")),
             output: OutputSink::LocalPath(PathBuf::from("parcel.jsonl")),
             summary_path: None,
-            source_record_id: "bronze:vworldkr__parcel:fixture".to_owned(),
             source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
             valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?
                 .with_timezone(&Utc),
@@ -1017,6 +1033,39 @@ mod tests {
     ///
     /// A caller tallying converted against skipped had only the log, and both outcomes are said
     /// at `info`; a run at `warn` printed neither and counted every skip as a conversion. The
+    /// The lineage value is the object the run opened, and nothing else can decide it.
+    ///
+    /// It used to be an environment variable. Two callers spelled the same archive two ways, and
+    /// the re-run guard — which compares strings — read them as two archives and appended
+    /// 1,164,467 rows already in the table. Deriving it is the fix: there is no longer an input
+    /// through which a second spelling can arrive (root ADR-0068).
+    #[test]
+    fn the_lineage_names_the_object_the_run_opened() -> anyhow::Result<()> {
+        let key = "bronze/source=vworldkr__parcel/30563-196.zip";
+        let streamed = ExportConfig {
+            input: InputSource::R2Object(key.to_owned()),
+            output: OutputSink::R2Object("silver-handoff/x.jsonl.gz".to_owned()),
+            summary_path: None,
+            source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?
+                .with_timezone(&Utc),
+        };
+        assert_eq!(streamed.source_record_id(), key);
+        // The bare name is what the incident recorded, and what the bucket shows is ambiguous:
+        // `export.csv` exists under twelve datasets.
+        assert!(streamed.source_record_id().contains('/'));
+
+        let local = ExportConfig {
+            input: InputSource::LocalPath(PathBuf::from("parcel.zip")),
+            ..streamed
+        };
+        // A local run names the real file it read, and says so in its limitations rather than
+        // borrowing a bucket key it never opened.
+        assert_eq!(local.source_record_id(), "parcel.zip");
+        assert!(evidence_limitations(&local).contains(&"read_a_local_file_not_a_collected_object"));
+        Ok(())
+    }
+
     /// field is in the summary so the tally cannot depend on the level the caller picked.
     #[test]
     fn a_skipped_run_records_that_it_skipped_and_claims_no_measurements() -> anyhow::Result<()> {
@@ -1027,7 +1076,6 @@ mod tests {
             input: InputSource::R2Object("bronze/parcel.zip".to_owned()),
             output: OutputSink::R2Object("silver-handoff/parcel.jsonl.gz".to_owned()),
             summary_path: Some(summary_path.clone()),
-            source_record_id: "bronze/source=vworldkr__parcel/parcel.zip".to_owned(),
             source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
             valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?
                 .with_timezone(&Utc),
@@ -1039,7 +1087,7 @@ mod tests {
         assert_eq!(summary["outcome"], "already_present");
         assert_eq!(
             summary["source"]["source_record_id"],
-            config.source_record_id
+            config.source_record_id()
         );
         // Counts would be a measurement nobody took: this run never opened the archive.
         assert!(summary["output"]["row_count"].is_null());
@@ -1071,7 +1119,6 @@ mod tests {
             input: InputSource::LocalPath(input_path),
             output: OutputSink::LocalPath(root.join("parcel.jsonl")),
             summary_path: Some(summary_path.clone()),
-            source_record_id: "bronze:vworldkr__parcel:fixture".to_owned(),
             source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
             valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?
                 .with_timezone(&Utc),

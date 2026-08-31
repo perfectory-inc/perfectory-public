@@ -116,12 +116,15 @@ convert_one() {
   local log="$RUN_DIR/$base.log"
   local t0; t0=$(date +%s)
 
+  # 계보 값은 넘기지 않는다. 명령이 자기가 연 객체 키를 쓴다 (root ADR-0068). 넘기던 시절에
+  # 같은 파일이 두 이름으로 기록됐고, 안전장치가 그것을 다른 파일로 읽어 116만 행을 다시
+  # 넣었다. 넘길 수 없는 값은 틀리게 넘길 수도 없다.
+  #
   # 이미 변환됐는지는 여기서 묻지 않는다. 명령이 R2 에 직접 물어 이미 있으면 아무것도 하지
   # 않고 성공한다 — 적재기가 묶음마다 하는 것과 같다. 이 스크립트가 따로 기억하면 그것이
   # 실물과 어긋날 수 있는 세 번째 기록이 된다.
   FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_INPUT_OBJECT_KEY="$key" \
   FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_OUTPUT_OBJECT_KEY="$HANDOFF_PREFIX/$base$SUFFIX" \
-  FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_SOURCE_RECORD_ID="$key" \
   FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_SOURCE_SNAPSHOT_ID="$SOURCE_SNAPSHOT_ID" \
   FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_VALID_FROM_UTC="$VALID_FROM_UTC" \
   FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_SUMMARY_PATH="$RUN_DIR/$base.summary.json" \
