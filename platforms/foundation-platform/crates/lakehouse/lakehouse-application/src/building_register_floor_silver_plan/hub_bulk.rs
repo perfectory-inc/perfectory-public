@@ -43,7 +43,7 @@ pub fn parse_building_register_floor_source_row_from_hub_bulk_text_line(
     }
 
     Ok(BuildingRegisterFloorSourceRow {
-        source_record_id: format!("{bronze_object_key}#line-{one_based_line_number:06}"),
+        source_record_id: bronze_object_key.to_owned(),
         mgm_bldrgst_pk: required_field(&fields, MGM_BLDRGST_PK_INDEX, "mgm_bldrgst_pk")?,
         floor_type_code_raw: raw_field(&fields, FLOOR_TYPE_CODE_INDEX),
         floor_type_name_raw: raw_field(&fields, FLOOR_TYPE_NAME_INDEX),

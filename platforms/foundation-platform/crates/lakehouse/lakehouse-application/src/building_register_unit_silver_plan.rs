@@ -1,5 +1,6 @@
 //! Silver normalization helpers for official building-register unit (전유부 호) rows.
 
+use crate::building_register_row_identity::row_identity;
 use std::collections::BTreeMap;
 
 use foundation_normalization_domain::{
@@ -252,7 +253,7 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line(
     }
 
     Ok(BuildingRegisterUnitSourceRow {
-        source_record_id: format!("{bronze_object_key}#line-{one_based_line_number:06}"),
+        source_record_id: bronze_object_key.to_owned(),
         mgm_bldrgst_pk: mgm_bldrgst_pk.to_owned(),
         pnu: standard_pnu_from_hub_register_codes(
             fields[SIGUNGU_CODE_INDEX],
@@ -476,7 +477,11 @@ fn build_silver_row(
     let building_link = building_keys.resolve(&record.register_parcel_key, &record.dong_name_raw);
 
     let mut row = BuildingRegisterUnitSilverRow {
-        unit_row_id: format!("building-register-unit:{}", record.source_record_id),
+        unit_row_id: row_identity(
+            "building-register-unit",
+            record.source_record_id.as_str(),
+            record.source_line_number,
+        ),
         mgm_bldrgst_pk: record.mgm_bldrgst_pk.clone(),
         pnu: record.pnu.clone(),
         register_parcel_key: record.register_parcel_key.clone(),
