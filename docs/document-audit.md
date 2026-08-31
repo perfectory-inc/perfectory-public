@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **390개**
-- 언어 분류: **{'english': 34, 'korean': 195, 'mixed': 161}**
+- 감사 문서: **391개**
+- 언어 분류: **{'english': 34, 'korean': 196, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **201개 정상 / 0개 누락 / 189개 해당 없음**
+- 메타데이터: **201개 정상 / 0개 누락 / 190개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -88,6 +88,7 @@
 | `docs/adr/0064-the-parcel-table-is-read-without-vectorization.md` | Monorepo | ADR | Superseded by ADR-0065 | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0065-an-engine-version-is-written-once.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0066-a-table-that-fits-in-one-file-is-not-split.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0067-the-parcel-source-covers-the-country-twice.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
