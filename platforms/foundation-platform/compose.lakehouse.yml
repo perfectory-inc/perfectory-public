@@ -23,9 +23,10 @@ services:
       - sh
       - -c
       - >
-        test -w /workspace/target/lakehouse
+        test -w /workspace/target/lakehouse && test -w /home/spark/.ivy2
     volumes:
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-./target/lakehouse}:/workspace/target/lakehouse
+      - ${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-./target/lakehouse-ivy}:/home/spark/.ivy2
 
   spark:
     image: apache/spark:3.5.6-scala2.12-java17-python3-ubuntu@sha256:702d82ecea50c6f8344d3df753ba26f05ffd9d1d052e180fed9c3d6c04f77730
@@ -46,6 +47,9 @@ services:
       # 여기서 안 보이면 로컬 초록과 CI 초록이 서로 다른 것을 말한다.
       - ./scripts:/workspace/scripts:ro
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-./target/lakehouse}:/workspace/target/lakehouse
+      # spark-submit --packages 가 받은 jar 가 사는 곳. 적재기는 컨테이너를 묶음마다 새로
+      # 띄우고 --rm 으로 지우므로, 이것이 컨테이너 안에 있으면 같은 jar 를 열여섯 번 내려받는다.
+      - ${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-./target/lakehouse-ivy}:/home/spark/.ivy2
     environment:
       PATH: /opt/spark/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       PYSPARK_PYTHON: python3
