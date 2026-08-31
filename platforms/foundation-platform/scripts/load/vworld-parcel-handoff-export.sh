@@ -146,19 +146,25 @@ run_dir, total, elapsed = pathlib.Path(sys.argv[1]), int(sys.argv[2]), int(sys.a
 counts = {}
 for path in sorted(run_dir.glob("*.summary.json")):
     try:
-        counts[json.loads(path.read_text(encoding="utf-8"))["outcome"]] = counts.get(
-            json.loads(path.read_text(encoding="utf-8"))["outcome"], 0
-        ) + 1
+        outcome = json.loads(path.read_text(encoding="utf-8"))["outcome"]
     except (OSError, ValueError, KeyError) as error:
+        # 읽히지 않는 요약도 세어야 한다. 빼면 그 객체는 요약이 아예 없는 것과 구별되지
+        # 않고, 아래의 총계 대조가 "시작도 못 했다"고 말하게 된다.
         print(f"요약을 못 읽었다 {path.name}: {error}", file=sys.stderr)
-        counts["읽지못함"] = counts.get("읽지못함", 0) + 1
+        outcome = "읽지못함"
+    counts[outcome] = counts.get(outcome, 0) + 1
 
 converted = counts.get("converted", 0)
 skipped = counts.get("already_present", 0)
-accounted = sum(counts.values())
-print(
-    f"끝: 변환 {converted} · 건너뜀 {skipped} · 요약없음 {total - accounted} · {elapsed // 60}분"
-)
-# 요약이 없는 객체는 실패했거나 시작도 못 한 것이다. 0 으로 끝나면 아무도 다시 안 본다.
+# **아는 것만** 센다. 못 읽은 요약을 여기 더하면 개수가 맞아떨어져 실패가 성공으로 보인다 —
+# 세는 자리에 "무슨 일이 있었는지 모른다"를 넣으면 그 모름이 답에서 사라진다.
+accounted = converted + skipped
+unexplained = {name: n for name, n in counts.items()
+               if name not in ("converted", "already_present")}
+print(f"끝: 변환 {converted} · 건너뜀 {skipped} · 설명없음 {total - accounted} · {elapsed // 60}분")
+for name, n in sorted(unexplained.items()):
+    print(f"  요약이 있으나 결과를 알 수 없음: {name} {n}개", file=sys.stderr)
+# 설명되지 않은 객체는 실패했거나 시작도 못 한 것이다. 0 으로 끝나면 아무도 다시 안 본다:
+# 조용히 빠진 시군구 하나는 그 지역 필지 전부가 표에 없다는 뜻이고, 표는 그것을 말하지 않는다.
 sys.exit(1 if accounted != total else 0)
 PY

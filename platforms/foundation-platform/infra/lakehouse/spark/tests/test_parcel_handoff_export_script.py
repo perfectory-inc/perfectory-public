@@ -195,6 +195,21 @@ class ExportScriptTest(unittest.TestCase):
         for asking in ("-f \"$RUN_DIR", "-e \"$RUN_DIR", "-s \"$RUN_DIR"):
             self.assertNotIn(asking, worker, "요약이 있는지 물어 건너뛰면 세 번째 기록이 된다")
 
+    def test_an_unreadable_summary_does_not_count_as_an_explanation(self) -> None:
+        """총계 대조에는 **아는 것만** 넣어야 한다.
+
+        못 읽은 요약을 세면 개수가 맞아떨어져 실패가 성공으로 보인다. 세는 자리에
+        "무슨 일이 있었는지 모른다"를 넣으면 그 모름이 답에서 사라진다.
+        """
+        code = self._code()
+
+        self.assertIn("accounted = converted + skipped", code)
+        self.assertNotIn(
+            "accounted = sum(counts.values())",
+            code,
+            "전부 더하면 못 읽은 요약이 성공을 메운다",
+        )
+
     def test_an_object_without_a_summary_fails_the_run(self) -> None:
         """요약이 없는 객체는 실패했거나 시작도 못 한 것이다.
 
