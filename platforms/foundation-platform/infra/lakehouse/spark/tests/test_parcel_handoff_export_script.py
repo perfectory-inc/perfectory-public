@@ -139,6 +139,72 @@ class ExportScriptTest(unittest.TestCase):
                     f"{name} 가 접미사를 직접 적으면 정본이 둘이 된다",
                 )
 
+    def test_the_tally_is_read_from_summaries_and_not_from_the_log(self) -> None:
+        """무엇을 했는지는 요약 파일이 말한다.
+
+        로그 문장을 세던 때는 `RUST_LOG` 하나로 답이 바뀌었다. 두 결과가 모두 info
+        수준이라, warn 으로 돌린 전국 실행은 255개를 전부 건너뛰고도 전부 변환했다고
+        셌다. 세는 방식이 소음 설정에 달려 있으면, 그 설정을 바꾼 사람은 자기가 집계를
+        바꾼 줄 모른다.
+        """
+        code = self._code()
+
+        self.assertIn("SUMMARY_PATH", code, "각 변환은 자기가 한 일을 요약에 남겨야 한다")
+        self.assertIn("outcome", code, "집계는 요약의 결과 칸을 읽어야 한다")
+        self.assertNotIn(
+            'grep -aq "already exists"',
+            code,
+            "로그 문장으로 건너뜀을 세면 로그 수준이 집계를 바꾼다",
+        )
+
+    def test_each_run_writes_its_evidence_somewhere_of_its_own(self) -> None:
+        """앞 실행의 요약을 덮어쓰면 두 실행의 증거가 하나만 남는다.
+
+        남는 쪽은 나중에 쓴 것이고, 다시 돌린 실행은 대개 아무것도 안 한 실행이다.
+        그러면 무엇을 실제로 만들었는지 아는 파일이 사라진다.
+        """
+        code = self._code()
+
+        self.assertIn("RUN_ID", code)
+        self.assertRegex(code, r'RUN_DIR="\$STATE/\$RUN_ID"')
+
+    def test_it_converts_several_at_once(self) -> None:
+        """순차로는 아무도 다시 안 돌린다.
+
+        20코어 서버의 부하가 0.27 이었다 — 시간은 계산이 아니라 R2 와 주고받는 데
+        쓰인다. 겹치지 않으면 그 기다림이 하나씩 더해진다.
+        """
+        code = self._code()
+
+        self.assertIn("JOBS", code)
+        self.assertIn("xargs -P", code)
+
+    def test_the_summaries_are_counted_but_never_consulted_for_the_decision(self) -> None:
+        """건너뛸지 말지는 여전히 R2 가 정한다.
+
+        요약을 보고 건너뛰면 그것이 실물과 어긋날 수 있는 세 번째 기록이 된다 —
+        스크립트 옆의 표시 파일과 똑같은 결함이고, 이름만 요약으로 바뀐 것이다.
+        """
+        code = self._code()
+
+        for forbidden in (".done", "touch "):
+            self.assertNotIn(forbidden, code)
+        # 요약 **경로를 넘기는 것**은 쓰기지 읽기가 아니다. 결정이 되는 것은 변환 직전에
+        # 그 파일이 있는지 **묻는** 것이고, 그 물음이 있으면 안 된다.
+        worker = code.split("convert_one() {", 1)[1].split("\n}", 1)[0]
+        for asking in ("-f \"$RUN_DIR", "-e \"$RUN_DIR", "-s \"$RUN_DIR"):
+            self.assertNotIn(asking, worker, "요약이 있는지 물어 건너뛰면 세 번째 기록이 된다")
+
+    def test_an_object_without_a_summary_fails_the_run(self) -> None:
+        """요약이 없는 객체는 실패했거나 시작도 못 한 것이다.
+
+        0 으로 끝나면 아무도 다시 안 본다. 전국 실행에서 조용히 빠진 시군구 하나는
+        그 지역 필지 전부가 표에 없다는 뜻이고, 표는 그것을 말해 주지 않는다.
+        """
+        code = self._code()
+
+        self.assertIn("accounted != total", code)
+
     def test_the_source_record_id_is_the_object_it_read(self) -> None:
         """계보 칸은 원천 객체 이름이어야 한다.
 
