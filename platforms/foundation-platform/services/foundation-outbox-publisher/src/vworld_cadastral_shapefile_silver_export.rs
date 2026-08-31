@@ -58,6 +58,20 @@ const HANDOFF_CONTENT_TYPE: &str = "application/x-ndjson";
 /// The handoff is an input to a load, not something served. Nothing should cache it.
 const HANDOFF_CACHE_CONTROL: &str = "no-store";
 
+/// What the run did, in the summary rather than in a sentence.
+///
+/// A caller that wants to tally converted against skipped had only the log to read, and the log
+/// says both outcomes at `info`. The national run set `RUST_LOG=warn`, so it printed neither, and
+/// every object it skipped was tallied as converted — the run reported converting 255 objects it
+/// had not touched. A field the caller reads cannot be turned off by the level the caller chose
+/// for its own noise.
+const OUTCOME_CONVERTED: &str = "converted";
+const OUTCOME_ALREADY_PRESENT: &str = "already_present";
+
+/// Spelled once so the two summaries a run can write cannot claim different shapes.
+const SUMMARY_SCHEMA_VERSION: &str =
+    "foundation-platform.vworld_cadastral_shapefile_silver_handoff_export.v1";
+
 /// Runs one `VWorld` cadastral shapefile ZIP to Silver JSONL handoff conversion.
 ///
 /// Either end may be a local path or an R2 object key. With keys on both, the archive is read
@@ -76,6 +90,7 @@ pub async fn run() -> anyhow::Result<()> {
     // one is already done is answered by the bucket rather than by a record beside the runner,
     // because a record in a third place is a record that can disagree with the other two.
     if already_exported(&config).await? {
+        write_already_present_summary(&config)?;
         tracing::info!(
             output = %config.output.describe(),
             "VWorld cadastral shapefile Silver handoff already exists; nothing to do"
@@ -638,6 +653,42 @@ fn add_quality_metrics(target: &mut BTreeMap<String, u64>, row: &BTreeMap<String
     }
 }
 
+/// Records that this run found the handoff already there and did nothing.
+///
+/// Without it a skipped run leaves no evidence at all, and the only difference between "already
+/// converted" and "never asked" is a line in a log that may not have been kept. It carries no
+/// counts: this run did not open the archive, so it does not know how many rows the handoff has,
+/// and a zero there would be a measurement nobody took.
+fn write_already_present_summary(config: &ExportConfig) -> anyhow::Result<()> {
+    let Some(path) = config.summary_path.as_ref() else {
+        return Ok(());
+    };
+    if path.exists() {
+        bail!("refusing to overwrite existing shapefile summary output");
+    }
+    let summary = json!({
+        "schema_version": SUMMARY_SCHEMA_VERSION,
+        "generated_at_utc": Utc::now().to_rfc3339(),
+        "outcome": OUTCOME_ALREADY_PRESENT,
+        "status": "ready",
+        "completion_claim_allowed": false,
+        "production_cutover_allowed": false,
+        "national_rollout_allowed": false,
+        "source": {
+            "kind": "vworld_shapefile_zip",
+            "input": config.input.describe(),
+            "source_record_id": config.source_record_id,
+            "source_snapshot_id": config.source_snapshot_id
+        },
+        "output": {
+            "destination": config.output.describe()
+        },
+        "measurements_absent_because": "this run did not open the archive",
+        "evidence_limitations": evidence_limitations(config)
+    });
+    write_summary_json(path, &summary)
+}
+
 fn write_summary(
     path: &Path,
     config: &ExportConfig,
@@ -646,8 +697,9 @@ fn write_summary(
     quality_metrics: &BTreeMap<String, u64>,
 ) -> anyhow::Result<()> {
     let summary = json!({
-        "schema_version": "foundation-platform.vworld_cadastral_shapefile_silver_handoff_export.v1",
+        "schema_version": SUMMARY_SCHEMA_VERSION,
         "generated_at_utc": Utc::now().to_rfc3339(),
+        "outcome": OUTCOME_CONVERTED,
         "status": "ready",
         "completion_claim_allowed": false,
         "production_cutover_allowed": false,
@@ -678,7 +730,11 @@ fn write_summary(
         },
         "evidence_limitations": evidence_limitations(config)
     });
-    let bytes = serde_json::to_vec_pretty(&summary)
+    write_summary_json(path, &summary)
+}
+
+fn write_summary_json(path: &Path, summary: &serde_json::Value) -> anyhow::Result<()> {
+    let bytes = serde_json::to_vec_pretty(summary)
         .context("failed to serialize shapefile export summary")?;
     let mut pending = PendingOutput::create(path)?;
     pending
@@ -795,8 +851,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        evidence_limitations, export_handoff, run_where_blocking_is_allowed, ExportConfig,
-        InputSource, OutputSink,
+        evidence_limitations, export_handoff, run_where_blocking_is_allowed,
+        write_already_present_summary, ExportConfig, InputSource, OutputSink,
     };
 
     const KOREA_CENTRAL_BELT_2010: &str = concat!(
@@ -954,6 +1010,79 @@ mod tests {
         assert!(!limitations.contains(&"read_a_local_file_not_a_collected_object"));
         // What this command still does not do is unchanged by where the bytes came from.
         assert!(limitations.contains(&"does_not_write_iceberg_table"));
+        Ok(())
+    }
+
+    /// A skipped run must leave the same kind of evidence a converting run leaves.
+    ///
+    /// A caller tallying converted against skipped had only the log, and both outcomes are said
+    /// at `info`; a run at `warn` printed neither and counted every skip as a conversion. The
+    /// field is in the summary so the tally cannot depend on the level the caller picked.
+    #[test]
+    fn a_skipped_run_records_that_it_skipped_and_claims_no_measurements() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("foundation-vworld-skip-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root)?;
+        let summary_path = root.join("parcel.summary.json");
+        let config = ExportConfig {
+            input: InputSource::R2Object("bronze/parcel.zip".to_owned()),
+            output: OutputSink::R2Object("silver-handoff/parcel.jsonl.gz".to_owned()),
+            summary_path: Some(summary_path.clone()),
+            source_record_id: "bronze/source=vworldkr__parcel/parcel.zip".to_owned(),
+            source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?
+                .with_timezone(&Utc),
+        };
+
+        write_already_present_summary(&config)?;
+
+        let summary: serde_json::Value = serde_json::from_slice(&fs::read(&summary_path)?)?;
+        assert_eq!(summary["outcome"], "already_present");
+        assert_eq!(
+            summary["source"]["source_record_id"],
+            config.source_record_id
+        );
+        // Counts would be a measurement nobody took: this run never opened the archive.
+        assert!(summary["output"]["row_count"].is_null());
+        assert!(summary["quality_metrics"].is_null());
+        assert!(!summary["measurements_absent_because"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty());
+
+        // Writing over the previous run's evidence would leave one summary for two runs, and the
+        // one it kept would be the one whose story is shorter.
+        let second = write_already_present_summary(&config);
+        assert!(second.is_err(), "두 번째 요약이 첫 번째를 덮어썼다");
+
+        fs::remove_dir_all(&root)?;
+        Ok(())
+    }
+
+    /// The converting path names its outcome too, or a reader can only tell the two apart by
+    /// noticing which fields are missing.
+    #[tokio::test]
+    async fn a_converting_run_names_its_outcome_in_the_same_field() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("foundation-vworld-done-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root)?;
+        let input_path = root.join("parcel.zip");
+        fs::write(&input_path, fixture_zip()?)?;
+        let summary_path = root.join("parcel.summary.json");
+        let config = ExportConfig {
+            input: InputSource::LocalPath(input_path),
+            output: OutputSink::LocalPath(root.join("parcel.jsonl")),
+            summary_path: Some(summary_path.clone()),
+            source_record_id: "bronze:vworldkr__parcel:fixture".to_owned(),
+            source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?
+                .with_timezone(&Utc),
+        };
+
+        export_handoff(&config).await?;
+
+        let summary: serde_json::Value = serde_json::from_slice(&fs::read(&summary_path)?)?;
+        assert_eq!(summary["outcome"], "converted");
+        assert_eq!(summary["output"]["row_count"], 1);
+        fs::remove_dir_all(&root)?;
         Ok(())
     }
 
