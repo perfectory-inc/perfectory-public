@@ -52,11 +52,18 @@ fi
 mkdir -p "$STATE"
 
 # 어떤 알갱이를 싣는지는 목록 파일이 정한다. 여기 적으면 목록과 갈라진다.
-mapfile -t objects < <(python3 -c "
+# 핸드오프 이름의 접미사도 목록 파일이 정한다. 적재기가 같은 파일에서 같은 이름을 만들기
+# 때문에, 여기 적으면 둘이 갈라져 적재기가 없는 객체를 찾게 된다.
+SUFFIX=$(python3 -c "
 import json, sys
 c = json.load(open('$CONTRACT'))
 if c['schema_version'] != 1:
     sys.exit('source object contract schema_version %r is not the 1 this script reads' % c['schema_version'])
+print(c['handoff_suffix'])") || { echo "핸드오프 접미사를 못 읽었다" >&2; exit 1; }
+
+mapfile -t objects < <(python3 -c "
+import json
+c = json.load(open('$CONTRACT'))
 want = c['load_granularity']
 for o in c['objects']:
     if o['granularity'] == want:
@@ -72,7 +79,7 @@ started=$(date +%s)
 
 for key in "${objects[@]}"; do
   base="$(basename "$key" .zip)"
-  out_key="$HANDOFF_PREFIX/$base.jsonl"
+  out_key="$HANDOFF_PREFIX/$base$SUFFIX"
 
   if [ "$MODE" != "run" ]; then
     echo "변환예정 $base  →  $out_key"

@@ -11,6 +11,7 @@ use std::{
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use collection_domain::VWorldCadastralDedupedFeature;
+use flate2::{write::GzEncoder, Compression as GzipCompression};
 use foundation_outbox::{
     object_storage::{R2MultipartUploadWriter, R2SeekableObjectReader},
     R2ObjectStorage,
@@ -115,6 +116,21 @@ enum OutputSink {
     R2Object(String),
 }
 
+/// Suffix that asks for the handoff to be compressed on the way out.
+///
+/// Named rather than flagged so the file says what it is. A `.gz` that was not gzipped, or a
+/// plain name that was, is a file nothing can open twice the same way — and the reader here is
+/// Spark, which decides by extension.
+const GZIP_SUFFIX: &str = ".gz";
+
+/// How hard to compress.
+///
+/// Six is the default and the reason to leave it there: measured 2026-08-31 on a 625 MB
+/// national parcel handoff, level 6 leaves 20% and level 9 leaves barely less for noticeably
+/// more CPU. The machine's CPU was already idle at six percent while the wire was saturated,
+/// so the trade is worth making — but not past the point where it stops paying.
+const GZIP_LEVEL: u32 = 6;
+
 impl InputSource {
     fn describe(&self) -> String {
         match self {
@@ -129,6 +145,19 @@ impl InputSource {
 }
 
 impl OutputSink {
+    /// Whether the name asks for the bytes to be compressed.
+    ///
+    /// Taken from the name rather than a separate switch, because the reader decides the same
+    /// way. Two places that answer this differently produce a file one of them cannot open.
+    fn is_compressed(&self) -> bool {
+        match self {
+            Self::LocalPath(path) => path
+                .to_str()
+                .is_some_and(|name| name.ends_with(GZIP_SUFFIX)),
+            Self::R2Object(key) => key.ends_with(GZIP_SUFFIX),
+        }
+    }
+
     fn describe(&self) -> String {
         match self {
             Self::LocalPath(path) => path.display().to_string(),
@@ -449,10 +478,26 @@ fn convert(
     let started = Instant::now();
     let mut reader = ZipShapefileReader::new(source)?;
     let metadata = reader.metadata().clone();
-    let mut writer = BufWriter::new(&mut sink);
-    let mut stream_report = stream_silver_rows(&mut reader, &mut writer, config)?;
-    writer.flush().context("failed to flush shapefile JSONL")?;
-    drop(writer);
+
+    // Compression sits between the rows and the destination, so neither end knows about it:
+    // the row writer still writes lines, and the sink still writes bytes to wherever it goes.
+    let compress = config.output.is_compressed();
+    let mut stream_report = {
+        let mut writer = BufWriter::new(&mut sink);
+        if compress {
+            let mut gzip = GzEncoder::new(&mut writer, GzipCompression::new(GZIP_LEVEL));
+            let report = stream_silver_rows(&mut reader, &mut gzip, config)?;
+            // Explicit rather than left to `Drop`: a gzip stream ends with a trailer, and a
+            // dropped encoder cannot report a failure to write it. A truncated member reads as
+            // a short file rather than as an error, so the rows would go missing quietly.
+            gzip.finish().context("failed to finish the gzip stream")?;
+            report
+        } else {
+            let report = stream_silver_rows(&mut reader, &mut writer, config)?;
+            writer.flush().context("failed to flush shapefile JSONL")?;
+            report
+        }
+    };
     let output_bytes = sink.finish()?;
     stream_report
         .quality_metrics
@@ -840,6 +885,48 @@ mod tests {
 
         assert_eq!(observed, "blocked");
         Ok(())
+    }
+
+    /// The name decides whether the bytes are compressed, because the reader decides that way.
+    ///
+    /// Spark opens a `.gz` by its extension and nothing else. A switch beside the name would
+    /// let the two disagree, and the file that comes out of that disagreement cannot be opened
+    /// by the thing that is supposed to read it.
+    #[test]
+    fn the_name_is_what_says_the_handoff_is_compressed() {
+        let plain = OutputSink::R2Object("silver-handoff/x/30563-1.jsonl".to_owned());
+        let zipped = OutputSink::R2Object("silver-handoff/x/30563-1.jsonl.gz".to_owned());
+
+        assert!(!plain.is_compressed());
+        assert!(zipped.is_compressed());
+    }
+
+    /// Local paths answer the same way object keys do.
+    ///
+    /// They are the mode a single file gets examined in by hand, and a hand-run that produced a
+    /// differently-shaped file than the national run would be a difference nobody looks for.
+    #[test]
+    fn a_local_path_is_read_the_same_way() {
+        assert!(OutputSink::LocalPath(PathBuf::from("out/parcel.jsonl.gz")).is_compressed());
+        assert!(!OutputSink::LocalPath(PathBuf::from("out/parcel.jsonl")).is_compressed());
+    }
+
+    /// A gzip stream ends with a trailer, and a writer dropped without finishing cannot report
+    /// that it failed to write one. The result reads as a shorter file rather than as an error,
+    /// so the rows go missing without anything saying so.
+    #[test]
+    fn the_conversion_finishes_the_gzip_stream_rather_than_dropping_it() {
+        let source = include_str!("vworld_cadastral_shapefile_silver_export.rs");
+        let body = source
+            .split_once("fn convert(")
+            .map(|(_, rest)| rest)
+            .and_then(|rest| rest.split_once("\nfn "))
+            .map_or("", |(body, _)| body);
+
+        assert!(
+            body.contains("gzip.finish()"),
+            "the encoder must be finished explicitly, not left to Drop"
+        );
     }
 
     /// A summary that claims a run wrote nothing to R2 beside the object it just uploaded is
