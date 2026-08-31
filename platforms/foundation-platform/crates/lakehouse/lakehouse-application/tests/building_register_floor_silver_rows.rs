@@ -1,6 +1,7 @@
 //! Contract tests for building-register floor Silver row normalization.
 
 use chrono::{DateTime, Utc};
+use lakehouse_application::building_register_row_identity::row_identity;
 use lakehouse_application::{
     build_building_register_floor_entity_context_pack_input,
     build_building_register_floor_normalization_proposal_input,
@@ -13,7 +14,6 @@ use lakehouse_application::{
     BuildingRegisterFloorSilverRowsInput, BuildingRegisterFloorSourceRow,
     PublicDataBuildingRegisterFloorBronzeJsonInput,
 };
-use lakehouse_application::building_register_row_identity::row_identity;
 use lakehouse_domain::SILVER_BUILDING_REGISTER_FLOORS;
 use serde_json::json;
 
@@ -50,7 +50,10 @@ fn normalizes_building_register_floor_rows_into_silver_shape() -> TestResult {
     let row = &rows[0];
     // Spelled out here rather than built, so this file pins the shape at least once instead of
     // comparing the production rule against itself.
-    assert_eq!(row.floor_row_id, "building-register-floor:line-42#line-000042");
+    assert_eq!(
+        row.floor_row_id,
+        "building-register-floor:line-42#line-000042"
+    );
     assert_eq!(row.mgm_bldrgst_pk, "SYNTHETIC-BUILDING-0001");
     assert_eq!(row.floor_type_code_raw, "10");
     assert_eq!(row.floor_type_name_raw, "지하");
