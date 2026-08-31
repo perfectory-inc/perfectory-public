@@ -377,7 +377,7 @@ fn parses_hub_bulk_floor_overview_text_line_into_silver_source_row() -> TestResu
     assert_eq!(
         row,
         floor_source_row(
-            "bronze/source=hubgokr__building_register_floor_overview/OPN209912310000000013.zip#line-000002",
+            "bronze/source=hubgokr__building_register_floor_overview/OPN209912310000000013.zip",
             "SYNTHETIC-FLOOR-0001",
             "10",
             "지하",

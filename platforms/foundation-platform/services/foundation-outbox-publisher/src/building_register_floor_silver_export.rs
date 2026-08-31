@@ -1373,10 +1373,10 @@ mod tests {
 
         assert_eq!(decoded_count, 1);
         assert_eq!(rows.len(), 1);
-        assert_eq!(
-            rows[0].source_record_id,
-            format!("{object_key}#line-000001")
-        );
+        // The object, and only the object. The line used to be spelled into this value as
+        // well, which made the same column mean something different here than it does on the
+        // five tables that name a source object with it — and left the line stored twice.
+        assert_eq!(rows[0].source_record_id, object_key);
         assert_eq!(rows[0].source_line_number, Some(1));
 
         fs::remove_dir_all(root)?;
