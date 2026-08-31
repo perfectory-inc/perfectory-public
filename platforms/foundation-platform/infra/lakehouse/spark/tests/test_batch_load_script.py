@@ -22,6 +22,14 @@ class BatchLoadScriptTest(unittest.TestCase):
     def setUp(self) -> None:
         self.source = SCRIPT.read_text(encoding="utf-8")
 
+    def _code(self) -> str:
+        """실행되는 줄만. 주석에 금지된 형태를 설명하면 검사가 그것을 실물로 읽는다."""
+        return "\n".join(
+            line
+            for line in self.source.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+
     def test_the_script_exists_in_the_repository(self) -> None:
         """적재기가 저장소 밖에 있으면 그것을 아는 사람이 떠나면 사라진다."""
         self.assertTrue(SCRIPT.is_file(), f"{SCRIPT} 가 없다")
@@ -103,6 +111,60 @@ class BatchLoadScriptTest(unittest.TestCase):
             self.source,
             "캐시는 compose 가 호스트에 붙여 주는 경로를 가리켜야 한다",
         )
+
+    def test_an_object_batch_is_a_list_of_keys_not_a_glob(self) -> None:
+        """객체 묶음은 폴더가 아니라 키 목록이어야 한다.
+
+        하드링크가 없으니 묶음을 폴더로 만들 수 없고, 글롭은 접두사 아래 **전부**를 가리킨다.
+        묶음마다 전부를 읽으면 같은 데이터를 묶음 수만큼 읽는다 — 그리고 재실행 안전장치가
+        그것을 "이미 넣었다"로 받아 두 번째 묶음부터 아무것도 안 하게 된다.
+        """
+        code = self._code()
+
+        self.assertIn('input="${input:+$input,}${all[$j]}"', code, "키를 이어 붙여야 한다")
+        self.assertNotIn(
+            's3a://$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET/$HANDOFF_PREFIX/*',
+            code,
+            "객체 입력에 글롭을 쓰면 묶음이 의미를 잃는다",
+        )
+
+    def test_the_object_keys_come_from_the_contract_not_from_a_listing(self) -> None:
+        """키는 R2 를 훑어서 얻지 않는다.
+
+        훑으면 반쯤 변환된 상태가 "이만큼이 전부"로 보인다. 변환기와 적재기가 같은 목록
+        파일에서 같은 규칙으로 이름을 만들면, 아직 변환되지 않은 것을 읽으려다 그 자리에서
+        드러난다.
+        """
+        code = self._code()
+
+        self.assertIn("load_granularity", code, "실을 알갱이는 목록 파일이 정한다")
+        self.assertNotIn("list-objects", code)
+        self.assertNotIn("inventory-r2", code, "적재기가 버킷을 훑으면 안 된다")
+
+    def test_r2_credentials_reach_the_container(self) -> None:
+        """자격증명이 컨테이너 밖에 있으면 잡은 자기 입력을 못 연다.
+
+        `docker compose run` 은 호스트 환경을 물려주지 않는다. `-e` 로 넘기지 않으면 잡은
+        s3a 설정을 만들다가 없는 변수로 멈춘다 — 원인이 자격증명이라는 말은 어디에도 없이.
+        """
+        code = self._code()
+
+        for name in (
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+        ):
+            self.assertIn(f"-e {name}", code, f"{name} 을 컨테이너에 넘겨야 한다")
+
+    def test_the_reader_credentials_are_the_ones_passed(self) -> None:
+        """적재는 읽기만 한다. 쓰기 키를 넘기면 쓰지 않을 권한을 주는 것이다.
+
+        그 권한이 미치는 버킷에는 모든 표가 들어 있다.
+        """
+        code = self._code()
+
+        self.assertNotIn("R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID", code)
+        self.assertNotIn("R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY", code)
 
     def test_the_cache_directory_exists_before_the_container_wants_it(self) -> None:
         """붙일 폴더가 없으면 도커가 root 소유로 만들고, 컨테이너 사용자는 못 쓴다.

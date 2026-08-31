@@ -33,9 +33,52 @@ CREDENTIAL_ENVS: tuple[str, ...] = (ENDPOINT_ENV, ACCESS_KEY_ENV, SECRET_KEY_ENV
 S3A_SCHEME = "s3a://"
 
 
+# A batch of objects is one argument, and the objects are separated by this. The same character
+# already separates object names inside an Iceberg snapshot summary (`lakehouse_ingest`), so a
+# key holding one would break the append record as well; neither place invents the rule.
+INPUT_PATH_SEPARATOR = ","
+
+
+def input_paths(raw: str) -> str | list[str]:
+    """Return what `spark.read` should be handed for this `--input`.
+
+    A local run passes one path, often a glob, and gets it back unchanged. A run over objects
+    passes a batch, because a glob cannot select sixteen of the two hundred and fifty-five keys
+    under one prefix — the loader groups them and the grouping is the argument.
+
+    Raises when a path holds the separator, rather than silently splitting one object into two
+    that do not exist.
+    """
+    if INPUT_PATH_SEPARATOR not in raw:
+        return raw
+
+    paths = [part.strip() for part in raw.split(INPUT_PATH_SEPARATOR)]
+    if not all(paths):
+        raise ValueError(
+            f"--input holds an empty path between {INPUT_PATH_SEPARATOR!r} separators: {raw!r}"
+        )
+    return paths
+
+
 def is_object_store_path(path: str) -> bool:
-    """Return whether a job input names an object rather than a file."""
-    return path.startswith(S3A_SCHEME)
+    """Return whether a job input names objects rather than files.
+
+    Answers for the whole `--input`, batch or not. A batch that mixes the two is refused: it
+    would configure the filesystem or not, and either choice leaves half the batch unreadable
+    with an error that names a path rather than the mixture.
+    """
+    paths = input_paths(path)
+    if isinstance(paths, str):
+        return paths.startswith(S3A_SCHEME)
+
+    objects = [p for p in paths if p.startswith(S3A_SCHEME)]
+    if objects and len(objects) != len(paths):
+        local = next(p for p in paths if not p.startswith(S3A_SCHEME))
+        raise ValueError(
+            "--input mixes object keys and local paths; one batch comes from one place. "
+            f"first object={objects[0]!r} first local={local!r}"
+        )
+    return bool(objects)
 
 
 def object_store_settings(lookup: Any = os.getenv) -> dict[str, str]:
