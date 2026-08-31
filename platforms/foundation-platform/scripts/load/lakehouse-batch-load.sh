@@ -18,7 +18,13 @@ set -uo pipefail
 
 MODE="${1:-validate}"          # validate (안 씀) | load (실제 적재)
 TABLE="${2:-parcel_boundaries}"
+
+# 입력이 어디에 있는가. `local` 은 지금까지의 길이고, `r2` 는 변환기가 방금 쓴 객체를 바로
+# 읽는 길이다. 후자는 핸드오프가 서버 디스크에 머무르지 않는다 — 전국 한 번에 45.7 GB 였다.
+SOURCE="${LAKEHOUSE_HANDOFF_SOURCE:-local}"
 SRC="${LAKEHOUSE_HANDOFF_DIR:-$HOME/parcel-handoff}"
+HANDOFF_PREFIX="${VWORLD_PARCEL_HANDOFF_PREFIX:-silver-handoff/vworldkr__parcel}"
+SOURCE_CONTRACT="${VWORLD_PARCEL_SOURCE_CONTRACT:-}"
 STATE="${LAKEHOUSE_LOAD_STATE_DIR:-$HOME/parcel-load-state}"
 WORK_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-$HOME/lakehouse-state}"
 IVY_CACHE="${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-$HOME/lakehouse-ivy}"
@@ -66,38 +72,85 @@ submit() {
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
+    -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT \
+    -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID \
+    -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY \
     spark \
     spark-submit --master "local[$TASKS]" --driver-memory "$DRIVER_MEM" \
     --packages "$PACKAGES" --conf spark.jars.ivy=/home/spark/.ivy2 "$@"
 }
 
-mapfile -t all < <(ls "$SRC"/*.jsonl 2>/dev/null | xargs -n1 basename | sort)
+case "$SOURCE" in
+  local)
+    mapfile -t all < <(ls "$SRC"/*.jsonl 2>/dev/null | xargs -n1 basename | sort)
+    ;;
+  r2)
+    # 키는 R2 를 훑어서 얻지 않는다. 변환기와 이 스크립트가 같은 목록 파일을 읽고 같은
+    # 규칙으로 이름을 만들면, 변환되지 않은 것을 적재하려 들 때 그 자리에서 드러난다.
+    # 훑어서 얻으면 반쯤 변환된 상태가 "이만큼이 전부"로 보인다.
+    for v in FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET \
+             FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT \
+             FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID \
+             FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY; do
+      [ -n "${!v:-}" ] || { echo "r2 입력에는 $v 가 필요하다" >&2; exit 1; }
+    done
+    CONTRACT="${SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-parcel-source-objects.json}"
+    [ -f "$CONTRACT" ] || { echo "원천 목록이 없다: $CONTRACT" >&2; exit 1; }
+    mapfile -t all < <(python3 -c "
+import json, sys, os
+c = json.load(open('$CONTRACT'))
+if c['schema_version'] != 1:
+    sys.exit('source object contract schema_version %r is not the 1 this script reads' % c['schema_version'])
+want = c['load_granularity']
+for o in c['objects']:
+    if o['granularity'] == want:
+        base = os.path.basename(o['object_key'])[:-4]
+        print('s3a://' + os.environ['FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET'] + '/$HANDOFF_PREFIX/' + base + '.jsonl')
+") || { echo "핸드오프 키 목록을 못 만들었다" >&2; exit 1; }
+    ;;
+  *)
+    echo "LAKEHOUSE_HANDOFF_SOURCE 는 local 또는 r2 여야 한다: $SOURCE" >&2
+    exit 1
+    ;;
+esac
+
 total_files=${#all[@]}
-if [ "$total_files" -eq 0 ]; then echo "핸드오프 파일이 없다: $SRC" >&2; exit 1; fi
+if [ "$total_files" -eq 0 ]; then echo "핸드오프가 없다 (source=$SOURCE)" >&2; exit 1; fi
 
 batches=$(( (total_files + FILES_PER_BATCH - 1) / FILES_PER_BATCH ))
-echo "파일 $total_files 개 · 묶음 $batches 개 · 표 $TABLE · 방식 $MODE"
+echo "입력 $total_files 개 · 묶음 $batches 개 · 표 $TABLE · 방식 $MODE · 출처 $SOURCE"
 
 wrote=0 skipped=0 fail=0 rows_total=0
 started=$(date +%s)
 
 for (( i=0; i<batches; i++ )); do
-  work="$WORK_ROOT/batch-$i"
-  rm -rf "$work"
-  mkdir -p "$work" || { echo "묶음 디렉터리를 못 만든다: $work" >&2; exit 1; }
-
   start=$(( i * FILES_PER_BATCH ))
   count=0
-  for (( j=start; j<start+FILES_PER_BATCH && j<total_files; j++ )); do
-    ln "$SRC/${all[$j]}" "$work/${all[$j]}" 2>/dev/null || cp "$SRC/${all[$j]}" "$work/${all[$j]}"
-    count=$((count+1))
-  done
-  linked=$(ls "$work"/*.jsonl 2>/dev/null | wc -l)
-  if [ "$linked" -ne "$count" ]; then
-    echo "묶음 $i: $count 개 중 $linked 개만 준비됨 — 조용히 빠지는 것을 막기 위해 중단" >&2
-    exit 1
+
+  if [ "$SOURCE" = "local" ]; then
+    work="$WORK_ROOT/batch-$i"
+    rm -rf "$work"
+    mkdir -p "$work" || { echo "묶음 디렉터리를 못 만든다: $work" >&2; exit 1; }
+    for (( j=start; j<start+FILES_PER_BATCH && j<total_files; j++ )); do
+      ln "$SRC/${all[$j]}" "$work/${all[$j]}" 2>/dev/null || cp "$SRC/${all[$j]}" "$work/${all[$j]}"
+      count=$((count+1))
+    done
+    linked=$(ls "$work"/*.jsonl 2>/dev/null | wc -l)
+    if [ "$linked" -ne "$count" ]; then
+      echo "묶음 $i: $count 개 중 $linked 개만 준비됨 — 조용히 빠지는 것을 막기 위해 중단" >&2
+      exit 1
+    fi
+    chmod -R a+rX "$work" 2>/dev/null || true
+    input="/workspace/target/lakehouse/batch-$i/*.jsonl"
+  else
+    # 객체는 하드링크할 수 없다. 묶음은 폴더가 아니라 키 목록이고, 그 목록이 곧 인자다 —
+    # 글롭은 접두사 아래 전부를 가리킬 뿐 그중 열여섯 개를 가리키지 못한다.
+    input=""
+    for (( j=start; j<start+FILES_PER_BATCH && j<total_files; j++ )); do
+      input="${input:+$input,}${all[$j]}"
+      count=$((count+1))
+    done
   fi
-  chmod -R a+rX "$work" 2>/dev/null || true
 
   extra="--validate-only"
   [ "$MODE" = "load" ] && extra="--iceberg-write-mode append"
@@ -105,14 +158,14 @@ for (( i=0; i<batches; i++ )); do
   log="$STATE/batch-$i.$MODE.log"
   t0=$(date +%s)
   submit /workspace/infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py \
-    --input "/workspace/target/lakehouse/batch-$i/*.jsonl" \
+    --input "$input" \
     --write-mode iceberg --iceberg-table "$TABLE" \
     $extra > "$log" 2>&1
   rc=$?
   el=$(( $(date +%s) - t0 ))
   outcome=$(grep -aoE "silver-parcel-boundaries-(validate-ok|iceberg-write-ok|iceberg-already-ingested) rows=[0-9]+" "$log" | tail -1)
   rows=$(echo "$outcome" | grep -oE "[0-9]+$")
-  rm -rf "$work"
+  [ "$SOURCE" = "local" ] && rm -rf "$work"
 
   if [ "$rc" -ne 0 ]; then
     fail=$((fail+1))

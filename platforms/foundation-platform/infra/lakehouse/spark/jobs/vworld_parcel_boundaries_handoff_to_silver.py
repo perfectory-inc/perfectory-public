@@ -19,7 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from lakehouse_engine import iceberg_packages
-from lakehouse_object_store import apply_object_store_settings, is_object_store_path
+from lakehouse_object_store import (
+    apply_object_store_settings,
+    input_paths,
+    is_object_store_path,
+)
 from lakehouse_ingest import (
     append_batch_once,
     batch_source_record_ids,
@@ -220,7 +224,13 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def read_handoff_jsonl(spark: SparkSession, input_path: str) -> DataFrame:
-    handoff = spark.read.json(input_path)
+    """Reads one batch of handoff JSONL, wherever it lives.
+
+    The argument is one string because a job takes one `--input`, but a batch of objects is
+    several paths: a glob can name every key under a prefix and cannot name sixteen of them.
+    `input_paths` is what decides, so the rule for splitting is not restated per job.
+    """
+    handoff = spark.read.json(input_paths(input_path))
     missing_columns = sorted(set(HANDOFF_INPUT_COLUMNS) - set(handoff.columns))
     if missing_columns:
         raise ValueError(f"Parcel-boundary handoff is missing columns: {', '.join(missing_columns)}")
