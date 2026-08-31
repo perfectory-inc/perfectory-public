@@ -1484,6 +1484,7 @@ dependencies = [
  "collection-domain",
  "collection-infrastructure",
  "encoding_rs",
+ "flate2",
  "foundation-disposable-database",
  "foundation-normalization-application",
  "foundation-normalization-domain",

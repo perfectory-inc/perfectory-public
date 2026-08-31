@@ -10,6 +10,8 @@
     "sigungu": 255
   },
   "load_granularity": "sigungu",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_suffix_reason": "The converter names the object and the loader must derive the same name, so the suffix is here rather than spelled in both scripts. `.gz` also tells the converter to compress and tells Spark to decompress — one string decides both, because two would eventually disagree and produce a file the reader cannot open. Measured 2026-08-31: gzip leaves 20% of a 625 MB national parcel handoff, and the conversion is bound by wire speed.",
   "objects": [
     {
       "object_key": "bronze/source=vworldkr__parcel/30563-261.zip",

@@ -55,6 +55,19 @@ class SourceObjectContractTest(unittest.TestCase):
 
         self.assertEqual(unknown, [], "분류되지 않은 원천 객체가 있다")
 
+    def test_the_handoff_suffix_lives_here_and_says_it_is_compressed(self) -> None:
+        """변환기와 적재기가 같은 이름을 만들어야 한다.
+
+        이름을 두 스크립트가 각자 적으면 갈라지고, 그때 적재기는 없는 객체를 찾는다.
+        `.gz` 는 한 문자열로 두 가지를 정한다 — 변환기에게는 "압축해라", Spark 에게는
+        "풀어라". 둘을 따로 두면 언젠가 어긋나고, 그 결과는 읽는 쪽이 못 여는 파일이다.
+        """
+        suffix = self.contract["handoff_suffix"]
+
+        self.assertTrue(suffix.startswith(".jsonl"), suffix)
+        self.assertTrue(suffix.endswith(".gz"), "압축하지 않으면 전송량이 그대로다")
+        self.assertTrue(self.contract["handoff_suffix_reason"].strip())
+
     def test_each_object_key_appears_once(self) -> None:
         """같은 객체가 두 줄이면 한 번은 변환되고 한 번은 건너뛴 것처럼 보인다."""
         keys = [o["object_key"] for o in self.contract["objects"]]
@@ -104,6 +117,27 @@ class ExportScriptTest(unittest.TestCase):
             r'-z "\$SOURCE_SNAPSHOT_ID"',
             "원천 스냅숏 id 가 비면 멈춰야 한다",
         )
+
+    def test_neither_script_spells_the_handoff_suffix_itself(self) -> None:
+        """접미사는 목록 파일이 정본이다.
+
+        스크립트가 직접 적으면 그것이 두 번째 정본이 되고, 압축을 켜거나 끌 때 한쪽만
+        고치게 된다. 그때 적재기는 있지도 않은 이름의 객체를 찾는다.
+        """
+        loader = (ROOT / "scripts" / "load" / "lakehouse-batch-load.sh").read_text(encoding="utf-8")
+        for name, source in (("변환기", self.source), ("적재기", loader)):
+            code = "\n".join(
+                line
+                for line in source.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            )
+            with self.subTest(script=name):
+                self.assertIn("handoff_suffix", code, f"{name} 는 접미사를 목록 파일에서 읽어야 한다")
+                self.assertNotIn(
+                    "'.jsonl.gz'",
+                    code,
+                    f"{name} 가 접미사를 직접 적으면 정본이 둘이 된다",
+                )
 
     def test_the_source_record_id_is_the_object_it_read(self) -> None:
         """계보 칸은 원천 객체 이름이어야 한다.

@@ -34,6 +34,7 @@ lakehouse-infrastructure = { workspace = true }
 foundation-normalization-domain = { workspace = true }
 foundation-normalization-application = { workspace = true }
 foundation-normalization-infrastructure = { workspace = true }
+flate2 = { workspace = true }
 parquet = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

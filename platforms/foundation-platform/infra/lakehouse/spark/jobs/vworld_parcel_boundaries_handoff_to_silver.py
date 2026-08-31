@@ -115,7 +115,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build silver.parcel_boundaries from VWorld handoff JSONL input."
     )
-    parser.add_argument("--input", required=True, help="Silver handoff JSONL input path.")
+    parser.add_argument("--input", required=True, help="Silver handoff input path.")
+    parser.add_argument(
+        "--input-format",
+        choices=("jsonl", "parquet"),
+        default="jsonl",
+        help="Physical format of the Silver handoff input.",
+    )
     parser.add_argument("--output", help="Silver Parquet output path.")
     parser.add_argument(
         "--write-mode",
@@ -223,14 +229,27 @@ def validate_args(args: argparse.Namespace) -> None:
             require_env(name)
 
 
-def read_handoff_jsonl(spark: SparkSession, input_path: str) -> DataFrame:
-    """Reads one batch of handoff JSONL, wherever it lives.
+def read_handoff(spark: SparkSession, input_path: str, input_format: str) -> DataFrame:
+    """Reads one batch of handoff, in whichever format it was written.
 
     The argument is one string because a job takes one `--input`, but a batch of objects is
     several paths: a glob can name every key under a prefix and cannot name sixteen of them.
     `input_paths` is what decides, so the rule for splitting is not restated per job.
+
+    JSONL is what this handoff has always been and stays readable by anything. Parquet is what
+    the three building-register handoffs already use, and it is the reason this choice exists:
+    the same national extract is 46.8 GB as text and a fraction of that as compressed columns,
+    and the conversion is bound by how fast those bytes cross a wire (measured 2026-08-31 —
+    86 MB/s saturated, CPU at six percent of the machine).
     """
-    handoff = spark.read.json(input_paths(input_path))
+    paths = input_paths(input_path)
+    if input_format == "jsonl":
+        handoff = spark.read.json(paths)
+    elif input_format == "parquet":
+        handoff = spark.read.parquet(*paths) if isinstance(paths, list) else spark.read.parquet(paths)
+    else:
+        raise ValueError(f"unsupported Silver handoff input format: {input_format}")
+
     missing_columns = sorted(set(HANDOFF_INPUT_COLUMNS) - set(handoff.columns))
     if missing_columns:
         raise ValueError(f"Parcel-boundary handoff is missing columns: {', '.join(missing_columns)}")
@@ -762,7 +781,7 @@ def main() -> int:
     spark = build_spark_session(args)
 
     try:
-        handoff = read_handoff_jsonl(spark, args.input)
+        handoff = read_handoff(spark, args.input, args.input_format)
         candidate = build_candidate_frame(handoff).persist(StorageLevel.MEMORY_AND_DISK)
         silver = candidate.select(*SILVER_COLUMNS).persist(StorageLevel.MEMORY_AND_DISK)
         row_count, candidate_quality_metrics = validate_parcel_frame(

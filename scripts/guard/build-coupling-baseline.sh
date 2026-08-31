@@ -119,13 +119,21 @@ set -euo pipefail
 # at run time so a submitter that cannot find its contract fails to build instead of
 # failing in front of a load that has already started.
 #
+# 93 -> 94: a test in `vworld_cadastral_shapefile_silver_export.rs` embeds its own
+# source to check that the conversion finishes the gzip stream rather than dropping
+# the encoder. A dropped encoder writes no trailer, and it cannot report that: the
+# object is simply short, and the rows past the cut are gone with nothing saying so.
+# No run of the code distinguishes the two — both produce an object — so the only
+# thing left to check is the source, and reading it at run time would let a test pass
+# against a tree other than the one that was compiled.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-93}"
+COMPILE_TIME_READ_BASELINE="${3:-94}"
 
 cd "$repo_root"
 

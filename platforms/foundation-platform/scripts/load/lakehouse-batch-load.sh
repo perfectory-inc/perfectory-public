@@ -105,7 +105,7 @@ want = c['load_granularity']
 for o in c['objects']:
     if o['granularity'] == want:
         base = os.path.basename(o['object_key'])[:-4]
-        print('s3a://' + os.environ['FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET'] + '/$HANDOFF_PREFIX/' + base + '.jsonl')
+        print('s3a://' + os.environ['FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET'] + '/$HANDOFF_PREFIX/' + base + c['handoff_suffix'])
 ") || { echo "핸드오프 키 목록을 못 만들었다" >&2; exit 1; }
     ;;
   *)

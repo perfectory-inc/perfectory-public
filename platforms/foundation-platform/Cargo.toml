@@ -80,6 +80,12 @@ proj4wkt = "0.1.1"
 shapefile = { version = "0.9.0", default-features = false, features = ["encoding_rs", "geo-types"] }
 # 표 형식 provider 파일(xlsx) 판독기. SpreadsheetML을 직접 파싱하지 않는다.
 calamine = { version = "0.36.1", default-features = false, features = ["dates"] }
+# Handoff JSONL is written through this. Measured 2026-08-31 on a 625 MB national parcel
+# handoff: gzip leaves 20% of it. That matters because the conversion is bound by how fast
+# those bytes cross a wire — 86 MB/s saturated while the machine's CPU sat at six percent.
+# gzip rather than zstd because `spark.read.json` opens a `.gz` with no configuration, and a
+# format the reader needs to be told about is a format someone will forget to tell it about.
+flate2 = "1.1"
 arrow-array = "59"
 arrow-schema = "59"
 # zstd is the compression the Gold Iceberg tables are written with; a reader without it fails at
