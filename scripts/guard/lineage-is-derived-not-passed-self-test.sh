@@ -64,7 +64,7 @@ publication="$test_root/publication"
 make_repo "$publication"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
-  "docker run -e FOUNDATION_X_${token}=019d2b87-3fd1-7e3a-8d88-0b72c8743702 publisher promote" \
+  "FOUNDATION_X_${token}=019d2b87-3fd1-7e3a-8d88-0b72c8743702 \"\$PUBLISHER\" promote" \
   >"$publication/scripts/load/promote.sh"
 printf '%s\n' \
   "const RECORD: &str = \"FOUNDATION_X_${token}\";" \

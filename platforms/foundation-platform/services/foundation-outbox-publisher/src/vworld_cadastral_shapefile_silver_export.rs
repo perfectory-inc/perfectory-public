@@ -215,7 +215,7 @@ impl ExportConfig {
     /// Names the object this run opened, in the one shape the re-run guard compares.
     ///
     /// Derived rather than accepted. When it was accepted, two callers spelled the same archive
-    /// two ways — `30563-196.zip` and `bronze/source=vworldkr__parcel/30563-196.zip` — and the
+    /// two ways — `20991231DS99990-1.zip` and `bronze/source=vworldkr__parcel/20991231DS99990-1.zip` — and the
     /// guard, which compares strings, read them as two archives and appended 1,164,467 rows that
     /// were already in the table (root ADR-0068). A value nobody can pass cannot be passed wrong.
     ///
@@ -1041,7 +1041,7 @@ mod tests {
     /// through which a second spelling can arrive (root ADR-0068).
     #[test]
     fn the_lineage_names_the_object_the_run_opened() -> anyhow::Result<()> {
-        let key = "bronze/source=vworldkr__parcel/30563-196.zip";
+        let key = "bronze/source=vworldkr__parcel/20991231DS99990-1.zip";
         let streamed = ExportConfig {
             input: InputSource::R2Object(key.to_owned()),
             output: OutputSink::R2Object("silver-handoff/x.jsonl.gz".to_owned()),
