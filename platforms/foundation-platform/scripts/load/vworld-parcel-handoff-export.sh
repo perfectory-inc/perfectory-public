@@ -37,15 +37,24 @@ SOURCE_SNAPSHOT_ID="${VWORLD_PARCEL_SOURCE_SNAPSHOT_ID:-}"
 VALID_FROM_UTC="${VWORLD_PARCEL_VALID_FROM_UTC:-}"
 PUBLISHER="${FOUNDATION_PLATFORM_PUBLISHER_BIN:-$RELEASE/bin/foundation-outbox-publisher}"
 
-for v in FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT \
-         FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET \
-         FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID \
-         FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY; do
+# 이 명령은 R2 에 **쓴다**. 처음에 여기 적혀 있던 것은 적재기의 목록, 즉 읽기 자격증명이었다.
+# 읽기만 쥐여 주면 검사는 통과하고 255개가 전부 즉시 실패했다 — 통과했으니 확인했다고 믿게
+# 만드는, 없느니만 못한 검사였다. 무엇이 필요한지는 `R2ObjectStorageConfig::from_env` 이
+# 정하고, 이 목록이 그것과 갈라지지 못하도록 시험이 두 파일을 대조한다.
+for v in FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET \
+         FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID \
+         FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY; do
   if [ -z "${!v:-}" ]; then
     echo "필수 환경변수가 비어 있다: $v" >&2
     exit 1
   fi
 done
+# 주소는 둘 중 하나면 된다: 끝점을 직접 주거나, 계정 id 로 만들게 하거나.
+if [ -z "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT:-}" ] \
+   && [ -z "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID:-}" ]; then
+  echo "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT 이나 ..._ACCOUNT_ID 중 하나는 있어야 한다" >&2
+  exit 1
+fi
 
 # The lineage values are not invented here. A handoff whose source ids were made up is refused
 # three layers down, at publication, long after the run that wrote it is gone.

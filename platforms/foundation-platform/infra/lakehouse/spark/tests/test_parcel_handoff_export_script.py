@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -219,6 +220,36 @@ class ExportScriptTest(unittest.TestCase):
         code = self._code()
 
         self.assertIn("accounted != total", code)
+
+    def test_it_demands_the_credentials_the_command_actually_reads(self) -> None:
+        """무엇이 필요한지는 명령이 정한다. 여기 적힌 목록은 그것을 따라야 한다.
+
+        처음 적혀 있던 것은 적재기의 목록, 즉 **읽기** 자격증명이었다. 변환기는 R2 에
+        쓴다. 읽기만 쥐여 주면 검사는 통과하고 255개가 전부 즉시 실패했다 — 통과했으니
+        확인했다고 믿게 만드는, 없느니만 못한 검사였다.
+
+        목록을 손으로 맞춰 두기만 하면 이름이 바뀌는 날 다시 갈라진다. 그래서 값을
+        베끼는 대신 `R2ObjectStorageConfig::from_env` 를 읽어 대조한다.
+        """
+        source = (ROOT / "crates" / "foundation-outbox" / "src" / "object_storage" / "r2.rs").read_text(
+            encoding="utf-8"
+        )
+        body = source.split("fn from_env()", 1)[1].split("\n    }", 1)[0]
+        required = set(re.findall(r'required_env\(\s*"([A-Z0-9_]+)"', body))
+        self.assertTrue(required, "r2.rs 에서 필수 변수를 못 읽었다 — 대조가 무의미해진다")
+
+        code = self._code()
+        # 계정 id 는 끝점이 없을 때만 필수다. 그 둘은 아래에서 짝으로 확인한다. 기본값이 있는
+        # 선택 변수는 여기 없어도 된다 — 없으면 명령이 알아서 정한다.
+        conditional = {"FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID"}
+        for name in required - conditional:
+            with self.subTest(variable=name):
+                self.assertIn(name, code, f"명령이 요구하는 {name} 을 검사하지 않는다")
+        self.assertIn("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT", code)
+        self.assertIn("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID", code)
+
+        # 읽기 자격증명은 이 명령이 읽지 않는다. 검사하면 없는 조건으로 거절하게 된다.
+        self.assertNotIn("READER_ACCESS_KEY_ID", code, "변환기는 읽기 자격증명을 쓰지 않는다")
 
     def test_the_source_record_id_is_the_object_it_read(self) -> None:
         """계보 칸은 원천 객체 이름이어야 한다.
