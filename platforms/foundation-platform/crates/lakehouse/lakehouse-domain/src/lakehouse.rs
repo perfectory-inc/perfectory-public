@@ -657,7 +657,7 @@ const SILVER_BUILDING_REGISTER_UNITS_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "source_record_id",
         logical_type: "string",
-        required: true,
+        required: false,
     },
     LakehouseColumn {
         name: "source_snapshot_id",
@@ -820,7 +820,7 @@ const SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "source_record_id",
         logical_type: "string",
-        required: true,
+        required: false,
     },
     LakehouseColumn {
         name: "source_snapshot_id",
