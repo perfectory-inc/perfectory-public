@@ -21,7 +21,7 @@ CONTRACT_PATH_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_ENGINE_CONTRACT_PATH"
 DEFAULT_CONTRACT_PATH = (
     Path(__file__).resolve().parents[2] / "contracts" / "lakehouse-engine.contract.json"
 )
-CONTRACT_SCHEMA_VERSION = 1
+CONTRACT_SCHEMA_VERSION = 2
 
 
 def load_engine_contract() -> dict[str, Any]:
@@ -47,6 +47,11 @@ def iceberg_packages() -> str:
     the contract does not name. The minimum is enforced here rather than left as a comment:
     a version below it reads this deployment's larger tables by corrupting native memory, and
     the failure surfaces as a JVM abort with no mention of Iceberg in it.
+
+    Every block the contract names is included. Iceberg's bundle backs its own storage layer
+    and Hadoop's backs the `s3a://` filesystem; a job that reads a handoff object out of R2
+    needs both, and a job that only writes tables carries one jar it does not open. Splitting
+    the submission by what each job happens to touch would put that decision in eight places.
     """
     contract = load_engine_contract()
     iceberg = contract["iceberg"]
@@ -59,4 +64,7 @@ def iceberg_packages() -> str:
             f"{iceberg['minimum_version_reason']}"
         )
 
-    return ",".join(f"{artifact}:{version}" for artifact in iceberg["artifacts"])
+    coordinates = [f"{artifact}:{version}" for artifact in iceberg["artifacts"]]
+    hadoop = contract["hadoop"]
+    coordinates += [f"{artifact}:{hadoop['version']}" for artifact in hadoop["artifacts"]]
+    return ",".join(coordinates)

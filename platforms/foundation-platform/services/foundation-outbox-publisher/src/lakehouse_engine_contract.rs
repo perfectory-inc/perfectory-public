@@ -17,12 +17,13 @@ use serde::Deserialize;
 
 const CONTRACT_JSON: &str =
     include_str!("../../../infra/lakehouse/contracts/lakehouse-engine.contract.json");
-const CONTRACT_SCHEMA_VERSION: u32 = 1;
+const CONTRACT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Deserialize)]
 struct Contract {
     schema_version: u32,
     iceberg: Iceberg,
+    hadoop: Hadoop,
 }
 
 #[derive(Deserialize)]
@@ -31,6 +32,14 @@ struct Iceberg {
     artifacts: Vec<String>,
     minimum_version: String,
     minimum_version_reason: String,
+}
+
+/// The Hadoop side of the submission, versioned separately because it is pinned to the Spark
+/// image's own Hadoop rather than to Iceberg.
+#[derive(Deserialize)]
+struct Hadoop {
+    version: String,
+    artifacts: Vec<String>,
 }
 
 /// Comma-joined Maven coordinates for `spark-submit --packages`.
@@ -72,12 +81,23 @@ fn resolve_packages() -> anyhow::Result<String> {
         );
     }
 
-    Ok(iceberg
+    // Both blocks, always. Iceberg's bundle backs its own storage layer and Hadoop's backs the
+    // `s3a://` filesystem a job reads a handoff object through; submitting only the block a
+    // given job seems to need would put that judgement in every submitter.
+    let hadoop = &contract.hadoop;
+    let coordinates = iceberg
         .artifacts
         .iter()
         .map(|artifact| format!("{artifact}:{}", iceberg.version))
-        .collect::<Vec<_>>()
-        .join(","))
+        .chain(
+            hadoop
+                .artifacts
+                .iter()
+                .map(|artifact| format!("{artifact}:{}", hadoop.version)),
+        )
+        .collect::<Vec<_>>();
+
+    Ok(coordinates.join(","))
 }
 
 fn version_tuple(value: &str) -> anyhow::Result<Vec<u32>> {
@@ -101,10 +121,15 @@ mod tests {
         let packages = iceberg_packages()?;
         let coordinates: Vec<&str> = packages.split(',').collect();
 
-        assert_eq!(
-            coordinates.len(),
-            2,
-            "runtime and aws bundle are both required"
+        // Counted rather than listed: the count is what a submission that quietly dropped a
+        // block would change, and listing the names here would restate the contract.
+        assert!(
+            coordinates.len() >= 3,
+            "the Iceberg runtime, its aws bundle, and the s3a filesystem are all required: {packages}"
+        );
+        assert!(
+            packages.contains("hadoop-aws"),
+            "without it `spark.read` cannot open an s3a object: {packages}"
         );
         for coordinate in coordinates {
             let parts: Vec<&str> = coordinate.split(':').collect();
