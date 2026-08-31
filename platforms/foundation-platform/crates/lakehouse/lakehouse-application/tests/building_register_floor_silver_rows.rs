@@ -13,10 +13,23 @@ use lakehouse_application::{
     BuildingRegisterFloorSilverRowsInput, BuildingRegisterFloorSourceRow,
     PublicDataBuildingRegisterFloorBronzeJsonInput,
 };
+use lakehouse_application::building_register_row_identity::row_identity;
 use lakehouse_domain::SILVER_BUILDING_REGISTER_FLOORS;
 use serde_json::json;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// The line a fixture's stand-in record name stands for.
+///
+/// The fixtures name records `line-42` rather than carrying a bronze key and a separate
+/// number. Both the input builder and the expected-row builder need the same reading of that
+/// name, and two readings of it is how they would stop agreeing.
+fn fixture_line_number(source_record_id: &str) -> u64 {
+    source_record_id
+        .strip_prefix("line-")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0)
+}
 
 const FIXTURE_VALID_FROM_UTC: &str = "2026-06-20T00:00:00Z";
 const FIXTURE_INGESTED_AT_UTC: &str = "2026-07-01T10:00:00Z";
@@ -35,7 +48,9 @@ fn normalizes_building_register_floor_rows_into_silver_shape() -> TestResult {
 
     assert_eq!(rows.len(), 1);
     let row = &rows[0];
-    assert_eq!(row.floor_row_id, "building-register-floor:line-42");
+    // Spelled out here rather than built, so this file pins the shape at least once instead of
+    // comparing the production rule against itself.
+    assert_eq!(row.floor_row_id, "building-register-floor:line-42#line-000042");
     assert_eq!(row.mgm_bldrgst_pk, "SYNTHETIC-BUILDING-0001");
     assert_eq!(row.floor_type_code_raw, "10");
     assert_eq!(row.floor_type_name_raw, "지하");
@@ -519,12 +534,7 @@ fn floor_row(
         floor_type_name_raw: floor_type_name_raw.to_owned(),
         floor_number_raw: floor_number_raw.to_owned(),
         floor_label_raw: floor_label_raw.map(str::to_owned),
-        source_line_number: Some(
-            source_record_id
-                .strip_prefix("line-")
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(0),
-        ),
+        source_line_number: Some(fixture_line_number(source_record_id)),
     }
 }
 
@@ -554,7 +564,14 @@ fn silver_row(
     normalization_reason: &str,
 ) -> TestResult<BuildingRegisterFloorSilverRow> {
     Ok(BuildingRegisterFloorSilverRow {
-        floor_row_id: format!("building-register-floor:{source_record_id}"),
+        // Built by the production rule, not by a second spelling of it here. What the rule
+        // produces is pinned once, in `building_register_row_identity`; what this file checks
+        // is that the plan feeds it the right record and line.
+        floor_row_id: row_identity(
+            "building-register-floor",
+            source_record_id,
+            Some(fixture_line_number(source_record_id)),
+        ),
         mgm_bldrgst_pk: "SYNTHETIC-BUILDING-0001".to_owned(),
         floor_type_code_raw: "10".to_owned(),
         floor_type_name_raw: "basement_raw".to_owned(),
