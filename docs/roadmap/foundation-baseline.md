@@ -19,7 +19,7 @@ last_reviewed: 2026-08-06
 ## G1 — 생산자 없는 canonical 표
 
 - canonical 표: **61개**
-- 그중 생산자 없음: **20개**
+- 그중 생산자 없음: **19개**
 
 테스트와 시드를 뺀 `INSERT INTO`가 하나도 없는 표입니다. 시드를 세지 않는 이유는, 표를
 채우는 fixture가 바로 시스템이 그 표를 채우지 않는다는 사실을 가리기 때문입니다.
@@ -41,7 +41,6 @@ last_reviewed: 2026-08-06
 | `catalog.manufacturer` |
 | `catalog.notice_attachment` |
 | `catalog.outbox_quarantine` |
-| `catalog.parcel` |
 | `catalog.parcel_administrative_unit` |
 | `catalog.parcel_industry_assignment` |
 | `catalog.spatial_layer` |

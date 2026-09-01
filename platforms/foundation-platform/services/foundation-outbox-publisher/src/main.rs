@@ -125,6 +125,7 @@ mod page_collector;
 mod page_count_plan_contract;
 mod pagination_guard;
 mod parcel_boundary_postgis_publish;
+mod parcel_catalog_projection_load;
 mod parcel_marker_anchor_artifact_export;
 mod parcel_marker_anchor_pbf_artifact_build;
 mod parcel_marker_anchor_pbf_manifest_promote;
@@ -247,6 +248,7 @@ enum Command {
     PublishIndustrialComplexBoundaryStaticRelease,
     ProveIndustrialComplexBoundaryStaticReleaseMutationGuards,
     PublishParcelBoundaryPostgis,
+    LoadParcelCatalogProjection,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
@@ -491,6 +493,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             industrial_complex_boundary_static_release_publish::run_local_mutation_guard_proof(),
         ),
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
+        Command::LoadParcelCatalogProjection => Box::pin(parcel_catalog_projection_load::run()),
         Command::SealParcelPublicationEvidence => {
             Box::pin(parcel_publication_evidence_sealer::run())
         }
@@ -1046,6 +1049,7 @@ where
             Ok(Command::ProveIndustrialComplexBoundaryStaticReleaseMutationGuards)
         }
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
+        Some("load-parcel-catalog-projection") => Ok(Command::LoadParcelCatalogProjection),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
         Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),
         Some("promote-administrative-boundary-runtime") => {

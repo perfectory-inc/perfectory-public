@@ -84,7 +84,7 @@ pub use mutation_idempotency::{
     CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 pub use notice::{ComplexNotice, NoticeAttachment, NoticeType, ParseNoticeTypeError};
-pub use parcel::{Parcel, ParcelKind, ParcelKindEdit, ParseParcelKindError};
+pub use parcel::{parcel_id_for_pnu, Parcel, ParcelKind, ParcelKindEdit, ParseParcelKindError};
 pub use parcel_complex_membership::MembershipAssertedBy;
 pub use serving_publication::{
     is_publication_unit_key, static_file_asset_id_for_build, static_release_id_for_build,
