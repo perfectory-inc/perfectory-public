@@ -52,9 +52,19 @@ for name, spec in sorted(contracts.items()):
         continue
     # 선언한 칸이 실제로 그 표에 있어야 한다. 없는 칸을 가리키면 적재는 그 자리에서 죽고,
     # 죽는 자리는 전국 실행이 이미 몇 시간 돈 뒤다.
-    columns = {c.get("name") for c in spec.get("columns", []) if isinstance(c, dict)}
+    columns = {
+        c.get("name"): c.get("required")
+        for c in spec.get("columns", [])
+        if isinstance(c, dict)
+    }
     if column not in columns:
         problems.append(f"{name}: reads {column!r}, which the table does not have")
+        continue
+    # 그리고 그 칸은 필수여야 한다. 선택이면 적재기가 칸을 조용히 추가하고 기존 행을 전부
+    # 비워 둔 채 성공하며, 안전장치는 셀 것이 없는 채로 통과한다. 2026-09-01 기준 아홉 계약
+    # 모두 이 성질을 이미 만족한다 — 이 검사는 그것이 계속 참이게 한다 (root ADR-0069).
+    if columns[column] is not True:
+        problems.append(f"{name}: reads {column!r}, which the contract marks optional")
 
 if problems:
     print("FAIL every-table-declares-its-load:", file=sys.stderr)

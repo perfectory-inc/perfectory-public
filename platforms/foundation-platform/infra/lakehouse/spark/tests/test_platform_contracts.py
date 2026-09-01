@@ -372,12 +372,12 @@ class LoadUnitTest(unittest.TestCase):
         """
         value = (
             "foundation-platform:bronze:"
-            "bronze/source=vworldkr__sandan_profile/30138-6.zip#247930"
+            "bronze/source=vworldkr__sandan_profile/20991231DS99991-1.zip#247930"
         )
 
         self.assertEqual(
             load_identity_from_value("silver.industrial_complexes", value),
-            "bronze/source=vworldkr__sandan_profile/30138-6.zip",
+            "bronze/source=vworldkr__sandan_profile/20991231DS99991-1.zip",
         )
 
     def test_a_value_that_does_not_match_its_declaration_is_an_error(self) -> None:
@@ -386,7 +386,7 @@ class LoadUnitTest(unittest.TestCase):
             load_identity_from_value("silver.industrial_complexes", "30138-6.zip#247930")
 
     def test_a_plain_object_value_is_left_alone(self) -> None:
-        key = "bronze/source=vworldkr__sandan_boundary/30137-1.zip"
+        key = "bronze/source=vworldkr__sandan_boundary/20991231DS99992-1.zip"
 
         self.assertEqual(
             load_identity_from_value("silver.industrial_complex_boundaries", key), key

@@ -31,6 +31,10 @@ elif edit == "no-column":
     doc["contracts"][table]["load"].pop("column", None)
 elif edit == "absent-column":
     doc["contracts"][table]["load"]["column"] = "a_column_that_is_not_there"
+elif edit == "optional-column":
+    for column in doc["contracts"][table]["columns"]:
+        if column["name"] == doc["contracts"][table]["load"]["column"]:
+            column["required"] = False
 open(target, "w", encoding="utf-8").write(json.dumps(doc))
 PY
   printf '%s' "$root"
@@ -53,5 +57,7 @@ expect_rejected "$(fixture kind unknown-kind)" "모르는 단위 이름"
 expect_rejected "$(fixture nocol no-column)" "읽을 칸이 없다"
 # 선언한 칸이 표에 없으면 적재는 그 자리에서 죽는다. 전국 실행이 몇 시간 돈 뒤에.
 expect_rejected "$(fixture absent absent-column)" "없는 칸을 가리킨다"
+# 선택 칸을 가리키면 적재기가 그 칸을 조용히 추가하고 기존 행을 비워 둔 채 성공한다.
+expect_rejected "$(fixture optional optional-column)" "선택 칸을 가리킨다"
 
 echo "OK every-table-declares-its-load-self-test"
