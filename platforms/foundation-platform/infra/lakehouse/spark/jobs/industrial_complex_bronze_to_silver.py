@@ -1006,6 +1006,7 @@ def write_silver_iceberg(
         silver,
         SILVER_COLUMNS,
         table,
+        RUN_SUMMARY_CONTRACT,
         write_mode=args.iceberg_write_mode,
     )
     return added_columns, outcome

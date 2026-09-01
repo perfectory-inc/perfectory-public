@@ -880,6 +880,7 @@ def write_silver_iceberg(spark: Any, silver: Any, args: argparse.Namespace) -> d
         silver,
         SILVER_COLUMNS,
         qualified_iceberg_table(args),
+        RUN_SUMMARY_CONTRACT,
         write_mode=args.iceberg_write_mode,
     )
 

@@ -725,6 +725,7 @@ def write_silver_iceberg(
         clustered,
         column_names(contract),
         qualified_iceberg_table(args),
+        args.contract,
         write_mode=(iceberg_write_mode or args.iceberg_write_mode),
     )
 

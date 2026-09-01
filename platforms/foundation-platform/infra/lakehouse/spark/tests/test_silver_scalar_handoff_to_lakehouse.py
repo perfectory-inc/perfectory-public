@@ -458,8 +458,15 @@ class FakeIcebergSpark:
 
 
 class FakeRecordRow:
-    def __init__(self, value: str) -> None:
-        self.source_record_id = value
+    """Carries only the column that was selected.
+
+    A row that answers to every lineage column lets a reader of the wrong one pass. That is how
+    `silver.building_register_units` — which identifies a load by `source_snapshot_id` — was
+    compared on `source_record_id` with the tests green (root ADR-0069).
+    """
+
+    def __init__(self, column: str, value: str) -> None:
+        setattr(self, column, value)
 
 
 class FakeIcebergWriter:
@@ -514,7 +521,12 @@ class FakeIcebergFrame:
         return self
 
     def collect(self) -> list[FakeRecordRow]:
-        return [FakeRecordRow(value) for value in self.record_ids]
+        if self.selected_columns is None or len(self.selected_columns) != 1:
+            raise AssertionError(
+                "a lineage read selects exactly one column; "
+                f"this one selected {self.selected_columns!r}"
+            )
+        return [FakeRecordRow(self.selected_columns[0], value) for value in self.record_ids]
 
     def writeTo(self, table: str) -> FakeIcebergWriter:
         self.writer = FakeIcebergWriter(table)

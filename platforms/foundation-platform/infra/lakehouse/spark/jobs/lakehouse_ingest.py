@@ -24,6 +24,8 @@ import hashlib
 from collections.abc import Sequence
 from typing import Any
 
+from platform_contracts import load_identity_from_value, load_unit
+
 # Written in the same Iceberg commit as the data files. `TOKEN` names the batch for a human
 # reading `<table>.snapshots`; `OBJECTS` is what the skip decision actually reads.
 INGEST_BATCH_TOKEN_KEY = "foundation.ingest-batch-token"
@@ -36,7 +38,9 @@ SNAPSHOT_PROPERTY_PREFIX = "snapshot-property."
 # into two names and the skip decision would ask about objects that do not exist.
 OBJECT_NAME_SEPARATOR = ","
 
-# The column every load carries that names the Bronze object a row came from.
+# The column the read-back predicate filters on. It is not the column the registry reads —
+# three tables identify a load by `source_snapshot_id` — so this name belongs to the read-back
+# and nothing else. `load_unit` answers the registry's question.
 SOURCE_RECORD_COLUMN = "source_record_id"
 
 # How many source objects one run may append before its read-back predicate grows unwieldy.
@@ -153,15 +157,19 @@ def batch_source_record_ids(
     column: str = SOURCE_RECORD_COLUMN,
     limit: int = MAX_BATCH_SOURCE_RECORDS,
 ) -> list[str]:
-    """Name the source objects this run carries, in a fixed order.
+    """Name the raw lineage values this run carries, in a fixed order.
+
+    These are what the read-back predicate filters the table by, so they stay exactly as the
+    rows spell them. The registry asks a different question — what identity a load is counted
+    in — and `batch_load_identities` answers that one; the two were the same function until
+    2026-09-01, which is how three tables came to be compared on a column they do not use.
 
     Sorted so that the same objects yield the same list however the input files were globbed
-    or ordered, which is what lets the token identify a batch by its content.
+    or ordered.
 
     One more than the limit is fetched so that exceeding it is an error rather than a silent
-    truncation. A truncated list would produce a token for a batch nobody ran, and record
-    fewer objects than the commit actually appended — which is the defect this module exists
-    to remove, reintroduced one layer down.
+    truncation. A truncated list would read back fewer rows than the commit appended and then
+    report the shortfall as a write problem.
     """
     rows = frame.select(column).distinct().limit(limit + 1).collect()
     record_ids = sorted(getattr(row, column) for row in rows)
@@ -173,6 +181,54 @@ def batch_source_record_ids(
             "split the input into smaller batches"
         )
     return record_ids
+
+
+def batch_load_identities(
+    frame: Any,
+    contract_table: str,
+    limit: int = MAX_BATCH_SOURCE_RECORDS,
+) -> list[str]:
+    """Name what this batch would add to the registry, in the unit the contract declares.
+
+    Two things the caller must not decide for itself, because a caller deciding them is the
+    defect this exists to remove:
+
+    - **Which column.** `silver.building_register_units` and `_unit_areas` identify a load by
+      `source_snapshot_id`; reading `source_record_id` there compares a column those tables
+      leave null, so nothing ever matches and every re-run appends. Between them they hold
+      133,583,046 rows.
+    - **Whether the value is the identity.** `silver.industrial_complexes` writes one value per
+      row — `foundation-platform:bronze:{key}#{code}` — so its 1,442 rows are one object, not
+      1,442 of them. Compared whole they exceed the per-batch limit and the load is refused
+      rather than protected.
+
+    The scan is not truncated when a derivation applies. Cutting the raw values at the limit
+    and reducing afterwards could see only the rows of one object out of several, and would
+    then record fewer objects than the commit appended (root ADR-0069).
+    """
+    declared = load_unit(contract_table)
+    if declared["unit"] == "derived":
+        raise ValueError(
+            f"{contract_table} is derived and its producer replaces rather than appends, so "
+            "there is no load identity to record"
+        )
+    column = declared["column"]
+    reduces = bool(declared.get("object_prefix") or declared.get("object_suffix_separator"))
+
+    values = frame.select(column).distinct()
+    rows = values.collect() if reduces else values.limit(limit + 1).collect()
+    raw = [getattr(row, column) for row in rows]
+    if not raw:
+        raise ValueError(
+            f"Cannot identify this batch because {contract_table} carries no {column} value"
+        )
+    identities = sorted({load_identity_from_value(contract_table, value) for value in raw})
+    if len(identities) > limit:
+        raise ValueError(
+            f"An ingest batch may carry at most {limit} {declared['unit']} identities and this "
+            f"one carries {len(identities)}; split the input into smaller batches"
+        )
+    return identities
 
 
 def unquoted_table_name(qualified_table: str) -> str:
@@ -192,8 +248,8 @@ def append_batch_once(
     frame: Any,
     columns: Sequence[str],
     qualified_table: str,
+    contract_table: str,
     write_mode: str = "append",
-    record_id_column: str = SOURCE_RECORD_COLUMN,
 ) -> dict[str, Any]:
     """Append this batch, or report that the table already holds it.
 
@@ -203,11 +259,16 @@ def append_batch_once(
     it appended and no way to acquire one — the same shape that put 1,865,891 parcels into a
     table three times.
 
+    `contract_table` names the contract, not the Iceberg table: the target may be a `_smoke`
+    copy, and what a load carries is a property of the dataset either way. It is required
+    rather than defaulted because the default was `source_record_id` and no caller ever
+    overrode it, so three tables were compared on a column they do not fill (root ADR-0069).
+
     Returns what happened, so the caller can log its own line without repeating the decision:
     `appended` says whether rows were written, `record_ids` and `token` name the batch, and
     `existing_snapshot` is the snapshot that already holds it when nothing was written.
     """
-    record_ids = batch_source_record_ids(frame, record_id_column)
+    record_ids = batch_load_identities(frame, contract_table)
     token = ingest_batch_token(record_ids)
     unquoted = unquoted_table_name(qualified_table)
     ingested = read_ingested_objects(spark, qualified_table, unquoted)
