@@ -80,3 +80,4 @@ last_reviewed: 2026-07-28
 - [0067 — 필지 원천은 전국을 두 번 덮는다](./0067-the-parcel-source-covers-the-country-twice.md)
 - [0068 — 명령이 자기가 읽은 객체의 이름을 적는다](./0068-the-command-names-the-object-it-read.md)
 - [0069 — 한 칸에 다섯 가지가 들어 있다](./0069-one-column-holds-five-kinds-of-thing.md)
+- [0070 — 경계 원천은 필지의 용도도 면적도 나르지 않는다](./0070-the-boundary-source-carries-neither-use-nor-area.md)

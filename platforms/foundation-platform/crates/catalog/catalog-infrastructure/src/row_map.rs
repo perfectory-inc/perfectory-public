@@ -110,11 +110,18 @@ pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
 }
 
 pub fn row_to_parcel(row: &PgRow) -> Result<Parcel, CatalogError> {
-    let kind_raw: String = row.try_get("kind").map_err(map_sqlx)?;
-    let kind = ParcelKind::from_wire(&kind_raw)
-        .map_err(|e| CatalogError::Infrastructure(e.to_string()))?;
-    let area_i64: i64 = row.try_get("area_m2").map_err(map_sqlx)?;
-    let area = i64_to_u64(area_i64)?;
+    // Both optional in the database and both read as optional here. Read as required, the first
+    // loaded parcel — which has neither until a person decides a kind and a source supplies an
+    // area — would fail every list that contains it (root ADR-0070).
+    let kind_raw: Option<String> = row.try_get("kind").map_err(map_sqlx)?;
+    let kind = match kind_raw {
+        Some(raw) => Some(
+            ParcelKind::from_wire(&raw).map_err(|e| CatalogError::Infrastructure(e.to_string()))?,
+        ),
+        None => None,
+    };
+    let area_i64: Option<i64> = row.try_get("area_m2").map_err(map_sqlx)?;
+    let area = area_i64.map(i64_to_u64).transpose()?;
     let pnu_raw: String = row.try_get("pnu").map_err(map_sqlx)?;
     let pnu = Pnu::parse(pnu_raw).map_err(CatalogError::InvalidPnu)?;
     Ok(Parcel {

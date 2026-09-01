@@ -81,6 +81,15 @@ last_reviewed: 2026-08-11
 필지(`parcel`)는 다르다 — 실버에 아직 없으므로 소유자 결정이 여전히 선행한다. **두 경우를 한
 덩어리로 묶어 "정본 실버에 주인이 없다"고 적었던 것이 이 항목이 통째로 막혀 보이던 이유다.**
 
+**2026-09-01 실측이 앞 문단의 마지막 문장을 뒤집었다.** 필지도 더 이상 데이터 문제가 아니다 —
+`silver.parcel_boundaries` 에 **39,861,511행**이 있고 재실행 안전장치가 그 표에서 돈다(root
+ADR-0069). 남아 있던 것은 스키마였다. `catalog.parcel.kind` 와 `area_m2` 가 둘 다 `NOT NULL`
+이고 어느 것도 원천이 나르지 않아, 적재기를 쓰기 시작하면 첫 줄에서 막혔다. 그리고 이 표를
+가리키는 필수 외래키가 넷이라 `catalog.building`·`catalog.building_unit`·`catalog.manufacturer`
+·`catalog.parcel_industry_assignment` 도 함께 기다리고 있었다 — 위 목록의 다섯이 한 결정에
+걸려 있었다. root ADR-0070 이 두 칸의 `NOT NULL` 을 내렸다. **"막혀 있다"의 이유를 데이터로
+적어 두면, 데이터가 도착한 날에도 목록은 막힌 채로 남는다.**
+
 ## G2 — 수직 슬라이스 하나가 CI 안에서 끝까지 지난다
 
 **불변식.** 원천 → bronze → canonical → 발행 → 타일 → API 응답을 CI가 한 번에 통과시키는

@@ -955,7 +955,7 @@ fn parcel_response(parcel: &Parcel) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
         pnu: parcel.pnu.as_str().to_owned(),
-        kind: parcel.kind.wire_name().to_owned(),
+        kind: parcel.kind.map(|kind| kind.wire_name().to_owned()),
         area_m2: parcel.area_m2,
         version: parcel.version,
         updated_at: parcel.updated_at,

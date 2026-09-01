@@ -46,6 +46,13 @@ field ParcelKindChangedV1 previous_kind
 field ParcelKindChangedV1 new_kind
 field ParcelKindChangedV1 changed_at
 
+event catalog.parcel.kind_assigned.v1 ParcelKindAssignedV1
+field ParcelKindAssignedV1 schema_version
+field ParcelKindAssignedV1 parcel_id
+field ParcelKindAssignedV1 pnu
+field ParcelKindAssignedV1 assigned_kind
+field ParcelKindAssignedV1 assigned_at
+
 event catalog.parcel_marker_anchor.snapshot.published.v1 ParcelMarkerAnchorSnapshotPublishedV1
 field ParcelMarkerAnchorSnapshotPublishedV1 schema_version
 field ParcelMarkerAnchorSnapshotPublishedV1 anchor_snapshot_id

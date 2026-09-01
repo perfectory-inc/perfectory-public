@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **393개**
-- 언어 분류: **{'english': 36, 'korean': 196, 'mixed': 161}**
+- 감사 문서: **394개**
+- 언어 분류: **{'english': 36, 'korean': 197, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **201개 정상 / 0개 누락 / 192개 해당 없음**
+- 메타데이터: **201개 정상 / 0개 누락 / 193개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -41,8 +41,8 @@
 | `docs/adr/0016-a-postgis-projection-load-is-a-fact-with-an-identity.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 15 |
 | `docs/adr/0017-a-data-revision-belongs-to-the-unit-it-revises.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 10 |
 | `docs/adr/0018-a-vocabulary-written-in-two-languages-is-compared.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 7 |
-| `docs/adr/0019-membership-is-a-dated-fact-not-a-column.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 20 |
-| `docs/adr/0020-geometry-is-not-evidence-for-a-fact.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 16 |
+| `docs/adr/0019-membership-is-a-dated-fact-not-a-column.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 22 |
+| `docs/adr/0020-geometry-is-not-evidence-for-a-fact.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 17 |
 | `docs/adr/0021-an-unread-surface-is-deleted-not-migrated.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 10 |
 | `docs/adr/0022-current-means-today-and-one-view-says-so.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
@@ -62,7 +62,7 @@
 | `docs/adr/0037-a-pointer-carries-the-address-template-with-its-object-key.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md` | Monorepo | ADR | Superseded by ADR-0039 | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0039-gold-serving-artifacts-live-in-the-lakehouse-bucket-and-tiles-do-not.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 11 |
+| `docs/adr/0040-a-column-no-producer-fills-cannot-be-required.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 12 |
 | `docs/adr/0042-a-silver-boundary-carries-its-source-crs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0043-a-canonical-id-is-read-not-recomputed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0044-a-column-named-for-a-fact-must-hold-that-fact.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
@@ -89,8 +89,9 @@
 | `docs/adr/0065-an-engine-version-is-written-once.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0066-a-table-that-fits-in-one-file-is-not-split.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0067-the-parcel-source-covers-the-country-twice.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0068-the-command-names-the-object-it-read.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 1 |
-| `docs/adr/0069-one-column-holds-five-kinds-of-thing.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 1 |
+| `docs/adr/0068-the-command-names-the-object-it-read.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 2 |
+| `docs/adr/0069-one-column-holds-five-kinds-of-thing.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 2 |
+| `docs/adr/0070-the-boundary-source-carries-neither-use-nor-area.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
