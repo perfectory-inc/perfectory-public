@@ -172,6 +172,17 @@ verify_runtime_schema() {
     printf 'runtime migration check is missing from the release: %s\n' "${checker}" >&2
     exit 66
   }
+  local environment="${release_root}/current/scripts/deploy/assert-runtime-environment.sh"
+  [[ -x "${environment}" ]] || {
+    printf 'runtime environment check is missing from the release: %s\n' "${environment}" >&2
+    exit 66
+  }
+  # The environment first. A variable the compose files require and the host does not carry
+  # surfaces as an interpolation error in the middle of a migration run — after the image
+  # rebuild, with nothing having said beforehand that the file was behind. Measured 2026-09-01
+  # while repairing the schema gap: six variables were missing, and compose named one per
+  # attempt, so the hole looked two deep until the whole file was compared (root ADR-0071).
+  "${environment}" "${release_root}/current"
   "${checker}" "${release_root}/current"
 }
 

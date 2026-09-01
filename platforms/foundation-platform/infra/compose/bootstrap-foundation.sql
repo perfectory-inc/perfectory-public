@@ -25,6 +25,13 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 -- sqlx migrations is NOT the extension owner, so it cannot COMMENT/ALTER it
 -- (would raise 42501). This is the single privileged home for postgis metadata.
 COMMENT ON EXTENSION postgis IS 'PostGIS geometry and geography spatial types and functions';
+-- Created here, not only altered. This step runs before the migrations that would create
+-- it (`20260719000001` line 32), so on a database that has never been migrated the ALTER
+-- below had nothing to alter and bootstrap exited 3 — measured 2026-09-01, which is to say
+-- this stack could not be stood up from empty. It went unseen because the deployment host
+-- was restored from a dump that already had the schema. `serving_postgis` on the next line
+-- was always created this way; `catalog` was the asymmetric one.
+CREATE SCHEMA IF NOT EXISTS catalog AUTHORIZATION foundation_migrator;
 ALTER SCHEMA catalog OWNER TO foundation_migrator;
 CREATE SCHEMA IF NOT EXISTS serving_postgis AUTHORIZATION foundation_migrator;
 ALTER SCHEMA serving_postgis OWNER TO foundation_migrator;
