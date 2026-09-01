@@ -81,3 +81,4 @@ last_reviewed: 2026-07-28
 - [0068 — 명령이 자기가 읽은 객체의 이름을 적는다](./0068-the-command-names-the-object-it-read.md)
 - [0069 — 한 칸에 다섯 가지가 들어 있다](./0069-one-column-holds-five-kinds-of-thing.md)
 - [0070 — 경계 원천은 필지의 용도도 면적도 나르지 않는다](./0070-the-boundary-source-carries-neither-use-nor-area.md)
+- [0071 — 스키마를 두고 온 배포는 끝난 배포가 아니다](./0071-a-deploy-that-leaves-the-schema-behind-has-not-finished.md)

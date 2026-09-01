@@ -12,6 +12,8 @@ usage() {
 usage:
   foundation-release.sh install <40-char-git-sha> <source.tar.gz>
   foundation-release.sh activate <40-char-git-sha>
+  foundation-release.sh migrate
+  foundation-release.sh verify
   foundation-release.sh rollback
   foundation-release.sh status
 USAGE
@@ -160,6 +162,34 @@ rollback_release() {
   atomic_link "${current_target}" "${release_root}/previous"
 }
 
+verify_runtime_schema() {
+  # Deploying source cannot move the schema: the migrations are compiled into the runtime image
+  # by `sqlx::migrate!`. On 2026-09-01 that gap was six weeks and thirty-three-minus-four
+  # migrations wide, with every catalog table empty and the API answering `[]`, and no step
+  # anywhere compared the two. This is that step.
+  local checker="${release_root}/current/scripts/deploy/assert-runtime-migrations.sh"
+  [[ -x "${checker}" ]] || {
+    printf 'runtime migration check is missing from the release: %s\n' "${checker}" >&2
+    exit 66
+  }
+  "${checker}" "${release_root}/current"
+}
+
+migrate_runtime() {
+  # Rebuild before applying. The migrator is the release's own binary and the migrations live
+  # inside it, so an image built from an older tree applies an older set however new the source
+  # on disk is — which is exactly how the runtime came to be six weeks behind.
+  local runtime="${release_root}/current/scripts/deploy/foundation-runtime.sh"
+  [[ -x "${runtime}" ]] || {
+    printf 'runtime compose wrapper is missing from the release: %s\n' "${runtime}" >&2
+    exit 66
+  }
+  "${runtime}" build foundation-api
+  "${runtime}" up -d --no-deps postgres
+  "${runtime}" run --rm foundation-migrate
+  verify_runtime_schema
+}
+
 status() {
   printf 'release_root=%s\n' "${release_root}"
   printf 'state_root=%s\n' "${state_root}"
@@ -172,6 +202,11 @@ case "${command}" in
   install)
     [[ "$#" == 3 ]] || usage
     install_release "$2" "$3"
+    # A deploy that leaves the running schema behind has not finished, and saying otherwise is
+    # what let the runtime sit six weeks and twenty-nine migrations behind while three deploys
+    # reported success. The release is installed and activated by this point, so the operator
+    # can run `migrate` — this refuses to call the deploy done, it does not undo it.
+    verify_runtime_schema
     ;;
   activate)
     [[ "$#" == 2 ]] || usage
@@ -179,6 +214,14 @@ case "${command}" in
     mkdir -p "${releases_dir}" "${state_root}/recovery"
     prepare_mutable_state
     activate_release "$2"
+    ;;
+  migrate)
+    [[ "$#" == 1 ]] || usage
+    migrate_runtime
+    ;;
+  verify)
+    [[ "$#" == 1 ]] || usage
+    verify_runtime_schema
     ;;
   rollback)
     [[ "$#" == 1 ]] || usage

@@ -58,6 +58,8 @@ for g in hook-isolation-self-test \
          build-coupling-baseline-self-test build-coupling-baseline \
          lineage-is-derived-not-passed-self-test lineage-is-derived-not-passed \
          every-table-declares-its-load-self-test every-table-declares-its-load \
+         a-deploy-verifies-the-schema-it-left-self-test a-deploy-verifies-the-schema-it-left \
+         assert-runtime-migrations-self-test \
          no-silent-test-skip-self-test no-silent-test-skip \
          no-env-access-in-domain-layers-self-test no-env-access-in-domain-layers \
          area-ci-input-coverage-self-test area-ci-input-coverage \
