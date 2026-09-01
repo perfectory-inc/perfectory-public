@@ -11,11 +11,51 @@ state_root="${test_root}/var/lib/foundation-platform"
 release_a="1111111111111111111111111111111111111111"
 release_b="2222222222222222222222222222222222222222"
 
-mkdir -p "${test_root}/source-a" "${test_root}/source-b"
-printf 'release-a\n' >"${test_root}/source-a/version.txt"
-printf 'release-b\n' >"${test_root}/source-b/version.txt"
+# A release carries its own deploy scripts, and `install` now ends by asking the running
+# database whether it has what this release ships (root ADR-0071). A fixture holding one text
+# file is not a release, and rehearsing against one only proves the parts that were already
+# there. These carry what a real archive carries, plus a stand-in for the two things a
+# rehearsal cannot have: a compose wrapper and a database.
+build_source() {
+  local dir="$1" label="$2" migrations="$3" version
+  mkdir -p "${dir}/scripts/deploy" "${dir}/migrations"
+  printf '%s\n' "${label}" >"${dir}/version.txt"
+  cp "${repo_root}/scripts/deploy/assert-runtime-migrations.sh" "${dir}/scripts/deploy/"
+  chmod +x "${dir}/scripts/deploy/assert-runtime-migrations.sh"
+  for version in ${migrations}; do
+    printf -- '-- rehearsal\n' >"${dir}/migrations/${version}_rehearsal.sql"
+  done
+  cat >"${dir}/scripts/deploy/foundation-runtime.sh" <<'WRAPPER'
+#!/usr/bin/env bash
+# Stands in for the compose wrapper: the rehearsal has no runtime to ask.
+printf 'rehearsal-container\n'
+WRAPPER
+  chmod +x "${dir}/scripts/deploy/foundation-runtime.sh"
+}
+
+# A `docker` that reports what the rehearsal decided the database holds.
+mkdir -p "${test_root}/bin"
+cat >"${test_root}/bin/docker" <<'DOCKER'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "exec" ]]; then
+  cat "${REHEARSAL_APPLIED_FILE}"
+  exit 0
+fi
+exit 1
+DOCKER
+chmod +x "${test_root}/bin/docker"
+printf '20260719000001\n20260719000002\n' >"${test_root}/applied.txt"
+export REHEARSAL_APPLIED_FILE="${test_root}/applied.txt"
+export PATH="${test_root}/bin:${PATH}"
+
+build_source "${test_root}/source-a" release-a "20260719000001 20260719000002"
+build_source "${test_root}/source-b" release-b "20260719000001 20260719000002"
+# The release the running database is not ready for.
+build_source "${test_root}/source-ahead" release-ahead \
+  "20260719000001 20260719000002 20260901000001"
 tar -C "${test_root}/source-a" -czf "${test_root}/release-a.tar.gz" .
 tar -C "${test_root}/source-b" -czf "${test_root}/release-b.tar.gz" .
+tar -C "${test_root}/source-ahead" -czf "${test_root}/release-ahead.tar.gz" .
 
 run_release() {
   FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" \
@@ -72,5 +112,21 @@ if run_release install "${release_a}" "${test_root}/release-a-mutated.tar.gz"; t
   printf 'release id reuse with different archive was accepted\n' >&2
   exit 1
 fi
+
+# A release the running database is not ready for must not be reported as installed, and the
+# release must still be on disk afterwards: the check refuses to call the deploy finished, it
+# does not undo it (root ADR-0071).
+release_ahead="3333333333333333333333333333333333333333"
+if run_release install "${release_ahead}" "${test_root}/release-ahead.tar.gz"; then
+  printf 'a deploy that left the schema behind reported success\n' >&2
+  exit 1
+fi
+assert_link "${release_root}/current" "releases/${release_ahead}"
+[[ "$(cat "${release_root}/current/version.txt")" == "release-ahead" ]]
+
+# And once the database has it, the same release installs clean.
+printf '20260719000001\n20260719000002\n20260901000001\n' >"${test_root}/applied.txt"
+run_release install "${release_ahead}" "${test_root}/release-ahead.tar.gz"
+assert_link "${release_root}/current" "releases/${release_ahead}"
 
 printf 'foundation-release-test=pass\n'
