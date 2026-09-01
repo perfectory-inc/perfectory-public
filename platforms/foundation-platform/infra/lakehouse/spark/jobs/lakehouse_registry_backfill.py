@@ -26,7 +26,6 @@ import sys
 from typing import Any
 
 from lakehouse_ingest import (
-    INGEST_BATCH_OBJECTS_KEY,
     MAX_BATCH_SOURCE_RECORDS,
     ingest_batch_token,
     read_ingested_objects,
@@ -34,12 +33,7 @@ from lakehouse_ingest import (
     table_holds_rows,
     unquoted_table_name,
 )
-from platform_contracts import (
-    column_names,
-    load_identity_from_value,
-    load_lakehouse_contract,
-    load_unit,
-)
+from platform_contracts import load_identity_from_value, load_unit
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -112,8 +106,11 @@ def backfill(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
         print("REGISTRY 계획만 보여줬다. 실제로 쓰려면 --apply")
         return {"recorded": False, "identities": identities, "token": token}
 
-    # An empty frame with the table's own columns, so the write is a commit and nothing else.
-    empty = frame.limit(0).select(*column_names(load_lakehouse_contract(args.table)))
+    # The table's own schema, not the contract's. `silver.building_register_unit_areas` has 31
+    # columns and its contract has 32 — `source_record_id` is declared and not yet added — so
+    # selecting the contract's columns would fail on a column the table does not have. An empty
+    # frame taken from the table already matches it.
+    empty = frame.limit(0)
     writer = empty.writeTo(qualified)
     for key, value in snapshot_property_options(identities, token).items():
         writer = writer.option(key, value)

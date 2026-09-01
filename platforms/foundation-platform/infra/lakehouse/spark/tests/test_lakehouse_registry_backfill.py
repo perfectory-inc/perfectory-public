@@ -167,6 +167,23 @@ class BackfillTest(unittest.TestCase):
         self.assertFalse(result["recorded"])
         self.assertFalse(frame.appended)
 
+    def test_the_empty_frame_is_the_table_not_the_contract(self) -> None:
+        """빈 프레임은 표의 스키마를 그대로 써야 한다.
+
+        `silver.building_register_unit_areas` 는 칸이 31개이고 계약은 32개다 —
+        `source_record_id` 가 선언돼 있지만 아직 표에 없다. 계약의 칸을 고르면 없는 칸을
+        고르다 죽고, 죽는 자리는 1억 3천만 행짜리 표를 열고 난 뒤다.
+        """
+        source = (
+            SPARK_DIR / "jobs" / "lakehouse_registry_backfill.py"
+        ).read_text(encoding="utf-8")
+        body = source.split("def backfill(", 1)[1]
+
+        self.assertIn("empty = frame.limit(0)", body)
+        self.assertNotIn(
+            "column_names(", body, "계약의 칸을 고르면 표에 없는 칸을 고르게 된다"
+        )
+
     def test_more_identities_than_one_record_can_carry_is_an_error(self) -> None:
         """상한을 넘겨 잘리면, 기록은 적재보다 적은 객체를 말하게 된다."""
         frame = FakeFrame([f"{n}.zip" for n in range(200)], "source_record_id")
