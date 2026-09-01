@@ -24,10 +24,10 @@ use catalog_domain::{
     static_release_pmtiles_object_key, validate_build_promotion, validate_build_result_report,
     validate_build_snapshot_binding, BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError,
     CatalogMutationKind, ComplexMutation, IndustrialComplex, IndustrialComplexLotSalesStatus,
-    IndustrialComplexStatus, Parcel, ParcelKind, RequestFingerprint, RuntimeTileLayer,
-    ServingGeneration, VectorTileArtifact, VectorTileBuildOutcome, VectorTileBuildPromotionInput,
-    VectorTileBuildPromotionVerdict, VectorTileBuildStatus, VectorTileManifest,
-    VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+    IndustrialComplexStatus, Parcel, ParcelKind, ParcelKindEdit, RequestFingerprint,
+    RuntimeTileLayer, ServingGeneration, VectorTileArtifact, VectorTileBuildOutcome,
+    VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict, VectorTileBuildStatus,
+    VectorTileManifest, VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use chrono::Utc;
 use foundation_shared_kernel::events::catalog_v1::{
@@ -364,12 +364,14 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         .bind(expected_version)
         .bind(serde_json::json!({
             "parcel_id": id.as_uuid(),
-            "kind": before.kind.wire_name(),
+            // `null` when nobody had decided one yet. The ledger records what was there, and
+            // what was there is nothing (root ADR-0070).
+            "kind": before.kind.map(ParcelKind::wire_name),
             "version": before.version,
         }))
         .bind(serde_json::json!({
             "parcel_id": id.as_uuid(),
-            "kind": updated.kind.wire_name(),
+            "kind": updated.kind.map(ParcelKind::wire_name),
             "version": updated.version,
         }))
         .bind(applied_by.as_uuid())
@@ -377,7 +379,13 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         .await
         .map_err(map_sqlx)?;
 
-        let event = CatalogEvent::ParcelKindChanged(before.kind_changed_event(new_kind));
+        // A parcel that had no kind is being given one, not having one replaced. Reporting
+        // the first assignment as a change would need a `previous_kind` that never existed
+        // (root ADR-0070).
+        let event = match before.kind_edit_event(new_kind) {
+            ParcelKindEdit::Assigned(assigned) => CatalogEvent::ParcelKindAssigned(assigned),
+            ParcelKindEdit::Changed(changed) => CatalogEvent::ParcelKindChanged(changed),
+        };
         insert_outbox_event(&mut tx, &event).await?;
 
         tx.commit().await.map_err(map_sqlx)?;

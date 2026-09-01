@@ -38,6 +38,9 @@ pub enum CatalogEvent {
     /// A parcel kind changed.
     #[serde(rename = "catalog.parcel.kind_changed.v1")]
     ParcelKindChanged(ParcelKindChangedV1),
+    /// A parcel was given a kind for the first time.
+    #[serde(rename = "catalog.parcel.kind_assigned.v1")]
+    ParcelKindAssigned(ParcelKindAssignedV1),
     /// A parcel marker anchor artifact snapshot was published.
     #[serde(rename = "catalog.parcel_marker_anchor.snapshot.published.v1")]
     ParcelMarkerAnchorSnapshotPublished(ParcelMarkerAnchorSnapshotPublishedV1),
@@ -226,6 +229,26 @@ pub struct ParcelKindChangedV1 {
     pub new_kind: String,
     /// UTC timestamp when the kind changed.
     pub changed_at: DateTime<Utc>,
+}
+
+/// Event emitted when a parcel is given a kind for the first time.
+///
+/// Separate from `ParcelKindChangedV1` rather than a widening of it. That event declares
+/// `previous_kind` required, and a parcel loaded from the canonical boundary source has no kind
+/// until a person decides one (root ADR-0070) — so the first assignment has no previous value to
+/// report. Widening the field would break every reader of v1 to describe a different fact.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParcelKindAssignedV1 {
+    /// Payload schema version. Always `1` for this event type.
+    pub schema_version: u32,
+    /// Parcel that was assigned a kind.
+    pub parcel_id: ParcelId,
+    /// Canonical PNU for the parcel.
+    pub pnu: Pnu,
+    /// Assigned parcel kind wire value.
+    pub assigned_kind: String,
+    /// UTC timestamp when the kind was assigned.
+    pub assigned_at: DateTime<Utc>,
 }
 
 /// Event emitted when parcel marker anchor artifacts are published.

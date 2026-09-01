@@ -209,9 +209,15 @@ pub struct ParcelResponse {
     )]
     pub pnu: String,
     /// Parcel kind. Wire values: `factory`, `support`, `public`, `river`, `other`.
-    pub kind: String,
+    ///
+    /// Absent until a person decides one. The vocabulary describes land use inside an
+    /// industrial complex and most parcels belong to none (root ADR-0070).
+    pub kind: Option<String>,
     /// Official parcel area in square meters.
-    pub area_m2: u64,
+    ///
+    /// Absent until a source carrying the cadastral area is collected. Not derived from the
+    /// boundary polygon: a measured area is a different fact (root ADR-0020).
+    pub area_m2: Option<u64>,
     /// Monotonic record version used for optimistic concurrency.
     pub version: i64,
     /// UTC timestamp of the last canonical Catalog update.
