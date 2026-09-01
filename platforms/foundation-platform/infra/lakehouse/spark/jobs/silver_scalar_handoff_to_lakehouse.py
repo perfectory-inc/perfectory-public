@@ -22,7 +22,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from lakehouse_engine import iceberg_packages
+from lakehouse_engine import (
+    apply_catalog_settings,
+    assert_catalog_env,
+    assert_iceberg_runtime_loaded,
+    iceberg_packages,
+)
 from lakehouse_ingest import append_batch_once
 from platform_contracts import (
     column_names,
@@ -141,19 +146,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def required_iceberg_env() -> tuple[str, ...]:
-    return (
-        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
-        "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
-        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
-    )
 
 
-def require_env(name: str) -> str:
-    value = os.getenv(name)
-    if value is None or value.strip() == "":
-        raise ValueError(f"Missing required environment variable: {name}")
-    return value.strip()
 
 
 def should_skip_spark_stop_after_success(lookup: Any = os.getenv) -> bool:
@@ -168,11 +162,6 @@ def exit_after_success_if_requested() -> None:
     os._exit(0)
 
 
-def lakehouse_oauth2_server_uri(catalog_uri: str) -> str:
-    configured_uri = os.getenv("FOUNDATION_PLATFORM_LAKEHOUSE_OAUTH2_SERVER_URI")
-    if configured_uri is not None and configured_uri.strip() != "":
-        return configured_uri.strip()
-    return f"{catalog_uri.rstrip('/')}/v1/oauth/tokens"
 
 
 def validate_identifier(label: str, value: str) -> None:
@@ -232,8 +221,7 @@ def validate_args(args: argparse.Namespace) -> None:
                 "Refusing to overwrite a non-smoke Iceberg table without "
                 "--allow-non-smoke-overwrite"
             )
-    for name in required_iceberg_env():
-        require_env(name)
+    assert_catalog_env()
 
 
 def load_pyspark() -> tuple[Any, Any, Any, Any]:
@@ -737,52 +725,13 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
         .config("spark.sql.shuffle.partitions", "2")
     )
     if args.write_mode == "iceberg":
-        catalog = args.iceberg_catalog_name
-        catalog_uri = require_env("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI")
-        builder = (
-            builder.config(
-                "spark.sql.extensions",
-                "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-            )
-            .config(f"spark.sql.catalog.{catalog}", "org.apache.iceberg.spark.SparkCatalog")
-            .config(f"spark.sql.catalog.{catalog}.type", "rest")
-            .config(f"spark.sql.catalog.{catalog}.uri", catalog_uri)
-            .config(
-                f"spark.sql.catalog.{catalog}.oauth2-server-uri",
-                lakehouse_oauth2_server_uri(catalog_uri),
-            )
-            .config(
-                f"spark.sql.catalog.{catalog}.warehouse",
-                require_env("FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"),
-            )
-            .config(
-                f"spark.sql.catalog.{catalog}.token",
-                require_env("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN"),
-            )
-            .config(
-                f"spark.sql.catalog.{catalog}.header.X-Iceberg-Access-Delegation",
-                "vended-credentials",
-            )
-            .config(f"spark.sql.catalog.{catalog}.s3.remote-signing-enabled", "false")
-        )
+        builder = apply_catalog_settings(builder, args.iceberg_catalog_name)
     spark = builder.getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
     if args.write_mode == "iceberg":
         assert_iceberg_runtime_loaded(spark, args.iceberg_packages)
     return spark
 
-
-def assert_iceberg_runtime_loaded(spark: Any, packages: str) -> None:
-    class_loader = spark._jvm.java.lang.Thread.currentThread().getContextClassLoader()
-    try:
-        class_loader.loadClass("org.apache.iceberg.spark.SparkCatalog")
-        class_loader.loadClass("org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-    except Exception as exc:
-        raise RuntimeError(
-            "Iceberg Spark runtime is not loaded. Run spark-submit with "
-            f"--packages {packages} and a writable Ivy cache, for example "
-            "--conf spark.jars.ivy=/tmp/.ivy2"
-        ) from exc
 
 
 def read_iceberg_snapshot_for_batch(spark: Any, frame: Any, args: argparse.Namespace, contract: dict[str, Any], F: Any) -> Any:

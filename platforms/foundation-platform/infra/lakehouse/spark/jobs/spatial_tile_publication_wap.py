@@ -16,7 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from lakehouse_engine import iceberg_packages
+from lakehouse_engine import (
+    CATALOG_TOKEN_ENV,
+    CATALOG_URI_ENV,
+    apply_catalog_settings,
+    assert_iceberg_runtime_loaded,
+    iceberg_packages,
+)
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
@@ -545,35 +551,15 @@ def configure_spark_builder(builder: Any, catalog: str, lookup: Any) -> Any:
         raise ValueError(
             "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER must select R2 Data Catalog"
         )
-    catalog_uri = validate_cloudflare_catalog_uri(
-        _required_lookup(
-            lookup, "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"
-        )
+    # 이 job 만의 검사는 남는다 — 이 명령은 R2 Data Catalog 주소에만 쓰라고 되어 있다.
+    # 설정 자체는 공용에서 온다. 여기 따로 적었을 때 `oauth2-server-uri` 가 빠져 있었다.
+    validate_cloudflare_catalog_uri(
+        _required_lookup(lookup, CATALOG_URI_ENV)
     )
-    warehouse = _required_lookup(
-        lookup, "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"
-    )
-    token = _required_lookup(
-        lookup, "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN"
-    )
-    return (
-        builder.config("spark.redaction.regex", SPARK_REDACTION_REGEX)
-        .config(
-            "spark.sql.extensions",
-            "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-        )
-        .config(f"spark.sql.catalog.{catalog}", "org.apache.iceberg.spark.SparkCatalog")
-        .config(f"spark.sql.catalog.{catalog}.type", "rest")
-        .config(f"spark.sql.catalog.{catalog}.uri", catalog_uri)
-        .config(f"spark.sql.catalog.{catalog}.warehouse", warehouse)
-        .config(f"spark.sql.catalog.{catalog}.token", token)
-        .config(
-            f"spark.sql.catalog.{catalog}.header.X-Iceberg-Access-Delegation",
-            "vended-credentials",
-        )
-        .config(f"spark.sql.catalog.{catalog}.s3.remote-signing-enabled", "false")
-        .config("spark.sql.defaultCatalog", catalog)
-        .config("spark.sql.session.timeZone", "UTC")
+    builder = builder.config("spark.redaction.regex", SPARK_REDACTION_REGEX)
+    builder = apply_catalog_settings(builder, catalog, lookup)
+    return builder.config("spark.sql.defaultCatalog", catalog).config(
+        "spark.sql.session.timeZone", "UTC"
     )
 
 
@@ -1359,20 +1345,7 @@ def _build_spark_session(args: argparse.Namespace) -> Any:
     configure_spark_builder(builder, args.catalog, os.getenv)
     spark = builder.getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
-    class_loader = (
-        spark._jvm.java.lang.Thread.currentThread().getContextClassLoader()
-    )
-    for class_name in (
-        "org.apache.iceberg.spark.SparkCatalog",
-        "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-    ):
-        try:
-            class_loader.loadClass(class_name)
-        except Exception as exc:
-            raise RuntimeError(
-                "Iceberg Spark runtime is not loaded; run spark-submit with "
-                f"--conf spark.jars.ivy=/tmp/.ivy2 --packages {ICEBERG_PACKAGES}"
-            ) from exc
+    assert_iceberg_runtime_loaded(spark, ICEBERG_PACKAGES)
     return spark
 
 
@@ -1431,7 +1404,7 @@ def cli(argv: list[str] | None = None) -> int:
     try:
         return run(argv)
     except Exception as exc:
-        token = os.getenv("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN", "")
+        token = os.getenv(CATALOG_TOKEN_ENV, "")
         safe_message = redact_secret_values(str(exc), [token])
         print(f"spatial-tile-wap-error {safe_message}", file=sys.stderr)
         return 1

@@ -17,7 +17,7 @@ from unittest.mock import patch
 SPARK_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SPARK_DIR / "jobs"))
 
-from lakehouse_engine import catalog_settings  # noqa: E402
+from lakehouse_engine import catalog_settings, required_catalog_env  # noqa: E402
 from lakehouse_registry_backfill import backfill, identities_in_table, parse_args  # noqa: E402
 
 
@@ -195,8 +195,11 @@ class BackfillTest(unittest.TestCase):
 class CatalogSettingsTest(unittest.TestCase):
     """카탈로그 설정은 한 곳에서 온다.
 
-    2026-09-01 실측: 여덟 개 job 이 같은 설정을 각자 들고 있었고 이미 갈라져 있었다 —
-    한 곳은 `s3.remote-signing-enabled` 가, 다른 한 곳은 `oauth2-server-uri` 가 없다.
+    2026-09-01 실측: 여덟 개 job 이 같은 설정을 각자 들고 있었고, 두 곳이 나머지와 달랐다.
+    한 곳(`spatial_tile_publication_wap`)은 `oauth2-server-uri` 를 일부러 뺀 것이었고 그것이
+    맞았다 — 실물에서 그 설정 없이 카탈로그도 데이터 파일도 열린다. 다른 한 곳
+    (`industrial_complex_boundaries_silver_to_postgis_handoff`)은 `s3.remote-signing-enabled`
+    가 빠져 있었고 그것을 설명하는 것은 아무 데도 없었다.
     """
 
     ENV = {
@@ -214,7 +217,6 @@ class CatalogSettingsTest(unittest.TestCase):
             "spark.sql.catalog.lakehouse",
             "spark.sql.catalog.lakehouse.type",
             "spark.sql.catalog.lakehouse.uri",
-            "spark.sql.catalog.lakehouse.oauth2-server-uri",
             "spark.sql.catalog.lakehouse.warehouse",
             "spark.sql.catalog.lakehouse.token",
             "spark.sql.catalog.lakehouse.header.X-Iceberg-Access-Delegation",
@@ -223,20 +225,48 @@ class CatalogSettingsTest(unittest.TestCase):
             with self.subTest(setting=key):
                 self.assertIn(key, settings)
 
-    def test_the_token_endpoint_is_derived_and_overridable(self) -> None:
-        with patch.dict(os.environ, self.ENV, clear=False):
-            derived = catalog_settings("lakehouse")["spark.sql.catalog.lakehouse.oauth2-server-uri"]
-        self.assertTrue(derived.endswith("/v1/oauth/tokens"))
+    def test_the_token_endpoint_is_only_set_when_configured(self) -> None:
+        """정적 토큰 방식에는 발급처가 필요 없다. 2026-09-01 실물 확인.
+
+        발급처를 빼고 세션을 만들어 `silver.industrial_complex_boundaries` 의 스냅숏 2개를
+        읽고 데이터 파일에서 행 1개를 꺼냈다. 여섯 개 job 이 카탈로그 주소에서 만들어 넣고
+        있었는데, REST 클라이언트가 정적 토큰이 있으면 그 주소를 부르지 않아 무해했을 뿐이다.
+        """
+        with patch.dict(os.environ, self.ENV, clear=True):
+            settings = catalog_settings("lakehouse")
+        self.assertNotIn("spark.sql.catalog.lakehouse.oauth2-server-uri", settings)
 
         with patch.dict(
             os.environ,
             {**self.ENV, "FOUNDATION_PLATFORM_LAKEHOUSE_OAUTH2_SERVER_URI": "https://other/tok"},
-            clear=False,
+            clear=True,
         ):
             override = catalog_settings("lakehouse")[
                 "spark.sql.catalog.lakehouse.oauth2-server-uri"
             ]
         self.assertEqual(override, "https://other/tok")
+
+    def test_the_precondition_list_is_asked_of_the_settings(self) -> None:
+        """사전 점검 목록은 설정을 읽어서 만든다. 옆에 적으면 그것이 두 번째 사실이 된다.
+
+        2026-09-01 실측: 일곱 개 job 이 이 목록을 손으로 들고 있었다. 설정이 하나 늘어도
+        일곱 곳 중 어디도 그 사실을 알지 못한다.
+        """
+        names = required_catalog_env("lakehouse")
+
+        with patch.dict(os.environ, self.ENV, clear=True):
+            settings = catalog_settings("lakehouse")
+        for name in names:
+            with self.subTest(name=name):
+                self.assertTrue(
+                    any(self.ENV[name] == value for value in settings.values()),
+                    f"{name} 은 필수라면서 설정 어디에도 안 쓰인다",
+                )
+        self.assertNotIn(
+            "FOUNDATION_PLATFORM_LAKEHOUSE_OAUTH2_SERVER_URI",
+            names,
+            "선택 변수는 필수 목록에 들어가면 안 된다",
+        )
 
     def test_a_missing_variable_is_named(self) -> None:
         """비면 그 자리에서 이름을 말해야 한다. 빈 문자열로 붙으면 실패가 훨씬 뒤에서 난다."""
