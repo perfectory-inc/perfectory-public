@@ -100,6 +100,25 @@ def read_ingested_objects(spark: Any, qualified_table: str, unquoted_table: str)
     return ingested
 
 
+def table_holds_rows(spark: Any, qualified_table: str, unquoted_table: str) -> bool:
+    """Whether the table's current snapshot holds any rows.
+
+    Read from the snapshot summary rather than counted, because the question is only whether the
+    table is empty and a count of 113,813,264 rows would open every file to answer it.
+    """
+    if not spark.catalog.tableExists(unquoted_table):
+        return False
+    rows = spark.sql(
+        f"SELECT summary FROM {qualified_table}.snapshots "
+        f"WHERE snapshot_id = (SELECT snapshot_id FROM {qualified_table}.refs WHERE name = 'main')"
+    ).collect()
+    for row in rows:
+        total = (row.summary or {}).get("total-records")
+        if total is not None and int(total) > 0:
+            return True
+    return False
+
+
 def decide_whether_to_append(
     ingested: dict[str, int],
     record_ids: Sequence[str],
@@ -190,9 +209,21 @@ def append_batch_once(
     """
     record_ids = batch_source_record_ids(frame, record_id_column)
     token = ingest_batch_token(record_ids)
-    ingested = read_ingested_objects(
-        spark, qualified_table, unquoted_table_name(qualified_table)
-    )
+    unquoted = unquoted_table_name(qualified_table)
+    ingested = read_ingested_objects(spark, qualified_table, unquoted)
+
+    # A table with rows and no registry is not an empty table. Read as one — which is what
+    # happened until 2026-09-01 — every object looks unloaded and the whole table is appended a
+    # second time. Five of this repository's six tables were in that state, holding 133,583,046
+    # rows between them, because the guard arrived after they were loaded (root ADR-0069).
+    #
+    # Overwrite replaces what it writes, so the question does not arise there.
+    if write_mode != "overwrite" and not ingested and table_holds_rows(spark, qualified_table, unquoted):
+        raise ValueError(
+            f"{qualified_table} already holds rows but records no ingested objects, so this "
+            "append cannot tell whether it would be the second one. Backfill the registry from "
+            "the rows the table already holds before loading it again (root ADR-0069)."
+        )
 
     if not decide_whether_to_append(ingested, record_ids):
         return {

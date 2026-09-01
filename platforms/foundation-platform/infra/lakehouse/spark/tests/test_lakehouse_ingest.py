@@ -27,10 +27,12 @@ from lakehouse_ingest import (  # noqa: E402
     INGEST_BATCH_OBJECTS_KEY,
     INGEST_BATCH_TOKEN_KEY,
     SNAPSHOT_PROPERTY_PREFIX,
+    append_batch_once,
     decide_whether_to_append,
     ingest_batch_token,
     read_ingested_objects,
     snapshot_property_options,
+    table_holds_rows,
 )
 
 
@@ -63,6 +65,131 @@ class FakeSpark:
 
     def collect(self) -> list[FakeRow]:
         return self._rows
+
+
+class FakeRegistryRow:
+    """A row of the batch's own source ids, as `frame.select(col).distinct()` yields them."""
+
+    def __init__(self, value: str, column: str) -> None:
+        setattr(self, column, value)
+
+
+class FakeBatchFrame:
+    """Enough of a DataFrame for `append_batch_once` to identify a batch and try to write it.
+
+    Recording the write rather than performing one, because what is under test is whether the
+    write is attempted at all.
+    """
+
+    def __init__(self, record_ids: list[str], column: str = "source_record_id") -> None:
+        self._record_ids = record_ids
+        self._column = column
+        self.appended = False
+
+    def select(self, *_columns: str) -> "FakeBatchFrame":
+        return self
+
+    def distinct(self) -> "FakeBatchFrame":
+        return self
+
+    def limit(self, _n: int) -> "FakeBatchFrame":
+        return self
+
+    def collect(self) -> list[FakeRegistryRow]:
+        return [FakeRegistryRow(value, self._column) for value in self._record_ids]
+
+    def writeTo(self, _table: str) -> "FakeBatchFrame":  # noqa: N802 - Spark's spelling
+        return self
+
+    def option(self, _key: str, _value: str) -> "FakeBatchFrame":
+        return self
+
+    def append(self) -> None:
+        self.appended = True
+
+    def overwritePartitions(self) -> None:  # noqa: N802 - Spark's spelling
+        self.appended = True
+
+
+class FakeAnsweringSpark:
+    """Answers the registry query and the row query differently, the way Spark does.
+
+    The single-answer fake above cannot express the state this guard exists for — rows present,
+    registry empty — because that state is precisely two different answers.
+    """
+
+    def __init__(self, registry: list[FakeRow], total_records: int | None) -> None:
+        self._registry = registry
+        self._total = total_records
+        self.catalog = self
+        self._pending: list[FakeRow] = []
+
+    def tableExists(self, _name: str) -> bool:  # noqa: N802 - Spark's spelling
+        return True
+
+    def sql(self, query: str) -> "FakeAnsweringSpark":
+        if "refs" in query:
+            self._pending = (
+                [] if self._total is None else [FakeRow(1, {"total-records": str(self._total)})]
+            )
+        else:
+            self._pending = self._registry
+        return self
+
+    def collect(self) -> list[FakeRow]:
+        return self._pending
+
+
+class EmptyRegistryTest(unittest.TestCase):
+    """행이 있는데 기록이 없으면, 그것은 빈 표가 아니다.
+
+    2026-09-01 실측: 표 6개 중 5개가 그 상태였고 합쳐서 133,583,046 행이었다. 안전장치가
+    생기기 전에 실린 표들이라 기록이 없었고, 없는 기록은 "아무것도 안 실렸다"로 읽혔다.
+    그대로 다시 돌리면 전부 한 벌 더 들어간다 (root ADR-0069).
+    """
+
+    def test_rows_without_a_registry_stop_the_append(self) -> None:
+        spark = FakeAnsweringSpark(registry=[], total_records=113_813_264)
+        frame = FakeBatchFrame(["a.zip"])
+
+        with self.assertRaises(ValueError) as caught:
+            append_batch_once(spark, frame, ["source_record_id"], "`c`.`s`.`t`")
+
+        self.assertIn("records no ingested objects", str(caught.exception))
+        self.assertFalse(frame.appended, "거절했다면 쓰기를 시도하지 않았어야 한다")
+
+    def test_an_empty_table_is_not_refused(self) -> None:
+        """처음 싣는 표에는 기록이 없는 것이 정상이다. 그것까지 막으면 아무것도 못 싣는다."""
+        spark = FakeAnsweringSpark(registry=[], total_records=0)
+        frame = FakeBatchFrame(["a.zip"])
+
+        result = append_batch_once(spark, frame, ["source_record_id"], "`c`.`s`.`t`")
+
+        self.assertTrue(result["appended"])
+        self.assertTrue(frame.appended)
+
+    def test_overwrite_is_not_refused(self) -> None:
+        """덮어쓰기는 자기가 쓰는 것을 대체한다. 두 번 들어가는 물음이 생기지 않는다."""
+        spark = FakeAnsweringSpark(registry=[], total_records=1_442)
+        frame = FakeBatchFrame(["a.zip"])
+
+        result = append_batch_once(
+            spark, frame, ["source_record_id"], "`c`.`s`.`t`", write_mode="overwrite"
+        )
+
+        self.assertTrue(result["appended"])
+
+    def test_the_row_count_comes_from_the_summary_not_from_a_count(self) -> None:
+        """1억 행을 세려면 모든 파일을 연다. 물음은 "비었나" 하나뿐이다."""
+        spark = FakeAnsweringSpark(registry=[], total_records=5)
+
+        self.assertTrue(table_holds_rows(spark, "`c`.`s`.`t`", "c.s.t"))
+
+        empty = FakeAnsweringSpark(registry=[], total_records=0)
+        self.assertFalse(table_holds_rows(empty, "`c`.`s`.`t`", "c.s.t"))
+
+        unknown = FakeAnsweringSpark(registry=[], total_records=None)
+        self.assertFalse(table_holds_rows(unknown, "`c`.`s`.`t`", "c.s.t"))
 
 
 class BatchIdentityTest(unittest.TestCase):
