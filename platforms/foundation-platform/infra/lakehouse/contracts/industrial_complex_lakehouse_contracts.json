@@ -7,40 +7,169 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "columns": [
-        { "name": "complex_id", "logical_type": "string", "required": true },
-        { "name": "official_complex_code", "logical_type": "string", "required": true },
-        { "name": "complex_name", "logical_type": "string", "required": true },
-        { "name": "complex_name_normalized", "logical_type": "string", "required": true },
-        { "name": "complex_kind", "logical_type": "string", "required": true },
-        { "name": "status", "logical_type": "string", "required": true },
-        { "name": "sido_code", "logical_type": "string", "required": false },
-        { "name": "sigungu_code", "logical_type": "string", "required": false },
-        { "name": "primary_bjdong_code", "logical_type": "string", "required": false },
-        { "name": "address_text", "logical_type": "string", "required": false },
-        { "name": "management_agency_name", "logical_type": "string", "required": false },
-        { "name": "developer_name", "logical_type": "string", "required": false },
-        { "name": "designated_date", "logical_type": "date", "required": false },
-        { "name": "construction_start_date", "logical_type": "date", "required": false },
-        { "name": "completion_date", "logical_type": "date", "required": false },
-        { "name": "official_area_sqm", "logical_type": "decimal(18,2)", "required": false },
-        { "name": "development_progress_percent", "logical_type": "decimal(5,2)", "required": false },
-        { "name": "lot_sales_status", "logical_type": "string", "required": false },
-        { "name": "business_period_raw", "logical_type": "string", "required": false },
-        { "name": "business_period_start_month", "logical_type": "string", "required": false },
-        { "name": "business_period_end_month", "logical_type": "string", "required": false },
-        { "name": "designation_basis_law_raw", "logical_type": "string", "required": false },
-        { "name": "development_method_raw", "logical_type": "string", "required": false },
-        { "name": "development_purpose_raw", "logical_type": "string", "required": false },
-        { "name": "invited_industries_raw", "logical_type": "string", "required": false },
-        { "name": "source_record_id", "logical_type": "string", "required": true },
-        { "name": "source_snapshot_id", "logical_type": "string", "required": true },
-        { "name": "valid_from_utc", "logical_type": "timestamp", "required": true },
-        { "name": "valid_to_utc", "logical_type": "timestamp", "required": false },
-        { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true },
-        { "name": "row_checksum_sha256", "logical_type": "string", "required": true }
+        {
+          "name": "complex_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "official_complex_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "complex_name",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "complex_name_normalized",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "complex_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sido_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "primary_bjdong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "address_text",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "management_agency_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "developer_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "designated_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "construction_start_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "completion_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "official_area_sqm",
+          "logical_type": "decimal(18,2)",
+          "required": false
+        },
+        {
+          "name": "development_progress_percent",
+          "logical_type": "decimal(5,2)",
+          "required": false
+        },
+        {
+          "name": "lot_sales_status",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "business_period_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "business_period_start_month",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "business_period_end_month",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "designation_basis_law_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "development_method_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "development_purpose_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "invited_industries_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_from_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "valid_to_utc",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        }
       ],
-      "partition_spec": ["source_snapshot_id"],
-      "sort_order": ["complex_name_normalized", "official_complex_code"],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "complex_name_normalized",
+        "official_complex_code"
+      ],
       "quality_gates": [
         "(official_complex_code, source_snapshot_id) unique",
         "complex_name non-empty",
@@ -51,7 +180,13 @@
         "business_period_start_month and business_period_end_month are present together",
         "business_period months are yyyy-MM",
         "active rows for the same complex_id do not overlap"
-      ]
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": "foundation-platform:bronze:",
+        "object_suffix_separator": "#"
+      }
     },
     "silver.industrial_complex_boundaries": {
       "table_name": "silver.industrial_complex_boundaries",
@@ -59,28 +194,108 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "columns": [
-        { "name": "boundary_id", "logical_type": "string", "required": true },
-        { "name": "complex_id", "logical_type": "string", "required": true },
-        { "name": "sido_code", "logical_type": "string", "required": true },
-        { "name": "boundary_kind", "logical_type": "string", "required": true },
-        { "name": "geometry_wkb", "logical_type": "binary", "required": true },
-        { "name": "geometry_srid", "logical_type": "int", "required": true },
-        { "name": "bbox_min_x", "logical_type": "double", "required": true },
-        { "name": "bbox_min_y", "logical_type": "double", "required": true },
-        { "name": "bbox_max_x", "logical_type": "double", "required": true },
-        { "name": "bbox_max_y", "logical_type": "double", "required": true },
-        { "name": "centroid_x", "logical_type": "double", "required": true },
-        { "name": "centroid_y", "logical_type": "double", "required": true },
-        { "name": "area_sqm_calculated", "logical_type": "decimal(18,2)", "required": false },
-        { "name": "geometry_checksum_sha256", "logical_type": "string", "required": true },
-        { "name": "source_record_id", "logical_type": "string", "required": true },
-        { "name": "source_snapshot_id", "logical_type": "string", "required": true },
-        { "name": "valid_from_utc", "logical_type": "timestamp", "required": true },
-        { "name": "valid_to_utc", "logical_type": "timestamp", "required": false },
-        { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true }
+        {
+          "name": "boundary_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "complex_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sido_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "boundary_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": true
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "bbox_min_x",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_min_y",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_max_x",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_max_y",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "centroid_x",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "centroid_y",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "area_sqm_calculated",
+          "logical_type": "decimal(18,2)",
+          "required": false
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_from_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "valid_to_utc",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
       ],
       "partition_spec": [],
-      "sort_order": ["complex_id", "boundary_kind", "valid_from_utc"],
+      "sort_order": [
+        "complex_id",
+        "boundary_kind",
+        "valid_from_utc"
+      ],
       "quality_gates": [
         "geometry_srid = 5186",
         "bbox min/max ordering is valid",
@@ -88,7 +303,13 @@
         "geometry_wkb is valid polygon or multipolygon",
         "active official boundary is at most one per complex_id",
         "geometry_checksum_sha256 is 64 lowercase hex"
-      ]
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
     },
     "silver.parcel_boundaries": {
       "table_name": "silver.parcel_boundaries",
@@ -96,29 +317,112 @@
       "serving_role": "Canonical",
       "current_row_predicate": "valid_to_utc IS NULL",
       "columns": [
-        { "name": "boundary_id", "logical_type": "string", "required": true },
-        { "name": "pnu", "logical_type": "string", "required": true },
-        { "name": "sido_code", "logical_type": "string", "required": true },
-        { "name": "sigungu_code", "logical_type": "string", "required": true },
-        { "name": "bjdong_code", "logical_type": "string", "required": true },
-        { "name": "jibun", "logical_type": "string", "required": false },
-        { "name": "bonbun", "logical_type": "string", "required": false },
-        { "name": "bubun", "logical_type": "string", "required": false },
-        { "name": "geometry_wkb", "logical_type": "binary", "required": true },
-        { "name": "geometry_srid", "logical_type": "int", "required": true },
-        { "name": "bbox_min_x", "logical_type": "double", "required": true },
-        { "name": "bbox_min_y", "logical_type": "double", "required": true },
-        { "name": "bbox_max_x", "logical_type": "double", "required": true },
-        { "name": "bbox_max_y", "logical_type": "double", "required": true },
-        { "name": "geometry_checksum_sha256", "logical_type": "string", "required": true },
-        { "name": "source_record_id", "logical_type": "string", "required": true },
-        { "name": "source_snapshot_id", "logical_type": "string", "required": true },
-        { "name": "valid_from_utc", "logical_type": "timestamp", "required": true },
-        { "name": "valid_to_utc", "logical_type": "timestamp", "required": false },
-        { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true }
+        {
+          "name": "boundary_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sido_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sigungu_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "bjdong_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "jibun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": true
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "bbox_min_x",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_min_y",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_max_x",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_max_y",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_from_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "valid_to_utc",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
       ],
       "partition_spec": [],
-      "sort_order": ["pnu", "valid_from_utc"],
+      "sort_order": [
+        "pnu",
+        "valid_from_utc"
+      ],
       "quality_gates": [
         "pnu passes shared PNU validation",
         "geometry_srid = 4326",
@@ -126,7 +430,13 @@
         "geometry_wkb is valid polygon or multipolygon",
         "one active parcel boundary per pnu",
         "geometry_checksum_sha256 is 64 lowercase hex"
-      ]
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
     },
     "silver.building_register_floors": {
       "table_name": "silver.building_register_floors",
@@ -134,35 +444,125 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "columns": [
-        { "name": "floor_row_id", "logical_type": "string", "required": true },
-        { "name": "mgm_bldrgst_pk", "logical_type": "string", "required": true },
-        { "name": "floor_type_code_raw", "logical_type": "string", "required": false },
-        { "name": "floor_type_name_raw", "logical_type": "string", "required": false },
-        { "name": "floor_number_raw", "logical_type": "string", "required": false },
-        { "name": "floor_label_raw", "logical_type": "string", "required": false },
-        { "name": "floor_kind", "logical_type": "string", "required": true },
-        { "name": "floor_number", "logical_type": "int", "required": false },
-        { "name": "floor_index", "logical_type": "int", "required": false },
-        { "name": "floor_display_ko", "logical_type": "string", "required": false },
-        { "name": "normalization_status", "logical_type": "string", "required": true },
-        { "name": "normalization_reason", "logical_type": "string", "required": true },
-        { "name": "source_record_id", "logical_type": "string", "required": true },
-        { "name": "source_snapshot_id", "logical_type": "string", "required": true },
-        { "name": "bronze_object_key", "logical_type": "string", "required": true },
-        { "name": "source_line_number", "logical_type": "long", "required": false },
-        { "name": "valid_from_utc", "logical_type": "timestamp", "required": true },
-        { "name": "valid_to_utc", "logical_type": "timestamp", "required": false },
-        { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true },
-        { "name": "row_checksum_sha256", "logical_type": "string", "required": true }
+        {
+          "name": "floor_row_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "mgm_bldrgst_pk",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "floor_type_code_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "floor_type_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "floor_number_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "floor_label_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "floor_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "floor_number",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "floor_index",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "floor_display_ko",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "normalization_status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "normalization_reason",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "bronze_object_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "valid_from_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "valid_to_utc",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        }
       ],
-      "partition_spec": ["bucket(16, mgm_bldrgst_pk)"],
-      "sort_order": ["mgm_bldrgst_pk", "floor_index", "floor_row_id"],
+      "partition_spec": [
+        "bucket(16, mgm_bldrgst_pk)"
+      ],
+      "sort_order": [
+        "mgm_bldrgst_pk",
+        "floor_index",
+        "floor_row_id"
+      ],
       "quality_gates": [
         "floor_row_id_not_null",
         "normalization_status_in_allowed_values",
         "proposal_required_rows_preserved",
         "row_checksum_sha256_valid"
-      ]
+      ],
+      "load": {
+        "unit": "run",
+        "column": "source_snapshot_id"
+      }
     },
     "silver.building_register_units": {
       "table_name": "silver.building_register_units",
@@ -170,36 +570,150 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "columns": [
-        { "name": "unit_row_id", "logical_type": "string", "required": true },
-        { "name": "mgm_bldrgst_pk", "logical_type": "string", "required": true },
-        { "name": "pnu", "logical_type": "string", "required": false },
-        { "name": "register_parcel_key", "logical_type": "string", "required": true },
-        { "name": "dong_join_name", "logical_type": "string", "required": false },
-        { "name": "dong_name_raw", "logical_type": "string", "required": false },
-        { "name": "unit_name_raw", "logical_type": "string", "required": false },
-        { "name": "unit_number", "logical_type": "int", "required": false },
-        { "name": "unit_label_ko", "logical_type": "string", "required": false },
-        { "name": "unit_designation", "logical_type": "string", "required": false },
-        { "name": "floor_kind", "logical_type": "string", "required": true },
-        { "name": "floor_index", "logical_type": "int", "required": false },
-        { "name": "floor_number", "logical_type": "int", "required": false },
-        { "name": "building_mgm_bldrgst_pk", "logical_type": "string", "required": false },
-        { "name": "building_link_method", "logical_type": "string", "required": true },
-        { "name": "building_main_or_annex", "logical_type": "string", "required": false },
-        { "name": "building_title_unit_count", "logical_type": "int", "required": false },
-        { "name": "normalization_status", "logical_type": "string", "required": true },
-        { "name": "normalization_reason", "logical_type": "string", "required": true },
-        { "name": "normalization_application_id", "logical_type": "string", "required": false },
-        { "name": "source_record_id", "logical_type": "string", "required": false },
-        { "name": "source_snapshot_id", "logical_type": "string", "required": true },
-        { "name": "bronze_object_key", "logical_type": "string", "required": true },
-        { "name": "source_line_number", "logical_type": "long", "required": false },
-        { "name": "valid_from_utc", "logical_type": "timestamp", "required": true },
-        { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true },
-        { "name": "row_checksum_sha256", "logical_type": "string", "required": true }
+        {
+          "name": "unit_row_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "mgm_bldrgst_pk",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "register_parcel_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "dong_join_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "unit_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "unit_number",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "unit_label_ko",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "unit_designation",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "floor_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "floor_index",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "floor_number",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "building_mgm_bldrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_link_method",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "building_main_or_annex",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_title_unit_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "normalization_status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "normalization_reason",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "normalization_application_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "bronze_object_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "valid_from_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        }
       ],
       "partition_spec": [],
-      "sort_order": ["pnu", "building_mgm_bldrgst_pk", "floor_index", "unit_number", "unit_row_id"],
+      "sort_order": [
+        "pnu",
+        "building_mgm_bldrgst_pk",
+        "floor_index",
+        "unit_number",
+        "unit_row_id"
+      ],
       "quality_gates": [
         "unit_row_id_not_null",
         "register_parcel_key_not_null",
@@ -207,7 +721,11 @@
         "proposal_required_rows_preserved",
         "building_link_method_in_allowed_values",
         "row_checksum_sha256_valid"
-      ]
+      ],
+      "load": {
+        "unit": "run",
+        "column": "source_snapshot_id"
+      }
     },
     "silver.building_register_unit_areas": {
       "table_name": "silver.building_register_unit_areas",
@@ -215,41 +733,176 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "columns": [
-        { "name": "area_row_id", "logical_type": "string", "required": true },
-        { "name": "mgm_bldrgst_pk", "logical_type": "string", "required": true },
-        { "name": "register_kind_name_raw", "logical_type": "string", "required": false },
-        { "name": "register_type_name_raw", "logical_type": "string", "required": false },
-        { "name": "pnu", "logical_type": "string", "required": false },
-        { "name": "register_parcel_key", "logical_type": "string", "required": true },
-        { "name": "dong_name_raw", "logical_type": "string", "required": false },
-        { "name": "unit_name_raw", "logical_type": "string", "required": false },
-        { "name": "unit_designation", "logical_type": "string", "required": false },
-        { "name": "floor_kind", "logical_type": "string", "required": true },
-        { "name": "floor_index", "logical_type": "int", "required": false },
-        { "name": "floor_number", "logical_type": "int", "required": false },
-        { "name": "floor_label_raw", "logical_type": "string", "required": false },
-        { "name": "area_kind", "logical_type": "string", "required": true },
-        { "name": "area_kind_name_raw", "logical_type": "string", "required": false },
-        { "name": "main_or_annex_name_raw", "logical_type": "string", "required": false },
-        { "name": "structure_name_raw", "logical_type": "string", "required": false },
-        { "name": "usage_code_raw", "logical_type": "string", "required": false },
-        { "name": "usage_name_raw", "logical_type": "string", "required": false },
-        { "name": "usage_detail_raw", "logical_type": "string", "required": false },
-        { "name": "area_m2", "logical_type": "double", "required": false },
-        { "name": "area_m2_raw", "logical_type": "string", "required": false },
-        { "name": "created_date_raw", "logical_type": "string", "required": false },
-        { "name": "normalization_status", "logical_type": "string", "required": true },
-        { "name": "normalization_reason", "logical_type": "string", "required": true },
-        { "name": "source_record_id", "logical_type": "string", "required": false },
-        { "name": "source_snapshot_id", "logical_type": "string", "required": true },
-        { "name": "bronze_object_key", "logical_type": "string", "required": true },
-        { "name": "source_line_number", "logical_type": "long", "required": false },
-        { "name": "valid_from_utc", "logical_type": "timestamp", "required": true },
-        { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true },
-        { "name": "row_checksum_sha256", "logical_type": "string", "required": true }
+        {
+          "name": "area_row_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "mgm_bldrgst_pk",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "register_kind_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "register_type_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "register_parcel_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "dong_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "unit_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "unit_designation",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "floor_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "floor_index",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "floor_number",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "floor_label_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "area_kind_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_or_annex_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "structure_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "usage_code_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "usage_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "usage_detail_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area_m2",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "area_m2_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "created_date_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "normalization_status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "normalization_reason",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "bronze_object_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "valid_from_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        }
       ],
-      "partition_spec": ["bucket(32, mgm_bldrgst_pk)"],
-      "sort_order": ["mgm_bldrgst_pk", "area_kind", "floor_index", "area_row_id"],
+      "partition_spec": [
+        "bucket(32, mgm_bldrgst_pk)"
+      ],
+      "sort_order": [
+        "mgm_bldrgst_pk",
+        "area_kind",
+        "floor_index",
+        "area_row_id"
+      ],
       "quality_gates": [
         "area_row_id_not_null",
         "register_parcel_key_not_null",
@@ -257,7 +910,11 @@
         "normalization_status_in_allowed_values",
         "proposal_required_rows_preserved",
         "row_checksum_sha256_valid"
-      ]
+      ],
+      "load": {
+        "unit": "run",
+        "column": "source_snapshot_id"
+      }
     },
     "silver.complex_parcel_memberships": {
       "table_name": "silver.complex_parcel_memberships",
@@ -265,32 +922,113 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "columns": [
-        { "name": "membership_id", "logical_type": "string", "required": true },
-        { "name": "complex_id", "logical_type": "string", "required": true },
-        { "name": "parcel_id", "logical_type": "string", "required": true },
-        { "name": "pnu", "logical_type": "string", "required": true },
-        { "name": "sido_code", "logical_type": "string", "required": true },
-        { "name": "sigungu_code", "logical_type": "string", "required": true },
-        { "name": "bjdong_code", "logical_type": "string", "required": true },
-        { "name": "membership_kind", "logical_type": "string", "required": true },
-        { "name": "source_method", "logical_type": "string", "required": true },
-        { "name": "area_overlap_sqm", "logical_type": "decimal(18,2)", "required": false },
-        { "name": "overlap_ratio", "logical_type": "decimal(9,6)", "required": false },
-        { "name": "source_record_id", "logical_type": "string", "required": true },
-        { "name": "source_snapshot_id", "logical_type": "string", "required": true },
-        { "name": "valid_from_utc", "logical_type": "timestamp", "required": true },
-        { "name": "valid_to_utc", "logical_type": "timestamp", "required": false },
-        { "name": "ingested_at_utc", "logical_type": "timestamp", "required": true },
-        { "name": "row_checksum_sha256", "logical_type": "string", "required": true }
+        {
+          "name": "membership_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "complex_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "parcel_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sido_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sigungu_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "bjdong_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "membership_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_method",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "area_overlap_sqm",
+          "logical_type": "decimal(18,2)",
+          "required": false
+        },
+        {
+          "name": "overlap_ratio",
+          "logical_type": "decimal(9,6)",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_from_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "valid_to_utc",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        }
       ],
-      "partition_spec": ["sigungu_code", "bucket(256, pnu)"],
-      "sort_order": ["complex_id", "pnu", "membership_kind"],
+      "partition_spec": [
+        "sigungu_code",
+        "bucket(256, pnu)"
+      ],
+      "sort_order": [
+        "complex_id",
+        "pnu",
+        "membership_kind"
+      ],
       "quality_gates": [
         "pnu passes shared PNU validation",
         "one active inside or intersects membership per complex_id and pnu",
         "overlap_ratio is between 0 and 1 when present",
         "excluded rows include source method and lineage"
-      ]
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
     },
     "gold.complex_catalog": {
       "table_name": "gold.complex_catalog",
@@ -298,44 +1036,168 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "columns": [
-        { "name": "complex_id", "logical_type": "string", "required": true },
-        { "name": "official_complex_code", "logical_type": "string", "required": true },
-        { "name": "name", "logical_type": "string", "required": true },
-        { "name": "kind", "logical_type": "string", "required": true },
-        { "name": "status", "logical_type": "string", "required": true },
-        { "name": "sido_code", "logical_type": "string", "required": false },
-        { "name": "sigungu_code", "logical_type": "string", "required": false },
-        { "name": "address_text", "logical_type": "string", "required": false },
-        { "name": "management_agency_name", "logical_type": "string", "required": false },
-        { "name": "developer_name", "logical_type": "string", "required": false },
-        { "name": "designated_date", "logical_type": "date", "required": false },
-        { "name": "construction_start_date", "logical_type": "date", "required": false },
-        { "name": "completion_date", "logical_type": "date", "required": false },
-        { "name": "official_area_sqm", "logical_type": "decimal(18,2)", "required": false },
-        { "name": "development_progress_percent", "logical_type": "decimal(5,2)", "required": false },
-        { "name": "lot_sales_status", "logical_type": "string", "required": false },
-        { "name": "business_period_raw", "logical_type": "string", "required": false },
-        { "name": "business_period_start_month", "logical_type": "string", "required": false },
-        { "name": "business_period_end_month", "logical_type": "string", "required": false },
-        { "name": "designation_basis_law_raw", "logical_type": "string", "required": false },
-        { "name": "development_method_raw", "logical_type": "string", "required": false },
-        { "name": "development_purpose_raw", "logical_type": "string", "required": false },
-        { "name": "invited_industries_raw", "logical_type": "string", "required": false },
-        { "name": "calculated_area_sqm", "logical_type": "decimal(18,2)", "required": false },
-        { "name": "parcel_count", "logical_type": "long", "required": true },
-        { "name": "boundary_object_key", "logical_type": "string", "required": false },
-        { "name": "source_snapshot_id", "logical_type": "string", "required": true },
-        { "name": "iceberg_snapshot_id", "logical_type": "string", "required": true },
-        { "name": "published_at_utc", "logical_type": "timestamp", "required": true }
+        {
+          "name": "complex_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "official_complex_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "name",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sido_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "address_text",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "management_agency_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "developer_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "designated_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "construction_start_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "completion_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "official_area_sqm",
+          "logical_type": "decimal(18,2)",
+          "required": false
+        },
+        {
+          "name": "development_progress_percent",
+          "logical_type": "decimal(5,2)",
+          "required": false
+        },
+        {
+          "name": "lot_sales_status",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "business_period_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "business_period_start_month",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "business_period_end_month",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "designation_basis_law_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "development_method_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "development_purpose_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "invited_industries_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "calculated_area_sqm",
+          "logical_type": "decimal(18,2)",
+          "required": false
+        },
+        {
+          "name": "parcel_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "boundary_object_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "iceberg_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
       ],
-      "partition_spec": ["source_snapshot_id"],
-      "sort_order": ["name", "complex_id"],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "name",
+        "complex_id"
+      ],
       "quality_gates": [
         "one active row per complex_id",
         "parcel_count is non-negative",
         "iceberg_snapshot_id is present",
         "published_at_utc is present"
-      ]
+      ],
+      "load": {
+        "unit": "derived"
+      }
     },
     "gold.complex_spatial_locator": {
       "table_name": "gold.complex_spatial_locator",
@@ -343,25 +1205,73 @@
       "serving_role": "SpatialLocator",
       "current_row_predicate": null,
       "columns": [
-        { "name": "spatial_key", "logical_type": "string", "required": true },
-        { "name": "complex_id", "logical_type": "string", "required": true },
-        { "name": "boundary_id", "logical_type": "string", "required": true },
-        { "name": "bbox_min_x", "logical_type": "double", "required": true },
-        { "name": "bbox_min_y", "logical_type": "double", "required": true },
-        { "name": "bbox_max_x", "logical_type": "double", "required": true },
-        { "name": "bbox_max_y", "logical_type": "double", "required": true },
-        { "name": "geometry_checksum_sha256", "logical_type": "string", "required": true },
-        { "name": "object_key", "logical_type": "string", "required": true },
-        { "name": "iceberg_snapshot_id", "logical_type": "string", "required": true }
+        {
+          "name": "spatial_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "complex_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "boundary_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "bbox_min_x",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_min_y",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_max_x",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_max_y",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "object_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "iceberg_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        }
       ],
-      "partition_spec": ["spatial_key_prefix"],
-      "sort_order": ["spatial_key", "complex_id"],
+      "partition_spec": [
+        "spatial_key_prefix"
+      ],
+      "sort_order": [
+        "spatial_key",
+        "complex_id"
+      ],
       "quality_gates": [
         "spatial_key is stable",
         "bbox min/max ordering is valid",
         "object_key points to a source GeoParquet artifact",
         "iceberg_snapshot_id is present"
-      ]
+      ],
+      "load": {
+        "unit": "derived"
+      }
     }
   },
   "jsonl_transports": {
@@ -406,9 +1316,25 @@
   },
   "value_domains": {
     "silver.industrial_complexes": {
-      "complex_kind": ["national", "general", "agricultural", "urban_high_tech"],
-      "status": ["planned", "developing", "operating", "changed", "abolished", "unknown"],
-      "lot_sales_status": ["planned", "in_progress", "completed"]
+      "complex_kind": [
+        "national",
+        "general",
+        "agricultural",
+        "urban_high_tech"
+      ],
+      "status": [
+        "planned",
+        "developing",
+        "operating",
+        "changed",
+        "abolished",
+        "unknown"
+      ],
+      "lot_sales_status": [
+        "planned",
+        "in_progress",
+        "completed"
+      ]
     }
   }
 }

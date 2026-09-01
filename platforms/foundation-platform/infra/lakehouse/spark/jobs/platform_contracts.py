@@ -49,6 +49,61 @@ def load_lakehouse_contract(table_name: str) -> dict[str, Any]:
     return contract
 
 
+def load_unit(table_name: str) -> dict[str, Any]:
+    """Return what one load of ``table_name`` carries.
+
+    The re-run guard used to assume every table identified its loads by `source_record_id`. On
+    2026-09-01 the six live tables used three different things — an object key, a collection run,
+    and nothing at all — so read as one shape, five of the six recorded no identity the guard
+    could use (root ADR-0069). It is read from the contract rather than guessed, and a table that
+    does not declare it is an error here rather than a silent default.
+    """
+    contract = load_lakehouse_contract(table_name)
+    declared = contract.get("load")
+    if not isinstance(declared, dict) or not declared.get("unit"):
+        raise ValueError(f"{table_name} does not declare what one load carries")
+    return declared
+
+
+def load_identity_column(table_name: str) -> str | None:
+    """Return the column the guard compares for ``table_name``, or ``None`` when derived."""
+    declared = load_unit(table_name)
+    if declared["unit"] == "derived":
+        return None
+    column = declared.get("column")
+    if not isinstance(column, str) or not column:
+        raise ValueError(f"{table_name} declares a load unit with no column to read")
+    return column
+
+
+def load_identity_from_value(table_name: str, value: str) -> str:
+    """Reduce one row's lineage value to the identity a load is counted in.
+
+    `silver.industrial_complexes` writes `foundation-platform:bronze:{key}#{code}`, which is one
+    value per row. Compared whole it reports 1,442 objects for one archive, and a batch may carry
+    at most 64 — so switching the guard on there would refuse the load rather than protect it.
+    """
+    declared = load_unit(table_name)
+    if declared["unit"] != "object":
+        return value
+    prefix = declared.get("object_prefix")
+    if prefix:
+        if not value.startswith(prefix):
+            raise ValueError(
+                f"{table_name} lineage value does not start with its declared prefix: {value!r}"
+            )
+        value = value[len(prefix) :]
+    separator = declared.get("object_suffix_separator")
+    if separator:
+        head, found, _tail = value.rpartition(separator)
+        if not found:
+            raise ValueError(
+                f"{table_name} lineage value has no {separator!r} to cut at: {value!r}"
+            )
+        value = head
+    return value
+
+
 def jsonl_transport_columns(dataset_name: str) -> tuple[str, ...]:
     """Return the columns a JSONL producer must supply for ``dataset_name``.
 

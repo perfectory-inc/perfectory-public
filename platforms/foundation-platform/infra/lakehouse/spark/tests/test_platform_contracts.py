@@ -18,7 +18,10 @@ from platform_contracts import (  # noqa: E402
     current_row_predicate,
     declared_geometry_srid,
     jsonl_transport_columns,
+    load_identity_column,
+    load_identity_from_value,
     load_lakehouse_contract,
+    load_unit,
     partition_column_names,
     partition_spec,
     required_string_column_names,
@@ -329,6 +332,80 @@ class DeclaredGeometrySridTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "exactly one"):
             declared_geometry_srid(contract)
+
+
+class LoadUnitTest(unittest.TestCase):
+    """표마다 "한 번의 적재가 무엇인가"가 다르다 (root ADR-0069).
+
+    2026-09-01 실측: 살아 있는 표 6개가 세 가지를 쓰고 있었다 — 객체 키, 수집 실행,
+    그리고 아무것도. 한 가지로 읽어 다섯 표가 안전장치에 아무것도 못 남겼다.
+    """
+
+    def test_every_table_declares_what_a_load_carries(self) -> None:
+        """선언 안 한 표가 있으면 그 표는 조용히 기본값을 쓰게 된다."""
+        artifact = json.loads(
+            (
+                SPARK_DIR.parent / "contracts" / "industrial_complex_lakehouse_contracts.json"
+            ).read_text(encoding="utf-8")
+        )
+        undeclared = [
+            name for name, spec in artifact["contracts"].items() if not spec.get("load", {}).get("unit")
+        ]
+
+        self.assertEqual(undeclared, [], "적재 단위를 선언하지 않은 표가 있다")
+
+    def test_the_column_comes_from_the_contract_not_from_a_default(self) -> None:
+        self.assertEqual(
+            load_identity_column("silver.parcel_boundaries"), "source_record_id"
+        )
+        self.assertEqual(
+            load_identity_column("silver.building_register_units"), "source_snapshot_id"
+        )
+        # 파생 표는 비교할 것이 없다. 없는 것을 "안 실렸다"로 읽으면 안 된다.
+        self.assertIsNone(load_identity_column("gold.complex_catalog"))
+
+    def test_a_wrapped_object_key_is_cut_back_to_the_object(self) -> None:
+        """값 하나에 객체와 단지 코드가 같이 들어 있다.
+
+        통째로 비교하면 1,442개 객체가 있다고 보고, 한 묶음 상한 64개를 넘겨 적재가
+        거부된다 — 보호가 아니라 차단이다.
+        """
+        value = (
+            "foundation-platform:bronze:"
+            "bronze/source=vworldkr__sandan_profile/30138-6.zip#247930"
+        )
+
+        self.assertEqual(
+            load_identity_from_value("silver.industrial_complexes", value),
+            "bronze/source=vworldkr__sandan_profile/30138-6.zip",
+        )
+
+    def test_a_value_that_does_not_match_its_declaration_is_an_error(self) -> None:
+        """모양이 다른 값을 조용히 통과시키면 그것이 곧 다른 객체로 기록된다."""
+        with self.assertRaisesRegex(ValueError, "declared prefix"):
+            load_identity_from_value("silver.industrial_complexes", "30138-6.zip#247930")
+
+    def test_a_plain_object_value_is_left_alone(self) -> None:
+        key = "bronze/source=vworldkr__sandan_boundary/30137-1.zip"
+
+        self.assertEqual(
+            load_identity_from_value("silver.industrial_complex_boundaries", key), key
+        )
+
+    def test_a_table_with_no_declaration_is_refused(self) -> None:
+        """기본값으로 넘어가면 그 표는 안전장치가 꺼진 채로 돈다."""
+        with TemporaryDirectory() as root:
+            path = Path(root) / "contracts.json"
+            artifact = json.loads(
+                (
+                    SPARK_DIR.parent / "contracts" / "industrial_complex_lakehouse_contracts.json"
+                ).read_text(encoding="utf-8")
+            )
+            artifact["contracts"]["silver.parcel_boundaries"].pop("load")
+            path.write_text(json.dumps(artifact), encoding="utf-8")
+            with patch.dict(os.environ, {CONTRACTS_PATH_ENV: str(path)}):
+                with self.assertRaisesRegex(ValueError, "does not declare"):
+                    load_unit("silver.parcel_boundaries")
 
 
 if __name__ == "__main__":
