@@ -21,7 +21,16 @@ build_source() {
   mkdir -p "${dir}/scripts/deploy" "${dir}/migrations"
   printf '%s\n' "${label}" >"${dir}/version.txt"
   cp "${repo_root}/scripts/deploy/assert-runtime-migrations.sh" "${dir}/scripts/deploy/"
+  cp "${repo_root}/scripts/deploy/assert-runtime-environment.sh" "${dir}/scripts/deploy/"
   chmod +x "${dir}/scripts/deploy/assert-runtime-migrations.sh"
+  chmod +x "${dir}/scripts/deploy/assert-runtime-environment.sh"
+  # `verify` asks the environment file too, so the rehearsal carries the compose files that
+  # check reads and an environment holding every variable they declare required. The list is
+  # taken from the compose files rather than typed here — typed, it would go stale the next
+  # time a service needs a variable, which is the incident this whole change is about.
+  cp "${repo_root}/docker-compose.yml" "${repo_root}/compose.recovery.yml" "${dir}/"
+  grep -ohE '[$][{][A-Z_][A-Z0-9_]*:[?]' "${dir}/docker-compose.yml" "${dir}/compose.recovery.yml" \
+    | tr -d '${:?' | sort -u | sed 's/$/=rehearsal/' >"${dir}/rehearsal.env"
   for version in ${migrations}; do
     printf -- '-- rehearsal\n' >"${dir}/migrations/${version}_rehearsal.sql"
   done
@@ -60,6 +69,7 @@ tar -C "${test_root}/source-ahead" -czf "${test_root}/release-ahead.tar.gz" .
 run_release() {
   FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" \
   FOUNDATION_PLATFORM_STATE_ROOT="${state_root}" \
+  FOUNDATION_PLATFORM_ENV_FILE="${release_root}/current/rehearsal.env" \
     "${release_script}" "$@"
 }
 

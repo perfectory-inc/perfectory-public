@@ -60,6 +60,8 @@ for g in hook-isolation-self-test \
          every-table-declares-its-load-self-test every-table-declares-its-load \
          a-deploy-verifies-the-schema-it-left-self-test a-deploy-verifies-the-schema-it-left \
          assert-runtime-migrations-self-test \
+         assert-runtime-environment-self-test \
+         bootstrap-creates-what-it-grants-on-self-test bootstrap-creates-what-it-grants-on \
          no-silent-test-skip-self-test no-silent-test-skip \
          no-env-access-in-domain-layers-self-test no-env-access-in-domain-layers \
          area-ci-input-coverage-self-test area-ci-input-coverage \
