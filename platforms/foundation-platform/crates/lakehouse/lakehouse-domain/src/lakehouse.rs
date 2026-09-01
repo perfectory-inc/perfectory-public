@@ -67,6 +67,62 @@ pub struct LakehouseTableContract {
     pub sort_order: &'static [&'static str],
     /// Quality gates that must pass before publish/promote.
     pub quality_gates: &'static [&'static str],
+    /// What one load of this table carries, and how the re-run guard reads it.
+    pub load: LakehouseLoadUnit,
+}
+
+/// What one load of a table carries.
+///
+/// The re-run guard compares the identities a batch carries against the ones the table records.
+/// It assumed every table identified its loads the same way, and on 2026-09-01 the six live
+/// tables between them used three kinds: an object key, a collection run, and — for a derived
+/// table — nothing at all. Read as one kind, five of the six recorded no identity the guard could
+/// use and would have been appended a second time (root ADR-0069).
+///
+/// Declared rather than inferred from the values. A table loaded once looks like every kind at
+/// once, so inference would answer from whatever happens to be in the table today.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LakehouseLoadUnit {
+    /// One collected object per identity.
+    Object {
+        /// Column holding the identity.
+        column: &'static str,
+        /// Text before the object key, when the value wraps it. `silver.industrial_complexes`
+        /// writes `foundation-platform:bronze:{key}#{code}`, so reading the value whole would
+        /// report 1,442 objects for one archive.
+        object_prefix: Option<&'static str>,
+        /// Separator after the object key, when the value carries more than the key.
+        object_suffix_separator: Option<&'static str>,
+    },
+    /// One collection execution per identity — coarser than an object, and still an identity.
+    Run {
+        /// Column holding the run identity.
+        column: &'static str,
+    },
+    /// Derived from other tables, with no collected source. The producer replaces rather than
+    /// appends, so there is nothing for the guard to compare and its absence is not a gap.
+    Derived,
+}
+
+impl LakehouseLoadUnit {
+    /// The column the guard reads, or `None` for a derived table.
+    #[must_use]
+    pub const fn column(&self) -> Option<&'static str> {
+        match self {
+            Self::Object { column, .. } | Self::Run { column } => Some(column),
+            Self::Derived => None,
+        }
+    }
+
+    /// The name this unit is written as in the contract artifact.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Object { .. } => "object",
+            Self::Run { .. } => "run",
+            Self::Derived => "derived",
+        }
+    }
 }
 
 const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
@@ -1183,6 +1239,12 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
         "business_period months are yyyy-MM",
         "active rows for the same complex_id do not overlap",
     ],
+    // 2026-09-01 실측: 1,442개 값이 한 객체에서 나왔다. 값은 접두사 + 객체키 + `#` + 단지코드다.
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: Some("foundation-platform:bronze:"),
+        object_suffix_separator: Some("#"),
+    },
 };
 
 /// Canonical Silver `GeoParquet` table for industrial complex boundaries.
@@ -1209,6 +1271,12 @@ pub const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES: LakehouseTableContract = Lakehou
         "active official boundary is at most one per complex_id",
         "geometry_checksum_sha256 is 64 lowercase hex",
     ],
+    // 2026-09-01 실측: 값 1개, 이미 객체키 그대로다.
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
 };
 
 /// Canonical Silver `GeoParquet` table for cadastral parcel boundaries.
@@ -1239,6 +1307,12 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
         "one active parcel boundary per pnu",
         "geometry_checksum_sha256 is 64 lowercase hex",
     ],
+    // 2026-09-01 실측: 값 255개. 짧은 이름으로 실려 있어 root ADR-0068 의 이관 대상이다.
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
 };
 
 /// Canonical Silver table for official building-register floor rows.
@@ -1257,6 +1331,10 @@ pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTab
         "proposal_required_rows_preserved",
         "row_checksum_sha256_valid",
     ],
+    // 2026-09-01 실측: 표가 아직 없어 실물로 확인하지 못했다. 형제 두 표와 같은 생산자를 쓴다.
+    load: LakehouseLoadUnit::Run {
+        column: "source_snapshot_id",
+    },
 };
 
 /// Canonical Silver table for official building-register unit rows.
@@ -1288,6 +1366,10 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
         "building_link_method_in_allowed_values",
         "row_checksum_sha256_valid",
     ],
+    // 2026-09-01 실측: 값 1개, 파이프라인 실행 이름. 19,765,555 행이 한 실행에서 나왔다.
+    load: LakehouseLoadUnit::Run {
+        column: "source_snapshot_id",
+    },
 };
 
 /// Canonical Silver table for official building-register unit-area (전유공용면적) rows.
@@ -1311,6 +1393,10 @@ pub const SILVER_BUILDING_REGISTER_UNIT_AREAS: LakehouseTableContract = Lakehous
         "proposal_required_rows_preserved",
         "row_checksum_sha256_valid",
     ],
+    // 2026-09-01 실측: 값 1개, 파이프라인 실행 이름. 113,813,264 행이 한 실행에서 나왔다.
+    load: LakehouseLoadUnit::Run {
+        column: "source_snapshot_id",
+    },
 };
 
 /// Canonical Silver table for industrial complex to parcel membership.
@@ -1329,6 +1415,12 @@ pub const SILVER_COMPLEX_PARCEL_MEMBERSHIPS: LakehouseTableContract = LakehouseT
         "overlap_ratio is between 0 and 1 when present",
         "excluded rows include source method and lineage",
     ],
+    // 2026-09-01 실측: 표가 아직 없어 실물로 확인하지 못했다. 계약이 source_record_id 를 요구한다.
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
 };
 
 /// Gold projection for API list/detail and consumer read models.
@@ -1349,6 +1441,8 @@ pub const GOLD_COMPLEX_CATALOG: LakehouseTableContract = LakehouseTableContract 
         "iceberg_snapshot_id is present",
         "published_at_utc is present",
     ],
+    // silver.industrial_complexes 에서 파생. 생산자가 overwrite 로 돌아 덮어쓴다.
+    load: LakehouseLoadUnit::Derived,
 };
 
 /// Gold spatial locator for bbox, tile, or H3 based pruning.
@@ -1367,6 +1461,8 @@ pub const GOLD_COMPLEX_SPATIAL_LOCATOR: LakehouseTableContract = LakehouseTableC
         "object_key points to a source GeoParquet artifact",
         "iceberg_snapshot_id is present",
     ],
+    // 파생 표이고 계보 칸 자체가 없다.
+    load: LakehouseLoadUnit::Derived,
 };
 
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[

@@ -68,3 +68,67 @@ def iceberg_packages() -> str:
     hadoop = contract["hadoop"]
     coordinates += [f"{artifact}:{hadoop['version']}" for artifact in hadoop["artifacts"]]
     return ",".join(coordinates)
+
+
+# 카탈로그 접속 설정이 사는 곳.
+#
+# 2026-09-01 실측: 여덟 개 job 이 같은 여덟 줄을 각자 들고 있었고, **이미 갈라져 있었다** —
+# 한 곳은 `s3.remote-signing-enabled` 가 없고 다른 한 곳은 `oauth2-server-uri` 가 없다. 새
+# 설정이 필요해졌을 때 여섯 곳만 고친 것이다. 같은 사실이 여덟 곳에 있으면 언젠가 갈라지고,
+# 갈라진 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+#
+# 아홉 번째를 만들지 않으려고 여기 둔다. 기존 여덟 곳의 이전은 각각 돌려 봐야 하므로 별도로
+# 한다 (root ADR-0069).
+CATALOG_URI_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"
+CATALOG_WAREHOUSE_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"
+CATALOG_TOKEN_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN"
+CATALOG_OAUTH2_SERVER_URI_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_OAUTH2_SERVER_URI"
+
+ICEBERG_SPARK_EXTENSIONS = "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+
+
+def _required_env(name: str) -> str:
+    value = os.environ.get(name, "")
+    if not value.strip():
+        raise ValueError(f"{name} is required to reach the lakehouse catalog")
+    return value.strip()
+
+
+def oauth2_server_uri(catalog_uri: str) -> str:
+    """Where the catalog issues tokens.
+
+    Overridable because the catalog and its token endpoint need not share a host; derived from the
+    catalog URI otherwise, which is what every job did on its own.
+    """
+    configured = os.environ.get(CATALOG_OAUTH2_SERVER_URI_ENV, "")
+    if configured.strip():
+        return configured.strip()
+    return f"{catalog_uri.rstrip('/')}/v1/oauth/tokens"
+
+
+def catalog_settings(catalog: str) -> dict[str, str]:
+    """Every setting needed to reach the Iceberg REST catalog, as one mapping.
+
+    Returned rather than applied so a caller can add it to a builder it already has, and so a test
+    can read what would be applied without a Spark session.
+    """
+    catalog_uri = _required_env(CATALOG_URI_ENV)
+    return {
+        "spark.sql.extensions": ICEBERG_SPARK_EXTENSIONS,
+        f"spark.sql.catalog.{catalog}": "org.apache.iceberg.spark.SparkCatalog",
+        f"spark.sql.catalog.{catalog}.type": "rest",
+        f"spark.sql.catalog.{catalog}.uri": catalog_uri,
+        f"spark.sql.catalog.{catalog}.oauth2-server-uri": oauth2_server_uri(catalog_uri),
+        f"spark.sql.catalog.{catalog}.warehouse": _required_env(CATALOG_WAREHOUSE_ENV),
+        f"spark.sql.catalog.{catalog}.token": _required_env(CATALOG_TOKEN_ENV),
+        # 자격증명을 카탈로그가 발급해 준다. 이것이 없으면 표는 열리는데 파일을 못 읽는다.
+        f"spark.sql.catalog.{catalog}.header.X-Iceberg-Access-Delegation": "vended-credentials",
+        f"spark.sql.catalog.{catalog}.s3.remote-signing-enabled": "false",
+    }
+
+
+def apply_catalog_settings(builder: Any, catalog: str) -> Any:
+    """Add the catalog settings to a Spark builder."""
+    for key, value in catalog_settings(catalog).items():
+        builder = builder.config(key, value)
+    return builder

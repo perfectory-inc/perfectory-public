@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, error::Error, path::Path};
 
 use lakehouse_domain::{
     bronze_industrial_complexes_raw_jsonl_columns, industrial_complex_lakehouse_contracts,
-    LakehouseTableContract, BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL,
+    LakehouseLoadUnit, LakehouseTableContract, BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL,
     INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES, INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES,
     INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS, INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
 };
@@ -111,6 +111,32 @@ fn contract_json(contract: &LakehouseTableContract) -> Value {
         }).collect::<Vec<_>>(),
         "partition_spec": contract.partition_spec,
         "sort_order": contract.sort_order,
-        "quality_gates": contract.quality_gates
+        "quality_gates": contract.quality_gates,
+        "load": load_json(&contract.load)
     })
+}
+
+/// Exports what one load of the table carries, so the Spark side reads it rather than assuming.
+///
+/// The guard read `source_record_id` on every table. Three of the six live tables identify their
+/// loads by something else, and one wraps the object key inside a larger value; read as one shape
+/// they recorded nothing the guard could use (root ADR-0069).
+fn load_json(load: &LakehouseLoadUnit) -> Value {
+    match load {
+        LakehouseLoadUnit::Object {
+            column,
+            object_prefix,
+            object_suffix_separator,
+        } => serde_json::json!({
+            "unit": load.kind(),
+            "column": column,
+            "object_prefix": object_prefix,
+            "object_suffix_separator": object_suffix_separator
+        }),
+        LakehouseLoadUnit::Run { column } => serde_json::json!({
+            "unit": load.kind(),
+            "column": column
+        }),
+        LakehouseLoadUnit::Derived => serde_json::json!({ "unit": load.kind() }),
+    }
 }

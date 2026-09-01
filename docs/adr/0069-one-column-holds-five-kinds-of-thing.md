@@ -56,7 +56,7 @@ gold.complex_catalog                        1,442 rows   no registry
 **Root ADR-0062's protection is live on one table out of six.** Between them the other five hold
 133,583,046 rows.
 
-### Why the column being optional hides this
+### Why nothing failed loudly
 
 `source_record_id` is `required: false` for both building-register tables and absent from the
 `gold.complex_catalog` contract, while it is `required: true` for parcel and industrial complex.
@@ -65,13 +65,19 @@ existing row gets `NULL`. The load proceeds, the guard has nothing to compare, a
 doubles. An earlier reading of this repository — that such a load would fail rather than
 duplicate — was wrong, and wrong in the more dangerous direction.
 
+The optional flag is not the defect, though, and saying it was is a second misreading of the same
+tables. The column those two identify their loads by is `source_snapshot_id`, and that one is
+`required: true`. Measured across all nine contracts, every table that has a load unit names a
+required column. The guard was reading a column that means something else on three tables — not
+reading an optional column.
+
 ## Decision
 
 1. **A table declares the unit one load carries.** The contract for each table gains
-   `load_unit`, one of:
+   a `load` block whose `unit` is one of:
    - `object` — one collected object per value; the guard compares object identities.
    - `run` — one collection execution per value; the guard compares run identities.
-   - `none` — the table is derived from other tables and has no collected source; the guard does
+   - `derived` — the table is derived from other tables and has no collected source; the guard does
      not apply and the loader must say so rather than read an empty registry as "not loaded".
 
    It is declared rather than inferred. Inferring it from the values would make the answer depend
@@ -83,13 +89,13 @@ duplicate — was wrong, and wrong in the more dangerous direction.
    column so the guard cannot read a column that means something else.
 
 3. **A value that identifies a row is not a load unit.** `silver.industrial_complexes` carries a
-   per-row identity; its `load_unit` is `object` and the guard must read the object part, not the
+   per-row identity; its unit is `object` and the guard must read the object part, not the
    row part. The same column doing both jobs was split for the building-register handoffs by
    `building_register_row_identity::row_identity`, which keeps the object name and the line number
    apart. `silver.industrial_complexes` has not been through that split, so until it is, the
    contract names the derivation that recovers the object from the value.
 
-4. **A table with `load_unit` other than `none` and an empty registry refuses to load.** Today it
+4. **A table with a load unit and an empty registry refuses to load.** Today it
    appends. The refusal names the backfill required to proceed, so a run that would double a
    hundred-million-row table stops with an instruction rather than succeeding.
 
@@ -100,14 +106,15 @@ duplicate — was wrong, and wrong in the more dangerous direction.
    needs both operations, and doing only the `UPDATE` would leave the registry untouched while
    appearing to have fixed the table.
 
-6. **The lineage column is required wherever a load unit exists.** Optional is how this stayed
-   invisible: the loader adds the column, fills it with nulls for existing rows, and the guard
-   counts nothing while reporting success.
+6. **The column a load unit names is required.** This already holds — measured across all nine
+   contracts, every table with a load unit names a `required: true` column — so the decision is to
+   keep it holding rather than to change anything. A unit pointing at an optional column would let
+   the loader add it, fill existing rows with nulls, and count nothing while reporting success.
 
-7. **A guard enforces (1):** every table in the lakehouse contract artifact declares `load_unit`,
-   and every table whose `load_unit` is not `none` declares the column the guard reads. Failing it
-   prevents a table being added with no statement of what a load is, which is how five tables came
-   to have no registry without anyone noticing.
+7. **A guard enforces (1) and (6):** every table in the contract artifact declares a load unit;
+   every table whose unit is not `derived` names a column; that column exists on the table; and it
+   is required. Failing it prevents a table being added with no statement of what a load is, which
+   is how five tables came to have no registry without anyone noticing.
 
 ## Consequences
 
@@ -119,10 +126,21 @@ The backfill for `silver.industrial_complexes` needs the object part of a per-ro
 depends on (3). The building-register tables backfill from a single run identity each, which is
 one entry per table.
 
-`gold.complex_catalog` is derived from `silver.industrial_complexes`. Its `load_unit` is `none`:
+`gold.complex_catalog` is derived from `silver.industrial_complexes`. Its unit is `derived`:
 `industrial_complex_silver_to_gold.py` defaults to `overwrite` and refuses that mode on a
 non-`_smoke` table unless `--allow-non-smoke-overwrite` is given, so a re-run replaces the table
 rather than adding to it. A registry would be answering a question nobody asks of that table.
 
-This ADR does not perform the backfills. It makes the loader refuse rather than duplicate, which
-is the part that stops the next accident.
+**The refusal does not cover the sixth table, and saying otherwise would be the more comfortable
+sentence.** It fires when a table records nothing, and `silver.parcel_boundaries` records 287
+identities — the 255 bare names, plus the 32 full keys left by the appends rolled back on
+2026-08-31. A loader passing full keys, which is what the converter now derives, finds those 32
+recorded and the other 223 not. `decide_whether_to_append` refuses a batch that is partly in and
+partly out, but a batch of sixteen containing none of the 32 is entirely out, and it appends. At
+sixteen objects a batch, most batches are entirely out.
+
+That table needs the rewrite in (5) rather than a backfill: its values change and its registry is
+not empty. Until that runs, the parcel load must not.
+
+This ADR does not perform the backfills or the rewrite. It makes the loader refuse where it can,
+and names the one place it cannot.

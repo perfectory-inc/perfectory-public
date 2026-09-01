@@ -38,9 +38,9 @@ pub use industrial_complex_jsonl_transport::{
 };
 pub use lakehouse::{
     industrial_complex_lakehouse_contract_by_table_name, industrial_complex_lakehouse_contracts,
-    LakehouseColumn, LakehouseLayer, LakehousePhysicalFormat, LakehouseServingRole,
-    LakehouseTableContract, GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR,
-    SILVER_BUILDING_REGISTER_FLOORS, SILVER_BUILDING_REGISTER_UNITS,
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
+    LakehouseServingRole, LakehouseTableContract, GOLD_COMPLEX_CATALOG,
+    GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS, SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
     SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
 };
