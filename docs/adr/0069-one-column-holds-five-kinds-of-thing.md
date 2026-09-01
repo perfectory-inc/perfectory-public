@@ -131,5 +131,16 @@ one entry per table.
 non-`_smoke` table unless `--allow-non-smoke-overwrite` is given, so a re-run replaces the table
 rather than adding to it. A registry would be answering a question nobody asks of that table.
 
-This ADR does not perform the backfills. It makes the loader refuse rather than duplicate, which
-is the part that stops the next accident.
+**The refusal does not cover the sixth table, and saying otherwise would be the more comfortable
+sentence.** It fires when a table records nothing, and `silver.parcel_boundaries` records 287
+identities — the 255 bare names, plus the 32 full keys left by the appends rolled back on
+2026-08-31. A loader passing full keys, which is what the converter now derives, finds those 32
+recorded and the other 223 not. `decide_whether_to_append` refuses a batch that is partly in and
+partly out, but a batch of sixteen containing none of the 32 is entirely out, and it appends. At
+sixteen objects a batch, most batches are entirely out.
+
+That table needs the rewrite in (5) rather than a backfill: its values change and its registry is
+not empty. Until that runs, the parcel load must not.
+
+This ADR does not perform the backfills or the rewrite. It makes the loader refuse where it can,
+and names the one place it cannot.
