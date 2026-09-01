@@ -85,18 +85,35 @@ class FakeBatchFrame:
         self._record_ids = record_ids
         self._column = column
         self.appended = False
+        self.selected: tuple[str, ...] | None = None
+        self.truncated_at: int | None = None
 
-    def select(self, *_columns: str) -> "FakeBatchFrame":
+    def select(self, *columns: str) -> "FakeBatchFrame":
+        self.selected = tuple(columns)
         return self
 
     def distinct(self) -> "FakeBatchFrame":
         return self
 
-    def limit(self, _n: int) -> "FakeBatchFrame":
+    def limit(self, n: int) -> "FakeBatchFrame":
+        self.truncated_at = n
         return self
 
     def collect(self) -> list[FakeRegistryRow]:
-        return [FakeRegistryRow(value, self._column) for value in self._record_ids]
+        # The rows answer to the column that was selected, not to the one this fake was built
+        # with. A row answering to every lineage column lets a reader of the wrong one pass,
+        # and reading the wrong one is what left three tables unprotected (root ADR-0069).
+        if self.selected is None or len(self.selected) != 1:
+            raise AssertionError(f"a lineage read selects one column, not {self.selected!r}")
+        if self.selected[0] != self._column:
+            raise AttributeError(
+                f"this batch carries {self._column!r}, and the read asked for "
+                f"{self.selected[0]!r}"
+            )
+        values = self._record_ids
+        if self.truncated_at is not None:
+            values = values[: self.truncated_at]
+        return [FakeRegistryRow(value, self._column) for value in values]
 
     def writeTo(self, _table: str) -> "FakeBatchFrame":  # noqa: N802 - Spark's spelling
         return self
@@ -153,7 +170,9 @@ class EmptyRegistryTest(unittest.TestCase):
         frame = FakeBatchFrame(["a.zip"])
 
         with self.assertRaises(ValueError) as caught:
-            append_batch_once(spark, frame, ["source_record_id"], "`c`.`s`.`t`")
+            append_batch_once(
+                spark, frame, ["source_record_id"], "`c`.`s`.`t`", "silver.parcel_boundaries"
+            )
 
         self.assertIn("records no ingested objects", str(caught.exception))
         self.assertFalse(frame.appended, "거절했다면 쓰기를 시도하지 않았어야 한다")
@@ -163,7 +182,9 @@ class EmptyRegistryTest(unittest.TestCase):
         spark = FakeAnsweringSpark(registry=[], total_records=0)
         frame = FakeBatchFrame(["a.zip"])
 
-        result = append_batch_once(spark, frame, ["source_record_id"], "`c`.`s`.`t`")
+        result = append_batch_once(
+            spark, frame, ["source_record_id"], "`c`.`s`.`t`", "silver.parcel_boundaries"
+        )
 
         self.assertTrue(result["appended"])
         self.assertTrue(frame.appended)
@@ -174,7 +195,12 @@ class EmptyRegistryTest(unittest.TestCase):
         frame = FakeBatchFrame(["a.zip"])
 
         result = append_batch_once(
-            spark, frame, ["source_record_id"], "`c`.`s`.`t`", write_mode="overwrite"
+            spark,
+            frame,
+            ["source_record_id"],
+            "`c`.`s`.`t`",
+            "silver.parcel_boundaries",
+            write_mode="overwrite",
         )
 
         self.assertTrue(result["appended"])
@@ -190,6 +216,111 @@ class EmptyRegistryTest(unittest.TestCase):
 
         unknown = FakeAnsweringSpark(registry=[], total_records=None)
         self.assertFalse(table_holds_rows(unknown, "`c`.`s`.`t`", "c.s.t"))
+
+
+class DeclaredLoadIdentityTest(unittest.TestCase):
+    """기록은 계약이 정한 칸을, 계약이 정한 단위로 읽는다.
+
+    2026-09-01 실측: 표 아홉 중 셋이 `source_snapshot_id` 로 적재를 가린다. 그런데
+    `append_batch_once` 의 기본값은 `source_record_id` 였고 어느 호출부도 그것을 바꾸지
+    않았다. 백필이 계약대로 기록을 남겨도 적재기가 다른 칸을 비교하면 겹치는 것이 없고,
+    "행은 있는데 기록이 없다" 거절까지 풀린 채 1억 3천만 행이 한 벌 더 들어간다.
+    """
+
+    def test_a_run_identified_table_is_read_on_its_own_column(self) -> None:
+        frame = FakeBatchFrame(["run-2026-06"], column="source_snapshot_id")
+        spark = FakeAnsweringSpark(
+            registry=[FakeRow(7, {INGEST_BATCH_OBJECTS_KEY: "run-2026-06"})],
+            total_records=113_813_264,
+        )
+
+        result = append_batch_once(
+            spark,
+            frame,
+            ["unit_row_id"],
+            "`c`.`silver`.`building_register_unit_areas`",
+            "silver.building_register_unit_areas",
+        )
+
+        self.assertEqual(frame.selected, ("source_snapshot_id",))
+        self.assertFalse(result["appended"], "이미 기록된 적재는 다시 붙지 않아야 한다")
+        self.assertFalse(frame.appended)
+
+    def test_a_per_row_value_is_reduced_to_the_object_it_names(self) -> None:
+        """행마다 다른 값 1,442개는 객체 하나다. 통째로 비교하면 상한 64를 넘겨 거부된다."""
+        prefix = "foundation-platform:bronze:bronze/source=vworldkr__sandan_profile/20991231DS99990-1.zip"
+        frame = FakeBatchFrame([f"{prefix}#{n}" for n in range(1_442)])
+        spark = FakeAnsweringSpark(registry=[], total_records=0)
+
+        result = append_batch_once(
+            spark,
+            frame,
+            ["complex_id"],
+            "`c`.`silver`.`industrial_complexes`",
+            "silver.industrial_complexes",
+        )
+
+        self.assertEqual(
+            result["record_ids"], ["bronze/source=vworldkr__sandan_profile/20991231DS99990-1.zip"]
+        )
+        self.assertTrue(result["appended"])
+
+    def test_a_reducing_read_is_not_truncated(self) -> None:
+        """줄이기 전에 자르면 여러 객체 중 하나의 행만 보고 그 하나만 기록한다.
+
+        기록이 적재보다 적은 객체를 말하면, 빠진 객체는 다음 실행에서 다시 들어간다 —
+        이 모듈이 없애려는 결함을 한 층 아래에서 되살리는 것이다.
+        """
+        prefix = "foundation-platform:bronze:bronze/source=vworldkr__sandan_profile/"
+        values = [f"{prefix}a.zip#{n}" for n in range(200)] + [f"{prefix}b.zip#0"]
+        frame = FakeBatchFrame(values)
+        spark = FakeAnsweringSpark(registry=[], total_records=0)
+
+        result = append_batch_once(
+            spark,
+            frame,
+            ["complex_id"],
+            "`c`.`silver`.`industrial_complexes`",
+            "silver.industrial_complexes",
+        )
+
+        self.assertIsNone(frame.truncated_at, "줄이는 읽기는 잘라서는 안 된다")
+        self.assertEqual(
+            result["record_ids"],
+            [
+                "bronze/source=vworldkr__sandan_profile/a.zip",
+                "bronze/source=vworldkr__sandan_profile/b.zip",
+            ],
+        )
+
+    def test_too_many_identities_is_refused_not_truncated(self) -> None:
+        frame = FakeBatchFrame([f"{n}.zip" for n in range(65)])
+        spark = FakeAnsweringSpark(registry=[], total_records=0)
+
+        with self.assertRaisesRegex(ValueError, "at most 64"):
+            append_batch_once(
+                spark,
+                frame,
+                ["pnu"],
+                "`c`.`silver`.`parcel_boundaries`",
+                "silver.parcel_boundaries",
+            )
+
+        self.assertFalse(frame.appended)
+
+    def test_a_derived_table_has_no_load_identity_to_record(self) -> None:
+        """파생 표의 생산자는 덮어쓴다. 기록을 남기면 아무도 묻지 않는 물음에 답하는 것이다."""
+        frame = FakeBatchFrame(["vworldkr__sandan_profile-202506"])
+        spark = FakeAnsweringSpark(registry=[], total_records=0)
+
+        with self.assertRaisesRegex(ValueError, "derived"):
+            append_batch_once(
+                spark,
+                frame,
+                ["complex_id"],
+                "`c`.`gold`.`complex_catalog`",
+                "gold.complex_catalog",
+            )
 
 
 class BatchIdentityTest(unittest.TestCase):

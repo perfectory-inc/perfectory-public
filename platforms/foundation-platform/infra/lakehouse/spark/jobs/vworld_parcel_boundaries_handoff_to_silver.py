@@ -818,6 +818,7 @@ def main() -> int:
                 silver,
                 SILVER_COLUMNS,
                 qualified_iceberg_table(args),
+                RUN_SUMMARY_CONTRACT,
                 write_mode=args.iceberg_write_mode,
             )
             if not outcome["appended"]:

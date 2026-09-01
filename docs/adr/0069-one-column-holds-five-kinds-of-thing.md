@@ -144,3 +144,23 @@ not empty. Until that runs, the parcel load must not.
 
 This ADR does not perform the backfills or the rewrite. It makes the loader refuse where it can,
 and names the one place it cannot.
+
+## Revision note — 2026-09-01
+
+Decisions (2) and (3) were written and not implemented. `append_batch_once` still took the column
+as a defaulted parameter, `SOURCE_RECORD_COLUMN`, and none of its four callers passed one; nor did
+it apply the derivation (3) describes. Found while reading the call sites before running the
+backfill, with the plans already printed.
+
+Backfilling first would have been worse than not backfilling. For
+`silver.building_register_units` and `silver.building_register_unit_areas` the record would have
+carried `source_snapshot_id` values while the loader compared `source_record_id`, which those two
+leave null — so nothing would ever match, and a non-empty registry also switches off the refusal
+in (4) that is the only thing standing in front of those tables today. 133,583,046 rows would have
+gone from protected-by-refusal to unprotected, by an operation whose whole purpose was to protect
+them.
+
+The decisions are unchanged. The loader now reads the column and the unit from the contract, the
+reducing read is not truncated, and the tests read a fake row that answers only to the column that
+was selected — the previous fake answered to every lineage column, which is why the tests were
+green while three tables were compared on a column they do not fill.
