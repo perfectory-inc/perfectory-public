@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **393개**
+- 문서 파일: **394개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 91 |
+| Monorepo | 92 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 150 |
+| ADR | 151 |
 | README | 107 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -437,6 +437,7 @@ docs/adr/0066-a-table-that-fits-in-one-file-is-not-split.md
 docs/adr/0067-the-parcel-source-covers-the-country-twice.md
 docs/adr/0068-the-command-names-the-object-it-read.md
 docs/adr/0069-one-column-holds-five-kinds-of-thing.md
+docs/adr/0070-the-boundary-source-carries-neither-use-nor-area.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -540,6 +541,7 @@ tools/github/README.md
 | `docs/adr/0067-the-parcel-source-covers-the-country-twice.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0068-the-command-names-the-object-it-read.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0069-one-column-holds-five-kinds-of-thing.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0070-the-boundary-source-carries-neither-use-nor-area.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

@@ -18,7 +18,9 @@ fn parcel(kind: Option<ParcelKind>) -> Result<Parcel, Box<dyn std::error::Error>
         .ok_or("fixture timestamp must be unambiguous")?;
     Ok(Parcel {
         id: ParcelId::new(Uuid::nil()),
-        pnu: Pnu::parse("4113510300100050000".to_owned())?,
+        // 저장소가 예약한 99999 범위. 실제로 배정될 수 있는 PNU 를 공개 저장소의
+        // 픽스처에 적으면 실물 필지를 가리키게 된다 (public-fixture-safety).
+        pnu: Pnu::parse("9999900000100000000".to_owned())?,
         kind,
         area_m2: None,
         created_at: at,
