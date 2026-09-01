@@ -107,8 +107,12 @@ class ValidateArgsTest(unittest.TestCase):
         args = parse_args(["--input", "handoff.jsonl", "--output", "out"])
 
         self.assertTrue(needs_iceberg_catalog(args))
+        # 어느 변수가 없는지를 단언한다. 문장을 단언하면 문장을 고칠 때마다 이 검사가 깨지고,
+        # 정작 사람이 필요한 것은 이름이다.
         with patch.dict("os.environ", {}, clear=True):
-            with self.assertRaisesRegex(ValueError, "Missing required environment variable"):
+            with self.assertRaisesRegex(
+                ValueError, "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"
+            ):
                 validate_args(args)
         with patch.dict("os.environ", ICEBERG_ENV, clear=True):
             validate_args(args)

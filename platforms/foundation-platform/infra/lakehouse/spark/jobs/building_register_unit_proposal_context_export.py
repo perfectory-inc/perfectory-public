@@ -18,11 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lakehouse_engine import apply_catalog_settings, assert_catalog_env
 from silver_scalar_handoff_to_lakehouse import (
     DEFAULT_ICEBERG_PACKAGES,
     assert_iceberg_runtime_loaded,
-    lakehouse_oauth2_server_uri,
-    require_env,
 )
 
 
@@ -51,8 +50,7 @@ def validate_args(args: Any) -> None:
         raise ValueError("--expected-proposal-count must be zero or greater")
     if args.input_parquet is not None:
         return
-    for name in required_iceberg_env():
-        require_env(name)
+    assert_catalog_env()
 
 
 def validate_identifier(label: str, value: str) -> None:
@@ -60,12 +58,6 @@ def validate_identifier(label: str, value: str) -> None:
         raise ValueError(f"{label} must be a simple identifier: {value}")
 
 
-def required_iceberg_env() -> tuple[str, ...]:
-    return (
-        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
-        "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
-        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
-    )
 
 
 def build_proposal_source_sql(source_table: str) -> str:
@@ -486,38 +478,10 @@ def build_spark_session(args: Any, SparkSession: Any) -> Any:
         spark.sparkContext.setLogLevel("WARN")
         return spark
 
-    catalog_uri = require_env("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI")
-    catalog = args.catalog
-    builder = (
-        SparkSession.builder.appName(
-            "foundation-platform-building-register-unit-proposal-context-export"
-        )
-        .config("spark.sql.session.timeZone", "UTC")
-        .config(
-            "spark.sql.extensions",
-            "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-        )
-        .config(f"spark.sql.catalog.{catalog}", "org.apache.iceberg.spark.SparkCatalog")
-        .config(f"spark.sql.catalog.{catalog}.type", "rest")
-        .config(f"spark.sql.catalog.{catalog}.uri", catalog_uri)
-        .config(
-            f"spark.sql.catalog.{catalog}.oauth2-server-uri",
-            lakehouse_oauth2_server_uri(catalog_uri),
-        )
-        .config(
-            f"spark.sql.catalog.{catalog}.warehouse",
-            require_env("FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"),
-        )
-        .config(
-            f"spark.sql.catalog.{catalog}.token",
-            require_env("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN"),
-        )
-        .config(
-            f"spark.sql.catalog.{catalog}.header.X-Iceberg-Access-Delegation",
-            "vended-credentials",
-        )
-        .config(f"spark.sql.catalog.{catalog}.s3.remote-signing-enabled", "false")
-    )
+    builder = SparkSession.builder.appName(
+        "foundation-platform-building-register-unit-proposal-context-export"
+    ).config("spark.sql.session.timeZone", "UTC")
+    builder = apply_catalog_settings(builder, args.catalog)
     spark = builder.getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
     assert_iceberg_runtime_loaded(spark, args.iceberg_packages)
