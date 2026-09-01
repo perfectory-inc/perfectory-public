@@ -78,3 +78,4 @@ last_reviewed: 2026-07-28
 - [0065 — 엔진 판 번호는 한 곳에만 적는다](./0065-an-engine-version-is-written-once.md)
 - [0066 — 한 파일에 들어가는 표는 나누지 않는다](./0066-a-table-that-fits-in-one-file-is-not-split.md)
 - [0067 — 필지 원천은 전국을 두 번 덮는다](./0067-the-parcel-source-covers-the-country-twice.md)
+- [0068 — 명령이 자기가 읽은 객체의 이름을 적는다](./0068-the-command-names-the-object-it-read.md)
