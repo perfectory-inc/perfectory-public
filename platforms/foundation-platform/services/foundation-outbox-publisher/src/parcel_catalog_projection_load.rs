@@ -34,15 +34,21 @@ use serde::Deserialize;
 use sqlx::{Connection, Executor, PgConnection};
 
 use crate::public_data_control_support::{
-    optional_bool_env, optional_env_value, optional_usize_env, required_env_value,
+    optional_bool_env, optional_env_value, required_env_value,
 };
 
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_CATALOG_PROJECTION_LOAD_CONFIRM";
 const SOURCE_CONTRACT_ENV: &str = "VWORLD_PARCEL_SOURCE_CONTRACT";
 const HANDOFF_PREFIX_ENV: &str = "VWORLD_PARCEL_HANDOFF_PREFIX";
-const OBJECT_LIMIT_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_CATALOG_PROJECTION_LOAD_OBJECT_LIMIT";
 const DEFAULT_HANDOFF_PREFIX: &str = "silver-handoff/vworldkr__parcel";
 const SOURCE_CONTRACT_SCHEMA_VERSION: u32 = 1;
+/// How many times one object is attempted before the run steps over it.
+///
+/// The byte-range reads underneath already retry five times with backoff, so this is the
+/// layer above that: a whole-object attempt, for the case where those five were all inside
+/// one bad minute.
+const OBJECT_ATTEMPTS: usize = 3;
+const OBJECT_RETRY_BASE_DELAY_SECONDS: u64 = 5;
 
 /// One handoff row, of which this load reads a single field.
 ///
@@ -70,7 +76,6 @@ struct SourceObject {
 struct Config {
     database_url: String,
     handoff_prefix: String,
-    object_limit: Option<usize>,
     confirmed: bool,
 }
 
@@ -80,7 +85,6 @@ impl Config {
             database_url: required_env_value("DATABASE_URL")?,
             handoff_prefix: optional_env_value(HANDOFF_PREFIX_ENV)?
                 .unwrap_or_else(|| DEFAULT_HANDOFF_PREFIX.to_owned()),
-            object_limit: optional_usize_env(OBJECT_LIMIT_ENV)?,
             confirmed: optional_bool_env(CONFIRM_ENV)?.unwrap_or(false),
         })
     }
@@ -154,6 +158,28 @@ fn parcels_in_object(object_bytes: &[u8], object_key: &str) -> anyhow::Result<BT
     Ok(parcels)
 }
 
+/// Waits longer after each failed attempt.
+///
+/// Immediate retries lose to the failure they are retrying: five range reads inside one second all
+/// meet the same second.
+fn object_retry_delay(attempt: usize) -> std::time::Duration {
+    std::time::Duration::from_secs(OBJECT_RETRY_BASE_DELAY_SECONDS * attempt as u64)
+}
+
+/// Reads one object and merges it, so the retry above has a single unit to repeat.
+async fn load_one(
+    storage: &R2ObjectStorage,
+    conn: &mut PgConnection,
+    key: &str,
+) -> anyhow::Result<(u64, u64)> {
+    let bytes = storage
+        .get_object_bytes_range_retried(key)
+        .await
+        .with_context(|| format!("failed to read handoff object {key}"))?;
+    let parcels = parcels_in_object(&bytes, key)?;
+    load_object(conn, &parcels).await
+}
+
 async fn prepare_stage(conn: &mut PgConnection) -> anyhow::Result<()> {
     // No index, no constraint, no default: the stage exists to receive bytes quickly, and every
     // structure on it would be paid once per row of a forty-million-row stream.
@@ -225,6 +251,38 @@ async fn load_object(
     Ok((staged, inserted))
 }
 
+/// Decides what a finished pass amounts to, and refuses to call a partial one complete.
+///
+/// A function rather than lines inside `run` so a test can ask it directly. The property is not
+/// "an error is printed somewhere" but "an unread object makes this return `Err`", and only a
+/// value can be asked that.
+fn verdict(
+    object_count: usize,
+    unread: &[String],
+    staged: u64,
+    inserted: u64,
+    table_rows: i64,
+) -> anyhow::Result<()> {
+    if unread.is_empty() {
+        println!(
+            "parcel-catalog-projection-load-ok objects={object_count} distinct_staged={staged} inserted={inserted} table_rows={table_rows}"
+        );
+        return Ok(());
+    }
+    println!(
+        "parcel-catalog-projection-load-incomplete objects={object_count} unread={} distinct_staged={staged} inserted={inserted} table_rows={table_rows}",
+        unread.len()
+    );
+    for key in unread {
+        println!("parcel-catalog-projection-load-incomplete-key {key}");
+    }
+    bail!(
+        "{} of {object_count} objects could not be read; the table holds {table_rows} rows and is \
+         not the whole dataset. Re-running loads only what is missing.",
+        unread.len()
+    );
+}
+
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     let contract_path = optional_env_value(SOURCE_CONTRACT_ENV)?.unwrap_or_else(|| {
@@ -236,13 +294,10 @@ pub async fn run() -> anyhow::Result<()> {
     )
     .with_context(|| format!("failed to parse the source contract {contract_path}"))?;
 
-    let mut keys = handoff_keys(&contract, config.handoff_prefix.as_str())?;
-    if let Some(limit) = config.object_limit {
-        keys.truncate(limit);
-        // Said out loud. A bounded run that reports like a national one is a run whose coverage
-        // nobody can check afterwards.
-        println!("parcel-catalog-projection-load-bounded objects={limit}");
-    }
+    // No bound knob. A run either covers what the contract names or it does not, and a
+    // truncating flag makes "was this the whole dataset" a question about how it was invoked
+    // rather than about the contract. A smaller contract file is how a smaller run is asked for.
+    let keys = handoff_keys(&contract, config.handoff_prefix.as_str())?;
 
     if !config.confirmed {
         println!(
@@ -262,20 +317,46 @@ pub async fn run() -> anyhow::Result<()> {
 
     let mut staged_total = 0_u64;
     let mut inserted_total = 0_u64;
+    let mut unread: Vec<String> = Vec::new();
     for (index, key) in keys.iter().enumerate() {
-        let bytes = storage
-            .get_object_bytes_range_retried(key.as_str())
-            .await
-            .with_context(|| format!("failed to read handoff object {key}"))?;
-        let parcels = parcels_in_object(&bytes, key.as_str())?;
-        let (staged, inserted) = load_object(&mut conn, &parcels).await?;
-        staged_total += staged;
-        inserted_total += inserted;
-        println!(
-            "parcel-catalog-projection-load-object {}/{} key={key} distinct={staged} inserted={inserted}",
-            index + 1,
-            keys.len()
-        );
+        // One object must not end a run over 255 of them. Measured 2026-09-01: object 222 failed
+        // with an R2 streaming error after the byte-range retries underneath were exhausted, and
+        // the whole run stopped forty minutes in. The same object read cleanly on the next run, so
+        // the failure was the network rather than the object — and a run that has to start over
+        // because of a blip is a run nobody schedules.
+        let mut outcome = None;
+        for attempt in 1..=OBJECT_ATTEMPTS {
+            match load_one(&storage, &mut conn, key.as_str()).await {
+                Ok(counts) => {
+                    outcome = Some(counts);
+                    break;
+                }
+                Err(error) if attempt < OBJECT_ATTEMPTS => {
+                    println!(
+                        "parcel-catalog-projection-load-retry key={key} attempt={attempt}/{OBJECT_ATTEMPTS} error={error:#}"
+                    );
+                    tokio::time::sleep(object_retry_delay(attempt)).await;
+                }
+                Err(error) => {
+                    // Recorded and stepped over, never swallowed: the run ends non-zero below and
+                    // names every object it could not read. A partial load reported as a whole one
+                    // is the shape this repository keeps finding.
+                    println!(
+                        "parcel-catalog-projection-load-unread key={key} attempts={OBJECT_ATTEMPTS} error={error:#}"
+                    );
+                    unread.push(key.clone());
+                }
+            }
+        }
+        if let Some((staged, inserted)) = outcome {
+            staged_total += staged;
+            inserted_total += inserted;
+            println!(
+                "parcel-catalog-projection-load-object {}/{} key={key} distinct={staged} inserted={inserted}",
+                index + 1,
+                keys.len()
+            );
+        }
     }
 
     // The planner has just seen the table go from empty to tens of millions of rows. Without this
@@ -288,10 +369,7 @@ pub async fn run() -> anyhow::Result<()> {
         .fetch_one(&mut conn)
         .await
         .context("failed to count catalog.parcel after loading")?;
-    println!(
-        "parcel-catalog-projection-load-ok objects={} distinct_staged={staged_total} inserted={inserted_total} table_rows={total}",
-        keys.len()
-    );
+    verdict(keys.len(), &unread, staged_total, inserted_total, total)?;
     Ok(())
 }
 
@@ -324,6 +402,49 @@ mod tests {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
         encoder.write_all(body.as_bytes()).expect("fixture write");
         encoder.finish().expect("fixture finish")
+    }
+
+    #[test]
+    fn the_retry_waits_longer_each_time() {
+        // Immediate retries lose to the failure they are retrying. Measured 2026-09-01: the five
+        // byte-range attempts underneath were all spent inside one bad minute and the run died.
+        let first = object_retry_delay(1);
+        let second = object_retry_delay(2);
+
+        assert!(
+            second > first,
+            "a later attempt must wait longer than an earlier one"
+        );
+        assert!(
+            first.as_secs() > 0,
+            "an attempt that waits no time is not a retry"
+        );
+    }
+
+    #[test]
+    fn a_pass_with_nothing_unread_is_complete() {
+        verdict(255, &[], 39_861_511, 9_349_707, 39_861_511).expect("a complete pass");
+    }
+
+    #[test]
+    fn one_unread_object_makes_the_pass_fail_and_names_what_it_missed() {
+        // Not "an error is printed somewhere": the pass must not succeed. On 2026-09-01 object 222
+        // of 255 failed and the loader stopped; stepping over it is the fix, and reporting the
+        // shorter table as a finished load would be a worse defect than stopping was.
+        let unread = vec!["silver-handoff/vworldkr__parcel/30563-65.jsonl.gz".to_owned()];
+
+        let error = verdict(255, &unread, 39_000_000, 100, 39_000_000)
+            .expect_err("a pass that could not read an object is not a finished pass");
+
+        let text = format!("{error:#}");
+        assert!(
+            text.contains("1 of 255"),
+            "the verdict must count what it missed"
+        );
+        assert!(
+            text.contains("not the whole dataset"),
+            "the verdict must say the table is short, not merely that something failed"
+        );
     }
 
     #[test]
