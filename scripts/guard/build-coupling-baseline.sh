@@ -127,13 +127,22 @@ set -euo pipefail
 # thing left to check is the source, and reading it at run time would let a test pass
 # against a tree other than the one that was compiled.
 #
+# 94 -> 95: `foundation-api/src/lib.rs` embeds the migration directory. The runner
+# always embedded it; what is new is that the definition moved into the library so
+# `/readyz` can compare the running database against the same list the runner
+# applies. For six weeks the database held 4 of 33 migrations while readiness asked
+# only `SELECT 1`, and every probe passed (root ADR-0071). Embedded rather than read
+# at run time for the same reason the migrator itself embeds: the comparison must be
+# against what this binary was built with, not whatever directory happens to be
+# mounted beside it.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-94}"
+COMPILE_TIME_READ_BASELINE="${3:-95}"
 
 cd "$repo_root"
 
