@@ -16,12 +16,17 @@ from industrial_complex_boundaries_handoff_to_silver import (  # noqa: E402
     SILVER_COLUMNS,
     build_run_summary,
     merge_join_counts,
-    merge_transport_metrics,
     needs_iceberg_catalog,
     parse_args,
     run_summary_complexes_source,
-    run_summary_disposition,
     validate_args,
+)
+
+# 이 두 규칙은 잡의 것이 아니라 핸드오프 잡 공용의 것이다(2026-09-02). 잡에서 import 하면
+# 잡이 자기 사본을 가진 것처럼 보이고, 실제로 두 잡이 그렇게 갈라졌다.
+from spatial_silver_handoff import (  # noqa: E402
+    merge_transport_metrics,
+    run_summary_disposition,
 )
 
 ICEBERG_ENV = {

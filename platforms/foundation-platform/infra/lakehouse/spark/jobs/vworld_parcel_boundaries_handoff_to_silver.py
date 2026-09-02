@@ -5,81 +5,54 @@ Rust foundation-platform owns the VWorld normalization contract and emits a writ
 JSONL handoff. This Spark job owns the storage-engine step: decode transport-only
 fields, verify Silver quality gates, and write Parquet or Iceberg rows whose columns
 match `catalog_domain::SILVER_PARCEL_BOUNDARIES`.
+
+**What is here is what makes a parcel a parcel.** The PNU and the three administrative codes
+derived from it, and the rule that one PNU has one active boundary. Everything a geometry handoff
+does regardless of source — the transport decoding, the geometry gates, the target, the run
+summary — lives in `spatial_silver_handoff` and is called from there. It used to be copied into
+this file and into the industrial-complex job, and the two copies had drifted: thirty functions
+shared a name and five shared their text.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
-import os
-import re
-from collections.abc import Sequence
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-from lakehouse_engine import (
-    apply_catalog_settings,
-    assert_catalog_env,
-    assert_iceberg_runtime_loaded,
-    iceberg_packages,
-)
-from lakehouse_object_store import (
-    apply_object_store_settings,
-    input_paths,
-    is_object_store_path,
-)
-from lakehouse_ingest import (
-    append_batch_once,
-    batch_source_record_ids,
-)
+import spatial_silver_handoff as shared
+from lakehouse_object_store import is_object_store_path
 from platform_contracts import (
     column_names,
-    create_table_columns_sql,
     current_row_predicate,
     declared_geometry_srid,
     load_lakehouse_contract,
-    partition_clause_sql,
-    partition_spec_sql,
     required_column_names,
     required_string_column_names,
 )
 
-
-DEFAULT_ICEBERG_PACKAGES = iceberg_packages()
-IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 JOB_NAME = "vworld_parcel_boundaries_handoff_to_silver"
-RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
 RUN_SUMMARY_CONTRACT = "silver.parcel_boundaries"
 RUN_SUMMARY_INPUT_KIND = "silver_handoff_jsonl"
+LABELS = shared.HandoffLabels("silver-parcel-boundaries")
+
 TABLE_CONTRACT = load_lakehouse_contract(RUN_SUMMARY_CONTRACT)
 CURRENT_ROW_PREDICATE = current_row_predicate(TABLE_CONTRACT)
 if CURRENT_ROW_PREDICATE is None:
     raise ValueError(f"{RUN_SUMMARY_CONTRACT} must define a current-row predicate")
 
 SILVER_COLUMNS: tuple[str, ...] = column_names(TABLE_CONTRACT)
-
+REQUIRED_SILVER_COLUMNS: tuple[str, ...] = required_column_names(TABLE_CONTRACT)
+REQUIRED_STRING_COLUMNS: tuple[str, ...] = required_string_column_names(TABLE_CONTRACT)
 
 # Read off the contract rather than written here. Silver geometry tables carry the CRS their source
 # published and declare it per table (root ADR-0042), so a job that spelled the number out would be
 # the second place the answer lives.
 GEOMETRY_SRID: int = declared_geometry_srid(TABLE_CONTRACT)
 
-HANDOFF_INPUT_COLUMNS: tuple[str, ...] = (
-    *SILVER_COLUMNS,
-    "geometry_wkb_hex",
-    "geometry_wkb_encoding",
-)
+HANDOFF_INPUT_COLUMNS: tuple[str, ...] = (*SILVER_COLUMNS, *shared.TRANSPORT_COLUMNS)
 
-REQUIRED_SILVER_COLUMNS: tuple[str, ...] = required_column_names(TABLE_CONTRACT)
-
-REQUIRED_STRING_COLUMNS: tuple[str, ...] = required_string_column_names(TABLE_CONTRACT)
-
-TRANSPORT_COLUMNS: tuple[str, ...] = (
-    "_geometry_wkb_hex",
-    "_geometry_wkb_encoding",
-)
-
+# Reported whether or not they fired. A metric that appears only when something went wrong cannot
+# be told apart from a metric nobody collected.
 PARCEL_SPECIFIC_QUALITY_METRICS: tuple[str, ...] = (
     "invalid_pnu_count",
     "invalid_code_derivation_count",
@@ -96,155 +69,48 @@ PARCEL_SPECIFIC_QUALITY_METRICS: tuple[str, ...] = (
 def load_pyspark() -> None:
     """Bind the PySpark namespaces this job uses.
 
-    Deferred the way `industrial_complex_bronze_to_silver` defers it, so that the
-    plain-Python rules here can be imported by `infra/lakehouse/spark/tests` on a machine
-    with no PySpark install. The CI lane that runs those tests has no PySpark, so a
-    module-level import made every check in this job's test file skip itself — and a check
-    that skips reports the same green as a check that passes.
+    Deferred, and bound through the shared module so the shared checks and this file are looking at
+    the same `F`. A module-level import would make the plain-Python checks in
+    `infra/lakehouse/spark/tests` skip themselves on the CI lane, which has no PySpark install —
+    and a check that skips reports the same green as a check that passes.
     """
 
     global DataFrame, SparkSession, F, T, StorageLevel
 
-    from pyspark.sql import DataFrame, SparkSession
-    from pyspark.sql import functions as F
-    from pyspark.sql import types as T
-    from pyspark.storagelevel import StorageLevel
+    DataFrame, SparkSession, F, T, StorageLevel = shared.bind_pyspark()
 
 
-def trim_to_null(column_name: str) -> F.Column:
-    trimmed = F.trim(F.col(column_name))
-    return F.when(F.length(trimmed) == 0, F.lit(None)).otherwise(trimmed)
-
-
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build silver.parcel_boundaries from VWorld handoff JSONL input."
     )
-    parser.add_argument("--input", required=True, help="Silver handoff input path.")
     parser.add_argument(
         "--input-format",
         choices=("jsonl", "parquet"),
         default="jsonl",
         help="Physical format of the Silver handoff input.",
     )
-    parser.add_argument("--output", help="Silver Parquet output path.")
-    parser.add_argument(
-        "--write-mode",
-        choices=("parquet", "iceberg"),
-        default="parquet",
-        help="Write local Parquet or an Iceberg REST catalog table.",
-    )
-    parser.add_argument(
-        "--iceberg-catalog-name",
-        default=os.getenv("FOUNDATION_PLATFORM_SPARK_ICEBERG_CATALOG_NAME", "r2"),
-        help="Spark catalog name for Iceberg REST catalog writes.",
-    )
-    parser.add_argument(
-        "--iceberg-namespace",
-        default=os.getenv("FOUNDATION_PLATFORM_SPARK_ICEBERG_NAMESPACE", "silver"),
-        help="Iceberg namespace for the target Silver table.",
-    )
-    parser.add_argument(
-        "--iceberg-table",
-        default=os.getenv("FOUNDATION_PLATFORM_SPARK_ICEBERG_TABLE", "parcel_boundaries"),
-        help="Iceberg table name for the target Silver table.",
-    )
-    parser.add_argument(
-        "--iceberg-write-mode",
-        choices=("append", "overwrite"),
-        default="append",
-        help="How candidate rows are written to the Iceberg table.",
-    )
-    parser.add_argument(
-        "--iceberg-packages",
-        default=os.getenv("FOUNDATION_PLATFORM_SPARK_ICEBERG_PACKAGES", DEFAULT_ICEBERG_PACKAGES),
-        help="Comma-separated Iceberg Spark packages used for REST catalog writes.",
-    )
-    parser.add_argument(
-        "--allow-non-smoke-overwrite",
-        action="store_true",
-        help="Allow overwrite mode for tables whose names do not end with _smoke.",
-    )
-    parser.add_argument(
-        "--validate-only",
-        action="store_true",
-        help="Validate input, target config, and Silver quality gates without writing.",
-    )
-    parser.add_argument(
-        "--expected-count",
-        type=int,
-        default=None,
-        help="Optional row-count assertion for smoke tests.",
-    )
-    parser.add_argument(
-        "--summary-output",
-        help="Optional path for a machine-readable Spark run summary JSON file.",
-    )
-    return parser.parse_args()
-
-
-
-
-
-
-
-
-def validate_identifier(label: str, value: str) -> None:
-    if IDENTIFIER_PATTERN.fullmatch(value) is None:
-        raise ValueError(f"{label} must be a simple identifier: {value}")
+    shared.add_common_arguments(parser, default_iceberg_table="parcel_boundaries")
+    return parser.parse_args(argv)
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    if args.summary_output is not None and args.summary_output.strip() == "":
-        raise ValueError("--summary-output must not be empty")
+    """This job reaches the catalog only to write, so that is when it demands one."""
 
-    if args.write_mode == "parquet" and not args.output:
-        raise ValueError("--output is required when --write-mode=parquet")
-
-    if args.write_mode == "iceberg":
-        validate_identifier("iceberg catalog name", args.iceberg_catalog_name)
-        validate_identifier("iceberg namespace", args.iceberg_namespace)
-        validate_identifier("iceberg table", args.iceberg_table)
-
-        if args.iceberg_write_mode == "overwrite":
-            is_smoke_table = args.iceberg_table.endswith("_smoke")
-            if not is_smoke_table and not args.allow_non_smoke_overwrite:
-                raise ValueError(
-                    "Refusing to overwrite a non-smoke Iceberg table without "
-                    "--allow-non-smoke-overwrite"
-                )
-
-        assert_catalog_env()
+    shared.validate_common_args(args, needs_catalog=args.write_mode == "iceberg")
 
 
-def read_handoff(spark: SparkSession, input_path: str, input_format: str) -> DataFrame:
-    """Reads one batch of handoff, in whichever format it was written.
-
-    The argument is one string because a job takes one `--input`, but a batch of objects is
-    several paths: a glob can name every key under a prefix and cannot name sixteen of them.
-    `input_paths` is what decides, so the rule for splitting is not restated per job.
-
-    JSONL is what this handoff has always been and stays readable by anything. Parquet is what
-    the three building-register handoffs already use, and it is the reason this choice exists:
-    the same national extract is 46.8 GB as text and a fraction of that as compressed columns,
-    and the conversion is bound by how fast those bytes cross a wire (measured 2026-08-31 —
-    86 MB/s saturated, CPU at six percent of the machine).
-    """
-    paths = input_paths(input_path)
-    if input_format == "jsonl":
-        handoff = spark.read.json(paths)
-    elif input_format == "parquet":
-        handoff = spark.read.parquet(*paths) if isinstance(paths, list) else spark.read.parquet(paths)
-    else:
-        raise ValueError(f"unsupported Silver handoff input format: {input_format}")
-
-    missing_columns = sorted(set(HANDOFF_INPUT_COLUMNS) - set(handoff.columns))
-    if missing_columns:
-        raise ValueError(f"Parcel-boundary handoff is missing columns: {', '.join(missing_columns)}")
-    return handoff.select(*HANDOFF_INPUT_COLUMNS)
+def read_handoff(spark: Any, input_path: str, input_format: str) -> Any:
+    return shared.read_handoff(
+        spark,
+        input_path,
+        input_format,
+        HANDOFF_INPUT_COLUMNS,
+        label="Parcel-boundary handoff",
+    )
 
 
-def build_candidate_frame(handoff: DataFrame) -> DataFrame:
+def build_candidate_frame(handoff: Any) -> Any:
     geometry_wkb_hex = F.lower(F.trim(F.col("geometry_wkb_hex")))
     geometry_wkb_encoding = F.lower(F.trim(F.col("geometry_wkb_encoding")))
 
@@ -254,26 +120,20 @@ def build_candidate_frame(handoff: DataFrame) -> DataFrame:
         F.trim(F.col("sido_code")).alias("sido_code"),
         F.trim(F.col("sigungu_code")).alias("sigungu_code"),
         F.trim(F.col("bjdong_code")).alias("bjdong_code"),
-        trim_to_null("jibun").alias("jibun"),
-        trim_to_null("bonbun").alias("bonbun"),
-        trim_to_null("bubun").alias("bubun"),
+        shared.trim_to_null("jibun").alias("jibun"),
+        shared.trim_to_null("bonbun").alias("bonbun"),
+        shared.trim_to_null("bubun").alias("bubun"),
         F.unhex(geometry_wkb_hex).alias("geometry_wkb"),
         F.col("geometry_srid").cast(T.IntegerType()).alias("geometry_srid"),
         F.col("bbox_min_x").cast(T.DoubleType()).alias("bbox_min_x"),
         F.col("bbox_min_y").cast(T.DoubleType()).alias("bbox_min_y"),
         F.col("bbox_max_x").cast(T.DoubleType()).alias("bbox_max_x"),
         F.col("bbox_max_y").cast(T.DoubleType()).alias("bbox_max_y"),
-        F.lower(F.trim(F.col("geometry_checksum_sha256"))).alias(
-            "geometry_checksum_sha256"
-        ),
+        F.lower(F.trim(F.col("geometry_checksum_sha256"))).alias("geometry_checksum_sha256"),
         F.trim(F.col("source_record_id")).alias("source_record_id"),
         F.trim(F.col("source_snapshot_id")).alias("source_snapshot_id"),
-        F.to_timestamp(F.col("valid_from_utc"), "yyyy-MM-dd'T'HH:mm:ssX").alias(
-            "valid_from_utc"
-        ),
-        F.to_timestamp(F.col("valid_to_utc"), "yyyy-MM-dd'T'HH:mm:ssX").alias(
-            "valid_to_utc"
-        ),
+        F.to_timestamp(F.col("valid_from_utc"), "yyyy-MM-dd'T'HH:mm:ssX").alias("valid_from_utc"),
+        F.to_timestamp(F.col("valid_to_utc"), "yyyy-MM-dd'T'HH:mm:ssX").alias("valid_to_utc"),
         F.to_timestamp(F.col("ingested_at_utc"), "yyyy-MM-dd'T'HH:mm:ssX").alias(
             "ingested_at_utc"
         ),
@@ -282,46 +142,21 @@ def build_candidate_frame(handoff: DataFrame) -> DataFrame:
     )
 
 
-def assert_columns(frame: DataFrame, expected_columns: Sequence[str]) -> None:
-    actual_columns = tuple(frame.select(*expected_columns).columns)
-    if actual_columns != tuple(expected_columns):
-        raise ValueError(
-            "Unexpected Silver columns. "
-            f"expected={list(expected_columns)} actual={list(actual_columns)}"
-        )
+# ---------------------------------------------------------------------------
+# What makes a parcel a parcel
+# ---------------------------------------------------------------------------
 
 
-def sample_invalid_rows(frame: DataFrame, predicate: F.Column) -> list[str]:
-    return [str(sample) for sample in frame.where(predicate).limit(5).toJSON().collect()]
-
-
-def assert_no_invalid_rows(
-    frame: DataFrame,
-    metric_count: int,
-    predicate: F.Column,
-    message: str,
-) -> None:
-    if metric_count == 0:
-        return
-
-    samples = sample_invalid_rows(frame, predicate)
-    raise ValueError(f"{message}. count={metric_count} samples={samples}")
-
-
-def invalid_count(predicate: F.Column, alias: str) -> F.Column:
-    return F.sum(F.when(predicate, F.lit(1)).otherwise(F.lit(0))).cast("long").alias(alias)
-
-
-def is_invalid_double(column_name: str) -> F.Column:
-    column = F.col(column_name)
-    return column.isNull() | F.isnan(column)
-
-
-def pnu_is_invalid() -> F.Column:
+def pnu_is_invalid() -> Any:
     return ~F.col("pnu").rlike(r"^[0-9]{19}$")
 
 
-def code_derivation_is_invalid() -> F.Column:
+def code_derivation_is_invalid() -> Any:
+    """The three administrative codes are prefixes of the PNU, not a second lookup.
+
+    A row whose codes disagree with its own PNU states two different places for one parcel.
+    """
+
     return (
         (F.col("sido_code") != F.substring(F.col("pnu"), 1, 2))
         | (F.col("sigungu_code") != F.substring(F.col("pnu"), 1, 5))
@@ -329,43 +164,7 @@ def code_derivation_is_invalid() -> F.Column:
     )
 
 
-def geometry_wkb_hex_is_invalid() -> F.Column:
-    return (
-        F.col("_geometry_wkb_hex").isNull()
-        | (F.length(F.col("_geometry_wkb_hex")) == 0)
-        | ((F.length(F.col("_geometry_wkb_hex")) % 2) != 0)
-        | ~F.col("_geometry_wkb_hex").rlike(r"^[0-9a-f]+$")
-    )
-
-
-def geometry_wkb_is_invalid() -> F.Column:
-    geometry_hex = F.lower(F.hex(F.col("geometry_wkb")))
-    return (
-        F.col("geometry_wkb").isNull()
-        | (F.length(F.col("geometry_wkb")) <= 9)
-        | ~geometry_hex.rlike(r"^(0103000000|0106000000)")
-    )
-
-
-def bbox_is_invalid() -> F.Column:
-    return (
-        is_invalid_double("bbox_min_x")
-        | is_invalid_double("bbox_min_y")
-        | is_invalid_double("bbox_max_x")
-        | is_invalid_double("bbox_max_y")
-        | (F.col("bbox_min_x") > F.col("bbox_max_x"))
-        | (F.col("bbox_min_y") > F.col("bbox_max_y"))
-    )
-
-
-def checksum_is_invalid() -> F.Column:
-    return (
-        ~F.col("geometry_checksum_sha256").rlike(r"^[0-9a-f]{64}$")
-        | (F.col("geometry_checksum_sha256") != F.sha2(F.col("geometry_wkb"), 256))
-    )
-
-
-def collect_duplicate_active_pnu_count(frame: DataFrame) -> int:
+def collect_duplicate_active_pnu_count(frame: Any) -> int:
     duplicate_rows = (
         frame.where(F.expr(CURRENT_ROW_PREDICATE))
         .groupBy("pnu")
@@ -376,48 +175,7 @@ def collect_duplicate_active_pnu_count(frame: DataFrame) -> int:
     return int(duplicate_rows)
 
 
-def collect_quality_metrics(frame: DataFrame, include_transport: bool) -> dict[str, int]:
-    expressions: list[F.Column] = [F.count(F.lit(1)).cast("long").alias("row_count")]
-
-    for column in REQUIRED_SILVER_COLUMNS:
-        expressions.append(invalid_count(F.col(column).isNull(), f"{column}__null_count"))
-
-    for column in REQUIRED_STRING_COLUMNS:
-        expressions.append(invalid_count(F.length(F.col(column)) == 0, f"{column}__empty_count"))
-
-    if include_transport:
-        invalid_encoding = F.col("_geometry_wkb_encoding") != F.lit("hex")
-        invalid_hex = geometry_wkb_hex_is_invalid()
-    else:
-        invalid_encoding = F.lit(False)
-        invalid_hex = F.lit(False)
-
-    expressions.extend(
-        (
-            invalid_count(pnu_is_invalid(), "invalid_pnu_count"),
-            invalid_count(code_derivation_is_invalid(), "invalid_code_derivation_count"),
-            invalid_count(
-                F.col("geometry_srid") != GEOMETRY_SRID, "invalid_geometry_srid_count"
-            ),
-            invalid_count(invalid_encoding, "invalid_geometry_encoding_count"),
-            invalid_count(invalid_hex, "invalid_geometry_wkb_hex_count"),
-            invalid_count(geometry_wkb_is_invalid(), "invalid_geometry_wkb_count"),
-            invalid_count(bbox_is_invalid(), "invalid_bbox_count"),
-            invalid_count(checksum_is_invalid(), "invalid_checksum_count"),
-        )
-    )
-
-    row = frame.agg(*expressions).first()
-    if row is None:
-        raise ValueError("Silver quality metric aggregation returned no row")
-    metrics = {key: int(value or 0) for key, value in row.asDict().items()}
-    metrics["duplicate_active_pnu_count"] = collect_duplicate_active_pnu_count(frame)
-    for metric in PARCEL_SPECIFIC_QUALITY_METRICS:
-        metrics.setdefault(metric, 0)
-    return metrics
-
-
-def assert_no_duplicate_active_pnu(frame: DataFrame, metric_count: int) -> None:
+def assert_no_duplicate_active_pnu(frame: Any, metric_count: int) -> None:
     if metric_count == 0:
         return
 
@@ -431,90 +189,58 @@ def assert_no_duplicate_active_pnu(frame: DataFrame, metric_count: int) -> None:
         .collect()
     )
     raise ValueError(
-        "active parcel boundaries must be unique by pnu. "
-        f"count={metric_count} samples={samples}"
+        f"active parcel boundaries must be unique by pnu. count={metric_count} samples={samples}"
     )
 
 
-def assert_quality_metrics(
-    frame: DataFrame,
-    metrics: dict[str, int],
-    include_transport: bool,
-) -> None:
-    for column in REQUIRED_SILVER_COLUMNS:
-        assert_no_invalid_rows(
-            frame,
-            metrics[f"{column}__null_count"],
-            F.col(column).isNull(),
-            f"{column} must not be null",
+def collect_quality_metrics(frame: Any, include_transport: bool) -> dict[str, int]:
+    expressions = shared.required_column_expressions(
+        REQUIRED_SILVER_COLUMNS, REQUIRED_STRING_COLUMNS
+    )
+    expressions.extend(shared.geometry_metric_expressions(include_transport, GEOMETRY_SRID))
+    expressions.extend(
+        (
+            shared.invalid_count(pnu_is_invalid(), "invalid_pnu_count"),
+            shared.invalid_count(code_derivation_is_invalid(), "invalid_code_derivation_count"),
         )
+    )
 
-    for column in REQUIRED_STRING_COLUMNS:
-        assert_no_invalid_rows(
-            frame,
-            metrics[f"{column}__empty_count"],
-            F.length(F.col(column)) == 0,
-            f"{column} must not be empty",
-        )
+    row = frame.agg(*expressions).first()
+    if row is None:
+        raise ValueError("Silver quality metric aggregation returned no row")
+    metrics = {key: int(value or 0) for key, value in row.asDict().items()}
+    metrics["duplicate_active_pnu_count"] = collect_duplicate_active_pnu_count(frame)
+    for metric in PARCEL_SPECIFIC_QUALITY_METRICS:
+        metrics.setdefault(metric, 0)
+    return metrics
 
-    assert_no_invalid_rows(
+
+def assert_quality_metrics(frame: Any, metrics: dict[str, int], include_transport: bool) -> None:
+    shared.assert_required_columns(
+        frame, metrics, REQUIRED_SILVER_COLUMNS, REQUIRED_STRING_COLUMNS
+    )
+    shared.assert_no_invalid_rows(
         frame,
         metrics["invalid_pnu_count"],
         pnu_is_invalid(),
         "pnu must be a 19-digit parcel number",
     )
-    assert_no_invalid_rows(
+    shared.assert_no_invalid_rows(
         frame,
         metrics["invalid_code_derivation_count"],
         code_derivation_is_invalid(),
         "sido_code, sigungu_code, and bjdong_code must be derived from pnu",
     )
-    assert_no_invalid_rows(
-        frame,
-        metrics["invalid_geometry_srid_count"],
-        F.col("geometry_srid") != GEOMETRY_SRID,
-        f"geometry_srid must be {GEOMETRY_SRID}",
-    )
-    if include_transport:
-        assert_no_invalid_rows(
-            frame,
-            metrics["invalid_geometry_encoding_count"],
-            F.col("_geometry_wkb_encoding") != F.lit("hex"),
-            "geometry_wkb_encoding must be hex",
-        )
-        assert_no_invalid_rows(
-            frame,
-            metrics["invalid_geometry_wkb_hex_count"],
-            geometry_wkb_hex_is_invalid(),
-            "geometry_wkb_hex must be non-empty lowercase even-length hex",
-        )
-    assert_no_invalid_rows(
-        frame,
-        metrics["invalid_geometry_wkb_count"],
-        geometry_wkb_is_invalid(),
-        "geometry_wkb must be non-empty little-endian Polygon or MultiPolygon WKB",
-    )
-    assert_no_invalid_rows(
-        frame,
-        metrics["invalid_bbox_count"],
-        bbox_is_invalid(),
-        "bbox min/max ordering must be valid",
-    )
-    assert_no_invalid_rows(
-        frame,
-        metrics["invalid_checksum_count"],
-        checksum_is_invalid(),
-        "geometry_checksum_sha256 must match geometry_wkb",
-    )
+    shared.assert_geometry(frame, metrics, include_transport, GEOMETRY_SRID)
     assert_no_duplicate_active_pnu(frame, metrics["duplicate_active_pnu_count"])
 
 
 def validate_parcel_frame(
-    frame: DataFrame,
+    frame: Any,
     expected_count: int | None,
     include_transport: bool,
 ) -> tuple[int, dict[str, int]]:
-    assert_columns(frame, SILVER_COLUMNS)
+    shared.assert_columns(frame, SILVER_COLUMNS)
 
     metrics = collect_quality_metrics(frame, include_transport)
     assert_quality_metrics(frame, metrics, include_transport)
@@ -526,110 +252,12 @@ def validate_parcel_frame(
     return actual_count, metrics
 
 
-def merge_transport_metrics(
-    persisted_metrics: dict[str, int],
-    candidate_metrics: dict[str, int],
-) -> dict[str, int]:
-    merged = dict(persisted_metrics)
-    for metric in ("invalid_geometry_encoding_count", "invalid_geometry_wkb_hex_count"):
-        merged[metric] = candidate_metrics[metric]
-    return merged
+# ---------------------------------------------------------------------------
+# Target and summary
+# ---------------------------------------------------------------------------
 
 
-def collect_source_snapshot_summary(frame: DataFrame) -> dict[str, Any]:
-    snapshots = frame.select("source_snapshot_id").distinct()
-    snapshot_count = int(snapshots.count())
-    snapshot_ids = [
-        row.source_snapshot_id
-        for row in snapshots.orderBy("source_snapshot_id").collect()
-    ]
-    return {
-        "source_snapshot_count": snapshot_count,
-        "source_snapshot_ids": snapshot_ids,
-        "source_snapshot_truncated": False,
-    }
-
-
-def unquoted_qualified_iceberg_table(args: argparse.Namespace) -> str:
-    return f"{args.iceberg_catalog_name}.{args.iceberg_namespace}.{args.iceberg_table}"
-
-
-def run_summary_target(args: argparse.Namespace) -> dict[str, str]:
-    if args.write_mode == "parquet":
-        return {
-            "kind": "parquet",
-            "path": args.output,
-        }
-
-    return {
-        "kind": "iceberg",
-        "catalog": args.iceberg_catalog_name,
-        "namespace": args.iceberg_namespace,
-        "table": args.iceberg_table,
-        "qualified_table": unquoted_qualified_iceberg_table(args),
-    }
-
-
-def run_summary_disposition(args: argparse.Namespace) -> str:
-    if args.validate_only:
-        return "validate_only"
-    if args.write_mode == "parquet":
-        return "parquet_overwrite"
-    return f"iceberg_{args.iceberg_write_mode}"
-
-
-def summary_quality_metrics(
-    quality_metrics: dict[str, int],
-    persisted_row_count: int | None,
-) -> dict[str, int]:
-    metrics = dict(quality_metrics)
-    if persisted_row_count is not None:
-        metrics["persisted_row_count"] = int(persisted_row_count)
-    return metrics
-
-
-def build_run_summary(
-    args: argparse.Namespace,
-    row_count: int,
-    persisted_row_count: int | None,
-    quality_metrics: dict[str, int],
-    source_snapshot_summary: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "schema_version": RUN_SUMMARY_SCHEMA_VERSION,
-        "job_name": JOB_NAME,
-        "contract": RUN_SUMMARY_CONTRACT,
-        "created_at_utc": datetime.now(timezone.utc)
-        .isoformat(timespec="seconds")
-        .replace("+00:00", "Z"),
-        "input": {
-            "kind": RUN_SUMMARY_INPUT_KIND,
-            "path": args.input,
-        },
-        "target": run_summary_target(args),
-        "write_mode": args.write_mode,
-        "write_disposition": run_summary_disposition(args),
-        "row_count": row_count,
-        "persisted_row_count": persisted_row_count,
-        "quality_metrics": summary_quality_metrics(quality_metrics, persisted_row_count),
-        "column_count": len(SILVER_COLUMNS),
-        "columns": list(SILVER_COLUMNS),
-        "required_columns": list(REQUIRED_SILVER_COLUMNS),
-        **source_snapshot_summary,
-    }
-
-
-def emit_run_summary(summary: dict[str, Any], output_path: str | None) -> None:
-    payload = json.dumps(summary, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    if output_path:
-        path = Path(output_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"{payload}\n", encoding="utf-8")
-
-    print(f"silver-parcel-boundaries-summary-json {payload}")
-
-
-def write_silver_parquet(silver: DataFrame, output_path: str) -> None:
+def write_silver_parquet(silver: Any, output_path: str) -> None:
     (
         silver.repartition("sigungu_code")
         .sortWithinPartitions("pnu", "valid_from_utc")
@@ -639,88 +267,45 @@ def write_silver_parquet(silver: DataFrame, output_path: str) -> None:
     )
 
 
-def qualified_iceberg_table(args: argparse.Namespace) -> str:
-    return (
-        f"`{args.iceberg_catalog_name}`."
-        f"`{args.iceberg_namespace}`."
-        f"`{args.iceberg_table}`"
-    )
-
-
-# This table carried `read.parquet.vectorization.enabled = false` from 2026-08-28 to 08-30. It
-# was a workaround for a defect in Iceberg 1.6.1 whose fix shipped in 1.8.0, and root ADR-0065
-# raised this deployment to 1.11.0. The reason is gone, so the property is gone: a workaround
-# left standing after its cause is a setting the next reader has to disprove before touching.
-def create_iceberg_table_if_missing(spark: SparkSession, args: argparse.Namespace) -> None:
-    namespace = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`"
-    table = qualified_iceberg_table(args)
-
-    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {namespace}")
-    spark.sql(
-        f"""
-        CREATE TABLE IF NOT EXISTS {table} (
-{create_table_columns_sql(TABLE_CONTRACT)}
-        )
-        USING iceberg
-        {partition_clause_sql(TABLE_CONTRACT)}
-        TBLPROPERTIES (
-            'format-version' = '2',
-            'write.parquet.compression-codec' = 'zstd',
-            'write.distribution-mode' = 'hash'
-        )
-        """
-    )
-
-
-def build_spark_session(args: argparse.Namespace) -> SparkSession:
-    builder = (
-        SparkSession.builder.appName("foundation-platform-vworld-parcel-boundaries-handoff-to-silver")
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "2")
-    )
-
-    # Only when the input actually is an object. The settings need R2 reader credentials, and
-    # demanding them for a local-file run would make a job that touches no bucket fail on a
-    # missing bucket variable.
-    if is_object_store_path(args.input):
-        builder = apply_object_store_settings(builder)
-
-    if args.write_mode == "iceberg":
-        builder = apply_catalog_settings(builder, args.iceberg_catalog_name)
-
-    spark = builder.getOrCreate()
-    spark.sparkContext.setLogLevel("WARN")
-    if args.write_mode == "iceberg":
-        assert_iceberg_runtime_loaded(spark, args.iceberg_packages)
-    return spark
-
-
-
-def read_iceberg_snapshot_for_batch(
-    spark: SparkSession,
-    silver: DataFrame,
+def build_run_summary(
     args: argparse.Namespace,
-) -> DataFrame:
-    """Reads back exactly the rows this run appended, and nothing else.
-
-    `source_snapshot_id` names the provider snapshot, so every national extract of one period
-    shares it. Filtering the table by it made a second append read the first append's rows back
-    too, and the uniqueness gate then reported every earlier parcel as a duplicate of itself —
-    a run that had written correctly was reported as failed. `source_record_id` names the
-    Bronze object a row came from, so it separates one append from another.
-    """
-    record_ids = batch_source_record_ids(silver)
-    return (
-        spark.table(qualified_iceberg_table(args))
-        .where(F.col("source_record_id").isin(record_ids))
-        .select(*SILVER_COLUMNS)
+    row_count: int,
+    persisted_row_count: int | None,
+    quality_metrics: dict[str, int],
+    source_snapshot_summary: dict[str, Any],
+) -> dict[str, Any]:
+    return shared.build_run_summary(
+        args,
+        job_name=JOB_NAME,
+        contract=RUN_SUMMARY_CONTRACT,
+        input_kind=RUN_SUMMARY_INPUT_KIND,
+        row_count=row_count,
+        persisted_row_count=persisted_row_count,
+        quality_metrics=quality_metrics,
+        source_snapshot_summary=source_snapshot_summary,
+        columns=SILVER_COLUMNS,
+        required_columns=REQUIRED_SILVER_COLUMNS,
     )
 
 
-def main() -> int:
-    load_pyspark()
-    args = parse_args()
+def emit_run_summary(summary: dict[str, Any], output_path: str | None) -> None:
+    shared.emit_run_summary(summary, output_path, label=LABELS.summary_json)
+
+
+def build_spark_session(args: argparse.Namespace) -> Any:
+    return shared.build_spark_session(
+        args,
+        job_name=JOB_NAME,
+        needs_catalog=args.write_mode == "iceberg",
+        needs_object_store=is_object_store_path(args.input),
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Arguments first, so a run that could never have worked says so without starting a session.
+    args = parse_args(argv)
     validate_args(args)
+    load_pyspark()
     spark = build_spark_session(args)
 
     try:
@@ -732,7 +317,7 @@ def main() -> int:
             args.expected_count,
             include_transport=True,
         )
-        source_snapshot_summary = collect_source_snapshot_summary(silver)
+        source_snapshot_summary = shared.collect_source_snapshot_summary(silver)
 
         if args.validate_only:
             emit_run_summary(
@@ -745,56 +330,41 @@ def main() -> int:
                 ),
                 args.summary_output,
             )
-            print(f"silver-parcel-boundaries-validate-ok rows={row_count}")
+            print(f"{LABELS.validate_ok} rows={row_count}")
             return 0
 
         if args.write_mode == "parquet":
             write_silver_parquet(silver, args.output)
             persisted = spark.read.parquet(args.output).select(*SILVER_COLUMNS)
-            success_target = f"output={args.output}"
-            success_label = "silver-parcel-boundaries-write-ok"
+            outcome_label = LABELS.parquet_write_ok
+            outcome_target = f"output={args.output}"
         else:
-            # Before anything reads the table, including the read the skip path does.
-            create_iceberg_table_if_missing(spark, args)
-            outcome = append_batch_once(
+            persisted, skip_line, outcome_label, outcome_target = shared.append_and_read_back(
                 spark,
                 silver,
-                SILVER_COLUMNS,
-                qualified_iceberg_table(args),
-                RUN_SUMMARY_CONTRACT,
-                write_mode=args.iceberg_write_mode,
+                args,
+                columns=SILVER_COLUMNS,
+                contract=RUN_SUMMARY_CONTRACT,
+                table_contract=TABLE_CONTRACT,
+                labels=LABELS,
             )
-            if not outcome["appended"]:
-                # Count what is actually in the table rather than trusting the summary alone,
-                # so a skip reports the rows it is standing on instead of asserting them.
-                already = read_iceberg_snapshot_for_batch(spark, silver, args).count()
-                print(
-                    "silver-parcel-boundaries-iceberg-already-ingested "
-                    f"rows={already} token={outcome['token']} "
-                    f"snapshot={outcome['existing_snapshot']} "
-                    f"objects={len(outcome['record_ids'])}"
-                )
+            if persisted is None:
+                print(skip_line)
                 return 0
-            persisted = read_iceberg_snapshot_for_batch(spark, silver, args)
-            success_target = f"table={args.iceberg_namespace}.{args.iceberg_table}"
-            success_label = "silver-parcel-boundaries-iceberg-write-ok"
 
         persisted_count, persisted_quality_metrics = validate_parcel_frame(
             persisted,
             args.expected_count,
             include_transport=False,
         )
-        if persisted_count != row_count:
-            raise ValueError(
-                f"Persisted row count changed. before={row_count} after={persisted_count}"
-            )
+        shared.assert_row_count_unchanged(row_count, persisted_count)
 
         emit_run_summary(
             build_run_summary(
                 args,
                 row_count=row_count,
                 persisted_row_count=persisted_count,
-                quality_metrics=merge_transport_metrics(
+                quality_metrics=shared.merge_transport_metrics(
                     persisted_quality_metrics,
                     candidate_quality_metrics,
                 ),
@@ -802,7 +372,7 @@ def main() -> int:
             ),
             args.summary_output,
         )
-        print(f"{success_label} rows={persisted_count} {success_target}")
+        print(shared.outcome_line(outcome_label, persisted_count, outcome_target))
         return 0
     finally:
         if "candidate" in locals():
