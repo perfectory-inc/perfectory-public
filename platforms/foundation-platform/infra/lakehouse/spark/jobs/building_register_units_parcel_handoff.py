@@ -38,7 +38,6 @@ from lakehouse_engine import (
     assert_iceberg_runtime_loaded,
     iceberg_packages,
 )
-from lakehouse_object_store import object_store_settings
 
 JOB_NAME = "building_register_units_parcel_handoff"
 CONTRACT_PATH_ENV = "FOUNDATION_PLATFORM_BUILDING_UNIT_HANDOFF_CONTRACT_PATH"
@@ -226,18 +225,36 @@ def write_objects(
 
 
 def storage_client_options() -> tuple[dict[str, str], str]:
-    """R2 client settings from the same variables the object-store module validates."""
+    """R2 client settings for the handoff writes, from the writer credentials.
 
-    settings = object_store_settings()
-    bucket = os.environ["FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET"]
+    Not `lakehouse_object_store`: that module is deliberately reader-only — its comment says a
+    writer key there would grant the read path a power it never uses — and this job is the one
+    place the power is used. The first draft borrowed the reader keys anyway, and the export
+    would have died at its first `put_object` with an access error naming neither the variable
+    nor the reason. Missing variables are refused by name here, before Spark starts.
+    """
+
+    values = {}
+    for name in (
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+    ):
+        value = os.getenv(name, "").strip()
+        if not value:
+            raise ValueError(f"{name} is required to write handoff objects")
+        values[name] = value
     return (
         {
-            "endpoint_url": settings["spark.hadoop.fs.s3a.endpoint"],
-            "aws_access_key_id": settings["spark.hadoop.fs.s3a.access.key"],
-            "aws_secret_access_key": settings["spark.hadoop.fs.s3a.secret.key"],
+            "endpoint_url": values["FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT"],
+            "aws_access_key_id": values["FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID"],
+            "aws_secret_access_key": values[
+                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY"
+            ],
             "region_name": "auto",
         },
-        bucket,
+        values["FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET"],
     )
 
 
