@@ -10,6 +10,8 @@
     "sigungu": 255
   },
   "load_granularity": "sigungu",
+  "handoff_prefix": "silver-handoff/vworldkr__parcel",
+  "handoff_prefix_reason": "Where the converted handoff objects live. It was a default in three callers — the exporter that writes them, the batch loader that reads them, and the catalog projection command — so renaming the prefix meant editing three files and any one of them missed would have looked in a place nothing was written to.",
   "handoff_suffix": ".jsonl.gz",
   "handoff_suffix_reason": "The converter names the object and the loader must derive the same name, so the suffix is here rather than spelled in both scripts. `.gz` also tells the converter to compress and tells Spark to decompress — one string decides both, because two would eventually disagree and produce a file the reader cannot open. Measured 2026-08-31: gzip leaves 20% of a 625 MB national parcel handoff, and the conversion is bound by wire speed.",
   "objects": [

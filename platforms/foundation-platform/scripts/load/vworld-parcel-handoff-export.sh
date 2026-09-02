@@ -32,7 +32,13 @@ RELEASE="${FOUNDATION_PLATFORM_RELEASE_DIR:-/opt/foundation-platform/current}"
 STATE="${VWORLD_PARCEL_EXPORT_STATE_DIR:-$HOME/parcel-export-state}"
 JOBS="${VWORLD_PARCEL_EXPORT_JOBS:-8}"
 CONTRACT="${VWORLD_PARCEL_SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-parcel-source-objects.json}"
-HANDOFF_PREFIX="${VWORLD_PARCEL_HANDOFF_PREFIX:-silver-handoff/vworldkr__parcel}"
+# The prefix is the contract's, not a default here. It used to be spelled in three callers,
+# so renaming it meant editing all three and any one missed would look where nothing was
+# written. `VWORLD_PARCEL_HANDOFF_PREFIX` still overrides, for a run against another bucket.
+HANDOFF_PREFIX="${VWORLD_PARCEL_HANDOFF_PREFIX:-$(python3 -c "
+import json, sys
+print(json.load(open(sys.argv[1], encoding='utf-8'))['handoff_prefix'])
+" "$CONTRACT")}"
 SOURCE_SNAPSHOT_ID="${VWORLD_PARCEL_SOURCE_SNAPSHOT_ID:-}"
 VALID_FROM_UTC="${VWORLD_PARCEL_VALID_FROM_UTC:-}"
 PUBLISHER="${FOUNDATION_PLATFORM_PUBLISHER_BIN:-$RELEASE/bin/foundation-outbox-publisher}"

@@ -60,6 +60,7 @@ for g in hook-isolation-self-test \
          every-table-declares-its-load-self-test every-table-declares-its-load \
          a-deploy-verifies-the-schema-it-left-self-test a-deploy-verifies-the-schema-it-left \
          the-deploy-does-not-restate-the-compose-chain-self-test the-deploy-does-not-restate-the-compose-chain \
+         the-contract-names-where-its-objects-live-self-test the-contract-names-where-its-objects-live \
          assert-runtime-migrations-self-test \
          assert-runtime-environment-self-test \
          bootstrap-creates-what-it-grants-on-self-test bootstrap-creates-what-it-grants-on \
