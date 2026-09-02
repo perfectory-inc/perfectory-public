@@ -109,6 +109,8 @@ pub(crate) mod test_support {
         ENV_LOCK.get_or_init(|| Mutex::new(())).lock().await
     }
 }
+mod building_unit_catalog_projection_load;
+mod handoff_object_support;
 mod national_bronze_object_manifest;
 mod national_data_collection_async;
 mod national_data_collection_coverage_ledger_check;
@@ -248,6 +250,7 @@ enum Command {
     PublishIndustrialComplexBoundaryStaticRelease,
     ProveIndustrialComplexBoundaryStaticReleaseMutationGuards,
     PublishParcelBoundaryPostgis,
+    LoadBuildingUnitCatalogProjection,
     LoadParcelCatalogProjection,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
@@ -493,6 +496,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             industrial_complex_boundary_static_release_publish::run_local_mutation_guard_proof(),
         ),
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
+        Command::LoadBuildingUnitCatalogProjection => {
+            Box::pin(building_unit_catalog_projection_load::run())
+        }
         Command::LoadParcelCatalogProjection => Box::pin(parcel_catalog_projection_load::run()),
         Command::SealParcelPublicationEvidence => {
             Box::pin(parcel_publication_evidence_sealer::run())
@@ -1049,6 +1055,9 @@ where
             Ok(Command::ProveIndustrialComplexBoundaryStaticReleaseMutationGuards)
         }
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
+        Some("load-building-unit-catalog-projection") => {
+            Ok(Command::LoadBuildingUnitCatalogProjection)
+        }
         Some("load-parcel-catalog-projection") => Ok(Command::LoadParcelCatalogProjection),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
         Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),
