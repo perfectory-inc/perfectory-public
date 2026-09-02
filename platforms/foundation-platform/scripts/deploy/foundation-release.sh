@@ -196,8 +196,20 @@ migrate_runtime() {
     exit 66
   }
   "${runtime}" build foundation-api
-  "${runtime}" up -d --no-deps postgres
-  "${runtime}" run --rm foundation-migrate
+  # Asks for the end state, and names no step on the way to it.
+  #
+  # The compose file already declares the order — postgres, bootstrap, migrate, grants,
+  # finalize, api — each link a `service_completed_successfully`. This used to run
+  # `up --no-deps postgres` and then `run foundation-migrate`, which is that chain written a
+  # second time and stopped in the middle. On 2026-09-02 the consequence surfaced: the database
+  # had every migration and the API answered `permission denied for schema catalog`, because
+  # `foundation-runtime-grants` never ran. Nothing said so — `/health` does not touch the
+  # database, so the stack looked up for a day.
+  #
+  # `foundation-api` is the last link, so requiring it requires all of them, in the order the
+  # compose file owns. `--wait` makes the command finish when the state is reached rather than
+  # when the request was accepted.
+  "${runtime}" up -d --wait foundation-api
   verify_runtime_schema
 }
 

@@ -59,6 +59,7 @@ for g in hook-isolation-self-test \
          lineage-is-derived-not-passed-self-test lineage-is-derived-not-passed \
          every-table-declares-its-load-self-test every-table-declares-its-load \
          a-deploy-verifies-the-schema-it-left-self-test a-deploy-verifies-the-schema-it-left \
+         the-deploy-does-not-restate-the-compose-chain-self-test the-deploy-does-not-restate-the-compose-chain \
          assert-runtime-migrations-self-test \
          assert-runtime-environment-self-test \
          bootstrap-creates-what-it-grants-on-self-test bootstrap-creates-what-it-grants-on \
