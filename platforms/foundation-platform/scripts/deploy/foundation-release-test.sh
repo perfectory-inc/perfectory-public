@@ -25,20 +25,42 @@ build_source() {
   chmod +x "${dir}/scripts/deploy/assert-runtime-migrations.sh"
   chmod +x "${dir}/scripts/deploy/assert-runtime-environment.sh"
   # `verify` asks the environment file too, so the rehearsal carries the compose files that
-  # check reads and an environment holding every variable they declare required. The list is
-  # taken from the compose files rather than typed here — typed, it would go stale the next
-  # time a service needs a variable, which is the incident this whole change is about.
-  cp "${repo_root}/docker-compose.yml" "${repo_root}/compose.recovery.yml" "${dir}/"
-  grep -ohE '[$][{][A-Z_][A-Z0-9_]*:[?]' "${dir}/docker-compose.yml" "${dir}/compose.recovery.yml" \
+  # check reads and an environment holding every variable they declare required. Neither list is
+  # typed here — not the variables, and not the files. Which files the runtime loads is the
+  # wrapper's `-f` arguments, so they are read from there; naming them here would go stale the
+  # next time a compose file joins the runtime, and the rehearsal would keep passing while
+  # covering a set it no longer covers.
+  local -a compose_files=()
+  local file
+  while read -r file; do
+    [[ -n "${file}" ]] && compose_files+=("${file}")
+  done < <(
+    sed -nE 's|^[[:space:]]*-f "\$\{root_dir\}/([^"]+)".*|\1|p' \
+      "${repo_root}/scripts/deploy/foundation-runtime.sh"
+  )
+  [[ "${#compose_files[@]}" -gt 0 ]] || {
+    printf 'foundation-release-test: read no compose files out of the runtime wrapper\n' >&2
+    return 1
+  }
+  for file in "${compose_files[@]}"; do
+    cp "${repo_root}/${file}" "${dir}/${file}"
+  done
+  grep -ohE '[$][{][A-Z_][A-Z0-9_]*:[?]' "${compose_files[@]/#/${dir}/}" \
     | tr -d '${:?' | sort -u | sed 's/$/=rehearsal/' >"${dir}/rehearsal.env"
   for version in ${migrations}; do
     printf -- '-- rehearsal\n' >"${dir}/migrations/${version}_rehearsal.sql"
   done
-  cat >"${dir}/scripts/deploy/foundation-runtime.sh" <<'WRAPPER'
-#!/usr/bin/env bash
-# Stands in for the compose wrapper: the rehearsal has no runtime to ask.
-printf 'rehearsal-container\n'
-WRAPPER
+  # Stands in for the compose wrapper: the rehearsal has no runtime to ask. It carries the same
+  # `-f` arguments as the real one, because the environment check reads that list out of the
+  # wrapper rather than holding a copy of it. A stub without them made the check refuse — which
+  # is the check behaving correctly, on a rehearsal that was not shaped like a release.
+  {
+    printf '#!/usr/bin/env bash\n'
+    for file in "${compose_files[@]}"; do
+      printf -- '  -f "${root_dir}/%s"\n' "${file}"
+    done
+    printf "printf 'rehearsal-container\\\\n'\n"
+  } >"${dir}/scripts/deploy/foundation-runtime.sh"
   chmod +x "${dir}/scripts/deploy/foundation-runtime.sh"
 }
 

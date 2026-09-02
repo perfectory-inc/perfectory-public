@@ -23,7 +23,6 @@ TABLE="${2:-parcel_boundaries}"
 # 읽는 길이다. 후자는 핸드오프가 서버 디스크에 머무르지 않는다 — 전국 한 번에 45.7 GB 였다.
 SOURCE="${LAKEHOUSE_HANDOFF_SOURCE:-local}"
 SRC="${LAKEHOUSE_HANDOFF_DIR:-$HOME/parcel-handoff}"
-HANDOFF_PREFIX="${VWORLD_PARCEL_HANDOFF_PREFIX:-silver-handoff/vworldkr__parcel}"
 SOURCE_CONTRACT="${VWORLD_PARCEL_SOURCE_CONTRACT:-}"
 STATE="${LAKEHOUSE_LOAD_STATE_DIR:-$HOME/parcel-load-state}"
 WORK_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-$HOME/lakehouse-state}"
@@ -95,6 +94,13 @@ case "$SOURCE" in
       [ -n "${!v:-}" ] || { echo "r2 입력에는 $v 가 필요하다" >&2; exit 1; }
     done
     CONTRACT="${SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-parcel-source-objects.json}"
+    # The prefix comes from the contract that already names the objects. It was a default
+    # here and in two other callers, so renaming it meant editing three files and any one
+    # missed would read from a prefix nothing was written to.
+    HANDOFF_PREFIX="${VWORLD_PARCEL_HANDOFF_PREFIX:-$(python3 -c "
+import json, sys
+print(json.load(open(sys.argv[1], encoding='utf-8'))['handoff_prefix'])
+" "$CONTRACT")}"
     [ -f "$CONTRACT" ] || { echo "원천 목록이 없다: $CONTRACT" >&2; exit 1; }
     mapfile -t all < <(python3 -c "
 import json, sys, os

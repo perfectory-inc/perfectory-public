@@ -40,7 +40,6 @@ use crate::public_data_control_support::{
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_CATALOG_PROJECTION_LOAD_CONFIRM";
 const SOURCE_CONTRACT_ENV: &str = "VWORLD_PARCEL_SOURCE_CONTRACT";
 const HANDOFF_PREFIX_ENV: &str = "VWORLD_PARCEL_HANDOFF_PREFIX";
-const DEFAULT_HANDOFF_PREFIX: &str = "silver-handoff/vworldkr__parcel";
 const SOURCE_CONTRACT_SCHEMA_VERSION: u32 = 1;
 /// How many times one object is attempted before the run steps over it.
 ///
@@ -63,6 +62,13 @@ struct HandoffRow {
 struct SourceContract {
     schema_version: u32,
     load_granularity: String,
+    /// Where the converted handoff objects live.
+    ///
+    /// Read from the contract that already names the objects rather than defaulted here. It used
+    /// to be a default in three callers — the exporter, the batch loader, and this command — so
+    /// renaming the prefix meant editing three files and any one missed would read from a prefix
+    /// nothing was written to.
+    handoff_prefix: String,
     handoff_suffix: String,
     objects: Vec<SourceObject>,
 }
@@ -75,7 +81,8 @@ struct SourceObject {
 
 struct Config {
     database_url: String,
-    handoff_prefix: String,
+    /// Overrides the contract, for a run against another bucket. Absent by default.
+    handoff_prefix_override: Option<String>,
     confirmed: bool,
 }
 
@@ -83,8 +90,7 @@ impl Config {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
             database_url: required_env_value("DATABASE_URL")?,
-            handoff_prefix: optional_env_value(HANDOFF_PREFIX_ENV)?
-                .unwrap_or_else(|| DEFAULT_HANDOFF_PREFIX.to_owned()),
+            handoff_prefix_override: optional_env_value(HANDOFF_PREFIX_ENV)?,
             confirmed: optional_bool_env(CONFIRM_ENV)?.unwrap_or(false),
         })
     }
@@ -297,13 +303,16 @@ pub async fn run() -> anyhow::Result<()> {
     // No bound knob. A run either covers what the contract names or it does not, and a
     // truncating flag makes "was this the whole dataset" a question about how it was invoked
     // rather than about the contract. A smaller contract file is how a smaller run is asked for.
-    let keys = handoff_keys(&contract, config.handoff_prefix.as_str())?;
+    let prefix = config
+        .handoff_prefix_override
+        .clone()
+        .unwrap_or_else(|| contract.handoff_prefix.clone());
+    let keys = handoff_keys(&contract, prefix.as_str())?;
 
     if !config.confirmed {
         println!(
-            "parcel-catalog-projection-load-plan objects={} prefix={} (set {CONFIRM_ENV}=true to load)",
-            keys.len(),
-            config.handoff_prefix
+            "parcel-catalog-projection-load-plan objects={} prefix={prefix} (set {CONFIRM_ENV}=true to load)",
+            keys.len()
         );
         return Ok(());
     }
@@ -384,6 +393,7 @@ mod tests {
         SourceContract {
             schema_version: 1,
             load_granularity: "sigungu".to_owned(),
+            handoff_prefix: "silver-handoff/vworldkr__parcel".to_owned(),
             handoff_suffix: ".jsonl.gz".to_owned(),
             objects: vec![
                 SourceObject {
@@ -451,11 +461,29 @@ mod tests {
     fn only_the_granularity_the_contract_loads_becomes_a_key() {
         // The source carries the whole country twice — seventeen sido archives and 255 sigungu
         // ones. Loading both would put every parcel in twice under a different object.
-        let keys = handoff_keys(&contract(), "silver-handoff/vworldkr__parcel").expect("keys");
+        let contract = contract();
+        let keys = handoff_keys(&contract, contract.handoff_prefix.as_str()).expect("keys");
 
         assert_eq!(
             keys,
             vec!["silver-handoff/vworldkr__parcel/20991231DS99990-1.jsonl.gz".to_owned()]
+        );
+    }
+
+    #[test]
+    fn the_prefix_comes_from_the_contract() {
+        // Not a default in this file. It was one here and in two load scripts, so renaming the
+        // prefix meant editing three files and any one missed would read from a prefix nothing
+        // was written to.
+        let mut moved = contract();
+        moved.handoff_prefix = "silver-handoff/somewhere-else".to_owned();
+
+        let keys = handoff_keys(&moved, moved.handoff_prefix.as_str()).expect("keys");
+
+        assert!(
+            keys[0].starts_with("silver-handoff/somewhere-else/"),
+            "the contract moved the prefix and the keys did not follow: {}",
+            keys[0]
         );
     }
 
