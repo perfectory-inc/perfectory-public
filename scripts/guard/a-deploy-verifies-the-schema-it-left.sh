@@ -30,12 +30,35 @@ if [[ ! -f "${checker}" ]]; then
 else
   # The check must fail when it cannot look. A check that treats an unreachable database as a
   # pass reports the drift it exists to find as absence of drift.
-  for unanswerable in \
-    'runtime postgres container is not running' \
-    'runtime reports no applied migrations'; do
-    grep -Fq "${unanswerable}" "${checker}" \
-      || report "the check does not fail on an unanswered question: ${unanswerable}"
-  done
+  #
+  # Held as a property, not as a list of sentences. An earlier version of this guard quoted two
+  # of the checker's messages verbatim; rewording either would have left the guard passing while
+  # checking for text nobody writes any more. What matters is the shape: every refusal sits
+  # before the comparison, so no unanswered question can reach it.
+  comparison_line="$(grep -n 'comm -23' "${checker}" | head -1 | cut -d: -f1)"
+  if [[ -z "${comparison_line}" ]]; then
+    report "the check never compares what is shipped against what is applied"
+  else
+    before="$(awk -v stop="${comparison_line}" 'NR < stop' "${checker}")"
+
+    # Every guard on the way to the comparison must refuse, and none may succeed. A `||` or a
+    # `[[ ]] ||` that ends in `exit 0` is the exact shape of "could not look, reported fine".
+    # Six, measured 2026-09-02: no migrations directory, no compose wrapper, no shipped
+    # migrations, the wrapper refusing to run, no container, an empty ledger. A threshold below
+    # the real count lets one be deleted unnoticed — which `-ge 4` did: deleting the
+    # missing-container refusal left the guard reporting OK. Adding a refusal means raising this.
+    refusals="$(grep -c 'fail "' <<<"${before}")"
+    [[ "${refusals}" -ge 6 ]] \
+      || report "only ${refusals} refusal(s) precede the comparison, and there were 6; one of the ways this check can fail to look is no longer covered"
+
+    successes="$(grep -cE '\|\|[[:space:]]*exit 0|^[[:space:]]*exit 0' <<<"${before}")"
+    [[ "${successes}" -eq 0 ]] \
+      || report "${successes} path(s) exit successfully before the comparison; an unanswered question must never be a pass"
+
+    after="$(awk -v start="${comparison_line}" 'NR > start' "${checker}" | grep -c 'fail "')"
+    [[ "${after}" -eq 0 ]] \
+      || report "${after} refusal(s) sit after the comparison; a question that goes unanswered must stop the check before it decides"
+  fi
 fi
 
 # The install branch, not the file as a whole: a `verify` subcommand nobody calls is a check

@@ -24,7 +24,22 @@ fail() {
   exit 1
 }
 
-compose_files=("${release_dir}/docker-compose.yml" "${release_dir}/compose.recovery.yml")
+# Which compose files the runtime loads is `foundation-runtime.sh`'s `-f` arguments, and that is
+# where it is read from. Listing them here was a second copy: a third compose file would join the
+# runtime and this check would keep asking about two, reporting complete coverage of a set it no
+# longer covers.
+runtime_script="${release_dir}/scripts/deploy/foundation-runtime.sh"
+[[ -f "${runtime_script}" ]] || fail "release has no runtime compose wrapper: ${runtime_script}"
+
+compose_files=()
+while read -r file; do
+  [[ -n "${file}" ]] && compose_files+=("${release_dir}/${file}")
+done < <(
+  sed -nE 's|^[[:space:]]*-f "\$\{root_dir\}/([^"]+)".*|\1|p' "${runtime_script}"
+)
+[[ "${#compose_files[@]}" -gt 0 ]] \
+  || fail "read no compose files out of ${runtime_script}, which cannot be right"
+
 for file in "${compose_files[@]}"; do
   [[ -f "${file}" ]] || fail "release is missing a compose file: ${file}"
 done

@@ -18,6 +18,25 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The check reads which compose files the runtime loads out of `foundation-runtime.sh`'s `-f`
+# arguments, so every fixture ships one. Writing the list into the fixture instead would make the
+# self-test agree with a copy rather than with the thing the check actually reads.
+write_runtime_wrapper() {
+  local root="$1"; shift
+  mkdir -p "$root/scripts/deploy"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'compose=(\n'
+    printf '  docker compose\n'
+    local file
+    for file in "$@"; do
+      printf '  -f "${root_dir}/%s"\n' "$file"
+    done
+    printf ')\n'
+  } >"$root/scripts/deploy/foundation-runtime.sh"
+  chmod +x "$root/scripts/deploy/foundation-runtime.sh"
+}
+
 fixture() {
   local label="$1" compose="$2" env_body="$3"
   local root="$test_root/$label"
@@ -37,11 +56,14 @@ services:
     environment:
       C: ${GAMMA:?set GAMMA}
 YML
+      write_runtime_wrapper "$root" docker-compose.yml compose.recovery.yml
       ;;
     missing-recovery)
       cat >"$root/docker-compose.yml" <<'YML'
 services: {}
 YML
+      # The wrapper still loads two files; only one is on disk.
+      write_runtime_wrapper "$root" docker-compose.yml compose.recovery.yml
       ;;
     no-required)
       cat >"$root/docker-compose.yml" <<'YML'
@@ -53,6 +75,27 @@ YML
       cat >"$root/compose.recovery.yml" <<'YML'
 services: {}
 YML
+      write_runtime_wrapper "$root" docker-compose.yml compose.recovery.yml
+      ;;
+    three-files)
+      # A third compose file joins the runtime. A check holding its own list would keep asking
+      # about two and report complete coverage of a set it no longer covers.
+      cat >"$root/docker-compose.yml" <<'YML'
+services:
+  api:
+    environment:
+      A: ${ALPHA:?set ALPHA}
+YML
+      cat >"$root/compose.recovery.yml" <<'YML'
+services: {}
+YML
+      cat >"$root/compose.extra.yml" <<'YML'
+services:
+  extra:
+    environment:
+      D: ${DELTA:?set DELTA}
+YML
+      write_runtime_wrapper "$root" docker-compose.yml compose.recovery.yml compose.extra.yml
       ;;
   esac
   case "$env_body" in
@@ -102,6 +145,9 @@ GAMMA=y' accept
 # A name that only appears as a prefix of another must not count as present.
 expect prefix-is-not-a-match both 'ALPHABET=x
 GAMMA=y' reject "missing ALPHA"
+
+# The list comes from the wrapper, so a file added there is covered without editing this check.
+expect a-third-compose-file-is-covered three-files 'ALPHA=x' reject "missing DELTA"
 
 expect unreadable-env both none reject "cannot read"
 expect missing-compose-file missing-recovery 'ALPHA=x' reject "missing a compose file"
