@@ -19,7 +19,7 @@ last_reviewed: 2026-08-06
 ## G1 — 생산자 없는 canonical 표
 
 - canonical 표: **61개**
-- 그중 생산자 없음: **19개**
+- 그중 생산자 없음: **18개**
 
 테스트와 시드를 뺀 `INSERT INTO`가 하나도 없는 표입니다. 시드를 세지 않는 이유는, 표를
 채우는 fixture가 바로 시스템이 그 표를 채우지 않는다는 사실을 가리기 때문입니다.
@@ -29,7 +29,6 @@ last_reviewed: 2026-08-06
 | `catalog.administrative_unit_transition` |
 | `catalog.allowed_industry` |
 | `catalog.building` |
-| `catalog.building_unit` |
 | `catalog.complex_attachment` |
 | `catalog.complex_notice` |
 | `catalog.digital_twin_asset` |
@@ -63,7 +62,7 @@ last_reviewed: 2026-08-06
 
 ## 기록 규모
 
-- ADR: **70개**
+- ADR: **71개**
 - `남은 부채` 항목: **62개**
 
 항목 수는 남은 일의 수가 아닙니다. 열림/닫힘은

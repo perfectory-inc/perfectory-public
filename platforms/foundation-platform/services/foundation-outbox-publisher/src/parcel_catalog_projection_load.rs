@@ -23,16 +23,15 @@
 //! source does not include (root ADR-0070). Filling either from here would be inventing.
 
 use std::collections::BTreeSet;
-use std::io::Read;
 
 use anyhow::{bail, Context};
 use catalog_domain::parcel_id_for_pnu;
-use flate2::read::GzDecoder;
 use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::pnu::Pnu;
 use serde::Deserialize;
 use sqlx::{Connection, Executor, PgConnection};
 
+use crate::handoff_object_support::{gunzip_text, object_retry_delay};
 use crate::public_data_control_support::{
     optional_bool_env, optional_env_value, required_env_value,
 };
@@ -137,10 +136,7 @@ fn handoff_keys(contract: &SourceContract, prefix: &str) -> anyhow::Result<Vec<S
 /// reader that assumed plain text would parse the compressed bytes as zero rows and report an
 /// empty object as success.
 fn parcels_in_object(object_bytes: &[u8], object_key: &str) -> anyhow::Result<BTreeSet<String>> {
-    let mut text = String::new();
-    GzDecoder::new(object_bytes)
-        .read_to_string(&mut text)
-        .with_context(|| format!("failed to decompress handoff object {object_key}"))?;
+    let text = gunzip_text(object_bytes, object_key)?;
 
     let mut parcels = BTreeSet::new();
     let mut line_count = 0_u64;
@@ -162,14 +158,6 @@ fn parcels_in_object(object_bytes: &[u8], object_key: &str) -> anyhow::Result<BT
         bail!("handoff object {object_key} carried no rows, which is not a state this dataset has");
     }
     Ok(parcels)
-}
-
-/// Waits longer after each failed attempt.
-///
-/// Immediate retries lose to the failure they are retrying: five range reads inside one second all
-/// meet the same second.
-fn object_retry_delay(attempt: usize) -> std::time::Duration {
-    std::time::Duration::from_secs(OBJECT_RETRY_BASE_DELAY_SECONDS * attempt as u64)
 }
 
 /// Reads one object and merges it, so the retry above has a single unit to repeat.
@@ -344,7 +332,11 @@ pub async fn run() -> anyhow::Result<()> {
                     println!(
                         "parcel-catalog-projection-load-retry key={key} attempt={attempt}/{OBJECT_ATTEMPTS} error={error:#}"
                     );
-                    tokio::time::sleep(object_retry_delay(attempt)).await;
+                    tokio::time::sleep(object_retry_delay(
+                        OBJECT_RETRY_BASE_DELAY_SECONDS,
+                        attempt,
+                    ))
+                    .await;
                 }
                 Err(error) => {
                     // Recorded and stepped over, never swallowed: the run ends non-zero below and
@@ -412,23 +404,6 @@ mod tests {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
         encoder.write_all(body.as_bytes()).expect("fixture write");
         encoder.finish().expect("fixture finish")
-    }
-
-    #[test]
-    fn the_retry_waits_longer_each_time() {
-        // Immediate retries lose to the failure they are retrying. Measured 2026-09-01: the five
-        // byte-range attempts underneath were all spent inside one bad minute and the run died.
-        let first = object_retry_delay(1);
-        let second = object_retry_delay(2);
-
-        assert!(
-            second > first,
-            "a later attempt must wait longer than an earlier one"
-        );
-        assert!(
-            first.as_secs() > 0,
-            "an attempt that waits no time is not a retry"
-        );
     }
 
     #[test]

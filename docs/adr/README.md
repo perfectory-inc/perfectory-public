@@ -82,3 +82,4 @@ last_reviewed: 2026-07-28
 - [0069 — 한 칸에 다섯 가지가 들어 있다](./0069-one-column-holds-five-kinds-of-thing.md)
 - [0070 — 경계 원천은 필지의 용도도 면적도 나르지 않는다](./0070-the-boundary-source-carries-neither-use-nor-area.md)
 - [0071 — 스키마를 두고 온 배포는 끝난 배포가 아니다](./0071-a-deploy-that-leaves-the-schema-behind-has-not-finished.md)
+- [0072 — 호(戶)는 PNU 로 필지에 붙고, 못 붙는 행은 지어내지 않고 센다](./0072-units-attach-to-parcels-by-pnu-and-orphans-are-counted.md)

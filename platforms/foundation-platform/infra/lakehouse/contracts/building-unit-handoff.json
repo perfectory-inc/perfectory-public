@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "why_this_file_exists": "The unit handoff has a writer (a Spark job over silver.building_register_units and _unit_areas) and a reader (the catalog projection command), and every name they must agree on lives here once. The parcel pipeline had the same three agreements as defaults in three files, and renaming any one of them meant a reader looking where nothing was written (ADR-0072; the guard the-contract-names-where-its-objects-live holds the parcel copy).",
+  "handoff_prefix": "silver-handoff/building_register_units",
+  "handoff_suffix": ".jsonl.gz",
+  "manifest_object": "silver-handoff/building_register_units/manifest.json",
+  "manifest_object_reason": "The source is an Iceberg table, so unlike the parcel pipeline there is no pre-measured object list: the export decides how many objects it writes. A loader that listed the prefix instead would read an empty listing as no work to do — the manifest is written last, names every object with its row count, and a loader that cannot find it must refuse rather than succeed at nothing.",
+  "partition_rule": "sigungu",
+  "partition_rule_reason": "One object per five-digit PNU prefix, the same grain the parcel pipeline loads at. Rows whose pnu is null or malformed cannot attach to a parcel and are not exported; the manifest carries their counts so the loader's summary can report what the export left behind.",
+  "columns": [
+    "register_pk",
+    "pnu",
+    "building_name",
+    "dong_name",
+    "ho_name",
+    "floor_label",
+    "exclusive_area_m2",
+    "usage_name",
+    "structure_name"
+  ],
+  "columns_reason": "Exactly the catalog.building_unit columns the loader fills, minus the two it derives (id from register_pk, parcel_id from pnu — ADR-0072 §2, §4). The writer and the reader both read this list, so a column added for one is refused by the other until both moved."
+}
