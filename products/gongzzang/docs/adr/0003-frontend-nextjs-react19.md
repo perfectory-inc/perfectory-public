@@ -47,3 +47,12 @@
 - [Frontend 문서](../frontend/README.md)
 - [Naver Maps 데이터 소스](../data-sources/naver-maps.md)
 - [TypeScript 컨벤션](../conventions/typescript.md)
+
+## 개정 각주
+
+- **2026-09-02** — Next.js 를 `16.2.6` 에서 `16.2.11` 로 올렸다. 이 ADR 의 결정은 "Next.js 16
+  App Router" 이고 패치 버전은 그 결정을 바꾸지 않으므로 위 결정문은 그대로 둔다. 사유는
+  16.2.11 이 닫는 권고 9건(high 4 — SSRF 2, 미들웨어 우회, 서비스 거부; medium 5)이고,
+  전부 `>= 16.0.0, < 16.2.11` 대상이라 이 판을 쓰는 한 피할 수 없다.
+  핀의 정본은 `products/gongzzang/apps/web/package.json` 과
+  `scripts/guard/technology-version-consistency.sh` 이며, 이 각주는 그 값을 다시 적지 않는다.

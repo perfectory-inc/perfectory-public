@@ -8,7 +8,7 @@
 ## 요약
 
 - 감사 문서: **395개**
-- 언어 분류: **{'english': 36, 'korean': 198, 'mixed': 161}**
+- 언어 분류: **{'english': 36, 'korean': 199, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
 - 메타데이터: **201개 정상 / 0개 누락 / 194개 해당 없음**
@@ -284,7 +284,7 @@
 | `products/gongzzang/db/migration/README.md` | Gongzzang 제품 | README | current | korean | ok | 0 |
 | `products/gongzzang/docs/adr/0001-language-rust-ts.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 3 |
 | `products/gongzzang/docs/adr/0002-monorepo-cargo-pnpm-turbo.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
-| `products/gongzzang/docs/adr/0003-frontend-nextjs-react19.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 4 |
+| `products/gongzzang/docs/adr/0003-frontend-nextjs-react19.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 4 |
 | `products/gongzzang/docs/adr/0004-db-postgres-postgis.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `products/gongzzang/docs/adr/0005-auth-zitadel.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 4 |
 | `products/gongzzang/docs/adr/0006-api-rest-openapi.md` | Gongzzang 제품 | ADR | current | korean | not applicable: ADR fields | 2 |
