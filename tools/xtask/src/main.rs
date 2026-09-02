@@ -567,6 +567,10 @@ const AREAS: &[Area] = &[
                         test: "bronze_ingest_round_trip",
                     },
                     LaneTarget {
+                        package: "foundation-api",
+                        test: "schema_readiness_probe",
+                    },
+                    LaneTarget {
                         package: "foundation-normalization-infrastructure",
                         test: "active_override_reader",
                     },

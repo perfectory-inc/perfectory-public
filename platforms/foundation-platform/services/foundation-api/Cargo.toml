@@ -41,5 +41,6 @@ foundation-normalization-domain         = { workspace = true }
 foundation-normalization-infrastructure = { workspace = true }
 
 [dev-dependencies]
+foundation-disposable-database = { workspace = true }
 sha2 = { workspace = true }
 wiremock = { workspace = true }

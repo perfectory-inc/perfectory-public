@@ -24,12 +24,84 @@ use lakehouse_application::{RecordLakehouseBatchRun, RegisterLakehouseObjectArti
 use lakehouse_infrastructure::{
     PgIndustrialComplexGoldPointerReader, PgLakehouseBatchRunAudit, PgLakehouseRegistryUnitOfWork,
 };
+use sqlx::migrate::Migrate;
 use sqlx::postgres::PgPoolOptions;
 
 use crate::identity_authorization::{HttpIdentityAuthorization, IdentityAuthorization};
 use crate::identity_http_client::HttpIdentityClient;
 use crate::identity_token_verifier::IdentityTokenVerifier;
 use crate::traffic::TrafficConfig;
+
+/// What the schema probe found, in the three states a probe can honestly report.
+///
+/// `Unknown` is deliberately not `Ready`: a probe that cannot look must say so, not pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaReadiness {
+    /// The database holds every migration this binary shipped with.
+    Ready {
+        /// How many migrations the binary was built with.
+        shipped: usize,
+    },
+    /// The database is missing some of the shipped migrations.
+    Behind {
+        /// How many migrations the binary was built with.
+        shipped: usize,
+        /// How many of them the database does not account for.
+        missing: usize,
+    },
+    /// The question went unanswered — connection or query failure.
+    Unknown,
+}
+
+impl SchemaReadiness {
+    /// `true` only for `Ready`. `Unknown` is not ready: a probe that could not look must not pass.
+    #[must_use]
+    pub const fn is_ready(self) -> bool {
+        matches!(self, Self::Ready { .. })
+    }
+}
+
+/// Compares the running database against the migrations this binary was built with.
+///
+/// A free function over a pool rather than a method, so the proof tests can point it at a
+/// database they deliberately broke without assembling the whole application state.
+///
+/// Asked through `sqlx`'s own `Migrate` machinery rather than by querying its ledger table, so
+/// this cannot drift from how the migrator itself records an application.
+pub async fn probe_schema(pool: &sqlx::PgPool) -> SchemaReadiness {
+    let shipped = crate::MIGRATOR.iter().count();
+    let applied = tokio::time::timeout(Duration::from_millis(500), async {
+        let mut connection = pool.acquire().await?;
+        // A database the migrator has never touched has no ledger at all, and asking it for
+        // applied migrations errors. That is not "unknown" — a reachable database with no
+        // ledger has verifiably applied nothing, and the operator's next step is to run the
+        // migrator, not to debug connectivity. Proven by the empty-database case in
+        // `tests/schema_readiness_probe.rs`, which is the six-week incident in miniature.
+        let ledger_exists: bool =
+            sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
+                .fetch_one(&mut *connection)
+                .await?;
+        if !ledger_exists {
+            return Ok(Vec::new());
+        }
+        connection.list_applied_migrations().await
+    })
+    .await;
+
+    match applied {
+        Ok(Ok(rows)) => {
+            let missing = shipped.saturating_sub(rows.len());
+            if missing == 0 {
+                SchemaReadiness::Ready { shipped }
+            } else {
+                SchemaReadiness::Behind { shipped, missing }
+            }
+        }
+        // Cannot look. Reported as its own state rather than as ready or behind: an
+        // unanswered question recorded as a pass is the exact defect this probe replaces.
+        Ok(Err(_)) | Err(_) => SchemaReadiness::Unknown,
+    }
+}
 
 const IDENTITY_CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 /// Deployment switch for v2 runtime manifest publication. Named here because this file is the
@@ -676,6 +748,21 @@ impl AppState {
         )
         .await
         .is_ok_and(|result| result.is_ok())
+    }
+
+    /// Whether the running database holds every migration this binary shipped with.
+    ///
+    /// `database_ready` asks "can I reach you", and for six weeks that was the only question
+    /// anyone asked: the deployment host sat at 4 of 33 migrations, every `catalog.*` table was
+    /// absent, and `SELECT 1` succeeded the whole time — so `/readyz` said ready, the container
+    /// healthcheck passed, and the `FoundationPlatformApiDatabaseUnavailable` alert never fired
+    /// while the API answered 500 (root ADR-0071). This is the question that would have caught it
+    /// on day one: applied < shipped is not ready.
+    ///
+    /// Asked through `sqlx`'s own `Migrate` machinery rather than by querying its ledger table,
+    /// so this cannot drift from how the migrator itself records an application.
+    pub async fn schema_ready(&self) -> SchemaReadiness {
+        probe_schema(&self.database_pool).await
     }
 
     pub fn database_pool_metric(&self) -> ApiDatabasePoolMetric {

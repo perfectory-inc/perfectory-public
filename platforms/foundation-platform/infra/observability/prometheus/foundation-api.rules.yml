@@ -21,6 +21,20 @@ groups:
           summary: Foundation Platform API database readiness is down
           description: foundation_api_database_ready is not equal to 1 for more than 2 minutes.
           runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformApiSchemaBehind
+        # Connectivity is not readiness: the deployment host once held 4 of 33 migrations for
+        # six weeks while the database answered SELECT 1, so DatabaseUnavailable never fired
+        # and the API answered 500 (root ADR-0071). This gauge compares the ledger against the
+        # migrations the running binary was built with.
+        expr: foundation_api_schema_ready != 1
+        for: 5m
+        labels:
+          severity: page
+          service: foundation-api
+        annotations:
+          summary: Foundation Platform API database schema is behind the running binary
+          description: foundation_api_schema_ready is not equal to 1 for more than 5 minutes. The database does not hold every migration the binary shipped with; run foundation-migrate.
+          runbook: docs/runbooks/slo-alert-policy.md
       - alert: FoundationPlatformApiHigh5xxRate
         expr: sum(rate(foundation_api_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(foundation_api_http_requests_total[5m])), 1) > 0.01
         for: 5m

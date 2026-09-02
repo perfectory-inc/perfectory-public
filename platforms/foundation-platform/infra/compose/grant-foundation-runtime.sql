@@ -1,6 +1,16 @@
 \set ON_ERROR_STOP on
 
 REVOKE ALL ON SCHEMA public FROM foundation_api;
+
+-- The one exception to the revoke above: `/readyz` compares the migration ledger against the
+-- list the binary shipped with, because for six weeks the database held 4 of 33 migrations
+-- while readiness asked only `SELECT 1` and kept passing (root ADR-0071). Reading the ledger
+-- needs USAGE on the schema that holds it plus SELECT on that one table — nothing else in
+-- `public` is granted, and USAGE alone opens no other table. Without this, the probe reports
+-- `unknown`, `/readyz` refuses, and the healthcheck times every deployment out.
+GRANT USAGE ON SCHEMA public TO foundation_api;
+GRANT SELECT ON TABLE public._sqlx_migrations TO foundation_api;
+
 GRANT USAGE ON SCHEMA catalog, serving_postgis TO foundation_api;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA catalog, serving_postgis
     TO foundation_api;
