@@ -117,6 +117,28 @@ fn require_all(haystack: &str, needles: &[&str], context: &str) {
     }
 }
 
+/// One embedded migrator for the whole package. The library defines it and both readers use it:
+/// the runner applies it, and `/readyz` compares the running database against it. A second
+/// embedding in the runner would let the two disagree about what "complete" means — the probe
+/// would pass a database the runner considers unfinished, or refuse one it built.
+fn assert_one_embedded_migrator(migrator: &str) {
+    let library = read("platforms/foundation-platform/services/foundation-api/src/lib.rs");
+    require_all(
+        &library,
+        &["pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!(\"../../migrations\")"],
+        "canonical Foundation migrator definition",
+    );
+    require_all(
+        migrator,
+        &["use foundation_api::MIGRATOR", "MIGRATOR.run(&pool).await?"],
+        "canonical Foundation migration runner",
+    );
+    assert!(
+        !migrator.contains("sqlx::migrate!"),
+        "the migration runner must use the library's migrator, not embed a second one"
+    );
+}
+
 #[test]
 fn compose_is_disposable_digest_pinned_and_loopback_only() {
     let compose = read("scripts/tiles/compose.yaml");
@@ -600,14 +622,7 @@ fn canonical_foundation_migrator_is_the_only_schema_executor() {
     let build_script = read("platforms/foundation-platform/services/foundation-api/build.rs");
     let canonical = "cargo run --locked --quiet -p foundation-api --bin foundation-migrate";
 
-    require_all(
-        &migrator,
-        &[
-            "static MIGRATOR: Migrator = sqlx::migrate!(\"../../migrations\")",
-            "MIGRATOR.run(&pool).await?",
-        ],
-        "canonical Foundation migration runner",
-    );
+    assert_one_embedded_migrator(&migrator);
     assert_eq!(
         build_script
             .matches("cargo:rerun-if-changed=../../migrations")

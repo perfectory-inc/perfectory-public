@@ -1354,6 +1354,7 @@ dependencies = [
  "catalog-infrastructure",
  "chrono",
  "foundation-contracts",
+ "foundation-disposable-database",
  "foundation-normalization-application",
  "foundation-normalization-domain",
  "foundation-normalization-infrastructure",

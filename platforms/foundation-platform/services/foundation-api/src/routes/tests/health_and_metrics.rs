@@ -287,6 +287,7 @@ fn metrics_body_renders_lakehouse_freshness_metrics() {
 
     let payload = super::metrics_body(
         true,
+        true,
         &db_pool_metric(),
         super::MetricsBodyInput {
             lakehouse_batch_runs: &metrics,
@@ -318,6 +319,7 @@ fn metrics_body_renders_ingestion_run_metrics() {
     }];
 
     let payload = super::metrics_body(
+        true,
         true,
         &db_pool_metric(),
         super::MetricsBodyInput {
@@ -353,6 +355,7 @@ fn metrics_body_renders_outbox_queue_metrics() {
     }];
 
     let payload = super::metrics_body(
+        true,
         true,
         &db_pool_metric(),
         super::MetricsBodyInput {
@@ -412,6 +415,7 @@ fn metrics_body_renders_http_request_metrics() {
 
     let payload = super::metrics_body(
         true,
+        true,
         &db_pool_metric(),
         super::MetricsBodyInput {
             http_requests: &metrics,
@@ -439,7 +443,7 @@ fn metrics_body_renders_database_pool_metrics() {
         max_connections: 8,
     };
 
-    let payload = super::metrics_body(true, &metric, empty_metrics_body_input());
+    let payload = super::metrics_body(true, true, &metric, empty_metrics_body_input());
 
     assert!(payload.contains("# HELP foundation_api_db_pool_size"));
     assert!(payload.contains("# TYPE foundation_api_db_pool_size gauge"));
@@ -461,6 +465,7 @@ fn metrics_body_renders_http_duration_histogram_metrics() {
     }];
 
     let payload = super::metrics_body(
+        true,
         true,
         &db_pool_metric(),
         super::MetricsBodyInput {

@@ -22,7 +22,7 @@ use tracing::warn;
 use crate::identity_authorization::{IdentityAuthorizationError, RequiredPrincipalKind};
 use crate::state::{
     ApiDatabasePoolMetric, ApiHttpDurationMetric, ApiHttpRequestMetric, ApiOverloadRejectionMetric,
-    AppState, IngestionRunMetric, LakehouseBatchRunMetric, OutboxQueueMetric,
+    AppState, IngestionRunMetric, LakehouseBatchRunMetric, OutboxQueueMetric, SchemaReadiness,
 };
 use crate::traffic::{TrafficConfig, TrafficRuntime};
 
@@ -491,6 +491,10 @@ struct ReadinessResponse {
     status: &'static str,
     version: &'static str,
     database: &'static str,
+    /// `ok`, `behind`, or `unknown` — whether the database holds every shipped migration.
+    schema: &'static str,
+    /// How many shipped migrations the database is missing. Zero when `schema` is not `behind`.
+    migrations_missing: usize,
 }
 
 #[utoipa::path(
@@ -518,19 +522,41 @@ async fn health() -> Json<HealthResponse> {
 )]
 async fn ready(State(state): State<Arc<AppState>>) -> (StatusCode, Json<ReadinessResponse>) {
     let database_ready = state.database_ready().await;
+    // Connectivity is not readiness. For six weeks the database answered `SELECT 1` while
+    // holding 4 of 33 migrations, so this endpoint said ready and the API answered 500 —
+    // a database this binary cannot use is one it must not claim (root ADR-0071).
+    let schema = if database_ready {
+        state.schema_ready().await
+    } else {
+        SchemaReadiness::Unknown
+    };
+    let ready = database_ready && schema.is_ready();
     (
-        readiness_status(database_ready),
+        readiness_status(ready),
         Json(ReadinessResponse {
             service: "foundation-api",
-            status: if database_ready { "ready" } else { "not_ready" },
+            status: if ready { "ready" } else { "not_ready" },
             version: env!("CARGO_PKG_VERSION"),
             database: if database_ready { "ok" } else { "unavailable" },
+            schema: schema_field(schema),
+            migrations_missing: match schema {
+                SchemaReadiness::Behind { missing, .. } => missing,
+                SchemaReadiness::Ready { .. } | SchemaReadiness::Unknown => 0,
+            },
         }),
     )
 }
 
-const fn readiness_status(database_ready: bool) -> StatusCode {
-    if database_ready {
+const fn schema_field(schema: SchemaReadiness) -> &'static str {
+    match schema {
+        SchemaReadiness::Ready { .. } => "ok",
+        SchemaReadiness::Behind { .. } => "behind",
+        SchemaReadiness::Unknown => "unknown",
+    }
+}
+
+const fn readiness_status(ready: bool) -> StatusCode {
+    if ready {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE
@@ -545,6 +571,11 @@ const fn readiness_status(database_ready: bool) -> StatusCode {
 )]
 async fn metrics(State(state): State<Arc<AppState>>) -> ([(HeaderName, &'static str); 1], String) {
     let database_ready = state.database_ready().await;
+    let schema_ready = if database_ready {
+        state.schema_ready().await.is_ready()
+    } else {
+        false
+    };
     let database_pool = state.database_pool_metric();
     let lakehouse_batch_runs = if database_ready {
         state.latest_lakehouse_batch_run_metrics().await
@@ -568,6 +599,7 @@ async fn metrics(State(state): State<Arc<AppState>>) -> ([(HeaderName, &'static 
         [(header::CONTENT_TYPE, PROMETHEUS_TEXT_CONTENT_TYPE)],
         metrics_body(
             database_ready,
+            schema_ready,
             &database_pool,
             MetricsBodyInput {
                 http_requests: &http_requests,
@@ -593,10 +625,12 @@ struct MetricsBodyInput<'a> {
 
 fn metrics_body(
     database_ready: bool,
+    schema_ready: bool,
     database_pool: &ApiDatabasePoolMetric,
     metrics: MetricsBodyInput<'_>,
 ) -> String {
     let database_ready_value = i32::from(database_ready);
+    let schema_ready_value = i32::from(schema_ready);
     let mut body = format!(
         concat!(
             "# HELP foundation_api_up Whether the Foundation Platform API process is running.\n",
@@ -605,6 +639,9 @@ fn metrics_body(
             "# HELP foundation_api_database_ready Whether the Foundation Platform API can query PostgreSQL.\n",
             "# TYPE foundation_api_database_ready gauge\n",
             "foundation_api_database_ready {}\n",
+            "# HELP foundation_api_schema_ready Whether the database holds every migration this binary shipped with.\n",
+            "# TYPE foundation_api_schema_ready gauge\n",
+            "foundation_api_schema_ready {}\n",
             "# HELP foundation_api_db_pool_size Current SQLx PostgreSQL pool size.\n",
             "# TYPE foundation_api_db_pool_size gauge\n",
             "foundation_api_db_pool_size {}\n",
@@ -649,6 +686,7 @@ fn metrics_body(
             "foundation_api_build_info{{service=\"foundation-api\",version=\"{}\"}} 1\n"
         ),
         database_ready_value,
+        schema_ready_value,
         database_pool.pool_size,
         database_pool.idle_connections,
         database_pool.max_connections,

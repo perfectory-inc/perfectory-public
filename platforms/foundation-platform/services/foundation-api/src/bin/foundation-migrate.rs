@@ -4,10 +4,12 @@ use std::env;
 use std::error::Error;
 use std::io;
 
-use sqlx::migrate::Migrator;
 use sqlx::postgres::PgPoolOptions;
 
-static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
+// The library's embedded migrator — defined once in `foundation_api` (see `src/lib.rs`), never
+// re-embedded here. `/readyz` compares the running database against the same static, so the
+// runner and the probe cannot disagree about which migrations exist.
+use foundation_api::MIGRATOR;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

@@ -20,6 +20,16 @@ mod traffic;
 mod identity_authorization_tests;
 
 pub use routes::catalog_openapi_document;
+pub use state::{probe_schema, SchemaReadiness};
+
+/// Every migration this binary was built with, embedded at compile time.
+///
+/// One definition for the whole package. The `foundation-migrate` runner applies these, and
+/// `/readyz` compares the running database against them — the same list on both sides, so the
+/// probe cannot disagree with the runner about what "complete" means. Deploying source cannot
+/// move a schema (the migrator is compiled in), which is how a six-week 4-of-33 gap survived
+/// three deploys that all reported success (root ADR-0071).
+pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
 /// Runs the Foundation API server or its native readiness probe.
 ///
