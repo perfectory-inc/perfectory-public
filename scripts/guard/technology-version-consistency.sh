@@ -51,7 +51,7 @@ if [ -n "$package_files" ]; then
   check_exact_manifest_value 'node' '20.19.0'
   check_exact_manifest_value 'pnpm' '9.12.0'
   check_exact_manifest_value 'packageManager' 'pnpm@9.12.0'
-  check_exact_manifest_value 'next' '16.2.6'
+  check_exact_manifest_value 'next' '16.2.11'
   check_exact_manifest_value 'react' '19.2.5'
   check_exact_manifest_value 'react-dom' '19.2.5'
   check_exact_manifest_value 'typescript' '5.9.3'

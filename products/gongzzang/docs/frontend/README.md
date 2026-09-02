@@ -8,7 +8,7 @@ last_reviewed: 2026-07-29
 # Frontend (apps/web) — SP6-foundation
 
 > **목적**: 공짱 frontend 인프라. 모든 SP6-i ~ v 화면이 의존하는 foundation.
-> **Stack**: Next.js 16.2.6 + React 19.2.5 + TypeScript 5.9.3 + Tailwind CSS 4.2.4 + shadcn/ui (코드 복사)
+> **Stack**: Next.js 16.2.11 + React 19.2.5 + TypeScript 5.9.3 + Tailwind CSS 4.2.4 + shadcn/ui (코드 복사)
 > **Decision**: [ADR-0003](../adr/0003-frontend-nextjs-react19.md)
 
 ## 시작

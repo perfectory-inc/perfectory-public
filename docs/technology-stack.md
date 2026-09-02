@@ -43,7 +43,7 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 | HTTP backend | Axum `0.8`, Tokio workspace | 네 플랫폼의 API/worker Cargo manifest. 실행 중 |
 | JavaScript runtime | Node `20.19.0` | `products/gongzzang/.nvmrc`, CI `node-version`, package `engines` exact pin |
 | JavaScript package manager | pnpm `9.12.0` | `products/gongzzang/package.json#packageManager` exact pin |
-| Frontend core | Next.js `16.2.6`, React/React DOM `19.2.5`, TypeScript `5.9.3` | Gongzzang workspace manifests와 lockfile exact pin |
+| Frontend core | Next.js `16.2.11`, React/React DOM `19.2.5`, TypeScript `5.9.3` | Gongzzang workspace manifests와 lockfile exact pin |
 | Frontend build/test | Tailwind `4.2.4`, Vite `6.4.2`, Vitest `4.1.7`, Turborepo `2.9.15`, Biome `2.4.14` | Gongzzang manifests/lockfile exact pin |
 | Relational database | PostgreSQL `17` | 모노레포 ADR 0001의 전역 규칙. 모든 Compose DB 이미지 통일 |
 | Spatial database | PostGIS `3.5` on PostgreSQL `17` | Foundation/Gongzzang/tile proof Compose 통일 |
