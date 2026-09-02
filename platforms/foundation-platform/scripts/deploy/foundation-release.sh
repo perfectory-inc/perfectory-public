@@ -99,8 +99,17 @@ activate_release() {
 # to the wrong archive's sha256 and could never be installed correctly again. The marker asked
 # for is this script's own runtime schema check: the thing `install` will need to run last.
 validate_archive_is_a_release() {
-  local archive="$1"
-  tar -tzf "${archive}" | grep -qE '^(\./)?scripts/deploy/assert-runtime-migrations\.sh$' || {
+  local archive="$1" listing
+  # The listing is captured, not piped into the match. Piped, `grep -q` exits on its first hit
+  # and closes the pipe; tar dies of SIGPIPE (141), and under `pipefail` the pipeline fails even
+  # though the file was found — so this gate refused every valid archive large enough for tar to
+  # still be writing when grep matched. That is exactly what happened on 2026-09-03: the first
+  # real deployment after this gate merged was refused with the "not a release tree" message,
+  # while the same grep run by hand on the same archive counted one match. The single-file
+  # rehearsal fixture never triggered it, because tar had already finished. A verdict must never
+  # sit downstream of a pipe whose producer can be killed by the verdict being reached.
+  listing="$(tar -tzf "${archive}")"
+  grep -qE '^(\./)?scripts/deploy/assert-runtime-migrations\.sh$' <<<"${listing}" || {
     printf 'archive is not a release tree: scripts/deploy/assert-runtime-migrations.sh is not at its root\n' >&2
     printf 'archive the subtree, not the monorepo: git archive "<sha>:platforms/foundation-platform"\n' >&2
     exit 65

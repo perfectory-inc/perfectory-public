@@ -145,6 +145,25 @@ if run_release install "${release_a}" "${test_root}/release-a-mutated.tar.gz"; t
   exit 1
 fi
 
+# A valid archive large enough that tar is still listing entries after the release marker has
+# matched. The gate's first version piped `tar -tzf` into `grep -q`; grep exited on its hit,
+# tar died of SIGPIPE, and under pipefail the gate refused every real deployment while passing
+# this rehearsal's single-file fixtures (2026-09-03). Thousands of entries sorting after
+# `scripts/` reproduce that timing; a fixture too small to trigger it proves nothing.
+current_before_large="$(readlink "${release_root}/current")"
+mkdir -p "${test_root}/source-large/src"
+cp -r "${test_root}/source-a/." "${test_root}/source-large/"
+for i in $(seq 1 3000); do
+  : >"${test_root}/source-large/src/zz-padding-${i}.txt"
+done
+tar -C "${test_root}/source-large" -czf "${test_root}/release-large.tar.gz" .
+run_release install "4444444444444444444444444444444444444444" \
+  "${test_root}/release-large.tar.gz" || {
+  printf 'a valid release archive with many entries after the marker was refused\n' >&2
+  exit 1
+}
+run_release activate "$(basename "${current_before_large}")"
+
 # An archive of the monorepo root, not the release subtree. On 2026-09-03 one of these
 # installed, activated, and only then failed the schema check — sealing its release id to the
 # wrong bytes. It must be refused before anything is staged, and `current` must not move.
