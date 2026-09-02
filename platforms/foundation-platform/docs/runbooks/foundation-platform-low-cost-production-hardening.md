@@ -122,7 +122,12 @@ host 밖 R2에 repository를 둔다.
 
 ```bash
 release_id="$(git rev-parse HEAD)"
-git archive --format=tar.gz --output="/tmp/foundation-${release_id}.tar.gz" "${release_id}"
+# 릴리스는 platforms/foundation-platform 을 루트로 하는 트리다 — 모노레포 전체가 아니다.
+# "${release_id}" 만 주면 모노레포 루트가 통째로 싸이고, 설치는 되고 활성화까지 된 다음에야
+# 스키마 검증이 scripts/deploy/ 를 못 찾아 거부한다(2026-09-03 실측, exit 66). 그 시점에는
+# 그 release id 가 잘못된 아카이브의 sha256 로 봉인되어 같은 id 로 다시 설치할 수 없다.
+git archive --format=tar.gz --output="/tmp/foundation-${release_id}.tar.gz" \
+  "${release_id}:platforms/foundation-platform"
 sudo FOUNDATION_PLATFORM_RELEASE_ROOT=/opt/foundation-platform \
   FOUNDATION_PLATFORM_STATE_ROOT=/var/lib/foundation-platform \
   scripts/deploy/foundation-release.sh install \

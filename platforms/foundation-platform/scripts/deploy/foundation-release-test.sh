@@ -145,6 +145,24 @@ if run_release install "${release_a}" "${test_root}/release-a-mutated.tar.gz"; t
   exit 1
 fi
 
+# An archive of the monorepo root, not the release subtree. On 2026-09-03 one of these
+# installed, activated, and only then failed the schema check — sealing its release id to the
+# wrong bytes. It must be refused before anything is staged, and `current` must not move.
+current_before_monorepo="$(readlink "${release_root}/current")"
+mkdir -p "${test_root}/source-monorepo/platforms/foundation-platform"
+cp -r "${test_root}/source-a/." "${test_root}/source-monorepo/platforms/foundation-platform/"
+tar -C "${test_root}/source-monorepo" -czf "${test_root}/release-monorepo.tar.gz" .
+if run_release install "3333333333333333333333333333333333333333" \
+  "${test_root}/release-monorepo.tar.gz"; then
+  printf 'a monorepo-rooted archive was accepted as a release\n' >&2
+  exit 1
+fi
+assert_link "${release_root}/current" "${current_before_monorepo}"
+if [[ -e "${release_root}/releases/3333333333333333333333333333333333333333" ]]; then
+  printf 'a refused monorepo archive still left a release directory behind\n' >&2
+  exit 1
+fi
+
 # A release the running database is not ready for must not be reported as installed, and the
 # release must still be on disk afterwards: the check refuses to call the deploy finished, it
 # does not undo it (root ADR-0071).

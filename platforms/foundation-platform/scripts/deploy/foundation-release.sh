@@ -92,6 +92,21 @@ activate_release() {
   atomic_link "${next_target}" "${release_root}/current"
 }
 
+# A release is a tree rooted at platforms/foundation-platform, and this is where that is
+# enforced — before anything is staged or activated. On 2026-09-03 an archive of the monorepo
+# root installed, activated, and only then failed the schema check because scripts/deploy/ was
+# a level deeper than every path this script derives. By that point the release id was sealed
+# to the wrong archive's sha256 and could never be installed correctly again. The marker asked
+# for is this script's own runtime schema check: the thing `install` will need to run last.
+validate_archive_is_a_release() {
+  local archive="$1"
+  tar -tzf "${archive}" | grep -qE '^(\./)?scripts/deploy/assert-runtime-migrations\.sh$' || {
+    printf 'archive is not a release tree: scripts/deploy/assert-runtime-migrations.sh is not at its root\n' >&2
+    printf 'archive the subtree, not the monorepo: git archive "<sha>:platforms/foundation-platform"\n' >&2
+    exit 65
+  }
+}
+
 validate_archive_paths() {
   local archive="$1"
   local entry normalized
@@ -115,6 +130,7 @@ install_release() {
     exit 66
   }
   validate_archive_paths "${archive}"
+  validate_archive_is_a_release "${archive}"
   archive_sha="$(sha256sum "${archive}" | awk '{print $1}')"
   target="$(release_path "${release_id}")"
 
