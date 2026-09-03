@@ -14,6 +14,7 @@ usage:
   foundation-release.sh activate <40-char-git-sha>
   foundation-release.sh migrate
   foundation-release.sh verify
+  foundation-release.sh timers
   foundation-release.sh rollback
   foundation-release.sh status
 USAGE
@@ -270,6 +271,28 @@ case "${command}" in
   verify)
     [[ "$#" == 1 ]] || usage
     verify_runtime_schema
+    ;;
+  timers)
+    # The release installs and enables its own systemd timers (root ADR-0077). The unit files
+    # ship inside the release, so "which timers exist" has exactly one home; installing them by
+    # hand is how the backup timer's install steps and the deployed tree drifted apart before.
+    # Idempotent: reinstalling the same files and re-enabling an enabled timer are no-ops.
+    [[ "$#" == 1 ]] || usage
+    install -o root -g root -m 0644 \
+      -t /etc/systemd/system \
+      "${release_root}/current/infra/systemd/foundation-postgres-backup.service" \
+      "${release_root}/current/infra/systemd/foundation-postgres-backup.timer" \
+      "${release_root}/current/infra/systemd/foundation-source-sweep.service" \
+      "${release_root}/current/infra/systemd/foundation-source-sweep.timer"
+    systemctl daemon-reload
+    systemctl enable --now foundation-postgres-backup.timer foundation-source-sweep.timer
+    # A fresh timer that has never fired is unproven (the backup timer's own rule), so kick the
+    # sweep once now, non-blocking. The sweep skips already-held files by fingerprint, so an
+    # extra run is idempotent by construction.
+    systemctl start --no-block foundation-source-sweep.service
+    printf 'timers-ok backup=%s sweep=%s\n' \
+      "$(systemctl is-enabled foundation-postgres-backup.timer)" \
+      "$(systemctl is-enabled foundation-source-sweep.timer)"
     ;;
   rollback)
     [[ "$#" == 1 ]] || usage

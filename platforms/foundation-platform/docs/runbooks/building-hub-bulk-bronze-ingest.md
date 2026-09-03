@@ -171,18 +171,11 @@ sudo install -o foundation-platform -g foundation-platform -m 0755 \
 sudo install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/source-sweep
 ```
 
-4. **타이머 설치** (백업 타이머의 전례 그대로):
+4. **타이머 설치·활성화** — 릴리스 스크립트의 `timers` 동사 하나로 끝난다 (유닛 파일이
+   릴리스 안에 있으므로 "어떤 타이머가 있어야 하는가"의 정본은 한 곳이다):
 
 ```bash
-sudo install -o root -g root -m 0644 \
-  /opt/foundation-platform/current/infra/systemd/foundation-source-sweep.service \
-  /etc/systemd/system/foundation-source-sweep.service
-sudo install -o root -g root -m 0644 \
-  /opt/foundation-platform/current/infra/systemd/foundation-source-sweep.timer \
-  /etc/systemd/system/foundation-source-sweep.timer
-sudo systemctl daemon-reload
-sudo systemctl enable --now foundation-source-sweep.timer
-sudo systemctl start foundation-source-sweep.service
+sudo /opt/foundation-platform/current/scripts/deploy/foundation-release.sh timers
 journalctl -u foundation-source-sweep.service --since today | tail -20
 tail -3 /var/lib/foundation-platform/source-sweep/journal.log
 ```
