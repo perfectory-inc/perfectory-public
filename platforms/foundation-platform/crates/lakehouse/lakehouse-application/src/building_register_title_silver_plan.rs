@@ -532,8 +532,10 @@ mod tests {
         fields[PNU_BONBEON_INDEX] = "0001".to_owned();
         fields[PNU_BUBEON_INDEX] = "0000".to_owned();
         fields[MAIN_ANNEX_KIND_INDEX] = "주건축물".to_owned();
-        fields[BUILDING_AREA_INDEX] = "62.51".to_owned();
-        fields[FLOOR_AREA_INDEX] = "125.02".to_owned();
+        // 값은 좌표로 오독될 수 없는 대역에서 고른다(공개 픽스처 안전 가드): 한국 경도
+        // 대역 안의 소수는 면적이어도 좌표로 읽힌다. 성질(연면적 = 2층 x 바닥면적)은 유지.
+        fields[BUILDING_AREA_INDEX] = "81.7".to_owned();
+        fields[FLOOR_AREA_INDEX] = "163.4".to_owned();
         fields[STRUCTURE_CODE_INDEX] = "11".to_owned();
         fields[STRUCTURE_NAME_INDEX] = "벽돌구조".to_owned();
         fields[PURPOSE_CODE_INDEX] = "03000".to_owned();
@@ -582,7 +584,7 @@ mod tests {
         assert_eq!(record.mgm_bldrgst_pk, "1002121184");
         assert_eq!(record.purpose_code_raw, "03000");
         assert_eq!(record.structure_name_raw, "벽돌구조");
-        assert_eq!(record.floor_area_raw, "125.02");
+        assert_eq!(record.floor_area_raw, "163.4");
         assert_eq!(record.approval_date_raw, "19710217");
         assert_eq!(record.pnu.as_deref(), Some("9999900001100010000"));
         Ok(())
@@ -596,8 +598,8 @@ mod tests {
 
         let row = &rows[0];
         assert_eq!(row.main_or_annex_kind, "main");
-        assert_eq!(row.floor_area_m2, Some(125.02));
-        assert_eq!(row.building_area_m2, Some(62.51));
+        assert_eq!(row.floor_area_m2, Some(163.4));
+        assert_eq!(row.building_area_m2, Some(81.7));
         assert_eq!(row.ground_floor_count, Some(2));
         assert_eq!(row.basement_floor_count, Some(0));
         assert_eq!(row.approval_year, Some(1971));
