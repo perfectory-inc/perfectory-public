@@ -269,12 +269,16 @@ impl SsotFixture {
         .expect("insert source record");
 
         sqlx::query(
+            // register_pk carries the reserved 99999* band so the fixture can never collide
+            // with a management key the national register might actually issue (ADR-0073).
             "INSERT INTO catalog.building
-             (id, parcel_id, purpose_code, structure_code, floor_area_m2, stories, built_year)
-             VALUES ($1, $2, '02000', '11', 1234.5, 5, 2020)",
+             (id, parcel_id, purpose_code, structure_code, floor_area_m2, stories, built_year,
+              register_pk)
+             VALUES ($1, $2, '02000', '11', 1234.5, 5, 2020, $3)",
         )
         .bind(self.building_id)
         .bind(self.parcel_id.as_uuid())
+        .bind(format!("99999-fixture-{}", self.building_id))
         .execute(pool)
         .await
         .expect("insert building");
