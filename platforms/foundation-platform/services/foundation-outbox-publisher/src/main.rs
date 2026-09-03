@@ -110,7 +110,9 @@ pub(crate) mod test_support {
         ENV_LOCK.get_or_init(|| Mutex::new(())).lock().await
     }
 }
+mod building_catalog_projection_load;
 mod building_unit_catalog_projection_load;
+mod handoff_manifest_support;
 mod handoff_object_support;
 mod national_bronze_object_manifest;
 mod national_data_collection_async;
@@ -252,6 +254,7 @@ enum Command {
     PublishIndustrialComplexBoundaryStaticRelease,
     ProveIndustrialComplexBoundaryStaticReleaseMutationGuards,
     PublishParcelBoundaryPostgis,
+    LoadBuildingCatalogProjection,
     LoadBuildingUnitCatalogProjection,
     LoadParcelCatalogProjection,
     SealParcelPublicationEvidence,
@@ -501,6 +504,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             industrial_complex_boundary_static_release_publish::run_local_mutation_guard_proof(),
         ),
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
+        Command::LoadBuildingCatalogProjection => Box::pin(building_catalog_projection_load::run()),
         Command::LoadBuildingUnitCatalogProjection => {
             Box::pin(building_unit_catalog_projection_load::run())
         }
@@ -1060,6 +1064,7 @@ where
             Ok(Command::ProveIndustrialComplexBoundaryStaticReleaseMutationGuards)
         }
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
+        Some("load-building-catalog-projection") => Ok(Command::LoadBuildingCatalogProjection),
         Some("load-building-unit-catalog-projection") => {
             Ok(Command::LoadBuildingUnitCatalogProjection)
         }
