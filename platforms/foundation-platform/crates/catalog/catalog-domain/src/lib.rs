@@ -55,7 +55,7 @@ pub mod vector_tile;
 pub mod serving_publication;
 
 pub use blueprint::{Blueprint, BlueprintKind, ParseBlueprintKindError};
-pub use building::{building_unit_id_for_register_pk, Building};
+pub use building::{building_id_for_register_pk, building_unit_id_for_register_pk, Building};
 pub use digital_twin::{DigitalTwinAsset, DigitalTwinAssetKind, ParseDigitalTwinAssetKindError};
 pub use errors::CatalogError;
 pub use file_asset::{

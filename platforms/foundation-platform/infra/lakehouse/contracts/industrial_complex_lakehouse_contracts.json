@@ -564,6 +564,200 @@
         "column": "source_snapshot_id"
       }
     },
+    "silver.building_register_titles": {
+      "table_name": "silver.building_register_titles",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "partition_spec": [],
+      "sort_order": [
+        "pnu",
+        "mgm_bldrgst_pk"
+      ],
+      "quality_gates": [
+        "title_row_id_not_null",
+        "register_parcel_key_not_null",
+        "normalization_status_in_allowed_values",
+        "main_or_annex_kind_in_allowed_values",
+        "row_checksum_sha256_valid"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "source_snapshot_id"
+      },
+      "columns": [
+        {
+          "name": "title_row_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "mgm_bldrgst_pk",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "register_parcel_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "dong_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_or_annex_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "main_or_annex_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "register_kind_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "register_type_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun_address_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_address_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "structure_code_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "structure_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purpose_code_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purpose_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purpose_detail_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "roof_code_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "roof_name_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_area_m2",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "floor_area_m2",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "ground_floor_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "basement_floor_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "title_unit_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "approval_date_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "approval_year",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "normalization_status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "normalization_reason",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "bronze_object_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "valid_from_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        }
+      ]
+    },
     "silver.building_register_units": {
       "table_name": "silver.building_register_units",
       "physical_format": "Parquet",

@@ -5,9 +5,10 @@ use std::{error::Error, io};
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseLayer,
     LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract, GOLD_COMPLEX_CATALOG,
-    GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS, SILVER_BUILDING_REGISTER_UNITS,
-    SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
-    SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
+    GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS, SILVER_BUILDING_REGISTER_TITLES,
+    SILVER_BUILDING_REGISTER_UNITS, SILVER_BUILDING_REGISTER_UNIT_AREAS,
+    SILVER_COMPLEX_PARCEL_MEMBERSHIPS, SILVER_INDUSTRIAL_COMPLEXES,
+    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -36,7 +37,7 @@ fn required_columns(contract: &LakehouseTableContract) -> impl Iterator<Item = &
 fn industrial_complex_contract_set_is_complete() {
     let contracts = industrial_complex_lakehouse_contracts();
 
-    assert_eq!(contracts.len(), 9);
+    assert_eq!(contracts.len(), 10);
     assert!(contracts
         .iter()
         .all(|contract| !contract.table_name.is_empty()));
@@ -44,6 +45,7 @@ fn industrial_complex_contract_set_is_complete() {
         .iter()
         .all(|contract| required_columns(contract).count() > 0));
     assert!(contracts.contains(&SILVER_BUILDING_REGISTER_FLOORS));
+    assert!(contracts.contains(&SILVER_BUILDING_REGISTER_TITLES));
     assert!(contracts.contains(&SILVER_BUILDING_REGISTER_UNITS));
     assert!(contracts.contains(&SILVER_BUILDING_REGISTER_UNIT_AREAS));
 }

@@ -609,6 +609,182 @@ const SILVER_BUILDING_REGISTER_FLOORS_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
+/// Columns of the 표제부 Silver table, measured off the July 2026 national snapshot
+/// (77 pipe-delimited fields; the mapping and the area-column disambiguation are in root
+/// ADR-0073).
+const SILVER_BUILDING_REGISTER_TITLES_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "title_row_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "mgm_bldrgst_pk",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "pnu",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "register_parcel_key",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "dong_name_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "main_or_annex_kind",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "main_or_annex_name_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "register_kind_name_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "register_type_name_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "jibun_address_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "road_address_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "structure_code_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "structure_name_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "purpose_code_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "purpose_name_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "purpose_detail_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "roof_code_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "roof_name_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "building_area_m2",
+        logical_type: "double",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "floor_area_m2",
+        logical_type: "double",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "ground_floor_count",
+        logical_type: "int",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "basement_floor_count",
+        logical_type: "int",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "title_unit_count",
+        logical_type: "int",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "approval_date_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "approval_year",
+        logical_type: "int",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "normalization_status",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "normalization_reason",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_record_id",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "bronze_object_key",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_line_number",
+        logical_type: "long",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "valid_from_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "ingested_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "row_checksum_sha256",
+        logical_type: "string",
+        required: true,
+    },
+];
+
 const SILVER_BUILDING_REGISTER_UNITS_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "unit_row_id",
@@ -1337,6 +1513,35 @@ pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTab
     },
 };
 
+/// Canonical Silver table for official building-register title (표제부) rows.
+///
+/// One row per building (동), main and annex alike: the annex rows are real buildings with
+/// their own register PKs. This is the table `catalog.building` projects from (root ADR-0073);
+/// the units and areas tables join it on the provider's shared `mgm_bldrgst_pk`.
+pub const SILVER_BUILDING_REGISTER_TITLES: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.building_register_titles",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: SILVER_BUILDING_REGISTER_TITLES_COLUMNS,
+    // No partitions: 8,051,204 rows is a fraction of the unpartitioned units table, and the
+    // sort order alone gives the file-level min/max a PNU-range read skips on (root ADR-0066).
+    partition_spec: &[],
+    sort_order: &["pnu", "mgm_bldrgst_pk"],
+    quality_gates: &[
+        "title_row_id_not_null",
+        "register_parcel_key_not_null",
+        "normalization_status_in_allowed_values",
+        "main_or_annex_kind_in_allowed_values",
+        "row_checksum_sha256_valid",
+    ],
+    // 표제부도 한 실행이 전국 스냅숏 하나를 통째로 낳는다 — 층·호·면적과 같은 단위다.
+    load: LakehouseLoadUnit::Run {
+        column: "source_snapshot_id",
+    },
+};
+
 /// Canonical Silver table for official building-register unit rows.
 pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.building_register_units",
@@ -1470,6 +1675,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES,
     SILVER_PARCEL_BOUNDARIES,
     SILVER_BUILDING_REGISTER_FLOORS,
+    SILVER_BUILDING_REGISTER_TITLES,
     SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS,
     SILVER_COMPLEX_PARCEL_MEMBERSHIPS,

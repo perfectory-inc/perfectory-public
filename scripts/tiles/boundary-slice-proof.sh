@@ -336,12 +336,17 @@ for _ in $(seq 1 60); do
   fi
   sleep 1
 done
-curl --fail --silent "http://127.0.0.1:$MARTIN_PORT/catalog" | grep -q '"admin"'
+# Captured, then matched — never piped into the match. Piped, `grep -q` exits on its hit and a
+# body still crossing the wire dies of SIGPIPE, which under pipefail fails the verdict the match
+# just passed. The release-archive gate lost a real deployment to exactly this on 2026-09-03;
+# today's catalog body fits the pipe buffer, so this site only breaks the day the catalog grows.
+martin_catalog="$(curl --fail --silent "http://127.0.0.1:$MARTIN_PORT/catalog")"
+grep -q '"admin"' <<<"$martin_catalog"
 # `complex` is a source before it is a publication: Martin publishes it from the view, which exists
 # from the migration and returns nothing until a promotion selects a load. That the source is here
 # now is what makes the empty tile below evidence about the promotion gate rather than about a
 # missing layer.
-curl --fail --silent "http://127.0.0.1:$MARTIN_PORT/catalog" | grep -q '"complex"'
+grep -q '"complex"' <<<"$martin_catalog"
 
 DECODER_RELATIVE="$RUN_RELATIVE/mvt-assert"
 docker run --rm -v "$REPO_HOST_PATH:/work" -w /work "$RUST_IMAGE" \

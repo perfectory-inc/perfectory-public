@@ -10,6 +10,7 @@ pub mod building_register_row_identity;
 pub mod building_register_title;
 
 /// Silver normalization helpers for official building-register unit-area rows.
+pub mod building_register_title_silver_plan;
 pub mod building_register_unit_area_silver_plan;
 
 /// Silver normalization helpers for official building-register unit rows.

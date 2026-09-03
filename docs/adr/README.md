@@ -83,3 +83,4 @@ last_reviewed: 2026-07-28
 - [0070 — 경계 원천은 필지의 용도도 면적도 나르지 않는다](./0070-the-boundary-source-carries-neither-use-nor-area.md)
 - [0071 — 스키마를 두고 온 배포는 끝난 배포가 아니다](./0071-a-deploy-that-leaves-the-schema-behind-has-not-finished.md)
 - [0072 — 호(戶)는 PNU 로 필지에 붙고, 못 붙는 행은 지어내지 않고 센다](./0072-units-attach-to-parcels-by-pnu-and-orphans-are-counted.md)
+- [0073 — 표제부가 필지와 호 사이의 건물을 채운다](./0073-the-title-register-fills-the-building-between-parcel-and-unit.md)
