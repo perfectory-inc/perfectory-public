@@ -200,6 +200,20 @@ foundation postgres 레인은 27개 타깃에서 119개를 실행한다. 나머�
 쌓이는 publication 두 표가 특히 그렇다(ADR-0016 남은 부채 1). 백업·복구 리허설과 RPO/RTO
 증거는 production-readiness 우선순위 0이 소유한다.
 
+## 건물 관이 남긴 과제 (root ADR-0073 개정 각주가 근거)
+
+2026-09-03 에 건물 관 전체가 가동됐다: `silver.building_register_titles` 8,051,204동,
+`catalog.building` 7,603,113동, `catalog.building_unit` 19,536,363호. 그 실측이 남긴 과제:
+
+1. **호 → 건물 연결.** 호는 지금 필지에 직접 매달려 있다(ADR-0072 §1 의 의도된 첫 단계).
+   호의 `building_mgm_bldrgst_pk` 와 건물의 `register_pk` 는 같은 대장 PK 체계이므로,
+   일치율 실측 → `building_unit.building_id`(nullable) 추가 → 조인 백필이 다음 결정이다.
+2. **orphan 410,705동(5.1%)의 분포 조사.** PNU 가 `catalog.parcel` 에 없어 못 붙은 건물.
+   호 투영의 0.4%와 12배 차이 — 필지 경계 원천이 덮지 않는 대역(산번지 등)의 지도다.
+   시군구별 카운트는 적재 요약에 이미 있다.
+3. **`built_year` NULL 1,241,528동(15.4%) 보강 조사.** 표제부에 승인일이 없는 건물을 다른
+   원천(허가일 등)으로 채울 수 있는지. 채우기로 결정하기 전까지 NULL 이 정답이다.
+
 ## 순서와 의존
 
 ```
