@@ -208,6 +208,42 @@ sudo scripts/deploy/foundation-runtime.sh up -d foundation-api
 해서 표준 PostGIS 이미지를 의도적으로 사용한다. pgBackRest, `archive_mode=on`, 외부 저장소 설정은
 복구 overlay가 추가한다.
 
+## 알림은 슬랙에 닿는다
+
+Alertmanager 의 `prelaunch-audit` 수신자는 슬랙 봇 토큰으로 `chat.postMessage` 에 보낸다
+(웹훅 대신 토큰은 2026-09-03 소유자 결정). 토큰은 자격증명이므로 저장소에 없다 — 서버의 파일
+하나가 정본이고, 없으면 Alertmanager 가 건강 검사에 실패하며 `foundation-api` 의 `depends_on` 이
+다음 배포를 막는다. 받을 곳 없는 수신자가 조용히 여섯 주를 버린 사건이 이 결합의 근거다.
+
+1. 슬랙 앱을 만들고 봇 토큰을 발급한다: api.slack.com/apps → Create New App →
+   OAuth & Permissions 의 Bot Token Scopes 에 `chat:write` + `chat:write.public` →
+   Install to Workspace → Bot User OAuth Token(`xoxb-…`) 복사. 대상 채널은
+   `alertmanager.yml` 의 `channel` 값이다.
+2. 서버에 파일로 둔다 (한 줄, 개행 하나):
+
+```bash
+sudo install -d -m 0750 -g docker /etc/foundation-platform/secrets
+# 토큰은 셸 히스토리에 남지 않게 표준입력으로 넣는다.
+sudo tee /etc/foundation-platform/secrets/alertmanager-slack-bot-token >/dev/null
+sudo chmod 0640 /etc/foundation-platform/secrets/alertmanager-slack-bot-token
+sudo chgrp docker /etc/foundation-platform/secrets/alertmanager-slack-bot-token
+```
+
+3. Alertmanager 를 다시 띄우고, **배달을 증명한다** — 설정이 실렸다는 것과 슬랙에 닿았다는
+   것은 다른 주장이다:
+
+```bash
+cd /opt/foundation-platform/current
+sudo scripts/deploy/foundation-runtime.sh up -d alertmanager
+curl -sS -XPOST 127.0.0.1:19093/api/v2/alerts -H 'Content-Type: application/json' -d \
+  '[{"labels":{"alertname":"slack-delivery-proof","service":"runbook","environment":"prod"},
+     "annotations":{"summary":"배달 증명 시험 알림 — 이 메시지가 슬랙에 보이면 성공"}}]'
+```
+
+슬랙 채널에 메시지가 도착해야 완료다 — **이 확인은 생략할 수 없다.** 슬랙 Web API 는 채널
+오타·토큰 회수 같은 논리 실패에도 HTTP 200 을 돌려주므로, Alertmanager 로그가 조용하다는 것은
+배달의 증거가 아니다. 도착하지 않으면 토큰 파일과 `channel` 값을 먼저 의심한다.
+
 ## 복구 리허설
 
 전용 빈 repository prefix와 임시 암호화 passphrase로 격리 리허설을 실행한다.
