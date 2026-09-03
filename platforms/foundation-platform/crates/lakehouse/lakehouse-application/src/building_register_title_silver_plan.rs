@@ -395,11 +395,12 @@ fn build_silver_row(
         ingested_at_utc: input.ingested_at_utc,
         row_checksum_sha256: String::new(),
     };
-    crate::building_register_unit_silver_plan::validate_pnu_block_invariant(
-        row.pnu.as_deref(),
-        &row.register_parcel_key,
-    )
-    .map_err(|error| BuildingRegisterTitleSilverPlanError::InvalidInput(error.to_string()))?;
+    // Not the unit plan's pnu/block invariant. That invariant says "no standard PNU only for
+    // block parcels", and it holds for 전유부 — but the first national title run refused on a
+    // real row whose 대지구분코드 is simply unstated (register_parcel_key byte 10 padded to `0`
+    // from an empty code, 본번/부번 0000). A title without a stated parcel kind has no standard
+    // PNU, and recording `None` is the honest row; the projection later counts it as an orphan
+    // rather than this plan refusing the whole snapshot over it.
     row.row_checksum_sha256 = row_checksum(&row)?;
     Ok(row)
 }
@@ -646,6 +647,26 @@ mod tests {
             let rows = normalize_building_register_title_silver_rows(&input(&records))?;
             assert_eq!(rows[0].approval_year, None, "raw={raw:?}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn an_unstated_parcel_kind_yields_no_pnu_and_still_loads() -> TestResult {
+        // Measured on the first national run: a real title row carries an empty 대지구분코드
+        // (register key byte 10 pads to `0`, 본번/부번 0000). The unit plan's pnu/block
+        // invariant read that as a contradiction and refused the whole snapshot; for titles it
+        // is an honest `pnu: None`, and the projection counts it as an orphan later.
+        let records = [parse(&line_with(&[
+            (PNU_DAEJI_KIND_INDEX, ""),
+            (PNU_BONBEON_INDEX, "0000"),
+            (PNU_BUBEON_INDEX, "0000"),
+        ]))?];
+
+        let rows = normalize_building_register_title_silver_rows(&input(&records))?;
+
+        assert_eq!(rows[0].pnu, None);
+        assert_eq!(rows[0].normalization_status, "accepted");
+        assert!(!rows[0].register_parcel_key.is_empty());
         Ok(())
     }
 
