@@ -58,6 +58,7 @@ mod building_register_local_bronze_proof;
 mod building_register_page_count_batch;
 mod building_register_page_count_plan_writer;
 mod building_register_smoke;
+mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
 mod bulk_streaming_bronze;
@@ -207,6 +208,7 @@ enum Command {
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
+    ExportBuildingRegisterTitleSilverHandoff,
     ExportBuildingRegisterUnitSilverHandoff,
     ExportIndustrialComplexBoundarySilverHandoff,
     ExportIndustrialComplexBronzeRawJsonl,
@@ -389,6 +391,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportBuildingRegisterUnitAreaSilverHandoff => {
             Box::pin(async { building_register_unit_area_silver_export::run() })
+        }
+        Command::ExportBuildingRegisterTitleSilverHandoff => {
+            Box::pin(building_register_title_silver_export::run())
         }
         Command::ExportBuildingRegisterUnitSilverHandoff => {
             Box::pin(building_register_unit_silver_export::run())
@@ -1172,6 +1177,9 @@ where
         }
         Some("export-building-register-unit-area-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterUnitAreaSilverHandoff)
+        }
+        Some("export-building-register-title-silver-handoff") => {
+            Ok(Command::ExportBuildingRegisterTitleSilverHandoff)
         }
         Some("export-building-register-unit-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterUnitSilverHandoff)

@@ -309,7 +309,7 @@ fn locate_source_object(config: &UnitExportConfig) -> anyhow::Result<PathBuf> {
 /// Chooses one zip from a prefix that may accumulate monthly snapshots.
 /// A pin selects its exact object; without a pin, only a single zip is accepted.
 /// Multiple unpinned zips fail loudly instead of silently selecting the first month.
-fn locate_zip_object(
+pub(crate) fn locate_zip_object(
     root: &Path,
     slug: &str,
     pinned_object: Option<&str>,
@@ -363,7 +363,7 @@ fn locate_zip_object(
         .with_context(|| format!("no {label} Bronze zip found in {}", source_root.display()))
 }
 
-fn decode_zip_lines(
+pub(crate) fn decode_zip_lines(
     object_path: &Path,
     max_rows: Option<usize>,
     mut on_line: impl FnMut(&str, u64) -> anyhow::Result<()>,
@@ -481,7 +481,7 @@ fn write_summary(
     write_file(summary_path, &payload)
 }
 
-fn bronze_object_key(root: &Path, object_path: &Path) -> anyhow::Result<String> {
+pub(crate) fn bronze_object_key(root: &Path, object_path: &Path) -> anyhow::Result<String> {
     let relative = object_path.strip_prefix(root).with_context(|| {
         format!(
             "object {} is not under root {}",
