@@ -106,6 +106,7 @@ def read_units(spark: Any, catalog: str) -> Any:
     return spark.table(f"`{catalog}`.`silver`.`building_register_units`").select(
         F.col("mgm_bldrgst_pk").alias("register_pk"),
         F.trim(F.col("pnu")).alias("pnu"),
+        F.col("building_mgm_bldrgst_pk"),
         F.col("dong_join_name"),
         F.col("dong_name_raw"),
         F.col("unit_label_ko"),
@@ -161,9 +162,14 @@ def floor_label_column() -> Any:
 
 def build_handoff_frame(units: Any, areas: Any, columns: list[str]) -> Any:
     joined = units.join(areas, "register_pk", "left")
+    trimmed_link = F.trim(F.col("building_mgm_bldrgst_pk"))
     frame = joined.select(
         F.col("register_pk"),
         F.col("pnu"),
+        # "The register wrote nothing" and "an empty key" are the same claim (ADR-0075 §2).
+        F.when(F.length(trimmed_link) == 0, F.lit(None))
+        .otherwise(trimmed_link)
+        .alias("building_register_pk"),
         F.coalesce(F.col("dong_join_name"), F.lit("")).alias("building_name"),
         F.coalesce(F.col("dong_name_raw"), F.lit("")).alias("dong_name"),
         F.coalesce(F.col("unit_label_ko"), F.col("unit_name_raw"), F.lit("")).alias("ho_name"),

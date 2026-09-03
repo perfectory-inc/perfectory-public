@@ -10,6 +10,7 @@
   "columns": [
     "register_pk",
     "pnu",
+    "building_register_pk",
     "building_name",
     "dong_name",
     "ho_name",
@@ -18,5 +19,5 @@
     "usage_name",
     "structure_name"
   ],
-  "columns_reason": "Exactly the catalog.building_unit columns the loader fills, minus the two it derives (id from register_pk, parcel_id from pnu — ADR-0072 §2, §4). The writer and the reader both read this list, so a column added for one is refused by the other until both moved."
+  "columns_reason": "Exactly the catalog.building_unit columns the loader fills, minus the ones it derives (id from register_pk, parcel_id from pnu, building_id from building_register_pk — ADR-0072 §2, §4; ADR-0075 §3). building_register_pk is null when the register states no link. The writer and the reader both read this list, so a column added for one is refused by the other until both moved."
 }

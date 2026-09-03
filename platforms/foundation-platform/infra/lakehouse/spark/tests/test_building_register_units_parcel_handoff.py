@@ -40,6 +40,7 @@ class ContractIsTheOnlyAgreementTest(unittest.TestCase):
         self.assertEqual(contract["schema_version"], 1)
         self.assertIn("register_pk", contract["columns"])
         self.assertIn("pnu", contract["columns"])
+        self.assertIn("building_register_pk", contract["columns"])
         self.assertTrue(contract["manifest_object"].startswith(contract["handoff_prefix"]))
 
     def test_the_job_does_not_restate_the_prefix(self) -> None:
