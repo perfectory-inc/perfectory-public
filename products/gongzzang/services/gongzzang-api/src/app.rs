@@ -300,6 +300,28 @@ async fn async_main() -> Result<(), StartupError> {
     let buildings_state = routes::buildings::BuildingsState {
         reader: building_reader,
     };
+    let building_units_reader = crate::startup::build_building_units_reader(is_production)?;
+    let building_units_state = routes::building_units::BuildingUnitsState {
+        reader: building_units_reader,
+    };
+    let building_units_router: Router<()> = Router::new()
+        .route(
+            "/api/buildings/{building_id}/units",
+            get(routes::building_units::list_building_units),
+        )
+        .with_state(building_units_state)
+        .layer(middleware::from_fn_with_state(
+            backend_authorization_state.clone(),
+            enforce_backend_roles,
+        ))
+        .layer(middleware::from_fn_with_state(
+            backend_rate_limit_state.clone(),
+            enforce_backend_rate_limit,
+        ))
+        .layer(middleware::from_fn_with_state(
+            auth_state.clone(),
+            auth_layer,
+        ));
     let floors_router: Router<()> = Router::new()
         .route("/api/floors", get(routes::floors::list_floors))
         .with_state(buildings_state.clone())
@@ -462,6 +484,7 @@ async fn async_main() -> Result<(), StartupError> {
         .merge(parcels_router)
         .merge(complexes_router)
         .merge(buildings_router)
+        .merge(building_units_router)
         .merge(floors_router)
         .merge(bookmarks_router)
         .merge(admin_router)

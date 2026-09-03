@@ -662,6 +662,14 @@
       "rate_profile": "api_proxy.authenticated_read"
     },
     {
+      "id": "gongzzang.api_proxy.building_units_read",
+      "target_path_kind": "template",
+      "target_path": "api/buildings/:building_id/units",
+      "methods": ["GET"],
+      "exposure_class": "authenticated_user",
+      "rate_profile": "api_proxy.authenticated_read"
+    },
+    {
       "id": "gongzzang.api_proxy.floors_read",
       "target_path_kind": "exact",
       "target_path": "api/floors",
@@ -907,6 +915,15 @@
     {
       "id": "gongzzang.backend.buildings_read",
       "path": "/api/buildings",
+      "methods": ["GET"],
+      "router_group": "protected",
+      "exposure_class": "authenticated_user",
+      "auth_policy": "bearer_jwt",
+      "rate_profile": "api_proxy.authenticated_read"
+    },
+    {
+      "id": "gongzzang.backend.building_units_read",
+      "path": "/api/buildings/:building_id/units",
       "methods": ["GET"],
       "router_group": "protected",
       "exposure_class": "authenticated_user",

@@ -65,22 +65,22 @@ pub struct BuildingRegisterRecord {
     pub name: String,
     /// Address text.
     pub address: Option<String>,
-    /// Purpose label or code.
-    pub purpose: String,
-    /// Structure label or code.
-    pub structure: String,
+    /// Purpose label or code. `None` when the register stated nothing (root ADR-0078 §1).
+    pub purpose: Option<String>,
+    /// Structure label or code. `None` when the register stated nothing.
+    pub structure: Option<String>,
     /// Plot area in square meters.
     pub plot_area_m2: Option<f64>,
     /// Building area in square meters.
     pub building_area_m2: Option<f64>,
     /// Building coverage ratio, percent.
     pub building_coverage_ratio: Option<f64>,
-    /// Total floor area in square meters.
-    pub total_area_m2: f64,
+    /// Total floor area in square meters. `None` when the register wrote 0 or nothing.
+    pub total_area_m2: Option<f64>,
     /// Floor area ratio, percent.
     pub floor_area_ratio: Option<f64>,
-    /// Above-ground floor count.
-    pub above_ground_floors: u8,
+    /// Above-ground floor count. `None` when the register stated nothing.
+    pub above_ground_floors: Option<u8>,
     /// Underground floor count.
     pub below_ground_floors: u8,
     /// Whether the building has a rooftop (옥탑) structure counted as a floor.
@@ -123,10 +123,12 @@ pub struct BuildingResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
 
-    /// Purpose label or code.
-    pub purpose: String,
-    /// Structure label or code.
-    pub structure: String,
+    /// Purpose label or code. Absent when the register stated nothing (root ADR-0078 §1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    /// Structure label or code. Absent when the register stated nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structure: Option<String>,
 
     /// Plot area in square meters.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -137,14 +139,16 @@ pub struct BuildingResponse {
     /// Building coverage ratio, percent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub building_coverage_ratio: Option<f64>,
-    /// Total floor area in square meters.
-    pub total_area_m2: f64,
+    /// Total floor area in square meters. Absent when the register wrote 0 or nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_area_m2: Option<f64>,
     /// Floor area ratio, percent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub floor_area_ratio: Option<f64>,
 
-    /// Above-ground floor count.
-    pub above_ground_floors: u8,
+    /// Above-ground floor count. Absent when the register stated nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub above_ground_floors: Option<u8>,
     /// Underground floor count.
     pub below_ground_floors: u8,
     /// Building height in meters.

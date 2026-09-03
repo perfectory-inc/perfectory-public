@@ -158,6 +158,11 @@ export const API_PROXY_CLIENT_OPERATIONS = {
     targetPath: "api/buildings",
     methods: ["GET"],
   },
+  buildingUnitsRead: {
+    sourcePolicyId: "gongzzang.api_proxy.building_units_read",
+    targetPath: "api/buildings/:building_id/units",
+    methods: ["GET"],
+  },
   floorsRead: {
     sourcePolicyId: "gongzzang.api_proxy.floors_read",
     targetPath: "api/floors",
@@ -434,6 +439,12 @@ export const apiProxyClient = {
   buildingsRead: {
     get: (options?: ApiProxyRequestOptions) => api.get("api/buildings", options),
     getJson: <T>(options?: ApiProxyRequestOptions) => api.get("api/buildings", options).json<T>(),
+  },
+  buildingUnitsRead: {
+    get: (params: { readonly building_id: string }, options?: ApiProxyRequestOptions) =>
+      api.get(`api/buildings/${encodePathParam(params.building_id)}/units`, options),
+    getJson: <T>(params: { readonly building_id: string }, options?: ApiProxyRequestOptions) =>
+      api.get(`api/buildings/${encodePathParam(params.building_id)}/units`, options).json<T>(),
   },
   floorsRead: {
     get: (options?: ApiProxyRequestOptions) => api.get("api/floors", options),

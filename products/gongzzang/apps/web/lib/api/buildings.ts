@@ -5,8 +5,10 @@ import { apiProxyClient } from "@/lib/api/api-proxy-client.generated";
 export const BuildingSchema = z.object({
   id: z.string(),
   name: z.string(),
-  purpose: z.string(),
-  total_area_m2: z.number(),
+  // 대장이 말하지 않은 값은 키가 생략된다 (root ADR-0078 §1) — 0 이나 빈 문자열로
+  // 지어내지 않는다.
+  purpose: z.string().nullish(),
+  total_area_m2: z.number().nullish(),
   approved_at: z.string().nullish(),
 });
 

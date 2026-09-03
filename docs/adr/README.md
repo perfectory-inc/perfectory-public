@@ -88,3 +88,4 @@ last_reviewed: 2026-07-28
 - [0075 — 호 적재는 연결을 스스로 채운다](./0075-the-unit-load-fills-its-own-link.md)
 - [0076 — 건물은 자기 호를 답한다](./0076-a-building-answers-for-its-units.md)
 - [0077 — 관은 매일 원천을 살핀다](./0077-the-pipe-looks-at-its-sources-every-day.md)
+- [0078 — 공짱은 계보를 서빙하고, 빈 칸을 거짓으로 채우지 않는다](./0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md)
