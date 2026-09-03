@@ -1,27 +1,18 @@
-//! Loads the exclusive-part units the lakehouse holds into `catalog.building_unit` (ADR-0072).
+//! Loads the title-register buildings into `catalog.building` (ADR-0073 step 7).
 //!
-//! `catalog.building_unit` was a vessel with no producer while
-//! `silver.building_register_units` held 19,765,555 rows. Measured 2026-09-03, 98.84% of those
-//! rows carry a PNU that `catalog.parcel` holds — so units attach to parcels by PNU, and the
-//! rows that cannot attach are counted, never invented (ADR-0072 §3).
+//! The manifest pipeline of the unit load, one table over: the export writes per-sigungu gzip
+//! JSONL objects plus a manifest, this command starts from the manifest, stages each object
+//! through `COPY`, and merges with `ON CONFLICT (register_pk) DO UPDATE`. Identity is derived
+//! (`building_id_for_register_pk`), attachment is PNU arithmetic, and a building whose parcel is
+//! not in the catalog is skipped and counted — never invented.
 //!
-//! **The manifest is the input.** The Spark export decides how many handoff objects exist, so
-//! unlike the parcel load there is no pre-measured object list: the export writes a manifest
-//! last, and this command starts from it. A command that listed the prefix instead would read an
-//! empty listing as no work to do.
-//!
-//! **Identity is derived, not generated.** `building_unit_id_for_register_pk` hashes the
-//! register PK, and the merge upserts on `register_pk`, so a re-run updates rows in place and
-//! mints nothing (the parcel precedent, one table over).
-//!
-//! **Orphans are counted per object, at merge time.** A staged row whose derived `parcel_id` is
-//! not in `catalog.parcel` is skipped by the merge's join and counted by a second query. The
-//! count is reported even when zero: a metric that appears only on failure cannot be told apart
-//! from one nobody collected.
+//! Facts the register did not state arrive as JSON nulls and load as SQL nulls (migration
+//! 20260903000003): 18.7% of the national snapshot has no approval year, and a fabricated year
+//! would be a claim nobody made. `below_ground_floors` is the one exception — the schema keeps
+//! its `NOT NULL DEFAULT 0`, so an unstated basement count loads as the schema's own zero.
 
 use anyhow::{bail, Context};
-use catalog_domain::building_unit_id_for_register_pk;
-use catalog_domain::parcel_id_for_pnu;
+use catalog_domain::{building_id_for_register_pk, parcel_id_for_pnu};
 use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::pnu::Pnu;
 use serde::Deserialize;
@@ -30,37 +21,31 @@ use sqlx::{Connection, Executor, PgConnection};
 use crate::handoff_manifest_support::{
     validate_manifest, verdict, HandoffContract, Manifest, PassTotals,
 };
-use crate::handoff_object_support::{copy_text_escape, gunzip_text, object_retry_delay};
+use crate::handoff_object_support::{gunzip_text, object_retry_delay};
 use crate::public_data_control_support::{
     optional_bool_env, optional_env_value, required_env_value,
 };
 
-const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_UNIT_PROJECTION_LOAD_CONFIRM";
-const CONTRACT_PATH_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_UNIT_HANDOFF_CONTRACT_PATH";
-const DEFAULT_CONTRACT_PATH: &str = "infra/lakehouse/contracts/building-unit-handoff.json";
-const MANIFEST_SCHEMA_VERSION: &str = "foundation-platform.building_unit_handoff_manifest.v1";
+const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_PROJECTION_LOAD_CONFIRM";
+const CONTRACT_PATH_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_TITLE_CATALOG_HANDOFF_CONTRACT_PATH";
+const DEFAULT_CONTRACT_PATH: &str = "infra/lakehouse/contracts/building-title-catalog-handoff.json";
+const MANIFEST_SCHEMA_VERSION: &str =
+    "foundation-platform.building_title_catalog_handoff_manifest.v1";
+const LABEL_PREFIX: &str = "building-projection-load";
 const OBJECT_ATTEMPTS: usize = 3;
 const OBJECT_RETRY_BASE_DELAY_SECONDS: u64 = 5;
 
-/// The unit manifest's own counters, alongside the shared shape.
-#[derive(Debug, Deserialize)]
-struct UnitManifestExtras {
-    null_pnu_row_count: u64,
-    invalid_pnu_row_count: u64,
-}
-
 /// One handoff row, deserialised whole so a shape change fails loudly here.
 #[derive(Debug, Deserialize)]
-struct HandoffUnitRow {
+struct HandoffBuildingRow {
     register_pk: String,
     pnu: String,
-    building_name: String,
-    dong_name: String,
-    ho_name: String,
-    floor_label: String,
-    exclusive_area_m2: Option<f64>,
-    usage_name: String,
-    structure_name: String,
+    purpose_code: Option<String>,
+    structure_code: Option<String>,
+    floor_area_m2: Option<f64>,
+    stories: Option<i16>,
+    below_ground_floors: Option<i16>,
+    built_year: Option<i32>,
 }
 
 struct Config {
@@ -81,14 +66,17 @@ impl Config {
 }
 
 /// Parses one handoff object into rows, refusing an empty or malformed one.
-fn units_in_object(object_bytes: &[u8], object_key: &str) -> anyhow::Result<Vec<HandoffUnitRow>> {
+fn buildings_in_object(
+    object_bytes: &[u8],
+    object_key: &str,
+) -> anyhow::Result<Vec<HandoffBuildingRow>> {
     let text = gunzip_text(object_bytes, object_key)?;
     let mut rows = Vec::new();
     for (index, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
         }
-        let row: HandoffUnitRow = serde_json::from_str(line).with_context(|| {
+        let row: HandoffBuildingRow = serde_json::from_str(line).with_context(|| {
             format!(
                 "handoff object {object_key} line {} is not a row",
                 index + 1
@@ -117,72 +105,83 @@ fn units_in_object(object_bytes: &[u8], object_key: &str) -> anyhow::Result<Vec<
 
 async fn prepare_stage(conn: &mut PgConnection) -> anyhow::Result<()> {
     conn.execute(
-        "CREATE TEMPORARY TABLE IF NOT EXISTS building_unit_projection_stage (
+        "CREATE TEMPORARY TABLE IF NOT EXISTS building_projection_stage (
              id uuid NOT NULL,
              parcel_id uuid NOT NULL,
              register_pk text NOT NULL,
-             building_name text NOT NULL,
-             dong_name text NOT NULL,
-             ho_name text NOT NULL,
-             floor_label text NOT NULL,
-             exclusive_area_m2 double precision,
-             usage_name text NOT NULL,
-             structure_name text NOT NULL
+             purpose_code text,
+             structure_code text,
+             floor_area_m2 double precision,
+             stories smallint,
+             below_ground_floors smallint,
+             built_year integer
          ) ON COMMIT PRESERVE ROWS",
     )
     .await
-    .context("failed to create the building unit projection stage")?;
+    .context("failed to create the building projection stage")?;
     Ok(())
 }
 
+fn push_optional_text(buffer: &mut String, value: Option<&str>) {
+    match value {
+        // Code columns carry provider codes (digits and ASCII); the general escaping lives in
+        // the shared module and free-text columns are not part of this table's handoff.
+        Some(text) => buffer.push_str(&crate::handoff_object_support::copy_text_escape(text)),
+        None => buffer.push_str("\\N"),
+    }
+}
+
+fn push_optional_display<T: std::fmt::Display>(buffer: &mut String, value: Option<T>) {
+    match value {
+        Some(inner) => {
+            use std::fmt::Write as _;
+            let _ = write!(buffer, "{inner}");
+        }
+        None => buffer.push_str("\\N"),
+    }
+}
+
 /// Streams one object's rows into the stage and merges the attachable ones.
-///
-/// Returns `(staged, attached, orphaned)`. Orphans — rows whose parcel is not in the catalog —
-/// are left in the stage's truncation, not written anywhere: inventing a parcel row for them
-/// would claim a cadastral fact no source stated.
 async fn load_object(
     conn: &mut PgConnection,
-    rows: &[HandoffUnitRow],
+    rows: &[HandoffBuildingRow],
 ) -> anyhow::Result<(u64, u64, u64)> {
-    conn.execute("TRUNCATE TABLE building_unit_projection_stage")
+    conn.execute("TRUNCATE TABLE building_projection_stage")
         .await
-        .context("failed to truncate the building unit projection stage")?;
+        .context("failed to truncate the building projection stage")?;
 
     let mut copy = conn
         .copy_in_raw(
-            "COPY building_unit_projection_stage \
-             (id, parcel_id, register_pk, building_name, dong_name, ho_name, floor_label, \
-              exclusive_area_m2, usage_name, structure_name) \
+            "COPY building_projection_stage \
+             (id, parcel_id, register_pk, purpose_code, structure_code, floor_area_m2, \
+              stories, below_ground_floors, built_year) \
              FROM STDIN WITH (FORMAT text)",
         )
         .await
-        .context("failed to start COPY into the building unit projection stage")?;
+        .context("failed to start COPY into the building projection stage")?;
     let mut buffer = String::with_capacity(1024 * 1024);
     for row in rows {
         let pnu = Pnu::parse(row.pnu.clone())
             .context("a staged PNU stopped being a PNU between reading and writing")?;
-        buffer.push_str(&building_unit_id_for_register_pk(row.register_pk.as_str()).to_string());
+        buffer.push_str(&building_id_for_register_pk(row.register_pk.as_str()).to_string());
         buffer.push('\t');
         buffer.push_str(&parcel_id_for_pnu(&pnu).as_uuid().to_string());
         buffer.push('\t');
-        buffer.push_str(&copy_text_escape(row.register_pk.as_str()));
+        buffer.push_str(&crate::handoff_object_support::copy_text_escape(
+            row.register_pk.as_str(),
+        ));
         buffer.push('\t');
-        buffer.push_str(&copy_text_escape(row.building_name.as_str()));
+        push_optional_text(&mut buffer, row.purpose_code.as_deref());
         buffer.push('\t');
-        buffer.push_str(&copy_text_escape(row.dong_name.as_str()));
+        push_optional_text(&mut buffer, row.structure_code.as_deref());
         buffer.push('\t');
-        buffer.push_str(&copy_text_escape(row.ho_name.as_str()));
+        push_optional_display(&mut buffer, row.floor_area_m2);
         buffer.push('\t');
-        buffer.push_str(&copy_text_escape(row.floor_label.as_str()));
+        push_optional_display(&mut buffer, row.stories);
         buffer.push('\t');
-        match row.exclusive_area_m2 {
-            Some(area) => buffer.push_str(&format!("{area}")),
-            None => buffer.push_str("\\N"),
-        }
+        push_optional_display(&mut buffer, row.below_ground_floors);
         buffer.push('\t');
-        buffer.push_str(&copy_text_escape(row.usage_name.as_str()));
-        buffer.push('\t');
-        buffer.push_str(&copy_text_escape(row.structure_name.as_str()));
+        push_optional_display(&mut buffer, row.built_year);
         buffer.push('\n');
         if buffer.len() >= 8 * 1024 * 1024 {
             copy.send(buffer.as_bytes())
@@ -205,36 +204,35 @@ async fn load_object(
     }
 
     let attached = sqlx::query(
-        "INSERT INTO catalog.building_unit \
-             (id, parcel_id, register_pk, building_name, dong_name, ho_name, floor_label, \
-              exclusive_area_m2, usage_name, structure_name) \
-         SELECT s.id, s.parcel_id, s.register_pk, s.building_name, s.dong_name, s.ho_name, \
-                s.floor_label, s.exclusive_area_m2, s.usage_name, s.structure_name \
-         FROM building_unit_projection_stage s \
+        "INSERT INTO catalog.building \
+             (id, parcel_id, register_pk, purpose_code, structure_code, floor_area_m2, \
+              stories, below_ground_floors, built_year) \
+         SELECT s.id, s.parcel_id, s.register_pk, s.purpose_code, s.structure_code, \
+                s.floor_area_m2, s.stories, COALESCE(s.below_ground_floors, 0), s.built_year \
+         FROM building_projection_stage s \
          WHERE EXISTS (SELECT 1 FROM catalog.parcel p WHERE p.id = s.parcel_id) \
          ON CONFLICT (register_pk) DO UPDATE SET \
              parcel_id = EXCLUDED.parcel_id, \
-             building_name = EXCLUDED.building_name, \
-             dong_name = EXCLUDED.dong_name, \
-             ho_name = EXCLUDED.ho_name, \
-             floor_label = EXCLUDED.floor_label, \
-             exclusive_area_m2 = EXCLUDED.exclusive_area_m2, \
-             usage_name = EXCLUDED.usage_name, \
-             structure_name = EXCLUDED.structure_name, \
+             purpose_code = EXCLUDED.purpose_code, \
+             structure_code = EXCLUDED.structure_code, \
+             floor_area_m2 = EXCLUDED.floor_area_m2, \
+             stories = EXCLUDED.stories, \
+             below_ground_floors = EXCLUDED.below_ground_floors, \
+             built_year = EXCLUDED.built_year, \
              updated_at = now()",
     )
     .execute(&mut *conn)
     .await
-    .context("failed to merge the stage into catalog.building_unit")?
+    .context("failed to merge the stage into catalog.building")?
     .rows_affected();
 
     let orphaned: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM building_unit_projection_stage s \
+        "SELECT count(*) FROM building_projection_stage s \
          WHERE NOT EXISTS (SELECT 1 FROM catalog.parcel p WHERE p.id = s.parcel_id)",
     )
     .fetch_one(&mut *conn)
     .await
-    .context("failed to count orphaned units in the stage")?;
+    .context("failed to count orphaned buildings in the stage")?;
 
     #[allow(clippy::cast_sign_loss)]
     Ok((staged, attached, orphaned as u64))
@@ -249,7 +247,7 @@ async fn load_one(
         .get_object_bytes_range_retried(key)
         .await
         .with_context(|| format!("failed to read handoff object {key}"))?;
-    let rows = units_in_object(&bytes, key)?;
+    let rows = buildings_in_object(&bytes, key)?;
     load_object(conn, &rows).await
 }
 
@@ -258,39 +256,33 @@ pub async fn run() -> anyhow::Result<()> {
     let contract = HandoffContract::load(&config.contract_path)?;
 
     let storage = R2ObjectStorage::from_env()
-        .context("failed to configure R2 for the building unit projection load")?;
+        .context("failed to configure R2 for the building projection load")?;
     let manifest_bytes = storage
         .get_object_bytes_range_retried(contract.manifest_object.as_str())
         .await
         .with_context(|| {
             format!(
                 "failed to read the handoff manifest {}; without it this command cannot know \
-                 what the export wrote, and listing the prefix instead would read an empty \
-                 listing as no work",
+                 what the export wrote",
                 contract.manifest_object
             )
         })?;
     let manifest: Manifest = serde_json::from_slice(&manifest_bytes)
         .with_context(|| format!("failed to parse the manifest {}", contract.manifest_object))?;
-    let extras: UnitManifestExtras = serde_json::from_slice(&manifest_bytes)
-        .with_context(|| format!("failed to parse the manifest {}", contract.manifest_object))?;
     validate_manifest(&manifest, &contract, MANIFEST_SCHEMA_VERSION)?;
 
     if !config.confirmed {
         println!(
-            "building-unit-projection-load-plan objects={} manifest_rows={} null_pnu={} \
-             invalid_pnu={} (set {CONFIRM_ENV}=true to load)",
+            "{LABEL_PREFIX}-plan objects={} manifest_rows={} (set {CONFIRM_ENV}=true to load)",
             manifest.objects.len(),
             manifest.exported_row_count,
-            extras.null_pnu_row_count,
-            extras.invalid_pnu_row_count,
         );
         return Ok(());
     }
 
     let mut conn = PgConnection::connect(config.database_url.as_str())
         .await
-        .context("failed to connect to DATABASE_URL for the building unit projection load")?;
+        .context("failed to connect to DATABASE_URL for the building projection load")?;
     prepare_stage(&mut conn).await?;
 
     let mut staged_total = 0_u64;
@@ -307,7 +299,7 @@ pub async fn run() -> anyhow::Result<()> {
                 }
                 Err(error) if attempt < OBJECT_ATTEMPTS => {
                     println!(
-                        "building-unit-projection-load-retry key={} attempt={attempt}/{OBJECT_ATTEMPTS} error={error:#}",
+                        "{LABEL_PREFIX}-retry key={} attempt={attempt}/{OBJECT_ATTEMPTS} error={error:#}",
                         object.key
                     );
                     tokio::time::sleep(object_retry_delay(
@@ -318,7 +310,7 @@ pub async fn run() -> anyhow::Result<()> {
                 }
                 Err(error) => {
                     println!(
-                        "building-unit-projection-load-unread key={} attempts={OBJECT_ATTEMPTS} error={error:#}",
+                        "{LABEL_PREFIX}-unread key={} attempts={OBJECT_ATTEMPTS} error={error:#}",
                         object.key
                     );
                     unread.push(object.key.clone());
@@ -338,7 +330,7 @@ pub async fn run() -> anyhow::Result<()> {
             attached_total += attached;
             orphaned_total += orphaned;
             println!(
-                "building-unit-projection-load-object {}/{} key={} staged={staged} attached={attached} orphaned={orphaned}",
+                "{LABEL_PREFIX}-object {}/{} key={} staged={staged} attached={attached} orphaned={orphaned}",
                 index + 1,
                 manifest.objects.len(),
                 object.key
@@ -346,16 +338,16 @@ pub async fn run() -> anyhow::Result<()> {
         }
     }
 
-    conn.execute("ANALYZE catalog.building_unit")
+    conn.execute("ANALYZE catalog.building")
         .await
-        .context("failed to analyze catalog.building_unit after loading")?;
+        .context("failed to analyze catalog.building after loading")?;
 
-    let table_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM catalog.building_unit")
+    let table_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM catalog.building")
         .fetch_one(&mut conn)
         .await
-        .context("failed to count catalog.building_unit after loading")?;
+        .context("failed to count catalog.building after loading")?;
     verdict(
-        "building-unit-projection-load",
+        LABEL_PREFIX,
         &unread,
         &PassTotals {
             object_count: manifest.objects.len(),
@@ -382,31 +374,35 @@ mod tests {
         encoder.finish().expect("fixture finish")
     }
 
-    fn row_json(register_pk: &str, pnu: &str) -> String {
+    fn row_json(register_pk: &str, pnu: &str, built_year: &str) -> String {
         format!(
-            "{{\"register_pk\":\"{register_pk}\",\"pnu\":\"{pnu}\",\"building_name\":\"본관\",             \"dong_name\":\"101동\",\"ho_name\":\"101호\",\"floor_label\":\"1층\",             \"exclusive_area_m2\":84.5,\"usage_name\":\"공장\",\"structure_name\":\"철골\"}}"
+            "{{\"register_pk\":\"{register_pk}\",\"pnu\":\"{pnu}\",\"purpose_code\":\"03000\",\
+             \"structure_code\":\"11\",\"floor_area_m2\":163.4,\"stories\":2,\
+             \"below_ground_floors\":0,\"built_year\":{built_year}}}"
         )
     }
 
     #[test]
-    fn a_compressed_object_yields_its_units() {
+    fn a_compressed_object_yields_its_buildings() {
         let body = format!(
             "{}\n{}\n",
-            row_json("PK-1", "9999900000100000001"),
-            row_json("PK-2", "9999900000100000002")
+            row_json("PK-1", "9999900000100000001", "1971"),
+            row_json("PK-2", "9999900000100000002", "null")
         );
 
-        let rows = units_in_object(&gzipped(&body), "k").expect("rows");
+        let rows = buildings_in_object(&gzipped(&body), "k").expect("rows");
 
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].ho_name, "101호");
+        assert_eq!(rows[0].built_year, Some(1971));
+        // The register stated no year, and the row says so rather than carrying one.
+        assert_eq!(rows[1].built_year, None);
     }
 
     #[test]
     fn a_row_without_a_register_pk_stops_the_object() {
-        let body = row_json("  ", "9999900000100000001");
+        let body = row_json("  ", "9999900000100000001", "1971");
 
-        let error = units_in_object(&gzipped(&body), "k")
+        let error = buildings_in_object(&gzipped(&body), "k")
             .expect_err("the natural key is what the merge conflicts on");
 
         assert!(format!("{error:#}").contains("register_pk"));
@@ -414,7 +410,7 @@ mod tests {
 
     #[test]
     fn plain_text_where_gzip_was_promised_is_an_error() {
-        let error = units_in_object(b"{}\n", "k").expect_err("plain bytes must be refused");
+        let error = buildings_in_object(b"{}\n", "k").expect_err("plain bytes must be refused");
 
         assert!(format!("{error:#}").contains("decompress"));
     }
@@ -422,8 +418,20 @@ mod tests {
     #[test]
     fn an_empty_object_is_an_error_not_a_success() {
         let error =
-            units_in_object(&gzipped(""), "k").expect_err("an empty object must not be a pass");
+            buildings_in_object(&gzipped(""), "k").expect_err("an empty object must not be a pass");
 
         assert!(format!("{error:#}").contains("no rows"));
+    }
+
+    #[test]
+    fn an_absent_fact_becomes_a_copy_null_not_a_value() {
+        let mut buffer = String::new();
+        push_optional_display::<i32>(&mut buffer, None);
+        buffer.push('\t');
+        push_optional_display(&mut buffer, Some(1971));
+        buffer.push('\t');
+        push_optional_text(&mut buffer, None);
+
+        assert_eq!(buffer, "\\N\t1971\t\\N");
     }
 }
