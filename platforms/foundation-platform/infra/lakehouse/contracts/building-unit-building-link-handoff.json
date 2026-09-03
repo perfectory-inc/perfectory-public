@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "why_this_file_exists": "The unit-to-building link handoff has a writer (a Spark job over silver.building_register_units) and a reader (the building_unit link backfill command), and every name they must agree on lives here once — the third copy of the shape building-unit-handoff.json and building-title-catalog-handoff.json already carry, for the same reason (ADR-0072's prefix incident).",
+  "handoff_prefix": "silver-handoff/building_unit_building_link",
+  "handoff_suffix": ".jsonl.gz",
+  "manifest_object": "silver-handoff/building_unit_building_link/manifest.json",
+  "manifest_object_reason": "The source is an Iceberg table, so the export decides how many objects it writes; the manifest is written last and names each with its row count, and a loader that cannot find it refuses rather than succeeding at nothing.",
+  "partition_rule": "sigungu",
+  "partition_rule_reason": "One object per five-digit PNU prefix, the grain both prior projections load at. Rows whose pnu is null never entered catalog.building_unit, and rows whose building key is null have no pair to carry — both are left behind and counted in the manifest, never dropped silently.",
+  "columns": [
+    "register_pk",
+    "building_register_pk"
+  ],
+  "columns_reason": "Exactly the pair the backfill joins on: the unit's own natural key, and the building register key the loader turns into building_id by the same derivation that issued the building rows' ids (ADR-0074 §3). Both sides read this list, so a column added on one is refused by the other until both moved."
+}

@@ -111,6 +111,7 @@ pub(crate) mod test_support {
     }
 }
 mod building_catalog_projection_load;
+mod building_unit_building_link_load;
 mod building_unit_catalog_projection_load;
 mod handoff_manifest_support;
 mod handoff_object_support;
@@ -255,6 +256,7 @@ enum Command {
     ProveIndustrialComplexBoundaryStaticReleaseMutationGuards,
     PublishParcelBoundaryPostgis,
     LoadBuildingCatalogProjection,
+    LoadBuildingUnitBuildingLink,
     LoadBuildingUnitCatalogProjection,
     LoadParcelCatalogProjection,
     SealParcelPublicationEvidence,
@@ -505,6 +507,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         ),
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
         Command::LoadBuildingCatalogProjection => Box::pin(building_catalog_projection_load::run()),
+        Command::LoadBuildingUnitBuildingLink => Box::pin(building_unit_building_link_load::run()),
         Command::LoadBuildingUnitCatalogProjection => {
             Box::pin(building_unit_catalog_projection_load::run())
         }
@@ -1065,6 +1068,7 @@ where
         }
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
         Some("load-building-catalog-projection") => Ok(Command::LoadBuildingCatalogProjection),
+        Some("load-building-unit-building-link") => Ok(Command::LoadBuildingUnitBuildingLink),
         Some("load-building-unit-catalog-projection") => {
             Ok(Command::LoadBuildingUnitCatalogProjection)
         }

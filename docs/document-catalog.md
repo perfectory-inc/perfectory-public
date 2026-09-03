@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **397개**
+- 문서 파일: **398개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 95 |
+| Monorepo | 96 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 154 |
+| ADR | 155 |
 | README | 107 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -441,6 +441,7 @@ docs/adr/0070-the-boundary-source-carries-neither-use-nor-area.md
 docs/adr/0071-a-deploy-that-leaves-the-schema-behind-has-not-finished.md
 docs/adr/0072-units-attach-to-parcels-by-pnu-and-orphans-are-counted.md
 docs/adr/0073-the-title-register-fills-the-building-between-parcel-and-unit.md
+docs/adr/0074-a-unit-hangs-off-its-building-and-null-is-an-answer.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -548,6 +549,7 @@ tools/github/README.md
 | `docs/adr/0071-a-deploy-that-leaves-the-schema-behind-has-not-finished.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0072-units-attach-to-parcels-by-pnu-and-orphans-are-counted.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0073-the-title-register-fills-the-building-between-parcel-and-unit.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0074-a-unit-hangs-off-its-building-and-null-is-an-answer.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
