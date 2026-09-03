@@ -29,8 +29,10 @@ pub struct FloorBuildingResponse {
     pub id: String,
     /// Building name, empty when Foundation Platform has no route-facing name.
     pub name: String,
-    /// Number of above-ground floors.
-    pub above_ground: u8,
+    /// Number of above-ground floors. Absent when the register stated nothing
+    /// (root ADR-0078 §1 — absence is not zero).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub above_ground: Option<u8>,
     /// Number of below-ground (basement) floors.
     pub below_ground: u8,
     /// Whether the building has a rooftop (옥탑) structure counted as a floor.
@@ -111,14 +113,14 @@ mod tests {
             id: id.to_owned(),
             name: String::new(),
             address: None,
-            purpose: "02000".to_owned(),
-            structure: "11".to_owned(),
+            purpose: Some("02000".to_owned()),
+            structure: Some("11".to_owned()),
             plot_area_m2: None,
             building_area_m2: None,
             building_coverage_ratio: None,
-            total_area_m2: 1234.5,
+            total_area_m2: Some(1234.5),
             floor_area_ratio: None,
-            above_ground_floors: above,
+            above_ground_floors: Some(above),
             below_ground_floors: below,
             has_rooftop: rooftop,
             rooftop_area_m2: rooftop.then_some(13.87),
@@ -150,13 +152,13 @@ mod tests {
         assert_eq!(response.buildings.len(), 2);
         let first = &response.buildings[0];
         assert_eq!(first.id, "building-01");
-        assert_eq!(first.above_ground, 11);
+        assert_eq!(first.above_ground, Some(11));
         assert_eq!(first.below_ground, 2);
         assert!(first.has_rooftop);
         assert_eq!(first.rooftop_area_m2, Some(13.87));
         assert_eq!(first.rooftop_usage, "기타제2종근린생활시설 · 주차장");
         let second = &response.buildings[1];
-        assert_eq!(second.above_ground, 3);
+        assert_eq!(second.above_ground, Some(3));
         assert_eq!(second.below_ground, 0);
         assert!(!second.has_rooftop);
         assert_eq!(second.rooftop_area_m2, None);

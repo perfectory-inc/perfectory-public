@@ -12,12 +12,15 @@ use std::sync::Arc;
 use shared_kernel::pnu::Pnu;
 use thiserror::Error;
 
+use crate::routes::building_units::{
+    BuildingUnitRecord, BuildingUnitsError, BuildingUnitsPage, BuildingUnitsReader,
+};
 use crate::routes::buildings::{
     BuildingRegisterError, BuildingRegisterReader, BuildingRegisterRecord,
 };
 use foundation_platform_client::{
-    CatalogBuildingResponse, FoundationCatalogClient, FoundationCatalogClientConfigError,
-    FoundationServiceAuth,
+    CatalogBuildingResponse, CatalogUnitPageResponse, FoundationCatalogClient,
+    FoundationCatalogClientConfigError, FoundationServiceAuth,
 };
 
 /// Configuration error for the Foundation Platform building reader.
@@ -114,6 +117,84 @@ impl BuildingRegisterReader for FoundationPlatformBuildingRegisterReader {
     }
 }
 
+impl BuildingUnitsReader for FoundationPlatformBuildingRegisterReader {
+    fn list_page<'a>(
+        &'a self,
+        building_id: &'a str,
+        limit: Option<u32>,
+        cursor: Option<&'a str>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<BuildingUnitsPage, BuildingUnitsError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let response = self
+                .catalog_client
+                .list_building_units_response(building_id, limit, cursor)
+                .await
+                .map_err(|source| BuildingUnitsError::Other(Box::new(source)))?;
+            let status = response.status();
+            // The upstream's refusals keep their meaning through this proxy (root ADR-0078 §2):
+            // a rejected cursor stays a caller mistake, an absent building stays absent.
+            if status == reqwest::StatusCode::BAD_REQUEST {
+                return Err(BuildingUnitsError::UpstreamRejected {
+                    status: status.as_u16(),
+                });
+            }
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(BuildingUnitsError::BuildingNotFound);
+            }
+            if !status.is_success() {
+                return Err(BuildingUnitsError::Other(Box::new(
+                    FoundationPlatformBuildingReaderError::Status { status },
+                )));
+            }
+
+            let page = response
+                .json::<CatalogUnitPageResponse>()
+                .await
+                .map_err(|source| {
+                    BuildingUnitsError::Other(Box::new(
+                        FoundationPlatformBuildingReaderError::Request { source },
+                    ))
+                })?;
+
+            Ok(BuildingUnitsPage {
+                units: page
+                    .items
+                    .into_iter()
+                    .map(|unit| BuildingUnitRecord {
+                        id: unit.id,
+                        dong_name: unit.dong_name,
+                        ho_name: unit.ho_name,
+                        floor_label: unit.floor_label,
+                        exclusive_area_m2: unit.exclusive_area_m2,
+                        usage_name: unit.usage_name,
+                    })
+                    .collect(),
+                next_cursor: page.next_cursor,
+            })
+        })
+    }
+}
+
+/// Builds the Foundation Platform Catalog-backed building-units reader.
+///
+/// # Errors
+///
+/// Returns an error when `base_url` is invalid for reader construction.
+pub fn build_foundation_platform_building_units_reader(
+    base_url: &str,
+    auth: Option<FoundationServiceAuth>,
+) -> Result<Arc<dyn BuildingUnitsReader>, FoundationPlatformBuildingReaderConfigError> {
+    Ok(Arc::new(FoundationPlatformBuildingRegisterReader::new(
+        base_url, auth,
+    )?))
+}
+
 /// Builds the Foundation Platform Catalog-backed building reader.
 ///
 /// # Errors
@@ -131,12 +212,19 @@ pub fn build_foundation_platform_building_register_reader(
 fn building_record_from_response(
     value: CatalogBuildingResponse,
 ) -> Result<BuildingRegisterRecord, FoundationPlatformBuildingReaderError> {
-    let above_ground_floors = u8::try_from(value.stories).map_err(|_| {
-        FoundationPlatformBuildingReaderError::InvalidStories {
-            id: value.id.clone(),
-            stories: value.stories,
-        }
-    })?;
+    // An unstated fact travels as absence (root ADR-0078 §1); a *stated* value outside the
+    // contract is still an error — absence and nonsense are different claims.
+    let above_ground_floors = value
+        .stories
+        .map(|stories| {
+            u8::try_from(stories).map_err(|_| {
+                FoundationPlatformBuildingReaderError::InvalidStories {
+                    id: value.id.clone(),
+                    stories,
+                }
+            })
+        })
+        .transpose()?;
     let below_ground_floors = u8::try_from(value.below_ground_floors).map_err(|_| {
         FoundationPlatformBuildingReaderError::InvalidBelowGroundFloors {
             id: value.id.clone(),
@@ -243,14 +331,14 @@ mod tests {
                 id: "building-01".to_owned(),
                 name: String::new(),
                 address: None,
-                purpose: "factory".to_owned(),
-                structure: "steel".to_owned(),
+                purpose: Some("factory".to_owned()),
+                structure: Some("steel".to_owned()),
                 plot_area_m2: None,
                 building_area_m2: None,
                 building_coverage_ratio: None,
-                total_area_m2: 1234.5,
+                total_area_m2: Some(1234.5),
                 floor_area_ratio: None,
-                above_ground_floors: 7,
+                above_ground_floors: Some(7),
                 below_ground_floors: 2,
                 has_rooftop: true,
                 rooftop_area_m2: Some(13.87),
@@ -267,6 +355,127 @@ mod tests {
                 approved_at: None,
             }]
         );
+    }
+
+    /// The failure this guards: upstream columns went nullable (root ADR-0076) and this chain
+    /// kept promising values, so the first honest row killed the whole list (root ADR-0078 §1).
+    #[tokio::test]
+    async fn a_building_with_unstated_facts_reads_as_absence_not_an_error() {
+        let body = r#"
+[
+  {
+    "id": "building-01",
+    "parcel_id": "parcel-01",
+    "purpose_code": null,
+    "structure_code": null,
+    "floor_area_m2": null,
+    "stories": null,
+    "below_ground_floors": 0,
+    "has_rooftop": false,
+    "built_year": null,
+    "updated_at": "2026-05-28T00:00:00Z"
+  }
+]
+"#;
+        let (base_url, _request_line) = spawn_foundation_platform_response("HTTP/1.1 200 OK", body);
+        let reader =
+            FoundationPlatformBuildingRegisterReader::new(&base_url, None).expect("reader");
+        let pnu = Pnu::try_new("9999900501107370000").expect("valid pnu");
+
+        let records = reader.list_by_pnu(&pnu).await.expect("records");
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].purpose, None);
+        assert_eq!(records[0].total_area_m2, None);
+        assert_eq!(records[0].above_ground_floors, None);
+    }
+
+    #[tokio::test]
+    async fn reads_a_unit_page_and_passes_the_cursor_through_verbatim() {
+        let body = r#"
+{
+  "items": [
+    {
+      "id": "unit-01",
+      "dong_name": "101동",
+      "ho_name": "1204호",
+      "floor_label": "12층",
+      "exclusive_area_m2": 84.5,
+      "usage_name": "공장"
+    },
+    {
+      "id": "unit-02",
+      "dong_name": "101동",
+      "ho_name": "1205호",
+      "floor_label": "12층",
+      "exclusive_area_m2": null,
+      "usage_name": ""
+    }
+  ],
+  "next_cursor": "b3BhcXVl"
+}
+"#;
+        let (base_url, request_line) = spawn_foundation_platform_response("HTTP/1.1 200 OK", body);
+        let reader =
+            FoundationPlatformBuildingRegisterReader::new(&base_url, None).expect("reader");
+
+        let page = reader
+            .list_page(
+                "193afac8-8dd3-8bd9-9007-a2f12680438a",
+                Some(2),
+                Some("prev-cursor"),
+            )
+            .await
+            .expect("page");
+
+        assert_eq!(
+            request_line
+                .recv_timeout(Duration::from_secs(2))
+                .expect("request line"),
+            "GET /catalog/v1/buildings/193afac8-8dd3-8bd9-9007-a2f12680438a/units?limit=2&cursor=prev-cursor HTTP/1.1"
+        );
+        assert_eq!(page.units.len(), 2);
+        assert_eq!(page.units[0].ho_name, "1204호");
+        // The register left this unit's area unmatched, and the page says so.
+        assert_eq!(page.units[1].exclusive_area_m2, None);
+        // The cursor is the upstream's opaque token, returned untouched (root ADR-0078 §2).
+        assert_eq!(page.next_cursor.as_deref(), Some("b3BhcXVl"));
+    }
+
+    #[tokio::test]
+    async fn a_rejected_cursor_stays_a_caller_mistake() {
+        let (base_url, _request_line) =
+            spawn_foundation_platform_response("HTTP/1.1 400 Bad Request", "{}");
+        let reader =
+            FoundationPlatformBuildingRegisterReader::new(&base_url, None).expect("reader");
+
+        let error = reader
+            .list_page("some-building", None, Some("garbage"))
+            .await
+            .expect_err("upstream refusal must not become a gateway error");
+
+        assert!(matches!(
+            error,
+            crate::routes::building_units::BuildingUnitsError::UpstreamRejected { status: 400 }
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_absent_building_stays_absent_through_the_proxy() {
+        let (base_url, _request_line) =
+            spawn_foundation_platform_response("HTTP/1.1 404 Not Found", "{}");
+        let reader =
+            FoundationPlatformBuildingRegisterReader::new(&base_url, None).expect("reader");
+
+        let error = reader
+            .list_page("00000000-0000-0000-0000-000000000000", None, None)
+            .await
+            .expect_err("an absent building must be 404, not 502");
+
+        assert!(matches!(
+            error,
+            crate::routes::building_units::BuildingUnitsError::BuildingNotFound
+        ));
     }
 
     #[tokio::test]

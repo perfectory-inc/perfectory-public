@@ -233,6 +233,15 @@ pub const BACKEND_RATE_POLICIES: &[BackendRatePolicy] = &[
     },
     BackendRatePolicy {
         method: "GET",
+        path_pattern: "/api/buildings/:building_id/units",
+        key_prefix: "api-proxy:authenticated-read",
+        key_strategy: BackendRateKeyStrategy::SessionSub,
+        limit: 240,
+        window_seconds: 60,
+        problem_type: "proxy/too-many-requests",
+    },
+    BackendRatePolicy {
+        method: "GET",
         path_pattern: "/api/floors",
         key_prefix: "api-proxy:authenticated-read",
         key_strategy: BackendRateKeyStrategy::SessionSub,

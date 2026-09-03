@@ -29,6 +29,7 @@ mod routes {
     pub mod admin_listings;
     pub mod auth_event;
     pub mod bookmarks;
+    pub mod building_units;
     pub mod buildings;
     pub mod complexes;
     pub mod floors;

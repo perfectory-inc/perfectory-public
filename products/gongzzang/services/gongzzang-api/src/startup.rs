@@ -38,6 +38,37 @@ impl routes::buildings::BuildingRegisterReader for NoOpBuildingRegisterReader {
     }
 }
 
+/// Dev-only building-units reader fallback.
+/// Production requires Foundation Platform Catalog because canonical unit data is
+/// owned there, not by the Gongzzang API service.
+struct NoOpBuildingUnitsReader;
+
+impl routes::building_units::BuildingUnitsReader for NoOpBuildingUnitsReader {
+    fn list_page<'a>(
+        &'a self,
+        _building_id: &'a str,
+        _limit: Option<u32>,
+        _cursor: Option<&'a str>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        routes::building_units::BuildingUnitsPage,
+                        routes::building_units::BuildingUnitsError,
+                    >,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async {
+            Ok(routes::building_units::BuildingUnitsPage {
+                units: Vec::new(),
+                next_cursor: None,
+            })
+        })
+    }
+}
+
 /// Dev-only industrial-complex reader fallback.
 /// Production requires Foundation Platform Catalog because canonical industrial-complex data is
 /// owned there, not by the Gongzzang API service.
@@ -457,6 +488,42 @@ fn build_building_reader_from_foundation_config(
         "building_register: FOUNDATION_PLATFORM_API_BASE_URL missing - NoOp empty list (dev only)"
     );
     Ok(Arc::new(NoOpBuildingRegisterReader))
+}
+
+/// Builds the building-units reader from the process environment (root ADR-0078 §2).
+///
+/// # Errors
+///
+/// Returns a startup error when production is missing the Foundation Platform endpoint or when
+/// the endpoint fails validation.
+pub fn build_building_units_reader(
+    is_production: bool,
+) -> Result<Arc<dyn routes::building_units::BuildingUnitsReader>, StartupError> {
+    let base_url = optional_env("FOUNDATION_PLATFORM_API_BASE_URL");
+    let workload_identity_token_file =
+        optional_env("FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE");
+    if let Some(base_url) = base_url {
+        let auth = build_foundation_service_auth(workload_identity_token_file)?;
+        tracing::info!("building_units: Foundation Platform Catalog live");
+        return building_reader::build_foundation_platform_building_units_reader(
+            &base_url,
+            Some(auth),
+        )
+        .map_err(|error| {
+            production_config_error(format!(
+                "FOUNDATION_PLATFORM_API_BASE_URL invalid for building_units: {error}"
+            ))
+        });
+    }
+    if is_production {
+        return Err(production_config_error(
+            "FOUNDATION_PLATFORM_API_BASE_URL must be set for building_units because Foundation Platform owns catalog unit data",
+        ));
+    }
+    tracing::warn!(
+        "building_units: FOUNDATION_PLATFORM_API_BASE_URL missing - NoOp empty page (dev only)"
+    );
+    Ok(Arc::new(NoOpBuildingUnitsReader))
 }
 
 /// Builds the industrial-complex reader from the process environment.

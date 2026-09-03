@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **401개**
+- 문서 파일: **402개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 16 |
 | Intelligence Platform | 15 |
-| Monorepo | 99 |
+| Monorepo | 100 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 158 |
+| ADR | 159 |
 | README | 107 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -445,6 +445,7 @@ docs/adr/0074-a-unit-hangs-off-its-building-and-null-is-an-answer.md
 docs/adr/0075-the-unit-load-fills-its-own-link.md
 docs/adr/0076-a-building-answers-for-its-units.md
 docs/adr/0077-the-pipe-looks-at-its-sources-every-day.md
+docs/adr/0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -556,6 +557,7 @@ tools/github/README.md
 | `docs/adr/0075-the-unit-load-fills-its-own-link.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0076-a-building-answers-for-its-units.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0077-the-pipe-looks-at-its-sources-every-day.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
