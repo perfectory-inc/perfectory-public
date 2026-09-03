@@ -1,0 +1,23 @@
+[Unit]
+Description=Foundation Platform daily source sweep (ADR-0077)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/daily-source-sweep.sh
+TimeoutStartSec=4h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/source-sweep
+
+[Install]
+WantedBy=multi-user.target
