@@ -208,6 +208,39 @@ sudo scripts/deploy/foundation-runtime.sh up -d foundation-api
 해서 표준 PostGIS 이미지를 의도적으로 사용한다. pgBackRest, `archive_mode=on`, 외부 저장소 설정은
 복구 overlay가 추가한다.
 
+## 알림은 슬랙에 닿는다
+
+Alertmanager 의 `prelaunch-audit` 수신자는 슬랙 incoming webhook 으로 보낸다. webhook URL 은
+자격증명이므로 저장소에 없다 — 서버의 파일 하나가 정본이고, 없으면 Alertmanager 가 건강 검사에
+실패하며 `foundation-api` 의 `depends_on` 이 다음 배포를 막는다. 받을 곳 없는 수신자가 조용히
+여섯 주를 버린 사건이 이 결합의 근거다.
+
+1. 슬랙 워크스페이스에서 incoming webhook 을 만든다: 앱 관리 → Incoming Webhooks →
+   채널 선택 → URL 복사. (URL 을 만든 채널로만 배달된다.)
+2. 서버에 파일로 둔다 (한 줄, 개행 하나):
+
+```bash
+sudo install -d -m 0750 -g docker /etc/foundation-platform/secrets
+# URL 은 셸 히스토리에 남지 않게 표준입력으로 넣는다.
+sudo tee /etc/foundation-platform/secrets/alertmanager-slack-webhook-url >/dev/null
+sudo chmod 0640 /etc/foundation-platform/secrets/alertmanager-slack-webhook-url
+sudo chgrp docker /etc/foundation-platform/secrets/alertmanager-slack-webhook-url
+```
+
+3. Alertmanager 를 다시 띄우고, **배달을 증명한다** — 설정이 실렸다는 것과 슬랙에 닿았다는
+   것은 다른 주장이다:
+
+```bash
+cd /opt/foundation-platform/current
+sudo scripts/deploy/foundation-runtime.sh up -d alertmanager
+curl -sS -XPOST 127.0.0.1:19093/api/v2/alerts -H 'Content-Type: application/json' -d \
+  '[{"labels":{"alertname":"slack-delivery-proof","service":"runbook","environment":"prod"},
+     "annotations":{"summary":"배달 증명 시험 알림 — 이 메시지가 슬랙에 보이면 성공"}}]'
+```
+
+슬랙 채널에 메시지가 도착해야 완료다. 도착하지 않으면 `docker logs` 에서 Alertmanager 의
+notify 오류를 본다.
+
 ## 복구 리허설
 
 전용 빈 repository prefix와 임시 암호화 passphrase로 격리 리허설을 실행한다.

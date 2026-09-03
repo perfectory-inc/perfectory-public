@@ -8,8 +8,8 @@
 ## 요약
 
 - 감사 문서: **399개**
-- 언어 분류: **{'english': 36, 'korean': 203, 'mixed': 160}**
-- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 85개** (기계 계약·라우터·법률 예외 제외)
+- 언어 분류: **{'english': 36, 'korean': 204, 'mixed': 159}**
+- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
 - 메타데이터: **201개 정상 / 0개 누락 / 198개 해당 없음**
 - 중복 파일명 후보: **0개**
@@ -193,7 +193,7 @@
 | `platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/canonical-release-proof.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/runbooks/foundation-platform-low-cost-production-hardening.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
+| `platforms/foundation-platform/docs/runbooks/foundation-platform-low-cost-production-hardening.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-backfill-and-schema-rebuild.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-catalog-smoke.md` | Foundation Platform | runbook | current | mixed | ok | 0 |

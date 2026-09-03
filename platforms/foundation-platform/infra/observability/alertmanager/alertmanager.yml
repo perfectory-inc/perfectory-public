@@ -10,3 +10,12 @@ route:
 
 receivers:
   - name: prelaunch-audit
+    # The webhook URL is a credential and lives outside this file: the compose file refuses to
+    # start Alertmanager without the secret mounted, because a receiver with no destination is
+    # how six weeks of alerts went nowhere (2026-09-02 finding; the runbook owns the setup).
+    slack_configs:
+      - api_url_file: /etc/alertmanager/secrets/slack-webhook-url
+        send_resolved: true
+        title: '{{ .Status | toUpper }} {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}

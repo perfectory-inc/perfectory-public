@@ -47,6 +47,12 @@ services:
     volumes:
       - alertmanager_data:/alertmanager
       - ./infra/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      # The file holds one line — the Slack incoming-webhook URL — and never enters this repo.
+      # If it is absent Alertmanager fails its health check, and foundation-api's depends_on
+      # makes that failure block the next deploy: an Alertmanager without a delivery secret is
+      # a receiver with no destination, and that silence already cost six weeks. The runbook's
+      # Slack section owns creating it.
+      - ${FOUNDATION_ALERTMANAGER_SLACK_WEBHOOK_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-webhook-url}:/etc/alertmanager/secrets/slack-webhook-url:ro
     tmpfs:
       - /tmp:size=16m,mode=1777
     healthcheck:
