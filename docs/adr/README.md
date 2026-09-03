@@ -86,3 +86,4 @@ last_reviewed: 2026-07-28
 - [0073 — 표제부가 필지와 호 사이의 건물을 채운다](./0073-the-title-register-fills-the-building-between-parcel-and-unit.md)
 - [0074 — 호는 자기 건물에 매달리고, NULL 도 답이다](./0074-a-unit-hangs-off-its-building-and-null-is-an-answer.md)
 - [0075 — 호 적재는 연결을 스스로 채운다](./0075-the-unit-load-fills-its-own-link.md)
+- [0076 — 건물은 자기 호를 답한다](./0076-a-building-answers-for-its-units.md)

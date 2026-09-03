@@ -38,20 +38,22 @@ fn building_response_exposes_catalog_building_read_model() -> Result<(), serde_j
     let dto = BuildingResponse {
         id: Uuid::nil(),
         parcel_id: Uuid::nil(),
-        purpose_code: "02000".to_owned(),
-        structure_code: "11".to_owned(),
-        floor_area_m2: 1234.5,
-        stories: 5,
+        register_pk: "11710-100254143".to_owned(),
+        purpose_code: Some("02000".to_owned()),
+        structure_code: Some("11".to_owned()),
+        floor_area_m2: Some(1234.5),
+        stories: Some(5),
         below_ground_floors: 2,
         has_rooftop: true,
         rooftop_area_m2: Some(13.87),
         rooftop_usage: "기타제2종근린생활시설 · 주차장".to_owned(),
-        built_year: 2020,
+        built_year: Some(2020),
         updated_at: Utc::now(),
     };
 
     let json = serde_json::to_value(dto)?;
 
+    assert_eq!(json["register_pk"].as_str(), Some("11710-100254143"));
     assert_eq!(json["purpose_code"].as_str(), Some("02000"));
     assert_eq!(json["structure_code"].as_str(), Some("11"));
     assert_eq!(json["floor_area_m2"].as_f64(), Some(1234.5));
@@ -64,6 +66,46 @@ fn building_response_exposes_catalog_building_read_model() -> Result<(), serde_j
         Some("기타제2종근린생활시설 · 주차장")
     );
     assert_eq!(json["built_year"].as_i64(), Some(2020));
+    Ok(())
+}
+
+/// A fact the register did not state serialises as an explicit `null`, not an absent key.
+///
+/// The wire distinction matters: an absent key reads as "this API does not carry the field",
+/// a `null` reads as "the register said nothing" — and ADR-0076 §1 chose the latter for the
+/// five columns migration 20260903000003 made nullable.
+#[test]
+fn building_response_unstated_facts_serialise_as_nulls() -> Result<(), serde_json::Error> {
+    let dto = BuildingResponse {
+        id: Uuid::nil(),
+        parcel_id: Uuid::nil(),
+        register_pk: "26290-88".to_owned(),
+        purpose_code: None,
+        structure_code: None,
+        floor_area_m2: None,
+        stories: None,
+        below_ground_floors: 0,
+        has_rooftop: false,
+        rooftop_area_m2: None,
+        rooftop_usage: String::new(),
+        built_year: None,
+        updated_at: Utc::now(),
+    };
+
+    let json = serde_json::to_value(dto)?;
+
+    for field in [
+        "purpose_code",
+        "structure_code",
+        "floor_area_m2",
+        "stories",
+        "built_year",
+    ] {
+        assert!(
+            json.get(field).is_some_and(serde_json::Value::is_null),
+            "{field} must be present and null"
+        );
+    }
     Ok(())
 }
 

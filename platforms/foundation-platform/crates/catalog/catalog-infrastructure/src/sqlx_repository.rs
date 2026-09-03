@@ -29,7 +29,7 @@ use crate::row_map::{
     row_to_digital_twin_asset, row_to_file_asset, row_to_industry_group,
     row_to_industry_group_member, row_to_parcel, row_to_parcel_industry_assignment,
     row_to_spatial_layer, row_to_vector_tile_artifact, row_to_vector_tile_manifest,
-    INDUSTRIAL_COMPLEX_COLUMNS,
+    BUILDING_COLUMNS, INDUSTRIAL_COMPLEX_COLUMNS,
 };
 use serde_json::Value as JsonValue;
 
@@ -39,6 +39,10 @@ pub struct BuildingUnitRow {
     pub id: Uuid,
     /// Parcel that owns this unit.
     pub parcel_id: Uuid,
+    /// Building this unit hangs in (ADR-0074). `None` when the register's own link was
+    /// unresolved or the building is a parcel orphan absent from the catalog — an answer,
+    /// not a failure, and exposed as such (ADR-0076 §4).
+    pub building_id: Option<Uuid>,
     /// 건물명 (normalized building name, may be empty).
     pub building_name: String,
     /// 동명칭 — only real 동 numbers (e.g. `109동`); empty otherwise.
@@ -53,6 +57,34 @@ pub struct BuildingUnitRow {
     pub usage_name: String,
     /// 구조명, reconciled from 전유공용면적 전유 행. Empty when unmatched.
     pub structure_name: String,
+}
+
+/// The keyset a unit page continues from: the sort key of the last row the caller saw
+/// (ADR-0076 §3).
+#[derive(Debug)]
+pub struct UnitPageKey {
+    /// 동명칭 of the last row.
+    pub dong_name: String,
+    /// 호명칭 of the last row.
+    pub ho_name: String,
+    /// Unit id of the last row — the tie-breaker that makes the cursor stable.
+    pub id: Uuid,
+}
+
+/// Decodes one unit read row, shared by every query that selects the same columns.
+fn row_to_building_unit(row: &sqlx::postgres::PgRow) -> Result<BuildingUnitRow, CatalogError> {
+    Ok(BuildingUnitRow {
+        id: row.try_get("id").map_err(map_sqlx)?,
+        parcel_id: row.try_get("parcel_id").map_err(map_sqlx)?,
+        building_id: row.try_get("building_id").map_err(map_sqlx)?,
+        building_name: row.try_get("building_name").map_err(map_sqlx)?,
+        dong_name: row.try_get("dong_name").map_err(map_sqlx)?,
+        ho_name: row.try_get("ho_name").map_err(map_sqlx)?,
+        floor_label: row.try_get("floor_label").map_err(map_sqlx)?,
+        exclusive_area_m2: row.try_get("exclusive_area_m2").map_err(map_sqlx)?,
+        usage_name: row.try_get("usage_name").map_err(map_sqlx)?,
+        structure_name: row.try_get("structure_name").map_err(map_sqlx)?,
+    })
 }
 
 /// `PostgreSQL` implementation of Catalog read-only repository ports.
@@ -74,7 +106,7 @@ impl PgCatalogRepository {
     /// Returns a [`CatalogError`] when the query fails.
     pub async fn list_units_by_pnu(&self, pnu: &Pnu) -> Result<Vec<BuildingUnitRow>, CatalogError> {
         let rows = sqlx::query(
-            "SELECT u.id, u.parcel_id, u.building_name, u.dong_name, u.ho_name,
+            "SELECT u.id, u.parcel_id, u.building_id, u.building_name, u.dong_name, u.ho_name,
                     u.floor_label, u.exclusive_area_m2, u.usage_name, u.structure_name
              FROM catalog.building_unit u
              JOIN catalog.parcel p ON p.id = u.parcel_id
@@ -87,21 +119,89 @@ impl PgCatalogRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        rows.iter()
-            .map(|row| {
-                Ok(BuildingUnitRow {
-                    id: row.try_get("id").map_err(map_sqlx)?,
-                    parcel_id: row.try_get("parcel_id").map_err(map_sqlx)?,
-                    building_name: row.try_get("building_name").map_err(map_sqlx)?,
-                    dong_name: row.try_get("dong_name").map_err(map_sqlx)?,
-                    ho_name: row.try_get("ho_name").map_err(map_sqlx)?,
-                    floor_label: row.try_get("floor_label").map_err(map_sqlx)?,
-                    exclusive_area_m2: row.try_get("exclusive_area_m2").map_err(map_sqlx)?,
-                    usage_name: row.try_get("usage_name").map_err(map_sqlx)?,
-                    structure_name: row.try_get("structure_name").map_err(map_sqlx)?,
-                })
-            })
-            .collect()
+        rows.iter().map(row_to_building_unit).collect()
+    }
+
+    /// Fetches one building by its stable id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CatalogError`] when the query fails.
+    pub async fn find_building(&self, id: Uuid) -> Result<Option<Building>, CatalogError> {
+        let row = sqlx::query(&format!(
+            "SELECT {BUILDING_COLUMNS} FROM catalog.building b WHERE b.id = $1"
+        ))
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        row.as_ref().map(row_to_building).transpose()
+    }
+
+    /// Fetches one building by its natural key, the title-register PK (ADR-0076 §2).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CatalogError`] when the query fails.
+    pub async fn find_building_by_register_pk(
+        &self,
+        register_pk: &str,
+    ) -> Result<Option<Building>, CatalogError> {
+        let row = sqlx::query(&format!(
+            "SELECT {BUILDING_COLUMNS} FROM catalog.building b WHERE b.register_pk = $1"
+        ))
+        .bind(register_pk)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        row.as_ref().map(row_to_building).transpose()
+    }
+
+    /// Lists one keyset page of a building's units, ordered `(dong_name, ho_name, id)` — the
+    /// order a person counts 호 in, with `id` breaking ties so the cursor is stable
+    /// (ADR-0076 §3). `after` is the last key of the previous page; `limit` rows are returned
+    /// at most, and the caller detects a next page by asking for one more than it needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CatalogError`] when the query fails.
+    pub async fn list_units_by_building(
+        &self,
+        building_id: Uuid,
+        after: Option<&UnitPageKey>,
+        limit: i64,
+    ) -> Result<Vec<BuildingUnitRow>, CatalogError> {
+        const COLUMNS: &str = "u.id, u.parcel_id, u.building_id, u.building_name, u.dong_name, \
+             u.ho_name, u.floor_label, u.exclusive_area_m2, u.usage_name, u.structure_name";
+        let rows = match after {
+            Some(key) => {
+                sqlx::query(&format!(
+                    "SELECT {COLUMNS} FROM catalog.building_unit u
+                     WHERE u.building_id = $1 AND (u.dong_name, u.ho_name, u.id) > ($2, $3, $4)
+                     ORDER BY u.dong_name, u.ho_name, u.id LIMIT $5"
+                ))
+                .bind(building_id)
+                .bind(key.dong_name.as_str())
+                .bind(key.ho_name.as_str())
+                .bind(key.id)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await
+            }
+            None => {
+                sqlx::query(&format!(
+                    "SELECT {COLUMNS} FROM catalog.building_unit u
+                     WHERE u.building_id = $1
+                     ORDER BY u.dong_name, u.ho_name, u.id LIMIT $2"
+                ))
+                .bind(building_id)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await
+            }
+        }
+        .map_err(map_sqlx)?;
+        rows.iter().map(row_to_building_unit).collect()
     }
 
     async fn fetch_industrial_complexes(&self) -> Result<Vec<IndustrialComplex>, CatalogError> {
@@ -358,17 +458,14 @@ impl CatalogRepository for PgCatalogRepository {
     }
 
     async fn list_buildings_by_pnu(&self, pnu: &Pnu) -> Result<Vec<Building>, CatalogError> {
-        let rows = sqlx::query(
-            "SELECT b.id, b.parcel_id, b.purpose_code, b.structure_code,
-                    b.floor_area_m2, b.stories, b.below_ground_floors, b.has_rooftop,
-                    b.rooftop_area_m2, b.rooftop_usage,
-                    b.built_year, b.updated_at
+        let rows = sqlx::query(&format!(
+            "SELECT {BUILDING_COLUMNS}
              FROM catalog.building b
              JOIN catalog.parcel p ON p.id = b.parcel_id
              JOIN catalog.parcel_identifier_lookup pil ON pil.parcel_id = p.id
              WHERE pil.identifier_value = $1
-             ORDER BY b.updated_at DESC, b.id",
-        )
+             ORDER BY b.updated_at DESC, b.id"
+        ))
         .bind(pnu.as_str())
         .fetch_all(&self.pool)
         .await

@@ -12,5 +12,5 @@ pub use industrial_complex_transaction::{
     PgIndustrialComplexTransactionParticipant,
 };
 pub use parcel_marker_anchor_rebuild::PgParcelMarkerAnchorRebuilder;
-pub use sqlx_repository::{BuildingUnitRow, PgCatalogRepository};
+pub use sqlx_repository::{BuildingUnitRow, PgCatalogRepository, UnitPageKey};
 pub use unit_of_work::PgCatalogUnitOfWork;

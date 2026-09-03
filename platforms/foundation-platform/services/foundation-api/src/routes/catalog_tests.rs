@@ -1,11 +1,11 @@
 use super::{
     building_response, complex_anchor_summary_response, db_reference_marker_tile_enabled_from_vars,
-    get_marker_tile, get_marker_tile_contract, get_vector_tile_manifest,
-    industrial_complex_list_response, industrial_complex_response, list_complex_blueprints,
-    parcel_marker_anchor_rebuild_response, request_id_from_headers,
-    require_exact_manifest_action_path, vector_tile_artifact_response, ApiError, MarkerTilePath,
-    MarkerTileQuery, PARCEL_MARKER_ANCHOR_REBUILD_PATH, VECTOR_TILE_MANIFEST_PROMOTE_PATH,
-    VECTOR_TILE_MANIFEST_ROLLBACK_PATH,
+    decode_unit_cursor, encode_unit_cursor, get_marker_tile, get_marker_tile_contract,
+    get_vector_tile_manifest, industrial_complex_list_response, industrial_complex_response,
+    list_complex_blueprints, parcel_marker_anchor_rebuild_response, request_id_from_headers,
+    require_exact_manifest_action_path, unit_response, vector_tile_artifact_response, ApiError,
+    MarkerTilePath, MarkerTileQuery, PARCEL_MARKER_ANCHOR_REBUILD_PATH,
+    VECTOR_TILE_MANIFEST_PROMOTE_PATH, VECTOR_TILE_MANIFEST_ROLLBACK_PATH,
 };
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
@@ -16,6 +16,7 @@ use catalog_domain::{
     Building, ComplexAnchorSummary, IndustrialComplex, IndustrialComplexKind,
     MarkerAnchorAlgorithm, VectorTileArtifact, VectorTileLineage, ZoomRange,
 };
+use catalog_infrastructure::BuildingUnitRow;
 use chrono::Utc;
 use foundation_contracts::catalog::ManufacturerResponse;
 use foundation_shared_kernel::ids::{
@@ -470,15 +471,16 @@ fn building_response_maps_building_read_model() {
     let building = Building {
         id: building_id,
         parcel_id,
-        purpose_code: "02000".to_owned(),
-        structure_code: "11".to_owned(),
-        floor_area_m2: 1234.5,
-        stories: 5,
+        register_pk: "11710-100254143".to_owned(),
+        purpose_code: Some("02000".to_owned()),
+        structure_code: Some("11".to_owned()),
+        floor_area_m2: Some(1234.5),
+        stories: Some(5),
         below_ground_floors: 2,
         has_rooftop: true,
         rooftop_area_m2: Some(13.87),
         rooftop_usage: "기타제2종근린생활시설 · 주차장".to_owned(),
-        built_year: 2020,
+        built_year: Some(2020),
         updated_at,
     };
 
@@ -486,16 +488,92 @@ fn building_response_maps_building_read_model() {
 
     assert_eq!(response.id, building_id.as_uuid());
     assert_eq!(response.parcel_id, parcel_id.as_uuid());
-    assert_eq!(response.purpose_code, "02000");
-    assert_eq!(response.structure_code, "11");
-    assert!((response.floor_area_m2 - 1234.5).abs() < f64::EPSILON);
-    assert_eq!(response.stories, 5);
+    assert_eq!(response.register_pk, "11710-100254143");
+    assert_eq!(response.purpose_code.as_deref(), Some("02000"));
+    assert_eq!(response.structure_code.as_deref(), Some("11"));
+    assert_eq!(response.floor_area_m2, Some(1234.5));
+    assert_eq!(response.stories, Some(5));
     assert_eq!(response.below_ground_floors, 2);
     assert!(response.has_rooftop);
     assert_eq!(response.rooftop_area_m2, Some(13.87));
     assert_eq!(response.rooftop_usage, "기타제2종근린생활시설 · 주차장");
-    assert_eq!(response.built_year, 2020);
+    assert_eq!(response.built_year, Some(2020));
     assert_eq!(response.updated_at, updated_at);
+}
+
+/// A building the register said nothing about still answers, with nulls where nothing was said.
+///
+/// The failure this guards: migration 20260903000003 made five columns nullable, and a read
+/// model that keeps promising values turns every NULL row into a decode error — the route
+/// answered 500 for such parcels until ADR-0076 §1 (this change).
+#[test]
+fn a_building_with_unstated_facts_maps_to_nulls_not_errors() {
+    let building = Building {
+        id: BuildingId::new(Uuid::now_v7()),
+        parcel_id: ParcelId::new(Uuid::now_v7()),
+        register_pk: "26290-88".to_owned(),
+        purpose_code: None,
+        structure_code: None,
+        floor_area_m2: None,
+        stories: None,
+        below_ground_floors: 0,
+        has_rooftop: false,
+        rooftop_area_m2: None,
+        rooftop_usage: String::new(),
+        built_year: None,
+        updated_at: Utc::now(),
+    };
+
+    let response = building_response(&building);
+
+    assert_eq!(response.purpose_code, None);
+    assert_eq!(response.floor_area_m2, None);
+    assert_eq!(response.built_year, None);
+}
+
+#[test]
+fn a_unit_cursor_survives_the_round_trip() {
+    let unit = unit_row_fixture("109동", "1204호");
+
+    let key = decode_unit_cursor(&encode_unit_cursor(&unit)).expect("a cursor this API issued");
+
+    assert_eq!(key.dong_name, "109동");
+    assert_eq!(key.ho_name, "1204호");
+    assert_eq!(key.id, unit.id);
+}
+
+#[test]
+fn a_cursor_this_api_never_issued_is_refused() {
+    for garbage in ["not-base64!!", "bm90LWEtY3Vyc29y", ""] {
+        let error = decode_unit_cursor(garbage).expect_err("garbage must not become a page key");
+        assert!(matches!(error, ApiError::BadRequest(_)));
+    }
+}
+
+fn unit_row_fixture(dong_name: &str, ho_name: &str) -> BuildingUnitRow {
+    BuildingUnitRow {
+        id: Uuid::now_v7(),
+        parcel_id: Uuid::now_v7(),
+        building_id: Some(Uuid::now_v7()),
+        building_name: "본관".to_owned(),
+        dong_name: dong_name.to_owned(),
+        ho_name: ho_name.to_owned(),
+        floor_label: "12층".to_owned(),
+        exclusive_area_m2: Some(84.5),
+        usage_name: "공장".to_owned(),
+        structure_name: "철골".to_owned(),
+    }
+}
+
+/// The unit wire shape carries the link, and carries its absence.
+#[test]
+fn unit_response_carries_the_building_link_even_when_null() {
+    let linked = unit_row_fixture("101동", "101호");
+    let mut unlinked = unit_row_fixture("101동", "102호");
+    unlinked.building_id = None;
+
+    assert_eq!(unit_response(&linked).building_id, linked.building_id);
+    assert_eq!(unit_response(&unlinked).building_id, None);
 }
 
 /// The manufacturer wire shape still omits the business registration number.
