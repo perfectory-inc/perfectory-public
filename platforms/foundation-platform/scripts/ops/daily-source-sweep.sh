@@ -42,15 +42,16 @@ on_error() {
 }
 trap 'on_error ${LINENO}' ERR
 
-# recovery.env 는 DATABASE_URL 을 들고 있지 않다 — postgres 컨테이너와 같은 재료로 조립한다.
+# recovery.env 는 DATABASE_URL 을 들고 있지 않다 — compose 가 postgres 를 세우는 것과 같은
+# 재료로 조립한다: 사용자는 docker-compose.yml 이 고정한 foundation_admin, 비밀번호는
+# recovery.env 의 FOUNDATION_ADMIN_PASSWORD (2026-09-04 첫 발사가 이 이름 어긋남으로 죽었다).
 if [ -z "${DATABASE_URL:-}" ]; then
-  : "${POSTGRES_USER:?recovery.env must provide POSTGRES_USER}"
-  : "${POSTGRES_PASSWORD:?recovery.env must provide POSTGRES_PASSWORD}"
+  : "${FOUNDATION_ADMIN_PASSWORD:?recovery.env must provide FOUNDATION_ADMIN_PASSWORD}"
   DATABASE_URL="$(python3 - <<PY
 import os, urllib.parse
 q = lambda s: urllib.parse.quote(s, safe=str())
 port = os.environ.get("FOUNDATION_DB_PORT", "15434")
-print("postgres://" + q(os.environ["POSTGRES_USER"]) + ":" + q(os.environ["POSTGRES_PASSWORD"])
+print("postgres://foundation_admin:" + q(os.environ["FOUNDATION_ADMIN_PASSWORD"])
       + "@127.0.0.1:" + port + "/foundation")
 PY
 )"
