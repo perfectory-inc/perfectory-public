@@ -139,10 +139,17 @@ pub fn row_to_parcel(row: &PgRow) -> Result<Parcel, CatalogError> {
     })
 }
 
+/// The `catalog.building` columns [`row_to_building`] reads, table-aliased `b`, held once so a
+/// query cannot select fewer columns than the mapper decodes (the industrial-complex precedent).
+pub const BUILDING_COLUMNS: &str = "b.id, b.parcel_id, b.register_pk, b.purpose_code, \
+     b.structure_code, b.floor_area_m2, b.stories, b.below_ground_floors, b.has_rooftop, \
+     b.rooftop_area_m2, b.rooftop_usage, b.built_year, b.updated_at";
+
 pub fn row_to_building(row: &PgRow) -> Result<Building, CatalogError> {
     Ok(Building {
         id: BuildingId::new(row.try_get::<Uuid, _>("id").map_err(map_sqlx)?),
         parcel_id: ParcelId::new(row.try_get::<Uuid, _>("parcel_id").map_err(map_sqlx)?),
+        register_pk: row.try_get("register_pk").map_err(map_sqlx)?,
         purpose_code: row.try_get("purpose_code").map_err(map_sqlx)?,
         structure_code: row.try_get("structure_code").map_err(map_sqlx)?,
         floor_area_m2: row.try_get("floor_area_m2").map_err(map_sqlx)?,

@@ -224,21 +224,25 @@ pub struct ParcelResponse {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Canonical building response for buildings assigned to industrial-complex parcels.
+/// Canonical building response.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct BuildingResponse {
     /// Stable foundation-platform identifier for the building.
     pub id: Uuid,
     /// Parcel that owns this building.
     pub parcel_id: Uuid,
-    /// Source building purpose code.
-    pub purpose_code: String,
-    /// Source building structure code.
-    pub structure_code: String,
-    /// Official floor area in square meters.
-    pub floor_area_m2: f64,
-    /// Number of above-ground stories.
-    pub stories: i16,
+    /// Natural key: the title-register record (관리대장 PK) this building was loaded from —
+    /// the name a person calls the building by (ADR-0076 §2).
+    pub register_pk: String,
+    /// Source building purpose code. `null` when the register stated nothing (ADR-0076 §1).
+    pub purpose_code: Option<String>,
+    /// Source building structure code. `null` when the register stated nothing.
+    pub structure_code: Option<String>,
+    /// Official floor area (연면적) in square meters. `null` when the register wrote 0 or
+    /// nothing.
+    pub floor_area_m2: Option<f64>,
+    /// Number of above-ground stories. `null` when the register stated nothing.
+    pub stories: Option<i16>,
     /// Number of below-ground (basement) floors. `0` when none or unknown.
     pub below_ground_floors: i16,
     /// Whether the building has a rooftop (옥탑) structure counted as a floor.
@@ -250,8 +254,9 @@ pub struct BuildingResponse {
     /// 옥탑 용도 (주용도 · 기타용도) reconciled from 전유공용면적. Empty when the
     /// building has no rooftop.
     pub rooftop_usage: String,
-    /// Construction year from the official source.
-    pub built_year: i32,
+    /// Construction-approval year from the official source. `null` when the register states
+    /// no plausible date — never fabricated.
+    pub built_year: Option<i32>,
     /// UTC timestamp of the last canonical Catalog update.
     pub updated_at: DateTime<Utc>,
 }
@@ -263,6 +268,10 @@ pub struct UnitResponse {
     pub id: Uuid,
     /// Parcel that owns this unit.
     pub parcel_id: Uuid,
+    /// Building this unit hangs in (ADR-0074). `null` when the register's own link was
+    /// unresolved or the building is absent from the catalog — hiding it would claim every
+    /// unit is linked, which is not what was measured (ADR-0076 §4).
+    pub building_id: Option<Uuid>,
     /// 건물명 (normalized building name, may be empty).
     pub building_name: String,
     /// 동명칭 — only real 동 numbers; empty otherwise.
@@ -278,6 +287,19 @@ pub struct UnitResponse {
     pub usage_name: String,
     /// 구조명, reconciled from 전유공용면적. Empty when unmatched.
     pub structure_name: String,
+}
+
+/// One keyset page of a building's units (ADR-0076 §3).
+///
+/// Born paginated: a single building holds up to 5,372 measured units, and a list that grows
+/// with the resource must never be an unbounded array. `next_cursor` is opaque — a caller
+/// passes it back verbatim and never parses it.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct UnitPageResponse {
+    /// The page of units, ordered `(dong_name, ho_name, id)`.
+    pub items: Vec<UnitResponse>,
+    /// Cursor for the next page; `null` when this page is the last.
+    pub next_cursor: Option<String>,
 }
 
 /// Manufacturer read response that deliberately omits sensitive business identifiers.

@@ -1349,6 +1349,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "base64",
  "catalog-application",
  "catalog-domain",
  "catalog-infrastructure",

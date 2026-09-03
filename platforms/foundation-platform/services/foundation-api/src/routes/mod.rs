@@ -76,6 +76,7 @@ fn application_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(system_routes())
         .merge(complex_catalog_routes(state))
         .merge(parcel_catalog_routes(state))
+        .merge(building_catalog_routes(state))
         .merge(lakehouse_catalog_routes(state))
         .merge(map_catalog_routes(state))
         .merge(internal_routes(state))
@@ -238,6 +239,39 @@ fn parcel_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                 patch(catalog::update_parcel_kind),
                 state,
                 STAFF_CATALOG_WRITE,
+                Some("id"),
+            ),
+        )
+}
+
+fn building_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
+    Router::new()
+        .route(
+            "/catalog/v1/buildings/{id}",
+            protected_route(
+                get(catalog::get_building),
+                state,
+                SERVICE_CATALOG_READ,
+                Some("id"),
+            ),
+        )
+        // The natural-key alias mirrors parcels' by-pnu precedent: the register PK is the name
+        // a person calls the building by, and the key a reload upserts on (ADR-0076 §2).
+        .route(
+            "/catalog/v1/buildings/by-register-pk/{register_pk}",
+            protected_route(
+                get(catalog::get_building_by_register_pk),
+                state,
+                SERVICE_CATALOG_READ,
+                Some("register_pk"),
+            ),
+        )
+        .route(
+            "/catalog/v1/buildings/{id}/units",
+            protected_route(
+                get(catalog::list_building_units),
+                state,
+                SERVICE_CATALOG_READ,
                 Some("id"),
             ),
         )
