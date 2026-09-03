@@ -210,21 +210,23 @@ sudo scripts/deploy/foundation-runtime.sh up -d foundation-api
 
 ## 알림은 슬랙에 닿는다
 
-Alertmanager 의 `prelaunch-audit` 수신자는 슬랙 incoming webhook 으로 보낸다. webhook URL 은
-자격증명이므로 저장소에 없다 — 서버의 파일 하나가 정본이고, 없으면 Alertmanager 가 건강 검사에
-실패하며 `foundation-api` 의 `depends_on` 이 다음 배포를 막는다. 받을 곳 없는 수신자가 조용히
-여섯 주를 버린 사건이 이 결합의 근거다.
+Alertmanager 의 `prelaunch-audit` 수신자는 슬랙 봇 토큰으로 `chat.postMessage` 에 보낸다
+(웹훅 대신 토큰은 2026-09-03 소유자 결정). 토큰은 자격증명이므로 저장소에 없다 — 서버의 파일
+하나가 정본이고, 없으면 Alertmanager 가 건강 검사에 실패하며 `foundation-api` 의 `depends_on` 이
+다음 배포를 막는다. 받을 곳 없는 수신자가 조용히 여섯 주를 버린 사건이 이 결합의 근거다.
 
-1. 슬랙 워크스페이스에서 incoming webhook 을 만든다: 앱 관리 → Incoming Webhooks →
-   채널 선택 → URL 복사. (URL 을 만든 채널로만 배달된다.)
+1. 슬랙 앱을 만들고 봇 토큰을 발급한다: api.slack.com/apps → Create New App →
+   OAuth & Permissions 의 Bot Token Scopes 에 `chat:write` + `chat:write.public` →
+   Install to Workspace → Bot User OAuth Token(`xoxb-…`) 복사. 대상 채널은
+   `alertmanager.yml` 의 `channel` 값이다.
 2. 서버에 파일로 둔다 (한 줄, 개행 하나):
 
 ```bash
 sudo install -d -m 0750 -g docker /etc/foundation-platform/secrets
-# URL 은 셸 히스토리에 남지 않게 표준입력으로 넣는다.
-sudo tee /etc/foundation-platform/secrets/alertmanager-slack-webhook-url >/dev/null
-sudo chmod 0640 /etc/foundation-platform/secrets/alertmanager-slack-webhook-url
-sudo chgrp docker /etc/foundation-platform/secrets/alertmanager-slack-webhook-url
+# 토큰은 셸 히스토리에 남지 않게 표준입력으로 넣는다.
+sudo tee /etc/foundation-platform/secrets/alertmanager-slack-bot-token >/dev/null
+sudo chmod 0640 /etc/foundation-platform/secrets/alertmanager-slack-bot-token
+sudo chgrp docker /etc/foundation-platform/secrets/alertmanager-slack-bot-token
 ```
 
 3. Alertmanager 를 다시 띄우고, **배달을 증명한다** — 설정이 실렸다는 것과 슬랙에 닿았다는
@@ -238,8 +240,9 @@ curl -sS -XPOST 127.0.0.1:19093/api/v2/alerts -H 'Content-Type: application/json
      "annotations":{"summary":"배달 증명 시험 알림 — 이 메시지가 슬랙에 보이면 성공"}}]'
 ```
 
-슬랙 채널에 메시지가 도착해야 완료다. 도착하지 않으면 `docker logs` 에서 Alertmanager 의
-notify 오류를 본다.
+슬랙 채널에 메시지가 도착해야 완료다 — **이 확인은 생략할 수 없다.** 슬랙 Web API 는 채널
+오타·토큰 회수 같은 논리 실패에도 HTTP 200 을 돌려주므로, Alertmanager 로그가 조용하다는 것은
+배달의 증거가 아니다. 도착하지 않으면 토큰 파일과 `channel` 값을 먼저 의심한다.
 
 ## 복구 리허설
 
