@@ -129,3 +129,63 @@ Live write에는 기존 Bronze 저장 설정도 필요하다.
 7. evidence JSON에는 `max_in_flight`와 각 job의 성공/실패를 남긴다.
 8. evidence의 job 순서는 병렬 완료 순서가 아니라 plan 순서로 고정한다.
 9. 실패가 하나라도 있으면 전체 evidence 상태는 `blocked`다.
+
+## 매일 훑기 (root ADR-0077)
+
+서버의 systemd 타이머가 위 두 명령(plan → ingest)을 매일 새벽 돌린다. 이미 가진 파일은
+provider 파일 id 지문으로 받기 전에 건너뛰므로, 신규가 없는 날은 다운로드 0건으로 끝나고
+`/var/lib/foundation-platform/source-sweep/journal.log` 에 한 줄이 남는다. 신규가 있으면
+슬랙 `#alerts` 로 파일 목록이 온다 — 그 알림이 "오늘 반영하라"는 신호다(반영 자동화는
+ADR-0077 §5 가 다음 결정으로 명명).
+
+### 설치 (서버 1회)
+
+1. **sweep 전용 환경 파일.** recovery.env 에 없는 값만 담는다 (Bronze 쓰기 자격):
+
+```bash
+sudo tee /etc/foundation-platform/source-sweep.env >/dev/null <<'ENV'
+FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER=r2
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT=...
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=...
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID=...
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=...
+ENV
+sudo chmod 0640 /etc/foundation-platform/source-sweep.env
+sudo chgrp foundation-platform /etc/foundation-platform/source-sweep.env
+```
+
+2. **슬랙 토큰을 sweep 도 읽게 한다.** Alertmanager(uid 65534)와 sweep 사용자 둘 다:
+
+```bash
+sudo chown 65534:foundation-platform /etc/foundation-platform/secrets/alertmanager-slack-bot-token
+sudo chmod 0440 /etc/foundation-platform/secrets/alertmanager-slack-bot-token
+```
+
+3. **퍼블리셔 바이너리 사본.** sweep 은 릴리스에서 빌드한 서버 사본을 쓴다. 배포 후
+   바이너리를 다시 빌드했으면 이 사본도 갱신한다:
+
+```bash
+sudo install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/bin
+sudo install -o foundation-platform -g foundation-platform -m 0755 \
+  ~perfectory/publisher-bin/foundation-outbox-publisher /var/lib/foundation-platform/bin/
+sudo install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/source-sweep
+```
+
+4. **타이머 설치** (백업 타이머의 전례 그대로):
+
+```bash
+sudo install -o root -g root -m 0644 \
+  /opt/foundation-platform/current/infra/systemd/foundation-source-sweep.service \
+  /etc/systemd/system/foundation-source-sweep.service
+sudo install -o root -g root -m 0644 \
+  /opt/foundation-platform/current/infra/systemd/foundation-source-sweep.timer \
+  /etc/systemd/system/foundation-source-sweep.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now foundation-source-sweep.timer
+sudo systemctl start foundation-source-sweep.service
+journalctl -u foundation-source-sweep.service --since today | tail -20
+tail -3 /var/lib/foundation-platform/source-sweep/journal.log
+```
+
+첫 실행이 journal 에 한 줄을 남기고 끝나야 운영으로 인정한다(백업 타이머의 규칙). 첫
+실행은 마지막 수동 수집 이후 쌓인 신규 월분을 실제로 받으므로 오래 걸릴 수 있다.

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Foundation Platform source sweep daily (ADR-0077)
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=foundation-source-sweep.service
+
+[Install]
+WantedBy=timers.target
