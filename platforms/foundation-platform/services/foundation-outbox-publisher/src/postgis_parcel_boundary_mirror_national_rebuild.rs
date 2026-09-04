@@ -1555,8 +1555,10 @@ mod tests {
 
     #[test]
     fn a_contract_that_loads_both_bands_is_refused() {
-        let contract = contract_fixture(1, r#""#)
-            .replace(r#""load_granularity": "sigungu""#, r#""load_granularity": "sido""#);
+        let contract = contract_fixture(1, r#""#).replace(
+            r#""load_granularity": "sigungu""#,
+            r#""load_granularity": "sido""#,
+        );
         let error = handoff_objects_from_source_contract(&contract)
             .err()
             .map(|error| error.to_string())

@@ -132,6 +132,8 @@ fn write_remote_only_sealer_env(server: &MockServer, run_id: Uuid) -> TestResult
 }
 
 fn write_ready_national_approval_check(fixture: &Fixture) -> TestResult<PathBuf> {
+    // The writer validates the operator approval artifact itself (root ADR-0082), so the
+    // fixture carries the artifact's own field contract rather than a check report's.
     let path = std::env::temp_dir().join(format!(
         "perfectory-parcel-national-approval-check-{}.json",
         fixture.first_run_id
@@ -140,11 +142,14 @@ fn write_ready_national_approval_check(fixture: &Fixture) -> TestResult<PathBuf>
         &path,
         serde_json::to_vec(&serde_json::json!({
             "schema_version": "foundation-platform.national_data_collection_rollout_approval.v1",
-            "status": "ready",
             "approved": true,
             "approved_scope": "national",
             "national_rollout_allowed": true,
-            "blockers": []
+            "quota_plan_reviewed": true,
+            "rollback_plan_reviewed": true,
+            "approved_by": "integration-test-operator",
+            "operator_instruction": "publish the national parcels",
+            "approved_at_utc": chrono::Utc::now().to_rfc3339()
         }))?,
     )?;
     Ok(path)
@@ -164,7 +169,7 @@ async fn writer_output(
             run_id.to_string(),
         )
         .env(
-            "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_NATIONAL_ROLLOUT_APPROVAL_CHECK_PATH",
+            "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_NATIONAL_ROLLOUT_APPROVAL_PATH",
             approval_path,
         )
         .env(
