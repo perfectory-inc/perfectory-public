@@ -9,7 +9,11 @@ pub const EXECUTION_SCHEMA_VERSION: &str =
     "foundation-platform.parcel_publication_execution_evidence.v1";
 pub const QUALITY_SCHEMA_VERSION: &str = "foundation-platform.parcel_publication_quality.v1";
 pub const PARCEL_LOGICAL_TABLE: &str = "silver.parcel_boundaries";
-pub const GEOMETRY_REPAIR_STRATEGY: &str = "postgis-make-valid-v1";
+// v2: repair runs on both sides of the reprojection. The mirror's CHECK guards validity in
+// EPSG:5179, and ST_Transform can re-introduce self-intersection into a geometry that was
+// valid in 4326 — measured 2026-09-05 on silver-handoff object 30563-109, which failed the
+// national load at 13.87M rows under v1's pre-transform-only repair.
+pub const GEOMETRY_REPAIR_STRATEGY: &str = "postgis-make-valid-both-sides-of-transform-v2";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]

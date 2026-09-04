@@ -1044,14 +1044,22 @@ async fn insert_stage_into_mirror(
              geometry_checksum_sha256,
              properties,
              ST_Multi(
-                 ST_Transform(
-                     ST_CollectionExtract(
-                         ST_MakeValid(
-                             ST_SetSRID(ST_GeomFromWKB(decode(geometry_wkb_hex, 'hex')), 4326)
-                         ),
-                         3
+                 ST_CollectionExtract(
+                     ST_MakeValid(
+                         ST_Transform(
+                             ST_CollectionExtract(
+                                 ST_MakeValid(
+                                     ST_SetSRID(
+                                         ST_GeomFromWKB(decode(geometry_wkb_hex, 'hex')),
+                                         4326
+                                     )
+                                 ),
+                                 3
+                             ),
+                             5179
+                         )
                      ),
-                     5179
+                     3
                  )
              ),
              now(),
