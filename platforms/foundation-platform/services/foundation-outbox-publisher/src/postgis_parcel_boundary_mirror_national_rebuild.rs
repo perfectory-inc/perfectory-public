@@ -1523,15 +1523,15 @@ mod tests {
     fn the_contract_derives_the_complete_sigungu_handoff_set_and_nothing_else() -> TestResult {
         let contract = contract_fixture(
             2,
-            r#"{"object_key": "bronze/source=vworldkr__parcel/30563-1.zip", "granularity": "sigungu"},
-               {"object_key": "bronze/source=vworldkr__parcel/30563-2.zip", "granularity": "sigungu"},
-               {"object_key": "bronze/source=vworldkr__parcel/30563-9.zip", "granularity": "sido"}"#,
+            r#"{"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-1.zip", "granularity": "sigungu"},
+               {"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-2.zip", "granularity": "sigungu"},
+               {"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-9.zip", "granularity": "sido"}"#,
         );
         let objects = handoff_objects_from_source_contract(&contract)?;
         assert_eq!(objects.len(), 2);
         assert_eq!(
             objects[0].object_key,
-            "silver-handoff/vworldkr__parcel/30563-1.jsonl.gz"
+            "silver-handoff/vworldkr__parcel/20991231DS99990-1.jsonl.gz"
         );
         assert_eq!(objects[0].row_count, None);
         Ok(())
@@ -1541,7 +1541,7 @@ mod tests {
     fn a_partial_sigungu_set_cannot_claim_the_national_scope() {
         let contract = contract_fixture(
             3,
-            r#"{"object_key": "bronze/source=vworldkr__parcel/30563-1.zip", "granularity": "sigungu"}"#,
+            r#"{"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-1.zip", "granularity": "sigungu"}"#,
         );
         let error = handoff_objects_from_source_contract(&contract)
             .err()
