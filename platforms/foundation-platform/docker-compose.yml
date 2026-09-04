@@ -30,6 +30,11 @@ services:
       - pgdata:/var/lib/postgresql/data
       # Initialize the Foundation database namespace.
       - ./infra/db/init:/docker-entrypoint-initdb.d:ro
+      # Bulk projection tablespaces live outside the data volume so a national-scale
+      # projection (the parcel mirror is ~40M multipolygon rows) lands on the host's
+      # large disk instead of filling the system one. Empty default keeps local stacks
+      # unchanged; the host env file points it at the bulk disk (root ADR-0082).
+      - ${FOUNDATION_PLATFORM_POSTGRES_TABLESPACE_ROOT:-./target/postgres-tablespaces}:/tablespaces
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U foundation_admin -d foundation"]
       interval: 5s

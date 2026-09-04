@@ -48,7 +48,7 @@ pub async fn seed_parcel_source_evidence(
                      'nonpositive_area_count', 0,
                      'source_srid', 'EPSG:4326',
                      'target_srid', 'EPSG:5179',
-                     'geometry_repair_strategy', 'postgis-make-valid-v1'
+                     'geometry_repair_strategy', 'postgis-make-valid-both-sides-of-transform-v2'
                  ), '{"kind":"national","complete":true}'::jsonb,
                  '{"object_limit":null,"row_limit":null,"shard_limit":null}'::jsonb,
                  now())"#,

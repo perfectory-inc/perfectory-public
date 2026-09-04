@@ -287,7 +287,7 @@ SET
         'nonpositive_area_count', 0,
         'source_srid', 'EPSG:4326',
         'target_srid', 'EPSG:5179',
-        'geometry_repair_strategy', 'postgis-make-valid-v1'
+        'geometry_repair_strategy', 'postgis-make-valid-both-sides-of-transform-v2'
     ),
     finished_at = TIMESTAMPTZ '2026-07-21 00:00:01+00',
     error_message = NULL,

@@ -754,7 +754,7 @@ fn complete_quality_report() -> JsonValue {
         "nonpositive_area_count": 0,
         "source_srid": "EPSG:4326",
         "target_srid": "EPSG:5179",
-        "geometry_repair_strategy": "postgis-make-valid-v1"
+        "geometry_repair_strategy": "postgis-make-valid-both-sides-of-transform-v2"
     })
 }
 
