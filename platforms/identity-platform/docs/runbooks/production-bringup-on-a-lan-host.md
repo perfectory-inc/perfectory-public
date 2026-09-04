@@ -93,12 +93,14 @@ compose 에서 `policy-worker` 프로필 뒤에 있어 기본 `up` 에서 빠진
 
 ```
 scripts/deploy/identity-runtime.sh build identity-api
-scripts/deploy/identity-runtime.sh up -d --wait identity-api
+scripts/deploy/identity-runtime.sh up -d --wait identity-api zitadel-loopback
 curl -sf http://127.0.0.1:18082/healthz && curl -sf http://127.0.0.1:18082/readyz
 ```
 
-`readyz` 503 은 대개 DB 아니면 issuer 도달 실패다 — 사이드카가 함께 떴는지
-(`docker ps | grep zitadel-loopback`) 먼저 본다.
+**사이드카는 반드시 이름으로 부른다.** compose 는 의존 화살표 방향으로만 끌어올리므로
+`up identity-api` 는 api 에 의존하는 사이드카를 안 띄운다 — 첫 기동에서 이대로
+`readyz` 200 인데 판정만 500 이 났다(JWKS 를 자기 루프백에서 못 가져옴). 확인은
+`docker ps | grep zitadel-loopback`.
 
 ## 4. foundation 전환
 

@@ -235,7 +235,12 @@ migrate_runtime() {
   # `foundation-api` is the last link, so requiring it requires all of them, in the order the
   # compose file owns. `--wait` makes the command finish when the state is reached rather than
   # when the request was accepted.
-  "${runtime}" up -d --wait foundation-api
+  #
+  # The identity loopback sidecars are named too, and not redundantly: they depend on
+  # foundation-api, and compose only pulls dependencies in the direction of the arrow —
+  # naming the api alone leaves its own loopback listeners down, which surfaced on the
+  # first identity bring-up as policy calls dying inside a healthy-looking container.
+  "${runtime}" up -d --wait foundation-api identity-zitadel-loopback identity-api-loopback
   verify_runtime_schema
 }
 
