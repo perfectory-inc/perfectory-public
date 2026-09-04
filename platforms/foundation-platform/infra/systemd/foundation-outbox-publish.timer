@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Foundation Platform outbox publish tick every 30 minutes (ADR-0079)
+
+[Timer]
+OnCalendar=*-*-* *:00/30:00
+Persistent=true
+RandomizedDelaySec=2m
+Unit=foundation-outbox-publish.service
+
+[Install]
+WantedBy=timers.target
