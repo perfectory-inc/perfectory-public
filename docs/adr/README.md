@@ -92,3 +92,4 @@ last_reviewed: 2026-07-28
 - [0079 — outbox 는 시간표 위의 우체부를 갖는다](./0079-the-outbox-gets-a-postman-on-a-schedule.md)
 - [0080 — 발급자는 모든 루프백에서 응답한다](./0080-the-issuer-answers-on-every-loopback.md)
 - [0081 — 신원 엔드포인트는 계약 하나에서 파생된다](./0081-identity-endpoints-derive-from-one-contract.md)
+- [0082 — 필지 미러의 전국 주장은 계약에서 온다](./0082-the-parcel-mirror-takes-its-national-claim-from-the-contract.md)

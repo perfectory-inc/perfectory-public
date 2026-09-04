@@ -315,6 +315,7 @@ enum Command {
     RebuildParcelMarkerAnchorsStreaming,
     RebuildPostgisParcelBoundaryMirror,
     RebuildPostgisParcelBoundaryMirrorNational,
+    RebuildPostgisParcelBoundaryMirrorNationalFromContract,
     AbandonIngestionRun,
     ReconcileBuildingRegister,
     RecordLakehouseBronzeRunEvidence,
@@ -627,6 +628,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::RebuildPostgisParcelBoundaryMirrorNational => {
             Box::pin(postgis_parcel_boundary_mirror_national_rebuild::run())
+        }
+        Command::RebuildPostgisParcelBoundaryMirrorNationalFromContract => {
+            Box::pin(postgis_parcel_boundary_mirror_national_rebuild::run_from_contract())
         }
         Command::IngestBuildingRegister => Box::pin(building_register_ingest::run()),
         Command::RunBuildingRegisterLocalBronzeProof => {
@@ -1243,6 +1247,9 @@ where
         }
         Some("rebuild-postgis-parcel-boundary-mirror-national") => {
             Ok(Command::RebuildPostgisParcelBoundaryMirrorNational)
+        }
+        Some("rebuild-postgis-parcel-boundary-mirror-national-from-contract") => {
+            Ok(Command::RebuildPostgisParcelBoundaryMirrorNationalFromContract)
         }
         Some("abandon-ingestion-run") => Ok(Command::AbandonIngestionRun),
         Some("reconcile-building-register") => Ok(Command::ReconcileBuildingRegister),

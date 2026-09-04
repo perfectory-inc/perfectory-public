@@ -8,8 +8,10 @@ use std::{
 use anyhow::{bail, Context};
 use chrono::Utc;
 use foundation_outbox::R2ObjectStorage;
+use lakehouse_application::ports::LakehouseCatalog;
+use lakehouse_infrastructure::IcebergRestCatalog;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use sqlx::{Connection, Executor, PgConnection};
 use uuid::Uuid;
 
@@ -17,6 +19,7 @@ use crate::parcel_publication_contract::{
     ParcelPublicationQuality, GEOMETRY_REPAIR_STRATEGY, PARCEL_LOGICAL_TABLE,
     QUALITY_SCHEMA_VERSION,
 };
+use crate::r2_command_support::lakehouse_catalog_config_from_env_file;
 
 const SUMMARY_SCHEMA_VERSION: &str =
     "foundation-platform.postgis_parcel_boundary_mirror_national_rebuild_summary.v1";
@@ -34,6 +37,51 @@ const DEFAULT_MAX_BOUNDED_ROW_COUNT: u64 = 1_000_000;
 pub async fn run() -> anyhow::Result<()> {
     let config = RebuildConfig::from_env()?;
     let evidence = read_execution_evidence(&config.execution_evidence_path)?;
+    run_with(config, evidence).await
+}
+
+/// Runs the contract-driven national rebuild (root ADR-0082): the ADR-0067 source contract
+/// derives the complete sigungu handoff set, the operator supplies the measured national row
+/// count, and the named snapshot must be the table's current one — a mirror of anything other
+/// than silver's present truth refuses to exist.
+pub async fn run_from_contract() -> anyhow::Result<()> {
+    let (config, contract_path, env_file) = RebuildConfig::from_env_for_contract()?;
+    let contract_json = fs::read_to_string(&contract_path).with_context(|| {
+        format!(
+            "failed to read parcel source contract {}",
+            contract_path.display()
+        )
+    })?;
+    let objects = handoff_objects_from_source_contract(&contract_json)?;
+    let expected_row_count = config
+        .expected_row_count
+        .context("contract rebuild requires an expected row count")?;
+    let evidence = ExecutionEvidence {
+        object_count: u64::try_from(objects.len()).context("object count overflow")?,
+        expected_row_count,
+        objects,
+    };
+
+    let catalog = IcebergRestCatalog::new(lakehouse_catalog_config_from_env_file(&env_file)?)
+        .context("failed to initialise Iceberg REST catalog for the contract rebuild")?;
+    let current = catalog
+        .get_current_snapshot(PARCEL_LOGICAL_TABLE)
+        .await
+        .context("failed to load the current silver.parcel_boundaries snapshot")?
+        .context("silver.parcel_boundaries has no current snapshot")?;
+    let current_snapshot = format!("iceberg:{}", current.snapshot_id);
+    if config.source_snapshot_id != current_snapshot {
+        bail!(
+            "the named snapshot {} is not the table's current snapshot {current_snapshot}; a \
+             national mirror may only state silver's present truth",
+            config.source_snapshot_id
+        );
+    }
+
+    run_with(config, evidence).await
+}
+
+async fn run_with(config: RebuildConfig, evidence: ExecutionEvidence) -> anyhow::Result<()> {
     let rebuild_run_id = Uuid::now_v7();
     let mut conn = PgConnection::connect(&config.database_url)
         .await
@@ -82,6 +130,19 @@ struct RebuildConfig {
     max_bounded_row_count: u64,
     copy_buffer_bytes: usize,
     summary_path: Option<PathBuf>,
+    scope: RunScopeKind,
+}
+
+/// Which publication scope this rebuild's run row states (root ADR-0082).
+///
+/// Bounded is the QA lane and stays capped; the contract lane may state the national scope
+/// because completeness is proven upstream — the derived object set must equal the ADR-0067
+/// contract's whole sigungu band and the operator's national row count must match what was
+/// actually copied, or the run fails instead of shrinking its claim.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RunScopeKind {
+    Bounded,
+    NationalFromContract,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -90,8 +151,12 @@ pub struct HandoffObject {
     pub shard_id: String,
     /// R2 object key containing the shard JSONL handoff.
     pub object_key: String,
-    /// Expected JSONL row count for this object.
-    pub row_count: u64,
+    /// Expected JSONL row count for this object, when the evidence names one.
+    ///
+    /// The API-lane execution evidence carries a per-shard count; the ADR-0067 contract names
+    /// objects without row counts, so its loads are judged on the national total instead
+    /// (root ADR-0082).
+    pub row_count: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -131,7 +196,8 @@ struct RebuildSummary {
 struct ObjectLoadSummary {
     shard_id: String,
     object_key: String,
-    expected_row_count: u64,
+    /// Absent for contract-lane objects, whose row counts are judged on the national total.
+    expected_row_count: Option<u64>,
     copied_row_count: u64,
     inserted_row_count: u64,
 }
@@ -258,7 +324,69 @@ impl RebuildConfig {
                 "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_SUMMARY_PATH",
             )?
             .map(PathBuf::from),
+            scope: RunScopeKind::Bounded,
         })
+    }
+
+    /// Environment for the contract-driven national rebuild (root ADR-0082).
+    ///
+    /// The expected national row count is required here: with no per-object counts in the
+    /// contract, the total is the load's only row-count gate, and it must be an operator-measured
+    /// value rather than whatever happened to arrive.
+    fn from_env_for_contract() -> anyhow::Result<(Self, PathBuf, PathBuf)> {
+        let confirm =
+            optional_env("FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_CONFIRM_REBUILD")?
+                .unwrap_or_default();
+        if !confirm.eq_ignore_ascii_case("true") {
+            bail!(
+                "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_CONFIRM_REBUILD must be true"
+            );
+        }
+        let source_snapshot_id =
+            required_env("FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_SOURCE_SNAPSHOT_ID")?;
+        validate_source_snapshot_id(source_snapshot_id.as_str())?;
+        let expected_row_count = parse_positive_u64(
+            &required_env("FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_EXPECTED_ROW_COUNT")?,
+            "expected row count",
+        )?;
+        let contract_path = PathBuf::from(
+            optional_env(
+                "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_SOURCE_CONTRACT_PATH",
+            )?
+            .unwrap_or_else(|| {
+                "infra/lakehouse/contracts/vworld-parcel-source-objects.json".to_owned()
+            }),
+        );
+        let env_file = PathBuf::from(
+            optional_env("FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_ENV_FILE")?
+                .unwrap_or_else(|| ".env.local".to_owned()),
+        );
+        let copy_buffer_bytes =
+            optional_env("FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_COPY_BUFFER_BYTES")?
+                .map(|value| parse_copy_buffer_bytes(&value))
+                .transpose()?
+                .unwrap_or(DEFAULT_COPY_BUFFER_BYTES);
+        let config = Self {
+            database_url: required_env("DATABASE_URL")?,
+            execution_evidence_path: contract_path.clone(),
+            source_snapshot_id,
+            source_record_id: parse_uuid_env(
+                "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_SOURCE_RECORD_ID",
+            )?,
+            source_file_asset_id: parse_uuid_env(
+                "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_SOURCE_FILE_ASSET_ID",
+            )?,
+            expected_row_count: Some(expected_row_count),
+            max_bounded_object_count: u64::MAX,
+            max_bounded_row_count: u64::MAX,
+            copy_buffer_bytes,
+            summary_path: optional_env(
+                "FOUNDATION_PLATFORM_POSTGIS_PARCEL_BOUNDARY_MIRROR_SUMMARY_PATH",
+            )?
+            .map(PathBuf::from),
+            scope: RunScopeKind::NationalFromContract,
+        };
+        Ok((config, contract_path, env_file))
     }
 }
 
@@ -308,7 +436,7 @@ fn execution_evidence_from_raw(raw: RawExecutionEvidence) -> anyhow::Result<Exec
         objects.push(HandoffObject {
             shard_id: shard.shard_id,
             object_key: shard.output_object_key,
-            row_count: shard.output_row_count,
+            row_count: Some(shard.output_row_count),
         });
     }
 
@@ -337,7 +465,13 @@ async fn execute_rebuild(
     evidence: &ExecutionEvidence,
     rebuild_run_id: Uuid,
 ) -> anyhow::Result<RebuildSummary> {
-    assert_bounded_db_projection(evidence, config)?;
+    // The caps guard the bounded QA lane. The contract lane replaces them with a stronger pair
+    // of gates already applied by its entry point: the object set must equal the ADR-0067
+    // contract's complete sigungu band, and the operator's national row count must match what is
+    // actually copied (root ADR-0082).
+    if matches!(config.scope, RunScopeKind::Bounded) {
+        assert_bounded_db_projection(evidence, config)?;
+    }
     if let Some(expected_row_count) = config.expected_row_count {
         if expected_row_count != evidence.expected_row_count {
             bail!(
@@ -472,12 +606,23 @@ async fn insert_rebuild_run(
         "geometry_repair_strategy": GEOMETRY_REPAIR_STRATEGY,
         "load_strategy": "r2-jsonl-copy-stage-per-object"
     }))
-    .bind(json!({"kind": "bounded", "complete": false}))
-    .bind(json!({
-        "object_limit": config.max_bounded_object_count,
-        "row_limit": config.max_bounded_row_count,
-        "shard_limit": evidence.object_count
-    }))
+    .bind(match config.scope {
+        RunScopeKind::Bounded => json!({"kind": "bounded", "complete": false}),
+        // The DB CHECK requires all-null limits with the national scope, and the evidence
+        // writer requires exactly this shape — the claim is legal only because the contract
+        // lane proved completeness before this row existed (root ADR-0082).
+        RunScopeKind::NationalFromContract => json!({"kind": "national", "complete": true}),
+    })
+    .bind(match config.scope {
+        RunScopeKind::Bounded => json!({
+            "object_limit": config.max_bounded_object_count,
+            "row_limit": config.max_bounded_row_count,
+            "shard_limit": evidence.object_count
+        }),
+        RunScopeKind::NationalFromContract => {
+            json!({"object_limit": null, "row_limit": null, "shard_limit": null})
+        }
+    })
     .bind(config.source_record_id)
     .bind(config.source_file_asset_id)
     .execute(&mut *conn)
@@ -546,16 +691,30 @@ async fn load_handoff_object(
         .get_object_bytes(object.object_key.as_str())
         .await
         .with_context(|| format!("failed to read R2 handoff object {}", object.object_key))?;
+    // The ADR-0067 contract names its handoff objects with a `.jsonl.gz` suffix; the API-lane
+    // shards are plain. Decoding by suffix keeps one COPY path for both.
+    let object_bytes = if object.object_key.ends_with(".gz") {
+        let mut decoded = Vec::with_capacity(object_bytes.len().saturating_mul(4));
+        std::io::Read::read_to_end(
+            &mut flate2::read::GzDecoder::new(object_bytes.as_slice()),
+            &mut decoded,
+        )
+        .with_context(|| format!("failed to gunzip R2 handoff object {}", object.object_key))?;
+        decoded
+    } else {
+        object_bytes
+    };
 
     let copied_row_count = copy_object_to_stage(conn, object, &object_bytes, copy_buffer_bytes)
         .await
         .with_context(|| format!("failed to copy handoff object {}", object.object_key))?;
-    if copied_row_count != object.row_count {
-        bail!(
-            "handoff object {} row count mismatch: expected={} actual={copied_row_count}",
-            object.object_key,
-            object.row_count
-        );
+    if let Some(expected) = object.row_count {
+        if copied_row_count != expected {
+            bail!(
+                "handoff object {} row count mismatch: expected={expected} actual={copied_row_count}",
+                object.object_key
+            );
+        }
     }
 
     let staged_row_count = count_stage_rows(conn)
@@ -603,6 +762,83 @@ async fn load_handoff_object(
         copied_row_count,
         inserted_row_count,
     })
+}
+
+/// Reads the ADR-0067 parcel source contract and derives the national handoff object set.
+///
+/// The contract is the one list of what the national parcel source is (root ADR-0067); the
+/// handoff keys are derived from it rather than listed a second time, and only the sigungu
+/// granularity loads (loading both bands doubles every parcel).
+pub fn handoff_objects_from_source_contract(
+    contract_json: &str,
+) -> anyhow::Result<Vec<HandoffObject>> {
+    let contract: JsonValue =
+        serde_json::from_str(contract_json).context("parcel source contract is not valid JSON")?;
+    let handoff_prefix = contract
+        .get("handoff_prefix")
+        .and_then(JsonValue::as_str)
+        .context("parcel source contract must name handoff_prefix")?;
+    let handoff_suffix = contract
+        .get("handoff_suffix")
+        .and_then(JsonValue::as_str)
+        .context("parcel source contract must name handoff_suffix")?;
+    let expected_sigungu = contract
+        .get("granularity_counts")
+        .and_then(|counts| counts.get("sigungu"))
+        .and_then(JsonValue::as_u64)
+        .context("parcel source contract must count its sigungu objects")?;
+    let load_granularity = contract
+        .get("load_granularity")
+        .and_then(JsonValue::as_str)
+        .context("parcel source contract must declare load_granularity")?;
+    if load_granularity != "sigungu" {
+        bail!("parcel source contract load_granularity must be sigungu (root ADR-0067)");
+    }
+    let objects = contract
+        .get("objects")
+        .and_then(JsonValue::as_array)
+        .context("parcel source contract must list objects")?;
+
+    let mut handoff = Vec::new();
+    for entry in objects {
+        let granularity = entry
+            .get("granularity")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default();
+        if granularity != "sigungu" {
+            continue;
+        }
+        let object_key = entry
+            .get("object_key")
+            .and_then(JsonValue::as_str)
+            .context("parcel source contract object entry must name object_key")?;
+        let file_name = object_key
+            .rsplit('/')
+            .next()
+            .context("parcel source contract object_key has no file name")?;
+        let stem = file_name
+            .strip_suffix(".zip")
+            .with_context(|| format!("parcel source object {object_key} is not a .zip"))?;
+        let handoff_key = format!("{handoff_prefix}/{stem}{handoff_suffix}");
+        validate_object_key(handoff_key.as_str())?;
+        handoff.push(HandoffObject {
+            shard_id: stem.to_owned(),
+            object_key: handoff_key,
+            row_count: None,
+        });
+    }
+
+    let sigungu_count = u64::try_from(handoff.len()).context("sigungu object count overflow")?;
+    if sigungu_count != expected_sigungu {
+        bail!(
+            "parcel source contract names {expected_sigungu} sigungu objects but {sigungu_count} \
+             were derived; a partial set cannot claim the national scope"
+        );
+    }
+    if handoff.is_empty() {
+        bail!("parcel source contract derived no handoff objects");
+    }
+    Ok(handoff)
 }
 
 async fn copy_object_to_stage(
@@ -1235,6 +1471,7 @@ mod tests {
             max_bounded_row_count: DEFAULT_MAX_BOUNDED_ROW_COUNT,
             copy_buffer_bytes: DEFAULT_COPY_BUFFER_BYTES,
             summary_path: None,
+            scope: RunScopeKind::Bounded,
         };
 
         let error = assert_bounded_db_projection(&evidence, &config)
@@ -1267,6 +1504,67 @@ mod tests {
         assert_eq!(quality.expected_row_count, evidence.expected_row_count);
         assert_eq!(quality.loaded_row_count, validation.loaded_rows);
         assert_eq!(quality.geometry_repair_strategy, GEOMETRY_REPAIR_STRATEGY);
+    }
+
+    fn contract_fixture(sigungu_count: u64, objects: &str) -> String {
+        format!(
+            r#"{{
+                "schema_version": 1,
+                "load_granularity": "sigungu",
+                "granularity_counts": {{"sido": 1, "sigungu": {sigungu_count}}},
+                "handoff_prefix": "silver-handoff/vworldkr__parcel",
+                "handoff_suffix": ".jsonl.gz",
+                "objects": [{objects}]
+            }}"#
+        )
+    }
+
+    #[test]
+    fn the_contract_derives_the_complete_sigungu_handoff_set_and_nothing_else() -> TestResult {
+        let contract = contract_fixture(
+            2,
+            r#"{"object_key": "bronze/source=vworldkr__parcel/30563-1.zip", "granularity": "sigungu"},
+               {"object_key": "bronze/source=vworldkr__parcel/30563-2.zip", "granularity": "sigungu"},
+               {"object_key": "bronze/source=vworldkr__parcel/30563-9.zip", "granularity": "sido"}"#,
+        );
+        let objects = handoff_objects_from_source_contract(&contract)?;
+        assert_eq!(objects.len(), 2);
+        assert_eq!(
+            objects[0].object_key,
+            "silver-handoff/vworldkr__parcel/30563-1.jsonl.gz"
+        );
+        assert_eq!(objects[0].row_count, None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_partial_sigungu_set_cannot_claim_the_national_scope() {
+        let contract = contract_fixture(
+            3,
+            r#"{"object_key": "bronze/source=vworldkr__parcel/30563-1.zip", "granularity": "sigungu"}"#,
+        );
+        let error = handoff_objects_from_source_contract(&contract)
+            .err()
+            .map(|error| error.to_string())
+            .unwrap_or_default();
+        assert!(
+            error.contains("partial set cannot claim the national scope"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_contract_that_loads_both_bands_is_refused() {
+        let contract = contract_fixture(1, r#""#)
+            .replace(r#""load_granularity": "sigungu""#, r#""load_granularity": "sido""#);
+        let error = handoff_objects_from_source_contract(&contract)
+            .err()
+            .map(|error| error.to_string())
+            .unwrap_or_default();
+        assert!(
+            error.contains("load_granularity must be sigungu"),
+            "{error}"
+        );
     }
 
     #[tokio::test]
@@ -1323,6 +1621,7 @@ mod tests {
                 max_bounded_row_count: DEFAULT_MAX_BOUNDED_ROW_COUNT,
                 copy_buffer_bytes: DEFAULT_COPY_BUFFER_BYTES,
                 summary_path: None,
+                scope: RunScopeKind::Bounded,
             };
             let evidence = ExecutionEvidence {
                 object_count: 1,
@@ -1341,6 +1640,7 @@ mod tests {
                 max_bounded_row_count: DEFAULT_MAX_BOUNDED_ROW_COUNT,
                 copy_buffer_bytes: DEFAULT_COPY_BUFFER_BYTES,
                 summary_path: None,
+                scope: RunScopeKind::Bounded,
             };
             let mismatch_error = insert_rebuild_run(
                 &mut conn,

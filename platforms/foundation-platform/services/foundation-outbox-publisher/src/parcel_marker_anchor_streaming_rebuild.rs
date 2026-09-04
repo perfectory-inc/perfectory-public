@@ -371,11 +371,14 @@ async fn load_anchor_object(
         .with_context(|| format!("failed to read R2 handoff object {}", object.object_key))?;
     let copied_row_count =
         copy_object_to_stage(conn, object, &bytes, config.copy_buffer_bytes).await?;
-    if copied_row_count != object.row_count {
+    // The anchor lane consumes API-lane evidence, whose objects always carry a count.
+    let expected_row_count = object
+        .row_count
+        .context("anchor handoff object is missing its expected row count")?;
+    if copied_row_count != expected_row_count {
         bail!(
-            "handoff object {} row count mismatch: expected={} actual={copied_row_count}",
-            object.object_key,
-            object.row_count
+            "handoff object {} row count mismatch: expected={expected_row_count} actual={copied_row_count}",
+            object.object_key
         );
     }
 
@@ -403,7 +406,7 @@ async fn load_anchor_object(
     Ok(AnchorObjectLoadSummary {
         shard_id: object.shard_id.clone(),
         object_key: object.object_key.clone(),
-        expected_row_count: object.row_count,
+        expected_row_count,
         copied_row_count,
         loaded_row_count,
     })
