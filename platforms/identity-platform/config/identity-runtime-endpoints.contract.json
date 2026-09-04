@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "purpose": "The identity runtime's decided endpoint constants live here once (root ADR-0080/0081). Compose files and deploy wrappers derive from this file; a repeated literal anywhere else is the defect the endpoint guard rejects.",
+  "issuer": {
+    "scheme": "http",
+    "host": "127.0.0.1",
+    "loopback_port": 18453,
+    "network_alias": "zitadel"
+  },
+  "identity_api": {
+    "scheme": "http",
+    "host": "127.0.0.1",
+    "loopback_port": 18082,
+    "container_port": 8080,
+    "network_alias": "identity-api"
+  },
+  "shared_network": "identity-shared"
+}

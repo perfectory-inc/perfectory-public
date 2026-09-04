@@ -1,7 +1,8 @@
-# Zitadel for the LAN production host (root ADR-0080).
-# The issuer is http://127.0.0.1:18453 by decision: every consumer reaches this
-# container through a listener on its own loopback, so the port below and the
-# ExternalDomain/ExternalPort pair must stay in lockstep with that ADR.
+# Zitadel for the LAN production host (root ADR-0080/0081).
+# The issuer's decided constants live in config/identity-runtime-endpoints.contract.json
+# and nowhere else: zitadel-runtime.sh derives IDENTITY_ZITADEL_LOOPBACK_PORT from that
+# contract before compose reads this file, so a port literal here would be a second copy
+# of the decision — the endpoint guard rejects exactly that.
 services:
   zitadel-db:
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -27,7 +28,7 @@ services:
     command: ["start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled"]
     environment:
       ZITADEL_MASTERKEY: ${ZITADEL_MASTERKEY:?set ZITADEL_MASTERKEY}
-      ZITADEL_PORT: "18453"
+      ZITADEL_PORT: ${IDENTITY_ZITADEL_LOOPBACK_PORT:?zitadel-runtime.sh derives this from identity-runtime-endpoints.contract.json}
       ZITADEL_DATABASE_POSTGRES_HOST: zitadel-db
       ZITADEL_DATABASE_POSTGRES_PORT: "5432"
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
@@ -39,7 +40,7 @@ services:
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_EXTERNALDOMAIN: 127.0.0.1
-      ZITADEL_EXTERNALPORT: "18453"
+      ZITADEL_EXTERNALPORT: ${IDENTITY_ZITADEL_LOOPBACK_PORT:?zitadel-runtime.sh derives this from identity-runtime-endpoints.contract.json}
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_ADMIN_USERNAME:?set ZITADEL_ADMIN_USERNAME}
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD:?set ZITADEL_ADMIN_PASSWORD}
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
@@ -52,7 +53,9 @@ services:
       ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: OpsBootstrap
       ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: ${ZITADEL_BOOTSTRAP_PAT_EXPIRATION:?set ZITADEL_BOOTSTRAP_PAT_EXPIRATION}
     ports:
-      - "127.0.0.1:18453:18453"
+      # The runtime policy requires a literal container port here; the endpoint
+      # guard keeps both carried numbers equal to the contract.
+      - "127.0.0.1:${IDENTITY_ZITADEL_LOOPBACK_PORT:-18453}:18453"
     volumes:
       - zitadel-init-pat:/pat-out
     networks:

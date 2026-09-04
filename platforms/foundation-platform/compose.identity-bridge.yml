@@ -1,10 +1,17 @@
-# Identity bridge for the foundation runtime (root ADR-0080).
+# Identity bridge for the foundation runtime (root ADR-0080/0081).
 # foundation-api validates identity URLs as https-or-loopback, so the two
 # services it must reach — Zitadel (issuer) and identity-api (policy
 # decisions) — are surfaced on its own loopback by socat sidecars that borrow
 # its network namespace. With the identity stack absent the sidecars merely
 # relay connection failures and protected routes keep answering 503, which is
 # the same value they converge to today.
+#
+# Ports: foundation-runtime.sh derives the listen ports from the operative
+# ZITADEL_ISSUER_URL / IDENTITY_API_BASE_URL in the runtime env file, so the
+# listeners always sit exactly where those URLs point. The defaults below and
+# the alias/container-port literals are checked against the identity
+# platform's endpoint contract by the endpoint guard — they are the carried
+# copy, not the decision.
 services:
   foundation-api:
     networks:
@@ -15,7 +22,9 @@ services:
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     restart: unless-stopped
     network_mode: "service:foundation-api"
-    command: ["TCP-LISTEN:18453,fork,reuseaddr,bind=127.0.0.1", "TCP:zitadel:18453"]
+    command:
+      - "TCP-LISTEN:${FOUNDATION_PLATFORM_IDENTITY_ISSUER_LOOPBACK_PORT:-18453},fork,reuseaddr,bind=127.0.0.1"
+      - "TCP:zitadel:${FOUNDATION_PLATFORM_IDENTITY_ISSUER_LOOPBACK_PORT:-18453}"
     depends_on:
       foundation-api:
         condition: service_started
@@ -24,7 +33,9 @@ services:
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     restart: unless-stopped
     network_mode: "service:foundation-api"
-    command: ["TCP-LISTEN:18082,fork,reuseaddr,bind=127.0.0.1", "TCP:identity-api:8080"]
+    command:
+      - "TCP-LISTEN:${FOUNDATION_PLATFORM_IDENTITY_API_LOOPBACK_PORT:-18082},fork,reuseaddr,bind=127.0.0.1"
+      - "TCP:identity-api:${FOUNDATION_PLATFORM_IDENTITY_API_CONTAINER_PORT:-8080}"
     depends_on:
       foundation-api:
         condition: service_started
