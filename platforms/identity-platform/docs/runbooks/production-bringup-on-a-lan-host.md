@@ -66,8 +66,11 @@ docker run --rm -v zitadel-platform_zitadel-init-pat:/v:ro alpine:3.20 cat /v/pa
    토큰을 거부한다. 액션 본문과 플로 연결의 정본은
    `platforms/foundation-platform/scripts/smoke/identity-foundation-signed-oidc.sh`
    (`principalKind` 로 검색)이다 — `POST /management/v1/actions` 로 만들고, 플로
-   유형 2(토큰 보완)의 트리거 4(pre access token)와 5(pre userinfo)에
-   `PUT /management/v1/flows/2/trigger/{4,5}` 로 붙인다.
+   유형 2(토큰 보완)의 트리거 5(pre access token creation)에 **POST** 로 붙인다
+   (`curl --data-binary … /management/v1/flows/2/trigger/5`). 실측 함정 둘:
+   `-X PUT` 은 405 인데 `&&` 사슬 속에서는 조용히 사라진다 — 붙인 뒤
+   `GET /management/v1/flows/2` 로 `triggerActions` 에 실제로 실렸는지 본다.
+   그리고 붙이기 전에 발급된 토큰에는 클레임이 없다 — 판정은 항상 새 토큰으로.
 3. **워크로드 기계 사용자**: `POST /management/v1/users/machine`
    (`userName: gongzzang-api`), 이어서
    `PUT /management/v1/users/{id}/machine` 으로 `accessTokenType` 을
