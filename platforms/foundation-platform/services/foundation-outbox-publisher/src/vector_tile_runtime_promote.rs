@@ -55,10 +55,13 @@ pub(crate) enum RevisionLedger {
     /// lineage, and name the collected `catalog.bronze_object` its publish was built from
     /// (root ADR-0046). The field is the environment variable carrying that object's id.
     ///
-    /// One variant, because one unit registers here. `catalog.publication_revision` also admits a
-    /// `catalog.source_record` anchor — `publish-parcel-boundary-postgis` writes one — and the arm
-    /// that reads it belongs in this enum on the day a parcels promotion command exists, not before.
+    /// The field is the environment variable carrying that object's id.
     PublicationRevisionOnBronzeObject(&'static str),
+    /// `catalog.publication_revision` anchored on a `catalog.source_record` instead of a collected
+    /// object — the anchor `publish-parcel-boundary-postgis` writes, because a parcels revision is
+    /// published from a sealed Iceberg evidence row (root ADR-0025) whose provenance is a lineage
+    /// record, not one Bronze file. The field is the environment variable carrying that record's id.
+    PublicationRevisionOnSourceRecord(&'static str),
 }
 
 /// Everything that differs between one publication unit's promotion and another's.
@@ -210,6 +213,8 @@ struct Config {
     source_file_asset_id: Uuid,
     /// The collected object the *revision* was published from, for a ledger that names one.
     bronze_object_id: Option<Uuid>,
+    /// The lineage record the *revision* was published from, for a ledger anchored there instead.
+    revision_source_record_id: Option<Uuid>,
     expected_manifest_id: Option<Uuid>,
     release_id: Uuid,
     manifest_id: Uuid,
@@ -265,8 +270,14 @@ impl Config {
             source_record_id: parse_uuid(unit.env.source_record)?,
             source_file_asset_id: parse_uuid(unit.env.source_file_asset)?,
             bronze_object_id: match unit.revision_ledger {
-                RevisionLedger::AdministrativeBoundary => None,
                 RevisionLedger::PublicationRevisionOnBronzeObject(env) => Some(parse_uuid(env)?),
+                RevisionLedger::AdministrativeBoundary
+                | RevisionLedger::PublicationRevisionOnSourceRecord(_) => None,
+            },
+            revision_source_record_id: match unit.revision_ledger {
+                RevisionLedger::PublicationRevisionOnSourceRecord(env) => Some(parse_uuid(env)?),
+                RevisionLedger::AdministrativeBoundary
+                | RevisionLedger::PublicationRevisionOnBronzeObject(_) => None,
             },
             expected_manifest_id: optional_env_value(expected_manifest_env)?
                 .map(|value| {
@@ -357,6 +368,17 @@ async fn verify_inputs(
         .await?;
         if bronze_count != 1 {
             bail!("collected object {bronze_object_id} is not in catalog.bronze_object");
+        }
+    }
+    if let Some(revision_source_record_id) = config.revision_source_record_id {
+        let record_count = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM catalog.source_record WHERE id = $1",
+        )
+        .bind(revision_source_record_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+        if record_count != 1 {
+            bail!("lineage record {revision_source_record_id} is not in catalog.source_record");
         }
     }
     // `catalog.promote_vector_tile_runtime_manifest` refuses on the same conditions and is the
@@ -482,6 +504,50 @@ async fn verify_revision(
             // An industrial-complex or parcels revision asserts nothing about an administrative
             // boundary, which is the distinction `20260731000002` split the ledgers for. A row that
             // carries the lineage anyway is an administrative fact wearing this unit's name.
+            if row
+                .try_get::<Option<Uuid>, _>("derived_from_administrative_revision")?
+                .is_some()
+            {
+                bail!(
+                    "publication revision {} carries administrative lineage; a {} revision has none",
+                    config.data_revision,
+                    unit.label
+                );
+            }
+        }
+        RevisionLedger::PublicationRevisionOnSourceRecord(_) => {
+            let row = sqlx::query(
+                "SELECT revision.canonical_iceberg_snapshot_id, revision.source_record_id,
+                        revision.derived_from_administrative_revision
+                   FROM catalog.publication_revision AS revision
+                   JOIN catalog.vector_tile_publication_unit AS unit
+                     ON unit.id = revision.publication_unit_id
+                  WHERE revision.id = $1 AND unit.unit_key = $2",
+            )
+            .bind(config.data_revision)
+            .bind(unit.unit_key)
+            .fetch_optional(&mut **transaction)
+            .await?
+            .with_context(|| {
+                format!(
+                    "publication revision {} does not exist for unit '{}'",
+                    config.data_revision, unit.unit_key
+                )
+            })?;
+            // `Option` for the same reason as the other arm read in mirror: a revision anchored on
+            // a collected object reads as `None` here and is refused — the provenance it carries is
+            // not the kind this unit's promotion states.
+            if row.try_get::<String, _>("canonical_iceberg_snapshot_id")?
+                != config.canonical_snapshot_id
+                || row.try_get::<Option<Uuid>, _>("source_record_id")?
+                    != config.revision_source_record_id
+            {
+                bail!(
+                    "{} revision provenance is not promotable: the revision was registered against \
+                     another canonical snapshot or another lineage record",
+                    unit.label
+                );
+            }
             if row
                 .try_get::<Option<Uuid>, _>("derived_from_administrative_revision")?
                 .is_some()

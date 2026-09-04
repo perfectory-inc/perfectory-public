@@ -19,7 +19,7 @@ use crate::{
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_CONFIRM";
 const SOURCE_EVIDENCE_ENV: &str =
     "FOUNDATION_PLATFORM_PARCEL_BOUNDARY_POSTGIS_PUBLISH_SOURCE_EVIDENCE_ID";
-const PARCEL_UNIT_KEY: &str = "parcels";
+pub(crate) const PARCEL_UNIT_KEY: &str = "parcels";
 
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;

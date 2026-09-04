@@ -131,6 +131,7 @@ mod page_collector;
 mod page_count_plan_contract;
 mod pagination_guard;
 mod parcel_boundary_postgis_publish;
+mod parcel_boundary_runtime_promote;
 mod parcel_catalog_projection_load;
 mod parcel_marker_anchor_artifact_export;
 mod parcel_marker_anchor_pbf_artifact_build;
@@ -263,6 +264,7 @@ enum Command {
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
     PromoteIndustrialComplexBoundaryRuntime,
+    PromoteParcelBoundaryRuntime,
     CheckIndustrialComplexCanonicalSourceReadiness,
     CheckNationalBronzeObjectManifest,
     ConfigureGitHubActionsSecrets,
@@ -524,6 +526,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PromoteIndustrialComplexBoundaryRuntime => {
             Box::pin(industrial_complex_boundary_runtime_promote::run())
         }
+        Command::PromoteParcelBoundaryRuntime => Box::pin(parcel_boundary_runtime_promote::run()),
         Command::CheckBoundedLiveIngestionGate => {
             Box::pin(async { bounded_live_ingestion_gate_check::run() })
         }
@@ -1081,6 +1084,7 @@ where
         Some("promote-industrial-complex-boundary-runtime") => {
             Ok(Command::PromoteIndustrialComplexBoundaryRuntime)
         }
+        Some("promote-parcel-boundary-runtime") => Ok(Command::PromoteParcelBoundaryRuntime),
         Some("check-bounded-live-ingestion-gate") => Ok(Command::CheckBoundedLiveIngestionGate),
         Some("check-r2-runtime-target") => Ok(Command::CheckR2RuntimeTarget),
         Some("check-postgis-anchor-pbf-regional-proof") => {
