@@ -90,3 +90,4 @@ last_reviewed: 2026-07-28
 - [0077 — 관은 매일 원천을 살핀다](./0077-the-pipe-looks-at-its-sources-every-day.md)
 - [0078 — 공짱은 계보를 서빙하고, 빈 칸을 거짓으로 채우지 않는다](./0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md)
 - [0079 — outbox 는 시간표 위의 우체부를 갖는다](./0079-the-outbox-gets-a-postman-on-a-schedule.md)
+- [0080 — 발급자는 모든 루프백에서 응답한다](./0080-the-issuer-answers-on-every-loopback.md)

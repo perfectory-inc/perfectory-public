@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **403개**
+- 문서 파일: **405개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -17,16 +17,16 @@
 |---|---:|
 | Foundation Platform | 108 |
 | Gongzzang 제품 | 162 |
-| Identity Platform | 16 |
+| Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 101 |
+| Monorepo | 102 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 160 |
+| ADR | 161 |
 | README | 107 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -38,7 +38,7 @@
 | guide | 2 |
 | reference | 15 |
 | roadmap | 3 |
-| runbook | 29 |
+| runbook | 30 |
 
 ## 책임별 문서 트리
 
@@ -336,6 +336,7 @@ platforms/identity-platform/docs/adr/0001-inherit-monorepo-conventions.md
 platforms/identity-platform/docs/adr/README.md
 platforms/identity-platform/docs/openapi/identity.v1.json
 platforms/identity-platform/docs/README.md
+platforms/identity-platform/docs/runbooks/production-bringup-on-a-lan-host.md
 platforms/identity-platform/docs/runbooks/README.md
 platforms/identity-platform/docs/runbooks/workload-identity-provisioning.md
 platforms/identity-platform/README.md
@@ -447,6 +448,7 @@ docs/adr/0076-a-building-answers-for-its-units.md
 docs/adr/0077-the-pipe-looks-at-its-sources-every-day.md
 docs/adr/0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md
 docs/adr/0079-the-outbox-gets-a-postman-on-a-schedule.md
+docs/adr/0080-the-issuer-answers-on-every-loopback.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -560,6 +562,7 @@ tools/github/README.md
 | `docs/adr/0077-the-pipe-looks-at-its-sources-every-day.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0079-the-outbox-gets-a-postman-on-a-schedule.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0080-the-issuer-answers-on-every-loopback.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -696,6 +699,7 @@ tools/github/README.md
 | `platforms/identity-platform/docs/adr/README.md` | Identity Platform | README | current |
 | `platforms/identity-platform/docs/openapi/identity.v1.json` | Identity Platform | contract | current |
 | `platforms/identity-platform/docs/README.md` | Identity Platform | README | current |
+| `platforms/identity-platform/docs/runbooks/production-bringup-on-a-lan-host.md` | Identity Platform | runbook | current |
 | `platforms/identity-platform/docs/runbooks/README.md` | Identity Platform | README | current |
 | `platforms/identity-platform/docs/runbooks/workload-identity-provisioning.md` | Identity Platform | runbook | current |
 | `platforms/identity-platform/README.md` | Identity Platform | README | current |
