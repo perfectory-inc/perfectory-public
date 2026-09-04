@@ -19,11 +19,17 @@ if [[ ! -r "${FOUNDATION_PLATFORM_ENV_FILE}" ]]; then
   exit 66
 fi
 
+# The identity bridge overlay needs the shared network to exist before compose
+# parses it (root ADR-0080); creation is idempotent and owned by no one wrapper.
+docker network inspect identity-shared >/dev/null 2>&1 \
+  || docker network create identity-shared >/dev/null
+
 compose=(
   docker compose
   --project-directory "${root_dir}"
   -f "${root_dir}/docker-compose.yml"
   -f "${root_dir}/compose.recovery.yml"
+  -f "${root_dir}/compose.identity-bridge.yml"
   --project-name "${FOUNDATION_PLATFORM_COMPOSE_PROJECT}"
   --env-file "${FOUNDATION_PLATFORM_ENV_FILE}"
 )

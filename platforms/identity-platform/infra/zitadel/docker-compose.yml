@@ -1,0 +1,73 @@
+# Zitadel for the LAN production host (root ADR-0080).
+# The issuer is http://127.0.0.1:18453 by decision: every consumer reaches this
+# container through a listener on its own loopback, so the port below and the
+# ExternalDomain/ExternalPort pair must stay in lockstep with that ADR.
+services:
+  zitadel-db:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zitadel
+      POSTGRES_USER: zitadel
+      POSTGRES_PASSWORD: ${ZITADEL_DB_PASSWORD:?set ZITADEL_DB_PASSWORD}
+    volumes:
+      - zitadel-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zitadel -d zitadel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c
+    restart: unless-stopped
+    # The PAT volume must be owned by this uid before the first boot or setup
+    # aborts with a permission error and never writes the bootstrap PAT.
+    user: "1000:1000"
+    command: ["start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled"]
+    environment:
+      ZITADEL_MASTERKEY: ${ZITADEL_MASTERKEY:?set ZITADEL_MASTERKEY}
+      ZITADEL_PORT: "18453"
+      ZITADEL_DATABASE_POSTGRES_HOST: zitadel-db
+      ZITADEL_DATABASE_POSTGRES_PORT: "5432"
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${ZITADEL_DB_PASSWORD:?set ZITADEL_DB_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${ZITADEL_DB_PASSWORD:?set ZITADEL_DB_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_EXTERNALDOMAIN: 127.0.0.1
+      ZITADEL_EXTERNALPORT: "18453"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_ADMIN_USERNAME:?set ZITADEL_ADMIN_USERNAME}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD:?set ZITADEL_ADMIN_PASSWORD}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_FIRSTNAME: Operations
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_LASTNAME: Admin
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS: ${ZITADEL_ADMIN_EMAIL:?set ZITADEL_ADMIN_EMAIL}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED: "true"
+      ZITADEL_FIRSTINSTANCE_PATPATH: /pat-out/pat
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: ops-bootstrap
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: OpsBootstrap
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: ${ZITADEL_BOOTSTRAP_PAT_EXPIRATION:?set ZITADEL_BOOTSTRAP_PAT_EXPIRATION}
+    ports:
+      - "127.0.0.1:18453:18453"
+    volumes:
+      - zitadel-init-pat:/pat-out
+    networks:
+      default:
+      identity-shared:
+        aliases:
+          - zitadel
+    depends_on:
+      zitadel-db:
+        condition: service_healthy
+
+networks:
+  identity-shared:
+    external: true
+
+volumes:
+  zitadel-db-data:
+  zitadel-init-pat:

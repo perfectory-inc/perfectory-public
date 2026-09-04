@@ -1,0 +1,34 @@
+# Identity bridge for the foundation runtime (root ADR-0080).
+# foundation-api validates identity URLs as https-or-loopback, so the two
+# services it must reach — Zitadel (issuer) and identity-api (policy
+# decisions) — are surfaced on its own loopback by socat sidecars that borrow
+# its network namespace. With the identity stack absent the sidecars merely
+# relay connection failures and protected routes keep answering 503, which is
+# the same value they converge to today.
+services:
+  foundation-api:
+    networks:
+      default:
+      identity-shared:
+
+  identity-zitadel-loopback:
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    restart: unless-stopped
+    network_mode: "service:foundation-api"
+    command: ["TCP-LISTEN:18453,fork,reuseaddr,bind=127.0.0.1", "TCP:zitadel:18453"]
+    depends_on:
+      foundation-api:
+        condition: service_started
+
+  identity-api-loopback:
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    restart: unless-stopped
+    network_mode: "service:foundation-api"
+    command: ["TCP-LISTEN:18082,fork,reuseaddr,bind=127.0.0.1", "TCP:identity-api:8080"]
+    depends_on:
+      foundation-api:
+        condition: service_started
+
+networks:
+  identity-shared:
+    external: true

@@ -132,9 +132,16 @@ services:
     build:
       context: .
       dockerfile: services/identity-policy-worker/Dockerfile
+    # The worker stays behind a profile until its event endpoint has a real
+    # receiver (root ADR-0080 §5); a compose file that cannot parse without a
+    # variable only one undeployed service needs holds every other service
+    # hostage. Started without the endpoint, the worker's own config check
+    # still refuses loudly.
+    profiles:
+      - policy-worker
     environment:
       IDENTITY_DATABASE_URL: postgres://identity_policy_worker:${IDENTITY_POLICY_WORKER_PASSWORD:?set IDENTITY_POLICY_WORKER_PASSWORD}@identity-db:5432/identity
-      IDENTITY_POLICY_EVENT_ENDPOINT: ${IDENTITY_POLICY_EVENT_ENDPOINT:?set IDENTITY_POLICY_EVENT_ENDPOINT}
+      IDENTITY_POLICY_EVENT_ENDPOINT: ${IDENTITY_POLICY_EVENT_ENDPOINT:-}
       IDENTITY_POLICY_WORKER_ID: ${IDENTITY_POLICY_WORKER_ID:-identity-policy-worker-local}
       RUST_LOG: ${RUST_LOG:-info}
     depends_on:
