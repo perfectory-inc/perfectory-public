@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **402개**
-- 언어 분류: **{'english': 36, 'korean': 207, 'mixed': 159}**
+- 감사 문서: **403개**
+- 언어 분류: **{'english': 36, 'korean': 208, 'mixed': 159}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **201개 정상 / 0개 누락 / 201개 해당 없음**
+- 메타데이터: **201개 정상 / 0개 누락 / 202개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -100,6 +100,7 @@
 | `docs/adr/0076-a-building-answers-for-its-units.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0077-the-pipe-looks-at-its-sources-every-day.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0079-the-outbox-gets-a-postman-on-a-schedule.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

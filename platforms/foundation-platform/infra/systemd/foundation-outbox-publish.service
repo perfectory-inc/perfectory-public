@@ -1,0 +1,22 @@
+[Unit]
+Description=Foundation Platform outbox publish tick (ADR-0079)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/publish-outbox.sh
+TimeoutStartSec=15m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

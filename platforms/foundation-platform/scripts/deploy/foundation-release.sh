@@ -283,9 +283,12 @@ case "${command}" in
       "${release_root}/current/infra/systemd/foundation-postgres-backup.service" \
       "${release_root}/current/infra/systemd/foundation-postgres-backup.timer" \
       "${release_root}/current/infra/systemd/foundation-source-sweep.service" \
-      "${release_root}/current/infra/systemd/foundation-source-sweep.timer"
+      "${release_root}/current/infra/systemd/foundation-source-sweep.timer" \
+      "${release_root}/current/infra/systemd/foundation-outbox-publish.service" \
+      "${release_root}/current/infra/systemd/foundation-outbox-publish.timer"
     systemctl daemon-reload
-    systemctl enable --now foundation-postgres-backup.timer foundation-source-sweep.timer
+    systemctl enable --now foundation-postgres-backup.timer foundation-source-sweep.timer \
+      foundation-outbox-publish.timer
     # A fresh timer that has never fired is unproven (the backup timer's own rule), so kick the
     # sweep once now, non-blocking. The sweep skips already-held files by fingerprint, so an
     # extra run is idempotent by construction.
