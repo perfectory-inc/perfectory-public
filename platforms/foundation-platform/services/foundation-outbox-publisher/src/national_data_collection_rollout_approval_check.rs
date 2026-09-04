@@ -380,34 +380,27 @@ fn validate_approval(approval: &JsonValue, blockers: &mut Vec<String>) {
     );
 }
 
-/// Verifies the checker output that authorises national rollout for parcel publication.
+/// Verifies the raw operator approval artifact for the shapefile-lane parcel publication.
 ///
-/// This consumes the *check report*, not the raw operator approval. The check report is the
-/// existing boundary that has already combined the operator record with all prior evidence.
-pub(crate) fn validate_parcel_publication_national_approval_check(
-    check: &JsonValue,
+/// The check-report boundary above binds the approval to the API collection lane's six
+/// prelaunch proofs. The shapefile lane's equivalents are enforced downstream by its own
+/// machinery — contract completeness, the current-snapshot gate, the sealed quality report's
+/// zero-defect requirement, and the CAS manifest gate — so its evidence writer validates the
+/// operator artifact directly (root ADR-0082, superseding that one indirection of ADR-0030 §1
+/// for this lane). This module still owns the contract: the field rules here are the writer's.
+pub(crate) fn validate_parcel_publication_national_approval_artifact(
+    approval: &JsonValue,
 ) -> anyhow::Result<()> {
-    if string_property(check, "schema_version") != SCHEMA_VERSION {
-        bail!("national rollout approval check schema_version must be {SCHEMA_VERSION}");
+    let mut blockers = Vec::new();
+    validate_approval(approval, &mut blockers);
+    if !bool_property(approval, "national_rollout_allowed", false) {
+        blockers.push("national_rollout_allowed must be true".to_owned());
     }
-    if string_property(check, "status") != "ready" {
-        bail!("national rollout approval check status=ready is required");
-    }
-    if !bool_property(check, "approved", false) {
-        bail!("national rollout approval check approved=true is required");
-    }
-    if string_property(check, "approved_scope") != "national" {
-        bail!("national rollout approval check approved_scope=national is required");
-    }
-    if !bool_property(check, "national_rollout_allowed", false) {
-        bail!("national rollout approval check national_rollout_allowed=true is required");
-    }
-    let blockers = check
-        .get("blockers")
-        .and_then(JsonValue::as_array)
-        .context("national rollout approval check blockers must be an array")?;
-    if !blockers.is_empty() {
-        bail!("national rollout approval check blockers must be empty");
+    if let Some(first) = blockers.first() {
+        bail!(
+            "national rollout approval artifact is not usable: {first} ({} blocker(s) total)",
+            blockers.len()
+        );
     }
     Ok(())
 }
@@ -596,44 +589,68 @@ struct PriorEvidenceReport {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use serde_json::json;
 
-    use super::validate_parcel_publication_national_approval_check;
+    use super::validate_parcel_publication_national_approval_artifact;
 
-    fn ready_check() -> serde_json::Value {
+    fn ready_approval() -> serde_json::Value {
         json!({
             "schema_version": super::SCHEMA_VERSION,
-            "status": "ready",
             "approved": true,
             "approved_scope": "national",
             "national_rollout_allowed": true,
-            "blockers": []
+            "quota_plan_reviewed": true,
+            "rollback_plan_reviewed": true,
+            "approved_by": "operator",
+            "operator_instruction": "publish the national parcels",
+            "approved_at_utc": Utc::now().to_rfc3339()
         })
     }
 
     #[test]
-    fn parcel_publication_accepts_only_a_ready_national_approval_check() -> anyhow::Result<()> {
-        validate_parcel_publication_national_approval_check(&ready_check())?;
+    fn parcel_publication_accepts_only_a_complete_national_approval_artifact() -> anyhow::Result<()>
+    {
+        validate_parcel_publication_national_approval_artifact(&ready_approval())?;
 
         for (pointer, value, expected) in [
-            ("/status", json!("blocked"), "status=ready"),
-            ("/approved", json!(false), "approved=true"),
+            ("/approved", json!(false), "approved must be true"),
             (
                 "/approved_scope",
                 json!("regional"),
-                "approved_scope=national",
+                "approved_scope must be national",
             ),
             (
                 "/national_rollout_allowed",
                 json!(false),
-                "national_rollout_allowed=true",
+                "national_rollout_allowed must be true",
             ),
-            ("/blockers", json!(["not-ready"]), "blockers must be empty"),
+            (
+                "/quota_plan_reviewed",
+                json!(false),
+                "quota_plan_reviewed must be true",
+            ),
+            (
+                "/rollback_plan_reviewed",
+                json!(false),
+                "rollback_plan_reviewed must be true",
+            ),
+            ("/approved_by", json!("  "), "approved_by must be nonblank"),
+            (
+                "/operator_instruction",
+                json!(""),
+                "operator_instruction must be nonblank",
+            ),
+            (
+                "/approved_at_utc",
+                json!("2099-01-01T00:00:00Z"),
+                "approved_at_utc",
+            ),
         ] {
-            let mut check = ready_check();
-            *check.pointer_mut(pointer).expect("fixture pointer") = value;
-            let error = validate_parcel_publication_national_approval_check(&check)
-                .expect_err("ineligible national approval check must fail");
+            let mut approval = ready_approval();
+            *approval.pointer_mut(pointer).expect("fixture pointer") = value;
+            let error = validate_parcel_publication_national_approval_artifact(&approval)
+                .expect_err("ineligible national approval artifact must fail");
             assert!(error.to_string().contains(expected), "{pointer}: {error:#}");
         }
         Ok(())

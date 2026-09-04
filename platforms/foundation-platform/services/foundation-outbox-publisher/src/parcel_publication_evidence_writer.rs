@@ -15,7 +15,7 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::{
-    national_data_collection_rollout_approval_check::validate_parcel_publication_national_approval_check,
+    national_data_collection_rollout_approval_check::validate_parcel_publication_national_approval_artifact,
     parcel_publication_contract::{
         verify_quality_report, IcebergCommit, ParcelPublicationExecutionEvidence,
         ParcelPublicationQuality, PublicationLimits, PublicationScope, EXECUTION_SCHEMA_VERSION,
@@ -31,11 +31,13 @@ use crate::{
 
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_PRODUCTION_CUTOVER_CONFIRM";
 const RUN_ID_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_MIRROR_REBUILD_RUN_ID";
-const APPROVAL_CHECK_PATH_ENV: &str =
-    "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_NATIONAL_ROLLOUT_APPROVAL_CHECK_PATH";
+// The operator approval artifact itself, not the API collection lane's check report: the
+// shapefile lane's prelaunch equivalents are enforced by its own downstream gates, and the
+// artifact's field contract stays owned by the approval module (root ADR-0082).
+const APPROVAL_PATH_ENV: &str =
+    "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_NATIONAL_ROLLOUT_APPROVAL_PATH";
 const ENV_FILE_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_ENV_FILE";
-const DEFAULT_APPROVAL_CHECK_PATH: &str =
-    "target/audit/national-data-collection-rollout-approval-check.json";
+const DEFAULT_APPROVAL_PATH: &str = "target/audit/national-data-collection-rollout-approval.json";
 const JSON_CONTENT_TYPE: &str = "application/json";
 const EVIDENCE_CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
 
@@ -77,16 +79,13 @@ impl Config {
                 "{CONFIRM_ENV}=1 is required because no production cutover approval artifact SSOT exists"
             );
         }
-        let approval_path = env_path(APPROVAL_CHECK_PATH_ENV, DEFAULT_APPROVAL_CHECK_PATH)?;
-        let approval = read_json(&approval_path, "national rollout approval check").with_context(
-            || {
-                format!(
-                    "{APPROVAL_CHECK_PATH_ENV} must name an existing national rollout approval-check JSON"
-                )
-            },
-        )?;
-        validate_parcel_publication_national_approval_check(&approval).with_context(|| {
-            format!("{APPROVAL_CHECK_PATH_ENV} does not authorise national parcel publication")
+        let approval_path = env_path(APPROVAL_PATH_ENV, DEFAULT_APPROVAL_PATH)?;
+        let approval =
+            read_json(&approval_path, "national rollout approval").with_context(|| {
+                format!("{APPROVAL_PATH_ENV} must name an existing national rollout approval JSON")
+            })?;
+        validate_parcel_publication_national_approval_artifact(&approval).with_context(|| {
+            format!("{APPROVAL_PATH_ENV} does not authorise national parcel publication")
         })?;
 
         let raw_run_id = env::var(RUN_ID_ENV)
