@@ -88,9 +88,8 @@ provisioner 의 정책 산출물이 `gongzzang-api → foundation.catalog:read` 
   "bindings": [ { "service_slug": "gongzzang-api", "zitadel_subject": "<subject>" } ] }
 ```
 
-이미지를 만들고 사슬을 올린다. **`identity-api` 를 지목한다** — 정책 워커는
-ADR-0080 §5 로 기동하지 않으며, `up` 에 이름 없이 올리면 워커의 필수 env 가 없어
-전체가 멈춘다:
+이미지를 만들고 사슬을 올린다. 정책 워커는 ADR-0080 §5 로 기동하지 않는다 —
+compose 에서 `policy-worker` 프로필 뒤에 있어 기본 `up` 에서 빠진다:
 
 ```
 scripts/deploy/identity-runtime.sh build identity-api
