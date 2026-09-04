@@ -25,11 +25,12 @@ last_reviewed: 2026-09-04
 ## 0. env 파일
 
 `infra/zitadel/.env.example` 과 `.env.example` 을 본떠 두 env 파일을 만든다.
-`runtime.env` 에는 identity compose 의 필수 비밀 5개 외에 다음을 적는다:
+포트는 적지 않는다 — 결정 상수는 `config/identity-runtime-endpoints.contract.json`
+하나가 소유하고 래퍼가 도출한다(root ADR-0081). `runtime.env` 에는 identity compose
+의 필수 비밀 5개 외에 다음을 적는다:
 
 ```
 IDENTITY_DB_PORT=15437
-IDENTITY_API_PORT=18082
 IDENTITY_ZITADEL_ISSUER_URL=http://127.0.0.1:18453
 IDENTITY_API_AUDIENCE=<Zitadel 프로젝트 ID — 2단계에서 얻는다>
 IDENTITY_WORKLOAD_PRINCIPAL_BINDINGS_FILE=/etc/identity-platform/workload-principal-bindings.json
@@ -54,39 +55,27 @@ docker run --rm -v zitadel-platform_zitadel-init-pat:/v:ro alpine:3.20 cat /v/pa
   > /etc/identity-platform/secrets/zitadel-bootstrap-pat   # 0400
 ```
 
-## 2. Zitadel 구성 (PAT 로 API 호출)
+## 2. Zitadel 구성 — 멱등 스크립트 (root ADR-0081)
 
-전부 `-H "Authorization: Bearer $(cat …/zitadel-bootstrap-pat)"` 로
-`http://127.0.0.1:18453` 에 건다.
+```
+infra/zitadel/configure-zitadel.sh --emit-bindings /etc/identity-platform/workload-principal-bindings.json
+```
 
-1. **프로젝트 생성** `POST /management/v1/projects` `{"name":"perfectory"}` —
-   응답의 `id` 가 **audience 값**이다. `runtime.env` 의 `IDENTITY_API_AUDIENCE` 와
-   foundation 의 `FOUNDATION_PLATFORM_ZITADEL_AUDIENCE` 에 적는다.
-2. **principal_kind 액션**: foundation-api 와 identity-api 는 이 클레임이 없는
-   토큰을 거부한다. 액션 본문과 플로 연결의 정본은
-   `platforms/foundation-platform/scripts/smoke/identity-foundation-signed-oidc.sh`
-   (`principalKind` 로 검색)이다 — `POST /management/v1/actions` 로 만들고, 플로
-   유형 2(토큰 보완)의 트리거 5(pre access token creation)에 **POST** 로 붙인다
-   (`curl --data-binary … /management/v1/flows/2/trigger/5`). 실측 함정 둘:
-   `-X PUT` 은 405 인데 `&&` 사슬 속에서는 조용히 사라진다 — 붙인 뒤
-   `GET /management/v1/flows/2` 로 `triggerActions` 에 실제로 실렸는지 본다.
-   그리고 붙이기 전에 발급된 토큰에는 클레임이 없다 — 판정은 항상 새 토큰으로.
-3. **워크로드 기계 사용자**: `POST /management/v1/users/machine`
-   (`userName: gongzzang-api`), 이어서
-   `PUT /management/v1/users/{id}/machine` 으로 `accessTokenType` 을
-   `ACCESS_TOKEN_TYPE_JWT` 로 — 기본값은 불투명 토큰이라 JWKS 검증이 불가능하다.
-   `PUT /management/v1/users/{id}/secret` 으로 client_credentials 자격을 받는다.
-   응답의 사용자 `id` (숫자 subject) 를 기록한다.
+프로젝트·principal_kind 액션·플로 연결·기계 사용자(정책 산출물의 slug 전부)를
+"없으면 만들고 있으면 통과"로 보장하고, 실측 subject 로 바인딩 문서까지 쓴다.
+출력의 `project id=` 가 **audience 값**이다 — `runtime.env` 의
+`IDENTITY_API_AUDIENCE` 와 foundation 의 `FOUNDATION_PLATFORM_ZITADEL_AUDIENCE`
+에 적는다. 두 번 돌려 전 행 `exists` 인지 보는 것이 구성 검증이다.
+
+스크립트 밖에 남는 운영자 행위는 **비밀 발급**뿐이다: 자격이 필요한 서비스만
+`PUT /management/v1/users/{subject}/secret` 으로 client_credentials 를 받아
+`/etc/identity-platform/secrets/` 에 둔다(예: gongzzang-api). 실측 함정: 플로에
+붙이기 **전에** 발급된 토큰에는 클레임이 없다 — 판정은 항상 새 토큰으로.
 
 ## 3. identity 스택
 
-바인딩 파일에 2-3단계의 실제 subject 를 적는다 (capabilities 는 파일에 없다 —
-provisioner 의 정책 산출물이 `gongzzang-api → foundation.catalog:read` 를 소유한다):
-
-```json
-{ "schema_version": "identity.workload-principal-bindings.v1",
-  "bindings": [ { "service_slug": "gongzzang-api", "zitadel_subject": "<subject>" } ] }
-```
+바인딩 파일은 2단계가 이미 썼다(capabilities 는 파일에 없다 — provisioner 의 정책
+산출물이 `gongzzang-api → foundation.catalog:read` 를 소유한다).
 
 이미지를 만들고 사슬을 올린다. 정책 워커는 ADR-0080 §5 로 기동하지 않는다 —
 compose 에서 `policy-worker` 프로필 뒤에 있어 기본 `up` 에서 빠진다:

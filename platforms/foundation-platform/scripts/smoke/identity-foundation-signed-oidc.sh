@@ -542,9 +542,18 @@ zcurl_projection_retry "${temp_dir}/oidc-app-response.json" \
 device_client_id="$(json_get "${temp_dir}/oidc-app-response.json" clientId)"
 
 stage="zitadel_provision_action"
-cat > "${temp_dir}/action.json" <<'EOF'
-{"name":"principalKind","script":"function principalKind(ctx, api) { var user = ctx.v1.getUser(); var kind = (user !== undefined && user.machine !== undefined) ? \"service\" : \"staff\"; api.v1.claims.setClaim(\"principal_kind\", kind); }","timeout":"10s","allowedToFail":false}
-EOF
+# The action body's only copy lives in the identity platform (root ADR-0081);
+# this smoke reads it from the checkout it was already handed.
+python3 - "${IDENTITY_CHECKOUT}/infra/zitadel/actions/principal-kind.js" \
+  > "${temp_dir}/action.json" <<'PY'
+import json, sys
+script = open(sys.argv[1], encoding="utf-8").read().strip()
+json.dump(
+    {"name": "principalKind", "script": script, "timeout": "10s", "allowedToFail": False},
+    sys.stdout,
+    separators=(",", ":"),
+)
+PY
 zcurl --config "${temp_dir}/admin.curl" -H 'Content-Type: application/json' \
   --data-binary @"${temp_dir}/action.json" \
   "${issuer}/management/v1/actions" > "${temp_dir}/action-response.json"

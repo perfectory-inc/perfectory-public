@@ -1,8 +1,10 @@
-# Server overlay for the identity runtime (root ADR-0080).
+# Server overlay for the identity runtime (root ADR-0080/0081).
 # identity-api joins the shared network where Zitadel lives, and a socat
-# sidecar borrows its network namespace so the configured issuer
-# http://127.0.0.1:18453 answers from inside the container. The sidecar is a
-# compose service on purpose: recreating identity-api recreates it too.
+# sidecar borrows its network namespace so the configured issuer answers from
+# inside the container. The sidecar is a compose service on purpose:
+# recreating identity-api recreates it too. Port values are derived from
+# config/identity-runtime-endpoints.contract.json by identity-runtime.sh —
+# a literal here would be a second copy of the decision.
 services:
   identity-api:
     networks:
@@ -15,7 +17,9 @@ services:
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     restart: unless-stopped
     network_mode: "service:identity-api"
-    command: ["TCP-LISTEN:18453,fork,reuseaddr,bind=127.0.0.1", "TCP:zitadel:18453"]
+    command:
+      - "TCP-LISTEN:${IDENTITY_ZITADEL_LOOPBACK_PORT:?identity-runtime.sh derives this from identity-runtime-endpoints.contract.json},fork,reuseaddr,bind=127.0.0.1"
+      - "TCP:zitadel:${IDENTITY_ZITADEL_LOOPBACK_PORT:?}"
     depends_on:
       identity-api:
         condition: service_started
