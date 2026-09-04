@@ -137,7 +137,8 @@ services:
     # variable only one undeployed service needs holds every other service
     # hostage. Started without the endpoint, the worker's own config check
     # still refuses loudly.
-    profiles: ["policy-worker"]
+    profiles:
+      - policy-worker
     environment:
       IDENTITY_DATABASE_URL: postgres://identity_policy_worker:${IDENTITY_POLICY_WORKER_PASSWORD:?set IDENTITY_POLICY_WORKER_PASSWORD}@identity-db:5432/identity
       IDENTITY_POLICY_EVENT_ENDPOINT: ${IDENTITY_POLICY_EVENT_ENDPOINT:-}

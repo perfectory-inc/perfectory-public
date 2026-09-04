@@ -6,9 +6,10 @@
 services:
   identity-api:
     networks:
-      default: {}
+      default:
       identity-shared:
-        aliases: [identity-api]
+        aliases:
+          - identity-api
 
   zitadel-loopback:
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e

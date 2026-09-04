@@ -56,9 +56,10 @@ services:
     volumes:
       - zitadel-init-pat:/pat-out
     networks:
-      default: {}
+      default:
       identity-shared:
-        aliases: [zitadel]
+        aliases:
+          - zitadel
     depends_on:
       zitadel-db:
         condition: service_healthy
