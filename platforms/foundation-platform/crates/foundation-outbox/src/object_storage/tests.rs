@@ -235,6 +235,20 @@ async fn file_object_storage_streaming_create_only_rejects_existing_key() -> Tes
 }
 
 #[test]
+fn streaming_put_goes_multipart_at_the_size_boundary() {
+    // The 2026-08 apartment-price file (measured live 2026-09-05) died at header time with
+    // EntityTooLarge on every single-PUT attempt; the 4.72 GiB July file passed. The boundary
+    // decision must send anything at or above the margin through multipart.
+    const FOUR_GIB: u64 = 4 * 1024 * 1024 * 1024;
+    assert!(!super::streaming_put_requires_multipart(0));
+    assert!(!super::streaming_put_requires_multipart(FOUR_GIB - 1));
+    assert!(super::streaming_put_requires_multipart(FOUR_GIB));
+    // The July file that passed as a single PUT stays multipart-bound going forward — above
+    // the margin, not above the provider cap, is what keeps the lane out of the 400 zone.
+    assert!(super::streaming_put_requires_multipart(5_068_325_718));
+}
+
+#[test]
 fn r2_412_is_already_exists_only_for_create_only() {
     // The R2 adapter sets If-None-Match: * only under CreateOnly and maps the
     // resulting 412 to ObjectAlreadyExists. We assert that decision via the pure

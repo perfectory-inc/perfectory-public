@@ -34,6 +34,21 @@ const CANONICAL_MANIFEST_POINTER_OBJECT_KEY: &str = "gold/manifest.json";
 const R2_RANGE_READ_CHUNK_BYTES: i64 = 16 * 1024 * 1024;
 const R2_RANGE_READ_MAX_ATTEMPTS: usize = 5;
 
+/// Streaming writes at or above this size go multipart instead of a single `PutObject`.
+///
+/// R2 refuses an oversized single PUT at header time with `EntityTooLarge` — measured live
+/// 2026-09-05: the 4.72 GiB July apartment-price file passed, the larger August file died in
+/// 301 ms on every attempt and dead-lettered its daily sweep lane. The provider's exact cap is
+/// R2's to change, so this stays a conservative margin below the observed boundary rather than
+/// a copy of a documented number.
+const R2_STREAMING_SINGLE_PUT_BYTES_MAX: u64 = 4 * 1024 * 1024 * 1024;
+const R2_STREAMING_MULTIPART_PART_BYTES: usize = 16 * 1024 * 1024;
+
+/// Whether a streaming put of `size_bytes` must use the multipart path.
+pub(super) const fn streaming_put_requires_multipart(size_bytes: u64) -> bool {
+    size_bytes >= R2_STREAMING_SINGLE_PUT_BYTES_MAX
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct R2ObjectVersionFingerprint {
     pub(super) content_length: i64,
@@ -597,6 +612,140 @@ impl R2ObjectStorage {
             })?;
         Ok(())
     }
+
+    /// Streams one oversized object to R2 as an atomic multipart upload.
+    ///
+    /// A single `PutObject` above the R2 cap is refused at header time with `EntityTooLarge`,
+    /// so a provider file that outgrows the cap permanently blocks its lane. Parts are bounded
+    /// buffers of the provider stream; the object becomes visible only at completion, and
+    /// `CreateOnly` keeps its write-once meaning via `If-None-Match` on the completion request.
+    async fn put_streaming_object_multipart(
+        &self,
+        request: StreamingPutObjectRequest,
+    ) -> Result<(), PublishError> {
+        let key = request.key;
+        let create = self
+            .client
+            .create_multipart_upload()
+            .bucket(&self.bucket_name)
+            .key(&key)
+            .content_type(&request.content_type)
+            .cache_control(&request.cache_control)
+            .send()
+            .await
+            .map_err(|error| {
+                map_r2_put_error(&key, &error, "start multipart stream for", request.write_mode)
+            })?;
+        let upload_id = create
+            .upload_id()
+            .ok_or_else(|| {
+                PublishError::Broadcaster(format!(
+                    "R2 create multipart response omitted upload id for {key}"
+                ))
+            })?
+            .to_owned();
+
+        let streamed = self
+            .stream_multipart_parts(&key, &upload_id, request.body, request.write_mode)
+            .await;
+        if streamed.is_err() {
+            // Best effort: an aborted id stops accruing storage; the error below is the story.
+            let _ = self
+                .client
+                .abort_multipart_upload()
+                .bucket(&self.bucket_name)
+                .key(&key)
+                .upload_id(&upload_id)
+                .send()
+                .await;
+        }
+        streamed
+    }
+
+    async fn stream_multipart_parts(
+        &self,
+        key: &str,
+        upload_id: &str,
+        mut body: ByteStream,
+        write_mode: ObjectWriteMode,
+    ) -> Result<(), PublishError> {
+        let mut parts: Vec<aws_sdk_s3::types::CompletedPart> = Vec::new();
+        let mut buffer: Vec<u8> = Vec::with_capacity(R2_STREAMING_MULTIPART_PART_BYTES);
+        loop {
+            let chunk = body.try_next().await.map_err(|error| {
+                PublishError::Broadcaster(format!(
+                    "provider stream failed while uploading R2 object {key}: {error}"
+                ))
+            })?;
+            let Some(bytes) = chunk else { break };
+            buffer.extend_from_slice(&bytes);
+            while buffer.len() >= R2_STREAMING_MULTIPART_PART_BYTES {
+                let rest = buffer.split_off(R2_STREAMING_MULTIPART_PART_BYTES);
+                let part = std::mem::replace(&mut buffer, rest);
+                self.upload_multipart_part(key, upload_id, &mut parts, part, write_mode)
+                    .await?;
+            }
+        }
+        if !buffer.is_empty() || parts.is_empty() {
+            let part = std::mem::take(&mut buffer);
+            self.upload_multipart_part(key, upload_id, &mut parts, part, write_mode)
+                .await?;
+        }
+
+        let completed = aws_sdk_s3::types::CompletedMultipartUpload::builder()
+            .set_parts(Some(parts))
+            .build();
+        let mut builder = self
+            .client
+            .complete_multipart_upload()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .upload_id(upload_id)
+            .multipart_upload(completed);
+        if matches!(write_mode, ObjectWriteMode::CreateOnly) {
+            builder = builder.if_none_match("*");
+        }
+        builder.send().await.map_err(|error| {
+            map_r2_put_error(key, &error, "complete multipart stream for", write_mode)
+        })?;
+        Ok(())
+    }
+
+    async fn upload_multipart_part(
+        &self,
+        key: &str,
+        upload_id: &str,
+        parts: &mut Vec<aws_sdk_s3::types::CompletedPart>,
+        part: Vec<u8>,
+        write_mode: ObjectWriteMode,
+    ) -> Result<(), PublishError> {
+        let part_number = i32::try_from(parts.len() + 1).map_err(|_| {
+            PublishError::Broadcaster(format!("R2 multipart part number overflow for {key}"))
+        })?;
+        let output = self
+            .client
+            .upload_part()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .upload_id(upload_id)
+            .part_number(part_number)
+            .body(ByteStream::from(part))
+            .send()
+            .await
+            .map_err(|error| map_r2_put_error(key, &error, "stream part of", write_mode))?;
+        let e_tag = output.e_tag().ok_or_else(|| {
+            PublishError::Broadcaster(format!(
+                "R2 part {part_number} response omitted ETag for {key}"
+            ))
+        })?;
+        parts.push(
+            aws_sdk_s3::types::CompletedPart::builder()
+                .part_number(part_number)
+                .e_tag(e_tag)
+                .build(),
+        );
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -663,6 +812,9 @@ impl ObjectStorageStreamingService for R2ObjectStorage {
         &self,
         request: StreamingPutObjectRequest,
     ) -> Result<(), PublishError> {
+        if streaming_put_requires_multipart(request.size_bytes) {
+            return self.put_streaming_object_multipart(request).await;
+        }
         let key = request.key;
         let content_length = i64::try_from(request.size_bytes).map_err(|error| {
             PublishError::Infrastructure(format!(
@@ -795,7 +947,16 @@ where
             key: key.to_owned(),
         };
     }
-    PublishError::Broadcaster(format!("failed to {verb} R2 object {key}: {error}"))
+    // `SdkError` displays as the literal words "service error" — the status, code, and message
+    // live in the metadata. Without them the apartment-price `EntityTooLarge` spent two days in
+    // the dead-letter queue reading as a transient blip.
+    let service_error_message = error
+        .as_service_error()
+        .and_then(aws_sdk_s3::error::ProvideErrorMetadata::message);
+    PublishError::Broadcaster(format!(
+        "failed to {verb} R2 object {key}: {error} \
+         (http_status={status:?} code={service_error_code:?} message={service_error_message:?})"
+    ))
 }
 
 /// Classifies whether an R2 `PutObject` failure is a `CreateOnly` write-once collision.
