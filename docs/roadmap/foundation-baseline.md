@@ -18,7 +18,7 @@ last_reviewed: 2026-08-06
 
 ## G1 — 생산자 없는 canonical 표
 
-- canonical 표: **61개**
+- canonical 표: **62개**
 - 그중 생산자 없음: **17개**
 
 테스트와 시드를 뺀 `INSERT INTO`가 하나도 없는 표입니다. 시드를 세지 않는 이유는, 표를
