@@ -405,6 +405,7 @@ fn parse_evidence_kind(value: &str) -> Result<RecoveryEvidenceKind> {
         "provider_inventory" => Ok(RecoveryEvidenceKind::ProviderInventory),
         "collection_ledger" => Ok(RecoveryEvidenceKind::CollectionLedger),
         "provider_response_manifest" => Ok(RecoveryEvidenceKind::ProviderResponseManifest),
+        "storage_observation" => Ok(RecoveryEvidenceKind::StorageObservation),
         "object_path_inference" => Ok(RecoveryEvidenceKind::ObjectPathInference),
         _ => bail!("invalid recovery evidence_kind {value:?}"),
     }

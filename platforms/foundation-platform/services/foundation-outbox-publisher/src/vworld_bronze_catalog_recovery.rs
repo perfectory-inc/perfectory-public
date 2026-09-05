@@ -49,7 +49,7 @@ pub(crate) async fn run() -> Result<()> {
         "FOUNDATION_PLATFORM_VWORLD_BRONZE_CATALOG_RECOVERY_ENDPOINT_CATALOG_PATH",
         DEFAULT_ENDPOINT_CATALOG_PATH,
     )?;
-    let provider_inventory_path = env_path(
+    let provider_inventory_paths = env_paths(
         "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH",
         DEFAULT_PROVIDER_INVENTORY_PATH,
     )?;
@@ -66,13 +66,14 @@ pub(crate) async fn run() -> Result<()> {
         DEFAULT_EXECUTABLE_MANIFEST_DIRECTORY,
     )?;
     let endpoint_catalog_json = read_text(&endpoint_catalog_path)?;
-    let provider_inventory_json = read_text(&provider_inventory_path)?;
+    let (provider_inventory_json, provider_inventory_uri) =
+        union_provider_inventories(&provider_inventory_paths, &output_path)?;
     let r2_inventory_json = read_text(&r2_inventory_path)?;
     let manifest = compile_vworld_bronze_catalog_recovery_manifest(
         &endpoint_catalog_json,
         &normalized_path(&endpoint_catalog_path),
         &provider_inventory_json,
-        &normalized_path(&provider_inventory_path),
+        &provider_inventory_uri,
         &r2_inventory_json,
         &normalized_path(&r2_inventory_path),
         Utc::now(),
@@ -107,6 +108,120 @@ fn env_path(name: &str, default: &str) -> Result<PathBuf> {
     Ok(optional_env_value(name)?
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(default)))
+}
+
+/// Reads one env value as an ordered comma-separated path list.
+///
+/// Listing snapshots are compared as a set because providers rotate old files out of their
+/// listings (root ADR-0084 §1): a file the current listing dropped is still vouched by the
+/// archived snapshot that named it. Order is precedence — the first path that names a file
+/// supplies its metadata — so the operator states which snapshot wins instead of the code
+/// guessing from timestamps.
+fn env_paths(name: &str, default: &str) -> Result<Vec<PathBuf>> {
+    let raw = optional_env_value(name)?.unwrap_or_else(|| default.to_owned());
+    let paths: Vec<PathBuf> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    if paths.is_empty() {
+        bail!("{name} must name at least one provider inventory path");
+    }
+    Ok(paths)
+}
+
+/// Unions the listing snapshots into one inventory artifact and persists it beside the manifest.
+///
+/// Files are identified by (`download_ds_id`, `file_no`); the first snapshot that names a file
+/// wins. The persisted union carries a `merged_from` block naming each input and its SHA-256,
+/// so the manifest's single provider-inventory artifact stays self-describing.
+fn union_provider_inventories(
+    paths: &[PathBuf],
+    manifest_output_path: &Path,
+) -> Result<(String, String)> {
+    if let [single] = paths {
+        return Ok((read_text(single)?, normalized_path(single)));
+    }
+
+    let mut merged_from = Vec::with_capacity(paths.len());
+    let mut union: Option<VWorldInventoryDocument> = None;
+    let mut union_jobs: Vec<VWorldInventoryJob> = Vec::new();
+    let mut job_index = HashMap::<String, usize>::new();
+    let mut seen_files = HashMap::<String, std::collections::HashSet<(String, String)>>::new();
+    for path in paths {
+        let text = read_text(path)?;
+        let document: VWorldInventoryDocument = serde_json::from_str(&text)
+            .with_context(|| format!("failed to parse VWorld inventory {}", path.display()))?;
+        if document.schema_version != VWORLD_INVENTORY_SCHEMA_VERSION {
+            bail!(
+                "VWorld inventory {} has unsupported schema version {}",
+                path.display(),
+                document.schema_version
+            );
+        }
+        merged_from.push(serde_json::json!({
+            "path": normalized_path(path),
+            "sha256": sha256_hex(text.as_bytes()),
+        }));
+        for job in document.jobs {
+            let slug = job.source_slug.clone();
+            let seen = seen_files.entry(slug.clone()).or_default();
+            match job_index.get(&slug) {
+                Some(&index) => {
+                    for file in job.files {
+                        let key = (file.download_ds_id.clone(), file.file_no.clone());
+                        if seen.insert(key) {
+                            union_jobs[index].files.push(file);
+                        }
+                    }
+                }
+                None => {
+                    for file in &job.files {
+                        seen.insert((file.download_ds_id.clone(), file.file_no.clone()));
+                    }
+                    job_index.insert(slug, union_jobs.len());
+                    union_jobs.push(job);
+                }
+            }
+        }
+        if union.is_none() {
+            union = Some(VWorldInventoryDocument {
+                schema_version: VWORLD_INVENTORY_SCHEMA_VERSION.to_owned(),
+                status: "ready".to_owned(),
+                jobs: Vec::new(),
+            });
+        }
+    }
+    let union = union.context("provider inventory union produced no document")?;
+
+    let union_value = serde_json::json!({
+        "schema_version": union.schema_version,
+        "status": union.status,
+        "merged_from": merged_from,
+        "jobs": union_jobs,
+    });
+    let union_text = serde_json::to_string(&union_value)?;
+    let union_path = manifest_output_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("vworld-dataset-file-inventory.union.json");
+    if let Some(parent) = union_path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create union inventory directory {}",
+                parent.display()
+            )
+        })?;
+    }
+    fs::write(&union_path, &union_text)
+        .with_context(|| format!("failed to write union inventory {}", union_path.display()))?;
+    Ok((union_text, normalized_path(&union_path)))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest as _, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn read_text(path: &Path) -> Result<String> {
