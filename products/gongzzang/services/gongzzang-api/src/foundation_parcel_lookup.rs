@@ -148,7 +148,7 @@ fn price_from_foundation_platform_price(
     })
 }
 
-/// Maps Foundation's (base_year, base_month) into the panel's 기준연월 lineage.
+/// Maps Foundation's (`base_year`, `base_month`) into the panel's 기준연월 lineage.
 fn gosi_year_month_from_foundation_platform_price(
     price: &CatalogParcelPrice,
 ) -> Result<GosiYearMonth, LookupError> {
