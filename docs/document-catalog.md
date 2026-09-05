@@ -8,14 +8,14 @@
 
 ## 문서 규모
 
-- 문서 파일: **409개**
+- 문서 파일: **410개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 108 |
+| Foundation Platform | 109 |
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
@@ -27,7 +27,7 @@
 | 유형 | 문서 수 |
 |---|---:|
 | ADR | 165 |
-| README | 107 |
+| README | 108 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 3 |
@@ -149,6 +149,7 @@ platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md
 platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md
 platforms/foundation-platform/infra/lakehouse/dbt/README.md
 platforms/foundation-platform/README.md
+platforms/foundation-platform/scripts/tiles/admin-boundary/README.md
 platforms/foundation-platform/services/foundation-api/README.md
 platforms/foundation-platform/services/foundation-outbox-publisher/README.md
 platforms/foundation-platform/services/foundation-profile-gateway/README.md
@@ -692,6 +693,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/infra/lakehouse/dbt/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current |
+| `platforms/foundation-platform/scripts/tiles/admin-boundary/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-profile-gateway/README.md` | Foundation Platform | README | current |
