@@ -340,7 +340,7 @@ mod tests {
 
     fn row(year: &str, month: &str, price: &str) -> PriceHandoffRow {
         PriceHandoffRow {
-            pnu: "1111111111111111111".to_owned(),
+            pnu: "9999938029104450003".to_owned(),
             base_year: year.to_owned(),
             base_month: month.to_owned(),
             price_per_m2: price.to_owned(),
