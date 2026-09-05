@@ -34,6 +34,7 @@ lakehouse-infrastructure = { workspace = true }
 foundation-normalization-domain = { workspace = true }
 foundation-normalization-application = { workspace = true }
 foundation-normalization-infrastructure = { workspace = true }
+encoding_rs = { workspace = true }
 flate2 = { workspace = true }
 parquet = { workspace = true }
 serde = { workspace = true }
@@ -53,7 +54,6 @@ uuid = { workspace = true, features = ["v4", "v5"] }
 zip = { workspace = true }
 
 [dev-dependencies]
-encoding_rs = { workspace = true }
 foundation-disposable-database = { workspace = true }
 shapefile = { workspace = true }
 wiremock = { workspace = true }

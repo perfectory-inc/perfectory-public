@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "source": "bronze/source=vworldkr__land_use_zone_code",
+  "measured_at_utc": "2026-09-05",
+  "how_measured": "The prefix holds exactly two objects; both were downloaded whole (36 KB) and opened. 30508-1.zip carries LART_LMISZONE.csv (1,270 code rows, EUC-KR, parent pointers); 30508-2.xlsx is a spreadsheet rendering of the same table that no loader reads.",
+  "why_this_file_exists": "The exporter that converts the code table and the loader that reads its handoff must derive the same names from one place. The .xlsx sibling is a named exclusion: loading both would state the same fact twice in two formats (root ADR-0083).",
+  "load_granularity": "object",
+  "handoff_prefix": "silver-handoff/vworldkr__land_use_zone_code",
+  "handoff_prefix_reason": "Where the converted handoff lives — declared once here so the exporter and the loader cannot drift apart.",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_suffix_reason": "The converter names the object and the loader must derive the same name; .gz also tells the converter to compress and Spark to decompress.",
+  "objects": [
+    {
+      "object_key": "bronze/source=vworldkr__land_use_zone_code/30508-1.zip",
+      "bytes": 25693,
+      "dataset_name": "LART_LMISZONE.csv",
+      "granularity": "object"
+    }
+  ],
+  "excluded_objects": [
+    {
+      "object_key": "bronze/source=vworldkr__land_use_zone_code/30508-2.xlsx",
+      "bytes": 10641,
+      "reason": "spreadsheet rendering of the same table; not machine-loadable by this lane"
+    }
+  ]
+}
