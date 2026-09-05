@@ -93,3 +93,4 @@ last_reviewed: 2026-07-28
 - [0080 — 발급자는 모든 루프백에서 응답한다](./0080-the-issuer-answers-on-every-loopback.md)
 - [0081 — 신원 엔드포인트는 계약 하나에서 파생된다](./0081-identity-endpoints-derive-from-one-contract.md)
 - [0082 — 필지 미러의 전국 주장은 계약에서 온다](./0082-the-parcel-mirror-takes-its-national-claim-from-the-contract.md)
+- [0083 — 필지는 토지이용계획 원장에서 용도지역을 배운다](./0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md)
