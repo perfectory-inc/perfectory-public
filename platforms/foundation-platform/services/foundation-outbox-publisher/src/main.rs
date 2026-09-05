@@ -64,6 +64,7 @@ mod building_register_unit_silver_export;
 mod bulk_streaming_bronze;
 mod canonical_release_proof;
 mod canonical_silver_gold_cutover_evidence;
+mod collection_job_requeue;
 mod dbase_table;
 mod github_actions_secret_configurator;
 mod github_cutover_artifact_fetch;
@@ -319,6 +320,7 @@ enum Command {
     AbandonIngestionRun,
     ReconcileBuildingRegister,
     RecordLakehouseBronzeRunEvidence,
+    RequeueDeadLetteredCollectionJob,
     RunBuildingRegisterLocalBronzeProof,
     RunPublisher,
     InventoryLakehouse,
@@ -658,6 +660,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::RecordLakehouseBronzeRunEvidence => {
             Box::pin(lakehouse_registry_control::record_bronze_run_evidence())
         }
+        Command::RequeueDeadLetteredCollectionJob => Box::pin(collection_job_requeue::run()),
         Command::RunPublisher => Box::pin(run_publisher()),
         Command::InventoryLakehouse => Box::pin(lakehouse_inventory::run()),
         Command::InventoryR2 => Box::pin(run_r2_inventory()),
@@ -1255,6 +1258,9 @@ where
         Some("reconcile-building-register") => Ok(Command::ReconcileBuildingRegister),
         Some("record-lakehouse-bronze-run-evidence") => {
             Ok(Command::RecordLakehouseBronzeRunEvidence)
+        }
+        Some("requeue-dead-lettered-collection-job") => {
+            Ok(Command::RequeueDeadLetteredCollectionJob)
         }
         Some("inventory-lakehouse") => Ok(Command::InventoryLakehouse),
         Some("inventory-r2") => Ok(Command::InventoryR2),
