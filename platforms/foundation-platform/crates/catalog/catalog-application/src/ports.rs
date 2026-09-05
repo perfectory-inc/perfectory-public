@@ -12,10 +12,10 @@ use catalog_domain::{
     ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
     IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
-    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, RequestFingerprint,
-    RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
-    ServingGeneration, SpatialLayer, VectorTileBuildOutcome, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, ParcelZoning,
+    RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
+    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, VectorTileBuildOutcome,
+    VectorTileManifest, VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
@@ -655,6 +655,18 @@ pub trait CatalogRepository: Send + Sync {
     /// # Errors
     /// Returns `CatalogError` when repository access fails.
     async fn list_buildings_by_pnu(&self, pnu: &Pnu) -> Result<Vec<Building>, CatalogError>;
+
+    /// Lists land-use zoning verdicts for one parcel identified by PNU (root ADR-0083 §5).
+    ///
+    /// An empty list is the honest answer for a parcel the plan ledger names no zone for —
+    /// nothing is invented in its place (root ADR-0078).
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
+    async fn list_parcel_zonings_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Vec<ParcelZoning>, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

@@ -143,6 +143,7 @@ mod parcel_projection_digest;
 mod parcel_publication_contract;
 mod parcel_publication_evidence_sealer;
 mod parcel_publication_evidence_writer;
+mod parcel_zoning_catalog_projection_load;
 mod postgis_anchor_pbf_regional_proof_check;
 mod postgis_mirror_dlq_cutover_evidence;
 mod postgis_parcel_boundary_mirror_national_rebuild;
@@ -264,6 +265,7 @@ enum Command {
     LoadBuildingUnitBuildingLink,
     LoadBuildingUnitCatalogProjection,
     LoadParcelCatalogProjection,
+    LoadParcelZoningCatalogProjection,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
@@ -524,6 +526,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(building_unit_catalog_projection_load::run())
         }
         Command::LoadParcelCatalogProjection => Box::pin(parcel_catalog_projection_load::run()),
+        Command::LoadParcelZoningCatalogProjection => {
+            Box::pin(parcel_zoning_catalog_projection_load::run())
+        }
         Command::SealParcelPublicationEvidence => {
             Box::pin(parcel_publication_evidence_sealer::run())
         }
@@ -1090,6 +1095,9 @@ where
             Ok(Command::LoadBuildingUnitCatalogProjection)
         }
         Some("load-parcel-catalog-projection") => Ok(Command::LoadParcelCatalogProjection),
+        Some("load-parcel-zoning-catalog-projection") => {
+            Ok(Command::LoadParcelZoningCatalogProjection)
+        }
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
         Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),
         Some("promote-administrative-boundary-runtime") => {

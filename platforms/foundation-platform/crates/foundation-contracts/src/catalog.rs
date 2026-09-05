@@ -222,6 +222,28 @@ pub struct ParcelResponse {
     pub version: i64,
     /// UTC timestamp of the last canonical Catalog update.
     pub updated_at: DateTime<Utc>,
+    /// Land-use zoning verdicts from the plan ledger (root ADR-0083 §5).
+    ///
+    /// Empty when the ledger names no zone for this parcel — nothing is invented in its
+    /// place (root ADR-0078). Ordered 포함 before 저촉, then by zone code.
+    pub zonings: Vec<ParcelZoningResponse>,
+}
+
+/// One land-use zoning verdict on a parcel (root ADR-0083).
+///
+/// Foundation carries the LMIS code and its resolved anchor; translating the anchor into a
+/// product vocabulary is the consumer's decision.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ParcelZoningResponse {
+    /// LMIS zone code exactly as the plan ledger stated it (e.g. `UQA320`).
+    pub zone_code: String,
+    /// Korean zone name the source shipped, untranslated. Absent when the source was blank.
+    pub zone_name: Option<String>,
+    /// Code-tree anchor the zone resolved to: `UQA100` 주거, `UQA200` 상업, `UQA300` 공업,
+    /// `UQA400` 녹지, `UQA001` 도시 미세분, `UQB001` 관리, `UQC001` 농림, `UQD001` 자연환경보전.
+    pub anchor_code: String,
+    /// `1` 포함 or `2` 저촉 — 접함 never enters the projection.
+    pub inclusion_code: String,
 }
 
 /// Canonical building response.
