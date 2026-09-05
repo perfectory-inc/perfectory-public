@@ -39,7 +39,10 @@ function breadcrumbLabel(entry: PanelStackEntry, translateLabel: (key: string) =
 
 function BreadcrumbItem({ entry, index, isLast, isDimmed, label, onSelect }: BreadcrumbItemProps) {
   return (
-    <span key={`${index}-${entry.kind}-${entry.id}-${entry.view}`} className="flex items-center gap-1">
+    <span
+      key={`${index}-${entry.kind}-${entry.id}-${entry.view}`}
+      className="flex items-center gap-1"
+    >
       {index > 0 ? <span className="text-[var(--color-muted)]">/</span> : null}
       <button
         type="button"
@@ -72,6 +75,7 @@ export function Breadcrumb({ stack, greyedBeforeIndex = -1 }: BreadcrumbProps) {
     >
       {stack.entries.map((entry, index) => (
         <BreadcrumbItem
+          // biome-ignore lint/suspicious/noArrayIndexKey: 같은 패널(kind·id·view)이 스택의 다른 깊이에 두 번 설 수 있고, 내용만으로는 key 가 충돌해 React 가 패널을 생략한다 — 위치+내용 복합이 이 목록의 정체성이다.
           key={`${index}-${entry.kind}-${entry.id}-${entry.view}`}
           entry={entry}
           index={index}
