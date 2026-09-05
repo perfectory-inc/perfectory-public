@@ -177,6 +177,7 @@ mod remote_lakehouse_job;
 mod rt_molit_real_transaction_export_collection_plan;
 mod rt_molit_real_transaction_export_ingest;
 mod runtime_environment;
+mod serving_source_lineage_register;
 mod shapefile_polygon_reader;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
@@ -326,6 +327,7 @@ enum Command {
     ReconcileBuildingRegister,
     RecordLakehouseBronzeRunEvidence,
     RequeueDeadLetteredCollectionJob,
+    RegisterServingSourceLineage,
     RunBuildingRegisterLocalBronzeProof,
     RunPublisher,
     InventoryLakehouse,
@@ -673,6 +675,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(lakehouse_registry_control::record_bronze_run_evidence())
         }
         Command::RequeueDeadLetteredCollectionJob => Box::pin(collection_job_requeue::run()),
+        Command::RegisterServingSourceLineage => Box::pin(serving_source_lineage_register::run()),
         Command::RunPublisher => Box::pin(run_publisher()),
         Command::InventoryLakehouse => Box::pin(lakehouse_inventory::run()),
         Command::InventoryR2 => Box::pin(run_r2_inventory()),
@@ -1281,6 +1284,7 @@ where
         Some("requeue-dead-lettered-collection-job") => {
             Ok(Command::RequeueDeadLetteredCollectionJob)
         }
+        Some("register-serving-source-lineage") => Ok(Command::RegisterServingSourceLineage),
         Some("inventory-lakehouse") => Ok(Command::InventoryLakehouse),
         Some("inventory-r2") => Ok(Command::InventoryR2),
         Some("migrate-r2-bronze-keys") => Ok(Command::MigrateR2BronzeKeys),
