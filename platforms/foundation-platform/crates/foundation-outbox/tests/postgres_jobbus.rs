@@ -205,3 +205,56 @@ async fn postgres_jobbus_claim_job_targets_requested_id() -> TestResult {
 fn _lease_shape_is_stable(lease: &JobLease) -> (&str, u32) {
     (&lease.job_id, lease.attempt)
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and a migrated PostgreSQL database"]
+async fn postgres_jobbus_requeue_revives_only_dead_lettered_jobs() -> TestResult {
+    let _guard = serialized_test().await;
+    let pool = test_pool().await?;
+    let job_id = format!("jobbus-requeue-test-{}", Uuid::new_v4());
+    cleanup(&pool, &job_id).await?;
+
+    let bus = PostgresJobBus::new(pool.clone(), 1, Duration::minutes(15));
+    bus.publish(job(&job_id)).await?;
+    assert!(
+        !bus.requeue_dead_lettered(&job_id).await?,
+        "a pending job must not be requeued"
+    );
+
+    let lease = bus.poll(1).await?.remove(0);
+    assert_eq!(
+        bus.nack(
+            &lease.lease,
+            &JobFailure {
+                disposition: FailureDisposition::Retryable,
+                code: "collection.bulk_ingest".to_owned(),
+                message: "transient stream error".to_owned(),
+            },
+        )
+        .await?,
+        NackOutcome::DeadLettered
+    );
+    assert!(bus.poll(1).await?.is_empty());
+
+    assert!(bus.requeue_dead_lettered(&job_id).await?);
+    assert!(
+        !bus.requeue_dead_lettered(&job_id).await?,
+        "requeue must not apply twice"
+    );
+    assert_eq!(bus.job_state(&job_id).await?.as_deref(), Some("pending"));
+
+    let revived = bus.poll(1).await?.remove(0);
+    assert_eq!(revived.job.job_id, job_id);
+    assert_eq!(
+        revived.lease.attempt, 1,
+        "a requeued job starts with a fresh attempt budget"
+    );
+    bus.ack(&revived.lease, &success()).await?;
+    assert!(
+        !bus.requeue_dead_lettered(&job_id).await?,
+        "a completed job must not be requeued"
+    );
+
+    cleanup(&pool, &job_id).await?;
+    Ok(())
+}

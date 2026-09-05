@@ -149,6 +149,31 @@ impl PostgresJobBus {
         }
     }
 
+    /// Return one dead-lettered job to the pending queue with a fresh attempt budget.
+    ///
+    /// Dead-lettering is terminal for every consumer (ADR 0013): bulk ingest bails on a
+    /// `dead_lettered` row, so a job that died on a transient failure blocks its source lane
+    /// until an operator intervenes. This is that operator path. Only a `dead_lettered` row
+    /// is eligible; `last_failure` is kept as history until the next nack overwrites it.
+    ///
+    /// Returns `false` when the job does not exist or is not dead-lettered.
+    ///
+    /// # Errors
+    /// Returns [`JobBusError::Backend`] when the database cannot update the row.
+    pub async fn requeue_dead_lettered(&self, job_id: &str) -> Result<bool, JobBusError> {
+        let result = sqlx::query(
+            "UPDATE catalog.collection_job
+             SET state = 'pending', attempt = 0, dead_lettered_at = NULL,
+                 leased_at = NULL, available_at = now(), updated_at = now()
+             WHERE job_id = $1 AND state = 'dead_lettered'",
+        )
+        .bind(job_id)
+        .execute(&self.pool)
+        .await
+        .map_err(Self::backend)?;
+        Ok(result.rows_affected() > 0)
+    }
+
     fn backend(error: impl std::fmt::Display) -> JobBusError {
         JobBusError::Backend(error.to_string())
     }
