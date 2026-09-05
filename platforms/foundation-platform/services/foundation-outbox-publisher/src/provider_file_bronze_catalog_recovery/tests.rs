@@ -42,6 +42,9 @@ fn exact_provider_identity_compiles_one_canonical_candidate() {
 
 #[test]
 fn missing_and_ambiguous_provider_evidence_are_quarantined() {
+    // A collected object no listing vouches is registered on storage observation
+    // (root ADR-0084 §2): measured size and ETag now, rehash at apply, provider fields
+    // null, and the row says how it was vouched.
     let missing = compile_provider_file_recovery(
         &["hubgokr__building_register_main".to_owned()],
         vec![provider_evidence()],
@@ -49,10 +52,21 @@ fn missing_and_ambiguous_provider_evidence_are_quarantined() {
         NaiveDate::from_ymd_opt(2026, 7, 14).unwrap(),
     )
     .expect("missing evidence is a manifest result, not a compiler crash");
-    assert_eq!(missing.sources.len(), 0);
+    assert!(missing.unresolved.is_empty());
+    assert_eq!(missing.sources.len(), 1);
+    let observed = &missing.sources[0].candidates[0];
+    assert_eq!(observed.evidence_kind, "storage_observation");
+    assert_eq!(observed.provider_file_id, None);
+    assert_eq!(observed.provider_file_name, None);
+    assert_eq!(observed.snapshot_basis, "collected_at_fallback");
+    assert_eq!(observed.snapshot_granularity, "day");
     assert_eq!(
-        missing.unresolved[0].reason,
-        "missing_provider_inventory_match"
+        observed.source_identity_key,
+        "storage-observation:hubgokr__building_register_main:OPN-OLD.zip"
+    );
+    assert_eq!(
+        observed.request_params["recovery_evidence"],
+        "storage_observation"
     );
 
     let evidence = provider_evidence();

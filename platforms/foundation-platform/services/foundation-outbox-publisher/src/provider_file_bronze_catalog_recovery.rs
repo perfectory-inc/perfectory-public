@@ -140,15 +140,38 @@ pub(crate) fn compile_provider_file_recovery(
             ))
             .cloned()
             .unwrap_or_default();
+        if matching.is_empty() {
+            // No surviving listing vouches this collected object: providers rotate old files
+            // out of their listings, and the collection-era ingest evidence did not survive.
+            // The object is registered on what the storage itself proves — measured size,
+            // apply-time rehash, storage timestamp — with every provider field left null
+            // (root ADR-0084). A source whose contract never appeared in any listing snapshot
+            // has nothing to attach the row to and stays unresolved.
+            if let Some(source) = source_contracts.get(physical.source_slug.as_str()) {
+                let candidate = compile_storage_observation_candidate(&physical, &object)?;
+                sources
+                    .entry(physical.source_slug.clone())
+                    .or_insert_with(|| BronzeCatalogRecoverySourceManifest {
+                        source: (*source).clone(),
+                        candidates: Vec::new(),
+                    })
+                    .candidates
+                    .push(candidate);
+            } else {
+                unresolved.push(BronzeCatalogRecoveryUnresolvedObject {
+                    source_slug: physical.source_slug,
+                    object_key: object.key,
+                    reason: "missing_source_contract_for_storage_observation".to_owned(),
+                    matching_evidence_count: 0,
+                });
+            }
+            continue;
+        }
         if matching.len() != 1 {
             unresolved.push(BronzeCatalogRecoveryUnresolvedObject {
                 source_slug: physical.source_slug,
                 object_key: object.key,
-                reason: if matching.is_empty() {
-                    "missing_provider_inventory_match".to_owned()
-                } else {
-                    "ambiguous_provider_inventory_match".to_owned()
-                },
+                reason: "ambiguous_provider_inventory_match".to_owned(),
                 matching_evidence_count: matching.len(),
             });
             continue;
@@ -257,6 +280,65 @@ fn compile_candidate(
         provider_updated_at: evidence.provider_updated_at.map(|date| date.to_string()),
         effective_date: None,
         evidence_kind: "provider_inventory".to_owned(),
+    })
+}
+
+/// Builds a candidate from storage observation alone (root ADR-0084 §2).
+///
+/// Every claim is an observation: size and ETag from the read-only audit, checksum measured at
+/// apply time, snapshot date from the storage timestamp under `collected_at_fallback`. Provider
+/// fields stay `None` — the file name is used as a physical identity, never as provider meaning.
+fn compile_storage_observation_candidate(
+    physical: &ProviderFilePhysicalObjectIdentity,
+    object: &ProviderFileR2Object,
+) -> Result<BronzeCatalogRecoveryManifestCandidate> {
+    let observed = object
+        .last_modified
+        .as_deref()
+        .context("R2 storage-observation candidate is missing last_modified")?;
+    let observed_at =
+        DateTime::parse_from_rfc3339(observed).context("invalid R2 last_modified timestamp")?;
+    let observed_r2_etag = object
+        .e_tag
+        .as_deref()
+        .filter(|value| !value.trim().is_empty() && value.trim() == *value)
+        .context("R2 storage-observation candidate is missing a canonical ETag")?;
+    let expected_size_bytes =
+        u64::try_from(object.size_bytes).context("R2 audit object size must be non-negative")?;
+
+    let mut request_params = JsonMap::new();
+    request_params.insert(
+        "recovery_evidence".to_owned(),
+        JsonValue::String("storage_observation".to_owned()),
+    );
+    request_params.insert(
+        "observed_object_key".to_owned(),
+        JsonValue::String(object.key.clone()),
+    );
+
+    Ok(BronzeCatalogRecoveryManifestCandidate {
+        object_key: object.key.clone(),
+        expected_size_bytes,
+        expected_checksum_sha256: None,
+        source_partition_key: None,
+        source_identity_key: format!(
+            "storage-observation:{}:{}",
+            physical.source_slug, physical.object_file_name
+        ),
+        request_params: JsonValue::Object(request_params),
+        content_type: content_type_from_file_name(&physical.object_file_name),
+        logical_record_count: None,
+        observed_r2_etag: Some(observed_r2_etag.to_owned()),
+        observed_r2_last_modified: observed.to_owned(),
+        snapshot_period: None,
+        snapshot_date: observed_at.date_naive().to_string(),
+        snapshot_granularity: "day".to_owned(),
+        snapshot_basis: "collected_at_fallback".to_owned(),
+        provider_file_id: None,
+        provider_file_name: None,
+        provider_updated_at: None,
+        effective_date: None,
+        evidence_kind: "storage_observation".to_owned(),
     })
 }
 

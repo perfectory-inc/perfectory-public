@@ -40,6 +40,13 @@ pub enum RecoveryEvidenceKind {
     CollectionLedger,
     /// Provider response manifest captured during the original run.
     ProviderResponseManifest,
+    /// Storage observation of a collected object no surviving listing can vouch (root ADR-0084).
+    ///
+    /// The claims it makes are exactly the observable ones: size and checksum are measured
+    /// (audit read plus apply-time rehash), the snapshot date is the storage timestamp, and
+    /// every provider field stays null. This is not path inference — nothing about provider
+    /// semantics is read out of the file name.
+    StorageObservation,
     /// Unsupported inference from an object path alone.
     ObjectPathInference,
 }
@@ -50,6 +57,7 @@ impl RecoveryEvidenceKind {
             Self::ProviderInventory => "provider_inventory",
             Self::CollectionLedger => "collection_ledger",
             Self::ProviderResponseManifest => "provider_response_manifest",
+            Self::StorageObservation => "storage_observation",
             Self::ObjectPathInference => "object_path_inference",
         }
     }

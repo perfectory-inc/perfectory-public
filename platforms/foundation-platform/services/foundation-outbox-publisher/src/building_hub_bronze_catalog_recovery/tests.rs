@@ -47,6 +47,9 @@ fn blocked_inventory_with_missing_file_produces_blocked_manifest_not_guessed_met
     let manifest = compile(inventory, r2_audit("OPN209912310000000012"))
         .expect("missing current provider evidence must remain inspectable");
 
+    // A source with no listing evidence at all has no source contract to hang even a
+    // storage-observation row on (root ADR-0084 §2): the object stays unresolved and the
+    // manifest stays blocked — nothing about it is guessed.
     assert_eq!(
         manifest.status,
         BronzeCatalogRecoveryManifestStatus::Blocked
@@ -55,7 +58,7 @@ fn blocked_inventory_with_missing_file_produces_blocked_manifest_not_guessed_met
     assert_eq!(manifest.unresolved.len(), 1);
     assert_eq!(
         manifest.unresolved[0].reason,
-        "missing_provider_inventory_match"
+        "missing_source_contract_for_storage_observation"
     );
 }
 
