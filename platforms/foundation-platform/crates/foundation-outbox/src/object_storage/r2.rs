@@ -634,7 +634,12 @@ impl R2ObjectStorage {
             .send()
             .await
             .map_err(|error| {
-                map_r2_put_error(&key, &error, "start multipart stream for", request.write_mode)
+                map_r2_put_error(
+                    &key,
+                    &error,
+                    "start multipart stream for",
+                    request.write_mode,
+                )
             })?;
         let upload_id = create
             .upload_id()
