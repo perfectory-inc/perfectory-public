@@ -38,7 +38,10 @@ const OUTCOME_CONVERTED: &str = "converted";
 const OUTCOME_ALREADY_PRESENT: &str = "already_present";
 const SUMMARY_SCHEMA_VERSION: &str = "foundation-platform.land_use_silver_handoff_export.v1";
 
-/// Lineage columns every lane appends after its CSV-mapped columns.
+/// Lineage columns every lane appends after its CSV-mapped columns. Exists for the test that
+/// holds each lane's mapping against its contract; the writer spells the same three names when
+/// it inserts the values.
+#[cfg(test)]
 const LINEAGE_COLUMNS: [&str; 3] = ["source_record_id", "source_snapshot_id", "ingested_at_utc"];
 
 /// One lane = one source layout bound to one Silver contract.
