@@ -14,13 +14,35 @@
 # never from log lines (a level chosen for noise cannot silence a field).
 #
 # Verbs: plan (show) | run (convert) | zone-code (convert the LMIS code table, one object).
+# Second argument picks the 17-province lane: plan (default, D155) | price (D151 official
+# land price, root ADR-0085). Both are the same loop over the same contract shape — only the
+# contract file, the exporter command, and its env prefix differ.
 set -uo pipefail
 
 MODE="${1:-plan}"
+LANE="${2:-plan}"
 RELEASE="${FOUNDATION_PLATFORM_RELEASE_DIR:-/opt/foundation-platform/current}"
 STATE="${LAND_USE_PLAN_EXPORT_STATE_DIR:-$HOME/land-use-export-state}"
 JOBS="${LAND_USE_PLAN_EXPORT_JOBS:-4}"
-CONTRACT="${LAND_USE_PLAN_SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-land-use-plan-source-objects.json}"
+case "$LANE" in
+  plan)
+    ENV_PREFIX="FOUNDATION_PLATFORM_LAND_USE_PLAN"
+    EXPORT_CMD="export-land-use-plan-silver-handoff"
+    SNAPSHOT_LABEL="vworldkr-land-use-plan"
+    DEFAULT_CONTRACT="vworld-land-use-plan-source-objects.json"
+    ;;
+  price)
+    ENV_PREFIX="FOUNDATION_PLATFORM_LAND_INDIVIDUAL_PRICE"
+    EXPORT_CMD="export-land-individual-price-silver-handoff"
+    SNAPSHOT_LABEL="vworldkr-land-individual-price"
+    DEFAULT_CONTRACT="vworld-land-individual-price-source-objects.json"
+    ;;
+  *)
+    echo "모르는 레인이다: $LANE (plan | price)" >&2
+    exit 1
+    ;;
+esac
+CONTRACT="${LAND_USE_PLAN_SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/$DEFAULT_CONTRACT}"
 PUBLISHER="${FOUNDATION_PLATFORM_PUBLISHER_BIN:-$RELEASE/bin/foundation-outbox-publisher}"
 ZONE_CODE_CONTRACT="${LAND_USE_ZONE_CODE_SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-land-use-zone-code-source-objects.json}"
 
@@ -54,7 +76,7 @@ if c['schema_version'] != 1:
     sys.exit('source object contract schema_version %r is not the 1 this script reads' % c['schema_version'])
 print(c['selected_vintage'], c['handoff_prefix'], c['handoff_suffix'])
 " "$CONTRACT") || { echo "계약을 못 읽었다" >&2; exit 1; }
-SOURCE_SNAPSHOT_ID="vworldkr-land-use-plan:$VINTAGE"
+SOURCE_SNAPSHOT_ID="$SNAPSHOT_LABEL:$VINTAGE"
 
 if [ "$MODE" = "zone-code" ]; then
   [ -f "$ZONE_CODE_CONTRACT" ] || { echo "코드표 원천 목록이 없다: $ZONE_CODE_CONTRACT" >&2; exit 1; }
@@ -115,11 +137,11 @@ convert_one() {
 
   # Lineage is derived, not passed: the command records the key it opened (root ADR-0068).
   # Whether this object is already converted is answered by R2 inside the command.
-  FOUNDATION_PLATFORM_LAND_USE_PLAN_INPUT_OBJECT_KEY="$key" \
-  FOUNDATION_PLATFORM_LAND_USE_PLAN_OUTPUT_OBJECT_KEY="$HANDOFF_PREFIX/$base$SUFFIX" \
-  FOUNDATION_PLATFORM_LAND_USE_PLAN_SOURCE_SNAPSHOT_ID="$SOURCE_SNAPSHOT_ID" \
-  FOUNDATION_PLATFORM_LAND_USE_PLAN_SUMMARY_PATH="$RUN_DIR/$base.summary.json" \
-    "$PUBLISHER" export-land-use-plan-silver-handoff > "$log" 2>&1
+  env "${ENV_PREFIX}_INPUT_OBJECT_KEY=$key" \
+      "${ENV_PREFIX}_OUTPUT_OBJECT_KEY=$HANDOFF_PREFIX/$base$SUFFIX" \
+      "${ENV_PREFIX}_SOURCE_SNAPSHOT_ID=$SOURCE_SNAPSHOT_ID" \
+      "${ENV_PREFIX}_SUMMARY_PATH=$RUN_DIR/$base.summary.json" \
+    "$PUBLISHER" "$EXPORT_CMD" > "$log" 2>&1
   local rc=$?
   local el=$(( $(date +%s) - t0 ))
 
@@ -131,7 +153,7 @@ convert_one() {
   echo "완료    $base  ${el}초"
 }
 export -f convert_one
-export RUN_DIR PUBLISHER HANDOFF_PREFIX SUFFIX SOURCE_SNAPSHOT_ID
+export RUN_DIR PUBLISHER HANDOFF_PREFIX SUFFIX SOURCE_SNAPSHOT_ID ENV_PREFIX EXPORT_CMD
 
 echo "원천 $total 개 · 동시 $JOBS 개 · 증거 $RUN_DIR"
 started=$(date +%s)

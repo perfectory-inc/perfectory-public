@@ -674,6 +674,111 @@
         "object_suffix_separator": null
       }
     },
+    "silver.land_individual_price": {
+      "table_name": "silver.land_individual_price",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "special_land_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "special_land_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "base_year",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "base_month",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "price_per_m2",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "announced_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "standard_parcel_flag",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "data_reference_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "pnu",
+        "base_year",
+        "base_month"
+      ],
+      "quality_gates": [
+        "pnu_not_null",
+        "base_year_not_null",
+        "price_per_m2_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.building_register_floors": {
       "table_name": "silver.building_register_floors",
       "physical_format": "Parquet",

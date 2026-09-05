@@ -139,6 +139,7 @@ mod parcel_marker_anchor_artifact_export;
 mod parcel_marker_anchor_pbf_artifact_build;
 mod parcel_marker_anchor_pbf_manifest_promote;
 mod parcel_marker_anchor_streaming_rebuild;
+mod parcel_price_catalog_projection_load;
 mod parcel_projection_digest;
 mod parcel_publication_contract;
 mod parcel_publication_evidence_sealer;
@@ -228,6 +229,7 @@ enum Command {
     ExportVWorldCadastralSilverHandoffShard,
     ExportLandUsePlanSilverHandoff,
     ExportLandUseZoneCodeSilverHandoff,
+    ExportLandIndividualPriceSilverHandoff,
     ExecuteNationalDataCollectionAsync,
     ExecuteNationalDataCollectionLedger,
     ExecuteRtMolitRealTransactionExportPlan,
@@ -267,6 +269,7 @@ enum Command {
     LoadBuildingUnitCatalogProjection,
     LoadParcelCatalogProjection,
     LoadParcelZoningCatalogProjection,
+    LoadParcelPriceCatalogProjection,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
@@ -443,6 +446,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLandUseZoneCodeSilverHandoff => {
             Box::pin(land_use_silver_export::run_zone_code())
         }
+        Command::ExportLandIndividualPriceSilverHandoff => {
+            Box::pin(land_use_silver_export::run_price())
+        }
         Command::ExecuteNationalDataCollectionAsync => {
             Box::pin(national_data_collection_async::run())
         }
@@ -530,6 +536,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadParcelCatalogProjection => Box::pin(parcel_catalog_projection_load::run()),
         Command::LoadParcelZoningCatalogProjection => {
             Box::pin(parcel_zoning_catalog_projection_load::run())
+        }
+        Command::LoadParcelPriceCatalogProjection => {
+            Box::pin(parcel_price_catalog_projection_load::run())
         }
         Command::SealParcelPublicationEvidence => {
             Box::pin(parcel_publication_evidence_sealer::run())
@@ -1101,6 +1110,9 @@ where
         Some("load-parcel-zoning-catalog-projection") => {
             Ok(Command::LoadParcelZoningCatalogProjection)
         }
+        Some("load-parcel-price-catalog-projection") => {
+            Ok(Command::LoadParcelPriceCatalogProjection)
+        }
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
         Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),
         Some("promote-administrative-boundary-runtime") => {
@@ -1234,6 +1246,9 @@ where
         Some("export-land-use-plan-silver-handoff") => Ok(Command::ExportLandUsePlanSilverHandoff),
         Some("export-land-use-zone-code-silver-handoff") => {
             Ok(Command::ExportLandUseZoneCodeSilverHandoff)
+        }
+        Some("export-land-individual-price-silver-handoff") => {
+            Ok(Command::ExportLandIndividualPriceSilverHandoff)
         }
         Some("export-vworld-cadastral-silver-handoff-shard") => {
             Ok(Command::ExportVWorldCadastralSilverHandoffShard)

@@ -95,3 +95,4 @@ last_reviewed: 2026-07-28
 - [0082 — 필지 미러의 전국 주장은 계약에서 온다](./0082-the-parcel-mirror-takes-its-national-claim-from-the-contract.md)
 - [0083 — 필지는 토지이용계획 원장에서 용도지역을 배운다](./0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md)
 - [0084 — 등록부는 수집된 모든 객체를 안다](./0084-the-registry-knows-every-collected-object.md)
+- [0085 — 필지는 공시지가 원장에서 값을 배운다](./0085-a-parcel-learns-its-price-from-the-assessment-ledger.md)

@@ -12,9 +12,9 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError,
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
-    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelZoning, PublicationUnit,
-    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
-    ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelPrice, ParcelZoning,
+    PublicationUnit, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
+    ServingGeneration, ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
     VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
@@ -501,6 +501,33 @@ impl CatalogRepository for PgCatalogRepository {
                 })
             })
             .collect()
+    }
+
+    async fn find_parcel_price_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Option<ParcelPrice>, CatalogError> {
+        let row_opt = sqlx::query(
+            "SELECT price_per_m2, base_year, base_month, announced_date, source_snapshot_id
+             FROM catalog.parcel_price
+             WHERE pnu = $1",
+        )
+        .bind(pnu.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+
+        row_opt
+            .map(|row| {
+                Ok(ParcelPrice {
+                    price_per_m2: row.try_get("price_per_m2").map_err(map_sqlx)?,
+                    base_year: row.try_get("base_year").map_err(map_sqlx)?,
+                    base_month: row.try_get("base_month").map_err(map_sqlx)?,
+                    announced_date: row.try_get("announced_date").map_err(map_sqlx)?,
+                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
+                })
+            })
+            .transpose()
     }
 
     async fn list_complex_notices(

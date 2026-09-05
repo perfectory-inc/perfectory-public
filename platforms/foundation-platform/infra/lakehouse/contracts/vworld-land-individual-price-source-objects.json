@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "source": "bronze/source=vworldkr__land_individual_price",
+  "measured_at_utc": "2026-09-06",
+  "how_measured": "Each DS00144 zip's tail was read by ranged request and the inner CSV name (AL_D151_<sido>_<yyyymmdd>.csv) taken from the central directory; byte sizes come from the bucket listing. The 34 DS00143 objects in the same prefix are D150 DBF siblings with anonymous columns and are deliberately absent here (root ADR-0085 §1).",
+  "why_this_file_exists": "The prefix holds two harvests of the same 17 provinces and the object names (20171128DS00144-N.zip) say nothing about which province or harvest is inside. Loading two vintages would double every assessment row, and loading 16 of 17 provinces would look complete while a province is silently missing.",
+  "consistency_check": "The newest vintage has exactly one object per each of the 17 province codes, which is what makes \"newest per province\" a complete national covering.",
+  "granularity_counts": {
+    "sido": 17,
+    "vintages": 2,
+    "objects": 34
+  },
+  "load_granularity": "sido",
+  "selected_vintage": "20260526",
+  "handoff_prefix": "silver-handoff/vworldkr__land_individual_price",
+  "handoff_prefix_reason": "Where the converted handoff objects live — declared once here so the exporter that writes them and the loader that reads them cannot drift apart (same reason as the land-use plan contract).",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_suffix_reason": "The converter names the object and the loader derives the same name; .gz also tells the converter to compress and Spark to decompress.",
+  "objects": [
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1388.zip",
+      "bytes": 8941551,
+      "dataset_name": "AL_D151_11_20260210.csv",
+      "region_code": "11",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1389.zip",
+      "bytes": 6362012,
+      "dataset_name": "AL_D151_28_20260210.csv",
+      "region_code": "28",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1390.zip",
+      "bytes": 3821168,
+      "dataset_name": "AL_D151_29_20260210.csv",
+      "region_code": "29",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1391.zip",
+      "bytes": 2420832,
+      "dataset_name": "AL_D151_30_20260210.csv",
+      "region_code": "30",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1392.zip",
+      "bytes": 4406140,
+      "dataset_name": "AL_D151_31_20260210.csv",
+      "region_code": "31",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1393.zip",
+      "bytes": 1834638,
+      "dataset_name": "AL_D151_36_20260210.csv",
+      "region_code": "36",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1394.zip",
+      "bytes": 48963231,
+      "dataset_name": "AL_D151_41_20260210.csv",
+      "region_code": "41",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1395.zip",
+      "bytes": 23471901,
+      "dataset_name": "AL_D151_43_20260210.csv",
+      "region_code": "43",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1396.zip",
+      "bytes": 36660254,
+      "dataset_name": "AL_D151_44_20260210.csv",
+      "region_code": "44",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1397.zip",
+      "bytes": 53599667,
+      "dataset_name": "AL_D151_46_20260210.csv",
+      "region_code": "46",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1398.zip",
+      "bytes": 42792608,
+      "dataset_name": "AL_D151_47_20260210.csv",
+      "region_code": "47",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1399.zip",
+      "bytes": 44280118,
+      "dataset_name": "AL_D151_48_20260210.csv",
+      "region_code": "48",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1400.zip",
+      "bytes": 6052021,
+      "dataset_name": "AL_D151_50_20260210.csv",
+      "region_code": "50",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1401.zip",
+      "bytes": 27474600,
+      "dataset_name": "AL_D151_51_20260210.csv",
+      "region_code": "51",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1402.zip",
+      "bytes": 28984240,
+      "dataset_name": "AL_D151_52_20260210.csv",
+      "region_code": "52",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1403.zip",
+      "bytes": 7026270,
+      "dataset_name": "AL_D151_26_20260210.csv",
+      "region_code": "26",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1404.zip",
+      "bytes": 5739359,
+      "dataset_name": "AL_D151_27_20260210.csv",
+      "region_code": "27",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1405.zip",
+      "bytes": 11633842,
+      "dataset_name": "AL_D151_11_20260526.csv",
+      "region_code": "11",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1406.zip",
+      "bytes": 9330511,
+      "dataset_name": "AL_D151_26_20260526.csv",
+      "region_code": "26",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1407.zip",
+      "bytes": 7614036,
+      "dataset_name": "AL_D151_27_20260526.csv",
+      "region_code": "27",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1408.zip",
+      "bytes": 8573332,
+      "dataset_name": "AL_D151_28_20260526.csv",
+      "region_code": "28",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1409.zip",
+      "bytes": 5103365,
+      "dataset_name": "AL_D151_29_20260526.csv",
+      "region_code": "29",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1410.zip",
+      "bytes": 3194848,
+      "dataset_name": "AL_D151_30_20260526.csv",
+      "region_code": "30",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1411.zip",
+      "bytes": 5858517,
+      "dataset_name": "AL_D151_31_20260526.csv",
+      "region_code": "31",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1412.zip",
+      "bytes": 2235175,
+      "dataset_name": "AL_D151_36_20260526.csv",
+      "region_code": "36",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1413.zip",
+      "bytes": 65403410,
+      "dataset_name": "AL_D151_41_20260526.csv",
+      "region_code": "41",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1414.zip",
+      "bytes": 31133533,
+      "dataset_name": "AL_D151_43_20260526.csv",
+      "region_code": "43",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1415.zip",
+      "bytes": 44785863,
+      "dataset_name": "AL_D151_44_20260526.csv",
+      "region_code": "44",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1416.zip",
+      "bytes": 73523424,
+      "dataset_name": "AL_D151_46_20260526.csv",
+      "region_code": "46",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1417.zip",
+      "bytes": 58405056,
+      "dataset_name": "AL_D151_47_20260526.csv",
+      "region_code": "47",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1418.zip",
+      "bytes": 61164445,
+      "dataset_name": "AL_D151_48_20260526.csv",
+      "region_code": "48",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1419.zip",
+      "bytes": 8066883,
+      "dataset_name": "AL_D151_50_20260526.csv",
+      "region_code": "50",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1420.zip",
+      "bytes": 36649780,
+      "dataset_name": "AL_D151_51_20260526.csv",
+      "region_code": "51",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_individual_price/20171128DS00144-1421.zip",
+      "bytes": 38884980,
+      "dataset_name": "AL_D151_52_20260526.csv",
+      "region_code": "52",
+      "vintage": "20260526"
+    }
+  ]
+}

@@ -227,6 +227,27 @@ pub struct ParcelResponse {
     /// Empty when the ledger names no zone for this parcel — nothing is invented in its
     /// place (root ADR-0078). Ordered 포함 before 저촉, then by zone code.
     pub zonings: Vec<ParcelZoningResponse>,
+    /// Newest official land price assessment from the D151 ledger (root ADR-0085 §3).
+    ///
+    /// Absent when the ledger names no assessment for this parcel — nothing is invented in
+    /// its place (root ADR-0078).
+    pub price: Option<ParcelPriceResponse>,
+}
+
+/// One parcel's newest official land price assessment (root ADR-0085).
+///
+/// Foundation carries the source's integers verbatim; formatting money and interpreting the
+/// announcement date are the consumer's decisions.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ParcelPriceResponse {
+    /// Official land price in won per square meter, the source's integer unchanged.
+    pub price_per_m2: i64,
+    /// Assessment base year (기준연도).
+    pub base_year: i16,
+    /// Assessment base month (기준월), 1–12.
+    pub base_month: i16,
+    /// Announcement date (공시일자) exactly as the source wrote it. Absent when blank.
+    pub announced_date: Option<String>,
 }
 
 /// One land-use zoning verdict on a parcel (root ADR-0083).

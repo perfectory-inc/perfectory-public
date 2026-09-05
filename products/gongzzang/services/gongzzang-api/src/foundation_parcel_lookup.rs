@@ -9,17 +9,18 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use parcel_lookup::{LookupError, ParcelInfo, ParcelInfoLookup};
+use parcel_lookup::{GosiYearMonth, LookupError, ParcelInfo, ParcelInfoLookup};
 use reqwest::StatusCode;
 use shared_kernel::admin_division::{AdminDivision, EupmyeondongCode, SidoCode, SigunguCode};
 use shared_kernel::land_use_type::LandUseType;
+use shared_kernel::money::MoneyKrw;
 use shared_kernel::pnu::Pnu;
 use shared_kernel::zoning::Zoning;
 use thiserror::Error;
 use tracing::instrument;
 
 use foundation_platform_client::{
-    CatalogParcelResponse, CatalogParcelZoning, FoundationCatalogClient,
+    CatalogParcelPrice, CatalogParcelResponse, CatalogParcelZoning, FoundationCatalogClient,
     FoundationCatalogClientConfigError, FoundationServiceAuth,
 };
 
@@ -119,9 +120,54 @@ fn parcel_info_from_response(
             .map(land_use_type_from_foundation_platform_kind)
             .transpose()?,
         zoning: zoning_from_foundation_platform_zonings(&response.zonings)?,
-        official_land_price_per_m2: None,
-        gosi_year_month: None,
+        official_land_price_per_m2: response
+            .price
+            .as_ref()
+            .map(price_from_foundation_platform_price)
+            .transpose()?,
+        gosi_year_month: response
+            .price
+            .as_ref()
+            .map(gosi_year_month_from_foundation_platform_price)
+            .transpose()?,
     })
+}
+
+/// Maps Foundation's assessment integer into the product money type (root ADR-0085 §3).
+///
+/// Foundation carries the source's integer verbatim; a negative value cannot be money and
+/// refuses here rather than rendering as a nonsense price.
+fn price_from_foundation_platform_price(
+    price: &CatalogParcelPrice,
+) -> Result<MoneyKrw, LookupError> {
+    MoneyKrw::try_new(price.price_per_m2).map_err(|error| {
+        LookupError::Parse(format!(
+            "invalid Foundation Platform land price {}: {error}",
+            price.price_per_m2
+        ))
+    })
+}
+
+/// Maps Foundation's (`base_year`, `base_month`) into the panel's 기준연월 lineage.
+fn gosi_year_month_from_foundation_platform_price(
+    price: &CatalogParcelPrice,
+) -> Result<GosiYearMonth, LookupError> {
+    let year = u16::try_from(price.base_year).map_err(|_| {
+        LookupError::Parse(format!(
+            "invalid Foundation Platform assessment year: {}",
+            price.base_year
+        ))
+    })?;
+    let month = u8::try_from(price.base_month)
+        .ok()
+        .filter(|month| (1..=12).contains(month))
+        .ok_or_else(|| {
+            LookupError::Parse(format!(
+                "invalid Foundation Platform assessment month: {}",
+                price.base_month
+            ))
+        })?;
+    Ok(GosiYearMonth { year, month })
 }
 
 /// Picks the representative zoning from Foundation's verdicts (root ADR-0083 §5).
@@ -249,6 +295,46 @@ mod tests {
         let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
 
         assert_eq!(info.zoning, Some(Zoning::Industrial));
+    }
+
+    #[tokio::test]
+    async fn lookup_maps_the_price_assessment_into_money_and_gosi_lineage() {
+        // Root ADR-0085 §3: Foundation carries the newest assessment's integers verbatim
+        // and the product folds them into MoneyKrw + 기준연월.
+        let body = format!(
+            r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","zonings":[],"price":{{"price_per_m2":81700,"base_year":2026,"base_month":1,"announced_date":"2026-04-30"}}}}"#
+        );
+        let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
+        let lookup =
+            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
+
+        let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
+
+        assert_eq!(
+            info.official_land_price_per_m2.map(MoneyKrw::as_i64),
+            Some(81700)
+        );
+        assert_eq!(
+            info.gosi_year_month,
+            Some(GosiYearMonth {
+                year: 2026,
+                month: 1
+            })
+        );
+    }
+
+    #[test]
+    fn an_out_of_range_assessment_month_refuses_instead_of_guessing() {
+        let price = CatalogParcelPrice {
+            price_per_m2: 81700,
+            base_year: 2026,
+            base_month: 13,
+            announced_date: None,
+        };
+        let error =
+            gosi_year_month_from_foundation_platform_price(&price).expect_err("must refuse");
+        assert!(error.to_string().contains("13"), "{error}");
     }
 
     #[test]
