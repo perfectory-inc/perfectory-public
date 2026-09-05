@@ -32,6 +32,25 @@ pub struct CatalogParcelResponse {
     /// value breaks on the first honest row (root ADR-0078 §1; the building fields were fixed
     /// then, this field was the one left behind).
     pub kind: Option<String>,
+    /// Land-use zoning verdicts, 포함 before 저촉 then zone-code order (root ADR-0083 §5).
+    ///
+    /// Defaulted so a Foundation deployed before the zoning projection still answers —
+    /// absent and empty both mean the plan ledger names no zone here.
+    #[serde(default)]
+    pub zonings: Vec<CatalogParcelZoning>,
+}
+
+/// One land-use zoning verdict the Foundation Catalog carries for a parcel (root ADR-0083).
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct CatalogParcelZoning {
+    /// LMIS zone code exactly as the plan ledger stated it (e.g. `UQA320`).
+    pub zone_code: String,
+    /// Korean zone name the source shipped, untranslated.
+    pub zone_name: Option<String>,
+    /// Code-tree anchor family the zone resolved to.
+    pub anchor_code: String,
+    /// `1` 포함 or `2` 저촉 — 접함 never enters the projection.
+    pub inclusion_code: String,
 }
 
 /// Foundation Catalog building wire response.

@@ -10,7 +10,7 @@ mod catalog;
 pub use catalog::{
     CatalogBuildingResponse, CatalogComplexListQuery, CatalogIndustrialComplexGoldPointer,
     CatalogIndustrialComplexListResponse, CatalogIndustrialComplexResponse, CatalogParcelResponse,
-    CatalogUnitPageResponse, CatalogUnitResponse, FoundationCatalogClient,
+    CatalogParcelZoning, CatalogUnitPageResponse, CatalogUnitResponse, FoundationCatalogClient,
     FoundationCatalogClientConfigError, FoundationCatalogClientRequestError,
     FoundationCatalogHttpError,
 };

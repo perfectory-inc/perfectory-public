@@ -14,12 +14,13 @@ use reqwest::StatusCode;
 use shared_kernel::admin_division::{AdminDivision, EupmyeondongCode, SidoCode, SigunguCode};
 use shared_kernel::land_use_type::LandUseType;
 use shared_kernel::pnu::Pnu;
+use shared_kernel::zoning::Zoning;
 use thiserror::Error;
 use tracing::instrument;
 
 use foundation_platform_client::{
-    CatalogParcelResponse, FoundationCatalogClient, FoundationCatalogClientConfigError,
-    FoundationServiceAuth,
+    CatalogParcelResponse, CatalogParcelZoning, FoundationCatalogClient,
+    FoundationCatalogClientConfigError, FoundationServiceAuth,
 };
 
 /// Foundation Platform HTTP-backed parcel lookup adapter.
@@ -117,10 +118,39 @@ fn parcel_info_from_response(
             .as_deref()
             .map(land_use_type_from_foundation_platform_kind)
             .transpose()?,
-        zoning: None,
+        zoning: zoning_from_foundation_platform_zonings(&response.zonings)?,
         official_land_price_per_m2: None,
         gosi_year_month: None,
     })
+}
+
+/// Picks the representative zoning from Foundation's verdicts (root ADR-0083 §5).
+///
+/// Foundation orders the array 포함 before 저촉 then by zone code, and the representative is
+/// the first row — the strongest designation wins, and ties resolve the same way every time.
+/// An empty array is the honest "the ledger names no zone here" and stays `None`.
+fn zoning_from_foundation_platform_zonings(
+    zonings: &[CatalogParcelZoning],
+) -> Result<Option<Zoning>, LookupError> {
+    zonings
+        .first()
+        .map(|zoning| zoning_from_foundation_platform_anchor(&zoning.anchor_code))
+        .transpose()
+}
+
+fn zoning_from_foundation_platform_anchor(anchor: &str) -> Result<Zoning, LookupError> {
+    match anchor {
+        "UQA100" => Ok(Zoning::Residential),
+        "UQA200" => Ok(Zoning::Commercial),
+        "UQA300" => Ok(Zoning::Industrial),
+        "UQA400" => Ok(Zoning::Green),
+        // 도시 미세분(UQA001)·관리(UQB001)·농림(UQC001)·자연환경보전(UQD001) — the product
+        // vocabulary folds these into 기타 (shared-kernel `Zoning::Other`).
+        "UQA001" | "UQB001" | "UQC001" | "UQD001" => Ok(Zoning::Other),
+        other => Err(LookupError::Parse(format!(
+            "unknown Foundation Platform zoning anchor: {other}"
+        ))),
+    }
 }
 
 fn admin_from_pnu(pnu: &Pnu) -> Result<AdminDivision, LookupError> {
@@ -201,6 +231,30 @@ mod tests {
         assert!(info.zoning.is_none());
         assert!(info.official_land_price_per_m2.is_none());
         assert!(info.gosi_year_month.is_none());
+    }
+
+    #[tokio::test]
+    async fn lookup_maps_the_first_zoning_verdict_to_the_product_vocabulary() {
+        // Root ADR-0083 §5: Foundation orders 포함 before 저촉 then by zone code, and the
+        // representative is the first row. 일반공업지역(UQA320 → anchor UQA300) beats the
+        // 저촉 관리지역 row because 포함 sorts first upstream.
+        let body = format!(
+            r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","zonings":[{{"zone_code":"UQA320","zone_name":"일반공업지역","anchor_code":"UQA300","inclusion_code":"1"}},{{"zone_code":"UQB300","zone_name":"보전관리지역","anchor_code":"UQB001","inclusion_code":"2"}}]}}"#
+        );
+        let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
+        let lookup =
+            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
+
+        let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
+
+        assert_eq!(info.zoning, Some(Zoning::Industrial));
+    }
+
+    #[test]
+    fn an_unknown_anchor_refuses_instead_of_guessing() {
+        let error = zoning_from_foundation_platform_anchor("UQZ999").expect_err("must refuse");
+        assert!(error.to_string().contains("UQZ999"), "{error}");
     }
 
     #[tokio::test]
