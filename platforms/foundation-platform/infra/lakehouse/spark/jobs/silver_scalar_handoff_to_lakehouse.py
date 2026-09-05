@@ -744,27 +744,49 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
 
 
 
+def load_identity_column(contract: dict[str, Any]) -> str:
+    """The column the contract declares one load is identified by (root ADR-0069).
+
+    Read-back verification must count exactly the rows this run's inputs identify. The old
+    hardcoded `source_snapshot_id` was only correct for run-unit contracts; an object-unit
+    national extract shares one snapshot across every object, so the second object's
+    verification counted the first object's rows too and failed on its own success.
+    """
+    load = contract.get("load")
+    column = (load or {}).get("column")
+    if not column:
+        raise ValueError(
+            f"contract {contract.get('table_name')} declares no load identity column to verify by"
+        )
+    return str(column)
+
+
 def read_iceberg_snapshot_for_batch(spark: Any, frame: Any, args: argparse.Namespace, contract: dict[str, Any], F: Any) -> Any:
-    snapshot_rows = frame.select("source_snapshot_id").distinct().limit(17).collect()
-    snapshot_ids = [row.source_snapshot_id for row in snapshot_rows]
-    return read_iceberg_snapshot_for_source_ids(spark, snapshot_ids, args, contract, F)
+    column = load_identity_column(contract)
+    identity_rows = frame.select(column).distinct().limit(65).collect()
+    identity_values = [row[0] for row in identity_rows]
+    return read_iceberg_snapshot_for_identity_values(spark, identity_values, args, contract, F)
 
 
-def read_iceberg_snapshot_for_source_ids(
+def read_iceberg_snapshot_for_identity_values(
     spark: Any,
-    source_snapshot_ids: Sequence[str],
+    identity_values: Sequence[str],
     args: argparse.Namespace,
     contract: dict[str, Any],
     F: Any,
 ) -> Any:
-    snapshot_ids = sorted(set(source_snapshot_ids))
-    if not snapshot_ids:
-        raise ValueError("Cannot verify Iceberg write because source_snapshot_id is empty")
-    if len(snapshot_ids) > 16:
-        raise ValueError("Iceberg write verification supports at most 16 source snapshots")
+    column = load_identity_column(contract)
+    values = sorted(set(identity_values))
+    if not values:
+        raise ValueError(f"Cannot verify Iceberg write because {column} is empty")
+    if len(values) > 64:
+        raise ValueError(
+            "Iceberg write verification supports at most 64 load identities; "
+            "pass --defer-iceberg-readback-validation for a larger run"
+        )
     return (
         spark.table(qualified_iceberg_table(args))
-        .where(F.col("source_snapshot_id").isin(snapshot_ids))
+        .where(F.col(column).isin(values))
         .select(*column_names(contract))
     )
 
@@ -781,6 +803,7 @@ def run_batched_input(
     row_count = 0
     batch_metrics: list[dict[str, int]] = []
     source_snapshot_ids: list[str] = []
+    load_identity_values: list[str] = []
 
     for batch_index, batch in enumerate(batches):
         frame = None
@@ -799,6 +822,10 @@ def run_batched_input(
             batch_metrics.append(current_metrics)
             source_snapshot_ids.extend(
                 collect_source_snapshot_summary(frame)["source_snapshot_ids"]
+            )
+            identity_column = load_identity_column(contract)
+            load_identity_values.extend(
+                row[0] for row in frame.select(identity_column).distinct().collect()
             )
 
             if not args.validate_only:
@@ -849,9 +876,9 @@ def run_batched_input(
         persisted_count = row_count
         persisted_quality_metrics = quality_metrics
     else:
-        persisted = read_iceberg_snapshot_for_source_ids(
+        persisted = read_iceberg_snapshot_for_identity_values(
             spark,
-            source_snapshot_ids,
+            load_identity_values,
             args,
             contract,
             F,
