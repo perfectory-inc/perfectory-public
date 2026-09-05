@@ -237,6 +237,13 @@
       "summary": {
         "landUse": "지목",
         "zoning": "용도지역",
+        "zoningValues": {
+          "residential": "주거지역",
+          "commercial": "상업지역",
+          "industrial": "공업지역",
+          "green": "녹지지역",
+          "other": "기타(관리·농림·자연환경보전)"
+        },
         "officialPrice": "공시지가",
         "officialPricePerM2": "{value} 원/㎡",
         "viewBuildings": "건축물 보기",
