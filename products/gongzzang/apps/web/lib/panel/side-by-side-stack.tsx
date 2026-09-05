@@ -29,7 +29,7 @@ export function SideBySideStack({ stack }: { stack: PanelStack }) {
       <div className="grid flex-1 grid-cols-2 gap-4 overflow-hidden">
         {visible.map((entry, i) => (
           <PanelEntryView
-            key={`${entry.kind}-${entry.id}-${entry.view}`}
+            key={`${top2Start + i}-${entry.kind}-${entry.id}-${entry.view}`}
             entry={entry}
             depth={top2Start + i + 1}
             isTop={i === visible.length - 1}

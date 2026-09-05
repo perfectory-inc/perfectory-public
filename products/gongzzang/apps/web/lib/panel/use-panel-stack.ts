@@ -65,6 +65,14 @@ export function usePanelStack(): UsePanelStackResult {
         }
         return;
       }
+      // Re-clicking the polygon that is already on top must not stack a twin: the
+      // duplicate makes two children share one React key, and React then omits the
+      // panel from the tree entirely — measured 2026-09-05 as "the parcel panel never
+      // shows" while its data request returned 200.
+      const top = stack.entries.at(-1);
+      if (top && top.kind === entry.kind && top.id === entry.id && top.view === entry.view) {
+        return;
+      }
       const next: PanelStack = { v: 1, entries: [...stack.entries, entry] };
       navigate(next, "push");
     },

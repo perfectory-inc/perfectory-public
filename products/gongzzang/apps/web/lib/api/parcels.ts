@@ -10,7 +10,7 @@ export const ParcelInfoSchema = z.object({
   sido_name: z.string(),
   sigungu_name: z.string(),
   eupmyeondong_name: z.string(),
-  land_use_type: z.string(),
+  land_use_type: z.string().nullable(),
   zoning: z.string().nullish(),
   official_land_price_per_m2: z.number().int().nullish(),
   gosi_year_month: z.string().nullish(),

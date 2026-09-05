@@ -129,9 +129,19 @@ async fn populate_parcel_denormalize(state: &ListingsState, listing: &Listing) {
         }
     };
 
+    // A parcel whose source states no use cannot denormalize one; skipping mirrors the
+    // lookup-failure branch above rather than inventing a classification (root ADR-0070).
+    let Some(land_use_type) = info.land_use_type else {
+        tracing::warn!(
+            listing_id = %listing.id,
+            pnu = %listing.parcel_pnu,
+            "parcel kind unstated upstream — denormalize skipped"
+        );
+        return;
+    };
     let denormalize = ListingParcelDenormalize {
         admin_code: info.admin.eupmyeondong.clone(),
-        land_use_type: info.land_use_type,
+        land_use_type,
         zoning: info.zoning,
     };
 

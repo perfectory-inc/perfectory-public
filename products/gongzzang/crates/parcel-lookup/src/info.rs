@@ -24,8 +24,11 @@ pub struct GosiYearMonth {
 pub struct ParcelInfo {
     /// Administrative hierarchy derived from the PNU.
     pub admin: AdminDivision,
-    /// Gongzzang-facing land-use classification.
-    pub land_use_type: LandUseType,
+    /// Gongzzang-facing land-use classification, when the Foundation source states one.
+    ///
+    /// `None` since root ADR-0070: the parcel boundary source carries no use, and inventing
+    /// one here would be the defect ADR-0078 removed from the building fields.
+    pub land_use_type: Option<LandUseType>,
     /// Zoning, when Foundation Platform publishes a zoning source.
     pub zoning: Option<Zoning>,
     /// Official land price in KRW per square meter, when available.

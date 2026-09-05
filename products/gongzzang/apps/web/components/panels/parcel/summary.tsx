@@ -35,7 +35,8 @@ export function ParcelSummaryCard({
       </header>
       <dl className="grid grid-cols-2 gap-y-2 text-[length:var(--text-body-sm)]">
         <dt className="text-[var(--color-muted)]">{t("landUse")}</dt>
-        <dd className="text-[var(--color-ink)]">{data.land_use_type}</dd>
+        {/* 원천이 말하지 않은 용도는 "정보 없음" — 지어내지 않는다 (root ADR-0070/0078). */}
+        <dd className="text-[var(--color-ink)]">{data.land_use_type ?? t("unknown")}</dd>
         {data.zoning && (
           <>
             <dt className="text-[var(--color-muted)]">{t("zoning")}</dt>

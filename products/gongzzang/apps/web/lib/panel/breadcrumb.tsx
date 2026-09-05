@@ -39,7 +39,7 @@ function breadcrumbLabel(entry: PanelStackEntry, translateLabel: (key: string) =
 
 function BreadcrumbItem({ entry, index, isLast, isDimmed, label, onSelect }: BreadcrumbItemProps) {
   return (
-    <span key={`${entry.kind}-${entry.id}-${entry.view}`} className="flex items-center gap-1">
+    <span key={`${index}-${entry.kind}-${entry.id}-${entry.view}`} className="flex items-center gap-1">
       {index > 0 ? <span className="text-[var(--color-muted)]">/</span> : null}
       <button
         type="button"
@@ -72,7 +72,7 @@ export function Breadcrumb({ stack, greyedBeforeIndex = -1 }: BreadcrumbProps) {
     >
       {stack.entries.map((entry, index) => (
         <BreadcrumbItem
-          key={`${entry.kind}-${entry.id}-${entry.view}`}
+          key={`${index}-${entry.kind}-${entry.id}-${entry.view}`}
           entry={entry}
           index={index}
           isLast={index === stack.entries.length - 1}

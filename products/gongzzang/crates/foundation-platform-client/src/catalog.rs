@@ -26,7 +26,12 @@ pub struct CatalogParcelResponse {
     /// Standard 19-digit parcel identity.
     pub pnu: String,
     /// Foundation-owned parcel kind wire value.
-    pub kind: String,
+    ///
+    /// Nullable upstream since root ADR-0070: the boundary source carries neither use nor
+    /// area, so a parcel may arrive with no kind at all — a consumer that keeps promising a
+    /// value breaks on the first honest row (root ADR-0078 §1; the building fields were fixed
+    /// then, this field was the one left behind).
+    pub kind: Option<String>,
 }
 
 /// Foundation Catalog building wire response.
