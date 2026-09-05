@@ -28,6 +28,7 @@ from lakehouse_engine import (
     assert_iceberg_runtime_loaded,
     iceberg_packages,
 )
+import lakehouse_object_store
 from lakehouse_ingest import append_batch_once
 from platform_contracts import (
     column_names,
@@ -724,6 +725,15 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.shuffle.partitions", "2")
     )
+    # An s3a input needs the R2 filesystem settings on the session, the same wiring the
+    # spatial jobs carry (spatial_silver_handoff.build_spark_session). Without it the first
+    # object-store handoff fails with NoAuthWithAWSException while the same run's Iceberg
+    # catalog — a different credential path — works, which reads as a permissions mystery.
+    # Decided on the raw --input string exactly as the parcel job does: a comma batch of
+    # object keys still starts with the scheme, and `input_paths` deliberately returns a
+    # plain string for a single path — iterating that yields characters, not paths.
+    if lakehouse_object_store.is_object_store_path(args.input):
+        builder = lakehouse_object_store.apply_object_store_settings(builder)
     if args.write_mode == "iceberg":
         builder = apply_catalog_settings(builder, args.iceberg_catalog_name)
     spark = builder.getOrCreate()
