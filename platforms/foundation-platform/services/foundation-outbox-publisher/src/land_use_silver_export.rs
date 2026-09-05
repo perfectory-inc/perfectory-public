@@ -6,12 +6,13 @@
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
 //! position mapping below is the only new fact, and a test holds it against the contract
-//! so the two cannot drift apart.
+//! so the two cannot drift apart. Transport plumbing lives in `silver_handoff_io`,
+//! shared with the shapefile lane.
 
 use std::{
     collections::BTreeMap,
-    env, fs,
-    io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    fs,
+    io::{BufReader, Read, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -19,21 +20,17 @@ use std::{
 use anyhow::{bail, Context};
 use chrono::Utc;
 use flate2::{write::GzEncoder, Compression as GzipCompression};
-use foundation_outbox::{
-    object_storage::{R2MultipartUploadWriter, R2SeekableObjectReader},
-    R2ObjectStorage,
-};
+use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::Pnu;
 use lakehouse_domain::{LakehouseTableContract, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES};
 use serde_json::json;
-use uuid::Uuid;
 
-const R2_READ_CHUNK_BYTES: usize = 8 * 1024 * 1024;
-const R2_UPLOAD_PART_BYTES: usize = 16 * 1024 * 1024;
-const HANDOFF_CONTENT_TYPE: &str = "application/x-ndjson";
-const HANDOFF_CACHE_CONTROL: &str = "no-store";
-const GZIP_SUFFIX: &str = ".gz";
-const GZIP_LEVEL: u32 = 6;
+use foundation_outbox_publisher::silver_handoff_io::{
+    already_exported, one_of_path_or_key, open_sink, open_source, optional_env,
+    refuse_existing_outputs, required_env, HandoffSink, InputSource, OutputSink, PathOrKey,
+    SeekableSource, GZIP_LEVEL,
+};
+
 const OUTCOME_CONVERTED: &str = "converted";
 const OUTCOME_ALREADY_PRESENT: &str = "already_present";
 const SUMMARY_SCHEMA_VERSION: &str = "foundation-platform.land_use_silver_handoff_export.v1";
@@ -163,7 +160,7 @@ pub async fn run_zone_code() -> anyhow::Result<()> {
 async fn run_lane(lane: &'static Lane) -> anyhow::Result<()> {
     let config = ExportConfig::from_env(lane)?;
 
-    if already_exported(&config).await? {
+    if already_exported(&config.output).await? {
         write_already_present_summary(&config, lane)?;
         tracing::info!(
             output = %config.output.describe(),
@@ -186,53 +183,6 @@ async fn run_lane(lane: &'static Lane) -> anyhow::Result<()> {
         "land-use Silver handoff export succeeded"
     );
     Ok(())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum InputSource {
-    LocalPath(PathBuf),
-    R2Object(String),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum OutputSink {
-    LocalPath(PathBuf),
-    R2Object(String),
-}
-
-impl InputSource {
-    fn describe(&self) -> String {
-        match self {
-            Self::LocalPath(path) => path.display().to_string(),
-            Self::R2Object(key) => format!("r2://{key}"),
-        }
-    }
-
-    const fn is_r2(&self) -> bool {
-        matches!(self, Self::R2Object(_))
-    }
-}
-
-impl OutputSink {
-    fn is_compressed(&self) -> bool {
-        match self {
-            Self::LocalPath(path) => path
-                .to_str()
-                .is_some_and(|name| name.ends_with(GZIP_SUFFIX)),
-            Self::R2Object(key) => key.ends_with(GZIP_SUFFIX),
-        }
-    }
-
-    fn describe(&self) -> String {
-        match self {
-            Self::LocalPath(path) => path.display().to_string(),
-            Self::R2Object(key) => format!("r2://{key}"),
-        }
-    }
-
-    const fn is_r2(&self) -> bool {
-        matches!(self, Self::R2Object(_))
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -282,140 +232,11 @@ impl ExportConfig {
     }
 }
 
-enum PathOrKey {
-    Path(PathBuf),
-    Key(String),
-}
-
-fn one_of_path_or_key(path_env: &str, key_env: &str) -> anyhow::Result<PathOrKey> {
-    match (optional_env(path_env)?, optional_env(key_env)?) {
-        (Some(path), None) => Ok(PathOrKey::Path(PathBuf::from(path))),
-        (None, Some(key)) => Ok(PathOrKey::Key(key)),
-        (Some(_), Some(_)) => bail!("set {path_env} or {key_env}, not both"),
-        (None, None) => bail!("{path_env} or {key_env} is required"),
-    }
-}
-
-fn optional_env(name: &str) -> anyhow::Result<Option<String>> {
-    match env::var(name) {
-        Ok(value) => {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(trimmed.to_owned()))
-            }
-        }
-        Err(env::VarError::NotPresent) => Ok(None),
-        Err(error) => Err(error).with_context(|| format!("failed to read {name}")),
-    }
-}
-
-fn required_env(name: &str) -> anyhow::Result<String> {
-    optional_env(name)?.with_context(|| format!("{name} is required"))
-}
-
-enum CsvZipSource {
-    Local(BufReader<fs::File>),
-    R2(Box<R2SeekableObjectReader>),
-}
-
-impl Read for CsvZipSource {
-    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Self::Local(source) => source.read(output),
-            Self::R2(source) => source.read(output),
-        }
-    }
-}
-
-impl Seek for CsvZipSource {
-    fn seek(&mut self, seek_from: SeekFrom) -> io::Result<u64> {
-        match self {
-            Self::Local(source) => source.seek(seek_from),
-            Self::R2(source) => source.seek(seek_from),
-        }
-    }
-}
-
-/// A handoff destination that becomes visible only after the whole conversion succeeded:
-/// local stages beside its final name and renames, R2 parts are unaddressable until complete.
-enum HandoffSink {
-    Local {
-        staged: fs::File,
-        staged_path: PathBuf,
-        final_path: PathBuf,
-    },
-    R2(Box<R2MultipartUploadWriter>),
-}
-
-impl Write for HandoffSink {
-    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
-        match self {
-            Self::Local { staged, .. } => staged.write(input),
-            Self::R2(writer) => writer.write(input),
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match self {
-            Self::Local { staged, .. } => staged.flush(),
-            Self::R2(writer) => writer.flush(),
-        }
-    }
-}
-
-impl HandoffSink {
-    fn finish(self) -> anyhow::Result<u64> {
-        match self {
-            Self::Local {
-                staged,
-                staged_path,
-                final_path,
-            } => {
-                staged
-                    .sync_all()
-                    .context("failed to sync staged land-use handoff")?;
-                let output_bytes = staged
-                    .metadata()
-                    .context("failed to inspect staged land-use handoff")?
-                    .len();
-                drop(staged);
-                fs::rename(&staged_path, &final_path).with_context(|| {
-                    format!(
-                        "failed to publish staged land-use handoff to {}",
-                        final_path.display()
-                    )
-                })?;
-                Ok(output_bytes)
-            }
-            Self::R2(writer) => {
-                let report = writer
-                    .complete()
-                    .context("failed to complete the land-use handoff upload to R2")?;
-                Ok(report.output_bytes)
-            }
-        }
-    }
-}
-
-async fn already_exported(config: &ExportConfig) -> anyhow::Result<bool> {
-    let OutputSink::R2Object(key) = &config.output else {
-        return Ok(false);
-    };
-    let storage = R2ObjectStorage::from_env()
-        .context("failed to configure R2 while checking for an existing handoff")?;
-    storage
-        .object_exists(key)
-        .await
-        .with_context(|| format!("failed to check whether the handoff {key} already exists"))
-}
-
 async fn export_handoff(
     config: &ExportConfig,
     lane: &'static Lane,
 ) -> anyhow::Result<ExportReport> {
-    refuse_existing_outputs(config)?;
+    refuse_existing_outputs(&config.output, config.summary_path.as_deref())?;
 
     let storage = if config.uses_r2() {
         Some(R2ObjectStorage::from_env().context("failed to configure R2 for a streamed handoff")?)
@@ -433,89 +254,6 @@ async fn export_handoff(
         .context("failed to join the land-use Silver handoff conversion")?
 }
 
-fn refuse_existing_outputs(config: &ExportConfig) -> anyhow::Result<()> {
-    if let OutputSink::LocalPath(path) = &config.output {
-        if path.exists() {
-            bail!(
-                "refusing to overwrite existing land-use handoff output {}",
-                path.display()
-            );
-        }
-    }
-    if config
-        .summary_path
-        .as_ref()
-        .is_some_and(|path| path.exists())
-    {
-        bail!("refusing to overwrite existing land-use summary output");
-    }
-    Ok(())
-}
-
-async fn open_source(
-    input: &InputSource,
-    storage: Option<&R2ObjectStorage>,
-) -> anyhow::Result<CsvZipSource> {
-    match input {
-        InputSource::LocalPath(path) => {
-            let file = fs::File::open(path)
-                .with_context(|| format!("failed to open land-use ZIP {}", path.display()))?;
-            Ok(CsvZipSource::Local(BufReader::new(file)))
-        }
-        InputSource::R2Object(key) => {
-            let storage = storage.context("an R2 input key needs R2 configuration")?;
-            let reader = storage
-                .open_seekable_object(key, R2_READ_CHUNK_BYTES)
-                .await
-                .with_context(|| format!("failed to open R2 land-use ZIP {key}"))?;
-            Ok(CsvZipSource::R2(Box::new(reader)))
-        }
-    }
-}
-
-async fn open_sink(
-    output: &OutputSink,
-    storage: Option<&R2ObjectStorage>,
-) -> anyhow::Result<HandoffSink> {
-    match output {
-        OutputSink::LocalPath(path) => {
-            let parent = path.parent().unwrap_or_else(|| Path::new("."));
-            fs::create_dir_all(parent).with_context(|| {
-                format!("failed to create handoff directory {}", parent.display())
-            })?;
-            let file_name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .context("land-use handoff output path has no file name")?;
-            let staged_path = parent.join(format!(".{file_name}.partial-{}", Uuid::new_v4()));
-            let staged = fs::File::create(&staged_path).with_context(|| {
-                format!(
-                    "failed to stage land-use handoff at {}",
-                    staged_path.display()
-                )
-            })?;
-            Ok(HandoffSink::Local {
-                staged,
-                staged_path,
-                final_path: path.clone(),
-            })
-        }
-        OutputSink::R2Object(key) => {
-            let storage = storage.context("an R2 output key needs R2 configuration")?;
-            let writer = storage
-                .start_create_only_multipart_upload(
-                    key,
-                    HANDOFF_CONTENT_TYPE,
-                    HANDOFF_CACHE_CONTROL,
-                    R2_UPLOAD_PART_BYTES,
-                )
-                .await
-                .with_context(|| format!("failed to start the handoff upload to R2 {key}"))?;
-            Ok(HandoffSink::R2(Box::new(writer)))
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ExportReport {
     dataset_name: String,
@@ -528,7 +266,7 @@ struct ExportReport {
 }
 
 fn convert(
-    source: CsvZipSource,
+    source: SeekableSource,
     mut sink: HandoffSink,
     config: &ExportConfig,
     lane: &'static Lane,
@@ -548,7 +286,7 @@ fn convert(
         let member = archive
             .by_index(member_index)
             .context("failed to open the selected ZIP member")?;
-        let mut writer = BufWriter::new(&mut sink);
+        let mut writer = std::io::BufWriter::new(&mut sink);
         if compress {
             let mut gzip = GzEncoder::new(&mut writer, GzipCompression::new(GZIP_LEVEL));
             let report = stream_rows(member, &mut gzip, config, lane)?;
@@ -580,7 +318,7 @@ fn convert(
 }
 
 fn select_member(
-    archive: &mut zip::ZipArchive<CsvZipSource>,
+    archive: &mut zip::ZipArchive<SeekableSource>,
     lane: &Lane,
 ) -> anyhow::Result<usize> {
     let mut matches = Vec::new();
@@ -762,7 +500,7 @@ impl<R: Read> CsvRecords<R> {
         }
     }
 
-    fn next_byte(&mut self) -> io::Result<Option<u8>> {
+    fn next_byte(&mut self) -> std::io::Result<Option<u8>> {
         if let Some(byte) = self.pending.take() {
             return Ok(Some(byte));
         }
@@ -771,7 +509,7 @@ impl<R: Read> CsvRecords<R> {
             match self.source.read(&mut buffer) {
                 Ok(0) => return Ok(None),
                 Ok(_) => return Ok(Some(buffer[0])),
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(error),
             }
         }
@@ -930,6 +668,8 @@ fn write_summary_json(summary_path: &Path, summary: &serde_json::Value) -> anyho
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
+
+    use uuid::Uuid;
 
     use super::*;
 

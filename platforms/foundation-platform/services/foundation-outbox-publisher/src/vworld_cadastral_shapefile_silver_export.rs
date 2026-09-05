@@ -2,8 +2,7 @@
 
 use std::{
     collections::BTreeMap,
-    env, fs,
-    io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -12,10 +11,7 @@ use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use collection_domain::VWorldCadastralDedupedFeature;
 use flate2::{write::GzEncoder, Compression as GzipCompression};
-use foundation_outbox::{
-    object_storage::{R2MultipartUploadWriter, R2SeekableObjectReader},
-    R2ObjectStorage,
-};
+use foundation_outbox::R2ObjectStorage;
 use foundation_shapefile::{ShapefileMetadata, ZipShapefileReader};
 use foundation_shared_kernel::Pnu;
 use lakehouse_application::{
@@ -24,7 +20,12 @@ use lakehouse_application::{
     VWorldCadastralSilverParcelBoundaryRowsInput,
 };
 use serde_json::json;
-use uuid::Uuid;
+
+use crate::silver_handoff_io::{
+    already_exported, one_of_path_or_key, open_sink, open_source, optional_env, parse_utc_env,
+    refuse_existing_outputs, required_env, HandoffSink, InputSource, OutputSink, PathOrKey,
+    PendingOutput, SeekableSource, GZIP_LEVEL,
+};
 
 const INPUT_PATH_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_INPUT_PATH";
 const OUTPUT_PATH_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_OUTPUT_PATH";
@@ -36,25 +37,6 @@ const INPUT_OBJECT_KEY_ENV: &str =
     "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_INPUT_OBJECT_KEY";
 const OUTPUT_OBJECT_KEY_ENV: &str =
     "FOUNDATION_PLATFORM_VWORLD_CADASTRAL_SHAPEFILE_OUTPUT_OBJECT_KEY";
-
-/// How much of an R2 object one ranged request fetches.
-///
-/// A ZIP is read by seeking to its central directory at the end and then back to the member
-/// it names, so a per-call request count would be dominated by two jumps rather than by the
-/// bytes wanted. Eight mebibytes keeps that scan to a handful of requests while never holding
-/// more than one chunk.
-const R2_READ_CHUNK_BYTES: usize = 8 * 1024 * 1024;
-
-/// How much handoff JSONL accumulates before a part is uploaded.
-///
-/// R2 requires at least five mebibytes for every part but the last, and caps an upload at
-/// 10,000 parts. Sixteen mebibytes clears the floor and still admits a 156 GB output — an
-/// order of magnitude above the 45.7 GB the national parcel run produced.
-const R2_UPLOAD_PART_BYTES: usize = 16 * 1024 * 1024;
-
-const HANDOFF_CONTENT_TYPE: &str = "application/x-ndjson";
-/// The handoff is an input to a load, not something served. Nothing should cache it.
-const HANDOFF_CACHE_CONTROL: &str = "no-store";
 
 /// What the run did, in the summary rather than in a sentence.
 ///
@@ -87,7 +69,7 @@ pub async fn run() -> anyhow::Result<()> {
     // Offered every object on every run, the way the loader is offered every batch. Whether this
     // one is already done is answered by the bucket rather than by a record beside the runner,
     // because a record in a third place is a record that can disagree with the other two.
-    if already_exported(&config).await? {
+    if already_exported(&config.output).await? {
         write_already_present_summary(&config)?;
         tracing::info!(
             output = %config.output.describe(),
@@ -109,97 +91,6 @@ pub async fn run() -> anyhow::Result<()> {
         "VWorld cadastral shapefile Silver handoff export succeeded"
     );
     Ok(())
-}
-
-/// Where the source ZIP is read from.
-///
-/// A local path and an R2 key are both legitimate: a single file being examined by hand is a
-/// path, and a national run is a key. Naming them as one type keeps the conversion below from
-/// caring which it got.
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum InputSource {
-    LocalPath(PathBuf),
-    R2Object(String),
-}
-
-/// Where the handoff JSONL is written.
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum OutputSink {
-    LocalPath(PathBuf),
-    R2Object(String),
-}
-
-/// Suffix that asks for the handoff to be compressed on the way out.
-///
-/// Named rather than flagged so the file says what it is. A `.gz` that was not gzipped, or a
-/// plain name that was, is a file nothing can open twice the same way — and the reader here is
-/// Spark, which decides by extension.
-const GZIP_SUFFIX: &str = ".gz";
-
-/// How hard to compress.
-///
-/// Six is the default and the reason to leave it there: measured 2026-08-31 on a 625 MB
-/// national parcel handoff, level 6 leaves 20% and level 9 leaves barely less for noticeably
-/// more CPU. The machine's CPU was already idle at six percent while the wire was saturated,
-/// so the trade is worth making — but not past the point where it stops paying.
-const GZIP_LEVEL: u32 = 6;
-
-impl InputSource {
-    fn describe(&self) -> String {
-        match self {
-            Self::LocalPath(path) => path.display().to_string(),
-            Self::R2Object(key) => format!("r2://{key}"),
-        }
-    }
-
-    const fn is_r2(&self) -> bool {
-        matches!(self, Self::R2Object(_))
-    }
-}
-
-impl OutputSink {
-    /// Whether the name asks for the bytes to be compressed.
-    ///
-    /// Taken from the name rather than a separate switch, because the reader decides the same
-    /// way. Two places that answer this differently produce a file one of them cannot open.
-    fn is_compressed(&self) -> bool {
-        match self {
-            Self::LocalPath(path) => path
-                .to_str()
-                .is_some_and(|name| name.ends_with(GZIP_SUFFIX)),
-            Self::R2Object(key) => key.ends_with(GZIP_SUFFIX),
-        }
-    }
-
-    fn describe(&self) -> String {
-        match self {
-            Self::LocalPath(path) => path.display().to_string(),
-            Self::R2Object(key) => format!("r2://{key}"),
-        }
-    }
-
-    const fn is_r2(&self) -> bool {
-        matches!(self, Self::R2Object(_))
-    }
-}
-
-/// Reads exactly one of a path variable and a key variable.
-///
-/// Both set is refused rather than resolved by precedence: a run configured with two sources
-/// is a run whose operator believed something about it that is not true, and silently
-/// preferring one writes the wrong lineage into the summary.
-fn one_of_path_or_key(path_env: &str, key_env: &str) -> anyhow::Result<PathOrKey> {
-    match (optional_env(path_env)?, optional_env(key_env)?) {
-        (Some(path), None) => Ok(PathOrKey::Path(PathBuf::from(path))),
-        (None, Some(key)) => Ok(PathOrKey::Key(key)),
-        (Some(_), Some(_)) => bail!("set {path_env} or {key_env}, not both"),
-        (None, None) => bail!("{path_env} or {key_env} is required"),
-    }
-}
-
-enum PathOrKey {
-    Path(PathBuf),
-    Key(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -279,91 +170,6 @@ impl ExportConfig {
     }
 }
 
-/// A ZIP source the shapefile reader can seek in, wherever it lives.
-enum ShapefileSource {
-    Local(BufReader<fs::File>),
-    R2(Box<R2SeekableObjectReader>),
-}
-
-impl Read for ShapefileSource {
-    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Self::Local(source) => source.read(output),
-            Self::R2(source) => source.read(output),
-        }
-    }
-}
-
-impl Seek for ShapefileSource {
-    fn seek(&mut self, seek_from: SeekFrom) -> io::Result<u64> {
-        match self {
-            Self::Local(source) => source.seek(seek_from),
-            Self::R2(source) => source.seek(seek_from),
-        }
-    }
-}
-
-/// A handoff destination that only becomes visible once the whole conversion succeeded.
-///
-/// Both variants hold that property by construction and neither one can be half-written: the
-/// local one stages beside its final name and renames, and the R2 one uploads parts that no
-/// reader can address until the upload is completed.
-enum HandoffSink {
-    Local {
-        pending: PendingOutput,
-        final_path: PathBuf,
-    },
-    R2(Box<R2MultipartUploadWriter>),
-}
-
-impl Write for HandoffSink {
-    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
-        match self {
-            Self::Local { pending, .. } => pending
-                .file_mut()
-                .map_err(io::Error::other)
-                .and_then(|file| file.write(input)),
-            Self::R2(writer) => writer.write(input),
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match self {
-            Self::Local { pending, .. } => pending
-                .file_mut()
-                .map_err(io::Error::other)
-                .and_then(std::io::Write::flush),
-            Self::R2(writer) => writer.flush(),
-        }
-    }
-}
-
-impl HandoffSink {
-    /// Publishes the handoff and reports how many bytes it holds.
-    fn finish(self) -> anyhow::Result<u64> {
-        match self {
-            Self::Local {
-                mut pending,
-                final_path,
-            } => {
-                let output_bytes = pending
-                    .file_mut()?
-                    .metadata()
-                    .context("failed to inspect staged shapefile JSONL")?
-                    .len();
-                pending.sync_and_commit(&final_path)?;
-                Ok(output_bytes)
-            }
-            Self::R2(writer) => {
-                let report = writer
-                    .complete()
-                    .context("failed to complete the handoff upload to R2")?;
-                Ok(report.output_bytes)
-            }
-        }
-    }
-}
-
 /// Names why one source PNU was refused, without deciding what the name means.
 ///
 /// `Pnu::parse` accepts only the standard 대장구분 table (1/2/8/9). Real national cadastral
@@ -387,7 +193,7 @@ fn classify_rejected_pnu(raw: &str) -> String {
 /// be blocked that way, so the conversion runs on the blocking pool while the two handles,
 /// which need a runtime to be created at all, are opened here.
 async fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
-    refuse_existing_outputs(config)?;
+    refuse_existing_outputs(&config.output, config.summary_path.as_deref())?;
 
     let storage = if config.uses_r2() {
         Some(R2ObjectStorage::from_env().context("failed to configure R2 for a streamed handoff")?)
@@ -417,94 +223,8 @@ where
         .context("failed to join the shapefile Silver handoff conversion")?
 }
 
-/// Whether this run's output is already in the bucket.
-///
-/// Only asked of an R2 output. A local one is answered by `refuse_existing_outputs`, which stops
-/// rather than skips: a path the operator typed twice is a mistake worth hearing about, while a
-/// key the runner derived is the same key it derived last time.
-async fn already_exported(config: &ExportConfig) -> anyhow::Result<bool> {
-    let OutputSink::R2Object(key) = &config.output else {
-        return Ok(false);
-    };
-    let storage = R2ObjectStorage::from_env()
-        .context("failed to configure R2 while checking for an existing handoff")?;
-    storage
-        .object_exists(key)
-        .await
-        .with_context(|| format!("failed to check whether the handoff {key} already exists"))
-}
-
-fn refuse_existing_outputs(config: &ExportConfig) -> anyhow::Result<()> {
-    if let OutputSink::LocalPath(path) = &config.output {
-        if path.exists() {
-            bail!(
-                "refusing to overwrite existing shapefile JSONL output {}",
-                path.display()
-            );
-        }
-    }
-    if config
-        .summary_path
-        .as_ref()
-        .is_some_and(|path| path.exists())
-    {
-        bail!("refusing to overwrite existing shapefile summary output");
-    }
-    Ok(())
-}
-
-async fn open_source(
-    input: &InputSource,
-    storage: Option<&R2ObjectStorage>,
-) -> anyhow::Result<ShapefileSource> {
-    match input {
-        InputSource::LocalPath(path) => {
-            let file = fs::File::open(path).with_context(|| {
-                format!(
-                    "failed to open VWorld cadastral shapefile ZIP {}",
-                    path.display()
-                )
-            })?;
-            Ok(ShapefileSource::Local(BufReader::new(file)))
-        }
-        InputSource::R2Object(key) => {
-            let storage = storage.context("an R2 input key needs R2 configuration")?;
-            let reader = storage
-                .open_seekable_object(key, R2_READ_CHUNK_BYTES)
-                .await
-                .with_context(|| format!("failed to open R2 shapefile ZIP {key}"))?;
-            Ok(ShapefileSource::R2(Box::new(reader)))
-        }
-    }
-}
-
-async fn open_sink(
-    output: &OutputSink,
-    storage: Option<&R2ObjectStorage>,
-) -> anyhow::Result<HandoffSink> {
-    match output {
-        OutputSink::LocalPath(path) => Ok(HandoffSink::Local {
-            pending: PendingOutput::create(path)?,
-            final_path: path.clone(),
-        }),
-        OutputSink::R2Object(key) => {
-            let storage = storage.context("an R2 output key needs R2 configuration")?;
-            let writer = storage
-                .start_create_only_multipart_upload(
-                    key,
-                    HANDOFF_CONTENT_TYPE,
-                    HANDOFF_CACHE_CONTROL,
-                    R2_UPLOAD_PART_BYTES,
-                )
-                .await
-                .with_context(|| format!("failed to start the handoff upload to R2 {key}"))?;
-            Ok(HandoffSink::R2(Box::new(writer)))
-        }
-    }
-}
-
 fn convert(
-    source: ShapefileSource,
+    source: SeekableSource,
     mut sink: HandoffSink,
     config: &ExportConfig,
 ) -> anyhow::Result<ExportReport> {
@@ -760,95 +480,6 @@ fn write_summary_json(path: &Path, summary: &serde_json::Value) -> anyhow::Resul
         .write_all(&bytes)
         .with_context(|| format!("failed to write staged summary for {}", path.display()))?;
     pending.sync_and_commit(path)
-}
-
-struct PendingOutput {
-    path: PathBuf,
-    file: Option<fs::File>,
-    committed: bool,
-}
-
-impl PendingOutput {
-    fn create(final_path: &Path) -> anyhow::Result<Self> {
-        let parent = final_path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create output directory {}", parent.display()))?;
-        let file_name = final_path
-            .file_name()
-            .context("output path must name a file")?
-            .to_string_lossy();
-        let path = parent.join(format!(".{file_name}.partial-{}", Uuid::new_v4()));
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .with_context(|| format!("failed to create staged output {}", path.display()))?;
-        Ok(Self {
-            path,
-            file: Some(file),
-            committed: false,
-        })
-    }
-
-    fn file_mut(&mut self) -> anyhow::Result<&mut fs::File> {
-        self.file
-            .as_mut()
-            .context("staged output is already closed")
-    }
-
-    fn sync_and_commit(mut self, final_path: &Path) -> anyhow::Result<()> {
-        let file = self
-            .file
-            .take()
-            .context("staged output is already closed")?;
-        file.sync_all()
-            .with_context(|| format!("failed to sync staged output {}", self.path.display()))?;
-        drop(file);
-        fs::rename(&self.path, final_path).with_context(|| {
-            format!(
-                "failed to promote staged output {} to {}",
-                self.path.display(),
-                final_path.display()
-            )
-        })?;
-        self.committed = true;
-        Ok(())
-    }
-}
-
-impl Drop for PendingOutput {
-    fn drop(&mut self) {
-        if !self.committed {
-            let _ = fs::remove_file(&self.path);
-        }
-    }
-}
-
-fn required_env(name: &str) -> anyhow::Result<String> {
-    let value = env::var(name).with_context(|| format!("{name} is required"))?;
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        bail!("{name} must not be empty");
-    }
-    Ok(trimmed.to_owned())
-}
-
-fn optional_env(name: &str) -> anyhow::Result<Option<String>> {
-    match env::var(name) {
-        Ok(value) if !value.trim().is_empty() => Ok(Some(value.trim().to_owned())),
-        Ok(_) | Err(env::VarError::NotPresent) => Ok(None),
-        Err(error) => bail!("invalid {name} environment variable: {error}"),
-    }
-}
-
-fn parse_utc_env(name: &str) -> anyhow::Result<DateTime<Utc>> {
-    let raw = required_env(name)?;
-    Ok(DateTime::parse_from_rfc3339(&raw)
-        .with_context(|| format!("{name} must be an RFC3339 timestamp"))?
-        .with_timezone(&Utc))
 }
 
 #[cfg(test)]
