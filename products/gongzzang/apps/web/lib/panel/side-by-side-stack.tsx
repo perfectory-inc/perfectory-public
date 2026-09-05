@@ -29,7 +29,8 @@ export function SideBySideStack({ stack }: { stack: PanelStack }) {
       <div className="grid flex-1 grid-cols-2 gap-4 overflow-hidden">
         {visible.map((entry, i) => (
           <PanelEntryView
-            key={`${entry.kind}-${entry.id}-${entry.view}`}
+            // biome-ignore lint/suspicious/noArrayIndexKey: 같은 패널이 다른 깊이에 두 번 설 수 있어 내용만의 key 는 충돌한다 — 위치+내용 복합이 정체성이다.
+            key={`${top2Start + i}-${entry.kind}-${entry.id}-${entry.view}`}
             entry={entry}
             depth={top2Start + i + 1}
             isTop={i === visible.length - 1}

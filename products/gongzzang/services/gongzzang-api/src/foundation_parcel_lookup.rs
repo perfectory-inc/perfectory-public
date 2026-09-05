@@ -112,7 +112,11 @@ fn parcel_info_from_response(
 
     Ok(ParcelInfo {
         admin: admin_from_pnu(requested_pnu)?,
-        land_use_type: land_use_type_from_foundation_platform_kind(&response.kind)?,
+        land_use_type: response
+            .kind
+            .as_deref()
+            .map(land_use_type_from_foundation_platform_kind)
+            .transpose()?,
         zoning: None,
         official_land_price_per_m2: None,
         gosi_year_month: None,
@@ -193,10 +197,28 @@ mod tests {
         assert_eq!(info.admin.sido.as_str(), "99");
         assert_eq!(info.admin.sigungu.as_str(), "99999");
         assert_eq!(info.admin.eupmyeondong.as_str(), "99999005");
-        assert_eq!(info.land_use_type, LandUseType::FactorySite);
+        assert_eq!(info.land_use_type, Some(LandUseType::FactorySite));
         assert!(info.zoning.is_none());
         assert!(info.official_land_price_per_m2.is_none());
         assert!(info.gosi_year_month.is_none());
+    }
+
+    #[tokio::test]
+    async fn lookup_accepts_a_parcel_whose_source_states_no_kind() {
+        // Root ADR-0070: the boundary source carries neither use nor area, so `kind: null`
+        // is the honest national answer — measured 2026-09-05 when every real parcel row
+        // 502'd because this client still promised a string.
+        let body = format!(
+            r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z"}}"#
+        );
+        let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
+        let lookup =
+            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
+
+        let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
+
+        assert_eq!(info.land_use_type, None);
     }
 
     #[tokio::test]

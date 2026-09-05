@@ -40,7 +40,7 @@ pub struct ParcelInfoResponse {
     /// 읍면동 한국어명. `ParcelInfo` 미보유 — 현재 빈 문자열.
     pub eupmyeondong_name: String,
     /// 지목 (`factory_site` / `warehouse_site` / ...).
-    pub land_use_type: String,
+    pub land_use_type: Option<String>,
     /// 용도지역 (`residential` / `commercial` / ...). Foundation Platform 미제공 시 `None`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zoning: Option<String>,
@@ -105,7 +105,7 @@ pub async fn get_parcel(
         sido_name: String::new(),
         sigungu_name: String::new(),
         eupmyeondong_name: String::new(),
-        land_use_type: info.land_use_type.as_str().to_owned(),
+        land_use_type: info.land_use_type.map(|value| value.as_str().to_owned()),
         zoning: info.zoning.map(|z| z.as_str().to_owned()),
         official_land_price_per_m2: info
             .official_land_price_per_m2

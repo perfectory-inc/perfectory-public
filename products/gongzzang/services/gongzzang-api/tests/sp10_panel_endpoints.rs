@@ -196,7 +196,7 @@ async fn get_parcel_test(
         "sido_name": "",
         "sigungu_name": "",
         "eupmyeondong_name": "",
-        "land_use_type": info.land_use_type.as_str(),
+        "land_use_type": info.land_use_type.map(shared_kernel::land_use_type::LandUseType::as_str),
         "zoning": info.zoning.map(shared_kernel::zoning::Zoning::as_str),
         "official_land_price_per_m2": info.official_land_price_per_m2.map(shared_kernel::money::MoneyKrw::as_i64),
         "gosi_year_month": info.gosi_year_month.map(|y| format!("{:04}{:02}", y.year, y.month)),

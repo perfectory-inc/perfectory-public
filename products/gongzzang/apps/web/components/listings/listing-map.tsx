@@ -48,6 +48,14 @@ export function ListingMap() {
   );
   const filters = useListingsStore((state) => state.filters);
   const { push: pushPanel } = usePanelStack();
+  // The map-construction effect must not depend on pushPanel's identity: pushing a panel
+  // changes the URL, the URL remakes pushPanel, and an effect keyed on it tears the whole
+  // map down on every polygon click. The ref keeps the latest callback reachable while the
+  // map is built exactly once.
+  const pushPanelRef = useRef(pushPanel);
+  useEffect(() => {
+    pushPanelRef.current = pushPanel;
+  }, [pushPanel]);
 
   useEffect(() => {
     const mb = mapboxInstance;
@@ -112,11 +120,11 @@ export function ListingMap() {
         map,
         cleanups,
         () => cancelled,
-        (pnu) => pushPanel({ kind: "parcel", id: pnu, view: "summary" }),
-        (listingId) => pushPanel({ kind: "listing", id: listingId, view: "summary" }),
+        (pnu) => pushPanelRef.current({ kind: "parcel", id: pnu, view: "summary" }),
+        (listingId) => pushPanelRef.current({ kind: "listing", id: listingId, view: "summary" }),
         setMapboxInstance,
         (lakehouseComplexId) =>
-          pushPanel({ kind: "complex", id: lakehouseComplexId, view: "summary" }),
+          pushPanelRef.current({ kind: "complex", id: lakehouseComplexId, view: "summary" }),
       ).catch((e: unknown) => {
         if (!cancelled) {
           console.warn(
@@ -131,7 +139,8 @@ export function ListingMap() {
       setMapboxInstance(null);
       for (const fn of cleanups) fn();
     };
-  }, [pushPanel]);
+    // Built once: every callback the runtime needs goes through pushPanelRef above.
+  }, []);
 
   return (
     <div className="relative h-full w-full">
