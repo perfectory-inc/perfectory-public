@@ -3,7 +3,7 @@
   "source_repo": "foundation-platform",
   "source_path": "docs/openapi/catalog.v1.json",
   "snapshot_path": "crates/foundation-platform-client/openapi/catalog.v1.json",
-  "source_sha256": "a02030ae36d2cf52a113d982bd7fcab6d503244e7318d696456a8ee66ca2f274",
+  "source_sha256": "62c711e812ba6032a0a028f85f4449fc033254b3bf33ab2061b63d3e41047e4c",
   "source_schema_version": "foundation-platform.openapi.catalog.v1",
   "consumer_slug": "gongzzang",
   "base_env": "FOUNDATION_PLATFORM_API_BASE_URL",
@@ -25,7 +25,7 @@
       "path_pattern_literal": "catalog/v1/parcels/by-pnu/",
       "success_shape": "object",
       "not_found_behavior": "none",
-      "required_response_fields": ["pnu", "kind"]
+      "required_response_fields": ["pnu"]
     },
     {
       "operation_id": "getComplexByLakehouseId",
@@ -60,14 +60,9 @@
       "required_response_fields": [
         "id",
         "parcel_id",
-        "purpose_code",
-        "structure_code",
-        "floor_area_m2",
-        "stories",
         "below_ground_floors",
         "has_rooftop",
         "rooftop_usage",
-        "built_year",
         "updated_at"
       ]
     }

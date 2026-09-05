@@ -38,6 +38,26 @@ pub struct CatalogParcelResponse {
     /// absent and empty both mean the plan ledger names no zone here.
     #[serde(default)]
     pub zonings: Vec<CatalogParcelZoning>,
+    /// Newest official land price assessment (root ADR-0085 §3).
+    ///
+    /// Defaulted so a Foundation deployed before the price projection still answers —
+    /// absent and null both mean the assessment ledger names no price here.
+    #[serde(default)]
+    pub price: Option<CatalogParcelPrice>,
+}
+
+/// One parcel's newest official land price assessment the Foundation Catalog carries
+/// (root ADR-0085).
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct CatalogParcelPrice {
+    /// Official land price in won per square meter, the source's integer unchanged.
+    pub price_per_m2: i64,
+    /// Assessment base year (기준연도).
+    pub base_year: i16,
+    /// Assessment base month (기준월), 1–12.
+    pub base_month: i16,
+    /// Announcement date (공시일자) exactly as the source wrote it.
+    pub announced_date: Option<String>,
 }
 
 /// One land-use zoning verdict the Foundation Catalog carries for a parcel (root ADR-0083).

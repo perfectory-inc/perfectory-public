@@ -12,7 +12,7 @@ use catalog_domain::{
     ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
     IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
-    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, ParcelZoning,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, ParcelPrice, ParcelZoning,
     RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
     RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, VectorTileBuildOutcome,
     VectorTileManifest, VectorTileRuntimeManifest,
@@ -667,6 +667,19 @@ pub trait CatalogRepository: Send + Sync {
         &self,
         pnu: &Pnu,
     ) -> Result<Vec<ParcelZoning>, CatalogError>;
+
+    /// Finds the newest official land price assessment for one parcel identified by PNU
+    /// (root ADR-0085 §2).
+    ///
+    /// `None` is the honest answer for a parcel the assessment ledger names no price for —
+    /// nothing is invented in its place (root ADR-0078).
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
+    async fn find_parcel_price_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Option<ParcelPrice>, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

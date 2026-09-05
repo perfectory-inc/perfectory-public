@@ -28,7 +28,8 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
     IndustryGroupMember, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
-    ParcelZoning, SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    ParcelPrice, ParcelZoning, SpatialLayer, VectorTileArtifact, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::{BuildingUnitRow, UnitPageKey};
 use foundation_contracts::catalog::{
@@ -36,8 +37,8 @@ use foundation_contracts::catalog::{
     ComplexNoticeResponse, DigitalTwinAssetResponse, FileAssetResponse,
     IndustrialComplexGoldPointerResponse, IndustrialComplexResponse, IndustryGroupMemberResponse,
     IndustryGroupResponse, MarkerTileContractResponse, ParcelIndustryAssignmentResponse,
-    ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse, ParcelResponse,
-    ParcelZoningResponse, PromoteFileAssetRequest, PromoteSourceRecordRequest,
+    ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse,
+    ParcelResponse, ParcelZoningResponse, PromoteFileAssetRequest, PromoteSourceRecordRequest,
     PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest, RegisterComplexRequest,
     RollbackVectorTileManifestRequest, SpatialLayerResponse, UnitPageResponse, UnitResponse,
     UpdateComplexRequest, UpdateParcelKindRequest, VectorTileArtifactResponse,
@@ -511,8 +512,9 @@ pub async fn get_parcel_by_pnu(
         .await?
         .ok_or_else(|| ApiError::NotFound(pnu.as_str().to_owned()))?;
     let zonings = state.catalog_repo.list_parcel_zonings_by_pnu(&pnu).await?;
+    let price = state.catalog_repo.find_parcel_price_by_pnu(&pnu).await?;
 
-    Ok(Json(parcel_response(&parcel, zonings)))
+    Ok(Json(parcel_response(&parcel, zonings, price)))
 }
 
 #[utoipa::path(
@@ -537,8 +539,12 @@ pub async fn get_parcel(
         .catalog_repo
         .list_parcel_zonings_by_pnu(&parcel.pnu)
         .await?;
+    let price = state
+        .catalog_repo
+        .find_parcel_price_by_pnu(&parcel.pnu)
+        .await?;
 
-    Ok(Json(parcel_response(&parcel, zonings)))
+    Ok(Json(parcel_response(&parcel, zonings, price)))
 }
 
 #[utoipa::path(
@@ -1030,8 +1036,12 @@ pub async fn update_parcel_kind(
         .catalog_repo
         .list_parcel_zonings_by_pnu(&updated.pnu)
         .await?;
+    let price = state
+        .catalog_repo
+        .find_parcel_price_by_pnu(&updated.pnu)
+        .await?;
 
-    Ok(Json(parcel_response(&updated, zonings)))
+    Ok(Json(parcel_response(&updated, zonings, price)))
 }
 
 fn industrial_complex_response(
@@ -1121,7 +1131,11 @@ fn complex_anchor_summary_response(summary: &ComplexAnchorSummary) -> ComplexAnc
     }
 }
 
-fn parcel_response(parcel: &Parcel, zonings: Vec<ParcelZoning>) -> ParcelResponse {
+fn parcel_response(
+    parcel: &Parcel,
+    zonings: Vec<ParcelZoning>,
+    price: Option<ParcelPrice>,
+) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
         pnu: parcel.pnu.as_str().to_owned(),
@@ -1138,6 +1152,12 @@ fn parcel_response(parcel: &Parcel, zonings: Vec<ParcelZoning>) -> ParcelRespons
                 inclusion_code: zoning.inclusion_code,
             })
             .collect(),
+        price: price.map(|price| ParcelPriceResponse {
+            price_per_m2: price.price_per_m2,
+            base_year: price.base_year,
+            base_month: price.base_month,
+            announced_date: price.announced_date,
+        }),
     }
 }
 

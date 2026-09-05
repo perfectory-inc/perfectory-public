@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **410개**
+- 문서 파일: **411개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 106 |
+| Monorepo | 107 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 165 |
+| ADR | 166 |
 | README | 108 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -454,6 +454,7 @@ docs/adr/0081-identity-endpoints-derive-from-one-contract.md
 docs/adr/0082-the-parcel-mirror-takes-its-national-claim-from-the-contract.md
 docs/adr/0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md
 docs/adr/0084-the-registry-knows-every-collected-object.md
+docs/adr/0085-a-parcel-learns-its-price-from-the-assessment-ledger.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -572,6 +573,7 @@ tools/github/README.md
 | `docs/adr/0082-the-parcel-mirror-takes-its-national-claim-from-the-contract.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0084-the-registry-knows-every-collected-object.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0085-a-parcel-learns-its-price-from-the-assessment-ledger.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

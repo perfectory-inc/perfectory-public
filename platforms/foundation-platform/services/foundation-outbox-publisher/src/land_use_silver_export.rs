@@ -1,7 +1,9 @@
 //! Land-use CSV-in-ZIP to Silver JSONL handoff commands (root ADR-0083).
 //!
-//! Two lanes share this module: the D155 per-parcel land-use plan attribute CSV
-//! (`silver.land_use_plan`) and the LMIS zone code table (`silver.land_use_zone_code`).
+//! Three lanes share this module: the D155 per-parcel land-use plan attribute CSV
+//! (`silver.land_use_plan`), the LMIS zone code table (`silver.land_use_zone_code`), and
+//! the D151 per-parcel official land price CSV (`silver.land_individual_price`, root
+//! ADR-0085).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -22,7 +24,10 @@ use chrono::Utc;
 use flate2::{write::GzEncoder, Compression as GzipCompression};
 use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::Pnu;
-use lakehouse_domain::{LakehouseTableContract, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES};
+use lakehouse_domain::{
+    LakehouseTableContract, SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_USE_PLAN,
+    SILVER_LAND_USE_ZONE_CODES,
+};
 use serde_json::json;
 
 use foundation_outbox_publisher::silver_handoff_io::{
@@ -141,6 +146,45 @@ const ZONE_CODE_LANE: Lane = Lane {
     pnu_position: None,
 };
 
+/// The D151 prefix also carries D150 DBF siblings; the member match keeps this lane on the
+/// named CSV and the DBF stays a named exclusion in Bronze (root ADR-0085).
+const PRICE_LANE: Lane = Lane {
+    env_prefix: "FOUNDATION_PLATFORM_LAND_INDIVIDUAL_PRICE",
+    contract: &SILVER_LAND_INDIVIDUAL_PRICE,
+    expected_header: &[
+        "고유번호",
+        "법정동코드",
+        "법정동명",
+        "특수지구분코드",
+        "특수지구분명",
+        "지번",
+        "기준연도",
+        "기준월",
+        "공시지가",
+        "공시일자",
+        "표준지여부",
+        "데이터기준일자",
+        "원천시도시군구코드",
+    ],
+    csv_columns: &[
+        "pnu",
+        "legal_dong_code",
+        "legal_dong_name",
+        "special_land_kind_code",
+        "special_land_kind_name",
+        "jibun",
+        "base_year",
+        "base_month",
+        "price_per_m2",
+        "announced_date",
+        "standard_parcel_flag",
+        "data_reference_date",
+        "source_sigungu_code",
+    ],
+    member_matches: |name| name.starts_with("AL_D151_") && name.ends_with(".csv"),
+    pnu_position: Some(0),
+};
+
 /// Runs the D155 per-parcel land-use plan export.
 ///
 /// # Errors
@@ -155,6 +199,14 @@ pub async fn run_plan() -> anyhow::Result<()> {
 /// Returns an error when configuration, the source layout, decoding, or publishing fails.
 pub async fn run_zone_code() -> anyhow::Result<()> {
     run_lane(&ZONE_CODE_LANE).await
+}
+
+/// Runs the D151 per-parcel official land price export (root ADR-0085).
+///
+/// # Errors
+/// Returns an error when configuration, the source layout, decoding, or publishing fails.
+pub async fn run_price() -> anyhow::Result<()> {
+    run_lane(&PRICE_LANE).await
 }
 
 async fn run_lane(lane: &'static Lane) -> anyhow::Result<()> {
@@ -711,7 +763,7 @@ mod tests {
     /// column added without a mapping (or the reverse) refuses here rather than at load time.
     #[test]
     fn lane_mappings_cover_their_contracts_exactly() {
-        for lane in [&PLAN_LANE, &ZONE_CODE_LANE] {
+        for lane in [&PLAN_LANE, &ZONE_CODE_LANE, &PRICE_LANE] {
             assert_eq!(lane.expected_header.len(), lane.csv_columns.len());
             let mapped: Vec<&str> = lane
                 .csv_columns
