@@ -153,7 +153,11 @@ fn union_provider_inventories(
         let text = read_text(path)?;
         let document: VWorldInventoryDocument = serde_json::from_str(&text)
             .with_context(|| format!("failed to parse VWorld inventory {}", path.display()))?;
-        if document.schema_version != VWORLD_INVENTORY_SCHEMA_VERSION {
+        if document.schema_version != VWORLD_INVENTORY_SCHEMA_VERSION
+            && document.schema_version != VWORLD_RECOVERY_INVENTORY_SCHEMA_VERSION
+        {
+            // The same pair the downstream header validator accepts — a union gate narrower
+            // than the compiler behind it refuses inputs the lane itself would take.
             bail!(
                 "VWorld inventory {} has unsupported schema version {}",
                 path.display(),
