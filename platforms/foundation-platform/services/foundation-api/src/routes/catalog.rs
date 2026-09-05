@@ -28,7 +28,7 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
     IndustryGroupMember, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
-    SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    ParcelZoning, SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::{BuildingUnitRow, UnitPageKey};
 use foundation_contracts::catalog::{
@@ -37,14 +37,14 @@ use foundation_contracts::catalog::{
     IndustrialComplexGoldPointerResponse, IndustrialComplexResponse, IndustryGroupMemberResponse,
     IndustryGroupResponse, MarkerTileContractResponse, ParcelIndustryAssignmentResponse,
     ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse, ParcelResponse,
-    PromoteFileAssetRequest, PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest,
-    PromoteVectorTileManifestRequest, RegisterComplexRequest, RollbackVectorTileManifestRequest,
-    SpatialLayerResponse, UnitPageResponse, UnitResponse, UpdateComplexRequest,
-    UpdateParcelKindRequest, VectorTileArtifactResponse, VectorTileDynamicPostgisResponse,
-    VectorTileLineageResponse, VectorTileManifestResponse, VectorTilePublicationUnitResponse,
-    VectorTileRuntimeLayerResponse, VectorTileRuntimeLineageResponse,
-    VectorTileRuntimeManifestResponse, VectorTileRuntimeSourceResponse,
-    VectorTileStaticPmtilesResponse,
+    ParcelZoningResponse, PromoteFileAssetRequest, PromoteSourceRecordRequest,
+    PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest, RegisterComplexRequest,
+    RollbackVectorTileManifestRequest, SpatialLayerResponse, UnitPageResponse, UnitResponse,
+    UpdateComplexRequest, UpdateParcelKindRequest, VectorTileArtifactResponse,
+    VectorTileDynamicPostgisResponse, VectorTileLineageResponse, VectorTileManifestResponse,
+    VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
+    VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
+    VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
 use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId, StaffId};
 use foundation_shared_kernel::pnu::Pnu;
@@ -510,8 +510,9 @@ pub async fn get_parcel_by_pnu(
         .find_parcel_by_pnu(&pnu)
         .await?
         .ok_or_else(|| ApiError::NotFound(pnu.as_str().to_owned()))?;
+    let zonings = state.catalog_repo.list_parcel_zonings_by_pnu(&pnu).await?;
 
-    Ok(Json(parcel_response(&parcel)))
+    Ok(Json(parcel_response(&parcel, zonings)))
 }
 
 #[utoipa::path(
@@ -532,8 +533,12 @@ pub async fn get_parcel(
         .find_parcel_by_id(ParcelId::new(id))
         .await?
         .ok_or_else(|| ApiError::NotFound(id.to_string()))?;
+    let zonings = state
+        .catalog_repo
+        .list_parcel_zonings_by_pnu(&parcel.pnu)
+        .await?;
 
-    Ok(Json(parcel_response(&parcel)))
+    Ok(Json(parcel_response(&parcel, zonings)))
 }
 
 #[utoipa::path(
@@ -1021,8 +1026,12 @@ pub async fn update_parcel_kind(
             applied_by: StaffId::new(principal.principal_id),
         })
         .await?;
+    let zonings = state
+        .catalog_repo
+        .list_parcel_zonings_by_pnu(&updated.pnu)
+        .await?;
 
-    Ok(Json(parcel_response(&updated)))
+    Ok(Json(parcel_response(&updated, zonings)))
 }
 
 fn industrial_complex_response(
@@ -1112,7 +1121,7 @@ fn complex_anchor_summary_response(summary: &ComplexAnchorSummary) -> ComplexAnc
     }
 }
 
-fn parcel_response(parcel: &Parcel) -> ParcelResponse {
+fn parcel_response(parcel: &Parcel, zonings: Vec<ParcelZoning>) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
         pnu: parcel.pnu.as_str().to_owned(),
@@ -1120,6 +1129,15 @@ fn parcel_response(parcel: &Parcel) -> ParcelResponse {
         area_m2: parcel.area_m2,
         version: parcel.version,
         updated_at: parcel.updated_at,
+        zonings: zonings
+            .into_iter()
+            .map(|zoning| ParcelZoningResponse {
+                zone_code: zoning.zone_code,
+                zone_name: zoning.zone_name,
+                anchor_code: zoning.anchor_code,
+                inclusion_code: zoning.inclusion_code,
+            })
+            .collect(),
     }
 }
 

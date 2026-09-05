@@ -38,6 +38,7 @@ pub mod notice;
 
 /// Parcel aggregate.
 pub mod parcel;
+pub mod parcel_zoning;
 
 /// Effective-dated membership of a parcel in an industrial complex.
 pub mod parcel_complex_membership;
@@ -86,6 +87,7 @@ pub use mutation_idempotency::{
 pub use notice::{ComplexNotice, NoticeAttachment, NoticeType, ParseNoticeTypeError};
 pub use parcel::{parcel_id_for_pnu, Parcel, ParcelKind, ParcelKindEdit, ParseParcelKindError};
 pub use parcel_complex_membership::MembershipAssertedBy;
+pub use parcel_zoning::ParcelZoning;
 pub use serving_publication::{
     is_publication_unit_key, static_file_asset_id_for_build, static_release_id_for_build,
     static_release_martin_source_id, static_release_pmtiles_object_key, validate_build_promotion,

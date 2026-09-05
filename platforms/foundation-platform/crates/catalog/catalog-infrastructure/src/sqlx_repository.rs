@@ -12,9 +12,10 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError,
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
-    MarkerTileRequest, Parcel, ParcelIndustryAssignment, PublicationUnit, RuntimeTileLayer,
-    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind,
-    SpatialLayer, StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelZoning, PublicationUnit,
+    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
+    ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
     ComplexId, FileAssetId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId,
@@ -472,6 +473,34 @@ impl CatalogRepository for PgCatalogRepository {
         .map_err(map_sqlx)?;
 
         rows.iter().map(row_to_building).collect()
+    }
+
+    async fn list_parcel_zonings_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Vec<ParcelZoning>, CatalogError> {
+        let rows = sqlx::query(
+            "SELECT zone_code, zone_name, anchor_code, inclusion_code, source_snapshot_id
+             FROM catalog.parcel_zoning
+             WHERE pnu = $1
+             ORDER BY inclusion_code, zone_code",
+        )
+        .bind(pnu.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+
+        rows.iter()
+            .map(|row| {
+                Ok(ParcelZoning {
+                    zone_code: row.try_get("zone_code").map_err(map_sqlx)?,
+                    zone_name: row.try_get("zone_name").map_err(map_sqlx)?,
+                    anchor_code: row.try_get("anchor_code").map_err(map_sqlx)?,
+                    inclusion_code: row.try_get("inclusion_code").map_err(map_sqlx)?,
+                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
+                })
+            })
+            .collect()
     }
 
     async fn list_complex_notices(
