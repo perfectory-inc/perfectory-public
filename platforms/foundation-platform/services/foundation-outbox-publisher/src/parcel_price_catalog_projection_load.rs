@@ -1,7 +1,7 @@
 //! Loads per-parcel official land price assessments from the D151 handoffs into
 //! `catalog.parcel_price` (root ADR-0085 §2).
 //!
-//! One parcel keeps one row: the newest (base_year, base_month) assessment within the
+//! One parcel keeps one row: the newest (`base_year`, `base_month`) assessment within the
 //! contract's selected vintage. History stays in Silver; this table answers the panel's one
 //! question. A row whose numeric fields do not parse is counted per field and skipped, never
 //! silently dropped and never a reason to abort a province.

@@ -1,7 +1,7 @@
 //! Per-parcel official land price assessment (root ADR-0085 §2).
 //!
 //! One value is the newest assessment the projection loader kept for a parcel: the price in
-//! won per square meter as the source's integer, the (base_year, base_month) the ledger
+//! won per square meter as the source's integer, the (`base_year`, `base_month`) the ledger
 //! stamped, and the announcement date carried verbatim. Formatting money or interpreting the
 //! date is deliberately not here — foundation carries the source's facts and the consumer
 //! decides how to show them.
