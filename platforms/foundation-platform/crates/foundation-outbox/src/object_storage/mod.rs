@@ -37,7 +37,8 @@ pub use requests::{
 #[cfg(test)]
 use r2::{
     is_create_only_already_exists_response, r2_range_header, r2_range_windows,
-    validate_r2_rehash_identity_stable, R2ObjectVersionFingerprint, R2RangeHasher,
+    streaming_put_requires_multipart, validate_r2_rehash_identity_stable,
+    R2ObjectVersionFingerprint, R2RangeHasher,
 };
 
 #[async_trait]
