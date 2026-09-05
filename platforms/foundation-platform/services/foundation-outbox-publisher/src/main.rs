@@ -89,6 +89,7 @@ mod lakehouse_inventory;
 mod lakehouse_quality_rules_evaluate;
 mod lakehouse_registry_control;
 mod lakehouse_snapshot_scan;
+mod land_use_silver_export;
 mod loopback_http;
 #[cfg(test)]
 mod main_tests;
@@ -223,6 +224,8 @@ enum Command {
     ExportVWorldCadastralSilverHandoff,
     ExportVWorldCadastralShapefileSilverHandoff,
     ExportVWorldCadastralSilverHandoffShard,
+    ExportLandUsePlanSilverHandoff,
+    ExportLandUseZoneCodeSilverHandoff,
     ExecuteNationalDataCollectionAsync,
     ExecuteNationalDataCollectionLedger,
     ExecuteRtMolitRealTransactionExportPlan,
@@ -431,6 +434,10 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportVWorldCadastralSilverHandoffShard => {
             Box::pin(vworld_cadastral_silver_shard_export::run())
+        }
+        Command::ExportLandUsePlanSilverHandoff => Box::pin(land_use_silver_export::run_plan()),
+        Command::ExportLandUseZoneCodeSilverHandoff => {
+            Box::pin(land_use_silver_export::run_zone_code())
         }
         Command::ExecuteNationalDataCollectionAsync => {
             Box::pin(national_data_collection_async::run())
@@ -1212,6 +1219,10 @@ where
         }
         Some("export-vworld-cadastral-shapefile-silver-handoff") => {
             Ok(Command::ExportVWorldCadastralShapefileSilverHandoff)
+        }
+        Some("export-land-use-plan-silver-handoff") => Ok(Command::ExportLandUsePlanSilverHandoff),
+        Some("export-land-use-zone-code-silver-handoff") => {
+            Ok(Command::ExportLandUseZoneCodeSilverHandoff)
         }
         Some("export-vworld-cadastral-silver-handoff-shard") => {
             Ok(Command::ExportVWorldCadastralSilverHandoffShard)

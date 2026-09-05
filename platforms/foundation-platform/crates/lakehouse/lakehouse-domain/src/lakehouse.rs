@@ -506,6 +506,207 @@ const SILVER_PARCEL_BOUNDARIES_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
+// D155 필지별 토지이용계획 속성 CSV 의 열 순서 그대로다 (root ADR-0083). *_name 열은
+// 원천이 준 한국어 표기를 손대지 않고 나른다 — 어휘 번역은 소비자(공짱)의 결정이다.
+const SILVER_LAND_USE_PLAN_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "pnu",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "legal_dong_code",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "legal_dong_name",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "ledger_kind_code",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "ledger_kind_name",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "jibun",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "drawing_number",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "inclusion_code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "inclusion_name",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "zone_code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "zone_name",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "registered_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "data_reference_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "source_sigungu_code",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "remark",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "source_record_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "ingested_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+// LMIS 용도지역지구 코드표 (LART_LMISZONE.csv) 열 순서 그대로 (root ADR-0083).
+// `parent_ucode` 는 판정 투영이 걸어 올라가는 트리의 간선이라 여기 있어야 하고,
+// 원천에 빈 부모(UQA500 등)가 실재하므로 필수로 만들 수 없다.
+const SILVER_LAND_USE_ZONE_CODES_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "ucode",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "uname",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "division_name",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "law_name",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "area_kind",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "law_code",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "annex_flag",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "enforcement_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "article_no",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "article_sub_no",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "record_seqno",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "parent_ucode",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "deleted_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "deleted_text",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "terms_no",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "first_registered_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "last_updated_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "source_record_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "ingested_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
 const SILVER_BUILDING_REGISTER_FLOORS_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "floor_row_id",
@@ -1491,6 +1692,56 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     },
 };
 
+/// Canonical Silver table for per-parcel land-use plan designations (root ADR-0083).
+///
+/// One row is one (필지, 용도지역지구, 저촉여부) designation from the D155 attribute CSV.
+/// 접함(3) rows are preserved here and excluded only by the zoning projection — the source
+/// is carried whole, the judgment happens downstream.
+pub const SILVER_LAND_USE_PLAN: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.land_use_plan",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: SILVER_LAND_USE_PLAN_COLUMNS,
+    // 무분할: 필지 경계 40M 이 무분할로 파일 15개였다(root ADR-0066 실측 방식). 2.6억이라도
+    // pnu 정렬이 파일 min/max 로 범위 읽기를 건너뛰게 한다. 시도 분할은 열이 접두사(pnu 앞
+    // 두 자리)로 이미 존재한다.
+    partition_spec: &[],
+    sort_order: &["pnu", "zone_code"],
+    quality_gates: &[
+        "pnu_not_null",
+        "zone_code_not_null",
+        "inclusion_code_not_null",
+    ],
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
+/// Canonical Silver table for the LMIS land-use zone code tree (root ADR-0083).
+///
+/// 1,270 rows measured 2026-09-05. `parent_ucode` edges are what the zoning projection walks
+/// to reach the anchor set — the mapping is the tree, not a hand-written list.
+pub const SILVER_LAND_USE_ZONE_CODES: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.land_use_zone_code",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: SILVER_LAND_USE_ZONE_CODES_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["ucode"],
+    quality_gates: &["ucode_not_null", "uname_not_null"],
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
 /// Canonical Silver table for official building-register floor rows.
 pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.building_register_floors",
@@ -1674,6 +1925,8 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_INDUSTRIAL_COMPLEXES,
     SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES,
     SILVER_PARCEL_BOUNDARIES,
+    SILVER_LAND_USE_PLAN,
+    SILVER_LAND_USE_ZONE_CODES,
     SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES,
     SILVER_BUILDING_REGISTER_UNITS,

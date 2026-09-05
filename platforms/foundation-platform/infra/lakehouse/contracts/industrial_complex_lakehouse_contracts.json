@@ -438,6 +438,242 @@
         "object_suffix_separator": null
       }
     },
+    "silver.land_use_plan": {
+      "table_name": "silver.land_use_plan",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "drawing_number",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "inclusion_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "inclusion_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "zone_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "zone_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "registered_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "data_reference_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "remark",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "pnu",
+        "zone_code"
+      ],
+      "quality_gates": [
+        "pnu_not_null",
+        "zone_code_not_null",
+        "inclusion_code_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.land_use_zone_code": {
+      "table_name": "silver.land_use_zone_code",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "ucode",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "uname",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "division_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "law_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "law_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "annex_flag",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "enforcement_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "article_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "article_sub_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "record_seqno",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "parent_ucode",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "deleted_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "deleted_text",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "terms_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "first_registered_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "last_updated_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "ucode"
+      ],
+      "quality_gates": [
+        "ucode_not_null",
+        "uname_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.building_register_floors": {
       "table_name": "silver.building_register_floors",
       "physical_format": "Parquet",

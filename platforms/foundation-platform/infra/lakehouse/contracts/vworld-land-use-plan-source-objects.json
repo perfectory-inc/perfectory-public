@@ -1,0 +1,1470 @@
+{
+  "schema_version": 1,
+  "source": "bronze/source=vworldkr__land_use_plan",
+  "measured_at_utc": "2026-09-05",
+  "how_measured": "Each D155 zip's tail was read by ranged request and the inner CSV name (AL_D155_<sido>_<yyyymmdd>.csv) taken from the central directory; byte sizes come from the bucket listing. The 34 DS00147 objects in the same prefix are D154 boundary shapefiles and are deliberately absent here (root ADR-0083 §1).",
+  "why_this_file_exists": "The prefix piles up monthly vintages of the same 17 provinces — 207 attribute objects for one country — and the object names (20171128DS00148-N.zip) say nothing about which month or province is inside. Loading two vintages would double every designation row, and loading 16 of 17 provinces would look complete while a province is silently missing.",
+  "consistency_check": "The newest vintage has exactly one object per each of the 17 province codes, which is what makes \"newest per province\" a complete national covering.",
+  "granularity_counts": {
+    "sido": 17,
+    "vintages": 12,
+    "objects": 207
+  },
+  "load_granularity": "sido",
+  "selected_vintage": "20260609",
+  "handoff_prefix": "silver-handoff/vworldkr__land_use_plan",
+  "handoff_prefix_reason": "Where the converted handoff objects live — declared once here so the exporter that writes them and the loader that reads them cannot drift apart (same reason as the parcel contract).",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_suffix_reason": "The converter names the object and the loader derives the same name; .gz also tells the converter to compress and Spark to decompress.",
+  "objects": [
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1202.zip",
+      "bytes": 125932115,
+      "dataset_name": "AL_D155_11_20250704.csv",
+      "region_code": "11",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1203.zip",
+      "bytes": 54514503,
+      "dataset_name": "AL_D155_26_20250704.csv",
+      "region_code": "26",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1204.zip",
+      "bytes": 76646726,
+      "dataset_name": "AL_D155_27_20250704.csv",
+      "region_code": "27",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1205.zip",
+      "bytes": 75766929,
+      "dataset_name": "AL_D155_28_20250704.csv",
+      "region_code": "28",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1206.zip",
+      "bytes": 36000758,
+      "dataset_name": "AL_D155_29_20250704.csv",
+      "region_code": "29",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1207.zip",
+      "bytes": 34700873,
+      "dataset_name": "AL_D155_30_20250704.csv",
+      "region_code": "30",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1208.zip",
+      "bytes": 60683256,
+      "dataset_name": "AL_D155_31_20250704.csv",
+      "region_code": "31",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1209.zip",
+      "bytes": 27429383,
+      "dataset_name": "AL_D155_36_20250704.csv",
+      "region_code": "36",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1210.zip",
+      "bytes": 772561833,
+      "dataset_name": "AL_D155_41_20250704.csv",
+      "region_code": "41",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1211.zip",
+      "bytes": 227232751,
+      "dataset_name": "AL_D155_43_20250704.csv",
+      "region_code": "43",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1212.zip",
+      "bytes": 315666588,
+      "dataset_name": "AL_D155_44_20250704.csv",
+      "region_code": "44",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1213.zip",
+      "bytes": 507716296,
+      "dataset_name": "AL_D155_46_20250704.csv",
+      "region_code": "46",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1214.zip",
+      "bytes": 516242584,
+      "dataset_name": "AL_D155_47_20250704.csv",
+      "region_code": "47",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1219.zip",
+      "bytes": 415797335,
+      "dataset_name": "AL_D155_48_20250704.csv",
+      "region_code": "48",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1220.zip",
+      "bytes": 89989559,
+      "dataset_name": "AL_D155_50_20250704.csv",
+      "region_code": "50",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1218.zip",
+      "bytes": 254489809,
+      "dataset_name": "AL_D155_51_20250704.csv",
+      "region_code": "51",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1221.zip",
+      "bytes": 300616087,
+      "dataset_name": "AL_D155_52_20250704.csv",
+      "region_code": "52",
+      "vintage": "20250704"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1222.zip",
+      "bytes": 133340751,
+      "dataset_name": "AL_D155_11_20250828.csv",
+      "region_code": "11",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1223.zip",
+      "bytes": 55242460,
+      "dataset_name": "AL_D155_26_20250828.csv",
+      "region_code": "26",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1224.zip",
+      "bytes": 77133601,
+      "dataset_name": "AL_D155_27_20250828.csv",
+      "region_code": "27",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1225.zip",
+      "bytes": 80325074,
+      "dataset_name": "AL_D155_28_20250828.csv",
+      "region_code": "28",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1226.zip",
+      "bytes": 36294883,
+      "dataset_name": "AL_D155_29_20250828.csv",
+      "region_code": "29",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1227.zip",
+      "bytes": 34946614,
+      "dataset_name": "AL_D155_30_20250828.csv",
+      "region_code": "30",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1228.zip",
+      "bytes": 60466557,
+      "dataset_name": "AL_D155_31_20250828.csv",
+      "region_code": "31",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1229.zip",
+      "bytes": 27758439,
+      "dataset_name": "AL_D155_36_20250828.csv",
+      "region_code": "36",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1230.zip",
+      "bytes": 789756700,
+      "dataset_name": "AL_D155_41_20250828.csv",
+      "region_code": "41",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1231.zip",
+      "bytes": 234754243,
+      "dataset_name": "AL_D155_43_20250828.csv",
+      "region_code": "43",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1232.zip",
+      "bytes": 327984067,
+      "dataset_name": "AL_D155_44_20250828.csv",
+      "region_code": "44",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1233.zip",
+      "bytes": 508400432,
+      "dataset_name": "AL_D155_46_20250828.csv",
+      "region_code": "46",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1234.zip",
+      "bytes": 524020980,
+      "dataset_name": "AL_D155_47_20250828.csv",
+      "region_code": "47",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1235.zip",
+      "bytes": 423840931,
+      "dataset_name": "AL_D155_48_20250828.csv",
+      "region_code": "48",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1236.zip",
+      "bytes": 100626709,
+      "dataset_name": "AL_D155_50_20250828.csv",
+      "region_code": "50",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1237.zip",
+      "bytes": 255824777,
+      "dataset_name": "AL_D155_51_20250828.csv",
+      "region_code": "51",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1238.zip",
+      "bytes": 301580120,
+      "dataset_name": "AL_D155_52_20250828.csv",
+      "region_code": "52",
+      "vintage": "20250828"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1239.zip",
+      "bytes": 137702272,
+      "dataset_name": "AL_D155_11_20250904.csv",
+      "region_code": "11",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1240.zip",
+      "bytes": 55811180,
+      "dataset_name": "AL_D155_26_20250904.csv",
+      "region_code": "26",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1241.zip",
+      "bytes": 77155378,
+      "dataset_name": "AL_D155_27_20250904.csv",
+      "region_code": "27",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1242.zip",
+      "bytes": 85025670,
+      "dataset_name": "AL_D155_28_20250904.csv",
+      "region_code": "28",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1243.zip",
+      "bytes": 36289169,
+      "dataset_name": "AL_D155_29_20250904.csv",
+      "region_code": "29",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1244.zip",
+      "bytes": 34967445,
+      "dataset_name": "AL_D155_30_20250904.csv",
+      "region_code": "30",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1245.zip",
+      "bytes": 60469116,
+      "dataset_name": "AL_D155_31_20250904.csv",
+      "region_code": "31",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1246.zip",
+      "bytes": 27766456,
+      "dataset_name": "AL_D155_36_20250904.csv",
+      "region_code": "36",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1247.zip",
+      "bytes": 836263877,
+      "dataset_name": "AL_D155_41_20250904.csv",
+      "region_code": "41",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1248.zip",
+      "bytes": 235105975,
+      "dataset_name": "AL_D155_43_20250904.csv",
+      "region_code": "43",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1249.zip",
+      "bytes": 329377026,
+      "dataset_name": "AL_D155_44_20250904.csv",
+      "region_code": "44",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1250.zip",
+      "bytes": 506251604,
+      "dataset_name": "AL_D155_46_20250904.csv",
+      "region_code": "46",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1251.zip",
+      "bytes": 524447913,
+      "dataset_name": "AL_D155_47_20250904.csv",
+      "region_code": "47",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1252.zip",
+      "bytes": 423979149,
+      "dataset_name": "AL_D155_48_20250904.csv",
+      "region_code": "48",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1253.zip",
+      "bytes": 100632208,
+      "dataset_name": "AL_D155_50_20250904.csv",
+      "region_code": "50",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1254.zip",
+      "bytes": 254703282,
+      "dataset_name": "AL_D155_51_20250904.csv",
+      "region_code": "51",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1255.zip",
+      "bytes": 301975836,
+      "dataset_name": "AL_D155_52_20250904.csv",
+      "region_code": "52",
+      "vintage": "20250904"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1256.zip",
+      "bytes": 140681138,
+      "dataset_name": "AL_D155_11_20251004.csv",
+      "region_code": "11",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1257.zip",
+      "bytes": 56078693,
+      "dataset_name": "AL_D155_26_20251004.csv",
+      "region_code": "26",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1258.zip",
+      "bytes": 77423256,
+      "dataset_name": "AL_D155_27_20251004.csv",
+      "region_code": "27",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1259.zip",
+      "bytes": 85569756,
+      "dataset_name": "AL_D155_28_20251004.csv",
+      "region_code": "28",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1260.zip",
+      "bytes": 36390232,
+      "dataset_name": "AL_D155_29_20251004.csv",
+      "region_code": "29",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1261.zip",
+      "bytes": 35195105,
+      "dataset_name": "AL_D155_30_20251004.csv",
+      "region_code": "30",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1262.zip",
+      "bytes": 60476937,
+      "dataset_name": "AL_D155_31_20251004.csv",
+      "region_code": "31",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1263.zip",
+      "bytes": 27856940,
+      "dataset_name": "AL_D155_36_20251004.csv",
+      "region_code": "36",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1264.zip",
+      "bytes": 836912851,
+      "dataset_name": "AL_D155_41_20251004.csv",
+      "region_code": "41",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1265.zip",
+      "bytes": 233333604,
+      "dataset_name": "AL_D155_43_20251004.csv",
+      "region_code": "43",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1266.zip",
+      "bytes": 329975118,
+      "dataset_name": "AL_D155_44_20251004.csv",
+      "region_code": "44",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1267.zip",
+      "bytes": 505207809,
+      "dataset_name": "AL_D155_46_20251004.csv",
+      "region_code": "46",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1268.zip",
+      "bytes": 526374612,
+      "dataset_name": "AL_D155_47_20251004.csv",
+      "region_code": "47",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1269.zip",
+      "bytes": 426305481,
+      "dataset_name": "AL_D155_48_20251004.csv",
+      "region_code": "48",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1270.zip",
+      "bytes": 100906486,
+      "dataset_name": "AL_D155_50_20251004.csv",
+      "region_code": "50",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1271.zip",
+      "bytes": 259839131,
+      "dataset_name": "AL_D155_51_20251004.csv",
+      "region_code": "51",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1272.zip",
+      "bytes": 303326705,
+      "dataset_name": "AL_D155_52_20251004.csv",
+      "region_code": "52",
+      "vintage": "20251004"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1273.zip",
+      "bytes": 148600850,
+      "dataset_name": "AL_D155_11_20251104.csv",
+      "region_code": "11",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1274.zip",
+      "bytes": 55843645,
+      "dataset_name": "AL_D155_26_20251104.csv",
+      "region_code": "26",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1275.zip",
+      "bytes": 71480634,
+      "dataset_name": "AL_D155_27_20251104.csv",
+      "region_code": "27",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1276.zip",
+      "bytes": 86087111,
+      "dataset_name": "AL_D155_28_20251104.csv",
+      "region_code": "28",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1277.zip",
+      "bytes": 36361208,
+      "dataset_name": "AL_D155_29_20251104.csv",
+      "region_code": "29",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1278.zip",
+      "bytes": 35527727,
+      "dataset_name": "AL_D155_30_20251104.csv",
+      "region_code": "30",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1279.zip",
+      "bytes": 60647978,
+      "dataset_name": "AL_D155_31_20251104.csv",
+      "region_code": "31",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1280.zip",
+      "bytes": 27809126,
+      "dataset_name": "AL_D155_36_20251104.csv",
+      "region_code": "36",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1281.zip",
+      "bytes": 836614137,
+      "dataset_name": "AL_D155_41_20251104.csv",
+      "region_code": "41",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1282.zip",
+      "bytes": 230475577,
+      "dataset_name": "AL_D155_43_20251104.csv",
+      "region_code": "43",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1283.zip",
+      "bytes": 333571458,
+      "dataset_name": "AL_D155_44_20251104.csv",
+      "region_code": "44",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1284.zip",
+      "bytes": 504807543,
+      "dataset_name": "AL_D155_46_20251104.csv",
+      "region_code": "46",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1285.zip",
+      "bytes": 530052520,
+      "dataset_name": "AL_D155_47_20251104.csv",
+      "region_code": "47",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1286.zip",
+      "bytes": 434991535,
+      "dataset_name": "AL_D155_48_20251104.csv",
+      "region_code": "48",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1287.zip",
+      "bytes": 101262580,
+      "dataset_name": "AL_D155_50_20251104.csv",
+      "region_code": "50",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1288.zip",
+      "bytes": 262202528,
+      "dataset_name": "AL_D155_51_20251104.csv",
+      "region_code": "51",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1289.zip",
+      "bytes": 302904989,
+      "dataset_name": "AL_D155_52_20251104.csv",
+      "region_code": "52",
+      "vintage": "20251104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1290.zip",
+      "bytes": 150412827,
+      "dataset_name": "AL_D155_11_20251204.csv",
+      "region_code": "11",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1291.zip",
+      "bytes": 56527488,
+      "dataset_name": "AL_D155_26_20251204.csv",
+      "region_code": "26",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1292.zip",
+      "bytes": 71893834,
+      "dataset_name": "AL_D155_27_20251204.csv",
+      "region_code": "27",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1293.zip",
+      "bytes": 86683174,
+      "dataset_name": "AL_D155_28_20251204.csv",
+      "region_code": "28",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1294.zip",
+      "bytes": 36496035,
+      "dataset_name": "AL_D155_29_20251204.csv",
+      "region_code": "29",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1295.zip",
+      "bytes": 35807408,
+      "dataset_name": "AL_D155_30_20251204.csv",
+      "region_code": "30",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1296.zip",
+      "bytes": 60711636,
+      "dataset_name": "AL_D155_31_20251204.csv",
+      "region_code": "31",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1297.zip",
+      "bytes": 27925827,
+      "dataset_name": "AL_D155_36_20251204.csv",
+      "region_code": "36",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1298.zip",
+      "bytes": 840815576,
+      "dataset_name": "AL_D155_41_20251204.csv",
+      "region_code": "41",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1299.zip",
+      "bytes": 233585847,
+      "dataset_name": "AL_D155_43_20251204.csv",
+      "region_code": "43",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1300.zip",
+      "bytes": 334187981,
+      "dataset_name": "AL_D155_44_20251204.csv",
+      "region_code": "44",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1301.zip",
+      "bytes": 506547675,
+      "dataset_name": "AL_D155_46_20251204.csv",
+      "region_code": "46",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1302.zip",
+      "bytes": 531083246,
+      "dataset_name": "AL_D155_47_20251204.csv",
+      "region_code": "47",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1303.zip",
+      "bytes": 443390971,
+      "dataset_name": "AL_D155_48_20251204.csv",
+      "region_code": "48",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1304.zip",
+      "bytes": 101528707,
+      "dataset_name": "AL_D155_50_20251204.csv",
+      "region_code": "50",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1305.zip",
+      "bytes": 266237908,
+      "dataset_name": "AL_D155_51_20251204.csv",
+      "region_code": "51",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1306.zip",
+      "bytes": 306714787,
+      "dataset_name": "AL_D155_52_20251204.csv",
+      "region_code": "52",
+      "vintage": "20251204"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1307.zip",
+      "bytes": 151076368,
+      "dataset_name": "AL_D155_11_20260104.csv",
+      "region_code": "11",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1308.zip",
+      "bytes": 56705638,
+      "dataset_name": "AL_D155_26_20260104.csv",
+      "region_code": "26",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1309.zip",
+      "bytes": 72753334,
+      "dataset_name": "AL_D155_27_20260104.csv",
+      "region_code": "27",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1310.zip",
+      "bytes": 87816435,
+      "dataset_name": "AL_D155_28_20260104.csv",
+      "region_code": "28",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1311.zip",
+      "bytes": 36589082,
+      "dataset_name": "AL_D155_29_20260104.csv",
+      "region_code": "29",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1312.zip",
+      "bytes": 36374590,
+      "dataset_name": "AL_D155_30_20260104.csv",
+      "region_code": "30",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1313.zip",
+      "bytes": 61264768,
+      "dataset_name": "AL_D155_31_20260104.csv",
+      "region_code": "31",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1314.zip",
+      "bytes": 27962319,
+      "dataset_name": "AL_D155_36_20260104.csv",
+      "region_code": "36",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1315.zip",
+      "bytes": 870725094,
+      "dataset_name": "AL_D155_41_20260104.csv",
+      "region_code": "41",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1316.zip",
+      "bytes": 247134948,
+      "dataset_name": "AL_D155_43_20260104.csv",
+      "region_code": "43",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1317.zip",
+      "bytes": 337690296,
+      "dataset_name": "AL_D155_44_20260104.csv",
+      "region_code": "44",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1318.zip",
+      "bytes": 514020617,
+      "dataset_name": "AL_D155_46_20260104.csv",
+      "region_code": "46",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1319.zip",
+      "bytes": 535765542,
+      "dataset_name": "AL_D155_47_20260104.csv",
+      "region_code": "47",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1320.zip",
+      "bytes": 447865993,
+      "dataset_name": "AL_D155_48_20260104.csv",
+      "region_code": "48",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1321.zip",
+      "bytes": 101887288,
+      "dataset_name": "AL_D155_50_20260104.csv",
+      "region_code": "50",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1322.zip",
+      "bytes": 275767859,
+      "dataset_name": "AL_D155_51_20260104.csv",
+      "region_code": "51",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1323.zip",
+      "bytes": 312553314,
+      "dataset_name": "AL_D155_52_20260104.csv",
+      "region_code": "52",
+      "vintage": "20260104"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1324.zip",
+      "bytes": 152287211,
+      "dataset_name": "AL_D155_11_20260209.csv",
+      "region_code": "11",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1325.zip",
+      "bytes": 57334890,
+      "dataset_name": "AL_D155_26_20260209.csv",
+      "region_code": "26",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1326.zip",
+      "bytes": 73059495,
+      "dataset_name": "AL_D155_27_20260209.csv",
+      "region_code": "27",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1327.zip",
+      "bytes": 87991289,
+      "dataset_name": "AL_D155_28_20260209.csv",
+      "region_code": "28",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1328.zip",
+      "bytes": 36937107,
+      "dataset_name": "AL_D155_29_20260209.csv",
+      "region_code": "29",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1329.zip",
+      "bytes": 36494590,
+      "dataset_name": "AL_D155_30_20260209.csv",
+      "region_code": "30",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1330.zip",
+      "bytes": 60984835,
+      "dataset_name": "AL_D155_31_20260209.csv",
+      "region_code": "31",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1331.zip",
+      "bytes": 28029059,
+      "dataset_name": "AL_D155_36_20260209.csv",
+      "region_code": "36",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1332.zip",
+      "bytes": 872332606,
+      "dataset_name": "AL_D155_41_20260209.csv",
+      "region_code": "41",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1333.zip",
+      "bytes": 251093141,
+      "dataset_name": "AL_D155_43_20260209.csv",
+      "region_code": "43",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1334.zip",
+      "bytes": 342440873,
+      "dataset_name": "AL_D155_44_20260209.csv",
+      "region_code": "44",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1335.zip",
+      "bytes": 520506134,
+      "dataset_name": "AL_D155_46_20260209.csv",
+      "region_code": "46",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1336.zip",
+      "bytes": 539096916,
+      "dataset_name": "AL_D155_47_20260209.csv",
+      "region_code": "47",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1337.zip",
+      "bytes": 445610420,
+      "dataset_name": "AL_D155_48_20260209.csv",
+      "region_code": "48",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1338.zip",
+      "bytes": 102597568,
+      "dataset_name": "AL_D155_50_20260209.csv",
+      "region_code": "50",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1339.zip",
+      "bytes": 291675165,
+      "dataset_name": "AL_D155_51_20260209.csv",
+      "region_code": "51",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1340.zip",
+      "bytes": 315582784,
+      "dataset_name": "AL_D155_52_20260209.csv",
+      "region_code": "52",
+      "vintage": "20260209"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1341.zip",
+      "bytes": 152702569,
+      "dataset_name": "AL_D155_11_20260309.csv",
+      "region_code": "11",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1342.zip",
+      "bytes": 57655327,
+      "dataset_name": "AL_D155_26_20260309.csv",
+      "region_code": "26",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1343.zip",
+      "bytes": 73614552,
+      "dataset_name": "AL_D155_27_20260309.csv",
+      "region_code": "27",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1344.zip",
+      "bytes": 87928050,
+      "dataset_name": "AL_D155_28_20260309.csv",
+      "region_code": "28",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1345.zip",
+      "bytes": 37031695,
+      "dataset_name": "AL_D155_29_20260309.csv",
+      "region_code": "29",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1346.zip",
+      "bytes": 36560040,
+      "dataset_name": "AL_D155_30_20260309.csv",
+      "region_code": "30",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1347.zip",
+      "bytes": 61030526,
+      "dataset_name": "AL_D155_31_20260309.csv",
+      "region_code": "31",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1348.zip",
+      "bytes": 28009911,
+      "dataset_name": "AL_D155_36_20260309.csv",
+      "region_code": "36",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1349.zip",
+      "bytes": 873529837,
+      "dataset_name": "AL_D155_41_20260309.csv",
+      "region_code": "41",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1350.zip",
+      "bytes": 252071004,
+      "dataset_name": "AL_D155_43_20260309.csv",
+      "region_code": "43",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1351.zip",
+      "bytes": 343938975,
+      "dataset_name": "AL_D155_44_20260309.csv",
+      "region_code": "44",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1352.zip",
+      "bytes": 504584584,
+      "dataset_name": "AL_D155_46_20260309.csv",
+      "region_code": "46",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1353.zip",
+      "bytes": 536259064,
+      "dataset_name": "AL_D155_47_20260309.csv",
+      "region_code": "47",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1354.zip",
+      "bytes": 447106305,
+      "dataset_name": "AL_D155_48_20260309.csv",
+      "region_code": "48",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1355.zip",
+      "bytes": 102896170,
+      "dataset_name": "AL_D155_50_20260309.csv",
+      "region_code": "50",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1356.zip",
+      "bytes": 296284731,
+      "dataset_name": "AL_D155_51_20260309.csv",
+      "region_code": "51",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1357.zip",
+      "bytes": 310784538,
+      "dataset_name": "AL_D155_52_20260309.csv",
+      "region_code": "52",
+      "vintage": "20260309"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1392.zip",
+      "bytes": 153452875,
+      "dataset_name": "AL_D155_11_20260409.csv",
+      "region_code": "11",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1393.zip",
+      "bytes": 57662533,
+      "dataset_name": "AL_D155_26_20260409.csv",
+      "region_code": "26",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1394.zip",
+      "bytes": 73968552,
+      "dataset_name": "AL_D155_27_20260409.csv",
+      "region_code": "27",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1395.zip",
+      "bytes": 87748925,
+      "dataset_name": "AL_D155_28_20260409.csv",
+      "region_code": "28",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1396.zip",
+      "bytes": 37105104,
+      "dataset_name": "AL_D155_29_20260409.csv",
+      "region_code": "29",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1397.zip",
+      "bytes": 36979242,
+      "dataset_name": "AL_D155_30_20260409.csv",
+      "region_code": "30",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1398.zip",
+      "bytes": 60780873,
+      "dataset_name": "AL_D155_31_20260409.csv",
+      "region_code": "31",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1399.zip",
+      "bytes": 28037331,
+      "dataset_name": "AL_D155_36_20260409.csv",
+      "region_code": "36",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1400.zip",
+      "bytes": 874518927,
+      "dataset_name": "AL_D155_41_20260409.csv",
+      "region_code": "41",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1401.zip",
+      "bytes": 254776908,
+      "dataset_name": "AL_D155_43_20260409.csv",
+      "region_code": "43",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1402.zip",
+      "bytes": 352231547,
+      "dataset_name": "AL_D155_44_20260409.csv",
+      "region_code": "44",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1403.zip",
+      "bytes": 518453578,
+      "dataset_name": "AL_D155_46_20260409.csv",
+      "region_code": "46",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1404.zip",
+      "bytes": 537703630,
+      "dataset_name": "AL_D155_47_20260409.csv",
+      "region_code": "47",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1412.zip",
+      "bytes": 451452012,
+      "dataset_name": "AL_D155_48_20260409.csv",
+      "region_code": "48",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1406.zip",
+      "bytes": 103200857,
+      "dataset_name": "AL_D155_50_20260409.csv",
+      "region_code": "50",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1407.zip",
+      "bytes": 103200857,
+      "dataset_name": "AL_D155_50_20260409.csv",
+      "region_code": "50",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1408.zip",
+      "bytes": 298534250,
+      "dataset_name": "AL_D155_51_20260409.csv",
+      "region_code": "51",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1409.zip",
+      "bytes": 298534250,
+      "dataset_name": "AL_D155_51_20260409.csv",
+      "region_code": "51",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1410.zip",
+      "bytes": 318565110,
+      "dataset_name": "AL_D155_52_20260409.csv",
+      "region_code": "52",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1411.zip",
+      "bytes": 318565110,
+      "dataset_name": "AL_D155_52_20260409.csv",
+      "region_code": "52",
+      "vintage": "20260409"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1375.zip",
+      "bytes": 154312417,
+      "dataset_name": "AL_D155_11_20260509.csv",
+      "region_code": "11",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1376.zip",
+      "bytes": 58142217,
+      "dataset_name": "AL_D155_26_20260509.csv",
+      "region_code": "26",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1377.zip",
+      "bytes": 73407622,
+      "dataset_name": "AL_D155_27_20260509.csv",
+      "region_code": "27",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1378.zip",
+      "bytes": 92415482,
+      "dataset_name": "AL_D155_28_20260509.csv",
+      "region_code": "28",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1379.zip",
+      "bytes": 36453759,
+      "dataset_name": "AL_D155_29_20260509.csv",
+      "region_code": "29",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1380.zip",
+      "bytes": 37461474,
+      "dataset_name": "AL_D155_30_20260509.csv",
+      "region_code": "30",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1381.zip",
+      "bytes": 60864293,
+      "dataset_name": "AL_D155_31_20260509.csv",
+      "region_code": "31",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1382.zip",
+      "bytes": 28149070,
+      "dataset_name": "AL_D155_36_20260509.csv",
+      "region_code": "36",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1383.zip",
+      "bytes": 883939887,
+      "dataset_name": "AL_D155_41_20260509.csv",
+      "region_code": "41",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1384.zip",
+      "bytes": 253190252,
+      "dataset_name": "AL_D155_43_20260509.csv",
+      "region_code": "43",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1385.zip",
+      "bytes": 355064645,
+      "dataset_name": "AL_D155_44_20260509.csv",
+      "region_code": "44",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1386.zip",
+      "bytes": 518868258,
+      "dataset_name": "AL_D155_46_20260509.csv",
+      "region_code": "46",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1387.zip",
+      "bytes": 540351216,
+      "dataset_name": "AL_D155_47_20260509.csv",
+      "region_code": "47",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1388.zip",
+      "bytes": 465278049,
+      "dataset_name": "AL_D155_48_20260509.csv",
+      "region_code": "48",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1389.zip",
+      "bytes": 103822108,
+      "dataset_name": "AL_D155_50_20260509.csv",
+      "region_code": "50",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1390.zip",
+      "bytes": 291674265,
+      "dataset_name": "AL_D155_51_20260509.csv",
+      "region_code": "51",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1391.zip",
+      "bytes": 317240808,
+      "dataset_name": "AL_D155_52_20260509.csv",
+      "region_code": "52",
+      "vintage": "20260509"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1413.zip",
+      "bytes": 155478211,
+      "dataset_name": "AL_D155_11_20260609.csv",
+      "region_code": "11",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1414.zip",
+      "bytes": 58422524,
+      "dataset_name": "AL_D155_26_20260609.csv",
+      "region_code": "26",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1415.zip",
+      "bytes": 74040418,
+      "dataset_name": "AL_D155_27_20260609.csv",
+      "region_code": "27",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1416.zip",
+      "bytes": 92804605,
+      "dataset_name": "AL_D155_28_20260609.csv",
+      "region_code": "28",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1417.zip",
+      "bytes": 36519039,
+      "dataset_name": "AL_D155_29_20260609.csv",
+      "region_code": "29",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1418.zip",
+      "bytes": 38839101,
+      "dataset_name": "AL_D155_30_20260609.csv",
+      "region_code": "30",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1419.zip",
+      "bytes": 60972740,
+      "dataset_name": "AL_D155_31_20260609.csv",
+      "region_code": "31",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1420.zip",
+      "bytes": 27079443,
+      "dataset_name": "AL_D155_36_20260609.csv",
+      "region_code": "36",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1421.zip",
+      "bytes": 889541355,
+      "dataset_name": "AL_D155_41_20260609.csv",
+      "region_code": "41",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1422.zip",
+      "bytes": 257290012,
+      "dataset_name": "AL_D155_43_20260609.csv",
+      "region_code": "43",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1423.zip",
+      "bytes": 358351029,
+      "dataset_name": "AL_D155_44_20260609.csv",
+      "region_code": "44",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1424.zip",
+      "bytes": 525053918,
+      "dataset_name": "AL_D155_46_20260609.csv",
+      "region_code": "46",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1425.zip",
+      "bytes": 534511722,
+      "dataset_name": "AL_D155_47_20260609.csv",
+      "region_code": "47",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1426.zip",
+      "bytes": 467091536,
+      "dataset_name": "AL_D155_48_20260609.csv",
+      "region_code": "48",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1427.zip",
+      "bytes": 103048179,
+      "dataset_name": "AL_D155_50_20260609.csv",
+      "region_code": "50",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1428.zip",
+      "bytes": 298054741,
+      "dataset_name": "AL_D155_51_20260609.csv",
+      "region_code": "51",
+      "vintage": "20260609"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_use_plan/20171128DS00148-1429.zip",
+      "bytes": 319816448,
+      "dataset_name": "AL_D155_52_20260609.csv",
+      "region_code": "52",
+      "vintage": "20260609"
+    }
+  ]
+}
