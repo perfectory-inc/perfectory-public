@@ -601,6 +601,80 @@ const SILVER_LAND_USE_PLAN_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
+// AL_D194 DBF attributes; price is cross-check evidence only (root ADR-0087).
+const SILVER_LAND_CHARACTERISTIC_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "pnu",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "land_category",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "area_m2",
+        logical_type: "double",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "land_use_situation",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "terrain_height",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "terrain_shape",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "road_contact",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "verification_price_per_m2",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "base_year",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "base_month",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_vintage",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_record_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "ingested_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
 // D151 필지별 개별공시지가 CSV 의 열 순서 그대로 (root ADR-0085). 값은 원천 표기
 // 그대로 문자열로 나른다 — 형 변환은 소비 투영의 몫이고, 원천이 준 것을 바꾸지 않는다.
 const SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS: &[LakehouseColumn] = &[
@@ -1806,6 +1880,28 @@ pub const SILVER_LAND_USE_PLAN: LakehouseTableContract = LakehouseTableContract 
     },
 };
 
+/// Canonical source attributes without a second parcel geometry (root ADR-0087).
+pub const SILVER_LAND_CHARACTERISTIC: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.land_characteristic",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: SILVER_LAND_CHARACTERISTIC_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["pnu", "source_vintage"],
+    quality_gates: &[
+        "pnu_not_null",
+        "area_m2_not_null",
+        "source_vintage_not_null",
+    ],
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
 /// Canonical Silver table for per-parcel official land price assessments (root ADR-0085).
 pub const SILVER_LAND_INDIVIDUAL_PRICE: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.land_individual_price",
@@ -2035,6 +2131,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_LAND_USE_PLAN,
     SILVER_LAND_USE_ZONE_CODES,
     SILVER_LAND_INDIVIDUAL_PRICE,
+    SILVER_LAND_CHARACTERISTIC,
     SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES,
     SILVER_BUILDING_REGISTER_UNITS,

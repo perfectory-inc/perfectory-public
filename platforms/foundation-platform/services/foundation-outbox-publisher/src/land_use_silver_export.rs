@@ -1,9 +1,10 @@
-//! Land-use CSV-in-ZIP to Silver JSONL handoff commands (root ADR-0083).
+//! Land-attribute ZIP to Silver JSONL handoff commands (root ADR-0083).
 //!
-//! Three lanes share this module: the D155 per-parcel land-use plan attribute CSV
+//! Four lanes share this module: the D155 per-parcel land-use plan attribute CSV
 //! (`silver.land_use_plan`), the LMIS zone code table (`silver.land_use_zone_code`), and
 //! the D151 per-parcel official land price CSV (`silver.land_individual_price`, root
-//! ADR-0085).
+//! ADR-0085), plus the attribute-only AL_D194 DBF (`silver.land_characteristic`,
+//! root ADR-0087).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -25,8 +26,8 @@ use flate2::{write::GzEncoder, Compression as GzipCompression};
 use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::Pnu;
 use lakehouse_domain::{
-    LakehouseTableContract, SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_USE_PLAN,
-    SILVER_LAND_USE_ZONE_CODES,
+    LakehouseTableContract, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_INDIVIDUAL_PRICE,
+    SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
 };
 use serde_json::json;
 
@@ -35,6 +36,14 @@ use foundation_outbox_publisher::silver_handoff_io::{
     refuse_existing_outputs, required_env, HandoffSink, InputSource, OutputSink, PathOrKey,
     SeekableSource, GZIP_LEVEL,
 };
+
+#[path = "land_characteristic_attributes.rs"]
+mod characteristic_attributes;
+
+enum SourceFormat {
+    Csv,
+    DbfAttributes,
+}
 
 const OUTCOME_CONVERTED: &str = "converted";
 const OUTCOME_ALREADY_PRESENT: &str = "already_present";
@@ -48,6 +57,7 @@ const LINEAGE_COLUMNS: [&str; 3] = ["source_record_id", "source_snapshot_id", "i
 
 /// One lane = one source layout bound to one Silver contract.
 struct Lane {
+    format: SourceFormat,
     env_prefix: &'static str,
     contract: &'static LakehouseTableContract,
     /// Exact header the provider ships, decoded. A drifted layout must refuse, not shift.
@@ -61,6 +71,7 @@ struct Lane {
 }
 
 const PLAN_LANE: Lane = Lane {
+    format: SourceFormat::Csv,
     env_prefix: "FOUNDATION_PLATFORM_LAND_USE_PLAN",
     contract: &SILVER_LAND_USE_PLAN,
     expected_header: &[
@@ -102,6 +113,7 @@ const PLAN_LANE: Lane = Lane {
 };
 
 const ZONE_CODE_LANE: Lane = Lane {
+    format: SourceFormat::Csv,
     env_prefix: "FOUNDATION_PLATFORM_LAND_USE_ZONE_CODE",
     contract: &SILVER_LAND_USE_ZONE_CODES,
     expected_header: &[
@@ -149,6 +161,7 @@ const ZONE_CODE_LANE: Lane = Lane {
 /// The D151 prefix also carries D150 DBF siblings; the member match keeps this lane on the
 /// named CSV and the DBF stays a named exclusion in Bronze (root ADR-0085).
 const PRICE_LANE: Lane = Lane {
+    format: SourceFormat::Csv,
     env_prefix: "FOUNDATION_PLATFORM_LAND_INDIVIDUAL_PRICE",
     contract: &SILVER_LAND_INDIVIDUAL_PRICE,
     expected_header: &[
@@ -184,6 +197,25 @@ const PRICE_LANE: Lane = Lane {
     member_matches: |name| name.starts_with("AL_D151_") && name.ends_with(".csv"),
     pnu_position: Some(0),
 };
+
+// AL_D194 has anonymous attributes, so mapping and its checks live together.
+const CHARACTERISTIC_LANE: Lane = Lane {
+    format: SourceFormat::DbfAttributes,
+    env_prefix: "FOUNDATION_PLATFORM_LAND_CHARACTERISTIC",
+    contract: &SILVER_LAND_CHARACTERISTIC,
+    expected_header: &[],
+    csv_columns: &[],
+    member_matches: |name| name.starts_with("AL_D194_") && name.ends_with(".dbf"),
+    pnu_position: None,
+};
+
+/// Runs the AL_D194 attribute-only export using the shared handoff transport.
+///
+/// # Errors
+/// Refuses invalid attributes, schema drift, and failed reads or writes.
+pub async fn run_characteristic() -> anyhow::Result<()> {
+    run_lane(&CHARACTERISTIC_LANE).await
+}
 
 /// Runs the D155 per-parcel land-use plan export.
 ///
@@ -341,13 +373,13 @@ fn convert(
         let mut writer = std::io::BufWriter::new(&mut sink);
         if compress {
             let mut gzip = GzEncoder::new(&mut writer, GzipCompression::new(GZIP_LEVEL));
-            let report = stream_rows(member, &mut gzip, config, lane)?;
+            let report = stream_member(member, &mut gzip, config, lane, &dataset_name)?;
             // Explicit: a dropped encoder cannot report a failed trailer, and a truncated
             // gzip member reads as a short file rather than as an error.
             gzip.finish().context("failed to finish the gzip stream")?;
             report
         } else {
-            let report = stream_rows(member, &mut writer, config, lane)?;
+            let report = stream_member(member, &mut writer, config, lane, &dataset_name)?;
             writer.flush().context("failed to flush land-use JSONL")?;
             report
         }
@@ -402,6 +434,21 @@ struct StreamReport {
     output_row_count: u64,
     rejected_row_count: u64,
     rejected_row_reasons: BTreeMap<String, u64>,
+}
+
+fn stream_member(
+    member: impl Read,
+    writer: &mut impl Write,
+    config: &ExportConfig,
+    lane: &Lane,
+    dataset_name: &str,
+) -> anyhow::Result<StreamReport> {
+    match lane.format {
+        SourceFormat::Csv => stream_rows(member, writer, config, lane),
+        SourceFormat::DbfAttributes => {
+            characteristic_attributes::stream_rows(member, writer, config, dataset_name)
+        }
+    }
 }
 
 fn stream_rows(

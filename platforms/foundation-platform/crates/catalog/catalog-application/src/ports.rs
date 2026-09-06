@@ -12,10 +12,10 @@ use catalog_domain::{
     ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
     IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
-    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, ParcelPrice, ParcelZoning,
-    RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
-    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, VectorTileBuildOutcome,
-    VectorTileManifest, VectorTileRuntimeManifest,
+    MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelIndustryAssignment, ParcelKind,
+    ParcelPrice, ParcelZoning, RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
+    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
@@ -680,6 +680,15 @@ pub trait CatalogRepository: Send + Sync {
         &self,
         pnu: &Pnu,
     ) -> Result<Option<ParcelPrice>, CatalogError>;
+
+    /// Finds the newest cadastral characteristics for one parcel identified by PNU.
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
+    async fn find_parcel_characteristic_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Option<ParcelCharacteristic>, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

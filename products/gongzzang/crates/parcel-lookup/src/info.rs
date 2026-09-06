@@ -19,8 +19,28 @@ pub struct GosiYearMonth {
     pub month: u8,
 }
 
+/// Raw cadastral characteristics published by Foundation Platform.
+///
+/// Gongzzang carries these source facts without inventing display labels or storing another
+/// canonical copy.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParcelCharacteristics {
+    /// Cadastral land category name exactly as the source wrote it.
+    pub land_category: Option<String>,
+    /// Official cadastral area in square meters.
+    pub area_m2: f64,
+    /// Land-use situation name exactly as the source wrote it.
+    pub land_use_situation: Option<String>,
+    /// Terrain height name exactly as the source wrote it.
+    pub terrain_height: Option<String>,
+    /// Terrain shape name exactly as the source wrote it.
+    pub terrain_shape: Option<String>,
+    /// Road-contact name exactly as the source wrote it.
+    pub road_contact: Option<String>,
+}
+
 /// Parcel information subset used by Gongzzang.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ParcelInfo {
     /// Administrative hierarchy derived from the PNU.
     pub admin: AdminDivision,
@@ -35,4 +55,6 @@ pub struct ParcelInfo {
     pub official_land_price_per_m2: Option<MoneyKrw>,
     /// Official land price notice year/month lineage.
     pub gosi_year_month: Option<GosiYearMonth>,
+    /// Source cadastral characteristics, when Foundation publishes them.
+    pub characteristics: Option<ParcelCharacteristics>,
 }

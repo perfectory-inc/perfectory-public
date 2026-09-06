@@ -97,3 +97,4 @@ last_reviewed: 2026-07-28
 - [0084 — 등록부는 수집된 모든 객체를 안다](./0084-the-registry-knows-every-collected-object.md)
 - [0085 — 필지는 공시지가 원장에서 값을 배운다](./0085-a-parcel-learns-its-price-from-the-assessment-ledger.md)
 - [0086 — 파이프라인 그래프는 모든 데이터셋을 한 번씩 명명한다](./0086-the-pipeline-graph-names-every-dataset-once.md)
+- [0087 — 필지는 토지특성 원장에서 면적과 특성을 배운다](./0087-a-parcel-learns-its-characteristics.md)

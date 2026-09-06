@@ -27,8 +27,8 @@ use catalog_application::{
 use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
-    IndustryGroupMember, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
-    ParcelPrice, ParcelZoning, SpatialLayer, VectorTileArtifact, VectorTileManifest,
+    IndustryGroupMember, MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelIndustryAssignment,
+    ParcelKind, ParcelPrice, ParcelZoning, SpatialLayer, VectorTileArtifact, VectorTileManifest,
     VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::{BuildingUnitRow, UnitPageKey};
@@ -36,16 +36,17 @@ use foundation_contracts::catalog::{
     ArchiveComplexRequest, BlueprintResponse, BuildingResponse, ComplexAnchorSummaryResponse,
     ComplexNoticeResponse, DigitalTwinAssetResponse, FileAssetResponse,
     IndustrialComplexGoldPointerResponse, IndustrialComplexResponse, IndustryGroupMemberResponse,
-    IndustryGroupResponse, MarkerTileContractResponse, ParcelIndustryAssignmentResponse,
-    ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse,
-    ParcelResponse, ParcelZoningResponse, PromoteFileAssetRequest, PromoteSourceRecordRequest,
-    PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest, RegisterComplexRequest,
-    RollbackVectorTileManifestRequest, SpatialLayerResponse, UnitPageResponse, UnitResponse,
-    UpdateComplexRequest, UpdateParcelKindRequest, VectorTileArtifactResponse,
-    VectorTileDynamicPostgisResponse, VectorTileLineageResponse, VectorTileManifestResponse,
-    VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
-    VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
-    VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
+    IndustryGroupResponse, MarkerTileContractResponse, ParcelCharacteristicResponse,
+    ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
+    ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse, ParcelResponse, ParcelZoningResponse,
+    PromoteFileAssetRequest, PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest,
+    PromoteVectorTileManifestRequest, RegisterComplexRequest, RollbackVectorTileManifestRequest,
+    SpatialLayerResponse, UnitPageResponse, UnitResponse, UpdateComplexRequest,
+    UpdateParcelKindRequest, VectorTileArtifactResponse, VectorTileDynamicPostgisResponse,
+    VectorTileLineageResponse, VectorTileManifestResponse, VectorTilePublicationUnitResponse,
+    VectorTileRuntimeLayerResponse, VectorTileRuntimeLineageResponse,
+    VectorTileRuntimeManifestResponse, VectorTileRuntimeSourceResponse,
+    VectorTileStaticPmtilesResponse,
 };
 use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId, StaffId};
 use foundation_shared_kernel::pnu::Pnu;
@@ -513,8 +514,17 @@ pub async fn get_parcel_by_pnu(
         .ok_or_else(|| ApiError::NotFound(pnu.as_str().to_owned()))?;
     let zonings = state.catalog_repo.list_parcel_zonings_by_pnu(&pnu).await?;
     let price = state.catalog_repo.find_parcel_price_by_pnu(&pnu).await?;
+    let characteristics = state
+        .catalog_repo
+        .find_parcel_characteristic_by_pnu(&pnu)
+        .await?;
 
-    Ok(Json(parcel_response(&parcel, zonings, price)))
+    Ok(Json(parcel_response(
+        &parcel,
+        zonings,
+        price,
+        characteristics,
+    )))
 }
 
 #[utoipa::path(
@@ -543,8 +553,17 @@ pub async fn get_parcel(
         .catalog_repo
         .find_parcel_price_by_pnu(&parcel.pnu)
         .await?;
+    let characteristics = state
+        .catalog_repo
+        .find_parcel_characteristic_by_pnu(&parcel.pnu)
+        .await?;
 
-    Ok(Json(parcel_response(&parcel, zonings, price)))
+    Ok(Json(parcel_response(
+        &parcel,
+        zonings,
+        price,
+        characteristics,
+    )))
 }
 
 #[utoipa::path(
@@ -1040,8 +1059,17 @@ pub async fn update_parcel_kind(
         .catalog_repo
         .find_parcel_price_by_pnu(&updated.pnu)
         .await?;
+    let characteristics = state
+        .catalog_repo
+        .find_parcel_characteristic_by_pnu(&updated.pnu)
+        .await?;
 
-    Ok(Json(parcel_response(&updated, zonings, price)))
+    Ok(Json(parcel_response(
+        &updated,
+        zonings,
+        price,
+        characteristics,
+    )))
 }
 
 fn industrial_complex_response(
@@ -1135,6 +1163,7 @@ fn parcel_response(
     parcel: &Parcel,
     zonings: Vec<ParcelZoning>,
     price: Option<ParcelPrice>,
+    characteristics: Option<ParcelCharacteristic>,
 ) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
@@ -1157,6 +1186,14 @@ fn parcel_response(
             base_year: price.base_year,
             base_month: price.base_month,
             announced_date: price.announced_date,
+        }),
+        characteristics: characteristics.map(|characteristics| ParcelCharacteristicResponse {
+            land_category: characteristics.land_category,
+            area_m2: characteristics.area_m2,
+            land_use_situation: characteristics.land_use_situation,
+            terrain_height: characteristics.terrain_height,
+            terrain_shape: characteristics.terrain_shape,
+            road_contact: characteristics.road_contact,
         }),
     }
 }

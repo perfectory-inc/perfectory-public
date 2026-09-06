@@ -21,7 +21,7 @@ const COMPLEXES_PATH: &str = "catalog/v1/complexes";
 const BUILDINGS_PATH_PREFIX: &str = "catalog/v1/buildings/";
 
 /// Foundation Catalog parcel wire response.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct CatalogParcelResponse {
     /// Standard 19-digit parcel identity.
     pub pnu: String,
@@ -44,6 +44,26 @@ pub struct CatalogParcelResponse {
     /// absent and null both mean the assessment ledger names no price here.
     #[serde(default)]
     pub price: Option<CatalogParcelPrice>,
+    /// Newest cadastral characteristics. Missing and null both mean unavailable.
+    #[serde(default)]
+    pub characteristics: Option<CatalogParcelCharacteristic>,
+}
+
+/// Cadastral characteristics carried by the Foundation Catalog.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct CatalogParcelCharacteristic {
+    /// Cadastral land category name exactly as the source wrote it.
+    pub land_category: Option<String>,
+    /// Official cadastral area in square meters.
+    pub area_m2: f64,
+    /// Land-use situation name exactly as the source wrote it.
+    pub land_use_situation: Option<String>,
+    /// Terrain height name exactly as the source wrote it.
+    pub terrain_height: Option<String>,
+    /// Terrain shape name exactly as the source wrote it.
+    pub terrain_shape: Option<String>,
+    /// Road-contact name exactly as the source wrote it.
+    pub road_contact: Option<String>,
 }
 
 /// One parcel's newest official land price assessment the Foundation Catalog carries
@@ -560,7 +580,9 @@ pub enum FoundationCatalogHttpError {
 
 #[cfg(test)]
 mod tests {
-    use super::CatalogIndustrialComplexGoldPointer;
+    #![allow(clippy::expect_used, clippy::float_cmp)]
+
+    use super::{CatalogIndustrialComplexGoldPointer, CatalogParcelResponse};
 
     fn pointer(template: &str) -> CatalogIndustrialComplexGoldPointer {
         CatalogIndustrialComplexGoldPointer {
@@ -595,5 +617,25 @@ mod tests {
             None
         );
         assert_eq!(pointer("").profile_url(), None);
+    }
+
+    #[test]
+    fn parcel_characteristics_deserialize_and_remain_backward_compatible() {
+        let with_characteristics: CatalogParcelResponse = serde_json::from_str(
+            r#"{"pnu":"9999900501107370000","kind":null,"characteristics":{"land_category":"전","area_m2":12.5,"land_use_situation":null,"terrain_height":null,"terrain_shape":null,"road_contact":null}}"#,
+        )
+        .expect("characteristic response");
+        assert_eq!(
+            with_characteristics
+                .characteristics
+                .expect("characteristics")
+                .area_m2,
+            12.5
+        );
+
+        let old_response: CatalogParcelResponse =
+            serde_json::from_str(r#"{"pnu":"9999900501107370000","kind":null}"#)
+                .expect("pre-characteristic response");
+        assert!(old_response.characteristics.is_none());
     }
 }

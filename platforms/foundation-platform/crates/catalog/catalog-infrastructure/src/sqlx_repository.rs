@@ -12,8 +12,8 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError,
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
-    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelPrice, ParcelZoning,
-    PublicationUnit, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
+    MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelIndustryAssignment, ParcelPrice,
+    ParcelZoning, PublicationUnit, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
     ServingGeneration, ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
     VectorTileRuntimeManifest,
 };
@@ -530,6 +530,36 @@ impl CatalogRepository for PgCatalogRepository {
                     base_year: row.try_get("base_year").map_err(map_sqlx)?,
                     base_month: row.try_get("base_month").map_err(map_sqlx)?,
                     announced_date: row.try_get("announced_date").map_err(map_sqlx)?,
+                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
+                })
+            })
+            .transpose()
+    }
+
+    async fn find_parcel_characteristic_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Option<ParcelCharacteristic>, CatalogError> {
+        let row_opt = sqlx::query(
+            "SELECT land_category, area_m2::float8 AS area_m2, land_use_situation,
+                    terrain_height, terrain_shape, road_contact, source_snapshot_id
+             FROM catalog.parcel_characteristic
+             WHERE pnu = $1::character(19)",
+        )
+        .bind(pnu.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+
+        row_opt
+            .map(|row| {
+                Ok(ParcelCharacteristic {
+                    land_category: row.try_get("land_category").map_err(map_sqlx)?,
+                    area_m2: row.try_get("area_m2").map_err(map_sqlx)?,
+                    land_use_situation: row.try_get("land_use_situation").map_err(map_sqlx)?,
+                    terrain_height: row.try_get("terrain_height").map_err(map_sqlx)?,
+                    terrain_shape: row.try_get("terrain_shape").map_err(map_sqlx)?,
+                    road_contact: row.try_get("road_contact").map_err(map_sqlx)?,
                     source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
                 })
             })

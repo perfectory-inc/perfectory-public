@@ -136,13 +136,20 @@ set -euo pipefail
 # against what this binary was built with, not whatever directory happens to be
 # mounted beside it.
 #
+# 95 -> 98: `foundation-outbox-publisher/src/parcel_characteristic_projection_tests.rs`
+# embeds the source-object contract and the price/characteristic migrations. The
+# contract check must reject an unmeasured inventory instead of copying its contents
+# into a fixture. The disposable PostgreSQL proof must exercise the exact serving
+# schemas shipped with this binary when checking price vintage, COPY, merge and
+# rollback. These are three test-only inputs; no schema is restated in test SQL.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-95}"
+COMPILE_TIME_READ_BASELINE="${3:-98}"
 
 cd "$repo_root"
 

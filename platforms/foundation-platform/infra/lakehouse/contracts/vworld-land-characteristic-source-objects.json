@@ -1,0 +1,32 @@
+{
+  "coordinator_fills_real_inventory": true,
+  "schema_version": 1,
+  "source": "bronze/source=vworldkr__land_characteristic",
+  "how_measured": "Placeholder only. Coordinator supplies the measured 807-object inventory before a national run. The loader refuses this marker.",
+  "load_granularity": "sigungu",
+  "selected_vintage": "20260526",
+  "handoff_prefix": "silver-handoff/vworldkr__land_characteristic",
+  "handoff_suffix": ".jsonl.gz",
+  "objects": [
+    {
+      "object_key": "bronze/source=vworldkr__land_characteristic/SYNTHETIC_AL_D194_99999_20260210.zip",
+      "region_code": "99999",
+      "vintage": "20260210"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_characteristic/SYNTHETIC_AL_D194_99999_20260526.zip",
+      "region_code": "99999",
+      "vintage": "20260526"
+    },
+    {
+      "object_key": "bronze/source=vworldkr__land_characteristic/SYNTHETIC_AL_D194_99998_20260526.zip",
+      "region_code": "99998",
+      "vintage": "20260526"
+    }
+  ],
+  "granularity_counts": {
+    "sigungu": 2,
+    "vintages": 2,
+    "objects": 3
+  }
+}
