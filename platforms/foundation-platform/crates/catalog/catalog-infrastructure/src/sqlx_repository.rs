@@ -479,10 +479,14 @@ impl CatalogRepository for PgCatalogRepository {
         &self,
         pnu: &Pnu,
     ) -> Result<Vec<ParcelZoning>, CatalogError> {
+        // The bind arrives as text and the column is character(19); without the cast the
+        // planner compares as text and cannot use the primary key — measured as a 1.65 s
+        // parallel seq scan over 47.8M rows per panel click (2026-09-06, the 408 that
+        // broke the parcel panel). The cast turns it into a 2 ms index scan.
         let rows = sqlx::query(
             "SELECT zone_code, zone_name, anchor_code, inclusion_code, source_snapshot_id
              FROM catalog.parcel_zoning
-             WHERE pnu = $1
+             WHERE pnu = $1::character(19)
              ORDER BY inclusion_code, zone_code",
         )
         .bind(pnu.as_str())
@@ -507,10 +511,12 @@ impl CatalogRepository for PgCatalogRepository {
         &self,
         pnu: &Pnu,
     ) -> Result<Option<ParcelPrice>, CatalogError> {
+        // Same cast as the zoning lookup above: a text bind against character(19) forfeits
+        // the primary key (measured 1.24 s seq scan over 35.9M rows).
         let row_opt = sqlx::query(
             "SELECT price_per_m2, base_year, base_month, announced_date, source_snapshot_id
              FROM catalog.parcel_price
-             WHERE pnu = $1",
+             WHERE pnu = $1::character(19)",
         )
         .bind(pnu.as_str())
         .fetch_optional(&self.pool)
