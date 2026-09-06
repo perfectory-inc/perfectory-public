@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **411개**
+- 문서 파일: **413개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,20 +19,20 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 107 |
+| Monorepo | 109 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 166 |
+| ADR | 167 |
 | README | 108 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 3 |
 | convention | 10 |
-| documentation | 32 |
+| documentation | 33 |
 | draft | 2 |
 | fixture | 9 |
 | guide | 2 |
@@ -455,10 +455,12 @@ docs/adr/0082-the-parcel-mirror-takes-its-national-claim-from-the-contract.md
 docs/adr/0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md
 docs/adr/0084-the-registry-knows-every-collected-object.md
 docs/adr/0085-a-parcel-learns-its-price-from-the-assessment-ledger.md
+docs/adr/0086-the-pipeline-graph-names-every-dataset-once.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
 docs/architecture/single-source-spatial-publication.md
+docs/data-pipeline-map.md
 docs/glossary.md
 docs/guides/documentation-lifecycle.md
 docs/guides/README.md
@@ -574,10 +576,12 @@ tools/github/README.md
 | `docs/adr/0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0084-the-registry-knows-every-collected-object.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0085-a-parcel-learns-its-price-from-the-assessment-ledger.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0086-the-pipeline-graph-names-every-dataset-once.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
 | `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current |
+| `docs/data-pipeline-map.md` | Monorepo | documentation | current |
 | `docs/glossary.md` | Monorepo | documentation | current |
 | `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current |
 | `docs/guides/README.md` | Monorepo | README | current |
@@ -645,7 +649,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/catalog/industrial-complex-ssot-model.md` | Foundation Platform | reference | proposed |
 | `platforms/foundation-platform/docs/catalog/lakehouse-industry-reference.md` | Foundation Platform | reference | current |
 | `platforms/foundation-platform/docs/catalog/national-data-normalization-contract.v1.json` | Foundation Platform | reference | current |
-| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | proposed |
+| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | current |
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json` | Foundation Platform | fixture | fixture |
 | `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json` | Foundation Platform | reference | current |
 | `platforms/foundation-platform/docs/catalog/provider-rate-policy.v1.json` | Foundation Platform | reference | current |

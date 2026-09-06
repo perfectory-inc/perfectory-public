@@ -30,6 +30,7 @@ docs/
 | 문서 | 책임 |
 |---|---|
 | [공공데이터 문서 안내](./public-data-catalog.md) | Foundation 공공데이터 문서의 루트 진입점 |
+| [데이터 전수 지도](./data-pipeline-map.md) | 원천·정제 표·서빙·화면의 연결과 아직 연결되지 않은 데이터 (자동 생성) |
 | [기술 스택](./technology-stack.md) | 전역 기술·버전·환경 기준 |
 | [전역 용어집](./glossary.md) | 문서에서 사용하는 한글 용어 정본 |
 | [ADR](./adr/README.md) | 모노레포 전역 설계 결정 |

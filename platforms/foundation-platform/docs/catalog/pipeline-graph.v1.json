@@ -1,783 +1,155 @@
 {
-  "schema_version": "foundation-platform.pipeline_graph.v1",
-  "generated_at_utc": "2026-05-19T00:00:00Z",
+  "schema_version": 2,
+  "generated_at_utc": "2026-09-06T00:00:00Z",
   "owner": "foundation-platform",
   "viewer_policy": {
     "canonical_store": "foundation-platform",
     "ui_state_store": "product-viewer"
   },
+  "status_policy": "implemented는 코드 경로의 존재만 뜻한다. 운영 성공·배포 완료는 runtime 증거로 판단한다.",
+  "migration_notes": [
+    "v1의 원천별 수집·변환 작업 노드는 원천 그룹과 via로 합쳤다. 운영 조회에 쓰이는 노드 ID와 runtime_bindings는 보존했다.",
+    "silver.building_footprints와 JUSO 변환은 계약·생산자가 없어 제거했다.",
+    "canonical-silver-gold-live-write 및 postgis-mirror-and-dlq-schema의 과거 정적 차단 상태는 최신 계약·마이그레이션·runtime 증거로 대체한다.",
+    "silver.complex_parcel_memberships 및 gold.complex_spatial_locator는 생산자 없이 계약만 있어 연결선을 만들지 않는다.",
+    "vworldkr__sandan_profile·sandan_boundary 및 ILIS 주소 근거는 실제 생산 코드에서 확인한 연결이다. 다른 sandan 원천까지 연결되었다고 추정하지 않는다."
+  ],
   "nodes": [
-    {
-      "id": "industrial-complex-source",
-      "type": "source",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Industrial complex source",
-      "description": "External and seed sources for canonical industrial complex identity.",
-      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
-      "evidence_refs": [
-        "infra/db/seeds/industrial_complex_catalog_seed.example.jsonl"
-      ]
-    },
-    {
-      "id": "data-go-kr-building-register-source",
-      "type": "source",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "data.go.kr building register source",
-      "description": "Public data portal source for building register records.",
-      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
-      "evidence_refs": [
-        "foundation-outbox-publisher building-register-smoke"
-      ]
-    },
-    {
-      "id": "vworld-cadastral-source",
-      "type": "source",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "VWorld cadastral source",
-      "description": "VWorld cadastral geometry source.",
-      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
-      "evidence_refs": [
-        "infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py"
-      ]
-    },
-    {
-      "id": "vworld-land-register-source",
-      "type": "source",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "VWorld land register source",
-      "description": "VWorld NED land register attribute source.",
-      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "juso-building-footprint-source",
-      "type": "source",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "JUSO building footprint source",
-      "description": "JUSO electronic map building shape archive source.",
-      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "building-register-bronze-ingest",
-      "type": "ingest",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Building register Bronze ingest",
-      "description": "Captures raw building register payloads into Bronze object keys.",
-      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
-      "evidence_refs": [
-        "foundation-outbox-publisher building-register-smoke"
-      ],
-      "runtime_bindings": [
-        {
-          "kind": "ingestion_source",
-          "value": "data-go-kr-building-register"
-        },
-        {
-          "kind": "ingestion_source",
-          "value": "building-register"
-        }
-      ]
-    },
-    {
-      "id": "vworld-cadastral-bronze-ingest",
-      "type": "ingest",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "VWorld cadastral Bronze ingest",
-      "description": "Captures raw VWorld cadastral feature payloads into Bronze object keys.",
-      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
-      "evidence_refs": [],
-      "runtime_bindings": [
-        {
-          "kind": "ingestion_source",
-          "value": "vworld-cadastral"
-        }
-      ]
-    },
-    {
-      "id": "vworld-land-register-bronze-ingest",
-      "type": "ingest",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "VWorld land register Bronze ingest",
-      "description": "Captures raw VWorld land register responses into Bronze object keys.",
-      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
-      "evidence_refs": [],
-      "runtime_bindings": [
-        {
-          "kind": "ingestion_source",
-          "value": "vworld-land-register"
-        }
-      ]
-    },
-    {
-      "id": "juso-building-footprint-bronze-ingest",
-      "type": "ingest",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "JUSO building footprint Bronze ingest",
-      "description": "Captures raw JUSO building shape archives into immutable Bronze object keys.",
-      "runbook_ref": "docs/runbooks/provider-outage-and-quota.md",
-      "evidence_refs": [],
-      "runtime_bindings": [
-        {
-          "kind": "ingestion_source",
-          "value": "juso-building-footprint"
-        }
-      ]
-    },
-    {
-      "id": "industrial-complex-bronze-object",
-      "type": "bronze_object",
-      "status": "unknown",
-      "owner": "foundation-platform",
-      "title": "Industrial complex Bronze object",
-      "description": "Immutable raw source snapshots stored in R2 Bronze layout.",
-      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "industrial-complex-bronze-to-silver",
-      "type": "silver_job",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Industrial complex Bronze to Silver",
-      "description": "Normalizes raw industrial complex snapshots into canonical Silver rows.",
-      "runbook_ref": "docs/runbooks/lakehouse-compute-engines.md",
-      "evidence_refs": [
-        "infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"
-      ]
-    },
-    {
-      "id": "silver-industrial-complexes",
-      "type": "silver_dataset",
-      "status": "blocked",
-      "owner": "foundation-platform",
-      "title": "Silver industrial complexes",
-      "description": "Canonical Silver industrial complex table; live canonical write evidence is pending.",
-      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
-      "evidence_refs": [
-        "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
-      ],
-      "runtime_bindings": [
-        {
-          "kind": "lakehouse_contract",
-          "value": "silver.industrial_complexes"
-        }
-      ]
-    },
-    {
-      "id": "industrial-complex-silver-to-gold",
-      "type": "gold_job",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Industrial complex Silver to Gold",
-      "description": "Projects Silver industrial complex rows into product-serving Gold datasets.",
-      "runbook_ref": "docs/runbooks/lakehouse-compute-engines.md",
-      "evidence_refs": [
-        "infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py"
-      ]
-    },
-    {
-      "id": "gold-complex-catalog",
-      "type": "gold_dataset",
-      "status": "blocked",
-      "owner": "foundation-platform",
-      "title": "Gold complex catalog",
-      "description": "Gold industrial complex catalog served through R2 assets and thin DB pointers.",
-      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
-      "evidence_refs": [
-        "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
-      ],
-      "runtime_bindings": [
-        {
-          "kind": "lakehouse_contract",
-          "value": "gold.complex_catalog"
-        }
-      ]
-    },
-    {
-      "id": "industrial-complex-gold-pointer-publish",
-      "type": "catalog_pointer",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Industrial complex Gold pointer publish",
-      "description": "Publishes source_record, file_asset, Gold pointer, and outbox records atomically.",
-      "runbook_ref": "docs/runbooks/iceberg-snapshot-rollback.md",
-      "evidence_refs": [
-        "foundation-outbox-publisher publish-industrial-complex-gold-pointer"
-      ]
-    },
-    {
-      "id": "catalog-read-api-smoke",
-      "type": "api_endpoint",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Catalog read API smoke",
-      "description": "Read API smoke path for foundation-platform Catalog consumers.",
-      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
-      "evidence_refs": [
-        "docs/openapi/catalog.v1.json"
-      ]
-    },
-    {
-      "id": "vworld-parcel-boundaries-handoff-to-silver",
-      "type": "silver_job",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "VWorld parcel boundaries handoff to Silver",
-      "description": "Transforms VWorld cadastral features into Silver parcel boundary handoff artifacts.",
-      "runbook_ref": "docs/runbooks/lakehouse-compute-engines.md",
-      "evidence_refs": [
-        "infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py"
-      ]
-    },
-    {
-      "id": "silver-parcel-boundaries",
-      "type": "silver_dataset",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Silver parcel boundaries",
-      "description": "Canonical parcel boundary dataset for spatial serving and product viewers.",
-      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
-      "evidence_refs": [
-        "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
-      ],
-      "runtime_bindings": [
-        {
-          "kind": "lakehouse_contract",
-          "value": "silver.parcel_boundaries"
-        }
-      ]
-    },
-    {
-      "id": "juso-building-footprint-archive-to-silver",
-      "type": "silver_job",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "JUSO building footprint archive to Silver",
-      "description": "Transforms raw JUSO building shape archives into canonical Silver building footprint rows.",
-      "runbook_ref": "docs/runbooks/lakehouse-compute-engines.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "silver-building-footprints",
-      "type": "silver_dataset",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Silver building footprints",
-      "description": "Canonical building footprint geometry dataset for spatial joins and vector tiles.",
-      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
-      "evidence_refs": [],
-      "runtime_bindings": [
-        {
-          "kind": "lakehouse_contract",
-          "value": "silver.building_footprints"
-        }
-      ]
-    },
-    {
-      "id": "vector-tile-manifest-promote",
-      "type": "catalog_pointer",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Vector tile manifest promote",
-      "description": "Promotes static vector tile manifest versions owned by foundation-platform Catalog.",
-      "runbook_ref": "docs/runbooks/iceberg-snapshot-rollback.md",
-      "evidence_refs": [
-        "docs/catalog/pipeline-graph-control-plane.md"
-      ]
-    },
-    {
-      "id": "vector-tile-manifest-rollback",
-      "type": "catalog_pointer",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Vector tile manifest rollback",
-      "description": "Rolls back vector tile manifest current_version to previous_version.",
-      "runbook_ref": "docs/runbooks/iceberg-snapshot-rollback.md",
-      "evidence_refs": [
-        "docs/runbooks/iceberg-snapshot-rollback.md"
-      ]
-    },
-    {
-      "id": "lakehouse-quality-gate",
-      "type": "quality_gate",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Lakehouse quality gate",
-      "description": "Blocks promotion when run metrics violate configured quality rules.",
-      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
-      "evidence_refs": [
-        "docs/data-quality/lakehouse-quality-rules.v1.example.json"
-      ]
-    },
-    {
-      "id": "lakehouse-lineage-event",
-      "type": "lineage_event",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Lakehouse lineage event",
-      "description": "Publishes lineage for source, Silver, Gold, quality, and artifact links.",
-      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
-      "evidence_refs": [
-        "foundation-outbox-publisher publish-lakehouse-lineage-event"
-      ]
-    },
-    {
-      "id": "r2-inventory-audit",
-      "type": "r2_inventory",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "R2 inventory audit",
-      "description": "Audits R2 object namespace contamination and delete candidates.",
-      "runbook_ref": "docs/runbooks/r2-inventory-audit.md",
-      "evidence_refs": [
-        "scripts/r2"
-      ]
-    },
-    {
-      "id": "lakehouse-slo-policy",
-      "type": "slo_objective",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Lakehouse SLO policy",
-      "description": "Freshness, duration, pending-age, and provider quota SLO policy.",
-      "runbook_ref": "docs/runbooks/slo-alert-policy.md",
-      "evidence_refs": [
-        "docs/observability/slo-policy.v1.example.json"
-      ]
-    },
-    {
-      "id": "grafana-lakehouse-dashboard",
-      "type": "dashboard_panel",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Grafana lakehouse dashboard",
-      "description": "Operational dashboard panels for lakehouse and outbox state.",
-      "runbook_ref": "docs/runbooks/slo-alert-policy.md",
-      "evidence_refs": [
-        "infra/observability"
-      ]
-    },
-    {
-      "id": "outbox-catalog-event-fanout",
-      "type": "outbox_event",
-      "status": "waiting",
-      "owner": "foundation-platform",
-      "title": "Catalog fanout",
-      "description": "Outbox fanout carrying Catalog changes to product receivers.",
-      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
-      "evidence_refs": [
-        "docs/events/webhook/outbox-webhook-envelope.v1.example.json"
-      ],
-      "runtime_bindings": [
-        {
-          "kind": "outbox_scope",
-          "value": "catalog"
-        }
-      ]
-    },
-    {
-      "id": "event-fabric-registry",
-      "type": "event_fabric_registry",
-      "status": "planned",
-      "owner": "foundation-platform",
-      "title": "Event Fabric registry",
-      "description": "Adapter-ready event publishing contract for the current outbox webhook publisher and future Kafka publisher.",
-      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
-      "evidence_refs": [
-        "docs/events/event-fabric-registry.v1.example.json"
-      ]
-    },
-    {
-      "id": "future-event-fabric-consumers",
-      "type": "missing_capability",
-      "status": "planned",
-      "owner": "foundation-platform",
-      "title": "Future Event Fabric consumers",
-      "description": "Future Search, AI, and Notification consumers for Event Fabric topics.",
-      "blocking_reason": "Future Event Fabric consumers are not part of the initial AWS launch scope.",
-      "target_state": "Future consumers subscribe through the Event Fabric contract without direct database reads.",
-      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
-      "evidence_refs": [
-        "docs/events/event-fabric-registry.v1.example.json"
-      ]
-    },
-    {
-      "id": "gongzzang-catalog-consumer-receiver",
-      "type": "consumer_receiver",
-      "status": "unknown",
-      "owner": "foundation-platform",
-      "title": "Gongzzang Catalog consumer receiver",
-      "description": "Gongzzang-side receiver for foundation-platform Catalog outbox changes.",
-      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
-      "evidence_refs": [
-        "docs/events/webhook"
-      ]
-    },
-    {
-      "id": "dawneer-catalog-consumer-receiver",
-      "type": "consumer_receiver",
-      "status": "unknown",
-      "owner": "foundation-platform",
-      "title": "Dawneer Catalog consumer receiver",
-      "description": "Dawneer-side receiver for foundation-platform Catalog outbox changes.",
-      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
-      "evidence_refs": [
-        "docs/events/webhook"
-      ]
-    },
-    {
-      "id": "openlineage-production-receiver",
-      "type": "missing_capability",
-      "status": "missing",
-      "owner": "foundation-platform",
-      "title": "OpenLineage production receiver",
-      "description": "A production receiver for lineage events is not deployed yet.",
-      "blocking_reason": "No production receiver endpoint, acknowledgement, or retention evidence exists.",
-      "target_state": "Durable receiver records lineage events and exposes retention evidence.",
-      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "production-orchestrator",
-      "type": "missing_capability",
-      "status": "missing",
-      "owner": "foundation-platform",
-      "title": "Production orchestrator",
-      "description": "Production scheduling, retry, and backpressure control are not deployed yet.",
-      "blocking_reason": "No approved production orchestrator run evidence is attached.",
-      "target_state": "Durable production orchestration with retry, backpressure, run manifest, and evidence artifacts.",
-      "runbook_ref": "docs/runbooks/production-orchestrator-cutover.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "consumer-deployed-receiver-e2e",
-      "type": "missing_capability",
-      "status": "blocked",
-      "owner": "foundation-platform",
-      "title": "Deployed consumer receiver E2E",
-      "description": "Gongzzang and Dawneer deployed receiver E2E evidence is not attached yet.",
-      "blocking_reason": "No deployed receiver acknowledgement, required cache invalidation, and parcel marker anchor import enqueue evidence exists.",
-      "target_state": "Consumer receiver E2E evidence with covered_events for every supported event attached to cutover completion.",
-      "required_event_coverage": [
-        {
-          "event_type": "catalog.industrial_complex.gold_pointer.published.v1",
-          "consumers": [
-            {
-              "slug": "gongzzang",
-              "required_effect": "invalidate_catalog_cache"
-            },
-            {
-              "slug": "dawneer",
-              "required_effect": "invalidate_catalog_cache"
-            }
-          ]
-        },
-        {
-          "event_type": "catalog.parcel_marker_anchor.snapshot.published.v1",
-          "consumers": [
-            {
-              "slug": "gongzzang",
-              "required_effect": "enqueue_anchor_projection_import"
-            }
-          ]
-        }
-      ],
-      "runbook_ref": "docs/runbooks/outbox-webhook-fanout.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "production-dashboard-deployment",
-      "type": "missing_capability",
-      "status": "missing",
-      "owner": "foundation-platform",
-      "title": "Production dashboard deployment",
-      "description": "Production dashboard and alert route deployment evidence is not attached yet.",
-      "blocking_reason": "No deployed dashboard URL or alert route evidence exists.",
-      "target_state": "Dashboard and alert route deployed with evidence.",
-      "runbook_ref": "docs/runbooks/slo-alert-policy.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "canonical-silver-gold-live-write",
-      "type": "missing_capability",
-      "status": "blocked",
-      "owner": "foundation-platform",
-      "title": "Canonical Silver and Gold live write",
-      "description": "Canonical Silver and Gold live write evidence is still pending.",
-      "blocking_reason": "Smoke tables are proven, but canonical table write evidence is pending.",
-      "target_state": "Canonical Silver and Gold write and readback evidence attached to cutover completion.",
-      "runbook_ref": "docs/runbooks/lakehouse-backfill-and-schema-rebuild.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "postgis-mirror-and-dlq-schema",
-      "type": "missing_capability",
-      "status": "manual_approval",
-      "owner": "foundation-platform",
-      "title": "PostGIS mirror and DLQ schema",
-      "description": "Serving PostGIS mirror and persisted quarantine/DLQ schema evidence is not approved yet.",
-      "blocking_reason": "No approved migration and rebuild/load verification evidence exists.",
-      "target_state": "Serving PostGIS mirror and persisted DLQ schema are approved, rebuilt, loaded, and inspectable.",
-      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "supply-chain-release-gates",
-      "type": "missing_capability",
-      "status": "manual_approval",
-      "owner": "foundation-platform",
-      "title": "Supply chain release gates",
-      "description": "Release-blocking cargo-deny, gitleaks, SBOM, and signature evidence is not approved yet.",
-      "blocking_reason": "No approved supply-chain release gate evidence artifact is attached.",
-      "target_state": "Supply-chain tools are CI-blocking and release artifacts have SBOM and signature evidence.",
-      "runbook_ref": "docs/runbooks/lakehouse-incident-response.md",
-      "evidence_refs": []
-    },
-    {
-      "id": "production-alert-routing",
-      "type": "missing_capability",
-      "status": "missing",
-      "owner": "foundation-platform",
-      "title": "Production alert routing",
-      "description": "Production alert routing for SLO violations is not deployed yet.",
-      "blocking_reason": "No alert route evidence is attached.",
-      "target_state": "Alert route is deployed and connected to SLO policy.",
-      "runbook_ref": "docs/runbooks/slo-alert-policy.md",
-      "evidence_refs": []
-    }
+    {"id": "source-building-hub-bulk", "type": "source_group", "title": "건축HUB 파일", "description": "표제부·층·호·면적만 Silver 레인이 있고 나머지는 수집 단계에 남는다.", "status": "partial", "owner": "foundation-platform", "evidence_refs": [], "endpoint_catalog_group": "building_hub_bulk", "unmapped_status": "collected_only"},
+    {"id": "building-register-bronze-ingest", "type": "source_group", "title": "건축물대장 API", "description": "파일 수집과 중복되어 비활성화된 API이다.", "status": "disabled", "owner": "foundation-platform", "evidence_refs": [], "endpoint_catalog_group": "building_register_open_api", "unmapped_status": "collected_only", "runtime_bindings": [{"kind": "ingestion_source", "value": "data-go-kr-building-register"}, {"kind": "ingestion_source", "value": "building-register"}]},
+    {"id": "source-ilis", "type": "source_group", "title": "산업입지정보 산업단지", "description": "목록·고시·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다.", "status": "partial", "owner": "foundation-platform", "evidence_refs": [], "endpoint_catalog_group": "ilis", "unmapped_status": "collected_only"},
+    {"id": "source-juso-electronic-map-bulk", "type": "source_group", "title": "주소정보 전자지도", "description": "수동 승인 수집 경로이며 건물 도형 Silver 계약은 아직 없다.", "status": "collection_available", "owner": "foundation-platform", "evidence_refs": [], "endpoint_catalog_group": "juso_electronic_map_bulk", "unmapped_status": "collected_only"},
+    {"id": "source-other-bulk", "type": "source_group", "title": "기타 공공 일괄 파일", "description": "수동 승인 수집 경로이며 Silver 연결은 없다.", "status": "collection_available", "owner": "foundation-platform", "evidence_refs": [], "endpoint_catalog_group": "other_bulk", "unmapped_status": "collected_only"},
+    {"id": "source-real-transaction-open-api", "type": "source_group", "title": "실거래가 API", "description": "카탈로그에서 중복 API로 비활성화되어 있다.", "status": "disabled", "owner": "foundation-platform", "evidence_refs": [], "endpoint_catalog_group": "real_transaction_open_api", "unmapped_status": "collected_only"},
+    {"id": "source-vworld-dataset", "type": "source_group", "title": "브이월드 공간·토지 파일", "description": "필지·용도지역·공시지가·행정경계·산업단지 프로필과 경계의 실행 경로가 있다. 나머지는 수집 단계에 남는다.", "status": "partial", "owner": "foundation-platform", "evidence_refs": [], "endpoint_catalog_group": "vworld_dataset", "unmapped_status": "collected_only"},
+    {"id": "source-vworld-ned-open-api", "type": "source_group", "title": "브이월드 토지대장 API", "description": "API 수집 예정이며 Silver 계약은 없다.", "status": "planned", "owner": "foundation-platform", "evidence_refs": [], "endpoint_catalog_group": "vworld_ned_open_api", "unmapped_status": "collected_only"},
+    {"id": "silver-industrial-complexes", "type": "silver_table", "title": "산업단지 기본 정보", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.industrial_complexes", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.industrial_complexes"}]},
+    {"id": "silver-industrial-complex-boundaries", "type": "silver_table", "title": "산업단지 경계", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.industrial_complex_boundaries", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.industrial_complex_boundaries"}]},
+    {"id": "silver-parcel-boundaries", "type": "silver_table", "title": "필지 경계", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.parcel_boundaries", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.parcel_boundaries"}]},
+    {"id": "silver-land-use-plan", "type": "silver_table", "title": "필지별 토지이용계획", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.land_use_plan", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.land_use_plan"}]},
+    {"id": "silver-land-use-zone-code", "type": "silver_table", "title": "용도지역 코드 사전", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.land_use_zone_code", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.land_use_zone_code"}]},
+    {"id": "silver-land-individual-price", "type": "silver_table", "title": "필지별 공시지가", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.land_individual_price", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.land_individual_price"}]},
+    {"id": "silver-building-register-floors", "type": "silver_table", "title": "건물 층별 정보", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.building_register_floors", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.building_register_floors"}]},
+    {"id": "silver-building-register-titles", "type": "silver_table", "title": "건물 표제부", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.building_register_titles", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.building_register_titles"}]},
+    {"id": "silver-building-register-units", "type": "silver_table", "title": "건물 호별 정보", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.building_register_units", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.building_register_units"}]},
+    {"id": "silver-building-register-unit-areas", "type": "silver_table", "title": "호별 전유·공용 면적", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.building_register_unit_areas", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.building_register_unit_areas"}]},
+    {"id": "silver-complex-parcel-memberships", "type": "silver_table", "title": "산업단지와 필지 소속", "description": "계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다.", "status": "contract_only", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "silver.complex_parcel_memberships", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "silver.complex_parcel_memberships"}]},
+    {"id": "gold-complex-catalog", "type": "gold_table", "title": "산업단지 제공용 프로필", "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "gold.complex_catalog", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "gold.complex_catalog"}]},
+    {"id": "gold-complex-spatial-locator", "type": "gold_table", "title": "산업단지 위치 찾기", "description": "계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다.", "status": "contract_only", "owner": "foundation-platform", "evidence_refs": ["platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"], "table_name": "gold.complex_spatial_locator", "runtime_bindings": [{"kind": "lakehouse_contract", "value": "gold.complex_spatial_locator"}]},
+    {"id": "serving-parcel", "type": "serving_group", "title": "필지 기본·식별자", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.parcel", "catalog.parcel_identifier"]},
+    {"id": "serving-parcel-zoning", "type": "serving_group", "title": "필지 용도지역", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.parcel_zoning"]},
+    {"id": "serving-parcel-price", "type": "serving_group", "title": "필지 공시지가", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.parcel_price"]},
+    {"id": "serving-building", "type": "serving_group", "title": "건물", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.building"]},
+    {"id": "serving-building-unit", "type": "serving_group", "title": "건물의 호", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.building_unit"]},
+    {"id": "serving-industrial-complex", "type": "serving_group", "title": "산업단지", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.industrial_complex"]},
+    {"id": "serving-industrial-complex-gold-pointer", "type": "serving_group", "title": "산업단지 프로필 포인터", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.industrial_complex_gold_pointer"]},
+    {"id": "serving-complex-membership", "type": "serving_group", "title": "필지의 산업단지 소속", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.parcel_complex_membership"]},
+    {"id": "serving-industry", "type": "serving_group", "title": "업종 분류·허용", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.industry_group", "catalog.industry_group_member", "catalog.allowed_industry", "catalog.parcel_industry_assignment"]},
+    {"id": "serving-manufacturer", "type": "serving_group", "title": "공장·제조업체", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.manufacturer"]},
+    {"id": "serving-complex-notice", "type": "serving_group", "title": "산업단지 고시·첨부", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.complex_notice", "catalog.complex_attachment", "catalog.notice_attachment"]},
+    {"id": "serving-building-assets", "type": "serving_group", "title": "설계·디지털 트윈", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.blueprint", "catalog.digital_twin_asset"]},
+    {"id": "serving-administrative-unit", "type": "serving_group", "title": "행정구역 원장", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.administrative_unit", "catalog.administrative_unit_identifier", "catalog.administrative_unit_parent", "catalog.administrative_unit_transition", "catalog.parcel_administrative_unit"]},
+    {"id": "serving-administrative-revision", "type": "serving_group", "title": "행정경계 리비전", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.administrative_boundary_revision"]},
+    {"id": "serving-source-catalog", "type": "serving_group", "title": "원천 등록부", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.source_catalog"]},
+    {"id": "serving-source-record", "type": "serving_group", "title": "원천 기록", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.source_record"]},
+    {"id": "serving-file-asset", "type": "serving_group", "title": "파일 자산", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.file_asset"]},
+    {"id": "serving-bronze-object", "type": "serving_group", "title": "수집 객체 원장", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.bronze_object"]},
+    {"id": "serving-collection-job", "type": "serving_group", "title": "수집 작업", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.collection_job"]},
+    {"id": "serving-ingestion-run", "type": "serving_group", "title": "수집 실행", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.ingestion_run"]},
+    {"id": "serving-lakehouse-registry", "type": "serving_group", "title": "레이크하우스 자산·버전", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.lakehouse_data_asset", "catalog.lakehouse_dataset_version", "catalog.lakehouse_object_artifact"]},
+    {"id": "serving-lakehouse-storage", "type": "serving_group", "title": "레이크하우스 저장·접근 정책", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.lakehouse_storage_namespace", "catalog.lakehouse_access_policy"]},
+    {"id": "serving-lakehouse-runs", "type": "serving_group", "title": "레이크하우스 실행·품질·계보", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.lakehouse_batch_run", "catalog.lakehouse_quality_check", "catalog.lakehouse_lineage_edge"]},
+    {"id": "serving-catalog-edits", "type": "serving_group", "title": "카탈로그 변경 원장", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.catalog_edit", "catalog.catalog_mutation_idempotency"]},
+    {"id": "serving-normalization", "type": "serving_group", "title": "정규화 제안·검토", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.normalization_application", "catalog.normalization_proposal", "catalog.normalization_proposal_review", "catalog.normalization_proposal_submission_audit"]},
+    {"id": "serving-outbox", "type": "serving_group", "title": "이벤트 발행·격리", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.outbox_event", "catalog.outbox_quarantine"]},
+    {"id": "serving-parcel-marker", "type": "serving_group", "title": "필지 마커", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.parcel_marker_anchor", "catalog.parcel_marker_anchor_generation_run"]},
+    {"id": "serving-publication", "type": "serving_group", "title": "발행 리비전·증거", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.publication_revision", "catalog.parcel_publication_source_evidence"]},
+    {"id": "serving-spatial-schema", "type": "serving_group", "title": "공간 레이어·스키마", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.spatial_layer", "catalog.schema_profile"]},
+    {"id": "serving-tile-artifact", "type": "serving_group", "title": "타일 산출물", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.vector_tile_artifact", "catalog.vector_tile_artifact_source_file_asset"]},
+    {"id": "serving-tile-build", "type": "serving_group", "title": "타일 빌드·갱신", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.vector_tile_build_job", "catalog.vector_tile_refresh_observation"]},
+    {"id": "serving-tile-release", "type": "serving_group", "title": "타일 릴리스", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.vector_tile_release", "catalog.vector_tile_release_layer", "catalog.vector_tile_publication_unit"]},
+    {"id": "serving-tile-manifest", "type": "serving_group", "title": "타일 매니페스트", "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["catalog.vector_tile_manifest", "catalog.vector_tile_runtime_manifest", "catalog.vector_tile_runtime_manifest_pointer", "catalog.vector_tile_runtime_manifest_unit"]},
+    {"id": "serving-parcel-boundary", "type": "serving_group", "title": "필지 경계 서빙", "description": "타일 제공을 위한 PostGIS 투영 및 적재 원장이다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["serving_postgis.parcel_boundary_mirror", "serving_postgis.parcel_boundary_mirror_rebuild_run", "serving_postgis.parcel_boundary_publication"]},
+    {"id": "serving-admin-boundary", "type": "serving_group", "title": "행정경계 서빙", "description": "타일 제공을 위한 PostGIS 투영 및 적재 원장이다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["serving_postgis.administrative_unit_boundary_publication"]},
+    {"id": "serving-complex-boundary", "type": "serving_group", "title": "산업단지 경계 서빙", "description": "타일 제공을 위한 PostGIS 투영 및 적재 원장이다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["serving_postgis.industrial_complex_boundary_publication"]},
+    {"id": "serving-spatial-load", "type": "serving_group", "title": "공간 적재 원장", "description": "타일 제공을 위한 PostGIS 투영 및 적재 원장이다.", "status": "schema_defined", "owner": "foundation-platform", "evidence_refs": [], "tables": ["serving_postgis.spatial_projection_load"]},
+    {"id": "industrial-complex-gold-pointer-publish", "type": "serving_surface", "status": "waiting", "owner": "foundation-platform", "title": "산업단지 Gold 포인터 발행", "description": "원천·파일·Gold 포인터·outbox 이벤트를 함께 발행한다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md", "evidence_refs": ["foundation-outbox-publisher publish-industrial-complex-gold-pointer"], "surface_kind": "catalog_pointer"},
+    {"id": "vector-tile-manifest-promote", "type": "serving_surface", "status": "waiting", "owner": "foundation-platform", "title": "지도 타일 승격", "description": "검증된 타일 매니페스트 버전을 현재 제공 버전으로 승격한다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md", "evidence_refs": ["platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md"], "surface_kind": "catalog_pointer"},
+    {"id": "vector-tile-manifest-rollback", "type": "serving_surface", "status": "waiting", "owner": "foundation-platform", "title": "지도 타일 되돌림", "description": "이전 타일 매니페스트 버전으로 되돌린다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md", "evidence_refs": ["platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md"], "surface_kind": "catalog_pointer"},
+    {"id": "lakehouse-quality-gate", "type": "serving_surface", "status": "waiting", "owner": "foundation-platform", "title": "레이크하우스 품질 검사", "description": "변환 결과가 품질 기준을 어기면 발행을 막는다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md", "evidence_refs": ["platforms/foundation-platform/docs/data-quality/lakehouse-quality-rules.v1.example.json"], "surface_kind": "quality_gate"},
+    {"id": "lakehouse-lineage-event", "type": "serving_surface", "status": "waiting", "owner": "foundation-platform", "title": "레이크하우스 계보 이벤트", "description": "원천·정제·품질·산출물의 연결 근거를 발행한다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md", "evidence_refs": ["foundation-outbox-publisher publish-lakehouse-lineage-event"], "surface_kind": "lineage_event"},
+    {"id": "r2-inventory-audit", "type": "serving_surface", "status": "waiting", "owner": "foundation-platform", "title": "객체 저장소 재고 감사", "description": "저장 공간의 객체 재고와 삭제 후보를 확인한다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/r2-inventory-audit.md", "evidence_refs": ["scripts/r2"], "surface_kind": "r2_inventory"},
+    {"id": "lakehouse-slo-policy", "type": "serving_surface", "status": "waiting", "owner": "foundation-platform", "title": "신선도·실행시간 기준", "description": "수집과 변환의 지연·실패 신호를 관측한다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/slo-alert-policy.md", "evidence_refs": ["platforms/foundation-platform/docs/observability/slo-policy.v1.example.json"], "surface_kind": "slo_objective"},
+    {"id": "grafana-lakehouse-dashboard", "type": "serving_surface", "status": "waiting", "owner": "foundation-platform", "title": "운영 관측 화면", "description": "레이크하우스와 이벤트 대기열 지표를 표시한다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/slo-alert-policy.md", "evidence_refs": ["platforms/foundation-platform/infra/observability"], "surface_kind": "dashboard_panel"},
+    {"id": "outbox-catalog-event-fanout", "type": "serving_surface", "status": "waiting", "owner": "foundation-platform", "title": "카탈로그 변경 전달", "description": "카탈로그 변경 이벤트를 제품 수신기로 전달한다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md", "evidence_refs": ["platforms/foundation-platform/docs/events/webhook/outbox-webhook-envelope.v1.example.json"], "runtime_bindings": [{"kind": "outbox_scope", "value": "catalog"}], "surface_kind": "outbox_event"},
+    {"id": "event-fabric-registry", "type": "serving_surface", "status": "planned", "owner": "foundation-platform", "title": "이벤트 계약 등록부", "description": "현재 webhook 및 향후 브로커 연결의 이벤트 계약을 기록한다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md", "evidence_refs": ["platforms/foundation-platform/docs/events/event-fabric-registry.v1.example.json"], "surface_kind": "event_fabric_registry"},
+    {"id": "future-event-fabric-consumers", "type": "serving_surface", "status": "planned", "owner": "foundation-platform", "title": "향후 이벤트 소비자", "description": "검색·AI·알림 소비자는 초기 출시 범위 밖의 계획이다.", "blocking_reason": "Future Event Fabric consumers are not part of the initial AWS launch scope.", "target_state": "Future consumers subscribe through the Event Fabric contract without direct database reads.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md", "evidence_refs": ["platforms/foundation-platform/docs/events/event-fabric-registry.v1.example.json"], "surface_kind": "missing_capability"},
+    {"id": "gongzzang-catalog-consumer-receiver", "type": "serving_surface", "status": "unknown", "owner": "foundation-platform", "title": "공짱 이벤트 수신기", "description": "공짱에서 카탈로그 변경을 수신한다. 배포된 수신기 검증은 별도 증거가 필요하다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md", "evidence_refs": ["platforms/foundation-platform/docs/events/webhook"], "surface_kind": "consumer_receiver"},
+    {"id": "dawneer-catalog-consumer-receiver", "type": "serving_surface", "status": "unknown", "owner": "foundation-platform", "title": "다우니어 이벤트 수신기", "description": "다우니어 수신 계약이며 실제 배포 상태는 확인되지 않았다.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md", "evidence_refs": ["platforms/foundation-platform/docs/events/webhook"], "surface_kind": "consumer_receiver"},
+    {"id": "openlineage-production-receiver", "type": "serving_surface", "status": "missing", "owner": "foundation-platform", "title": "운영 계보 수신기", "description": "운영 수신·보존 증거가 아직 첨부되지 않았다.", "blocking_reason": "No production receiver endpoint, acknowledgement, or retention evidence exists.", "target_state": "Durable receiver records lineage events and exposes retention evidence.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md", "evidence_refs": [], "surface_kind": "missing_capability"},
+    {"id": "production-orchestrator", "type": "serving_surface", "status": "missing", "owner": "foundation-platform", "title": "전체 파이프라인 운영 조율", "description": "매일 수집 타이머와 별개로 전체 변환의 재시도·배압 운영 증거가 아직 없다.", "blocking_reason": "No approved production orchestrator run evidence is attached.", "target_state": "Durable production orchestration with retry, backpressure, run manifest, and evidence artifacts.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md", "evidence_refs": [], "surface_kind": "missing_capability"},
+    {"id": "consumer-deployed-receiver-e2e", "type": "serving_surface", "status": "blocked", "owner": "foundation-platform", "title": "배포된 수신기 종단 검증", "description": "카탈로그 변경이 배포된 제품 수신기에서 처리된 증거가 필요하다.", "blocking_reason": "No deployed receiver acknowledgement, required cache invalidation, and parcel marker anchor import enqueue evidence exists.", "target_state": "Consumer receiver E2E evidence with covered_events for every supported event attached to cutover completion.", "required_event_coverage": [{"event_type": "catalog.industrial_complex.gold_pointer.published.v1", "consumers": [{"slug": "gongzzang", "required_effect": "invalidate_catalog_cache"}, {"slug": "dawneer", "required_effect": "invalidate_catalog_cache"}]}, {"event_type": "catalog.parcel_marker_anchor.snapshot.published.v1", "consumers": [{"slug": "gongzzang", "required_effect": "enqueue_anchor_projection_import"}]}], "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md", "evidence_refs": [], "surface_kind": "missing_capability"},
+    {"id": "production-dashboard-deployment", "type": "serving_surface", "status": "missing", "owner": "foundation-platform", "title": "운영 관측 화면 배포", "description": "실제 배포된 대시보드와 알림 경로 증거가 필요하다.", "blocking_reason": "No deployed dashboard URL or alert route evidence exists.", "target_state": "Dashboard and alert route deployed with evidence.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/slo-alert-policy.md", "evidence_refs": [], "surface_kind": "missing_capability"},
+    {"id": "supply-chain-release-gates", "type": "serving_surface", "status": "manual_approval", "owner": "foundation-platform", "title": "릴리스 공급망 검사", "description": "릴리스 차단·서명·소프트웨어 구성 명세의 승인 증거를 요구한다.", "blocking_reason": "No approved supply-chain release gate evidence artifact is attached.", "target_state": "Supply-chain tools are CI-blocking and release artifacts have SBOM and signature evidence.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md", "evidence_refs": [], "surface_kind": "missing_capability"},
+    {"id": "production-alert-routing", "type": "serving_surface", "status": "missing", "owner": "foundation-platform", "title": "운영 알림 전달", "description": "실제 운영 알림 경로와 수신 증거가 필요하다.", "blocking_reason": "No alert route evidence is attached.", "target_state": "Alert route is deployed and connected to SLO policy.", "runbook_ref": "platforms/foundation-platform/docs/runbooks/slo-alert-policy.md", "evidence_refs": [], "surface_kind": "missing_capability"},
+    {"id": "parcel-tiles", "type": "serving_surface", "title": "필지 지도 타일", "description": "필지 경계 발행 및 runtime 매니페스트로 제공한다. 첫 통합 매니페스트 세대는 2 이상이다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": [], "surface_kind": "tiles"},
+    {"id": "admin-tiles", "type": "serving_surface", "title": "행정경계 지도 타일", "description": "읍면동 경계를 제공한다. 최초 통합 매니페스트 세대는 3이다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": [], "surface_kind": "tiles"},
+    {"id": "complex-tiles", "type": "serving_surface", "title": "산업단지 지도 타일", "description": "산업단지 경계를 동적 또는 정적 타일로 제공한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": [], "surface_kind": "tiles"},
+    {"id": "catalog-read-api-smoke", "type": "serving_surface", "title": "카탈로그 조회 API", "description": "필지·건물·호·산업단지를 조회한다. 빈 속성은 빈 상태로 반환한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": [], "surface_kind": "api"},
+    {"id": "profile-gateway", "type": "serving_surface", "title": "산업단지 프로필 게이트웨이", "description": "비공개 Gold 프로필 객체를 HTTP로 제공한다. 현재 공짱 패널의 직접 읽기 경로는 확인되지 않았다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": [], "surface_kind": "gateway"},
+    {"id": "gongzzang-panel", "type": "serving_surface", "title": "공짱 지도·상세 패널", "description": "공개 HTTP 계약을 소비해 지도와 필지·건물·산업단지 정보를 표시한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": [], "surface_kind": "panel"},
+    {"id": "daily-source-sweep", "type": "serving_surface", "title": "매일 원천 확인", "description": "건축HUB 목록을 매일 살펴 새 파일을 수집한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": [], "surface_kind": "scheduler"},
+    {"id": "lakehouse-object-registry", "type": "serving_surface", "title": "수집 객체 등록부", "description": "수집 원장 전체에서 객체 재고를 등록·대조한다.", "status": "implemented", "owner": "foundation-platform", "evidence_refs": [], "surface_kind": "registry"}
   ],
   "edges": [
-    {
-      "id": "data-go-kr-building-register-source-to-building-register-bronze-ingest",
-      "from": "data-go-kr-building-register-source",
-      "to": "building-register-bronze-ingest",
-      "relation": "feeds"
-    },
-    {
-      "id": "vworld-cadastral-source-to-vworld-cadastral-bronze-ingest",
-      "from": "vworld-cadastral-source",
-      "to": "vworld-cadastral-bronze-ingest",
-      "relation": "feeds"
-    },
-    {
-      "id": "vworld-land-register-source-to-vworld-land-register-bronze-ingest",
-      "from": "vworld-land-register-source",
-      "to": "vworld-land-register-bronze-ingest",
-      "relation": "feeds"
-    },
-    {
-      "id": "juso-building-footprint-source-to-juso-building-footprint-bronze-ingest",
-      "from": "juso-building-footprint-source",
-      "to": "juso-building-footprint-bronze-ingest",
-      "relation": "feeds"
-    },
-    {
-      "id": "industrial-complex-source-to-industrial-complex-bronze-object",
-      "from": "industrial-complex-source",
-      "to": "industrial-complex-bronze-object",
-      "relation": "ingests"
-    },
-    {
-      "id": "industrial-complex-bronze-object-to-industrial-complex-bronze-to-silver",
-      "from": "industrial-complex-bronze-object",
-      "to": "industrial-complex-bronze-to-silver",
-      "relation": "feeds"
-    },
-    {
-      "id": "industrial-complex-bronze-to-silver-to-silver-industrial-complexes",
-      "from": "industrial-complex-bronze-to-silver",
-      "to": "silver-industrial-complexes",
-      "relation": "writes"
-    },
-    {
-      "id": "silver-industrial-complexes-to-industrial-complex-silver-to-gold",
-      "from": "silver-industrial-complexes",
-      "to": "industrial-complex-silver-to-gold",
-      "relation": "feeds"
-    },
-    {
-      "id": "industrial-complex-silver-to-gold-to-gold-complex-catalog",
-      "from": "industrial-complex-silver-to-gold",
-      "to": "gold-complex-catalog",
-      "relation": "writes"
-    },
-    {
-      "id": "gold-complex-catalog-to-lakehouse-quality-gate",
-      "from": "gold-complex-catalog",
-      "to": "lakehouse-quality-gate",
-      "relation": "validates"
-    },
-    {
-      "id": "lakehouse-quality-gate-to-industrial-complex-gold-pointer-publish",
-      "from": "lakehouse-quality-gate",
-      "to": "industrial-complex-gold-pointer-publish",
-      "relation": "publishes"
-    },
-    {
-      "id": "industrial-complex-gold-pointer-publish-to-catalog-read-api-smoke",
-      "from": "industrial-complex-gold-pointer-publish",
-      "to": "catalog-read-api-smoke",
-      "relation": "serves"
-    },
-    {
-      "id": "industrial-complex-gold-pointer-publish-to-outbox-catalog-event-fanout",
-      "from": "industrial-complex-gold-pointer-publish",
-      "to": "outbox-catalog-event-fanout",
-      "relation": "emits"
-    },
-    {
-      "id": "outbox-catalog-event-fanout-to-event-fabric-registry",
-      "from": "outbox-catalog-event-fanout",
-      "to": "event-fabric-registry",
-      "relation": "adapts"
-    },
-    {
-      "id": "event-fabric-registry-to-future-event-fabric-consumers",
-      "from": "event-fabric-registry",
-      "to": "future-event-fabric-consumers",
-      "relation": "enables"
-    },
-    {
-      "id": "outbox-catalog-event-fanout-to-gongzzang-catalog-consumer-receiver",
-      "from": "outbox-catalog-event-fanout",
-      "to": "gongzzang-catalog-consumer-receiver",
-      "relation": "consumes"
-    },
-    {
-      "id": "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver",
-      "from": "outbox-catalog-event-fanout",
-      "to": "dawneer-catalog-consumer-receiver",
-      "relation": "consumes"
-    },
-    {
-      "id": "vworld-cadastral-bronze-ingest-to-vworld-parcel-boundaries-handoff-to-silver",
-      "from": "vworld-cadastral-bronze-ingest",
-      "to": "vworld-parcel-boundaries-handoff-to-silver",
-      "relation": "feeds"
-    },
-    {
-      "id": "vworld-parcel-boundaries-handoff-to-silver-to-silver-parcel-boundaries",
-      "from": "vworld-parcel-boundaries-handoff-to-silver",
-      "to": "silver-parcel-boundaries",
-      "relation": "writes"
-    },
-    {
-      "id": "juso-building-footprint-bronze-ingest-to-juso-building-footprint-archive-to-silver",
-      "from": "juso-building-footprint-bronze-ingest",
-      "to": "juso-building-footprint-archive-to-silver",
-      "relation": "feeds"
-    },
-    {
-      "id": "juso-building-footprint-archive-to-silver-to-silver-building-footprints",
-      "from": "juso-building-footprint-archive-to-silver",
-      "to": "silver-building-footprints",
-      "relation": "writes"
-    },
-    {
-      "id": "silver-parcel-boundaries-to-vector-tile-manifest-promote",
-      "from": "silver-parcel-boundaries",
-      "to": "vector-tile-manifest-promote",
-      "relation": "promotes"
-    },
-    {
-      "id": "vector-tile-manifest-promote-to-vector-tile-manifest-rollback",
-      "from": "vector-tile-manifest-promote",
-      "to": "vector-tile-manifest-rollback",
-      "relation": "rolls_back"
-    },
-    {
-      "id": "industrial-complex-silver-to-gold-to-lakehouse-lineage-event",
-      "from": "industrial-complex-silver-to-gold",
-      "to": "lakehouse-lineage-event",
-      "relation": "emits"
-    },
-    {
-      "id": "lakehouse-lineage-event-to-openlineage-production-receiver",
-      "from": "lakehouse-lineage-event",
-      "to": "openlineage-production-receiver",
-      "relation": "emits"
-    },
-    {
-      "id": "r2-inventory-audit-to-lakehouse-slo-policy",
-      "from": "r2-inventory-audit",
-      "to": "lakehouse-slo-policy",
-      "relation": "measures"
-    },
-    {
-      "id": "lakehouse-slo-policy-to-grafana-lakehouse-dashboard",
-      "from": "lakehouse-slo-policy",
-      "to": "grafana-lakehouse-dashboard",
-      "relation": "observes"
-    },
-    {
-      "id": "lakehouse-slo-policy-to-production-alert-routing",
-      "from": "lakehouse-slo-policy",
-      "to": "production-alert-routing",
-      "relation": "alerts"
-    },
-    {
-      "id": "production-orchestrator-to-building-register-bronze-ingest",
-      "from": "production-orchestrator",
-      "to": "building-register-bronze-ingest",
-      "relation": "depends_on"
-    },
-    {
-      "id": "production-orchestrator-to-industrial-complex-silver-to-gold",
-      "from": "production-orchestrator",
-      "to": "industrial-complex-silver-to-gold",
-      "relation": "depends_on"
-    },
-    {
-      "id": "consumer-deployed-receiver-e2e-to-gongzzang-catalog-consumer-receiver",
-      "from": "consumer-deployed-receiver-e2e",
-      "to": "gongzzang-catalog-consumer-receiver",
-      "relation": "validates"
-    },
-    {
-      "id": "consumer-deployed-receiver-e2e-to-dawneer-catalog-consumer-receiver",
-      "from": "consumer-deployed-receiver-e2e",
-      "to": "dawneer-catalog-consumer-receiver",
-      "relation": "validates"
-    },
-    {
-      "id": "production-dashboard-deployment-to-grafana-lakehouse-dashboard",
-      "from": "production-dashboard-deployment",
-      "to": "grafana-lakehouse-dashboard",
-      "relation": "depends_on"
-    },
-    {
-      "id": "canonical-silver-gold-live-write-to-silver-industrial-complexes",
-      "from": "canonical-silver-gold-live-write",
-      "to": "silver-industrial-complexes",
-      "relation": "validates"
-    },
-    {
-      "id": "canonical-silver-gold-live-write-to-gold-complex-catalog",
-      "from": "canonical-silver-gold-live-write",
-      "to": "gold-complex-catalog",
-      "relation": "validates"
-    },
-    {
-      "id": "postgis-mirror-and-dlq-schema-to-silver-parcel-boundaries",
-      "from": "postgis-mirror-and-dlq-schema",
-      "to": "silver-parcel-boundaries",
-      "relation": "validates"
-    },
-    {
-      "id": "supply-chain-release-gates-to-production-orchestrator",
-      "from": "supply-chain-release-gates",
-      "to": "production-orchestrator",
-      "relation": "validates"
-    }
+    {"id": "source-vworld-dataset-to-silver-parcel-boundaries", "from": "source-vworld-dataset", "to": "silver-parcel-boundaries", "relation": "feeds", "status": "implemented", "via": ["export-vworld-cadastral-shapefile-silver-handoff", "export-vworld-cadastral-silver-handoff-shard", "platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py"], "source_slugs": ["vworldkr__parcel"]},
+    {"id": "source-vworld-dataset-to-silver-land-use-plan", "from": "source-vworld-dataset", "to": "silver-land-use-plan", "relation": "feeds", "status": "implemented", "via": ["export-land-use-plan-silver-handoff", "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"], "source_slugs": ["vworldkr__land_use_plan"], "description": "D155 CSV만 연결한다. 같은 원천의 D154 도형은 Bronze에 남는다."},
+    {"id": "source-vworld-dataset-to-silver-land-use-zone-code", "from": "source-vworld-dataset", "to": "silver-land-use-zone-code", "relation": "feeds", "status": "implemented", "via": ["export-land-use-zone-code-silver-handoff", "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"], "source_slugs": ["vworldkr__land_use_zone_code"], "description": "코드 사전의 계층을 그대로 읽는다."},
+    {"id": "source-vworld-dataset-to-silver-land-individual-price", "from": "source-vworld-dataset", "to": "silver-land-individual-price", "relation": "feeds", "status": "implemented", "via": ["export-land-individual-price-silver-handoff", "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"], "source_slugs": ["vworldkr__land_individual_price"], "description": "D151 CSV만 연결한다. D150 DBF는 Bronze에 남는다."},
+    {"id": "source-building-hub-bulk-to-silver-building-register-titles", "from": "source-building-hub-bulk", "to": "silver-building-register-titles", "relation": "feeds", "status": "implemented", "via": ["export-building-register-title-silver-handoff", "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"], "source_slugs": ["hubgokr__building_register_main"]},
+    {"id": "source-building-hub-bulk-to-silver-building-register-floors", "from": "source-building-hub-bulk", "to": "silver-building-register-floors", "relation": "feeds", "status": "implemented", "via": ["export-building-register-floor-silver-handoff", "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"], "source_slugs": ["hubgokr__building_register_floor_overview"]},
+    {"id": "source-building-hub-bulk-to-silver-building-register-units", "from": "source-building-hub-bulk", "to": "silver-building-register-units", "relation": "feeds", "status": "implemented", "via": ["export-building-register-unit-silver-handoff", "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"], "source_slugs": ["hubgokr__building_register_exclusive_unit"]},
+    {"id": "source-building-hub-bulk-to-silver-building-register-unit-areas", "from": "source-building-hub-bulk", "to": "silver-building-register-unit-areas", "relation": "feeds", "status": "implemented", "via": ["export-building-register-unit-area-silver-handoff", "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"], "source_slugs": ["hubgokr__building_register_exclusive_common_area"]},
+    {"id": "source-ilis-to-silver-industrial-complexes", "from": "source-ilis", "to": "silver-industrial-complexes", "relation": "feeds", "status": "implemented", "via": ["build-industrial-complex-address-resolution", "export-industrial-complex-bronze-raw-jsonl", "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"], "source_slugs": ["industrylandorkr__industrial_complex_list", "industrylandorkr__industrial_complex_notice", "industrylandorkr__industrial_complex_detail"], "description": "ILIS 목록·고시·상세는 산업단지 주소 해석의 근거이다. 프로필 본문은 브이월드에서 온다."},
+    {"id": "source-vworld-dataset-to-silver-industrial-complex-boundaries", "from": "source-vworld-dataset", "to": "silver-industrial-complex-boundaries", "relation": "feeds", "status": "implemented", "via": ["export-industrial-complex-boundary-silver-handoff", "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundaries_handoff_to_silver.py"], "source_slugs": ["vworldkr__sandan_boundary"]},
+    {"id": "silver-industrial-complexes-to-silver-industrial-complex-boundaries", "from": "silver-industrial-complexes", "to": "silver-industrial-complex-boundaries", "relation": "joins", "status": "implemented", "via": ["platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundaries_handoff_to_silver.py"]},
+    {"id": "silver-industrial-complexes-to-gold-complex-catalog", "from": "silver-industrial-complexes", "to": "gold-complex-catalog", "relation": "feeds", "status": "implemented", "via": ["platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py"]},
+    {"id": "silver-parcel-boundaries-to-serving-parcel", "from": "silver-parcel-boundaries", "to": "serving-parcel", "relation": "feeds", "status": "implemented", "via": ["load-parcel-catalog-projection"]},
+    {"id": "silver-parcel-boundaries-to-serving-parcel-boundary", "from": "silver-parcel-boundaries", "to": "serving-parcel-boundary", "relation": "feeds", "status": "implemented", "via": ["rebuild-postgis-parcel-boundary-mirror-national-from-contract", "publish-parcel-boundary-postgis"]},
+    {"id": "silver-land-use-plan-to-serving-parcel-zoning", "from": "silver-land-use-plan", "to": "serving-parcel-zoning", "relation": "feeds", "status": "implemented", "via": ["load-parcel-zoning-catalog-projection"]},
+    {"id": "silver-land-use-zone-code-to-serving-parcel-zoning", "from": "silver-land-use-zone-code", "to": "serving-parcel-zoning", "relation": "feeds", "status": "implemented", "via": ["load-parcel-zoning-catalog-projection"]},
+    {"id": "silver-land-individual-price-to-serving-parcel-price", "from": "silver-land-individual-price", "to": "serving-parcel-price", "relation": "feeds", "status": "implemented", "via": ["load-parcel-price-catalog-projection"]},
+    {"id": "silver-building-register-titles-to-serving-building", "from": "silver-building-register-titles", "to": "serving-building", "relation": "feeds", "status": "implemented", "via": ["platforms/foundation-platform/infra/lakehouse/spark/jobs/building_titles_catalog_handoff.py", "load-building-catalog-projection"]},
+    {"id": "silver-building-register-units-to-serving-building-unit", "from": "silver-building-register-units", "to": "serving-building-unit", "relation": "feeds", "status": "implemented", "via": ["platforms/foundation-platform/infra/lakehouse/spark/jobs/building_register_units_parcel_handoff.py", "load-building-unit-catalog-projection", "load-building-unit-building-link"]},
+    {"id": "silver-industrial-complexes-to-serving-industrial-complex", "from": "silver-industrial-complexes", "to": "serving-industrial-complex", "relation": "feeds", "status": "implemented", "via": ["load-industrial-complex-canonical"]},
+    {"id": "silver-industrial-complex-boundaries-to-serving-complex-boundary", "from": "silver-industrial-complex-boundaries", "to": "serving-complex-boundary", "relation": "feeds", "status": "implemented", "via": ["platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundaries_silver_to_postgis_handoff.py", "publish-industrial-complex-boundary-postgis"]},
+    {"id": "gold-complex-catalog-to-industrial-complex-gold-pointer-publish", "from": "gold-complex-catalog", "to": "industrial-complex-gold-pointer-publish", "relation": "feeds", "status": "implemented", "via": ["export-industrial-complex-gold-profiles", "publish-industrial-complex-gold-pointer"]},
+    {"id": "industrial-complex-gold-pointer-publish-to-serving-industrial-complex-gold-pointer", "from": "industrial-complex-gold-pointer-publish", "to": "serving-industrial-complex-gold-pointer", "relation": "feeds", "status": "implemented", "via": ["publish-industrial-complex-gold-pointer"]},
+    {"id": "source-vworld-dataset-to-serving-admin-boundary", "from": "source-vworld-dataset", "to": "serving-admin-boundary", "relation": "feeds", "status": "implemented", "via": ["platforms/foundation-platform/scripts/tiles/admin-boundary/convert.sh", "platforms/foundation-platform/scripts/tiles/admin-boundary/merge.py", "write-official-administrative-boundary-source-snapshot", "register-serving-source-lineage", "publish-administrative-boundary-postgis"], "source_slugs": ["vworldkr__boundary_emd"], "description": "Silver 표를 거치지 않는 행정경계 직접 서빙 레인이다."},
+    {"id": "serving-parcel-boundary-to-parcel-tiles", "from": "serving-parcel-boundary", "to": "parcel-tiles", "relation": "feeds", "status": "implemented", "via": ["promote-parcel-boundary-runtime"]},
+    {"id": "serving-admin-boundary-to-admin-tiles", "from": "serving-admin-boundary", "to": "admin-tiles", "relation": "feeds", "status": "implemented", "via": ["promote-administrative-boundary-runtime"]},
+    {"id": "serving-complex-boundary-to-complex-tiles", "from": "serving-complex-boundary", "to": "complex-tiles", "relation": "feeds", "status": "implemented", "via": ["publish-industrial-complex-boundary-static-release"]},
+    {"id": "serving-parcel-to-catalog-read-api-smoke", "from": "serving-parcel", "to": "catalog-read-api-smoke", "relation": "serves", "status": "implemented", "via": ["platforms/foundation-platform/services/foundation-api/src/routes/mod.rs"]},
+    {"id": "serving-parcel-zoning-to-catalog-read-api-smoke", "from": "serving-parcel-zoning", "to": "catalog-read-api-smoke", "relation": "serves", "status": "implemented", "via": ["platforms/foundation-platform/services/foundation-api/src/routes/mod.rs"]},
+    {"id": "serving-parcel-price-to-catalog-read-api-smoke", "from": "serving-parcel-price", "to": "catalog-read-api-smoke", "relation": "serves", "status": "implemented", "via": ["platforms/foundation-platform/services/foundation-api/src/routes/mod.rs"]},
+    {"id": "serving-building-to-catalog-read-api-smoke", "from": "serving-building", "to": "catalog-read-api-smoke", "relation": "serves", "status": "implemented", "via": ["platforms/foundation-platform/services/foundation-api/src/routes/mod.rs"]},
+    {"id": "serving-building-unit-to-catalog-read-api-smoke", "from": "serving-building-unit", "to": "catalog-read-api-smoke", "relation": "serves", "status": "implemented", "via": ["platforms/foundation-platform/services/foundation-api/src/routes/mod.rs"]},
+    {"id": "serving-industrial-complex-to-catalog-read-api-smoke", "from": "serving-industrial-complex", "to": "catalog-read-api-smoke", "relation": "serves", "status": "implemented", "via": ["platforms/foundation-platform/services/foundation-api/src/routes/mod.rs"]},
+    {"id": "serving-industrial-complex-gold-pointer-to-profile-gateway", "from": "serving-industrial-complex-gold-pointer", "to": "profile-gateway", "relation": "serves", "status": "implemented", "via": ["platforms/foundation-platform/services/foundation-profile-gateway/src/index.ts"]},
+    {"id": "parcel-tiles-to-gongzzang-panel", "from": "parcel-tiles", "to": "gongzzang-panel", "relation": "serves", "status": "implemented", "via": ["products/gongzzang/apps/web/lib/map/foundation-vector-fill-layers.ts"]},
+    {"id": "admin-tiles-to-gongzzang-panel", "from": "admin-tiles", "to": "gongzzang-panel", "relation": "serves", "status": "implemented", "via": ["products/gongzzang/apps/web/lib/map/foundation-vector-fill-layers.ts"]},
+    {"id": "complex-tiles-to-gongzzang-panel", "from": "complex-tiles", "to": "gongzzang-panel", "relation": "serves", "status": "implemented", "via": ["products/gongzzang/apps/web/lib/map/foundation-vector-fill-layers.ts"]},
+    {"id": "catalog-read-api-smoke-to-gongzzang-panel", "from": "catalog-read-api-smoke", "to": "gongzzang-panel", "relation": "serves", "status": "implemented", "via": ["products/gongzzang/services/gongzzang-api/src/foundation_parcel_lookup.rs", "products/gongzzang/services/gongzzang-api/src/complex_reader.rs", "products/gongzzang/apps/web/components/panels/parcel/summary.tsx", "products/gongzzang/apps/web/components/panels/complex/summary.tsx"]},
+    {"id": "daily-source-sweep-to-source-building-hub-bulk", "from": "daily-source-sweep", "to": "source-building-hub-bulk", "relation": "schedules", "status": "implemented", "via": ["platforms/foundation-platform/scripts/ops/daily-source-sweep.sh"]},
+    {"id": "serving-bronze-object-to-lakehouse-object-registry", "from": "serving-bronze-object", "to": "lakehouse-object-registry", "relation": "registers", "status": "implemented", "via": ["seed-lakehouse-registry", "verify-lakehouse-registry"]},
+    {"id": "lakehouse-object-registry-to-serving-lakehouse-registry", "from": "lakehouse-object-registry", "to": "serving-lakehouse-registry", "relation": "registers", "status": "implemented", "via": ["seed-lakehouse-registry"]},
+    {"id": "gold-complex-catalog-to-lakehouse-quality-gate", "from": "gold-complex-catalog", "to": "lakehouse-quality-gate", "relation": "validates", "status": "implemented", "via": ["platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py"]},
+    {"id": "lakehouse-quality-gate-to-industrial-complex-gold-pointer-publish", "from": "lakehouse-quality-gate", "to": "industrial-complex-gold-pointer-publish", "relation": "validates", "status": "implemented", "via": ["publish-industrial-complex-gold-pointer"]},
+    {"id": "gold-complex-catalog-to-lakehouse-lineage-event", "from": "gold-complex-catalog", "to": "lakehouse-lineage-event", "relation": "emits", "status": "implemented", "via": ["publish-lakehouse-lineage-event"]},
+    {"id": "industrial-complex-gold-pointer-publish-to-outbox-catalog-event-fanout", "from": "industrial-complex-gold-pointer-publish", "to": "outbox-catalog-event-fanout", "relation": "emits", "status": "implemented", "via": ["publish-industrial-complex-gold-pointer"]},
+    {"id": "outbox-catalog-event-fanout-to-event-fabric-registry", "from": "outbox-catalog-event-fanout", "to": "event-fabric-registry", "relation": "adapts", "status": "implemented", "via": ["publish-outbox-once"]},
+    {"id": "outbox-catalog-event-fanout-to-gongzzang-catalog-consumer-receiver", "from": "outbox-catalog-event-fanout", "to": "gongzzang-catalog-consumer-receiver", "relation": "consumes", "status": "implemented", "via": ["publish-outbox-once"]},
+    {"id": "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver", "from": "outbox-catalog-event-fanout", "to": "dawneer-catalog-consumer-receiver", "relation": "consumes", "status": "implemented", "via": ["publish-outbox-once"]},
+    {"id": "source-vworld-dataset-to-silver-industrial-complexes", "from": "source-vworld-dataset", "to": "silver-industrial-complexes", "relation": "feeds", "status": "implemented", "source_slugs": ["vworldkr__sandan_profile", "vworldkr__boundary_sigungu"], "via": ["build-industrial-complex-address-resolution", "export-industrial-complex-bronze-raw-jsonl", "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"], "description": "산업단지 프로필 원본을 변환하며 시군구 경계의 DBF를 주소 행정구역 판정에 사용한다."}
   ]
 }

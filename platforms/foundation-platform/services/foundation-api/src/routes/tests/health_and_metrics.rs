@@ -47,10 +47,7 @@ async fn router_serves_pipeline_graph_registry() -> Result<(), Box<dyn Error>> {
 
     let body = to_bytes(response.into_body(), usize::MAX).await?;
     let payload: serde_json::Value = serde_json::from_slice(&body)?;
-    assert_eq!(
-        payload["schema_version"],
-        "foundation-platform.pipeline_graph.v1"
-    );
+    assert_eq!(payload["schema_version"], 2);
     assert_eq!(
         payload["viewer_policy"]["canonical_store"],
         "foundation-platform"

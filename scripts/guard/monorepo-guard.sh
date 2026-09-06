@@ -58,6 +58,7 @@ for g in hook-isolation-self-test \
          build-coupling-baseline-self-test build-coupling-baseline \
          lineage-is-derived-not-passed-self-test lineage-is-derived-not-passed \
          every-table-declares-its-load-self-test every-table-declares-its-load \
+         pipeline-graph-covers-every-dataset-self-test pipeline-graph-covers-every-dataset \
          a-deploy-verifies-the-schema-it-left-self-test a-deploy-verifies-the-schema-it-left \
          the-deploy-does-not-restate-the-compose-chain-self-test the-deploy-does-not-restate-the-compose-chain \
          the-contract-names-where-its-objects-live-self-test the-contract-names-where-its-objects-live \
