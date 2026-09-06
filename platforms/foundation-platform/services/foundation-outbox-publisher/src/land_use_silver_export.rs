@@ -1,9 +1,10 @@
-//! Land-use CSV-in-ZIP to Silver JSONL handoff commands (root ADR-0083).
+//! Land-attribute ZIP to Silver JSONL handoff commands (root ADR-0083).
 //!
-//! Three lanes share this module: the D155 per-parcel land-use plan attribute CSV
+//! Four lanes share this module: the D155 per-parcel land-use plan attribute CSV
 //! (`silver.land_use_plan`), the LMIS zone code table (`silver.land_use_zone_code`), and
 //! the D151 per-parcel official land price CSV (`silver.land_individual_price`, root
-//! ADR-0085).
+//! ADR-0085), plus the named AL_D195 CSV (`silver.land_characteristic`,
+//! root ADR-0087).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -25,8 +26,8 @@ use flate2::{write::GzEncoder, Compression as GzipCompression};
 use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::Pnu;
 use lakehouse_domain::{
-    LakehouseTableContract, SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_USE_PLAN,
-    SILVER_LAND_USE_ZONE_CODES,
+    LakehouseColumn, LakehouseTableContract, SILVER_LAND_CHARACTERISTIC,
+    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
 };
 use serde_json::json;
 
@@ -52,8 +53,8 @@ struct Lane {
     contract: &'static LakehouseTableContract,
     /// Exact header the provider ships, decoded. A drifted layout must refuse, not shift.
     expected_header: &'static [&'static str],
-    /// Contract column for each CSV position, in CSV order.
-    csv_columns: &'static [&'static str],
+    /// Contract column for each CSV position; `None` explicitly discards a source field.
+    csv_columns: &'static [Option<&'static str>],
     /// Whether the member name is the lane's (the prefix also holds other datasets).
     member_matches: fn(&str) -> bool,
     /// Which CSV position carries a PNU that must parse, if any.
@@ -81,21 +82,21 @@ const PLAN_LANE: Lane = Lane {
         "비고내용",
     ],
     csv_columns: &[
-        "pnu",
-        "legal_dong_code",
-        "legal_dong_name",
-        "ledger_kind_code",
-        "ledger_kind_name",
-        "jibun",
-        "drawing_number",
-        "inclusion_code",
-        "inclusion_name",
-        "zone_code",
-        "zone_name",
-        "registered_date",
-        "data_reference_date",
-        "source_sigungu_code",
-        "remark",
+        Some("pnu"),
+        Some("legal_dong_code"),
+        Some("legal_dong_name"),
+        Some("ledger_kind_code"),
+        Some("ledger_kind_name"),
+        Some("jibun"),
+        Some("drawing_number"),
+        Some("inclusion_code"),
+        Some("inclusion_name"),
+        Some("zone_code"),
+        Some("zone_name"),
+        Some("registered_date"),
+        Some("data_reference_date"),
+        Some("source_sigungu_code"),
+        Some("remark"),
     ],
     member_matches: |name| name.starts_with("AL_D155_") && name.ends_with(".csv"),
     pnu_position: Some(0),
@@ -124,23 +125,23 @@ const ZONE_CODE_LANE: Lane = Lane {
         "LAST_UPDT_DT",
     ],
     csv_columns: &[
-        "ucode",
-        "uname",
-        "division_name",
-        "law_name",
-        "area_kind",
-        "law_code",
-        "annex_flag",
-        "enforcement_date",
-        "article_no",
-        "article_sub_no",
-        "record_seqno",
-        "parent_ucode",
-        "deleted_date",
-        "deleted_text",
-        "terms_no",
-        "first_registered_date",
-        "last_updated_date",
+        Some("ucode"),
+        Some("uname"),
+        Some("division_name"),
+        Some("law_name"),
+        Some("area_kind"),
+        Some("law_code"),
+        Some("annex_flag"),
+        Some("enforcement_date"),
+        Some("article_no"),
+        Some("article_sub_no"),
+        Some("record_seqno"),
+        Some("parent_ucode"),
+        Some("deleted_date"),
+        Some("deleted_text"),
+        Some("terms_no"),
+        Some("first_registered_date"),
+        Some("last_updated_date"),
     ],
     member_matches: |name| name == "LART_LMISZONE.csv",
     pnu_position: None,
@@ -167,23 +168,95 @@ const PRICE_LANE: Lane = Lane {
         "원천시도시군구코드",
     ],
     csv_columns: &[
-        "pnu",
-        "legal_dong_code",
-        "legal_dong_name",
-        "special_land_kind_code",
-        "special_land_kind_name",
-        "jibun",
-        "base_year",
-        "base_month",
-        "price_per_m2",
-        "announced_date",
-        "standard_parcel_flag",
-        "data_reference_date",
-        "source_sigungu_code",
+        Some("pnu"),
+        Some("legal_dong_code"),
+        Some("legal_dong_name"),
+        Some("special_land_kind_code"),
+        Some("special_land_kind_name"),
+        Some("jibun"),
+        Some("base_year"),
+        Some("base_month"),
+        Some("price_per_m2"),
+        Some("announced_date"),
+        Some("standard_parcel_flag"),
+        Some("data_reference_date"),
+        Some("source_sigungu_code"),
     ],
     member_matches: |name| name.starts_with("AL_D151_") && name.ends_with(".csv"),
     pnu_position: Some(0),
 };
+
+// AL_D194 SHP siblings stay in Bronze; only the named AL_D195 CSV is ingested.
+const LAND_CHARACTERISTIC_LANE: Lane = Lane {
+    env_prefix: "FOUNDATION_PLATFORM_LAND_CHARACTERISTIC",
+    contract: &SILVER_LAND_CHARACTERISTIC,
+    expected_header: &[
+        "고유번호",
+        "법정동코드",
+        "법정동명",
+        "대장구분코드",
+        "대장구분명",
+        "지번",
+        "토지일련번호",
+        "기준연도",
+        "기준월",
+        "지목코드",
+        "지목명",
+        "토지면적",
+        "용도지역코드1",
+        "용도지역명1",
+        "용도지역코드2",
+        "용도지역명2",
+        "토지이용상황코드",
+        "토지이용상황",
+        "지형높이코드",
+        "지형높이",
+        "지형형상코드",
+        "지형형상",
+        "도로접면코드",
+        "도로접면",
+        "공시지가",
+        "데이터기준일자",
+    ],
+    csv_columns: &[
+        Some("pnu"),
+        Some("legal_dong_code"),
+        Some("legal_dong_name"),
+        Some("ledger_kind_code"),
+        Some("ledger_kind_name"),
+        Some("jibun"),
+        Some("land_serial_no"),
+        Some("base_year"),
+        Some("base_month"),
+        Some("land_category_code"),
+        Some("land_category"),
+        Some("area_m2"),
+        Some("zone_code_1"),
+        Some("zone_name_1"),
+        Some("zone_code_2"),
+        Some("zone_name_2"),
+        Some("land_use_situation_code"),
+        Some("land_use_situation"),
+        Some("terrain_height_code"),
+        Some("terrain_height"),
+        Some("terrain_shape_code"),
+        Some("terrain_shape"),
+        Some("road_contact_code"),
+        Some("road_contact"),
+        None, // 공시지가: catalog.parcel_price owns the price fact.
+        Some("data_reference_date"),
+    ],
+    member_matches: |name| name.starts_with("AL_D195_") && name.ends_with(".csv"),
+    pnu_position: Some(0),
+};
+
+/// Runs the `AL_D195` CSV export using the shared handoff transport.
+///
+/// # Errors
+/// Refuses schema drift and failed reads or writes; counts invalid rows by reason.
+pub async fn run_land_characteristic() -> anyhow::Result<()> {
+    run_lane(&LAND_CHARACTERISTIC_LANE).await
+}
 
 /// Runs the D155 per-parcel land-use plan export.
 ///
@@ -427,6 +500,22 @@ fn stream_rows(
         );
     }
 
+    let mapped_columns: Vec<Option<&LakehouseColumn>> = lane
+        .csv_columns
+        .iter()
+        .map(|name| {
+            name.map(|name| {
+                lane.contract
+                    .columns
+                    .iter()
+                    .find(|c| c.name == name)
+                    .with_context(|| {
+                        format!("CSV column {name} is missing from the Silver contract")
+                    })
+            })
+            .transpose()
+        })
+        .collect::<anyhow::Result<_>>()?;
     let mut report = StreamReport {
         input_row_count: 0,
         output_row_count: 0,
@@ -455,24 +544,13 @@ fn stream_rows(
                 continue;
             }
         }
-        let mut row = serde_json::Map::new();
-        let mut required_blank = None;
-        for (column, value) in lane.csv_columns.iter().zip(&fields) {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                if is_required_column(lane.contract, column) {
-                    required_blank = Some((*column).to_owned());
-                    break;
-                }
-                row.insert((*column).to_owned(), serde_json::Value::Null);
-            } else {
-                row.insert((*column).to_owned(), json!(trimmed));
+        let mut row = match map_fields(&mapped_columns, &fields) {
+            Ok(row) => row,
+            Err(reason) => {
+                reject(&mut report, &reason);
+                continue;
             }
-        }
-        if let Some(column) = required_blank {
-            reject(&mut report, &format!("blank_{column}"));
-            continue;
-        }
+        };
         row.insert("source_record_id".to_owned(), json!(source_record_id));
         row.insert(
             "source_snapshot_id".to_owned(),
@@ -498,11 +576,32 @@ fn reject(report: &mut StreamReport, reason: &str) {
         .or_insert(0) += 1;
 }
 
-fn is_required_column(contract: &LakehouseTableContract, name: &str) -> bool {
-    contract
-        .columns
-        .iter()
-        .any(|column| column.name == name && column.required)
+fn map_fields(
+    columns: &[Option<&LakehouseColumn>],
+    fields: &[String],
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let mut row = serde_json::Map::new();
+    for (column, value) in columns.iter().zip(fields) {
+        let Some(column) = column else { continue };
+        let trimmed = value.trim();
+        let value = if trimmed.is_empty() {
+            if column.required {
+                return Err(format!("blank_{}", column.name));
+            }
+            serde_json::Value::Null
+        } else if column.logical_type == "double" {
+            let number = trimmed
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite() && (column.name != "area_m2" || *v > 0.0))
+                .ok_or_else(|| format!("invalid_{}", column.name))?;
+            json!(number)
+        } else {
+            json!(trimmed)
+        };
+        row.insert(column.name.to_owned(), value);
+    }
+    Ok(row)
 }
 
 fn classify_rejected_pnu(raw: &str) -> String {
@@ -718,6 +817,10 @@ fn write_summary_json(summary_path: &Path, summary: &serde_json::Value) -> anyho
 }
 
 #[cfg(test)]
+#[path = "land_characteristic_csv_tests.rs"]
+pub(crate) mod characteristic_csv_tests;
+
+#[cfg(test)]
 mod tests {
     use std::io::Write as _;
 
@@ -763,12 +866,18 @@ mod tests {
     /// column added without a mapping (or the reverse) refuses here rather than at load time.
     #[test]
     fn lane_mappings_cover_their_contracts_exactly() {
-        for lane in [&PLAN_LANE, &ZONE_CODE_LANE, &PRICE_LANE] {
+        for lane in [
+            &PLAN_LANE,
+            &ZONE_CODE_LANE,
+            &PRICE_LANE,
+            &LAND_CHARACTERISTIC_LANE,
+        ] {
             assert_eq!(lane.expected_header.len(), lane.csv_columns.len());
             let mapped: Vec<&str> = lane
                 .csv_columns
                 .iter()
                 .copied()
+                .flatten()
                 .chain(LINEAGE_COLUMNS)
                 .collect();
             let declared: Vec<&str> = lane

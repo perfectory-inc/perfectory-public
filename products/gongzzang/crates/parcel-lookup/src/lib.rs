@@ -10,6 +10,6 @@ pub mod info;
 pub mod lookup;
 pub mod noop_lookup;
 
-pub use info::{GosiYearMonth, ParcelInfo};
+pub use info::{GosiYearMonth, ParcelCharacteristics, ParcelInfo};
 pub use lookup::{LookupError, ParcelInfoLookup};
 pub use noop_lookup::NoOpParcelInfoLookup;

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use parcel_lookup::ParcelInfoLookup;
+use parcel_lookup::{ParcelCharacteristics, ParcelInfoLookup};
 use product_identity_infrastructure::middleware::AuthenticatedUser;
 use serde::Serialize;
 use shared_kernel::pnu::Pnu;
@@ -50,6 +50,39 @@ pub struct ParcelInfoResponse {
     /// 공시지가 고시 연·월 (예: `"202504"`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gosi_year_month: Option<String>,
+    /// Raw cadastral characteristics from Foundation Platform.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub characteristics: Option<ParcelCharacteristicsResponse>,
+}
+
+/// Raw cadastral characteristics exposed without product-side formatting.
+#[derive(Debug, Serialize)]
+pub struct ParcelCharacteristicsResponse {
+    /// Cadastral land category name.
+    pub land_category: Option<String>,
+    /// Official cadastral area in square meters.
+    pub area_m2: f64,
+    /// Land-use situation name.
+    pub land_use_situation: Option<String>,
+    /// Terrain height name.
+    pub terrain_height: Option<String>,
+    /// Terrain shape name.
+    pub terrain_shape: Option<String>,
+    /// Road-contact name.
+    pub road_contact: Option<String>,
+}
+
+impl From<ParcelCharacteristics> for ParcelCharacteristicsResponse {
+    fn from(value: ParcelCharacteristics) -> Self {
+        Self {
+            land_category: value.land_category,
+            area_m2: value.area_m2,
+            land_use_situation: value.land_use_situation,
+            terrain_height: value.terrain_height,
+            terrain_shape: value.terrain_shape,
+            road_contact: value.road_contact,
+        }
+    }
 }
 
 /// `GET /api/parcels/:pnu` — 인증 필수.
@@ -113,5 +146,6 @@ pub async fn get_parcel(
         gosi_year_month: info
             .gosi_year_month
             .map(|y| format!("{:04}{:02}", y.year, y.month)),
+        characteristics: info.characteristics.map(Into::into),
     }))
 }

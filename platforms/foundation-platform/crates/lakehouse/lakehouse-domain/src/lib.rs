@@ -9,6 +9,8 @@ pub mod industrial_complex_gold_pointer;
 /// JSONL transport contract for the industrial-complex Bronze-to-Silver job.
 pub mod industrial_complex_jsonl_transport;
 
+mod land_characteristic;
+
 /// Provider-neutral table contracts.
 pub mod lakehouse;
 
@@ -43,8 +45,8 @@ pub use lakehouse::{
     GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS, SILVER_BUILDING_REGISTER_TITLES,
     SILVER_BUILDING_REGISTER_UNITS, SILVER_BUILDING_REGISTER_UNIT_AREAS,
     SILVER_COMPLEX_PARCEL_MEMBERSHIPS, SILVER_INDUSTRIAL_COMPLEXES,
-    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_USE_PLAN,
-    SILVER_LAND_USE_ZONE_CODES, SILVER_PARCEL_BOUNDARIES,
+    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_INDIVIDUAL_PRICE,
+    SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES, SILVER_PARCEL_BOUNDARIES,
 };
 pub use lakehouse_lineage_event::{
     validate_lakehouse_lineage_event, LakehouseLineageEventError,

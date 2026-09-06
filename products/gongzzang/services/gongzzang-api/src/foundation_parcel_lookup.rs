@@ -9,7 +9,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use parcel_lookup::{GosiYearMonth, LookupError, ParcelInfo, ParcelInfoLookup};
+use parcel_lookup::{
+    GosiYearMonth, LookupError, ParcelCharacteristics, ParcelInfo, ParcelInfoLookup,
+};
 use reqwest::StatusCode;
 use shared_kernel::admin_division::{AdminDivision, EupmyeondongCode, SidoCode, SigunguCode};
 use shared_kernel::land_use_type::LandUseType;
@@ -112,13 +114,23 @@ fn parcel_info_from_response(
         )));
     }
 
+    let land_use_type = response
+        .characteristics
+        .as_ref()
+        .and_then(|value| value.land_category.as_deref())
+        .map(land_use_type_from_foundation_platform_category)
+        .map(Ok)
+        .or_else(|| {
+            response
+                .kind
+                .as_deref()
+                .map(land_use_type_from_foundation_platform_kind)
+        })
+        .transpose()?;
+
     Ok(ParcelInfo {
         admin: admin_from_pnu(requested_pnu)?,
-        land_use_type: response
-            .kind
-            .as_deref()
-            .map(land_use_type_from_foundation_platform_kind)
-            .transpose()?,
+        land_use_type,
         zoning: zoning_from_foundation_platform_zonings(&response.zonings)?,
         official_land_price_per_m2: response
             .price
@@ -130,7 +142,31 @@ fn parcel_info_from_response(
             .as_ref()
             .map(gosi_year_month_from_foundation_platform_price)
             .transpose()?,
+        characteristics: response.characteristics.as_ref().map(|characteristics| {
+            ParcelCharacteristics {
+                land_category: characteristics.land_category.clone(),
+                area_m2: characteristics.area_m2,
+                land_use_situation: characteristics.land_use_situation.clone(),
+                terrain_height: characteristics.terrain_height.clone(),
+                terrain_shape: characteristics.terrain_shape.clone(),
+                road_contact: characteristics.road_contact.clone(),
+            }
+        }),
     })
+}
+
+fn land_use_type_from_foundation_platform_category(category: &str) -> LandUseType {
+    match category {
+        "대" => LandUseType::Building,
+        "전" => LandUseType::Field,
+        "답" => LandUseType::Paddy,
+        "임야" => LandUseType::Forest,
+        "공장용지" => LandUseType::FactorySite,
+        "창고용지" => LandUseType::WarehouseSite,
+        "도로" => LandUseType::Road,
+        "공원" => LandUseType::Park,
+        _ => LandUseType::Other,
+    }
 }
 
 /// Maps Foundation's assessment integer into the product money type (root ADR-0085 §3).
@@ -321,6 +357,32 @@ mod tests {
                 year: 2026,
                 month: 1
             })
+        );
+    }
+
+    #[tokio::test]
+    async fn lookup_prefers_the_cadastral_land_category_over_legacy_kind() {
+        let body = format!(
+            r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":"support","area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","characteristics":{{"land_category":"공장용지","area_m2":812.5,"land_use_situation":null,"terrain_height":"평지","terrain_shape":null,"road_contact":null}}}}"#
+        );
+        let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
+        let lookup =
+            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
+
+        let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
+
+        assert_eq!(info.land_use_type, Some(LandUseType::FactorySite));
+        assert_eq!(
+            info.characteristics.expect("characteristics"),
+            ParcelCharacteristics {
+                land_category: Some("공장용지".to_owned()),
+                area_m2: 812.5,
+                land_use_situation: None,
+                terrain_height: Some("평지".to_owned()),
+                terrain_shape: None,
+                road_contact: None,
+            }
         );
     }
 

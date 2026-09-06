@@ -232,6 +232,25 @@ pub struct ParcelResponse {
     /// Absent when the ledger names no assessment for this parcel — nothing is invented in
     /// its place (root ADR-0078).
     pub price: Option<ParcelPriceResponse>,
+    /// Newest cadastral characteristics from the `AL_D195` CSV ledger (root ADR-0087).
+    pub characteristics: Option<ParcelCharacteristicResponse>,
+}
+
+/// One parcel's newest cadastral characteristics (root ADR-0087).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ParcelCharacteristicResponse {
+    /// Cadastral land category name exactly as the source wrote it.
+    pub land_category: Option<String>,
+    /// Official cadastral area in square meters.
+    pub area_m2: f64,
+    /// Land-use situation name exactly as the source wrote it.
+    pub land_use_situation: Option<String>,
+    /// Terrain height name exactly as the source wrote it.
+    pub terrain_height: Option<String>,
+    /// Terrain shape name exactly as the source wrote it.
+    pub terrain_shape: Option<String>,
+    /// Road-contact name exactly as the source wrote it.
+    pub road_contact: Option<String>,
 }
 
 /// One parcel's newest official land price assessment (root ADR-0085).

@@ -136,13 +136,26 @@ set -euo pipefail
 # against what this binary was built with, not whatever directory happens to be
 # mounted beside it.
 #
+# 95 -> 98: `foundation-outbox-publisher/src/parcel_characteristic_projection_tests.rs`
+# embeds the source-object contract and the price/characteristic migrations. The
+# contract check must reject an unmeasured inventory instead of copying its contents
+# into a fixture. The disposable PostgreSQL proof must exercise the exact serving
+# schemas shipped with this binary when checking price vintage, COPY, merge and
+# rollback. These are three test-only inputs; no schema is restated in test SQL.
+#
+# 98 -> 97: the land-characteristic lane moved from the anonymous AL_D194 shapefile
+# to the provider's named AL_D195 CSV (root ADR-0087, CSV revision). Its projection
+# test no longer embeds the price migration it needed only to cross-check the
+# shapefile's anonymous 공시지가 column against the price serving schema; with named
+# CSV headers that verification is gone, so one test-only embedded input fell away.
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-95}"
+COMPILE_TIME_READ_BASELINE="${3:-97}"
 
 cd "$repo_root"
 
