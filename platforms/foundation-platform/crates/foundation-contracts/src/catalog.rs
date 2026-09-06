@@ -232,7 +232,7 @@ pub struct ParcelResponse {
     /// Absent when the ledger names no assessment for this parcel — nothing is invented in
     /// its place (root ADR-0078).
     pub price: Option<ParcelPriceResponse>,
-    /// Newest cadastral characteristics from the `AL_D194` ledger (root ADR-0087).
+    /// Newest cadastral characteristics from the `AL_D195` CSV ledger (root ADR-0087).
     pub characteristics: Option<ParcelCharacteristicResponse>,
 }
 

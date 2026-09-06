@@ -9,6 +9,8 @@ pub mod industrial_complex_gold_pointer;
 /// JSONL transport contract for the industrial-complex Bronze-to-Silver job.
 pub mod industrial_complex_jsonl_transport;
 
+mod land_characteristic;
+
 /// Provider-neutral table contracts.
 pub mod lakehouse;
 

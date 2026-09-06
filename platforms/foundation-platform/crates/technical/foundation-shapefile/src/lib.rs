@@ -1,9 +1,5 @@
 //! Streaming access to zipped shapefile datasets owned by Foundation Platform.
 
-mod attributes;
-pub use attributes::for_each_dbf_record;
-pub use shapefile::dbase::{FieldValue as DbfValue, Record as DbfRecord};
-
 use std::{
     collections::BTreeMap,
     fmt,

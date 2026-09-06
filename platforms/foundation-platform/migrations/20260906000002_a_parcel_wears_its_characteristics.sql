@@ -1,5 +1,5 @@
 -- Root ADR-0087: source attributes, independently arriving from parcel boundaries.
--- A25 is deliberately absent: catalog.parcel_price owns the serving price fact.
+-- Price is deliberately absent: catalog.parcel_price owns the serving price fact.
 CREATE TABLE catalog.parcel_characteristic (
     pnu character(19) NOT NULL,
     land_category text,
@@ -20,4 +20,4 @@ CREATE TABLE catalog.parcel_characteristic (
 );
 
 COMMENT ON TABLE catalog.parcel_characteristic IS
-    'Per-parcel newest verified AL_D194 attributes from silver.land_characteristic (root ADR-0087).';
+    'Per-parcel newest AL_D195 CSV attributes from silver.land_characteristic (root ADR-0087).';

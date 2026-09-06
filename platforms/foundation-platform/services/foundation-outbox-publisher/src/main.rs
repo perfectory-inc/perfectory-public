@@ -450,7 +450,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(land_use_silver_export::run_zone_code())
         }
         Command::ExportLandCharacteristicSilverHandoff => {
-            Box::pin(land_use_silver_export::run_characteristic())
+            Box::pin(land_use_silver_export::run_land_characteristic())
         }
         Command::ExportLandIndividualPriceSilverHandoff => {
             Box::pin(land_use_silver_export::run_price())

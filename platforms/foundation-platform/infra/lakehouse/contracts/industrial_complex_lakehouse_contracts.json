@@ -1820,6 +1820,51 @@
           "required": true
         },
         {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "land_serial_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "base_year",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "base_month",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "land_category_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "land_category",
           "logical_type": "string",
           "required": false
@@ -1830,7 +1875,37 @@
           "required": true
         },
         {
+          "name": "zone_code_1",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "zone_name_1",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "zone_code_2",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "zone_name_2",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "land_use_situation_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "land_use_situation",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "terrain_height_code",
           "logical_type": "string",
           "required": false
         },
@@ -1840,7 +1915,17 @@
           "required": false
         },
         {
+          "name": "terrain_shape_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "terrain_shape",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_contact_code",
           "logical_type": "string",
           "required": false
         },
@@ -1850,24 +1935,9 @@
           "required": false
         },
         {
-          "name": "verification_price_per_m2",
+          "name": "data_reference_date",
           "logical_type": "string",
-          "required": true
-        },
-        {
-          "name": "base_year",
-          "logical_type": "string",
-          "required": true
-        },
-        {
-          "name": "base_month",
-          "logical_type": "string",
-          "required": true
-        },
-        {
-          "name": "source_vintage",
-          "logical_type": "string",
-          "required": true
+          "required": false
         },
         {
           "name": "source_record_id",
@@ -1888,12 +1958,11 @@
       "partition_spec": [],
       "sort_order": [
         "pnu",
-        "source_vintage"
+        "data_reference_date"
       ],
       "quality_gates": [
         "pnu_not_null",
-        "area_m2_not_null",
-        "source_vintage_not_null"
+        "area_m2_not_null"
       ],
       "load": {
         "unit": "object",

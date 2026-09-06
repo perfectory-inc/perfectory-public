@@ -601,79 +601,7 @@ const SILVER_LAND_USE_PLAN_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
-// AL_D194 DBF attributes; price is cross-check evidence only (root ADR-0087).
-const SILVER_LAND_CHARACTERISTIC_COLUMNS: &[LakehouseColumn] = &[
-    LakehouseColumn {
-        name: "pnu",
-        logical_type: "string",
-        required: true,
-    },
-    LakehouseColumn {
-        name: "land_category",
-        logical_type: "string",
-        required: false,
-    },
-    LakehouseColumn {
-        name: "area_m2",
-        logical_type: "double",
-        required: true,
-    },
-    LakehouseColumn {
-        name: "land_use_situation",
-        logical_type: "string",
-        required: false,
-    },
-    LakehouseColumn {
-        name: "terrain_height",
-        logical_type: "string",
-        required: false,
-    },
-    LakehouseColumn {
-        name: "terrain_shape",
-        logical_type: "string",
-        required: false,
-    },
-    LakehouseColumn {
-        name: "road_contact",
-        logical_type: "string",
-        required: false,
-    },
-    LakehouseColumn {
-        name: "verification_price_per_m2",
-        logical_type: "string",
-        required: true,
-    },
-    LakehouseColumn {
-        name: "base_year",
-        logical_type: "string",
-        required: true,
-    },
-    LakehouseColumn {
-        name: "base_month",
-        logical_type: "string",
-        required: true,
-    },
-    LakehouseColumn {
-        name: "source_vintage",
-        logical_type: "string",
-        required: true,
-    },
-    LakehouseColumn {
-        name: "source_record_id",
-        logical_type: "string",
-        required: true,
-    },
-    LakehouseColumn {
-        name: "source_snapshot_id",
-        logical_type: "string",
-        required: true,
-    },
-    LakehouseColumn {
-        name: "ingested_at_utc",
-        logical_type: "timestamp",
-        required: true,
-    },
-];
+pub use crate::land_characteristic::SILVER_LAND_CHARACTERISTIC;
 
 // D151 필지별 개별공시지가 CSV 의 열 순서 그대로 (root ADR-0085). 값은 원천 표기
 // 그대로 문자열로 나른다 — 형 변환은 소비 투영의 몫이고, 원천이 준 것을 바꾸지 않는다.
@@ -1872,28 +1800,6 @@ pub const SILVER_LAND_USE_PLAN: LakehouseTableContract = LakehouseTableContract 
         "pnu_not_null",
         "zone_code_not_null",
         "inclusion_code_not_null",
-    ],
-    load: LakehouseLoadUnit::Object {
-        column: "source_record_id",
-        object_prefix: None,
-        object_suffix_separator: None,
-    },
-};
-
-/// Canonical source attributes without a second parcel geometry (root ADR-0087).
-pub const SILVER_LAND_CHARACTERISTIC: LakehouseTableContract = LakehouseTableContract {
-    table_name: "silver.land_characteristic",
-    layer: LakehouseLayer::Silver,
-    physical_format: LakehousePhysicalFormat::Parquet,
-    serving_role: LakehouseServingRole::Canonical,
-    current_row_predicate: None,
-    columns: SILVER_LAND_CHARACTERISTIC_COLUMNS,
-    partition_spec: &[],
-    sort_order: &["pnu", "source_vintage"],
-    quality_gates: &[
-        "pnu_not_null",
-        "area_m2_not_null",
-        "source_vintage_not_null",
     ],
     load: LakehouseLoadUnit::Object {
         column: "source_record_id",

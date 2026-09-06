@@ -49,7 +49,7 @@ Silver·Gold **14표**,
 | 브이월드 공간·토지 파일: VWorld 개별공시지가 | 1 endpoint | 필지별 공시지가 (`silver.land_individual_price`) | 필지 공시지가 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ D151 CSV만 연결한다. D150 DBF는 Bronze에 남는다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 토지특성 | 1 endpoint | 필지별 토지특성 (`silver.land_characteristic`) | 필지 토지특성 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
-| ↳ AL_D194 DBF 속성만 연결한다. 도형은 기존 필지 경계가 소유한다. | | | | |
+| ↳ AL_D195 CSV 속성을 PNU로 연결한다. 도형은 기존 필지 경계가 소유한다. | | | | |
 | 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물 표제부 (`silver.building_register_titles`) | 건물 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물 층별 정보 (`silver.building_register_floors`) | — | — |
 | 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물 호별 정보 (`silver.building_register_units`) | 건물의 호 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |

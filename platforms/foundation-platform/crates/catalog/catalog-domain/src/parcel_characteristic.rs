@@ -1,4 +1,4 @@
-//! Per-parcel cadastral characteristics from the `AL_D194` ledger (root ADR-0087).
+//! Per-parcel cadastral characteristics from the `AL_D195` CSV ledger (root ADR-0087).
 
 /// One parcel's newest cadastral characteristic row.
 #[derive(Clone, Debug, PartialEq)]
