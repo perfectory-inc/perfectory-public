@@ -271,7 +271,7 @@ fn add_missing_capability_overlays(
             message: "pipeline graph registry artifact nodes is not an array".to_owned(),
         })?
     {
-        if node.get("type").and_then(JsonValue::as_str) != Some("missing_capability") {
+        if node.get("surface_kind").and_then(JsonValue::as_str) != Some("missing_capability") {
             continue;
         }
 
@@ -510,10 +510,7 @@ mod tests {
             .expect("pipeline graph artifacts")
             .registry;
 
-        assert_eq!(
-            graph["schema_version"],
-            "foundation-platform.pipeline_graph.v1"
-        );
+        assert_eq!(graph["schema_version"], 2);
         assert_eq!(graph["owner"], "foundation-platform");
         assert_eq!(
             graph["viewer_policy"]["canonical_store"],
@@ -541,11 +538,8 @@ mod tests {
                 .filter(|node| node["id"] == "outbox-catalog-event-fanout")
                 .collect::<Vec<_>>();
             assert_eq!(stable_nodes.len(), 1);
-            assert_eq!(stable_nodes[0]["title"], "Catalog fanout");
-            assert_eq!(
-                stable_nodes[0]["description"],
-                "Outbox fanout carrying Catalog changes to product receivers."
-            );
+            assert_eq!(stable_nodes[0]["type"], "serving_surface");
+            assert_eq!(stable_nodes[0]["surface_kind"], "outbox_event");
             assert_eq!(
                 stable_nodes[0]["runtime_bindings"],
                 json!([{"kind": "outbox_scope", "value": "catalog"}])
@@ -614,7 +608,7 @@ mod tests {
         std::fs::write(
             &registry_path,
             serde_json::to_vec(&json!({
-                "schema_version": "foundation-platform.pipeline_graph.v1",
+                "schema_version": 2,
                 "generated_at_utc": "2026-05-19T00:00:00Z",
                 "owner": "foundation-platform",
                 "viewer_policy": {
@@ -624,7 +618,8 @@ mod tests {
                 "nodes": [
                     {
                         "id": "custom-cutover-blocker",
-                        "type": "missing_capability",
+                        "type": "serving_surface",
+                        "surface_kind": "missing_capability",
                         "status": "blocked",
                         "owner": "foundation-platform",
                         "title": "Custom blocker",
@@ -652,10 +647,7 @@ mod tests {
         )
         .expect("file-backed graph response");
 
-        assert_eq!(
-            graph["schema_version"],
-            "foundation-platform.pipeline_graph.v1"
-        );
+        assert_eq!(graph["schema_version"], 2);
         assert_eq!(
             graph["runtime"]["nodes"]["custom-cutover-blocker"]["reason"],
             "external proof required"
@@ -675,10 +667,7 @@ mod tests {
         })
         .expect("pipeline graph response");
 
-        assert_eq!(
-            graph["schema_version"],
-            "foundation-platform.pipeline_graph.v1"
-        );
+        assert_eq!(graph["schema_version"], 2);
         assert_eq!(graph["viewer_policy"]["ui_state_store"], "product-viewer");
         assert_eq!(graph["runtime"]["database_ready"], false);
     }
@@ -799,8 +788,13 @@ mod tests {
             "healthy"
         );
         assert_eq!(
-            pipeline_graph_artifacts().expect("registry").registry["nodes"][11]["status"],
-            "blocked"
+            pipeline_graph_artifacts().expect("registry").registry["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| node["id"] == "silver-industrial-complexes")
+                .expect("industrial complex table")["status"],
+            "implemented"
         );
     }
 

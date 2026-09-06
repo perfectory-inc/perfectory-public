@@ -40,6 +40,8 @@ jobs:
         run: bash scripts/ci/lychee-docs.sh
       - name: Check generated public-data catalog
         run: python3 scripts/catalog/render-public-data-catalog.py --check
+      - name: Check generated pipeline map and API example
+        run: python3 scripts/catalog/render-pipeline-map.py --check
       - name: Check generated document catalog
         run: python3 scripts/catalog/render-document-catalog.py --check
       - name: Check document audit report

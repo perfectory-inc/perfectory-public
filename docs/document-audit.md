@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **411개**
-- 언어 분류: **{'english': 36, 'korean': 216, 'mixed': 159}**
-- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
+- 감사 문서: **413개**
+- 언어 분류: **{'english': 34, 'korean': 219, 'mixed': 160}**
+- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 83개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **203개 정상 / 0개 누락 / 208개 해당 없음**
+- 메타데이터: **204개 정상 / 0개 누락 / 209개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -107,10 +107,12 @@
 | `docs/adr/0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0084-the-registry-knows-every-collected-object.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0085-a-parcel-learns-its-price-from-the-assessment-ledger.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0086-the-pipeline-graph-names-every-dataset-once.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
 | `docs/architecture/single-source-spatial-publication.md` | Monorepo | architecture | current | mixed | ok | 9 |
+| `docs/data-pipeline-map.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/glossary.md` | Monorepo | documentation | current | korean | ok | 3 |
 | `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current | korean | ok | 3 |
 | `docs/guides/README.md` | Monorepo | README | current | korean | ok | 2 |
@@ -178,13 +180,13 @@
 | `platforms/foundation-platform/docs/catalog/industrial-complex-ssot-model.md` | Foundation Platform | reference | proposed | mixed | ok | 3 |
 | `platforms/foundation-platform/docs/catalog/lakehouse-industry-reference.md` | Foundation Platform | reference | current | mixed | ok | 4 |
 | `platforms/foundation-platform/docs/catalog/national-data-normalization-contract.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
-| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | proposed | mixed | ok | 1 |
-| `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json` | Foundation Platform | fixture | fixture | english | not applicable: machine contract | 0 |
-| `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
+| `platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md` | Foundation Platform | reference | current | korean | ok | 1 |
+| `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json` | Foundation Platform | fixture | fixture | mixed | not applicable: machine contract | 1 |
+| `platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json` | Foundation Platform | reference | current | mixed | not applicable: machine contract | 2 |
 | `platforms/foundation-platform/docs/catalog/provider-rate-policy.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/catalog/public-data-bronze-lane-registry.v1.json` | Foundation Platform | reference | current | english | not applicable: machine contract | 6 |
 | `platforms/foundation-platform/docs/catalog/public-data-collection-catalog.md` | Foundation Platform | reference | current | korean | ok | 9 |
-| `platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json` | Foundation Platform | reference | current | mixed | not applicable: machine contract | 8 |
+| `platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json` | Foundation Platform | reference | current | mixed | not applicable: machine contract | 10 |
 | `platforms/foundation-platform/docs/catalog/README.md` | Foundation Platform | README | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/catalog/source-change-detection-policy.md` | Foundation Platform | reference | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/catalog/vworld-data-catalog-reference.md` | Foundation Platform | reference | current | korean | ok | 0 |
@@ -198,7 +200,7 @@
 | `platforms/foundation-platform/docs/events/webhook/receiver-contract.v1.example.json` | Foundation Platform | fixture | fixture | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/observability/slo-policy.v1.example.json` | Foundation Platform | fixture | fixture | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/openapi/catalog.v1.json` | Foundation Platform | contract | current | mixed | not applicable: machine contract | 4 |
-| `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json` | Foundation Platform | contract | current | english | not applicable: machine contract | 1 |
+| `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json` | Foundation Platform | contract | current | english | not applicable: machine contract | 2 |
 | `platforms/foundation-platform/docs/README.md` | Foundation Platform | README | current | korean | ok | 9 |
 | `platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/canonical-release-proof.md` | Foundation Platform | runbook | current | korean | ok | 0 |
