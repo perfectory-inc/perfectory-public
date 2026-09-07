@@ -161,9 +161,12 @@ set -euo pipefail
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
+# 101 -> 102: the transfer-event postgres proof now also embeds the ADR-0090 key
+# migration, so the disposable database exercises the exact re-keyed schema this
+# binary ships (three-sequence identity) rather than the superseded two-column key.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-101}"
+COMPILE_TIME_READ_BASELINE="${3:-102}"
 
 cd "$repo_root"
 
