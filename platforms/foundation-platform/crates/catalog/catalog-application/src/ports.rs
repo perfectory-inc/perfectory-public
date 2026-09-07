@@ -13,10 +13,10 @@ use catalog_domain::{
     IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
     MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
-    ParcelKind, ParcelPrice, ParcelTransferEvent, ParcelZoning, RequestFingerprint,
-    RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
-    ServingGeneration, SpatialLayer, VectorTileBuildOutcome, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    ParcelKind, ParcelLandRight, ParcelPrice, ParcelTransferEvent, ParcelZoning,
+    RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
+    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, VectorTileBuildOutcome,
+    VectorTileManifest, VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
@@ -711,6 +711,12 @@ pub trait CatalogRepository: Send + Sync {
         &self,
         pnu: &Pnu,
     ) -> Result<Vec<ParcelTransferEvent>, CatalogError>;
+
+    /// Lists every registered unit-level land right in provider serial-number order.
+    async fn list_parcel_land_rights_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Vec<ParcelLandRight>, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

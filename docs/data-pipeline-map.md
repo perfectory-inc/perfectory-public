@@ -16,8 +16,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 이 카탈로그에 없으므로 추정하지 않습니다. 실행 경로가 있다는 표시는 운영 배포·전국 적재 완료를 뜻하지 않습니다.
 
 현재 범위: 원천 **8그룹 / 133 endpoint**,
-Silver·Gold **16표**,
-서빙·운영 원장 **73표**.
+Silver·Gold **17표**,
+서빙·운영 원장 **74표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
 [결정 ADR-0086](./adr/0086-the-pipeline-graph-names-every-dataset-once.md).
@@ -54,6 +54,8 @@ Silver·Gold **16표**,
 | ↳ AL_D003 CSV 속성을 PNU로 연결한다. 도형은 기존 필지 경계가 소유한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 토지이동연혁 | 1 endpoint | 필지별 토지이동이력 (`silver.land_transfer_history`) | 필지 토지이동 사건 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ AL_D157 전체 사건을 PNU·이력순번으로 보존한다. 폐쇄·말소 사건도 연혁에 남는다. | | | | |
+| 브이월드 공간·토지 파일: VWorld 토지권리등록 | 1 endpoint | 필지별 대지권 등록 (`silver.land_right_registration`) | 필지 대지권 등록 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| ↳ AL_D006 PIPE CSV의 PNU·대지권일련번호별 등록과 폐쇄 행, 명칭·비율 원문을 보존한다. | | | | |
 | 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물 표제부 (`silver.building_register_titles`) | 건물 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물 층별 정보 (`silver.building_register_floors`) | — | — |
 | 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물 호별 정보 (`silver.building_register_units`) | 건물의 호 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
@@ -180,7 +182,6 @@ Silver·Gold **16표**,
 | 브이월드 공간·토지 파일 | VWorld 통계 시도 경계 (`vworldkr__boundary_census_sido`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 통계 시군구 경계 (`vworldkr__boundary_census_sigungu`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 토지소유 (`vworldkr__land_ownership`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 토지권리등록 (`vworldkr__land_right_registration`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 토지이용구역 (`vworldkr__land_use_zone`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 공인중개사 (`vworldkr__real_estate_broker`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 산업단지 위치 (`vworldkr__sandan_location`) | `provider_dataset_file` |
@@ -211,6 +212,7 @@ Silver·Gold **16표**,
 | 필지 토지특성 | `catalog.parcel_characteristic` |
 | 필지 임야대장 | `catalog.parcel_forest_ledger` |
 | 필지 토지이동 사건 | `catalog.parcel_transfer_event` |
+| 필지 대지권 등록 | `catalog.parcel_land_right` |
 | 건물 | `catalog.building` |
 | 건물의 호 | `catalog.building_unit` |
 | 산업단지 | `catalog.industrial_complex` |
@@ -289,6 +291,7 @@ Silver·Gold **16표**,
 | 브이월드 공간·토지 파일 → 필지별 토지특성 | `export-land-characteristic-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 브이월드 공간·토지 파일 → 필지별 임야대장 | `export-land-forest-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 브이월드 공간·토지 파일 → 필지별 토지이동이력 | `export-land-transfer-history-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
+| 브이월드 공간·토지 파일 → 필지별 대지권 등록 | `export-land-right-registration-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 건축HUB 파일 → 건물 표제부 | `export-building-register-title-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 건축HUB 파일 → 건물 층별 정보 | `export-building-register-floor-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 건축HUB 파일 → 건물 호별 정보 | `export-building-register-unit-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
@@ -305,6 +308,7 @@ Silver·Gold **16표**,
 | 필지별 토지특성 → 필지 토지특성 | `load-parcel-characteristic-catalog-projection` |
 | 필지별 임야대장 → 필지 임야대장 | `load-parcel-forest-ledger-catalog-projection` |
 | 필지별 토지이동이력 → 필지 토지이동 사건 | `load-parcel-transfer-event-catalog-projection` |
+| 필지별 대지권 등록 → 필지 대지권 등록 | `load-parcel-land-right-catalog-projection` |
 | 건물 표제부 → 건물 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_titles_catalog_handoff.py`<br>`load-building-catalog-projection` |
 | 건물 호별 정보 → 건물의 호 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_register_units_parcel_handoff.py`<br>`load-building-unit-catalog-projection`<br>`load-building-unit-building-link` |
 | 산업단지 기본 정보 → 산업단지 | `load-industrial-complex-canonical` |
@@ -321,6 +325,7 @@ Silver·Gold **16표**,
 | 필지 토지특성 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
 | 필지 임야대장 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
 | 필지 토지이동 사건 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
+| 필지 대지권 등록 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
 | 건물 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
 | 건물의 호 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
 | 산업단지 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |

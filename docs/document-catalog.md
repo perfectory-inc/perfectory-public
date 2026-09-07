@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **417개**
+- 문서 파일: **418개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 113 |
+| Monorepo | 114 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 171 |
+| ADR | 172 |
 | README | 108 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -460,6 +460,7 @@ docs/adr/0087-a-parcel-learns-its-characteristics.md
 docs/adr/0088-a-parcel-learns-its-forest-ledger.md
 docs/adr/0089-a-parcel-learns-its-transfer-history.md
 docs/adr/0090-a-transfer-event-is-named-by-three-sequences.md
+docs/adr/0091-a-parcel-learns-its-land-rights.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -585,6 +586,7 @@ tools/github/README.md
 | `docs/adr/0088-a-parcel-learns-its-forest-ledger.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0089-a-parcel-learns-its-transfer-history.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0090-a-transfer-event-is-named-by-three-sequences.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0091-a-parcel-learns-its-land-rights.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parcel_lookup::{
     GosiYearMonth, LookupError, ParcelCharacteristics, ParcelForestLedger, ParcelInfo,
-    ParcelInfoLookup, ParcelTransferEvent,
+    ParcelInfoLookup, ParcelLandRight, ParcelTransferEvent,
 };
 use reqwest::StatusCode;
 use shared_kernel::admin_division::{AdminDivision, EupmyeondongCode, SidoCode, SigunguCode};
@@ -174,6 +174,21 @@ fn parcel_info_from_response(
                 area_m2: event.area_m2,
                 history_seq: event.history_seq,
                 closure_seq: event.closure_seq.clone(),
+            })
+            .collect(),
+        land_rights: response
+            .land_rights
+            .iter()
+            .map(|right| ParcelLandRight {
+                right_serial_no: right.right_serial_no.clone(),
+                building_name: right.building_name.clone(),
+                dong_name: right.dong_name.clone(),
+                floor_name: right.floor_name.clone(),
+                ho_name: right.ho_name.clone(),
+                room_name: right.room_name.clone(),
+                right_ratio: right.right_ratio.clone(),
+                closure_kind: right.closure_kind.clone(),
+                closure_kind_code: right.closure_kind_code.clone(),
             })
             .collect(),
     })
@@ -467,6 +482,47 @@ mod tests {
                     area_m2: Some(900.0),
                     history_seq: 1,
                     closure_seq: None,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn lookup_carries_land_right_strings_and_provider_order() {
+        let body = format!(
+            r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","land_rights":[{{"right_serial_no":"0010","building_name":"공장 A","dong_name":"101동","floor_name":"2층","ho_name":"201호","room_name":"작업실","right_ratio":"3분의1","closure_kind":"폐쇄","closure_kind_code":"02"}},{{"right_serial_no":"0100","building_name":null,"dong_name":null,"floor_name":null,"ho_name":null,"room_name":null,"right_ratio":null,"closure_kind":null,"closure_kind_code":null}}]}}"#
+        );
+        let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
+        let lookup =
+            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
+
+        let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
+
+        assert_eq!(
+            info.land_rights,
+            vec![
+                ParcelLandRight {
+                    right_serial_no: "0010".to_owned(),
+                    building_name: Some("공장 A".to_owned()),
+                    dong_name: Some("101동".to_owned()),
+                    floor_name: Some("2층".to_owned()),
+                    ho_name: Some("201호".to_owned()),
+                    room_name: Some("작업실".to_owned()),
+                    right_ratio: Some("3분의1".to_owned()),
+                    closure_kind: Some("폐쇄".to_owned()),
+                    closure_kind_code: Some("02".to_owned()),
+                },
+                ParcelLandRight {
+                    right_serial_no: "0100".to_owned(),
+                    building_name: None,
+                    dong_name: None,
+                    floor_name: None,
+                    ho_name: None,
+                    room_name: None,
+                    right_ratio: None,
+                    closure_kind: None,
+                    closure_kind_code: None,
                 },
             ]
         );

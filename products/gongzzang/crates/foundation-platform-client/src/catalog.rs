@@ -53,6 +53,32 @@ pub struct CatalogParcelResponse {
     /// Complete cadastral transfer timeline. Missing and empty both mean no events are available.
     #[serde(default)]
     pub transfer_history: Vec<CatalogParcelTransferEvent>,
+    /// Registered unit-level land rights in Foundation's published order.
+    #[serde(default)]
+    pub land_rights: Vec<CatalogParcelLandRight>,
+}
+
+/// One raw registered unit-level land right carried by the Foundation Catalog.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct CatalogParcelLandRight {
+    /// Provider row serial number, preserved verbatim.
+    pub right_serial_no: String,
+    /// Building name, unchanged.
+    pub building_name: Option<String>,
+    /// Building dong name, unchanged.
+    pub dong_name: Option<String>,
+    /// Floor name, unchanged.
+    pub floor_name: Option<String>,
+    /// Ho name, unchanged.
+    pub ho_name: Option<String>,
+    /// Room name, unchanged.
+    pub room_name: Option<String>,
+    /// Provider land-right ratio, unchanged.
+    pub right_ratio: Option<String>,
+    /// Provider closure kind name, unchanged.
+    pub closure_kind: Option<String>,
+    /// Provider closure kind code, unchanged.
+    pub closure_kind_code: Option<String>,
 }
 
 /// One raw cadastral transfer event carried by the Foundation Catalog.
@@ -623,8 +649,8 @@ mod tests {
     #![allow(clippy::expect_used, clippy::float_cmp)]
 
     use super::{
-        CatalogIndustrialComplexGoldPointer, CatalogParcelForestLedger, CatalogParcelResponse,
-        CatalogParcelTransferEvent,
+        CatalogIndustrialComplexGoldPointer, CatalogParcelForestLedger, CatalogParcelLandRight,
+        CatalogParcelResponse, CatalogParcelTransferEvent,
     };
 
     fn pointer(template: &str) -> CatalogIndustrialComplexGoldPointer {
@@ -737,5 +763,46 @@ mod tests {
             serde_json::from_str(r#"{"pnu":"9999900501107370000","kind":null}"#)
                 .expect("pre-transfer-history response");
         assert!(old_response.transfer_history.is_empty());
+    }
+
+    #[test]
+    fn parcel_land_rights_preserve_strings_order_and_default_when_absent() {
+        let response: CatalogParcelResponse = serde_json::from_str(
+            r#"{"pnu":"9999900501107370000","kind":null,"land_rights":[{"right_serial_no":"0010","building_name":"공장 A","dong_name":"101동","floor_name":"2층","ho_name":"201호","room_name":"작업실","right_ratio":"3분의1","closure_kind":"폐쇄","closure_kind_code":"02"},{"right_serial_no":"0100","building_name":null,"dong_name":null,"floor_name":null,"ho_name":null,"room_name":null,"right_ratio":null,"closure_kind":null,"closure_kind_code":null}]}"#,
+        )
+        .expect("land rights response");
+
+        assert_eq!(
+            response.land_rights,
+            vec![
+                CatalogParcelLandRight {
+                    right_serial_no: "0010".to_owned(),
+                    building_name: Some("공장 A".to_owned()),
+                    dong_name: Some("101동".to_owned()),
+                    floor_name: Some("2층".to_owned()),
+                    ho_name: Some("201호".to_owned()),
+                    room_name: Some("작업실".to_owned()),
+                    right_ratio: Some("3분의1".to_owned()),
+                    closure_kind: Some("폐쇄".to_owned()),
+                    closure_kind_code: Some("02".to_owned()),
+                },
+                CatalogParcelLandRight {
+                    right_serial_no: "0100".to_owned(),
+                    building_name: None,
+                    dong_name: None,
+                    floor_name: None,
+                    ho_name: None,
+                    room_name: None,
+                    right_ratio: None,
+                    closure_kind: None,
+                    closure_kind_code: None,
+                },
+            ]
+        );
+
+        let old_response: CatalogParcelResponse =
+            serde_json::from_str(r#"{"pnu":"9999900501107370000","kind":null}"#)
+                .expect("pre-land-right response");
+        assert!(old_response.land_rights.is_empty());
     }
 }

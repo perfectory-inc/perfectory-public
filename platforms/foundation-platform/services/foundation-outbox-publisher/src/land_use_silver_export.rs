@@ -1,10 +1,10 @@
 //! Land-attribute ZIP to Silver JSONL handoff commands (root ADR-0083).
 //!
-//! Six lanes share this module: the D155 per-parcel land-use plan attribute CSV
+//! Seven lanes share this module: the D155 per-parcel land-use plan attribute CSV
 //! (`silver.land_use_plan`), the LMIS zone code table (`silver.land_use_zone_code`), and
 //! the D151 per-parcel official land price CSV (`silver.land_individual_price`, root
 //! ADR-0085), plus the named AL_D195 CSV (`silver.land_characteristic`,
-//! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088), and the AL_D157 event timeline (root ADR-0089).
+//! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088), and the AL_D157 event timeline (root ADR-0089) and AL_D006 land rights (root ADR-0091).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -27,8 +27,8 @@ use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::Pnu;
 use lakehouse_domain::{
     LakehouseColumn, LakehouseTableContract, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
-    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN,
-    SILVER_LAND_USE_ZONE_CODES,
+    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_RIGHT_REGISTRATION, SILVER_LAND_TRANSFER_HISTORY,
+    SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
 };
 use serde_json::json;
 
@@ -62,6 +62,8 @@ struct Lane {
     pnu_position: Option<usize>,
     /// Current attribute lanes require positive area; event timelines preserve historic zeroes.
     positive_area: bool,
+    /// Defaults to comma; provider-specific separators only change field boundaries.
+    delimiter: Option<u8>,
 }
 
 const PLAN_LANE: Lane = Lane {
@@ -104,6 +106,7 @@ const PLAN_LANE: Lane = Lane {
     member_matches: |name| name.starts_with("AL_D155_") && name.ends_with(".csv"),
     pnu_position: Some(0),
     positive_area: true,
+    delimiter: None,
 };
 
 const ZONE_CODE_LANE: Lane = Lane {
@@ -150,6 +153,7 @@ const ZONE_CODE_LANE: Lane = Lane {
     member_matches: |name| name == "LART_LMISZONE.csv",
     pnu_position: None,
     positive_area: true,
+    delimiter: None,
 };
 
 /// The D151 prefix also carries D150 DBF siblings; the member match keeps this lane on the
@@ -190,6 +194,7 @@ const PRICE_LANE: Lane = Lane {
     member_matches: |name| name.starts_with("AL_D151_") && name.ends_with(".csv"),
     pnu_position: Some(0),
     positive_area: true,
+    delimiter: None,
 };
 
 // AL_D194 SHP siblings stay in Bronze; only the named AL_D195 CSV is ingested.
@@ -255,6 +260,7 @@ const LAND_CHARACTERISTIC_LANE: Lane = Lane {
     member_matches: |name| name.starts_with("AL_D195_") && name.ends_with(".csv"),
     pnu_position: Some(0),
     positive_area: true,
+    delimiter: None,
 };
 
 // CH_D003 change feeds stay in Bronze; this lane reads the full AL_D003 CSV.
@@ -300,6 +306,7 @@ const LAND_FOREST_LANE: Lane = Lane {
     member_matches: |name| name.starts_with("AL_D003_") && name.ends_with(".csv"),
     pnu_position: Some(0),
     positive_area: true,
+    delimiter: None,
 };
 
 // Full event history only; CH_D157 is a change feed, not this lane.
@@ -349,7 +356,66 @@ const LAND_TRANSFER_LANE: Lane = Lane {
     member_matches: |name| name.starts_with("AL_D157_") && name.ends_with(".csv"),
     pnu_position: Some(0),
     positive_area: false,
+    delimiter: None,
 };
+
+// Full registered rights only; CH_D006 is a change feed.
+const LAND_RIGHT_LANE: Lane = Lane {
+    env_prefix: "FOUNDATION_PLATFORM_LAND_RIGHT",
+    contract: &SILVER_LAND_RIGHT_REGISTRATION,
+    expected_header: &[
+        "고유번호",
+        "대지권일련번호",
+        "법정동코드",
+        "법정동명",
+        "지번",
+        "대장구분코드",
+        "대장구분명",
+        "건축물명",
+        "동명",
+        "층명",
+        "호명",
+        "실명",
+        "대지권비율",
+        "폐쇄구분코드",
+        "폐쇄구분명",
+        "관련토지소재지코드",
+        "데이터기준일자",
+        "원천시도시군구코드",
+    ],
+    csv_columns: &[
+        Some("pnu"),
+        Some("right_serial_no"),
+        Some("legal_dong_code"),
+        Some("legal_dong_name"),
+        Some("jibun"),
+        Some("ledger_kind_code"),
+        Some("ledger_kind_name"),
+        Some("building_name"),
+        Some("dong_name"),
+        Some("floor_name"),
+        Some("ho_name"),
+        Some("room_name"),
+        Some("right_ratio"),
+        Some("closure_kind_code"),
+        Some("closure_kind_name"),
+        Some("related_parcel_code"),
+        Some("data_reference_date"),
+        Some("source_sigungu_code"),
+    ],
+    member_matches: |name| name.starts_with("AL_D006_") && name.ends_with(".csv"),
+    pnu_position: Some(0),
+    positive_area: false,
+    delimiter: Some(b'|'),
+};
+
+/// Exports every registered land right through the shared handoff transport.
+///
+/// # Errors
+/// Refuses header drift, ambiguous members, and failed IO.
+pub async fn run_land_right_registration() -> anyhow::Result<()> {
+    run_lane(&LAND_RIGHT_LANE).await
+}
 
 /// Exports every cadastral transfer event through the shared handoff transport.
 ///
@@ -602,7 +668,7 @@ fn stream_rows(
 ) -> anyhow::Result<StreamReport> {
     let ingested_at_utc = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let source_record_id = config.source_record_id();
-    let mut records = CsvRecords::new(BufReader::new(member));
+    let mut records = CsvRecords::new(BufReader::new(member), lane.delimiter.unwrap_or(b','));
 
     let header = records
         .next_record()
@@ -702,7 +768,25 @@ fn map_fields(
     for (column, value) in columns.iter().zip(fields) {
         let Some(column) = column else { continue };
         let trimmed = value.trim();
-        let value = if trimmed.is_empty() {
+        let value = if column.name == "right_serial_no" {
+            if value.is_empty() {
+                return Err("blank_right_serial_no".to_owned());
+            }
+            if !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err("invalid_right_serial_no".to_owned());
+            }
+            json!(value)
+        } else if matches!(
+            column.name,
+            "building_name" | "dong_name" | "floor_name" | "ho_name" | "room_name" | "right_ratio"
+        ) {
+            // Registered names and ratios are facts, including whitespace (ADR-0091).
+            if value.is_empty() {
+                serde_json::Value::Null
+            } else {
+                json!(value)
+            }
+        } else if trimmed.is_empty() {
             if column.required {
                 return Err(format!("blank_{}", column.name));
             }
@@ -747,7 +831,7 @@ fn classify_rejected_pnu(raw: &str) -> String {
 }
 
 /// Decodes one record's raw fields from EUC-KR (which is what the provider ships; the byte
-/// values CSV structure cares about — comma, quote, CR, LF — never occur inside an EUC-KR
+/// values CSV structure cares about — comma, pipe, quote, CR, LF — never occur inside an EUC-KR
 /// multi-byte sequence, so structure was safely parsed on bytes first).
 fn decode_fields(record: &[Vec<u8>]) -> anyhow::Result<Vec<String>> {
     record
@@ -765,19 +849,21 @@ fn decode_fields(record: &[Vec<u8>]) -> anyhow::Result<Vec<String>> {
 /// Minimal RFC 4180 record reader over raw bytes.
 ///
 /// Exists because the workspace carries no CSV crate and this lane needs exactly one shape:
-/// comma-separated, optionally double-quoted fields with doubled-quote escapes, records ended
+/// one-byte-separated, optionally double-quoted fields with doubled-quote escapes, records ended
 /// by LF or CRLF. Structure is parsed on bytes; decoding happens per field afterwards.
 struct CsvRecords<R: Read> {
     source: R,
+    delimiter: u8,
     /// One pushed-back byte, for the CR-not-followed-by-LF case.
     pending: Option<u8>,
     finished: bool,
 }
 
 impl<R: Read> CsvRecords<R> {
-    fn new(source: R) -> Self {
+    fn new(source: R, delimiter: u8) -> Self {
         Self {
             source,
+            delimiter,
             pending: None,
             finished: false,
         }
@@ -837,7 +923,7 @@ impl<R: Read> CsvRecords<R> {
             }
             match byte {
                 b'"' if field.is_empty() => in_quotes = true,
-                b',' => fields.push(std::mem::take(&mut field)),
+                byte if byte == self.delimiter => fields.push(std::mem::take(&mut field)),
                 b'\n' => {
                     fields.push(field);
                     return Ok(Some(fields));
@@ -961,6 +1047,10 @@ pub(crate) mod forest_csv_tests;
 pub(crate) mod transfer_csv_tests;
 
 #[cfg(test)]
+#[path = "land_right_csv_tests.rs"]
+pub(crate) mod right_csv_tests;
+
+#[cfg(test)]
 mod tests {
     use std::io::Write as _;
 
@@ -969,7 +1059,7 @@ mod tests {
     use super::*;
 
     fn records_of(bytes: &[u8]) -> Vec<Vec<Vec<u8>>> {
-        let mut reader = CsvRecords::new(bytes);
+        let mut reader = CsvRecords::new(bytes, b',');
         let mut all = Vec::new();
         while let Some(record) = reader.next_record().expect("csv parse") {
             all.push(record);
@@ -991,7 +1081,7 @@ mod tests {
 
     #[test]
     fn csv_records_refuse_an_unterminated_quote() {
-        let mut reader = CsvRecords::new(&b"\"broken"[..]);
+        let mut reader = CsvRecords::new(&b"\"broken"[..], b',');
         assert!(reader.next_record().is_err());
     }
 
@@ -1007,6 +1097,7 @@ mod tests {
     #[test]
     fn lane_mappings_cover_their_contracts_exactly() {
         for lane in [
+            &LAND_RIGHT_LANE,
             &PLAN_LANE,
             &ZONE_CODE_LANE,
             &PRICE_LANE,

@@ -37,7 +37,7 @@ fn required_columns(contract: &LakehouseTableContract) -> impl Iterator<Item = &
 fn industrial_complex_contract_set_is_complete() {
     let contracts = industrial_complex_lakehouse_contracts();
 
-    assert_eq!(contracts.len(), 16);
+    assert_eq!(contracts.len(), 17);
     assert!(contracts
         .iter()
         .all(|contract| !contract.table_name.is_empty()));
@@ -54,6 +54,7 @@ fn industrial_complex_contract_set_is_complete() {
     assert!(contracts.contains(&lakehouse_domain::SILVER_LAND_CHARACTERISTIC));
     assert!(contracts.contains(&lakehouse_domain::SILVER_LAND_FOREST_LEDGER));
     assert!(contracts.contains(&lakehouse_domain::SILVER_LAND_TRANSFER_HISTORY));
+    assert!(contracts.contains(&lakehouse_domain::SILVER_LAND_RIGHT_REGISTRATION));
 }
 
 #[test]

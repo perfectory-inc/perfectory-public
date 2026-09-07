@@ -40,6 +40,7 @@ pub mod notice;
 pub mod parcel;
 pub mod parcel_characteristic;
 pub mod parcel_forest_ledger;
+pub mod parcel_land_right;
 pub mod parcel_price;
 pub mod parcel_transfer_event;
 pub mod parcel_zoning;
@@ -93,6 +94,7 @@ pub use parcel::{parcel_id_for_pnu, Parcel, ParcelKind, ParcelKindEdit, ParsePar
 pub use parcel_characteristic::ParcelCharacteristic;
 pub use parcel_complex_membership::MembershipAssertedBy;
 pub use parcel_forest_ledger::ParcelForestLedger;
+pub use parcel_land_right::ParcelLandRight;
 pub use parcel_price::ParcelPrice;
 pub use parcel_transfer_event::ParcelTransferEvent;
 pub use parcel_zoning::ParcelZoning;

@@ -9,7 +9,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use parcel_lookup::{
-    ParcelCharacteristics, ParcelForestLedger, ParcelInfoLookup, ParcelTransferEvent,
+    ParcelCharacteristics, ParcelForestLedger, ParcelInfoLookup, ParcelLandRight,
+    ParcelTransferEvent,
 };
 use product_identity_infrastructure::middleware::AuthenticatedUser;
 use serde::Serialize;
@@ -60,6 +61,47 @@ pub struct ParcelInfoResponse {
     pub forest_ledger: Option<ParcelForestLedgerResponse>,
     /// Complete raw cadastral transfer timeline from Foundation Platform.
     pub transfer_history: Vec<ParcelTransferEventResponse>,
+    /// Registered unit-level land rights from Foundation Platform.
+    pub land_rights: Vec<ParcelLandRightResponse>,
+}
+
+/// Raw registered unit-level land right exposed without product-side interpretation.
+#[derive(Debug, Serialize)]
+pub struct ParcelLandRightResponse {
+    /// Provider row serial number, preserved verbatim.
+    pub right_serial_no: String,
+    /// Building name, unchanged.
+    pub building_name: Option<String>,
+    /// Building dong name, unchanged.
+    pub dong_name: Option<String>,
+    /// Floor name, unchanged.
+    pub floor_name: Option<String>,
+    /// Ho name, unchanged.
+    pub ho_name: Option<String>,
+    /// Room name, unchanged.
+    pub room_name: Option<String>,
+    /// Provider land-right ratio, unchanged.
+    pub right_ratio: Option<String>,
+    /// Provider closure kind name, unchanged.
+    pub closure_kind: Option<String>,
+    /// Provider closure kind code, unchanged.
+    pub closure_kind_code: Option<String>,
+}
+
+impl From<ParcelLandRight> for ParcelLandRightResponse {
+    fn from(value: ParcelLandRight) -> Self {
+        Self {
+            right_serial_no: value.right_serial_no,
+            building_name: value.building_name,
+            dong_name: value.dong_name,
+            floor_name: value.floor_name,
+            ho_name: value.ho_name,
+            room_name: value.room_name,
+            right_ratio: value.right_ratio,
+            closure_kind: value.closure_kind,
+            closure_kind_code: value.closure_kind_code,
+        }
+    }
 }
 
 /// Raw cadastral transfer event exposed without product-side interpretation.
@@ -216,5 +258,6 @@ pub async fn get_parcel(
         characteristics: info.characteristics.map(Into::into),
         forest_ledger: info.forest_ledger.map(Into::into),
         transfer_history: info.transfer_history.into_iter().map(Into::into).collect(),
+        land_rights: info.land_rights.into_iter().map(Into::into).collect(),
     }))
 }

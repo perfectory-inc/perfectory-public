@@ -73,6 +73,29 @@ pub struct ParcelTransferEvent {
     pub closure_seq: Option<String>,
 }
 
+/// Raw registered unit-level land right published by Foundation Platform.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ParcelLandRight {
+    /// Provider row serial number, preserved verbatim.
+    pub right_serial_no: String,
+    /// Building name, unchanged.
+    pub building_name: Option<String>,
+    /// Building dong name, unchanged.
+    pub dong_name: Option<String>,
+    /// Floor name, unchanged.
+    pub floor_name: Option<String>,
+    /// Ho name, unchanged.
+    pub ho_name: Option<String>,
+    /// Room name, unchanged.
+    pub room_name: Option<String>,
+    /// Provider land-right ratio, unchanged.
+    pub right_ratio: Option<String>,
+    /// Provider closure kind name, unchanged.
+    pub closure_kind: Option<String>,
+    /// Provider closure kind code, unchanged.
+    pub closure_kind_code: Option<String>,
+}
+
 /// Parcel information subset used by Gongzzang.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParcelInfo {
@@ -95,4 +118,6 @@ pub struct ParcelInfo {
     pub forest_ledger: Option<ParcelForestLedger>,
     /// Complete raw cadastral transfer timeline in Foundation's published order.
     pub transfer_history: Vec<ParcelTransferEvent>,
+    /// Complete registered unit-level land rights in Foundation's published order.
+    pub land_rights: Vec<ParcelLandRight>,
 }

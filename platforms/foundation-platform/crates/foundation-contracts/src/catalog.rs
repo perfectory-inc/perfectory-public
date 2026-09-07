@@ -241,6 +241,32 @@ pub struct ParcelResponse {
     /// Empty when the `AL_D157` ledger names no event for this parcel.
     #[serde(default)]
     pub transfer_history: Vec<ParcelTransferEventResponse>,
+    /// Complete registered unit-level land rights, ordered by provider serial number.
+    #[serde(default)]
+    pub land_rights: Vec<ParcelLandRightResponse>,
+}
+
+/// One unit-level land right from the Foundation Catalog.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ParcelLandRightResponse {
+    /// Provider row serial number, preserved verbatim.
+    pub right_serial_no: String,
+    /// Building name, unchanged.
+    pub building_name: Option<String>,
+    /// Building dong name, unchanged.
+    pub dong_name: Option<String>,
+    /// Floor name, unchanged.
+    pub floor_name: Option<String>,
+    /// Ho name, unchanged.
+    pub ho_name: Option<String>,
+    /// Room name, unchanged.
+    pub room_name: Option<String>,
+    /// Provider land-right ratio, preserved verbatim.
+    pub right_ratio: Option<String>,
+    /// Provider closure kind name, unchanged.
+    pub closure_kind: Option<String>,
+    /// Provider closure kind code, unchanged.
+    pub closure_kind_code: Option<String>,
 }
 
 /// One raw cadastral transfer event from the Foundation Catalog.
