@@ -184,12 +184,9 @@ if [ -n "$provider_composite_ids" ]; then
   fail "provider file composite IDs in VWorld fixtures must use the reserved synthetic DS range:\n$provider_composite_ids"
 fi
 
-opn_fixture_ids="$(git grep -n -I -o -E 'OPN20[0-9A-Za-z_-]*' \
-  -- . ':!scripts/guard/public-repository-safety.sh' 2>/dev/null \
-  | grep -Ev ':OPN2099[0-9A-Za-z_-]*$' || true)"
-if [ -n "$opn_fixture_ids" ]; then
-  fail "live-looking provider file IDs are present; use the reserved OPN2099 synthetic range:\n$opn_fixture_ids"
-fi
+# public-fixture-safety below owns provider file IDs across the tracked tree.
+# It parses measured source-object contracts so only object_key string values
+# may carry real lineage; code, prose, comments and other JSON fields may not.
 
 raw_floor_building_ids="$(git grep -n -I -E '\"[0-9]{5,}-[0-9]{5,}\"' -- \
   'platforms/foundation-platform/crates/lakehouse/lakehouse-application/tests/building_register_floor_silver_rows.rs' \

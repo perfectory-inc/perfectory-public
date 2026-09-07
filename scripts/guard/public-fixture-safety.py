@@ -107,6 +107,47 @@ def line_number(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
+def scan_provider_file_ids(
+    root: Path, paths: Iterable[PurePosixPath], errors: list[str]
+) -> None:
+    """Keep captures private while preserving measured object-key lineage."""
+    pattern = re.compile(r"OPN" r"20[0-9A-Za-z_-]*")
+    contract_path = re.compile(
+        r"(?:[^/]+/)*infra/lakehouse/contracts/[^/]+-source-objects\.json"
+    )
+
+    def without_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        document: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in document:
+                raise ValueError(f"duplicate JSON field: {key}")
+            document[key] = "" if key == "object_key" and isinstance(value, str) else value
+        return document
+
+    for relative in paths:
+        try:
+            data = (root / Path(*relative.parts)).read_bytes()
+        except OSError:
+            continue
+        if b"\0" in data:
+            continue
+        text = data.decode("utf-8", errors="replace")
+        if contract_path.fullmatch(relative.as_posix()):
+            try:
+                # Parsing, not a path or line exclusion, confines the exception
+                # to string values of this field; keys and every other field stay.
+                text = json.dumps(json.loads(text, object_pairs_hook=without_object_keys))
+            except ValueError as error:
+                errors.append(f"{relative}: cannot parse source-object contract: {error}")
+                continue
+        for match in pattern.finditer(text):
+            if not match.group().startswith("OPN2099"):
+                errors.append(
+                    f"{relative}:{line_number(text, match.start())}: live-looking provider file ID; "
+                    "use the reserved OPN2099 synthetic range outside source-contract object_key values"
+                )
+
+
 def is_reserved_coordinate(value: float, bounds: tuple[float, float]) -> bool:
     return bounds[0] <= value < bounds[1]
 
@@ -378,6 +419,7 @@ def main() -> int:
         return 1
 
     errors: list[str] = []
+    scan_provider_file_ids(root, paths, errors)
     scan_code_namespaces(root, paths, errors)
     validate_structured_fixtures(root, paths, errors)
     validate_sql_fixture_markers(root, paths, errors)
