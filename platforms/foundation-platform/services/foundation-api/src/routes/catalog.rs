@@ -28,8 +28,8 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
     IndustryGroupMember, MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger,
-    ParcelIndustryAssignment, ParcelKind, ParcelPrice, ParcelZoning, SpatialLayer,
-    VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    ParcelIndustryAssignment, ParcelKind, ParcelPrice, ParcelTransferEvent, ParcelZoning,
+    SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::{BuildingUnitRow, UnitPageKey};
 use foundation_contracts::catalog::{
@@ -38,15 +38,15 @@ use foundation_contracts::catalog::{
     IndustrialComplexGoldPointerResponse, IndustrialComplexResponse, IndustryGroupMemberResponse,
     IndustryGroupResponse, MarkerTileContractResponse, ParcelCharacteristicResponse,
     ParcelForestLedgerResponse, ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
-    ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse, ParcelResponse, ParcelZoningResponse,
-    PromoteFileAssetRequest, PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest,
-    PromoteVectorTileManifestRequest, RegisterComplexRequest, RollbackVectorTileManifestRequest,
-    SpatialLayerResponse, UnitPageResponse, UnitResponse, UpdateComplexRequest,
-    UpdateParcelKindRequest, VectorTileArtifactResponse, VectorTileDynamicPostgisResponse,
-    VectorTileLineageResponse, VectorTileManifestResponse, VectorTilePublicationUnitResponse,
-    VectorTileRuntimeLayerResponse, VectorTileRuntimeLineageResponse,
-    VectorTileRuntimeManifestResponse, VectorTileRuntimeSourceResponse,
-    VectorTileStaticPmtilesResponse,
+    ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse, ParcelResponse,
+    ParcelTransferEventResponse, ParcelZoningResponse, PromoteFileAssetRequest,
+    PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
+    RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse,
+    UnitPageResponse, UnitResponse, UpdateComplexRequest, UpdateParcelKindRequest,
+    VectorTileArtifactResponse, VectorTileDynamicPostgisResponse, VectorTileLineageResponse,
+    VectorTileManifestResponse, VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
+    VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
+    VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
 use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId, StaffId};
 use foundation_shared_kernel::pnu::Pnu;
@@ -522,6 +522,10 @@ pub async fn get_parcel_by_pnu(
         .catalog_repo
         .find_parcel_forest_ledger_by_pnu(&pnu)
         .await?;
+    let transfer_history = state
+        .catalog_repo
+        .list_parcel_transfer_events_by_pnu(&pnu)
+        .await?;
 
     Ok(Json(parcel_response(
         &parcel,
@@ -529,6 +533,7 @@ pub async fn get_parcel_by_pnu(
         price,
         characteristics,
         forest_ledger,
+        transfer_history,
     )))
 }
 
@@ -566,6 +571,10 @@ pub async fn get_parcel(
         .catalog_repo
         .find_parcel_forest_ledger_by_pnu(&parcel.pnu)
         .await?;
+    let transfer_history = state
+        .catalog_repo
+        .list_parcel_transfer_events_by_pnu(&parcel.pnu)
+        .await?;
 
     Ok(Json(parcel_response(
         &parcel,
@@ -573,6 +582,7 @@ pub async fn get_parcel(
         price,
         characteristics,
         forest_ledger,
+        transfer_history,
     )))
 }
 
@@ -1077,6 +1087,10 @@ pub async fn update_parcel_kind(
         .catalog_repo
         .find_parcel_forest_ledger_by_pnu(&updated.pnu)
         .await?;
+    let transfer_history = state
+        .catalog_repo
+        .list_parcel_transfer_events_by_pnu(&updated.pnu)
+        .await?;
 
     Ok(Json(parcel_response(
         &updated,
@@ -1084,6 +1098,7 @@ pub async fn update_parcel_kind(
         price,
         characteristics,
         forest_ledger,
+        transfer_history,
     )))
 }
 
@@ -1180,6 +1195,7 @@ fn parcel_response(
     price: Option<ParcelPrice>,
     characteristics: Option<ParcelCharacteristic>,
     forest_ledger: Option<ParcelForestLedger>,
+    transfer_history: Vec<ParcelTransferEvent>,
 ) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
@@ -1217,6 +1233,19 @@ fn parcel_response(
             ownership_kind: ledger.ownership_kind,
             co_owner_count: ledger.co_owner_count,
         }),
+        transfer_history: transfer_history
+            .into_iter()
+            .map(|event| ParcelTransferEventResponse {
+                reason: event.reason,
+                reason_code: event.reason_code,
+                moved_at: event.moved_at,
+                erased_at: event.erased_at,
+                land_category: event.land_category,
+                area_m2: event.area_m2,
+                history_seq: event.transfer_history_seq,
+                closure_seq: event.closure_seq,
+            })
+            .collect(),
     }
 }
 

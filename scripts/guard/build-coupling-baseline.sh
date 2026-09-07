@@ -153,13 +153,17 @@ set -euo pipefail
 # and shipped migration to verify complete-vintage selection and transactional COPY
 # against the same inputs the production command uses (root ADR-0088).
 #
+# 99 -> 101: the transfer-event projection tests embed the measured AL_D157
+# source inventory and shipped migration. COPY must exercise the real composite
+# key to prove duplicate-event refusal and rollback (root ADR-0089).
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-99}"
+COMPILE_TIME_READ_BASELINE="${3:-101}"
 
 cd "$repo_root"
 

@@ -236,6 +236,32 @@ pub struct ParcelResponse {
     pub characteristics: Option<ParcelCharacteristicResponse>,
     /// Newest official forest-register facts from the `AL_D003` CSV ledger.
     pub forest_ledger: Option<ParcelForestLedgerResponse>,
+    /// Complete cadastral transfer timeline, newest dated event first.
+    ///
+    /// Empty when the `AL_D157` ledger names no event for this parcel.
+    #[serde(default)]
+    pub transfer_history: Vec<ParcelTransferEventResponse>,
+}
+
+/// One raw cadastral transfer event from the Foundation Catalog.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ParcelTransferEventResponse {
+    /// Provider transfer reason, unchanged.
+    pub reason: Option<String>,
+    /// Provider transfer reason code, unchanged.
+    pub reason_code: Option<String>,
+    /// Transfer date exactly as the provider wrote it.
+    pub moved_at: Option<String>,
+    /// Erasure date exactly as the provider wrote it.
+    pub erased_at: Option<String>,
+    /// Cadastral land category at the time of the event.
+    pub land_category: Option<String>,
+    /// Official parcel area at the time of the event.
+    pub area_m2: Option<f64>,
+    /// Provider event sequence within the parcel.
+    pub history_seq: i64,
+    /// Provider closure sequence, unchanged.
+    pub closure_seq: Option<String>,
 }
 
 /// One forest parcel's newest official ledger facts.

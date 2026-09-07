@@ -13,9 +13,9 @@ use catalog_domain::{
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
     MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
-    ParcelPrice, ParcelZoning, PublicationUnit, RuntimeTileLayer, RuntimeTileLineage,
-    RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind, SpatialLayer,
-    StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
+    ParcelPrice, ParcelTransferEvent, ParcelZoning, PublicationUnit, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind,
+    SpatialLayer, StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
     ComplexId, FileAssetId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId,
@@ -593,6 +593,42 @@ impl CatalogRepository for PgCatalogRepository {
                 })
             })
             .transpose()
+    }
+
+    async fn list_parcel_transfer_events_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Vec<ParcelTransferEvent>, CatalogError> {
+        let rows = sqlx::query(
+            "SELECT pnu::text AS pnu, transfer_history_seq, reason_code, reason, moved_at,
+                    erased_at, land_category, area_m2::float8 AS area_m2, closure_seq,
+                    source_snapshot_id, loaded_at
+             FROM catalog.parcel_transfer_event
+             WHERE pnu = $1::character(19)
+             ORDER BY moved_at DESC NULLS LAST, transfer_history_seq DESC",
+        )
+        .bind(pnu.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+
+        rows.iter()
+            .map(|row| {
+                Ok(ParcelTransferEvent {
+                    pnu: row.try_get("pnu").map_err(map_sqlx)?,
+                    transfer_history_seq: row.try_get("transfer_history_seq").map_err(map_sqlx)?,
+                    reason_code: row.try_get("reason_code").map_err(map_sqlx)?,
+                    reason: row.try_get("reason").map_err(map_sqlx)?,
+                    moved_at: row.try_get("moved_at").map_err(map_sqlx)?,
+                    erased_at: row.try_get("erased_at").map_err(map_sqlx)?,
+                    land_category: row.try_get("land_category").map_err(map_sqlx)?,
+                    area_m2: row.try_get("area_m2").map_err(map_sqlx)?,
+                    closure_seq: row.try_get("closure_seq").map_err(map_sqlx)?,
+                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
+                    loaded_at: row.try_get("loaded_at").map_err(map_sqlx)?,
+                })
+            })
+            .collect()
     }
 
     async fn list_complex_notices(

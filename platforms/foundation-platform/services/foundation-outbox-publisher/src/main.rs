@@ -146,6 +146,7 @@ mod parcel_projection_digest;
 mod parcel_publication_contract;
 mod parcel_publication_evidence_sealer;
 mod parcel_publication_evidence_writer;
+mod parcel_transfer_event_catalog_projection_load;
 mod parcel_zoning_catalog_projection_load;
 mod postgis_anchor_pbf_regional_proof_check;
 mod postgis_mirror_dlq_cutover_evidence;
@@ -234,6 +235,7 @@ enum Command {
     ExportLandIndividualPriceSilverHandoff,
     ExportLandCharacteristicSilverHandoff,
     ExportLandForestSilverHandoff,
+    ExportLandTransferHistorySilverHandoff,
     ExecuteNationalDataCollectionAsync,
     ExecuteNationalDataCollectionLedger,
     ExecuteRtMolitRealTransactionExportPlan,
@@ -276,6 +278,7 @@ enum Command {
     LoadParcelPriceCatalogProjection,
     LoadParcelCharacteristicCatalogProjection,
     LoadParcelForestLedgerCatalogProjection,
+    LoadParcelTransferEventCatalogProjection,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
@@ -452,6 +455,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLandUseZoneCodeSilverHandoff => {
             Box::pin(land_use_silver_export::run_zone_code())
         }
+        Command::ExportLandTransferHistorySilverHandoff => {
+            Box::pin(land_use_silver_export::run_land_transfer_history())
+        }
         Command::ExportLandForestSilverHandoff => {
             Box::pin(land_use_silver_export::run_land_forest())
         }
@@ -548,6 +554,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadParcelCatalogProjection => Box::pin(parcel_catalog_projection_load::run()),
         Command::LoadParcelZoningCatalogProjection => {
             Box::pin(parcel_zoning_catalog_projection_load::run())
+        }
+        Command::LoadParcelTransferEventCatalogProjection => {
+            Box::pin(parcel_transfer_event_catalog_projection_load::run())
         }
         Command::LoadParcelForestLedgerCatalogProjection => {
             Box::pin(parcel_forest_ledger_catalog_projection_load::run())
@@ -1128,6 +1137,9 @@ where
         Some("load-parcel-zoning-catalog-projection") => {
             Ok(Command::LoadParcelZoningCatalogProjection)
         }
+        Some("load-parcel-transfer-event-catalog-projection") => {
+            Ok(Command::LoadParcelTransferEventCatalogProjection)
+        }
         Some("load-parcel-forest-ledger-catalog-projection") => {
             Ok(Command::LoadParcelForestLedgerCatalogProjection)
         }
@@ -1270,6 +1282,9 @@ where
         Some("export-land-use-plan-silver-handoff") => Ok(Command::ExportLandUsePlanSilverHandoff),
         Some("export-land-use-zone-code-silver-handoff") => {
             Ok(Command::ExportLandUseZoneCodeSilverHandoff)
+        }
+        Some("export-land-transfer-history-silver-handoff") => {
+            Ok(Command::ExportLandTransferHistorySilverHandoff)
         }
         Some("export-land-forest-silver-handoff") => Ok(Command::ExportLandForestSilverHandoff),
         Some("export-land-characteristic-silver-handoff") => {

@@ -13,9 +13,10 @@ use catalog_domain::{
     IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
     MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
-    ParcelKind, ParcelPrice, ParcelZoning, RequestFingerprint, RequestFingerprintBuilder,
-    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
-    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
+    ParcelKind, ParcelPrice, ParcelTransferEvent, ParcelZoning, RequestFingerprint,
+    RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
+    ServingGeneration, SpatialLayer, VectorTileBuildOutcome, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
@@ -698,6 +699,18 @@ pub trait CatalogRepository: Send + Sync {
         &self,
         pnu: &Pnu,
     ) -> Result<Option<ParcelForestLedger>, CatalogError>;
+
+    /// Lists the complete cadastral transfer timeline for one parcel.
+    ///
+    /// An empty list means the transfer ledger names no events for the parcel. Results are ordered
+    /// by transfer date descending with undated events last, then provider event sequence descending.
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
+    async fn list_parcel_transfer_events_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Vec<ParcelTransferEvent>, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

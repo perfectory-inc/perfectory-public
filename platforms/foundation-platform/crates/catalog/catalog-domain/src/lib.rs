@@ -41,6 +41,7 @@ pub mod parcel;
 pub mod parcel_characteristic;
 pub mod parcel_forest_ledger;
 pub mod parcel_price;
+pub mod parcel_transfer_event;
 pub mod parcel_zoning;
 
 /// Effective-dated membership of a parcel in an industrial complex.
@@ -93,6 +94,7 @@ pub use parcel_characteristic::ParcelCharacteristic;
 pub use parcel_complex_membership::MembershipAssertedBy;
 pub use parcel_forest_ledger::ParcelForestLedger;
 pub use parcel_price::ParcelPrice;
+pub use parcel_transfer_event::ParcelTransferEvent;
 pub use parcel_zoning::ParcelZoning;
 pub use serving_publication::{
     is_publication_unit_key, static_file_asset_id_for_build, static_release_id_for_build,

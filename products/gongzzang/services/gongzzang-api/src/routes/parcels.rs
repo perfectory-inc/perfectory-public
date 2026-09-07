@@ -8,7 +8,9 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use parcel_lookup::{ParcelCharacteristics, ParcelForestLedger, ParcelInfoLookup};
+use parcel_lookup::{
+    ParcelCharacteristics, ParcelForestLedger, ParcelInfoLookup, ParcelTransferEvent,
+};
 use product_identity_infrastructure::middleware::AuthenticatedUser;
 use serde::Serialize;
 use shared_kernel::pnu::Pnu;
@@ -56,6 +58,44 @@ pub struct ParcelInfoResponse {
     /// Raw forest-register facts from Foundation Platform.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forest_ledger: Option<ParcelForestLedgerResponse>,
+    /// Complete raw cadastral transfer timeline from Foundation Platform.
+    pub transfer_history: Vec<ParcelTransferEventResponse>,
+}
+
+/// Raw cadastral transfer event exposed without product-side interpretation.
+#[derive(Debug, Serialize)]
+pub struct ParcelTransferEventResponse {
+    /// Provider transfer reason, unchanged.
+    pub reason: Option<String>,
+    /// Provider transfer reason code, unchanged.
+    pub reason_code: Option<String>,
+    /// Transfer date exactly as the provider wrote it.
+    pub moved_at: Option<String>,
+    /// Erasure date exactly as the provider wrote it.
+    pub erased_at: Option<String>,
+    /// Cadastral land category at the time of the event.
+    pub land_category: Option<String>,
+    /// Official parcel area at the time of the event.
+    pub area_m2: Option<f64>,
+    /// Provider event sequence within the parcel.
+    pub history_seq: i64,
+    /// Provider closure sequence, unchanged.
+    pub closure_seq: Option<String>,
+}
+
+impl From<ParcelTransferEvent> for ParcelTransferEventResponse {
+    fn from(value: ParcelTransferEvent) -> Self {
+        Self {
+            reason: value.reason,
+            reason_code: value.reason_code,
+            moved_at: value.moved_at,
+            erased_at: value.erased_at,
+            land_category: value.land_category,
+            area_m2: value.area_m2,
+            history_seq: value.history_seq,
+            closure_seq: value.closure_seq,
+        }
+    }
 }
 
 /// Raw forest-register facts exposed without product-side interpretation.
@@ -175,5 +215,6 @@ pub async fn get_parcel(
             .map(|y| format!("{:04}{:02}", y.year, y.month)),
         characteristics: info.characteristics.map(Into::into),
         forest_ledger: info.forest_ledger.map(Into::into),
+        transfer_history: info.transfer_history.into_iter().map(Into::into).collect(),
     }))
 }

@@ -52,6 +52,27 @@ pub struct ParcelForestLedger {
     pub co_owner_count: Option<i32>,
 }
 
+/// Raw cadastral transfer event published by Foundation Platform.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParcelTransferEvent {
+    /// Provider transfer reason, unchanged.
+    pub reason: Option<String>,
+    /// Provider transfer reason code, unchanged.
+    pub reason_code: Option<String>,
+    /// Transfer date exactly as the provider wrote it.
+    pub moved_at: Option<String>,
+    /// Erasure date exactly as the provider wrote it.
+    pub erased_at: Option<String>,
+    /// Cadastral land category at the time of the event.
+    pub land_category: Option<String>,
+    /// Official parcel area at the time of the event.
+    pub area_m2: Option<f64>,
+    /// Provider event sequence within the parcel.
+    pub history_seq: i64,
+    /// Provider closure sequence, unchanged.
+    pub closure_seq: Option<String>,
+}
+
 /// Parcel information subset used by Gongzzang.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParcelInfo {
@@ -72,4 +93,6 @@ pub struct ParcelInfo {
     pub characteristics: Option<ParcelCharacteristics>,
     /// Source forest-register facts, when Foundation publishes them.
     pub forest_ledger: Option<ParcelForestLedger>,
+    /// Complete raw cadastral transfer timeline in Foundation's published order.
+    pub transfer_history: Vec<ParcelTransferEvent>,
 }

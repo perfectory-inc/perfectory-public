@@ -50,6 +50,30 @@ pub struct CatalogParcelResponse {
     /// Newest forest-register facts. Missing and null both mean unavailable.
     #[serde(default)]
     pub forest_ledger: Option<CatalogParcelForestLedger>,
+    /// Complete cadastral transfer timeline. Missing and empty both mean no events are available.
+    #[serde(default)]
+    pub transfer_history: Vec<CatalogParcelTransferEvent>,
+}
+
+/// One raw cadastral transfer event carried by the Foundation Catalog.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct CatalogParcelTransferEvent {
+    /// Provider transfer reason, unchanged.
+    pub reason: Option<String>,
+    /// Provider transfer reason code, unchanged.
+    pub reason_code: Option<String>,
+    /// Transfer date exactly as the provider wrote it.
+    pub moved_at: Option<String>,
+    /// Erasure date exactly as the provider wrote it.
+    pub erased_at: Option<String>,
+    /// Cadastral land category at the time of the event.
+    pub land_category: Option<String>,
+    /// Official parcel area at the time of the event.
+    pub area_m2: Option<f64>,
+    /// Provider event sequence within the parcel.
+    pub history_seq: i64,
+    /// Provider closure sequence, unchanged.
+    pub closure_seq: Option<String>,
 }
 
 /// Forest-register facts carried by the Foundation Catalog.
@@ -600,6 +624,7 @@ mod tests {
 
     use super::{
         CatalogIndustrialComplexGoldPointer, CatalogParcelForestLedger, CatalogParcelResponse,
+        CatalogParcelTransferEvent,
     };
 
     fn pointer(template: &str) -> CatalogIndustrialComplexGoldPointer {
@@ -673,5 +698,44 @@ mod tests {
                 co_owner_count: Some(3),
             }
         );
+    }
+
+    #[test]
+    fn parcel_transfer_history_deserializes_as_an_ordered_raw_timeline() {
+        let response: CatalogParcelResponse = serde_json::from_str(
+            r#"{"pnu":"9999900501107370000","kind":null,"transfer_history":[{"reason":"구획정리 시행신고","reason_code":"31","moved_at":"20050608","erased_at":null,"land_category":"공장용지","area_m2":812.5,"history_seq":2,"closure_seq":"0"},{"reason":"95번에서 분할","reason_code":"16","moved_at":"20020523","erased_at":"20050608","land_category":"전","area_m2":900.0,"history_seq":1,"closure_seq":null}]}"#,
+        )
+        .expect("transfer history response");
+
+        assert_eq!(
+            response.transfer_history,
+            vec![
+                CatalogParcelTransferEvent {
+                    reason: Some("구획정리 시행신고".to_owned()),
+                    reason_code: Some("31".to_owned()),
+                    moved_at: Some("20050608".to_owned()),
+                    erased_at: None,
+                    land_category: Some("공장용지".to_owned()),
+                    area_m2: Some(812.5),
+                    history_seq: 2,
+                    closure_seq: Some("0".to_owned()),
+                },
+                CatalogParcelTransferEvent {
+                    reason: Some("95번에서 분할".to_owned()),
+                    reason_code: Some("16".to_owned()),
+                    moved_at: Some("20020523".to_owned()),
+                    erased_at: Some("20050608".to_owned()),
+                    land_category: Some("전".to_owned()),
+                    area_m2: Some(900.0),
+                    history_seq: 1,
+                    closure_seq: None,
+                },
+            ]
+        );
+
+        let old_response: CatalogParcelResponse =
+            serde_json::from_str(r#"{"pnu":"9999900501107370000","kind":null}"#)
+                .expect("pre-transfer-history response");
+        assert!(old_response.transfer_history.is_empty());
     }
 }
