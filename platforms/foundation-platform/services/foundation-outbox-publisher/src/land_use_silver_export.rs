@@ -4,7 +4,7 @@
 //! (`silver.land_use_plan`), the LMIS zone code table (`silver.land_use_zone_code`), and
 //! the D151 per-parcel official land price CSV (`silver.land_individual_price`, root
 //! ADR-0085), plus the named AL_D195 CSV (`silver.land_characteristic`,
-//! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088), and the AL_D157 event timeline (root ADR-0089) and AL_D006 land rights (root ADR-0090).
+//! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088), and the AL_D157 event timeline (root ADR-0089) and AL_D006 land rights (root ADR-0091).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -780,7 +780,7 @@ fn map_fields(
             column.name,
             "building_name" | "dong_name" | "floor_name" | "ho_name" | "room_name" | "right_ratio"
         ) {
-            // Registered names and ratios are facts, including whitespace (ADR-0090).
+            // Registered names and ratios are facts, including whitespace (ADR-0091).
             if value.is_empty() {
                 serde_json::Value::Null
             } else {

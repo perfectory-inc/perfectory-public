@@ -1,4 +1,4 @@
--- Root ADR-0090: unit-level land rights remain independent of parcel boundary arrival.
+-- Root ADR-0091: unit-level land rights remain independent of parcel boundary arrival.
 CREATE TABLE catalog.parcel_land_right (
     pnu character(19) NOT NULL,
     right_serial_no text NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE catalog.parcel_land_right (
 );
 
 COMMENT ON TABLE catalog.parcel_land_right IS
-    'AL_D006 registered unit-level land rights from silver.land_right_registration (root ADR-0090).';
+    'AL_D006 registered unit-level land rights from silver.land_right_registration (root ADR-0091).';
 COMMENT ON COLUMN catalog.parcel_land_right.right_serial_no IS
     'Provider serial preserved as digit text; duplicate keys in one vintage refuse the entire load.';
 COMMENT ON COLUMN catalog.parcel_land_right.closure_kind IS

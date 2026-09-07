@@ -104,7 +104,7 @@ async fn constrained_stage_refuses_duplicate_or_invalid_rights_and_serves_full_o
             let mut conn = pool.acquire().await?;
             conn.execute("CREATE SCHEMA catalog").await?;
             conn.execute(include_str!(
-                "../../../migrations/20260907020000_a_parcel_keeps_its_land_rights.sql"
+                "../../../migrations/20260907030000_a_parcel_keeps_its_land_rights.sql"
             ))
             .await?;
             let first_line = body.lines().next().unwrap();

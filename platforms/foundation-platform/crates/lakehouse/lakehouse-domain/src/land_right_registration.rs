@@ -1,4 +1,4 @@
-//! Named `AL_D006` CSV attributes; every registered unit remains in the ledger (root ADR-0090).
+//! Named `AL_D006` CSV attributes; every registered unit remains in the ledger (root ADR-0091).
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
@@ -113,7 +113,7 @@ const SILVER_LAND_RIGHT_REGISTRATION_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
-/// Canonical source attributes without a second parcel geometry (root ADR-0090).
+/// Canonical source attributes without a second parcel geometry (root ADR-0091).
 pub const SILVER_LAND_RIGHT_REGISTRATION: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.land_right_registration",
     layer: LakehouseLayer::Silver,
