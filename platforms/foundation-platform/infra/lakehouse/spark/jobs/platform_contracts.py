@@ -354,6 +354,8 @@ def evolve_iceberg_table_to_contract(
 
 def spark_sql_type(logical_type: str) -> str:
     match logical_type:
+        case "array<string>":
+            return "ARRAY<STRING>"
         case "string":
             return "STRING"
         case "binary":

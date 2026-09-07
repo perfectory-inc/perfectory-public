@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "source": "bronze/source=hubgokr__building_register_apartment_price",
+  "measured_at_utc": "2026-09-07",
+  "dataset_series": "mart_djy_08",
+  "how_measured": "R2 list_objects_v2의 객체 크기와 최신 ZIP의 256KB 부분 해제 표본으로 확인했다.",
+  "field_layout_authority": "docs/catalog/building-register-field-mapping.v1.draft.md의 mart_djy_08 및 부분 해제 표본",
+  "unmapped_columns": "이름을 부여하지 않은 칸은 의미를 추정하지 않고 raw_columns의 원래 index로만 보존한다.",
+  "load_granularity": "national",
+  "selected_vintage": "202608",
+  "inner_file": "mart_djy_08.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 25,
+  "columns": {
+    "mgmt_key": {"index": 0, "meaning": "관리 PK 원문"},
+    "sigungu_cd": {"index": 8, "meaning": "시군구코드"},
+    "bjdong_cd": {"index": 9, "meaning": "법정동코드"},
+    "san_gubun": {"index": 10, "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(ADR 0023)"},
+    "bonbeon": {"index": 11, "meaning": "본번 원문"},
+    "bubeon": {"index": 12, "meaning": "부번 원문"},
+    "base_date": {"index": 22, "meaning": "기준일 원문 YYYYMMDD"},
+    "price_won": {"index": 23, "meaning": "공시가격 원 단위 원문"},
+    "notice_date": {"index": 24, "meaning": "공시일 원문 YYYYMMDD"}
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_register_apartment_price",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 10000000,
+  "max_row_bytes": 1048576,
+  "granularity_counts": {"national": 1, "vintages": 5, "objects": 5},
+  "objects": [
+    {"object_key": "bronze/source=hubgokr__building_register_apartment_price/OPN202604201257472430.zip", "bytes": 4157683854, "dataset_name": "mart_djy_08.txt", "vintage": "202604"},
+    {"object_key": "bronze/source=hubgokr__building_register_apartment_price/OPN202605201253228820.zip", "bytes": 4156423627, "dataset_name": "mart_djy_08.txt", "vintage": "202605"},
+    {"object_key": "bronze/source=hubgokr__building_register_apartment_price/OPN202606200104259300.zip", "bytes": 5067686658, "dataset_name": "mart_djy_08.txt", "vintage": "202606"},
+    {"object_key": "bronze/source=hubgokr__building_register_apartment_price/OPN202607200249591950.zip", "bytes": 5068325718, "dataset_name": "mart_djy_08.txt", "vintage": "202607"},
+    {"object_key": "bronze/source=hubgokr__building_register_apartment_price/OPN202608201252098090.zip", "bytes": 5893057447, "dataset_name": "mart_djy_08.txt", "vintage": "202608"}
+  ]
+}

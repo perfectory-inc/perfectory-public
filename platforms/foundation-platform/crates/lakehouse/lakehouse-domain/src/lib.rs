@@ -9,6 +9,7 @@ pub mod industrial_complex_gold_pointer;
 /// JSONL transport contract for the industrial-complex Bronze-to-Silver job.
 pub mod industrial_complex_jsonl_transport;
 
+mod building_register_apartment_price;
 mod land_characteristic;
 mod land_forest_ledger;
 mod land_right_registration;
@@ -32,6 +33,7 @@ pub mod lakehouse_registry;
 /// Spark batch run summary handoff contracts.
 pub mod lakehouse_run_summary;
 
+pub use building_register_apartment_price::SILVER_BUILDING_REGISTER_APARTMENT_PRICE;
 pub use errors::LakehouseError;
 pub use industrial_complex_gold_pointer::{
     IndustrialComplexGoldPointer, IndustrialComplexGoldPointerPublished,
