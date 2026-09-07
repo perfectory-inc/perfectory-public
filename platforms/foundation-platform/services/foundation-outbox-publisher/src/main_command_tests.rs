@@ -1,6 +1,26 @@
 use super::{command_requires_expanded_stack, parse_command, Command};
 
 #[test]
+fn forest_ledger_commands_are_explicit() -> anyhow::Result<()> {
+    for (name, command) in [
+        (
+            "export-land-forest-silver-handoff",
+            Command::ExportLandForestSilverHandoff,
+        ),
+        (
+            "load-parcel-forest-ledger-catalog-projection",
+            Command::LoadParcelForestLedgerCatalogProjection,
+        ),
+    ] {
+        assert_eq!(
+            parse_command(["foundation-outbox-publisher", name])?,
+            command
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn default_command_runs_publisher() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher"])?,

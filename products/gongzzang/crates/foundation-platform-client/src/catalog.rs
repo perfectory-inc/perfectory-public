@@ -47,6 +47,22 @@ pub struct CatalogParcelResponse {
     /// Newest cadastral characteristics. Missing and null both mean unavailable.
     #[serde(default)]
     pub characteristics: Option<CatalogParcelCharacteristic>,
+    /// Newest forest-register facts. Missing and null both mean unavailable.
+    #[serde(default)]
+    pub forest_ledger: Option<CatalogParcelForestLedger>,
+}
+
+/// Forest-register facts carried by the Foundation Catalog.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct CatalogParcelForestLedger {
+    /// Cadastral land category name exactly as the provider wrote it.
+    pub land_category: Option<String>,
+    /// Official ledger area in square meters.
+    pub area_m2: Option<f64>,
+    /// Provider ownership category code, not an owner identity.
+    pub ownership_kind: Option<String>,
+    /// Number of co-owners recorded by the provider.
+    pub co_owner_count: Option<i32>,
 }
 
 /// Cadastral characteristics carried by the Foundation Catalog.
@@ -582,7 +598,9 @@ pub enum FoundationCatalogHttpError {
 mod tests {
     #![allow(clippy::expect_used, clippy::float_cmp)]
 
-    use super::{CatalogIndustrialComplexGoldPointer, CatalogParcelResponse};
+    use super::{
+        CatalogIndustrialComplexGoldPointer, CatalogParcelForestLedger, CatalogParcelResponse,
+    };
 
     fn pointer(template: &str) -> CatalogIndustrialComplexGoldPointer {
         CatalogIndustrialComplexGoldPointer {
@@ -637,5 +655,23 @@ mod tests {
             serde_json::from_str(r#"{"pnu":"9999900501107370000","kind":null}"#)
                 .expect("pre-characteristic response");
         assert!(old_response.characteristics.is_none());
+    }
+
+    #[test]
+    fn parcel_forest_ledger_deserializes_nullable_provider_facts() {
+        let response: CatalogParcelResponse = serde_json::from_str(
+            r#"{"pnu":"9999900501107370000","kind":null,"forest_ledger":{"land_category":"임야","area_m2":812.5,"ownership_kind":"02","co_owner_count":3}}"#,
+        )
+        .expect("forest ledger response");
+
+        assert_eq!(
+            response.forest_ledger.expect("forest ledger"),
+            CatalogParcelForestLedger {
+                land_category: Some("임야".to_owned()),
+                area_m2: Some(812.5),
+                ownership_kind: Some("02".to_owned()),
+                co_owner_count: Some(3),
+            }
+        );
     }
 }

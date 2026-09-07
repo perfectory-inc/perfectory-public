@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use parcel_lookup::{
-    GosiYearMonth, LookupError, ParcelCharacteristics, ParcelInfo, ParcelInfoLookup,
+    GosiYearMonth, LookupError, ParcelCharacteristics, ParcelForestLedger, ParcelInfo,
+    ParcelInfoLookup,
 };
 use reqwest::StatusCode;
 use shared_kernel::admin_division::{AdminDivision, EupmyeondongCode, SidoCode, SigunguCode};
@@ -152,6 +153,15 @@ fn parcel_info_from_response(
                 road_contact: characteristics.road_contact.clone(),
             }
         }),
+        forest_ledger: response
+            .forest_ledger
+            .as_ref()
+            .map(|ledger| ParcelForestLedger {
+                land_category: ledger.land_category.clone(),
+                area_m2: ledger.area_m2,
+                ownership_kind: ledger.ownership_kind.clone(),
+                co_owner_count: ledger.co_owner_count,
+            }),
     })
 }
 
@@ -382,6 +392,29 @@ mod tests {
                 terrain_height: Some("평지".to_owned()),
                 terrain_shape: None,
                 road_contact: None,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn lookup_carries_forest_ledger_facts_without_interpreting_ownership() {
+        let body = format!(
+            r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","forest_ledger":{{"land_category":"임야","area_m2":812.5,"ownership_kind":"02","co_owner_count":3}}}}"#
+        );
+        let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
+        let lookup =
+            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
+
+        let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
+
+        assert_eq!(
+            info.forest_ledger.expect("forest ledger"),
+            ParcelForestLedger {
+                land_category: Some("임야".to_owned()),
+                area_m2: Some(812.5),
+                ownership_kind: Some("02".to_owned()),
+                co_owner_count: Some(3),
             }
         );
     }

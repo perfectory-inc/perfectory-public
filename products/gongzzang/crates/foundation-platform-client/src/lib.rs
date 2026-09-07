@@ -10,10 +10,10 @@ mod catalog;
 pub use catalog::{
     CatalogBuildingResponse, CatalogComplexListQuery, CatalogIndustrialComplexGoldPointer,
     CatalogIndustrialComplexListResponse, CatalogIndustrialComplexResponse,
-    CatalogParcelCharacteristic, CatalogParcelPrice, CatalogParcelResponse, CatalogParcelZoning,
-    CatalogUnitPageResponse, CatalogUnitResponse, FoundationCatalogClient,
-    FoundationCatalogClientConfigError, FoundationCatalogClientRequestError,
-    FoundationCatalogHttpError,
+    CatalogParcelCharacteristic, CatalogParcelForestLedger, CatalogParcelPrice,
+    CatalogParcelResponse, CatalogParcelZoning, CatalogUnitPageResponse, CatalogUnitResponse,
+    FoundationCatalogClient, FoundationCatalogClientConfigError,
+    FoundationCatalogClientRequestError, FoundationCatalogHttpError,
 };
 
 /// Parses and validates a Foundation Platform endpoint URL.
