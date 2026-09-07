@@ -28,8 +28,8 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
     IndustryGroupMember, MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger,
-    ParcelIndustryAssignment, ParcelKind, ParcelPrice, ParcelTransferEvent, ParcelZoning,
-    SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    ParcelIndustryAssignment, ParcelKind, ParcelLandRight, ParcelPrice, ParcelTransferEvent,
+    ParcelZoning, SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::{BuildingUnitRow, UnitPageKey};
 use foundation_contracts::catalog::{
@@ -37,9 +37,9 @@ use foundation_contracts::catalog::{
     ComplexNoticeResponse, DigitalTwinAssetResponse, FileAssetResponse,
     IndustrialComplexGoldPointerResponse, IndustrialComplexResponse, IndustryGroupMemberResponse,
     IndustryGroupResponse, MarkerTileContractResponse, ParcelCharacteristicResponse,
-    ParcelForestLedgerResponse, ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
-    ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse, ParcelResponse,
-    ParcelTransferEventResponse, ParcelZoningResponse, PromoteFileAssetRequest,
+    ParcelForestLedgerResponse, ParcelIndustryAssignmentResponse, ParcelLandRightResponse,
+    ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse,
+    ParcelResponse, ParcelTransferEventResponse, ParcelZoningResponse, PromoteFileAssetRequest,
     PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
     RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse,
     UnitPageResponse, UnitResponse, UpdateComplexRequest, UpdateParcelKindRequest,
@@ -526,6 +526,10 @@ pub async fn get_parcel_by_pnu(
         .catalog_repo
         .list_parcel_transfer_events_by_pnu(&pnu)
         .await?;
+    let land_rights = state
+        .catalog_repo
+        .list_parcel_land_rights_by_pnu(&pnu)
+        .await?;
 
     Ok(Json(parcel_response(
         &parcel,
@@ -534,6 +538,7 @@ pub async fn get_parcel_by_pnu(
         characteristics,
         forest_ledger,
         transfer_history,
+        land_rights,
     )))
 }
 
@@ -575,6 +580,10 @@ pub async fn get_parcel(
         .catalog_repo
         .list_parcel_transfer_events_by_pnu(&parcel.pnu)
         .await?;
+    let land_rights = state
+        .catalog_repo
+        .list_parcel_land_rights_by_pnu(&parcel.pnu)
+        .await?;
 
     Ok(Json(parcel_response(
         &parcel,
@@ -583,6 +592,7 @@ pub async fn get_parcel(
         characteristics,
         forest_ledger,
         transfer_history,
+        land_rights,
     )))
 }
 
@@ -1091,6 +1101,10 @@ pub async fn update_parcel_kind(
         .catalog_repo
         .list_parcel_transfer_events_by_pnu(&updated.pnu)
         .await?;
+    let land_rights = state
+        .catalog_repo
+        .list_parcel_land_rights_by_pnu(&updated.pnu)
+        .await?;
 
     Ok(Json(parcel_response(
         &updated,
@@ -1099,6 +1113,7 @@ pub async fn update_parcel_kind(
         characteristics,
         forest_ledger,
         transfer_history,
+        land_rights,
     )))
 }
 
@@ -1196,6 +1211,7 @@ fn parcel_response(
     characteristics: Option<ParcelCharacteristic>,
     forest_ledger: Option<ParcelForestLedger>,
     transfer_history: Vec<ParcelTransferEvent>,
+    land_rights: Vec<ParcelLandRight>,
 ) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
@@ -1245,6 +1261,20 @@ fn parcel_response(
                 history_seq: event.transfer_history_seq,
                 parcel_history_seq: event.parcel_history_seq,
                 closure_seq: event.closure_seq,
+            })
+            .collect(),
+        land_rights: land_rights
+            .into_iter()
+            .map(|right| ParcelLandRightResponse {
+                right_serial_no: right.right_serial_no,
+                building_name: right.building_name,
+                dong_name: right.dong_name,
+                floor_name: right.floor_name,
+                ho_name: right.ho_name,
+                room_name: right.room_name,
+                right_ratio: right.right_ratio,
+                closure_kind: right.closure_kind,
+                closure_kind_code: right.closure_kind_code,
             })
             .collect(),
     }

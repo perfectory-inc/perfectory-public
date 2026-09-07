@@ -11,6 +11,7 @@ pub mod industrial_complex_jsonl_transport;
 
 mod land_characteristic;
 mod land_forest_ledger;
+mod land_right_registration;
 mod land_transfer_history;
 
 /// Provider-neutral table contracts.
@@ -48,8 +49,8 @@ pub use lakehouse::{
     SILVER_BUILDING_REGISTER_UNITS, SILVER_BUILDING_REGISTER_UNIT_AREAS,
     SILVER_COMPLEX_PARCEL_MEMBERSHIPS, SILVER_INDUSTRIAL_COMPLEXES,
     SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
-    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN,
-    SILVER_LAND_USE_ZONE_CODES, SILVER_PARCEL_BOUNDARIES,
+    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_RIGHT_REGISTRATION, SILVER_LAND_TRANSFER_HISTORY,
+    SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES, SILVER_PARCEL_BOUNDARIES,
 };
 pub use lakehouse_lineage_event::{
     validate_lakehouse_lineage_event, LakehouseLineageEventError,

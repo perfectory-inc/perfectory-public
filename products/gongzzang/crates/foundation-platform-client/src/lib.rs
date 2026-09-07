@@ -10,8 +10,8 @@ mod catalog;
 pub use catalog::{
     CatalogBuildingResponse, CatalogComplexListQuery, CatalogIndustrialComplexGoldPointer,
     CatalogIndustrialComplexListResponse, CatalogIndustrialComplexResponse,
-    CatalogParcelCharacteristic, CatalogParcelForestLedger, CatalogParcelPrice,
-    CatalogParcelResponse, CatalogParcelTransferEvent, CatalogParcelZoning,
+    CatalogParcelCharacteristic, CatalogParcelForestLedger, CatalogParcelLandRight,
+    CatalogParcelPrice, CatalogParcelResponse, CatalogParcelTransferEvent, CatalogParcelZoning,
     CatalogUnitPageResponse, CatalogUnitResponse, FoundationCatalogClient,
     FoundationCatalogClientConfigError, FoundationCatalogClientRequestError,
     FoundationCatalogHttpError,

@@ -13,9 +13,10 @@ use catalog_domain::{
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
     MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
-    ParcelPrice, ParcelTransferEvent, ParcelZoning, PublicationUnit, RuntimeTileLayer,
-    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind,
-    SpatialLayer, StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
+    ParcelLandRight, ParcelPrice, ParcelTransferEvent, ParcelZoning, PublicationUnit,
+    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
+    ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
     ComplexId, FileAssetId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId,
@@ -626,6 +627,43 @@ impl CatalogRepository for PgCatalogRepository {
                     land_category: row.try_get("land_category").map_err(map_sqlx)?,
                     area_m2: row.try_get("area_m2").map_err(map_sqlx)?,
                     closure_seq: row.try_get("closure_seq").map_err(map_sqlx)?,
+                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
+                    loaded_at: row.try_get("loaded_at").map_err(map_sqlx)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn list_parcel_land_rights_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Vec<ParcelLandRight>, CatalogError> {
+        let rows = sqlx::query(
+            "SELECT pnu::text AS pnu, right_serial_no, building_name, dong_name, floor_name,
+                    ho_name, room_name, right_ratio, closure_kind, closure_kind_code,
+                    source_snapshot_id, loaded_at
+             FROM catalog.parcel_land_right
+             WHERE pnu = $1::character(19)
+             ORDER BY right_serial_no ASC",
+        )
+        .bind(pnu.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+
+        rows.iter()
+            .map(|row| {
+                Ok(ParcelLandRight {
+                    pnu: row.try_get("pnu").map_err(map_sqlx)?,
+                    right_serial_no: row.try_get("right_serial_no").map_err(map_sqlx)?,
+                    building_name: row.try_get("building_name").map_err(map_sqlx)?,
+                    dong_name: row.try_get("dong_name").map_err(map_sqlx)?,
+                    floor_name: row.try_get("floor_name").map_err(map_sqlx)?,
+                    ho_name: row.try_get("ho_name").map_err(map_sqlx)?,
+                    room_name: row.try_get("room_name").map_err(map_sqlx)?,
+                    right_ratio: row.try_get("right_ratio").map_err(map_sqlx)?,
+                    closure_kind: row.try_get("closure_kind").map_err(map_sqlx)?,
+                    closure_kind_code: row.try_get("closure_kind_code").map_err(map_sqlx)?,
                     source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
                     loaded_at: row.try_get("loaded_at").map_err(map_sqlx)?,
                 })

@@ -459,7 +459,7 @@ docs/adr/0086-the-pipeline-graph-names-every-dataset-once.md
 docs/adr/0087-a-parcel-learns-its-characteristics.md
 docs/adr/0088-a-parcel-learns-its-forest-ledger.md
 docs/adr/0089-a-parcel-learns-its-transfer-history.md
-docs/adr/0090-a-transfer-event-is-named-by-three-sequences.md
+docs/adr/0090-a-parcel-learns-its-land-rights.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -584,7 +584,7 @@ tools/github/README.md
 | `docs/adr/0087-a-parcel-learns-its-characteristics.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0088-a-parcel-learns-its-forest-ledger.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0089-a-parcel-learns-its-transfer-history.md` | Monorepo | ADR | Accepted |
-| `docs/adr/0090-a-transfer-event-is-named-by-three-sequences.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0090-a-parcel-learns-its-land-rights.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

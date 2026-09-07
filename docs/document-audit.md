@@ -111,7 +111,7 @@
 | `docs/adr/0087-a-parcel-learns-its-characteristics.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0088-a-parcel-learns-its-forest-ledger.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0089-a-parcel-learns-its-transfer-history.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0090-a-transfer-event-is-named-by-three-sequences.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0090-a-parcel-learns-its-land-rights.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 0 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

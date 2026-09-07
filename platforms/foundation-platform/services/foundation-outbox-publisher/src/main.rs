@@ -137,6 +137,7 @@ mod parcel_boundary_runtime_promote;
 mod parcel_catalog_projection_load;
 mod parcel_characteristic_catalog_projection_load;
 mod parcel_forest_ledger_catalog_projection_load;
+mod parcel_land_right_catalog_projection_load;
 mod parcel_marker_anchor_artifact_export;
 mod parcel_marker_anchor_pbf_artifact_build;
 mod parcel_marker_anchor_pbf_manifest_promote;
@@ -236,6 +237,7 @@ enum Command {
     ExportLandCharacteristicSilverHandoff,
     ExportLandForestSilverHandoff,
     ExportLandTransferHistorySilverHandoff,
+    ExportLandRightRegistrationSilverHandoff,
     ExecuteNationalDataCollectionAsync,
     ExecuteNationalDataCollectionLedger,
     ExecuteRtMolitRealTransactionExportPlan,
@@ -279,6 +281,7 @@ enum Command {
     LoadParcelCharacteristicCatalogProjection,
     LoadParcelForestLedgerCatalogProjection,
     LoadParcelTransferEventCatalogProjection,
+    LoadParcelLandRightCatalogProjection,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
@@ -455,6 +458,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLandUseZoneCodeSilverHandoff => {
             Box::pin(land_use_silver_export::run_zone_code())
         }
+        Command::ExportLandRightRegistrationSilverHandoff => {
+            Box::pin(land_use_silver_export::run_land_right_registration())
+        }
         Command::ExportLandTransferHistorySilverHandoff => {
             Box::pin(land_use_silver_export::run_land_transfer_history())
         }
@@ -554,6 +560,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadParcelCatalogProjection => Box::pin(parcel_catalog_projection_load::run()),
         Command::LoadParcelZoningCatalogProjection => {
             Box::pin(parcel_zoning_catalog_projection_load::run())
+        }
+        Command::LoadParcelLandRightCatalogProjection => {
+            Box::pin(parcel_land_right_catalog_projection_load::run())
         }
         Command::LoadParcelTransferEventCatalogProjection => {
             Box::pin(parcel_transfer_event_catalog_projection_load::run())
@@ -1137,6 +1146,9 @@ where
         Some("load-parcel-zoning-catalog-projection") => {
             Ok(Command::LoadParcelZoningCatalogProjection)
         }
+        Some("load-parcel-land-right-catalog-projection") => {
+            Ok(Command::LoadParcelLandRightCatalogProjection)
+        }
         Some("load-parcel-transfer-event-catalog-projection") => {
             Ok(Command::LoadParcelTransferEventCatalogProjection)
         }
@@ -1282,6 +1294,9 @@ where
         Some("export-land-use-plan-silver-handoff") => Ok(Command::ExportLandUsePlanSilverHandoff),
         Some("export-land-use-zone-code-silver-handoff") => {
             Ok(Command::ExportLandUseZoneCodeSilverHandoff)
+        }
+        Some("export-land-right-registration-silver-handoff") => {
+            Ok(Command::ExportLandRightRegistrationSilverHandoff)
         }
         Some("export-land-transfer-history-silver-handoff") => {
             Ok(Command::ExportLandTransferHistorySilverHandoff)

@@ -2216,6 +2216,134 @@
         "object_prefix": null,
         "object_suffix_separator": null
       }
+    },
+    "silver.land_right_registration": {
+      "table_name": "silver.land_right_registration",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "right_serial_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "floor_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ho_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "room_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "right_ratio",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "closure_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "closure_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "related_parcel_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "data_reference_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "pnu",
+        "right_serial_no"
+      ],
+      "quality_gates": [
+        "pnu_not_null",
+        "right_serial_no_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
     }
   },
   "jsonl_transports": {
