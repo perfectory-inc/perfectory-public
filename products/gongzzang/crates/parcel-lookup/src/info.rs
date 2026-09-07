@@ -118,6 +118,8 @@ pub struct ParcelInfo {
     pub forest_ledger: Option<ParcelForestLedger>,
     /// Complete raw cadastral transfer timeline in Foundation's published order.
     pub transfer_history: Vec<ParcelTransferEvent>,
-    /// Complete registered unit-level land rights in Foundation's published order.
+    /// First page of registered unit-level land rights in Foundation's published order.
     pub land_rights: Vec<ParcelLandRight>,
+    /// Total registered land-right rows, independent of the page bound (root ADR-0093).
+    pub land_right_total: u64,
 }

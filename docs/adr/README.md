@@ -100,4 +100,6 @@ last_reviewed: 2026-07-28
 - [0087 — 필지는 토지특성 원장에서 면적과 특성을 배운다](./0087-a-parcel-learns-its-characteristics.md)
 - [0088 — 필지는 임야대장에서 임야의 지목·면적을 배운다](./0088-a-parcel-learns-its-forest-ledger.md)
 - [0089 — 필지는 토지이동이력에서 제 연혁을 배운다](./0089-a-parcel-learns-its-transfer-history.md)
-- [0091 — 토지이동 사건의 정체성은 세 순번이다](./0090-a-transfer-event-is-named-by-three-sequences.md)
+- [0090 — 토지이동 사건의 정체성은 세 순번이다](./0090-a-transfer-event-is-named-by-three-sequences.md)
+- [0091 — 필지는 대지권 등록을 배운다](./0091-a-parcel-learns-its-land-rights.md)
+- [0093 — 대지권의 정체성은 호 단위다](./0093-a-land-right-belongs-to-a-unit.md)

@@ -53,9 +53,12 @@ pub struct CatalogParcelResponse {
     /// Complete cadastral transfer timeline. Missing and empty both mean no events are available.
     #[serde(default)]
     pub transfer_history: Vec<CatalogParcelTransferEvent>,
-    /// Registered unit-level land rights in Foundation's published order.
+    /// First page of registered unit-level land rights in Foundation's published order.
     #[serde(default)]
     pub land_rights: Vec<CatalogParcelLandRight>,
+    /// Total registered land-right rows, independent of the published page bound (root ADR-0093).
+    #[serde(default)]
+    pub land_right_total: u64,
 }
 
 /// One raw registered unit-level land right carried by the Foundation Catalog.

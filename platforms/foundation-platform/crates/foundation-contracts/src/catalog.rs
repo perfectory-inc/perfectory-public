@@ -241,9 +241,16 @@ pub struct ParcelResponse {
     /// Empty when the `AL_D157` ledger names no event for this parcel.
     #[serde(default)]
     pub transfer_history: Vec<ParcelTransferEventResponse>,
-    /// Complete registered unit-level land rights, ordered by provider serial number.
+    /// First page (at most 200 rows) of registered unit-level land rights,
+    /// ordered by provider serial then dong, floor, ho, and room designations.
+    ///
+    /// Apartment parcels can register thousands of unit rights (root ADR-0093);
+    /// compare `land_right_total` with this list's length to detect truncation.
     #[serde(default)]
     pub land_rights: Vec<ParcelLandRightResponse>,
+    /// Total registered land-right rows for this parcel, independent of the page bound.
+    #[serde(default)]
+    pub land_right_total: u64,
 }
 
 /// One unit-level land right from the Foundation Catalog.
@@ -253,14 +260,18 @@ pub struct ParcelLandRightResponse {
     pub right_serial_no: String,
     /// Building name, unchanged.
     pub building_name: Option<String>,
-    /// Building dong name, unchanged.
-    pub dong_name: Option<String>,
-    /// Floor name, unchanged.
-    pub floor_name: Option<String>,
-    /// Ho name, unchanged.
-    pub ho_name: Option<String>,
-    /// Room name, unchanged.
-    pub room_name: Option<String>,
+    /// Building dong designation; empty when the provider row leaves it blank (root ADR-0093).
+    #[serde(default)]
+    pub dong_name: String,
+    /// Floor designation; empty when the provider row leaves it blank.
+    #[serde(default)]
+    pub floor_name: String,
+    /// Ho designation; empty when the provider row leaves it blank.
+    #[serde(default)]
+    pub ho_name: String,
+    /// Room designation; empty when the provider row leaves it blank.
+    #[serde(default)]
+    pub room_name: String,
     /// Provider land-right ratio, preserved verbatim.
     pub right_ratio: Option<String>,
     /// Provider closure kind name, unchanged.

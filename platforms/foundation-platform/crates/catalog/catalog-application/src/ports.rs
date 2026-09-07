@@ -13,7 +13,7 @@ use catalog_domain::{
     IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
     MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
-    ParcelKind, ParcelLandRight, ParcelPrice, ParcelTransferEvent, ParcelZoning,
+    ParcelKind, ParcelLandRightPage, ParcelPrice, ParcelTransferEvent, ParcelZoning,
     RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
     RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, VectorTileBuildOutcome,
     VectorTileManifest, VectorTileRuntimeManifest,
@@ -712,11 +712,17 @@ pub trait CatalogRepository: Send + Sync {
         pnu: &Pnu,
     ) -> Result<Vec<ParcelTransferEvent>, CatalogError>;
 
-    /// Lists every registered unit-level land right in provider serial-number order.
+    /// Lists a bounded first page of unit-level land rights plus the total count.
+    ///
+    /// Ordered by provider serial, then dong, floor, ho, and room designations
+    /// (root ADR-0093); apartment parcels can hold thousands of rows.
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
     async fn list_parcel_land_rights_by_pnu(
         &self,
         pnu: &Pnu,
-    ) -> Result<Vec<ParcelLandRight>, CatalogError>;
+    ) -> Result<ParcelLandRightPage, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

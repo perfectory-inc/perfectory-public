@@ -167,9 +167,12 @@ set -euo pipefail
 # 102 -> 104: the land-right lane (root ADR-0091) embeds its measured AL_D006
 # inventory contract and its key migration in the projection proof, the same two
 # test-only inputs every attribute lane carries.
+# 104 -> 105: the land-right projection proof also embeds the ADR-0093 unit-key
+# migration, so the disposable database exercises the exact six-column identity
+# this binary ships rather than the superseded two-column key.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-104}"
+COMPILE_TIME_READ_BASELINE="${3:-105}"
 
 cd "$repo_root"
 

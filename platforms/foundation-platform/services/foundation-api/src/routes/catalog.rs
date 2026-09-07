@@ -28,7 +28,7 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
     IndustryGroupMember, MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger,
-    ParcelIndustryAssignment, ParcelKind, ParcelLandRight, ParcelPrice, ParcelTransferEvent,
+    ParcelIndustryAssignment, ParcelKind, ParcelLandRightPage, ParcelPrice, ParcelTransferEvent,
     ParcelZoning, SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::{BuildingUnitRow, UnitPageKey};
@@ -526,7 +526,7 @@ pub async fn get_parcel_by_pnu(
         .catalog_repo
         .list_parcel_transfer_events_by_pnu(&pnu)
         .await?;
-    let land_rights = state
+    let land_right_page = state
         .catalog_repo
         .list_parcel_land_rights_by_pnu(&pnu)
         .await?;
@@ -538,7 +538,7 @@ pub async fn get_parcel_by_pnu(
         characteristics,
         forest_ledger,
         transfer_history,
-        land_rights,
+        land_right_page,
     )))
 }
 
@@ -580,7 +580,7 @@ pub async fn get_parcel(
         .catalog_repo
         .list_parcel_transfer_events_by_pnu(&parcel.pnu)
         .await?;
-    let land_rights = state
+    let land_right_page = state
         .catalog_repo
         .list_parcel_land_rights_by_pnu(&parcel.pnu)
         .await?;
@@ -592,7 +592,7 @@ pub async fn get_parcel(
         characteristics,
         forest_ledger,
         transfer_history,
-        land_rights,
+        land_right_page,
     )))
 }
 
@@ -1101,7 +1101,7 @@ pub async fn update_parcel_kind(
         .catalog_repo
         .list_parcel_transfer_events_by_pnu(&updated.pnu)
         .await?;
-    let land_rights = state
+    let land_right_page = state
         .catalog_repo
         .list_parcel_land_rights_by_pnu(&updated.pnu)
         .await?;
@@ -1113,7 +1113,7 @@ pub async fn update_parcel_kind(
         characteristics,
         forest_ledger,
         transfer_history,
-        land_rights,
+        land_right_page,
     )))
 }
 
@@ -1211,7 +1211,7 @@ fn parcel_response(
     characteristics: Option<ParcelCharacteristic>,
     forest_ledger: Option<ParcelForestLedger>,
     transfer_history: Vec<ParcelTransferEvent>,
-    land_rights: Vec<ParcelLandRight>,
+    land_right_page: ParcelLandRightPage,
 ) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
@@ -1263,7 +1263,9 @@ fn parcel_response(
                 closure_seq: event.closure_seq,
             })
             .collect(),
-        land_rights: land_rights
+        land_right_total: land_right_page.total,
+        land_rights: land_right_page
+            .rights
             .into_iter()
             .map(|right| ParcelLandRightResponse {
                 right_serial_no: right.right_serial_no,

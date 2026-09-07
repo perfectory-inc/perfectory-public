@@ -13,9 +13,9 @@ use catalog_domain::{
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
     MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
-    ParcelLandRight, ParcelPrice, ParcelTransferEvent, ParcelZoning, PublicationUnit,
-    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration,
-    ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
+    ParcelLandRight, ParcelLandRightPage, ParcelPrice, ParcelTransferEvent, ParcelZoning,
+    PublicationUnit, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
+    ServingGeneration, ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
     VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
@@ -637,21 +637,32 @@ impl CatalogRepository for PgCatalogRepository {
     async fn list_parcel_land_rights_by_pnu(
         &self,
         pnu: &Pnu,
-    ) -> Result<Vec<ParcelLandRight>, CatalogError> {
+    ) -> Result<ParcelLandRightPage, CatalogError> {
+        // One round trip: the window count sees every matching row while LIMIT
+        // bounds the page an apartment parcel would otherwise explode (ADR-0093).
         let rows = sqlx::query(
             "SELECT pnu::text AS pnu, right_serial_no, building_name, dong_name, floor_name,
                     ho_name, room_name, right_ratio, closure_kind, closure_kind_code,
-                    source_snapshot_id, loaded_at
+                    source_snapshot_id, loaded_at, count(*) OVER () AS total_rows
              FROM catalog.parcel_land_right
              WHERE pnu = $1::character(19)
-             ORDER BY right_serial_no ASC",
+             ORDER BY right_serial_no ASC, dong_name ASC, floor_name ASC,
+                      ho_name ASC, room_name ASC
+             LIMIT 200",
         )
         .bind(pnu.as_str())
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
 
-        rows.iter()
+        let total = rows
+            .first()
+            .map(|row| row.try_get::<i64, _>("total_rows").map_err(map_sqlx))
+            .transpose()?
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or(0);
+        let rights = rows
+            .iter()
             .map(|row| {
                 Ok(ParcelLandRight {
                     pnu: row.try_get("pnu").map_err(map_sqlx)?,
@@ -668,7 +679,8 @@ impl CatalogRepository for PgCatalogRepository {
                     loaded_at: row.try_get("loaded_at").map_err(map_sqlx)?,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>, CatalogError>>()?;
+        Ok(ParcelLandRightPage { rights, total })
     }
 
     async fn list_complex_notices(
