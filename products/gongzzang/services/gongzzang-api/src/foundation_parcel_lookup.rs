@@ -191,6 +191,7 @@ fn parcel_info_from_response(
                 closure_kind_code: right.closure_kind_code.clone(),
             })
             .collect(),
+        land_right_total: response.land_right_total,
     })
 }
 

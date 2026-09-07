@@ -93,7 +93,7 @@ fn copy_escaping_preserves_source_text_and_nulls() {
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL through DATABASE_URL"]
-async fn constrained_stage_refuses_duplicate_or_invalid_rights_and_serves_full_ordered_list(
+async fn duplicates_collapse_deterministically_and_the_unit_key_serves_a_bounded_page(
 ) -> foundation_disposable_database::TestResult {
     use catalog_application::ports::CatalogRepository;
 
@@ -107,6 +107,10 @@ async fn constrained_stage_refuses_duplicate_or_invalid_rights_and_serves_full_o
                 "../../../migrations/20260907030000_a_parcel_keeps_its_land_rights.sql"
             ))
             .await?;
+            conn.execute(include_str!(
+                "../../../migrations/20260907050000_a_land_right_belongs_to_a_unit.sql"
+            ))
+            .await?;
             let first_line = body.lines().next().unwrap();
             let base: HandoffRow = serde_json::from_str(first_line)?;
             let object = SourceObject {
@@ -116,50 +120,51 @@ async fn constrained_stage_refuses_duplicate_or_invalid_rights_and_serves_full_o
                 vintage: "20260609".into(),
             };
 
-            for changed in [false, true] {
+            // Byte-identical provider duplicates collapse inside one COPY, and the
+            // collapse is visible in the counters instead of aborting the load
+            // (root ADR-0093 mirrors ADR-0090).
+            let mut tx = conn.begin().await?;
+            prepare_stage(&mut tx).await?;
+            assert_eq!(
+                stage_rows(
+                    &mut tx,
+                    std::io::Cursor::new(format!("{body}{first_line}\n")),
+                    &object,
+                )
+                .await?,
+                3
+            );
+            assert_eq!(conflicting_groups(&mut tx).await?, 0);
+            assert_eq!(merge_stage(&mut tx).await?, 2);
+            tx.rollback().await?;
+
+            // Same unit key with a different payload is a counted conflict, and the
+            // survivor is deterministic: staging the variants in either order keeps
+            // the same winning row.
+            let mut variant: serde_json::Value = serde_json::from_str(first_line)?;
+            variant["building_name"] = serde_json::json!("conflict");
+            let variant_line = variant.to_string();
+            let mut winners = Vec::new();
+            for input in [
+                format!("{first_line}\n{variant_line}\n"),
+                format!("{variant_line}\n{first_line}\n"),
+            ] {
                 let mut tx = conn.begin().await?;
                 prepare_stage(&mut tx).await?;
                 assert_eq!(
-                    stage_rows(&mut tx, std::io::Cursor::new(&body), &object).await?,
+                    stage_rows(&mut tx, std::io::Cursor::new(input), &object).await?,
                     2
                 );
-                assert_eq!(merge_stage(&mut tx).await?, 2);
-                let mut duplicate: serde_json::Value = serde_json::from_str(first_line)?;
-                if changed {
-                    duplicate["building_name"] = serde_json::json!("conflict");
-                }
-                let error = stage_rows(
-                    &mut tx,
-                    std::io::Cursor::new(duplicate.to_string()),
-                    &object,
-                )
-                .await
-                .expect_err("duplicate key must refuse");
-                let database_error = error
-                    .downcast_ref::<sqlx::Error>()
-                    .and_then(sqlx::Error::as_database_error)
-                    .expect("PostgreSQL constraint error");
-                assert_eq!(database_error.code().as_deref(), Some("23505"));
+                assert_eq!(conflicting_groups(&mut tx).await?, 1);
+                assert_eq!(merge_stage(&mut tx).await?, 1);
+                let winner: String =
+                    sqlx::query_scalar("SELECT building_name FROM catalog.parcel_land_right")
+                        .fetch_one(&mut *tx)
+                        .await?;
+                winners.push(winner);
                 tx.rollback().await?;
-                assert_eq!(
-                    sqlx::query_scalar::<_, i64>("SELECT count(*) FROM catalog.parcel_land_right")
-                        .fetch_one(&mut *conn)
-                        .await?,
-                    0
-                );
             }
-
-            // A duplicate contained in one COPY must be refused by the inherited primary key.
-            let mut tx = conn.begin().await?;
-            prepare_stage(&mut tx).await?;
-            assert!(stage_rows(
-                &mut tx,
-                std::io::Cursor::new(format!("{body}{first_line}\n")),
-                &object,
-            )
-            .await
-            .is_err());
-            tx.rollback().await?;
+            assert_eq!(winners[0], winners[1]);
 
             for invalid in [
                 "empty",
@@ -197,31 +202,31 @@ async fn constrained_stage_refuses_duplicate_or_invalid_rights_and_serves_full_o
                 tx.rollback().await?;
             }
 
-            let mut serial_rows = String::new();
-            for serial in ["1", "10", "2"] {
+            // Rows that differ only in unit designation are distinct facts under the
+            // six-column key: 205 ho variants all land, the read serves a bounded
+            // 200-row page, and the total reports what the page truncated.
+            let mut unit_rows = String::new();
+            for ho in 0..205 {
                 let mut row: serde_json::Value = serde_json::from_str(first_line)?;
-                row["right_serial_no"] = serde_json::json!(serial);
-                serial_rows.push_str(&row.to_string());
-                serial_rows.push('\n');
+                row["ho_name"] = serde_json::json!(format!("{}호", ho + 301));
+                unit_rows.push_str(&row.to_string());
+                unit_rows.push('\n');
             }
-            let full = format!("{body}{serial_rows}");
+            let full = format!("{body}{unit_rows}");
             let mut tx = conn.begin().await?;
             prepare_stage(&mut tx).await?;
             assert_eq!(
                 stage_rows(&mut tx, std::io::Cursor::new(&full), &object).await?,
-                5
+                207
             );
-            assert_eq!(merge_stage(&mut tx).await?, 5);
+            assert_eq!(conflicting_groups(&mut tx).await?, 0);
+            assert_eq!(merge_stage(&mut tx).await?, 207);
             assert_eq!(merge_stage(&mut tx).await?, 0);
             tx.commit().await?;
 
-            // A later source replay with the same key cannot rewrite the first fact.
+            // A later source replay with the same unit key cannot rewrite the first fact.
             let mut changed: serde_json::Value = serde_json::from_str(first_line)?;
             changed["building_name"] = serde_json::json!("would overwrite");
-            changed["dong_name"] = serde_json::Value::Null;
-            changed["floor_name"] = serde_json::Value::Null;
-            changed["ho_name"] = serde_json::Value::Null;
-            changed["room_name"] = serde_json::Value::Null;
             changed["right_ratio"] = serde_json::json!("changed ratio");
             changed["closure_kind_code"] = serde_json::Value::Null;
             changed["closure_kind_name"] = serde_json::Value::Null;
@@ -235,28 +240,42 @@ async fn constrained_stage_refuses_duplicate_or_invalid_rights_and_serves_full_o
             tx.commit().await?;
 
             let repository = catalog_infrastructure::PgCatalogRepository::new(pool.clone());
-            let rights = repository
+            let page = repository
                 .list_parcel_land_rights_by_pnu(&Pnu::parse(&base.pnu)?)
                 .await?;
+            assert_eq!(page.total, 207);
+            assert_eq!(page.rights.len(), 200);
+            assert_eq!(page.rights[0].building_name, base.building_name);
             assert_eq!(
-                rights
-                    .iter()
-                    .map(|r| r.right_serial_no.as_str())
-                    .collect::<Vec<_>>(),
-                vec!["0001", "1", "10", "2", "214748364800000000000"]
+                page.rights[0].dong_name,
+                base.dong_name.clone().unwrap_or_default()
             );
-            assert_eq!(rights[0].building_name, base.building_name);
-            assert_eq!(rights[0].dong_name, base.dong_name);
-            assert_eq!(rights[0].floor_name, base.floor_name);
-            assert_eq!(rights[0].ho_name, base.ho_name);
-            assert_eq!(rights[0].room_name, base.room_name);
-            assert_eq!(rights[0].closure_kind_code, base.closure_kind_code);
-            assert_eq!(rights[0].closure_kind, base.closure_kind_name);
-            assert_eq!(rights[0].right_ratio, base.right_ratio);
-            assert!(repository
+            assert_eq!(
+                page.rights[0].floor_name,
+                base.floor_name.clone().unwrap_or_default()
+            );
+            assert_eq!(page.rights[0].closure_kind_code, base.closure_kind_code);
+            assert_eq!(page.rights[0].closure_kind, base.closure_kind_name);
+            assert_eq!(page.rights[0].right_ratio, base.right_ratio);
+            let mut served: Vec<(String, String)> = page
+                .rights
+                .iter()
+                .map(|r| (r.right_serial_no.clone(), r.ho_name.clone()))
+                .collect();
+            let sorted = {
+                let mut copy = served.clone();
+                copy.sort();
+                copy
+            };
+            assert_eq!(served, sorted, "page order must be deterministic");
+            served.dedup();
+            assert_eq!(served.len(), 200, "unit keys must stay distinct");
+
+            let empty = repository
                 .list_parcel_land_rights_by_pnu(&Pnu::parse("9999938029104450004")?)
-                .await?
-                .is_empty());
+                .await?;
+            assert_eq!(empty.total, 0);
+            assert!(empty.rights.is_empty());
             Ok(())
         },
     )

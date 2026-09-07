@@ -104,8 +104,9 @@ pub async fn run() -> anyhow::Result<()> {
     if u64::try_from(staged)? != input_rows {
         bail!("land_right_registration_stage_count_mismatch: read={input_rows} staged={staged}");
     }
+    let conflicting_groups = conflicting_groups(&mut transaction).await?;
     let inserted = merge_stage(&mut transaction).await?;
-    let existing = input_rows
+    let collapsed_or_existing = input_rows
         .checked_sub(inserted)
         .context("land_right_registration_merge_count_mismatch")?;
     transaction.commit().await?;
@@ -113,7 +114,8 @@ pub async fn run() -> anyhow::Result<()> {
         input_rows,
         staged,
         inserted,
-        existing,
+        collapsed_or_existing,
+        conflicting_groups,
         "parcel-land-right-projection-load-ok"
     );
     Ok(())
@@ -209,9 +211,11 @@ fn parse_vintage(value: &str) -> anyhow::Result<NaiveDate> {
 }
 
 async fn prepare_stage(conn: &mut PgConnection) -> anyhow::Result<()> {
+    // Constraint-free stage (root ADR-0093): provider duplicates must reach the
+    // deterministic collapse in merge_stage instead of aborting the COPY.
     conn.execute(
         "CREATE TEMPORARY TABLE parcel_land_right_projection_stage
-        (LIKE catalog.parcel_land_right INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)
+        (LIKE catalog.parcel_land_right INCLUDING DEFAULTS)
         ON COMMIT DROP",
     )
     .await?;
@@ -283,14 +287,16 @@ async fn copy_rows(
         {
             bail!("land_right_registration_invalid_serial");
         }
+        // Unit designation columns are key members (root ADR-0093): blank means
+        // "no designation", stored as '' so the six-column identity is total.
         let fields = [
             Some(row.pnu.as_str()),
             Some(row.right_serial_no.as_str()),
             row.building_name.as_deref(),
-            row.dong_name.as_deref(),
-            row.floor_name.as_deref(),
-            row.ho_name.as_deref(),
-            row.room_name.as_deref(),
+            Some(row.dong_name.as_deref().unwrap_or("")),
+            Some(row.floor_name.as_deref().unwrap_or("")),
+            Some(row.ho_name.as_deref().unwrap_or("")),
+            Some(row.room_name.as_deref().unwrap_or("")),
             row.right_ratio.as_deref(),
             row.closure_kind_code.as_deref(),
             row.closure_kind_name.as_deref(),
@@ -315,15 +321,40 @@ async fn copy_rows(
     Ok(rows)
 }
 
+/// Groups whose six-column unit identity repeats with different payload values:
+/// provider ratio/closure variants of the kind ADR-0093 measured (~49k groups
+/// nationwide). They are collapsed deterministically, never silently: this
+/// number is in the log.
+async fn conflicting_groups(conn: &mut PgConnection) -> anyhow::Result<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM (
+            SELECT 1 FROM parcel_land_right_projection_stage
+            GROUP BY pnu, right_serial_no, dong_name, floor_name, ho_name, room_name
+            HAVING count(DISTINCT (building_name, right_ratio,
+                                   closure_kind_code, closure_kind)) > 1) conflicts",
+    )
+    .fetch_one(conn)
+    .await?)
+}
+
 async fn merge_stage(conn: &mut PgConnection) -> anyhow::Result<u64> {
+    // Deterministic collapse (root ADR-0093): one row per six-column unit
+    // identity, chosen by a total order over the remaining columns so a rerun
+    // picks the same row.
     Ok(sqlx::query(
         "INSERT INTO catalog.parcel_land_right
         (pnu, right_serial_no, building_name, dong_name, floor_name, ho_name, room_name,
          right_ratio, closure_kind_code, closure_kind, source_snapshot_id)
-        SELECT pnu, right_serial_no, building_name, dong_name, floor_name, ho_name, room_name,
+        SELECT DISTINCT ON (pnu, right_serial_no, dong_name, floor_name, ho_name, room_name)
+            pnu, right_serial_no, building_name, dong_name, floor_name, ho_name, room_name,
             right_ratio, closure_kind_code, closure_kind, source_snapshot_id
         FROM parcel_land_right_projection_stage
-        ON CONFLICT (pnu, right_serial_no) DO NOTHING",
+        ORDER BY pnu, right_serial_no, dong_name, floor_name, ho_name, room_name,
+            building_name NULLS FIRST, right_ratio NULLS FIRST,
+            closure_kind_code NULLS FIRST, closure_kind NULLS FIRST,
+            source_snapshot_id
+        ON CONFLICT (pnu, right_serial_no, dong_name, floor_name, ho_name, room_name)
+            DO NOTHING",
     )
     .execute(conn)
     .await?
