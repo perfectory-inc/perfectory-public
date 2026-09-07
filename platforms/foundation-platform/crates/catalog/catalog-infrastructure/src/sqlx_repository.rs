@@ -12,10 +12,10 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError,
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
-    MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelIndustryAssignment, ParcelPrice,
-    ParcelZoning, PublicationUnit, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
-    ServingGeneration, ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
+    ParcelPrice, ParcelZoning, PublicationUnit, RuntimeTileLayer, RuntimeTileLineage,
+    RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind, SpatialLayer,
+    StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
     ComplexId, FileAssetId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId,
@@ -560,6 +560,35 @@ impl CatalogRepository for PgCatalogRepository {
                     terrain_height: row.try_get("terrain_height").map_err(map_sqlx)?,
                     terrain_shape: row.try_get("terrain_shape").map_err(map_sqlx)?,
                     road_contact: row.try_get("road_contact").map_err(map_sqlx)?,
+                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
+                })
+            })
+            .transpose()
+    }
+
+    async fn find_parcel_forest_ledger_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Option<ParcelForestLedger>, CatalogError> {
+        let row_opt = sqlx::query(
+            "SELECT pnu::text AS pnu, land_category, area_m2::float8 AS area_m2,
+                    ownership_kind, co_owner_count, source_snapshot_id
+             FROM catalog.parcel_forest_ledger
+             WHERE pnu = $1::character(19)",
+        )
+        .bind(pnu.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+
+        row_opt
+            .map(|row| {
+                Ok(ParcelForestLedger {
+                    pnu: row.try_get("pnu").map_err(map_sqlx)?,
+                    land_category: row.try_get("land_category").map_err(map_sqlx)?,
+                    area_m2: row.try_get("area_m2").map_err(map_sqlx)?,
+                    ownership_kind: row.try_get("ownership_kind").map_err(map_sqlx)?,
+                    co_owner_count: row.try_get("co_owner_count").map_err(map_sqlx)?,
                     source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
                 })
             })

@@ -1970,6 +1970,124 @@
         "object_prefix": null,
         "object_suffix_separator": null
       }
+    },
+    "silver.land_forest_ledger": {
+      "table_name": "silver.land_forest_ledger",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "land_category_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "land_category",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area_m2",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "ownership_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ownership_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "co_owner_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "scale_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "scale_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "data_reference_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "pnu",
+        "data_reference_date"
+      ],
+      "quality_gates": [
+        "pnu_not_null",
+        "area_m2_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
     }
   },
   "jsonl_transports": {

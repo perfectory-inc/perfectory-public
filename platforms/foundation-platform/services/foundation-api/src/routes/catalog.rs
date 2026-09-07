@@ -27,9 +27,9 @@ use catalog_application::{
 use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
-    IndustryGroupMember, MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelIndustryAssignment,
-    ParcelKind, ParcelPrice, ParcelZoning, SpatialLayer, VectorTileArtifact, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    IndustryGroupMember, MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger,
+    ParcelIndustryAssignment, ParcelKind, ParcelPrice, ParcelZoning, SpatialLayer,
+    VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use catalog_infrastructure::{BuildingUnitRow, UnitPageKey};
 use foundation_contracts::catalog::{
@@ -37,7 +37,7 @@ use foundation_contracts::catalog::{
     ComplexNoticeResponse, DigitalTwinAssetResponse, FileAssetResponse,
     IndustrialComplexGoldPointerResponse, IndustrialComplexResponse, IndustryGroupMemberResponse,
     IndustryGroupResponse, MarkerTileContractResponse, ParcelCharacteristicResponse,
-    ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
+    ParcelForestLedgerResponse, ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
     ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse, ParcelResponse, ParcelZoningResponse,
     PromoteFileAssetRequest, PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest,
     PromoteVectorTileManifestRequest, RegisterComplexRequest, RollbackVectorTileManifestRequest,
@@ -518,12 +518,17 @@ pub async fn get_parcel_by_pnu(
         .catalog_repo
         .find_parcel_characteristic_by_pnu(&pnu)
         .await?;
+    let forest_ledger = state
+        .catalog_repo
+        .find_parcel_forest_ledger_by_pnu(&pnu)
+        .await?;
 
     Ok(Json(parcel_response(
         &parcel,
         zonings,
         price,
         characteristics,
+        forest_ledger,
     )))
 }
 
@@ -557,12 +562,17 @@ pub async fn get_parcel(
         .catalog_repo
         .find_parcel_characteristic_by_pnu(&parcel.pnu)
         .await?;
+    let forest_ledger = state
+        .catalog_repo
+        .find_parcel_forest_ledger_by_pnu(&parcel.pnu)
+        .await?;
 
     Ok(Json(parcel_response(
         &parcel,
         zonings,
         price,
         characteristics,
+        forest_ledger,
     )))
 }
 
@@ -1063,12 +1073,17 @@ pub async fn update_parcel_kind(
         .catalog_repo
         .find_parcel_characteristic_by_pnu(&updated.pnu)
         .await?;
+    let forest_ledger = state
+        .catalog_repo
+        .find_parcel_forest_ledger_by_pnu(&updated.pnu)
+        .await?;
 
     Ok(Json(parcel_response(
         &updated,
         zonings,
         price,
         characteristics,
+        forest_ledger,
     )))
 }
 
@@ -1164,6 +1179,7 @@ fn parcel_response(
     zonings: Vec<ParcelZoning>,
     price: Option<ParcelPrice>,
     characteristics: Option<ParcelCharacteristic>,
+    forest_ledger: Option<ParcelForestLedger>,
 ) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
@@ -1194,6 +1210,12 @@ fn parcel_response(
             terrain_height: characteristics.terrain_height,
             terrain_shape: characteristics.terrain_shape,
             road_contact: characteristics.road_contact,
+        }),
+        forest_ledger: forest_ledger.map(|ledger| ParcelForestLedgerResponse {
+            land_category: ledger.land_category,
+            area_m2: ledger.area_m2,
+            ownership_kind: ledger.ownership_kind,
+            co_owner_count: ledger.co_owner_count,
         }),
     }
 }

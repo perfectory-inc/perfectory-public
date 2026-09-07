@@ -12,9 +12,9 @@ use catalog_domain::{
     ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
     IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
-    MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelIndustryAssignment, ParcelKind,
-    ParcelPrice, ParcelZoning, RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer,
-    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
+    MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
+    ParcelKind, ParcelPrice, ParcelZoning, RequestFingerprint, RequestFingerprintBuilder,
+    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
     VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
@@ -689,6 +689,15 @@ pub trait CatalogRepository: Send + Sync {
         &self,
         pnu: &Pnu,
     ) -> Result<Option<ParcelCharacteristic>, CatalogError>;
+
+    /// Finds the newest official forest ledger row for one parcel identified by PNU.
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
+    async fn find_parcel_forest_ledger_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Option<ParcelForestLedger>, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

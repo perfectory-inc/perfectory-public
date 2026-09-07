@@ -1,10 +1,10 @@
 //! Land-attribute ZIP to Silver JSONL handoff commands (root ADR-0083).
 //!
-//! Four lanes share this module: the D155 per-parcel land-use plan attribute CSV
+//! Five lanes share this module: the D155 per-parcel land-use plan attribute CSV
 //! (`silver.land_use_plan`), the LMIS zone code table (`silver.land_use_zone_code`), and
 //! the D151 per-parcel official land price CSV (`silver.land_individual_price`, root
 //! ADR-0085), plus the named AL_D195 CSV (`silver.land_characteristic`,
-//! root ADR-0087).
+//! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -26,7 +26,7 @@ use flate2::{write::GzEncoder, Compression as GzipCompression};
 use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::Pnu;
 use lakehouse_domain::{
-    LakehouseColumn, LakehouseTableContract, SILVER_LAND_CHARACTERISTIC,
+    LakehouseColumn, LakehouseTableContract, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
     SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
 };
 use serde_json::json;
@@ -249,6 +249,58 @@ const LAND_CHARACTERISTIC_LANE: Lane = Lane {
     member_matches: |name| name.starts_with("AL_D195_") && name.ends_with(".csv"),
     pnu_position: Some(0),
 };
+
+// CH_D003 change feeds stay in Bronze; this lane reads the full AL_D003 CSV.
+const LAND_FOREST_LANE: Lane = Lane {
+    env_prefix: "FOUNDATION_PLATFORM_LAND_FOREST",
+    contract: &SILVER_LAND_FOREST_LEDGER,
+    expected_header: &[
+        "고유번호",
+        "법정동코드",
+        "법정동명",
+        "지번",
+        "대장구분코드",
+        "대장구분명",
+        "지목코드",
+        "지목명",
+        "면적",
+        "소유구분코드",
+        "소유구분명",
+        "소유(공유)인수",
+        "축척구분코드",
+        "축척구분명",
+        "데이터기준일자",
+        "원천시도시군구코드",
+    ],
+    csv_columns: &[
+        Some("pnu"),
+        Some("legal_dong_code"),
+        Some("legal_dong_name"),
+        Some("jibun"),
+        Some("ledger_kind_code"),
+        Some("ledger_kind_name"),
+        Some("land_category_code"),
+        Some("land_category"),
+        Some("area_m2"),
+        Some("ownership_kind_code"),
+        Some("ownership_kind_name"),
+        Some("co_owner_count"),
+        Some("scale_code"),
+        Some("scale_name"),
+        Some("data_reference_date"),
+        Some("source_sigungu_code"),
+    ],
+    member_matches: |name| name.starts_with("AL_D003_") && name.ends_with(".csv"),
+    pnu_position: Some(0),
+};
+
+/// Runs the full forest-ledger CSV export using the shared handoff transport.
+///
+/// # Errors
+/// Refuses header drift and failed IO; invalid rows are counted by reason.
+pub async fn run_land_forest() -> anyhow::Result<()> {
+    run_lane(&LAND_FOREST_LANE).await
+}
 
 /// Runs the `AL_D195` CSV export using the shared handoff transport.
 ///
@@ -589,6 +641,13 @@ fn map_fields(
                 return Err(format!("blank_{}", column.name));
             }
             serde_json::Value::Null
+        } else if column.logical_type == "int" {
+            let number = trimmed
+                .parse::<i32>()
+                .ok()
+                .filter(|v| column.name != "co_owner_count" || *v >= 0)
+                .ok_or_else(|| format!("invalid_{}", column.name))?;
+            json!(number)
         } else if column.logical_type == "double" {
             let number = trimmed
                 .parse::<f64>()
@@ -821,6 +880,10 @@ fn write_summary_json(summary_path: &Path, summary: &serde_json::Value) -> anyho
 pub(crate) mod characteristic_csv_tests;
 
 #[cfg(test)]
+#[path = "land_forest_csv_tests.rs"]
+pub(crate) mod forest_csv_tests;
+
+#[cfg(test)]
 mod tests {
     use std::io::Write as _;
 
@@ -871,6 +934,7 @@ mod tests {
             &ZONE_CODE_LANE,
             &PRICE_LANE,
             &LAND_CHARACTERISTIC_LANE,
+            &LAND_FOREST_LANE,
         ] {
             assert_eq!(lane.expected_header.len(), lane.csv_columns.len());
             let mapped: Vec<&str> = lane

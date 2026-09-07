@@ -8,7 +8,7 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use parcel_lookup::{ParcelCharacteristics, ParcelInfoLookup};
+use parcel_lookup::{ParcelCharacteristics, ParcelForestLedger, ParcelInfoLookup};
 use product_identity_infrastructure::middleware::AuthenticatedUser;
 use serde::Serialize;
 use shared_kernel::pnu::Pnu;
@@ -53,6 +53,33 @@ pub struct ParcelInfoResponse {
     /// Raw cadastral characteristics from Foundation Platform.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub characteristics: Option<ParcelCharacteristicsResponse>,
+    /// Raw forest-register facts from Foundation Platform.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forest_ledger: Option<ParcelForestLedgerResponse>,
+}
+
+/// Raw forest-register facts exposed without product-side interpretation.
+#[derive(Debug, Serialize)]
+pub struct ParcelForestLedgerResponse {
+    /// Cadastral land category name.
+    pub land_category: Option<String>,
+    /// Official ledger area in square meters.
+    pub area_m2: Option<f64>,
+    /// Provider ownership category code.
+    pub ownership_kind: Option<String>,
+    /// Number of co-owners recorded by the provider.
+    pub co_owner_count: Option<i32>,
+}
+
+impl From<ParcelForestLedger> for ParcelForestLedgerResponse {
+    fn from(value: ParcelForestLedger) -> Self {
+        Self {
+            land_category: value.land_category,
+            area_m2: value.area_m2,
+            ownership_kind: value.ownership_kind,
+            co_owner_count: value.co_owner_count,
+        }
+    }
 }
 
 /// Raw cadastral characteristics exposed without product-side formatting.
@@ -147,5 +174,6 @@ pub async fn get_parcel(
             .gosi_year_month
             .map(|y| format!("{:04}{:02}", y.year, y.month)),
         characteristics: info.characteristics.map(Into::into),
+        forest_ledger: info.forest_ledger.map(Into::into),
     }))
 }

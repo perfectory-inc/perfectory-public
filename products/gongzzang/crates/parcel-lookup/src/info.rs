@@ -39,6 +39,19 @@ pub struct ParcelCharacteristics {
     pub road_contact: Option<String>,
 }
 
+/// Raw forest-register facts published by Foundation Platform.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParcelForestLedger {
+    /// Cadastral land category name exactly as the provider wrote it.
+    pub land_category: Option<String>,
+    /// Official ledger area in square meters.
+    pub area_m2: Option<f64>,
+    /// Provider ownership category code, not an owner identity.
+    pub ownership_kind: Option<String>,
+    /// Number of co-owners recorded by the provider.
+    pub co_owner_count: Option<i32>,
+}
+
 /// Parcel information subset used by Gongzzang.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParcelInfo {
@@ -57,4 +70,6 @@ pub struct ParcelInfo {
     pub gosi_year_month: Option<GosiYearMonth>,
     /// Source cadastral characteristics, when Foundation publishes them.
     pub characteristics: Option<ParcelCharacteristics>,
+    /// Source forest-register facts, when Foundation publishes them.
+    pub forest_ledger: Option<ParcelForestLedger>,
 }

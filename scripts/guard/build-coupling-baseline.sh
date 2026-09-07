@@ -149,13 +149,17 @@ set -euo pipefail
 # shapefile's anonymous 공시지가 column against the price serving schema; with named
 # CSV headers that verification is gone, so one test-only embedded input fell away.
 #
+# 97 -> 99: the forest-ledger projection tests embed its measured source inventory
+# and shipped migration to verify complete-vintage selection and transactional COPY
+# against the same inputs the production command uses (root ADR-0088).
+#
 # That count is a text search, so a comment naming one of these macros is counted
 # like a call site. It is not a bug to fix here: these guards deliberately do not
 # parse Rust, because a second analyzer of the language is a larger liability than
 # an occasional reworded comment. Write about the macros without spelling them.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-97}"
+COMPILE_TIME_READ_BASELINE="${3:-99}"
 
 cd "$repo_root"
 

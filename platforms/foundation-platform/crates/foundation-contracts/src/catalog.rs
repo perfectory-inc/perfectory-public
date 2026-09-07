@@ -234,6 +234,21 @@ pub struct ParcelResponse {
     pub price: Option<ParcelPriceResponse>,
     /// Newest cadastral characteristics from the `AL_D195` CSV ledger (root ADR-0087).
     pub characteristics: Option<ParcelCharacteristicResponse>,
+    /// Newest official forest-register facts from the `AL_D003` CSV ledger.
+    pub forest_ledger: Option<ParcelForestLedgerResponse>,
+}
+
+/// One forest parcel's newest official ledger facts.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ParcelForestLedgerResponse {
+    /// Cadastral land category name exactly as the provider wrote it.
+    pub land_category: Option<String>,
+    /// Official ledger area in square meters.
+    pub area_m2: Option<f64>,
+    /// Provider ownership category code, not an owner identity.
+    pub ownership_kind: Option<String>,
+    /// Number of co-owners recorded by the provider.
+    pub co_owner_count: Option<i32>,
 }
 
 /// One parcel's newest cadastral characteristics (root ADR-0087).
