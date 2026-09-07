@@ -7,8 +7,11 @@ use chrono::{DateTime, Utc};
 pub struct ParcelTransferEvent {
     /// Parcel Number Unit identifier.
     pub pnu: String,
-    /// Provider event sequence, unique within one parcel.
+    /// Provider event sequence — unique only together with `parcel_history_seq`
+    /// (root ADR-0090).
     pub transfer_history_seq: i64,
+    /// 토지이력순번 — disambiguates rows sharing one 이동이력순번.
+    pub parcel_history_seq: String,
     /// Provider transfer reason code, unchanged.
     pub reason_code: Option<String>,
     /// Provider transfer reason, unchanged.

@@ -600,12 +600,13 @@ impl CatalogRepository for PgCatalogRepository {
         pnu: &Pnu,
     ) -> Result<Vec<ParcelTransferEvent>, CatalogError> {
         let rows = sqlx::query(
-            "SELECT pnu::text AS pnu, transfer_history_seq, reason_code, reason, moved_at,
-                    erased_at, land_category, area_m2::float8 AS area_m2, closure_seq,
-                    source_snapshot_id, loaded_at
+            "SELECT pnu::text AS pnu, transfer_history_seq, parcel_history_seq, reason_code,
+                    reason, moved_at, erased_at, land_category, area_m2::float8 AS area_m2,
+                    closure_seq, source_snapshot_id, loaded_at
              FROM catalog.parcel_transfer_event
              WHERE pnu = $1::character(19)
-             ORDER BY moved_at DESC NULLS LAST, transfer_history_seq DESC",
+             ORDER BY moved_at DESC NULLS LAST, transfer_history_seq DESC,
+                      parcel_history_seq DESC",
         )
         .bind(pnu.as_str())
         .fetch_all(&self.pool)
@@ -617,6 +618,7 @@ impl CatalogRepository for PgCatalogRepository {
                 Ok(ParcelTransferEvent {
                     pnu: row.try_get("pnu").map_err(map_sqlx)?,
                     transfer_history_seq: row.try_get("transfer_history_seq").map_err(map_sqlx)?,
+                    parcel_history_seq: row.try_get("parcel_history_seq").map_err(map_sqlx)?,
                     reason_code: row.try_get("reason_code").map_err(map_sqlx)?,
                     reason: row.try_get("reason").map_err(map_sqlx)?,
                     moved_at: row.try_get("moved_at").map_err(map_sqlx)?,
