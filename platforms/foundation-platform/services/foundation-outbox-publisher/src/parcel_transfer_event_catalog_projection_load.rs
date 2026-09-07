@@ -50,6 +50,7 @@ struct SourceObject {
 struct HandoffRow {
     pnu: String,
     transfer_history_seq: i64,
+    parcel_history_seq: Option<String>,
     reason_code: Option<String>,
     reason: Option<String>,
     moved_at: Option<String>,
@@ -99,8 +100,9 @@ pub async fn run() -> anyhow::Result<()> {
     if u64::try_from(staged)? != input_rows {
         bail!("land_transfer_history_stage_count_mismatch: read={input_rows} staged={staged}");
     }
+    let conflicting_groups = conflicting_groups(&mut transaction).await?;
     let inserted = merge_stage(&mut transaction).await?;
-    let existing = input_rows
+    let collapsed_or_existing = input_rows
         .checked_sub(inserted)
         .context("land_transfer_history_merge_count_mismatch")?;
     transaction.commit().await?;
@@ -108,7 +110,8 @@ pub async fn run() -> anyhow::Result<()> {
         input_rows,
         staged,
         inserted,
-        existing,
+        collapsed_or_existing,
+        conflicting_groups,
         "parcel-transfer-event-projection-load-ok"
     );
     Ok(())
@@ -203,13 +206,16 @@ fn parse_vintage(value: &str) -> anyhow::Result<NaiveDate> {
 }
 
 async fn prepare_stage(conn: &mut PgConnection) -> anyhow::Result<()> {
-    // Inherit the serving key instead of duplicating it. Keep the stage for the entire
-    // vintage: even identical event duplicates must fail COPY before the merge.
+    // Unconstrained on purpose (root ADR-0090): the provider ships byte-identical
+    // duplicate rows (0.01% of 121M measured), so the stage accepts everything and the
+    // merge collapses deterministically. The first design inherited the serving key here
+    // and its refusal is what surfaced the real identity — three sequences, not two.
     conn.execute(
         "CREATE TEMPORARY TABLE parcel_transfer_event_projection_stage
-        (LIKE catalog.parcel_transfer_event INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)
+        (LIKE catalog.parcel_transfer_event INCLUDING DEFAULTS)
         ON COMMIT DROP",
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -233,8 +239,9 @@ async fn stage_rows(
     let mut copy = conn
         .copy_in_raw(
             "COPY parcel_transfer_event_projection_stage
-        (pnu, transfer_history_seq, reason_code, reason, moved_at, erased_at,
-         land_category, area_m2, closure_seq, source_snapshot_id) FROM STDIN WITH (FORMAT text)",
+        (pnu, transfer_history_seq, parcel_history_seq, reason_code, reason, moved_at,
+         erased_at, land_category, area_m2, closure_seq, source_snapshot_id)
+        FROM STDIN WITH (FORMAT text)",
         )
         .await?;
     let rows = match copy_rows(&mut copy, reader, object).await {
@@ -278,11 +285,18 @@ async fn copy_rows(
         if !pnu.as_str().starts_with(&object.region_code) {
             bail!("land_transfer_history_region_mismatch");
         }
+        let parcel_history_seq = row
+            .parcel_history_seq
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("land_transfer_history_missing_parcel_history_seq")?;
         let seq = row.transfer_history_seq.to_string();
         let area = row.area_m2.map(|value| value.to_string());
         let fields = [
             Some(row.pnu.as_str()),
             Some(seq.as_str()),
+            Some(parcel_history_seq),
             row.reason_code.as_deref(),
             row.reason.as_deref(),
             row.moved_at.as_deref(),
@@ -311,15 +325,37 @@ async fn copy_rows(
     Ok(rows)
 }
 
+/// Counts three-sequence groups whose rows disagree beyond byte-identity — the rare
+/// provider wording variants ADR-0090 measured (4 groups across three sample sidos).
+/// They are collapsed deterministically, never silently: this number is in the log.
+async fn conflicting_groups(conn: &mut PgConnection) -> anyhow::Result<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM (
+            SELECT 1 FROM parcel_transfer_event_projection_stage
+            GROUP BY pnu, transfer_history_seq, parcel_history_seq
+            HAVING count(DISTINCT (reason_code, reason, moved_at, erased_at,
+                                   land_category, area_m2, closure_seq)) > 1) conflicts",
+    )
+    .fetch_one(conn)
+    .await?)
+}
+
 async fn merge_stage(conn: &mut PgConnection) -> anyhow::Result<u64> {
+    // Deterministic collapse (root ADR-0090): one row per three-sequence identity,
+    // chosen by a total order over the remaining columns so a rerun picks the same row.
     Ok(sqlx::query(
         "INSERT INTO catalog.parcel_transfer_event
-        (pnu, transfer_history_seq, reason_code, reason, moved_at, erased_at,
-         land_category, area_m2, closure_seq, source_snapshot_id)
-        SELECT pnu, transfer_history_seq, reason_code, reason, moved_at, erased_at,
-            land_category, area_m2, closure_seq, source_snapshot_id
+        (pnu, transfer_history_seq, parcel_history_seq, reason_code, reason, moved_at,
+         erased_at, land_category, area_m2, closure_seq, source_snapshot_id)
+        SELECT DISTINCT ON (pnu, transfer_history_seq, parcel_history_seq)
+            pnu, transfer_history_seq, parcel_history_seq, reason_code, reason, moved_at,
+            erased_at, land_category, area_m2, closure_seq, source_snapshot_id
         FROM parcel_transfer_event_projection_stage
-        ON CONFLICT (pnu, transfer_history_seq) DO NOTHING",
+        ORDER BY pnu, transfer_history_seq, parcel_history_seq,
+            reason_code NULLS FIRST, reason NULLS FIRST, moved_at NULLS FIRST,
+            erased_at NULLS FIRST, land_category NULLS FIRST, area_m2 NULLS FIRST,
+            closure_seq NULLS FIRST
+        ON CONFLICT (pnu, transfer_history_seq, parcel_history_seq) DO NOTHING",
     )
     .execute(conn)
     .await?

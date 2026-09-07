@@ -1243,6 +1243,7 @@ fn parcel_response(
                 land_category: event.land_category,
                 area_m2: event.area_m2,
                 history_seq: event.transfer_history_seq,
+                parcel_history_seq: event.parcel_history_seq,
                 closure_seq: event.closure_seq,
             })
             .collect(),

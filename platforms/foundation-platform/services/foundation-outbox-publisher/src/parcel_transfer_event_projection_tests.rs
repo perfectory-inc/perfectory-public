@@ -100,7 +100,7 @@ fn copy_escaping_preserves_source_text_and_nulls() {
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL through DATABASE_URL"]
-async fn copy_refuses_duplicate_events_and_serves_the_full_append_only_timeline(
+async fn duplicates_collapse_deterministically_and_the_timeline_stays_append_only(
 ) -> foundation_disposable_database::TestResult {
     use catalog_application::ports::CatalogRepository;
 
@@ -115,6 +115,10 @@ async fn copy_refuses_duplicate_events_and_serves_the_full_append_only_timeline(
                 "../../../migrations/20260907010000_a_parcel_keeps_its_transfer_events.sql"
             ))
             .await?;
+            conn.execute(include_str!(
+                "../../../migrations/20260907020000_a_transfer_event_is_named_by_three_sequences.sql"
+            ))
+            .await?;
             let first_line = body.lines().next().unwrap();
             let base: HandoffRow = serde_json::from_str(first_line)?;
             let object = SourceObject {
@@ -124,8 +128,9 @@ async fn copy_refuses_duplicate_events_and_serves_the_full_append_only_timeline(
                 vintage: "20260531".into(),
             };
 
-            // Both byte-identical and conflicting values for the same event must fail with
-            // the database's unique_violation, not be collapsed or hidden by DO NOTHING.
+            // Root ADR-0090: a byte-identical duplicate collapses to one row; a same-key
+            // wording variant is counted as a conflicting group and collapses
+            // deterministically — the national load is never refused over provider dirt.
             for changed in [false, true] {
                 let mut tx = conn.begin().await?;
                 prepare_stage(&mut tx).await?;
@@ -133,41 +138,41 @@ async fn copy_refuses_duplicate_events_and_serves_the_full_append_only_timeline(
                     stage_rows(&mut tx, std::io::Cursor::new(&body), &object).await?,
                     2
                 );
-                // Prove rollback removes an earlier merge too, not just the failing COPY.
-                assert_eq!(merge_stage(&mut tx).await?, 2);
                 let mut duplicate: serde_json::Value = serde_json::from_str(first_line)?;
                 if changed {
-                    duplicate["reason"] = serde_json::json!("conflicting reason");
+                    duplicate["reason"] = serde_json::json!("aaa deterministic winner");
                 }
-                let error = stage_rows(
-                    &mut tx,
-                    std::io::Cursor::new(duplicate.to_string()),
-                    &object,
-                )
-                .await
-                .expect_err("duplicate event key must refuse");
-                let database_error = error
-                    .downcast_ref::<sqlx::Error>()
-                    .and_then(sqlx::Error::as_database_error)
-                    .expect("PostgreSQL constraint error");
-                assert_eq!(database_error.code().as_deref(), Some("23505"));
+                assert_eq!(
+                    stage_rows(
+                        &mut tx,
+                        std::io::Cursor::new(duplicate.to_string()),
+                        &object,
+                    )
+                    .await?,
+                    1
+                );
+                assert_eq!(
+                    conflicting_groups(&mut tx).await?,
+                    i64::from(changed),
+                    "only a wording variant counts as a conflict"
+                );
+                assert_eq!(merge_stage(&mut tx).await?, 2);
                 tx.rollback().await?;
-                let rows: i64 =
-                    sqlx::query_scalar("SELECT count(*) FROM catalog.parcel_transfer_event")
-                        .fetch_one(&mut *conn)
-                        .await?;
-                assert_eq!(rows, 0);
             }
-            // A duplicate inside one COPY (rather than successive calls) is equally refused.
+            // The same duplicate inside one COPY stages fine and collapses at merge; the
+            // deterministic order picks the lexicographically first content.
             let mut tx = conn.begin().await?;
             prepare_stage(&mut tx).await?;
-            assert!(stage_rows(
-                &mut tx,
-                std::io::Cursor::new(format!("{body}{body}")),
-                &object
-            )
-            .await
-            .is_err());
+            assert_eq!(
+                stage_rows(
+                    &mut tx,
+                    std::io::Cursor::new(format!("{body}{body}")),
+                    &object
+                )
+                .await?,
+                4
+            );
+            assert_eq!(merge_stage(&mut tx).await?, 2);
             tx.rollback().await?;
 
             for invalid in [
@@ -177,6 +182,7 @@ async fn copy_refuses_duplicate_events_and_serves_the_full_append_only_timeline(
                 "empty_snapshot",
                 "invalid_pnu",
                 "missing_seq",
+                "missing_parcel_seq",
             ] {
                 let mut tx = conn.begin().await?;
                 prepare_stage(&mut tx).await?;
@@ -188,6 +194,7 @@ async fn copy_refuses_duplicate_events_and_serves_the_full_append_only_timeline(
                     "empty_snapshot" => bad["source_snapshot_id"] = serde_json::json!(" "),
                     "invalid_pnu" => bad["pnu"] = serde_json::json!("invalid"),
                     "missing_seq" => bad["transfer_history_seq"] = serde_json::Value::Null,
+                    "missing_parcel_seq" => bad["parcel_history_seq"] = serde_json::json!(" "),
                     _ => {}
                 }
                 let input = if invalid == "empty" {

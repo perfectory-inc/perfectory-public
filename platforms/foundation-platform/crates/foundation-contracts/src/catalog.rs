@@ -260,6 +260,8 @@ pub struct ParcelTransferEventResponse {
     pub area_m2: Option<f64>,
     /// Provider event sequence within the parcel.
     pub history_seq: i64,
+    /// 토지이력순번 — disambiguates events sharing one `history_seq` (root ADR-0090).
+    pub parcel_history_seq: String,
     /// Provider closure sequence, unchanged.
     pub closure_seq: Option<String>,
 }
