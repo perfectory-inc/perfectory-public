@@ -11,7 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parcel_lookup::{
     GosiYearMonth, LookupError, ParcelCharacteristics, ParcelForestLedger, ParcelInfo,
-    ParcelInfoLookup,
+    ParcelInfoLookup, ParcelTransferEvent,
 };
 use reqwest::StatusCode;
 use shared_kernel::admin_division::{AdminDivision, EupmyeondongCode, SidoCode, SigunguCode};
@@ -162,6 +162,20 @@ fn parcel_info_from_response(
                 ownership_kind: ledger.ownership_kind.clone(),
                 co_owner_count: ledger.co_owner_count,
             }),
+        transfer_history: response
+            .transfer_history
+            .iter()
+            .map(|event| ParcelTransferEvent {
+                reason: event.reason.clone(),
+                reason_code: event.reason_code.clone(),
+                moved_at: event.moved_at.clone(),
+                erased_at: event.erased_at.clone(),
+                land_category: event.land_category.clone(),
+                area_m2: event.area_m2,
+                history_seq: event.history_seq,
+                closure_seq: event.closure_seq.clone(),
+            })
+            .collect(),
     })
 }
 
@@ -416,6 +430,45 @@ mod tests {
                 ownership_kind: Some("02".to_owned()),
                 co_owner_count: Some(3),
             }
+        );
+    }
+
+    #[tokio::test]
+    async fn lookup_carries_transfer_history_raw_and_in_provider_order() {
+        let body = format!(
+            r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","transfer_history":[{{"reason":"구획정리 시행신고","reason_code":"31","moved_at":"20050608","erased_at":null,"land_category":"공장용지","area_m2":812.5,"history_seq":2,"closure_seq":"0"}},{{"reason":"95번에서 분할","reason_code":"16","moved_at":"20020523","erased_at":"20050608","land_category":"전","area_m2":900.0,"history_seq":1,"closure_seq":null}}]}}"#
+        );
+        let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
+        let lookup =
+            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
+
+        let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
+
+        assert_eq!(
+            info.transfer_history,
+            vec![
+                ParcelTransferEvent {
+                    reason: Some("구획정리 시행신고".to_owned()),
+                    reason_code: Some("31".to_owned()),
+                    moved_at: Some("20050608".to_owned()),
+                    erased_at: None,
+                    land_category: Some("공장용지".to_owned()),
+                    area_m2: Some(812.5),
+                    history_seq: 2,
+                    closure_seq: Some("0".to_owned()),
+                },
+                ParcelTransferEvent {
+                    reason: Some("95번에서 분할".to_owned()),
+                    reason_code: Some("16".to_owned()),
+                    moved_at: Some("20020523".to_owned()),
+                    erased_at: Some("20050608".to_owned()),
+                    land_category: Some("전".to_owned()),
+                    area_m2: Some(900.0),
+                    history_seq: 1,
+                    closure_seq: None,
+                },
+            ]
         );
     }
 

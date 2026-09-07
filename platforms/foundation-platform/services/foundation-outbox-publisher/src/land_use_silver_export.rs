@@ -1,10 +1,10 @@
 //! Land-attribute ZIP to Silver JSONL handoff commands (root ADR-0083).
 //!
-//! Five lanes share this module: the D155 per-parcel land-use plan attribute CSV
+//! Six lanes share this module: the D155 per-parcel land-use plan attribute CSV
 //! (`silver.land_use_plan`), the LMIS zone code table (`silver.land_use_zone_code`), and
 //! the D151 per-parcel official land price CSV (`silver.land_individual_price`, root
 //! ADR-0085), plus the named AL_D195 CSV (`silver.land_characteristic`,
-//! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088).
+//! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088), and the AL_D157 event timeline (root ADR-0089).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -27,7 +27,8 @@ use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::Pnu;
 use lakehouse_domain::{
     LakehouseColumn, LakehouseTableContract, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
-    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
+    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN,
+    SILVER_LAND_USE_ZONE_CODES,
 };
 use serde_json::json;
 
@@ -59,6 +60,8 @@ struct Lane {
     member_matches: fn(&str) -> bool,
     /// Which CSV position carries a PNU that must parse, if any.
     pnu_position: Option<usize>,
+    /// Current attribute lanes require positive area; event timelines preserve historic zeroes.
+    positive_area: bool,
 }
 
 const PLAN_LANE: Lane = Lane {
@@ -100,6 +103,7 @@ const PLAN_LANE: Lane = Lane {
     ],
     member_matches: |name| name.starts_with("AL_D155_") && name.ends_with(".csv"),
     pnu_position: Some(0),
+    positive_area: true,
 };
 
 const ZONE_CODE_LANE: Lane = Lane {
@@ -145,6 +149,7 @@ const ZONE_CODE_LANE: Lane = Lane {
     ],
     member_matches: |name| name == "LART_LMISZONE.csv",
     pnu_position: None,
+    positive_area: true,
 };
 
 /// The D151 prefix also carries D150 DBF siblings; the member match keeps this lane on the
@@ -184,6 +189,7 @@ const PRICE_LANE: Lane = Lane {
     ],
     member_matches: |name| name.starts_with("AL_D151_") && name.ends_with(".csv"),
     pnu_position: Some(0),
+    positive_area: true,
 };
 
 // AL_D194 SHP siblings stay in Bronze; only the named AL_D195 CSV is ingested.
@@ -248,6 +254,7 @@ const LAND_CHARACTERISTIC_LANE: Lane = Lane {
     ],
     member_matches: |name| name.starts_with("AL_D195_") && name.ends_with(".csv"),
     pnu_position: Some(0),
+    positive_area: true,
 };
 
 // CH_D003 change feeds stay in Bronze; this lane reads the full AL_D003 CSV.
@@ -292,7 +299,65 @@ const LAND_FOREST_LANE: Lane = Lane {
     ],
     member_matches: |name| name.starts_with("AL_D003_") && name.ends_with(".csv"),
     pnu_position: Some(0),
+    positive_area: true,
 };
+
+// Full event history only; CH_D157 is a change feed, not this lane.
+const LAND_TRANSFER_LANE: Lane = Lane {
+    env_prefix: "FOUNDATION_PLATFORM_LAND_TRANSFER",
+    contract: &SILVER_LAND_TRANSFER_HISTORY,
+    expected_header: &[
+        "고유번호",
+        "법정동코드",
+        "법정동명",
+        "대장구분코드",
+        "대장구분명",
+        "지번",
+        "토지이동이력순번",
+        "폐쇄순번",
+        "지목코드",
+        "지목",
+        "토지면적",
+        "토지이동사유코드",
+        "토지이동사유",
+        "토지이동일자",
+        "토지이동말소일자",
+        "토지이력순번",
+        "데이터기준일자",
+        "원천시도시군구코드",
+    ],
+    csv_columns: &[
+        Some("pnu"),
+        Some("legal_dong_code"),
+        Some("legal_dong_name"),
+        Some("ledger_kind_code"),
+        Some("ledger_kind_name"),
+        Some("jibun"),
+        Some("transfer_history_seq"),
+        Some("closure_seq"),
+        Some("land_category_code"),
+        Some("land_category"),
+        Some("area_m2"),
+        Some("reason_code"),
+        Some("reason"),
+        Some("moved_at"),
+        Some("erased_at"),
+        Some("parcel_history_seq"),
+        Some("data_reference_date"),
+        Some("source_sigungu_code"),
+    ],
+    member_matches: |name| name.starts_with("AL_D157_") && name.ends_with(".csv"),
+    pnu_position: Some(0),
+    positive_area: false,
+};
+
+/// Exports every cadastral transfer event through the shared handoff transport.
+///
+/// # Errors
+/// Refuses header drift, ambiguous members, and failed IO.
+pub async fn run_land_transfer_history() -> anyhow::Result<()> {
+    run_lane(&LAND_TRANSFER_LANE).await
+}
 
 /// Runs the full forest-ledger CSV export using the shared handoff transport.
 ///
@@ -596,7 +661,7 @@ fn stream_rows(
                 continue;
             }
         }
-        let mut row = match map_fields(&mapped_columns, &fields) {
+        let mut row = match map_fields(&mapped_columns, &fields, lane.positive_area) {
             Ok(row) => row,
             Err(reason) => {
                 reject(&mut report, &reason);
@@ -631,6 +696,7 @@ fn reject(report: &mut StreamReport, reason: &str) {
 fn map_fields(
     columns: &[Option<&LakehouseColumn>],
     fields: &[String],
+    positive_area: bool,
 ) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let mut row = serde_json::Map::new();
     for (column, value) in columns.iter().zip(fields) {
@@ -648,11 +714,18 @@ fn map_fields(
                 .filter(|v| column.name != "co_owner_count" || *v >= 0)
                 .ok_or_else(|| format!("invalid_{}", column.name))?;
             json!(number)
+        } else if column.logical_type == "long" {
+            let number = trimmed
+                .parse::<i64>()
+                .map_err(|_| format!("invalid_{}", column.name))?;
+            json!(number)
         } else if column.logical_type == "double" {
             let number = trimmed
                 .parse::<f64>()
                 .ok()
-                .filter(|v| v.is_finite() && (column.name != "area_m2" || *v > 0.0))
+                .filter(|v| {
+                    v.is_finite() && (!positive_area || column.name != "area_m2" || *v > 0.0)
+                })
                 .ok_or_else(|| format!("invalid_{}", column.name))?;
             json!(number)
         } else {
@@ -884,6 +957,10 @@ pub(crate) mod characteristic_csv_tests;
 pub(crate) mod forest_csv_tests;
 
 #[cfg(test)]
+#[path = "land_transfer_csv_tests.rs"]
+pub(crate) mod transfer_csv_tests;
+
+#[cfg(test)]
 mod tests {
     use std::io::Write as _;
 
@@ -935,6 +1012,7 @@ mod tests {
             &PRICE_LANE,
             &LAND_CHARACTERISTIC_LANE,
             &LAND_FOREST_LANE,
+            &LAND_TRANSFER_LANE,
         ] {
             assert_eq!(lane.expected_header.len(), lane.csv_columns.len());
             let mapped: Vec<&str> = lane

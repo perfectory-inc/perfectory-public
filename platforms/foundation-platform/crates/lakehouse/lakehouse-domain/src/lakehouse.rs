@@ -603,6 +603,7 @@ const SILVER_LAND_USE_PLAN_COLUMNS: &[LakehouseColumn] = &[
 
 pub use crate::land_characteristic::SILVER_LAND_CHARACTERISTIC;
 pub use crate::land_forest_ledger::SILVER_LAND_FOREST_LEDGER;
+pub use crate::land_transfer_history::SILVER_LAND_TRANSFER_HISTORY;
 
 // D151 필지별 개별공시지가 CSV 의 열 순서 그대로 (root ADR-0085). 값은 원천 표기
 // 그대로 문자열로 나른다 — 형 변환은 소비 투영의 몫이고, 원천이 준 것을 바꾸지 않는다.
@@ -2040,6 +2041,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_LAND_INDIVIDUAL_PRICE,
     SILVER_LAND_CHARACTERISTIC,
     SILVER_LAND_FOREST_LEDGER,
+    SILVER_LAND_TRANSFER_HISTORY,
     SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES,
     SILVER_BUILDING_REGISTER_UNITS,
