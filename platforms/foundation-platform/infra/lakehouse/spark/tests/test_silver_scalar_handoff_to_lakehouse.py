@@ -70,6 +70,29 @@ class SilverScalarHandoffToLakehouseTest(unittest.TestCase):
         ))
         self.assertEqual(spark.read.json_path, "/tmp/floors")
 
+    def test_read_handoff_jsonl_splits_comma_batches_before_spark(self) -> None:
+        # Spark 3 stopped splitting comma-joined paths itself: handed the raw
+        # batch string, it fails with PATH_NOT_FOUND on the whole batch. The
+        # reader must split before spark.read sees it.
+        contract = {
+            "columns": [
+                {"name": "floor_row_id", "logical_type": "string", "required": True},
+            ]
+        }
+        spark = FakeSpark()
+
+        read_handoff_jsonl(
+            spark,
+            "s3a://lake/part-0001.jsonl.gz,s3a://lake/part-0002.jsonl.gz",
+            contract,
+            FakeSparkTypes,
+        )
+
+        self.assertEqual(
+            spark.read.json_path,
+            ["s3a://lake/part-0001.jsonl.gz", "s3a://lake/part-0002.jsonl.gz"],
+        )
+
     def test_read_handoff_jsonl_accepts_building_register_unit_contract(self) -> None:
         contract = load_lakehouse_contract("silver.building_register_units")
         spark = FakeSpark()
@@ -122,6 +145,27 @@ class SilverScalarHandoffToLakehouseTest(unittest.TestCase):
         self.assertEqual(
             spark.read.parquet_paths,
             ("/tmp/floors/part-000001.parquet", "/tmp/floors/part-000002.parquet"),
+        )
+
+    def test_read_handoff_parquet_splits_comma_batches_before_spark(self) -> None:
+        # Same rule as the jsonl reader: a comma batch is split here, never
+        # handed to spark.read as one path.
+        contract = {
+            "columns": [
+                {"name": "floor_row_id", "logical_type": "string", "required": True},
+            ]
+        }
+        spark = FakeSpark()
+
+        read_handoff_parquet(
+            spark,
+            "s3a://lake/part-0001.parquet,s3a://lake/part-0002.parquet",
+            contract,
+        )
+
+        self.assertEqual(
+            spark.read.parquet_paths,
+            ("s3a://lake/part-0001.parquet", "s3a://lake/part-0002.parquet"),
         )
 
     def test_large_handoff_persistence_is_disk_first(self) -> None:

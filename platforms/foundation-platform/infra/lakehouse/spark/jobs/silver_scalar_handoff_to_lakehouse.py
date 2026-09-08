@@ -274,6 +274,10 @@ def read_handoff_jsonl(
     contract: dict[str, Any],
     T: Any,
 ) -> Any:
+    # A comma batch must be split before it reaches spark.read: Spark 3 treats the
+    # joined string as one path and fails with PATH_NOT_FOUND on the whole batch.
+    if isinstance(input_path, str):
+        input_path = lakehouse_object_store.input_paths(input_path)
     handoff = spark.read.schema(spark_struct_schema(contract, T)).json(input_path)
     expected_columns = column_names(contract)
     missing_columns = sorted(set(expected_columns) - set(handoff.columns))
@@ -287,6 +291,9 @@ def read_handoff_parquet(
     input_path: str | Sequence[str],
     contract: dict[str, Any],
 ) -> Any:
+    # Same comma-batch split as the jsonl reader; Spark 3 does not split for us.
+    if isinstance(input_path, str):
+        input_path = lakehouse_object_store.input_paths(input_path)
     if isinstance(input_path, str):
         handoff = spark.read.parquet(input_path)
     else:
