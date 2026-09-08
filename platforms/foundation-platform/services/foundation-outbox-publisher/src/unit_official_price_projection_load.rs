@@ -59,6 +59,17 @@ impl Config {
             self.source_snapshot.replace('\'', "''")
         )
     }
+
+    /// The price Silver snapshot this projection was joined from, parsed out of the
+    /// `price:<n>|exclusive:<n>|vintage:<v>` lineage the Spark job stamped.
+    fn price_snapshot(&self) -> anyhow::Result<i64> {
+        self.source_snapshot
+            .split('|')
+            .find_map(|part| part.strip_prefix("price:"))
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|snapshot| *snapshot > 0)
+            .context("source_snapshot_id does not name a positive price snapshot")
+    }
 }
 
 /// Trino's supported CLI owns protocol pagination, retries and cancellation.
@@ -123,6 +134,11 @@ struct Province {
 }
 
 #[derive(Deserialize)]
+struct SidoOnly {
+    sido: String,
+}
+
+#[derive(Deserialize)]
 struct PriceRow {
     pnu: String,
     dong_name: String,
@@ -149,6 +165,30 @@ impl PriceRow {
     }
 }
 
+/// The province set the pinned price snapshot actually carries. Administrative
+/// mergers change how many provinces exist (the 202608 data merges Gwangju and
+/// Jeonnam into one code), so completeness is defined by the source, not a constant.
+async fn expected_provinces(config: &Config) -> anyhow::Result<std::collections::BTreeSet<String>> {
+    let sql = format!(
+        "SELECT DISTINCT substr(sigungu_cd, 1, 2) AS sido
+         FROM r2.silver.building_register_apartment_price FOR VERSION AS OF {}
+         WHERE sigungu_cd IS NOT NULL",
+        config.price_snapshot()?
+    );
+    let mut reader = TrinoRows::start(&config.container, &sql)?;
+    let mut expected = std::collections::BTreeSet::new();
+    while let Some(row) = reader.next::<SidoOnly>().await? {
+        if row.sido.len() != 2 || !row.sido.bytes().all(|b| b.is_ascii_digit()) {
+            bail!("price snapshot carries an invalid province code");
+        }
+        expected.insert(row.sido);
+    }
+    if expected.is_empty() {
+        bail!("price snapshot names no provinces");
+    }
+    Ok(expected)
+}
+
 async fn provinces(config: &Config) -> anyhow::Result<Vec<Province>> {
     let sql = format!(
         "SELECT sido, COUNT(*) AS row_count FROM {} WHERE {} GROUP BY sido ORDER BY sido",
@@ -166,10 +206,16 @@ async fn provinces(config: &Config) -> anyhow::Result<Vec<Province>> {
         }
         provinces.push(province);
     }
-    if provinces.len() != 17 {
+    // Completeness is the source's province set, not a hardcoded 17: the projection
+    // must cover exactly the provinces its pinned price snapshot contains.
+    let expected = expected_provinces(config).await?;
+    let projected: std::collections::BTreeSet<String> =
+        provinces.iter().map(|p| p.sido.clone()).collect();
+    if projected != expected {
+        let missing: Vec<_> = expected.difference(&projected).cloned().collect();
+        let extra: Vec<_> = projected.difference(&expected).cloned().collect();
         bail!(
-            "completed national projection requires 17 provinces, found {}",
-            provinces.len()
+            "projection province set differs from the price snapshot: missing={missing:?} extra={extra:?}"
         );
     }
     Ok(provinces)
