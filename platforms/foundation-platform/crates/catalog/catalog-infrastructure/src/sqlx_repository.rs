@@ -15,8 +15,8 @@ use catalog_domain::{
     MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
     ParcelLandRight, ParcelLandRightPage, ParcelPrice, ParcelTransferEvent, ParcelZoning,
     PublicationUnit, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
-    ServingGeneration, ServingSourceKind, SpatialLayer, StaticPmtilesSource, VectorTileManifest,
-    VectorTileRuntimeManifest,
+    ServingGeneration, ServingSourceKind, SpatialLayer, StaticPmtilesSource, UnitOfficialPrice,
+    UnitOfficialPriceRow, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
     ComplexId, FileAssetId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId,
@@ -535,6 +535,35 @@ impl CatalogRepository for PgCatalogRepository {
                 })
             })
             .transpose()
+    }
+
+    async fn list_unit_official_prices_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Vec<UnitOfficialPriceRow>, CatalogError> {
+        // Keep the character(19) primary-key operator; a text comparison forces a scan.
+        let rows = sqlx::query(
+            "SELECT dong_name, ho_name, base_year, price_won
+             FROM catalog.unit_official_price
+             WHERE pnu = $1::character(19)
+             ORDER BY dong_name, ho_name, base_year DESC",
+        )
+        .bind(pnu.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        rows.iter()
+            .map(|row| {
+                Ok(UnitOfficialPriceRow {
+                    dong_name: row.try_get("dong_name").map_err(map_sqlx)?,
+                    ho_name: row.try_get("ho_name").map_err(map_sqlx)?,
+                    price: UnitOfficialPrice {
+                        base_year: row.try_get("base_year").map_err(map_sqlx)?,
+                        price_won: row.try_get("price_won").map_err(map_sqlx)?,
+                    },
+                })
+            })
+            .collect()
     }
 
     async fn find_parcel_characteristic_by_pnu(

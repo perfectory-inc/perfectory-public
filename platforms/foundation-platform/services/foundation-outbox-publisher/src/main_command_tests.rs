@@ -1,6 +1,18 @@
 use super::{command_requires_expanded_stack, parse_command, Command};
 
 #[test]
+fn unit_official_price_projection_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-unit-official-price-projection"
+        ])?,
+        Command::LoadUnitOfficialPriceProjection
+    );
+    Ok(())
+}
+
+#[test]
 fn exclusive_unit_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

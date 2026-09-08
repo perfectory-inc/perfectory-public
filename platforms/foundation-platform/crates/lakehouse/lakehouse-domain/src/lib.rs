@@ -15,6 +15,7 @@ mod land_characteristic;
 mod land_forest_ledger;
 mod land_right_registration;
 mod land_transfer_history;
+mod unit_official_price;
 
 /// Provider-neutral table contracts.
 pub mod lakehouse;
@@ -81,3 +82,4 @@ pub use lakehouse_run_summary::{
     SparkRunSummary, SparkRunSummaryError, SparkRunTarget, SparkRunWriteDisposition,
     SparkRunWriteMode, SPARK_RUN_SUMMARY_SCHEMA_VERSION,
 };
+pub use unit_official_price::SILVER_UNIT_OFFICIAL_PRICE;

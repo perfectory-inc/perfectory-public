@@ -15,8 +15,8 @@ use catalog_domain::{
     MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
     ParcelKind, ParcelLandRightPage, ParcelPrice, ParcelTransferEvent, ParcelZoning,
     RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
-    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, VectorTileBuildOutcome,
-    VectorTileManifest, VectorTileRuntimeManifest,
+    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, UnitOfficialPriceRow,
+    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
@@ -681,6 +681,15 @@ pub trait CatalogRepository: Send + Sync {
         &self,
         pnu: &Pnu,
     ) -> Result<Option<ParcelPrice>, CatalogError>;
+
+    /// Lists annual unit assessments indexed by dong and ho within this PNU.
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
+    async fn list_unit_official_prices_by_pnu(
+        &self,
+        pnu: &Pnu,
+    ) -> Result<Vec<UnitOfficialPriceRow>, CatalogError>;
 
     /// Finds the newest cadastral characteristics for one parcel identified by PNU.
     ///
