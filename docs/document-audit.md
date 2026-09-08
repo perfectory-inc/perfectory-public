@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **419개**
-- 언어 분류: **{'english': 34, 'korean': 225, 'mixed': 160}**
+- 감사 문서: **420개**
+- 언어 분류: **{'english': 34, 'korean': 226, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 83개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **204개 정상 / 0개 누락 / 215개 해당 없음**
+- 메타데이터: **204개 정상 / 0개 누락 / 216개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -113,6 +113,7 @@
 | `docs/adr/0089-a-parcel-learns-its-transfer-history.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0090-a-transfer-event-is-named-by-three-sequences.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0091-a-parcel-learns-its-land-rights.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0092-hub-registers-land-through-layout-contracts-and-streams.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0093-a-land-right-belongs-to-a-unit.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
