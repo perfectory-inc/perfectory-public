@@ -237,6 +237,9 @@ for workflow in "${workflows[@]}"; do
 
   # Conditional steps are restricted to reviewed diagnostic/cleanup steps. A
   # gate step cannot be silently changed to `if: false` and still report green.
+  # The docs generated-artifact checks carry `!cancelled()` so one CI round
+  # reports every stale document instead of stopping at the first; that
+  # condition only widens execution and the job still fails on any of them.
   awk -v file="$workflow" '
     function flush_step() {
       if (step_if == "") return
@@ -244,7 +247,12 @@ for workflow in "${workflows[@]}"; do
         || (step_name == "Clean Compose resources" && step_if == "always()") \
         || (step_name == "Clean Kafka compose resources" && step_if == "always()") \
         || (step_name == "Dump API log on failure" && step_if == "failure()") \
-        || (step_name == "Upload Playwright report (on failure)" && step_if == "failure()")
+        || (step_name == "Upload Playwright report (on failure)" && step_if == "failure()") \
+        || (step_name == "Check generated public-data catalog" && step_if == "${{ !cancelled() }}") \
+        || (step_name == "Check generated pipeline map and API example" && step_if == "${{ !cancelled() }}") \
+        || (step_name == "Check generated document catalog" && step_if == "${{ !cancelled() }}") \
+        || (step_name == "Check document audit report" && step_if == "${{ !cancelled() }}") \
+        || (step_name == "Check generated foundation baseline" && step_if == "${{ !cancelled() }}")
       if (!allowed) {
         print "FAIL workflow-policy: " file ": conditional step is not allowlisted: " step_name " / " step_if > "/dev/stderr"
         failed=1

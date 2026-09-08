@@ -39,12 +39,16 @@ jobs:
       - name: Check internal links
         run: bash scripts/ci/lychee-docs.sh
       - name: Check generated public-data catalog
+        if: ${{ !cancelled() }}
         run: python3 scripts/catalog/render-public-data-catalog.py --check
       - name: Check generated pipeline map and API example
+        if: ${{ !cancelled() }}
         run: python3 scripts/catalog/render-pipeline-map.py --check
       - name: Check generated document catalog
+        if: ${{ !cancelled() }}
         run: python3 scripts/catalog/render-document-catalog.py --check
       - name: Check document audit report
+        if: ${{ !cancelled() }}
         # `--strict` fails when a maintained page has no metadata; `--check` fails when the
         # report is stale. Both in one invocation: `--strict` alone would also rewrite the report
         # as a side effect, which would mask staleness instead of reporting it.
@@ -52,6 +56,7 @@ jobs:
       - name: Test document audit tool
         run: python3 -m unittest scripts/catalog/test_audit_documentation.py -v
       - name: Check generated foundation baseline
+        if: ${{ !cancelled() }}
         run: python3 scripts/catalog/render-foundation-baseline.py --check
       - name: Test foundation baseline tool
         # The generator reported a flattering zero four separate ways before these cases pinned it.
