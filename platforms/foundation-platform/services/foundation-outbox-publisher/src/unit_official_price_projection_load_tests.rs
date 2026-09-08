@@ -34,6 +34,33 @@ fn invalid_identity_year_and_price_are_refused_before_copy() {
     assert!(row.copy_line("fixture").is_err());
 }
 
+fn config_with_snapshot(source_snapshot: &str) -> Config {
+    Config {
+        database_url: "postgres://ignored".to_owned(),
+        container: "ignored".to_owned(),
+        iceberg_snapshot: 1,
+        source_snapshot: source_snapshot.to_owned(),
+    }
+}
+
+#[test]
+fn price_snapshot_is_parsed_from_the_stamped_lineage() {
+    let config = config_with_snapshot("price:42|exclusive:7|vintage:202608");
+    assert_eq!(config.price_snapshot().unwrap(), 42);
+}
+
+#[test]
+fn a_lineage_without_a_positive_price_snapshot_is_refused() {
+    for bad in [
+        "exclusive:7|vintage:202608",
+        "price:0|exclusive:7",
+        "price:-3|exclusive:7",
+        "price:abc|exclusive:7",
+    ] {
+        assert!(config_with_snapshot(bad).price_snapshot().is_err(), "{bad}");
+    }
+}
+
 #[tokio::test]
 #[ignore = "requires PostgreSQL with CREATE DATABASE; cargo xtask integration foundation"]
 async fn projection_folds_prices_replaces_history_and_reads_through_the_port(

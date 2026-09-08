@@ -122,3 +122,13 @@ foundation-outbox-publisher load-unit-official-price-projection
 `conflicting_prices`, `folded`, 최종 `unit-official-price-projection-load-ok`를 확인한다.
 실패 시 기존 catalog 투영이 유지된다. 이전 가격 투영으로 복구할 때는 보존한 이전
 완료 snapshot과 원천 조합으로 같은 로더를 재실행한다.
+
+## 개정 각주 (2026-09-08)
+
+전국 조인 실행 중 실측: 202608 vintage 의 건축HUB 데이터는 표준 17개 시도가 아니라
+**16개 시도 코드**를 쓴다. 광주광역시(29)와 전라남도(46)가 "전남광주통합특별시"(코드 12)로
+통합돼 두 코드가 사라지고 하나가 생겼다(원문 주소 "전남광주통합특별시 동구 대인동…"으로
+확인). 전유부에서 `substr(pnu,1,2) = substr(sigungu_cd,1,2)` 는 전 행 일치(불일치 0)라
+파이프라인 내부 정합성은 유지된다. 이에 따라 투영 로더의 완전성 검사는 상수 17 대신
+**고정된 price Silver 스냅숏의 실제 시도 집합**과 대조하도록 고쳤다(행정구역 개편에도 옳게
+작동). source_snapshot_id 에 박힌 `price:<n>` 계보로 그 스냅숏을 특정한다.
