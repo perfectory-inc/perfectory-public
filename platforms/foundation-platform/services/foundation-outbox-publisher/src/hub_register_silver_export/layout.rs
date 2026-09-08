@@ -5,44 +5,53 @@ use serde::Deserialize;
 
 #[derive(Clone, Deserialize)]
 pub(super) struct Column {
-    pub index: usize,
+    pub(super) index: usize,
 }
 
 #[derive(Clone, Deserialize)]
 pub(super) struct SourceObject {
-    pub object_key: String,
-    pub bytes: u64,
-    pub dataset_name: String,
-    pub vintage: String,
+    pub(super) object_key: String,
+    pub(super) bytes: u64,
+    pub(super) dataset_name: String,
+    pub(super) vintage: String,
 }
 
 #[derive(Clone, Deserialize)]
-pub(super) struct Layout {
+pub struct Layout {
+    #[serde(skip)]
+    expected_columns: BTreeSet<String>,
     schema_version: u32,
-    pub source: String,
-    pub selected_vintage: String,
-    pub inner_file: String,
+    pub(super) source: String,
+    pub(super) selected_vintage: String,
+    pub(super) inner_file: String,
     csv_delimiter: String,
     encoding: String,
     has_header: bool,
-    pub column_count: usize,
-    pub columns: BTreeMap<String, Column>,
-    pub handoff_suffix: String,
-    pub rows_per_part: u64,
-    pub max_row_bytes: u64,
-    pub objects: Vec<SourceObject>,
+    pub(super) column_count: usize,
+    pub(super) columns: BTreeMap<String, Column>,
+    pub(super) handoff_suffix: String,
+    pub(super) rows_per_part: u64,
+    pub(super) max_row_bytes: u64,
+    pub(super) objects: Vec<SourceObject>,
 }
 
 impl Layout {
-    pub fn embedded() -> anyhow::Result<Self> {
-        let layout: Self = serde_json::from_str(include_str!(
-            "../../../../infra/lakehouse/contracts/hub-building-register-apartment-price-source-objects.json"
-        ))?;
+    pub(crate) fn parse(
+        source: &str,
+        table: &lakehouse_domain::LakehouseTableContract,
+    ) -> anyhow::Result<Self> {
+        let mut layout: Self = serde_json::from_str(source)?;
+        layout.expected_columns = table
+            .columns
+            .iter()
+            .filter(|column| !super::GENERATED_COLUMNS.contains(&column.name))
+            .map(|column| column.name.to_owned())
+            .collect();
         layout.validate()?;
         Ok(layout)
     }
 
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub(super) fn validate(&self) -> anyhow::Result<()> {
         ensure!(
             self.schema_version == 1,
             "unsupported HUB source contract version"
@@ -63,26 +72,26 @@ impl Layout {
             self.handoff_suffix == ".jsonl.gz",
             "unsupported handoff suffix"
         );
-        let required: BTreeSet<_> = [
-            "mgmt_key",
-            "sigungu_cd",
-            "bjdong_cd",
-            "san_gubun",
-            "bonbeon",
-            "bubeon",
-            "base_date",
-            "price_won",
-            "notice_date",
-        ]
-        .into_iter()
-        .collect();
         ensure!(
-            self.columns
-                .keys()
-                .map(String::as_str)
-                .collect::<BTreeSet<_>>()
-                == required,
-            "consumed column names differ from the HUB adapter"
+            self.columns.keys().cloned().collect::<BTreeSet<_>>() == self.expected_columns,
+            "consumed column names differ from the Silver table contract"
+        );
+        ensure!(
+            [
+                "mgmt_key",
+                "sigungu_cd",
+                "bjdong_cd",
+                "san_gubun",
+                "bonbeon",
+                "bubeon"
+            ]
+            .iter()
+            .all(|name| self.columns.contains_key(*name))
+                && self
+                    .columns
+                    .keys()
+                    .all(|name| !super::GENERATED_COLUMNS.contains(&name.as_str())),
+            "HUB columns must contain the PNU inputs and must not shadow generated columns"
         );
         let positions: BTreeSet<_> = self.columns.values().map(|c| c.index).collect();
         ensure!(
@@ -115,14 +124,14 @@ impl Layout {
         Ok(())
     }
 
-    pub fn selected(&self) -> anyhow::Result<&SourceObject> {
+    pub(super) fn selected(&self) -> anyhow::Result<&SourceObject> {
         self.objects
             .iter()
             .find(|o| o.vintage == self.selected_vintage)
             .context("selected national object is missing")
     }
 
-    pub fn value<'a>(&self, fields: &[&'a str], name: &str) -> anyhow::Result<&'a str> {
+    pub(super) fn value<'a>(&self, fields: &[&'a str], name: &str) -> anyhow::Result<&'a str> {
         let index = self
             .columns
             .get(name)

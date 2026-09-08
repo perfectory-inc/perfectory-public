@@ -36,6 +36,17 @@ class SourceHandoffInputsTest(unittest.TestCase):
         plan = self.planner()(c, "test-bucket", manifest)
         self.assertEqual(plan, [("s3a://test-bucket/" + p["object_key"], p["rows"]) for p in manifest["parts"]])
 
+    def test_exclusive_unit_uses_its_own_completed_manifest(self):
+        c = json.loads((SPARK.parent / "contracts/hub-building-register-exclusive-unit-source-objects.json").read_text(encoding="utf-8"))
+        manifest = self.manifest(c)
+        plan = self.planner()
+        self.assertEqual(plan(c, "test-bucket", manifest), [
+            ("s3a://test-bucket/" + part["object_key"], part["rows"]) for part in manifest["parts"]
+        ])
+        for invalid in [None, self.manifest(self.contract()), dict(manifest, status="pending")]:
+            with self.subTest(manifest=invalid), self.assertRaises(ValueError):
+                plan(c, "test-bucket", invalid)
+
     def test_partial_wrong_vintage_and_duplicate_manifests_are_rejected(self):
         c = self.contract()
         plan = self.planner()

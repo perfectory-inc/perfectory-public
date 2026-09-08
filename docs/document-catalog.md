@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **420개**
+- 문서 파일: **421개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 116 |
+| Monorepo | 117 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 174 |
+| ADR | 175 |
 | README | 108 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -463,6 +463,7 @@ docs/adr/0090-a-transfer-event-is-named-by-three-sequences.md
 docs/adr/0091-a-parcel-learns-its-land-rights.md
 docs/adr/0092-hub-registers-land-through-layout-contracts-and-streams.md
 docs/adr/0093-a-land-right-belongs-to-a-unit.md
+docs/adr/0094-the-exclusive-register-bridges-prices-and-units.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -591,6 +592,7 @@ tools/github/README.md
 | `docs/adr/0091-a-parcel-learns-its-land-rights.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0092-hub-registers-land-through-layout-contracts-and-streams.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0093-a-land-right-belongs-to-a-unit.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0094-the-exclusive-register-bridges-prices-and-units.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

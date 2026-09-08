@@ -221,6 +221,7 @@ enum Command {
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
     ExportBuildingRegisterApartmentPriceSilverHandoff,
+    ExportBuildingRegisterExclusiveUnitSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
     ExportBuildingRegisterTitleSilverHandoff,
     ExportBuildingRegisterUnitSilverHandoff,
@@ -455,6 +456,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportVWorldCadastralSilverHandoffShard => {
             Box::pin(vworld_cadastral_silver_shard_export::run())
         }
+        Command::ExportBuildingRegisterExclusiveUnitSilverHandoff => Box::pin(
+            foundation_outbox_publisher::building_register_exclusive_unit_silver_export::run(),
+        ),
         Command::ExportBuildingRegisterApartmentPriceSilverHandoff => Box::pin(
             foundation_outbox_publisher::building_register_apartment_price_silver_export::run(),
         ),
@@ -1296,6 +1300,9 @@ where
             Ok(Command::ExportVWorldCadastralShapefileSilverHandoff)
         }
         Some("export-land-use-plan-silver-handoff") => Ok(Command::ExportLandUsePlanSilverHandoff),
+        Some("export-building-register-exclusive-unit-silver-handoff") => {
+            Ok(Command::ExportBuildingRegisterExclusiveUnitSilverHandoff)
+        }
         Some("export-building-register-apartment-price-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterApartmentPriceSilverHandoff)
         }

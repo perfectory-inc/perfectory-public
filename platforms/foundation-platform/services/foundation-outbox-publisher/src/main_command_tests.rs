@@ -1,6 +1,18 @@
 use super::{command_requires_expanded_stack, parse_command, Command};
 
 #[test]
+fn exclusive_unit_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-register-exclusive-unit-silver-handoff"
+        ])?,
+        Command::ExportBuildingRegisterExclusiveUnitSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

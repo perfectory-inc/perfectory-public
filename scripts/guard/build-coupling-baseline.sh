@@ -174,7 +174,9 @@ repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
 # 105 -> 106: ADR-0092 embeds the measured headerless HUB layout in the exporter.
 # The runtime reads that same contract for column positions instead of copying an index map.
-COMPILE_TIME_READ_BASELINE="${3:-106}"
+# 106 -> 107: ADR-0094 adds the exclusive-unit source contract as the second HUB lane.
+# The shared engine reads positions from that embedded contract; no second ZIP or upload engine.
+COMPILE_TIME_READ_BASELINE="${3:-107}"
 
 cd "$repo_root"
 

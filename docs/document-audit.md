@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **420개**
-- 언어 분류: **{'english': 34, 'korean': 226, 'mixed': 160}**
+- 감사 문서: **421개**
+- 언어 분류: **{'english': 34, 'korean': 227, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 83개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **204개 정상 / 0개 누락 / 216개 해당 없음**
+- 메타데이터: **204개 정상 / 0개 누락 / 217개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -115,6 +115,7 @@
 | `docs/adr/0091-a-parcel-learns-its-land-rights.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0092-hub-registers-land-through-layout-contracts-and-streams.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0093-a-land-right-belongs-to-a-unit.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0094-the-exclusive-register-bridges-prices-and-units.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 0 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -181,7 +182,7 @@
 | `platforms/foundation-platform/docs/canonical-property-data-platform-northstar.md` | Foundation Platform | documentation | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/catalog/bronze-source-slug-rename.v1.md` | Foundation Platform | reference | current | mixed | ok | 3 |
 | `platforms/foundation-platform/docs/catalog/building-register-consistency-rules.v1.draft.md` | Foundation Platform | draft | review required | korean | not applicable: draft | 3 |
-| `platforms/foundation-platform/docs/catalog/building-register-field-mapping.v1.draft.md` | Foundation Platform | draft | review required | korean | not applicable: draft | 2 |
+| `platforms/foundation-platform/docs/catalog/building-register-field-mapping.v1.draft.md` | Foundation Platform | draft | review required | korean | not applicable: draft | 3 |
 | `platforms/foundation-platform/docs/catalog/building-register-floor-normalization-rules.v1.md` | Foundation Platform | reference | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/catalog/industrial-complex-lakehouse-poc.md` | Foundation Platform | reference | proposed | mixed | ok | 2 |
 | `platforms/foundation-platform/docs/catalog/industrial-complex-ssot-model.md` | Foundation Platform | reference | proposed | mixed | ok | 3 |
