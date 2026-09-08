@@ -96,6 +96,15 @@ pub struct ParcelLandRight {
     pub closure_kind_code: Option<String>,
 }
 
+/// Annual official assessment of a dwelling unit, in Korean won.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnitOfficialPrice {
+    /// Assessment base year supplied by Foundation.
+    pub base_year: i16,
+    /// Official unit assessment in integer won.
+    pub price_won: i64,
+}
+
 /// Parcel information subset used by Gongzzang.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParcelInfo {

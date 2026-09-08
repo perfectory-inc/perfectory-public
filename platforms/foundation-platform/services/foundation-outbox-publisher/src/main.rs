@@ -190,6 +190,7 @@ mod spatial_tile_wap_command;
 mod static_release_toolchain;
 mod tile_derivative_object_storage;
 mod trino_ready_wait;
+mod unit_official_price_projection_load;
 mod vector_tile_runtime_promote;
 mod vworld_bronze_catalog_recovery;
 mod vworld_cadastral_ingest;
@@ -280,6 +281,7 @@ enum Command {
     LoadParcelCatalogProjection,
     LoadParcelZoningCatalogProjection,
     LoadParcelPriceCatalogProjection,
+    LoadUnitOfficialPriceProjection,
     LoadParcelCharacteristicCatalogProjection,
     LoadParcelForestLedgerCatalogProjection,
     LoadParcelTransferEventCatalogProjection,
@@ -580,6 +582,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::LoadParcelCharacteristicCatalogProjection => {
             Box::pin(parcel_characteristic_catalog_projection_load::run())
+        }
+        Command::LoadUnitOfficialPriceProjection => {
+            Box::pin(unit_official_price_projection_load::run())
         }
         Command::LoadParcelPriceCatalogProjection => {
             Box::pin(parcel_price_catalog_projection_load::run())
@@ -1166,6 +1171,7 @@ where
         Some("load-parcel-characteristic-catalog-projection") => {
             Ok(Command::LoadParcelCharacteristicCatalogProjection)
         }
+        Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
         Some("load-parcel-price-catalog-projection") => {
             Ok(Command::LoadParcelPriceCatalogProjection)
         }

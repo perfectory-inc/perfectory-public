@@ -176,7 +176,9 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # The runtime reads that same contract for column positions instead of copying an index map.
 # 106 -> 107: ADR-0094 adds the exclusive-unit source contract as the second HUB lane.
 # The shared engine reads positions from that embedded contract; no second ZIP or upload engine.
-COMPILE_TIME_READ_BASELINE="${3:-107}"
+# 107 -> 108: ADR-0095's disposable projection test embeds the shipped migrations
+# to prove annual-price folding, replacement rollback and the repository read against real constraints.
+COMPILE_TIME_READ_BASELINE="${3:-108}"
 
 cd "$repo_root"
 

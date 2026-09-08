@@ -12,7 +12,7 @@ pub mod noop_lookup;
 
 pub use info::{
     GosiYearMonth, ParcelCharacteristics, ParcelForestLedger, ParcelInfo, ParcelLandRight,
-    ParcelTransferEvent,
+    ParcelTransferEvent, UnitOfficialPrice,
 };
 pub use lookup::{LookupError, ParcelInfoLookup};
 pub use noop_lookup::NoOpParcelInfoLookup;

@@ -45,6 +45,9 @@ pub mod parcel_price;
 pub mod parcel_transfer_event;
 pub mod parcel_zoning;
 
+/// Annual official prices for registered units.
+pub mod unit_official_price;
+
 /// Effective-dated membership of a parcel in an industrial complex.
 pub mod parcel_complex_membership;
 
@@ -111,6 +114,7 @@ pub use serving_publication::{
 };
 pub use source_record::SourceRecord;
 pub use spatial_layer::{ParseSpatialLayerKindError, SpatialLayer, SpatialLayerKind};
+pub use unit_official_price::{UnitOfficialPrice, UnitOfficialPriceRow};
 pub use vector_tile::{
     vector_tile_feature_filter_properties, TilesUrlTemplate, TilesUrlTemplateError,
     VectorTileArtifact, VectorTileLineage, VectorTileManifest, ZoomRange, ZoomRangeError,
