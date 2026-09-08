@@ -1,6 +1,6 @@
 //! Contract tests for industrial-complex lakehouse table definitions.
 
-use std::{error::Error, io};
+use std::{collections::BTreeSet, error::Error, io};
 
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseLayer,
@@ -34,10 +34,16 @@ fn required_columns(contract: &LakehouseTableContract) -> impl Iterator<Item = &
 }
 
 #[test]
-fn industrial_complex_contract_set_is_complete() {
+fn contract_registry_has_unique_names_and_required_families() {
     let contracts = industrial_complex_lakehouse_contracts();
 
-    assert_eq!(contracts.len(), 18);
+    // The artifact equality test owns the complete set. A copied table count becomes
+    // stale on every additive lane; this registry check instead rejects duplicate names.
+    let names: BTreeSet<_> = contracts
+        .iter()
+        .map(|contract| contract.table_name)
+        .collect();
+    assert_eq!(contracts.len(), names.len());
     assert!(contracts
         .iter()
         .all(|contract| !contract.table_name.is_empty()));
@@ -48,6 +54,8 @@ fn industrial_complex_contract_set_is_complete() {
     assert!(contracts.contains(&SILVER_BUILDING_REGISTER_TITLES));
     assert!(contracts.contains(&SILVER_BUILDING_REGISTER_UNITS));
     assert!(contracts.contains(&SILVER_BUILDING_REGISTER_UNIT_AREAS));
+    assert!(contracts.contains(&lakehouse_domain::SILVER_BUILDING_REGISTER_APARTMENT_PRICE));
+    assert!(contracts.contains(&lakehouse_domain::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT));
     assert!(contracts.contains(&lakehouse_domain::SILVER_LAND_USE_PLAN));
     assert!(contracts.contains(&lakehouse_domain::SILVER_LAND_USE_ZONE_CODES));
     assert!(contracts.contains(&lakehouse_domain::SILVER_LAND_INDIVIDUAL_PRICE));

@@ -10,6 +10,7 @@ pub mod industrial_complex_gold_pointer;
 pub mod industrial_complex_jsonl_transport;
 
 mod building_register_apartment_price;
+mod building_register_exclusive_unit;
 mod land_characteristic;
 mod land_forest_ledger;
 mod land_right_registration;
@@ -34,6 +35,7 @@ pub mod lakehouse_registry;
 pub mod lakehouse_run_summary;
 
 pub use building_register_apartment_price::SILVER_BUILDING_REGISTER_APARTMENT_PRICE;
+pub use building_register_exclusive_unit::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT;
 pub use errors::LakehouseError;
 pub use industrial_complex_gold_pointer::{
     IndustrialComplexGoldPointer, IndustrialComplexGoldPointerPublished,

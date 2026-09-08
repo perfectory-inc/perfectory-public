@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "source": "bronze/source=hubgokr__building_register_exclusive_unit",
+  "measured_at_utc": "2026-09-08",
+  "dataset_series": "mart_djy_09",
+  "how_measured": "코디네이터의 R2 전국 ZIP 5개 목록·크기와 최신 ZIP 부분 해제 표본 실측으로 확인했다.",
+  "field_layout_authority": "docs/catalog/building-register-field-mapping.v1.draft.md의 mart_djy_09와 코디네이터 부분 해제 표본 교차 확인",
+  "unmapped_columns": "이름을 부여하지 않은 칸은 의미를 추정하지 않고 raw_columns의 원래 index로만 보존한다.",
+  "load_granularity": "national",
+  "selected_vintage": "202608",
+  "inner_file": "mart_djy_09.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 27,
+  "columns": {
+    "mgmt_key": {
+      "index": 0,
+      "meaning": "관리 PK 원문"
+    },
+    "sigungu_cd": {
+      "index": 8,
+      "meaning": "시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 9,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 10,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(ADR 0023)"
+    },
+    "bonbeon": {
+      "index": 11,
+      "meaning": "본번 원문"
+    },
+    "bubeon": {
+      "index": 12,
+      "meaning": "부번 원문"
+    },
+    "dong_name": {
+      "index": 21,
+      "meaning": "동명 원문; 정규화하지 않는다"
+    },
+    "ho_name": {
+      "index": 22,
+      "meaning": "호명 원문; 정규화하지 않는다"
+    },
+    "floor_kind": {
+      "index": 24,
+      "meaning": "층구분명 원문; 정규화된 층 코드가 아니다"
+    },
+    "floor_no": {
+      "index": 25,
+      "meaning": "층번호 원문; 숫자로 강제 변환하지 않는다"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_register_exclusive_unit",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 10000000,
+  "max_row_bytes": 1048576,
+  "granularity_counts": {
+    "national": 1,
+    "vintages": 5,
+    "objects": 5
+  },
+  "objects": [
+    {
+      "object_key": "bronze/source=hubgokr__building_register_exclusive_unit/OPN202604201224030600.zip",
+      "bytes": 966116523,
+      "dataset_name": "mart_djy_09.txt",
+      "vintage": "202604"
+    },
+    {
+      "object_key": "bronze/source=hubgokr__building_register_exclusive_unit/OPN202605201256232530.zip",
+      "bytes": 967624253,
+      "dataset_name": "mart_djy_09.txt",
+      "vintage": "202605"
+    },
+    {
+      "object_key": "bronze/source=hubgokr__building_register_exclusive_unit/OPN202606200107423140.zip",
+      "bytes": 968762635,
+      "dataset_name": "mart_djy_09.txt",
+      "vintage": "202606"
+    },
+    {
+      "object_key": "bronze/source=hubgokr__building_register_exclusive_unit/OPN202607200252584320.zip",
+      "bytes": 969813866,
+      "dataset_name": "mart_djy_09.txt",
+      "vintage": "202607"
+    },
+    {
+      "object_key": "bronze/source=hubgokr__building_register_exclusive_unit/OPN202608201254342660.zip",
+      "bytes": 917907836,
+      "dataset_name": "mart_djy_09.txt",
+      "vintage": "202608"
+    }
+  ]
+}
