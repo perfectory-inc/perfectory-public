@@ -173,6 +173,14 @@ impl BuildingUnitsReader for FoundationPlatformBuildingRegisterReader {
                         floor_label: unit.floor_label,
                         exclusive_area_m2: unit.exclusive_area_m2,
                         usage_name: unit.usage_name,
+                        official_price_history: unit
+                            .official_price_history
+                            .into_iter()
+                            .map(|price| parcel_lookup::UnitOfficialPrice {
+                                base_year: price.base_year,
+                                price_won: price.price_won,
+                            })
+                            .collect(),
                     })
                     .collect(),
                 next_cursor: page.next_cursor,
@@ -401,7 +409,8 @@ mod tests {
       "ho_name": "1204호",
       "floor_label": "12층",
       "exclusive_area_m2": 84.5,
-      "usage_name": "공장"
+      "usage_name": "공장",
+      "official_price_history": [{"base_year": 2026, "price_won": 232000000}]
     },
     {
       "id": "unit-02",
@@ -438,6 +447,16 @@ mod tests {
         assert_eq!(page.units[0].ho_name, "1204호");
         // The register left this unit's area unmatched, and the page says so.
         assert_eq!(page.units[1].exclusive_area_m2, None);
+        let priced =
+            crate::routes::building_units::BuildingUnitResponse::from(page.units[0].clone());
+        let json = serde_json::to_value(priced).expect("serialize priced unit");
+        assert_eq!(json["official_price_history"][0]["price_won"], 232_000_000);
+        let older =
+            crate::routes::building_units::BuildingUnitResponse::from(page.units[1].clone());
+        assert_eq!(
+            serde_json::to_value(older).expect("serialize older unit")["official_price_history"],
+            serde_json::json!([])
+        );
         // The cursor is the upstream's opaque token, returned untouched (root ADR-0078 §2).
         assert_eq!(page.next_cursor.as_deref(), Some("b3BhcXVl"));
     }

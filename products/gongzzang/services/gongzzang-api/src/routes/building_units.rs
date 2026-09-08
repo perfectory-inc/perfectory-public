@@ -77,6 +77,8 @@ pub struct BuildingUnitRecord {
     pub exclusive_area_m2: Option<f64>,
     /// 주용도명. Empty when unmatched.
     pub usage_name: String,
+    /// Annual official assessments from the published Foundation contract.
+    pub official_price_history: Vec<parcel_lookup::UnitOfficialPrice>,
 }
 
 /// One route-facing page of units.
@@ -113,6 +115,8 @@ pub struct BuildingUnitResponse {
     pub exclusive_area_m2: Option<f64>,
     /// 주용도명. Empty when unmatched.
     pub usage_name: String,
+    /// Annual official assessments, newest first; empty when unavailable.
+    pub official_price_history: Vec<parcel_lookup::UnitOfficialPrice>,
 }
 
 /// Unit page response.
@@ -134,6 +138,7 @@ impl From<BuildingUnitRecord> for BuildingUnitResponse {
             floor_label: u.floor_label,
             exclusive_area_m2: u.exclusive_area_m2,
             usage_name: u.usage_name,
+            official_price_history: u.official_price_history,
         }
     }
 }

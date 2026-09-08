@@ -1,10 +1,12 @@
+use super::building_units::{
+    building_response, decode_unit_cursor, encode_unit_cursor, unit_response,
+};
 use super::{
-    building_response, complex_anchor_summary_response, db_reference_marker_tile_enabled_from_vars,
-    decode_unit_cursor, encode_unit_cursor, get_marker_tile, get_marker_tile_contract,
-    get_vector_tile_manifest, industrial_complex_list_response, industrial_complex_response,
-    list_complex_blueprints, parcel_marker_anchor_rebuild_response, request_id_from_headers,
-    require_exact_manifest_action_path, unit_response, vector_tile_artifact_response, ApiError,
-    MarkerTilePath, MarkerTileQuery, PARCEL_MARKER_ANCHOR_REBUILD_PATH,
+    complex_anchor_summary_response, db_reference_marker_tile_enabled_from_vars, get_marker_tile,
+    get_marker_tile_contract, get_vector_tile_manifest, industrial_complex_list_response,
+    industrial_complex_response, list_complex_blueprints, parcel_marker_anchor_rebuild_response,
+    request_id_from_headers, require_exact_manifest_action_path, vector_tile_artifact_response,
+    ApiError, MarkerTilePath, MarkerTileQuery, PARCEL_MARKER_ANCHOR_REBUILD_PATH,
     VECTOR_TILE_MANIFEST_PROMOTE_PATH, VECTOR_TILE_MANIFEST_ROLLBACK_PATH,
 };
 use crate::state::AppState;
@@ -574,6 +576,35 @@ fn unit_response_carries_the_building_link_even_when_null() {
 
     assert_eq!(unit_response(&linked).building_id, linked.building_id);
     assert_eq!(unit_response(&unlinked).building_id, None);
+}
+
+#[test]
+fn unit_histories_match_both_names_and_keep_newest_year_first() {
+    use catalog_domain::{UnitOfficialPrice, UnitOfficialPriceRow};
+    let units = [
+        unit_row_fixture("101동", "101호"),
+        unit_row_fixture("102동", "101호"),
+        unit_row_fixture("101동", "102호"),
+    ];
+    let prices = [
+        ("101동", "101호", 2025, 221_000_000),
+        ("102동", "101호", 2026, 190_000_000),
+        ("101동", "101호", 2026, 232_000_000),
+    ]
+    .map(|(dong, ho, base_year, price_won)| UnitOfficialPriceRow {
+        dong_name: dong.to_owned(),
+        ho_name: ho.to_owned(),
+        price: UnitOfficialPrice {
+            base_year,
+            price_won,
+        },
+    });
+    let response = super::building_units::unit_responses(&units, &prices);
+    assert_eq!(response[0].official_price_history.len(), 2);
+    assert_eq!(response[0].official_price_history[0].base_year, 2026);
+    assert_eq!(response[0].official_price_history[0].price_won, 232_000_000);
+    assert_eq!(response[1].official_price_history[0].price_won, 190_000_000);
+    assert!(response[2].official_price_history.is_empty());
 }
 
 /// The manufacturer wire shape still omits the business registration number.

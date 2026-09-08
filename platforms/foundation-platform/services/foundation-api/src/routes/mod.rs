@@ -196,7 +196,7 @@ fn parcel_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/catalog/v1/parcels/by-pnu/{pnu}/buildings",
             protected_route(
-                get(catalog::list_parcel_buildings_by_pnu),
+                get(catalog::building_units::list_parcel_buildings_by_pnu),
                 state,
                 SERVICE_CATALOG_READ,
                 Some("pnu"),
@@ -205,7 +205,7 @@ fn parcel_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/catalog/v1/parcels/by-pnu/{pnu}/units",
             protected_route(
-                get(catalog::list_parcel_units_by_pnu),
+                get(catalog::building_units::list_parcel_units_by_pnu),
                 state,
                 SERVICE_CATALOG_READ,
                 Some("pnu"),
@@ -249,7 +249,7 @@ fn building_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/catalog/v1/buildings/{id}",
             protected_route(
-                get(catalog::get_building),
+                get(catalog::building_units::get_building),
                 state,
                 SERVICE_CATALOG_READ,
                 Some("id"),
@@ -260,7 +260,7 @@ fn building_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/catalog/v1/buildings/by-register-pk/{register_pk}",
             protected_route(
-                get(catalog::get_building_by_register_pk),
+                get(catalog::building_units::get_building_by_register_pk),
                 state,
                 SERVICE_CATALOG_READ,
                 Some("register_pk"),
@@ -269,7 +269,7 @@ fn building_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/catalog/v1/buildings/{id}/units",
             protected_route(
-                get(catalog::list_building_units),
+                get(catalog::building_units::list_building_units),
                 state,
                 SERVICE_CATALOG_READ,
                 Some("id"),

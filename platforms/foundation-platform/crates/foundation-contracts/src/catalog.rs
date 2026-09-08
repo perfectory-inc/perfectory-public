@@ -403,6 +403,24 @@ pub struct BuildingResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+/// One annual official assessment of a registered unit.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct UnitOfficialPriceResponse {
+    /// Assessment base year.
+    pub base_year: i16,
+    /// Official assessed value in won.
+    pub price_won: i64,
+}
+
+impl From<&catalog_domain::UnitOfficialPrice> for UnitOfficialPriceResponse {
+    fn from(price: &catalog_domain::UnitOfficialPrice) -> Self {
+        Self {
+            base_year: price.base_year,
+            price_won: price.price_won,
+        }
+    }
+}
+
 /// Canonical 전유부 호 (building unit) response for a parcel.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct UnitResponse {
@@ -429,6 +447,9 @@ pub struct UnitResponse {
     pub usage_name: String,
     /// 구조명, reconciled from 전유공용면적. Empty when unmatched.
     pub structure_name: String,
+    /// Annual official assessments, newest first; empty when no price matches this unit.
+    #[serde(default)]
+    pub official_price_history: Vec<UnitOfficialPriceResponse>,
 }
 
 /// One keyset page of a building's units (ADR-0076 §3).
