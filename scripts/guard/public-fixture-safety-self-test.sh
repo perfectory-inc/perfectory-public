@@ -68,6 +68,34 @@ assert_rejected() {
   fi
 }
 
+# Provider identifiers belong only in measured source-contract object_key values.
+# Compose the negative value so this test's source remains a synthetic fixture.
+provider_id="$(printf '%s%s' 'OPN' '202601010000000000')"
+printf 'const CAPTURE: &str = "%s";\n' "$provider_id" >"$test_root/capture.rs"
+git -C "$test_root" add capture.rs
+assert_rejected provider-rust-fixture "live-looking provider file ID"
+git -C "$test_root" rm -q -f capture.rs
+
+source_contract="$test_root/platforms/foundation-platform/infra/lakehouse/contracts/example-source-objects.json"
+mkdir -p "$(dirname "$source_contract")"
+printf '{"objects":[{"object_key":"bronze/%s.zip"}],"comment":"%s"}\n' \
+  "$provider_id" "$provider_id" >"$source_contract"
+git -C "$test_root" add "$source_contract"
+assert_rejected provider-contract-comment "live-looking provider file ID"
+printf '{"objects":[{"object_key":"bronze/%s.zip"}]}\n' "$provider_id" >"$source_contract"
+bash "$checker" "$test_root" >/dev/null
+
+printf '{"comment":"%s","comment":"synthetic"}\n' "$provider_id" >"$source_contract"
+assert_rejected provider-duplicate-json-field "duplicate JSON field"
+printf '{"object_key":"%s"}\n' "$provider_id" >"$test_root/unapproved.json"
+git -C "$test_root" add unapproved.json
+assert_rejected provider-outside-contract "live-looking provider file ID"
+git -C "$test_root" rm -q -f unapproved.json "$source_contract"
+printf '<!-- %s -->\n' "$provider_id" >"$test_root/capture.md"
+git -C "$test_root" add capture.md
+assert_rejected provider-document-comment "live-looking provider file ID"
+git -C "$test_root" rm -q -f capture.md
+
 cat >"$test_root/assignable.rs" <<'RS'
 const PNU: &str = "1168010301100010000";
 RS

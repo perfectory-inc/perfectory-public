@@ -235,6 +235,8 @@ def load_pyspark() -> tuple[Any, Any, Any, Any]:
 
 
 def spark_type(logical_type: str, T: Any) -> Any:
+    if logical_type == "array<string>":
+        return T.ArrayType(T.StringType())
     if logical_type == "string":
         return T.StringType()
     if logical_type == "int":
@@ -702,6 +704,9 @@ def write_silver_iceberg(
     The clustering stays in front of the write. It decides how rows are laid out inside the
     files this commit produces, and the append below writes whatever frame it is handed.
     """
+    write_mode = iceberg_write_mode or args.iceberg_write_mode
+    if "append_only" in contract.get("quality_gates", []) and write_mode != "append":
+        raise ValueError(f"{contract['table_name']} is append-only")
     create_iceberg_table_if_missing(spark, args, contract)
     add_missing_nullable_iceberg_columns(spark, args, contract)
     clustered = cluster_frame_for_iceberg_write(
@@ -715,7 +720,7 @@ def write_silver_iceberg(
         column_names(contract),
         qualified_iceberg_table(args),
         args.contract,
-        write_mode=(iceberg_write_mode or args.iceberg_write_mode),
+        write_mode=write_mode,
     )
 
 

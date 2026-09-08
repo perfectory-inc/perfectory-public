@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Load land-use Silver handoffs into their Iceberg tables, then leave the table healthy
+# Load contract-selected Silver handoffs into their Iceberg tables, then leave the table healthy
 # (root ADR-0083; the shape is lakehouse-batch-load.sh, the scalar job instead of the
 # geometry one).
 #
@@ -7,11 +7,12 @@
 # reads the snapshot summaries and skips batches already appended. Every batch is offered on
 # every run.
 #
-# **Which handoffs.** Derived from `vworld-land-use-plan-source-objects.json` — the same file
-# the exporter read — never by scanning the prefix, so a half-converted state cannot read as
+# **Which handoffs.** Derived from LAND_USE_PLAN_SOURCE_CONTRACT (default: land-use plan),
+# the same contract the exporter read — never by scanning the prefix, so a partial state cannot read as
 # "this is all of it". The zone-code verb loads the single LMIS code-table handoff.
 #
 # Verbs: validate [table] | load [table] | zone-code-load. Default table: land_use_plan.
+# Manifest-part sources require SOURCE_HANDOFF_MANIFEST (the export SUMMARY_PATH).
 set -uo pipefail
 
 MODE="${1:-validate}"
@@ -94,20 +95,17 @@ print(os.path.basename(o['object_key'])[:-4], c['handoff_prefix'], c['handoff_su
 fi
 
 # 키는 R2 를 훑어서 얻지 않는다. 변환기와 같은 목록 파일에서 같은 규칙으로 만든다.
-mapfile -t all < <(python3 -c "
-import json, sys
-c = json.load(open('$CONTRACT_FILE'))
-if c['schema_version'] != 1:
-    sys.exit('source object contract schema_version %r is not the 1 this script reads' % c['schema_version'])
-import os
-picked = [o for o in c['objects'] if o['vintage'] == c['selected_vintage']]
-regions = sorted(o['region_code'] for o in picked)
-if len(set(regions)) != 17:
-    sys.exit('selected vintage %s covers %d provinces, not 17' % (c['selected_vintage'], len(set(regions))))
-for o in picked:
-    base = os.path.basename(o['object_key'])[:-4]
-    print('s3a://' + '$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET' + '/' + c['handoff_prefix'] + '/' + base + c['handoff_suffix'])
-") || { echo "핸드오프 키 목록을 못 만들었다" >&2; exit 1; }
+planner_args=(--contract "$CONTRACT_FILE" --bucket "$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET")
+[ -n "${SOURCE_HANDOFF_MANIFEST:-}" ] && planner_args+=(--manifest "$SOURCE_HANDOFF_MANIFEST")
+[ -n "${SOURCE_HANDOFF_OUTPUT_PREFIX:-}" ] && planner_args+=(--output-prefix "$SOURCE_HANDOFF_OUTPUT_PREFIX")
+# Process substitution hides the producer's exit code. Capture success before mapfile.
+if plan=$(python3 infra/lakehouse/spark/jobs/source_handoff_inputs.py "${planner_args[@]}"); then
+  mapfile -t all <<< "$plan"
+else
+  echo "핸드오프 키 목록을 못 만들었다" >&2
+  exit 1
+fi
+[[ "$FILES_PER_BATCH" =~ ^[1-9][0-9]*$ ]] || { echo "FILES_PER_BATCH must be positive" >&2; exit 1; }
 
 total_files=${#all[@]}
 batches=$(( (total_files + FILES_PER_BATCH - 1) / FILES_PER_BATCH ))
@@ -120,20 +118,26 @@ for (( i=0; i<batches; i++ )); do
   start=$(( i * FILES_PER_BATCH ))
   input=""
   count=0
+  expected_rows=0
+  known_count=1
   for (( j=start; j<start+FILES_PER_BATCH && j<total_files; j++ )); do
-    input="${input:+$input,}${all[$j]}"
+    IFS=$'\t' read -r uri row_count <<< "${all[$j]}"
+    input="${input:+$input,}$uri"
+    if [ "$row_count" = "-" ]; then known_count=0; else expected_rows=$((expected_rows + row_count)); fi
     count=$((count+1))
   done
 
   extra="--validate-only"
   [ "$MODE" = "load" ] && extra="--iceberg-write-mode append"
+  expected_args=()
+  [ "$known_count" -eq 1 ] && expected_args=(--expected-count "$expected_rows")
 
   log="$STATE/batch-$i.$MODE.log"
   t0=$(date +%s)
   submit /workspace/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py \
     --contract "silver.$TABLE" --input "$input" \
     --write-mode iceberg \
-    $extra > "$log" 2>&1
+    $extra "${expected_args[@]}" > "$log" 2>&1
   rc=$?
   el=$(( $(date +%s) - t0 ))
   outcome=$(grep -aoE "silver-scalar-handoff-(validate-ok|iceberg-write-ok|iceberg-already-ingested)( rows=[0-9]+)?" "$log" | tail -1)

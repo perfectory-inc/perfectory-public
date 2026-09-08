@@ -37,7 +37,7 @@ fn required_columns(contract: &LakehouseTableContract) -> impl Iterator<Item = &
 fn industrial_complex_contract_set_is_complete() {
     let contracts = industrial_complex_lakehouse_contracts();
 
-    assert_eq!(contracts.len(), 17);
+    assert_eq!(contracts.len(), 18);
     assert!(contracts
         .iter()
         .all(|contract| !contract.table_name.is_empty()));

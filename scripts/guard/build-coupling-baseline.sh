@@ -172,7 +172,9 @@ set -euo pipefail
 # this binary ships rather than the superseded two-column key.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 BUILD_SCRIPT_BASELINE="${2:-1}"
-COMPILE_TIME_READ_BASELINE="${3:-105}"
+# 105 -> 106: ADR-0092 embeds the measured headerless HUB layout in the exporter.
+# The runtime reads that same contract for column positions instead of copying an index map.
+COMPILE_TIME_READ_BASELINE="${3:-106}"
 
 cd "$repo_root"
 

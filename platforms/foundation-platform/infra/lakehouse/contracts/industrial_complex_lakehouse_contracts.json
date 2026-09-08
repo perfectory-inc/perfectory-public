@@ -2344,6 +2344,119 @@
         "object_prefix": null,
         "object_suffix_separator": null
       }
+    },
+    "silver.building_register_apartment_price": {
+      "table_name": "silver.building_register_apartment_price",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "base_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "price_won",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "notice_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key",
+        "base_date"
+      ],
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
     }
   },
   "jsonl_transports": {

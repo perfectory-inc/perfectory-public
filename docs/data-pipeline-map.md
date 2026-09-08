@@ -16,7 +16,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 이 카탈로그에 없으므로 추정하지 않습니다. 실행 경로가 있다는 표시는 운영 배포·전국 적재 완료를 뜻하지 않습니다.
 
 현재 범위: 원천 **8그룹 / 133 endpoint**,
-Silver·Gold **17표**,
+Silver·Gold **18표**,
 서빙·운영 원장 **74표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
@@ -26,7 +26,7 @@ Silver·Gold **17표**,
 
 | 원천 | 수집규모 | 연결 상태 |
 |---|---:|---|
-| 건축HUB 파일 | 59 endpoint | 일부 연결 — 표제부·층·호·면적만 Silver 레인이 있고 나머지는 수집 단계에 남는다. |
+| 건축HUB 파일 | 59 endpoint | 일부 연결 — 표제부·층·호·면적·공동주택가격에 Silver 레인이 있고 나머지는 수집 단계에 남는다. |
 | 건축물대장 API | 10 endpoint | 수집 비활성 — 파일 수집과 중복되어 비활성화된 API이다. |
 | 산업입지정보 산업단지 | 3 endpoint | 일부 연결 — 목록·고시·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다. |
 | 주소정보 전자지도 | 11 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 건물 도형 Silver 계약은 아직 없다. |
@@ -41,6 +41,8 @@ Silver·Gold **17표**,
 
 | 원천 | 수집규모 | Silver → Gold | 서빙 | 화면 |
 |---|---:|---|---|---|
+| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 건축물대장 공동주택가격 (`silver.building_register_apartment_price`) | — | — |
+| ↳ 최신 전국 vintage 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`) | 필지 기본·식별자<br>필지 경계 서빙 | 필지 지도 타일<br>카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`) | 필지 용도지역 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ D155 CSV만 연결한다. 같은 원천의 D154 도형은 Bronze에 남는다. | | | | |
@@ -78,7 +80,6 @@ Silver·Gold **17표**,
 |---|---|---|
 | 건축HUB 파일 | 건축물대장 기본 정보 파일 (`hubgokr__building_register_basis_outline`) | `bulk_file` |
 | 건축HUB 파일 | 건축물대장 총괄표제부 파일 (`hubgokr__building_register_master`) | `bulk_file` |
-| 건축HUB 파일 | 건축물대장 공동주택 가격 파일 (`hubgokr__building_register_apartment_price`) | `bulk_file` |
 | 건축HUB 파일 | 건축물대장 오수정화시설 파일 (`hubgokr__building_register_sewage_facility`) | `bulk_file` |
 | 건축HUB 파일 | 건축물대장 부속지번 파일 (`hubgokr__building_register_sub_parcel`) | `bulk_file` |
 | 건축HUB 파일 | 건축물대장 지역지구구역 파일 (`hubgokr__building_register_district_zone`) | `bulk_file` |
@@ -195,6 +196,7 @@ Silver·Gold **17표**,
 
 | 표 | 상태 | 이유 |
 |---|---|---|
+| `silver.building_register_apartment_price` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.building_register_floors` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.building_register_unit_areas` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
@@ -284,6 +286,7 @@ Silver·Gold **17표**,
 
 | 연결 | 실행 명령·스크립트 |
 |---|---|
+| 건축HUB 파일 → 건축물대장 공동주택가격 | `export-building-register-apartment-price-silver-handoff`<br>`platforms/foundation-platform/scripts/load/land-use-batch-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 브이월드 공간·토지 파일 → 필지 경계 | `export-vworld-cadastral-shapefile-silver-handoff`<br>`export-vworld-cadastral-silver-handoff-shard`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py` |
 | 브이월드 공간·토지 파일 → 필지별 토지이용계획 | `export-land-use-plan-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 브이월드 공간·토지 파일 → 용도지역 코드 사전 | `export-land-use-zone-code-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |

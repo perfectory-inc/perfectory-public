@@ -1,6 +1,18 @@
 use super::{command_requires_expanded_stack, parse_command, Command};
 
 #[test]
+fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-register-apartment-price-silver-handoff"
+        ])?,
+        Command::ExportBuildingRegisterApartmentPriceSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn forest_ledger_commands_are_explicit() -> anyhow::Result<()> {
     for (name, command) in [
         (
