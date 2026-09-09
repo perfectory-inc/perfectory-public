@@ -45,20 +45,20 @@ Silver·Gold **21표**,
 | ↳ 최신 전국 vintage 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다. | | | | |
 | 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 연간 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 전유부 원문 27칸과 관리번호·동호를 완료 manifest 부분 목록을 통해 append-only Silver로 적재한다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`) | 필지 기본·식별자<br>필지 경계 서빙 | 필지 지도 타일<br>카탈로그 조회 API<br>공짱 지도·상세 패널 |
-| 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`) | 필지 용도지역 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 기본·식별자<br>필지 경계 서빙 | 필지 지도 타일<br>카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 용도지역 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ D155 CSV만 연결한다. 같은 원천의 D154 도형은 Bronze에 남는다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지이용구역 코드 | 1 endpoint | 용도지역 코드 사전 (`silver.land_use_zone_code`) | 필지 용도지역 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지이용구역 코드 | 1 endpoint | 용도지역 코드 사전 (`silver.land_use_zone_code`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 용도지역 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 코드 사전의 계층을 그대로 읽는다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 개별공시지가 | 1 endpoint | 필지별 공시지가 (`silver.land_individual_price`) | 필지 공시지가 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 개별공시지가 | 1 endpoint | 필지별 공시지가 (`silver.land_individual_price`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 공시지가 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ D151 CSV만 연결한다. D150 DBF는 Bronze에 남는다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지특성 | 1 endpoint | 필지별 토지특성 (`silver.land_characteristic`) | 필지 토지특성 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지특성 | 1 endpoint | 필지별 토지특성 (`silver.land_characteristic`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 토지특성 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ AL_D195 CSV 속성을 PNU로 연결한다. 도형은 기존 필지 경계가 소유한다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 임야 | 1 endpoint | 필지별 임야대장 (`silver.land_forest_ledger`) | 필지 임야대장 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 임야 | 1 endpoint | 필지별 임야대장 (`silver.land_forest_ledger`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 임야대장 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ AL_D003 CSV 속성을 PNU로 연결한다. 도형은 기존 필지 경계가 소유한다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지이동연혁 | 1 endpoint | 필지별 토지이동이력 (`silver.land_transfer_history`) | 필지 토지이동 사건 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지이동연혁 | 1 endpoint | 필지별 토지이동이력 (`silver.land_transfer_history`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 토지이동 사건 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ AL_D157 전체 사건을 PNU·이력순번으로 보존한다. 폐쇄·말소 사건도 연혁에 남는다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지권리등록 | 1 endpoint | 필지별 대지권 등록 (`silver.land_right_registration`) | 필지 대지권 등록 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지권리등록 | 1 endpoint | 필지별 대지권 등록 (`silver.land_right_registration`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 대지권 등록 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ AL_D006 PIPE CSV의 PNU·대지권일련번호별 등록과 폐쇄 행, 명칭·비율 원문을 보존한다. | | | | |
 | 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물 표제부 (`silver.building_register_titles`) | 건물 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물 층별 정보 (`silver.building_register_floors`) | — | — |
@@ -202,7 +202,7 @@ Silver·Gold **21표**,
 | `silver.building_register_unit_areas` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
-| `gold.parcel_panel` | 계약만 있음 | 루트 ADR-0096 R2 미리굽기 레인의 원천 표. 계약은 있으나 생산 잡(silver 조인)은 후속 변경에서 붙는다. |
+| `gold.parcel_panel` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 
 ## 서빙·운영 원장 전체 목록
 
@@ -306,6 +306,14 @@ Silver·Gold **21표**,
 | 산업입지정보 산업단지 → 산업단지 기본 정보 | `build-industrial-complex-address-resolution`<br>`export-industrial-complex-bronze-raw-jsonl`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py` |
 | 브이월드 공간·토지 파일 → 산업단지 경계 | `export-industrial-complex-boundary-silver-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundaries_handoff_to_silver.py` |
 | 산업단지 기본 정보 → 산업단지 경계 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundaries_handoff_to_silver.py` |
+| 필지 경계 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
+| 필지별 토지이용계획 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
+| 용도지역 코드 사전 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
+| 필지별 공시지가 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
+| 필지별 토지특성 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
+| 필지별 임야대장 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
+| 필지별 토지이동이력 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
+| 필지별 대지권 등록 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
 | 산업단지 기본 정보 → 산업단지 제공용 프로필 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py` |
 | 필지 경계 → 필지 기본·식별자 | `load-parcel-catalog-projection` |
 | 필지 경계 → 필지 경계 서빙 | `rebuild-postgis-parcel-boundary-mirror-national-from-contract`<br>`publish-parcel-boundary-postgis` |
