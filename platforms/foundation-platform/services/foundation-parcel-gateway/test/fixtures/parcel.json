@@ -1,0 +1,19 @@
+{
+  "schema_version": "foundation-platform.parcel_by_pnu_profile.v1",
+  "pnu": "9999900000100000000",
+  "source": {
+    "table": "gold.parcel_panel",
+    "iceberg_snapshot_id": "999990000000000001",
+    "metadata_location": "s3://lakehouse/metadata/00001.metadata.json",
+    "manifest_list_location": "s3://lakehouse/metadata/snap-1.avro"
+  },
+  "kind": null,
+  "area_m2": 331,
+  "zonings": [],
+  "price": null,
+  "characteristics": null,
+  "forest_ledger": null,
+  "transfer_history": [],
+  "land_rights": [],
+  "land_right_total": 0
+}
