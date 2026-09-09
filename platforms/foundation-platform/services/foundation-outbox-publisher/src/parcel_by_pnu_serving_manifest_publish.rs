@@ -251,7 +251,7 @@ async fn publish_from_listing(
     expectation: &ListingExpectation,
 ) -> anyhow::Result<ParcelServingManifest> {
     let mut keys = store
-        .list_existing_generation_keys(expectation.target_generation)
+        .list_existing_generation_keys(expectation.target_generation, None)
         .await?
         .into_iter()
         .collect::<Vec<_>>();

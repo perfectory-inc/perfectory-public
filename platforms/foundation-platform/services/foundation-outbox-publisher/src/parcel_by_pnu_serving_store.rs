@@ -93,27 +93,46 @@ impl ParcelServingObjectStore {
     /// keys under the prefix are ignored — the inventory audit reports them, this lane does not
     /// serve them.
     ///
+    /// A sharded run passes its PNU prefix so the listing walks only its own key range —
+    /// object file names begin with the PNU, so the range is a plain prefix extension. Without
+    /// it, every shard of a national bake would page through the whole generation.
+    ///
     /// # Errors
     /// Returns an error when the generation violates the contract grammar or the provider
     /// rejects a list request. A network failure is not an empty generation.
     pub(crate) async fn list_existing_generation_keys(
         &self,
         generation: u64,
+        pnu_prefix: Option<&str>,
     ) -> anyhow::Result<HashSet<String>> {
-        let prefix = parcel_by_pnu_serving_generation_prefix(generation)?;
+        let generation_prefix = parcel_by_pnu_serving_generation_prefix(generation)?;
+        let prefix = match pnu_prefix {
+            Some(pnu_prefix) => format!("{generation_prefix}{pnu_prefix}"),
+            None => generation_prefix.clone(),
+        };
         let keys = match self {
             Self::Local(_, root) => {
-                let directory = root.join(&prefix);
+                // 로컬은 세대 디렉터리를 읽고 파일명으로 범위를 거른다 — prefix 가 디렉터리
+                // 경계와 어긋나도(샤드 프리픽스가 붙으면 그렇다) 같은 키 집합이 나와야 한다.
+                let directory = root.join(&generation_prefix);
                 match std::fs::read_dir(&directory) {
                     Ok(entries) => entries
                         .map(|entry| {
                             entry
                                 .map(|entry| {
-                                    format!("{prefix}{}", entry.file_name().to_string_lossy())
+                                    format!(
+                                        "{generation_prefix}{}",
+                                        entry.file_name().to_string_lossy()
+                                    )
                                 })
                                 .with_context(|| {
                                     format!("failed to list local serving directory {prefix}")
                                 })
+                        })
+                        .filter(|key| {
+                            key.as_ref()
+                                .map(|key| key.starts_with(prefix.as_str()))
+                                .unwrap_or(true)
                         })
                         .collect::<anyhow::Result<Vec<_>>>()?,
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
