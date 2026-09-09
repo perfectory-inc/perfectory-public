@@ -287,7 +287,7 @@ async fn export(
     spread_write_order(&mut selected);
     let existing_keys = if config.resume_from_listing && !config.allow_overwrite {
         output
-            .list_existing_generation_keys(config.target_generation)
+            .list_existing_generation_keys(config.target_generation, config.pnu_prefix.as_deref())
             .await?
     } else {
         HashSet::new()

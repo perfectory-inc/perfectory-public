@@ -131,8 +131,8 @@ async fn a_listed_generation_key_is_skipped_and_the_rest_are_written() -> anyhow
         .write_object_create_only(&key, &artifact.body, &artifact.checksum_sha256)
         .await?;
 
-    let existing = store.list_existing_generation_keys(1).await?;
-    let other_generation = store.list_existing_generation_keys(2).await?;
+    let existing = store.list_existing_generation_keys(1, None).await?;
+    let other_generation = store.list_existing_generation_keys(2, None).await?;
 
     let rows = [row(PNU_A), row(PNU_B)];
     let selected = rows.iter().collect::<Vec<_>>();
@@ -153,6 +153,37 @@ async fn a_listed_generation_key_is_skipped_and_the_rest_are_written() -> anyhow
     );
     assert_eq!(entries[0].write_outcome, "listed");
     assert_eq!(entries[1].write_outcome, "created");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_shard_listing_sees_only_its_own_range() -> anyhow::Result<()> {
+    let root = temporary_root("shard-listing");
+    let store = ParcelServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    for pnu in [PNU_A, PNU_B] {
+        let artifact = parcel_document::build(&provenance(), &row(pnu))?;
+        let key = parcel_by_pnu_serving_object_key(1, pnu)?;
+        store
+            .write_object_create_only(&key, &artifact.body, &artifact.checksum_sha256)
+            .await?;
+    }
+
+    // 예약 픽스처 PNU 는 11번째 자리에서 갈라진다 — 저장소 계층은 프리픽스 길이를 제한하지
+    // 않으므로 그 지점까지 잘라 두 샤드를 가른다.
+    let shard_a = store
+        .list_existing_generation_keys(1, Some("99999000001"))
+        .await?;
+    let both = store
+        .list_existing_generation_keys(1, Some("99999"))
+        .await?;
+
+    std::fs::remove_dir_all(&root)?;
+    assert_eq!(
+        shard_a,
+        HashSet::from([parcel_by_pnu_serving_object_key(1, PNU_A)?]),
+        "the shard listing leaked another shard's keys"
+    );
+    assert_eq!(both.len(), 2);
     Ok(())
 }
 
