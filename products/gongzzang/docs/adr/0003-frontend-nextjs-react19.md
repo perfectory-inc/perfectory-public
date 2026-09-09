@@ -56,3 +56,8 @@
   전부 `>= 16.0.0, < 16.2.11` 대상이라 이 판을 쓰는 한 피할 수 없다.
   핀의 정본은 `products/gongzzang/apps/web/package.json` 과
   `scripts/guard/technology-version-consistency.sh` 이며, 이 각주는 그 값을 다시 적지 않는다.
+- **2026-09-09** — Next.js 를 `16.2.11` 에서 `16.3.3` 으로, Vitest 를 `4.1.7` 에서 `4.1.11` 로
+  올렸다. 결정("Next.js 16 App Router")은 그대로다. 사유는 16.3.3 이 닫는 인증 불요 원격 코드
+  실행 권고 2건(이미지 최적화 AVIF 경로, Windows 호스트 경로)과 4.1.11 이 닫는
+  `@vitest/mocker` 경로 순회 권고 1건이며, 전부 그 이전 판 전체가 대상이라 피할 수 없다.
+  핀의 정본은 위 각주와 같다.
