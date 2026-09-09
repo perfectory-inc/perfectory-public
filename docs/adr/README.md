@@ -106,3 +106,4 @@ last_reviewed: 2026-07-28
 - [0093 — 대지권의 정체성은 호 단위다](./0093-a-land-right-belongs-to-a-unit.md)
 - [0094 — 전유부는 가격과 세대를 잇는다](./0094-the-exclusive-register-bridges-prices-and-units.md)
 - [0095 — 세대 공시가격은 전유부를 통해 세대 정체성으로 재색인된다](./0095-unit-official-prices-are-reindexed-through-the-exclusive-register.md)
+- [0096 — 필지 속성은 R2 미리구운 객체로 서빙한다](./0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md)
