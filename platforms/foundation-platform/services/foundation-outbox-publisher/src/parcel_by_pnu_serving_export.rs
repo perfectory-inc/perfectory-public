@@ -16,8 +16,9 @@
 mod parcel_document;
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{hash_map::DefaultHasher, BTreeSet, HashSet},
     env,
+    hash::{Hash as _, Hasher as _},
     path::{Path, PathBuf},
 };
 
@@ -257,7 +258,8 @@ async fn export(
         rows.manifest_record_count
     );
 
-    let selected = select_rows(&rows.rows, config.pnu_allowlist.as_ref())?;
+    let mut selected = select_rows(&rows.rows, config.pnu_allowlist.as_ref())?;
+    spread_write_order(&mut selected);
     let existing_keys = if config.resume_from_listing && !config.allow_overwrite {
         output
             .list_existing_generation_keys(config.target_generation)
@@ -290,6 +292,23 @@ async fn export(
         overwritten_object_count,
         artifacts: entries,
     })
+}
+
+/// Reorders writes so concurrent puts land across the keyspace instead of on one shelf.
+///
+/// The Gold scan yields rows in PNU order, and neighbouring PNUs are neighbouring object keys.
+/// R2 partitions writes by key internally, so a sorted write stream concentrates the whole
+/// concurrency budget on one partition at a time — measured 2026-09-09: 429
+/// ("Reduce your concurrent request rate") killed sorted-order bakes at 32 and again at 16
+/// concurrent puts, adaptive retry included. Ordering by a deterministic hash of the PNU
+/// spreads simultaneous writes across partitions; deterministic (`DefaultHasher::new()` is
+/// keyed with zeros) so a resumed run replays the same order and the summary stays stable.
+fn spread_write_order(rows: &mut [&JsonMap<String, JsonValue>]) {
+    rows.sort_by_cached_key(|row| {
+        let mut hasher = DefaultHasher::new();
+        row.get("pnu").and_then(JsonValue::as_str).hash(&mut hasher);
+        hasher.finish()
+    });
 }
 
 /// Applies the allowlist and refuses duplicate PNUs — one parcel must resolve to one object.
