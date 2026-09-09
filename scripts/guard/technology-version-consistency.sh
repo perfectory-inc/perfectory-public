@@ -56,7 +56,7 @@ if [ -n "$package_files" ]; then
   check_exact_manifest_value 'react-dom' '19.2.5'
   check_exact_manifest_value 'typescript' '5.9.3'
   check_exact_manifest_value 'tailwindcss' '4.2.4'
-  check_exact_manifest_value 'vite' '6.4.2'
+  check_exact_manifest_value 'vite' '6.4.3'
   check_exact_manifest_value 'vitest' '4.1.11'
   check_exact_manifest_value 'turbo' '2.9.15'
   check_exact_manifest_value '@biomejs/biome' '2.4.14'
