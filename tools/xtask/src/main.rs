@@ -474,11 +474,18 @@ const AREAS: &[Area] = &[
                 covers: &["tests/static_release_toolchain"],
             },
         ],
-        node_tests: &[NodeTests {
-            dir: "services/foundation-profile-gateway",
-            scripts: &["config:check", "typecheck", "test", "build:check"],
-            test_script: "test",
-        }],
+        node_tests: &[
+            NodeTests {
+                dir: "services/foundation-profile-gateway",
+                scripts: &["config:check", "typecheck", "test", "build:check"],
+                test_script: "test",
+            },
+            NodeTests {
+                dir: "services/foundation-parcel-gateway",
+                scripts: &["config:check", "typecheck", "test", "build:check"],
+                test_script: "test",
+            },
+        ],
         // Foundation's DB-backed reads tests (catalog_*_reads, …) are `#[ignore]`
         // and need a migrated + seeded Postgres. scripts/verify/integration.sh
         // provisions one locally; CI's postgres-integration job provides its own.
@@ -2043,16 +2050,22 @@ mod tests {
         let foundation = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
         let plans = node_test_plans(foundation, Path::new("platforms/foundation-platform"));
 
-        assert_eq!(plans.len(), 1);
+        assert_eq!(plans.len(), 2);
         assert_eq!(
             plans[0].current_dir,
             PathBuf::from("platforms/foundation-platform/services/foundation-profile-gateway")
         );
         assert_eq!(
-            plans[0].scripts,
-            &["config:check", "typecheck", "test", "build:check"]
+            plans[1].current_dir,
+            PathBuf::from("platforms/foundation-platform/services/foundation-parcel-gateway")
         );
-        assert_eq!(plans[0].test_script, "test");
+        for plan in &plans {
+            assert_eq!(
+                plan.scripts,
+                &["config:check", "typecheck", "test", "build:check"]
+            );
+            assert_eq!(plan.test_script, "test");
+        }
     }
 
     #[test]
