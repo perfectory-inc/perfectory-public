@@ -14,7 +14,7 @@
 # That makes this the second copy of a value `tools/container-images.env` also holds, so
 # `technology-version-consistency` asserts the two are equal. This image layers onto the harness's
 # toolchain; a drift between them would verify against something other than what CI runs.
-FROM node:20.19.0-bookworm@sha256:a5fb035ac1dff34a4ecaea85f90f7321185695d3fd22c12ba12f4535a4647cc5 AS node-tools
+FROM node:24.20.0-bookworm@sha256:be23f54a88d34e8824c741b19b91064094f92c1c97b194144bfc8b50d67258e2 AS node-tools
 
 ENV COREPACK_HOME=/opt/corepack \
     PNPM_HOME=/opt/pnpm \

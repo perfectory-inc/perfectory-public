@@ -9,11 +9,11 @@
     "preview": "pulumi preview"
   },
   "dependencies": {
-    "@pulumi/aws": "^7.31.0",
-    "@pulumi/pulumi": "^3.244.0"
+    "@pulumi/aws": "^7.45.0",
+    "@pulumi/pulumi": "^3.261.0"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
-    "pulumi": "^3.244.0"
+    "@types/node": "^25.9.5",
+    "pulumi": "^3.261.0"
   }
 }

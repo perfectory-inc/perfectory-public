@@ -171,24 +171,27 @@ describe("foundation-platform vector tile manifest consumer", () => {
       undefined,
       "https://static.example.com/gold/example/{z}/{x}/{y}.pbf",
     ],
-  ])("normalizes %s templates without changing separator ownership", (_, template, base, expected) => {
-    const manifest = parseVectorTileManifest({
-      ...anchorManifestFixture,
-      tiles_url_template: template,
-      artifacts: {
-        parcel_anchor: {
-          ...anchorManifestFixture.artifacts.parcel_anchor,
-          object_key_prefix: "gold/example/",
+  ])(
+    "normalizes %s templates without changing separator ownership",
+    (_, template, base, expected) => {
+      const manifest = parseVectorTileManifest({
+        ...anchorManifestFixture,
+        tiles_url_template: template,
+        artifacts: {
+          parcel_anchor: {
+            ...anchorManifestFixture.artifacts.parcel_anchor,
+            object_key_prefix: "gold/example/",
+          },
         },
-      },
-    });
+      });
 
-    expect(
-      buildVectorTileSource(manifest, PARCEL_ANCHOR_VECTOR_TILE_LAYER, {
-        tileUrlBaseUrl: base,
-      }).tiles,
-    ).toEqual([expected]);
-  });
+      expect(
+        buildVectorTileSource(manifest, PARCEL_ANCHOR_VECTOR_TILE_LAYER, {
+          tileUrlBaseUrl: base,
+        }).tiles,
+      ).toEqual([expected]);
+    },
+  );
 
   it("normalizes each repeated object prefix placeholder at its own boundary", () => {
     const manifest = parseVectorTileManifest({
@@ -523,7 +526,8 @@ describe("foundation-platform vector tile manifest consumer", () => {
     });
     const result = await fetchVectorTileRuntimeManifest(
       async (_input, init) => {
-        expect((init?.headers as Record<string, string>)["if-none-match"]).toBe('"manifest-1"');
+        const headers = init?.headers as Record<string, string> | undefined;
+        expect(headers?.["if-none-match"]).toBe('"manifest-1"');
         return new Response(null, { status: 304 });
       },
       env,

@@ -77,7 +77,7 @@ OpenAPI는 이 오류를 문장으로 적어 두었다 — `ParcelResponse.compl
 `hubgokr__building_register_sub_parcel`, `hubgokr__building_register_closed_sub_parcel`. 산문과
 수집 계획은 N:M인데 DDL만 1:N이다.
 
-3번은 정부 원장의 계층을 한 단계 접었다. 표제부(건물)와 전유부(호실)는 
+3번은 정부 원장의 계층을 한 단계 접었다. 표제부(건물)와 전유부(호실)는
 `mgm_bldrgst_pk`로 이어지는데, 스키마에서는 둘 다 필지에만 붙어 있어 **어느 호실이 어느 건물에
 있는지 물을 수 없다.**
 

@@ -41,8 +41,8 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 |---|---|---|
 | Rust backend/toolchain | Rust `1.96.0` | 루트 `rust-toolchain.toml`, Docker builder, `docs/adr/0001`가 단일 기준. 실행 중 |
 | HTTP backend | Axum `0.8`, Tokio workspace | 네 플랫폼의 API/worker Cargo manifest. 실행 중 |
-| JavaScript runtime | Node `20.19.0` | `products/gongzzang/.nvmrc`, CI `node-version`, package `engines` exact pin |
-| JavaScript package manager | pnpm `9.12.0` | `products/gongzzang/package.json#packageManager` exact pin |
+| JavaScript runtime | Node — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | `.nvmrc`·CI `node-version`·package `engines`가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |
+| JavaScript package manager | pnpm — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | `packageManager`가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |
 | Frontend core | Next.js, React/React DOM, TypeScript — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | 매니페스트가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |
 | Frontend build/test | Tailwind, Vite, Vitest, Turborepo, Biome — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | 매니페스트가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |
 | Relational database | PostgreSQL `17` | 모노레포 ADR 0001의 전역 규칙. 모든 Compose DB 이미지 통일 |

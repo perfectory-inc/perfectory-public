@@ -14,16 +14,16 @@ describe("requireZitadelE2eCredentials", () => {
     });
   });
 
-  it.each([
-    "ZITADEL_E2E_USERNAME",
-    "ZITADEL_E2E_PASSWORD",
-  ])("rejects a missing %s instead of using a known default", (missing) => {
-    const env: Record<string, string> = {
-      ZITADEL_E2E_USERNAME: "synthetic-admin@example.invalid",
-      ZITADEL_E2E_PASSWORD: "synthetic-password",
-    };
-    delete env[missing];
+  it.each(["ZITADEL_E2E_USERNAME", "ZITADEL_E2E_PASSWORD"])(
+    "rejects a missing %s instead of using a known default",
+    (missing) => {
+      const env: Record<string, string> = {
+        ZITADEL_E2E_USERNAME: "synthetic-admin@example.invalid",
+        ZITADEL_E2E_PASSWORD: "synthetic-password",
+      };
+      delete env[missing];
 
-    expect(() => requireZitadelE2eCredentials(env)).toThrow(`${missing} is required`);
-  });
+      expect(() => requireZitadelE2eCredentials(env)).toThrow(`${missing} is required`);
+    },
+  );
 });

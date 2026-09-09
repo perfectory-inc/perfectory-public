@@ -11,6 +11,8 @@ last_reviewed: 2026-07-29
 > [공공 소스 endpoint 카탈로그](./public-source-endpoint-catalog.v1.json)입니다.
 > 이 문서는 제공기관·operation·dataset slug·과거 slug의 매핑을 설명하는 참고표입니다.
 
+<!-- 두 인용은 별개다 (MD028) -->
+
 > 규칙: `source_slug = {providerid}__{dataset_slug}` (소문자, 이중 언더스코어).
 > **`operation`(API 호출용 식별자) != `dataset_slug`(의미 식별자)** - 생성기는 `dataset_slug`로 만든다(ADR 0014 D3).
 > 승인 제공기관과 파생 `providerid`의 정본은
