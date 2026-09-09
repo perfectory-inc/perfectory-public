@@ -1,10 +1,10 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 use super::parcel_document::{self, GoldSnapshotProvenance};
-use super::{select_rows, write_with_policy, ServingExportConfig};
+use super::{select_rows, write_artifacts, write_with_policy, ServingExportConfig};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::parcel_by_pnu_serving_store::ParcelServingObjectStore;
 use crate::r2_layout::parcel_by_pnu_serving_object_key;
@@ -57,6 +57,7 @@ fn config(root: PathBuf, allow_overwrite: bool) -> ServingExportConfig {
         summary_path: None,
         allow_overwrite,
         pnu_allowlist: None,
+        resume_from_listing: true,
     }
 }
 
@@ -114,6 +115,41 @@ async fn a_re_run_reuses_and_a_change_needs_the_stated_overwrite() -> anyhow::Re
     );
     assert_eq!(overwritten, "overwritten");
     assert_eq!(stored, changed.body, "the delta re-bake did not land");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_listed_generation_key_is_skipped_and_the_rest_are_written() -> anyhow::Result<()> {
+    let root = temporary_root("resume-listing");
+    let store = ParcelServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    let artifact = parcel_document::build(&provenance(), &row(PNU_A))?;
+    let key = parcel_by_pnu_serving_object_key(1, PNU_A)?;
+    store
+        .write_object_create_only(&key, &artifact.body, &artifact.checksum_sha256)
+        .await?;
+
+    let existing = store.list_existing_generation_keys(1).await?;
+    let other_generation = store.list_existing_generation_keys(2).await?;
+
+    let rows = [row(PNU_A), row(PNU_B)];
+    let selected = rows.iter().collect::<Vec<_>>();
+    let entries = write_artifacts(
+        &config(root.clone(), false),
+        &store,
+        &provenance(),
+        &selected,
+        &existing,
+    )
+    .await?;
+
+    std::fs::remove_dir_all(&root)?;
+    assert_eq!(existing, HashSet::from([key]));
+    assert!(
+        other_generation.is_empty(),
+        "another generation must not inherit this one's listing"
+    );
+    assert_eq!(entries[0].write_outcome, "listed");
+    assert_eq!(entries[1].write_outcome, "created");
     Ok(())
 }
 
