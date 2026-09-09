@@ -21,7 +21,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
 /// Wire schema version of the published by-PNU serving document.
-pub(super) const PARCEL_DOCUMENT_SCHEMA_VERSION: &str =
+pub(crate) const PARCEL_DOCUMENT_SCHEMA_VERSION: &str =
     "foundation-platform.parcel_by_pnu_profile.v1";
 
 /// One serving artifact, ready to be written under a generation directory.

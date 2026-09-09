@@ -60,6 +60,7 @@ fn config(root: PathBuf, allow_overwrite: bool) -> ServingExportConfig {
         allow_overwrite,
         pnu_allowlist: None,
         resume_from_listing: true,
+        pnu_prefix: None,
     }
 }
 

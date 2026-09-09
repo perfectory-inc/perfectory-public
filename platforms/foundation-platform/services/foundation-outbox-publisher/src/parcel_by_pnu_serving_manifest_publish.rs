@@ -14,10 +14,12 @@ use std::{env, path::PathBuf};
 
 use anyhow::{bail, ensure, Context};
 use chrono::{SecondsFormat, Utc};
+use lakehouse_domain::GOLD_PARCEL_PANEL;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
+use crate::parcel_by_pnu_serving_export::parcel_document::PARCEL_DOCUMENT_SCHEMA_VERSION;
 use crate::parcel_by_pnu_serving_store::{local_root, ParcelServingObjectStore};
 use crate::r2_layout::{parcel_by_pnu_serving_manifest_key, parcel_by_pnu_serving_object_key};
 
@@ -34,6 +36,13 @@ const EXPORT_SUMMARY_PATH_ENV: &str =
     "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_EXPORT_SUMMARY_PATH";
 const ALLOW_REPOINT_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_ALLOW_REPOINT";
 const FIRST_PUBLICATION_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FIRST_PUBLICATION";
+const PUBLISH_FROM_LISTING_ENV: &str =
+    "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PUBLISH_FROM_LISTING";
+const TARGET_GENERATION_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_GENERATION";
+const EXPECTED_GOLD_SNAPSHOT_ENV: &str =
+    "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID";
+const EXPECTED_OBJECT_COUNT_ENV: &str =
+    "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_EXPECTED_OBJECT_COUNT";
 /// Read-back sample bound: enough to catch a wrong bucket or a truncated bake, cheap enough to
 /// run before every repoint.
 const MAX_VERIFICATION_SAMPLES: usize = 16;
@@ -53,21 +62,29 @@ pub(crate) struct ParcelServingManifest {
 /// Runs the parcel by-PNU serving manifest publication.
 pub async fn run() -> anyhow::Result<()> {
     let config = ManifestPublishConfig::from_env()?;
-    let summary_raw = std::fs::read_to_string(&config.export_summary_path).with_context(|| {
-        format!(
-            "failed to read the export summary {}",
-            config.export_summary_path.display()
-        )
-    })?;
-    let summary: ExportSummaryInput = serde_json::from_str(&summary_raw).with_context(|| {
-        format!(
-            "the export summary {} does not parse",
-            config.export_summary_path.display()
-        )
-    })?;
-
     let store = ParcelServingObjectStore::open(&config.output)?;
-    let manifest = publish(&config, &store, &summary).await?;
+
+    let manifest = match &config.input {
+        ManifestPublishInput::ExportSummary(export_summary_path) => {
+            let summary_raw = std::fs::read_to_string(export_summary_path).with_context(|| {
+                format!(
+                    "failed to read the export summary {}",
+                    export_summary_path.display()
+                )
+            })?;
+            let summary: ExportSummaryInput =
+                serde_json::from_str(&summary_raw).with_context(|| {
+                    format!(
+                        "the export summary {} does not parse",
+                        export_summary_path.display()
+                    )
+                })?;
+            publish(&config, &store, &summary).await?
+        }
+        ManifestPublishInput::Listing(expectation) => {
+            publish_from_listing(&config, &store, expectation).await?
+        }
+    };
 
     tracing::info!(
         output_bucket = store.bucket().unwrap_or("(local)"),
@@ -82,9 +99,28 @@ pub async fn run() -> anyhow::Result<()> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ManifestPublishConfig {
     output: ProfileStoreConfig,
-    export_summary_path: PathBuf,
+    input: ManifestPublishInput,
     allow_repoint: bool,
     first_publication: bool,
+}
+
+/// Where the publish learns what one generation holds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ManifestPublishInput {
+    /// One export run's summary — carries every object key and checksum (the single-run lane).
+    ExportSummary(PathBuf),
+    /// The bucket's own listing, checked against stated expectations — the sharded lane, where
+    /// no single export run holds the whole generation and a merged summary would be gigabytes.
+    /// The bucket is the record (root ADR-0062); the operator states what it must contain.
+    Listing(ListingExpectation),
+}
+
+/// What the operator asserts the listed generation contains.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ListingExpectation {
+    target_generation: u64,
+    expected_gold_iceberg_snapshot_id: String,
+    expected_object_count: u64,
 }
 
 /// The slice of the export summary this command consumes; unknown fields are the export's own.
@@ -111,6 +147,39 @@ impl ManifestPublishConfig {
             confirm.eq_ignore_ascii_case("true"),
             "{CONFIRM_ENV} must be true"
         );
+
+        let from_listing = optional_env(PUBLISH_FROM_LISTING_ENV)?
+            .is_some_and(|value| value.eq_ignore_ascii_case("true"));
+        let export_summary_path = optional_env(EXPORT_SUMMARY_PATH_ENV)?.map(PathBuf::from);
+        let input = if from_listing {
+            ensure!(
+                export_summary_path.is_none(),
+                "{PUBLISH_FROM_LISTING_ENV} and {EXPORT_SUMMARY_PATH_ENV} name two different \
+                 sources of truth; state exactly one"
+            );
+            ManifestPublishInput::Listing(ListingExpectation {
+                target_generation: optional_env(TARGET_GENERATION_ENV)?
+                    .with_context(|| format!("{TARGET_GENERATION_ENV} is required"))?
+                    .parse::<u64>()
+                    .with_context(|| {
+                        format!("{TARGET_GENERATION_ENV} must be a positive integer")
+                    })?,
+                expected_gold_iceberg_snapshot_id: optional_env(EXPECTED_GOLD_SNAPSHOT_ENV)?
+                    .with_context(|| format!("{EXPECTED_GOLD_SNAPSHOT_ENV} is required"))?,
+                expected_object_count: optional_env(EXPECTED_OBJECT_COUNT_ENV)?
+                    .with_context(|| format!("{EXPECTED_OBJECT_COUNT_ENV} is required"))?
+                    .parse::<u64>()
+                    .with_context(|| {
+                        format!("{EXPECTED_OBJECT_COUNT_ENV} must be a positive integer")
+                    })?,
+            })
+        } else {
+            ManifestPublishInput::ExportSummary(
+                export_summary_path
+                    .with_context(|| format!("{EXPORT_SUMMARY_PATH_ENV} is required"))?,
+            )
+        };
+
         Ok(Self {
             output: ProfileStoreConfig::parse(
                 optional_env(OUTPUT_STORAGE_DRIVER_ENV)?
@@ -119,9 +188,7 @@ impl ManifestPublishConfig {
                 local_root(optional_env(OUTPUT_ROOT_ENV)?),
             )
             .with_context(|| format!("{OUTPUT_STORAGE_DRIVER_ENV}/{OUTPUT_ROOT_ENV}"))?,
-            export_summary_path: optional_env(EXPORT_SUMMARY_PATH_ENV)?
-                .map(PathBuf::from)
-                .with_context(|| format!("{EXPORT_SUMMARY_PATH_ENV} is required"))?,
+            input,
             allow_repoint: optional_env(ALLOW_REPOINT_ENV)?
                 .is_some_and(|value| value.eq_ignore_ascii_case("true")),
             first_publication: optional_env(FIRST_PUBLICATION_ENV)?
@@ -167,14 +234,111 @@ async fn publish(
         object_count: u64::try_from(summary.artifacts.len()).context("object count overflow")?,
         published_at_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
     };
+    write_manifest_object(store, &manifest).await?;
+    Ok(manifest)
+}
+
+/// Publishes from the bucket's own listing, checked against the operator's stated expectations.
+///
+/// The sharded national bake leaves no single export summary that names the whole generation,
+/// and a merged one would carry tens of millions of artifact lines. The bucket is the record
+/// (root ADR-0062): the listing supplies what exists, the operator states what must exist, and
+/// an evenly spaced sample proves the objects are this generation's documents of the stated
+/// Gold snapshot.
+async fn publish_from_listing(
+    config: &ManifestPublishConfig,
+    store: &ParcelServingObjectStore,
+    expectation: &ListingExpectation,
+) -> anyhow::Result<ParcelServingManifest> {
+    let mut keys = store
+        .list_existing_generation_keys(expectation.target_generation)
+        .await?
+        .into_iter()
+        .collect::<Vec<_>>();
+    keys.sort_unstable();
+    let listed = u64::try_from(keys.len()).context("listed object count overflow")?;
+    ensure!(
+        listed == expectation.expected_object_count,
+        "generation {} lists {listed} serving objects but the operator stated {}; a shard is \
+         missing or foreign keys crept in — refusing to point the gateway at it",
+        expectation.target_generation,
+        expectation.expected_object_count
+    );
+
+    verify_sampled_listing(store, &keys, expectation).await?;
+    check_generation_transition(config, store, expectation.target_generation).await?;
+
+    let manifest = ParcelServingManifest {
+        schema_version: MANIFEST_SCHEMA_VERSION,
+        unit: MANIFEST_UNIT.to_owned(),
+        current_generation: expectation.target_generation,
+        gold_table: GOLD_PARCEL_PANEL.table_name.to_owned(),
+        gold_iceberg_snapshot_id: expectation.expected_gold_iceberg_snapshot_id.clone(),
+        object_count: listed,
+        published_at_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+    };
+    write_manifest_object(store, &manifest).await?;
+    Ok(manifest)
+}
+
+/// Reads an evenly spaced sample of listed keys and refuses to publish unless each one is this
+/// lane's document, of its own PNU, baked from the stated Gold snapshot.
+async fn verify_sampled_listing(
+    store: &ParcelServingObjectStore,
+    keys: &[String],
+    expectation: &ListingExpectation,
+) -> anyhow::Result<()> {
+    let step = keys.len().div_ceil(MAX_VERIFICATION_SAMPLES).max(1);
+    let mut verified = 0_usize;
+    for key in keys.iter().step_by(step) {
+        let stored = store
+            .read_bytes(key)
+            .await
+            .with_context(|| format!("the listing names {key} but it cannot be read back"))?;
+        let document: serde_json::Value = serde_json::from_slice(&stored)
+            .with_context(|| format!("{key} does not hold a JSON document"))?;
+        ensure!(
+            document
+                .get("schema_version")
+                .and_then(serde_json::Value::as_str)
+                == Some(PARCEL_DOCUMENT_SCHEMA_VERSION),
+            "{key} does not hold a {PARCEL_DOCUMENT_SCHEMA_VERSION} document"
+        );
+        let pnu_in_key = key
+            .rsplit('/')
+            .next()
+            .and_then(|file_name| file_name.strip_suffix(".json"))
+            .with_context(|| format!("{key} does not end in a PNU object file name"))?;
+        ensure!(
+            document.get("pnu").and_then(serde_json::Value::as_str) == Some(pnu_in_key),
+            "{key} holds a document for another parcel"
+        );
+        let baked_from = document
+            .pointer("/source/iceberg_snapshot_id")
+            .and_then(serde_json::Value::as_str);
+        ensure!(
+            baked_from == Some(expectation.expected_gold_iceberg_snapshot_id.as_str()),
+            "{key} was baked from gold snapshot {baked_from:?}, not the stated {}",
+            expectation.expected_gold_iceberg_snapshot_id
+        );
+        verified += 1;
+    }
+    ensure!(verified >= 1, "no objects were verified before publishing");
+    Ok(())
+}
+
+/// Writes the manifest — the lane's one mutable object — with its own checksum.
+async fn write_manifest_object(
+    store: &ParcelServingObjectStore,
+    manifest: &ParcelServingManifest,
+) -> anyhow::Result<()> {
     let mut body =
-        serde_json::to_vec_pretty(&manifest).context("failed to serialize the serving manifest")?;
+        serde_json::to_vec_pretty(manifest).context("failed to serialize the serving manifest")?;
     body.push(b'\n');
     let checksum = format!("{:x}", Sha256::digest(&body));
     store
         .write_manifest(parcel_by_pnu_serving_manifest_key()?, &body, &checksum)
-        .await?;
-    Ok(manifest)
+        .await
 }
 
 /// Reads back an evenly spaced sample and refuses to publish when any object is absent or holds

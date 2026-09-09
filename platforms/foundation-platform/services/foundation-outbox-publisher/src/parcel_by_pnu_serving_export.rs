@@ -13,7 +13,7 @@
 //! an idempotent re-run; different bytes at an existing key are refused unless the caller
 //! explicitly states the delta re-bake intent with the overwrite flag.
 
-mod parcel_document;
+pub(crate) mod parcel_document;
 
 use std::{
     collections::{hash_map::DefaultHasher, BTreeSet, HashSet},
@@ -32,7 +32,7 @@ use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
-use crate::lakehouse_snapshot_scan::{scan_snapshot_rows, LakehouseObjectReader};
+use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, LakehouseObjectReader};
 use crate::parcel_by_pnu_serving_store::{local_root, ParcelServingObjectStore};
 use crate::r2_layout::parcel_by_pnu_serving_object_key;
 use parcel_document::{
@@ -52,14 +52,16 @@ const ALLOW_OVERWRITE_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_ALL
 const PNU_ALLOWLIST_PATH_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PNU_ALLOWLIST_PATH";
 const RESUME_FROM_LISTING_ENV: &str =
     "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_RESUME_FROM_LISTING";
+const PNU_PREFIX_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PNU_PREFIX";
 const DEFAULT_MAX_CONCURRENCY: usize = 8;
 /// Measured 2026-09-09 on the Seoul bake: one R2 put costs ~0.29s from the batch host, so the
 /// old cap of 32 topped out near 110 objects/s and a national bake would take days. The client
 /// now retries adaptively when R2 pushes back with 429, which is what makes a higher ceiling
 /// safe to offer; the default stays low and the operator raises it deliberately.
 const MAX_CONCURRENCY: usize = 256;
-/// `scan_snapshot_rows` holds every scanned row in memory. National scale (39.8M parcels) needs
-/// a streaming export; this cap makes that boundary an explicit refusal instead of an OOM.
+/// The export holds every KEPT row in memory. This cap makes that boundary an explicit refusal
+/// instead of an OOM; national scale (39.8M parcels) fits by sharding runs with the PNU-prefix
+/// filter, which drops out-of-shard rows during the scan itself.
 const MAX_ROWS_PER_RUN: usize = 2_000_000;
 
 /// Runs the parcel by-PNU serving export.
@@ -115,6 +117,7 @@ struct ServingExportConfig {
     allow_overwrite: bool,
     pnu_allowlist: Option<BTreeSet<String>>,
     resume_from_listing: bool,
+    pnu_prefix: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -126,6 +129,8 @@ struct ServingExportSummary {
     gold_metadata_location: String,
     gold_manifest_list_location: String,
     target_generation: u64,
+    /// Shard filter this run kept, when one was set — the summary says what it covers.
+    pnu_prefix: Option<String>,
     data_file_count: u64,
     scanned_row_count: u64,
     exported_row_count: u64,
@@ -198,6 +203,16 @@ impl ServingExportConfig {
             // ignores this — it exists to rewrite listed objects.
             resume_from_listing: optional_env(RESUME_FROM_LISTING_ENV)?
                 .is_none_or(|value| value.eq_ignore_ascii_case("true")),
+            pnu_prefix: optional_env(PNU_PREFIX_ENV)?
+                .map(|raw| {
+                    ensure!(
+                        (1..=10).contains(&raw.len())
+                            && raw.bytes().all(|byte| byte.is_ascii_digit()),
+                        "{PNU_PREFIX_ENV} must be 1 to 10 digits"
+                    );
+                    Ok(raw)
+                })
+                .transpose()?,
         })
     }
 }
@@ -233,13 +248,23 @@ async fn export(
         manifest_list_location: snapshot.manifest_list_location.clone(),
     };
 
-    let rows = scan_snapshot_rows(&GOLD_PARCEL_PANEL, lakehouse, snapshot).await?;
+    let rows = scan_snapshot_rows_kept(&GOLD_PARCEL_PANEL, lakehouse, snapshot, |row| {
+        match (
+            &config.pnu_prefix,
+            row.get("pnu").and_then(JsonValue::as_str),
+        ) {
+            (Some(prefix), Some(pnu)) => pnu.starts_with(prefix.as_str()),
+            (Some(_), None) => true, // 식별자 없는 행은 남겨서 문서 조립이 사유를 말하며 거부하게 한다
+            (None, _) => true,
+        }
+    })
+    .await?;
     let data_file_count = rows.data_file_count;
-    let scanned_row_count = u64::try_from(rows.rows.len()).context("scanned row count overflow")?;
+    let scanned_row_count = rows.decoded_row_count;
     ensure!(
         rows.rows.len() <= MAX_ROWS_PER_RUN,
-        "{} snapshot {} holds {} rows; this in-memory export refuses more than {MAX_ROWS_PER_RUN} \
-         — national scale needs the streaming export follow-up, not a bigger heap",
+        "{} snapshot {} keeps {} rows in memory; this export refuses more than {MAX_ROWS_PER_RUN} \
+         — shard the run with {PNU_PREFIX_ENV}, not a bigger heap",
         snapshot.table_name,
         snapshot.snapshot_id,
         rows.rows.len()
@@ -281,6 +306,7 @@ async fn export(
         gold_metadata_location: provenance.metadata_location.clone(),
         gold_manifest_list_location: provenance.manifest_list_location.clone(),
         target_generation: config.target_generation,
+        pnu_prefix: config.pnu_prefix.clone(),
         data_file_count,
         scanned_row_count,
         exported_row_count: u64::try_from(entries.len()).context("exported row count overflow")?,
