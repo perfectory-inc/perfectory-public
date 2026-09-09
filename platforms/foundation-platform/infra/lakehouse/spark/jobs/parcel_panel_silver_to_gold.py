@@ -73,6 +73,7 @@ from lakehouse_engine import (
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
+    current_row_predicate,
     evolve_iceberg_table_to_contract,
     load_lakehouse_contract,
     partition_clause_sql,
@@ -1040,8 +1041,14 @@ def main() -> int:
         counters: dict[str, int] = {}
         source_snapshots: dict[str, str] = {}
 
+        parcel_predicate = current_row_predicate(load_lakehouse_contract(PARCEL_SOURCE))
+        if parcel_predicate is None:
+            raise ValueError(
+                f"{PARCEL_SOURCE} declares no current_row_predicate; this projection cannot "
+                "say which boundary row is the parcel's current one"
+            )
         parcels = filtered_by_region(
-            read_source(spark, args, PARCEL_SOURCE).where(F.col("valid_to_utc").isNull()),
+            read_source(spark, args, PARCEL_SOURCE).where(F.expr(parcel_predicate)),
             args.region_prefix,
         )
         source_snapshots[PARCEL_SOURCE] = assert_single_snapshot(parcels, PARCEL_SOURCE)
