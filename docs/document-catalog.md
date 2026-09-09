@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **425개**
+- 문서 파일: **426개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 120 |
+| Monorepo | 121 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 178 |
+| ADR | 179 |
 | README | 109 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -468,6 +468,7 @@ docs/adr/0094-the-exclusive-register-bridges-prices-and-units.md
 docs/adr/0095-unit-official-prices-are-reindexed-through-the-exclusive-register.md
 docs/adr/0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md
 docs/adr/0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md
+docs/adr/0098-the-pre-push-hook-keeps-only-fast-checks.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -600,6 +601,7 @@ tools/github/README.md
 | `docs/adr/0095-unit-official-prices-are-reindexed-through-the-exclusive-register.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0098-the-pre-push-hook-keeps-only-fast-checks.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
