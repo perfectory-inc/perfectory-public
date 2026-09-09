@@ -31,7 +31,7 @@
     "iron-session": "^8.0.4",
     "ky": "^1.8.0",
     "lucide-react": "^1.14.0",
-    "next": "16.2.11",
+    "next": "16.3.3",
     "next-intl": "^4.11.0",
     "oauth4webapi": "^3.6.1",
     "pino": "^9.5.0",
@@ -63,6 +63,6 @@
     "tailwindcss": "4.2.4",
     "typescript": "5.9.3",
     "vite": "6.4.2",
-    "vitest": "4.1.7"
+    "vitest": "4.1.11"
   }
 }
