@@ -16,7 +16,7 @@ git -C "$fixture" config user.name guard
 mkdir -p "$fixture/platforms/foundation-platform/services/foundation-profile-gateway" "$fixture/products/gongzzang"
 printf '%s\n' 'services:' '  postgres:' '    image: postgres:17-alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '  valkey:' '    image: valkey/valkey:8-alpine@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' > "$fixture/platforms/foundation-platform/docker-compose.yml"
 printf '%s\n' '{' '  "packageManager": "pnpm@9.12.0",' '  "engines": {' '    "node": "20.19.0",' '    "pnpm": "9.12.0"' '  }' '}' > "$fixture/products/gongzzang/package.json"
-printf '%s\n' '{' '  "packageManager": "pnpm@9.12.0",' '  "engines": {' '    "node": "20.19.0",' '    "pnpm": "9.12.0"' '  },' '  "devDependencies": {' '    "typescript": "5.9.3",' '    "vitest": "4.1.7"' '  }' '}' > "$fixture/platforms/foundation-platform/services/foundation-profile-gateway/package.json"
+printf '%s\n' '{' '  "packageManager": "pnpm@9.12.0",' '  "engines": {' '    "node": "20.19.0",' '    "pnpm": "9.12.0"' '  },' '  "devDependencies": {' '    "typescript": "5.9.3",' '    "vitest": "4.1.11"' '  }' '}' > "$fixture/platforms/foundation-platform/services/foundation-profile-gateway/package.json"
 git -C "$fixture" add .
 bash "$checker" "$fixture" >/dev/null
 
