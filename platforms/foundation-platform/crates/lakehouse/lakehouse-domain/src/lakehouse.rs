@@ -605,6 +605,7 @@ pub use crate::land_characteristic::SILVER_LAND_CHARACTERISTIC;
 pub use crate::land_forest_ledger::SILVER_LAND_FOREST_LEDGER;
 pub use crate::land_right_registration::SILVER_LAND_RIGHT_REGISTRATION;
 pub use crate::land_transfer_history::SILVER_LAND_TRANSFER_HISTORY;
+pub use crate::parcel_panel::GOLD_PARCEL_PANEL;
 
 // D151 필지별 개별공시지가 CSV 의 열 순서 그대로 (root ADR-0085). 값은 원천 표기
 // 그대로 문자열로 나른다 — 형 변환은 소비 투영의 몫이고, 원천이 준 것을 바꾸지 않는다.
@@ -2054,6 +2055,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
     GOLD_COMPLEX_CATALOG,
     GOLD_COMPLEX_SPATIAL_LOCATOR,
+    GOLD_PARCEL_PANEL,
 ];
 
 /// Returns the industrial complex lakehouse `PoC` table contracts in publish order.

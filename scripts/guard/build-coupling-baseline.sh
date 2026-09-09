@@ -178,7 +178,10 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # The shared engine reads positions from that embedded contract; no second ZIP or upload engine.
 # 107 -> 108: ADR-0095's disposable projection test embeds the shipped migrations
 # to prove annual-price folding, replacement rollback and the repository read against real constraints.
-COMPILE_TIME_READ_BASELINE="${3:-108}"
+# 108 -> 109: root ADR-0096's parcel by-PNU serving lane embeds the R2 connection contract
+# (`parcel_by_pnu_gateway_contract.rs`), the same one-`include_str!`-per-gateway shape the
+# profile gateway already pays: the baker and the Worker must read one key grammar, not two.
+COMPILE_TIME_READ_BASELINE="${3:-109}"
 
 cd "$repo_root"
 

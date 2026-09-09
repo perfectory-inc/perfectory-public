@@ -16,7 +16,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 이 카탈로그에 없으므로 추정하지 않습니다. 실행 경로가 있다는 표시는 운영 배포·전국 적재 완료를 뜻하지 않습니다.
 
 현재 범위: 원천 **8그룹 / 133 endpoint**,
-Silver·Gold **20표**,
+Silver·Gold **21표**,
 서빙·운영 원장 **75표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
@@ -202,6 +202,7 @@ Silver·Gold **20표**,
 | `silver.building_register_unit_areas` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
+| `gold.parcel_panel` | 계약만 있음 | 루트 ADR-0096 R2 미리굽기 레인의 원천 표. 계약은 있으나 생산 잡(silver 조인)은 후속 변경에서 붙는다. |
 
 ## 서빙·운영 원장 전체 목록
 
