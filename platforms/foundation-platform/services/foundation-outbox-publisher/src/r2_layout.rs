@@ -6,6 +6,7 @@ use regex::Regex;
 use std::sync::OnceLock;
 use uuid::Uuid;
 
+use crate::parcel_by_pnu_gateway_contract::parcel_by_pnu_gateway_policy;
 use crate::profile_gateway_contract::profile_gateway_policy;
 
 pub const VECTOR_TILE_ARTIFACT_ROOT: &str = "gold/vector-tiles/artifacts";
@@ -95,6 +96,122 @@ pub fn is_industrial_complex_gold_profile_key(key: &str) -> bool {
         })
 }
 
+/// Returns the canonical serving key of one parcel's by-PNU JSON object (root ADR-0096).
+///
+/// The root, the generation-directory grammar, and the PNU grammar all come from the
+/// `parcel_by_pnu_gateway` block of the R2 connection contract, which the
+/// `foundation-parcel-gateway` Worker also reads: the key this writes and the key the Worker
+/// resolves are the same fact.
+///
+/// # Errors
+/// Returns an error when the generation is zero, the generation violates the contract grammar,
+/// or the PNU violates the contract grammar.
+pub fn parcel_by_pnu_serving_object_key(generation: u64, pnu: &str) -> anyhow::Result<String> {
+    anyhow::ensure!(generation >= 1, "serving generation must be at least 1");
+    let layout = &parcel_by_pnu_gateway_policy()?.object_key;
+    let generation_dir = format!("v{generation}");
+    anyhow::ensure!(
+        parcel_generation_dir_regex()?.is_match(&generation_dir),
+        "serving generation {generation} violates the R2 connection contract grammar"
+    );
+    anyhow::ensure!(
+        parcel_pnu_regex()?.is_match(pnu),
+        "PNU {pnu:?} violates the R2 connection contract grammar"
+    );
+    Ok(format!(
+        "{}/{generation_dir}/{pnu}{}",
+        layout.root, layout.suffix
+    ))
+}
+
+/// Returns whether `key` is the canonical serving key of one parcel's by-PNU JSON object.
+///
+/// Derived by round-tripping through [`parcel_by_pnu_serving_object_key`], so a key this accepts
+/// is one this module would itself have produced — a leading-zero generation directory or a
+/// non-canonical PNU cannot pass.
+pub fn is_parcel_by_pnu_serving_object_key(key: &str) -> bool {
+    let Ok(policy) = parcel_by_pnu_gateway_policy() else {
+        return false;
+    };
+    let layout = &policy.object_key;
+    let Some(relative) = key
+        .strip_prefix(layout.root.as_str())
+        .and_then(|relative| relative.strip_prefix('/'))
+        .and_then(|relative| relative.strip_suffix(layout.suffix.as_str()))
+    else {
+        return false;
+    };
+    let mut segments = relative.split('/');
+    let (Some(generation_dir), Some(pnu), None) =
+        (segments.next(), segments.next(), segments.next())
+    else {
+        return false;
+    };
+    generation_dir
+        .strip_prefix('v')
+        .and_then(|digits| digits.parse::<u64>().ok())
+        .is_some_and(|generation| {
+            parcel_by_pnu_serving_object_key(generation, pnu)
+                .is_ok_and(|canonical| canonical == key)
+        })
+}
+
+/// Returns the canonical key of the parcel by-PNU serving manifest (root ADR-0096).
+///
+/// This is the one mutable object of the lane: the pointer that pins the currently served
+/// generation. Its address comes from the contract and must live under the serving root, so the
+/// gateway can read the pointer with the same binding it reads the objects with.
+///
+/// # Errors
+/// Returns an error when the contract places the manifest outside the serving root.
+pub fn parcel_by_pnu_serving_manifest_key() -> anyhow::Result<&'static str> {
+    let layout = &parcel_by_pnu_gateway_policy()?.object_key;
+    anyhow::ensure!(
+        layout
+            .manifest_object
+            .strip_prefix(layout.root.as_str())
+            .and_then(|relative| relative.strip_prefix('/'))
+            .is_some_and(|file_name| !file_name.contains('/')),
+        "the serving manifest {} must live directly under the serving root {}",
+        layout.manifest_object,
+        layout.root
+    );
+    Ok(layout.manifest_object.as_str())
+}
+
+/// Returns whether `key` is the canonical parcel by-PNU serving manifest key.
+pub fn is_parcel_by_pnu_serving_manifest_key(key: &str) -> bool {
+    parcel_by_pnu_serving_manifest_key().is_ok_and(|canonical| canonical == key)
+}
+
+fn parcel_generation_dir_regex() -> anyhow::Result<&'static Regex> {
+    static GENERATION_DIR_REGEX: OnceLock<Result<Regex, String>> = OnceLock::new();
+    GENERATION_DIR_REGEX
+        .get_or_init(|| {
+            let pattern = &parcel_by_pnu_gateway_policy()
+                .map_err(|error| error.to_string())?
+                .object_key
+                .generation_dir_pattern;
+            Regex::new(&format!("^(?:{pattern})$")).map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|message| anyhow::anyhow!(message.clone()))
+}
+
+fn parcel_pnu_regex() -> anyhow::Result<&'static Regex> {
+    static PNU_REGEX: OnceLock<Result<Regex, String>> = OnceLock::new();
+    PNU_REGEX
+        .get_or_init(|| {
+            let pattern = &parcel_by_pnu_gateway_policy()
+                .map_err(|error| error.to_string())?
+                .object_key
+                .pnu_pattern;
+            Regex::new(&format!("^(?:{pattern})$")).map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|message| anyhow::anyhow!(message.clone()))
+}
+
 fn profile_artifact_id_regex() -> anyhow::Result<&'static Regex> {
     static ARTIFACT_ID_REGEX: OnceLock<Result<Regex, String>> = OnceLock::new();
     ARTIFACT_ID_REGEX
@@ -181,13 +298,18 @@ mod tests {
     use super::{
         bronze_catalog_recovery_evidence_key, industrial_complex_gold_profile_key,
         is_bronze_catalog_recovery_evidence_key, is_industrial_complex_gold_profile_key,
-        is_parcel_publication_execution_evidence_key, parcel_marker_anchor_artifact_prefix,
+        is_parcel_by_pnu_serving_manifest_key, is_parcel_by_pnu_serving_object_key,
+        is_parcel_publication_execution_evidence_key, parcel_by_pnu_serving_manifest_key,
+        parcel_by_pnu_serving_object_key, parcel_marker_anchor_artifact_prefix,
         parcel_publication_execution_evidence_key, vector_tile_artifact_prefix,
         vector_tile_manifest_key, vector_tile_release_key,
     };
     use crate::profile_gateway_contract::profile_gateway_policy;
 
     const ID: &str = "018f0000-0000-7000-8000-000000000001";
+    // Synthetic PNU in the repository-reserved namespace (`scripts/guard/public-fixture-safety.py`):
+    // 19 digits, `99999` prefix, 11th digit in `[1289]` as the cadastral-register kind requires.
+    const PNU: &str = "9999900000100000000";
 
     #[test]
     fn profile_layout_matches_gateway_contract() -> anyhow::Result<()> {
@@ -267,6 +389,63 @@ mod tests {
                 "non-canonical key was recognised as a profile: {other}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn parcel_serving_key_pins_generation_directory_and_pnu_grammar() -> anyhow::Result<()> {
+        assert_eq!(
+            parcel_by_pnu_serving_object_key(1, PNU)?,
+            "serving/parcels/by-pnu/v1/9999900000100000000.json"
+        );
+        assert_eq!(
+            parcel_by_pnu_serving_manifest_key()?,
+            "serving/parcels/by-pnu/manifest.json"
+        );
+
+        assert!(parcel_by_pnu_serving_object_key(0, PNU).is_err());
+        for invalid_pnu in [
+            "999990000010000000",   // 18 digits
+            "99999000001000000001", // 20 digits
+            "999990000010000000a",  // non-digit
+            "9999900000000000000",  // 11th digit outside the cadastral-register kinds [1289]
+            "",
+        ] {
+            assert!(
+                parcel_by_pnu_serving_object_key(1, invalid_pnu).is_err(),
+                "PNU {invalid_pnu:?} must be refused"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn only_a_canonical_parcel_serving_key_is_recognised_as_one() -> anyhow::Result<()> {
+        let key = parcel_by_pnu_serving_object_key(7, PNU)?;
+
+        assert!(is_parcel_by_pnu_serving_object_key(&key));
+        for other in [
+            "serving/parcels/by-pnu/manifest.json",
+            "serving/parcels/by-pnu/v01/9999900000100000000.json",
+            "serving/parcels/by-pnu/v0/9999900000100000000.json",
+            "serving/parcels/by-pnu/v1/999990000010000000.json",
+            "serving/parcels/by-pnu/v1/nested/9999900000100000000.json",
+            "serving/parcels/by-pnu/v1/9999900000100000000.json.bak",
+            "serving/parcels/by-pnu/9999900000100000000.json",
+            "serving/other/v1/9999900000100000000.json",
+            "gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json",
+        ] {
+            assert!(
+                !is_parcel_by_pnu_serving_object_key(other),
+                "non-canonical key was recognised as a parcel serving object: {other}"
+            );
+        }
+
+        assert!(is_parcel_by_pnu_serving_manifest_key(
+            "serving/parcels/by-pnu/manifest.json"
+        ));
+        assert!(!is_parcel_by_pnu_serving_manifest_key(&key));
+        assert!(!is_industrial_complex_gold_profile_key(&key));
         Ok(())
     }
 

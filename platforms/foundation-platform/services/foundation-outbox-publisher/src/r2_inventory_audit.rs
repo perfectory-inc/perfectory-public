@@ -16,7 +16,8 @@ use crate::r2_command_support::{
     r2_config_from_env_file, read_json, resolve_path, utc_now, write_json_file,
 };
 use crate::r2_layout::{
-    is_bronze_catalog_recovery_evidence_key, PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT,
+    is_bronze_catalog_recovery_evidence_key, is_parcel_by_pnu_serving_manifest_key,
+    is_parcel_by_pnu_serving_object_key, PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT,
     VECTOR_TILE_ARTIFACT_ROOT, VECTOR_TILE_MANIFEST_ROOT,
 };
 
@@ -479,6 +480,20 @@ fn classify_key(key: &str) -> Classification {
             reason: "Canonical runtime manifest pointer.",
         };
     }
+    if is_parcel_by_pnu_serving_manifest_key(key) {
+        return Classification {
+            name: "parcel_by_pnu_serving_manifest_pointer",
+            action: "keep",
+            reason: "Canonical parcel by-PNU serving manifest pointer (root ADR-0096).",
+        };
+    }
+    if is_parcel_by_pnu_serving_object_key(key) {
+        return Classification {
+            name: "parcel_by_pnu_serving_object",
+            action: "keep",
+            reason: "Pre-baked parcel by-PNU serving object under the contract grammar (root ADR-0096).",
+        };
+    }
     if is_current_spatial_artifact(key) {
         return Classification {
             name: "runtime_spatial_artifact",
@@ -906,6 +921,30 @@ mod tests {
         for key in legacy {
             let classification = classify_key(key);
             assert_eq!(classification.name, "legacy_gold_artifact");
+            assert_eq!(classification.action, "review");
+        }
+    }
+
+    #[test]
+    fn parcel_by_pnu_serving_layout_is_kept_and_junk_under_serving_still_surfaces() {
+        let manifest = classify_key("serving/parcels/by-pnu/manifest.json");
+        assert_eq!(manifest.name, "parcel_by_pnu_serving_manifest_pointer");
+        assert_eq!(manifest.action, "keep");
+
+        let object = classify_key("serving/parcels/by-pnu/v1/9999900000100000000.json");
+        assert_eq!(object.name, "parcel_by_pnu_serving_object");
+        assert_eq!(object.action, "keep");
+
+        // The new prefix must not become a blanket keep: anything the key grammar would not
+        // itself have produced still surfaces for review.
+        for junk in [
+            "serving/parcels/by-pnu/v01/9999900000100000000.json",
+            "serving/parcels/by-pnu/v1/not-a-pnu.json",
+            "serving/parcels/by-pnu/latest.json",
+            "serving/anything-else/v1/9999900000100000000.json",
+        ] {
+            let classification = classify_key(junk);
+            assert_eq!(classification.name, "unknown", "junk key was kept: {junk}");
             assert_eq!(classification.action, "review");
         }
     }

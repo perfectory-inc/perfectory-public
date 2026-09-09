@@ -31,6 +31,41 @@
     "content_type": "application/json; charset=utf-8",
     "cache_control": "public, max-age=31536000, immutable"
   },
+  "parcel_by_pnu_gateway": {
+    "worker_name": "foundation-parcel-gateway",
+    "connection": "lakehouse",
+    "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+    "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+    "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
+    "compatibility_date": "2026-04-26",
+    "object_key": {
+      "root": "serving/parcels/by-pnu",
+      "generation_dir_pattern": "v[1-9][0-9]{0,17}",
+      "pnu_pattern": "[0-9]{10}[1289][0-9]{8}",
+      "suffix": ".json",
+      "manifest_object": "serving/parcels/by-pnu/manifest.json"
+    },
+    "request_path": {
+      "prefix": "/parcels/by-pnu/"
+    },
+    "cors": {
+      "grammar": "comma-separated-serialized-http-origins-v1",
+      "allow_wildcard": false,
+      "accepted": [
+        "https://app.example.test",
+        " http://localhost:3000 , https://app.example.test "
+      ],
+      "rejected": [
+        "*",
+        "file:///tmp/app",
+        "https://app.example.test/path"
+      ]
+    },
+    "content_type": "application/json; charset=utf-8",
+    "cache_control": "public, max-age=3600",
+    "manifest_cache_control": "no-cache, max-age=0",
+    "manifest_edge_cache_seconds": 60
+  },
   "connections": {
     "lakehouse": {
       "required_env": [

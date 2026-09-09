@@ -134,6 +134,7 @@ mod page_count_plan_contract;
 mod pagination_guard;
 mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
+mod parcel_by_pnu_gateway_contract;
 mod parcel_catalog_projection_load;
 mod parcel_characteristic_catalog_projection_load;
 mod parcel_forest_ledger_catalog_projection_load;
