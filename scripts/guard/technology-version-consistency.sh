@@ -2,9 +2,36 @@
 # Prevents runtime drift between local Compose files and the canonical role matrix.
 # Local/CI/staging/production may change endpoints, credentials, tenancy, and capacity,
 # but a different runtime version requires an explicit migration ADR.
+#
+# The JS manifest pins are not spelled here: they live once in
+# tools/technology-versions.contract.json and this guard reads them (root ADR-0097). The pin
+# values are read from the guard's own repository, so the self-test's fixture repositories are
+# checked against the real pins rather than fixture copies.
 set -euo pipefail
 
-root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
+script_repo_root="$(cd "$(dirname "$0")/../.." && pwd -P)"
+version_pins_contract="$script_repo_root/tools/technology-versions.contract.json"
+if [ ! -f "$version_pins_contract" ]; then
+  echo "FAIL technology-version: missing $version_pins_contract" >&2
+  exit 1
+fi
+
+read_pin() {
+  python3 - "$version_pins_contract" "$1" <<'PY' | tr -d '\r'
+import json
+import sys
+
+pins = json.load(open(sys.argv[1], encoding="utf-8"))["manifest_exact_pins"]
+value = pins[sys.argv[2]]
+if not isinstance(value, str) or value.strip() == "":
+    raise SystemExit(f"pin {sys.argv[2]} must be a non-empty string")
+print(value)
+PY
+}
+
+node_pin="$(read_pin node)"
+
+root="${1:-$script_repo_root}"
 cd "$root"
 
 fail=0
@@ -48,33 +75,33 @@ if [ -n "$package_files" ]; then
     fi
   }
 
-  check_exact_manifest_value 'node' '20.19.0'
-  check_exact_manifest_value 'pnpm' '9.12.0'
-  check_exact_manifest_value 'packageManager' 'pnpm@9.12.0'
-  check_exact_manifest_value 'next' '16.3.3'
-  check_exact_manifest_value 'react' '19.2.5'
-  check_exact_manifest_value 'react-dom' '19.2.5'
-  check_exact_manifest_value 'typescript' '5.9.3'
-  check_exact_manifest_value 'tailwindcss' '4.2.4'
-  check_exact_manifest_value 'vite' '6.4.3'
-  check_exact_manifest_value 'vitest' '4.1.11'
-  check_exact_manifest_value 'turbo' '2.9.15'
-  check_exact_manifest_value '@biomejs/biome' '2.4.14'
-  check_exact_manifest_value '@tailwindcss/postcss' '4.2.4'
+  while IFS=$'\t' read -r pin_key pin_value; do
+    check_exact_manifest_value "$pin_key" "$pin_value"
+  done < <(python3 - "$version_pins_contract" <<'PY' | tr -d '\r'
+import json
+import sys
+
+pins = json.load(open(sys.argv[1], encoding="utf-8"))["manifest_exact_pins"]
+for key, value in pins.items():
+    if not isinstance(value, str) or value.strip() == "":
+        raise SystemExit(f"pin {key} must be a non-empty string")
+    print(f"{key}\t{value}")
+PY
+)
 fi
 
 if [ -f products/gongzzang/.nvmrc ]; then
   nvmrc=$(tr -d '\r\n' < products/gongzzang/.nvmrc)
-  if [ "$nvmrc" != '20.19.0' ]; then
-    echo "FAIL technology-version: products/gongzzang/.nvmrc must pin 20.19.0 (found $nvmrc)" >&2
+  if [ "$nvmrc" != "$node_pin" ]; then
+    echo "FAIL technology-version: products/gongzzang/.nvmrc must pin $node_pin (found $nvmrc)" >&2
     fail=1
   fi
 fi
 
 workflow_node_versions=$(git grep -n -E '^[[:space:]]*node-version:' -- '.github/workflows/*.yml' '.github/workflows/*.yaml' || true)
-if [ -n "$workflow_node_versions" ] && printf '%s\n' "$workflow_node_versions" | grep -Fv 'node-version: "20.19.0"' >/dev/null; then
-  echo 'FAIL technology-version: CI node-version must be 20.19.0:' >&2
-  printf '%s\n' "$workflow_node_versions" | grep -Fv 'node-version: "20.19.0"' >&2 || true
+if [ -n "$workflow_node_versions" ] && printf '%s\n' "$workflow_node_versions" | grep -Fv "node-version: \"$node_pin\"" >/dev/null; then
+  echo "FAIL technology-version: CI node-version must be $node_pin:" >&2
+  printf '%s\n' "$workflow_node_versions" | grep -Fv "node-version: \"$node_pin\"" >&2 || true
   fail=1
 fi
 

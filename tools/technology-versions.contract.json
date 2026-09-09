@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "purpose": "JS manifest version pins the technology-version guard enforces. One fact, one file: manifests must state exactly these values, the guard reads them from here, and other documents point here instead of restating them (root ADR-0097).",
+  "manifest_exact_pins": {
+    "node": "20.19.0",
+    "pnpm": "9.12.0",
+    "packageManager": "pnpm@9.12.0",
+    "next": "16.3.3",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "typescript": "5.9.3",
+    "tailwindcss": "4.2.4",
+    "vite": "6.4.3",
+    "vitest": "4.1.11",
+    "turbo": "2.9.15",
+    "@biomejs/biome": "2.4.14",
+    "@tailwindcss/postcss": "4.2.4"
+  }
+}
