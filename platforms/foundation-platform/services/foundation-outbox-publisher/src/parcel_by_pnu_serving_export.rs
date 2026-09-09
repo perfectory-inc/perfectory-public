@@ -16,7 +16,7 @@
 mod parcel_document;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashSet},
     env,
     path::{Path, PathBuf},
 };
@@ -49,8 +49,14 @@ const MAX_CONCURRENCY_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_MAX
 const SUMMARY_PATH_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_SUMMARY_PATH";
 const ALLOW_OVERWRITE_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_ALLOW_OVERWRITE";
 const PNU_ALLOWLIST_PATH_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PNU_ALLOWLIST_PATH";
+const RESUME_FROM_LISTING_ENV: &str =
+    "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_RESUME_FROM_LISTING";
 const DEFAULT_MAX_CONCURRENCY: usize = 8;
-const MAX_CONCURRENCY: usize = 32;
+/// Measured 2026-09-09 on the Seoul bake: one R2 put costs ~0.29s from the batch host, so the
+/// old cap of 32 topped out near 110 objects/s and a national bake would take days. The client
+/// now retries adaptively when R2 pushes back with 429, which is what makes a higher ceiling
+/// safe to offer; the default stays low and the operator raises it deliberately.
+const MAX_CONCURRENCY: usize = 256;
 /// `scan_snapshot_rows` holds every scanned row in memory. National scale (39.8M parcels) needs
 /// a streaming export; this cap makes that boundary an explicit refusal instead of an OOM.
 const MAX_ROWS_PER_RUN: usize = 2_000_000;
@@ -90,6 +96,7 @@ pub async fn run() -> anyhow::Result<()> {
         exported_row_count = summary.exported_row_count,
         created_object_count = summary.created_object_count,
         reused_object_count = summary.reused_object_count,
+        listed_object_count = summary.listed_object_count,
         overwritten_object_count = summary.overwritten_object_count,
         output_storage_driver = summary.output_storage_driver,
         "parcel by-PNU serving export succeeded"
@@ -106,6 +113,7 @@ struct ServingExportConfig {
     summary_path: Option<PathBuf>,
     allow_overwrite: bool,
     pnu_allowlist: Option<BTreeSet<String>>,
+    resume_from_listing: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -124,6 +132,9 @@ struct ServingExportSummary {
     output_bucket: Option<String>,
     created_object_count: u64,
     reused_object_count: u64,
+    /// Skipped because one generation listing already named the key (resume path). Unlike
+    /// `reused`, these were not byte-verified this run — publish-time sampling covers them.
+    listed_object_count: u64,
     overwritten_object_count: u64,
     artifacts: Vec<ServingExportEntry>,
 }
@@ -179,6 +190,13 @@ impl ServingExportConfig {
             allow_overwrite: optional_env(ALLOW_OVERWRITE_ENV)?
                 .is_some_and(|value| value.eq_ignore_ascii_case("true")),
             pnu_allowlist,
+            // On by default: the bucket is the record (root ADR-0062), so a re-run skips
+            // every object one paged listing says is already there instead of paying a
+            // conditional put and a read-back per object. Off means every object is
+            // byte-verified against the store again. The delta re-bake (allow_overwrite)
+            // ignores this — it exists to rewrite listed objects.
+            resume_from_listing: optional_env(RESUME_FROM_LISTING_ENV)?
+                .is_none_or(|value| value.eq_ignore_ascii_case("true")),
         })
     }
 }
@@ -240,10 +258,18 @@ async fn export(
     );
 
     let selected = select_rows(&rows.rows, config.pnu_allowlist.as_ref())?;
-    let entries = write_artifacts(config, output, &provenance, &selected).await?;
+    let existing_keys = if config.resume_from_listing && !config.allow_overwrite {
+        output
+            .list_existing_generation_keys(config.target_generation)
+            .await?
+    } else {
+        HashSet::new()
+    };
+    let entries = write_artifacts(config, output, &provenance, &selected, &existing_keys).await?;
 
     let created_object_count = count_outcome(&entries, "created")?;
     let reused_object_count = count_outcome(&entries, "reused")?;
+    let listed_object_count = count_outcome(&entries, "listed")?;
     let overwritten_object_count = count_outcome(&entries, "overwritten")?;
     Ok(ServingExportSummary {
         schema_version: SUMMARY_SCHEMA_VERSION,
@@ -260,6 +286,7 @@ async fn export(
         output_bucket: output.bucket().map(ToOwned::to_owned),
         created_object_count,
         reused_object_count,
+        listed_object_count,
         overwritten_object_count,
         artifacts: entries,
     })
@@ -303,10 +330,18 @@ async fn write_artifacts(
     output: &ParcelServingObjectStore,
     provenance: &GoldSnapshotProvenance,
     rows: &[&JsonMap<String, JsonValue>],
+    existing_keys: &HashSet<String>,
 ) -> anyhow::Result<Vec<ServingExportEntry>> {
     let mut writes = Vec::with_capacity(rows.len());
     for (index, row) in rows.iter().enumerate() {
-        writes.push(write_artifact(config, output, provenance, row, index));
+        writes.push(write_artifact(
+            config,
+            output,
+            provenance,
+            row,
+            index,
+            existing_keys,
+        ));
     }
     let mut indexed = stream::iter(writes)
         .buffer_unordered(config.max_concurrency)
@@ -323,10 +358,18 @@ async fn write_artifact(
     provenance: &GoldSnapshotProvenance,
     row: &JsonMap<String, JsonValue>,
     index: usize,
+    existing_keys: &HashSet<String>,
 ) -> anyhow::Result<(usize, ServingExportEntry)> {
     let artifact = parcel_document::build(provenance, row)?;
     let object_key = parcel_by_pnu_serving_object_key(config.target_generation, &artifact.pnu)?;
-    let write_outcome = write_with_policy(config, output, &object_key, &artifact).await?;
+    let write_outcome = if existing_keys.contains(&object_key) {
+        // The listing already names this key: record the locally rebuilt artifact without a
+        // network round trip. The document is a pure function of the Gold row, the original
+        // write was create-only, and publish-time sampling reads a spread of these back.
+        "listed"
+    } else {
+        write_with_policy(config, output, &object_key, &artifact).await?
+    };
     Ok((
         index,
         ServingExportEntry {

@@ -124,6 +124,25 @@ pub fn parcel_by_pnu_serving_object_key(generation: u64, pnu: &str) -> anyhow::R
     ))
 }
 
+/// Returns the directory prefix (trailing slash included) of one serving generation.
+///
+/// A resumed bake lists this prefix to learn what the bucket already holds. Derived from the
+/// same contract layout as [`parcel_by_pnu_serving_object_key`], so every key that builder
+/// produces for `generation` starts with this prefix and nothing outside the generation does.
+///
+/// # Errors
+/// Returns an error when the generation is zero or violates the contract grammar.
+pub fn parcel_by_pnu_serving_generation_prefix(generation: u64) -> anyhow::Result<String> {
+    anyhow::ensure!(generation >= 1, "serving generation must be at least 1");
+    let layout = &parcel_by_pnu_gateway_policy()?.object_key;
+    let generation_dir = format!("v{generation}");
+    anyhow::ensure!(
+        parcel_generation_dir_regex()?.is_match(&generation_dir),
+        "serving generation {generation} violates the R2 connection contract grammar"
+    );
+    Ok(format!("{}/{generation_dir}/", layout.root))
+}
+
 /// Returns whether `key` is the canonical serving key of one parcel's by-PNU JSON object.
 ///
 /// Derived by round-tripping through [`parcel_by_pnu_serving_object_key`], so a key this accepts
@@ -299,10 +318,10 @@ mod tests {
         bronze_catalog_recovery_evidence_key, industrial_complex_gold_profile_key,
         is_bronze_catalog_recovery_evidence_key, is_industrial_complex_gold_profile_key,
         is_parcel_by_pnu_serving_manifest_key, is_parcel_by_pnu_serving_object_key,
-        is_parcel_publication_execution_evidence_key, parcel_by_pnu_serving_manifest_key,
-        parcel_by_pnu_serving_object_key, parcel_marker_anchor_artifact_prefix,
-        parcel_publication_execution_evidence_key, vector_tile_artifact_prefix,
-        vector_tile_manifest_key, vector_tile_release_key,
+        is_parcel_publication_execution_evidence_key, parcel_by_pnu_serving_generation_prefix,
+        parcel_by_pnu_serving_manifest_key, parcel_by_pnu_serving_object_key,
+        parcel_marker_anchor_artifact_prefix, parcel_publication_execution_evidence_key,
+        vector_tile_artifact_prefix, vector_tile_manifest_key, vector_tile_release_key,
     };
     use crate::profile_gateway_contract::profile_gateway_policy;
 
@@ -416,6 +435,17 @@ mod tests {
                 "PNU {invalid_pnu:?} must be refused"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn a_generation_prefix_contains_its_keys_and_nothing_else() -> anyhow::Result<()> {
+        let prefix = parcel_by_pnu_serving_generation_prefix(7)?;
+        assert_eq!(prefix, "serving/parcels/by-pnu/v7/");
+        assert!(parcel_by_pnu_serving_object_key(7, PNU)?.starts_with(&prefix));
+        assert!(!parcel_by_pnu_serving_object_key(8, PNU)?.starts_with(&prefix));
+        assert!(!parcel_by_pnu_serving_manifest_key()?.starts_with(prefix.as_str()));
+        assert!(parcel_by_pnu_serving_generation_prefix(0).is_err());
         Ok(())
     }
 

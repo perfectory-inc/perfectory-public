@@ -15,12 +15,15 @@
 //! (`OverwriteAllowed`), exactly like the tile pipeline's `gold/manifest.json` pointer; and a
 //! delta re-bake inside the current generation overwrites objects only when the caller says so.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::{ensure, Context};
 use foundation_outbox::{
     object_storage::R2ObjectStorageConfig,
-    object_storage::{ObjectWriteMode, PutObjectRequest},
+    object_storage::{
+        ObjectWriteMode, PutObjectRequest, R2InventoryRequest, MAX_R2_INVENTORY_MAX_KEYS,
+    },
     EvidenceByteReader, FileObjectStorage, ObjectStorageService, PublishError, R2ObjectStorage,
 };
 
@@ -28,13 +31,15 @@ use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::parcel_by_pnu_gateway_contract::parcel_by_pnu_gateway_policy;
 use crate::r2_layout::{
     is_parcel_by_pnu_serving_manifest_key, is_parcel_by_pnu_serving_object_key,
+    parcel_by_pnu_serving_generation_prefix,
 };
 
 /// An opened parcel by-PNU serving object store.
 #[derive(Clone)]
 pub(crate) enum ParcelServingObjectStore {
-    /// Objects under a local root, used for rehearsal and tests.
-    Local(FileObjectStorage),
+    /// Objects under a local root, used for rehearsal and tests. The root rides along because
+    /// listing a generation walks the directory the adapter does not expose.
+    Local(FileObjectStorage, PathBuf),
     /// Objects in the named lakehouse bucket.
     R2(Box<R2ObjectStorage>, String),
 }
@@ -47,11 +52,12 @@ impl ParcelServingObjectStore {
     /// configured.
     pub(crate) fn open(config: &ProfileStoreConfig) -> anyhow::Result<Self> {
         match config {
-            ProfileStoreConfig::Local { root } => {
-                Ok(Self::Local(FileObjectStorage::new(root).with_context(
-                    || format!("failed to configure local serving root {}", root.display()),
-                )?))
-            }
+            ProfileStoreConfig::Local { root } => Ok(Self::Local(
+                FileObjectStorage::new(root).with_context(|| {
+                    format!("failed to configure local serving root {}", root.display())
+                })?,
+                root.clone(),
+            )),
             ProfileStoreConfig::R2 => {
                 let config = R2ObjectStorageConfig::from_env()
                     .context("failed to configure the R2 serving store")?;
@@ -67,7 +73,7 @@ impl ParcelServingObjectStore {
     /// Name of the driver this store was opened with.
     pub(crate) const fn storage_driver(&self) -> &'static str {
         match self {
-            Self::Local(_) => "local",
+            Self::Local(..) => "local",
             Self::R2(_, _) => "r2",
         }
     }
@@ -75,9 +81,68 @@ impl ParcelServingObjectStore {
     /// The bucket this store reaches, when it is a bucket at all.
     pub(crate) fn bucket(&self) -> Option<&str> {
         match self {
-            Self::Local(_) => None,
+            Self::Local(..) => None,
             Self::R2(_, bucket_name) => Some(bucket_name.as_str()),
         }
+    }
+
+    /// Every canonical serving object key already present in one generation's directory.
+    ///
+    /// The bucket is the record (root ADR-0062): a resumed bake asks the store what exists
+    /// instead of keeping a ledger beside it that a crash would leave disagreeing. Non-canonical
+    /// keys under the prefix are ignored — the inventory audit reports them, this lane does not
+    /// serve them.
+    ///
+    /// # Errors
+    /// Returns an error when the generation violates the contract grammar or the provider
+    /// rejects a list request. A network failure is not an empty generation.
+    pub(crate) async fn list_existing_generation_keys(
+        &self,
+        generation: u64,
+    ) -> anyhow::Result<HashSet<String>> {
+        let prefix = parcel_by_pnu_serving_generation_prefix(generation)?;
+        let keys = match self {
+            Self::Local(_, root) => {
+                let directory = root.join(&prefix);
+                match std::fs::read_dir(&directory) {
+                    Ok(entries) => entries
+                        .map(|entry| {
+                            entry
+                                .map(|entry| {
+                                    format!("{prefix}{}", entry.file_name().to_string_lossy())
+                                })
+                                .with_context(|| {
+                                    format!("failed to list local serving directory {prefix}")
+                                })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!("failed to list local serving directory {prefix}")
+                        })
+                    }
+                }
+            }
+            Self::R2(storage, _) => {
+                let request =
+                    R2InventoryRequest::new(Some(&prefix), Some(MAX_R2_INVENTORY_MAX_KEYS))
+                        .context("failed to build the serving generation list request")?;
+                let report = storage
+                    .inventory_audit(request)
+                    .await
+                    .with_context(|| format!("failed to list serving generation {prefix}"))?;
+                report
+                    .objects()
+                    .iter()
+                    .map(|object| object.key.clone())
+                    .collect()
+            }
+        };
+        Ok(keys
+            .into_iter()
+            .filter(|key| is_parcel_by_pnu_serving_object_key(key))
+            .collect())
     }
 
     /// Writes one serving object create-only, reusing an existing object only when the bytes
@@ -171,7 +236,7 @@ impl ParcelServingObjectStore {
     /// Returns an error when the object is absent or the provider rejects the read.
     pub(crate) async fn read_bytes(&self, key: &str) -> anyhow::Result<Vec<u8>> {
         match self {
-            Self::Local(storage) => storage.read_evidence_bytes(key).await,
+            Self::Local(storage, _) => storage.read_evidence_bytes(key).await,
             Self::R2(storage, _) => storage.read_evidence_bytes(key).await,
         }
         .with_context(|| format!("failed to read serving object {key}"))
@@ -197,7 +262,7 @@ impl ParcelServingObjectStore {
 
     async fn put(&self, request: PutObjectRequest) -> Result<(), PublishError> {
         match self {
-            Self::Local(storage) => storage.put_object(request).await,
+            Self::Local(storage, _) => storage.put_object(request).await,
             Self::R2(storage, _) => storage.put_object(request).await,
         }
     }

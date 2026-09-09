@@ -266,7 +266,11 @@ def validate_args(args: argparse.Namespace) -> None:
     validate_identifier("target iceberg namespace", args.target_iceberg_namespace)
     validate_identifier("target iceberg table", args.target_iceberg_table)
 
-    if args.write_mode == "iceberg" and args.iceberg_write_mode == "overwrite":
+    if (
+        args.write_mode == "iceberg"
+        and args.iceberg_write_mode == "overwrite"
+        and not args.validate_only
+    ):
         is_smoke_table = args.target_iceberg_table.endswith("_smoke")
         if not is_smoke_table and not args.allow_non_smoke_overwrite:
             raise ValueError(

@@ -16,5 +16,6 @@ last_reviewed: 2026-07-29
 - [R2·lakehouse 실시간 검증](./r2-lakehouse-live-verification.md)
 - [lakehouse 장애 대응](./lakehouse-incident-response.md)
 - [운영 orchestrator 전환](./production-orchestrator-cutover.md)
+- [필지 by-PNU R2 서빙 굽기·발행](./parcel-by-pnu-serving-bake.md)
 
 전체 목록은 [문서 색인](../../../../docs/document-catalog.md)에서 확인한다.

@@ -11,7 +11,7 @@ use std::{env, time::Duration};
 use async_trait::async_trait;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::{
-    config::{BehaviorVersion, Region},
+    config::{retry::RetryConfig, BehaviorVersion, Region},
     Client,
 };
 use sha2::{Digest as _, Sha256};
@@ -215,6 +215,13 @@ impl R2ObjectStorage {
             .endpoint_url(config.endpoint)
             .credentials_provider(credentials)
             .force_path_style(true)
+            // Adaptive, not standard: R2 answers sustained concurrent writes with 429
+            // ("Reduce your concurrent request rate") — measured live 2026-09-09, 32
+            // concurrent puts killed the Seoul bake mid-run. Standard retry re-fires at
+            // full rate and exhausts its attempts inside the same throttle window; the
+            // adaptive token bucket slows the whole client down until R2 stops pushing
+            // back, which is the only client-side answer to an undocumented ceiling.
+            .retry_config(RetryConfig::adaptive().with_max_attempts(8))
             .build();
 
         Self {

@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **426개**
-- 언어 분류: **{'english': 34, 'korean': 231, 'mixed': 161}**
+- 감사 문서: **427개**
+- 언어 분류: **{'english': 34, 'korean': 232, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **205개 정상 / 0개 누락 / 221개 해당 없음**
+- 메타데이터: **206개 정상 / 0개 누락 / 221개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -225,6 +225,7 @@
 | `platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-registry.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current | korean | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
