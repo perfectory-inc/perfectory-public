@@ -44,7 +44,7 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 | JavaScript runtime | Node `20.19.0` | `products/gongzzang/.nvmrc`, CI `node-version`, package `engines` exact pin |
 | JavaScript package manager | pnpm `9.12.0` | `products/gongzzang/package.json#packageManager` exact pin |
 | Frontend core | Next.js `16.3.3`, React/React DOM `19.2.5`, TypeScript `5.9.3` | Gongzzang workspace manifests와 lockfile exact pin |
-| Frontend build/test | Tailwind `4.2.4`, Vite `6.4.2`, Vitest `4.1.11`, Turborepo `2.9.15`, Biome `2.4.14` | Gongzzang manifests/lockfile exact pin |
+| Frontend build/test | Tailwind `4.2.4`, Vite `6.4.3`, Vitest `4.1.11`, Turborepo `2.9.15`, Biome `2.4.14` | Gongzzang manifests/lockfile exact pin |
 | Relational database | PostgreSQL `17` | 모노레포 ADR 0001의 전역 규칙. 모든 Compose DB 이미지 통일 |
 | Spatial database | PostGIS `3.5` on PostgreSQL `17` | Foundation/Gongzzang/tile proof Compose 통일 |
 | Static tile release toolchain | `martin-cp`, `mbtiles`, `pmtiles` | 버전·배포물·실행 파일·이미지 신원은 [`static-release-toolchain.contract.json`](../platforms/foundation-platform/config/static-release-toolchain.contract.json)만 소유 |
