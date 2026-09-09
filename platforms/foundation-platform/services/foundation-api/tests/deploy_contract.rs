@@ -504,6 +504,20 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
     }
 
     let ci = read_area_file(FOUNDATION_CI_WORKFLOW)?;
+    // The Node and pnpm versions CI must install come from the pin contract (root ADR-0097);
+    // restating the numbers here is how this test once pinned CI to a node the repository had
+    // already left behind.
+    let version_pins: serde_json::Value = serde_json::from_str(&read_area_file(
+        "../../tools/technology-versions.contract.json",
+    )?)?;
+    let node_pin = version_pins["manifest_exact_pins"]["node"]
+        .as_str()
+        .ok_or("the version pin contract must name a node pin")?;
+    let pnpm_pin = version_pins["manifest_exact_pins"]["pnpm"]
+        .as_str()
+        .ok_or("the version pin contract must name a pnpm pin")?;
+    let pnpm_setup_line = format!("version: {pnpm_pin}");
+    let node_setup_line = format!("node-version: \"{node_pin}\"");
     for required in [
         // ADR-0004: full-workspace fmt/clippy/test verification is owned by the
         // single SSOT command (xtask clippy --all-targets + test --workspace
@@ -511,9 +525,9 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
         // `cargo build --locked --workspace` step was retired as redundant.
         "cargo xtask verify foundation",
         "uses: pnpm/action-setup@",
-        "version: 9.12.0",
+        pnpm_setup_line.as_str(),
         "uses: actions/setup-node@",
-        "node-version: \"20.19.0\"",
+        node_setup_line.as_str(),
         "platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml",
         "scripts/compose-smoke.sh -- start-api",
         "docker compose down -v --remove-orphans",

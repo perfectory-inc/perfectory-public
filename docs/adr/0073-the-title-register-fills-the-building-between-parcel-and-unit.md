@@ -43,7 +43,7 @@
 2. **주·부속 모두 싣는다.** 부속건축물 675,235동도 각자 PK 를 가진 실물 건물이다. 구분값이
    비어 있는 552행은 정규화 상태로 기록하고 싣는다 — 지어내지 않는다.
 3. **`catalog.building` 투영은 ADR-0072 의 관을 재사용한다.** 매니페스트 기반 핸드오프 내보내기
-   + `register_pk` upsert 적재기. `parcel_id` 는 PNU 부품 `[8..12]` 를 조립해
+   - `register_pk` upsert 적재기. `parcel_id` 는 PNU 부품 `[8..12]` 를 조립해
    `parcel_id_for_pnu` 로 유도하고, 필지에 없는 건물은 건너뛰고 센다.
 4. **자연키 마이그레이션을 이 결정과 함께 낸다.** `catalog.building` 에
    `register_pk text NOT NULL UNIQUE`. 행 `id` 는 `perfectory.catalog.building.v1\0` 네임스페이스의

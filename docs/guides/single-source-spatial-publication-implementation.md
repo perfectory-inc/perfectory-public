@@ -724,6 +724,8 @@ typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다�
 > 다섯 개 application 명령의 port 메서드는 모두 **기본 구현이 에러**인 상태이며, 그것이
 > 미구현을 조용한 성공으로 바꾸지 않는 이유다.
 
+<!-- 두 인용은 별개다 (MD028) -->
+
 > **구현 제약 (2026-07-30 확인):** SQL 함수를 읽어 보면 이 단계의 일이 예상보다 적고, 대신
 > 예상하지 못한 제약이 하나 있다.
 >
@@ -741,6 +743,8 @@ typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다�
 > `fallback_release_id`는 함수가 **보존하거나 지울 뿐 설정하지 않는다.** 정적 승격은 함수 호출
 > *전에* 이전 release id를 읽어 두고, 호출 *후에* fallback을 직접 써야 한다 — 호출 후에는
 > `active_release_id`가 이미 새 release다.
+
+<!-- 두 인용은 별개다 (MD028) -->
 
 > **착수 전 조사 결과 (2026-07-30):** 필요한 부품은 모두 존재한다. 없는 것은 트랜잭션 본문뿐이다.
 >
@@ -763,6 +767,8 @@ typed serialization/CAS conflict가 나면 최신 pointer부터 retry하고 다�
 >   `get_active_vector_tile_runtime_manifest`(193줄)가 `&self.pool`에 묶여 있다. 커밋 뒤 pool로
 >   다시 읽으면 그 사이 다른 승격이 끼어들 수 있으므로, 본문을 `&mut sqlx::PgConnection`을 받는
 >   함수로 먼저 추출해 두 호출처가 같은 정의를 쓰게 한다. **이것이 트랜잭션보다 앞선 작업이다.**
+
+<!-- 두 인용은 별개다 (MD028) -->
 
 > **Increment C·D 결과 (2026-07-30):** `mark_tile_layer_dynamic` 하나를 세로로 뚫고, 뚫는 과정에서
 > 드러난 게이트 결함을 고쳤다. 리더 추출, 트랜잭션,

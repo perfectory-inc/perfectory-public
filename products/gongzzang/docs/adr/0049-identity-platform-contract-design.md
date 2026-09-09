@@ -318,14 +318,14 @@ identity-platform을 별도 repository/deployment로 물리 추출하는 일은 
 
 긍정적 효과:
 
- - Identity에 명확한 owner와 versioned contract가 생긴 뒤 code를 이동하므로, 향후
+- Identity에 명확한 owner와 versioned contract가 생긴 뒤 code를 이동하므로, 향후
    물리 추출은 redesign이 아니라 이미 발행된 API의 re-homing이 된다.
- - consumer(foundation Catalog admin, gongzzang, dawneer, intelligence)가 session
+- consumer(foundation Catalog admin, gongzzang, dawneer, intelligence)가 session
    검증, role 부여, principal lookup, service-auth policy를 제공하는 하나의 안정적인
    identity 표면을 얻는다. 어디서나 deny-by-default다.
- - audit 경계가 명확하다. 각 platform은 opaque principal reference를 보관하고
+- audit 경계가 명확하다. 각 platform은 opaque principal reference를 보관하고
    identity-platform만 해석한다. `getStaffPrincipal`이 기존 패턴의 유일한 빈틈을 닫는다.
- - 향후 강화 경로(SPIFFE, RFC 8693, ReBAC)를 이름 있는 trigger로 미리 결정했으므로,
+- 향후 강화 경로(SPIFFE, RFC 8693, ReBAC)를 이름 있는 trigger로 미리 결정했으므로,
    압박 상황에서도 즉흥적으로 만들지 않고 계획적으로 업그레이드한다.
 
 비용과 위험:

@@ -511,7 +511,7 @@ the validated Martin URL to the source ID derived from `{publication_unit}-{rele
    `gold/vector-tiles/releases/<publication-unit>-<release-uuid>.pmtiles`. Persist the immutable
    release, source lineage, file assets, checksum, byte size, bounds, zooms, and layer IDs in
    Catalog. Never put canonical source data in this bucket.
- 6. **격리된 인증 정보 사용.** 정본 Lakehouse `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*` 어댑터는
+6. **격리된 인증 정보 사용.** 정본 Lakehouse `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*` 어댑터는
     금지한다. 타일 publisher는 버킷 범위 쓰기 인증을, Martin은 별도의 버킷 범위 읽기 전용
     인증을 사용한다. 둘 다 Bronze, lakehouse, recovery 버킷에 접근할 수 없다.
 7. **Stage Martin from private R2.** Deploy the checked-in
