@@ -135,6 +135,9 @@ mod pagination_guard;
 mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
 mod parcel_by_pnu_gateway_contract;
+mod parcel_by_pnu_serving_export;
+mod parcel_by_pnu_serving_manifest_publish;
+mod parcel_by_pnu_serving_store;
 mod parcel_catalog_projection_load;
 mod parcel_characteristic_catalog_projection_load;
 mod parcel_forest_ledger_catalog_projection_load;
@@ -231,6 +234,7 @@ enum Command {
     ExportIndustrialComplexBronzeRawJsonl,
     ExportIndustrialComplexGoldProfiles,
     ExportIndustrialComplexSilverHandoff,
+    ExportParcelByPnuServing,
     ExportParcelMarkerAnchorArtifacts,
     ExportVWorldCadastralSilverHandoff,
     ExportVWorldCadastralShapefileSilverHandoff,
@@ -334,6 +338,7 @@ enum Command {
     PublishIndustrialComplexGoldPointer,
     PublishIndustrialComplexGoldPointers,
     PublishLakehouseLineageEvent,
+    PublishParcelByPnuServingManifest,
     PublishOutboxOnce,
     R2BillingUsageMetrics,
     PromoteParcelMarkerAnchorRuntimeManifest,
@@ -447,6 +452,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportIndustrialComplexSilverHandoff => {
             Box::pin(industrial_complex_silver_export::run())
         }
+        Command::ExportParcelByPnuServing => Box::pin(parcel_by_pnu_serving_export::run()),
         Command::ExportParcelMarkerAnchorArtifacts => {
             Box::pin(parcel_marker_anchor_artifact_export::run())
         }
@@ -681,6 +687,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::PublishIndustrialComplexGoldPointer => {
             Box::pin(industrial_complex_gold_pointer_publish::run())
+        }
+        Command::PublishParcelByPnuServingManifest => {
+            Box::pin(parcel_by_pnu_serving_manifest_publish::run())
         }
         Command::PublishIndustrialComplexGoldPointers => {
             Box::pin(industrial_complex_gold_pointer_publish::run_from_export_summary())
@@ -1297,6 +1306,7 @@ where
         Some("export-building-register-unit-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterUnitSilverHandoff)
         }
+        Some("export-parcel-by-pnu-serving") => Ok(Command::ExportParcelByPnuServing),
         Some("export-parcel-marker-anchor-artifacts") => {
             Ok(Command::ExportParcelMarkerAnchorArtifacts)
         }
@@ -1344,6 +1354,9 @@ where
         Some("load-industrial-complex-canonical") => Ok(Command::LoadIndustrialComplexCanonical),
         Some("publish-industrial-complex-gold-pointer") => {
             Ok(Command::PublishIndustrialComplexGoldPointer)
+        }
+        Some("publish-parcel-by-pnu-serving-manifest") => {
+            Ok(Command::PublishParcelByPnuServingManifest)
         }
         Some("publish-industrial-complex-gold-pointers") => {
             Ok(Command::PublishIndustrialComplexGoldPointers)

@@ -1927,6 +1927,89 @@
         "unit": "derived"
       }
     },
+    "gold.parcel_panel": {
+      "table_name": "gold.parcel_panel",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area_m2",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "zonings_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "price_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "characteristics_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "forest_ledger_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "transfer_history_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "land_rights_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "land_right_total",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "land_right_total is non-negative",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "silver.land_characteristic": {
       "table_name": "silver.land_characteristic",
       "physical_format": "Parquet",

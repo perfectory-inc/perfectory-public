@@ -844,6 +844,34 @@ fn export_industrial_complex_gold_profiles_command_is_explicit() -> anyhow::Resu
     Ok(())
 }
 
+/// The producer of `serving/parcels/by-pnu/v{generation}/{pnu}.json` (root ADR-0096). Without an
+/// explicit spelling the manifest publisher could point at a generation nobody had baked.
+#[test]
+fn export_parcel_by_pnu_serving_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-parcel-by-pnu-serving"
+        ])?,
+        Command::ExportParcelByPnuServing
+    );
+    Ok(())
+}
+
+/// The pointer that pins the served generation (root ADR-0096); publishing it is a separate
+/// command so a half-run export cannot leave the gateway aimed at a partial bake.
+#[test]
+fn publish_parcel_by_pnu_serving_manifest_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "publish-parcel-by-pnu-serving-manifest",
+        ])?,
+        Command::PublishParcelByPnuServingManifest
+    );
+    Ok(())
+}
+
 #[test]
 fn export_industrial_complex_bronze_raw_jsonl_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(

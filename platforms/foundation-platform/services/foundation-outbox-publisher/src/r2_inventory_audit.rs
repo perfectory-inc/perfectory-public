@@ -491,7 +491,8 @@ fn classify_key(key: &str) -> Classification {
         return Classification {
             name: "parcel_by_pnu_serving_object",
             action: "keep",
-            reason: "Pre-baked parcel by-PNU serving object under the contract grammar (root ADR-0096).",
+            reason:
+                "Pre-baked parcel by-PNU serving object under the contract grammar (root ADR-0096).",
         };
     }
     if is_current_spatial_artifact(key) {
