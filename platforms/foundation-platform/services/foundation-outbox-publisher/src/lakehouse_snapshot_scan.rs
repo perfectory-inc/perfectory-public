@@ -63,12 +63,16 @@ impl LakehouseByteReader for LakehouseObjectReader {
 
 /// Rows of one snapshot, with the counts that prove the scan reached every data file.
 pub(crate) struct ScannedRows {
-    /// Contract-shaped rows decoded from every live data file in the snapshot.
+    /// Contract-shaped rows the keep-filter retained, in decode order.
     pub(crate) rows: Vec<JsonMap<String, JsonValue>>,
     /// Number of Parquet data files the manifests pointed at.
     pub(crate) data_file_count: u64,
     /// Row count the manifests declared, before decoding.
     pub(crate) manifest_record_count: u64,
+    /// Rows decoded across every data file, counted before any keep-filter dropped them.
+    /// This is what must equal `manifest_record_count` — the retained rows never can when a
+    /// filter is in play.
+    pub(crate) decoded_row_count: u64,
 }
 
 /// Snapshot-level statistics read only from Iceberg manifests.
@@ -111,23 +115,49 @@ pub(crate) async fn scan_snapshot_rows(
     lakehouse: &impl LakehouseByteReader,
     snapshot: &IcebergSnapshotManifestList,
 ) -> anyhow::Result<ScannedRows> {
+    scan_snapshot_rows_kept(contract, lakehouse, snapshot, |_| true).await
+}
+
+/// Decodes every live row of one Iceberg snapshot, retaining only rows `keep` accepts.
+///
+/// The filter runs per data file, as rows decode — what a shard run keeps is what it holds in
+/// memory. Every row is still decoded and counted, so the scan keeps proving it reached every
+/// data file even when it retains a fraction of them.
+pub(crate) async fn scan_snapshot_rows_kept(
+    contract: &LakehouseTableContract,
+    lakehouse: &impl LakehouseByteReader,
+    snapshot: &IcebergSnapshotManifestList,
+    keep: impl Fn(&JsonMap<String, JsonValue>) -> bool,
+) -> anyhow::Result<ScannedRows> {
     let data_files = snapshot_data_files(lakehouse, snapshot).await?;
 
     let mut rows = Vec::new();
     let mut manifest_record_count = 0_u64;
+    let mut decoded_row_count = 0_u64;
     for data_file in &data_files {
         manifest_record_count = manifest_record_count
             .checked_add(data_file.record_count)
             .context("manifest record count overflow")?;
-        let bytes = lakehouse.read(data_file.file_path.as_str()).await?;
-        rows.extend(iceberg_scan::decode_rows(contract, bytes)?);
+        let decoded = iceberg_scan::decode_rows(contract, bytes_of(lakehouse, data_file).await?)?;
+        decoded_row_count = decoded_row_count
+            .checked_add(u64::try_from(decoded.len()).context("decoded row count overflow")?)
+            .context("decoded row count overflow")?;
+        rows.extend(decoded.into_iter().filter(&keep));
     }
 
     Ok(ScannedRows {
         rows,
         data_file_count: u64::try_from(data_files.len()).context("data file count overflow")?,
         manifest_record_count,
+        decoded_row_count,
     })
+}
+
+async fn bytes_of(
+    lakehouse: &impl LakehouseByteReader,
+    data_file: &iceberg_scan::ScannedDataFile,
+) -> anyhow::Result<Vec<u8>> {
+    lakehouse.read(data_file.file_path.as_str()).await
 }
 
 async fn snapshot_data_files(

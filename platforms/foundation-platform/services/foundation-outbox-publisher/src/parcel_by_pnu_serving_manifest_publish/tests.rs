@@ -3,9 +3,11 @@ use std::path::PathBuf;
 use sha2::{Digest, Sha256};
 
 use super::{
-    publish, ExportArtifactInput, ExportSummaryInput, ManifestPublishConfig, ParcelServingManifest,
+    publish, publish_from_listing, ExportArtifactInput, ExportSummaryInput, ListingExpectation,
+    ManifestPublishConfig, ManifestPublishInput, ParcelServingManifest,
 };
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
+use crate::parcel_by_pnu_serving_export::parcel_document::PARCEL_DOCUMENT_SCHEMA_VERSION;
 use crate::parcel_by_pnu_serving_store::ParcelServingObjectStore;
 use crate::r2_layout::{parcel_by_pnu_serving_manifest_key, parcel_by_pnu_serving_object_key};
 
@@ -24,7 +26,7 @@ fn temporary_root(label: &str) -> PathBuf {
 fn config(root: PathBuf, allow_repoint: bool, first_publication: bool) -> ManifestPublishConfig {
     ManifestPublishConfig {
         output: ProfileStoreConfig::Local { root },
-        export_summary_path: PathBuf::from("unused-in-tests.json"),
+        input: ManifestPublishInput::ExportSummary(PathBuf::from("unused-in-tests.json")),
         allow_repoint,
         first_publication,
     }
@@ -222,6 +224,102 @@ async fn refuses_an_empty_bake_and_a_key_from_another_generation() -> anyhow::Re
     assert!(
         cross_generation.is_err(),
         "an object key from another generation was accepted"
+    );
+    Ok(())
+}
+
+const SNAPSHOT: &str = "999990000000000001";
+
+async fn seed_documents(
+    store: &ParcelServingObjectStore,
+    generation: u64,
+    snapshot: &str,
+    pnus: &[&str],
+) -> anyhow::Result<()> {
+    for pnu in pnus {
+        let body = format!(
+            "{{\"schema_version\":\"{PARCEL_DOCUMENT_SCHEMA_VERSION}\",\"pnu\":\"{pnu}\",\
+             \"source\":{{\"iceberg_snapshot_id\":\"{snapshot}\"}}}}\n"
+        )
+        .into_bytes();
+        let checksum = format!("{:x}", Sha256::digest(&body));
+        let key = parcel_by_pnu_serving_object_key(generation, pnu)?;
+        store
+            .write_object_create_only(&key, &body, &checksum)
+            .await?;
+    }
+    Ok(())
+}
+
+fn expectation(generation: u64, snapshot: &str, count: u64) -> ListingExpectation {
+    ListingExpectation {
+        target_generation: generation,
+        expected_gold_iceberg_snapshot_id: snapshot.to_owned(),
+        expected_object_count: count,
+    }
+}
+
+#[tokio::test]
+async fn a_listing_publish_pins_what_the_operator_stated() -> anyhow::Result<()> {
+    let root = temporary_root("listing-happy");
+    let store = ParcelServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    seed_documents(&store, 1, SNAPSHOT, &[PNU_A, PNU_B]).await?;
+
+    let manifest = publish_from_listing(
+        &config(root.clone(), false, true),
+        &store,
+        &expectation(1, SNAPSHOT, 2),
+    )
+    .await?;
+    let stored = store
+        .read_bytes(parcel_by_pnu_serving_manifest_key()?)
+        .await?;
+    let parsed: ParcelServingManifest = serde_json::from_slice(&stored)?;
+
+    std::fs::remove_dir_all(&root)?;
+    assert_eq!(manifest.object_count, 2);
+    assert_eq!(manifest.gold_iceberg_snapshot_id, SNAPSHOT);
+    assert_eq!(parsed.current_generation, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_listing_that_disagrees_with_the_stated_count_is_refused() -> anyhow::Result<()> {
+    let root = temporary_root("listing-count");
+    let store = ParcelServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    seed_documents(&store, 1, SNAPSHOT, &[PNU_A, PNU_B]).await?;
+
+    let missing_shard = publish_from_listing(
+        &config(root.clone(), false, true),
+        &store,
+        &expectation(1, SNAPSHOT, 3),
+    )
+    .await;
+
+    std::fs::remove_dir_all(&root)?;
+    let error = missing_shard.expect_err("a short listing was published");
+    assert!(error.to_string().contains("lists 2"), "{error}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_document_from_another_snapshot_is_refused() -> anyhow::Result<()> {
+    let root = temporary_root("listing-snapshot");
+    let store = ParcelServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    seed_documents(&store, 1, "999990000000000002", &[PNU_A]).await?;
+
+    let stale = publish_from_listing(
+        &config(root.clone(), false, true),
+        &store,
+        &expectation(1, SNAPSHOT, 1),
+    )
+    .await;
+
+    std::fs::remove_dir_all(&root)?;
+    let error = stale.expect_err("a document of another gold snapshot was published");
+    assert!(
+        error.to_string().contains("baked from gold snapshot"),
+        "{error}"
     );
     Ok(())
 }
