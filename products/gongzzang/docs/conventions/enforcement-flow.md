@@ -14,7 +14,7 @@ last_reviewed: 2026-07-29
 ```
 1. 에디터        rust-analyzer + Biome 확장        실시간 lint/format
 2. pre-commit    lefthook + gitleaks               format + 빠른 lint + 시크릿 스캔 + 파일 크기
-3. pre-push      lefthook                          typecheck + cargo check/clippy + 링크 체크
+3. pre-push      lefthook                          수 초짜리 래칫·문서 신선도·영역 grep만 (루트 ADR-0098)
 4. CI (PR)       GitHub Actions                    풀스택 (lint/type/test/SAST/SCA/cargo-deny/SBOM)
 5. CI (merge)    GitHub Actions                    이미지 빌드 + 서명 + 배포
 ```
