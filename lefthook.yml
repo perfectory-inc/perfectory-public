@@ -58,12 +58,25 @@ pre-commit:
       glob: "apps/web/stores/**/*.{ts,tsx}"
       run: bash scripts/lefthook/panel-no-state-without-router.sh
 
+# pre-push keeps only checks that finish in seconds (root ADR-0098). The full
+# monorepo-guard suite and the lychee link check took 20-25 minutes per push on a
+# development workstation while CI re-ran both anyway; ADR-0005 already names CI
+# as the single authoritative gate, and both remain in CI unchanged. The fast
+# ratchets below are the ones that turned PRs red three times on 2026-09-09 —
+# catching them locally saves a push-CI round trip, but a green here is a
+# convenience, never a verification claim.
 pre-push:
   parallel: true
   commands:
-    monorepo-guard:
-      run: bash scripts/guard/monorepo-guard.sh
+    fast-ratchets:
+      run: bash scripts/guard/technology-version-consistency.sh && bash scripts/guard/build-coupling-baseline.sh && bash scripts/guard/pipeline-graph-covers-every-dataset.sh && bash scripts/guard/foundation-parcel-current-selector.sh
       skip: [merge, rebase]
+    generated-docs-freshness:
+      run: python3 scripts/catalog/render-document-catalog.py --check && python3 scripts/catalog/audit-documentation.py --check --strict && python3 scripts/catalog/render-foundation-baseline.py --check && python3 scripts/catalog/render-pipeline-map.py --check
+      skip:
+        - merge
+        - rebase
+        - run: "! command -v python3 >/dev/null 2>&1"
     gz-no-fake-pass:
       root: "products/gongzzang/"
       run: bash scripts/lefthook/check-no-fake-pass.sh
@@ -75,11 +88,4 @@ pre-push:
     gz-foundation-ownership-boundary:
       root: "products/gongzzang/"
       run: bash scripts/lefthook/foundation-ownership-boundary.sh
-      skip: [merge, rebase]
-    # Monorepo-wide internal-link check (docs 재발방지, Phase D). Covers ALL areas
-    # via lychee (Rust) in the official Docker image against the root lychee.toml
-    # SSOT — NO cargo/lychee host install needed. lychee-docs.sh skips when Docker is
-    # down. CI (.github/workflows/docs.yml) is the authoritative gate.
-    markdown-links:
-      run: bash scripts/ci/lychee-docs.sh
       skip: [merge, rebase]
