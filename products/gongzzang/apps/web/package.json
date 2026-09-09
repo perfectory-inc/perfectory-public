@@ -55,14 +55,14 @@
     "@types/node": "^25.9.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^6.1.1",
     "happy-dom": "^20.14.0",
     "openapi-typescript": "^7.13.0",
     "pino-pretty": "^11.3.0",
     "size-limit": "^12.1.0",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
-    "vite": "6.4.3",
-    "vitest": "4.1.11"
+    "vite": "8.2.2",
+    "vitest": "5.0.0"
   }
 }
