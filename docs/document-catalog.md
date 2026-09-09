@@ -8,14 +8,14 @@
 
 ## 문서 규모
 
-- 문서 파일: **426개**
+- 문서 파일: **427개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 110 |
+| Foundation Platform | 111 |
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
@@ -38,7 +38,7 @@
 | guide | 2 |
 | reference | 15 |
 | roadmap | 3 |
-| runbook | 30 |
+| runbook | 31 |
 
 ## 책임별 문서 트리
 
@@ -132,6 +132,7 @@ platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md
 platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md
 platforms/foundation-platform/docs/runbooks/lakehouse-registry.md
 platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md
+platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md
 platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md
 platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md
 platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md
@@ -707,6 +708,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-registry.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current |
+| `platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current |
