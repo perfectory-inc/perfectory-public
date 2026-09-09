@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 use super::parcel_document::{self, GoldSnapshotProvenance};
-use super::{select_rows, write_artifacts, write_with_policy, ServingExportConfig};
+use super::{
+    select_rows, spread_write_order, write_artifacts, write_with_policy, ServingExportConfig,
+};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::parcel_by_pnu_serving_store::ParcelServingObjectStore;
 use crate::r2_layout::parcel_by_pnu_serving_object_key;
@@ -151,6 +153,33 @@ async fn a_listed_generation_key_is_skipped_and_the_rest_are_written() -> anyhow
     assert_eq!(entries[0].write_outcome, "listed");
     assert_eq!(entries[1].write_outcome, "created");
     Ok(())
+}
+
+#[test]
+fn neighbouring_pnus_are_pushed_apart_deterministically() {
+    let rows = (0..16)
+        .map(|n| row(&format!("999990000010000{n:04}")))
+        .collect::<Vec<_>>();
+    let mut first = rows.iter().collect::<Vec<_>>();
+    let mut second = rows.iter().collect::<Vec<_>>();
+    spread_write_order(&mut first);
+    spread_write_order(&mut second);
+
+    let pnus = |ordered: &[&JsonMap<String, JsonValue>]| {
+        ordered
+            .iter()
+            .filter_map(|row| row.get("pnu").and_then(JsonValue::as_str))
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(pnus(&first), pnus(&second), "the spread order must replay");
+    let mut sorted = pnus(&first);
+    sorted.sort_unstable();
+    assert_ne!(
+        pnus(&first),
+        sorted,
+        "sixteen consecutive PNUs must not stay in key order"
+    );
 }
 
 #[test]
