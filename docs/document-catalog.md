@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **422개**
+- 문서 파일: **423개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 118 |
+| Monorepo | 119 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 176 |
+| ADR | 177 |
 | README | 108 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -465,6 +465,7 @@ docs/adr/0092-hub-registers-land-through-layout-contracts-and-streams.md
 docs/adr/0093-a-land-right-belongs-to-a-unit.md
 docs/adr/0094-the-exclusive-register-bridges-prices-and-units.md
 docs/adr/0095-unit-official-prices-are-reindexed-through-the-exclusive-register.md
+docs/adr/0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -595,6 +596,7 @@ tools/github/README.md
 | `docs/adr/0093-a-land-right-belongs-to-a-unit.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0094-the-exclusive-register-bridges-prices-and-units.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0095-unit-official-prices-are-reindexed-through-the-exclusive-register.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
