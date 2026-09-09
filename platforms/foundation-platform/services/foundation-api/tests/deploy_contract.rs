@@ -512,10 +512,10 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
     )?)?;
     let node_pin = version_pins["manifest_exact_pins"]["node"]
         .as_str()
-        .expect("the version pin contract must name a node pin");
+        .ok_or("the version pin contract must name a node pin")?;
     let pnpm_pin = version_pins["manifest_exact_pins"]["pnpm"]
         .as_str()
-        .expect("the version pin contract must name a pnpm pin");
+        .ok_or("the version pin contract must name a pnpm pin")?;
     let pnpm_setup_line = format!("version: {pnpm_pin}");
     let node_setup_line = format!("node-version: \"{node_pin}\"");
     for required in [
