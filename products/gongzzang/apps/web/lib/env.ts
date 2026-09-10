@@ -137,9 +137,9 @@ const tilesManifestUrl = isProduction ? optionalProductionPublicUrl : optionalUr
 // The R2 edge that serves pre-baked parcel-by-PNU JSON (root ADR-0096). Parcel detail reads
 // this directly, no server hop: the browser fetches the baked object through the thin
 // Cloudflare Worker. Defaults to the platform serving host in development.
-const parcelEdgeBaseUrl = isProduction
-  ? requiredProductionPublicUrl
-  : requiredUrl.default("https://catalog.perfectory.io");
+// Symmetric with NEXT_PUBLIC_BUILDING_EDGE_BASE_URL: a real serving default that is still a
+// public https URL in production, overridable per environment.
+const parcelEdgeBaseUrl = requiredProductionPublicUrl.default("https://catalog.perfectory.io");
 
 const PublicEnvSchema = z.object({
   NEXT_PUBLIC_API_BASE_URL: publicApiBaseUrl,
