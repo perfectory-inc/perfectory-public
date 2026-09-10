@@ -485,6 +485,11 @@ const AREAS: &[Area] = &[
                 scripts: &["config:check", "typecheck", "test", "build:check"],
                 test_script: "test",
             },
+            NodeTests {
+                dir: "services/foundation-building-gateway",
+                scripts: &["config:check", "typecheck", "test", "build:check"],
+                test_script: "test",
+            },
         ],
         // Foundation's DB-backed reads tests (catalog_*_reads, …) are `#[ignore]`
         // and need a migrated + seeded Postgres. scripts/verify/integration.sh
@@ -2050,7 +2055,7 @@ mod tests {
         let foundation = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
         let plans = node_test_plans(foundation, Path::new("platforms/foundation-platform"));
 
-        assert_eq!(plans.len(), 2);
+        assert_eq!(plans.len(), 3);
         assert_eq!(
             plans[0].current_dir,
             PathBuf::from("platforms/foundation-platform/services/foundation-profile-gateway")
@@ -2058,6 +2063,10 @@ mod tests {
         assert_eq!(
             plans[1].current_dir,
             PathBuf::from("platforms/foundation-platform/services/foundation-parcel-gateway")
+        );
+        assert_eq!(
+            plans[2].current_dir,
+            PathBuf::from("platforms/foundation-platform/services/foundation-building-gateway")
         );
         for plan in &plans {
             assert_eq!(

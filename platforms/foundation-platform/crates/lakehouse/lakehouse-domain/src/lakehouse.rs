@@ -601,6 +601,7 @@ const SILVER_LAND_USE_PLAN_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
+pub use crate::building_panel::GOLD_BUILDING_PANEL;
 pub use crate::land_characteristic::SILVER_LAND_CHARACTERISTIC;
 pub use crate::land_forest_ledger::SILVER_LAND_FOREST_LEDGER;
 pub use crate::land_right_registration::SILVER_LAND_RIGHT_REGISTRATION;
@@ -2056,6 +2057,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_COMPLEX_CATALOG,
     GOLD_COMPLEX_SPATIAL_LOCATOR,
     GOLD_PARCEL_PANEL,
+    GOLD_BUILDING_PANEL,
 ];
 
 /// Returns the industrial complex lakehouse `PoC` table contracts in publish order.

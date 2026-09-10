@@ -6,25 +6,16 @@
 // 표제부 (층) + 전유부 (호) + 전유공용면적 (전용면적, matched by PNU+동+호명).
 // PNU는 표준 사투리(11번째 자리 1=일반/2=산) — ADR-0023 canonical.
 import type { ReactNode } from "react";
-import { type FloorsResponse, FloorsResponseSchema } from "@/lib/api/floors";
+import { fetchBuildingProfile } from "@/lib/api/building-edge";
+import { type BuildingUnit, toBuildingUnitsResponse } from "@/lib/api/building-units";
+import { type FloorsResponse, toFloorsResponse } from "@/lib/api/floors";
 import koMessages from "@/lib/i18n/ko.json";
 import { PREVIEW_PARCELS } from "./preview-data";
 
-const GONGZZANG_API = "http://127.0.0.1:18091";
-const FOUNDATION_PLATFORM_API = "http://127.0.0.1:18090";
-
+// Resolve the serving pointer at request time, never during a static site build.
+export const dynamic = "force-dynamic";
 const COPY = koMessages.previewFloors;
-
-type Unit = {
-  id: string;
-  building_name: string;
-  dong_name: string;
-  ho_name: string;
-  floor_label: string;
-  exclusive_area_m2?: number;
-  usage_name?: string;
-  structure_name?: string;
-};
+type Unit = BuildingUnit;
 
 type ParcelData = {
   pnu: string;
@@ -33,33 +24,8 @@ type ParcelData = {
   units: Unit[];
 };
 
-async function fetchFloorsLive(pnu: string): Promise<FloorsResponse> {
-  try {
-    const res = await fetch(`${GONGZZANG_API}/api/floors?parcel_pnu=${pnu}`, {
-      headers: { authorization: "Bearer DEV.devuser" },
-      cache: "no-store",
-    });
-    if (!res.ok) return { buildings: [] };
-    return FloorsResponseSchema.parse(await res.json());
-  } catch {
-    return { buildings: [] };
-  }
-}
-
-async function fetchUnitsLive(pnu: string): Promise<Unit[]> {
-  try {
-    const res = await fetch(`${FOUNDATION_PLATFORM_API}/catalog/v1/parcels/by-pnu/${pnu}/units`, {
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    return (await res.json()) as Unit[];
-  } catch {
-    return [];
-  }
-}
-
 const hoLabel = (ho: string) => `${ho.replace(/호+$/u, "")}${COPY.unitSuffix}`;
-const fmtArea = (a?: number) =>
+const fmtArea = (a?: number | null) =>
   a == null ? null : `${(Math.round(a * 100) / 100).toLocaleString("ko-KR")}㎡`;
 
 function lastNum(s: string): number {
@@ -121,7 +87,7 @@ function BuildingXsec({ b }: { b: FloorsResponse["buildings"][number] }) {
       </div>,
     );
   }
-  for (let f = b.above_ground; f >= 1; f--) {
+  for (let f = b.above_ground; f != null && f >= 1; f--) {
     rows.push(
       <div key={`a${f}`} className={`pf-flr pf-above${f === b.above_ground ? " pf-top" : ""}`}>
         {f === b.above_ground || f === 1 ? `${f}F` : ""}
@@ -146,10 +112,7 @@ function BuildingXsec({ b }: { b: FloorsResponse["buildings"][number] }) {
       <dl className="pf-facts">
         <div>
           <dt>{COPY.aboveGround}</dt>
-          <dd>
-            {b.above_ground}
-            {COPY.floorSuffix}
-          </dd>
+          <dd>{b.above_ground == null ? COPY.unknown : `${b.above_ground}${COPY.floorSuffix}`}</dd>
         </div>
         <div>
           <dt>{COPY.belowGround}</dt>
@@ -296,12 +259,15 @@ function interactivityCss(parcels: ParcelData[]): string {
 
 export default async function PreviewFloorsPage() {
   const parcels: ParcelData[] = await Promise.all(
-    PREVIEW_PARCELS.map(async (p) => ({
-      pnu: p.pnu,
-      addr: p.address,
-      floors: await fetchFloorsLive(p.pnu),
-      units: await fetchUnitsLive(p.pnu),
-    })),
+    PREVIEW_PARCELS.map(async (p) => {
+      const profile = await fetchBuildingProfile(p.pnu);
+      return {
+        pnu: p.pnu,
+        addr: p.address,
+        floors: toFloorsResponse(profile),
+        units: toBuildingUnitsResponse(profile).units,
+      };
+    }),
   );
 
   const totalUnits = parcels.reduce((n, p) => n + p.units.length, 0);

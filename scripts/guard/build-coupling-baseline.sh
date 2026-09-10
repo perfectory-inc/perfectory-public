@@ -181,7 +181,9 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # 108 -> 109: root ADR-0096's parcel by-PNU serving lane embeds the R2 connection contract
 # (`parcel_by_pnu_gateway_contract.rs`), the same one-`include_str!`-per-gateway shape the
 # profile gateway already pays: the baker and the Worker must read one key grammar, not two.
-COMPILE_TIME_READ_BASELINE="${3:-109}"
+# 109 -> 110: root ADR-0100 adds the building by-PNU typed R2 contract reader;
+# one embedded contract supplies both the baker and generation manifest publisher.
+COMPILE_TIME_READ_BASELINE="${3:-110}"
 
 cd "$repo_root"
 

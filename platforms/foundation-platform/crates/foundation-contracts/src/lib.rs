@@ -14,3 +14,6 @@ pub mod error;
 
 /// Normalization proposal, review, application, and rollback DTOs.
 pub mod normalization;
+
+/// Independently baked public buildings, floors and units.
+pub mod building_panel;

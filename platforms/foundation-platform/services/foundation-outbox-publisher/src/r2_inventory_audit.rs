@@ -480,6 +480,20 @@ fn classify_key(key: &str) -> Classification {
             reason: "Canonical runtime manifest pointer.",
         };
     }
+    if crate::r2_layout::is_building_by_pnu_serving_manifest_key(key) {
+        return Classification {
+            name: "building_by_pnu_serving_manifest_pointer",
+            action: "keep",
+            reason: "Canonical building by-PNU manifest pointer (root ADR-0100).",
+        };
+    }
+    if crate::r2_layout::is_building_by_pnu_serving_object_key(key) {
+        return Classification {
+            name: "building_by_pnu_serving_object",
+            action: "keep",
+            reason: "Canonical building by-PNU serving object (root ADR-0100).",
+        };
+    }
     if is_parcel_by_pnu_serving_manifest_key(key) {
         return Classification {
             name: "parcel_by_pnu_serving_manifest_pointer",
@@ -947,6 +961,31 @@ mod tests {
             let classification = classify_key(junk);
             assert_eq!(classification.name, "unknown", "junk key was kept: {junk}");
             assert_eq!(classification.action, "review");
+        }
+    }
+
+    #[test]
+    fn building_serving_objects_are_kept_only_under_the_canonical_grammar() {
+        for (key, name) in [
+            (
+                "serving/buildings/by-pnu/manifest.json",
+                "building_by_pnu_serving_manifest_pointer",
+            ),
+            (
+                "serving/buildings/by-pnu/v1/9999900000100000000.json",
+                "building_by_pnu_serving_object",
+            ),
+        ] {
+            let classification = classify_key(key);
+            assert_eq!(classification.name, name);
+            assert_eq!(classification.action, "keep");
+        }
+        for key in [
+            "serving/buildings/by-pnu/v01/9999900000100000000.json",
+            "serving/buildings/by-pnu/v1/not-a-pnu.json",
+            "serving/buildings/by-pnu/latest.json",
+        ] {
+            assert_eq!(classify_key(key).action, "review");
         }
     }
 
