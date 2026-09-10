@@ -100,6 +100,15 @@ GOLD_SORT_COLUMNS: tuple[str, ...] = sort_order(GOLD_CONTRACT)
 # (r2-connections.contract.json parcel_by_pnu_gateway.pnu_pattern) agree on this shape.
 PNU_PATTERN = r"^[0-9]{10}[1289][0-9]{8}$"
 
+# The columns `row_digest` fingerprints (root ADR-0099): everything the serving document is
+# built from, and nothing about when or from which snapshot it was built. Derived by
+# subtraction from the contract so a content column added later cannot silently stay out of
+# the fingerprint — the delta pipeline would then miss its changes.
+LINEAGE_COLUMNS = ("row_digest", "source_snapshot_id", "published_at_utc")
+CONTENT_DIGEST_COLUMNS: tuple[str, ...] = tuple(
+    column for column in GOLD_COLUMNS if column not in LINEAGE_COLUMNS
+)
+
 PARCEL_SOURCE = "silver.parcel_boundaries"
 ZONING_SOURCE = "silver.land_use_plan"
 ZONE_CODE_SOURCE = "silver.land_use_zone_code"
@@ -727,6 +736,21 @@ def build_gold_panel_frame(
         ),
         F.lit(source_snapshot_id).alias("source_snapshot_id"),
         F.lit(published_at_utc).alias("published_at_utc"),
+    ).withColumn(
+        # 내용 칼럼만의 결정적 지문 (root ADR-0099). 계보(source_snapshot_id·published_at_utc)는
+        # 넣지 않는다 — 계보만 바뀐 행을 다시 굽지 않는 것이 델타 파이프라인의 요점이다.
+        # NULL 은 어떤 실제 값과도 겹치지 않는 문지기 문자열로 고정해 해시를 결정적으로 만든다.
+        "row_digest",
+        F.sha2(
+            F.concat_ws(
+                "\x1f",
+                *(
+                    F.coalesce(F.col(column).cast(T.StringType()), F.lit("\x00null"))
+                    for column in CONTENT_DIGEST_COLUMNS
+                ),
+            ),
+            256,
+        ),
     ).select(*GOLD_COLUMNS)
 
 

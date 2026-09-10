@@ -109,3 +109,4 @@ last_reviewed: 2026-07-28
 - [0096 — 필지 속성은 R2 미리구운 객체로 서빙한다](./0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md)
 - [0097 — 의존성은 최신을 추종하고 버전 핀은 계약 한 곳에 산다](./0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md)
 - [0098 — pre-push 훅은 빠른 검사만 남기고 판정은 CI가 한다](./0098-the-pre-push-hook-keeps-only-fast-checks.md)
+- [0099 — 매일의 서빙 갱신은 바뀐 필지만 굽는다](./0099-daily-serving-updates-bake-only-changed-parcels.md)
