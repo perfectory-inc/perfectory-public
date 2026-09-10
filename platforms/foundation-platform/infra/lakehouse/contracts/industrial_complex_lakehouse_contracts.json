@@ -2734,6 +2734,61 @@
         "object_suffix_separator": null,
         "unit": "object"
       }
+    },
+    "gold.building_panel": {
+      "table_name": "gold.building_panel",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "buildings_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "unlinked_units_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "nested identities are unique",
+        "unlinked units remain visible",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
     }
   },
   "jsonl_transports": {

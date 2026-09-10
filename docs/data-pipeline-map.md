@@ -16,7 +16,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 이 카탈로그에 없으므로 추정하지 않습니다. 실행 경로가 있다는 표시는 운영 배포·전국 적재 완료를 뜻하지 않습니다.
 
 현재 범위: 원천 **8그룹 / 133 endpoint**,
-Silver·Gold **21표**,
+Silver·Gold **22표**,
 서빙·운영 원장 **75표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
@@ -41,9 +41,9 @@ Silver·Gold **21표**,
 
 | 원천 | 수집규모 | Silver → Gold | 서빙 | 화면 |
 |---|---:|---|---|---|
-| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 건축물대장 공동주택가격 (`silver.building_register_apartment_price`)<br>세대별 연간 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건축물대장 공동주택가격 (`silver.building_register_apartment_price`)<br>세대별 연간 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 최신 전국 vintage 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다. | | | | |
-| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 연간 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 연간 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 전유부 원문 27칸과 관리번호·동호를 완료 manifest 부분 목록을 통해 append-only Silver로 적재한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 기본·식별자<br>필지 경계 서빙 | 필지 지도 타일<br>카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 용도지역 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
@@ -60,10 +60,10 @@ Silver·Gold **21표**,
 | ↳ AL_D157 전체 사건을 PNU·이력순번으로 보존한다. 폐쇄·말소 사건도 연혁에 남는다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 토지권리등록 | 1 endpoint | 필지별 대지권 등록 (`silver.land_right_registration`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 대지권 등록 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ AL_D006 PIPE CSV의 PNU·대지권일련번호별 등록과 폐쇄 행, 명칭·비율 원문을 보존한다. | | | | |
-| 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물 표제부 (`silver.building_register_titles`) | 건물 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
-| 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물 층별 정보 (`silver.building_register_floors`) | — | — |
-| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물 호별 정보 (`silver.building_register_units`) | 건물의 호 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
-| 건축HUB 파일: 건축물대장 전유공용면적 파일 | 1 endpoint | 호별 전유·공용 면적 (`silver.building_register_unit_areas`) | — | — |
+| 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 표제부 (`silver.building_register_titles`) | 건물 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 층별 정보 (`silver.building_register_floors`) | — | — |
+| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 호별 정보 (`silver.building_register_units`) | 건물의 호 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 전유공용면적 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호별 전유·공용 면적 (`silver.building_register_unit_areas`) | — | — |
 | 산업입지정보 산업단지: ILIS 산업단지 목록<br>ILIS 산업단지 고시 목록<br>ILIS 산업단지 상세 | 3 endpoint | 산업단지 기본 정보 (`silver.industrial_complexes`)<br>산업단지 경계 (`silver.industrial_complex_boundaries`)<br>산업단지 제공용 프로필 (`gold.complex_catalog`) | 산업단지<br>산업단지 프로필 포인터<br>산업단지 경계 서빙 | 산업단지 지도 타일<br>카탈로그 조회 API<br>산업단지 프로필 게이트웨이<br>공짱 지도·상세 패널 |
 | ↳ ILIS 목록·고시·상세는 산업단지 주소 해석의 근거이다. 프로필 본문은 브이월드에서 온다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 산업단지 경계 | 1 endpoint | 산업단지 경계 (`silver.industrial_complex_boundaries`) | 산업단지 경계 서빙 | 산업단지 지도 타일<br>공짱 지도·상세 패널 |
@@ -198,6 +198,7 @@ Silver·Gold **21표**,
 
 | 표 | 상태 | 이유 |
 |---|---|---|
+| `gold.building_panel` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.building_register_floors` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.building_register_unit_areas` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
@@ -289,6 +290,11 @@ Silver·Gold **21표**,
 
 | 연결 | 실행 명령·스크립트 |
 |---|---|
+| 건물 표제부 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
+| 건물 층별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
+| 건물 호별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
+| 호별 전유·공용 면적 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
+| 세대별 연간 공시가격 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 건축HUB 파일 → 건축물대장 공동주택가격 | `export-building-register-apartment-price-silver-handoff`<br>`platforms/foundation-platform/scripts/load/land-use-batch-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 건축HUB 파일 → 건축물대장 전유부 | `export-building-register-exclusive-unit-silver-handoff`<br>`platforms/foundation-platform/scripts/load/land-use-batch-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 브이월드 공간·토지 파일 → 필지 경계 | `export-vworld-cadastral-shapefile-silver-handoff`<br>`export-vworld-cadastral-silver-handoff-shard`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py` |
