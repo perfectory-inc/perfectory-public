@@ -511,3 +511,15 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "r2_layout/building_tests.rs"]
+mod building_tests;
+
+#[path = "r2_layout/building.rs"]
+mod building;
+pub use building::{
+    building_by_pnu_serving_generation_prefix, building_by_pnu_serving_manifest_key,
+    building_by_pnu_serving_object_key, is_building_by_pnu_serving_manifest_key,
+    is_building_by_pnu_serving_object_key,
+};

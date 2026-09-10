@@ -1,0 +1,8 @@
+{
+  "pnu": "9999900000100000000",
+  "buildings_json": "[{\"register_pk\":\"BLDG-1\",\"id\":\"54ec940f-56b8-886d-90c9-07d92c26c668\",\"parcel_id\":\"c465db45-68b4-8c85-a1e4-8a0dbc2d6512\",\"purpose_code\":\"03000\",\"structure_code\":null,\"floor_area_m2\":null,\"stories\":null,\"below_ground_floors\":0,\"has_rooftop\":false,\"rooftop_area_m2\":null,\"rooftop_usage\":\"\",\"built_year\":null,\"floors\":[{\"floor_row_id\":\"FLOOR-1\",\"floor_kind\":\"above_ground\",\"floor_number\":1,\"floor_index\":1,\"floor_display_ko\":\"1층\"}],\"units\":[{\"dong_name\":\"101동\",\"ho_name\":\"101호\",\"id\":\"33566000-0af6-857c-ab0a-2b5a48c38925\",\"parcel_id\":\"c465db45-68b4-8c85-a1e4-8a0dbc2d6512\",\"building_id\":\"54ec940f-56b8-886d-90c9-07d92c26c668\",\"register_pk\":\"UNIT-1\",\"building_name\":\"\",\"floor_label\":\"1층\",\"exclusive_area_m2\":50.0,\"usage_name\":\"공장\",\"structure_name\":\"\",\"official_price_history\":[]}]}]",
+  "unlinked_units_json": "[{\"dong_name\":\"101동\",\"ho_name\":\"102호\",\"id\":\"a0eb5dbd-1866-8252-8be1-058860d29596\",\"parcel_id\":\"c465db45-68b4-8c85-a1e4-8a0dbc2d6512\",\"building_id\":null,\"register_pk\":\"UNIT-2\",\"building_name\":\"\",\"floor_label\":\"1층\",\"exclusive_area_m2\":null,\"usage_name\":\"\",\"structure_name\":\"\",\"official_price_history\":[]}]",
+  "row_digest": "e8fb872e67508cbf73bb48e53659868ba81efc9cdcd4db26b46bba2e627a11ac",
+  "source_snapshot_id": "source-a",
+  "published_at_utc": "2026-01-01T00:00:00Z"
+}

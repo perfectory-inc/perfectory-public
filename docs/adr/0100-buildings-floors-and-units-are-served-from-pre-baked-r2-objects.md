@@ -58,3 +58,10 @@ ADR-0072·0073·0074·0075의 건물과 호 원천은 이미 레이크하우스�
 Gold 칼럼·문서 DTO·지문·파이프라인 그래프를 같은 변경에서 갱신하고, 합성 PNU(`99999`
 접두)로 동일 바이트 재사용·키 경계·미서빙 오류·매핑을 검증한다. 전체 재굽기와 운영
 포인터 승격은 이 코드의 검증 후 별도 운영 작업이다.
+
+## References
+
+- [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/):
+  `get`의 부재·조건부 응답과 `httpEtag`를 재사용한다.
+- [Workers Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/):
+  객체·manifest 캐시는 HTTP 캐시 정책과 플랫폼 Cache API로 구현한다.

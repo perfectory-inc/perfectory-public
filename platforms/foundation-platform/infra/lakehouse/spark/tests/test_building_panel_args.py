@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
+import test_industrial_complex_gold_schema_evolution  # Reuse the parcel lane's import-only Spark stub.
 import building_panel_silver_to_gold as job
 from lakehouse_engine import required_catalog_env
 

@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "foundation-building-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-26",
+  "workers_dev": false,
+  "keep_vars": true,
+  "routes": [
+    {
+      "pattern": "buildings.perfectory.io",
+      "custom_domain": true
+    },
+    {
+      "pattern": "buildings.gongzzang.app",
+      "custom_domain": true
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+      "bucket_name": "foundation-platform-lakehouse-prod"
+    }
+  ]
+}
