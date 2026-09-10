@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { type EdgeParcelProfile, toParcelInfo } from "@/lib/api/parcels";
 
 // PNU in the repository-reserved synthetic namespace.
-const PNU = "1156013300107220013";
+// Repository-reserved synthetic PNU (99999 range, public-fixture-safety guard).
+const PNU = "9999900000100000000";
 
 describe("toParcelInfo — edge document maps to the panel view model", () => {
   it("carries zoning, price, and land category from the baked sections", () => {
@@ -22,9 +23,9 @@ describe("toParcelInfo — edge document maps to the panel view model", () => {
 
     expect(info.pnu).toBe(PNU);
     // Codes are derived from the PNU; the first ten digits are the legal-dong code.
-    expect(info.sido_code).toBe("11");
-    expect(info.sigungu_code).toBe("11560");
-    expect(info.eupmyeondong_code).toBe("11560133");
+    expect(info.sido_code).toBe("99");
+    expect(info.sigungu_code).toBe("99999");
+    expect(info.eupmyeondong_code).toBe("99999000");
     expect(info.zoning).toBe("제1종일반주거지역"); // the anchor zoning, first in the array
     expect(info.official_land_price_per_m2).toBe(1_720_000);
     expect(info.gosi_year_month).toBe("2026-01"); // month is zero-padded

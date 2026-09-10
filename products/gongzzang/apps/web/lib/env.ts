@@ -146,13 +146,10 @@ const PublicEnvSchema = z.object({
   NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID: requiredPublicClientId,
   NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL: foundationPlatformBaseUrl,
   NEXT_PUBLIC_TILES_MANIFEST_URL: tilesManifestUrl,
-<<<<<<< HEAD
   NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: parcelEdgeBaseUrl,
-=======
   NEXT_PUBLIC_BUILDING_EDGE_BASE_URL: requiredProductionPublicUrl.default(
     "https://buildings.perfectory.io",
   ),
->>>>>>> origin/main
 });
 
 /**
@@ -184,11 +181,8 @@ const parsed = Schema.safeParse({
   NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID: process.env.NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID,
   NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL: process.env.NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL,
   NEXT_PUBLIC_TILES_MANIFEST_URL: process.env.NEXT_PUBLIC_TILES_MANIFEST_URL,
-<<<<<<< HEAD
   NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: process.env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL,
-=======
   NEXT_PUBLIC_BUILDING_EDGE_BASE_URL: process.env.NEXT_PUBLIC_BUILDING_EDGE_BASE_URL,
->>>>>>> origin/main
   ZITADEL_ISSUER: process.env.ZITADEL_ISSUER,
   ZITADEL_CLIENT_ID: process.env.ZITADEL_CLIENT_ID,
   ZITADEL_AUDIENCE: process.env.ZITADEL_AUDIENCE,
