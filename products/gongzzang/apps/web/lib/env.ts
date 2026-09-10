@@ -134,12 +134,19 @@ const publicApiBaseUrl = isProduction
   : requiredUrl.default("http://localhost:8080");
 const foundationPlatformBaseUrl = isProduction ? requiredProductionPublicUrl : optionalUrl;
 const tilesManifestUrl = isProduction ? optionalProductionPublicUrl : optionalUrl;
+// The R2 edge that serves pre-baked parcel-by-PNU JSON (root ADR-0096). Parcel detail reads
+// this directly, no server hop: the browser fetches the baked object through the thin
+// Cloudflare Worker. Defaults to the platform serving host in development.
+// Symmetric with NEXT_PUBLIC_BUILDING_EDGE_BASE_URL: a real serving default that is still a
+// public https URL in production, overridable per environment.
+const parcelEdgeBaseUrl = requiredProductionPublicUrl.default("https://catalog.perfectory.io");
 
 const PublicEnvSchema = z.object({
   NEXT_PUBLIC_API_BASE_URL: publicApiBaseUrl,
   NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID: requiredPublicClientId,
   NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL: foundationPlatformBaseUrl,
   NEXT_PUBLIC_TILES_MANIFEST_URL: tilesManifestUrl,
+  NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: parcelEdgeBaseUrl,
   NEXT_PUBLIC_BUILDING_EDGE_BASE_URL: requiredProductionPublicUrl.default(
     "https://buildings.perfectory.io",
   ),
@@ -174,6 +181,7 @@ const parsed = Schema.safeParse({
   NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID: process.env.NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID,
   NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL: process.env.NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL,
   NEXT_PUBLIC_TILES_MANIFEST_URL: process.env.NEXT_PUBLIC_TILES_MANIFEST_URL,
+  NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: process.env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL,
   NEXT_PUBLIC_BUILDING_EDGE_BASE_URL: process.env.NEXT_PUBLIC_BUILDING_EDGE_BASE_URL,
   ZITADEL_ISSUER: process.env.ZITADEL_ISSUER,
   ZITADEL_CLIENT_ID: process.env.ZITADEL_CLIENT_ID,
