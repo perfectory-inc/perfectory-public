@@ -14,6 +14,12 @@ export function render(contract) {
   if (typeof bucket !== "string" || bucket === "") {
     throw new Error("lakehouse expected bucket is missing from the R2 connection contract");
   }
+  // The public hostname lives in the contract, nowhere else: the deploy attaches exactly the
+  // domains the contract names, so moving the serving address is a one-line contract change.
+  const hostnames = [gateway.public_hostname, ...(gateway.public_hostname_aliases ?? [])];
+  if (hostnames.some((hostname) => typeof hostname !== "string" || hostname === "")) {
+    throw new Error("parcel_by_pnu_gateway.public_hostname(_aliases) must be non-empty strings");
+  }
   return `${JSON.stringify(
     {
       $schema: "node_modules/wrangler/config-schema.json",
@@ -22,6 +28,7 @@ export function render(contract) {
       compatibility_date: gateway.compatibility_date,
       workers_dev: false,
       keep_vars: true,
+      routes: hostnames.map((hostname) => ({ pattern: hostname, custom_domain: true })),
       r2_buckets: [{ binding: gateway.r2_binding, bucket_name: bucket }],
     },
     null,
