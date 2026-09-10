@@ -8,26 +8,26 @@
 
 ## 문서 규모
 
-- 문서 파일: **428개**
+- 문서 파일: **430개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 111 |
+| Foundation Platform | 112 |
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 122 |
+| Monorepo | 123 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 180 |
-| README | 109 |
+| ADR | 181 |
+| README | 110 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 3 |
@@ -152,6 +152,7 @@ platforms/foundation-platform/infra/lakehouse/dbt/README.md
 platforms/foundation-platform/README.md
 platforms/foundation-platform/scripts/tiles/admin-boundary/README.md
 platforms/foundation-platform/services/foundation-api/README.md
+platforms/foundation-platform/services/foundation-building-gateway/README.md
 platforms/foundation-platform/services/foundation-outbox-publisher/README.md
 platforms/foundation-platform/services/foundation-parcel-gateway/README.md
 platforms/foundation-platform/services/foundation-profile-gateway/README.md
@@ -471,6 +472,7 @@ docs/adr/0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md
 docs/adr/0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md
 docs/adr/0098-the-pre-push-hook-keeps-only-fast-checks.md
 docs/adr/0099-daily-serving-updates-bake-only-changed-parcels.md
+docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -605,6 +607,7 @@ tools/github/README.md
 | `docs/adr/0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0098-the-pre-push-hook-keeps-only-fast-checks.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0099-daily-serving-updates-bake-only-changed-parcels.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -730,6 +733,7 @@ tools/github/README.md
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/scripts/tiles/admin-boundary/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current |
+| `platforms/foundation-platform/services/foundation-building-gateway/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-parcel-gateway/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-profile-gateway/README.md` | Foundation Platform | README | current |

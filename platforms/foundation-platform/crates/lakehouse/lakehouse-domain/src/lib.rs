@@ -9,6 +9,7 @@ pub mod industrial_complex_gold_pointer;
 /// JSONL transport contract for the industrial-complex Bronze-to-Silver job.
 pub mod industrial_complex_jsonl_transport;
 
+mod building_panel;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
 mod land_characteristic;
@@ -50,7 +51,7 @@ pub use industrial_complex_jsonl_transport::{
 pub use lakehouse::{
     industrial_complex_lakehouse_contract_by_table_name, industrial_complex_lakehouse_contracts,
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, GOLD_COMPLEX_CATALOG,
+    LakehouseServingRole, LakehouseTableContract, GOLD_BUILDING_PANEL, GOLD_COMPLEX_CATALOG,
     GOLD_COMPLEX_SPATIAL_LOCATOR, GOLD_PARCEL_PANEL, SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES, SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,

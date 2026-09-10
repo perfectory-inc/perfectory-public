@@ -933,3 +933,31 @@ fn artifact_batch_commands_run_with_expanded_stack() {
         Command::PromoteParcelMarkerAnchorRuntimeManifest
     ));
 }
+
+/// The producer of `serving/buildings/by-pnu/v{generation}/{pnu}.json` (root ADR-0100). Without an
+/// explicit spelling the manifest publisher could point at a generation nobody had baked.
+#[test]
+fn export_building_by_pnu_serving_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-by-pnu-serving"
+        ])?,
+        Command::ExportBuildingByPnuServing
+    );
+    Ok(())
+}
+
+/// The pointer that pins the served generation (root ADR-0100); publishing it is a separate
+/// command so a half-run export cannot leave the gateway aimed at a partial bake.
+#[test]
+fn publish_building_by_pnu_serving_manifest_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "publish-building-by-pnu-serving-manifest",
+        ])?,
+        Command::PublishBuildingByPnuServingManifest
+    );
+    Ok(())
+}

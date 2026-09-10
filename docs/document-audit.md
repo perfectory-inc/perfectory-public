@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **428개**
-- 언어 분류: **{'english': 34, 'korean': 233, 'mixed': 161}**
+- 감사 문서: **430개**
+- 언어 분류: **{'english': 34, 'korean': 235, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **206개 정상 / 0개 누락 / 222개 해당 없음**
+- 메타데이터: **207개 정상 / 0개 누락 / 223개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -121,6 +121,7 @@
 | `docs/adr/0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0098-the-pre-push-hook-keeps-only-fast-checks.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0099-daily-serving-updates-bake-only-changed-parcels.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -246,6 +247,7 @@
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current | mixed | ok | 2 |
 | `platforms/foundation-platform/scripts/tiles/admin-boundary/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current | korean | ok | 0 |
+| `platforms/foundation-platform/services/foundation-building-gateway/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-parcel-gateway/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
 | `platforms/foundation-platform/services/foundation-profile-gateway/README.md` | Foundation Platform | README | current | mixed | ok | 0 |

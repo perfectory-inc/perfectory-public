@@ -12,6 +12,7 @@ export function ParcelFloorsCard({
   data: FloorsResponse;
 }) {
   const t = useTranslations("panels.parcel.floors");
+  const buildingText = useTranslations("panels.parcel.buildings");
   if (data.buildings.length === 0) {
     return <div className="p-6 text-center text-[var(--color-muted)]">{t("none")}</div>;
   }
@@ -30,7 +31,9 @@ export function ParcelFloorsCard({
               {b.name.trim() || t("buildingFallback")}
             </div>
             <div className="text-[var(--color-muted)]">
-              {t("aboveGround", { count: b.above_ground })}
+              {b.above_ground == null
+                ? buildingText("unknown")
+                : t("aboveGround", { count: b.above_ground })}
               {b.below_ground > 0 && ` · ${t("belowGround", { count: b.below_ground })}`}
               {b.has_rooftop && ` · ${t("rooftop")}`}
             </div>

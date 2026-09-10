@@ -121,5 +121,44 @@
         "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET": "foundation-platform-postgres-recovery-prod"
       }
     }
+  },
+  "building_by_pnu_gateway": {
+    "worker_name": "foundation-building-gateway",
+    "public_hostname": "buildings.perfectory.io",
+    "public_hostname_aliases": [
+      "buildings.gongzzang.app"
+    ],
+    "connection": "lakehouse",
+    "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+    "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+    "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
+    "compatibility_date": "2026-04-26",
+    "object_key": {
+      "root": "serving/buildings/by-pnu",
+      "generation_dir_pattern": "v[1-9][0-9]{0,17}",
+      "pnu_pattern": "[0-9]{10}[1289][0-9]{8}",
+      "suffix": ".json",
+      "manifest_object": "serving/buildings/by-pnu/manifest.json"
+    },
+    "request_path": {
+      "prefix": "/buildings/by-pnu/"
+    },
+    "cors": {
+      "grammar": "comma-separated-serialized-http-origins-v1",
+      "allow_wildcard": false,
+      "accepted": [
+        "https://app.example.test",
+        " http://localhost:3000 , https://app.example.test "
+      ],
+      "rejected": [
+        "*",
+        "file:///tmp/app",
+        "https://app.example.test/path"
+      ]
+    },
+    "content_type": "application/json; charset=utf-8",
+    "cache_control": "public, max-age=3600",
+    "manifest_cache_control": "no-cache, max-age=0",
+    "manifest_edge_cache_seconds": 60
   }
 }

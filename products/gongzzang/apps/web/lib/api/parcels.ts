@@ -37,9 +37,7 @@ export type ParcelInfo = z.infer<typeof ParcelInfoSchema>;
 const EdgeParcelProfileSchema = z.object({
   schema_version: z.string(),
   pnu: z.string(),
-  zonings: z
-    .array(z.object({ zone_code: z.string(), zone_name: z.string() }))
-    .nullish(),
+  zonings: z.array(z.object({ zone_code: z.string(), zone_name: z.string() })).nullish(),
   price: z
     .object({
       price_per_m2: z.number().int(),
@@ -47,9 +45,7 @@ const EdgeParcelProfileSchema = z.object({
       base_month: z.number().int(),
     })
     .nullish(),
-  characteristics: z
-    .object({ land_category: z.string().nullish() })
-    .nullish(),
+  characteristics: z.object({ land_category: z.string().nullish() }).nullish(),
 });
 
 export type EdgeParcelProfile = z.infer<typeof EdgeParcelProfileSchema>;
