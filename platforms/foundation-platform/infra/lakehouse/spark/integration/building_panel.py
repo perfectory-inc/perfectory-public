@@ -66,7 +66,7 @@ class BuildingPanelTest(unittest.TestCase):
         self.assertEqual(job.CONTENT_DIGEST_COLUMNS, ("pnu", "buildings_json", "unlinked_units_json"))
 
     def test_nested_sections_keep_unlinked_units_and_absent_facts(self):
-        gold = job.build_gold_panel_frame(self.sources(), "source-a", "2026-01-01T00:00:00Z", {})
+        gold = job.build_gold_panel_frame(self.sources(), "synthetic-source-a", "2099-01-01T00:00:00Z", {})
         row = gold.first()
         fixture_path = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "building_panel_gold_row.json"
         self.assertEqual(row.asDict(), json.loads(fixture_path.read_text(encoding="utf-8")))
@@ -88,9 +88,9 @@ class BuildingPanelTest(unittest.TestCase):
 
     def test_digest_ignores_lineage_and_shuffle_order(self):
         sources = self.sources()
-        first = job.build_gold_panel_frame(sources, "source-a", "2026-01-01T00:00:00Z", {}).first()
+        first = job.build_gold_panel_frame(sources, "synthetic-source-a", "2099-01-01T00:00:00Z", {}).first()
         second = job.build_gold_panel_frame({k: v.repartition(2) for k, v in sources.items()},
-                                           "source-b", "2026-01-02T00:00:00Z", {}).first()
+                                           "synthetic-source-b", "2099-01-02T00:00:00Z", {}).first()
         self.assertEqual(first.row_digest, second.row_digest)
         self.assertEqual(first.buildings_json, second.buildings_json)
 
@@ -98,7 +98,7 @@ class BuildingPanelTest(unittest.TestCase):
         sources = self.sources()
         sources[job.TITLE_SOURCE] = sources[job.TITLE_SOURCE].union(sources[job.TITLE_SOURCE])
         with self.assertRaisesRegex(ValueError, "duplicate"):
-            job.build_gold_panel_frame(sources, "source-a", "2026-01-01T00:00:00Z", {})
+            job.build_gold_panel_frame(sources, "synthetic-source-a", "2099-01-01T00:00:00Z", {})
         mixed = self.frame(job.TITLE_SOURCE, [
             {"mgm_bldrgst_pk": "A", "source_snapshot_id": "a"},
             {"mgm_bldrgst_pk": "B", "source_snapshot_id": "b"},
