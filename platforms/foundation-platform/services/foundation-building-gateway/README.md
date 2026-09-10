@@ -78,17 +78,19 @@ Gold 잡은 `infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py`다. �
 사용하면 모든 원천 Iceberg 스냅숏을 JSON 파일로 고정한다. `--validate-only`에서도
 동일한 원천·샤드·품질 검증을 수행하고 쓰기만 생략한다.
 
-Foundation 디렉터리에서 기존 Python CI 검사와 실제 Spark 검사를 구분해 실행한다.
-두 번째 명령은 저장소가 고정한 Spark 런타임 컨테이너 안에서 실행한다.
+Foundation 디렉터리에서 기존 Python CI 스위트로 순수 계약을 검증한다. `cargo xtask verify
+foundation`의 `infra/lakehouse/spark/tests` 디렉터리 커버리지는 필지와 건물 검사를 함께
+발견한다. 별도의 Java·PySpark CI 환경은 추가하지 않는다.
 
 ```bash
 python3 -m unittest discover -s infra/lakehouse/spark/tests -p 'test_building_panel*.py'
-python3 infra/lakehouse/spark/integration/building_panel.py
 ```
 
-실제 Spark 검사는 셔플 순서·내용 지문·중복 거부·미연결 호와
-`tests/fixtures/building_panel_gold_row.json`의 바이트를 검증한다. Rust 문서 조립 검사도
-같은 Gold 행을 읽어 Catalog UUID 함수와 공개 DTO 일치를 검증한다.
+실제 Spark 컨테이너 검증은 개발 산출물로 실행하고 측정 결과를 PR에 기록한다. 합성
+Silver 입력으로 셔플 순서·내용 지문·중복 거부·미연결 호를 검사한 결과가
+`tests/fixtures/building_panel_gold_row.json`이다. Rust 문서 조립 검사도 같은 Gold 행을
+읽어 Catalog UUID 함수와 공개 DTO 일치를 검증한다. 운영 데이터의 읽기·굽기와 이
+합성 식별자 검증은 구분해 보고한다.
 
 웹의 `NEXT_PUBLIC_BUILDING_EDGE_BASE_URL` 기본값은 계약의 공개 호스트이며,
 `building-edge.ts`가 문서 버전과 요청 PNU를 검사한다. 건물 패널은 같은 문서의 호를

@@ -1,7 +1,7 @@
 """CI checks pure contracts without Spark, as in the parcel lane.
 
-The real shuffle/join proof is integration/building_panel.py, run in the pinned
-Spark container. Its exact Gold row is shared with the Rust DTO/identity tests.
+The real shuffle/join proof runs in the pinned Spark container as a development
+artifact, outside CI. Its exact Gold row is shared with Rust DTO/identity tests.
 """
 import hashlib
 import json
