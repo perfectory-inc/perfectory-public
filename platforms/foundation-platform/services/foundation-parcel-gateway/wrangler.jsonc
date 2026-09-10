@@ -5,6 +5,16 @@
   "compatibility_date": "2026-04-26",
   "workers_dev": false,
   "keep_vars": true,
+  "routes": [
+    {
+      "pattern": "catalog.perfectory.io",
+      "custom_domain": true
+    },
+    {
+      "pattern": "catalog.gongzzang.app",
+      "custom_domain": true
+    }
+  ],
   "r2_buckets": [
     {
       "binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
