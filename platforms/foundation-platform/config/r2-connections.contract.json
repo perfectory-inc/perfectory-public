@@ -33,6 +33,10 @@
   },
   "parcel_by_pnu_gateway": {
     "worker_name": "foundation-parcel-gateway",
+    "public_hostname": "catalog.perfectory.io",
+    "public_hostname_aliases": [
+      "catalog.gongzzang.app"
+    ],
     "connection": "lakehouse",
     "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
     "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",

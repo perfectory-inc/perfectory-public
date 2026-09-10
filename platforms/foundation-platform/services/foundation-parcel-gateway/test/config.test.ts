@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 
 describe("generated Wrangler configuration", () => {
-  it("projects the single R2 contract without credentials or production routes", async () => {
+  it("projects the single R2 contract without credentials", async () => {
     const text = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
     const config = JSON.parse(text) as Record<string, unknown>;
     const gateway = connectionContract.parcel_by_pnu_gateway;
@@ -24,8 +24,26 @@ describe("generated Wrangler configuration", () => {
       },
     ]);
     expect(config.vars).toBeUndefined();
-    expect(text).not.toMatch(/remote|routes|custom_domain|account_id|access_key|secret/i);
+    expect(text).not.toMatch(/remote|account_id|access_key|secret/i);
     expect(text).not.toContain('"*"');
+  });
+
+  it("serves exactly the hostnames the contract names, and nothing wildcarded", async () => {
+    const text = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+    const config = JSON.parse(text) as { routes?: { pattern: string; custom_domain: boolean }[] };
+    const gateway = connectionContract.parcel_by_pnu_gateway;
+
+    // 주소의 정본은 계약이다: 배포가 붙이는 도메인은 계약이 이름한 것과 정확히 같아야 하고,
+    // 그래서 주소 이전은 계약 한 줄 변경이 된다.
+    expect(config.routes).toEqual(
+      [gateway.public_hostname, ...gateway.public_hostname_aliases].map((pattern) => ({
+        pattern,
+        custom_domain: true,
+      })),
+    );
+    for (const route of config.routes ?? []) {
+      expect(route.pattern).toMatch(/^[a-z0-9.-]+$/);
+    }
   });
 
   it("manifest and objects live under one serving root the binding can reach", () => {
