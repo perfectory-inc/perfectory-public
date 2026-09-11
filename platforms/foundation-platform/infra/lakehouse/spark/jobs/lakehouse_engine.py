@@ -127,6 +127,24 @@ def _assemble_catalog_settings(catalog: str, reader: _EnvReader) -> dict[str, st
         # 자격증명을 카탈로그가 발급해 준다. 이것이 없으면 표는 열리는데 파일을 못 읽는다.
         f"spark.sql.catalog.{catalog}.header.X-Iceberg-Access-Delegation": "vended-credentials",
         f"spark.sql.catalog.{catalog}.s3.remote-signing-enabled": "false",
+        # R2 는 놀고 있는 HTTP 연결을 서버 쪽에서 먼저 끊는다. 이 번들의 유일한 동기 HTTP
+        # 구현인 Apache 클라이언트는 연결을 풀에 담아 재사용하므로, 이미 끊긴 연결을 다시 쓰다
+        # `java.net.SocketException: Connection reset` 이 난다 — 서울 적재가 소스 Parquet 를
+        # 읽던 중(S3InputStream.readFully) 두 번 이렇게 죽었다. 증상(재시도 횟수)이 아니라
+        # 원인을 없앤다: 서버가 끊기 전에 우리가 먼저 늙은 연결을 버린다. TTL 은 연결 수명의
+        # 절대 상한, max-idle 은 놀던 연결 재사용 금지선, reaper 는 이를 실행하는 배경 스레드다.
+        f"spark.sql.catalog.{catalog}.http-client.type": "apache",
+        f"spark.sql.catalog.{catalog}.http-client.apache.connection-time-to-live-ms": "60000",
+        f"spark.sql.catalog.{catalog}.http-client.apache.connection-max-idle-time-ms": "10000",
+        f"spark.sql.catalog.{catalog}.http-client.apache.use-idle-connection-reaper-enabled": "true",
+        f"spark.sql.catalog.{catalog}.http-client.apache.tcp-keep-alive-enabled": "true",
+        # 그래도 나는 순간의 리셋은 지수 백오프+jitter 로 되읽는다. S3InputStream 이 이
+        # retryPolicy(EqualJitterBackoffStrategy) 를 쓰므로 — 클래스 상수로 확인 — 실패했던
+        # 바로 그 스트리밍 읽기 경로를 덮는다. 스파크 task 재시도(local[N,8])와 멱등 재실행이
+        # 그 아래 두 겹의 안전망이라, "N 번째 실패 = 손실" 인 지점이 없다.
+        f"spark.sql.catalog.{catalog}.s3.retry.num-retries": "10",
+        f"spark.sql.catalog.{catalog}.s3.retry.min-wait-ms": "200",
+        f"spark.sql.catalog.{catalog}.s3.retry.max-wait-ms": "30000",
     }
     # 토큰 발급처는 준 경우에만 넣는다. 여섯 개 job 은 카탈로그 주소에서 만들어 넣었고 한
     # 개는 넣지 않았는데, 후자는 빠뜨린 것이 아니라 "이 정적 토큰 방식에는 발급처가 없다"고
