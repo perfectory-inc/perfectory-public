@@ -99,6 +99,18 @@ describe("foundation building gateway", () => {
     expect(response.status).toBe(404);
   });
 
+  it("the v2 request does not reuse a cached year-only document", async () => {
+    if (runtime === undefined) throw new Error("Miniflare did not start");
+    const bucket = await runtime.getR2Bucket(R2_BINDING);
+    const legacy = '{"schema_version":"foundation-platform.building_by_pnu_profile.v1"}';
+    await bucket.put(OBJECT_KEY, legacy);
+    expect(await (await runtime.dispatchFetch(BUILDING_URL)).text()).toBe(legacy);
+    await bucket.put(OBJECT_KEY, buildingBody);
+    const response = await runtime.dispatchFetch(`${BUILDING_URL}?schema=2`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(buildingBody);
+  });
+
   it("an unbaked building is 404, not an outage", async () => {
     if (runtime === undefined) throw new Error("Miniflare did not start");
     const response = await runtime.dispatchFetch(
@@ -156,6 +168,8 @@ describe("foundation building gateway", () => {
     `https://catalog.example.test${GATEWAY.request_path.prefix}${PNU}.json`,
     `https://catalog.example.test${GATEWAY.request_path.prefix}nested/${PNU}`,
     `${BUILDING_URL}?download=1`,
+    `${BUILDING_URL}?schema=1`,
+    `${BUILDING_URL}?schema=2&download=1`,
   ])("non-canonical paths return 404: %s", async (url) => {
     if (runtime === undefined) throw new Error("Miniflare did not start");
     expect((await runtime.dispatchFetch(url)).status).toBe(404);

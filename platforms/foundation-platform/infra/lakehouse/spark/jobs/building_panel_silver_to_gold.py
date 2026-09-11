@@ -61,6 +61,7 @@ def parse_args(argv=None):
     parser.add_argument("--iceberg-snapshot-id", required=True,
                         help="Title-table Iceberg snapshot to read; local source identity in parquet mode.")
     parser.add_argument("--source-snapshots-path", help="JSON file mapping all Silver tables to pinned Iceberg snapshot IDs.")
+    parser.add_argument("--price-source-snapshot-id", help="Exact logical price batch within the pinned append-only Silver snapshot.")
     parser.add_argument("--published-at-utc")
     parser.add_argument("--region-prefix")
     parser.add_argument("--pnu-prefix")
@@ -87,6 +88,8 @@ def validate_args(args):
         validate_identifier(name, getattr(args, name))
     if args.expected_count is not None and args.expected_count < 0:
         raise ValueError("--expected-count must be non-negative")
+    if args.price_source_snapshot_id is not None and not args.price_source_snapshot_id.strip():
+        raise ValueError("--price-source-snapshot-id must be non-empty")
     if (args.write_mode == "iceberg" and args.iceberg_write_mode == "overwrite" and
             not args.validate_only and not args.target_iceberg_table.endswith("_smoke") and
             not args.allow_non_smoke_overwrite):
@@ -124,6 +127,8 @@ def read_source(spark, args, name, pins):
     if missing:
         raise ValueError(f"{name} input is missing columns: {sorted(missing)}")
     frame = frame.select(*column_names(contract))
+    if name == PRICE_SOURCE and args.price_source_snapshot_id is not None:
+        frame = frame.where(F.col("source_snapshot_id") == args.price_source_snapshot_id)
     predicate = current_row_predicate(contract)
     return frame.where(F.expr(predicate)) if predicate else frame
 
@@ -199,12 +204,12 @@ def build_units(units, titles, areas, prices):
         F.coalesce("unit_label_ko", "unit_name_raw", F.lit("")).alias("ho_name"), label.alias("floor_label"),
         "exclusive_area_m2", F.coalesce("usage_name", F.lit("")).alias("usage_name"),
         F.coalesce("structure_name", F.lit("")).alias("structure_name"))
-    assert_unique(prices, ["pnu", "dong_name", "ho_name", "base_year"], PRICE_SOURCE, allow_empty=True)
-    if prices.where((F.col("base_year") <= 0) | (F.col("base_year") > 32767) | (F.col("price_won") < 0) |
-                    F.col("base_year").isNull() | F.col("price_won").isNull()).limit(1).count():
-        raise ValueError("unit official price has an invalid year or negative price")
+    assert_unique(prices, ["pnu", "dong_name", "ho_name", "base_date"], PRICE_SOURCE, allow_empty=True)
+    if prices.where(~F.col("base_date").rlike("^[0-9]{8}$") | (F.col("price_won") < 0) |
+                    F.col("base_date").isNull() | F.col("price_won").isNull()).limit(1).count():
+        raise ValueError("unit official price has an invalid base_date or negative price")
     histories = prices.groupBy("pnu", "dong_name", "ho_name").agg(
-        F.sort_array(F.collect_list(F.struct("base_year", "price_won")), asc=False).alias("official_price_history"))
+        F.sort_array(F.collect_list(F.struct("base_date", "price_won")), asc=False).alias("official_price_history"))
     # Exact name matching is the Catalog API's unit_responses contract.
     result = projected.join(histories, ["pnu", "dong_name", "ho_name"], "left")
     return result.withColumn("official_price_history", F.coalesce("official_price_history", F.array()))

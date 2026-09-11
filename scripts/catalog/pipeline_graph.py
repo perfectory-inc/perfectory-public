@@ -39,12 +39,25 @@ def migration_tables(root: Path) -> set[str]:
     ident = r'"?([a-z_][a-z_0-9]*)"?'
     qualified = rf'"?(catalog|serving_postgis)"?\s*\.\s*{ident}'
     create = re.compile(rf"\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{qualified}", re.I)
+    rename = re.compile(rf"\bALTER\s+TABLE\s+{qualified}\s+RENAME\s+TO\s+{ident}\s*;", re.I)
     lifecycle = re.compile(rf"\b(?:DROP\s+(?:TABLE|SCHEMA)\s+(?:IF\s+EXISTS\s+)?\"?(?:catalog|serving_postgis)\b|ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?{qualified}[^;]*\b(?:RENAME\s+TO|SET\s+SCHEMA)\b)", re.I)
     for path in files:
         sql = ignored.sub(" ", path.read_text(encoding="utf-8-sig"))
-        if lifecycle.search(sql):
+        if lifecycle.search(rename.sub(" ", sql)):
             raise ValueError(f"unsupported serving table lifecycle in {path.name}; update reconciliation")
-        tables.update(f"{schema.lower()}.{table.lower()}" for schema, table in create.findall(sql))
+        # Replay declarations in order: a preserved table can be renamed and its old name reused.
+        events = sorted([*create.finditer(sql), *rename.finditer(sql)], key=lambda event: event.start())
+        for event in events:
+            schema, table, *target = (part.lower() for part in event.groups())
+            name = f"{schema}.{table}"
+            if target:
+                renamed = f"{schema}.{target[0]}"
+                if name not in tables or renamed in tables:
+                    raise ValueError(f"invalid serving table rename in {path.name}: {name} -> {renamed}")
+                tables.remove(name)
+                tables.add(renamed)
+            else:
+                tables.add(name)
     if not tables:
         raise ValueError("no catalog/serving_postgis CREATE TABLE declarations found")
     return tables

@@ -2688,8 +2688,8 @@
           "required": true
         },
         {
-          "name": "base_year",
-          "logical_type": "int",
+          "name": "base_date",
+          "logical_type": "string",
           "required": true
         },
         {
@@ -2720,7 +2720,7 @@
         "pnu",
         "dong_name",
         "ho_name",
-        "base_year"
+        "base_date"
       ],
       "quality_gates": [
         "append_only",

@@ -17,7 +17,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 현재 범위: 원천 **8그룹 / 133 endpoint**,
 Silver·Gold **22표**,
-서빙·운영 원장 **75표**.
+서빙·운영 원장 **77표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
 [결정 ADR-0086](./adr/0086-the-pipeline-graph-names-every-dataset-once.md).
@@ -41,9 +41,9 @@ Silver·Gold **22표**,
 
 | 원천 | 수집규모 | Silver → Gold | 서빙 | 화면 |
 |---|---:|---|---|---|
-| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건축물대장 공동주택가격 (`silver.building_register_apartment_price`)<br>세대별 연간 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건축물대장 공동주택가격 (`silver.building_register_apartment_price`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 최신 전국 vintage 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다. | | | | |
-| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 연간 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 전유부 원문 27칸과 관리번호·동호를 완료 manifest 부분 목록을 통해 append-only Silver로 적재한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 기본·식별자<br>필지 경계 서빙 | 필지 지도 타일<br>카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 용도지역 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
@@ -220,7 +220,7 @@ Silver·Gold **22표**,
 | 필지 대지권 등록 | `catalog.parcel_land_right` |
 | 건물 | `catalog.building` |
 | 건물의 호 | `catalog.building_unit` |
-| 세대 공시가격 연혁 | `catalog.unit_official_price` |
+| 세대 공시가격 연혁 | `catalog.unit_official_price`<br>`catalog.unit_official_price_legacy_year`<br>`catalog.unit_official_price_publication` |
 | 산업단지 | `catalog.industrial_complex` |
 | 산업단지 프로필 포인터 | `catalog.industrial_complex_gold_pointer` |
 | 필지의 산업단지 소속 | `catalog.parcel_complex_membership` |
@@ -294,7 +294,7 @@ Silver·Gold **22표**,
 | 건물 층별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 건물 호별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 호별 전유·공용 면적 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
-| 세대별 연간 공시가격 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
+| 세대별 기준일 공시가격 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 건축HUB 파일 → 건축물대장 공동주택가격 | `export-building-register-apartment-price-silver-handoff`<br>`platforms/foundation-platform/scripts/load/land-use-batch-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 건축HUB 파일 → 건축물대장 전유부 | `export-building-register-exclusive-unit-silver-handoff`<br>`platforms/foundation-platform/scripts/load/land-use-batch-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 브이월드 공간·토지 파일 → 필지 경계 | `export-vworld-cadastral-shapefile-silver-handoff`<br>`export-vworld-cadastral-silver-handoff-shard`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py` |
@@ -326,9 +326,9 @@ Silver·Gold **22표**,
 | 필지별 토지이용계획 → 필지 용도지역 | `load-parcel-zoning-catalog-projection` |
 | 용도지역 코드 사전 → 필지 용도지역 | `load-parcel-zoning-catalog-projection` |
 | 필지별 공시지가 → 필지 공시지가 | `load-parcel-price-catalog-projection` |
-| 건축물대장 공동주택가격 → 세대별 연간 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
-| 건축물대장 전유부 → 세대별 연간 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
-| 세대별 연간 공시가격 → 세대 공시가격 연혁 | `load-unit-official-price-projection` |
+| 건축물대장 공동주택가격 → 세대별 기준일 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
+| 건축물대장 전유부 → 세대별 기준일 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
+| 세대별 기준일 공시가격 → 세대 공시가격 연혁 | `load-unit-official-price-projection` |
 | 세대 공시가격 연혁 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/catalog/building_units.rs` |
 | 필지별 토지특성 → 필지 토지특성 | `load-parcel-characteristic-catalog-projection` |
 | 필지별 임야대장 → 필지 임야대장 | `load-parcel-forest-ledger-catalog-projection` |

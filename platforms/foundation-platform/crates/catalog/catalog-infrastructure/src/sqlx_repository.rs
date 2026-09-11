@@ -543,10 +543,13 @@ impl CatalogRepository for PgCatalogRepository {
     ) -> Result<Vec<UnitOfficialPriceRow>, CatalogError> {
         // Keep the character(19) primary-key operator; a text comparison forces a scan.
         let rows = sqlx::query(
-            "SELECT dong_name, ho_name, base_year, price_won
+            "SELECT dong_name, ho_name, base_date, price_won
              FROM catalog.unit_official_price
              WHERE pnu = $1::character(19)
-             ORDER BY dong_name, ho_name, base_year DESC",
+               AND source_snapshot_id = (
+                   SELECT source_snapshot_id FROM catalog.unit_official_price_publication
+                   ORDER BY publication_id DESC LIMIT 1)
+             ORDER BY dong_name, ho_name, base_date DESC",
         )
         .bind(pnu.as_str())
         .fetch_all(&self.pool)
@@ -558,7 +561,7 @@ impl CatalogRepository for PgCatalogRepository {
                     dong_name: row.try_get("dong_name").map_err(map_sqlx)?,
                     ho_name: row.try_get("ho_name").map_err(map_sqlx)?,
                     price: UnitOfficialPrice {
-                        base_year: row.try_get("base_year").map_err(map_sqlx)?,
+                        base_date: row.try_get("base_date").map_err(map_sqlx)?,
                         price_won: row.try_get("price_won").map_err(map_sqlx)?,
                     },
                 })

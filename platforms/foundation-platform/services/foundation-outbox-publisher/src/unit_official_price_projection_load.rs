@@ -1,11 +1,11 @@
-//! Stream a completed Silver price snapshot into an atomic catalog projection (ADR-0095).
+//! Append and publish a completed Silver price snapshot without losing history (ADR-0101).
 
 use std::process::Stdio;
 
 use anyhow::{bail, Context};
 use foundation_shared_kernel::pnu::Pnu;
 use serde::Deserialize;
-use sqlx::{Connection, Executor, PgConnection};
+use sqlx::{Connection, PgConnection};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdout, Command};
 
@@ -14,9 +14,13 @@ use crate::public_data_control_support::{
     optional_bool_env, optional_env_value, required_env_value,
 };
 
+#[path = "unit_official_price_publication.rs"]
+mod publication;
+use publication::{prepare_stage, promote};
+
 const PREFIX: &str = "FOUNDATION_PLATFORM_UNIT_PRICE_";
 const COPY_SQL: &str = "COPY unit_official_price_stage
-    (pnu,dong_name,ho_name,base_year,price_won,source_snapshot_id) FROM STDIN WITH (FORMAT text)";
+    (pnu,dong_name,ho_name,base_date,price_won,source_snapshot_id) FROM STDIN WITH (FORMAT text)";
 
 struct Config {
     database_url: String,
@@ -29,7 +33,7 @@ impl Config {
     fn from_env() -> anyhow::Result<Self> {
         let confirm = format!("{PREFIX}PROJECTION_LOAD_CONFIRM");
         if !optional_bool_env(&confirm)?.unwrap_or(false) {
-            bail!("{confirm}=true is required: this command replaces catalog.unit_official_price");
+            bail!("{confirm}=true is required: this command appends and publishes a catalog.unit_official_price batch");
         }
         let iceberg_snapshot = required_env_value(&format!("{PREFIX}ICEBERG_SNAPSHOT_ID"))?
             .parse::<i64>()
@@ -143,22 +147,24 @@ struct PriceRow {
     pnu: String,
     dong_name: String,
     ho_name: String,
-    base_year: i16,
+    base_date: String,
     price_won: i64,
 }
 
 impl PriceRow {
     fn copy_line(&self, source_snapshot: &str) -> anyhow::Result<String> {
         Pnu::parse(self.pnu.clone()).context("price row has an invalid PNU")?;
-        if !(1000..=9999).contains(&self.base_year) || self.price_won < 0 {
-            bail!("price row has an invalid base_year or price_won");
+        if !catalog_domain::unit_official_price::valid_base_date(&self.base_date)
+            || self.price_won < 0
+        {
+            bail!("price row has an invalid base_date or price_won");
         }
         Ok(format!(
             "{}\t{}\t{}\t{}\t{}\t{}\n",
             self.pnu,
             copy_text_escape(&self.dong_name),
             copy_text_escape(&self.ho_name),
-            self.base_year,
+            self.base_date,
             self.price_won,
             copy_text_escape(source_snapshot)
         ))
@@ -221,22 +227,13 @@ async fn provinces(config: &Config) -> anyhow::Result<Vec<Province>> {
     Ok(provinces)
 }
 
-async fn prepare_stage(conn: &mut PgConnection) -> anyhow::Result<()> {
-    conn.execute(
-        "CREATE TEMP TABLE unit_official_price_stage
-        (LIKE catalog.unit_official_price INCLUDING CONSTRAINTS) ON COMMIT PRESERVE ROWS",
-    )
-    .await?;
-    Ok(())
-}
-
 async fn load_province(
     conn: &mut PgConnection,
     config: &Config,
     province: &Province,
 ) -> anyhow::Result<u64> {
     let sql = format!(
-        "SELECT pnu,dong_name,ho_name,base_year,price_won FROM {} WHERE {} AND sido = '{}'",
+        "SELECT pnu,dong_name,ho_name,base_date,price_won FROM {} WHERE {} AND sido = '{}'",
         config.source_sql(),
         config.selection_sql(),
         province.sido
@@ -266,45 +263,7 @@ async fn load_province(
     Ok(count)
 }
 
-async fn promote(conn: &mut PgConnection) -> anyhow::Result<(u64, i64)> {
-    let conflicting: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM (
-        SELECT pnu,dong_name,ho_name,base_year FROM unit_official_price_stage
-        GROUP BY pnu,dong_name,ho_name,base_year HAVING MIN(price_won) <> MAX(price_won)
-    ) conflicts",
-    )
-    .fetch_one(&mut *conn)
-    .await?;
-    tracing::info!(
-        conflicting_prices = conflicting,
-        "unit price duplicates will be resolved by descending price_won"
-    );
-    let mut transaction = conn.begin().await?;
-    transaction
-        .execute("LOCK TABLE catalog.unit_official_price IN SHARE ROW EXCLUSIVE MODE")
-        .await?;
-    transaction
-        .execute("DELETE FROM catalog.unit_official_price")
-        .await?;
-    let inserted = transaction
-        .execute(
-            "INSERT INTO catalog.unit_official_price
-        (pnu,dong_name,ho_name,base_year,price_won,source_snapshot_id)
-        SELECT DISTINCT ON (pnu,dong_name,ho_name,base_year)
-            pnu,dong_name,ho_name,base_year,price_won,source_snapshot_id
-        FROM unit_official_price_stage
-        ORDER BY pnu,dong_name,ho_name,base_year,price_won DESC",
-        )
-        .await?
-        .rows_affected();
-    if inserted == 0 {
-        bail!("empty projection cannot replace the current serving table");
-    }
-    transaction.commit().await?;
-    Ok((inserted, conflicting))
-}
-
-/// Loads a complete, pinned Silver projection and atomically replaces the serving table.
+/// Appends a complete pinned Silver batch and atomically publishes its selection.
 ///
 /// # Errors
 /// Refuses invalid configuration, incomplete snapshots, failed reads, COPY or promotion.
@@ -320,8 +279,8 @@ pub async fn run() -> anyhow::Result<()> {
         staged += rows;
         tracing::info!(sido = %province.sido, rows, elapsed_seconds = started.elapsed().as_secs_f64(), "unit price province staged");
     }
-    let (inserted, conflicting) = promote(&mut conn).await?;
-    tracing::info!(staged, inserted, folded = staged - inserted, conflicting_prices = conflicting,
+    let (inserted, published) = promote(&mut conn).await?;
+    tracing::info!(staged, inserted, published,
         iceberg_snapshot = config.iceberg_snapshot, source_snapshot = %config.source_snapshot,
         "unit-official-price-projection-load-ok");
     Ok(())

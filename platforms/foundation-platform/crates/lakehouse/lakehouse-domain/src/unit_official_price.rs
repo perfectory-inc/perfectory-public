@@ -1,11 +1,11 @@
-//! Unit-indexed annual price observations derived from the two HUB registers (ADR-0095).
+//! Unit-indexed reference-date prices derived from the two HUB registers.
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
     LakehouseServingRole, LakehouseTableContract,
 };
 
-/// Append-only province batches; the serving projection resolves repeated annual keys.
+/// Append-only province batches retaining every assessment reference date.
 pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.unit_official_price",
     layer: LakehouseLayer::Silver,
@@ -29,8 +29,8 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
             required: true,
         },
         LakehouseColumn {
-            name: "base_year",
-            logical_type: "int",
+            name: "base_date",
+            logical_type: "string",
             required: true,
         },
         LakehouseColumn {
@@ -55,7 +55,7 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
         },
     ],
     partition_spec: &["sido"],
-    sort_order: &["pnu", "dong_name", "ho_name", "base_year"],
+    sort_order: &["pnu", "dong_name", "ho_name", "base_date"],
     quality_gates: &[
         "append_only",
         "pnu_not_null",

@@ -216,16 +216,16 @@ pub struct CatalogUnitResponse {
     pub exclusive_area_m2: Option<f64>,
     /// 주용도명. Empty when unmatched upstream.
     pub usage_name: String,
-    /// Annual official assessments, newest first. Older upstreams omit this field.
+    /// Reference-date official assessments, newest first. Older upstreams omit this field.
     #[serde(default)]
     pub official_price_history: Vec<CatalogUnitOfficialPrice>,
 }
 
-/// Annual official unit assessment carried by the Foundation contract.
+/// Reference-date official unit assessment carried by the Foundation contract.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct CatalogUnitOfficialPrice {
-    /// Assessment base year.
-    pub base_year: i16,
+    /// Assessment reference date in YYYYMMDD format.
+    pub base_date: String,
     /// Official value in integer won.
     pub price_won: i64,
 }

@@ -16,7 +16,7 @@ export const EdgeUnitSchema = z.object({
   structure_name: z.string(),
   official_price_history: z.array(
     z.object({
-      base_year: z.number().int().positive(),
+      base_date: z.string().regex(/^[0-9]{8}$/),
       price_won: z.number().int().nonnegative(),
     }),
   ),
@@ -29,7 +29,7 @@ export const EdgeFloorSchema = z.object({
   floor_display_ko: z.string().nullable(),
 });
 export const EdgeBuildingProfileSchema = z.object({
-  schema_version: z.literal("foundation-platform.building_by_pnu_profile.v1"),
+  schema_version: z.literal("foundation-platform.building_by_pnu_profile.v2"),
   pnu: PnuSchema,
   source: z.object({
     table: z.literal("gold.building_panel"),
@@ -72,7 +72,7 @@ export async function fetchBuildingProfile(
 ): Promise<EdgeBuildingProfile> {
   PnuSchema.parse(pnu);
   const base = env.NEXT_PUBLIC_BUILDING_EDGE_BASE_URL.replace(/\/$/, "");
-  const response = await fetch(`${base}/buildings/by-pnu/${pnu}`, {
+  const response = await fetch(`${base}/buildings/by-pnu/${pnu}?schema=2`, {
     signal,
     headers: { accept: "application/json" },
   });

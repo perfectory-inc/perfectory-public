@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Reindex one province's apartment assessments by unit identity (root ADR-0095).
 
-The coordinator measured the Seoul join at 17 seconds, 29,070,232 unit-year rows
-and 1,872,891 units. One invocation handles one two-digit province; the operator
-runs the seventeen invocations. Source snapshots stay immutable and untouched.
+One invocation handles one two-digit province. Every reference date survives;
+only correction notices for that same date resolve to their confirmed value.
+Source snapshots stay immutable and untouched.
 """
 
 from __future__ import annotations
@@ -16,7 +16,8 @@ from pathlib import Path
 
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
 from lakehouse_ingest import append_batch_once
-from platform_contracts import column_names, create_table_columns_sql, load_lakehouse_contract, partition_clause_sql
+from platform_contracts import (column_names, create_table_columns_sql, evolve_iceberg_table_to_contract,
+                                load_lakehouse_contract, partition_clause_sql)
 
 CONTRACT = "silver.unit_official_price"
 # Shared SQL is executed by both Spark and relational fixture tests.
@@ -36,14 +37,20 @@ PRICE_VALID = """mgmt_key IS NOT NULL AND TRIM(mgmt_key) <> ''
     AND CAST(SUBSTR(TRIM(base_date), 1, 4) AS INT) BETWEEN 1000 AND 9999
     AND TRIM(price_won) REGEXP '^[0-9]{1,18}$'"""
 PRICES_SQL = f"""
-SELECT DISTINCT mgmt_key, TRIM(base_date) AS base_date,
-       CAST(TRIM(price_won) AS BIGINT) AS price_won
-FROM price_source WHERE {PRICE_VALID}
+SELECT mgmt_key, base_date, notice_date, price_won FROM (
+    SELECT mgmt_key, base_date, notice_date, price_won,
+           ROW_NUMBER() OVER (PARTITION BY mgmt_key, base_date
+                              ORDER BY notice_date DESC, price_won DESC) AS notice_rank
+    FROM (
+        SELECT mgmt_key, TRIM(base_date) AS base_date, TRIM(notice_date) AS notice_date,
+               CAST(TRIM(price_won) AS BIGINT) AS price_won
+        FROM price_source WHERE {PRICE_VALID}
+    ) normalized
+) ranked WHERE notice_rank = 1
 """
 JOIN_SQL = """
-SELECT DISTINCT d.pnu, d.dong_name, d.ho_name,
-       CAST(SUBSTR(p.base_date, 1, 4) AS INT) AS base_year, p.price_won
-FROM annual_prices p JOIN unit_dictionary d ON p.mgmt_key = d.mgmt_key
+SELECT d.pnu, d.dong_name, d.ho_name, p.base_date, p.price_won
+FROM reference_prices p JOIN unit_dictionary d ON p.mgmt_key = d.mgmt_key
 WHERE d.pnu REGEXP '^[0-9]{19}$'
 """
 
@@ -121,14 +128,14 @@ def main(argv=None):
         dictionary.where(F.substring("pnu", 1, 2) == args.sido).createOrReplaceTempView("unit_dictionary")
         price_source = prices.where((F.col("vintage") == args.vintage) & (F.substring("sigungu_cd", 1, 2) == args.sido))
         price_source.createOrReplaceTempView("price_source")
-        annual_prices = spark.sql(PRICES_SQL)
-        annual_prices.createOrReplaceTempView("annual_prices")
+        reference_prices = spark.sql(PRICES_SQL)
+        reference_prices.createOrReplaceTempView("reference_prices")
         invalid = int(spark.sql(f"SELECT COUNT(*) FROM price_source WHERE COALESCE(({PRICE_VALID}), FALSE) = FALSE").first()[0])
-        unmatched = int(spark.sql("""SELECT COUNT(*) FROM annual_prices p
+        unmatched = int(spark.sql("""SELECT COUNT(*) FROM reference_prices p
             LEFT JOIN unit_dictionary d ON p.mgmt_key = d.mgmt_key
             WHERE d.mgmt_key IS NULL OR d.pnu IS NULL OR NOT (d.pnu REGEXP '^[0-9]{19}$')""").first()[0])
         source_snapshot = f"price:{price_snapshot}|exclusive:{exclusive_snapshot}|vintage:{args.vintage}"
-        source_record = f"unit-official-price/{args.sido}/{source_snapshot}"
+        source_record = f"unit-official-price/base-date-v2/{args.sido}/{source_snapshot}"
         frame = (spark.sql(JOIN_SQL)
                  .withColumn("sido", F.lit(args.sido))
                  .withColumn("source_snapshot_id", F.lit(source_snapshot))
@@ -139,6 +146,8 @@ def main(argv=None):
         contract = load_lakehouse_contract(CONTRACT)
         target = f"{prefix}.`unit_official_price`"
         spark.sql(f"CREATE TABLE IF NOT EXISTS {target} ({create_table_columns_sql(contract)}) USING iceberg {partition_clause_sql(contract)}")
+        # Refuse a year-only target; preserve it and replay the dated sources (ADR-0101).
+        evolve_iceberg_table_to_contract(spark, target, contract)
         appended = append_batch_once(spark, frame, column_names(contract), target, CONTRACT)
         summary = {
             "sido": args.sido, "source_snapshot_id": source_snapshot,
