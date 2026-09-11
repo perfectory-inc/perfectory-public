@@ -95,7 +95,7 @@ def render(graph: dict, catalog: dict) -> str:
         if n['type'] not in {'silver_table', 'gold_table'}:
             continue
         downstream = descendants(n['id'])
-        if not any(x['type'] == 'serving_group' for x in downstream):
+        if not any(x['type'] in {'serving_group', 'serving_surface'} for x in downstream):
             state = STATUS.get(n['status'], n['status'])
             reason = n['description'] if n['status'] == 'contract_only' else 'Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다.'
             lines.append(f'| `{n["table_name"]}` | {state} | {md(reason)} |')

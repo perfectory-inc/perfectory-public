@@ -2794,6 +2794,140 @@
       "load": {
         "unit": "derived"
       }
+    },
+    "reference.legal_dong_code": {
+      "table_name": "reference.legal_dong_code",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "region_cd",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sido_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sgg_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "umd_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ri_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "locatadd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "locathigh_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "created_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "abolished_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "is_current",
+          "logical_type": "boolean",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "truncate(region_cd, 2)"
+      ],
+      "sort_order": [
+        "region_cd",
+        "created_date"
+      ],
+      "quality_gates": [
+        "append_only",
+        "region_cd_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "reference.sigungu_canonical_crosswalk": {
+      "table_name": "reference.sigungu_canonical_crosswalk",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "source_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "canonical_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_from",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "valid_to",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "provenance",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "source_code",
+        "valid_from"
+      ],
+      "quality_gates": [
+        "append_only",
+        "source_code_not_null",
+        "canonical_code_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "provenance",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
     }
   },
   "jsonl_transports": {
