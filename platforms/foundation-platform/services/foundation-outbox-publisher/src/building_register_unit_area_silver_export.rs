@@ -729,6 +729,11 @@ mod tests {
         );
         assert_eq!(string_value(&first_batch, "area_kind", 0)?, "exclusive");
         assert_eq!(string_value(&first_batch, "area_kind", 1)?, "common");
+        // Lineage column must be present in the Parquet schema (gold requires it).
+        assert!(first_batch
+            .schema()
+            .column_with_name("source_record_id")
+            .is_some());
         assert_eq!(
             string_value(&first_batch, "unit_designation", 0)?,
             "SYNTHETIC-UNIT-416"
