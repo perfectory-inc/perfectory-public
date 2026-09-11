@@ -165,6 +165,8 @@ pub struct BuildingRegisterUnitAreaSilverRow {
     pub normalization_status: String,
     /// Normalization reason wire value.
     pub normalization_reason: String,
+    /// Stable row-level source lineage id.
+    pub source_record_id: String,
     /// Source-snapshot lineage id.
     pub source_snapshot_id: String,
     /// Bronze object key that carried this source row.
@@ -369,6 +371,7 @@ fn build_area_silver_row(
         created_date_raw: record.created_date_raw.clone(),
         normalization_status: status.to_owned(),
         normalization_reason: reason.to_owned(),
+        source_record_id: record.source_record_id.clone(),
         source_snapshot_id: input.source_snapshot_id.to_owned(),
         bronze_object_key: input.bronze_object_key.to_owned(),
         source_line_number: record.source_line_number,
@@ -432,6 +435,7 @@ fn row_to_json_value(row: &BuildingRegisterUnitAreaSilverRow) -> JsonValue {
         "normalization_reason",
         &row.normalization_reason,
     );
+    insert_string(&mut record, "source_record_id", &row.source_record_id);
     insert_string(&mut record, "source_snapshot_id", &row.source_snapshot_id);
     insert_string(&mut record, "bronze_object_key", &row.bronze_object_key);
     insert_optional_number(&mut record, "source_line_number", row.source_line_number);
@@ -764,6 +768,28 @@ mod tests {
         assert_eq!(value["normalization_status"], "accepted");
         assert_eq!(value["valid_from_utc"], "2099-12-31T00:00:00Z");
         assert!(value["row_checksum_sha256"].is_string());
+        let mut record: JsonMap<String, JsonValue> = serde_json::from_str(&jsonl)?;
+        let contract_columns = lakehouse_domain::SILVER_BUILDING_REGISTER_UNIT_AREAS
+            .columns
+            .iter()
+            .map(|column| column.name)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            record
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            contract_columns
+        );
+        assert_eq!(record["source_record_id"], records[0].source_record_id);
+        let checksum = record
+            .remove("row_checksum_sha256")
+            .ok_or("row checksum must exist")?;
+        let payload = serde_json::to_string(&record)?;
+        assert_eq!(
+            checksum,
+            format!("{:x}", Sha256::digest(payload.as_bytes()))
+        );
         Ok(())
     }
 }

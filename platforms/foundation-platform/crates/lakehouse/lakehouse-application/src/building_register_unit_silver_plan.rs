@@ -117,6 +117,8 @@ pub struct BuildingRegisterUnitSilverRow {
     pub normalization_reason: String,
     /// Active staff-approved normalization application id, when this row was overridden.
     pub normalization_application_id: Option<String>,
+    /// Stable row-level source lineage id.
+    pub source_record_id: String,
     /// Source-snapshot lineage id.
     pub source_snapshot_id: String,
     /// Bronze object key that carried this source row.
@@ -501,6 +503,7 @@ fn build_silver_row(
         normalization_status: normalized.status.wire_name().to_owned(),
         normalization_reason: unit_reason_wire(&normalized),
         normalization_application_id: None,
+        source_record_id: record.source_record_id.clone(),
         source_snapshot_id: input.source_snapshot_id.to_owned(),
         bronze_object_key: input.bronze_object_key.to_owned(),
         source_line_number: record.source_line_number,
@@ -593,6 +596,7 @@ fn row_to_json_value(row: &BuildingRegisterUnitSilverRow) -> JsonValue {
         "normalization_application_id",
         row.normalization_application_id.as_deref(),
     );
+    insert_string(&mut record, "source_record_id", &row.source_record_id);
     insert_string(&mut record, "source_snapshot_id", &row.source_snapshot_id);
     insert_string(&mut record, "bronze_object_key", &row.bronze_object_key);
     insert_optional_number(&mut record, "source_line_number", row.source_line_number);
@@ -719,6 +723,39 @@ mod tests {
         assert_eq!(row.floor_index, Some(6));
         assert_eq!(row.normalization_status, "accepted");
         assert_eq!(row.row_checksum_sha256.len(), 64);
+        Ok(())
+    }
+
+    #[test]
+    fn serializes_row_to_jsonl_with_all_contract_fields() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let row = normalize_one(&line("102동", "624호", "20", "지상", "6"))?;
+        let jsonl = building_register_unit_silver_row_to_jsonl(&row)?;
+        let mut record: JsonMap<String, JsonValue> = serde_json::from_str(&jsonl)?;
+        let contract_columns = lakehouse_domain::SILVER_BUILDING_REGISTER_UNITS
+            .columns
+            .iter()
+            .map(|column| column.name)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            record
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            contract_columns
+        );
+        assert_eq!(
+            record["source_record_id"],
+            "bronze/source=hubgokr__building_register_exclusive_unit/x.zip"
+        );
+        let checksum = record
+            .remove("row_checksum_sha256")
+            .ok_or("row checksum must exist")?;
+        let payload = serde_json::to_string(&record)?;
+        assert_eq!(
+            checksum,
+            format!("{:x}", Sha256::digest(payload.as_bytes()))
+        );
         Ok(())
     }
 
