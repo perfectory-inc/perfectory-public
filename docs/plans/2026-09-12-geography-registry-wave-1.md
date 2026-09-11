@@ -8,7 +8,24 @@
 
 **Tech Stack:** Rust (foundation-shared-kernel, foundation-outbox-publisher hub silver export), Python/Spark (lakehouse jobs), Iceberg on R2, the existing `national-bake.sh` runbook.
 
-**Scope note (honest):** Wave 1 delivers *cross-source consistency at the current point in time* (all sources resolve to the same canonical 법정동 code, so 광주 attaches). The fully opaque, recode-surviving stable ID and "as-of" history need the time dimension and land in Wave 3 (bitemporal). Wave 1 does NOT re-identify all 40M parcels with a new surrogate key; it canonicalizes the code so PNUs already agree.
+**Scope note (honest):** Wave 1 delivers *cross-source consistency at the current point in time* (both the stale-code source and the current-code source resolve to the same stable identity, so 광주 attaches). The as-of history lands in Wave 3 (bitemporal).
+
+## ⚠ CORRECTION (2026-09-12) — direction reversed; approach = separate stable ID (option 가)
+
+Measured against the authority (`getStanReginCdList`, our key): the current 시도 list has **`1200000000 전남광주통합특별시`**; **29(광주)·46(전남) are abolished**. So **12 (used by the HUB building data) is the correct current code**, and the **map/cadastral (29/46) is the stale side**. The draft's "normalize HUB 12→29/46" was BACKWARDS (it would revert to a dead code).
+
+Corrected approach — **option (가), a separate stable identifier; no code is overwritten**:
+- Keep every source's own code as-is (29/46 in the map, 12 in HUB — both preserved, no loss).
+- Assign each place/parcel an opaque **stable ID**; the crosswalk links **old 29xxx/46xxx ↔ new 12xxx → same stable ID** (my data-derived 27-pair mapping gives the pairing; the authority confirms 12 is current).
+- Serving joins on the **stable ID** (so a 광주 parcel labeled 29 and a 광주 building labeled 12 attach), and **displays the current label (12 / 전남광주통합특별시)**.
+- The resolver's canonical/display target = **authority-current code (12)**, with 29/46 as `superseded`.
+
+Task edits implied by this correction:
+- **Task 2**: crosswalk direction is old(29/46)↔new(12)→stable ID; canonical = authority-current (12), not 29/46.
+- **Task 3**: the resolver maps a source `(code, vintage)` to the **stable ID**; it does NOT rewrite 12 into 29/46. `parcel_id`/`canonical_id` derive from the stable ID (not the raw PNU string).
+- **Task 4**: do NOT re-derive HUB silver to 29/46 — HUB (12) is already correct. Instead assign stable IDs and reconcile the **stale map/cadastral (29/46)** to the same stable IDs.
+- **Task 5**: run `price-reload 12` (광주+전남 prices live under sido 12 in the HUB feed) — not 29/46.
+- **Task 6**: gold/bake/publish serve on the stable ID and display the current label (12).
 
 ---
 
