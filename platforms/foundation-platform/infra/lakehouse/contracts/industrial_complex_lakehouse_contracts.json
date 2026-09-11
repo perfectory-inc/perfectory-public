@@ -2673,6 +2673,11 @@
       "current_row_predicate": null,
       "columns": [
         {
+          "name": "mgm_bldrgst_pk",
+          "logical_type": "string",
+          "required": true
+        },
+        {
           "name": "pnu",
           "logical_type": "string",
           "required": true

@@ -204,14 +204,16 @@ def build_units(units, titles, areas, prices):
         F.coalesce("unit_label_ko", "unit_name_raw", F.lit("")).alias("ho_name"), label.alias("floor_label"),
         "exclusive_area_m2", F.coalesce("usage_name", F.lit("")).alias("usage_name"),
         F.coalesce("structure_name", F.lit("")).alias("structure_name"))
-    assert_unique(prices, ["pnu", "dong_name", "ho_name", "base_date"], PRICE_SOURCE, allow_empty=True)
+    assert_unique(prices, ["mgm_bldrgst_pk", "base_date"], PRICE_SOURCE, allow_empty=True)
     if prices.where(~F.col("base_date").rlike("^[0-9]{8}$") | (F.col("price_won") < 0) |
                     F.col("base_date").isNull() | F.col("price_won").isNull()).limit(1).count():
         raise ValueError("unit official price has an invalid base_date or negative price")
-    histories = prices.groupBy("pnu", "dong_name", "ho_name").agg(
+    histories = prices.groupBy("mgm_bldrgst_pk").agg(
         F.sort_array(F.collect_list(F.struct("base_date", "price_won")), asc=False).alias("official_price_history"))
-    # Exact name matching is the Catalog API's unit_responses contract.
-    result = projected.join(histories, ["pnu", "dong_name", "ho_name"], "left")
+    # Match price to unit by the unique register key (mgm_bldrgst_pk), not by
+    # (pnu, dong, ho): dong_name is empty for single-building complexes, so the
+    # name tuple collides across distinct units. The register key is 1:1 per unit.
+    result = projected.join(histories, projected["register_pk"] == histories["mgm_bldrgst_pk"], "left").drop(histories["mgm_bldrgst_pk"])
     return result.withColumn("official_price_history", F.coalesce("official_price_history", F.array()))
 
 

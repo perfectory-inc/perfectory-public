@@ -49,7 +49,7 @@ SELECT mgmt_key, base_date, notice_date, price_won FROM (
 ) ranked WHERE notice_rank = 1
 """
 JOIN_SQL = """
-SELECT d.pnu, d.dong_name, d.ho_name, p.base_date, p.price_won
+SELECT d.mgmt_key AS mgm_bldrgst_pk, d.pnu, d.dong_name, d.ho_name, p.base_date, p.price_won
 FROM reference_prices p JOIN unit_dictionary d ON p.mgmt_key = d.mgmt_key
 WHERE d.pnu REGEXP '^[0-9]{19}$'
 """
