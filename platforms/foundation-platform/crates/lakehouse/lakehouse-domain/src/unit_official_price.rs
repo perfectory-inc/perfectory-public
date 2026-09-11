@@ -14,6 +14,11 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
     current_row_predicate: None,
     columns: &[
         LakehouseColumn {
+            name: "mgm_bldrgst_pk",
+            logical_type: "string",
+            required: true,
+        },
+        LakehouseColumn {
             name: "pnu",
             logical_type: "string",
             required: true,

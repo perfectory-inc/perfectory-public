@@ -52,10 +52,12 @@ class UnitOfficialPriceTest(unittest.TestCase):
         ])
         self.views()
         rows = self.db.execute(JOIN_SQL + " ORDER BY dong_name, base_date DESC").fetchall()
+        # The join now leads with the register key (mgm_bldrgst_pk = the dictionary
+        # mgmt_key), so each row is 6-wide: (mgm_bldrgst_pk, pnu, dong, ho, base_date, price).
         self.assertEqual(rows, [
-            ("9999900000100000001", "101동", "101호", "20100601", 35000000),
-            ("9999900000100000001", "101동", "101호", "20100101", 36000000),
-            ("9999900000100000001", "102동", "101호", "20100101", 190000000),
+            ("fixture-a", "9999900000100000001", "101동", "101호", "20100601", 35000000),
+            ("fixture-a", "9999900000100000001", "101동", "101호", "20100101", 36000000),
+            ("fixture-b", "9999900000100000001", "102동", "101호", "20100101", 190000000),
         ])
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM price_source").fetchone()[0], 6)
 
@@ -68,7 +70,8 @@ class UnitOfficialPriceTest(unittest.TestCase):
         ])
         self.views()
         rows = self.db.execute(JOIN_SQL + " ORDER BY base_date").fetchall()
-        self.assertEqual([(r[3], r[4]) for r in rows], [("20260101", 100), ("20260601", 90)])
+        # 6-wide rows: index 4 is base_date, index 5 is price_won.
+        self.assertEqual([(r[4], r[5]) for r in rows], [("20260101", 100), ("20260601", 90)])
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM price_source").fetchone()[0], 4)
 
     def test_submission_requires_one_province_and_positive_snapshot_ids(self):
