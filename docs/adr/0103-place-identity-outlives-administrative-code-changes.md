@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-12
-- 관련: [ADR-0034 행정구역 코드는 자기 정밀도를 싣고 다닌다](./0034-an-administrative-code-carries-its-own-granularity.md), [ADR-0069 적재 정체성은 한 곳에서 정해진다](./0069-a-load-identity-is-decided-in-one-place.md), [ADR-0086 파이프라인 그래프는 모든 데이터셋을 명명한다](./0086-the-pipeline-graph-names-every-dataset.md), [ADR-0100 건물·층·호는 사전 구운 R2 객체로 서빙한다](./0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md)
+- 관련: [ADR-0034 행정구역 코드는 자기 정밀도를 싣고 다닌다](./0034-an-administrative-code-carries-its-own-granularity.md), [ADR-0086 파이프라인 그래프는 모든 데이터셋을 명명한다](./0086-the-pipeline-graph-names-every-dataset-once.md), [ADR-0100 건물·층·호는 사전 구운 R2 객체로 서빙한다](./0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md)
 
 ## Context
 

@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **431개**
-- 언어 분류: **{'english': 34, 'korean': 236, 'mixed': 161}**
+- 감사 문서: **435개**
+- 언어 분류: **{'english': 35, 'korean': 239, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **207개 정상 / 0개 누락 / 224개 해당 없음**
+- 메타데이터: **209개 정상 / 0개 누락 / 226개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -56,7 +56,7 @@
 | `docs/adr/0031-parcel-mirror-run-seals-publication-scope.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 1 |
 | `docs/adr/0032-provider-identity-is-derived-from-domain-label.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 7 |
-| `docs/adr/0034-an-administrative-code-carries-its-own-granularity.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 6 |
+| `docs/adr/0034-an-administrative-code-carries-its-own-granularity.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 7 |
 | `docs/adr/0035-a-region-the-pipeline-does-not-use-is-not-required.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 8 |
 | `docs/adr/0036-a-pointed-at-object-has-the-command-that-wrote-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0037-a-pointer-carries-the-address-template-with-its-object-key.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
@@ -107,7 +107,7 @@
 | `docs/adr/0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0084-the-registry-knows-every-collected-object.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0085-a-parcel-learns-its-price-from-the-assessment-ledger.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0086-the-pipeline-graph-names-every-dataset-once.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0086-the-pipeline-graph-names-every-dataset-once.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0087-a-parcel-learns-its-characteristics.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0088-a-parcel-learns-its-forest-ledger.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0089-a-parcel-learns-its-transfer-history.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
@@ -121,8 +121,10 @@
 | `docs/adr/0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0098-the-pre-push-hook-keeps-only-fast-checks.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0099-daily-serving-updates-bake-only-changed-parcels.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0101-unit-prices-preserve-every-reference-date.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0102-lakehouse-jobs-survive-r2-connection-resets.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 1 |
+| `docs/adr/0103-place-identity-outlives-administrative-code-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -135,6 +137,8 @@
 | `docs/public-data-catalog.md` | Monorepo | documentation | current | korean | ok | 2 |
 | `docs/README.md` | Monorepo | README | current | korean | ok | 5 |
 | `docs/reference/design-system-benchmarks.md` | Monorepo | reference | current | korean | ok | 1 |
+| `docs/reference/geography-identity-enterprise-survey.md` | Monorepo | reference | current | korean | ok | 1 |
+| `docs/reference/geography-identity-wave1-technical-design.md` | Monorepo | reference | current | korean | ok | 0 |
 | `docs/reference/README.md` | Monorepo | README | current | korean | ok | 1 |
 | `docs/roadmap/foundation-baseline.md` | Monorepo | roadmap | current | korean | ok | 2 |
 | `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current | korean | ok | 6 |

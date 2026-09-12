@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **436개**
+- 문서 파일: **435개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,7 +19,7 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 129 |
+| Monorepo | 128 |
 | Repository tooling | 1 |
 
 ### 유형별
@@ -32,7 +32,7 @@
 | architecture | 26 |
 | contract | 3 |
 | convention | 10 |
-| documentation | 34 |
+| documentation | 33 |
 | draft | 2 |
 | fixture | 9 |
 | guide | 2 |
@@ -485,7 +485,6 @@ docs/glossary.md
 docs/guides/documentation-lifecycle.md
 docs/guides/README.md
 docs/guides/single-source-spatial-publication-implementation.md
-docs/plans/2026-09-12-geography-registry-wave-1.md
 docs/public-data-catalog.md
 docs/README.md
 docs/reference/design-system-benchmarks.md
@@ -626,7 +625,6 @@ tools/github/README.md
 | `docs/guides/documentation-lifecycle.md` | Monorepo | guide | current |
 | `docs/guides/README.md` | Monorepo | README | current |
 | `docs/guides/single-source-spatial-publication-implementation.md` | Monorepo | guide | proposed |
-| `docs/plans/2026-09-12-geography-registry-wave-1.md` | Monorepo | documentation | current |
 | `docs/public-data-catalog.md` | Monorepo | documentation | current |
 | `docs/README.md` | Monorepo | README | current |
 | `docs/reference/design-system-benchmarks.md` | Monorepo | reference | current |
