@@ -186,7 +186,10 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # 110 -> 112: ADR-0101's migration regression embeds the original annual table
 # migration and its dated successor to prove that upgrading preserves existing rows.
 # The full-chain migrator remains one site after moving into the PostgreSQL lane.
-COMPILE_TIME_READ_BASELINE="${3:-112}"
+# 112 -> 113: ADR-0103 Wave 1 embeds the 시군구 canonical crosswalk seed
+# (include_str! in the outbox publisher) so the PNU composer and the resolver
+# read one grammar, not two.
+COMPILE_TIME_READ_BASELINE="${3:-113}"
 
 cd "$repo_root"
 
