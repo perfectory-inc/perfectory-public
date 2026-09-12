@@ -15,7 +15,7 @@ from legal_dong_code_registry import (CONTRACT, CROSSWALK_CONTRACT, crosswalk_ro
 from platform_contracts import (column_names, create_table_columns_sql, load_lakehouse_contract,
                                 load_unit, partition_clause_sql)
 
-SEED_PATH = SPARK_DIR.parent / "contracts" / "sigungu-canonical-crosswalk.seed.json"
+SEED_PATH = SPARK_DIR.parent / "contracts" / "sigungu-canonical-crosswalk.contract.json"
 
 
 def seed():

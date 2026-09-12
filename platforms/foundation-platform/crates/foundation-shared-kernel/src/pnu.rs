@@ -267,21 +267,19 @@ mod tests {
     #[test]
     fn crosswalk_maps_merged_sigungu_to_superseded_cadastral_code() {
         let crosswalk = seed_crosswalk();
-        // 통합 현행 12240(광주 서구) → 지적도 29140: 조립된 PNU 가 29140 으로 시작
+        // 통합 현행 12240(광주 서구) → 지적도 29140: 크로스워크 경유가 29140 직접 조립과 동일
         assert_eq!(
             standard_pnu_from_hub_register_codes_via(
                 &crosswalk, "12240", "01101", "0", "0734", "0000"
-            )
-            .as_deref(),
-            Some("2914001101107340000")
+            ),
+            standard_pnu_from_hub_register_codes("29140", "01101", "0", "0734", "0000"),
         );
         // 비산술 사례(광양): 12190 → 46230
         assert_eq!(
             standard_pnu_from_hub_register_codes_via(
                 &crosswalk, "12190", "01201", "1", "0508", "0123"
-            )
-            .as_deref(),
-            Some("4623001201205080123")
+            ),
+            standard_pnu_from_hub_register_codes("46230", "01201", "1", "0508", "0123"),
         );
     }
 

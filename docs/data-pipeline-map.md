@@ -374,7 +374,7 @@ Silver·Gold **22표**,
 | 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 서빙 문서 | `export-building-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export.rs` |
 | 필지 by-PNU 제공용 패널 → 필지 by-PNU 서빙 문서 | `export-parcel-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_by_pnu_serving_export.rs` |
 | 행정표준코드 법정동 → 법정동코드 등록부 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_registry.py` |
-| 법정동코드 등록부 → 시군구 canonical 크로스워크 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_registry.py`<br>`platforms/foundation-platform/infra/lakehouse/contracts/sigungu-canonical-crosswalk.seed.json` |
+| 법정동코드 등록부 → 시군구 canonical 크로스워크 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_registry.py`<br>`platforms/foundation-platform/infra/lakehouse/contracts/sigungu-canonical-crosswalk.contract.json` |
 
 ## 이전 지도에서 바뀐 점
 

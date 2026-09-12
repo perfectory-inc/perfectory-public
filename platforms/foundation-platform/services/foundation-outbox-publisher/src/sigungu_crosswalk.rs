@@ -5,7 +5,7 @@
 //! the superseded codes (29xxx 광주 / 46xxx 전남).
 //!
 //! This module reads the seed contract — the SSOT at
-//! `infra/lakehouse/contracts/sigungu-canonical-crosswalk.seed.json`, embedded
+//! `infra/lakehouse/contracts/sigungu-canonical-crosswalk.contract.json`, embedded
 //! at compile time like the other lakehouse contracts — into the
 //! `current_code → superseded_code` map that the shared-kernel PNU composition
 //! consumes. The kernel stays pure: it never reads infra files; every export
@@ -18,7 +18,7 @@ use anyhow::{ensure, Context};
 use serde::Deserialize;
 
 const SEED_JSON: &str =
-    include_str!("../../../infra/lakehouse/contracts/sigungu-canonical-crosswalk.seed.json");
+    include_str!("../../../infra/lakehouse/contracts/sigungu-canonical-crosswalk.contract.json");
 
 #[derive(Deserialize)]
 struct Seed {
@@ -42,10 +42,10 @@ fn five_digits(code: &str) -> bool {
 /// duplicates a `current_code`, or is empty.
 pub fn hub_sigungu_crosswalk() -> anyhow::Result<HashMap<String, String>> {
     let seed: Seed = serde_json::from_str(SEED_JSON)
-        .context("sigungu-canonical-crosswalk.seed.json is not valid seed JSON")?;
+        .context("sigungu-canonical-crosswalk.contract.json is not valid seed JSON")?;
     ensure!(
         !seed.sigungu.is_empty(),
-        "sigungu-canonical-crosswalk.seed.json has no sigungu entries"
+        "sigungu-canonical-crosswalk.contract.json has no sigungu entries"
     );
     let mut crosswalk = HashMap::with_capacity(seed.sigungu.len());
     for entry in seed.sigungu {
