@@ -26,9 +26,10 @@ use std::{
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
+use foundation_outbox_publisher::sigungu_crosswalk::hub_sigungu_crosswalk;
 use lakehouse_application::building_register_title_silver_plan::{
     building_register_title_silver_row_to_jsonl, normalize_building_register_title_silver_rows,
-    parse_building_register_title_source_row_from_hub_bulk_text_line,
+    parse_building_register_title_source_row_from_hub_bulk_text_line_via,
     BuildingRegisterTitleSilverRowsInput,
 };
 
@@ -112,8 +113,10 @@ fn export_handoff(config: &TitleExportConfig) -> anyhow::Result<TitleExportRepor
     let mut approval_year_present = 0u64;
     let mut pnu_present = 0u64;
 
+    let sigungu_crosswalk = hub_sigungu_crosswalk()?;
     decode_zip_lines(&object_path, config.max_rows, |line, line_number| {
-        let record = parse_building_register_title_source_row_from_hub_bulk_text_line(
+        let record = parse_building_register_title_source_row_from_hub_bulk_text_line_via(
+            &sigungu_crosswalk,
             line,
             &bronze_object_key,
             line_number,

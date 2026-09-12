@@ -1,7 +1,7 @@
 //! Silver normalization helpers for official building-register unit (전유부 호) rows.
 
 use crate::building_register_row_identity::row_identity;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use foundation_normalization_domain::{
     normalize_building_register_unit, BuildingRegisterUnitReason, NormalizedBuildingRegisterUnit,
@@ -11,7 +11,7 @@ use foundation_normalization_domain::{
 use crate::building_register_title::BuildingTitleKeyIndex;
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::pnu::{
-    hub_register_parcel_key, standard_pnu_from_hub_register_codes,
+    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
@@ -228,6 +228,31 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line(
     bronze_object_key: &str,
     one_based_line_number: u64,
 ) -> Result<BuildingRegisterUnitSourceRow, BuildingRegisterUnitSilverPlanError> {
+    parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
+        &HashMap::new(),
+        line,
+        bronze_object_key,
+        one_based_line_number,
+    )
+}
+
+/// Parses one hub.go.kr 전유부 TXT line with 시군구 crosswalk normalization.
+///
+/// The crosswalk (`current_code → superseded_code`, ADR-0103) is applied
+/// before the standard PNU is composed. Codes absent from the crosswalk pass
+/// through unchanged; the hub-native `register_parcel_key` keeps the raw codes.
+///
+/// # Errors
+/// Returns `BuildingRegisterUnitSilverPlanError` when lineage is invalid, the line has fewer
+/// fields than the official 전유부 columns require, or the management key is empty.
+pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via<
+    S: std::hash::BuildHasher,
+>(
+    sigungu_crosswalk: &HashMap<String, String, S>,
+    line: &str,
+    bronze_object_key: &str,
+    one_based_line_number: u64,
+) -> Result<BuildingRegisterUnitSourceRow, BuildingRegisterUnitSilverPlanError> {
     if bronze_object_key.trim().is_empty() {
         return Err(BuildingRegisterUnitSilverPlanError::InvalidInput(
             "bronze_object_key must not be empty".to_owned(),
@@ -257,7 +282,8 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line(
     Ok(BuildingRegisterUnitSourceRow {
         source_record_id: bronze_object_key.to_owned(),
         mgm_bldrgst_pk: mgm_bldrgst_pk.to_owned(),
-        pnu: standard_pnu_from_hub_register_codes(
+        pnu: standard_pnu_from_hub_register_codes_via(
+            sigungu_crosswalk,
             fields[SIGUNGU_CODE_INDEX],
             fields[BEOPJEONGDONG_CODE_INDEX],
             fields[DAEJI_KIND_INDEX],

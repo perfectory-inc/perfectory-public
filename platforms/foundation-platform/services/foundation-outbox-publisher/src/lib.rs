@@ -3,6 +3,9 @@
 /// Shared transport plumbing for Silver handoff exporters.
 pub mod silver_handoff_io;
 
+/// 시군구 canonical crosswalk seed loader (ADR-0103 geography identity Wave 1).
+pub mod sigungu_crosswalk;
+
 /// Headerless HUB apartment-price ZIP to partitioned Silver handoff.
 pub mod building_register_apartment_price_silver_export;
 

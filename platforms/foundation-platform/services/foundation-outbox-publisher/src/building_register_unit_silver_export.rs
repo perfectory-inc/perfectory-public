@@ -14,11 +14,12 @@ use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use foundation_normalization_application::ActiveBuildingRegisterUnitOverrideReader;
 use foundation_normalization_infrastructure::PgActiveBuildingRegisterUnitOverrideReader;
+use foundation_outbox_publisher::sigungu_crosswalk::hub_sigungu_crosswalk;
 use lakehouse_application::{
     building_register_unit_silver_override_from_application_snapshot,
     building_register_unit_silver_row_to_jsonl,
     normalize_building_register_unit_silver_rows_with_building_keys,
-    parse_building_register_unit_source_row_from_hub_bulk_text_line,
+    parse_building_register_unit_source_row_from_hub_bulk_text_line_via,
     parse_building_title_building_link_from_hub_bulk_text_line, BuildingRegisterUnitSilverOverride,
     BuildingRegisterUnitSilverOverrideIndex, BuildingRegisterUnitSilverRow,
     BuildingRegisterUnitSilverRowsInput, BuildingTitleKeyIndex,
@@ -121,6 +122,7 @@ async fn load_active_unit_overrides(
 fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport> {
     let object_path = locate_source_object(config)?;
     let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
+    let sigungu_crosswalk = hub_sigungu_crosswalk()?;
     let building_keys = load_building_key_index(config)?;
     let active_overrides =
         BuildingRegisterUnitSilverOverrideIndex::new(&config.active_overrides)
@@ -136,7 +138,8 @@ fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport>
     let mut link_method_counts = BTreeMap::<String, u64>::new();
 
     decode_zip_lines(&object_path, config.max_rows, |line, line_number| {
-        let record = parse_building_register_unit_source_row_from_hub_bulk_text_line(
+        let record = parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
+            &sigungu_crosswalk,
             line,
             &bronze_object_key,
             line_number,

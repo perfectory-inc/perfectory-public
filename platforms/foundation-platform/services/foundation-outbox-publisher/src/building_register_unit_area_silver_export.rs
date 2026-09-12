@@ -12,10 +12,11 @@ mod parquet_row_writer;
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
+use foundation_outbox_publisher::sigungu_crosswalk::hub_sigungu_crosswalk;
 use lakehouse_application::{
     building_register_unit_area_silver_row_to_jsonl,
     normalize_building_register_unit_area_silver_rows,
-    parse_building_register_unit_area_source_row_from_hub_bulk_text_line,
+    parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via,
     BuildingRegisterUnitAreaSilverRow, BuildingRegisterUnitAreaSilverRowsInput,
 };
 use parquet_row_writer::ParquetUnitAreaRowWriter;
@@ -73,6 +74,7 @@ pub fn run() -> anyhow::Result<()> {
 fn export_handoff(config: &UnitAreaExportConfig) -> anyhow::Result<UnitAreaExportReport> {
     let object_path = locate_source_object(config)?;
     let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
+    let sigungu_crosswalk = hub_sigungu_crosswalk()?;
 
     let mut output_writer =
         SilverRowWriter::new(&config.output_path, config.chunk_rows, config.output_format)?;
@@ -83,7 +85,8 @@ fn export_handoff(config: &UnitAreaExportConfig) -> anyhow::Result<UnitAreaExpor
     let mut area_kind_counts = BTreeMap::<String, u64>::new();
 
     decode_zip_lines(&object_path, config.max_rows, |line, line_number| {
-        let record = parse_building_register_unit_area_source_row_from_hub_bulk_text_line(
+        let record = parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via(
+            &sigungu_crosswalk,
             line,
             &bronze_object_key,
             line_number,

@@ -13,10 +13,11 @@ use foundation_normalization_domain::{
     building_register_unit_designation, normalize_building_register_floor, RawBuildingRegisterFloor,
 };
 use foundation_shared_kernel::pnu::{
-    hub_register_parcel_key, standard_pnu_from_hub_register_codes,
+    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 use crate::building_register_unit_silver_plan::{
     validate_pnu_block_invariant, BuildingRegisterUnitSilverPlanError,
@@ -192,6 +193,32 @@ pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line(
     bronze_object_key: &str,
     one_based_line_number: u64,
 ) -> Result<BuildingRegisterUnitAreaSourceRow, BuildingRegisterUnitSilverPlanError> {
+    parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via(
+        &HashMap::new(),
+        line,
+        bronze_object_key,
+        one_based_line_number,
+    )
+}
+
+/// Parses one hub.go.kr 전유공용면적 TXT line with 시군구 crosswalk normalization.
+///
+/// The crosswalk (`current_code → superseded_code`, ADR-0103) is applied
+/// before the standard PNU is composed. Codes absent from the crosswalk pass
+/// through unchanged; the hub-native `register_parcel_key` keeps the raw codes.
+///
+/// # Errors
+/// Returns `BuildingRegisterUnitSilverPlanError` when lineage is invalid, the
+/// line has fewer fields than the official 39 columns, or the management key is
+/// empty.
+pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via<
+    S: std::hash::BuildHasher,
+>(
+    sigungu_crosswalk: &HashMap<String, String, S>,
+    line: &str,
+    bronze_object_key: &str,
+    one_based_line_number: u64,
+) -> Result<BuildingRegisterUnitAreaSourceRow, BuildingRegisterUnitSilverPlanError> {
     if bronze_object_key.trim().is_empty() {
         return Err(BuildingRegisterUnitSilverPlanError::InvalidInput(
             "bronze_object_key must not be empty".to_owned(),
@@ -223,7 +250,8 @@ pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line(
         mgm_bldrgst_pk: mgm_bldrgst_pk.to_owned(),
         register_kind_name_raw: fields[REGISTER_KIND_NAME_INDEX].trim().to_owned(),
         register_type_name_raw: fields[REGISTER_TYPE_NAME_INDEX].trim().to_owned(),
-        pnu: standard_pnu_from_hub_register_codes(
+        pnu: standard_pnu_from_hub_register_codes_via(
+            sigungu_crosswalk,
             fields[SIGUNGU_CODE_INDEX],
             fields[BEOPJEONGDONG_CODE_INDEX],
             fields[DAEJI_KIND_INDEX],
