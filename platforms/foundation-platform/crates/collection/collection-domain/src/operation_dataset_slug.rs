@@ -76,6 +76,19 @@ pub fn real_transaction_dataset_slug(operation: &str) -> Option<&'static str> {
     }
 }
 
+/// Resolves a data.go.kr 행정표준코드(MOIS) `operation` to its canonical `dataset_slug`.
+///
+/// The 법정동코드 registry (ADR-0103 Wave 1) is acquired through data.go.kr's
+/// `getStanReginCdList` operation. Returns `None` for any other operation; callers must
+/// treat `None` as a hard error rather than inventing a slug.
+#[must_use]
+pub fn standard_code_dataset_slug(operation: &str) -> Option<&'static str> {
+    match operation {
+        "getStanReginCdList" => Some("legal_dong_code"),
+        _ => None,
+    }
+}
+
 /// Resolves a V-World NED attribute-API provider operation to its canonical `dataset_slug`.
 ///
 /// The V-World NED attribute API exposes several land-record operations whose provider-native call id
