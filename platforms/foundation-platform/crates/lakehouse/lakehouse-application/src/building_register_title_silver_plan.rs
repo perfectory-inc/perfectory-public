@@ -12,10 +12,11 @@
 
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::pnu::{
-    hub_register_parcel_key, standard_pnu_from_hub_register_codes,
+    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::building_register_row_identity::row_identity;
@@ -205,6 +206,31 @@ pub fn parse_building_register_title_source_row_from_hub_bulk_text_line(
     bronze_object_key: &str,
     one_based_line_number: u64,
 ) -> Result<BuildingRegisterTitleSourceRow, BuildingRegisterTitleSilverPlanError> {
+    parse_building_register_title_source_row_from_hub_bulk_text_line_via(
+        &HashMap::new(),
+        line,
+        bronze_object_key,
+        one_based_line_number,
+    )
+}
+
+/// Parses one hub.go.kr 표제부 TXT line with 시군구 crosswalk normalization.
+///
+/// The crosswalk (`current_code → superseded_code`, ADR-0103) is applied
+/// before the standard PNU is composed. Codes absent from the crosswalk pass
+/// through unchanged; the hub-native `register_parcel_key` keeps the raw codes.
+///
+/// # Errors
+/// Returns an error when lineage is invalid, the line has fewer fields than the approval-date
+/// column requires, or the management key is empty.
+pub fn parse_building_register_title_source_row_from_hub_bulk_text_line_via<
+    S: std::hash::BuildHasher,
+>(
+    sigungu_crosswalk: &HashMap<String, String, S>,
+    line: &str,
+    bronze_object_key: &str,
+    one_based_line_number: u64,
+) -> Result<BuildingRegisterTitleSourceRow, BuildingRegisterTitleSilverPlanError> {
     if bronze_object_key.trim().is_empty() {
         return Err(BuildingRegisterTitleSilverPlanError::InvalidInput(
             "bronze_object_key must not be empty".to_owned(),
@@ -234,7 +260,8 @@ pub fn parse_building_register_title_source_row_from_hub_bulk_text_line(
     Ok(BuildingRegisterTitleSourceRow {
         source_record_id: bronze_object_key.to_owned(),
         mgm_bldrgst_pk: mgm_bldrgst_pk.to_owned(),
-        pnu: standard_pnu_from_hub_register_codes(
+        pnu: standard_pnu_from_hub_register_codes_via(
+            sigungu_crosswalk,
             fields[PNU_SIGUNGU_INDEX],
             fields[PNU_BEOPJEONGDONG_INDEX],
             fields[PNU_DAEJI_KIND_INDEX],

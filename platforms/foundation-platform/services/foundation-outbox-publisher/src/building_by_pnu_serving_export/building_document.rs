@@ -182,11 +182,13 @@ fn validate_unit(
             .is_none_or(|a| a.is_finite() && a >= 0.0),
         "unit area is invalid"
     );
-    let mut years = BTreeSet::new();
+    let mut dates = BTreeSet::new();
     for price in &unit.official_price_history {
         ensure!(
-            price.base_year > 0 && price.price_won >= 0 && years.insert(price.base_year),
-            "unit annual price is invalid or duplicated"
+            catalog_domain::unit_official_price::valid_base_date(&price.base_date)
+                && price.price_won >= 0
+                && dates.insert(&price.base_date),
+            "unit reference-date price is invalid or duplicated"
         );
     }
     Ok(())
@@ -254,6 +256,13 @@ pub(super) mod tests {
             Some(1)
         );
         assert_eq!(document["unlinked_units"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            document["buildings"][0]["units"][0]["official_price_history"],
+            json!([
+                {"base_date": "20100601", "price_won": 35_000_000},
+                {"base_date": "20100101", "price_won": 36_000_000}
+            ])
+        );
         assert!(document["buildings"][0]["units"][0]
             .get("register_pk")
             .is_none());
@@ -291,6 +300,27 @@ pub(super) mod tests {
             json!(serde_json::to_string(&vec![foreign])?),
         );
         assert!(build(&provenance(), &bad).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn refuses_annual_malformed_negative_and_duplicate_reference_dates() -> anyhow::Result<()> {
+        for history in [
+            json!([{"base_year": 2010, "price_won": 36_000_000}]),
+            json!([{"base_date": "2010-01-01", "price_won": 36_000_000}]),
+            json!([{"base_date": "20100101", "price_won": -1}]),
+            json!([{"base_date": "20100101", "price_won": 36_000_000},
+                   {"base_date": "20100101", "price_won": 35_000_000}]),
+        ] {
+            let mut priced = unit(None)?;
+            priced["official_price_history"] = history;
+            let mut bad = row();
+            bad.insert(
+                "unlinked_units_json".to_owned(),
+                json!(serde_json::to_string(&vec![priced])?),
+            );
+            assert!(build(&provenance(), &bad).is_err());
+        }
         Ok(())
     }
 }

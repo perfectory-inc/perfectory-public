@@ -35,6 +35,10 @@ class BuildingPanelContractTest(unittest.TestCase):
         self.assertEqual(buildings[0]["units"][0]["building_id"], buildings[0]["id"])
         self.assertIsNone(orphan["building_id"])
         self.assertNotIn("updated_at", buildings[0])
+        self.assertEqual(buildings[0]["units"][0]["official_price_history"], [
+            {"base_date": "20100601", "price_won": 35000000},
+            {"base_date": "20100101", "price_won": 36000000},
+        ])
 
 
 if __name__ == "__main__":

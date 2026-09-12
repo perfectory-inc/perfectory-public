@@ -45,7 +45,7 @@ pub mod parcel_price;
 pub mod parcel_transfer_event;
 pub mod parcel_zoning;
 
-/// Annual official prices for registered units.
+/// Reference-date official prices for registered units.
 pub mod unit_official_price;
 
 /// Effective-dated membership of a parcel in an industrial complex.

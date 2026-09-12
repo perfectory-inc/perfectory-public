@@ -10,6 +10,8 @@ pub enum LakehouseLayer {
     Silver,
     /// Serving-oriented projection or artifact input table.
     Gold,
+    /// Externally issued registry or crosswalk table that other layers join against.
+    Reference,
 }
 
 /// Physical file format used by the lakehouse table.
@@ -2035,6 +2037,137 @@ pub const GOLD_COMPLEX_SPATIAL_LOCATOR: LakehouseTableContract = LakehouseTableC
     load: LakehouseLoadUnit::Derived,
 };
 
+const REFERENCE_LEGAL_DONG_CODE_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "region_cd",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "sido_cd",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "sgg_cd",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "umd_cd",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "ri_cd",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "locatadd_nm",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "locathigh_cd",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "created_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "abolished_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "is_current",
+        logical_type: "boolean",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_record_id",
+        logical_type: "string",
+        required: true,
+    },
+];
+
+/// Canonical reference table for the MOIS legal dong code registry (법정동코드).
+pub const REFERENCE_LEGAL_DONG_CODE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "reference.legal_dong_code",
+    layer: LakehouseLayer::Reference,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: REFERENCE_LEGAL_DONG_CODE_COLUMNS,
+    partition_spec: &["truncate(region_cd, 2)"],
+    sort_order: &["region_cd", "created_date"],
+    quality_gates: &["append_only", "region_cd_not_null"],
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
+const REFERENCE_SIGUNGU_CANONICAL_CROSSWALK_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "source_code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "canonical_code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "valid_from",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "valid_to",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "provenance",
+        logical_type: "string",
+        required: true,
+    },
+];
+
+/// Canonical reference crosswalk from historical 시군구 codes to their canonical code.
+pub const REFERENCE_SIGUNGU_CANONICAL_CROSSWALK: LakehouseTableContract = LakehouseTableContract {
+    table_name: "reference.sigungu_canonical_crosswalk",
+    layer: LakehouseLayer::Reference,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: REFERENCE_SIGUNGU_CANONICAL_CROSSWALK_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["source_code", "valid_from"],
+    quality_gates: &[
+        "append_only",
+        "source_code_not_null",
+        "canonical_code_not_null",
+    ],
+    load: LakehouseLoadUnit::Object {
+        column: "provenance",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
@@ -2058,6 +2191,8 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_COMPLEX_SPATIAL_LOCATOR,
     GOLD_PARCEL_PANEL,
     GOLD_BUILDING_PANEL,
+    REFERENCE_LEGAL_DONG_CODE,
+    REFERENCE_SIGUNGU_CANONICAL_CROSSWALK,
 ];
 
 /// Returns the industrial complex lakehouse `PoC` table contracts in publish order.

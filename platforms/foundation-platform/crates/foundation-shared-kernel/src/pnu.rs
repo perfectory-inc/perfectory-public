@@ -4,6 +4,9 @@
 //! validated value object prevents downstream services from mixing arbitrary location strings
 //! with parcel identifiers.
 
+use std::collections::HashMap;
+use std::hash::BuildHasher;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -128,6 +131,47 @@ pub fn standard_pnu_from_hub_register_codes(
     ))
 }
 
+/// Resolves a hub 시군구 code through an explicit crosswalk (current → superseded).
+///
+/// Geography identity Wave 1 (ADR-0103): the hub register feed carries the
+/// authority-current merged 시군구 code (12xxx, 전남광주통합특별시) while the
+/// cadastral map still keys parcels by the superseded codes (29xxx 광주 /
+/// 46xxx 전남). The kernel stays pure — the mapping is passed in
+/// (`current_code → superseded_code`) — and any code absent from the
+/// crosswalk passes through unchanged (identity).
+#[must_use]
+pub fn resolve_sigungu_code_via<'a, S: BuildHasher>(
+    crosswalk: &'a HashMap<String, String, S>,
+    sigungu: &'a str,
+) -> &'a str {
+    let trimmed = sigungu.trim();
+    crosswalk.get(trimmed).map_or(trimmed, String::as_str)
+}
+
+/// Composes a standard PNU from hub register codes, normalizing the 시군구
+/// code through `crosswalk` first (see [`resolve_sigungu_code_via`]).
+///
+/// Behaves exactly like [`standard_pnu_from_hub_register_codes`] for every
+/// 시군구 code absent from the crosswalk. Never fabricates a PNU: block (`2`)
+/// and unknown 대지구분 codes still yield `None` (ADR 0023).
+#[must_use]
+pub fn standard_pnu_from_hub_register_codes_via<S: BuildHasher>(
+    crosswalk: &HashMap<String, String, S>,
+    sigungu: &str,
+    bjdong: &str,
+    daeji_kind: &str,
+    bon: &str,
+    bu: &str,
+) -> Option<String> {
+    standard_pnu_from_hub_register_codes(
+        resolve_sigungu_code_via(crosswalk, sigungu),
+        bjdong,
+        daeji_kind,
+        bon,
+        bu,
+    )
+}
+
 /// Composes the hub-native register parcel key from the same columns.
 ///
 /// This is the raw hub composition (대지구분 code kept as-is). It is **not** a
@@ -153,7 +197,18 @@ pub fn hub_register_parcel_key(
 
 #[cfg(test)]
 mod tests {
-    use super::{hub_register_parcel_key, standard_pnu_from_hub_register_codes, Pnu, PnuError};
+    use super::{
+        hub_register_parcel_key, resolve_sigungu_code_via, standard_pnu_from_hub_register_codes,
+        standard_pnu_from_hub_register_codes_via, Pnu, PnuError,
+    };
+    use std::collections::HashMap;
+
+    fn seed_crosswalk() -> HashMap<String, String> {
+        HashMap::from([
+            ("12240".to_owned(), "29140".to_owned()),
+            ("12190".to_owned(), "46230".to_owned()),
+        ])
+    }
 
     #[test]
     fn parses_19_digit_pnu() -> Result<(), PnuError> {
@@ -205,6 +260,68 @@ mod tests {
                 standard_pnu_from_hub_register_codes("99999", "00101", daeji, "0001", "0000"),
                 None,
                 "daeji={daeji}"
+            );
+        }
+    }
+
+    #[test]
+    fn crosswalk_maps_merged_sigungu_to_superseded_cadastral_code() {
+        let crosswalk = seed_crosswalk();
+        // 통합 현행 12240(광주 서구) → 지적도 29140: 크로스워크 경유가 29140 직접 조립과 동일
+        assert_eq!(
+            standard_pnu_from_hub_register_codes_via(
+                &crosswalk, "12240", "01101", "0", "0734", "0000"
+            ),
+            standard_pnu_from_hub_register_codes("29140", "01101", "0", "0734", "0000"),
+        );
+        // 비산술 사례(광양): 12190 → 46230
+        assert_eq!(
+            standard_pnu_from_hub_register_codes_via(
+                &crosswalk, "12190", "01201", "1", "0508", "0123"
+            ),
+            standard_pnu_from_hub_register_codes("46230", "01201", "1", "0508", "0123"),
+        );
+    }
+
+    #[test]
+    fn crosswalk_leaves_unmapped_sigungu_byte_identical() {
+        let crosswalk = seed_crosswalk();
+        // 씨앗에 없는 코드(부산 중구 26110)는 그대로 통과 (identity)
+        assert_eq!(resolve_sigungu_code_via(&crosswalk, "26110"), "26110");
+        assert_eq!(
+            standard_pnu_from_hub_register_codes_via(&crosswalk, "26110", "00101", "0", "8", "16"),
+            standard_pnu_from_hub_register_codes("26110", "00101", "0", "8", "16"),
+        );
+    }
+
+    #[test]
+    fn crosswalk_never_fabricates_pnu_for_block_or_unknown_daeji() {
+        let crosswalk = seed_crosswalk();
+        // 매핑 대상 시군구여도 블록(2)·미지 대지구분은 여전히 None (ADR 0023)
+        for daeji in ["2", "", "3", "9", "-"] {
+            assert_eq!(
+                standard_pnu_from_hub_register_codes_via(
+                    &crosswalk, "12240", "00901", daeji, "0529", "0000"
+                ),
+                None,
+                "daeji={daeji}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_crosswalk_matches_identity_composition() {
+        let empty = HashMap::new();
+        for (sigungu, bjdong, daeji, bon, bu) in [
+            ("99999", "01101", "0", "0734", "0000"),
+            ("12240", "01101", "0", "0734", "0000"),
+            ("26110", "00101", "0", "8", "16"),
+            ("99999", "00901", "2", "0529", "0000"),
+        ] {
+            assert_eq!(
+                standard_pnu_from_hub_register_codes_via(&empty, sigungu, bjdong, daeji, bon, bu),
+                standard_pnu_from_hub_register_codes(sigungu, bjdong, daeji, bon, bu),
+                "sigungu={sigungu} daeji={daeji}"
             );
         }
     }

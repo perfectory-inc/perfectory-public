@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-08
+- 기준일·정정공시·Catalog 보존: [ADR-0101](./0101-unit-prices-preserve-every-reference-date.md)이 연도 키와 교체 결정을 대체한다.
 
 ## Context
 

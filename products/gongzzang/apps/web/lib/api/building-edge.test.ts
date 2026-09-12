@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BuildingNotServedError,
   EdgeBuildingProfileSchema,
+  EdgeUnitSchema,
   fetchBuildingProfile,
 } from "./building-edge";
 import { toBuildingUnitsResponse } from "./building-units";
@@ -26,10 +27,13 @@ const unit = (id: string, parent: string | null) => ({
   exclusive_area_m2: null,
   usage_name: "",
   structure_name: "",
-  official_price_history: [{ base_year: 2026, price_won: 120000000 }],
+  official_price_history: [
+    { base_date: "20100601", price_won: 35000000 },
+    { base_date: "20100101", price_won: 36000000 },
+  ],
 });
 const document = () => ({
-  schema_version: "foundation-platform.building_by_pnu_profile.v1",
+  schema_version: "foundation-platform.building_by_pnu_profile.v2",
   pnu,
   source: { table: "gold.building_panel", iceberg_snapshot_id: "999990000000000001" },
   buildings: [
@@ -63,6 +67,18 @@ const document = () => ({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("building edge document mappings", () => {
+  it("rejects annual or malformed reference dates and negative assessments", () => {
+    const value = unit("00000000-0000-8000-8000-000000000002", buildingId);
+    for (const price of [
+      { base_year: 2010, price_won: 36000000 },
+      { base_date: "2010-01-01", price_won: 36000000 },
+      { base_date: "20100101", price_won: -1 },
+    ]) {
+      expect(EdgeUnitSchema.safeParse({ ...value, official_price_history: [price] }).success).toBe(
+        false,
+      );
+    }
+  });
   it("preserves absent facts, nested floors, unit prices and unlinked units without mutation", () => {
     const profile = EdgeBuildingProfileSchema.parse(document());
     const before = structuredClone(profile);
@@ -74,7 +90,10 @@ describe("building edge document mappings", () => {
       total_area_m2: null,
       approved_at: null,
     });
-    expect(buildings.buildings[0]?.units[0]?.official_price_history[0]?.price_won).toBe(120000000);
+    expect(buildings.buildings[0]?.units[0]?.official_price_history).toEqual([
+      { base_date: "20100601", price_won: 35000000 },
+      { base_date: "20100101", price_won: 36000000 },
+    ]);
     expect(buildings.unlinked_units).toEqual(profile.unlinked_units);
     const floors = toFloorsResponse(profile).buildings[0];
     expect(floors).toMatchObject({ above_ground: null, below_ground: 0, has_rooftop: false });
@@ -111,10 +130,13 @@ describe("building edge transport", () => {
     expect(await fetchBuildingProfile(pnu, signal)).toEqual(
       EdgeBuildingProfileSchema.parse(document()),
     );
-    expect(fetcher).toHaveBeenCalledWith(`https://buildings.example.test/buildings/by-pnu/${pnu}`, {
-      signal,
-      headers: { accept: "application/json" },
-    });
+    expect(fetcher).toHaveBeenCalledWith(
+      `https://buildings.example.test/buildings/by-pnu/${pnu}?schema=2`,
+      {
+        signal,
+        headers: { accept: "application/json" },
+      },
+    );
   });
 
   it("turns 404 into a typed not-served error and propagates outages", async () => {

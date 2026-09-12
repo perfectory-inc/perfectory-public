@@ -579,7 +579,7 @@ fn unit_response_carries_the_building_link_even_when_null() {
 }
 
 #[test]
-fn unit_histories_match_both_names_and_keep_newest_year_first() {
+fn unit_histories_match_both_names_and_keep_newest_reference_date_first() {
     use catalog_domain::{UnitOfficialPrice, UnitOfficialPriceRow};
     let units = [
         unit_row_fixture("101동", "101호"),
@@ -587,22 +587,22 @@ fn unit_histories_match_both_names_and_keep_newest_year_first() {
         unit_row_fixture("101동", "102호"),
     ];
     let prices = [
-        ("101동", "101호", 2025, 221_000_000),
-        ("102동", "101호", 2026, 190_000_000),
-        ("101동", "101호", 2026, 232_000_000),
+        ("101동", "101호", "20100101", 36_000_000),
+        ("102동", "101호", "20100601", 190_000_000),
+        ("101동", "101호", "20100601", 35_000_000),
     ]
-    .map(|(dong, ho, base_year, price_won)| UnitOfficialPriceRow {
+    .map(|(dong, ho, base_date, price_won)| UnitOfficialPriceRow {
         dong_name: dong.to_owned(),
         ho_name: ho.to_owned(),
         price: UnitOfficialPrice {
-            base_year,
+            base_date: base_date.to_owned(),
             price_won,
         },
     });
     let response = super::building_units::unit_responses(&units, &prices);
     assert_eq!(response[0].official_price_history.len(), 2);
-    assert_eq!(response[0].official_price_history[0].base_year, 2026);
-    assert_eq!(response[0].official_price_history[0].price_won, 232_000_000);
+    assert_eq!(response[0].official_price_history[0].base_date, "20100601");
+    assert_eq!(response[0].official_price_history[0].price_won, 35_000_000);
     assert_eq!(response[1].official_price_history[0].price_won, 190_000_000);
     assert!(response[2].official_price_history.is_empty());
 }

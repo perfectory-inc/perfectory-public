@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-from pipeline_graph import CONTRACTS, ENDPOINTS, FOUNDATION, GRAPH, ROOT, load_json
+from pipeline_graph import CONTRACTS, ENDPOINTS, FOUNDATION, GRAPH, ROOT, load_json, migration_tables
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -87,6 +87,17 @@ def main() -> None:
         check("comments are not tables")
         migration.write_text('DROP TABLE catalog.parcel;\n', encoding="utf-8", newline="")
         check("unsupported table lifecycle", "unsupported serving table lifecycle")
+        migration.write_text('ALTER TABLE catalog.parcel RENAME TO parcel_archive;\n'
+                             'CREATE TABLE catalog.parcel (id integer);\n', encoding="utf-8", newline="")
+        tables = migration_tables(root)
+        assert {"catalog.parcel", "catalog.parcel_archive"} <= tables
+        check("renamed table must be represented", "serving tables")
+        for statement in ['ALTER TABLE catalog.absent RENAME TO archived;',
+                          'ALTER TABLE catalog.parcel RENAME TO unit_official_price;']:
+            migration.write_text(statement, encoding="utf-8", newline="")
+            check("invalid rename", "invalid serving table rename")
+        migration.write_text('ALTER TABLE catalog.parcel SET SCHEMA serving_postgis;\n', encoding="utf-8", newline="")
+        check("schema move remains unsupported", "unsupported serving table lifecycle")
         migration.write_text('', encoding="utf-8", newline="")
 
         # Exercise rendering through the CLI, including both derived artifacts.

@@ -78,7 +78,7 @@ function UnitList({ units }: { units: BuildingUnit[] }) {
       {units.length === 0 && <div className="text-[var(--color-muted)]">{t("units.none")}</div>}
       <ul className="flex flex-col gap-1">
         {units.slice(0, visibleCount).map((unit) => (
-          <li key={unit.id} className="flex items-baseline justify-between gap-2">
+          <li key={unit.id} className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-[var(--color-ink)]">
               {unit.dong_name} {unit.ho_name}
             </span>
@@ -88,6 +88,28 @@ function UnitList({ units }: { units: BuildingUnit[] }) {
                 ` · ${unit.exclusive_area_m2.toLocaleString("ko-KR")} ㎡`}
               {unit.usage_name && ` · ${unit.usage_name}`}
             </span>
+            {unit.official_price_history.length > 0 && (
+              <details className="w-full text-[length:var(--text-caption)]">
+                <summary className="cursor-pointer text-[var(--color-accent)]">
+                  {t("units.officialPriceHistory")}
+                </summary>
+                <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                  {unit.official_price_history.map((price) => {
+                    const date = `${price.base_date.slice(0, 4)}-${price.base_date.slice(4, 6)}-${price.base_date.slice(6, 8)}`;
+                    return (
+                      <div key={price.base_date} className="contents">
+                        <dt>
+                          <time dateTime={date}>{date}</time>
+                        </dt>
+                        <dd className="text-right">
+                          {t("units.priceWon", { value: price.price_won.toLocaleString("ko-KR") })}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              </details>
+            )}
           </li>
         ))}
       </ul>

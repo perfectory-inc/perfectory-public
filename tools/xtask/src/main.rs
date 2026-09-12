@@ -631,6 +631,10 @@ const AREAS: &[Area] = &[
                         test: "parcel_publication_source_evidence",
                     },
                     LaneTarget {
+                        package: "foundation-outbox-publisher",
+                        test: "unit_official_price_publication",
+                    },
+                    LaneTarget {
                         package: "lakehouse-infrastructure",
                         test: "gold_publication_atomicity",
                     },

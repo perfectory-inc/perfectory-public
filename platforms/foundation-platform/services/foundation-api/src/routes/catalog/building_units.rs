@@ -1,4 +1,4 @@
-//! Building and unit reads, including annual official assessments.
+//! Building and unit reads, including reference-date official assessments.
 
 use super::{ApiError, AppState, AuthorizedPrincipal};
 use axum::extract::{Extension, Path, Query, State};
@@ -249,7 +249,7 @@ pub(super) fn unit_responses(
             .push(UnitOfficialPriceResponse::from(&row.price));
     }
     for history in histories.values_mut() {
-        history.sort_by_key(|price| std::cmp::Reverse(price.base_year));
+        history.sort_by(|left, right| right.base_date.cmp(&left.base_date));
     }
     units
         .iter()

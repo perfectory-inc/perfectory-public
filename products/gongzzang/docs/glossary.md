@@ -50,7 +50,7 @@ last_reviewed: 2026-07-29
 | 실거래가 | `RealTransactionPrice` | 국토부 신고 실거래 가격 (만원 단위) | data.go.kr |
 | 공시지가 | `OfficialLandPrice` | 표준지/개별 공시지가 (원/㎡) | |
 | 공시가격 | `OfficialPrice` | 토지 + 주택 통칭 | |
-| 세대 공시가격 | `UnitOfficialPrice` | 한 세대의 기준연도별 공동주택 공시가격 (원) | Foundation HTTP 계약 소비, 연혁은 연도 내림차순 |
+| 세대 공시가격 | `UnitOfficialPrice` | 한 세대의 기준일별 공동주택 공시가격 (원) | Foundation HTTP 계약 소비, 연혁은 기준일 내림차순 |
 | 평당가 | `PricePerPyeong` | ㎡당가 환산 (1평 = 3.305785㎡) | UI에서만 표시, DB는 ㎡ |
 | 매매 | `Sale` | 소유권 이전 거래 | NOT `Trade` |
 | 임대 | `Lease` | 임차 계약 | |

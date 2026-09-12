@@ -34,13 +34,20 @@ pub(super) fn convert_fixture(
             source_snapshot_id: "SYNTHETIC-test".into(),
             summary_path: Some(temp.join("summary.json")),
         };
+        let sigungu_crosswalk = crate::sigungu_crosswalk::hub_sigungu_crosswalk()?;
         let runtime = tokio::runtime::Builder::new_current_thread().build()?;
-        let result = convert(Fragmented(Cursor::new(zip)), &config, &layout, |output| {
-            runtime.block_on(open_sink(
-                &OutputSink::LocalPath(temp.join(output_name(output))),
-                None,
-            ))
-        });
+        let result = convert(
+            Fragmented(Cursor::new(zip)),
+            &config,
+            &layout,
+            &sigungu_crosswalk,
+            |output| {
+                runtime.block_on(open_sink(
+                    &OutputSink::LocalPath(temp.join(output_name(output))),
+                    None,
+                ))
+            },
+        );
         let manifest = temp.join(output_name(
             &config.output(&format!("{}/manifest.json", config.object_stem()?)),
         ));

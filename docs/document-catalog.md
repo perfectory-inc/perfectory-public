@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **430개**
+- 문서 파일: **435개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 123 |
+| Monorepo | 128 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 181 |
+| ADR | 184 |
 | README | 110 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -36,7 +36,7 @@
 | draft | 2 |
 | fixture | 9 |
 | guide | 2 |
-| reference | 15 |
+| reference | 17 |
 | roadmap | 3 |
 | runbook | 31 |
 
@@ -473,6 +473,9 @@ docs/adr/0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md
 docs/adr/0098-the-pre-push-hook-keeps-only-fast-checks.md
 docs/adr/0099-daily-serving-updates-bake-only-changed-parcels.md
 docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md
+docs/adr/0101-unit-prices-preserve-every-reference-date.md
+docs/adr/0102-lakehouse-jobs-survive-r2-connection-resets.md
+docs/adr/0103-place-identity-outlives-administrative-code-changes.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -485,6 +488,8 @@ docs/guides/single-source-spatial-publication-implementation.md
 docs/public-data-catalog.md
 docs/README.md
 docs/reference/design-system-benchmarks.md
+docs/reference/geography-identity-enterprise-survey.md
+docs/reference/geography-identity-wave1-technical-design.md
 docs/reference/README.md
 docs/roadmap/foundation-baseline.md
 docs/roadmap/foundation-goals.md
@@ -608,6 +613,9 @@ tools/github/README.md
 | `docs/adr/0098-the-pre-push-hook-keeps-only-fast-checks.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0099-daily-serving-updates-bake-only-changed-parcels.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0101-unit-prices-preserve-every-reference-date.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0102-lakehouse-jobs-survive-r2-connection-resets.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0103-place-identity-outlives-administrative-code-changes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -620,6 +628,8 @@ tools/github/README.md
 | `docs/public-data-catalog.md` | Monorepo | documentation | current |
 | `docs/README.md` | Monorepo | README | current |
 | `docs/reference/design-system-benchmarks.md` | Monorepo | reference | current |
+| `docs/reference/geography-identity-enterprise-survey.md` | Monorepo | reference | current |
+| `docs/reference/geography-identity-wave1-technical-design.md` | Monorepo | reference | current |
 | `docs/reference/README.md` | Monorepo | README | current |
 | `docs/roadmap/foundation-baseline.md` | Monorepo | roadmap | current |
 | `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current |

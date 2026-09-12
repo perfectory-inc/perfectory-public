@@ -183,7 +183,13 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # profile gateway already pays: the baker and the Worker must read one key grammar, not two.
 # 109 -> 110: root ADR-0100 adds the building by-PNU typed R2 contract reader;
 # one embedded contract supplies both the baker and generation manifest publisher.
-COMPILE_TIME_READ_BASELINE="${3:-110}"
+# 110 -> 112: ADR-0101's migration regression embeds the original annual table
+# migration and its dated successor to prove that upgrading preserves existing rows.
+# The full-chain migrator remains one site after moving into the PostgreSQL lane.
+# 112 -> 113: ADR-0103 Wave 1 embeds the 시군구 canonical crosswalk seed
+# (include_str! in the outbox publisher) so the PNU composer and the resolver
+# read one grammar, not two.
+COMPILE_TIME_READ_BASELINE="${3:-113}"
 
 cd "$repo_root"
 

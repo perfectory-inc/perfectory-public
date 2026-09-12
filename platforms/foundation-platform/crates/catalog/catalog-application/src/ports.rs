@@ -682,7 +682,7 @@ pub trait CatalogRepository: Send + Sync {
         pnu: &Pnu,
     ) -> Result<Option<ParcelPrice>, CatalogError>;
 
-    /// Lists annual unit assessments indexed by dong and ho within this PNU.
+    /// Lists reference-date unit assessments from the selected complete source batch.
     ///
     /// # Errors
     /// Returns `CatalogError` when repository access fails.

@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Wire version of one baked building panel.
-pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_profile.v1";
+pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_profile.v2";
 
 /// Canonical building response.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]

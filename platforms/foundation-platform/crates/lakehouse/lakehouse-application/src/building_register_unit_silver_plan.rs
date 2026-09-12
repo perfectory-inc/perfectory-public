@@ -1,7 +1,7 @@
 //! Silver normalization helpers for official building-register unit (전유부 호) rows.
 
 use crate::building_register_row_identity::row_identity;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use foundation_normalization_domain::{
     normalize_building_register_unit, BuildingRegisterUnitReason, NormalizedBuildingRegisterUnit,
@@ -11,7 +11,7 @@ use foundation_normalization_domain::{
 use crate::building_register_title::BuildingTitleKeyIndex;
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::pnu::{
-    hub_register_parcel_key, standard_pnu_from_hub_register_codes,
+    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
@@ -117,6 +117,8 @@ pub struct BuildingRegisterUnitSilverRow {
     pub normalization_reason: String,
     /// Active staff-approved normalization application id, when this row was overridden.
     pub normalization_application_id: Option<String>,
+    /// Stable row-level source lineage id.
+    pub source_record_id: String,
     /// Source-snapshot lineage id.
     pub source_snapshot_id: String,
     /// Bronze object key that carried this source row.
@@ -226,6 +228,31 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line(
     bronze_object_key: &str,
     one_based_line_number: u64,
 ) -> Result<BuildingRegisterUnitSourceRow, BuildingRegisterUnitSilverPlanError> {
+    parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
+        &HashMap::new(),
+        line,
+        bronze_object_key,
+        one_based_line_number,
+    )
+}
+
+/// Parses one hub.go.kr 전유부 TXT line with 시군구 crosswalk normalization.
+///
+/// The crosswalk (`current_code → superseded_code`, ADR-0103) is applied
+/// before the standard PNU is composed. Codes absent from the crosswalk pass
+/// through unchanged; the hub-native `register_parcel_key` keeps the raw codes.
+///
+/// # Errors
+/// Returns `BuildingRegisterUnitSilverPlanError` when lineage is invalid, the line has fewer
+/// fields than the official 전유부 columns require, or the management key is empty.
+pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via<
+    S: std::hash::BuildHasher,
+>(
+    sigungu_crosswalk: &HashMap<String, String, S>,
+    line: &str,
+    bronze_object_key: &str,
+    one_based_line_number: u64,
+) -> Result<BuildingRegisterUnitSourceRow, BuildingRegisterUnitSilverPlanError> {
     if bronze_object_key.trim().is_empty() {
         return Err(BuildingRegisterUnitSilverPlanError::InvalidInput(
             "bronze_object_key must not be empty".to_owned(),
@@ -255,7 +282,8 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line(
     Ok(BuildingRegisterUnitSourceRow {
         source_record_id: bronze_object_key.to_owned(),
         mgm_bldrgst_pk: mgm_bldrgst_pk.to_owned(),
-        pnu: standard_pnu_from_hub_register_codes(
+        pnu: standard_pnu_from_hub_register_codes_via(
+            sigungu_crosswalk,
             fields[SIGUNGU_CODE_INDEX],
             fields[BEOPJEONGDONG_CODE_INDEX],
             fields[DAEJI_KIND_INDEX],
@@ -501,6 +529,7 @@ fn build_silver_row(
         normalization_status: normalized.status.wire_name().to_owned(),
         normalization_reason: unit_reason_wire(&normalized),
         normalization_application_id: None,
+        source_record_id: record.source_record_id.clone(),
         source_snapshot_id: input.source_snapshot_id.to_owned(),
         bronze_object_key: input.bronze_object_key.to_owned(),
         source_line_number: record.source_line_number,
@@ -593,6 +622,7 @@ fn row_to_json_value(row: &BuildingRegisterUnitSilverRow) -> JsonValue {
         "normalization_application_id",
         row.normalization_application_id.as_deref(),
     );
+    insert_string(&mut record, "source_record_id", &row.source_record_id);
     insert_string(&mut record, "source_snapshot_id", &row.source_snapshot_id);
     insert_string(&mut record, "bronze_object_key", &row.bronze_object_key);
     insert_optional_number(&mut record, "source_line_number", row.source_line_number);
@@ -719,6 +749,39 @@ mod tests {
         assert_eq!(row.floor_index, Some(6));
         assert_eq!(row.normalization_status, "accepted");
         assert_eq!(row.row_checksum_sha256.len(), 64);
+        Ok(())
+    }
+
+    #[test]
+    fn serializes_row_to_jsonl_with_all_contract_fields() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let row = normalize_one(&line("102동", "624호", "20", "지상", "6"))?;
+        let jsonl = building_register_unit_silver_row_to_jsonl(&row)?;
+        let mut record: JsonMap<String, JsonValue> = serde_json::from_str(&jsonl)?;
+        let contract_columns = lakehouse_domain::SILVER_BUILDING_REGISTER_UNITS
+            .columns
+            .iter()
+            .map(|column| column.name)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            record
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            contract_columns
+        );
+        assert_eq!(
+            record["source_record_id"],
+            "bronze/source=hubgokr__building_register_exclusive_unit/x.zip"
+        );
+        let checksum = record
+            .remove("row_checksum_sha256")
+            .ok_or("row checksum must exist")?;
+        let payload = serde_json::to_string(&record)?;
+        assert_eq!(
+            checksum,
+            format!("{:x}", Sha256::digest(payload.as_bytes()))
+        );
         Ok(())
     }
 

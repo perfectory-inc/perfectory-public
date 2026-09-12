@@ -10,6 +10,7 @@ mod test_support;
 mod zip_stream;
 
 use std::{
+    collections::HashMap,
     io::{BufRead, BufReader, Read, Seek, Write},
     path::PathBuf,
 };
@@ -18,7 +19,7 @@ use anyhow::{ensure, Context};
 use chrono::Utc;
 use flate2::{write::GzEncoder, Compression, Crc};
 use foundation_outbox::R2ObjectStorage;
-use foundation_shared_kernel::{pnu::standard_pnu_from_hub_register_codes, Pnu};
+use foundation_shared_kernel::{pnu::standard_pnu_from_hub_register_codes_via, Pnu};
 use serde::Serialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -187,10 +188,11 @@ pub async fn run(env: &str, layout: Layout) -> anyhow::Result<()> {
             "R2 object size differs from measured source contract"
         );
     }
+    let sigungu_crosswalk = crate::sigungu_crosswalk::hub_sigungu_crosswalk()?;
     let layout_name = layout.inner_file.clone();
     let runtime = tokio::runtime::Handle::current();
     let report = tokio::task::spawn_blocking(move || {
-        convert(source, &config, &layout, |output| {
+        convert(source, &config, &layout, &sigungu_crosswalk, |output| {
             runtime.block_on(open_sink(output, Some(&storage)))
         })
     })
@@ -225,6 +227,7 @@ fn convert<R: Read + Seek>(
     source: R,
     config: &Config,
     layout: &Layout,
+    sigungu_crosswalk: &HashMap<String, String>,
     mut open: impl FnMut(&OutputSink) -> anyhow::Result<HandoffSink>,
 ) -> anyhow::Result<Report> {
     layout.validate()?;
@@ -275,6 +278,7 @@ fn convert<R: Read + Seek>(
         let (row, pnu_ok) = make_row(
             layout,
             config,
+            sigungu_crosswalk,
             &fields,
             report.rows_read,
             &part_key,
@@ -344,12 +348,13 @@ fn valid_width(
 fn make_row(
     layout: &Layout,
     config: &Config,
+    sigungu_crosswalk: &HashMap<String, String>,
     fields: &[&str],
     line_number: u64,
     part_key: &str,
     ingested_at: &str,
 ) -> anyhow::Result<(Value, bool)> {
-    let pnu = compose_pnu(layout, fields)?;
+    let pnu = compose_pnu(layout, sigungu_crosswalk, fields)?;
     let pnu_ok = pnu.is_some();
     let mut row = serde_json::Map::new();
     for name in layout.columns.keys() {
@@ -368,7 +373,11 @@ fn make_row(
     Ok((Value::Object(row), pnu_ok))
 }
 
-fn compose_pnu(layout: &Layout, fields: &[&str]) -> anyhow::Result<Option<String>> {
+fn compose_pnu(
+    layout: &Layout,
+    sigungu_crosswalk: &HashMap<String, String>,
+    fields: &[&str],
+) -> anyhow::Result<Option<String>> {
     let sigungu = layout.value(fields, "sigungu_cd")?.trim();
     let bjdong = layout.value(fields, "bjdong_cd")?.trim();
     let bon = layout.value(fields, "bonbeon")?.trim();
@@ -381,7 +390,8 @@ fn compose_pnu(layout: &Layout, fields: &[&str]) -> anyhow::Result<Option<String
     {
         return Ok(None);
     }
-    Ok(standard_pnu_from_hub_register_codes(
+    Ok(standard_pnu_from_hub_register_codes_via(
+        sigungu_crosswalk,
         sigungu,
         bjdong,
         layout.value(fields, "san_gubun")?,

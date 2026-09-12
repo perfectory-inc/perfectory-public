@@ -11,7 +11,8 @@ interface Env {
 }
 
 function canonicalPnu(url: URL): string | null {
-  if (url.search !== "") return null;
+  // The exact schema query separates v2 browser/edge caches from year-only documents.
+  if (url.search !== "" && url.search !== "?schema=2") return null;
   const prefix = policy.request_path.prefix;
   if (!url.pathname.startsWith(prefix)) return null;
   const candidate = url.pathname.slice(prefix.length);

@@ -177,7 +177,7 @@ impl BuildingUnitsReader for FoundationPlatformBuildingRegisterReader {
                             .official_price_history
                             .into_iter()
                             .map(|price| parcel_lookup::UnitOfficialPrice {
-                                base_year: price.base_year,
+                                base_date: price.base_date,
                                 price_won: price.price_won,
                             })
                             .collect(),
@@ -410,7 +410,7 @@ mod tests {
       "floor_label": "12층",
       "exclusive_area_m2": 84.5,
       "usage_name": "공장",
-      "official_price_history": [{"base_year": 2026, "price_won": 232000000}]
+      "official_price_history": [{"base_date": "20260101", "price_won": 232000000}]
     },
     {
       "id": "unit-02",

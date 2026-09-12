@@ -163,6 +163,7 @@ fn build_schema() -> Schema {
         Field::new("created_date_raw", DataType::Utf8, true),
         Field::new("normalization_status", DataType::Utf8, false),
         Field::new("normalization_reason", DataType::Utf8, false),
+        Field::new("source_record_id", DataType::Utf8, false),
         Field::new("source_snapshot_id", DataType::Utf8, false),
         Field::new("bronze_object_key", DataType::Utf8, false),
         Field::new("source_line_number", DataType::Int64, true),
@@ -209,6 +210,7 @@ fn rows_to_batch(
     let mut created_date_raw = StringBuilder::new();
     let mut normalization_status = StringBuilder::new();
     let mut normalization_reason = StringBuilder::new();
+    let mut source_record_id = StringBuilder::new();
     let mut source_snapshot_id = StringBuilder::new();
     let mut bronze_object_key = StringBuilder::new();
     let mut source_line_number = Int64Builder::new();
@@ -242,6 +244,7 @@ fn rows_to_batch(
         created_date_raw.append_value(&row.created_date_raw);
         normalization_status.append_value(&row.normalization_status);
         normalization_reason.append_value(&row.normalization_reason);
+        source_record_id.append_value(&row.source_record_id);
         source_snapshot_id.append_value(&row.source_snapshot_id);
         bronze_object_key.append_value(&row.bronze_object_key);
         append_optional_i64(
@@ -282,6 +285,7 @@ fn rows_to_batch(
             Arc::new(created_date_raw.finish()),
             Arc::new(normalization_status.finish()),
             Arc::new(normalization_reason.finish()),
+            Arc::new(source_record_id.finish()),
             Arc::new(source_snapshot_id.finish()),
             Arc::new(bronze_object_key.finish()),
             Arc::new(source_line_number.finish()),

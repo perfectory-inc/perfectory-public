@@ -360,6 +360,8 @@ def spark_sql_type(logical_type: str) -> str:
             return "STRING"
         case "binary":
             return "BINARY"
+        case "boolean":
+            return "BOOLEAN"
         case "int":
             return "INT"
         case "long":

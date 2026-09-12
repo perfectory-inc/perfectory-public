@@ -131,6 +131,7 @@
               "source_group",
               "silver_table",
               "gold_table",
+              "reference_table",
               "serving_group",
               "serving_surface"
             ]

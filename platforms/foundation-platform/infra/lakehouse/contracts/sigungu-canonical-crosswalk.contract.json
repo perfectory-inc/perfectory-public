@@ -1,0 +1,159 @@
+{
+  "$comment": "ADR-0103 Wave 1 seed crosswalk. Links superseded 시군구 codes to the authority-CURRENT code so old-code and new-code sources resolve to one stable place. Source codes are never overwritten; this table is the link. 12 (전남광주통합특별시) is confirmed current by the authority (getStanReginCdList: 1200000000 present; 29/46 absent, abolished 2026-07-01). Pairing derived by joining HUB pnu tail (읍면동+본+부) to cadastral parcels (verified, monotonic, incl. the non-arithmetic 광양 12190→46230 case). Provenance is per-entry so the steward can later confirm/replace against the authority's 생성/말소 file (data.go.kr 15092039).",
+  "version": 1,
+  "canonical_authority": "mois:getStanReginCdList",
+  "as_of": "20260912",
+  "sido": [
+    {
+      "current_code": "12",
+      "current_name": "전남광주통합특별시",
+      "supersedes": [
+        "29",
+        "46"
+      ],
+      "superseded_names": [
+        "광주광역시",
+        "전라남도"
+      ],
+      "effective_from": "20260701",
+      "provenance": "authority:getStanReginCdList:2026-09"
+    }
+  ],
+  "sigungu": [
+    {
+      "current_code": "12210",
+      "superseded_code": "29110",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12240",
+      "superseded_code": "29140",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12270",
+      "superseded_code": "29155",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12300",
+      "superseded_code": "29170",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12330",
+      "superseded_code": "29200",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12110",
+      "superseded_code": "46110",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12130",
+      "superseded_code": "46130",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12150",
+      "superseded_code": "46150",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12170",
+      "superseded_code": "46170",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12190",
+      "superseded_code": "46230",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12710",
+      "superseded_code": "46710",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12720",
+      "superseded_code": "46720",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12730",
+      "superseded_code": "46730",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12740",
+      "superseded_code": "46770",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12750",
+      "superseded_code": "46780",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12760",
+      "superseded_code": "46790",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12770",
+      "superseded_code": "46800",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12780",
+      "superseded_code": "46810",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12790",
+      "superseded_code": "46820",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12800",
+      "superseded_code": "46830",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12810",
+      "superseded_code": "46840",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12820",
+      "superseded_code": "46860",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12830",
+      "superseded_code": "46870",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12840",
+      "superseded_code": "46880",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12850",
+      "superseded_code": "46890",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12860",
+      "superseded_code": "46900",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "current_code": "12870",
+      "superseded_code": "46910",
+      "provenance": "derived:pnu-tail-join:2026-09"
+    }
+  ]
+}

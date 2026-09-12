@@ -77,7 +77,7 @@ pub struct BuildingUnitRecord {
     pub exclusive_area_m2: Option<f64>,
     /// 주용도명. Empty when unmatched.
     pub usage_name: String,
-    /// Annual official assessments from the published Foundation contract.
+    /// Reference-date official assessments from the published Foundation contract.
     pub official_price_history: Vec<parcel_lookup::UnitOfficialPrice>,
 }
 
@@ -115,7 +115,7 @@ pub struct BuildingUnitResponse {
     pub exclusive_area_m2: Option<f64>,
     /// 주용도명. Empty when unmatched.
     pub usage_name: String,
-    /// Annual official assessments, newest first; empty when unavailable.
+    /// Reference-date official assessments, newest first; empty when unavailable.
     pub official_price_history: Vec<parcel_lookup::UnitOfficialPrice>,
 }
 

@@ -112,3 +112,6 @@ last_reviewed: 2026-07-28
 - [0099 — 매일의 서빙 갱신은 바뀐 필지만 굽는다](./0099-daily-serving-updates-bake-only-changed-parcels.md)
 
 - [0100 — 건물·층·호는 독립된 by-PNU R2 객체로 서빙한다](./0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md)
+- [0101 — 세대 공시가격은 모든 기준일을 보존한다](./0101-unit-prices-preserve-every-reference-date.md)
+- [0102 — 레이크하우스 잡은 R2 연결 리셋을 견딘다](./0102-lakehouse-jobs-survive-r2-connection-resets.md)
+- [0103 — 장소의 정체성은 행정코드 변경보다 오래 산다](./0103-place-identity-outlives-administrative-code-changes.md)

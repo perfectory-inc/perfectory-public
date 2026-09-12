@@ -1,10 +1,10 @@
-//! Annual official prices indexed by a unit's parcel, dong and ho (root ADR-0095).
+//! Reference-date official prices indexed by a unit's parcel, dong and ho (root ADR-0095).
 
-/// One year's official assessment, in the source's integer won.
+/// One reference date's official assessment, in the source's integer won.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnitOfficialPrice {
-    /// Four-digit year derived from the assessment base date.
-    pub base_year: i16,
+    /// Assessment reference date in YYYYMMDD format.
+    pub base_date: String,
     /// Official assessed value in won.
     pub price_won: i64,
 }
@@ -16,6 +16,12 @@ pub struct UnitOfficialPriceRow {
     pub dong_name: String,
     /// Source ho name.
     pub ho_name: String,
-    /// Annual assessment.
+    /// Reference-date assessment.
     pub price: UnitOfficialPrice,
+}
+
+/// Whether a reference date has the wire contract's eight ASCII digits (YYYYMMDD).
+#[must_use]
+pub fn valid_base_date(value: &str) -> bool {
+    value.len() == 8 && value.bytes().all(|byte| byte.is_ascii_digit())
 }

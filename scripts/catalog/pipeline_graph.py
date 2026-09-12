@@ -17,7 +17,8 @@ ENDPOINTS = FOUNDATION / "docs/catalog/public-source-endpoint-catalog.v1.json"
 CONTRACTS = FOUNDATION / "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
 SCHEMA_VERSION = 2
 DATA_RELATION = "feeds"
-NODE_TYPES = {"source_group", "silver_table", "gold_table", "serving_group", "serving_surface"}
+NODE_TYPES = {"source_group", "silver_table", "gold_table", "reference_table", "serving_group", "serving_surface"}
+TABLE_TYPES = {"silver_table", "gold_table", "reference_table"}
 
 
 def load_json(path: Path) -> dict:
@@ -39,12 +40,25 @@ def migration_tables(root: Path) -> set[str]:
     ident = r'"?([a-z_][a-z_0-9]*)"?'
     qualified = rf'"?(catalog|serving_postgis)"?\s*\.\s*{ident}'
     create = re.compile(rf"\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{qualified}", re.I)
+    rename = re.compile(rf"\bALTER\s+TABLE\s+{qualified}\s+RENAME\s+TO\s+{ident}\s*;", re.I)
     lifecycle = re.compile(rf"\b(?:DROP\s+(?:TABLE|SCHEMA)\s+(?:IF\s+EXISTS\s+)?\"?(?:catalog|serving_postgis)\b|ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?{qualified}[^;]*\b(?:RENAME\s+TO|SET\s+SCHEMA)\b)", re.I)
     for path in files:
         sql = ignored.sub(" ", path.read_text(encoding="utf-8-sig"))
-        if lifecycle.search(sql):
+        if lifecycle.search(rename.sub(" ", sql)):
             raise ValueError(f"unsupported serving table lifecycle in {path.name}; update reconciliation")
-        tables.update(f"{schema.lower()}.{table.lower()}" for schema, table in create.findall(sql))
+        # Replay declarations in order: a preserved table can be renamed and its old name reused.
+        events = sorted([*create.finditer(sql), *rename.finditer(sql)], key=lambda event: event.start())
+        for event in events:
+            schema, table, *target = (part.lower() for part in event.groups())
+            name = f"{schema}.{table}"
+            if target:
+                renamed = f"{schema}.{target[0]}"
+                if name not in tables or renamed in tables:
+                    raise ValueError(f"invalid serving table rename in {path.name}: {name} -> {renamed}")
+                tables.remove(name)
+                tables.add(renamed)
+            else:
+                tables.add(name)
     if not tables:
         raise ValueError("no catalog/serving_postgis CREATE TABLE declarations found")
     return tables
@@ -73,7 +87,7 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
     compare("node IDs", [n["id"] for n in nodes], {n["id"] for n in nodes})
     compare("edge IDs", [e["id"] for e in edges], {e["id"] for e in edges})
     compare("source groups", [n.get("endpoint_catalog_group", "") for n in nodes if n["type"] == "source_group"], expected_groups)
-    compare("lakehouse tables", [n.get("table_name", "") for n in nodes if n["type"] in {"silver_table", "gold_table"}], expected_contracts)
+    compare("lakehouse tables", [n.get("table_name", "") for n in nodes if n["type"] in TABLE_TYPES], expected_contracts)
     compare("serving tables", [t for n in nodes if n["type"] == "serving_group" for t in n["tables"]], expected_serving)
     by_id = {n["id"]: n for n in nodes}
     if any("silver" in e for e in endpoints):
@@ -87,9 +101,9 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
             problems.append(f"unknown node type: {node['id']}")
         if not all(node.get(key) for key in ("title", "description", "status", "owner")):
             problems.append(f"missing node metadata: {node['id']}")
-        if kind in {"silver_table", "gold_table"} and not node.get("table_name", "").startswith(kind.removesuffix("_table") + "."):
+        if kind in TABLE_TYPES and not node.get("table_name", "").startswith(kind.removesuffix("_table") + "."):
             problems.append(f"wrong table type: {node['id']}")
-        if kind in {"silver_table", "gold_table"} and node.get("runtime_bindings") != [{"kind": "lakehouse_contract", "value": node.get("table_name")}]:
+        if kind in TABLE_TYPES and node.get("runtime_bindings") != [{"kind": "lakehouse_contract", "value": node.get("table_name")}]:
             problems.append(f"lakehouse runtime binding disagrees with table: {node['id']}")
         if kind == "source_group":
             if node.get("unmapped_status") != "collected_only":
@@ -122,6 +136,24 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
             problems.append(f"endpoint selector outside source data edge: {edge['id']}")
         if edge.get("status") == "implemented" and any(by_id[edge[key]]["status"] in {"contract_only", "collected_only"} for key in ("from", "to")):
             problems.append(f"invented lane for unconnected dataset: {edge['id']}")
+    # Connectivity, after dbt_project_evaluator's Root Models / Unused Sources: a lakehouse
+    # dataset must be produced and consumed, an active source must be consumed. contract_only
+    # is the one sanctioned island; its required description states why no lane exists.
+    # reference tables need a producer like any dataset but are exempt from the consumer
+    # rule as a kind: the ingest-time resolver reads them cross-cuttingly (ADR-0103 ③),
+    # not through a dataset edge, so no consumer edge is their normal state, not a defect.
+    produced = {e["to"] for e in edges}
+    consumed = {e["from"] for e in edges}
+    for node in nodes:
+        if node.get("status") == "contract_only":
+            continue
+        if node["type"] in TABLE_TYPES:
+            if node["id"] not in produced:
+                problems.append(f"dataset has no producer edge: {node['id']}")
+            if node["type"] != "reference_table" and node["id"] not in consumed:
+                problems.append(f"dataset has no consumer edge: {node['id']}")
+        elif node["type"] == "source_group" and node.get("status") not in {"disabled", "planned", "collection_available"} and node["id"] not in consumed:
+            problems.append(f"source group has no consumer edge: {node['id']}")
     if problems:
         raise ValueError("\n".join(problems))
     return {"source_groups": len(expected_groups), "lakehouse_tables": len(expected_contracts),
