@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **436개**
+- 문서 파일: **437개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -16,7 +16,7 @@
 | 소유 영역 | 문서 수 |
 |---|---:|
 | Foundation Platform | 112 |
-| Gongzzang 제품 | 162 |
+| Gongzzang 제품 | 163 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
 | Monorepo | 129 |
@@ -27,7 +27,7 @@
 | 유형 | 문서 수 |
 |---|---:|
 | ADR | 185 |
-| README | 110 |
+| README | 111 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 3 |
@@ -312,6 +312,7 @@ products/gongzzang/docs/sss-charter.md
 products/gongzzang/docs/testing/load.md
 products/gongzzang/docs/testing/playwright-runtime.md
 products/gongzzang/docs/testing/README.md
+products/gongzzang/infrastructure-v2/README.md
 products/gongzzang/infrastructure/docker/README.md
 products/gongzzang/infrastructure/README.md
 products/gongzzang/infrastructure/security/README.md
@@ -932,6 +933,7 @@ tools/github/README.md
 | `products/gongzzang/docs/testing/load.md` | Gongzzang 제품 | documentation | current |
 | `products/gongzzang/docs/testing/playwright-runtime.md` | Gongzzang 제품 | documentation | current |
 | `products/gongzzang/docs/testing/README.md` | Gongzzang 제품 | README | current |
+| `products/gongzzang/infrastructure-v2/README.md` | Gongzzang 제품 | README | current |
 | `products/gongzzang/infrastructure/docker/README.md` | Gongzzang 제품 | README | current |
 | `products/gongzzang/infrastructure/README.md` | Gongzzang 제품 | README | current |
 | `products/gongzzang/infrastructure/security/README.md` | Gongzzang 제품 | README | current |
