@@ -150,20 +150,13 @@ def _sigungu_name(locatadd_nm: str) -> str:
     return parts[-1] if parts else ""
 
 
-def derive_crosswalk_from_registry(rows: Sequence[dict[str, Any]]) -> list[dict[str, str]]:
-    """Derive the 시군구 crosswalk from one registry batch that carries both 생성 and 말소 rows.
+def _registry_sigungu_groups(
+    rows: Sequence[dict[str, Any]],
+) -> tuple[dict[tuple[str, str], list[str]], dict[tuple[str, str], list[str]]]:
+    """Group a batch's 시군구 rows by (name, date) into (created, abolished).
 
-    A merger abolishes each old 시군구 code and creates a new one that keeps the same
-    시군구 name on the same date (a source that stamps both the 말소일 and the 생성일). So a
-    superseded code and a freshly-created code that share a 시군구 name at one date are the
-    same place, and we link current -> superseded (the direction the parcel map still carries).
-    This reproduces the checked-in seed from such a source's 생성/말소 dates alone (ADR-0103 ③).
-    Use it for the checked-in seed reload or a KIKcd 말소코드포함 import; the current-only REST API
-    carries no 말소 row, so its snapshots feed `derive_crosswalk_across_snapshots` instead (ADR-0104).
-
-    Only an unambiguous 1:1 name match at one date is emitted. A renamed 시군구 (no name match)
-    or a many-to-one merger (several old codes onto one name) is left out on purpose so the
-    steward decides it instead of the code guessing (ADR-0103 ④).
+    Shared by the derivation and the steward-review feed so the two read the batch the same way
+    and cannot drift.
     """
     created: dict[tuple[str, str], list[str]] = {}
     abolished: dict[tuple[str, str], list[str]] = {}
@@ -180,7 +173,26 @@ def derive_crosswalk_from_registry(rows: Sequence[dict[str, Any]]) -> list[dict[
             abolished.setdefault((name, abolished_date), []).append(region_cd)
         elif created_date:
             created.setdefault((name, created_date), []).append(region_cd)
+    return created, abolished
 
+
+def derive_crosswalk_from_registry(rows: Sequence[dict[str, Any]]) -> list[dict[str, str]]:
+    """Derive the 시군구 crosswalk from one registry batch that carries both 생성 and 말소 rows.
+
+    A merger abolishes each old 시군구 code and creates a new one that keeps the same
+    시군구 name on the same date (a source that stamps both the 말소일 and the 생성일). So a
+    superseded code and a freshly-created code that share a 시군구 name at one date are the
+    same place, and we link current -> superseded (the direction the parcel map still carries).
+    This reproduces the checked-in seed from such a source's 생성/말소 dates alone (ADR-0103 ③).
+    Use it for the checked-in seed reload or a KIKcd 말소코드포함 import; the current-only REST API
+    carries no 말소 row, so its snapshots feed `derive_crosswalk_across_snapshots` instead (ADR-0104).
+
+    Only an unambiguous 1:1 name match at one date is emitted. A renamed 시군구 (no name match)
+    or a many-to-one merger (several old codes onto one name) is left out on purpose so the
+    steward decides it instead of the code guessing (ADR-0103 ④); `steward_review_from_registry`
+    reports exactly those left-out cases.
+    """
+    created, abolished = _registry_sigungu_groups(rows)
     crosswalk: list[dict[str, str]] = []
     for (name, date), old_codes in sorted(abolished.items()):
         new_codes = created.get((name, date), [])
@@ -198,24 +210,42 @@ def derive_crosswalk_from_registry(rows: Sequence[dict[str, Any]]) -> list[dict[
     return crosswalk
 
 
-def derive_crosswalk_across_snapshots(
+def steward_review_from_registry(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Report the 말소 rows a single batch could not auto-resolve, for the steward (ADR-0103 ④).
+
+    Every abolished 시군구 whose (name, date) does not map to exactly one created code is withheld
+    from the crosswalk; instead of dropping it silently, name it here with why — a many-to-one
+    merger or a renamed/abolished-without-replacement 시군구 — so a human decides it.
+    """
+    created, abolished = _registry_sigungu_groups(rows)
+    review: list[dict[str, Any]] = []
+    for (name, date), old_codes in sorted(abolished.items()):
+        new_codes = created.get((name, date), [])
+        if len(old_codes) == 1 and len(new_codes) == 1:
+            continue  # cleanly resolved, not for the steward
+        review.append(
+            {
+                "sigungu_name": name,
+                "reason": "ambiguous_name_match" if new_codes else "abolished_without_replacement",
+                "old_codes": sorted(code[:5] for code in old_codes),
+                "new_codes": sorted(code[:5] for code in new_codes),
+                "as_of": date,
+                "method": "registry",
+            }
+        )
+    return review
+
+
+def _snapshot_sigungu_diff(
     prev_rows: Sequence[dict[str, Any]],
     curr_rows: Sequence[dict[str, Any]],
-) -> list[dict[str, str]]:
-    """Derive the 시군구 crosswalk from two consecutive current-only authority snapshots (ADR-0104).
+) -> tuple[dict[str, list[str]], dict[str, list[tuple[str, str]]]]:
+    """Return ``(vanished_by_name, appeared_by_name)`` between two current-only snapshots.
 
-    The authority REST API (`getStanReginCdList`) lists only current codes with a 생성일 and no
-    말소일: a merger shows up as a 시군구 code that was in the earlier snapshot and is gone from the
-    later one (abolished), while a freshly-created code carrying the merger date appears in the
-    later one. A code that vanished and a code that appeared under the same 시군구 name are the same
-    place, and we link current -> superseded (the direction the parcel map still carries), opening
-    the link at the new code's 생성일.
-
-    Only an unambiguous 1:1 name match is emitted: exactly one vanished and one appeared 시군구 for
-    a name. A rename (no name match), a many-to-one merger, or a one-to-many split is left out for
-    the steward (ADR-0103 ④). The provenance prefix (`derived:snapshot-diff:…`) differs from the
-    single-batch derivation's (`derived:registry:…`) so the two never collide and stay auditable,
-    and it is stable across snapshots so re-running a diff appends nothing twice.
+    ``vanished_by_name``: 시군구 name -> region_cds present in the earlier snapshot and gone from the
+    later one. ``appeared_by_name``: name -> ``(region_cd, created_date)`` present in the later one
+    and not the earlier one. Shared by the derivation and the steward-review feed so the two read the
+    diff identically and cannot drift.
     """
 
     def sigungu_index(rows: Sequence[dict[str, Any]]) -> dict[str, tuple[str, str]]:
@@ -241,7 +271,30 @@ def derive_crosswalk_across_snapshots(
     for code, (name, date) in curr.items():
         if code not in prev:
             appeared_by_name.setdefault(name, []).append((code, date))
+    return vanished_by_name, appeared_by_name
 
+
+def derive_crosswalk_across_snapshots(
+    prev_rows: Sequence[dict[str, Any]],
+    curr_rows: Sequence[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Derive the 시군구 crosswalk from two consecutive current-only authority snapshots (ADR-0104).
+
+    The authority REST API (`getStanReginCdList`) lists only current codes with a 생성일 and no
+    말소일: a merger shows up as a 시군구 code that was in the earlier snapshot and is gone from the
+    later one (abolished), while a freshly-created code carrying the merger date appears in the
+    later one. A code that vanished and a code that appeared under the same 시군구 name are the same
+    place, and we link current -> superseded (the direction the parcel map still carries), opening
+    the link at the new code's 생성일.
+
+    Only an unambiguous 1:1 name match is emitted: exactly one vanished and one appeared 시군구 for
+    a name. A rename (no name match), a many-to-one merger, or a one-to-many split is left out for
+    the steward (ADR-0103 ④) and reported by `steward_review_across_snapshots`. The provenance prefix
+    (`derived:snapshot-diff:…`) differs from the single-batch derivation's (`derived:registry:…`) so
+    the two never collide and stay auditable, and it is stable across snapshots so re-running a diff
+    appends nothing twice.
+    """
+    vanished_by_name, appeared_by_name = _snapshot_sigungu_diff(prev_rows, curr_rows)
     crosswalk: list[dict[str, str]] = []
     for name in sorted(set(vanished_by_name) & set(appeared_by_name)):
         old_codes = vanished_by_name[name]
@@ -259,6 +312,44 @@ def derive_crosswalk_across_snapshots(
             }
         )
     return crosswalk
+
+
+def steward_review_across_snapshots(
+    prev_rows: Sequence[dict[str, Any]],
+    curr_rows: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Report the snapshot-diff 시군구 changes that did not auto-resolve, for the steward (ADR-0103 ④).
+
+    A change the derivation cannot pin to a clean 1:1 name match — an ambiguous match (both sides but
+    not one-to-one), a code that vanished with no same-name replacement, or a new code with no
+    same-name predecessor (a rename) — is named here with why, so the steward decides it instead of
+    the code guessing or dropping it silently.
+    """
+    vanished_by_name, appeared_by_name = _snapshot_sigungu_diff(prev_rows, curr_rows)
+    review: list[dict[str, Any]] = []
+    for name in sorted(set(vanished_by_name) | set(appeared_by_name)):
+        old_codes = vanished_by_name.get(name, [])
+        new_codes = appeared_by_name.get(name, [])
+        if len(old_codes) == 1 and len(new_codes) == 1:
+            continue  # cleanly resolved, not for the steward
+        if old_codes and new_codes:
+            reason = "ambiguous_name_match"
+        elif old_codes:
+            reason = "abolished_without_replacement"
+        else:
+            reason = "appeared_without_predecessor"
+        dates = sorted({date for _code, date in new_codes if date})
+        review.append(
+            {
+                "sigungu_name": name,
+                "reason": reason,
+                "old_codes": sorted(code[:5] for code in old_codes),
+                "new_codes": sorted(code[:5] for code, _date in new_codes),
+                "as_of": dates[0] if len(dates) == 1 else "",
+                "method": "snapshot-diff",
+            }
+        )
+    return review
 
 
 def append_derived_crosswalk(spark, T, prefix, derived_crosswalk):
@@ -396,6 +487,13 @@ def main(argv=None):
         crosswalk_new = append_derived_crosswalk(
             spark, T, prefix, derived_crosswalk + snapshot_diff_crosswalk
         )
+        # A 시군구 change the derivation could not pin to a clean 1:1 name match is not dropped
+        # silently: it is named here with why, so a steward can decide it (ADR-0103 ④). The queue
+        # itself (a table + an admin surface) is later work; reporting the items in the run summary
+        # is the first place an operator sees "these changes need a human".
+        steward_review = steward_review_from_registry(rows) + steward_review_across_snapshots(
+            prior_rows, rows
+        )
         summary = {
             "source_snapshot_id": args.source_snapshot_id,
             "rows": len(rows), "current_rows": current_rows,
@@ -403,6 +501,8 @@ def main(argv=None):
             "derived_crosswalk_pairs": len(derived_crosswalk),
             "snapshot_diff_crosswalk_pairs": len(snapshot_diff_crosswalk),
             "crosswalk_pairs_appended": crosswalk_new,
+            "steward_review_items": len(steward_review),
+            "steward_review": steward_review,
             "elapsed_seconds": time.monotonic() - started,
             **appended,
         }
