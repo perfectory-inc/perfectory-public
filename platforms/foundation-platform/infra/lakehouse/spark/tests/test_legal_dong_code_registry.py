@@ -13,7 +13,8 @@ sys.path.insert(0, str(SPARK_DIR / "jobs"))
 from legal_dong_code_registry import (CONTRACT, CROSSWALK_CONTRACT, crosswalk_rows_from_seed,
                                       derive_crosswalk_across_snapshots,
                                       derive_crosswalk_from_registry, parse_args,
-                                      parse_registry_row, resolve_sigungu)
+                                      parse_registry_row, resolve_sigungu,
+                                      steward_review_across_snapshots, steward_review_from_registry)
 from platform_contracts import (column_names, create_table_columns_sql, load_lakehouse_contract,
                                 load_unit, partition_clause_sql)
 
@@ -215,6 +216,73 @@ class DeriveCrosswalkAcrossSnapshotsTest(unittest.TestCase):
         prev = [parse_registry_row(["2900000000", "29", "000", "000", "00", "광주광역시", "2900000000", "19860101", ""])]
         curr = [parse_registry_row(["1200000000", "12", "000", "000", "00", "전남광주통합특별시", "1200000000", "20260701", ""])]
         self.assertEqual(derive_crosswalk_across_snapshots(prev, curr), [])
+
+
+class StewardReviewTest(unittest.TestCase):
+    def _current(self, region_cd, sido, sgg, name, created):
+        return parse_registry_row([region_cd, sido, sgg, "000", "00", name, f"{sido}00000000", created, ""])
+
+    def test_registry_many_to_one_is_named_for_the_steward(self):
+        # Two old 서구 abolished onto one new 서구 at one date: withheld from the crosswalk, reported here.
+        rows = [
+            parse_registry_row(
+                ["1224000000", "12", "240", "000", "00", "전남광주통합특별시 서구", "1200000000", "20260701", ""]),
+            parse_registry_row(
+                ["2914000000", "29", "140", "000", "00", "광주광역시 서구", "2900000000", "19950101", "20260701"]),
+            parse_registry_row(
+                ["4699000000", "46", "990", "000", "00", "전라남도 서구", "4600000000", "19950101", "20260701"]),
+        ]
+        self.assertEqual(derive_crosswalk_from_registry(rows), [])  # ambiguous → nothing derived
+        review = steward_review_from_registry(rows)
+        self.assertEqual(len(review), 1)
+        item = review[0]
+        self.assertEqual(item["sigungu_name"], "서구")
+        self.assertEqual(item["reason"], "ambiguous_name_match")
+        self.assertEqual(item["old_codes"], ["29140", "46990"])
+        self.assertEqual(item["new_codes"], ["12240"])
+        self.assertEqual(item["as_of"], "20260701")
+        self.assertEqual(item["method"], "registry")
+
+    def test_registry_clean_pairs_are_not_reviewed(self):
+        rows = [
+            parse_registry_row(
+                ["1224000000", "12", "240", "000", "00", "전남광주통합특별시 서구", "1200000000", "20260701", ""]),
+            parse_registry_row(
+                ["2914000000", "29", "140", "000", "00", "광주광역시 서구", "2900000000", "19950101", "20260701"]),
+        ]
+        self.assertEqual(steward_review_from_registry(rows), [])
+
+    def test_snapshot_split_is_named_for_the_steward(self):
+        prev = [self._current("2914000000", "29", "140", "광주광역시 서구", "19950101")]
+        curr = [
+            self._current("1224000000", "12", "240", "전남광주통합특별시 서구", "20260701"),
+            self._current("1225000000", "12", "250", "전남광주통합특별시 서구", "20260701"),
+        ]
+        review = steward_review_across_snapshots(prev, curr)
+        self.assertEqual(len(review), 1)
+        self.assertEqual(review[0]["reason"], "ambiguous_name_match")
+        self.assertEqual(review[0]["old_codes"], ["29140"])
+        self.assertEqual(review[0]["new_codes"], ["12240", "12250"])
+        self.assertEqual(review[0]["method"], "snapshot-diff")
+
+    def test_snapshot_vanished_without_replacement_is_reviewed(self):
+        # A 시군구 that disappears with no same-name replacement (renamed or abolished) needs a human.
+        prev = [self._current("5213000000", "52", "130", "전북특별자치도 옛구", "19950101")]
+        curr = [self._current("2611000000", "26", "110", "부산광역시 중구", "19630101")]
+        review = steward_review_across_snapshots(prev, curr)
+        names = {(r["sigungu_name"], r["reason"]) for r in review}
+        self.assertIn(("옛구", "abolished_without_replacement"), names)
+
+    def test_snapshot_clean_merger_is_not_reviewed(self):
+        prev = [
+            self._current("2914000000", "29", "140", "광주광역시 서구", "19950101"),
+            self._current("2611000000", "26", "110", "부산광역시 중구", "19630101"),
+        ]
+        curr = [
+            self._current("1224000000", "12", "240", "전남광주통합특별시 서구", "20260701"),
+            self._current("2611000000", "26", "110", "부산광역시 중구", "19630101"),
+        ]
+        self.assertEqual(steward_review_across_snapshots(prev, curr), [])
 
 
 if __name__ == "__main__":
