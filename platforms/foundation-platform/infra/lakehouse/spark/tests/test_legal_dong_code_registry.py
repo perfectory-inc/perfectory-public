@@ -14,6 +14,7 @@ from legal_dong_code_registry import (CONTRACT, CROSSWALK_CONTRACT, crosswalk_ro
                                       derive_crosswalk_across_snapshots,
                                       derive_crosswalk_from_registry, parse_args,
                                       parse_registry_row, resolve_sigungu,
+                                      stanregin_api_row_to_registry_fields,
                                       steward_review_across_snapshots, steward_review_from_registry)
 from platform_contracts import (column_names, create_table_columns_sql, load_lakehouse_contract,
                                 load_unit, partition_clause_sql)
@@ -283,6 +284,40 @@ class StewardReviewTest(unittest.TestCase):
             self._current("2611000000", "26", "110", "부산광역시 중구", "19630101"),
         ]
         self.assertEqual(steward_review_across_snapshots(prev, curr), [])
+
+
+class StanReginApiRowTest(unittest.TestCase):
+    def _api_row(self):
+        # Field names exactly as getStanReginCdList returns them.
+        return {
+            "region_cd": "1224000000", "sido_cd": "12", "sgg_cd": "240", "umd_cd": "000",
+            "ri_cd": "00", "locatjumin_cd": "x", "locatjijuk_cd": "y",
+            "locatadd_nm": "전남광주통합특별시 서구", "locat_order": "1", "locat_rm": "",
+            "locathigh_cd": "1200000000", "locallow_nm": "서구", "adpt_de": "20260701",
+        }
+
+    def test_maps_to_registry_fields_order(self):
+        fields = stanregin_api_row_to_registry_fields(self._api_row())
+        self.assertEqual(
+            fields,
+            ["1224000000", "12", "240", "000", "00", "전남광주통합특별시 서구", "1200000000", "20260701", ""])
+
+    def test_output_round_trips_through_parse_registry_row(self):
+        # The mapped fields must satisfy the registry parser: created_date=adpt_de, no 말소일 → current.
+        row = parse_registry_row(stanregin_api_row_to_registry_fields(self._api_row()))
+        self.assertEqual(row["region_cd"], "1224000000")
+        self.assertEqual(row["created_date"], "20260701")
+        self.assertEqual(row["abolished_date"], "")
+        self.assertIs(row["is_current"], True)
+
+    def test_missing_fields_become_empty_and_are_then_refused(self):
+        # A row missing region_cd maps to an empty region_cd, which parse_registry_row rejects.
+        bad = self._api_row()
+        del bad["region_cd"]
+        fields = stanregin_api_row_to_registry_fields(bad)
+        self.assertEqual(fields[0], "")
+        with self.assertRaises(ValueError):
+            parse_registry_row(fields)
 
 
 if __name__ == "__main__":

@@ -80,6 +80,39 @@ def parse_registry_row(fields: Sequence[str]) -> dict[str, Any]:
     return row
 
 
+# getStanReginCdList names its code/name fields exactly like the registry's columns, so the map is
+# nearly 1:1. Only 생성일 is renamed (adpt_de -> created_date); 말소일 has no API field at all — the
+# current-only API never carries one, and abolition is inferred later by snapshot diff (ADR-0104).
+STANREGIN_API_FIELD = {
+    "region_cd": "region_cd",
+    "sido_cd": "sido_cd",
+    "sgg_cd": "sgg_cd",
+    "umd_cd": "umd_cd",
+    "ri_cd": "ri_cd",
+    "locatadd_nm": "locatadd_nm",
+    "locathigh_cd": "locathigh_cd",
+    "created_date": "adpt_de",
+}
+
+
+def stanregin_api_row_to_registry_fields(row: dict[str, Any]) -> list[str]:
+    """Map one `getStanReginCdList` JSON row to a REGISTRY_FIELDS-ordered list (ADR-0104).
+
+    This is the bridge from the collected Bronze API payload to the registry job's input: each API
+    row becomes one delimited registry row (`abolished_date` always empty). The output feeds
+    `parse_registry_row`, which enforces the digit/date rules — a malformed API row is refused there
+    rather than repaired.
+    """
+    fields: list[str] = []
+    for name in REGISTRY_FIELDS:
+        if name == "abolished_date":
+            fields.append("")
+            continue
+        value = row.get(STANREGIN_API_FIELD[name])
+        fields.append("" if value is None else str(value).strip())
+    return fields
+
+
 def resolve_sigungu(code: str, as_of: str, crosswalk: Sequence[dict[str, Any]]) -> SigunguResolution:
     """Resolve one source 시군구 code through the crosswalk at a point in time.
 
@@ -416,7 +449,10 @@ def read_prior_snapshot_rows(spark, target, current_snapshot_id):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True,
-                        help="Authority 전체자료 extract: one delimited row per line, fields in REGISTRY_FIELDS order.")
+                        help="Authority extract: one row per line. TSV in REGISTRY_FIELDS order, or "
+                             "getStanReginCdList JSON objects with --input-format stanregin-json.")
+    parser.add_argument("--input-format", choices=["tsv", "stanregin-json"], default="tsv",
+                        help="tsv: delimited REGISTRY_FIELDS. stanregin-json: one getStanReginCdList row per line.")
     parser.add_argument("--delimiter", default="\t")
     parser.add_argument("--source-snapshot-id", required=True)
     parser.add_argument("--iceberg-catalog-name", default="r2")
@@ -442,7 +478,11 @@ def main(argv=None):
     for line in Path(args.input).read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        row = parse_registry_row(line.split(args.delimiter))
+        if args.input_format == "stanregin-json":
+            fields = stanregin_api_row_to_registry_fields(json.loads(line))
+        else:
+            fields = line.split(args.delimiter)
+        row = parse_registry_row(fields)
         row["source_snapshot_id"] = args.source_snapshot_id
         row["source_record_id"] = source_record
         rows.append(row)
