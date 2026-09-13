@@ -31,3 +31,11 @@ export const backendDesiredCount = c.getNumber("backendDesiredCount") ?? 1;
  * a placeholder so `preview` works before any image exists.
  */
 export const backendImage = c.get("backendImage") ?? "";
+
+/** Login/SSO = Zitadel (our identity-platform runs on it). Go single binary → light, no JVM. */
+export const zitadelImage = c.get("zitadelImage") ?? "ghcr.io/zitadel/zitadel:v2.65.1";
+export const zitadelHost = c.get("zitadelHost") ?? "auth.gongzzang.com"; // ALB host rule routes here
+export const zitadelCpu = c.getNumber("zitadelCpu") ?? 512; // 0.5 vCPU — light Go service
+export const zitadelMemory = c.getNumber("zitadelMemory") ?? 1024; // 1 GB
+export const zitadelDbName = c.get("zitadelDbName") ?? "zitadel"; // its own database on the shared RDS
+export const zitadelDbUser = c.get("zitadelDbUser") ?? "zitadel";

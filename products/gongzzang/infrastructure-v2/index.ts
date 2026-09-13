@@ -1,5 +1,6 @@
 import * as aws from "@pulumi/aws";
 import * as awsx from "@pulumi/awsx";
+import * as random from "@pulumi/random";
 import * as cfg from "./config.js";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -102,8 +103,70 @@ const backend = new awsx.ecs.FargateService(`${cfg.prefix}-backend`, {
   tags: { Env: cfg.env },
 });
 
+// ── Login (SSO) = Zitadel: our identity-platform runs on it (Go, no JVM). Behind the shared ALB. ──
+// 32-char master key generated and kept (encrypted) in Pulumi state — no manual secret step.
+const zitadelMasterkey = new random.RandomString(`${cfg.prefix}-zitadel-masterkey`, {
+  length: 32,
+  special: false,
+});
+
+const zitadelTg = new aws.lb.TargetGroup(`${cfg.prefix}-zitadel-tg`, {
+  port: 8080,
+  protocol: "HTTP",
+  targetType: "ip",
+  vpcId: vpc.vpcId,
+  healthCheck: { path: "/debug/healthz", matcher: "200" },
+});
+
+// Route auth.<domain> on the shared ALB to Zitadel; the backend keeps the default route.
+new aws.lb.ListenerRule(`${cfg.prefix}-zitadel-rule`, {
+  listenerArn: alb.listeners.apply((ls) => {
+    const listener = ls?.[0];
+    if (!listener) {
+      throw new Error("ALB has no listener to attach the Zitadel host rule to");
+    }
+    return listener.arn;
+  }),
+  priority: 10,
+  conditions: [{ hostHeader: { values: [cfg.zitadelHost] } }],
+  actions: [{ type: "forward", targetGroupArn: zitadelTg.arn }],
+});
+
+const zitadel = new awsx.ecs.FargateService(`${cfg.prefix}-zitadel`, {
+  cluster: cluster.arn,
+  desiredCount: 1,
+  networkConfiguration: {
+    subnets: vpc.privateSubnetIds,
+    securityGroups: [appSg.id],
+    assignPublicIp: false,
+  },
+  taskDefinitionArgs: {
+    container: {
+      name: "zitadel",
+      image: cfg.zitadelImage,
+      cpu: cfg.zitadelCpu,
+      memory: cfg.zitadelMemory,
+      essential: true,
+      command: ["start-from-init", "--masterkeyFromEnv", "--tlsMode", "external"],
+      portMappings: [{ containerPort: 8080, targetGroup: zitadelTg }],
+      environment: [
+        { name: "ZITADEL_MASTERKEY", value: zitadelMasterkey.result },
+        { name: "ZITADEL_EXTERNALDOMAIN", value: cfg.zitadelHost },
+        { name: "ZITADEL_EXTERNALSECURE", value: "true" },
+        { name: "ZITADEL_DATABASE_POSTGRES_HOST", value: db.address },
+        { name: "ZITADEL_DATABASE_POSTGRES_PORT", value: "5432" },
+        { name: "ZITADEL_DATABASE_POSTGRES_DATABASE", value: cfg.zitadelDbName },
+        { name: "ZITADEL_DATABASE_POSTGRES_USER_USERNAME", value: cfg.zitadelDbUser },
+        { name: "ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE", value: "require" },
+        // TODO: DB user password + admin master creds from the RDS-managed secret
+        // (db.masterUserSecrets) injected as container secrets, and a dedicated `zitadel` DB user.
+      ],
+    },
+  },
+  tags: { Env: cfg.env },
+});
+
 // ── Still to add (same pattern), tracked so the skeleton names the whole target ──
-// TODO: Zitadel service (로그인) + its schema on this RDS — replaces the legacy Keycloak.
 // TODO: web / admin-web services (프론트·관리자) behind the shared ALB (host/path rules).
 // TODO: osrm routing service (measured tiny: 1 vCPU / 4GB).
 // TODO: llm proxy service.
@@ -117,3 +180,5 @@ export const dbEndpoint = db.address;
 export const albDnsName = alb.loadBalancer.dnsName;
 export const backendRepoUrl = backendRepo.repositoryUrl;
 export const backendServiceName = backend.service.name;
+export const zitadelServiceName = zitadel.service.name;
+export const zitadelUrl = `https://${cfg.zitadelHost}`;
