@@ -133,6 +133,60 @@ def crosswalk_rows_from_seed(seed: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def derive_crosswalk_from_registry(rows: Sequence[dict[str, Any]]) -> list[dict[str, str]]:
+    """Derive the 시군구 crosswalk from the authority registry alone, no external pairing file.
+
+    A merger abolishes each old 시군구 code and creates a new one that keeps the same
+    시군구 name on the same date (the authority stamps both the 말소일 and the 생성일). So a
+    superseded code and a freshly-created code that share a 시군구 name at one date are the
+    same place, and we link current -> superseded (the direction the parcel map still carries).
+    This reproduces the checked-in seed from the authority's 생성/말소 dates alone (ADR-0103 ③).
+
+    Only an unambiguous 1:1 name match at one date is emitted. A renamed 시군구 (no name match)
+    or a many-to-one merger (several old codes onto one name) is left out on purpose so the
+    steward decides it instead of the code guessing (ADR-0103 ④).
+    """
+
+    def is_sigungu(region_cd: str) -> bool:
+        return len(region_cd) == 10 and region_cd[5:] == "00000"
+
+    def sigungu_name(locatadd_nm: str) -> str:
+        parts = (locatadd_nm or "").split()
+        return parts[-1] if parts else ""
+
+    created: dict[tuple[str, str], list[str]] = {}
+    abolished: dict[tuple[str, str], list[str]] = {}
+    for row in rows:
+        region_cd = str(row.get("region_cd", "") or "")
+        if not is_sigungu(region_cd):
+            continue
+        name = sigungu_name(row.get("locatadd_nm", ""))
+        if not name:
+            continue
+        abolished_date = (row.get("abolished_date") or "").strip()
+        created_date = (row.get("created_date") or "").strip()
+        if abolished_date:
+            abolished.setdefault((name, abolished_date), []).append(region_cd)
+        elif created_date:
+            created.setdefault((name, created_date), []).append(region_cd)
+
+    crosswalk: list[dict[str, str]] = []
+    for (name, date), old_codes in sorted(abolished.items()):
+        new_codes = created.get((name, date), [])
+        if len(old_codes) != 1 or len(new_codes) != 1:
+            continue  # ambiguous (rename / many-to-one) -> steward, not a guess
+        crosswalk.append(
+            {
+                "source_code": new_codes[0][:5],
+                "canonical_code": old_codes[0][:5],
+                "valid_from": date,
+                "valid_to": "",
+                "provenance": f"derived:registry:sigungu-name+date:{name}:{date}",
+            }
+        )
+    return crosswalk
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True,
@@ -191,10 +245,16 @@ def main(argv=None):
         evolve_iceberg_table_to_contract(spark, target, contract)
         appended = append_batch_once(spark, frame, names, target, CONTRACT)
         current_rows = sum(1 for row in rows if row["is_current"])
+        # Auto-derive the 시군구 crosswalk from this snapshot's 생성/말소 dates so the operator
+        # sees how many old->new pairs the authority data yields on its own, with no external
+        # pairing file (ADR-0103 ③). Persisting the derived rows to reference.sigungu_canonical_crosswalk
+        # is the next step; ambiguous mergers are already excluded here for the steward (ADR-0103 ④).
+        derived_crosswalk = derive_crosswalk_from_registry(rows)
         summary = {
             "source_snapshot_id": args.source_snapshot_id,
             "rows": len(rows), "current_rows": current_rows,
             "abolished_rows": len(rows) - current_rows,
+            "derived_crosswalk_pairs": len(derived_crosswalk),
             "elapsed_seconds": time.monotonic() - started,
             **appended,
         }
