@@ -1,0 +1,22 @@
+{
+  "name": "@gongzzang/infrastructure-v2",
+  "private": true,
+  "license": "UNLICENSED",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Greenfield platform infrastructure (Pulumi, AWS). Deploy only at launch.",
+  "scripts": {
+    "preview": "pulumi preview",
+    "up": "pulumi up",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^6.66.0",
+    "@pulumi/awsx": "^2.21.1",
+    "@pulumi/pulumi": "^3.261.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "5.9.3"
+  }
+}

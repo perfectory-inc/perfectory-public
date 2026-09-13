@@ -1,0 +1,6 @@
+name: gongzzang-platform
+runtime: nodejs
+description: >-
+  Greenfield platform infrastructure (VPC, ECS Fargate, RDS, ALB) built from zero.
+  Writing and `pulumi preview` cost nothing; real AWS charges begin only at `pulumi up`
+  (launch). The legacy console-created stack is left untouched and retired later.
