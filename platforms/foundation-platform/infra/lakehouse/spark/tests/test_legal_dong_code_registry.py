@@ -11,6 +11,7 @@ SPARK_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SPARK_DIR / "jobs"))
 
 from legal_dong_code_registry import (CONTRACT, CROSSWALK_CONTRACT, crosswalk_rows_from_seed,
+                                      derive_crosswalk_across_snapshots,
                                       derive_crosswalk_from_registry, parse_args,
                                       parse_registry_row, resolve_sigungu)
 from platform_contracts import (column_names, create_table_columns_sql, load_lakehouse_contract,
@@ -169,6 +170,51 @@ class DeriveCrosswalkFromRegistryTest(unittest.TestCase):
                 ["4699000000", "46", "990", "000", "00", "전라남도 서구", "4600000000", "19950101", "20260701"]),
         ]
         self.assertEqual(derive_crosswalk_from_registry(rows), [])
+
+
+class DeriveCrosswalkAcrossSnapshotsTest(unittest.TestCase):
+    def _current(self, region_cd, sido, sgg, name, created):
+        # A current-only API row: no 말소일, since getStanReginCdList never carries one.
+        return parse_registry_row([region_cd, sido, sgg, "000", "00", name, f"{sido}00000000", created, ""])
+
+    def test_merger_pairs_derived_from_the_disappearance(self):
+        # Before the merger the API listed 광주 서구 / 전남 광양시 as current; after it they are gone
+        # and 통합시 서구 / 광양시 appear with the merger 생성일. 부산 중구 is unchanged in both.
+        prev = [
+            self._current("2914000000", "29", "140", "광주광역시 서구", "19950101"),
+            self._current("4623000000", "46", "230", "전라남도 광양시", "19950101"),
+            self._current("2611000000", "26", "110", "부산광역시 중구", "19630101"),
+        ]
+        curr = [
+            self._current("1224000000", "12", "240", "전남광주통합특별시 서구", "20260701"),
+            self._current("1219000000", "12", "190", "전남광주통합특별시 광양시", "20260701"),
+            self._current("2611000000", "26", "110", "부산광역시 중구", "19630101"),
+        ]
+        crosswalk = derive_crosswalk_across_snapshots(prev, curr)
+        pairs = {(r["source_code"], r["canonical_code"]) for r in crosswalk}
+        self.assertEqual(pairs, {("12240", "29140"), ("12190", "46230")})
+        self.assertTrue(all(r["valid_from"] == "20260701" for r in crosswalk))
+        self.assertTrue(all(r["provenance"].startswith("derived:snapshot-diff:") for r in crosswalk))
+
+    def test_unchanged_snapshots_yield_nothing(self):
+        snap = [self._current("2611000000", "26", "110", "부산광역시 중구", "19630101")]
+        self.assertEqual(derive_crosswalk_across_snapshots(snap, list(snap)), [])
+
+    def test_ambiguous_split_is_left_to_the_steward(self):
+        # One vanished 서구 but two new 서구 appear: the code must not guess which one inherits the
+        # parcel map, so it is withheld for the steward.
+        prev = [self._current("2914000000", "29", "140", "광주광역시 서구", "19950101")]
+        curr = [
+            self._current("1224000000", "12", "240", "전남광주통합특별시 서구", "20260701"),
+            self._current("1225000000", "12", "250", "전남광주통합특별시 서구", "20260701"),
+        ]
+        self.assertEqual(derive_crosswalk_across_snapshots(prev, curr), [])
+
+    def test_sido_level_change_is_not_a_sigungu_pair(self):
+        # The 시도 rows also end in five zeros; they must stay out of the 시군구 crosswalk.
+        prev = [parse_registry_row(["2900000000", "29", "000", "000", "00", "광주광역시", "2900000000", "19860101", ""])]
+        curr = [parse_registry_row(["1200000000", "12", "000", "000", "00", "전남광주통합특별시", "1200000000", "20260701", ""])]
+        self.assertEqual(derive_crosswalk_across_snapshots(prev, curr), [])
 
 
 if __name__ == "__main__":
