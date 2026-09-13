@@ -36,10 +36,13 @@ pulumi up                # 자원 생성 (여기서부터 과금)
 | 제품 DB | RDS Postgres, 소형, Multi-AZ | 대용량은 R2/레이크하우스에 → DB는 작게 |
 | 클러스터+입구 | ECS 클러스터 + 공용 ALB 1개 | 여러 서비스가 하나의 ALB(호스트/경로 분기) |
 | 백엔드 | Fargate 서비스(1코어/8GB) | 레거시 **실측** 부하에 맞춘 크기 |
+| 로그인(SSO) | Zitadel Fargate 서비스 | Go 단일 바이너리(JVM 아님). `auth.` 호스트 규칙으로 ALB 분기, 마스터키는 자동 생성 |
 
-**아직 추가할 것**(같은 패턴, `index.ts`에 TODO로 명시): Zitadel(로그인, Keycloak 대체),
+**아직 추가할 것**(같은 패턴, `index.ts`에 TODO로 명시):
 웹·관리자 웹, 경로(osrm), llm 프록시, 그리고 데이터 수집·실시간 알림
 (Lambda + EventBridge + SNS/SES). 앞문은 Cloudflare, 대용량은 R2 유지.
+
+로그인은 **Zitadel**로 확정(Keycloak 대체) — Go라 가볍고, 이미 만든 identity-platform을 재사용.
 
 ## 크기는 config로 조정
 
