@@ -8,7 +8,9 @@ is absorbed by data, not by an engineer.
 
 The parse and resolve kernels are pure on purpose: the lane that runs
 `infra/lakehouse/spark/tests` has no PySpark install, and a module-level import would make
-every check that touches this file skip itself. Only `main` touches Spark.
+every check that touches this file skip itself. Only `main` and `append_derived_crosswalk`
+touch Spark, and both receive the session and types handles as arguments rather than importing
+PySpark at module load, so importing this module stays PySpark-free.
 """
 
 from __future__ import annotations
@@ -187,6 +189,38 @@ def derive_crosswalk_from_registry(rows: Sequence[dict[str, Any]]) -> list[dict[
     return crosswalk
 
 
+def append_derived_crosswalk(spark, T, prefix, derived_crosswalk):
+    """Append newly-derived crosswalk pairs to reference.sigungu_canonical_crosswalk.
+
+    The table is append-only and keyed on ``provenance`` (its declared load unit): each pair's
+    provenance is ``derived:registry:sigungu-name+date:{name}:{date}``, stable across snapshots,
+    so re-deriving the same merger yields the same object and lands nothing twice. Only the pairs
+    the table does not already record are handed to the batch guard: a full re-derivation legiti-
+    mately repeats every earlier pair and adds the new one, and the guard refuses a batch that is
+    part-in and part-out (it is built for file loaders that must not regroup mid-run). Narrowing to
+    the unrecorded provenance turns that straddle into a clean all-new append. Returns the count
+    actually appended (0 when the snapshot names no new merger).
+    """
+    if not derived_crosswalk:
+        return 0
+    contract = load_lakehouse_contract(CROSSWALK_CONTRACT)
+    names = column_names(contract)
+    target = f"{prefix}.`sigungu_canonical_crosswalk`"
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {target} ({create_table_columns_sql(contract)}) USING iceberg {partition_clause_sql(contract)}")
+    evolve_iceberg_table_to_contract(spark, target, contract)
+    recorded = {row["provenance"] for row in spark.sql(f"SELECT DISTINCT provenance FROM {target}").collect()}
+    fresh = [pair for pair in derived_crosswalk if pair["provenance"] not in recorded]
+    if not fresh:
+        return 0
+    schema = T.StructType([
+        T.StructField(column["name"], T.StringType(), not column["required"])
+        for column in contract["columns"]
+    ])
+    frame = spark.createDataFrame([tuple(pair[name] for name in names) for pair in fresh], schema=schema)
+    result = append_batch_once(spark, frame, names, target, CROSSWALK_CONTRACT)
+    return len(fresh) if result["appended"] else 0
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True,
@@ -245,16 +279,19 @@ def main(argv=None):
         evolve_iceberg_table_to_contract(spark, target, contract)
         appended = append_batch_once(spark, frame, names, target, CONTRACT)
         current_rows = sum(1 for row in rows if row["is_current"])
-        # Auto-derive the 시군구 crosswalk from this snapshot's 생성/말소 dates so the operator
-        # sees how many old->new pairs the authority data yields on its own, with no external
-        # pairing file (ADR-0103 ③). Persisting the derived rows to reference.sigungu_canonical_crosswalk
-        # is the next step; ambiguous mergers are already excluded here for the steward (ADR-0103 ④).
+        # Auto-derive the 시군구 crosswalk from this snapshot's 생성/말소 dates and persist it to
+        # reference.sigungu_canonical_crosswalk, so the authority's own dates — not a hand-kept
+        # seed — become the source→canonical link the resolver reads (ADR-0103 ③). An ambiguous
+        # merger never reaches here: derive_crosswalk_from_registry withholds it for the steward
+        # (ADR-0103 ④).
         derived_crosswalk = derive_crosswalk_from_registry(rows)
+        crosswalk_new = append_derived_crosswalk(spark, T, prefix, derived_crosswalk)
         summary = {
             "source_snapshot_id": args.source_snapshot_id,
             "rows": len(rows), "current_rows": current_rows,
             "abolished_rows": len(rows) - current_rows,
             "derived_crosswalk_pairs": len(derived_crosswalk),
+            "crosswalk_pairs_appended": crosswalk_new,
             "elapsed_seconds": time.monotonic() - started,
             **appended,
         }
