@@ -115,3 +115,4 @@ last_reviewed: 2026-07-28
 - [0101 — 세대 공시가격은 모든 기준일을 보존한다](./0101-unit-prices-preserve-every-reference-date.md)
 - [0102 — 레이크하우스 잡은 R2 연결 리셋을 견딘다](./0102-lakehouse-jobs-survive-r2-connection-resets.md)
 - [0103 — 장소의 정체성은 행정코드 변경보다 오래 산다](./0103-place-identity-outlives-administrative-code-changes.md)
+- [0104 — 권위 API가 현행뿐이라 크로스워크는 스냅숏 차이에서 나온다](./0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md)

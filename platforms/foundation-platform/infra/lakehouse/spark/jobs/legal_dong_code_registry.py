@@ -6,11 +6,11 @@
 resolver reads it instead of any hardcoded code→region fact, so the next merger or split
 is absorbed by data, not by an engineer.
 
-The parse and resolve kernels are pure on purpose: the lane that runs
+The parse, resolve, and derive kernels are pure on purpose: the lane that runs
 `infra/lakehouse/spark/tests` has no PySpark install, and a module-level import would make
-every check that touches this file skip itself. Only `main` and `append_derived_crosswalk`
-touch Spark, and both receive the session and types handles as arguments rather than importing
-PySpark at module load, so importing this module stays PySpark-free.
+every check that touches this file skip itself. Only `main` and the Spark helpers it calls
+(`append_derived_crosswalk`, `read_prior_snapshot_rows`) touch Spark, and they import PySpark
+inside their own bodies rather than at module load, so importing this module stays PySpark-free.
 """
 
 from __future__ import annotations
@@ -135,34 +135,43 @@ def crosswalk_rows_from_seed(seed: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def _is_sigungu_code(region_cd: str) -> bool:
+    """True for a 시군구-level 법정동코드: 10 digits, 읍면동·리 zeroed, and a real 시군구 part.
+
+    A 시도 code also ends in five zeros (e.g. ``2900000000``), so the 시군구 part must be non-zero
+    to keep 시도 rows out of the 시군구 crosswalk.
+    """
+    return len(region_cd) == 10 and region_cd[5:] == "00000" and region_cd[2:5] != "000"
+
+
+def _sigungu_name(locatadd_nm: str) -> str:
+    """The last whitespace-separated token of a 법정동 address is its 시군구 name."""
+    parts = (locatadd_nm or "").split()
+    return parts[-1] if parts else ""
+
+
 def derive_crosswalk_from_registry(rows: Sequence[dict[str, Any]]) -> list[dict[str, str]]:
-    """Derive the 시군구 crosswalk from the authority registry alone, no external pairing file.
+    """Derive the 시군구 crosswalk from one registry batch that carries both 생성 and 말소 rows.
 
     A merger abolishes each old 시군구 code and creates a new one that keeps the same
-    시군구 name on the same date (the authority stamps both the 말소일 and the 생성일). So a
+    시군구 name on the same date (a source that stamps both the 말소일 and the 생성일). So a
     superseded code and a freshly-created code that share a 시군구 name at one date are the
     same place, and we link current -> superseded (the direction the parcel map still carries).
-    This reproduces the checked-in seed from the authority's 생성/말소 dates alone (ADR-0103 ③).
+    This reproduces the checked-in seed from such a source's 생성/말소 dates alone (ADR-0103 ③).
+    Use it for the checked-in seed reload or a KIKcd 말소코드포함 import; the current-only REST API
+    carries no 말소 row, so its snapshots feed `derive_crosswalk_across_snapshots` instead (ADR-0104).
 
     Only an unambiguous 1:1 name match at one date is emitted. A renamed 시군구 (no name match)
     or a many-to-one merger (several old codes onto one name) is left out on purpose so the
     steward decides it instead of the code guessing (ADR-0103 ④).
     """
-
-    def is_sigungu(region_cd: str) -> bool:
-        return len(region_cd) == 10 and region_cd[5:] == "00000"
-
-    def sigungu_name(locatadd_nm: str) -> str:
-        parts = (locatadd_nm or "").split()
-        return parts[-1] if parts else ""
-
     created: dict[tuple[str, str], list[str]] = {}
     abolished: dict[tuple[str, str], list[str]] = {}
     for row in rows:
         region_cd = str(row.get("region_cd", "") or "")
-        if not is_sigungu(region_cd):
+        if not _is_sigungu_code(region_cd):
             continue
-        name = sigungu_name(row.get("locatadd_nm", ""))
+        name = _sigungu_name(row.get("locatadd_nm", ""))
         if not name:
             continue
         abolished_date = (row.get("abolished_date") or "").strip()
@@ -184,6 +193,69 @@ def derive_crosswalk_from_registry(rows: Sequence[dict[str, Any]]) -> list[dict[
                 "valid_from": date,
                 "valid_to": "",
                 "provenance": f"derived:registry:sigungu-name+date:{name}:{date}",
+            }
+        )
+    return crosswalk
+
+
+def derive_crosswalk_across_snapshots(
+    prev_rows: Sequence[dict[str, Any]],
+    curr_rows: Sequence[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Derive the 시군구 crosswalk from two consecutive current-only authority snapshots (ADR-0104).
+
+    The authority REST API (`getStanReginCdList`) lists only current codes with a 생성일 and no
+    말소일: a merger shows up as a 시군구 code that was in the earlier snapshot and is gone from the
+    later one (abolished), while a freshly-created code carrying the merger date appears in the
+    later one. A code that vanished and a code that appeared under the same 시군구 name are the same
+    place, and we link current -> superseded (the direction the parcel map still carries), opening
+    the link at the new code's 생성일.
+
+    Only an unambiguous 1:1 name match is emitted: exactly one vanished and one appeared 시군구 for
+    a name. A rename (no name match), a many-to-one merger, or a one-to-many split is left out for
+    the steward (ADR-0103 ④). The provenance prefix (`derived:snapshot-diff:…`) differs from the
+    single-batch derivation's (`derived:registry:…`) so the two never collide and stay auditable,
+    and it is stable across snapshots so re-running a diff appends nothing twice.
+    """
+
+    def sigungu_index(rows: Sequence[dict[str, Any]]) -> dict[str, tuple[str, str]]:
+        index: dict[str, tuple[str, str]] = {}
+        for row in rows:
+            region_cd = str(row.get("region_cd", "") or "")
+            if not _is_sigungu_code(region_cd):
+                continue
+            name = _sigungu_name(row.get("locatadd_nm", ""))
+            if not name:
+                continue
+            index[region_cd] = (name, (row.get("created_date") or "").strip())
+        return index
+
+    prev = sigungu_index(prev_rows)
+    curr = sigungu_index(curr_rows)
+
+    vanished_by_name: dict[str, list[str]] = {}
+    for code, (name, _date) in prev.items():
+        if code not in curr:
+            vanished_by_name.setdefault(name, []).append(code)
+    appeared_by_name: dict[str, list[tuple[str, str]]] = {}
+    for code, (name, date) in curr.items():
+        if code not in prev:
+            appeared_by_name.setdefault(name, []).append((code, date))
+
+    crosswalk: list[dict[str, str]] = []
+    for name in sorted(set(vanished_by_name) & set(appeared_by_name)):
+        old_codes = vanished_by_name[name]
+        new_codes = appeared_by_name[name]
+        if len(old_codes) != 1 or len(new_codes) != 1:
+            continue  # ambiguous (rename / many-to-one / split) -> steward, not a guess
+        new_code, date = new_codes[0]
+        crosswalk.append(
+            {
+                "source_code": new_code[:5],
+                "canonical_code": old_codes[0][:5],
+                "valid_from": date,
+                "valid_to": "",
+                "provenance": f"derived:snapshot-diff:sigungu-name+date:{name}:{date}",
             }
         )
     return crosswalk
@@ -219,6 +291,35 @@ def append_derived_crosswalk(spark, T, prefix, derived_crosswalk):
     frame = spark.createDataFrame([tuple(pair[name] for name in names) for pair in fresh], schema=schema)
     result = append_batch_once(spark, frame, names, target, CROSSWALK_CONTRACT)
     return len(fresh) if result["appended"] else 0
+
+
+def read_prior_snapshot_rows(spark, target, current_snapshot_id):
+    """Return the most recent earlier snapshot's rows from `reference.legal_dong_code`.
+
+    "Earlier" is the largest `source_snapshot_id` strictly less than this batch's (ids are
+    YYYYMMDD-shaped, so lexicographic order is chronological). Returns only the fields the
+    snapshot-diff derivation reads, or an empty list when no earlier snapshot exists (the
+    first-ever load). The snapshot id is compared as a bound column value, never interpolated
+    into SQL text.
+    """
+    from pyspark.sql import functions as F
+
+    frame = spark.sql(
+        f"SELECT region_cd, locatadd_nm, created_date, source_snapshot_id FROM {target}"
+    )
+    earlier = frame.filter(F.col("source_snapshot_id") < current_snapshot_id)
+    prior = earlier.agg(F.max("source_snapshot_id").alias("sid")).collect()
+    prior_id = prior[0]["sid"] if prior else None
+    if not prior_id:
+        return []
+    return [
+        {
+            "region_cd": row["region_cd"],
+            "locatadd_nm": row["locatadd_nm"],
+            "created_date": row["created_date"],
+        }
+        for row in earlier.filter(F.col("source_snapshot_id") == prior_id).collect()
+    ]
 
 
 def parse_args(argv=None):
@@ -285,12 +386,22 @@ def main(argv=None):
         # merger never reaches here: derive_crosswalk_from_registry withholds it for the steward
         # (ADR-0103 ④).
         derived_crosswalk = derive_crosswalk_from_registry(rows)
-        crosswalk_new = append_derived_crosswalk(spark, T, prefix, derived_crosswalk)
+        # The current-only REST API carries no 말소 row, so a merger is only visible as the
+        # difference between two snapshots: diff this batch against the most recent earlier one
+        # already in the table (ADR-0104). A first-ever load has no prior snapshot and yields
+        # nothing here; the checked-in seed bootstraps the pre-collection 광주 merger. Both
+        # derivations feed one append — append_derived_crosswalk dedups by provenance.
+        prior_rows = read_prior_snapshot_rows(spark, target, args.source_snapshot_id)
+        snapshot_diff_crosswalk = derive_crosswalk_across_snapshots(prior_rows, rows)
+        crosswalk_new = append_derived_crosswalk(
+            spark, T, prefix, derived_crosswalk + snapshot_diff_crosswalk
+        )
         summary = {
             "source_snapshot_id": args.source_snapshot_id,
             "rows": len(rows), "current_rows": current_rows,
             "abolished_rows": len(rows) - current_rows,
             "derived_crosswalk_pairs": len(derived_crosswalk),
+            "snapshot_diff_crosswalk_pairs": len(snapshot_diff_crosswalk),
             "crosswalk_pairs_appended": crosswalk_new,
             "elapsed_seconds": time.monotonic() - started,
             **appended,

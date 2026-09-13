@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **435개**
+- 문서 파일: **436개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 162 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 128 |
+| Monorepo | 129 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 184 |
+| ADR | 185 |
 | README | 110 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -476,6 +476,7 @@ docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md
 docs/adr/0101-unit-prices-preserve-every-reference-date.md
 docs/adr/0102-lakehouse-jobs-survive-r2-connection-resets.md
 docs/adr/0103-place-identity-outlives-administrative-code-changes.md
+docs/adr/0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -616,6 +617,7 @@ tools/github/README.md
 | `docs/adr/0101-unit-prices-preserve-every-reference-date.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0102-lakehouse-jobs-survive-r2-connection-resets.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0103-place-identity-outlives-administrative-code-changes.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
