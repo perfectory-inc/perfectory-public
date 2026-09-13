@@ -11,7 +11,8 @@ SPARK_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SPARK_DIR / "jobs"))
 
 from legal_dong_code_registry import (CONTRACT, CROSSWALK_CONTRACT, crosswalk_rows_from_seed,
-                                      parse_args, parse_registry_row, resolve_sigungu)
+                                      derive_crosswalk_from_registry, parse_args,
+                                      parse_registry_row, resolve_sigungu)
 from platform_contracts import (column_names, create_table_columns_sql, load_lakehouse_contract,
                                 load_unit, partition_clause_sql)
 
@@ -132,6 +133,42 @@ class ParseArgsTest(unittest.TestCase):
                      ["--input", "rows.tsv", "--source-snapshot-id", "x", "--iceberg-catalog-name", "bad-name"]):
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 parse_args(argv)
+
+
+class DeriveCrosswalkFromRegistryTest(unittest.TestCase):
+    def test_merger_pairs_derived_by_name_and_date(self):
+        rows = [
+            parse_registry_row(
+                ["1224000000", "12", "240", "000", "00", "전남광주통합특별시 서구", "1200000000", "20260701", ""]),
+            parse_registry_row(
+                ["2914000000", "29", "140", "000", "00", "광주광역시 서구", "2900000000", "19950101", "20260701"]),
+            parse_registry_row(
+                ["1219000000", "12", "190", "000", "00", "전남광주통합특별시 광양시", "1200000000", "20260701", ""]),
+            parse_registry_row(
+                ["4623000000", "46", "230", "000", "00", "전라남도 광양시", "4600000000", "19950101", "20260701"]),
+            # an untouched, still-current 시군구 must not produce a crosswalk row
+            parse_registry_row(
+                ["2611000000", "26", "110", "000", "00", "부산광역시 중구", "2600000000", "19630101", ""]),
+        ]
+        crosswalk = derive_crosswalk_from_registry(rows)
+        pairs = {(r["source_code"], r["canonical_code"]) for r in crosswalk}
+        self.assertIn(("12240", "29140"), pairs)
+        self.assertIn(("12190", "46230"), pairs)
+        self.assertTrue(all(r["valid_from"] == "20260701" for r in crosswalk))
+        self.assertEqual(len(crosswalk), 2)
+
+    def test_ambiguous_many_to_one_is_left_to_the_steward(self):
+        # two old 서구 in different sido abolished onto one new 서구 at one date: the code must
+        # not guess which parcel map the new 서구 inherits — it is left out for the steward.
+        rows = [
+            parse_registry_row(
+                ["1224000000", "12", "240", "000", "00", "전남광주통합특별시 서구", "1200000000", "20260701", ""]),
+            parse_registry_row(
+                ["2914000000", "29", "140", "000", "00", "광주광역시 서구", "2900000000", "19950101", "20260701"]),
+            parse_registry_row(
+                ["4699000000", "46", "990", "000", "00", "전라남도 서구", "4600000000", "19950101", "20260701"]),
+        ]
+        self.assertEqual(derive_crosswalk_from_registry(rows), [])
 
 
 if __name__ == "__main__":
