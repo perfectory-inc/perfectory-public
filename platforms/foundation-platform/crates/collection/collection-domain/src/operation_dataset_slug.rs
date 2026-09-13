@@ -127,6 +127,7 @@ pub fn vworld_ned_dataset_slug(operation: &str) -> Option<&'static str> {
 ///   are already canonical `snake_case` in the catalog, so they collapse directly;
 /// - the data.go.kr building-register map ([`building_register_dataset_slug`]);
 /// - the data.go.kr real-transaction map ([`real_transaction_dataset_slug`]);
+/// - the data.go.kr 행정표준코드 map ([`standard_code_dataset_slug`]);
 /// - the V-World NED attribute map ([`vworld_ned_dataset_slug`]).
 ///
 /// Each map is bijective, so a collapse can NEVER merge two distinct operations onto one key: the
@@ -143,11 +144,12 @@ pub fn operation_collapses_into_slug(operation: &str, source_slug: &str) -> bool
 }
 
 /// Resolves a provider operation to its canonical `dataset_slug` through any of the curated maps
-/// (building-register, real-transaction, V-World NED), or `None` if no map covers it. Used by
-/// [`operation_collapses_into_slug`] after the byte-equality fast path.
+/// (building-register, real-transaction, 행정표준코드, V-World NED), or `None` if no map covers it.
+/// Used by [`operation_collapses_into_slug`] after the byte-equality fast path.
 fn resolve_collapsible_dataset_slug(operation: &str) -> Option<&'static str> {
     building_register_dataset_slug(operation)
         .or_else(|| real_transaction_dataset_slug(operation))
+        .or_else(|| standard_code_dataset_slug(operation))
         .or_else(|| vworld_ned_dataset_slug(operation))
 }
 
@@ -159,17 +161,19 @@ fn resolve_collapsible_dataset_slug(operation: &str) -> Option<&'static str> {
 /// acceptance #7 / D-A). Values are evidence-based (live API probe or official doc):
 /// - building-register `getBr*` -> 100 (provider hard cap; numOfRows=1500 echoes back 100)
 /// - real-transaction `getRTMSDataSvc*` -> 1000 (no provider cap; chosen fixed canonical)
+/// - 행정표준코드 `getStanReginCdList` -> 1000 (live probe: numOfRows=1000 returns full 1000-row pages)
 /// - V-World NED land ops -> 1000 (provider max; numOfRows=1500 rejected "유효한 범위 1~1000")
 /// - V-World cadastral `GetFeature` -> 1000 (V-World 2D Data API doc: size max 1000)
 ///
 /// Returns `None` for operations with no pinned canonical (synthetic/future operations are not
-/// enforced). All five production page-lane operation families above are pinned.
+/// enforced). All six production page-lane operation families above are pinned.
 #[must_use]
 pub fn canonical_page_size(operation: &str) -> Option<u32> {
     if building_register_dataset_slug(operation).is_some() {
         return Some(100);
     }
     if real_transaction_dataset_slug(operation).is_some()
+        || standard_code_dataset_slug(operation).is_some()
         || vworld_ned_dataset_slug(operation).is_some()
     {
         return Some(1000);
@@ -184,7 +188,7 @@ pub fn canonical_page_size(operation: &str) -> Option<u32> {
 mod tests {
     use super::{
         building_register_dataset_slug, canonical_page_size, operation_collapses_into_slug,
-        real_transaction_dataset_slug, vworld_ned_dataset_slug,
+        real_transaction_dataset_slug, standard_code_dataset_slug, vworld_ned_dataset_slug,
     };
     use crate::source_slug;
 
@@ -311,6 +315,16 @@ mod tests {
         ));
     }
 
+    /// data.go.kr 행정표준코드: `getStanReginCdList` is 1:1 with `legal_dong_code`, so it collapses
+    /// (`operation` != `dataset_slug` byte-wise) — same rule as the sibling data.go.kr lanes.
+    #[test]
+    fn collapses_standard_code_operation_via_map() {
+        assert!(operation_collapses_into_slug(
+            "getStanReginCdList",
+            "datagokr__legal_dong_code"
+        ));
+    }
+
     /// V-World NED / land-register provider operation collapses against its 1:1 dataset slug (D-C).
     #[test]
     fn collapses_vworld_ned_operation_via_map() {
@@ -366,6 +380,24 @@ mod tests {
     #[test]
     fn canonical_page_size_pins_real_transaction_to_1000() {
         assert_eq!(canonical_page_size("getRTMSDataSvcInduTrade"), Some(1000));
+    }
+
+    /// 행정표준코드 `getStanReginCdList` pins to 1000 (live probe: full 1000-row pages).
+    #[test]
+    fn canonical_page_size_pins_standard_code_to_1000() {
+        assert_eq!(canonical_page_size("getStanReginCdList"), Some(1000));
+    }
+
+    /// The 행정표준코드 map feeds the same `source_slug` generator as its sibling lanes.
+    #[test]
+    fn standard_code_map_feeds_the_generator() -> Result<(), Box<dyn std::error::Error>> {
+        let dataset_slug =
+            standard_code_dataset_slug("getStanReginCdList").ok_or("expected a dataset_slug")?;
+        assert_eq!(
+            source_slug("data.go.kr", dataset_slug)?,
+            "datagokr__legal_dong_code"
+        );
+        Ok(())
     }
 
     /// V-World NED land operations pin to 1000 (provider max).
