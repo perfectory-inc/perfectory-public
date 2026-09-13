@@ -12,8 +12,8 @@ sys.path.insert(0, str(SPARK_DIR / "jobs"))
 
 from legal_dong_code_registry import (CONTRACT, CROSSWALK_CONTRACT, crosswalk_rows_from_seed,
                                       derive_crosswalk_across_snapshots,
-                                      derive_crosswalk_from_registry, parse_args,
-                                      parse_registry_row, resolve_sigungu,
+                                      derive_crosswalk_from_registry, derive_unit_transitions,
+                                      parse_args, parse_registry_row, resolve_sigungu,
                                       stanregin_api_row_to_registry_fields,
                                       steward_review_across_snapshots, steward_review_from_registry)
 from platform_contracts import (column_names, create_table_columns_sql, load_lakehouse_contract,
@@ -318,6 +318,73 @@ class StanReginApiRowTest(unittest.TestCase):
         self.assertEqual(fields[0], "")
         with self.assertRaises(ValueError):
             parse_registry_row(fields)
+
+
+class DeriveUnitTransitionsTest(unittest.TestCase):
+    """The crosswalk (source=현행 신코드, canonical=폐지 구코드) is promoted to canonical
+    transition edges. Direction is always predecessor -> successor (from=구, to=신), matching
+    ADR-0103's `superseded_by`; transition_kind names the cardinality of the change."""
+
+    def _pair(self, source_code, canonical_code, valid_from="20260701", provenance="test"):
+        # A crosswalk row as reference.sigungu_canonical_crosswalk stores it.
+        return {"source_code": source_code, "canonical_code": canonical_code,
+                "valid_from": valid_from, "valid_to": "", "provenance": provenance}
+
+    def test_seed_pairs_become_replaced_by_edges_old_to_new(self):
+        # Every seed pair is a clean 1:1 rename, so each is a replaced_by edge whose direction
+        # is inverted from the crosswalk: from = 폐지 구코드 (canonical), to = 현행 신코드 (source).
+        crosswalk = crosswalk_rows_from_seed(seed())
+        transitions = derive_unit_transitions(crosswalk)
+        self.assertEqual(len(transitions), len(crosswalk))
+        self.assertTrue(all(t["transition_kind"] == "replaced_by" for t in transitions))
+        by_pair = {(t["from_code"], t["to_code"]): t for t in transitions}
+        # 12240 (현행 서구) supersedes 29140 (지적이 아직 싣는 코드): the edge points 29140 -> 12240.
+        self.assertIn(("29140", "12240"), by_pair)
+        self.assertIn(("46230", "12190"), by_pair)
+        self.assertTrue(all(t["from_code"] != t["to_code"] for t in transitions))
+        self.assertTrue(all(t["valid_from"] == "20260701" for t in transitions))
+
+    def test_many_predecessors_one_successor_is_merged_into(self):
+        # Two 폐지 시군구 onto one 현행 시군구 (a steward-approved merge): each edge is merged_into.
+        crosswalk = [self._pair("12240", "29140"), self._pair("12240", "46990")]
+        transitions = derive_unit_transitions(crosswalk)
+        self.assertEqual({(t["from_code"], t["to_code"]) for t in transitions},
+                         {("29140", "12240"), ("46990", "12240")})
+        self.assertTrue(all(t["transition_kind"] == "merged_into" for t in transitions))
+
+    def test_one_predecessor_many_successors_is_split_from(self):
+        # One 폐지 시군구 into two 현행 시군구 (a steward-approved split): each edge is split_from.
+        crosswalk = [self._pair("12240", "29140"), self._pair("12250", "29140")]
+        transitions = derive_unit_transitions(crosswalk)
+        self.assertEqual({(t["from_code"], t["to_code"]) for t in transitions},
+                         {("29140", "12240"), ("29140", "12250")})
+        self.assertTrue(all(t["transition_kind"] == "split_from" for t in transitions))
+
+    def test_many_to_many_tangle_is_withheld_for_the_steward(self):
+        # A 2x2 bipartite reshuffle: every edge has both a shared predecessor and a shared
+        # successor, so none can be classified — the code must not guess (ADR-0103 ④).
+        crosswalk = [self._pair("12240", "29140"), self._pair("12250", "29140"),
+                     self._pair("12240", "46990"), self._pair("12250", "46990")]
+        self.assertEqual(derive_unit_transitions(crosswalk), [])
+
+    def test_provenance_is_namespaced_and_stable_across_reruns(self):
+        # Append-only tables re-read the whole crosswalk; a deterministic provenance lets the
+        # publisher skip edges it already wrote instead of double-appending (like the crosswalk).
+        crosswalk = crosswalk_rows_from_seed(seed())
+        first = derive_unit_transitions(crosswalk)
+        second = derive_unit_transitions(list(crosswalk))
+        self.assertEqual(first, second)
+        self.assertTrue(all(t["provenance"].startswith("derived:transition:") for t in first))
+        self.assertEqual(len({t["provenance"] for t in first}), len(first))
+
+    def test_a_pair_without_a_date_is_not_a_transition(self):
+        # effective_period needs a lower bound (ADR migration's period_check); an undated pair
+        # cannot form one, so it is skipped rather than emitted with an empty period.
+        self.assertEqual(derive_unit_transitions([self._pair("12240", "29140", valid_from="")]), [])
+
+    def test_a_degenerate_self_pair_is_skipped(self):
+        # from_unit <> to_unit is enforced by the table; a code mapped to itself is not a change.
+        self.assertEqual(derive_unit_transitions([self._pair("12240", "12240")]), [])
 
 
 if __name__ == "__main__":

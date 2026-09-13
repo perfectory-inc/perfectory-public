@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **437개**
-- 언어 분류: **{'english': 35, 'korean': 241, 'mixed': 161}**
+- 감사 문서: **438개**
+- 언어 분류: **{'english': 35, 'korean': 242, 'mixed': 161}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **210개 정상 / 0개 누락 / 227개 해당 없음**
+- 메타데이터: **210개 정상 / 0개 누락 / 228개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -124,8 +124,9 @@
 | `docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0101-unit-prices-preserve-every-reference-date.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0102-lakehouse-jobs-survive-r2-connection-resets.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 1 |
-| `docs/adr/0103-place-identity-outlives-administrative-code-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0103-place-identity-outlives-administrative-code-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0105-the-canonical-transition-table-is-produced-from-the-derived-crosswalk.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

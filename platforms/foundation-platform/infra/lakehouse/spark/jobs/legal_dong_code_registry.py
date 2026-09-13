@@ -385,6 +385,78 @@ def steward_review_across_snapshots(
     return review
 
 
+def derive_unit_transitions(crosswalk: Sequence[dict[str, Any]]) -> list[dict[str, str]]:
+    """Promote crosswalk pairs into canonical administrative-unit transition edges (ADR-0105).
+
+    Each `reference.sigungu_canonical_crosswalk` row links a 현행 신코드 (`source_code`) to the
+    폐지 구코드 (`canonical_code`) the parcel map still carries. A transition edge is that same fact
+    read as identity over time, so its direction is inverted to predecessor -> successor
+    (`from_code` = 폐지 구코드, `to_code` = 현행 신코드), matching ADR-0103's `superseded_by`.
+
+    `transition_kind` is named by the cardinality of the change, so one kernel serves both the
+    auto-derived crosswalk (only clean 1:1 pairs, so every edge is `replaced_by`) and a steward-
+    approved merge or split:
+
+    - one predecessor, one successor -> `replaced_by`
+    - many predecessors, one successor -> `merged_into` (each old code merged into the one new code)
+    - one predecessor, many successors -> `split_from` (each new code split from the one old code)
+
+    A pair caught in a many-to-many reshuffle (a shared predecessor *and* a shared successor) cannot
+    be classified without guessing, so it is left out for the steward (ADR-0103 ④) instead of being
+    stamped with a made-up kind. The provenance `derived:transition:{kind}:{from}->{to}:{valid_from}`
+    is deterministic, so re-running over the whole append-only crosswalk yields the same edges and the
+    publisher lands none twice — the same discipline `append_derived_crosswalk` relies on.
+    """
+
+    def edge(row: dict[str, Any]) -> tuple[str, str, str] | None:
+        from_code = (row.get("canonical_code") or "").strip()  # 폐지 구코드 = predecessor
+        to_code = (row.get("source_code") or "").strip()  # 현행 신코드 = successor
+        valid_from = (row.get("valid_from") or "").strip()
+        # A self-pair is not a change (the table's from_unit <> to_unit), and a dateless pair cannot
+        # open an effective period (its period_check) — neither is a transition. Both passes below
+        # read a row through this one gate so the cardinality count and the emission cannot drift.
+        if not from_code or not to_code or from_code == to_code or not valid_from:
+            return None
+        return from_code, to_code, valid_from
+
+    successors_by_pred: dict[str, set[str]] = {}
+    predecessors_by_succ: dict[str, set[str]] = {}
+    for row in crosswalk:
+        parsed = edge(row)
+        if parsed is None:
+            continue
+        from_code, to_code, _valid_from = parsed
+        successors_by_pred.setdefault(from_code, set()).add(to_code)
+        predecessors_by_succ.setdefault(to_code, set()).add(from_code)
+
+    transitions: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in crosswalk:
+        parsed = edge(row)
+        if parsed is None:
+            continue
+        from_code, to_code, valid_from = parsed
+        if (from_code, to_code) in seen:
+            continue
+        seen.add((from_code, to_code))
+        n_succ = len(successors_by_pred[from_code])
+        n_pred = len(predecessors_by_succ[to_code])
+        if n_succ > 1 and n_pred > 1:
+            continue  # many-to-many reshuffle -> steward, not a guess (ADR-0103 ④)
+        kind = "split_from" if n_succ > 1 else "merged_into" if n_pred > 1 else "replaced_by"
+        transitions.append(
+            {
+                "from_code": from_code,
+                "to_code": to_code,
+                "transition_kind": kind,
+                "valid_from": valid_from,
+                "provenance": f"derived:transition:{kind}:{from_code}->{to_code}:{valid_from}",
+            }
+        )
+    transitions.sort(key=lambda t: (t["valid_from"], t["from_code"], t["to_code"]))
+    return transitions
+
+
 def append_derived_crosswalk(spark, T, prefix, derived_crosswalk):
     """Append newly-derived crosswalk pairs to reference.sigungu_canonical_crosswalk.
 
