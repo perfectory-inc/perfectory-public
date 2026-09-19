@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **442개**
+- 문서 파일: **443개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -18,7 +18,7 @@
 | Foundation Platform | 112 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 17 |
-| Intelligence Platform | 18 |
+| Intelligence Platform | 19 |
 | Monorepo | 131 |
 | Repository tooling | 1 |
 
@@ -26,7 +26,7 @@
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 189 |
+| ADR | 190 |
 | README | 111 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -363,6 +363,7 @@ platforms/intelligence-platform/docs/adr/0002-canonical-release-rag-design.md
 platforms/intelligence-platform/docs/adr/0003-korean-morphology-in-rust.md
 platforms/intelligence-platform/docs/adr/0004-retriever-fusion-over-a-single-scorer.md
 platforms/intelligence-platform/docs/adr/0005-result-assembly-diversity-and-context.md
+platforms/intelligence-platform/docs/adr/0006-default-model-follows-measured-accuracy.md
 platforms/intelligence-platform/docs/adr/README.md
 platforms/intelligence-platform/docs/architecture.md
 platforms/intelligence-platform/docs/README.md
@@ -786,6 +787,7 @@ tools/github/README.md
 | `platforms/intelligence-platform/docs/adr/0003-korean-morphology-in-rust.md` | Intelligence Platform | ADR | current |
 | `platforms/intelligence-platform/docs/adr/0004-retriever-fusion-over-a-single-scorer.md` | Intelligence Platform | ADR | current |
 | `platforms/intelligence-platform/docs/adr/0005-result-assembly-diversity-and-context.md` | Intelligence Platform | ADR | current |
+| `platforms/intelligence-platform/docs/adr/0006-default-model-follows-measured-accuracy.md` | Intelligence Platform | ADR | current |
 | `platforms/intelligence-platform/docs/adr/README.md` | Intelligence Platform | README | current |
 | `platforms/intelligence-platform/docs/architecture.md` | Intelligence Platform | documentation | current |
 | `platforms/intelligence-platform/docs/README.md` | Intelligence Platform | README | current |
