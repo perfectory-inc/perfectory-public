@@ -62,10 +62,16 @@ pub enum BuildingRegisterUnitReason {
     AcceptedNumericUnit,
     /// A safe non-numeric unit label was preserved.
     AcceptedUnitLabel,
+    /// The 호명 names a whole floor (`4층`, `지하1층 전체`) that the explicit floor
+    /// fields corroborate; the row is that floor's space, not a numbered unit.
+    AcceptedFloorSpace,
     /// The 호명 was empty.
     EmptyUnitName,
     /// The 호명 carried no extractable unit number (for example `나형지층`).
     NoUnitNumber,
+    /// The 호명 joins several unit numbers (`401,2`); splitting them is a
+    /// structural decision, not an extraction.
+    MergedUnitName,
 }
 
 impl BuildingRegisterUnitReason {
@@ -75,8 +81,10 @@ impl BuildingRegisterUnitReason {
         match self {
             Self::AcceptedNumericUnit => "accepted_numeric_unit",
             Self::AcceptedUnitLabel => "accepted_unit_label",
+            Self::AcceptedFloorSpace => "accepted_floor_space",
             Self::EmptyUnitName => "empty_unit_name",
             Self::NoUnitNumber => "no_unit_number",
+            Self::MergedUnitName => "merged_unit_name",
         }
     }
 }
@@ -163,7 +171,45 @@ pub fn normalize_building_register_unit(
 
     let unit_designation = building_register_unit_designation(unit_name);
 
-    let unit_number = extract_paren_floor_annotated_unit_number(unit_name)
+    if is_merged_unit_name(unit_name) {
+        return unit(
+            dong_join_name,
+            None,
+            None,
+            unit_designation,
+            floor,
+            BuildingRegisterUnitStatus::ProposalRequired,
+            BuildingRegisterUnitReason::MergedUnitName,
+        );
+    }
+
+    match classify_floor_space_name(unit_name, &floor) {
+        FloorSpaceVerdict::CorroboratedByFloorFields => {
+            return unit(
+                dong_join_name,
+                None,
+                None,
+                unit_designation,
+                floor,
+                BuildingRegisterUnitStatus::Accepted,
+                BuildingRegisterUnitReason::AcceptedFloorSpace,
+            );
+        }
+        FloorSpaceVerdict::ContradictedByFloorFields => {
+            return unit(
+                dong_join_name,
+                None,
+                None,
+                unit_designation,
+                floor,
+                BuildingRegisterUnitStatus::ProposalRequired,
+                BuildingRegisterUnitReason::NoUnitNumber,
+            );
+        }
+        FloorSpaceVerdict::NotAFloorName => {}
+    }
+
+    let unit_number = extract_paren_annotated_unit_number(unit_name)
         .or_else(|| extract_unit_number(unit_name))
         .or_else(|| extract_floor_scoped_unit_number(unit_name, &floor));
 
@@ -202,29 +248,96 @@ pub fn normalize_building_register_unit(
     }
 }
 
-/// `N(M층)` / `N(지하M층)` — the leading run is the unit and the parenthesis is a
-/// floor annotation, so last-run extraction would wrongly return the floor and
-/// collapse a whole floor of units onto one number.
-fn extract_paren_floor_annotated_unit_number(unit_name: &str) -> Option<u32> {
+/// Whether the 호명 names a whole floor, and whether the explicit floor fields
+/// back it up.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FloorSpaceVerdict {
+    /// The name is a floor word and the floor fields say the same floor.
+    CorroboratedByFloorFields,
+    /// The name is a floor word but the floor fields disagree or are unfilled.
+    ContradictedByFloorFields,
+    /// The name is not a floor word.
+    NotAFloorName,
+}
+
+/// `4층` / `지상3층` / `지하1층 전체` — a floor name (optional 전체/전층/일부
+/// suffix) is that floor's space, not a numbered unit. Last-run extraction would
+/// read the floor digits as a 호번호 and hand every such row a fake unit number,
+/// so the name is only accepted as a floor space when the explicit floor fields
+/// corroborate it, and otherwise stays on the proposal path.
+fn classify_floor_space_name(
+    unit_name: &str,
+    floor: &NormalizedBuildingRegisterFloor,
+) -> FloorSpaceVerdict {
     let compact: String = unit_name
         .chars()
         .filter(|value| !value.is_whitespace())
         .collect();
-    let body = compact.strip_suffix(')')?;
-    let (unit_part, floor_part) = body.split_once('(')?;
+    let body = ["전체", "전층", "일부"]
+        .iter()
+        .find_map(|suffix| compact.strip_suffix(suffix))
+        .unwrap_or(&compact);
+    let (body, expects_basement) = body.strip_prefix("지하").map_or_else(
+        || (body.strip_prefix("지상").unwrap_or(body), false),
+        |rest| (rest, true),
+    );
+    let Some(digits) = body.strip_suffix('층') else {
+        return FloorSpaceVerdict::NotAFloorName;
+    };
+    if digits.is_empty() || digits.len() > 3 || !digits.bytes().all(|value| value.is_ascii_digit())
+    {
+        return FloorSpaceVerdict::NotAFloorName;
+    }
+    let Ok(number) = digits.parse::<u16>() else {
+        return FloorSpaceVerdict::NotAFloorName;
+    };
+    let corroborated = if expects_basement {
+        floor.kind == BuildingRegisterFloorKind::Basement
+            && floor.floor_number.is_none_or(|value| value == number)
+    } else {
+        floor.kind == BuildingRegisterFloorKind::AboveGround && floor.floor_number == Some(number)
+    };
+    if corroborated {
+        FloorSpaceVerdict::CorroboratedByFloorFields
+    } else {
+        FloorSpaceVerdict::ContradictedByFloorFields
+    }
+}
+
+/// `401,2` / `301.302` — digit runs joined by list separators name several units
+/// merged into one row. Last-run extraction would mint a unit that does not
+/// exist (`2호`), and splitting the merge is a structural decision, so these
+/// stay on the proposal path.
+fn is_merged_unit_name(unit_name: &str) -> bool {
+    let compact: String = unit_name
+        .chars()
+        .filter(|value| !value.is_whitespace())
+        .collect();
+    let body = compact.strip_suffix('호').unwrap_or(&compact);
+    let parts: Vec<&str> = body.split([',', '.', '·']).collect();
+    parts.len() >= 2 && parts.iter().all(|part| is_short_digit_run(part))
+}
+
+fn is_short_digit_run(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 4 && value.bytes().all(|value| value.is_ascii_digit())
+}
+
+/// `N(M층)` / `N호(32A평형)` / `N(1동)` — a leading digit run followed only by a
+/// parenthetical annotation. The annotation (floor, 평형, block, transliteration)
+/// often carries digits of its own, so last-run extraction would read those and
+/// collapse every annotated unit onto the annotation's number.
+fn extract_paren_annotated_unit_number(unit_name: &str) -> Option<u32> {
+    let compact: String = unit_name
+        .chars()
+        .filter(|value| !value.is_whitespace())
+        .collect();
+    let body = compact.strip_suffix('호').unwrap_or(&compact);
+    let body = body.strip_suffix(')')?;
+    let (unit_part, _annotation) = body.split_once('(')?;
+    let unit_part = unit_part.strip_suffix('호').unwrap_or(unit_part);
     if unit_part.is_empty()
         || unit_part.len() > 5
         || !unit_part.bytes().all(|value| value.is_ascii_digit())
-    {
-        return None;
-    }
-    let floor_digits = floor_part
-        .strip_prefix("지하")
-        .unwrap_or(floor_part)
-        .strip_suffix('층')?;
-    if floor_digits.is_empty()
-        || floor_digits.len() > 3
-        || !floor_digits.bytes().all(|value| value.is_ascii_digit())
     {
         return None;
     }
