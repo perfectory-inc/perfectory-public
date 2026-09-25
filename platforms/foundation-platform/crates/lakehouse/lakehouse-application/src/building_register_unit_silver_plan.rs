@@ -4,8 +4,8 @@ use crate::building_register_row_identity::row_identity;
 use std::collections::{BTreeMap, HashMap};
 
 use foundation_normalization_domain::{
-    normalize_building_register_unit, BuildingRegisterUnitReason, NormalizedBuildingRegisterUnit,
-    RawBuildingRegisterFloor, RawBuildingRegisterUnit,
+    normalize_building_register_unit, NormalizedBuildingRegisterUnit, RawBuildingRegisterFloor,
+    RawBuildingRegisterUnit,
 };
 
 use crate::building_register_title::BuildingTitleKeyIndex;
@@ -559,13 +559,7 @@ pub(crate) fn validate_pnu_block_invariant(
 }
 
 fn unit_reason_wire(normalized: &NormalizedBuildingRegisterUnit) -> String {
-    match normalized.reason {
-        BuildingRegisterUnitReason::AcceptedNumericUnit => "accepted_numeric_unit",
-        BuildingRegisterUnitReason::AcceptedUnitLabel => "accepted_unit_label",
-        BuildingRegisterUnitReason::EmptyUnitName => "empty_unit_name",
-        BuildingRegisterUnitReason::NoUnitNumber => "no_unit_number",
-    }
-    .to_owned()
+    normalized.reason.wire_name().to_owned()
 }
 
 fn row_to_json_value(row: &BuildingRegisterUnitSilverRow) -> JsonValue {
