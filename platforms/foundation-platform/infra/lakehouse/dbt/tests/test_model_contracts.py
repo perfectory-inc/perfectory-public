@@ -379,8 +379,8 @@ class FoundationDbtModelContractTest(unittest.TestCase):
             "silver.building_register_exclusive_unit": "대장 전유부 원본 — 정규화 대상(본류)",
             "silver.land_right_registration": "등기 대지권 — 교차확증 증인 (본 후보 모델)",
             "silver.unit_official_price": (
-                "세대 공시가격 — 셋째 증인 (price_name_candidates; 운영 검산 "
-                "유일 확증 19,603, 이름 티어 밖 12,096)"
+                "세대 공시가격 — 열쇠 기반 증인 (price_candidates; 원천이 대장 "
+                "관리번호 보유, 운영 검산 열쇠 조인 24,736·이름 검증 일치 99.45%)"
             ),
             "silver.industrial_complexes": "단지 표시명 — 식별은 코드(두 id 체계), 이름은 표시용",
             "silver.building_register_floors": "층구분명 원문 — 어휘 칸, 층 규칙이 정규화(식별자 아님)",
@@ -418,26 +418,31 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         )
         self.assertIn("'building-unit-land-right-corroboration.v1' as rule_version", sql)
 
-    def test_price_name_witness_uses_shared_normalizer_and_stays_unique(self) -> None:
+    def test_price_witness_is_key_based_with_a_name_agreement_band(self) -> None:
         sources = self.read("models/sources/foundation_sources.yml")
         staging = self.read("models/staging/foundation/stg_foundation__unit_official_price.sql")
         candidates = self.read(
             "models/intermediate/entity_resolution/"
-            "int_entity_resolution__building_register_unit_price_name_candidates.sql"
+            "int_entity_resolution__building_register_unit_price_candidates.sql"
         )
         link = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
 
         self.assertIn("name: unit_official_price", sources)
         self.assertIn("{{ source('foundation', 'unit_official_price') }}", staging)
+        # 열쇠 기반: 관리번호 + pnu 동시 일치, 열쇠당 단일 표기만 후보다.
+        self.assertIn("price_latest.mgm_bldrgst_pk = unit_scope.mgm_bldrgst_pk", candidates)
+        self.assertIn("price_latest.pnu = unit_scope.pnu", candidates)
+        self.assertIn("key_rollup.distinct_names = 1", candidates)
+        # 이름 합치는 밴드를 가른다 — 표기 불일치는 medium/needs_review 로 남는다.
+        self.assertIn("MGM_KEY_AND_NORMALIZED_NAME", candidates)
+        self.assertIn("MGM_KEY_ONLY", candidates)
         self.assertIn("{{ foundation_normalized_unit_name(", candidates)
         self.assertIn("{{ foundation_unit_name_is_string_clean(", candidates)
-        self.assertIn("unit_name_counts.unit_count = 1", candidates)
-        self.assertIn("price_name_counts.price_count = 1", candidates)
         self.assertIn(
-            "{{ ref('int_entity_resolution__building_register_unit_price_name_candidates') }}",
+            "{{ ref('int_entity_resolution__building_register_unit_price_candidates') }}",
             link,
         )
-        self.assertIn("'building-unit-price-name-corroboration.v1' as rule_version", link)
+        self.assertIn("'building-unit-price-corroboration.v1' as rule_version", link)
 
 
 if __name__ == "__main__":

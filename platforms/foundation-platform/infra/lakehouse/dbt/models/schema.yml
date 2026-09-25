@@ -307,8 +307,8 @@ models:
               config:
                 tags: ["full_quality"]
 
-  - name: int_entity_resolution__building_register_unit_price_name_candidates
-    description: Third-witness corroboration of proposal-required building units by uniquely matching official-price names on the same parcel (ADR-0106).
+  - name: int_entity_resolution__building_register_unit_price_candidates
+    description: Key-based corroboration of proposal-required building units by the official-price register key, with a name-agreement band (ADR-0106).
     columns:
       - name: target_entity_id
         tests: [not_null, unique]

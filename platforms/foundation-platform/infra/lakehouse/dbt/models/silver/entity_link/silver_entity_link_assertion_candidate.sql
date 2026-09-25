@@ -93,7 +93,7 @@ select
     confidence_band,
     json_format(cast(map(array['match_path'], array[match_path]) as json)) as evidence,
     cast(null as varchar) as blocking_keys,
-    'building-unit-price-name-corroboration.v1' as rule_version,
+    'building-unit-price-corroboration.v1' as rule_version,
     cast(null as varchar) as model_name,
     cast(null as varchar) as model_version,
     cast(null as varchar) as model_run_id,
@@ -103,7 +103,7 @@ select
     end as review_state,
     'candidate' as publish_state,
     cast(null as varchar) as decision_reason,
-    'dbt:int_entity_resolution__building_register_unit_price_name_candidates' as created_by,
+    'dbt:int_entity_resolution__building_register_unit_price_candidates' as created_by,
     current_timestamp as created_at,
     cast(null as varchar) as reviewed_by,
     cast(null as timestamp) as reviewed_at,
@@ -111,4 +111,4 @@ select
     cast(null as timestamp) as published_at,
     cast(null as varchar) as supersedes_assertion_id,
     lineage_run_id
-from {{ ref('int_entity_resolution__building_register_unit_price_name_candidates') }}
+from {{ ref('int_entity_resolution__building_register_unit_price_candidates') }}
