@@ -269,7 +269,9 @@ pub(super) fn unit_response(unit: &BuildingUnitRow) -> UnitResponse {
         id: unit.id,
         parcel_id: unit.parcel_id,
         building_id: unit.building_id,
-        building_name: unit.building_name.clone(),
+        // 원천 대장은 호 수준의 건물명을 주지 않는다. 응답 계약의 building_name 은
+        // 동명칭에서 파생한다 — 옛 building_name 칸은 전 행이 dong_name 복사본이었다.
+        building_name: unit.dong_name.clone(),
         dong_name: unit.dong_name.clone(),
         ho_name: unit.ho_name.clone(),
         floor_label: unit.floor_label.clone(),

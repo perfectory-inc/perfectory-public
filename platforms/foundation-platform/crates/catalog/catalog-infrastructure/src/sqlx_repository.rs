@@ -45,9 +45,9 @@ pub struct BuildingUnitRow {
     /// unresolved or the building is a parcel orphan absent from the catalog — an answer,
     /// not a failure, and exposed as such (ADR-0076 §4).
     pub building_id: Option<Uuid>,
-    /// 건물명 (normalized building name, may be empty).
-    pub building_name: String,
-    /// 동명칭 — only real 동 numbers (e.g. `109동`); empty otherwise.
+    /// 동명칭 — only real 동 numbers (e.g. `109동`); empty otherwise. The catalog carries
+    /// no separate building name: the source register has none at unit level, and the
+    /// old `building_name` column was a full copy of this value (15,192,377/15,192,377).
     pub dong_name: String,
     /// 호명칭.
     pub ho_name: String,
@@ -79,7 +79,6 @@ fn row_to_building_unit(row: &sqlx::postgres::PgRow) -> Result<BuildingUnitRow, 
         id: row.try_get("id").map_err(map_sqlx)?,
         parcel_id: row.try_get("parcel_id").map_err(map_sqlx)?,
         building_id: row.try_get("building_id").map_err(map_sqlx)?,
-        building_name: row.try_get("building_name").map_err(map_sqlx)?,
         dong_name: row.try_get("dong_name").map_err(map_sqlx)?,
         ho_name: row.try_get("ho_name").map_err(map_sqlx)?,
         floor_label: row.try_get("floor_label").map_err(map_sqlx)?,
@@ -108,7 +107,7 @@ impl PgCatalogRepository {
     /// Returns a [`CatalogError`] when the query fails.
     pub async fn list_units_by_pnu(&self, pnu: &Pnu) -> Result<Vec<BuildingUnitRow>, CatalogError> {
         let rows = sqlx::query(
-            "SELECT u.id, u.parcel_id, u.building_id, u.building_name, u.dong_name, u.ho_name,
+            "SELECT u.id, u.parcel_id, u.building_id, u.dong_name, u.ho_name,
                     u.floor_label, u.exclusive_area_m2, u.usage_name, u.structure_name
              FROM catalog.building_unit u
              JOIN catalog.parcel p ON p.id = u.parcel_id
@@ -173,7 +172,7 @@ impl PgCatalogRepository {
         after: Option<&UnitPageKey>,
         limit: i64,
     ) -> Result<Vec<BuildingUnitRow>, CatalogError> {
-        const COLUMNS: &str = "u.id, u.parcel_id, u.building_id, u.building_name, u.dong_name, \
+        const COLUMNS: &str = "u.id, u.parcel_id, u.building_id, u.dong_name, \
              u.ho_name, u.floor_label, u.exclusive_area_m2, u.usage_name, u.structure_name";
         let rows = match after {
             Some(key) => {
