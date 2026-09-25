@@ -14,6 +14,7 @@ select
         nullif(unit_name_raw, '')
     ) as unit_label,
     unit_number,
+    nullif(normalization_status, '') as normalization_status,
     floor_number,
     floor_index,
     case

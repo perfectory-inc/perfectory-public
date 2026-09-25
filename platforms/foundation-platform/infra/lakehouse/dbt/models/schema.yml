@@ -235,3 +235,87 @@ models:
                 values: ["candidate", "published", "withheld", "quarantined", "superseded"]
       - name: lineage_run_id
         tests: [not_null]
+
+  - name: stg_foundation__land_right_registration
+    description: Foundation VWorld NED land-right registration snapshot staged for corroboration (ADR-0106).
+    columns:
+      - name: source_record_id
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+      - name: pnu
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+      - name: ho_name
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+
+  - name: int_entity_resolution__building_register_unit_land_right_candidates
+    description: Deterministic corroboration of proposal-required building units by uniquely matching land-right names on the same parcel (ADR-0106).
+    columns:
+      - name: target_entity_id
+        tests: [not_null, unique]
+      - name: source_record_id
+        tests: [not_null]
+      - name: confidence_band
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["high", "medium", "low", "unknown"]
+
+  - name: int_entity_resolution__building_register_unit_land_right_funnel
+    description: Diagnostic funnel that reproduces the 2026-09-25 corroboration census stages in production runs (ADR-0106).
+    columns:
+      - name: stage_order
+        tests: [not_null, unique]
+      - name: diagnostic_stage
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              arguments:
+                values:
+                  - units_in_corroboration_scope
+                  - on_parcels_with_land_rights
+                  - uniquely_corroborated
+                  - floor_recovered
+                  - ambiguous_matches
+      - name: affected_row_count
+        tests: [not_null]
+
+  - name: stg_foundation__unit_official_price
+    description: Foundation unit official price snapshot staged as a third corroboration witness (ADR-0106).
+    columns:
+      - name: source_record_id
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+      - name: pnu
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+      - name: ho_name
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+
+  - name: int_entity_resolution__building_register_unit_price_candidates
+    description: Key-based corroboration of proposal-required building units by the official-price register key, with a name-agreement band (ADR-0106).
+    columns:
+      - name: target_entity_id
+        tests: [not_null, unique]
+      - name: source_record_id
+        tests: [not_null]
+      - name: confidence_band
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["high", "medium", "low", "unknown"]

@@ -16,3 +16,9 @@ sources:
       - name: building_register_unit_area
         identifier: building_register_unit_areas
         description: Foundation canonical building register unit area snapshot.
+      - name: land_right_registration
+        identifier: land_right_registration
+        description: Foundation canonical VWorld NED land-right registration snapshot (대지권).
+      - name: unit_official_price
+        identifier: unit_official_price
+        description: Foundation canonical unit official price snapshot (세대 공시가격, hub.go.kr).
