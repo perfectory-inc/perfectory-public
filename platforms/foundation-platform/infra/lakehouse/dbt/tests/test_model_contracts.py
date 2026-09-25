@@ -409,6 +409,25 @@ class FoundationDbtModelContractTest(unittest.TestCase):
                     "but has no entity-resolution role assigned",
                 )
 
+    def test_number_disputes_worklist_grades_with_the_shared_normalizer(self) -> None:
+        disputes = self.read(
+            "models/intermediate/entity_resolution/"
+            "int_entity_resolution__building_register_unit_number_disputes.sql"
+        )
+        schema = self.read("models/schema.yml")
+
+        # 채점도 같은 정규형 SSOT 로 — 다른 정규화로 채점하면 가짜 분쟁이 생긴다.
+        self.assertIn("{{ foundation_normalized_unit_name(", disputes)
+        self.assertIn("{{ foundation_unit_name_is_string_clean(", disputes)
+        # 분쟁 정의: 유일 일치 + 숫자 증인 + 번호 불일치.
+        self.assertIn("unit_name_counts.unit_count = 1", disputes)
+        self.assertIn("right_name_counts.right_count = 1", disputes)
+        self.assertIn("<> unit_scope.unit_number", disputes)
+        # 이 모델은 후보를 내지 않는다 — 링크 합류 모델이 참조하면 안 된다.
+        link = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
+        self.assertNotIn("number_disputes", link)
+        self.assertIn("int_entity_resolution__building_register_unit_number_disputes", schema)
+
     def test_entity_link_model_unions_land_right_candidates(self) -> None:
         sql = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
 
