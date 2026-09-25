@@ -354,9 +354,9 @@ impl SsotFixture {
         ] {
             sqlx::query(
                 "INSERT INTO catalog.building_unit
-                 (id, parcel_id, building_id, register_pk, building_name, dong_name, ho_name,
+                 (id, parcel_id, building_id, register_pk, dong_name, ho_name,
                   floor_label, exclusive_area_m2, usage_name, structure_name)
-                 VALUES ($1, $2, $3, $4, '본관', $5, $6, '1층', 84.5, '공장', '철골')",
+                 VALUES ($1, $2, $3, $4, $5, $6, '1층', 84.5, '공장', '철골')",
             )
             .bind(unit_id)
             .bind(self.parcel_id.as_uuid())
