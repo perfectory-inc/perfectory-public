@@ -118,3 +118,4 @@ last_reviewed: 2026-07-28
 - [0104 — 권위 API가 현행뿐이라 크로스워크는 스냅숏 차이에서 나온다](./0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md)
 - [0105 — 정본 전이표는 도출된 크로스워크에서 나온다](./0105-the-canonical-transition-table-is-produced-from-the-derived-crosswalk.md)
 - [0106 — 등기 대지권 이름이 호 정규화를 교차확증한다](./0106-land-right-names-corroborate-unit-normalization.md)
+- [0107 — 정규형 호 지정자는 승인이 아니라 파생으로 얻는다](./0107-the-normalized-unit-designation-is-derived-not-approved.md)
