@@ -384,3 +384,102 @@ fn keeps_dong_name_as_join_text() {
     let empty = normalize_building_register_unit(raw("  ", "101호", above_ground("1")));
     assert_eq!(empty.dong_join_name, None);
 }
+
+#[test]
+fn floor_word_names_are_floor_spaces_not_unit_numbers() {
+    // `4층`류 호명은 층 공간이지 호번호가 아니다. 마지막 숫자런 추출이 층 숫자를
+    // 호수로 읽으면 같은 건물의 층 이름 행 전체가 가짜 호번호를 얻는다
+    // (2026-09-25 운영 전수조사에서 확인된 오분류 급).
+    for (name, floor) in [
+        ("4층", above_ground("4")),
+        ("9층 전층", above_ground("9")),
+        ("2층전체", above_ground("2")),
+        ("지상3층", above_ground("3")),
+        ("지하1층", basement("1")),
+        ("지하 2층 일부", basement("2")),
+    ] {
+        let normalized = normalize_building_register_unit(raw("", name, floor));
+        assert_eq!(
+            normalized.status,
+            BuildingRegisterUnitStatus::Accepted,
+            "name={name}"
+        );
+        assert_eq!(
+            normalized.reason,
+            BuildingRegisterUnitReason::AcceptedFloorSpace,
+            "name={name}"
+        );
+        assert_eq!(normalized.unit_number, None, "name={name}");
+        assert_eq!(normalized.unit_label_ko, None, "name={name}");
+    }
+}
+
+#[test]
+fn floor_word_names_with_disagreeing_floor_fields_stay_proposals() {
+    // 이름은 층을 말하는데 명시 층 칸이 다르게 말하면 확정하지 않는다.
+    for (name, floor) in [
+        ("4층", above_ground("3")),
+        ("지하1층", above_ground("1")),
+        ("2층", above_ground("")),
+        ("지상5층", basement("1")),
+    ] {
+        let normalized = normalize_building_register_unit(raw("", name, floor));
+        assert_eq!(
+            normalized.status,
+            BuildingRegisterUnitStatus::ProposalRequired,
+            "name={name}"
+        );
+        assert_eq!(normalized.unit_number, None, "name={name}");
+    }
+}
+
+#[test]
+fn merged_unit_names_are_proposals_not_last_run_units() {
+    // `401,2` = 401호와 402호가 합쳐진 호. 마지막 숫자런(2)을 호번호로 읽으면
+    // 존재하지 않는 2호가 생긴다. 병합 호는 구조적 결정이 필요하므로 proposal.
+    for name in ["401,2", "103,5", "401,402", "1001,2호", "301.302"] {
+        let normalized = normalize_building_register_unit(raw("", name, above_ground("4")));
+        assert_eq!(
+            normalized.status,
+            BuildingRegisterUnitStatus::ProposalRequired,
+            "name={name}"
+        );
+        assert_eq!(
+            normalized.reason,
+            BuildingRegisterUnitReason::MergedUnitName,
+            "name={name}"
+        );
+        assert_eq!(normalized.unit_number, None, "name={name}");
+    }
+}
+
+#[test]
+fn paren_annotation_after_the_unit_number_is_not_the_unit() {
+    // `303호(32A평형)` — 괄호는 평형·동·음역 주석이다. 마지막 숫자런 추출이
+    // 괄호 안 숫자(32)를 집으면 같은 평형의 모든 호가 한 번호로 붕괴한다
+    // (운영 3,176행 급, 2026-09-25 전수조사).
+    for (name, expected) in [
+        ("303호(32A평형)", 303),
+        ("7호(2층)", 7),
+        ("201(1동)", 201),
+        ("1409(에이)호", 1409),
+        ("105호(D형)", 105),
+    ] {
+        let normalized = normalize_building_register_unit(raw("", name, above_ground("3")));
+        assert_eq!(
+            normalized.status,
+            BuildingRegisterUnitStatus::Accepted,
+            "name={name}"
+        );
+        assert_eq!(normalized.unit_number, Some(expected), "name={name}");
+    }
+}
+
+#[test]
+fn decimal_like_names_that_are_not_merges_keep_extraction() {
+    // 붙임표 하위 호(108-1호)와 층 괄호 표기는 병합 호가 아니다 — 기존 추출 유지.
+    for (name, expected) in [("108-1호", 1), ("2-026호", 26), ("15(2층)", 15)] {
+        let normalized = normalize_building_register_unit(raw("", name, above_ground("2")));
+        assert_eq!(normalized.unit_number, Some(expected), "name={name}");
+    }
+}
