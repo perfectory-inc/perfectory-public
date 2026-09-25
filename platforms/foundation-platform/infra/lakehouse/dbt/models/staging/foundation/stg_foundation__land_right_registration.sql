@@ -5,6 +5,7 @@ select
     right_serial_no,
     nullif(dong_name, '') as dong_name,
     nullif(floor_name, '') as floor_name,
+    try_cast(nullif(floor_name, '') as integer) as floor_no,
     nullif(ho_name, '') as ho_name,
     nullif(room_name, '') as room_name,
     nullif(closure_kind_name, '') as closure_kind_name,

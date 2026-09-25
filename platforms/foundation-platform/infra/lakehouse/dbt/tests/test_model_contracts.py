@@ -354,6 +354,13 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         self.assertIn("foundation_unit_name_is_string_clean", macro)
         self.assertIn("{{ foundation_unit_name_is_string_clean(", candidates)
         self.assertIn("{{ foundation_unit_name_is_string_clean(", funnel)
+        # 층 회수 티어 — 이름만으로 모호한 호를 (PNU, 층, 정규형) 3중 유일로
+        # 회수한다(운영 검산 +5,516행). 1단계 중복 방출은 제외돼야 한다.
+        self.assertIn("PNU_FLOOR_NORMALIZED_UNIT_NAME_UNIQUE", candidates)
+        self.assertIn("unit_triple_counts.unit_count = 1", candidates)
+        self.assertIn("right_triple_counts.right_count = 1", candidates)
+        self.assertIn("not in (", candidates)
+        self.assertIn("floor_recovered", funnel)
         # 붙임표 보존 — 정규형이 하이픈을 지우면 6-2호와 62호가 한 호로 붕괴한다.
         self.assertNotIn("'-'", macro)
 

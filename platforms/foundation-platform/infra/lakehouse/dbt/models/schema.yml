@@ -283,6 +283,7 @@ models:
                   - units_in_corroboration_scope
                   - on_parcels_with_land_rights
                   - uniquely_corroborated
+                  - floor_recovered
                   - ambiguous_matches
       - name: affected_row_count
         tests: [not_null]
