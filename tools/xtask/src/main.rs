@@ -830,6 +830,10 @@ const AREAS: &[Area] = &[
                 targets: &[
                     LaneTarget {
                         package: "knowledge-infrastructure",
+                        test: "knowledge_index_contract",
+                    },
+                    LaneTarget {
+                        package: "knowledge-infrastructure",
                         test: "knowledge_source_registry_contract",
                     },
                     LaneTarget {

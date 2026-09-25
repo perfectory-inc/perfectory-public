@@ -37,8 +37,8 @@ Intelligence Platform은 모델 실행, 정규화 제안 생성, 지식 검색, 
 
 - Domain crate는 business rule과 value type을 담는다.
 - Application crate는 use case와 port를 담는다.
-- Infrastructure crate는 HTTP·PostgreSQL·Kafka·model adapter를 구현한다(vector-store adapter는
-  계획만 있고 아직 구현하지 않았다).
+- Infrastructure crate는 HTTP·PostgreSQL·Kafka·model adapter를 구현한다. 검색은 Postgres
+  전문검색 어댑터 하나뿐이며 vector-store adapter는 계획만 있고 아직 구현하지 않았다.
 - `messaging-infrastructure`는 기술 전달 adapter다. message 계약은 `intelligence-contracts`와
   `schemas/`에 있으므로 domain/application 쌍을 의도적으로 두지 않는다.
 - service는 모듈을 조합하고 runtime 경계를 노출한다.

@@ -189,7 +189,12 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # 112 -> 113: ADR-0103 Wave 1 embeds the 시군구 canonical crosswalk seed
 # (include_str! in the outbox publisher) so the PNU composer and the resolver
 # read one grammar, not two.
-COMPILE_TIME_READ_BASELINE="${3:-113}"
+# 113 -> 114: `knowledge-infrastructure/src/postgres_index.rs` declares one migrator site.
+# The knowledge index adapter runs the area's migrations when it connects, exactly as the
+# source-registry adapter beside it in the same crate already does. Both own tables in the
+# same schema, so a second adapter that connected without migrating would work on a machine
+# another adapter had already migrated, and fail on a fresh one.
+COMPILE_TIME_READ_BASELINE="${3:-114}"
 
 cd "$repo_root"
 

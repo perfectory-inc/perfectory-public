@@ -261,7 +261,7 @@ INTELLIGENCE_INBOUND_SERVICE_PRODUCT_ID=foundation-platform
 INTELLIGENCE_INBOUND_SERVICE_ACTIONS=submit_normalization_proposal
 MODEL_RUNTIME_BASE_URL=http://<model-runtime-host>:11434
 MODEL_RUNTIME_CHAT_PATH=/v1/chat/completions
-MODEL_RUNTIME_DEFAULT_MODEL=gemma2:9b
+MODEL_RUNTIME_DEFAULT_MODEL=hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M
 MODEL_RUNTIME_PROFILE_ID=normalization-ko
 MODEL_RUNTIME_API_KEY=optional-token
 # For reasoning-first models such as Qwen 3.6, set this so message.content is
@@ -295,7 +295,7 @@ curl --fail-with-body \
   --header 'Content-Type: application/json' \
   --data @- <<'JSON'
 {
-  "model": "gemma2:9b",
+  "model": "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M",
   "messages": [{"role": "user", "content": "짧게 자기소개해 주세요."}],
   "temperature": 0.2,
   "max_tokens": 256
@@ -316,7 +316,7 @@ intelligence platform을 가리키는 OpenAI-compatible connection을 설정한�
 ```text
 Base URL: http://<intelligence-api-host>:8010/v1
 API Key: local-dev
-Model: gemma2:9b
+Model: hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M
 ```
 
 이 설정은 임시 bridge로만 사용한다. 최종 제품 UI는 `intelligence-platform`을 직접 호출하고

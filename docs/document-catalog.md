@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **438개**
+- 문서 파일: **443개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -18,15 +18,15 @@
 | Foundation Platform | 112 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 17 |
-| Intelligence Platform | 15 |
-| Monorepo | 130 |
+| Intelligence Platform | 19 |
+| Monorepo | 131 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 186 |
+| ADR | 190 |
 | README | 111 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -36,7 +36,7 @@
 | draft | 2 |
 | fixture | 9 |
 | guide | 2 |
-| reference | 17 |
+| reference | 18 |
 | roadmap | 3 |
 | runbook | 31 |
 
@@ -360,6 +360,10 @@ platforms/intelligence-platform/crates/messaging/README.md
 platforms/intelligence-platform/crates/normalization/README.md
 platforms/intelligence-platform/docs/adr/0001-canonical-implementation-rust.md
 platforms/intelligence-platform/docs/adr/0002-canonical-release-rag-design.md
+platforms/intelligence-platform/docs/adr/0003-korean-morphology-in-rust.md
+platforms/intelligence-platform/docs/adr/0004-retriever-fusion-over-a-single-scorer.md
+platforms/intelligence-platform/docs/adr/0005-result-assembly-diversity-and-context.md
+platforms/intelligence-platform/docs/adr/0006-default-model-follows-measured-accuracy.md
 platforms/intelligence-platform/docs/adr/README.md
 platforms/intelligence-platform/docs/architecture.md
 platforms/intelligence-platform/docs/README.md
@@ -493,6 +497,7 @@ docs/README.md
 docs/reference/design-system-benchmarks.md
 docs/reference/geography-identity-enterprise-survey.md
 docs/reference/geography-identity-wave1-technical-design.md
+docs/reference/knowledge-search-industry-cases.md
 docs/reference/README.md
 docs/roadmap/foundation-baseline.md
 docs/roadmap/foundation-goals.md
@@ -635,6 +640,7 @@ tools/github/README.md
 | `docs/reference/design-system-benchmarks.md` | Monorepo | reference | current |
 | `docs/reference/geography-identity-enterprise-survey.md` | Monorepo | reference | current |
 | `docs/reference/geography-identity-wave1-technical-design.md` | Monorepo | reference | current |
+| `docs/reference/knowledge-search-industry-cases.md` | Monorepo | reference | current |
 | `docs/reference/README.md` | Monorepo | README | current |
 | `docs/roadmap/foundation-baseline.md` | Monorepo | roadmap | current |
 | `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current |
@@ -778,6 +784,10 @@ tools/github/README.md
 | `platforms/intelligence-platform/crates/normalization/README.md` | Intelligence Platform | README | current |
 | `platforms/intelligence-platform/docs/adr/0001-canonical-implementation-rust.md` | Intelligence Platform | ADR | current |
 | `platforms/intelligence-platform/docs/adr/0002-canonical-release-rag-design.md` | Intelligence Platform | ADR | current |
+| `platforms/intelligence-platform/docs/adr/0003-korean-morphology-in-rust.md` | Intelligence Platform | ADR | current |
+| `platforms/intelligence-platform/docs/adr/0004-retriever-fusion-over-a-single-scorer.md` | Intelligence Platform | ADR | current |
+| `platforms/intelligence-platform/docs/adr/0005-result-assembly-diversity-and-context.md` | Intelligence Platform | ADR | current |
+| `platforms/intelligence-platform/docs/adr/0006-default-model-follows-measured-accuracy.md` | Intelligence Platform | ADR | current |
 | `platforms/intelligence-platform/docs/adr/README.md` | Intelligence Platform | README | current |
 | `platforms/intelligence-platform/docs/architecture.md` | Intelligence Platform | documentation | current |
 | `platforms/intelligence-platform/docs/README.md` | Intelligence Platform | README | current |
