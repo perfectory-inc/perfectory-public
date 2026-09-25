@@ -287,3 +287,35 @@ models:
                   - ambiguous_matches
       - name: affected_row_count
         tests: [not_null]
+
+  - name: stg_foundation__unit_official_price
+    description: Foundation unit official price snapshot staged as a third corroboration witness (ADR-0106).
+    columns:
+      - name: source_record_id
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+      - name: pnu
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+      - name: ho_name
+        tests:
+          - not_null:
+              config:
+                tags: ["full_quality"]
+
+  - name: int_entity_resolution__building_register_unit_price_name_candidates
+    description: Third-witness corroboration of proposal-required building units by uniquely matching official-price names on the same parcel (ADR-0106).
+    columns:
+      - name: target_entity_id
+        tests: [not_null, unique]
+      - name: source_record_id
+        tests: [not_null]
+      - name: confidence_band
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["high", "medium", "low", "unknown"]

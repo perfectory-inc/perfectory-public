@@ -364,6 +364,51 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         # 붙임표 보존 — 정규형이 하이픈을 지우면 6-2호와 62호가 한 호로 붕괴한다.
         self.assertNotIn("'-'", macro)
 
+    def test_name_bearing_tables_are_registered_for_entity_resolution(self) -> None:
+        """동·호·건물 이름 칸을 가진 표는 전부 ER 역할이 배정돼야 한다.
+
+        같은 실물(호·동)을 여러 기관이 다른 글자로 적는다(ADR-0106). 이름 칸을
+        가진 표가 새로 계약에 들어왔는데 아무도 엔티티 취급을 결정하지 않으면,
+        그 표는 조용히 정합 밖에 남는다 — 이 시험이 그 누락을 시끄럽게 만든다.
+        새 표가 걸리면 아래 등록부에 역할을 적고 필요한 교차확증을 설계하라.
+        """
+        import json
+        import re
+
+        registered_roles = {
+            "silver.building_register_exclusive_unit": "대장 전유부 원본 — 정규화 대상(본류)",
+            "silver.land_right_registration": "등기 대지권 — 교차확증 증인 (본 후보 모델)",
+            "silver.unit_official_price": (
+                "세대 공시가격 — 셋째 증인 (price_name_candidates; 운영 검산 "
+                "유일 확증 19,603, 이름 티어 밖 12,096)"
+            ),
+            "silver.industrial_complexes": "단지 표시명 — 식별은 코드(두 id 체계), 이름은 표시용",
+            "silver.building_register_floors": "층구분명 원문 — 어휘 칸, 층 규칙이 정규화(식별자 아님)",
+            "silver.building_register_titles": "표제부 동명 — canonical_dong_join_key 로 호↔건물 연결에 사용",
+            "silver.building_register_units": "정규화된 전유부 — 본 교차확증의 대상(unit_designation 이 충돌-프리 키)",
+            "silver.building_register_unit_areas": "전유공용면적 — 동·호명은 전유부와 같은 계보, 면적 증거 공급원",
+        }
+        contracts = json.loads(
+            (DBT_ROOT.parent / "contracts" / "industrial_complex_lakehouse_contracts.json")
+            .read_text(encoding="utf-8")
+        )["contracts"]
+        name_column = re.compile(
+            r"^(ho|dong|building|room|floor|complex|apt|unit)_.*name|^(unit_name_raw|dong_join_name)$"
+        )
+        for qualified_name, contract in contracts.items():
+            columns = [
+                column["name"]
+                for column in contract.get("columns", [])
+                if name_column.match(column.get("name", ""))
+            ]
+            if columns:
+                self.assertIn(
+                    qualified_name,
+                    registered_roles,
+                    f"{qualified_name} carries identity-name columns {columns} "
+                    "but has no entity-resolution role assigned",
+                )
+
     def test_entity_link_model_unions_land_right_candidates(self) -> None:
         sql = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
 
@@ -372,6 +417,27 @@ class FoundationDbtModelContractTest(unittest.TestCase):
             sql,
         )
         self.assertIn("'building-unit-land-right-corroboration.v1' as rule_version", sql)
+
+    def test_price_name_witness_uses_shared_normalizer_and_stays_unique(self) -> None:
+        sources = self.read("models/sources/foundation_sources.yml")
+        staging = self.read("models/staging/foundation/stg_foundation__unit_official_price.sql")
+        candidates = self.read(
+            "models/intermediate/entity_resolution/"
+            "int_entity_resolution__building_register_unit_price_name_candidates.sql"
+        )
+        link = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
+
+        self.assertIn("name: unit_official_price", sources)
+        self.assertIn("{{ source('foundation', 'unit_official_price') }}", staging)
+        self.assertIn("{{ foundation_normalized_unit_name(", candidates)
+        self.assertIn("{{ foundation_unit_name_is_string_clean(", candidates)
+        self.assertIn("unit_name_counts.unit_count = 1", candidates)
+        self.assertIn("price_name_counts.price_count = 1", candidates)
+        self.assertIn(
+            "{{ ref('int_entity_resolution__building_register_unit_price_name_candidates') }}",
+            link,
+        )
+        self.assertIn("'building-unit-price-name-corroboration.v1' as rule_version", link)
 
 
 if __name__ == "__main__":
