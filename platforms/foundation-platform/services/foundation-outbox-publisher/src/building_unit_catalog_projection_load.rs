@@ -62,7 +62,6 @@ struct HandoffUnitRow {
     register_pk: String,
     pnu: String,
     building_register_pk: Option<String>,
-    building_name: String,
     dong_name: String,
     ho_name: String,
     floor_label: String,
@@ -130,7 +129,6 @@ async fn prepare_stage(conn: &mut PgConnection) -> anyhow::Result<()> {
              parcel_id uuid NOT NULL,
              building_id uuid,
              register_pk text NOT NULL,
-             building_name text NOT NULL,
              dong_name text NOT NULL,
              ho_name text NOT NULL,
              floor_label text NOT NULL,
@@ -162,7 +160,7 @@ async fn load_object(
     let mut copy = conn
         .copy_in_raw(
             "COPY building_unit_projection_stage \
-             (id, parcel_id, building_id, register_pk, building_name, dong_name, ho_name, \
+             (id, parcel_id, building_id, register_pk, dong_name, ho_name, \
               floor_label, exclusive_area_m2, usage_name, structure_name) \
              FROM STDIN WITH (FORMAT text)",
         )
@@ -184,8 +182,6 @@ async fn load_object(
         }
         buffer.push('\t');
         buffer.push_str(&copy_text_escape(row.register_pk.as_str()));
-        buffer.push('\t');
-        buffer.push_str(&copy_text_escape(row.building_name.as_str()));
         buffer.push('\t');
         buffer.push_str(&copy_text_escape(row.dong_name.as_str()));
         buffer.push('\t');
@@ -224,19 +220,18 @@ async fn load_object(
 
     let attached = sqlx::query(
         "INSERT INTO catalog.building_unit \
-             (id, parcel_id, building_id, register_pk, building_name, dong_name, ho_name, \
+             (id, parcel_id, building_id, register_pk, dong_name, ho_name, \
               floor_label, exclusive_area_m2, usage_name, structure_name) \
          SELECT s.id, s.parcel_id, \
                 CASE WHEN EXISTS (SELECT 1 FROM catalog.building b WHERE b.id = s.building_id) \
                      THEN s.building_id ELSE NULL END, \
-                s.register_pk, s.building_name, s.dong_name, s.ho_name, \
+                s.register_pk, s.dong_name, s.ho_name, \
                 s.floor_label, s.exclusive_area_m2, s.usage_name, s.structure_name \
          FROM building_unit_projection_stage s \
          WHERE EXISTS (SELECT 1 FROM catalog.parcel p WHERE p.id = s.parcel_id) \
          ON CONFLICT (register_pk) DO UPDATE SET \
              parcel_id = EXCLUDED.parcel_id, \
              building_id = EXCLUDED.building_id, \
-             building_name = EXCLUDED.building_name, \
              dong_name = EXCLUDED.dong_name, \
              ho_name = EXCLUDED.ho_name, \
              floor_label = EXCLUDED.floor_label, \
