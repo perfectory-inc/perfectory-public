@@ -21,3 +21,21 @@
     {%- set s9 = "regexp_replace(" ~ s8 ~ ", '(^|[^0-9])0+([0-9])', '$1$2')" -%}
     nullif({{ s9 }}, '')
 {%- endmacro %}
+
+{#-
+  문자열 규칙(1~3차)으로 이미 깨끗하게 읽히는 호 표기인지 (ADR-0106 문맥의
+  전수조사 사다리). 교차확증 대상 = 이 판정이 거짓인 표기 + proposal_required.
+  입력은 공백 압축된 unit_designation 을 전제한다.
+-#}
+{% macro foundation_unit_name_is_string_clean(column_expr) -%}
+    (
+        regexp_like({{ column_expr }}, '^[0-9]+호?$')
+        or regexp_like({{ column_expr }}, '^(B|비|지하?[0-9]*층?|[0-9]+층)-?[0-9]+호?$')
+        or regexp_like({{ column_expr }}, '^제[0-9]+호?$')
+        or regexp_like({{ column_expr }}, '^[가-힣A-Za-z0-9]{1,4}동[A-Za-z]?[0-9]+호?$')
+        or regexp_like({{ column_expr }}, '^[A-Za-z]{1,3}-?[0-9]+호?$')
+        or regexp_like({{ column_expr }}, '^[0-9]+-[0-9]+호?$')
+        or regexp_like({{ column_expr }}, '^(상가|근생|사무소?|점포)[A-Za-z]?-?[0-9]+호?$')
+        or regexp_like({{ column_expr }}, '^(일|이|삼|사|오|육|칠|팔|구|십)?층[0-9]+호?$')
+    )
+{%- endmacro %}

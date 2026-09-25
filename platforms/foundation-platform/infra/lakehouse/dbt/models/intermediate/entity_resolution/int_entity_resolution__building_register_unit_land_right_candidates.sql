@@ -4,8 +4,12 @@
   등기 대지권 이름으로 대장 호 정규화를 교차확증한다 (ADR-0106).
   후보 조건: 같은 PNU 안에서 보수 정규형이 양방향 유일하게 일치할 때만.
   모호 일치(같은 정규형이 어느 한쪽에 2회 이상)는 후보가 아니다.
-  측정 근거: 규칙 밖 꼬리 108,054행 중 39,084행(36.2%)이 이 조건으로
-  유일 일치했다 (2026-09-25 운영 전수 대사, 붙임표 보존 기준).
+
+  대상은 `proposal_required` 행 + 문자열 규칙(1~3차)으로 깨끗하지 않은 표기
+  전부다. 옛 엔진은 지저분한 표기 대부분을 헐거운 추출로 '확정' 처리했기
+  때문에(2026-09-25 실측: proposal_required 24,715행뿐, 유일 확증 1,219행)
+  딱지만 보면 교차확증이 필요한 행을 놓친다. 규칙 밖 표기 전체를 대상으로
+  하면 카탈로그 투영 기준 전수 대사에서 39,084행이 유일 일치했다.
 -#}
 
 with building_unit as (
@@ -23,8 +27,11 @@ unit_scope as (
         pnu,
         {{ foundation_normalized_unit_name('coalesce(unit_designation, unit_name_raw)', 'dong_name') }} as normalized_name
     from building_unit
-    where normalization_status = 'proposal_required'
-      and nullif(pnu, '') is not null
+    where nullif(pnu, '') is not null
+      and (
+        normalization_status = 'proposal_required'
+        or not {{ foundation_unit_name_is_string_clean("coalesce(unit_designation, '')") }}
+      )
 ),
 
 right_names as (

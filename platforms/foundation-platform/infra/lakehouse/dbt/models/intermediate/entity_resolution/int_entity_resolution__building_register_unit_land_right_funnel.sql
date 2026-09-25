@@ -1,9 +1,12 @@
 {{ config(materialized='table', tags=['full_quality']) }}
 
 {#-
-  교차확증 깔때기 (ADR-0106). 운영 실행이 2026-09-25 측정치를 재현하는지
-  대조하는 것이 첫 검증이다: 꼬리 108,054 → 등기 필지 위 94,737(87.7%) →
-  유일 일치 39,084(36.2%), 모호 3,865.
+  교차확증 깔때기 (ADR-0106). 대상 = proposal_required + 문자열 규칙 밖 표기
+  (후보 모델과 같은 범위 — 조건의 SSOT 는 foundation_unit_name_is_string_clean).
+  대조 기준(2026-09-25, 운영 silver 를 SELECT 로 직접 검산): 대상 270,315 →
+  등기 필지 위 243,047(89.9%) → 유일 확증 101,271(37.5%). 카탈로그 투영
+  전수조사(잔여 270,979, 확증률 36.2%)와 일치. 운영 실행 수치가 이 자릿수에서
+  크게 벗어나면 정규형 매크로나 범위 조건이 어긋난 것이다.
 -#}
 
 with building_unit as (
@@ -24,8 +27,11 @@ unit_scope as (
         pnu,
         {{ foundation_normalized_unit_name('coalesce(unit_designation, unit_name_raw)', 'dong_name') }} as normalized_name
     from building_unit
-    where normalization_status = 'proposal_required'
-      and nullif(pnu, '') is not null
+    where nullif(pnu, '') is not null
+      and (
+        normalization_status = 'proposal_required'
+        or not {{ foundation_unit_name_is_string_clean("coalesce(unit_designation, '')") }}
+      )
 ),
 
 right_parcels as (
@@ -51,10 +57,10 @@ matched_pairs as (
     group by 1
 ),
 
-units_needing_proposal as (
+units_in_corroboration_scope as (
     select
         1 as stage_order,
-        'units_needing_proposal' as diagnostic_stage,
+        'units_in_corroboration_scope' as diagnostic_stage,
         count(*) as affected_row_count
     from unit_scope
 ),
@@ -86,7 +92,7 @@ ambiguous_matches as (
     where matching_right_rows > 1
 )
 
-select * from units_needing_proposal
+select * from units_in_corroboration_scope
 union all
 select * from on_parcels_with_land_rights
 union all

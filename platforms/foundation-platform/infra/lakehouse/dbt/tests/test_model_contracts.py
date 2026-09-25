@@ -349,6 +349,11 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         # 양방향 유일성 — 모호 일치가 후보로 새면 잘못된 링크가 확정된다.
         self.assertIn("unit_count = 1", candidates)
         self.assertIn("right_count = 1", candidates)
+        # 대상 조건도 SSOT 한 곳 — 옛 엔진 딱지(proposal_required)만 보면
+        # 헐겁게 '확정'된 지저분한 표기(실측 10만+행)를 놓친다.
+        self.assertIn("foundation_unit_name_is_string_clean", macro)
+        self.assertIn("{{ foundation_unit_name_is_string_clean(", candidates)
+        self.assertIn("{{ foundation_unit_name_is_string_clean(", funnel)
         # 붙임표 보존 — 정규형이 하이픈을 지우면 6-2호와 62호가 한 호로 붕괴한다.
         self.assertNotIn("'-'", macro)
 

@@ -280,7 +280,7 @@ models:
           - accepted_values:
               arguments:
                 values:
-                  - units_needing_proposal
+                  - units_in_corroboration_scope
                   - on_parcels_with_land_rights
                   - uniquely_corroborated
                   - ambiguous_matches
