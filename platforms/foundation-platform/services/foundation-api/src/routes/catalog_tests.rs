@@ -557,7 +557,6 @@ fn unit_row_fixture(dong_name: &str, ho_name: &str) -> BuildingUnitRow {
         id: Uuid::now_v7(),
         parcel_id: Uuid::now_v7(),
         building_id: Some(Uuid::now_v7()),
-        building_name: "본관".to_owned(),
         dong_name: dong_name.to_owned(),
         ho_name: ho_name.to_owned(),
         floor_label: "12층".to_owned(),
@@ -565,6 +564,16 @@ fn unit_row_fixture(dong_name: &str, ho_name: &str) -> BuildingUnitRow {
         usage_name: "공장".to_owned(),
         structure_name: "철골".to_owned(),
     }
+}
+
+/// 응답의 `building_name` 은 동명칭 파생이다 — 카탈로그에 별도 건물명 사실은 없고,
+/// 옛 `building_name` 칸은 전 행이 `dong_name` 복사본이었다 (2026-09-25 실측).
+#[test]
+fn unit_response_building_name_derives_from_dong_name() {
+    let unit = unit_row_fixture("109동", "1204호");
+    let response = unit_response(&unit);
+    assert_eq!(response.building_name, "109동");
+    assert_eq!(response.building_name, response.dong_name);
 }
 
 /// The unit wire shape carries the link, and carries its absence.

@@ -26,7 +26,10 @@ Intelligence Platform에서 작업하는 AI 에이전트 공용 진입점. 모�
   **선택적이며 prod 발행 미배선**: submission-requested 토픽을 발행하는 프로덕션 코드 없음,
   Foundation 측 knowledge.source 프로듀서 부재(기본 토픽은 fixture 상수).
   C2를 "가동 중"으로 서술하지 말 것. `/metrics` 분리 리스너는 C3로 연기.
-- knowledge retrieval·vector/RAG는 **미구현**(소유권 선언만 존재) — 착수 전 신규 설계 문서 필요.
+- knowledge retrieval은 **비계 수직 슬라이스만 구현**: Postgres 전문검색 색인(`ip_knowledge_chunk`),
+  `KnowledgeIndexPort`, `tenant:scaffold` 전용 CLI 2종. HTTP route 없음.
+  vector/embedding은 **여전히 미구현**이며 [ADR-0002](./docs/adr/0002-canonical-release-rag-design.md)가
+  승인 전 provider·index 고정을 금지한다 — `scripts/guard/intelligence-no-vector-provider.sh`가 강제한다.
 
 ## 절대 규칙
 
@@ -52,9 +55,27 @@ docker compose -f docker/c2-event-backbone.compose.yml up -d
 cargo test -p messaging-infrastructure --test live_kafka_karapace -- --nocapture
 ```
 
+## 지식 검색을 건드리기 전에
+
+이 영역에서 가장 자주 되돌려지는 자리다. 순서대로 읽을 것.
+
+| 무엇을 하려는가 | 먼저 볼 것 |
+|---|---|
+| 검색 엔진·벡터 DB·임베딩 provider를 고르려 함 | [ADR-0002](./docs/adr/0002-canonical-release-rag-design.md) — **승인 전 고정 금지**. 가드가 기계로 막는다 |
+| "형태소 분석 없이 `simple`로 충분하지 않나" | [ADR-0003](./docs/adr/0003-korean-morphology-in-rust.md) — 실측으로 아니라고 확인했다 |
+| Elasticsearch로 옮기려 함 | [사례 레퍼런스](../../docs/reference/knowledge-search-industry-cases.md) — Cerebras는 하루 15,000 질문을 Postgres 한 테이블로 받는다. 전환 조건은 ADR-0003 재검토 트리거 |
+| 리트리버를 하나로 되돌리려 함 | [ADR-0004](./docs/adr/0004-retriever-fusion-over-a-single-scorer.md) — 신호를 한 칼럼에 섞으면 서로를 가린다. 계약 테스트가 1개로 줄이면 실패한다 |
+| 검색 품질을 올리려 함 | [사례 레퍼런스](../../docs/reference/knowledge-search-industry-cases.md) §교차 관찰 — 다음은 **재순위**이고, 그 전에 평가 세트가 있어야 한다 |
+| 무엇을 색인할지 정하려 함 | 코퍼스는 산업단지 고시다. 수집은 Foundation 소관 |
+
+**지금 없는 것을 있다고 쓰지 말 것:** 재순위·distillation·age decay·평가 세트·벡터는 없다.
+있는 것은 신호 3종(형태소·원문·제목) → RRF(k=60) → 출처별 상한 3 → 이웃 문맥까지다
+([ADR-0004](./docs/adr/0004-retriever-fusion-over-a-single-scorer.md)·[ADR-0005](./docs/adr/0005-result-assembly-diversity-and-context.md)).
+
 ## 문서 라우팅
 
 - [README.md](./README.md) — env 레퍼런스 전체 (C0-C1 fail-closed 규칙·엔드포인트·모델 런타임)
 - [docs/architecture.md](./docs/architecture.md) — 모듈 경계 + Cross-Platform Contract
 - [docs/adr/](./docs/adr/README.md) — 영역 결정 기록 (0001 = Rust canonical)
 - [schemas/README.md](./schemas/README.md) — Avro 스키마 진화 규율 + C2 라이브 검증 절차
+- [지식 검색·RAG 사례 레퍼런스](../../docs/reference/knowledge-search-industry-cases.md) — 외부 프로덕션 사례의 측정치와 우리 대조표

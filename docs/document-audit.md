@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **439개**
-- 언어 분류: **{'english': 35, 'korean': 243, 'mixed': 161}**
+- 감사 문서: **444개**
+- 언어 분류: **{'english': 35, 'korean': 249, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **210개 정상 / 0개 누락 / 229개 해당 없음**
+- 메타데이터: **211개 정상 / 0개 누락 / 233개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -20,7 +20,7 @@
 
 | 경로 | 소유자 | 유형 | 상태 | 언어 | 메타데이터 | 유입 링크 |
 |---|---|---|---|---|---|---:|
-| `AGENTS.md` | Monorepo | agent rules | current | korean | not applicable: agent router | 13 |
+| `AGENTS.md` | Monorepo | agent rules | current | korean | not applicable: agent router | 14 |
 | `CLAUDE.md` | Monorepo | documentation | current | korean | not applicable: agent router | 0 |
 | `CONTRIBUTING.md` | Monorepo | documentation | current | korean | ok | 0 |
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 13 |
@@ -142,12 +142,13 @@
 | `docs/reference/design-system-benchmarks.md` | Monorepo | reference | current | korean | ok | 1 |
 | `docs/reference/geography-identity-enterprise-survey.md` | Monorepo | reference | current | korean | ok | 1 |
 | `docs/reference/geography-identity-wave1-technical-design.md` | Monorepo | reference | current | korean | ok | 0 |
+| `docs/reference/knowledge-search-industry-cases.md` | Monorepo | reference | current | korean | ok | 10 |
 | `docs/reference/README.md` | Monorepo | README | current | korean | ok | 1 |
 | `docs/roadmap/foundation-baseline.md` | Monorepo | roadmap | current | korean | ok | 2 |
 | `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current | korean | ok | 6 |
 | `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 17 |
 | `docs/roadmap/README.md` | Monorepo | README | current | korean | ok | 0 |
-| `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 6 |
+| `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 8 |
 | `platforms/foundation-platform/AGENTS.md` | Foundation Platform | agent rules | current | mixed | not applicable: agent router | 2 |
 | `platforms/foundation-platform/CLAUDE.md` | Foundation Platform | documentation | current | english | not applicable: agent router | 0 |
 | `platforms/foundation-platform/crates/catalog/README.md` | Foundation Platform | README | current | korean | ok | 0 |
@@ -277,16 +278,20 @@
 | `platforms/identity-platform/README.md` | Identity Platform | README | current | korean | ok | 3 |
 | `platforms/identity-platform/services/identity-api/README.md` | Identity Platform | README | current | mixed | ok | 0 |
 | `platforms/identity-platform/services/identity-policy-worker/README.md` | Identity Platform | README | current | korean | ok | 0 |
-| `platforms/intelligence-platform/AGENTS.md` | Intelligence Platform | agent rules | current | mixed | not applicable: agent router | 1 |
+| `platforms/intelligence-platform/AGENTS.md` | Intelligence Platform | agent rules | current | korean | not applicable: agent router | 1 |
 | `platforms/intelligence-platform/CLAUDE.md` | Intelligence Platform | documentation | current | english | not applicable: agent router | 0 |
 | `platforms/intelligence-platform/crates/intelligence-contracts/README.md` | Intelligence Platform | README | current | mixed | ok | 0 |
 | `platforms/intelligence-platform/crates/knowledge/README.md` | Intelligence Platform | README | current | korean | ok | 0 |
 | `platforms/intelligence-platform/crates/messaging/README.md` | Intelligence Platform | README | current | korean | ok | 0 |
 | `platforms/intelligence-platform/crates/normalization/README.md` | Intelligence Platform | README | current | mixed | ok | 0 |
 | `platforms/intelligence-platform/docs/adr/0001-canonical-implementation-rust.md` | Intelligence Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
-| `platforms/intelligence-platform/docs/adr/0002-canonical-release-rag-design.md` | Intelligence Platform | ADR | current | mixed | not applicable: ADR fields | 0 |
+| `platforms/intelligence-platform/docs/adr/0002-canonical-release-rag-design.md` | Intelligence Platform | ADR | current | mixed | not applicable: ADR fields | 10 |
+| `platforms/intelligence-platform/docs/adr/0003-korean-morphology-in-rust.md` | Intelligence Platform | ADR | current | korean | not applicable: ADR fields | 8 |
+| `platforms/intelligence-platform/docs/adr/0004-retriever-fusion-over-a-single-scorer.md` | Intelligence Platform | ADR | current | korean | not applicable: ADR fields | 7 |
+| `platforms/intelligence-platform/docs/adr/0005-result-assembly-diversity-and-context.md` | Intelligence Platform | ADR | current | korean | not applicable: ADR fields | 4 |
+| `platforms/intelligence-platform/docs/adr/0006-default-model-follows-measured-accuracy.md` | Intelligence Platform | ADR | current | korean | not applicable: ADR fields | 1 |
 | `platforms/intelligence-platform/docs/adr/README.md` | Intelligence Platform | README | current | korean | ok | 2 |
-| `platforms/intelligence-platform/docs/architecture.md` | Intelligence Platform | documentation | current | mixed | ok | 5 |
+| `platforms/intelligence-platform/docs/architecture.md` | Intelligence Platform | documentation | current | mixed | ok | 6 |
 | `platforms/intelligence-platform/docs/README.md` | Intelligence Platform | README | current | korean | ok | 7 |
 | `platforms/intelligence-platform/README.md` | Intelligence Platform | README | current | mixed | ok | 3 |
 | `platforms/intelligence-platform/schemas/README.md` | Intelligence Platform | README | current | mixed | ok | 4 |
