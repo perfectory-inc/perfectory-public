@@ -127,10 +127,11 @@ fn flush_digit_run(out: &mut String, run: &mut String) {
 mod tests {
     use super::normalized_unit_designation;
 
-    const GOLDEN_VECTORS: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../infra/lakehouse/dbt/seeds/unit_name_normalization_vectors.csv"
-    ));
+    /// 시험 실행 시점에 읽는다 (cargo 는 시험의 작업 디렉터리를 크레이트
+    /// 루트로 맞춘다). 컴파일타임 포함이 아니어서 도메인 층의 빌드 결합·env
+    /// 접근 가드와 충돌하지 않는다.
+    const GOLDEN_VECTOR_PATH: &str =
+        "../../../infra/lakehouse/dbt/seeds/unit_name_normalization_vectors.csv";
 
     /// Minimal CSV field split for the seed's shape: three columns, optional
     /// double quotes around a field, no embedded quotes.
@@ -160,8 +161,16 @@ mod tests {
     /// `tests/assert_normalizer_matches_golden_vectors.sql` 이 채점한다.
     #[test]
     fn every_golden_vector_matches_the_dbt_macro() {
+        let read = std::fs::read_to_string(GOLDEN_VECTOR_PATH);
+        assert!(
+            read.is_ok(),
+            "golden vector seed unreadable at {GOLDEN_VECTOR_PATH}: {read:?}"
+        );
+        let Ok(golden_vectors) = read else {
+            return;
+        };
         let mut graded = 0;
-        for line in GOLDEN_VECTORS.lines().skip(1) {
+        for line in golden_vectors.lines().skip(1) {
             if line.trim().is_empty() {
                 continue;
             }
