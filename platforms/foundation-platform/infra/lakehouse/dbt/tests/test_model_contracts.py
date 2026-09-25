@@ -320,6 +320,47 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         self.assertIn("int_entity_resolution__building_register_unit_number_collision_funnel", schema)
         self.assertIn("diagnostic_stage", schema)
 
+    def test_land_right_source_and_staging_contract(self) -> None:
+        sources = self.read("models/sources/foundation_sources.yml")
+        staging = self.read("models/staging/foundation/stg_foundation__land_right_registration.sql")
+
+        self.assertIn("name: land_right_registration", sources)
+        self.assertIn("identifier: land_right_registration", sources)
+        self.assertIn("{{ source('foundation', 'land_right_registration') }}", staging)
+        self.assertNotIn("r2://", staging.lower())
+        self.assertNotIn("s3://", staging.lower())
+
+    def test_land_right_corroboration_uses_shared_normalizer_and_stays_unique(self) -> None:
+        candidates = self.read(
+            "models/intermediate/entity_resolution/"
+            "int_entity_resolution__building_register_unit_land_right_candidates.sql"
+        )
+        funnel = self.read(
+            "models/intermediate/entity_resolution/"
+            "int_entity_resolution__building_register_unit_land_right_funnel.sql"
+        )
+        macro = self.read("macros/unit_name_normalization.sql")
+
+        # 정규형 SSOT는 매크로 한 곳 (ADR-0106 결정 3) — 모델이 정규식을 직접
+        # 들고 있으면 대장·등기 정규형이 갈라진 채 초록일 수 있다.
+        self.assertIn("foundation_normalized_unit_name", macro)
+        self.assertIn("{{ foundation_normalized_unit_name(", candidates)
+        self.assertIn("{{ foundation_normalized_unit_name(", funnel)
+        # 양방향 유일성 — 모호 일치가 후보로 새면 잘못된 링크가 확정된다.
+        self.assertIn("unit_count = 1", candidates)
+        self.assertIn("right_count = 1", candidates)
+        # 붙임표 보존 — 정규형이 하이픈을 지우면 6-2호와 62호가 한 호로 붕괴한다.
+        self.assertNotIn("'-'", macro)
+
+    def test_entity_link_model_unions_land_right_candidates(self) -> None:
+        sql = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
+
+        self.assertIn(
+            "{{ ref('int_entity_resolution__building_register_unit_land_right_candidates') }}",
+            sql,
+        )
+        self.assertIn("'building-unit-land-right-corroboration.v1' as rule_version", sql)
+
 
 if __name__ == "__main__":
     unittest.main()
