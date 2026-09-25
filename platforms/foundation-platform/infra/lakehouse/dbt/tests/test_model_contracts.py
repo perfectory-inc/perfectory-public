@@ -428,6 +428,28 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         self.assertNotIn("number_disputes", link)
         self.assertIn("int_entity_resolution__building_register_unit_number_disputes", schema)
 
+    def test_golden_vectors_bind_the_macro_and_the_rust_normalizer(self) -> None:
+        """ADR-0107 §2: 정규형의 두 구현(러스트·dbt)은 같은 seed 로 채점된다."""
+        seed = DBT_ROOT / "seeds" / "unit_name_normalization_vectors.csv"
+        singular = self.read("tests/assert_normalizer_matches_golden_vectors.sql")
+        rust = (
+            DBT_ROOT.parents[2]
+            / "crates"
+            / "normalization"
+            / "foundation-normalization-domain"
+            / "src"
+            / "unit_designation_normalization.rs"
+        ).read_text(encoding="utf-8")
+
+        self.assertTrue(seed.exists(), "golden vector seed must exist")
+        header = seed.read_text(encoding="utf-8").splitlines()[0]
+        self.assertEqual(header, "raw_name,dong_name,expected")
+        self.assertIn("{{ ref('unit_name_normalization_vectors') }}", singular)
+        self.assertIn("{{ foundation_normalized_unit_name(", singular)
+        # 러스트 시험이 같은 seed 파일을 읽어야 두 구현이 같은 시험지를 푼다.
+        self.assertIn("unit_name_normalization_vectors.csv", rust)
+        self.assertIn("normalized_unit_designation", rust)
+
     def test_entity_link_model_unions_land_right_candidates(self) -> None:
         sql = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
 
