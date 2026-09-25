@@ -319,3 +319,13 @@ models:
           - accepted_values:
               arguments:
                 values: ["high", "medium", "low", "unknown"]
+
+  - name: int_entity_resolution__building_register_unit_number_disputes
+    description: Review worklist of units whose engine-extracted unit_number contradicts the uniquely matching land-right number (ADR-0106 grading; shrinking row count is the improvement metric).
+    columns:
+      - name: building_unit_id
+        tests: [not_null, unique]
+      - name: engine_unit_number
+        tests: [not_null]
+      - name: witness_unit_number
+        tests: [not_null]
