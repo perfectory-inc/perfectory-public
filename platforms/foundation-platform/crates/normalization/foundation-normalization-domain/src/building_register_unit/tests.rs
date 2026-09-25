@@ -454,6 +454,28 @@ fn merged_unit_names_are_proposals_not_last_run_units() {
 }
 
 #[test]
+fn paren_annotation_after_the_unit_number_is_not_the_unit() {
+    // `303호(32A평형)` — 괄호는 평형·동·음역 주석이다. 마지막 숫자런 추출이
+    // 괄호 안 숫자(32)를 집으면 같은 평형의 모든 호가 한 번호로 붕괴한다
+    // (운영 3,176행 급, 2026-09-25 전수조사).
+    for (name, expected) in [
+        ("303호(32A평형)", 303),
+        ("7호(2층)", 7),
+        ("201(1동)", 201),
+        ("1409(에이)호", 1409),
+        ("105호(D형)", 105),
+    ] {
+        let normalized = normalize_building_register_unit(raw("", name, above_ground("3")));
+        assert_eq!(
+            normalized.status,
+            BuildingRegisterUnitStatus::Accepted,
+            "name={name}"
+        );
+        assert_eq!(normalized.unit_number, Some(expected), "name={name}");
+    }
+}
+
+#[test]
 fn decimal_like_names_that_are_not_merges_keep_extraction() {
     // 붙임표 하위 호(108-1호)와 층 괄호 표기는 병합 호가 아니다 — 기존 추출 유지.
     for (name, expected) in [("108-1호", 1), ("2-026호", 26), ("15(2층)", 15)] {

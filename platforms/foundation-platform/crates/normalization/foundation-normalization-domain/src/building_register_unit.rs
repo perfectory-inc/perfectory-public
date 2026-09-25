@@ -209,7 +209,7 @@ pub fn normalize_building_register_unit(
         FloorSpaceVerdict::NotAFloorName => {}
     }
 
-    let unit_number = extract_paren_floor_annotated_unit_number(unit_name)
+    let unit_number = extract_paren_annotated_unit_number(unit_name)
         .or_else(|| extract_unit_number(unit_name))
         .or_else(|| extract_floor_scoped_unit_number(unit_name, &floor));
 
@@ -322,29 +322,22 @@ fn is_short_digit_run(value: &str) -> bool {
     !value.is_empty() && value.len() <= 4 && value.bytes().all(|value| value.is_ascii_digit())
 }
 
-/// `N(M층)` / `N(지하M층)` — the leading run is the unit and the parenthesis is a
-/// floor annotation, so last-run extraction would wrongly return the floor and
-/// collapse a whole floor of units onto one number.
-fn extract_paren_floor_annotated_unit_number(unit_name: &str) -> Option<u32> {
+/// `N(M층)` / `N호(32A평형)` / `N(1동)` — a leading digit run followed only by a
+/// parenthetical annotation. The annotation (floor, 평형, block, transliteration)
+/// often carries digits of its own, so last-run extraction would read those and
+/// collapse every annotated unit onto the annotation's number.
+fn extract_paren_annotated_unit_number(unit_name: &str) -> Option<u32> {
     let compact: String = unit_name
         .chars()
         .filter(|value| !value.is_whitespace())
         .collect();
-    let body = compact.strip_suffix(')')?;
-    let (unit_part, floor_part) = body.split_once('(')?;
+    let body = compact.strip_suffix('호').unwrap_or(&compact);
+    let body = body.strip_suffix(')')?;
+    let (unit_part, _annotation) = body.split_once('(')?;
+    let unit_part = unit_part.strip_suffix('호').unwrap_or(unit_part);
     if unit_part.is_empty()
         || unit_part.len() > 5
         || !unit_part.bytes().all(|value| value.is_ascii_digit())
-    {
-        return None;
-    }
-    let floor_digits = floor_part
-        .strip_prefix("지하")
-        .unwrap_or(floor_part)
-        .strip_suffix('층')?;
-    if floor_digits.is_empty()
-        || floor_digits.len() > 3
-        || !floor_digits.bytes().all(|value| value.is_ascii_digit())
     {
         return None;
     }
