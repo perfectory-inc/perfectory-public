@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **438개**
+- 문서 파일: **439개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 17 |
 | Intelligence Platform | 15 |
-| Monorepo | 130 |
+| Monorepo | 131 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 186 |
+| ADR | 187 |
 | README | 111 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -479,6 +479,7 @@ docs/adr/0102-lakehouse-jobs-survive-r2-connection-resets.md
 docs/adr/0103-place-identity-outlives-administrative-code-changes.md
 docs/adr/0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md
 docs/adr/0105-the-canonical-transition-table-is-produced-from-the-derived-crosswalk.md
+docs/adr/0106-land-right-names-corroborate-unit-normalization.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -621,6 +622,7 @@ tools/github/README.md
 | `docs/adr/0103-place-identity-outlives-administrative-code-changes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0105-the-canonical-transition-table-is-produced-from-the-derived-crosswalk.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0106-land-right-names-corroborate-unit-normalization.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
