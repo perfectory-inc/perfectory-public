@@ -18,6 +18,9 @@ pub mod proposal;
 /// Entity-impact detection from semantic metadata.
 pub mod semantic_entity_impact;
 
+/// Conservative normalized unit designation shared with the dbt macro (ADR-0107).
+pub mod unit_designation_normalization;
+
 /// Semantic metadata for source fields and consistency domains.
 pub mod semantic_metadata;
 
@@ -47,3 +50,4 @@ pub use semantic_metadata::{
     entity_impact_mappings_for_source, field_semantic_mappings_for_source, ConsistencyDomainId,
     EntityImpactMapping, EntityTypeId, FieldSemanticMapping, SemanticConceptId, SourceFieldRef,
 };
+pub use unit_designation_normalization::normalized_unit_designation;
