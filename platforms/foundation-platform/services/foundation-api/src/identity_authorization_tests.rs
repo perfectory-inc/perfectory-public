@@ -860,16 +860,11 @@ fn protected_request(
         .body(Body::from("{}"))
 }
 
-fn service_route_cases() -> [ServiceRouteCase; 6] {
+fn service_route_cases() -> [ServiceRouteCase; 5] {
+    // The parcel by-PNU detail route was retired (root ADR-0109); `parcel_buildings` is now the
+    // representative catalog read case, keeping the same PNU-scoped `resource_id` shape. Several
+    // tests use `service_route_cases()[0]` as that representative, so it must stay a live route.
     [
-        ServiceRouteCase {
-            name: "parcel_by_pnu",
-            method: Method::GET,
-            uri: "/catalog/v1/parcels/by-pnu/9999900101100090000",
-            resource: "foundation.catalog",
-            action: "read",
-            resource_id: Some("9999900101100090000"),
-        },
         ServiceRouteCase {
             name: "parcel_buildings",
             method: Method::GET,

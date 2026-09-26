@@ -38,12 +38,6 @@ pub mod notice;
 
 /// Parcel aggregate.
 pub mod parcel;
-pub mod parcel_characteristic;
-pub mod parcel_forest_ledger;
-pub mod parcel_land_right;
-pub mod parcel_price;
-pub mod parcel_transfer_event;
-pub mod parcel_zoning;
 
 /// Reference-date official prices for registered units.
 pub mod unit_official_price;
@@ -94,13 +88,7 @@ pub use mutation_idempotency::{
 };
 pub use notice::{ComplexNotice, NoticeAttachment, NoticeType, ParseNoticeTypeError};
 pub use parcel::{parcel_id_for_pnu, Parcel, ParcelKind, ParcelKindEdit, ParseParcelKindError};
-pub use parcel_characteristic::ParcelCharacteristic;
 pub use parcel_complex_membership::MembershipAssertedBy;
-pub use parcel_forest_ledger::ParcelForestLedger;
-pub use parcel_land_right::{ParcelLandRight, ParcelLandRightPage};
-pub use parcel_price::ParcelPrice;
-pub use parcel_transfer_event::ParcelTransferEvent;
-pub use parcel_zoning::ParcelZoning;
 pub use serving_publication::{
     is_publication_unit_key, static_file_asset_id_for_build, static_release_id_for_build,
     static_release_martin_source_id, static_release_pmtiles_object_key, validate_build_promotion,

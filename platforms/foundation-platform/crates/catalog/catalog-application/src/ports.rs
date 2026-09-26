@@ -12,11 +12,10 @@ use catalog_domain::{
     ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
     IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
-    MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
-    ParcelKind, ParcelLandRightPage, ParcelPrice, ParcelTransferEvent, ParcelZoning,
-    RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
-    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, UnitOfficialPriceRow,
-    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, RequestFingerprint,
+    RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
+    ServingGeneration, SpatialLayer, UnitOfficialPriceRow, VectorTileBuildOutcome,
+    VectorTileManifest, VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
@@ -657,31 +656,6 @@ pub trait CatalogRepository: Send + Sync {
     /// Returns `CatalogError` when repository access fails.
     async fn list_buildings_by_pnu(&self, pnu: &Pnu) -> Result<Vec<Building>, CatalogError>;
 
-    /// Lists land-use zoning verdicts for one parcel identified by PNU (root ADR-0083 §5).
-    ///
-    /// An empty list is the honest answer for a parcel the plan ledger names no zone for —
-    /// nothing is invented in its place (root ADR-0078).
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_parcel_zonings_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Vec<ParcelZoning>, CatalogError>;
-
-    /// Finds the newest official land price assessment for one parcel identified by PNU
-    /// (root ADR-0085 §2).
-    ///
-    /// `None` is the honest answer for a parcel the assessment ledger names no price for —
-    /// nothing is invented in its place (root ADR-0078).
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn find_parcel_price_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Option<ParcelPrice>, CatalogError>;
-
     /// Lists reference-date unit assessments from the selected complete source batch.
     ///
     /// # Errors
@@ -690,48 +664,6 @@ pub trait CatalogRepository: Send + Sync {
         &self,
         pnu: &Pnu,
     ) -> Result<Vec<UnitOfficialPriceRow>, CatalogError>;
-
-    /// Finds the newest cadastral characteristics for one parcel identified by PNU.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn find_parcel_characteristic_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Option<ParcelCharacteristic>, CatalogError>;
-
-    /// Finds the newest official forest ledger row for one parcel identified by PNU.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn find_parcel_forest_ledger_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Option<ParcelForestLedger>, CatalogError>;
-
-    /// Lists the complete cadastral transfer timeline for one parcel.
-    ///
-    /// An empty list means the transfer ledger names no events for the parcel. Results are ordered
-    /// by transfer date descending with undated events last, then provider event sequence descending.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_parcel_transfer_events_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Vec<ParcelTransferEvent>, CatalogError>;
-
-    /// Lists a bounded first page of unit-level land rights plus the total count.
-    ///
-    /// Ordered by provider serial, then dong, floor, ho, and room designations
-    /// (root ADR-0093); apartment parcels can hold thousands of rows.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_parcel_land_rights_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<ParcelLandRightPage, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

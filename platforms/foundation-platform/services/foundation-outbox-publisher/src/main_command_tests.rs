@@ -38,21 +38,13 @@ fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> 
 
 #[test]
 fn forest_ledger_commands_are_explicit() -> anyhow::Result<()> {
-    for (name, command) in [
-        (
-            "export-land-forest-silver-handoff",
-            Command::ExportLandForestSilverHandoff,
-        ),
-        (
-            "load-parcel-forest-ledger-catalog-projection",
-            Command::LoadParcelForestLedgerCatalogProjection,
-        ),
-    ] {
-        assert_eq!(
-            parse_command(["foundation-outbox-publisher", name])?,
-            command
-        );
-    }
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-land-forest-silver-handoff"
+        ])?,
+        Command::ExportLandForestSilverHandoff
+    );
     Ok(())
 }
 

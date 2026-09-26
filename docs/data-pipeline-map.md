@@ -17,7 +17,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 현재 범위: 원천 **9그룹 / 134 endpoint**,
 Silver·Gold **22표**,
-서빙·운영 원장 **76표**.
+서빙·운영 원장 **70표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
 [결정 ADR-0086](./adr/0086-the-pipeline-graph-names-every-dataset-once.md).
@@ -47,19 +47,19 @@ Silver·Gold **22표**,
 | 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 전유부 원문 27칸과 관리번호·동호를 완료 manifest 부분 목록을 통해 append-only Silver로 적재한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 기본·식별자<br>필지 경계 서빙 | 필지 지도 타일<br>카탈로그 조회 API<br>공짱 지도·상세 패널 |
-| 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 용도지역 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ D155 CSV만 연결한다. 같은 원천의 D154 도형은 Bronze에 남는다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지이용구역 코드 | 1 endpoint | 용도지역 코드 사전 (`silver.land_use_zone_code`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 용도지역 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지이용구역 코드 | 1 endpoint | 용도지역 코드 사전 (`silver.land_use_zone_code`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ 코드 사전의 계층을 그대로 읽는다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 개별공시지가 | 1 endpoint | 필지별 공시지가 (`silver.land_individual_price`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 공시지가 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 개별공시지가 | 1 endpoint | 필지별 공시지가 (`silver.land_individual_price`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ D151 CSV만 연결한다. D150 DBF는 Bronze에 남는다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지특성 | 1 endpoint | 필지별 토지특성 (`silver.land_characteristic`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 토지특성 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지특성 | 1 endpoint | 필지별 토지특성 (`silver.land_characteristic`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ AL_D195 CSV 속성을 PNU로 연결한다. 도형은 기존 필지 경계가 소유한다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 임야 | 1 endpoint | 필지별 임야대장 (`silver.land_forest_ledger`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 임야대장 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 임야 | 1 endpoint | 필지별 임야대장 (`silver.land_forest_ledger`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ AL_D003 CSV 속성을 PNU로 연결한다. 도형은 기존 필지 경계가 소유한다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지이동연혁 | 1 endpoint | 필지별 토지이동이력 (`silver.land_transfer_history`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 토지이동 사건 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지이동연혁 | 1 endpoint | 필지별 토지이동이력 (`silver.land_transfer_history`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ AL_D157 전체 사건을 PNU·이력순번으로 보존한다. 폐쇄·말소 사건도 연혁에 남는다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지권리등록 | 1 endpoint | 필지별 대지권 등록 (`silver.land_right_registration`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | 필지 대지권 등록 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 토지권리등록 | 1 endpoint | 필지별 대지권 등록 (`silver.land_right_registration`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ AL_D006 PIPE CSV의 PNU·대지권일련번호별 등록과 폐쇄 행, 명칭·비율 원문을 보존한다. | | | | |
 | 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 표제부 (`silver.building_register_titles`) | 건물 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 층별 정보 (`silver.building_register_floors`) | — | — |
@@ -211,12 +211,6 @@ Silver·Gold **22표**,
 | 책임 | 물리 표 |
 |---|---|
 | 필지 기본·식별자 | `catalog.parcel`<br>`catalog.parcel_identifier` |
-| 필지 용도지역 | `catalog.parcel_zoning` |
-| 필지 공시지가 | `catalog.parcel_price` |
-| 필지 토지특성 | `catalog.parcel_characteristic` |
-| 필지 임야대장 | `catalog.parcel_forest_ledger` |
-| 필지 토지이동 사건 | `catalog.parcel_transfer_event` |
-| 필지 대지권 등록 | `catalog.parcel_land_right` |
 | 건물 | `catalog.building` |
 | 건물의 호 | `catalog.building_unit` |
 | 세대 공시가격 연혁 | `catalog.unit_official_price`<br>`catalog.unit_official_price_publication` |
@@ -324,17 +318,10 @@ Silver·Gold **22표**,
 | 산업단지 기본 정보 → 산업단지 제공용 프로필 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py` |
 | 필지 경계 → 필지 기본·식별자 | `load-parcel-catalog-projection` |
 | 필지 경계 → 필지 경계 서빙 | `rebuild-postgis-parcel-boundary-mirror-national-from-contract`<br>`publish-parcel-boundary-postgis` |
-| 필지별 토지이용계획 → 필지 용도지역 | `load-parcel-zoning-catalog-projection` |
-| 용도지역 코드 사전 → 필지 용도지역 | `load-parcel-zoning-catalog-projection` |
-| 필지별 공시지가 → 필지 공시지가 | `load-parcel-price-catalog-projection` |
 | 건축물대장 공동주택가격 → 세대별 기준일 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
 | 건축물대장 전유부 → 세대별 기준일 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
 | 세대별 기준일 공시가격 → 세대 공시가격 연혁 | `load-unit-official-price-projection` |
 | 세대 공시가격 연혁 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/catalog/building_units.rs` |
-| 필지별 토지특성 → 필지 토지특성 | `load-parcel-characteristic-catalog-projection` |
-| 필지별 임야대장 → 필지 임야대장 | `load-parcel-forest-ledger-catalog-projection` |
-| 필지별 토지이동이력 → 필지 토지이동 사건 | `load-parcel-transfer-event-catalog-projection` |
-| 필지별 대지권 등록 → 필지 대지권 등록 | `load-parcel-land-right-catalog-projection` |
 | 건물 표제부 → 건물 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_titles_catalog_handoff.py`<br>`load-building-catalog-projection` |
 | 건물 호별 정보 → 건물의 호 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_register_units_parcel_handoff.py`<br>`load-building-unit-catalog-projection`<br>`load-building-unit-building-link` |
 | 산업단지 기본 정보 → 산업단지 | `load-industrial-complex-canonical` |
@@ -346,12 +333,6 @@ Silver·Gold **22표**,
 | 행정경계 서빙 → 행정경계 지도 타일 | `promote-administrative-boundary-runtime` |
 | 산업단지 경계 서빙 → 산업단지 지도 타일 | `publish-industrial-complex-boundary-static-release` |
 | 필지 기본·식별자 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
-| 필지 용도지역 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
-| 필지 공시지가 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
-| 필지 토지특성 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
-| 필지 임야대장 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
-| 필지 토지이동 사건 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
-| 필지 대지권 등록 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
 | 건물 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
 | 건물의 호 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
 | 산업단지 → 카탈로그 조회 API | `platforms/foundation-platform/services/foundation-api/src/routes/mod.rs` |
