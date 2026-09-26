@@ -119,3 +119,4 @@ last_reviewed: 2026-07-28
 - [0105 — 정본 전이표는 도출된 크로스워크에서 나온다](./0105-the-canonical-transition-table-is-produced-from-the-derived-crosswalk.md)
 - [0106 — 등기 대지권 이름이 호 정규화를 교차확증한다](./0106-land-right-names-corroborate-unit-normalization.md)
 - [0107 — 정규형 호 지정자는 승인이 아니라 파생으로 얻는다](./0107-the-normalized-unit-designation-is-derived-not-approved.md)
+- [0108 — R2 굽기로 대체된 PostgreSQL 서빙 투영을 순차 폐기한다](./0108-retire-the-postgres-serving-projections-superseded-by-r2-bakes.md)
