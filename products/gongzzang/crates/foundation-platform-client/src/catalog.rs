@@ -602,6 +602,93 @@ impl FoundationCatalogClient {
     }
 }
 
+/// Public R2-edge path for pre-baked parcel-by-PNU objects (root ADR-0109).
+const PARCEL_BY_PNU_EDGE_PATH: &str = "parcels/by-pnu/";
+
+/// Reads pre-baked parcel-by-PNU objects from the public R2 edge (root ADR-0109).
+///
+/// This is the CDN serving surface, not the authenticated `catalog/v1` API: no
+/// version prefix and no workload auth. The object is the same
+/// [`CatalogParcelResponse`] the API contract carries — the edge adds
+/// `schema_version`/`source`, which that DTO ignores — so a caller reuses the same
+/// mapper no matter which surface answered. foundation-api no longer serves parcel
+/// detail (root ADR-0109); the R2 edge is the single serving surface for it.
+pub struct CatalogParcelEdgeClient {
+    base_url: reqwest::Url,
+    /// Every send using this client is owned by `execute` below.
+    #[allow(clippy::disallowed_types)]
+    client: reqwest::Client,
+    breaker: Breaker,
+    policy: Policy,
+}
+
+impl CatalogParcelEdgeClient {
+    /// Creates a parcel edge client from one validated public base URL (the CDN host).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint or HTTP client configuration is invalid.
+    pub fn new(base_url: &str) -> Result<Self, FoundationCatalogClientConfigError> {
+        let base_url = parse_foundation_endpoint_url(base_url)?;
+        #[allow(clippy::disallowed_types)]
+        let client = reqwest::Client::builder()
+            .build()
+            .map_err(|source| FoundationCatalogClientConfigError::HttpClient { source })?;
+        Ok(Self {
+            base_url,
+            client,
+            breaker: Breaker::new(),
+            policy: Policy::foundation_platform_default(),
+        })
+    }
+
+    /// Sends one parcel-by-PNU request to the public R2 edge.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failures and retriable status.
+    pub async fn get_parcel_by_pnu_response(
+        &self,
+        pnu: &str,
+    ) -> Result<reqwest::Response, FoundationCatalogClientRequestError> {
+        // Bound outside the retry closure so the awaited future does not reference a
+        // temporary the closure owns (each retry re-borrows this same path).
+        let relative_path = format!("{PARCEL_BY_PNU_EDGE_PATH}{pnu}");
+        execute(
+            &self.breaker,
+            &self.policy,
+            "foundation_platform.catalog_edge.get_parcel_by_pnu",
+            || self.send_get_attempt(&relative_path),
+        )
+        .await
+        .map_err(|source| FoundationCatalogClientRequestError::Circuit { source })
+    }
+
+    async fn send_get_attempt(
+        &self,
+        relative_path: &str,
+    ) -> Result<reqwest::Response, FoundationCatalogHttpError> {
+        let url = self.base_url.join(relative_path).map_err(|source| {
+            FoundationCatalogHttpError::BuildUrl {
+                detail: source.to_string(),
+            }
+        })?;
+        // No auth: the edge is a public CDN. It even tolerates a stray bearer, but this
+        // surface authenticates nothing, so the client attaches nothing.
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|source| FoundationCatalogHttpError::Request { source })?;
+        let status = response.status();
+        if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(FoundationCatalogHttpError::RetriableStatus { status });
+        }
+        Ok(response)
+    }
+}
+
 /// A guarded Catalog request exhausted or was rejected by its circuit policy.
 #[derive(Debug, Error)]
 pub enum FoundationCatalogClientRequestError {

@@ -120,3 +120,4 @@ last_reviewed: 2026-07-28
 - [0106 — 등기 대지권 이름이 호 정규화를 교차확증한다](./0106-land-right-names-corroborate-unit-normalization.md)
 - [0107 — 정규형 호 지정자는 승인이 아니라 파생으로 얻는다](./0107-the-normalized-unit-designation-is-derived-not-approved.md)
 - [0108 — R2 굽기로 대체된 PostgreSQL 서빙 투영을 순차 폐기한다](./0108-retire-the-postgres-serving-projections-superseded-by-r2-bakes.md)
+- [0109 — 공짱 백엔드는 필지·건물 상세를 R2 엣지에서 직접 읽는다](./0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md)
