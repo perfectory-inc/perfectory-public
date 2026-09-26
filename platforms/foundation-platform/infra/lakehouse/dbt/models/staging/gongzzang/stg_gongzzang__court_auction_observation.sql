@@ -23,6 +23,10 @@ select
     pnu,
     dong_name,
     unit_designation as unit_label,
+    -- 경매 호명도 우리 대장과 같은 규칙으로 청소한다(ADR-0107 정규형 SSOT) —
+    -- `4층404호`·`에이동3층301호` 같은 표기가 대장 정규형과 같은 모양이 되어
+    -- 같은 PNU 안에서 호에 꽂힌다(2026-09-26 실측 75.2%).
+    {{ foundation_normalized_unit_name('unit_designation', 'dong_name') }} as unit_designation_normalized,
     {{ foundation_unit_number_from_designation('unit_designation') }} as unit_number,
     {{ foundation_floor_designation_hint_from_designation('unit_designation') }} as floor_from_designation,
     exclusive_area as exclusive_area_sqm,
