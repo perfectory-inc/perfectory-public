@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **446개**
+- 문서 파일: **447개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 17 |
 | Intelligence Platform | 19 |
-| Monorepo | 134 |
+| Monorepo | 135 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 193 |
+| ADR | 194 |
 | README | 111 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -486,6 +486,7 @@ docs/adr/0105-the-canonical-transition-table-is-produced-from-the-derived-crossw
 docs/adr/0106-land-right-names-corroborate-unit-normalization.md
 docs/adr/0107-the-normalized-unit-designation-is-derived-not-approved.md
 docs/adr/0108-retire-the-postgres-serving-projections-superseded-by-r2-bakes.md
+docs/adr/0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -632,6 +633,7 @@ tools/github/README.md
 | `docs/adr/0106-land-right-names-corroborate-unit-normalization.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0107-the-normalized-unit-designation-is-derived-not-approved.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0108-retire-the-postgres-serving-projections-superseded-by-r2-bakes.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
