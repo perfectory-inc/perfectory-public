@@ -43,7 +43,10 @@ official price 를 합성 객체에 담는다. 지도 타일·마커도 R2(`gold
 | parcel | 9.4 GB | ✅ parcel_panel(기본) | tile/marker/identifier_lookup 조인 | **삭제(2차)** — 지도 경로 확인 후 |
 | parcel_identifier_lookup | (중) | — | by-pnu 조인 키 | **삭제(2차)** — parcel 과 함께 |
 | vector_tile_*, parcel_marker_anchor | 합계 2 MB 미만 | 타일·마커 **실물은 R2**(gold/vector-tiles/releases); postgres 는 40 kB 제어 포인터만 | foundation-api 타일 경로(catalog.rs)가 런타임에 manifest 를 읽음(실측) | **3차(저우선)** — 비용 무의미. 완전 순수 원하면 제어 포인터를 R2 manifest 로 옮긴 뒤 폐기 |
-| industrial_complex, source_catalog, ingestion_run, collection_job, bronze_object, outbox_event, administrative_unit* | (소) | — | 검색·수집·발행 운영 | **유지** (ADR-0096 §5 소형 운영) |
+| industrial_complex (목록 1,442행) | 1.7 MB | 고정 전체 목록이라 R2 파일 하나로 구울 수 있음 | list_complexes 전체 조회 | **R2 이전 가능** — 읽기 전용 고정 목록, 대량 아님(저우선) |
+| source_catalog, source_record, ingestion_run, collection_job, bronze_object, outbox_event, outbox_quarantine, publication_revision, catalog_edit, catalog_mutation_idempotency, lakehouse_*(batch_run/registry), schema_profile | (소, 활동량 비례) | ✕ (서빙 데이터 아님) | 수집·발행 워커가 **계속 씀(write)** | **유지** — 파이프라인 제어 상태 |
+| normalization_application, normalization_proposal(+review/audit) | (소) | ✕ | AI 제안·직원 승인이 **계속 씀** | **유지** — 승인 워크플로 상태 |
+| administrative_unit*, allowed_industry, industry_group* | (소) | 고정 참조라 R2 가능하나 처리 조인에 쓰임 | 정제 조인 | **유지(또는 R2)** — 소형 참조 |
 
 1차 삭제만으로 **약 67 GB 즉시 회수**(의존 위험 0 — 순수 상세 표). 2차까지 하면
 기본 엔티티·식별자까지 약 86 GB+ 회수. 3차(tile/marker 제어 포인터)는 2 MB
@@ -77,11 +80,24 @@ official price 를 합성 객체에 담는다. 지도 타일·마커도 R2(`gold
    시급하지 않다. 완전한 무-DB 서빙을 원하면 이 제어 포인터를 R2 manifest 로
    옮겨 타일 경로가 R2 를 읽게 한 뒤 폐기한다.
 
-6. **유지:** 검색·수정·조인·수집·발행이 필요한 소형 운영 데이터(ADR-0096 §5) —
-   industrial_complex(목록·검색), source/ingestion/collection/bronze/outbox,
-   administrative_unit*. 파일로는 자유 검색·조인이 어려운 것들이라 남긴다.
+6. **postgres 에 남는 것은 "쓰기가 계속 일어나는 제어 상태"뿐이다.** 서빙되는
+   데이터는 하나도 남기지 않는다. R2 로 못 하는 것은 두 종류뿐이며 이것만 남긴다:
+   - (가) **계속 쓰는(write) 운영 상태** — 수집 작업·발행 큐·브론즈 원장·정규화
+     제안/승인·레이크하우스 배치 원장·멱등/편집 원장. R2 객체는 "통째 교체"만
+     되고 초당 소량 수정에 부적합하므로 이 상태는 DB 가 맞다.
+   - (나) **조건이 무한한 즉석 검색** — 미리 구울 수 없는 임의 필터 조회. (단
+     gongzzang 매물 검색은 제품 소관이며 이 카탈로그 밖이다.)
+   그 외 읽기 전용 고정 목록(industrial_complex, administrative_unit* 등)은
+   대량이 아니라 급하지 않으나 원칙상 R2 로 옮길 수 있다.
 
-7. **적재기도 함께 끈다.** 폐기하는 표의 postgres 투영 적재
+7. **앞으로의 규칙(중요): 새 대량·서빙 데이터는 postgres 에 적재하지 않는다.**
+   수집·정제하는 모든 대량 데이터의 정본은 R2 레이크하우스이고, 서빙은 R2
+   미리구운 객체에서 한다. postgres 로의 대량 투영(reverse-ETL)은 다시 만들지
+   않는다. 따라서 **postgres 는 데이터 양(필지 수·행 수)에 따라 커지지 않고,
+   활동량(진행 중인 작업 수)에만 비례하는 작은 크기로 고정된다.** 이것이 이
+   폐기의 종착점이자 [[the-modernization-program]]·ADR-0096 의 완성이다.
+
+8. **적재기도 함께 끈다.** 폐기하는 표의 postgres 투영 적재
    (outbox-publisher 의 `*_catalog_projection_load`)는 더 이상 돌리지 않는다 —
    죽은 표에 다시 붓지 않도록 스케줄/호출에서 제거하고, 그 코드는 폐기 표와 같은
    변경에서 비활성화한다.
