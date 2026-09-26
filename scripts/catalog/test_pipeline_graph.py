@@ -85,8 +85,14 @@ def main() -> None:
         check("(c) new migration owner table", "serving tables")
         migration.write_text('-- CREATE TABLE catalog.comment_only (id integer);\n/* CREATE TABLE catalog.comment_too (id integer); */\n', encoding="utf-8", newline="")
         check("comments are not tables")
-        migration.write_text('DROP TABLE catalog.parcel;\n', encoding="utf-8", newline="")
-        check("unsupported table lifecycle", "unsupported serving table lifecycle")
+        # A serving copy created and later dropped (ADR-0108) nets to absent and stays
+        # consistent with the graph, which never listed it.
+        migration.write_text('CREATE TABLE catalog.retired_copy (id integer);\n'
+                             'DROP TABLE IF EXISTS catalog.retired_copy;\n', encoding="utf-8", newline="")
+        assert "catalog.retired_copy" not in migration_tables(root)
+        check("dropped serving copy is reconciled")
+        migration.write_text('DROP SCHEMA catalog;\n', encoding="utf-8", newline="")
+        check("schema drop remains unsupported", "unsupported serving table lifecycle")
         migration.write_text('ALTER TABLE catalog.parcel RENAME TO parcel_archive;\n'
                              'CREATE TABLE catalog.parcel (id integer);\n', encoding="utf-8", newline="")
         tables = migration_tables(root)
