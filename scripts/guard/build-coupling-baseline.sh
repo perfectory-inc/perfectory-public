@@ -194,7 +194,12 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # source-registry adapter beside it in the same crate already does. Both own tables in the
 # same schema, so a second adapter that connected without migrating would work on a machine
 # another adapter had already migrated, and fail on a fresh one.
-COMPILE_TIME_READ_BASELINE="${3:-114}"
+# 114 -> 104: root ADR-0109 retires the six parcel-detail projection loaders and their four
+# fixture-embedding proof tests. The loaders read R2 at runtime (no compile-time reads), but the
+# deleted tests embedded silver-handoff fixtures and the shipped migrations (10 sites:
+# transfer_event 3, characteristic 2, forest_ledger 2, land_right 3). Serving moved to the R2
+# edge (parcel by-PNU bake), so those postgres projections and their proofs are gone.
+COMPILE_TIME_READ_BASELINE="${3:-104}"
 
 cd "$repo_root"
 
