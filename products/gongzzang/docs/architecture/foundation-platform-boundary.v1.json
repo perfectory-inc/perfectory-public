@@ -87,6 +87,7 @@
   "root_env_example_contract": {
     "required_http_env": [
       "FOUNDATION_PLATFORM_API_BASE_URL",
+      "FOUNDATION_PLATFORM_CATALOG_EDGE_BASE_URL",
       "NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL"
     ],
     "required_service_auth_env": [
