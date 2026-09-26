@@ -17,7 +17,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 현재 범위: 원천 **9그룹 / 134 endpoint**,
 Silver·Gold **22표**,
-서빙·운영 원장 **77표**.
+서빙·운영 원장 **76표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
 [결정 ADR-0086](./adr/0086-the-pipeline-graph-names-every-dataset-once.md).
@@ -219,7 +219,7 @@ Silver·Gold **22표**,
 | 필지 대지권 등록 | `catalog.parcel_land_right` |
 | 건물 | `catalog.building` |
 | 건물의 호 | `catalog.building_unit` |
-| 세대 공시가격 연혁 | `catalog.unit_official_price`<br>`catalog.unit_official_price_legacy_year`<br>`catalog.unit_official_price_publication` |
+| 세대 공시가격 연혁 | `catalog.unit_official_price`<br>`catalog.unit_official_price_publication` |
 | 산업단지 | `catalog.industrial_complex` |
 | 산업단지 프로필 포인터 | `catalog.industrial_complex_gold_pointer` |
 | 필지의 산업단지 소속 | `catalog.parcel_complex_membership` |
