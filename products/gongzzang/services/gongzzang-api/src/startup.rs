@@ -206,42 +206,26 @@ pub fn is_production_env() -> bool {
 }
 
 pub fn build_parcel_lookup(is_production: bool) -> Result<Arc<dyn ParcelInfoLookup>, StartupError> {
-    build_parcel_lookup_from_foundation_platform_base_url(
+    build_parcel_lookup_from_edge_base_url(
         is_production,
-        optional_env("FOUNDATION_PLATFORM_API_BASE_URL"),
-        optional_env("FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE"),
+        optional_env("FOUNDATION_PLATFORM_CATALOG_EDGE_BASE_URL"),
     )
 }
 
-fn build_parcel_lookup_from_foundation_platform_base_url(
+fn build_parcel_lookup_from_edge_base_url(
     is_production: bool,
     base_url: Option<String>,
-    workload_identity_token_file: Option<String>,
 ) -> Result<Arc<dyn ParcelInfoLookup>, StartupError> {
-    build_parcel_lookup_from_foundation_config(
-        is_production,
-        base_url,
-        workload_identity_token_file,
-    )
-}
-
-fn build_parcel_lookup_from_foundation_config(
-    is_production: bool,
-    base_url: Option<String>,
-    workload_identity_token_file: Option<String>,
-) -> Result<Arc<dyn ParcelInfoLookup>, StartupError> {
+    // Parcel detail is read from the public R2 edge, not the catalog/v1 API (root ADR-0109).
+    // The edge is a public CDN, so there is no workload token to configure.
     if let Some(base_url) = base_url {
-        let auth = build_foundation_service_auth(workload_identity_token_file)?;
-        tracing::info!("parcel_lookup: Foundation Platform Catalog live");
-        return foundation_parcel_lookup::build_foundation_platform_parcel_info_lookup(
-            &base_url,
-            Some(auth),
-        )
-        .map_err(|error| {
-            production_config_error(format!(
-                "FOUNDATION_PLATFORM_API_BASE_URL invalid for parcel_lookup: {error}"
-            ))
-        });
+        tracing::info!("parcel_lookup: R2 edge live");
+        return foundation_parcel_lookup::build_foundation_platform_parcel_info_lookup(&base_url)
+            .map_err(|error| {
+                production_config_error(format!(
+                    "FOUNDATION_PLATFORM_CATALOG_EDGE_BASE_URL invalid for parcel_lookup: {error}"
+                ))
+            });
     }
     build_noop_parcel_lookup(is_production)
 }
@@ -251,11 +235,11 @@ fn build_noop_parcel_lookup(
 ) -> Result<Arc<dyn ParcelInfoLookup>, StartupError> {
     if is_production {
         return Err(production_config_error(
-            "FOUNDATION_PLATFORM_API_BASE_URL must be set for parcel_lookup because Foundation Platform owns catalog parcel data",
+            "FOUNDATION_PLATFORM_CATALOG_EDGE_BASE_URL must be set for parcel_lookup because parcel detail is served from the R2 edge",
         ));
     }
     tracing::warn!(
-        "parcel_lookup: FOUNDATION_PLATFORM_API_BASE_URL missing - NoOp empty result (dev only)"
+        "parcel_lookup: FOUNDATION_PLATFORM_CATALOG_EDGE_BASE_URL missing - NoOp empty result (dev only)"
     );
     Ok(Arc::new(NoOpParcelInfoLookup::new()))
 }

@@ -7,9 +7,9 @@ use crate::photo_upload::ListingPhotoUploadConfigError;
 
 use super::{
     build_building_reader_from_foundation_platform_base_url,
-    build_parcel_lookup_from_foundation_platform_base_url,
-    build_photo_download_issuer_from_config_result, build_photo_object_verifier_from_config_result,
-    build_photo_upload_issuer_from_config_result, build_verifier, required_env, StartupError,
+    build_parcel_lookup_from_edge_base_url, build_photo_download_issuer_from_config_result,
+    build_photo_object_verifier_from_config_result, build_photo_upload_issuer_from_config_result,
+    build_verifier, required_env, StartupError,
 };
 
 #[test]
@@ -130,66 +130,40 @@ fn production_rejects_missing_foundation_workload_identity_for_building_reader()
 }
 
 #[test]
-fn production_rejects_missing_foundation_parcel_base_url() {
-    let result = build_parcel_lookup_from_foundation_platform_base_url(true, None, None);
+fn production_rejects_missing_foundation_parcel_edge_base_url() {
+    let result = build_parcel_lookup_from_edge_base_url(true, None);
 
     assert!(
         matches!(result, Err(StartupError::ProductionConfig { reason })
-            if reason.contains("FOUNDATION_PLATFORM_API_BASE_URL"))
+            if reason.contains("FOUNDATION_PLATFORM_CATALOG_EDGE_BASE_URL"))
     );
 }
 
 #[test]
-fn non_production_allows_missing_foundation_parcel_base_url() {
-    let result = build_parcel_lookup_from_foundation_platform_base_url(false, None, None);
+fn non_production_allows_missing_foundation_parcel_edge_base_url() {
+    let result = build_parcel_lookup_from_edge_base_url(false, None);
 
     assert!(result.is_ok());
 }
 
 #[test]
-fn production_accepts_foundation_parcel_workload_identity_token_file() {
-    let token_file = write_workload_identity_token_file("zitadel-workload-token-32-valid");
-    let result = build_parcel_lookup_from_foundation_platform_base_url(
-        true,
-        Some("http://127.0.0.1:18080".to_owned()),
-        Some(token_file.to_string_lossy().into_owned()),
-    );
+fn production_accepts_foundation_parcel_edge_base_url_without_a_token() {
+    // The R2 edge is a public CDN (root ADR-0109): a base URL alone is enough,
+    // no workload identity token is configured for it.
+    let result =
+        build_parcel_lookup_from_edge_base_url(true, Some("https://catalog.example".to_owned()));
 
-    let _ = std::fs::remove_file(token_file);
     assert!(result.is_ok());
 }
 
 #[test]
-fn production_rejects_missing_foundation_workload_identity_for_parcel_lookup() {
-    let result = build_parcel_lookup_from_foundation_platform_base_url(
-        true,
-        Some("http://127.0.0.1:18080".to_owned()),
-        None,
-    );
-
-    assert!(
-        matches!(result, Err(StartupError::ProductionConfig { reason })
-            if reason.contains("FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE"))
-    );
-}
-
-#[test]
-fn non_production_rejects_foundation_base_url_without_workload_identity() {
-    let parcel = build_parcel_lookup_from_foundation_platform_base_url(
-        false,
-        Some("http://127.0.0.1:18080".to_owned()),
-        None,
-    );
+fn non_production_rejects_foundation_building_base_url_without_workload_identity() {
     let building = build_building_reader_from_foundation_platform_base_url(
         false,
         Some("http://127.0.0.1:18080".to_owned()),
         None,
     );
 
-    assert!(
-        matches!(parcel, Err(StartupError::ProductionConfig { reason })
-        if reason.contains("FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE"))
-    );
     assert!(
         matches!(building, Err(StartupError::ProductionConfig { reason })
         if reason.contains("FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE"))

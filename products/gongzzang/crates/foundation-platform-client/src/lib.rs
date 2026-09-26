@@ -10,9 +10,9 @@ mod catalog;
 pub use catalog::{
     CatalogBuildingResponse, CatalogComplexListQuery, CatalogIndustrialComplexGoldPointer,
     CatalogIndustrialComplexListResponse, CatalogIndustrialComplexResponse,
-    CatalogParcelCharacteristic, CatalogParcelForestLedger, CatalogParcelLandRight,
-    CatalogParcelPrice, CatalogParcelResponse, CatalogParcelTransferEvent, CatalogParcelZoning,
-    CatalogUnitOfficialPrice, CatalogUnitPageResponse, CatalogUnitResponse,
+    CatalogParcelCharacteristic, CatalogParcelEdgeClient, CatalogParcelForestLedger,
+    CatalogParcelLandRight, CatalogParcelPrice, CatalogParcelResponse, CatalogParcelTransferEvent,
+    CatalogParcelZoning, CatalogUnitOfficialPrice, CatalogUnitPageResponse, CatalogUnitResponse,
     FoundationCatalogClient, FoundationCatalogClientConfigError,
     FoundationCatalogClientRequestError, FoundationCatalogHttpError,
 };

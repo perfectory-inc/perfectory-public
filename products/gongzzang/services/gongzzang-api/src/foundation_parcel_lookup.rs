@@ -3,6 +3,11 @@
 //! `parcel-lookup` owns only the Gongzzang port. This module owns the HTTP
 //! integration because Foundation Platform is an external runtime dependency of the
 //! API service, not a domain crate concern.
+//!
+//! Parcel detail is read from the public R2 edge (`catalog.perfectory.io`), not the
+//! `catalog/v1` API: root ADR-0109 makes the R2 edge the single serving surface for
+//! parcel detail and retires foundation-api's postgres detail path. The wire object
+//! is the same [`CatalogParcelResponse`]; only the transport changed.
 
 #![allow(clippy::disallowed_types, clippy::module_name_repetitions)]
 
@@ -23,27 +28,26 @@ use thiserror::Error;
 use tracing::instrument;
 
 use foundation_platform_client::{
-    CatalogParcelPrice, CatalogParcelResponse, CatalogParcelZoning, FoundationCatalogClient,
-    FoundationCatalogClientConfigError, FoundationServiceAuth,
+    CatalogParcelEdgeClient, CatalogParcelPrice, CatalogParcelResponse, CatalogParcelZoning,
+    FoundationCatalogClientConfigError,
 };
 
-/// Foundation Platform HTTP-backed parcel lookup adapter.
+/// R2-edge HTTP-backed parcel lookup adapter (root ADR-0109).
 pub struct FoundationPlatformParcelInfoLookup {
-    catalog_client: FoundationCatalogClient,
+    catalog_client: CatalogParcelEdgeClient,
 }
 
 impl FoundationPlatformParcelInfoLookup {
-    /// Build a Foundation Platform lookup from an API base URL.
+    /// Build a parcel lookup from the public R2 edge base URL.
+    ///
+    /// The edge is a public CDN, so no workload auth is attached (root ADR-0109).
     ///
     /// # Errors
     ///
     /// Returns a config error when the URL is empty, invalid, or the HTTP
     /// client cannot be constructed.
-    pub fn new(
-        base_url: &str,
-        auth: Option<FoundationServiceAuth>,
-    ) -> Result<Self, FoundationPlatformParcelLookupConfigError> {
-        let catalog_client = FoundationCatalogClient::new(base_url, auth)?;
+    pub fn new(base_url: &str) -> Result<Self, FoundationPlatformParcelLookupConfigError> {
+        let catalog_client = CatalogParcelEdgeClient::new(base_url)?;
         Ok(Self { catalog_client })
     }
 }
@@ -86,11 +90,8 @@ impl ParcelInfoLookup for FoundationPlatformParcelInfoLookup {
 /// Returns a config error when `base_url` is invalid.
 pub fn build_foundation_platform_parcel_info_lookup(
     base_url: &str,
-    auth: Option<FoundationServiceAuth>,
 ) -> Result<Arc<dyn ParcelInfoLookup>, FoundationPlatformParcelLookupConfigError> {
-    Ok(Arc::new(FoundationPlatformParcelInfoLookup::new(
-        base_url, auth,
-    )?))
+    Ok(Arc::new(FoundationPlatformParcelInfoLookup::new(base_url)?))
 }
 
 /// Configuration errors for the Foundation Platform parcel lookup adapter.
@@ -310,8 +311,6 @@ mod tests {
 
     use shared_kernel::land_use_type::LandUseType;
 
-    use foundation_platform_client::FoundationServiceAuth;
-
     use super::*;
 
     const REQUEST_PNU: &str = "9999900501107370000";
@@ -319,17 +318,15 @@ mod tests {
 
     #[test]
     fn constructor_enforces_foundation_endpoint_security() {
-        assert!(
-            FoundationPlatformParcelInfoLookup::new("https://foundation.example", None).is_ok()
-        );
-        assert!(FoundationPlatformParcelInfoLookup::new("http://127.0.0.1:8080", None).is_ok());
+        assert!(FoundationPlatformParcelInfoLookup::new("https://foundation.example").is_ok());
+        assert!(FoundationPlatformParcelInfoLookup::new("http://127.0.0.1:8080").is_ok());
         for invalid in [
             "http://foundation.example",
             "https://user:password@foundation.example",
             "https://foundation.example?tenant=other",
             "https://foundation.example#fragment",
         ] {
-            assert!(FoundationPlatformParcelInfoLookup::new(invalid, None).is_err());
+            assert!(FoundationPlatformParcelInfoLookup::new(invalid).is_err());
         }
     }
 
@@ -340,8 +337,7 @@ mod tests {
             "HTTP/1.1 200 OK",
             &foundation_platform_parcel_json(REQUEST_PNU, "factory"),
         );
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
@@ -364,8 +360,7 @@ mod tests {
             r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","zonings":[{{"zone_code":"UQA320","zone_name":"일반공업지역","anchor_code":"UQA300","inclusion_code":"1"}},{{"zone_code":"UQB300","zone_name":"보전관리지역","anchor_code":"UQB001","inclusion_code":"2"}}]}}"#
         );
         let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
@@ -381,8 +376,7 @@ mod tests {
             r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","zonings":[],"price":{{"price_per_m2":81700,"base_year":2026,"base_month":1,"announced_date":"2026-04-30"}}}}"#
         );
         let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
@@ -406,8 +400,7 @@ mod tests {
             r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":"support","area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","characteristics":{{"land_category":"공장용지","area_m2":812.5,"land_use_situation":null,"terrain_height":"평지","terrain_shape":null,"road_contact":null}}}}"#
         );
         let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
@@ -432,8 +425,7 @@ mod tests {
             r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","forest_ledger":{{"land_category":"임야","area_m2":812.5,"ownership_kind":"02","co_owner_count":3}}}}"#
         );
         let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
@@ -455,8 +447,7 @@ mod tests {
             r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","transfer_history":[{{"reason":"구획정리 시행신고","reason_code":"31","moved_at":"20050608","erased_at":null,"land_category":"공장용지","area_m2":812.5,"history_seq":2,"closure_seq":"0"}},{{"reason":"95번에서 분할","reason_code":"16","moved_at":"20020523","erased_at":"20050608","land_category":"전","area_m2":900.0,"history_seq":1,"closure_seq":null}}]}}"#
         );
         let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
@@ -494,8 +485,7 @@ mod tests {
             r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z","land_rights":[{{"right_serial_no":"0010","building_name":"공장 A","dong_name":"101동","floor_name":"2층","ho_name":"201호","room_name":"작업실","right_ratio":"3분의1","closure_kind":"폐쇄","closure_kind_code":"02"}},{{"right_serial_no":"0100","building_name":null,"dong_name":null,"floor_name":null,"ho_name":null,"room_name":null,"right_ratio":null,"closure_kind":null,"closure_kind_code":null}}]}}"#
         );
         let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
@@ -557,8 +547,7 @@ mod tests {
             r#"{{"id":"018f2ec8-7f3a-79db-8f7f-3d65f4277f00","pnu":"{REQUEST_PNU}","kind":null,"area_m2":null,"version":1,"updated_at":"2026-09-01T00:00:00Z"}}"#
         );
         let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         let info = lookup.lookup_by_pnu(&pnu).await.unwrap().unwrap();
@@ -573,8 +562,7 @@ mod tests {
             "HTTP/1.1 404 Not Found",
             r#"{"error":"not found"}"#,
         );
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         assert!(lookup.lookup_by_pnu(&pnu).await.unwrap().is_none());
@@ -587,8 +575,7 @@ mod tests {
             "HTTP/1.1 200 OK",
             &foundation_platform_parcel_json(OTHER_PNU, "factory"),
         );
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, None).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         match lookup.lookup_by_pnu(&pnu).await.unwrap_err() {
@@ -598,15 +585,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lookup_sends_foundation_workload_bearer_token() {
+    async fn edge_lookup_sends_no_authorization_header() {
+        // The R2 edge is a public CDN (root ADR-0109); this client authenticates nothing.
         let (base_url, requests) = spawn_foundation_platform_response_capture(
             REQUEST_PNU,
             "HTTP/1.1 200 OK",
             &foundation_platform_parcel_json(REQUEST_PNU, "factory"),
         );
-        let auth = test_service_auth();
-        let lookup =
-            FoundationPlatformParcelInfoLookup::new(&base_url, Some(auth)).expect("valid base url");
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
         let pnu = Pnu::try_new(REQUEST_PNU).unwrap();
 
         lookup.lookup_by_pnu(&pnu).await.unwrap();
@@ -615,10 +601,8 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("captured request");
         assert!(
-            request.contains("\r\nauthorization: Bearer zitadel-workload-token-32-valid\r\n")
-                || request
-                    .contains("\r\nAuthorization: Bearer zitadel-workload-token-32-valid\r\n"),
-            "request missing service bearer token: {request}"
+            !request.to_ascii_lowercase().contains("\r\nauthorization:"),
+            "edge request must carry no auth header: {request}"
         );
     }
 
@@ -632,11 +616,6 @@ mod tests {
         base_url
     }
 
-    fn test_service_auth() -> FoundationServiceAuth {
-        FoundationServiceAuth::from_bearer_token("zitadel-workload-token-32-valid")
-            .expect("service auth")
-    }
-
     fn spawn_foundation_platform_response_capture(
         expected_pnu: &str,
         status_line: &str,
@@ -644,7 +623,7 @@ mod tests {
     ) -> (String, Receiver<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
         let addr = listener.local_addr().expect("test server addr");
-        let expected_path = format!("GET /catalog/v1/parcels/by-pnu/{expected_pnu} ");
+        let expected_path = format!("GET /parcels/by-pnu/{expected_pnu} ");
         let status_line = status_line.to_owned();
         let body = body.to_owned();
         let (tx, rx) = mpsc::channel();
