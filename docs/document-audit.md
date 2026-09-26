@@ -8,7 +8,7 @@
 ## 요약
 
 - 감사 문서: **446개**
-- 언어 분류: **{'english': 35, 'korean': 250, 'mixed': 161}**
+- 언어 분류: **{'english': 35, 'korean': 251, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
 - 메타데이터: **211개 정상 / 0개 누락 / 235개 해당 없음**
@@ -129,7 +129,7 @@
 | `docs/adr/0105-the-canonical-transition-table-is-produced-from-the-derived-crosswalk.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0106-land-right-names-corroborate-unit-normalization.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0107-the-normalized-unit-designation-is-derived-not-approved.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0108-retire-the-postgres-serving-projections-superseded-by-r2-bakes.md` | Monorepo | ADR | Accepted | mixed | not applicable: ADR fields | 1 |
+| `docs/adr/0108-retire-the-postgres-serving-projections-superseded-by-r2-bakes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
