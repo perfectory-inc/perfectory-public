@@ -4,12 +4,20 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 WORKDIR /src
 
+# rdkafka-sys (C2 event backbone) builds vendored librdkafka and needs a C/C++
+# toolchain beyond the rust image default.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends         cmake=3.25.1-1         pkg-config=1.8.1-1         libssl-dev=3.0.22-1~deb12u1         zlib1g-dev=1:1.2.13.dfsg-1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Toolchain pin is the base image tag (rust:1.96.0, guard-enforced); root
 # rust-toolchain.toml is outside this context, cargo uses image default 1.96.0.
 COPY Cargo.toml Cargo.lock /src/
 COPY crates /src/crates
 COPY config /src/config
 COPY services /src/services
+COPY schemas /src/schemas
+COPY infra /src/infra
 
 RUN cargo build --locked --release -p foundation-outbox-publisher
 
