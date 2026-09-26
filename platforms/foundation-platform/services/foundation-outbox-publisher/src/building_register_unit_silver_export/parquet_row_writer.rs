@@ -146,6 +146,7 @@ fn build_schema() -> Schema {
         Field::new("unit_number", DataType::Int32, true),
         Field::new("unit_label_ko", DataType::Utf8, true),
         Field::new("unit_designation", DataType::Utf8, true),
+        Field::new("unit_designation_normalized", DataType::Utf8, true),
         Field::new("floor_kind", DataType::Utf8, false),
         Field::new("floor_index", DataType::Int32, true),
         Field::new("floor_number", DataType::Int32, true),
@@ -188,6 +189,7 @@ fn rows_to_batch(
     let mut unit_number = Int32Builder::new();
     let mut unit_label_ko = StringBuilder::new();
     let mut unit_designation = StringBuilder::new();
+    let mut unit_designation_normalized = StringBuilder::new();
     let mut floor_kind = StringBuilder::new();
     let mut floor_index = Int32Builder::new();
     let mut floor_number = Int32Builder::new();
@@ -220,6 +222,10 @@ fn rows_to_batch(
         );
         append_optional_string(&mut unit_label_ko, row.unit_label_ko.as_deref());
         append_optional_string(&mut unit_designation, row.unit_designation.as_deref());
+        append_optional_string(
+            &mut unit_designation_normalized,
+            row.unit_designation_normalized.as_deref(),
+        );
         floor_kind.append_value(&row.floor_kind);
         append_optional_i32(&mut floor_index, row.floor_index.map(i32::from));
         append_optional_i32(&mut floor_number, row.floor_number.map(i32::from));
@@ -269,6 +275,7 @@ fn rows_to_batch(
             Arc::new(unit_number.finish()),
             Arc::new(unit_label_ko.finish()),
             Arc::new(unit_designation.finish()),
+            Arc::new(unit_designation_normalized.finish()),
             Arc::new(floor_kind.finish()),
             Arc::new(floor_index.finish()),
             Arc::new(floor_number.finish()),

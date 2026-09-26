@@ -1275,6 +1275,11 @@
           "required": false
         },
         {
+          "name": "unit_designation_normalized",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "floor_kind",
           "logical_type": "string",
           "required": true

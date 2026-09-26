@@ -355,6 +355,26 @@ fn basement_unit_carries_negative_floor_not_a_unit_marker() {
 }
 
 #[test]
+fn carries_the_conservative_normalized_designation() {
+    // ADR-0107 §1: 정규형 지정자는 행에서 파생된다. 값의 정본은 골든 벡터
+    // (unit_designation_normalization 시험)이고, 여기서는 배선만 확인한다.
+    for (dong, name, expected) in [
+        ("102동", "6층 630호", Some("630")),
+        ("", "1층 6-2호", Some("6-2")),
+        ("", "지층비01호", Some("BB1")),
+        ("에이동", "에이동 304호", Some("304")),
+        ("", "  ", None),
+    ] {
+        let normalized = normalize_building_register_unit(raw(dong, name, above_ground("6")));
+        assert_eq!(
+            normalized.unit_designation_normalized.as_deref(),
+            expected,
+            "name={name}"
+        );
+    }
+}
+
+#[test]
 fn canonical_dong_join_key_collapses_variants() {
     for (raw, expected) in [
         ("201동", "201"),
