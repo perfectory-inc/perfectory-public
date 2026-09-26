@@ -47,10 +47,47 @@ official price 를 합성 객체에 담는다. 지도 타일·마커도 R2(`gold
 | source_catalog, source_record, ingestion_run, collection_job, bronze_object, outbox_event, outbox_quarantine, publication_revision, catalog_edit, catalog_mutation_idempotency, lakehouse_*(batch_run/registry), schema_profile | (소, 활동량 비례) | ✕ (서빙 데이터 아님) | 수집·발행 워커가 **계속 씀(write)** | **유지** — 파이프라인 제어 상태 |
 | normalization_application, normalization_proposal(+review/audit) | (소) | ✕ | AI 제안·직원 승인이 **계속 씀** | **유지** — 승인 워크플로 상태 |
 | administrative_unit*, allowed_industry, industry_group* | (소) | 고정 참조라 R2 가능하나 처리 조인에 쓰임 | 정제 조인 | **유지(또는 R2)** — 소형 참조 |
+| serving_postgis.parcel_boundary_mirror/publication (지도 경계) | **112 GB** (전국 3,986만, 세대 1개) | ✗ (성격이 다름 — 아래) | Martin 이 Dynamic 렌더로 **실시간 읽음** | **삭제 아님 — 전국 타일의 유일 Dynamic 소스.** 전국 Static R2 PMTiles 완성 시 warm delta 만 남겨 축소(§postgis) |
 
 1차 삭제만으로 **약 67 GB 즉시 회수**(의존 위험 0 — 순수 상세 표). 2차까지 하면
 기본 엔티티·식별자까지 약 86 GB+ 회수. 3차(tile/marker 제어 포인터)는 2 MB
 미만이라 회수량이 아니라 "완전 무-DB" 순수성 목적이며 저우선이다.
+
+## serving_postgis 의 역할 (catalog 상세와 다르다)
+
+`serving_postgis`(112 GB, parcel_boundary_mirror/publication)는 catalog 상세 표와
+**성격이 다르다**. catalog 상세는 R2 구운 JSON 이 이미 대체한 순수 중복이라 삭제
+대상이지만, postgis 경계는 **지도 타일의 살아있는 렌더 소스**다.
+
+지도 타일 서빙 모델(runbook `tiles-object-storage-first-slice`, ADR-0004/0006/0042):
+- **Dynamic:** PostGIS view → Martin → MVT. **최신 변경(추가·수정·삭제, tombstone
+  포함)이 먼저 들어가 즉시 서빙되는 warm 경로.**
+- **Static:** 같은 PostGIS generation 을 고정해 불변 PMTiles 로 구워 R2(serving-
+  derivative 버킷)에 올리고 Martin 이 거기서 서빙하는 cold 경로. 승격은 하루 한 번
+  (`Asia/Seoul`) 스케줄 또는 관리자 반영으로 일어난다.
+- 정본(canonical geometry)은 R2 Iceberg(lakehouse silver)다. PostGIS 는 그 스냅숏 +
+  감사된 공개 입력에서 **재구축 가능한 warm projection 이며 유일 정본은 아니다**.
+
+즉 흐름은 **경계 변경 → PostGIS(즉시 서빙) → (하루/관리자 반영) → R2 PMTiles 확정**
+이고, catalog 처럼 "중복이라 삭제"가 아니라 "최신을 받는 warm 층이라 유지"다.
+runbook 명시: "Static serving 은 PostGIS 렌더 부하만 줄이지 warm projection 자체를
+제거하지 않는다."
+
+**실측(2026-09-26):** parcel_boundary_mirror = 62 GB / **39,861,511 행**(전국 필지
+전량, ADR-0082 의 3,986만과 일치), publication ≈ 50 GB, **data_revision 세대 = 1개**.
+즉 옛 세대가 안 지워져 쌓인 블로트가 **아니다** — 딱 한 세대, 전국 전량이다.
+
+**왜 전량인가:** Martin 의 Dynamic 경로가 이 PostGIS 에서 타일을 실시간 렌더하므로,
+지도의 어느 필지든 그리려면 전국 도형이 다 있어야 한다("최근 변경분만"이 아니라
+"렌더 가능한 전부"). Static(R2 PMTiles) 경로는 runbook 기준 아직 "한 산업단지 3필지"
+슬라이스만 증명됐고 전국 미완이라, 전국 타일 부담을 Dynamic(PostGIS)이 통째로 지고
+있다. 그래서 112 GB 다.
+
+**따라서 지금은 삭제 불가**(유일한 전국 타일 소스 — 지우면 지도가 깨진다). 다만
+종착 아키텍처에서는 이 층이 작아야 한다: **전국 Static R2 PMTiles 발행을 완성하면
+PostGIS 는 "아직 확정 안 된 최근 변경분(warm delta)"만 남기고 대폭 축소된다.** 이것이
+serving_postgis 축소의 올바른 경로이며, 블로트 정리가 아니라 **Static 타일 전국
+롤아웃**이 전제다(후속 작업 [[the-parcel-pipe-reaches-the-map]] 계열).
 
 ## Decision
 
