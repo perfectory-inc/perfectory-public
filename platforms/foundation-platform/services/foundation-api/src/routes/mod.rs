@@ -892,6 +892,10 @@ fn canonical_route_label(path: &str) -> String {
         ["catalog", "v1", "parcels", "by-pnu", _, "buildings"] => {
             "/catalog/v1/parcels/by-pnu/{pnu}/buildings".to_owned()
         }
+        // The parcel by-PNU detail route was retired (root ADR-0109), but requests still arrive
+        // (old clients, scanners) and 404. Keep the PNU normalized so those 404s stay one metric
+        // label instead of one per PNU — this normalizer bounds cardinality, it does not route.
+        ["catalog", "v1", "parcels", "by-pnu", _] => "/catalog/v1/parcels/by-pnu/{pnu}".to_owned(),
         ["catalog", "v1", "complexes", _, "notices"] => {
             "/catalog/v1/complexes/{id}/notices".to_owned()
         }

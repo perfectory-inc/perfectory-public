@@ -114,23 +114,9 @@ async fn router_routes_parcel_marker_anchor_rebuild_requests() -> Result<(), Box
     Ok(())
 }
 
-#[tokio::test]
-async fn router_rejects_parcel_pnu_lookup_without_service_identity() -> Result<(), Box<dyn Error>> {
-    let state = Arc::new(AppState::bootstrap_for_test()?);
-    let app = router(state);
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method(Method::GET)
-                .uri("/catalog/v1/parcels/by-pnu/not-a-pnu")
-                .body(Body::empty())?,
-        )
-        .await?;
-
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    Ok(())
-}
+// `router_rejects_parcel_pnu_lookup_without_service_identity` was removed with the parcel
+// by-PNU detail route (root ADR-0109). The by-PNU buildings route's service-identity gate is
+// still proven by `identity_authorization_tests::service_route_cases` (`parcel_buildings`).
 
 #[tokio::test]
 async fn router_rejects_lakehouse_artifact_registration_without_service_identity(
