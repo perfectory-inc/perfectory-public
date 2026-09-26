@@ -450,6 +450,30 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         self.assertIn("unit_name_normalization_vectors.csv", rust)
         self.assertIn("normalized_unit_designation", rust)
 
+    def test_court_auction_name_match_uses_shared_normalizer(self) -> None:
+        """경매 매칭도 정규형 SSOT 로 — 대장 쪽은 실버가 실은 칸, 경매 쪽은 매크로."""
+        unit_stg = self.read("models/staging/foundation/stg_foundation__building_register_unit.sql")
+        auc_stg = self.read("models/staging/gongzzang/stg_gongzzang__court_auction_observation.sql")
+        cand = self.read(
+            "models/intermediate/entity_resolution/"
+            "int_entity_resolution__court_auction_building_unit_name_candidates.sql"
+        )
+        link = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
+
+        # 대장 쪽: 실버 엔진이 실은 칸을 그대로 통과 (매크로 재계산 아님).
+        self.assertIn("unit_designation_normalized", unit_stg)
+        # 경매 쪽: 같은 매크로로 청소.
+        self.assertIn("{{ foundation_normalized_unit_name(", auc_stg)
+        # 후보: 양방향 유일.
+        self.assertIn("unit_name_counts.unit_count = 1", cand)
+        self.assertIn("auction_name_counts.auction_count = 1", cand)
+        # 링크 합류 + 규칙 버전.
+        self.assertIn(
+            "{{ ref('int_entity_resolution__court_auction_building_unit_name_candidates') }}",
+            link,
+        )
+        self.assertIn("'court-auction-building-unit-name-match.v1' as rule_version", link)
+
     def test_entity_link_model_unions_land_right_candidates(self) -> None:
         sql = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
 

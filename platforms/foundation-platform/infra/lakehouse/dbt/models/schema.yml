@@ -329,3 +329,16 @@ models:
         tests: [not_null]
       - name: witness_unit_number
         tests: [not_null]
+
+  - name: int_entity_resolution__court_auction_building_unit_name_candidates
+    description: Court-auction to building-unit candidates matched by the shared normalized designation on the same parcel (ADR-0107); pins each auction to a specific 호 for the "이 호실 경매" feature.
+    columns:
+      - name: source_observation_id
+        tests: [not_null]
+      - name: target_entity_id
+        tests: [not_null]
+      - name: confidence_band
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["high", "medium", "low", "unknown"]
