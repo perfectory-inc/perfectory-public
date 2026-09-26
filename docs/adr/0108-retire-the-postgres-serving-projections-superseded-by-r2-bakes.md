@@ -42,11 +42,12 @@ official price 를 합성 객체에 담는다. 지도 타일·마커도 R2(`gold
 | building | 1.8 GB | ✅ building_panel(건물) | 상동 | **삭제(2차)** |
 | parcel | 9.4 GB | ✅ parcel_panel(기본) | tile/marker/identifier_lookup 조인 | **삭제(2차)** — 지도 경로 확인 후 |
 | parcel_identifier_lookup | (중) | — | by-pnu 조인 키 | **삭제(2차)** — parcel 과 함께 |
-| vector_tile_*, parcel_marker_anchor | (소) | 타일=R2 서빙 | 발행기 빌드타임 | **유지/검증** — 런타임 미독 확인까지 |
+| vector_tile_*, parcel_marker_anchor | 합계 2 MB 미만 | 타일·마커 **실물은 R2**(gold/vector-tiles/releases); postgres 는 40 kB 제어 포인터만 | foundation-api 타일 경로(catalog.rs)가 런타임에 manifest 를 읽음(실측) | **3차(저우선)** — 비용 무의미. 완전 순수 원하면 제어 포인터를 R2 manifest 로 옮긴 뒤 폐기 |
 | industrial_complex, source_catalog, ingestion_run, collection_job, bronze_object, outbox_event, administrative_unit* | (소) | — | 검색·수집·발행 운영 | **유지** (ADR-0096 §5 소형 운영) |
 
 1차 삭제만으로 **약 67 GB 즉시 회수**(의존 위험 0 — 순수 상세 표). 2차까지 하면
-기본 엔티티·식별자까지 약 86 GB+ 회수.
+기본 엔티티·식별자까지 약 86 GB+ 회수. 3차(tile/marker 제어 포인터)는 2 MB
+미만이라 회수량이 아니라 "완전 무-DB" 순수성 목적이며 저우선이다.
 
 ## Decision
 
@@ -70,11 +71,17 @@ official price 를 합성 객체에 담는다. 지도 타일·마커도 R2(`gold
    parcel_identifier_lookup 조인이 postgres 를 런타임에 읽지 않는지 먼저 증명한 뒤
    DROP. 지도 마커가 postgres 를 런타임에 읽으면 그 경로부터 R2 로 옮긴 뒤 폐기.
 
-5. **유지:** 검색·수정·조인·수집·발행이 필요한 소형 운영 데이터(ADR-0096 §5) —
-   industrial_complex, source/ingestion/collection/bronze/outbox, administrative_unit*,
-   그리고 (검증 전까지) vector_tile_*·parcel_marker_anchor.
+5. **3차 (저우선, 완전 순수용):** vector_tile_*·parcel_marker_anchor. 타일·마커
+   실물은 이미 R2 이고 postgres 에는 40 kB 제어 포인터만 남아 있으나,
+   foundation-api 타일 경로가 런타임에 이를 읽는다(실측). 비용이 0 에 가까워
+   시급하지 않다. 완전한 무-DB 서빙을 원하면 이 제어 포인터를 R2 manifest 로
+   옮겨 타일 경로가 R2 를 읽게 한 뒤 폐기한다.
 
-6. **적재기도 함께 끈다.** 폐기하는 표의 postgres 투영 적재
+6. **유지:** 검색·수정·조인·수집·발행이 필요한 소형 운영 데이터(ADR-0096 §5) —
+   industrial_complex(목록·검색), source/ingestion/collection/bronze/outbox,
+   administrative_unit*. 파일로는 자유 검색·조인이 어려운 것들이라 남긴다.
+
+7. **적재기도 함께 끈다.** 폐기하는 표의 postgres 투영 적재
    (outbox-publisher 의 `*_catalog_projection_load`)는 더 이상 돌리지 않는다 —
    죽은 표에 다시 붓지 않도록 스케줄/호출에서 제거하고, 그 코드는 폐기 표와 같은
    변경에서 비활성화한다.
