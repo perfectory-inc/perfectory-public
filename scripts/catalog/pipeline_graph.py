@@ -41,22 +41,35 @@ def migration_tables(root: Path) -> set[str]:
     qualified = rf'"?(catalog|serving_postgis)"?\s*\.\s*{ident}'
     create = re.compile(rf"\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{qualified}", re.I)
     rename = re.compile(rf"\bALTER\s+TABLE\s+{qualified}\s+RENAME\s+TO\s+{ident}\s*;", re.I)
-    lifecycle = re.compile(rf"\b(?:DROP\s+(?:TABLE|SCHEMA)\s+(?:IF\s+EXISTS\s+)?\"?(?:catalog|serving_postgis)\b|ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?{qualified}[^;]*\b(?:RENAME\s+TO|SET\s+SCHEMA)\b)", re.I)
+    drop = re.compile(rf"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?{qualified}\s*;", re.I)
+    # DROP TABLE and RENAME are handled by the ordered replay below; refuse only the
+    # lifecycle changes this bounded scanner still cannot reconcile (DROP SCHEMA, SET SCHEMA).
+    lifecycle = re.compile(rf"\b(?:DROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?\"?(?:catalog|serving_postgis)\b|ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?{qualified}[^;]*\bSET\s+SCHEMA\b)", re.I)
     for path in files:
         sql = ignored.sub(" ", path.read_text(encoding="utf-8-sig"))
-        if lifecycle.search(rename.sub(" ", sql)):
+        if lifecycle.search(drop.sub(" ", rename.sub(" ", sql))):
             raise ValueError(f"unsupported serving table lifecycle in {path.name}; update reconciliation")
-        # Replay declarations in order: a preserved table can be renamed and its old name reused.
-        events = sorted([*create.finditer(sql), *rename.finditer(sql)], key=lambda event: event.start())
-        for event in events:
+        # Replay declarations in order: a preserved table can be renamed and its old name
+        # reused, and a superseded serving copy can be dropped (ADR-0108).
+        events = sorted(
+            [
+                *(("create", event) for event in create.finditer(sql)),
+                *(("rename", event) for event in rename.finditer(sql)),
+                *(("drop", event) for event in drop.finditer(sql)),
+            ],
+            key=lambda tagged: tagged[1].start(),
+        )
+        for kind, event in events:
             schema, table, *target = (part.lower() for part in event.groups())
             name = f"{schema}.{table}"
-            if target:
+            if kind == "rename":
                 renamed = f"{schema}.{target[0]}"
                 if name not in tables or renamed in tables:
                     raise ValueError(f"invalid serving table rename in {path.name}: {name} -> {renamed}")
                 tables.remove(name)
                 tables.add(renamed)
+            elif kind == "drop":
+                tables.discard(name)
             else:
                 tables.add(name)
     if not tables:
