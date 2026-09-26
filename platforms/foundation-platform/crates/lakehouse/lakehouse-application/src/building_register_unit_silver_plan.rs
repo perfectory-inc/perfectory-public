@@ -95,6 +95,9 @@ pub struct BuildingRegisterUnitSilverRow {
     /// Whitespace-compacted raw 호명 — collision-free matching designation
     /// (`D07-01호`, `아파트501`). Derived from `unit_name_raw`; null when empty.
     pub unit_designation: Option<String>,
+    /// Conservative normalized designation (ADR-0107 §1) — the cross-registry
+    /// matching form; null when the raw name normalizes to nothing.
+    pub unit_designation_normalized: Option<String>,
     /// Canonical floor kind wire value.
     pub floor_kind: String,
     /// Signed floor position: above-ground positive, basement negative.
@@ -519,6 +522,7 @@ fn build_silver_row(
         unit_number: normalized.unit_number,
         unit_label_ko: normalized.unit_label_ko.clone(),
         unit_designation: normalized.unit_designation.clone(),
+        unit_designation_normalized: normalized.unit_designation_normalized.clone(),
         floor_kind: normalized.floor.kind.wire_name().to_owned(),
         floor_index: normalized.floor.floor_index,
         floor_number: normalized.floor.floor_number,
@@ -577,6 +581,11 @@ fn row_to_json_value(row: &BuildingRegisterUnitSilverRow) -> JsonValue {
         &mut record,
         "unit_designation",
         row.unit_designation.as_deref(),
+    );
+    insert_optional_string(
+        &mut record,
+        "unit_designation_normalized",
+        row.unit_designation_normalized.as_deref(),
     );
     insert_string(&mut record, "floor_kind", &row.floor_kind);
     insert_optional_number(&mut record, "floor_index", row.floor_index);

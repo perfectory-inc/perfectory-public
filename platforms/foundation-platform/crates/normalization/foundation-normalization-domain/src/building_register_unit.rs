@@ -12,6 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::unit_designation_normalization::normalized_unit_designation;
+
 use crate::building_register_floor::{
     normalize_building_register_floor, BuildingRegisterFloorKind, NormalizedBuildingRegisterFloor,
     RawBuildingRegisterFloor,
@@ -103,6 +105,9 @@ pub struct NormalizedBuildingRegisterUnit {
     /// Derived from `unit_name_raw`; preserves every distinctive token
     /// (`D07-01호`, `아파트501`). `None` when the raw name is empty.
     pub unit_designation: Option<String>,
+    /// Conservative normalized designation (ADR-0107 §1) — the cross-registry
+    /// matching form shared with the dbt macro and frozen by golden vectors.
+    pub unit_designation_normalized: Option<String>,
     /// The unit's floor, normalized by the shared floor rules (지하 = negative index).
     pub floor: NormalizedBuildingRegisterFloor,
     /// Deterministic status.
@@ -162,7 +167,7 @@ pub fn normalize_building_register_unit(
             dong_join_name,
             None,
             None,
-            None,
+            (None, None),
             floor,
             BuildingRegisterUnitStatus::ProposalRequired,
             BuildingRegisterUnitReason::EmptyUnitName,
@@ -170,13 +175,14 @@ pub fn normalize_building_register_unit(
     }
 
     let unit_designation = building_register_unit_designation(unit_name);
+    let unit_designation_normalized = normalized_unit_designation(unit_name, raw.dong_name);
 
     if is_merged_unit_name(unit_name) {
         return unit(
             dong_join_name,
             None,
             None,
-            unit_designation,
+            (unit_designation, unit_designation_normalized),
             floor,
             BuildingRegisterUnitStatus::ProposalRequired,
             BuildingRegisterUnitReason::MergedUnitName,
@@ -189,7 +195,7 @@ pub fn normalize_building_register_unit(
                 dong_join_name,
                 None,
                 None,
-                unit_designation,
+                (unit_designation, unit_designation_normalized),
                 floor,
                 BuildingRegisterUnitStatus::Accepted,
                 BuildingRegisterUnitReason::AcceptedFloorSpace,
@@ -200,7 +206,7 @@ pub fn normalize_building_register_unit(
                 dong_join_name,
                 None,
                 None,
-                unit_designation,
+                (unit_designation, unit_designation_normalized),
                 floor,
                 BuildingRegisterUnitStatus::ProposalRequired,
                 BuildingRegisterUnitReason::NoUnitNumber,
@@ -218,7 +224,7 @@ pub fn normalize_building_register_unit(
             dong_join_name,
             Some(number),
             None,
-            unit_designation,
+            (unit_designation, unit_designation_normalized),
             floor,
             BuildingRegisterUnitStatus::Accepted,
             BuildingRegisterUnitReason::AcceptedNumericUnit,
@@ -230,7 +236,7 @@ pub fn normalize_building_register_unit(
                 dong_join_name,
                 None,
                 Some(label),
-                unit_designation,
+                (unit_designation, unit_designation_normalized),
                 floor,
                 BuildingRegisterUnitStatus::Accepted,
                 BuildingRegisterUnitReason::AcceptedUnitLabel,
@@ -239,7 +245,7 @@ pub fn normalize_building_register_unit(
                 dong_join_name,
                 None,
                 None,
-                unit_designation,
+                (unit_designation, unit_designation_normalized),
                 floor,
                 BuildingRegisterUnitStatus::ProposalRequired,
                 BuildingRegisterUnitReason::NoUnitNumber,
@@ -569,20 +575,24 @@ fn transliterate_phonetic_letter(core: &str) -> Option<char> {
     }
 }
 
-const fn unit(
+/// `designations` pairs the raw matching designation with its conservative
+/// normal form — the two are born from the same 호명 and travel together.
+fn unit(
     dong_join_name: Option<String>,
     unit_number: Option<u32>,
     unit_label_ko: Option<String>,
-    unit_designation: Option<String>,
+    designations: (Option<String>, Option<String>),
     floor: NormalizedBuildingRegisterFloor,
     status: BuildingRegisterUnitStatus,
     reason: BuildingRegisterUnitReason,
 ) -> NormalizedBuildingRegisterUnit {
+    let (unit_designation, unit_designation_normalized) = designations;
     NormalizedBuildingRegisterUnit {
         dong_join_name,
         unit_number,
         unit_label_ko,
         unit_designation,
+        unit_designation_normalized,
         floor,
         status,
         reason,

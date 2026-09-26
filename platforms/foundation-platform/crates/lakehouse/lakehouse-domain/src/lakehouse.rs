@@ -1132,6 +1132,11 @@ const SILVER_BUILDING_REGISTER_UNITS_COLUMNS: &[LakehouseColumn] = &[
         required: false,
     },
     LakehouseColumn {
+        name: "unit_designation_normalized",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
         name: "floor_kind",
         logical_type: "string",
         required: true,
