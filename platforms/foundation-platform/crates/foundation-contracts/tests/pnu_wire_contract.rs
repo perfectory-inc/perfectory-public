@@ -23,7 +23,6 @@ fn catalog_openapi_uses_the_standard_pnu_pattern_everywhere() -> TestResult {
         serde_json::from_str(include_str!("../../../docs/openapi/catalog.v1.json"))?;
 
     for path in [
-        "/catalog/v1/parcels/by-pnu/{pnu}",
         "/catalog/v1/parcels/by-pnu/{pnu}/buildings",
         "/catalog/v1/parcels/by-pnu/{pnu}/units",
     ] {

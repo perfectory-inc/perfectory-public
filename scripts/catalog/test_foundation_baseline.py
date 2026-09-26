@@ -110,6 +110,27 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(len(tables), 2)
         self.assertEqual(missing, ["catalog.parcel"])
 
+    def test_a_dropped_table_is_not_counted_as_a_producerless_canonical_table(self) -> None:
+        # A retired serving projection (root ADR-0108/0109): created, its producer removed, then
+        # dropped by a later migration. Counting it by CREATE alone made a cleanup look like a
+        # G1 regression — the table has no producer AND no longer exists.
+        sql = {
+            Path("20260101000000_create.sql"): "CREATE TABLE catalog.parcel_price (\n    pnu text\n);\n",
+            Path("20260201000000_retire.sql"): "DROP TABLE IF EXISTS catalog.parcel_price;\n",
+        }
+        tables, missing = MODULE.tables_without_producer(sql, [])
+        self.assertNotIn("catalog.parcel_price", tables)
+        self.assertNotIn("catalog.parcel_price", missing)
+
+    def test_a_table_recreated_after_a_drop_is_counted(self) -> None:
+        sql = {
+            Path("20260101000000_create.sql"): "CREATE TABLE catalog.thing (\n    id uuid\n);\n",
+            Path("20260201000000_drop.sql"): "DROP TABLE catalog.thing;\n",
+            Path("20260301000000_recreate.sql"): "CREATE TABLE catalog.thing (\n    id uuid\n);\n",
+        }
+        tables, _ = MODULE.tables_without_producer(sql, [])
+        self.assertIn("catalog.thing", tables)
+
 
 if __name__ == "__main__":
     unittest.main()

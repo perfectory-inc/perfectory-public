@@ -26,18 +26,15 @@ use catalog_application::{
 use catalog_domain::{
     ActiveTileSource, Blueprint, CatalogError, ComplexAnchorSummary, ComplexNotice,
     DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
-    IndustryGroupMember, MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger,
-    ParcelIndustryAssignment, ParcelKind, ParcelLandRightPage, ParcelPrice, ParcelTransferEvent,
-    ParcelZoning, SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    IndustryGroupMember, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
+    SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_contracts::catalog::{
     ArchiveComplexRequest, BlueprintResponse, ComplexAnchorSummaryResponse, ComplexNoticeResponse,
     DigitalTwinAssetResponse, FileAssetResponse, IndustrialComplexGoldPointerResponse,
     IndustrialComplexResponse, IndustryGroupMemberResponse, IndustryGroupResponse,
-    MarkerTileContractResponse, ParcelCharacteristicResponse, ParcelForestLedgerResponse,
-    ParcelIndustryAssignmentResponse, ParcelLandRightResponse, ParcelMarkerAnchorRebuildRequest,
-    ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse, ParcelResponse,
-    ParcelTransferEventResponse, ParcelZoningResponse, PromoteFileAssetRequest,
+    MarkerTileContractResponse, ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
+    ParcelMarkerAnchorRebuildResponse, ParcelResponse, PromoteFileAssetRequest,
     PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
     RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse,
     UpdateComplexRequest, UpdateParcelKindRequest, VectorTileArtifactResponse,
@@ -47,7 +44,6 @@ use foundation_contracts::catalog::{
     VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
 use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId, StaffId};
-use foundation_shared_kernel::pnu::Pnu;
 use lakehouse_application::RecordLakehouseBatchRunInput;
 use lakehouse_domain::IndustrialComplexGoldPointer;
 use lakehouse_domain::LakehouseError;
@@ -275,62 +271,6 @@ pub async fn archive_complex(
 
 #[utoipa::path(
     get,
-    path = "/catalog/v1/parcels/by-pnu/{pnu}",
-    operation_id = "getParcelByPnu",
-    params((
-        "pnu" = String,
-        Path,
-        description = "19-digit Parcel Number Unit",
-        min_length = 19,
-        max_length = 19,
-        pattern = "^[0-9]{10}[1289][0-9]{8}$"
-    )),
-    responses((status = 200, body = ParcelResponse), (status = 404, description = "Parcel not found")),
-    security(("bearerAuth" = []))
-)]
-pub async fn get_parcel_by_pnu(
-    State(state): State<Arc<AppState>>,
-    Path(pnu): Path<String>,
-    Extension(_principal): Extension<AuthorizedPrincipal>,
-) -> Result<Json<ParcelResponse>, ApiError> {
-    let pnu = Pnu::parse(pnu).map_err(CatalogError::InvalidPnu)?;
-    let parcel = state
-        .catalog_repo
-        .find_parcel_by_pnu(&pnu)
-        .await?
-        .ok_or_else(|| ApiError::NotFound(pnu.as_str().to_owned()))?;
-    let zonings = state.catalog_repo.list_parcel_zonings_by_pnu(&pnu).await?;
-    let price = state.catalog_repo.find_parcel_price_by_pnu(&pnu).await?;
-    let characteristics = state
-        .catalog_repo
-        .find_parcel_characteristic_by_pnu(&pnu)
-        .await?;
-    let forest_ledger = state
-        .catalog_repo
-        .find_parcel_forest_ledger_by_pnu(&pnu)
-        .await?;
-    let transfer_history = state
-        .catalog_repo
-        .list_parcel_transfer_events_by_pnu(&pnu)
-        .await?;
-    let land_right_page = state
-        .catalog_repo
-        .list_parcel_land_rights_by_pnu(&pnu)
-        .await?;
-
-    Ok(Json(parcel_response(
-        &parcel,
-        zonings,
-        price,
-        characteristics,
-        forest_ledger,
-        transfer_history,
-        land_right_page,
-    )))
-}
-
-#[utoipa::path(
-    get,
     path = "/catalog/v1/parcels/{id}",
     operation_id = "getParcel",
     params(("id" = Uuid, Path, description = "Parcel id")),
@@ -347,40 +287,8 @@ pub async fn get_parcel(
         .find_parcel_by_id(ParcelId::new(id))
         .await?
         .ok_or_else(|| ApiError::NotFound(id.to_string()))?;
-    let zonings = state
-        .catalog_repo
-        .list_parcel_zonings_by_pnu(&parcel.pnu)
-        .await?;
-    let price = state
-        .catalog_repo
-        .find_parcel_price_by_pnu(&parcel.pnu)
-        .await?;
-    let characteristics = state
-        .catalog_repo
-        .find_parcel_characteristic_by_pnu(&parcel.pnu)
-        .await?;
-    let forest_ledger = state
-        .catalog_repo
-        .find_parcel_forest_ledger_by_pnu(&parcel.pnu)
-        .await?;
-    let transfer_history = state
-        .catalog_repo
-        .list_parcel_transfer_events_by_pnu(&parcel.pnu)
-        .await?;
-    let land_right_page = state
-        .catalog_repo
-        .list_parcel_land_rights_by_pnu(&parcel.pnu)
-        .await?;
 
-    Ok(Json(parcel_response(
-        &parcel,
-        zonings,
-        price,
-        characteristics,
-        forest_ledger,
-        transfer_history,
-        land_right_page,
-    )))
+    Ok(Json(parcel_response(&parcel)))
 }
 
 #[utoipa::path(
@@ -868,40 +776,8 @@ pub async fn update_parcel_kind(
             applied_by: StaffId::new(principal.principal_id),
         })
         .await?;
-    let zonings = state
-        .catalog_repo
-        .list_parcel_zonings_by_pnu(&updated.pnu)
-        .await?;
-    let price = state
-        .catalog_repo
-        .find_parcel_price_by_pnu(&updated.pnu)
-        .await?;
-    let characteristics = state
-        .catalog_repo
-        .find_parcel_characteristic_by_pnu(&updated.pnu)
-        .await?;
-    let forest_ledger = state
-        .catalog_repo
-        .find_parcel_forest_ledger_by_pnu(&updated.pnu)
-        .await?;
-    let transfer_history = state
-        .catalog_repo
-        .list_parcel_transfer_events_by_pnu(&updated.pnu)
-        .await?;
-    let land_right_page = state
-        .catalog_repo
-        .list_parcel_land_rights_by_pnu(&updated.pnu)
-        .await?;
 
-    Ok(Json(parcel_response(
-        &updated,
-        zonings,
-        price,
-        characteristics,
-        forest_ledger,
-        transfer_history,
-        land_right_page,
-    )))
+    Ok(Json(parcel_response(&updated)))
 }
 
 fn industrial_complex_response(
@@ -991,15 +867,7 @@ fn complex_anchor_summary_response(summary: &ComplexAnchorSummary) -> ComplexAnc
     }
 }
 
-fn parcel_response(
-    parcel: &Parcel,
-    zonings: Vec<ParcelZoning>,
-    price: Option<ParcelPrice>,
-    characteristics: Option<ParcelCharacteristic>,
-    forest_ledger: Option<ParcelForestLedger>,
-    transfer_history: Vec<ParcelTransferEvent>,
-    land_right_page: ParcelLandRightPage,
-) -> ParcelResponse {
+fn parcel_response(parcel: &Parcel) -> ParcelResponse {
     ParcelResponse {
         id: parcel.id.as_uuid(),
         pnu: parcel.pnu.as_str().to_owned(),
@@ -1007,65 +875,6 @@ fn parcel_response(
         area_m2: parcel.area_m2,
         version: parcel.version,
         updated_at: parcel.updated_at,
-        zonings: zonings
-            .into_iter()
-            .map(|zoning| ParcelZoningResponse {
-                zone_code: zoning.zone_code,
-                zone_name: zoning.zone_name,
-                anchor_code: zoning.anchor_code,
-                inclusion_code: zoning.inclusion_code,
-            })
-            .collect(),
-        price: price.map(|price| ParcelPriceResponse {
-            price_per_m2: price.price_per_m2,
-            base_year: price.base_year,
-            base_month: price.base_month,
-            announced_date: price.announced_date,
-        }),
-        characteristics: characteristics.map(|characteristics| ParcelCharacteristicResponse {
-            land_category: characteristics.land_category,
-            area_m2: characteristics.area_m2,
-            land_use_situation: characteristics.land_use_situation,
-            terrain_height: characteristics.terrain_height,
-            terrain_shape: characteristics.terrain_shape,
-            road_contact: characteristics.road_contact,
-        }),
-        forest_ledger: forest_ledger.map(|ledger| ParcelForestLedgerResponse {
-            land_category: ledger.land_category,
-            area_m2: ledger.area_m2,
-            ownership_kind: ledger.ownership_kind,
-            co_owner_count: ledger.co_owner_count,
-        }),
-        transfer_history: transfer_history
-            .into_iter()
-            .map(|event| ParcelTransferEventResponse {
-                reason: event.reason,
-                reason_code: event.reason_code,
-                moved_at: event.moved_at,
-                erased_at: event.erased_at,
-                land_category: event.land_category,
-                area_m2: event.area_m2,
-                history_seq: event.transfer_history_seq,
-                parcel_history_seq: event.parcel_history_seq,
-                closure_seq: event.closure_seq,
-            })
-            .collect(),
-        land_right_total: land_right_page.total,
-        land_rights: land_right_page
-            .rights
-            .into_iter()
-            .map(|right| ParcelLandRightResponse {
-                right_serial_no: right.right_serial_no,
-                building_name: right.building_name,
-                dong_name: right.dong_name,
-                floor_name: right.floor_name,
-                ho_name: right.ho_name,
-                room_name: right.room_name,
-                right_ratio: right.right_ratio,
-                closure_kind: right.closure_kind,
-                closure_kind_code: right.closure_kind_code,
-            })
-            .collect(),
     }
 }
 

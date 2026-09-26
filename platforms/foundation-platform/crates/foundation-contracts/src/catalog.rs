@@ -222,35 +222,6 @@ pub struct ParcelResponse {
     pub version: i64,
     /// UTC timestamp of the last canonical Catalog update.
     pub updated_at: DateTime<Utc>,
-    /// Land-use zoning verdicts from the plan ledger (root ADR-0083 §5).
-    ///
-    /// Empty when the ledger names no zone for this parcel — nothing is invented in its
-    /// place (root ADR-0078). Ordered 포함 before 저촉, then by zone code.
-    pub zonings: Vec<ParcelZoningResponse>,
-    /// Newest official land price assessment from the D151 ledger (root ADR-0085 §3).
-    ///
-    /// Absent when the ledger names no assessment for this parcel — nothing is invented in
-    /// its place (root ADR-0078).
-    pub price: Option<ParcelPriceResponse>,
-    /// Newest cadastral characteristics from the `AL_D195` CSV ledger (root ADR-0087).
-    pub characteristics: Option<ParcelCharacteristicResponse>,
-    /// Newest official forest-register facts from the `AL_D003` CSV ledger.
-    pub forest_ledger: Option<ParcelForestLedgerResponse>,
-    /// Complete cadastral transfer timeline, newest dated event first.
-    ///
-    /// Empty when the `AL_D157` ledger names no event for this parcel.
-    #[serde(default)]
-    pub transfer_history: Vec<ParcelTransferEventResponse>,
-    /// First page (at most 200 rows) of registered unit-level land rights,
-    /// ordered by provider serial then dong, floor, ho, and room designations.
-    ///
-    /// Apartment parcels can register thousands of unit rights (root ADR-0093);
-    /// compare `land_right_total` with this list's length to detect truncation.
-    #[serde(default)]
-    pub land_rights: Vec<ParcelLandRightResponse>,
-    /// Total registered land-right rows for this parcel, independent of the page bound.
-    #[serde(default)]
-    pub land_right_total: u64,
 }
 
 /// One unit-level land right from the Foundation Catalog.

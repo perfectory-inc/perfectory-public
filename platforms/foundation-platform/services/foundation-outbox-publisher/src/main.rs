@@ -143,20 +143,14 @@ mod parcel_by_pnu_serving_export;
 mod parcel_by_pnu_serving_manifest_publish;
 mod parcel_by_pnu_serving_store;
 mod parcel_catalog_projection_load;
-mod parcel_characteristic_catalog_projection_load;
-mod parcel_forest_ledger_catalog_projection_load;
-mod parcel_land_right_catalog_projection_load;
 mod parcel_marker_anchor_artifact_export;
 mod parcel_marker_anchor_pbf_artifact_build;
 mod parcel_marker_anchor_pbf_manifest_promote;
 mod parcel_marker_anchor_streaming_rebuild;
-mod parcel_price_catalog_projection_load;
 mod parcel_projection_digest;
 mod parcel_publication_contract;
 mod parcel_publication_evidence_sealer;
 mod parcel_publication_evidence_writer;
-mod parcel_transfer_event_catalog_projection_load;
-mod parcel_zoning_catalog_projection_load;
 mod postgis_anchor_pbf_regional_proof_check;
 mod postgis_mirror_dlq_cutover_evidence;
 mod postgis_parcel_boundary_mirror_national_rebuild;
@@ -289,13 +283,7 @@ enum Command {
     LoadBuildingUnitBuildingLink,
     LoadBuildingUnitCatalogProjection,
     LoadParcelCatalogProjection,
-    LoadParcelZoningCatalogProjection,
-    LoadParcelPriceCatalogProjection,
     LoadUnitOfficialPriceProjection,
-    LoadParcelCharacteristicCatalogProjection,
-    LoadParcelForestLedgerCatalogProjection,
-    LoadParcelTransferEventCatalogProjection,
-    LoadParcelLandRightCatalogProjection,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
@@ -582,26 +570,8 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(building_unit_catalog_projection_load::run())
         }
         Command::LoadParcelCatalogProjection => Box::pin(parcel_catalog_projection_load::run()),
-        Command::LoadParcelZoningCatalogProjection => {
-            Box::pin(parcel_zoning_catalog_projection_load::run())
-        }
-        Command::LoadParcelLandRightCatalogProjection => {
-            Box::pin(parcel_land_right_catalog_projection_load::run())
-        }
-        Command::LoadParcelTransferEventCatalogProjection => {
-            Box::pin(parcel_transfer_event_catalog_projection_load::run())
-        }
-        Command::LoadParcelForestLedgerCatalogProjection => {
-            Box::pin(parcel_forest_ledger_catalog_projection_load::run())
-        }
-        Command::LoadParcelCharacteristicCatalogProjection => {
-            Box::pin(parcel_characteristic_catalog_projection_load::run())
-        }
         Command::LoadUnitOfficialPriceProjection => {
             Box::pin(unit_official_price_projection_load::run())
-        }
-        Command::LoadParcelPriceCatalogProjection => {
-            Box::pin(parcel_price_catalog_projection_load::run())
         }
         Command::SealParcelPublicationEvidence => {
             Box::pin(parcel_publication_evidence_sealer::run())
@@ -1176,25 +1146,7 @@ where
             Ok(Command::LoadBuildingUnitCatalogProjection)
         }
         Some("load-parcel-catalog-projection") => Ok(Command::LoadParcelCatalogProjection),
-        Some("load-parcel-zoning-catalog-projection") => {
-            Ok(Command::LoadParcelZoningCatalogProjection)
-        }
-        Some("load-parcel-land-right-catalog-projection") => {
-            Ok(Command::LoadParcelLandRightCatalogProjection)
-        }
-        Some("load-parcel-transfer-event-catalog-projection") => {
-            Ok(Command::LoadParcelTransferEventCatalogProjection)
-        }
-        Some("load-parcel-forest-ledger-catalog-projection") => {
-            Ok(Command::LoadParcelForestLedgerCatalogProjection)
-        }
-        Some("load-parcel-characteristic-catalog-projection") => {
-            Ok(Command::LoadParcelCharacteristicCatalogProjection)
-        }
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
-        Some("load-parcel-price-catalog-projection") => {
-            Ok(Command::LoadParcelPriceCatalogProjection)
-        }
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
         Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),
         Some("promote-administrative-boundary-runtime") => {

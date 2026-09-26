@@ -49,7 +49,6 @@ use super::{HealthResponse, ReadinessResponse};
         super::catalog::building_units::get_building,
         super::catalog::building_units::get_building_by_register_pk,
         super::catalog::building_units::list_building_units,
-        super::catalog::get_parcel_by_pnu,
         super::catalog::get_parcel,
         super::catalog::list_complex_notices,
         super::catalog::list_complex_attachments,

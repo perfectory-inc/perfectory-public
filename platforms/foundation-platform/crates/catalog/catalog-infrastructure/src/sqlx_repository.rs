@@ -12,11 +12,10 @@ use catalog_domain::{
     ActiveTileSource, Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError,
     ComplexAnchorSummary, ComplexNotice, DigitalTwinAsset, DynamicPostgisSource, FeatureIdProperty,
     FileAsset, IndustrialComplex, IndustryGroup, IndustryGroupMember, ManifestGeneration,
-    MarkerTileRequest, Parcel, ParcelCharacteristic, ParcelForestLedger, ParcelIndustryAssignment,
-    ParcelLandRight, ParcelLandRightPage, ParcelPrice, ParcelTransferEvent, ParcelZoning,
-    PublicationUnit, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
-    ServingGeneration, ServingSourceKind, SpatialLayer, StaticPmtilesSource, UnitOfficialPrice,
-    UnitOfficialPriceRow, VectorTileManifest, VectorTileRuntimeManifest,
+    MarkerTileRequest, Parcel, ParcelIndustryAssignment, PublicationUnit, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind,
+    SpatialLayer, StaticPmtilesSource, UnitOfficialPrice, UnitOfficialPriceRow, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
     ComplexId, FileAssetId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId,
@@ -475,67 +474,6 @@ impl CatalogRepository for PgCatalogRepository {
         rows.iter().map(row_to_building).collect()
     }
 
-    async fn list_parcel_zonings_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Vec<ParcelZoning>, CatalogError> {
-        // The bind arrives as text and the column is character(19); without the cast the
-        // planner compares as text and cannot use the primary key — measured as a 1.65 s
-        // parallel seq scan over 47.8M rows per panel click (2026-09-06, the 408 that
-        // broke the parcel panel). The cast turns it into a 2 ms index scan.
-        let rows = sqlx::query(
-            "SELECT zone_code, zone_name, anchor_code, inclusion_code, source_snapshot_id
-             FROM catalog.parcel_zoning
-             WHERE pnu = $1::character(19)
-             ORDER BY inclusion_code, zone_code",
-        )
-        .bind(pnu.as_str())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-
-        rows.iter()
-            .map(|row| {
-                Ok(ParcelZoning {
-                    zone_code: row.try_get("zone_code").map_err(map_sqlx)?,
-                    zone_name: row.try_get("zone_name").map_err(map_sqlx)?,
-                    anchor_code: row.try_get("anchor_code").map_err(map_sqlx)?,
-                    inclusion_code: row.try_get("inclusion_code").map_err(map_sqlx)?,
-                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
-                })
-            })
-            .collect()
-    }
-
-    async fn find_parcel_price_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Option<ParcelPrice>, CatalogError> {
-        // Same cast as the zoning lookup above: a text bind against character(19) forfeits
-        // the primary key (measured 1.24 s seq scan over 35.9M rows).
-        let row_opt = sqlx::query(
-            "SELECT price_per_m2, base_year, base_month, announced_date, source_snapshot_id
-             FROM catalog.parcel_price
-             WHERE pnu = $1::character(19)",
-        )
-        .bind(pnu.as_str())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-
-        row_opt
-            .map(|row| {
-                Ok(ParcelPrice {
-                    price_per_m2: row.try_get("price_per_m2").map_err(map_sqlx)?,
-                    base_year: row.try_get("base_year").map_err(map_sqlx)?,
-                    base_month: row.try_get("base_month").map_err(map_sqlx)?,
-                    announced_date: row.try_get("announced_date").map_err(map_sqlx)?,
-                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
-                })
-            })
-            .transpose()
-    }
-
     async fn list_unit_official_prices_by_pnu(
         &self,
         pnu: &Pnu,
@@ -566,152 +504,6 @@ impl CatalogRepository for PgCatalogRepository {
                 })
             })
             .collect()
-    }
-
-    async fn find_parcel_characteristic_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Option<ParcelCharacteristic>, CatalogError> {
-        let row_opt = sqlx::query(
-            "SELECT land_category, area_m2::float8 AS area_m2, land_use_situation,
-                    terrain_height, terrain_shape, road_contact, source_snapshot_id
-             FROM catalog.parcel_characteristic
-             WHERE pnu = $1::character(19)",
-        )
-        .bind(pnu.as_str())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-
-        row_opt
-            .map(|row| {
-                Ok(ParcelCharacteristic {
-                    land_category: row.try_get("land_category").map_err(map_sqlx)?,
-                    area_m2: row.try_get("area_m2").map_err(map_sqlx)?,
-                    land_use_situation: row.try_get("land_use_situation").map_err(map_sqlx)?,
-                    terrain_height: row.try_get("terrain_height").map_err(map_sqlx)?,
-                    terrain_shape: row.try_get("terrain_shape").map_err(map_sqlx)?,
-                    road_contact: row.try_get("road_contact").map_err(map_sqlx)?,
-                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
-                })
-            })
-            .transpose()
-    }
-
-    async fn find_parcel_forest_ledger_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Option<ParcelForestLedger>, CatalogError> {
-        let row_opt = sqlx::query(
-            "SELECT pnu::text AS pnu, land_category, area_m2::float8 AS area_m2,
-                    ownership_kind, co_owner_count, source_snapshot_id
-             FROM catalog.parcel_forest_ledger
-             WHERE pnu = $1::character(19)",
-        )
-        .bind(pnu.as_str())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-
-        row_opt
-            .map(|row| {
-                Ok(ParcelForestLedger {
-                    pnu: row.try_get("pnu").map_err(map_sqlx)?,
-                    land_category: row.try_get("land_category").map_err(map_sqlx)?,
-                    area_m2: row.try_get("area_m2").map_err(map_sqlx)?,
-                    ownership_kind: row.try_get("ownership_kind").map_err(map_sqlx)?,
-                    co_owner_count: row.try_get("co_owner_count").map_err(map_sqlx)?,
-                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
-                })
-            })
-            .transpose()
-    }
-
-    async fn list_parcel_transfer_events_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Vec<ParcelTransferEvent>, CatalogError> {
-        let rows = sqlx::query(
-            "SELECT pnu::text AS pnu, transfer_history_seq, parcel_history_seq, reason_code,
-                    reason, moved_at, erased_at, land_category, area_m2::float8 AS area_m2,
-                    closure_seq, source_snapshot_id, loaded_at
-             FROM catalog.parcel_transfer_event
-             WHERE pnu = $1::character(19)
-             ORDER BY moved_at DESC NULLS LAST, transfer_history_seq DESC,
-                      parcel_history_seq DESC",
-        )
-        .bind(pnu.as_str())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-
-        rows.iter()
-            .map(|row| {
-                Ok(ParcelTransferEvent {
-                    pnu: row.try_get("pnu").map_err(map_sqlx)?,
-                    transfer_history_seq: row.try_get("transfer_history_seq").map_err(map_sqlx)?,
-                    parcel_history_seq: row.try_get("parcel_history_seq").map_err(map_sqlx)?,
-                    reason_code: row.try_get("reason_code").map_err(map_sqlx)?,
-                    reason: row.try_get("reason").map_err(map_sqlx)?,
-                    moved_at: row.try_get("moved_at").map_err(map_sqlx)?,
-                    erased_at: row.try_get("erased_at").map_err(map_sqlx)?,
-                    land_category: row.try_get("land_category").map_err(map_sqlx)?,
-                    area_m2: row.try_get("area_m2").map_err(map_sqlx)?,
-                    closure_seq: row.try_get("closure_seq").map_err(map_sqlx)?,
-                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
-                    loaded_at: row.try_get("loaded_at").map_err(map_sqlx)?,
-                })
-            })
-            .collect()
-    }
-
-    async fn list_parcel_land_rights_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<ParcelLandRightPage, CatalogError> {
-        // One round trip: the window count sees every matching row while LIMIT
-        // bounds the page an apartment parcel would otherwise explode (ADR-0093).
-        let rows = sqlx::query(
-            "SELECT pnu::text AS pnu, right_serial_no, building_name, dong_name, floor_name,
-                    ho_name, room_name, right_ratio, closure_kind, closure_kind_code,
-                    source_snapshot_id, loaded_at, count(*) OVER () AS total_rows
-             FROM catalog.parcel_land_right
-             WHERE pnu = $1::character(19)
-             ORDER BY right_serial_no ASC, dong_name ASC, floor_name ASC,
-                      ho_name ASC, room_name ASC
-             LIMIT 200",
-        )
-        .bind(pnu.as_str())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-
-        let total = rows
-            .first()
-            .map(|row| row.try_get::<i64, _>("total_rows").map_err(map_sqlx))
-            .transpose()?
-            .and_then(|value| u64::try_from(value).ok())
-            .unwrap_or(0);
-        let rights = rows
-            .iter()
-            .map(|row| {
-                Ok(ParcelLandRight {
-                    pnu: row.try_get("pnu").map_err(map_sqlx)?,
-                    right_serial_no: row.try_get("right_serial_no").map_err(map_sqlx)?,
-                    building_name: row.try_get("building_name").map_err(map_sqlx)?,
-                    dong_name: row.try_get("dong_name").map_err(map_sqlx)?,
-                    floor_name: row.try_get("floor_name").map_err(map_sqlx)?,
-                    ho_name: row.try_get("ho_name").map_err(map_sqlx)?,
-                    room_name: row.try_get("room_name").map_err(map_sqlx)?,
-                    right_ratio: row.try_get("right_ratio").map_err(map_sqlx)?,
-                    closure_kind: row.try_get("closure_kind").map_err(map_sqlx)?,
-                    closure_kind_code: row.try_get("closure_kind_code").map_err(map_sqlx)?,
-                    source_snapshot_id: row.try_get("source_snapshot_id").map_err(map_sqlx)?,
-                    loaded_at: row.try_get("loaded_at").map_err(map_sqlx)?,
-                })
-            })
-            .collect::<Result<Vec<_>, CatalogError>>()?;
-        Ok(ParcelLandRightPage { rights, total })
     }
 
     async fn list_complex_notices(

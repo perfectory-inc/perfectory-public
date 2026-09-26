@@ -62,14 +62,9 @@
       "allowed_surfaces": [
         "/catalog/v1/vector-tiles/manifest",
         "/map/v1/marker-tiles/contract",
-        "/catalog/v1/parcels/by-pnu/:pnu",
         "/catalog/v1/parcels/by-pnu/:pnu/buildings"
       ],
       "allowed_service_surfaces": [
-        {
-          "method": "GET",
-          "path": "/catalog/v1/parcels/by-pnu/:pnu"
-        },
         {
           "method": "GET",
           "path": "/catalog/v1/parcels/by-pnu/:pnu/buildings"
@@ -199,14 +194,9 @@
         "/map/v1/marker-tiles/contract",
         "/catalog/v1/complexes/:id/anchor-summary",
         "/catalog/v1/complexes/:id/blueprints",
-        "/catalog/v1/parcels/by-pnu/:pnu",
         "/catalog/v1/parcels/by-pnu/:pnu/buildings"
       ],
       "allowed_service_surfaces": [
-        {
-          "method": "GET",
-          "path": "/catalog/v1/parcels/by-pnu/:pnu"
-        },
         {
           "method": "GET",
           "path": "/catalog/v1/parcels/by-pnu/:pnu/buildings"

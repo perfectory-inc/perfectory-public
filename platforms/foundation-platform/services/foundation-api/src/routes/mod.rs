@@ -212,15 +212,6 @@ fn parcel_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
             ),
         )
         .route(
-            "/catalog/v1/parcels/by-pnu/{pnu}",
-            protected_route(
-                get(catalog::get_parcel_by_pnu),
-                state,
-                SERVICE_CATALOG_READ,
-                Some("pnu"),
-            ),
-        )
-        .route(
             "/catalog/v1/parcels/{id}",
             protected_route(
                 get(catalog::get_parcel),
@@ -901,7 +892,6 @@ fn canonical_route_label(path: &str) -> String {
         ["catalog", "v1", "parcels", "by-pnu", _, "buildings"] => {
             "/catalog/v1/parcels/by-pnu/{pnu}/buildings".to_owned()
         }
-        ["catalog", "v1", "parcels", "by-pnu", _] => "/catalog/v1/parcels/by-pnu/{pnu}".to_owned(),
         ["catalog", "v1", "complexes", _, "notices"] => {
             "/catalog/v1/complexes/{id}/notices".to_owned()
         }

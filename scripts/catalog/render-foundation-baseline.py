@@ -31,6 +31,11 @@ CODE_ROOTS = (
 )
 
 CREATE_TABLE = re.compile(r"^CREATE TABLE (catalog\.[a-z_]+)", re.MULTILINE)
+# A table dropped by a later migration (a retired serving projection, root ADR-0108/0109) no
+# longer exists, so counting it by CREATE alone turns a completed cleanup into a phantom G1
+# regression — the dropped tables would report as canonical tables without a producer forever.
+# DROP is replayed here the same way scripts/catalog/pipeline_graph.py replays it.
+DROP_TABLE = re.compile(r"^DROP TABLE (?:IF EXISTS )?(catalog\.[a-z_]+)", re.MULTILINE | re.I)
 # A CHECK belongs to the table its own statement names. `ALTER TABLE` must be read too: the
 # administrative ledger's status check is re-added by an ALTER inside a migration whose nearest
 # preceding CREATE TABLE is a different table entirely — attributing by CREATE alone invented a
@@ -71,8 +76,30 @@ def production_sources() -> list[tuple[Path, str]]:
     return files
 
 
+def canonical_tables(sql: dict[Path, str]) -> list[str]:
+    """catalog.* tables that still exist after replaying CREATE and DROP in migration order.
+
+    Migrations are append-only and named by a 14-digit UTC timestamp (ADR-0001 §7), so ordering
+    events by filename then position replays them chronologically. A table created then dropped by
+    a later migration is absent; one dropped then re-created is present.
+    """
+    events: list[tuple[str, int, str, str]] = []
+    for path, text in sql.items():
+        for match in CREATE_TABLE.finditer(text):
+            events.append((path.name, match.start(), "create", match.group(1)))
+        for match in DROP_TABLE.finditer(text):
+            events.append((path.name, match.start(), "drop", match.group(1)))
+    live: set[str] = set()
+    for _name, _pos, kind, table in sorted(events, key=lambda event: (event[0], event[1])):
+        if kind == "create":
+            live.add(table)
+        else:
+            live.discard(table)
+    return sorted(live)
+
+
 def tables_without_producer(sql: dict[Path, str], sources: list[tuple[Path, str]]):
-    tables = sorted({match for text in sql.values() for match in CREATE_TABLE.findall(text)})
+    tables = canonical_tables(sql)
     missing = []
     for table in tables:
         needle = f"INSERT INTO {table}"

@@ -3,10 +3,6 @@ use super::*;
 const HEADER: &str = "고유번호,법정동코드,법정동명,지번,대장구분코드,대장구분명,지목코드,지목명,면적,소유구분코드,소유구분명,소유(공유)인수,축척구분코드,축척구분명,데이터기준일자,원천시도시군구코드";
 const ROW: &str = "9999938029204450003,9999938029,가상도 가상군 가상리,산445-3,2,임야대장,05,임야,123.45,01,개인,2,03,6000분의1,2026-06-07,99999";
 
-pub(crate) async fn fixture_handoff() -> anyhow::Result<String> {
-    Ok(export_csv(HEADER, ROW, "AL_D003_99_20260607.csv").await?.1)
-}
-
 async fn export_csv(
     header: &str,
     rows: &str,
