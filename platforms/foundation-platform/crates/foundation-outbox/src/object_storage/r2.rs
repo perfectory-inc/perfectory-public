@@ -1,5 +1,6 @@
 //! Cloudflare R2 (S3-compatible) object storage adapter and its supporting helpers.
 
+mod copy;
 mod streaming;
 
 pub use streaming::{
@@ -19,10 +20,10 @@ use sha2::{Digest as _, Sha256};
 use crate::errors::PublishError;
 
 use super::{
-    ByteStream, EvidenceByteReader, ObjectStorageService, ObjectStorageSmokeReport,
-    ObjectStorageStreamingService, ObjectWriteMode, PutObjectRequest, R2InventoryAuditReport,
-    R2InventoryObject, R2InventoryReport, R2InventoryRequest, StreamingObjectRehash,
-    StreamingPutObjectRequest,
+    ByteStream, CreateOnlyCopyObjectRequest, EvidenceByteReader, ObjectStorageService,
+    ObjectStorageSmokeReport, ObjectStorageStreamingService, ObjectWriteMode, PutObjectRequest,
+    R2InventoryAuditReport, R2InventoryObject, R2InventoryReport, R2InventoryRequest,
+    StreamingObjectRehash, StreamingPutObjectRequest,
 };
 
 /// Default R2 object key used by the smoke command.
@@ -820,6 +821,13 @@ impl ObjectStorageService for R2ObjectStorage {
 
 #[async_trait]
 impl ObjectStorageStreamingService for R2ObjectStorage {
+    async fn copy_object_create_only(
+        &self,
+        request: CreateOnlyCopyObjectRequest,
+    ) -> Result<(), PublishError> {
+        self.copy_immutable_object(request).await
+    }
+
     async fn put_streaming_object(
         &self,
         request: StreamingPutObjectRequest,

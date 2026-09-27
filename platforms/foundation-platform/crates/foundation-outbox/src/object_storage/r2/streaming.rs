@@ -15,12 +15,11 @@ use aws_sdk_s3::{
 use tokio::runtime::Handle;
 
 use crate::errors::PublishError;
+use crate::object_storage::requests::{MAX_MULTIPART_PARTS, MAX_MULTIPART_PART_BYTES};
 
 use super::{r2_range_header, R2ObjectStorage, R2_RANGE_READ_MAX_ATTEMPTS};
 
 const MIN_MULTIPART_PART_BYTES: usize = 5 * 1024 * 1024;
-const MAX_MULTIPART_PART_BYTES: usize = 5 * 1024 * 1024 * 1024;
-const MAX_MULTIPART_PARTS: i32 = 10_000;
 
 trait RangeBackend: Send + Sync + std::fmt::Debug {
     fn len(&self) -> u64;
@@ -355,7 +354,7 @@ impl R2MultipartUploadWriter {
         }
         let part_number = i32::try_from(self.parts.len() + 1)
             .map_err(|_| io::Error::other("multipart part number overflow"))?;
-        if part_number > MAX_MULTIPART_PARTS {
+        if part_number > i32::from(MAX_MULTIPART_PARTS) {
             return Err(io::Error::other("multipart upload exceeds 10,000 parts"));
         }
         let body = std::mem::replace(&mut self.buffer, Vec::with_capacity(self.part_bytes));
@@ -581,7 +580,7 @@ impl R2ObjectStorage {
         part_bytes: usize,
     ) -> Result<R2MultipartUploadWriter, PublishError> {
         super::validate_relative_r2_object_key(key, "key")?;
-        if !(MIN_MULTIPART_PART_BYTES..=MAX_MULTIPART_PART_BYTES).contains(&part_bytes) {
+        if part_bytes < MIN_MULTIPART_PART_BYTES || part_bytes as u64 > MAX_MULTIPART_PART_BYTES {
             return Err(PublishError::Infrastructure(format!(
                 "R2 multipart part size must be between {MIN_MULTIPART_PART_BYTES} and {MAX_MULTIPART_PART_BYTES} bytes"
             )));

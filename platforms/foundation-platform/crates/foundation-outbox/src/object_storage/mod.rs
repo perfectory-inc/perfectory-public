@@ -9,12 +9,14 @@ use async_trait::async_trait;
 
 use crate::errors::PublishError;
 
+mod copy;
 mod file;
 mod inventory;
 mod logging;
 mod r2;
 mod requests;
 
+pub use copy::create_only_copy_and_rehash;
 pub use file::FileObjectStorage;
 pub use inventory::{
     normalize_r2_inventory_prefix, R2InventoryAuditReport, R2InventoryObject, R2InventoryReport,
@@ -27,8 +29,8 @@ pub use r2::{
     R2SeekableObjectReader, DEFAULT_R2_SMOKE_OBJECT_KEY,
 };
 pub use requests::{
-    ByteStream, ObjectStorageSmokeReport, ObjectWriteMode, PutObjectRequest, StreamingObjectRehash,
-    StreamingPutObjectRequest,
+    ByteStream, CreateOnlyCopyObjectRequest, ObjectStorageSmokeReport, ObjectWriteMode,
+    PutObjectRequest, StreamingObjectRehash, StreamingPutObjectRequest, SINGLE_COPY_MAX_BYTES,
 };
 
 // Pure helpers exercised by the unit tests via `super::`. Brought into the
@@ -81,6 +83,24 @@ pub trait EvidenceByteReader: Send + Sync {
 #[allow(clippy::module_name_repetitions)]
 /// Provider-neutral streaming object storage write port for large immutable objects.
 pub trait ObjectStorageStreamingService: Send + Sync {
+    /// Copies an immutable object without replacing an existing destination.
+    ///
+    /// Call [`create_only_copy_and_rehash`] to verify copied bytes against source ledger evidence
+    /// and reconcile an already-existing destination. The default fails closed for adapters that
+    /// do not support server-side copying.
+    ///
+    /// # Errors
+    /// Returns `ObjectAlreadyExists` for an existing destination, or an infrastructure/provider
+    /// error for unsupported configuration, invalid requests, or failed copies.
+    async fn copy_object_create_only(
+        &self,
+        _request: CreateOnlyCopyObjectRequest,
+    ) -> Result<(), PublishError> {
+        Err(PublishError::Infrastructure(
+            "object storage adapter does not support create-only server-side copy".to_owned(),
+        ))
+    }
+
     /// Streams an object to the configured storage provider.
     ///
     /// # Errors
@@ -126,3 +146,6 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod copy_tests;
