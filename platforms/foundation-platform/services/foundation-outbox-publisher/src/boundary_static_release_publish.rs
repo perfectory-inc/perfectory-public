@@ -109,9 +109,13 @@ impl Config {
         let timeout_seconds = required_env(&tool_timeout_env)?
             .parse::<u64>()
             .with_context(|| format!("{tool_timeout_env} must be an integer"))?;
+        // Upper bound raised from 3600 to 12h: the initial national parcel bake (39.86M rows,
+        // z14-16) is write-bound in martin-cp and cannot finish inside one hour however high the
+        // concurrency, so a single tool invocation legitimately needs longer. Still bounded so a
+        // typo cannot wedge a build forever.
         ensure!(
-            (1..=3600).contains(&timeout_seconds),
-            "{tool_timeout_env} must be in 1..=3600"
+            (1..=43_200).contains(&timeout_seconds),
+            "{tool_timeout_env} must be in 1..=43200"
         );
         let operator = Uuid::parse_str(&required_env(&operator_env)?)
             .with_context(|| format!("{operator_env} must be a UUID"))?;
