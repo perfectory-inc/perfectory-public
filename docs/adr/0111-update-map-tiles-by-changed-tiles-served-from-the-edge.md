@@ -86,8 +86,9 @@ R2 에 올라가 있다(릴리스 d72f5ca3·9694ab53·62271990). 남은 문제�
 6. **공개 서빙은 Cloudflare Worker 한 개다(`foundation-tile-gateway`).** 기존 parcel·building
    gateway 와 같은 틀이고, R2 는 바인딩으로 읽는다(공개 버킷 금지, 서버에 키 상주 없음). 공개
    호스트는 `config/r2-connections.contract.json` 의 `tile_derivatives` 에 한 곳으로 선언한다.
-   타일 URL 은 `https://{host}/{unit}/{base_release_id}/{z}/{x}/{y}` 이고 패치 세대는 URL 에
-   넣지 않는다 — 기본판 주소는 불변 계약이다(ADR-0037). Worker 는 DB 를 읽지 않는다.
+   타일 URL 은 `https://{host}/{unit}-{base_release_id}/{z}/{x}/{y}` 다 — 이미 release 행의
+   CHECK 와 웹 검증이 요구하는 `/{martin_source_id}/{z}/{x}/{y}` 형태 그대로다. 패치 세대는 URL
+   에 넣지 않는다 — 기본판 주소는 불변 계약이다(ADR-0037). Worker 는 DB 를 읽지 않는다.
 
 7. **캐시와 반영 지연.** 타일 응답은 브라우저 `max-age=60` 과 엣지 캐시를 쓰고, 패치 세대를
    승격할 때 영향 타일 URL 을 엣지에서 purge 한다. 목표 반영 지연은 **패치 빌드 시간 + 60초
