@@ -42,7 +42,9 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod administrative_boundary_postgis_publish;
 mod administrative_boundary_runtime_promote;
+mod administrative_boundary_static_release_publish;
 mod administrative_spatial_scope_registry;
+mod boundary_static_release_publish;
 mod bounded_live_ingestion_gate_check;
 mod bronze_catalog_recovery_evidence;
 mod bronze_catalog_recovery_execute;
@@ -138,6 +140,7 @@ mod page_count_plan_contract;
 mod pagination_guard;
 mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
+mod parcel_boundary_static_release_publish;
 mod parcel_by_pnu_gateway_contract;
 mod parcel_by_pnu_serving_export;
 mod parcel_by_pnu_serving_manifest_publish;
@@ -275,10 +278,12 @@ enum Command {
     CheckNationalDataCollectionRolloutApproval,
     CheckAdministrativeSpatialScopeRegistry,
     PublishAdministrativeBoundaryPostgis,
+    PublishAdministrativeBoundaryStaticRelease,
     PublishIndustrialComplexBoundaryPostgis,
     PublishIndustrialComplexBoundaryStaticRelease,
     ProveIndustrialComplexBoundaryStaticReleaseMutationGuards,
     PublishParcelBoundaryPostgis,
+    PublishParcelBoundaryStaticRelease,
     LoadBuildingCatalogProjection,
     LoadBuildingUnitBuildingLink,
     LoadBuildingUnitCatalogProjection,
@@ -554,6 +559,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishAdministrativeBoundaryPostgis => {
             Box::pin(administrative_boundary_postgis_publish::run())
         }
+        Command::PublishAdministrativeBoundaryStaticRelease => {
+            Box::pin(administrative_boundary_static_release_publish::run())
+        }
         Command::PublishIndustrialComplexBoundaryPostgis => {
             Box::pin(industrial_complex_boundary_postgis_publish::run())
         }
@@ -564,6 +572,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             industrial_complex_boundary_static_release_publish::run_local_mutation_guard_proof(),
         ),
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
+        Command::PublishParcelBoundaryStaticRelease => {
+            Box::pin(parcel_boundary_static_release_publish::run())
+        }
         Command::LoadBuildingCatalogProjection => Box::pin(building_catalog_projection_load::run()),
         Command::LoadBuildingUnitBuildingLink => Box::pin(building_unit_building_link_load::run()),
         Command::LoadBuildingUnitCatalogProjection => {
@@ -1130,6 +1141,9 @@ where
         Some("publish-administrative-boundary-postgis") => {
             Ok(Command::PublishAdministrativeBoundaryPostgis)
         }
+        Some("publish-administrative-boundary-static-release") => {
+            Ok(Command::PublishAdministrativeBoundaryStaticRelease)
+        }
         Some("publish-industrial-complex-boundary-postgis") => {
             Ok(Command::PublishIndustrialComplexBoundaryPostgis)
         }
@@ -1140,6 +1154,9 @@ where
             Ok(Command::ProveIndustrialComplexBoundaryStaticReleaseMutationGuards)
         }
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
+        Some("publish-parcel-boundary-static-release") => {
+            Ok(Command::PublishParcelBoundaryStaticRelease)
+        }
         Some("load-building-catalog-projection") => Ok(Command::LoadBuildingCatalogProjection),
         Some("load-building-unit-building-link") => Ok(Command::LoadBuildingUnitBuildingLink),
         Some("load-building-unit-catalog-projection") => {
