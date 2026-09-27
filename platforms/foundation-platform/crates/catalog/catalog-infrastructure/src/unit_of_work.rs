@@ -13,9 +13,9 @@ use async_trait::async_trait;
 use catalog_application::ports::{
     CatalogUnitOfWork, MarkTileLayerDynamicCommand, PromoteTileLayerStaticCommand,
     PublishedRuntimeManifest, RecordVectorTileBuildResultCommand,
-    RuntimeManifestPublicationCapability, StartVectorTileBuildCommand,
-    UpsertIndustrialComplexCommand, UpsertIndustrialComplexEffect, UpsertIndustrialComplexOutcome,
-    VectorTileArtifactPromotionCommand, VectorTileFileAssetCommand,
+    RuntimeManifestPublicationCapability, StartStaticReleaseReaddressCommand,
+    StartVectorTileBuildCommand, UpsertIndustrialComplexCommand, UpsertIndustrialComplexEffect,
+    UpsertIndustrialComplexOutcome, VectorTileArtifactPromotionCommand, VectorTileFileAssetCommand,
     VectorTileManifestPromotionCommand, VectorTileManifestRollbackCommand,
     VectorTileSourceRecordCommand,
 };
@@ -25,9 +25,10 @@ use catalog_domain::{
     validate_build_snapshot_binding, BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError,
     CatalogMutationKind, ComplexMutation, IndustrialComplex, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, Parcel, ParcelKind, ParcelKindEdit, RequestFingerprint,
-    RuntimeTileLayer, ServingGeneration, VectorTileArtifact, VectorTileBuildOutcome,
-    VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict, VectorTileBuildStatus,
-    VectorTileManifest, VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+    RuntimeTileLayer, ServingGeneration, VectorTileArtifact, VectorTileBuildKind,
+    VectorTileBuildOutcome, VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict,
+    VectorTileBuildStatus, VectorTileManifest, VectorTileRuntimeManifest,
+    CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use chrono::Utc;
 use foundation_shared_kernel::events::catalog_v1::{
@@ -49,6 +50,8 @@ use crate::row_map::{
     row_to_vector_tile_manifest, u64_to_i64, INDUSTRIAL_COMPLEX_COLUMNS,
 };
 use crate::sqlx_repository::load_vector_tile_runtime_manifest_by_id;
+
+mod readdress;
 
 /// `PostgreSQL` implementation of Catalog mutation unit-of-work ports.
 pub struct PgCatalogUnitOfWork {
@@ -758,13 +761,20 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         Ok(build_job_id)
     }
 
+    async fn start_static_release_readdress(
+        &self,
+        command: StartStaticReleaseReaddressCommand,
+    ) -> Result<VectorTileBuildJobId, CatalogError> {
+        readdress::start(&self.pool, command).await
+    }
+
     async fn record_vector_tile_build_result(
         &self,
         command: RecordVectorTileBuildResultCommand,
     ) -> Result<(), CatalogError> {
         let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
         let row = sqlx::query(
-            "SELECT build.status, build.frozen_source_snapshot_id, unit.unit_key,
+            "SELECT build.kind, build.status, build.frozen_source_snapshot_id, unit.unit_key,
                     build.result_release_id, build.result_pmtiles_file_asset_id,
                     build.result_pmtiles_object_key, build.result_tiles_url_template,
                     build.result_pmtiles_sha256, build.result_pmtiles_bytes,
@@ -793,13 +803,18 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
                 .as_str(),
         )
         .map_err(invalid_runtime)?;
-        validate_build_result_report(status, &command.outcome).map_err(invalid_runtime)?;
+        let readdress_replay = row.try_get::<String, _>("kind").map_err(map_sqlx)? == "readdress"
+            && status == VectorTileBuildStatus::Promoted
+            && matches!(&command.outcome, VectorTileBuildOutcome::Validated { .. });
+        if !readdress_replay {
+            validate_build_result_report(status, &command.outcome).map_err(invalid_runtime)?;
+        }
 
         match &command.outcome {
             VectorTileBuildOutcome::Validated { evidence, artifact } => {
                 let unit_key: String = row.try_get("unit_key").map_err(map_sqlx)?;
                 validate_build_artifact_identity(&unit_key, command.build_job_id, artifact)?;
-                if status == VectorTileBuildStatus::Validated {
+                if status == VectorTileBuildStatus::Validated || readdress_replay {
                     ensure_recorded_artifact_matches(
                         &row,
                         evidence,
@@ -898,6 +913,15 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         let target = find_publication_unit(&units, &command.unit_key)?;
         let build = lock_validated_build_tx(&mut tx, command.build_job_id, target.id).await?;
 
+        if build.kind == VectorTileBuildKind::Readdress
+            && build.input_serving_generation
+                != Some(u64_to_i64(command.expected_serving_generation.value())?)
+        {
+            return Err(invalid_runtime(
+                "readdress promotion must use the serving generation captured at start",
+            ));
+        }
+
         if mark_superseded_build_tx(&mut tx, target, &build, &command).await? {
             tx.commit().await.map_err(map_sqlx)?;
             return Err(invalid_runtime(format!(
@@ -939,6 +963,8 @@ enum MutationClaim {
 
 struct LockedValidatedBuild {
     unit_key: String,
+    kind: VectorTileBuildKind,
+    input_serving_generation: Option<i64>,
     status: VectorTileBuildStatus,
     input_release_id: Uuid,
     input_data_revision: Uuid,
@@ -1029,18 +1055,21 @@ async fn publish_static_release_tx(
         .map_err(map_runtime_manifest_gate_error)?;
 
     // The gate has already changed active_release_id, so the old dynamic release can now be stored
-    // as a distinct same-revision fallback without violating the column CHECK.
-    sqlx::query(
-        "UPDATE catalog.vector_tile_publication_unit
+    // as a distinct same-revision fallback without violating the column CHECK. Readdress keeps
+    // that fallback unchanged: its input is static, and the CAS preserves same-revision fallback.
+    if plan.build.kind == VectorTileBuildKind::Bake {
+        sqlx::query(
+            "UPDATE catalog.vector_tile_publication_unit
          SET fallback_release_id = $2, fallback_data_revision = $3, updated_at = now()
          WHERE id = $1",
-    )
-    .bind(plan.target.id)
-    .bind(plan.build.input_release_id)
-    .bind(plan.build.input_data_revision)
-    .execute(&mut **tx)
-    .await
-    .map_err(map_sqlx)?;
+        )
+        .bind(plan.target.id)
+        .bind(plan.build.input_release_id)
+        .bind(plan.build.input_data_revision)
+        .execute(&mut **tx)
+        .await
+        .map_err(map_sqlx)?;
+    }
     sqlx::query(
         "UPDATE catalog.vector_tile_build_job
          SET status = 'promoted', updated_at = now() WHERE id = $1",
@@ -1063,7 +1092,8 @@ async fn lock_validated_build_tx(
     publication_unit_id: Uuid,
 ) -> Result<LockedValidatedBuild, CatalogError> {
     let row = sqlx::query(
-        "SELECT unit.unit_key, build.status, build.input_release_id, build.input_data_revision,
+        "SELECT unit.unit_key, build.kind, build.input_serving_generation, build.status,
+                build.input_release_id, build.input_data_revision,
                 build.frozen_source_snapshot_id, build.result_release_id,
                 build.result_pmtiles_file_asset_id, build.result_pmtiles_object_key,
                 build.result_tiles_url_template, build.result_pmtiles_sha256,
@@ -1089,9 +1119,17 @@ async fn lock_validated_build_tx(
     let status_raw: String = row.try_get("status").map_err(map_sqlx)?;
     let status = VectorTileBuildStatus::try_from(status_raw.as_str()).map_err(invalid_runtime)?;
     let input_source_kind: String = row.try_get("source_kind").map_err(map_sqlx)?;
-    if input_source_kind != "dynamic_postgis" {
+    let kind = VectorTileBuildKind::parse(&row.try_get::<String, _>("kind").map_err(map_sqlx)?)
+        .map_err(invalid_runtime)?;
+    if input_source_kind != kind.input_source_kind().as_str() {
         return Err(invalid_runtime(format!(
-            "static promotion build input must be dynamic_postgis, got {input_source_kind}"
+            "{} promotion build input must be {}, got {input_source_kind}",
+            if kind == VectorTileBuildKind::Bake {
+                "static"
+            } else {
+                "readdress"
+            },
+            kind.input_source_kind().as_str()
         )));
     }
     let required_uuid = |column: &str| -> Result<Uuid, CatalogError> {
@@ -1108,6 +1146,8 @@ async fn lock_validated_build_tx(
     };
     Ok(LockedValidatedBuild {
         unit_key: row.try_get("unit_key").map_err(map_sqlx)?,
+        kind,
+        input_serving_generation: row.try_get("input_serving_generation").map_err(map_sqlx)?,
         status,
         input_release_id: row.try_get("input_release_id").map_err(map_sqlx)?,
         input_data_revision: row.try_get("input_data_revision").map_err(map_sqlx)?,
@@ -1209,9 +1249,10 @@ async fn insert_static_release_tx(
          (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
           source_record_id, source_file_asset_ids, source_kind, martin_source_id,
           tiles_url_template, pmtiles_object_key, pmtiles_file_asset_id,
-          pmtiles_sha256, pmtiles_bytes, validated_at, validation_evidence_sha256)
+          pmtiles_sha256, pmtiles_bytes, validated_at, validation_evidence_sha256,
+          readdressed_from_release_id)
          VALUES ($1, $2, $3, $4, $5, $6, 'static_pmtiles', $7, $8, $9, $10, $11, $12,
-                 now(), $13)",
+                 now(), $13, $14)",
     )
     .bind(build.release_id)
     .bind(publication_unit_id)
@@ -1226,6 +1267,7 @@ async fn insert_static_release_tx(
     .bind(&build.pmtiles_sha256)
     .bind(build.pmtiles_bytes)
     .bind(&build.validation_evidence_sha256)
+    .bind((build.kind == VectorTileBuildKind::Readdress).then_some(build.input_release_id))
     .execute(&mut **tx)
     .await
     .map_err(map_sqlx)?;
@@ -1320,6 +1362,23 @@ async fn claim_build_start_key_tx(
     command: &StartVectorTileBuildCommand,
 ) -> Result<bool, CatalogError> {
     let fingerprint = command.request_fingerprint();
+    claim_build_key_tx(
+        tx,
+        &command.idempotency_key,
+        CatalogMutationKind::StartVectorTileBuild,
+        &fingerprint,
+        command.operator_staff_id,
+    )
+    .await
+}
+
+async fn claim_build_key_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    idempotency_key: &str,
+    kind: CatalogMutationKind,
+    fingerprint: &RequestFingerprint,
+    operator_staff_id: StaffId,
+) -> Result<bool, CatalogError> {
     let claimed: Option<String> = sqlx::query_scalar(
         "INSERT INTO catalog.catalog_mutation_idempotency
          (idempotency_key, command_kind, request_fingerprint_sha256,
@@ -1328,25 +1387,20 @@ async fn claim_build_start_key_tx(
          ON CONFLICT (idempotency_key) DO NOTHING
          RETURNING idempotency_key",
     )
-    .bind(&command.idempotency_key)
-    .bind(CatalogMutationKind::StartVectorTileBuild.as_str())
+    .bind(idempotency_key)
+    .bind(kind.as_str())
     .bind(fingerprint.as_str())
     .bind(CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION)
-    .bind(command.operator_staff_id.as_uuid())
+    .bind(operator_staff_id.as_uuid())
     .fetch_optional(&mut **tx)
     .await
-    .map_err(|error| map_contention_error(&command.idempotency_key, error))?;
+    .map_err(|error| map_contention_error(idempotency_key, error))?;
     if claimed.is_some() {
         return Ok(true);
     }
 
-    let row = read_mutation_claim_tx(tx, &command.idempotency_key).await?;
-    verify_mutation_claim(
-        &row,
-        &command.idempotency_key,
-        CatalogMutationKind::StartVectorTileBuild,
-        &fingerprint,
-    )?;
+    let row = read_mutation_claim_tx(tx, idempotency_key).await?;
+    verify_mutation_claim(&row, idempotency_key, kind, fingerprint)?;
     Ok(false)
 }
 
