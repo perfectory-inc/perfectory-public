@@ -60,6 +60,13 @@ def _contract_facts(contract: Mapping[str, Any], support: Any) -> set[str]:
     return facts
 
 
+# npm manifests and lockfiles pin JavaScript packages, not the contract's CLI binaries. The npm
+# `pmtiles` package (the PMTiles reader a Worker imports) shares its name with the `pmtiles` CLI but
+# is a different artifact whose version the package manager owns; its pin is not a copied tool
+# version. Copied contract facts (digests, URLs, hashes) are still rejected in these files.
+PACKAGE_MANAGER_PINS = frozenset({"package.json", "pnpm-lock.yaml", "package-lock.json"})
+
+
 def _violations(path: pathlib.Path, facts: set[str]) -> Iterable[tuple[int, str]]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -71,7 +78,7 @@ def _violations(path: pathlib.Path, facts: set[str]) -> Iterable[tuple[int, str]
         while (position := text.find(fact, start)) >= 0:
             violations.add((text.count("\n", 0, position) + 1, "copied contract fact"))
             start = position + len(fact)
-    for match in TOOL_VERSION.finditer(text):
+    for match in () if path.name in PACKAGE_MANAGER_PINS else TOOL_VERSION.finditer(text):
         violations.add(
             (text.count("\n", 0, match.start()) + 1, "tool version outside contract")
         )
