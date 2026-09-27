@@ -180,3 +180,10 @@ Foundation과 Gongzzang 양쪽에서 검증한다.
   — Rust PostGIS / PMTiles / MBTiles serving, S3-compatible R2, and remote-prefix polling
 - ADR-0004 — verification SSOT (same "one definition" discipline, applied to serving)
 - Internal foundation pipeline audit, 2026-07-21
+
+---
+
+> **대체 각주(2026-09-27):** 지도 타일 두 행(static basemap = Martin+CDN, 편집 단위 = Dynamic
+> PostGIS)과 "타일 제공 엔진" 절은
+> [ADR-0111](./0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md) 로 대체됐다:
+> 기본판 PMTiles + 바뀐 타일 패치, 공개 서빙은 엣지 Worker.

@@ -504,3 +504,11 @@ bucket-scoped read-only credential이다.
 - [Martin PMTiles sources and remote-prefix reload](https://maplibre.org/martin/sources-pmtiles.html)
 - [Apache Iceberg branching and WAP](https://iceberg.apache.org/docs/latest/branching/)
 - [Cloudflare R2 S3 conditional `PutObject`](https://developers.cloudflare.com/r2/api/s3/api/)
+
+---
+
+> **대체 각주(2026-09-27):** `DynamicPostgis XOR StaticPmtiles` 와 "add·modify·delete 는
+> complete candidate 로만" 조항은 루트
+> [ADR-0111](../../../../docs/adr/0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md)
+> 로 대체됐다: 기본판 1개 + 패치 세대 1개, 조합은 서버에서 타일 단위로만. 브라우저·Martin 에서의
+> 조합과 feature 숨김 금지는 유지된다.
