@@ -108,10 +108,20 @@ R2 에 올라가 있다(릴리스 d72f5ca3·9694ab53·62271990). 남은 문제�
     패치 렌더는 warm 행에 대한 PostGIS `ST_AsMVT` 로 한다. 요청 시점 DB 렌더 경로(dynamic
     공개 서빙)는 이 ADR 의 단계가 끝나면 없어진다.
 
-11. **단계.** 각 단계는 별도 PR 이고, 앞 단계가 운영에서 확인된 뒤 다음으로 간다.
-    - **A. 공개.** tile gateway Worker, 공개 호스트 계약, 세 레이어를 공개 URL 로 다시 발행
-      (루프백으로 기록된 릴리스의 교정은 새 발행이다 — ADR-0037), runtime manifest V2 가동,
-      공짱 웹 CSP.
+11. **서빙 주소 교정은 재주소 발행(readdress)이다.** 기본판 주소는 불변이므로(ADR-0037), 주소가
+    틀렸거나 호스트가 바뀌면 같은 데이터를 **새 release** 로 다시 발행한다: 기존 정적 release 의
+    PMTiles 객체를 새 release 키로 R2 서버측 create-only 복사 → 전바이트 재해시 → 공개 URL 로
+    대표 타일을 디코드해 원본과 바이트 비교 → 기록 → CAS 승격. 재굽기는 없다. 이것이 같은
+    `(unit, data_revision, snapshot)` 에 정적 release 가 둘 이상 존재할 수 있는 **유일한** 경우이며,
+    새 release 는 원본을 `readdressed_from_release_id` 로 가리키고 그 칸이 비어 있는 release 끼리만
+    기존 유일성(`…_unit_revision_snapshot_kind_key`)을 지킨다. 원본은 이력으로 남는다. 첫 적용
+    대상은 `http://127.0.0.1:3111` 로 기록된 세 릴리스(d72f5ca3·9694ab53·62271990)다. 같은
+    결함의 재발은 발행 단계(PR #235)와 승격 단계 양쪽에서 운영 URL 의 http·내부 주소를 거부해
+    막는다.
+
+12. **단계.** 각 단계는 별도 PR 이고, 앞 단계가 운영에서 확인된 뒤 다음으로 간다.
+    - **A. 공개.** tile gateway Worker, 공개 호스트 계약, 재주소 발행 명령(11번)으로 세
+      레이어를 공개 URL 로 교정, 승격 단계의 운영 URL 가드, runtime manifest V2 가동, 공짱 웹 CSP.
     - **B. 변경 목록.** 원천 리비전 → 변경 목록(레이크하우스) 도출, ADR-0099 잡 연결, 삭제
       PNU 상세 JSON 404, 앵커 삭제 누락 수정.
     - **C. 패치.** 패치 빌더·세대 색인·Worker 패치 조회·purge·승격 게이트.
