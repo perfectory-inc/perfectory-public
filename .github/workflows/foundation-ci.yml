@@ -90,7 +90,7 @@ jobs:
         with:
           node-version: "24.20.0"
           cache: pnpm
-          cache-dependency-path: platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml
+          cache-dependency-path: platforms/foundation-platform/services/*-gateway/pnpm-lock.yaml
 
       # Foundation-specific: the committed Catalog OpenAPI artifact must match a
       # fresh export (this builds+runs export-catalog-openapi, which compiles what

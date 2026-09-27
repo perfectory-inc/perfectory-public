@@ -160,5 +160,39 @@
     "cache_control": "public, max-age=3600",
     "manifest_cache_control": "no-cache, max-age=0",
     "manifest_edge_cache_seconds": 60
+  },
+  "vector_tile_gateway": {
+    "worker_name": "foundation-tile-gateway",
+    "public_hostname": "tiles.perfectory.io",
+    "public_hostname_aliases": [
+      "tiles.gongzzang.app"
+    ],
+    "connection": "tile_derivatives",
+    "r2_binding": "FOUNDATION_PLATFORM_TILE_DERIVATIVES",
+    "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+    "compatibility_date": "2026-04-26",
+    "object_key": {
+      "root": {
+        "expected_value": "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX"
+      },
+      "source_id_pattern": "[a-z][a-z0-9_]{0,63}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+      "suffix": ".pmtiles"
+    },
+    "max_zoom": 24,
+    "content_type": "application/vnd.mapbox-vector-tile",
+    "cache_control": "public, max-age=31536000, immutable",
+    "cors": {
+      "grammar": "comma-separated-serialized-http-origins-v1",
+      "allow_wildcard": false,
+      "accepted": [
+        "https://app.example.test",
+        " http://localhost:3000 , https://app.example.test "
+      ],
+      "rejected": [
+        "*",
+        "file:///tmp/app",
+        "https://app.example.test/path"
+      ]
+    }
   }
 }
