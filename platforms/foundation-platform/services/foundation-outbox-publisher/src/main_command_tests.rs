@@ -440,6 +440,30 @@ fn industrial_complex_static_release_publish_command_is_explicit() -> anyhow::Re
 }
 
 #[test]
+fn administrative_static_release_publish_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "publish-administrative-boundary-static-release",
+        ])?,
+        Command::PublishAdministrativeBoundaryStaticRelease
+    );
+    Ok(())
+}
+
+#[test]
+fn parcel_static_release_publish_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "publish-parcel-boundary-static-release",
+        ])?,
+        Command::PublishParcelBoundaryStaticRelease
+    );
+    Ok(())
+}
+
+#[test]
 fn industrial_complex_static_release_mutation_guard_proof_command_is_explicit() -> anyhow::Result<()>
 {
     assert_eq!(
