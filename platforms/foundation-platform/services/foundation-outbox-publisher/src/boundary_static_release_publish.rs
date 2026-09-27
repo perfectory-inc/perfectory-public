@@ -86,6 +86,7 @@ struct Config {
     build_idempotency_key: String,
     promote_idempotency_key: String,
     tool_timeout: Duration,
+    martin_cp_concurrency: u16,
 }
 
 impl Config {
@@ -114,6 +115,20 @@ impl Config {
         );
         let operator = Uuid::parse_str(&required_env(&operator_env)?)
             .with_context(|| format!("{operator_env} must be a UUID"))?;
+        // martin-cp parallelism. Defaults to 2 (the value complex/admin bakes proved), but a
+        // national parcel bake (39.86M rows, z14-16) cannot finish one martin-cp run inside the
+        // 3600s tool timeout at 2, so it is raised per unit. Bounded so a typo cannot oversubscribe.
+        let concurrency_env = format!("{}_MARTIN_CP_CONCURRENCY", spec.env_prefix);
+        let martin_cp_concurrency = match std::env::var(&concurrency_env) {
+            Ok(value) => value
+                .parse::<u16>()
+                .with_context(|| format!("{concurrency_env} must be an integer"))?,
+            Err(_) => 2,
+        };
+        ensure!(
+            (1..=64).contains(&martin_cp_concurrency),
+            "{concurrency_env} must be in 1..=64"
+        );
         Ok(Self {
             unit_key: spec.unit_key.to_owned(),
             display_label: spec.display_label.to_owned(),
@@ -127,6 +142,7 @@ impl Config {
             build_idempotency_key: required_env(&build_key_env)?,
             promote_idempotency_key: required_env(&promote_key_env)?,
             tool_timeout: Duration::from_secs(timeout_seconds),
+            martin_cp_concurrency,
         })
     }
 }
@@ -573,7 +589,7 @@ async fn build_archives(
         OsString::from("--max-zoom"),
         OsString::from(maxzoom.to_string()),
         OsString::from("--concurrency"),
-        OsString::from("2"),
+        OsString::from(config.martin_cp_concurrency.to_string()),
     ];
     ensure_tool_success(
         "martin-cp",
@@ -840,6 +856,7 @@ async fn prove_unreadable_martin_is_refused(root: &Path) -> anyhow::Result<()> {
         build_idempotency_key: "unused-build-key".to_owned(),
         promote_idempotency_key: "unused-promote-key".to_owned(),
         tool_timeout: Duration::from_millis(50),
+        martin_cp_concurrency: 2,
     };
     let store = FileObjectStorage::new(root.join("unreadable-martin-object"))?;
     store
