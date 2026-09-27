@@ -29,6 +29,15 @@ printf '%s\n' 'export const image = process.env.PERFECTORY_MARTIN_IMAGE;' \
 printf '%s\n' '-- unrelated SQL text' > "$fixture/scripts/tiles/consumer.sql"
 printf '%s\n' '# Contract consumer' > "$fixture/scripts/tiles/consumer.md"
 
+# An npm dependency pin on the PMTiles reader library is the package manager's fact, not a CLI
+# version mirror, and must stay accepted. The name and version are joined at run time so this
+# file does not itself read as a mirror.
+npm_library='pmtiles'
+npm_version='4.5.0'
+printf '{"dependencies": {"%s": "%s"}}\n' "$npm_library" "$npm_version" \
+  > "$fixture/scripts/tiles/package.json"
+printf '  %s@%s:\n' "$npm_library" "$npm_version" > "$fixture/scripts/tiles/pnpm-lock.yaml"
+
 git -C "$fixture" init -q
 git -C "$fixture" config user.email guard@example.invalid
 git -C "$fixture" config user.name guard
@@ -76,6 +85,16 @@ printf '%s\n' 'export const image = process.env.PERFECTORY_MARTIN_IMAGE;' \
   > "$fixture/scripts/tiles/consumer.ts"
 printf '%s\n' '-- unrelated SQL text' > "$fixture/scripts/tiles/consumer.sql"
 printf '%s\n' '# Contract consumer' > "$fixture/scripts/tiles/consumer.md"
+# ...but a copied contract fact is still refused inside an npm lockfile.
+digest_in_lock="$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1],encoding="utf-8")); print(next(iter(c["distributions"].values()))["oci"]["digest"])' "$contract")"
+printf '  resolution: %s\n' "$digest_in_lock" >> "$fixture/scripts/tiles/pnpm-lock.yaml"
+git -C "$fixture" add .
+if python3 "$checker" --root "$fixture" >/dev/null 2>&1; then
+  echo 'FAIL static-release-toolchain-ssot-self-test: a contract digest copied into a lockfile was accepted' >&2
+  exit 1
+fi
+printf '  %s@%s:\n' "$npm_library" "$npm_version" > "$fixture/scripts/tiles/pnpm-lock.yaml"
+
 digest="$(python3 - "$contract" <<'PY'
 import json
 import sys

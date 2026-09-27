@@ -528,7 +528,9 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
         pnpm_setup_line.as_str(),
         "uses: actions/setup-node@",
         node_setup_line.as_str(),
-        "platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml",
+        // One pattern keys the pnpm cache on every gateway's lockfile, so adding a gateway does not
+        // mean remembering to extend a list here.
+        "platforms/foundation-platform/services/*-gateway/pnpm-lock.yaml",
         "scripts/compose-smoke.sh -- start-api",
         "docker compose down -v --remove-orphans",
     ] {
