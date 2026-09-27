@@ -46,6 +46,8 @@ pub enum CatalogMutationKind {
     MarkTileLayerDynamic,
     /// Recording of a static build attempt against one publication unit.
     StartVectorTileBuild,
+    /// Address-only publication from an active validated static release.
+    StartStaticReleaseReaddress,
     /// Promotion of a validated static build to the active serving source.
     PromoteTileLayerStatic,
     /// Return of one publication unit to its preserved same-revision dynamic release.
@@ -54,9 +56,10 @@ pub enum CatalogMutationKind {
 
 impl CatalogMutationKind {
     /// Every command kind, so a caller can enumerate the vocabulary without restating it.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::MarkTileLayerDynamic,
         Self::StartVectorTileBuild,
+        Self::StartStaticReleaseReaddress,
         Self::PromoteTileLayerStatic,
         Self::RollbackTileLayerSource,
     ];
@@ -67,6 +70,7 @@ impl CatalogMutationKind {
         match self {
             Self::MarkTileLayerDynamic => "mark_tile_layer_dynamic",
             Self::StartVectorTileBuild => "start_vector_tile_build",
+            Self::StartStaticReleaseReaddress => "start_static_release_readdress",
             Self::PromoteTileLayerStatic => "promote_tile_layer_static",
             Self::RollbackTileLayerSource => "rollback_tile_layer_source",
         }
@@ -85,7 +89,7 @@ impl CatalogMutationKind {
             Self::MarkTileLayerDynamic
             | Self::PromoteTileLayerStatic
             | Self::RollbackTileLayerSource => true,
-            Self::StartVectorTileBuild => false,
+            Self::StartVectorTileBuild | Self::StartStaticReleaseReaddress => false,
         }
     }
 
@@ -93,11 +97,12 @@ impl CatalogMutationKind {
     ///
     /// # Errors
     ///
-    /// Returns an error when `value` is not one of the four covered commands.
+    /// Returns an error when `value` is not a covered command.
     pub fn parse(value: &str) -> Result<Self, String> {
         match value {
             "mark_tile_layer_dynamic" => Ok(Self::MarkTileLayerDynamic),
             "start_vector_tile_build" => Ok(Self::StartVectorTileBuild),
+            "start_static_release_readdress" => Ok(Self::StartStaticReleaseReaddress),
             "promote_tile_layer_static" => Ok(Self::PromoteTileLayerStatic),
             "rollback_tile_layer_source" => Ok(Self::RollbackTileLayerSource),
             other => Err(format!("unknown Catalog mutation kind: {other}")),

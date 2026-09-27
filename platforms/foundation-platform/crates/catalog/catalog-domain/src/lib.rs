@@ -96,9 +96,9 @@ pub use serving_publication::{
     ActiveTileSource, BuildEvidenceDigest, CanonicalIcebergSnapshotId, DynamicPostgisSource,
     FeatureIdProperty, ManifestGeneration, PmtilesChecksum, PublicationUnit, RuntimeTileLayer,
     RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, ServingSelection,
-    ServingSourceKind, StaticPmtilesSource, ValidatedPmtilesArtifact, VectorTileBuildOutcome,
-    VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict, VectorTileBuildStatus,
-    VectorTileRuntimeManifest, STATIC_RELEASE_OBJECT_ROOT,
+    ServingSourceKind, StaticPmtilesSource, ValidatedPmtilesArtifact, VectorTileBuildKind,
+    VectorTileBuildOutcome, VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict,
+    VectorTileBuildStatus, VectorTileRuntimeManifest, STATIC_RELEASE_OBJECT_ROOT,
 };
 pub use source_record::SourceRecord;
 pub use spatial_layer::{ParseSpatialLayerKindError, SpatialLayer, SpatialLayerKind};
