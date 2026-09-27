@@ -1,6 +1,23 @@
 use super::{command_requires_expanded_stack, parse_command, Command};
 
 #[test]
+fn static_release_readdress_command_is_explicit_and_accepts_no_arguments() {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "readdress-static-release"]).unwrap(),
+        Command::ReaddressStaticRelease
+    );
+    assert!(!command_requires_expanded_stack(
+        Command::ReaddressStaticRelease
+    ));
+    assert!(parse_command([
+        "foundation-outbox-publisher",
+        "readdress-static-release",
+        "unexpected"
+    ])
+    .is_err());
+}
+
+#[test]
 fn unit_official_price_projection_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

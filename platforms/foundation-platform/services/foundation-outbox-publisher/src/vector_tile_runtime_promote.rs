@@ -165,12 +165,18 @@ pub(crate) async fn run(unit: &UnitPromotion) -> anyhow::Result<()> {
                 row.try_get::<i64, _>("serving_generation")?,
             )
         };
-        let canonical_snapshot = sqlx::query_scalar::<_, String>(
-            "SELECT canonical_iceberg_snapshot_id FROM catalog.vector_tile_release WHERE id = $1",
+        let selected_release = sqlx::query(
+            "SELECT canonical_iceberg_snapshot_id, source_kind, tiles_url_template FROM catalog.vector_tile_release WHERE id = $1",
         )
         .bind(release_id)
         .fetch_one(&mut *transaction)
         .await?;
+        crate::static_release_url::guard_static_promotion_url(
+            &selected_release.try_get::<String, _>("source_kind")?,
+            &selected_release.try_get::<String, _>("tiles_url_template")?,
+        )?;
+        let canonical_snapshot: String =
+            selected_release.try_get("canonical_iceberg_snapshot_id")?;
         sqlx::query(
             "INSERT INTO catalog.vector_tile_runtime_manifest_unit
                 (manifest_id, publication_unit_id, release_id, serving_generation,

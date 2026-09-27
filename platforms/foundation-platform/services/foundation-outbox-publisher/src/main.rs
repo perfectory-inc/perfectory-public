@@ -192,7 +192,9 @@ mod shapefile_polygon_reader;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;
+mod static_release_readdress;
 mod static_release_toolchain;
+mod static_release_url;
 mod tile_derivative_object_storage;
 mod trino_ready_wait;
 mod unit_official_price_projection_load;
@@ -284,6 +286,7 @@ enum Command {
     ProveIndustrialComplexBoundaryStaticReleaseMutationGuards,
     PublishParcelBoundaryPostgis,
     PublishParcelBoundaryStaticRelease,
+    ReaddressStaticRelease,
     LoadBuildingCatalogProjection,
     LoadBuildingUnitBuildingLink,
     LoadBuildingUnitCatalogProjection,
@@ -572,6 +575,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             industrial_complex_boundary_static_release_publish::run_local_mutation_guard_proof(),
         ),
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
+        Command::ReaddressStaticRelease => Box::pin(static_release_readdress::run()),
         Command::PublishParcelBoundaryStaticRelease => {
             Box::pin(parcel_boundary_static_release_publish::run())
         }
@@ -1153,6 +1157,7 @@ where
         Some("prove-industrial-complex-boundary-static-release-mutation-guards") => {
             Ok(Command::ProveIndustrialComplexBoundaryStaticReleaseMutationGuards)
         }
+        Some("readdress-static-release") => Ok(Command::ReaddressStaticRelease),
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
         Some("publish-parcel-boundary-static-release") => {
             Ok(Command::PublishParcelBoundaryStaticRelease)
