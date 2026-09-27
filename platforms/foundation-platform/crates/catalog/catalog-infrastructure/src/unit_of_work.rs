@@ -774,7 +774,7 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
     ) -> Result<(), CatalogError> {
         let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
         let row = sqlx::query(
-            "SELECT build.kind, build.status, build.frozen_source_snapshot_id, unit.unit_key,
+            "SELECT build.status, build.frozen_source_snapshot_id, unit.unit_key,
                     build.result_release_id, build.result_pmtiles_file_asset_id,
                     build.result_pmtiles_object_key, build.result_tiles_url_template,
                     build.result_pmtiles_sha256, build.result_pmtiles_bytes,
@@ -803,18 +803,13 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
                 .as_str(),
         )
         .map_err(invalid_runtime)?;
-        let readdress_replay = row.try_get::<String, _>("kind").map_err(map_sqlx)? == "readdress"
-            && status == VectorTileBuildStatus::Promoted
-            && matches!(&command.outcome, VectorTileBuildOutcome::Validated { .. });
-        if !readdress_replay {
-            validate_build_result_report(status, &command.outcome).map_err(invalid_runtime)?;
-        }
+        validate_build_result_report(status, &command.outcome).map_err(invalid_runtime)?;
 
         match &command.outcome {
             VectorTileBuildOutcome::Validated { evidence, artifact } => {
                 let unit_key: String = row.try_get("unit_key").map_err(map_sqlx)?;
                 validate_build_artifact_identity(&unit_key, command.build_job_id, artifact)?;
-                if status == VectorTileBuildStatus::Validated || readdress_replay {
+                if status == VectorTileBuildStatus::Validated {
                     ensure_recorded_artifact_matches(
                         &row,
                         evidence,

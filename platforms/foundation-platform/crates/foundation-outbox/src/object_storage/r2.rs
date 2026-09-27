@@ -1116,17 +1116,17 @@ fn legacy_date_partitioned_bronze_tail(key: &str) -> Option<(&str, &str)> {
 fn validate_relative_r2_object_key(key: &str, field: &str) -> Result<(), PublishError> {
     if key.trim().is_empty() {
         return Err(PublishError::Infrastructure(format!(
-            "R2 Bronze migration {field} must not be empty"
+            "R2 {field} must not be empty"
         )));
     }
     if key.trim() != key {
         return Err(PublishError::Infrastructure(format!(
-            "R2 Bronze migration {field} must not contain leading or trailing whitespace"
+            "R2 {field} must not contain leading or trailing whitespace"
         )));
     }
     if key.starts_with('/') || key.contains('\\') || key.contains("..") {
         return Err(PublishError::Infrastructure(format!(
-            "R2 Bronze migration {field} must be a clean provider-relative key"
+            "R2 {field} must be a clean provider-relative key"
         )));
     }
     if key
@@ -1134,7 +1134,7 @@ fn validate_relative_r2_object_key(key: &str, field: &str) -> Result<(), Publish
         .any(|segment| segment.is_empty() || segment == "." || segment == "..")
     {
         return Err(PublishError::Infrastructure(format!(
-            "R2 Bronze migration {field} must not contain empty, '.', or '..' path segments"
+            "R2 {field} must not contain empty, '.', or '..' path segments"
         )));
     }
     Ok(())

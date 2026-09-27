@@ -9,13 +9,15 @@ use aws_sdk_s3::{
 use crate::{
     errors::PublishError,
     object_storage::{
-        copy::{copy_plan, verify_copy_readback, CopyPlan},
-        CreateOnlyCopyObjectRequest, ObjectStorageStreamingService, ObjectWriteMode,
-        StreamingObjectRehash,
+        copy::{copy_plan, CopyPlan},
+        CreateOnlyCopyObjectRequest, ObjectWriteMode,
     },
 };
 
-use super::{is_r2_not_found, map_r2_put_error, validate_r2_smoke_object_key, R2ObjectStorage};
+use super::{
+    is_create_only_already_exists_response, is_r2_not_found, map_r2_put_error,
+    validate_relative_r2_object_key, R2ObjectStorage,
+};
 
 impl R2ObjectStorage {
     pub(super) async fn copy_immutable_object(
@@ -23,8 +25,8 @@ impl R2ObjectStorage {
         request: CreateOnlyCopyObjectRequest,
     ) -> Result<(), PublishError> {
         let plan = copy_plan(&request)?;
-        validate_r2_smoke_object_key(&request.source_key)?;
-        validate_r2_smoke_object_key(&request.destination_key)?;
+        validate_relative_r2_object_key(&request.source_key, "copy source_key")?;
+        validate_relative_r2_object_key(&request.destination_key, "copy destination_key")?;
         self.require_copy_destination_absent(&request.destination_key)
             .await?;
         let source = self
@@ -128,7 +130,9 @@ impl R2ObjectStorage {
                         .and_then(|service| service.message()),
                 ) =>
             {
-                let expected = self.copy_fallback_source_evidence(request, source).await?;
+                // The source remains pinned by If-Match. The caller owns the single full-byte
+                // destination rehash against ledger evidence, including on fallback.
+                warn_copy_fallback();
                 self.require_copy_destination_absent(&request.destination_key)
                     .await?;
                 builder
@@ -141,18 +145,49 @@ impl R2ObjectStorage {
                             &request.destination_key,
                             &error,
                             "copy after conditional header rejection",
-                            ObjectWriteMode::CreateOnly,
+                            ObjectWriteMode::OverwriteAllowed,
                         )
                     })?;
-                verify_copy_readback(self, &request.destination_key, &expected).await?;
                 Ok(())
             }
-            Err(error) => Err(map_r2_put_error(
-                &request.destination_key,
-                &error,
-                "copy",
-                ObjectWriteMode::CreateOnly,
-            )),
+            Err(error) => {
+                // CopyObject has TWO preconditions. A 412 alone cannot identify a destination
+                // collision. Reconcile only if the pinned source is unchanged and HEAD actually
+                // observes the destination; ambiguous/source failures must remain hard errors.
+                if is_create_only_already_exists_response(
+                    ObjectWriteMode::CreateOnly,
+                    error
+                        .raw_response()
+                        .map(|response| response.status().as_u16()),
+                    error.as_service_error().and_then(|service| service.code()),
+                ) {
+                    let current_source = self
+                        .client
+                        .head_object()
+                        .bucket(&self.bucket_name)
+                        .key(&request.source_key)
+                        .send()
+                        .await
+                        .map_err(|error| {
+                            map_r2_put_error(
+                                &request.source_key,
+                                &error,
+                                "head copy source after precondition failure",
+                                ObjectWriteMode::OverwriteAllowed,
+                            )
+                        })?;
+                    if current_source.e_tag() == source.e_tag() {
+                        self.require_copy_destination_absent(&request.destination_key)
+                            .await?;
+                    }
+                }
+                Err(map_r2_put_error(
+                    &request.destination_key,
+                    &error,
+                    "copy with pinned source",
+                    ObjectWriteMode::OverwriteAllowed,
+                ))
+            }
         }
     }
 
@@ -281,7 +316,8 @@ impl R2ObjectStorage {
                         .and_then(|service| service.message()),
                 ) =>
             {
-                let expected = self.copy_fallback_source_evidence(request, source).await?;
+                // Parts were pinned to the source ETag. Only the caller rehashes the destination.
+                warn_copy_fallback();
                 self.require_copy_destination_absent(&request.destination_key)
                     .await?;
                 builder
@@ -297,7 +333,6 @@ impl R2ObjectStorage {
                             ObjectWriteMode::CreateOnly,
                         )
                     })?;
-                verify_copy_readback(self, &request.destination_key, &expected).await?;
                 Ok(())
             }
             Err(error) => Err(map_r2_put_error(
@@ -308,31 +343,12 @@ impl R2ObjectStorage {
             )),
         }
     }
+}
 
-    /// Explicit unsupported-header fallback only. HEAD+copy cannot exclude concurrent external
-    /// writers: the caller must serialize ownership of this immutable destination. It is never
-    /// selected for authentication, conflict, transport, or general provider failures.
-    async fn copy_fallback_source_evidence(
-        &self,
-        request: &CreateOnlyCopyObjectRequest,
-        source: &HeadObjectOutput,
-    ) -> Result<StreamingObjectRehash, PublishError> {
-        let evidence = self
-            .read_object_sha256_and_size_by_rehash(&request.source_key)
-            .await?
-            .ok_or_else(|| {
-                PublishError::Infrastructure("R2 copy source vanished before fallback".to_owned())
-            })?;
-        if evidence.size_bytes != request.size_bytes
-            || evidence.observed_e_tag.as_deref() != source.e_tag()
-        {
-            return Err(PublishError::Infrastructure(
-                "R2 copy source changed before fallback".to_owned(),
-            ));
-        }
-        tracing::warn!("R2 rejected copy destination precondition; using serialized HEAD-absent copy with full rehash");
-        Ok(evidence)
-    }
+/// HEAD+copy needs exclusive destination ownership. Only an explicit unsupported-header
+/// response selects this fallback, and the caller must rehash against its source ledger.
+fn warn_copy_fallback() {
+    tracing::warn!("R2 rejected copy destination precondition; using serialized HEAD-absent copy with caller rehash");
 }
 
 fn copy_fallback_config() -> aws_sdk_s3::config::Builder {

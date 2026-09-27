@@ -50,7 +50,7 @@ use tokio::{io::AsyncReadExt as _, time};
 use uuid::Uuid;
 
 use crate::static_release_toolchain::VerifiedToolchain;
-use crate::static_release_url::{base_url, guard_static_promotion_url, public_tiles_base_url};
+use crate::static_release_url::{base_url, public_tiles_base_url};
 use crate::tile_derivative_object_storage::TileDerivativeR2Config;
 
 /// The per-unit facts a static-release publication needs. Everything else in this module is shared.
@@ -285,13 +285,6 @@ pub(crate) async fn run(spec: &UnitStaticReleaseSpec) -> anyhow::Result<()> {
         })
         .await?;
 
-    guard_static_promotion_url(
-        "static_pmtiles",
-        &format!(
-            "{}/{source_id}/{{z}}/{{x}}/{{y}}",
-            config.public_tiles_base_url
-        ),
-    )?;
     let manifest = PromoteTileLayerStatic::new(uow)
         .execute(PromoteTileLayerStaticCommand {
             unit_key: config.unit_key.clone(),

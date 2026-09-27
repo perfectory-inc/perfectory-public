@@ -129,7 +129,8 @@ async fn readdress_preserves_data_bytes_and_fallback_and_retries_write_nothing()
 
         let counts = ledger_counts(&pool).await?;
         assert_eq!(lifecycle.start_readdress(command).await?, build_job_id);
-        lifecycle.record_result(result.clone()).await?;
+        assert!(lifecycle.record_result(result.clone()).await.is_err(),
+            "promoted builds replay promotion, never result recording");
         for report in [
             RecordVectorTileBuildResultCommand {
                 operator_staff_id: StaffId::new(Uuid::new_v4()),
@@ -142,7 +143,7 @@ async fn readdress_preserves_data_bytes_and_fallback_and_retries_write_nothing()
         ] {
             assert!(
                 lifecycle.record_result(report).await.is_err(),
-                "a promoted result may only be replayed exactly"
+                "a promoted result cannot be recorded again"
             );
         }
         let replay = publisher.execute(promote).await?;
@@ -383,18 +384,14 @@ async fn the_schema_preserves_bake_uniqueness_and_allows_multiple_readdress_dest
             .expect_err("a second ordinary static release of this revision remains forbidden");
         assert_database_error(&error, "23505", Some("vector_tile_release_unit_revision_snapshot_kind_key"));
 
-        let first = clone_release(&pool, input, Some(input), DESTINATION, json!({})).await?;
+        clone_release(&pool, input, Some(input), DESTINATION, json!({})).await?;
         clone_release(&pool, input, Some(input), "https://second.example.test/tiles", json!({})).await?;
+        // A new release identity may reuse a public base. The command key, not the URL
+        // containing that new identity, defines retry idempotency (ADR-0111 §11).
+        clone_release(&pool, input, Some(input), DESTINATION, json!({})).await?;
         let descendants: i64 = sqlx::query_scalar("SELECT count(*) FROM catalog.vector_tile_release WHERE readdressed_from_release_id = $1")
             .bind(input.as_uuid()).fetch_one(&pool).await?;
-        assert_eq!(descendants, 2, "a source-only unique key would forbid the second destination");
-
-        let first_row = release_json(&pool, first).await?;
-        let error = clone_release(&pool, input, Some(input), DESTINATION, json!({
-            "martin_source_id": first_row["martin_source_id"],
-            "tiles_url_template": first_row["tiles_url_template"],
-        })).await.expect_err("the exact source/destination pair must remain unique");
-        assert_database_error(&error, "23505", Some("vector_tile_release_readdress_destination_key"));
+        assert_eq!(descendants, 3, "new release identities may reuse the same public base");
         assert_eq!(active_pointer(&pool).await?, original.current_version.as_uuid());
         Ok(())
     }).await
@@ -752,4 +749,18 @@ fn assert_database_error(error: &sqlx::Error, code: &str, constraint: Option<&st
     if let Some(constraint) = constraint {
         assert_eq!(database.constraint(), Some(constraint), "got {error:?}");
     }
+}
+#[test]
+fn readdress_recording_uses_the_standard_status_gate() {
+    let source = include_str!("../../src/unit_of_work.rs");
+    assert!(!source.contains("readdress_replay"));
+    assert!(source.contains("validate_build_result_report(status, &command.outcome)"));
+}
+
+#[test]
+fn readdress_schema_does_not_claim_uuid_templates_deduplicate_public_bases() {
+    let migration =
+        include_str!("../../../../../migrations/20260927144826_static_release_readdress.sql");
+    assert!(!migration.contains("UNIQUE (readdressed_from_release_id, tiles_url_template)"));
+    assert!(migration.contains("WHERE readdressed_from_release_id IS NULL"));
 }

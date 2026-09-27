@@ -1,6 +1,7 @@
 -- ADR-0111 §11: 주소 변경도 새 발행이다. 기존 release와 bake 유일성은 보존하고,
 -- 검증된 정적 원본을 가리키는 readdress만 같은 revision/snapshot을 다시 발행한다.
--- 원본 하나의 재주소 발행 횟수를 제한하지 않는다. 같은 원본/목적지 쌍만 중복 금지다.
+-- 재시도는 catalog_mutation_idempotency의 명령 키로 식별한다(ADR-0111 §11).
+-- 새 명령 키는 같은 원본/공개 base에도 새 release를 허용한다.
 ALTER TABLE catalog.vector_tile_release
     ADD COLUMN readdressed_from_release_id uuid,
     ADD CONSTRAINT vector_tile_release_readdress_static_check CHECK (
@@ -10,8 +11,6 @@ ALTER TABLE catalog.vector_tile_release
     ADD CONSTRAINT vector_tile_release_readdress_binding_fkey
         FOREIGN KEY (readdressed_from_release_id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id)
         REFERENCES catalog.vector_tile_release (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id),
-    ADD CONSTRAINT vector_tile_release_readdress_destination_key
-        UNIQUE (readdressed_from_release_id, tiles_url_template),
     DROP CONSTRAINT vector_tile_release_unit_revision_snapshot_kind_key;
 
 CREATE UNIQUE INDEX vector_tile_release_unit_revision_snapshot_kind_key

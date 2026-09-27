@@ -179,14 +179,12 @@ impl ObjectStorageStreamingService for FileObjectStorage {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(copy_file_error)?;
-        let mut destination = tokio::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&destination_path)
-            .await
-            .map_err(|error| {
-                map_file_create_only_error(&request.destination_key, &destination_path, &error)
-            })?;
+        // Keep partial bytes private until the source checks succeed. The temp path's drop
+        // removes failed/cancelled attempts; persist_noclobber never replaces another writer.
+        // Use the same directory so publication cannot cross filesystems.
+        let temporary = tempfile::NamedTempFile::new_in(parent).map_err(copy_file_error)?;
+        let (file, temporary_path) = temporary.into_parts();
+        let mut destination = tokio::fs::File::from_std(file);
         let written = match plan {
             CopyPlan::Single => io::copy(&mut source, &mut destination)
                 .await
@@ -222,6 +220,17 @@ impl ObjectStorageStreamingService for FileObjectStorage {
                 "copy source changed during local copy".to_owned(),
             ));
         }
+        // Close before publishing, including on Windows. flush above waits for Tokio writes.
+        drop(destination);
+        temporary_path
+            .persist_noclobber(&destination_path)
+            .map_err(|error| {
+                map_file_create_only_error(
+                    &request.destination_key,
+                    &destination_path,
+                    &error.error,
+                )
+            })?;
         Ok(())
     }
 

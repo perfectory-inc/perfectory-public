@@ -701,6 +701,7 @@ impl Fixture {
         let mut command = Command::new(BINARY);
         command
             .arg("promote-administrative-boundary-runtime")
+            .env("FOUNDATION_PLATFORM_RUNTIME_ENV", "ci")
             .env("DATABASE_URL", self.database.url())
             .env(
                 "FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_CONFIRM",

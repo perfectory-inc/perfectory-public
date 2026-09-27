@@ -7,6 +7,7 @@ use aws_sdk_s3::config::{retry::RetryConfig, BehaviorVersion, Region};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use super::*;
+use crate::object_storage::{ObjectStorageStreamingService, StreamingObjectRehash};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -53,6 +54,14 @@ fn copy_success() -> &'static str {
 async fn run_mock(
     request: CreateOnlyCopyObjectRequest,
     exchanges: Vec<Exchange>,
+) -> TestResult<Result<(), PublishError>> {
+    run_mock_with_readback(request, exchanges, false).await
+}
+
+async fn run_mock_with_readback(
+    request: CreateOnlyCopyObjectRequest,
+    exchanges: Vec<Exchange>,
+    verify: bool,
 ) -> TestResult<Result<(), PublishError>> {
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
     let endpoint = format!("http://{}", listener.local_addr()?);
@@ -126,10 +135,25 @@ async fn run_mock(
         client: aws_sdk_s3::Client::from_conf(config),
         bucket_name: "bucket".to_owned(),
     };
-    let result = tokio::time::timeout(
-        Duration::from_secs(15),
-        storage.copy_object_create_only(request),
-    )
+    let result = tokio::time::timeout(Duration::from_secs(15), async {
+        if verify {
+            crate::object_storage::create_only_copy_and_rehash(
+                &storage,
+                &storage,
+                request,
+                &StreamingObjectRehash {
+                    checksum_sha256: crate::object_storage::sha256_hex(b"abcdef"),
+                    size_bytes: 6,
+                    observed_e_tag: None,
+                    observed_last_modified: None,
+                },
+            )
+            .await
+            .map(|_| ())
+        } else {
+            storage.copy_object_create_only(request).await
+        }
+    })
     .await?;
     tokio::time::timeout(Duration::from_secs(15), server).await???;
     Ok(result)
@@ -228,24 +252,43 @@ fn rehash(path: &str, tag: &str, body: &str) -> Vec<Exchange> {
 }
 
 #[tokio::test]
-async fn explicit_header_rejection_requires_absence_and_full_rehash() -> TestResult {
-    for destination_bytes in ["abcdef", "ghijkl"] {
-        let mut exchanges = vec![
+async fn fallback_performs_one_caller_readback_and_detects_corruption() -> TestResult {
+    for multipart in [false, true] {
+        for destination_bytes in ["abcdef", "ghijkl"] {
+            let mut exchanges = if multipart {
+                let mut exchanges = multipart_start(6);
+                exchanges.push(exchange(
+                    "PUT",
+                    "destination.bin?",
+                    200,
+                    "<CopyPartResult><ETag>\"part\"</ETag></CopyPartResult>",
+                ));
+                exchanges.push(exchange("POST", "destination.bin?", 501, "<Error><Code>NotImplemented</Code><Message>If-None-Match header is not supported</Message></Error>"));
+                exchanges
+            } else {
+                vec![
             exchange("HEAD", "destination.bin", 404, ""),
             head("source.bin", 6, "source"),
             exchange("PUT", "destination.bin", 501, "<Error><Code>NotImplemented</Code><Message>If-None-Match header is not supported</Message></Error>"),
-        ];
-        exchanges.extend(rehash("source.bin", "source", "abcdef"));
-        exchanges.push(exchange("HEAD", "destination.bin", 404, ""));
-        let mut fallback = exchange("PUT", "destination.bin", 200, copy_success());
-        fallback.excludes = vec![
-            "\r\nif-none-match:".to_owned(),
-            "\r\ncf-copy-destination-if-none-match:".to_owned(),
-        ];
-        exchanges.push(fallback);
-        exchanges.extend(rehash("destination.bin", "destination", destination_bytes));
-        let result = run_mock(request(6, 6), exchanges).await?;
-        assert_eq!(result.is_ok(), destination_bytes == "abcdef");
+        ]
+            };
+            exchanges.push(exchange("HEAD", "destination.bin", 404, ""));
+            let mut fallback = if multipart {
+                exchange("POST", "destination.bin?", 200, "<CompleteMultipartUploadResult><ETag>\"destination\"</ETag></CompleteMultipartUploadResult>")
+            } else {
+                exchange("PUT", "destination.bin", 200, copy_success())
+            };
+            fallback.excludes = vec![
+                "\r\nif-none-match:".to_owned(),
+                "\r\ncf-copy-destination-if-none-match:".to_owned(),
+            ];
+            exchanges.push(fallback);
+            exchanges.extend(rehash("destination.bin", "destination", destination_bytes));
+            let result =
+                run_mock_with_readback(request(if multipart { 2 } else { 6 }, 6), exchanges, true)
+                    .await?;
+            assert_eq!(result.is_ok(), destination_bytes == "abcdef");
+        }
     }
     Ok(())
 }
@@ -257,11 +300,117 @@ async fn fallback_refuses_destination_that_appeared_after_rejection() -> TestRes
         head("source.bin", 6, "source"),
         exchange("PUT", "destination.bin", 501, "<Error><Code>NotImplemented</Code><Message>If-None-Match header is not supported</Message></Error>"),
     ];
-    exchanges.extend(rehash("source.bin", "source", "abcdef"));
     exchanges.push(head("destination.bin", 6, "destination"));
     assert!(matches!(
         run_mock(request(6, 6), exchanges).await?,
         Err(PublishError::ObjectAlreadyExists { .. })
     ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn source_precondition_failure_is_not_a_destination_collision() -> TestResult {
+    let error = run_mock(
+        request(6, 6),
+        vec![
+            exchange("HEAD", "destination.bin", 404, ""),
+            head("source.bin", 6, "source"),
+            exchange(
+                "PUT",
+                "destination.bin",
+                412,
+                "<Error><Code>PreconditionFailed</Code></Error>",
+            ),
+            head("source.bin", 6, "changed-source"),
+        ],
+    )
+    .await?;
+    assert!(error.is_err());
+    assert!(!matches!(
+        error,
+        Err(PublishError::ObjectAlreadyExists { .. })
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn ambiguous_copy_precondition_is_not_assumed_to_mean_destination_exists() -> TestResult {
+    // End the server after the 412: failure to inspect the source/destination must fail closed,
+    // rather than turning an unclassified source If-Match failure into a successful retry.
+    let error = run_mock(
+        request(6, 6),
+        vec![
+            exchange("HEAD", "destination.bin", 404, ""),
+            head("source.bin", 6, "source"),
+            exchange(
+                "PUT",
+                "destination.bin",
+                412,
+                "<Error><Code>PreconditionFailed</Code></Error>",
+            ),
+        ],
+    )
+    .await?;
+    assert!(error.is_err());
+    assert!(!matches!(
+        error,
+        Err(PublishError::ObjectAlreadyExists { .. })
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn destination_precondition_failure_requires_an_observed_collision() -> TestResult {
+    let error = run_mock(
+        request(6, 6),
+        vec![
+            exchange("HEAD", "destination.bin", 404, ""),
+            head("source.bin", 6, "source"),
+            exchange(
+                "PUT",
+                "destination.bin",
+                412,
+                "<Error><Code>PreconditionFailed</Code></Error>",
+            ),
+            head("source.bin", 6, "source"),
+            head("destination.bin", 6, "destination"),
+        ],
+    )
+    .await?;
+    assert!(matches!(
+        error,
+        Err(PublishError::ObjectAlreadyExists { .. })
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn production_copy_rejects_non_relative_segments_before_io() -> TestResult {
+    for key in [
+        "tiles//archive",
+        "tiles/./archive",
+        "tiles/",
+        "../archive",
+        "/archive",
+    ] {
+        for source in [true, false] {
+            let mut copy = request(6, 6);
+            let field = if source {
+                copy.source_key = key.to_owned();
+                "copy source_key"
+            } else {
+                copy.destination_key = key.to_owned();
+                "copy destination_key"
+            };
+            let Err(error) = run_mock(copy, vec![]).await? else {
+                return Err("invalid key must fail before I/O".into());
+            };
+            assert!(
+                error.to_string().contains(&format!("R2 {field}")),
+                "{error}"
+            );
+            assert!(!error.to_string().contains("smoke"));
+        }
+    }
     Ok(())
 }

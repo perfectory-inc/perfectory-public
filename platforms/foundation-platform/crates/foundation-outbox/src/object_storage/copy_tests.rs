@@ -154,3 +154,51 @@ async fn adapters_without_copy_support_fail_closed() {
     let error = storage.copy_object_create_only(request(6)).await;
     assert!(matches!(error, Err(PublishError::Infrastructure(_))));
 }
+
+#[tokio::test]
+async fn failed_local_copy_leaves_no_partial_destination_and_retry_succeeds() -> TestResult {
+    let root = std::env::temp_dir().join(format!("failed-copy-{}", uuid::Uuid::new_v4()));
+    let storage = FileObjectStorage::new(&root)?;
+    source(&storage).await?;
+    let mut copy = request(SINGLE_COPY_MAX_BYTES);
+    copy.size_bytes = 64 * 1024 * 1024;
+    let source_file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(root.join(&copy.source_key))?;
+    source_file.set_len(copy.size_bytes)?;
+    let mut copying = storage.copy_object_create_only(copy.clone());
+    let mut interrupted = false;
+    let mut interruption = Ok(());
+    let result = std::future::poll_fn(|cx| {
+        let result = copying.as_mut().poll(cx);
+        // Intervene after creation, while a real filesystem copy is in flight. This observes
+        // either the old final path or the new temporary file, without depending on its name.
+        if !interrupted
+            && matches!(result, std::task::Poll::Pending)
+            && std::fs::read_dir(root.join("destination"))
+                .is_ok_and(|mut files| files.next().is_some())
+        {
+            interruption = source_file.set_len(0);
+            interrupted = true;
+        }
+        result
+    })
+    .await;
+    drop(copying);
+    interruption?;
+    assert!(
+        interrupted,
+        "copy must be interrupted after creating its output"
+    );
+    assert!(result.is_err());
+    assert!(
+        !root.join(&copy.destination_key).exists(),
+        "failed copy published partial bytes"
+    );
+    assert_eq!(std::fs::read_dir(root.join("destination"))?.count(), 0);
+    drop(source_file);
+    std::fs::write(root.join(&copy.source_key), b"abcdef")?;
+    create_only_copy_and_rehash(&storage, &storage, request(6), &expected()).await?;
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}

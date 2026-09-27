@@ -58,12 +58,23 @@ fn refuses_invalid_confirmation_public_url_tile_and_control_deadline() {
 }
 
 #[test]
-fn promoted_retry_skips_result_recording_and_other_terminal_builds_refuse() {
+fn validated_and_promoted_retries_skip_copy_proof_and_recording() {
     assert!(should_record("running").unwrap());
-    assert!(should_record("validated").unwrap());
+    assert!(!should_record("validated").unwrap());
     assert!(!should_record("promoted").unwrap());
     for status in ["failed", "superseded", "cancelled", "queued", ""] {
         assert!(should_record(status).is_err(), "{status}");
+    }
+}
+
+#[test]
+fn public_base_validation_is_the_only_policy_gate_for_publishers() {
+    for source in [
+        include_str!("static_release_readdress.rs"),
+        include_str!("boundary_static_release_publish.rs"),
+    ] {
+        assert!(source.contains("public_tiles_base_url(&"));
+        assert!(!source.contains("guard_static_promotion_url"));
     }
 }
 

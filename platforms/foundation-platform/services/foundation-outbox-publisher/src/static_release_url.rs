@@ -1,5 +1,5 @@
 //! Shared address policy for immutable static tile publication and production promotion.
-use crate::runtime_environment::{RuntimeEnvironment, RUNTIME_ENVIRONMENT_ENV};
+use crate::runtime_environment::RuntimeEnvironment;
 use anyhow::{ensure, Context as _};
 
 /// The base of the tile URL written into the release. That URL is immutable once published and
@@ -76,25 +76,25 @@ pub(crate) fn guard_static_promotion_url(source_kind: &str, template: &str) -> a
     if source_kind != "static_pmtiles" {
         return Ok(());
     }
-    let environment = match std::env::var(RUNTIME_ENVIRONMENT_ENV) {
-        Ok(raw) => Some(RuntimeEnvironment::parse(&raw)?),
-        Err(std::env::VarError::NotPresent) => None,
-        Err(error) => return Err(error.into()),
-    };
+    let environment = RuntimeEnvironment::from_env()?;
     validate_static_promotion_url(environment, source_kind, template)
 }
 
 fn validate_static_promotion_url(
-    environment: Option<RuntimeEnvironment>,
+    environment: RuntimeEnvironment,
     source_kind: &str,
     template: &str,
 ) -> anyhow::Result<()> {
-    if environment == Some(RuntimeEnvironment::Production) && source_kind == "static_pmtiles" {
+    if !matches!(
+        environment,
+        RuntimeEnvironment::Local | RuntimeEnvironment::Ci
+    ) && source_kind == "static_pmtiles"
+    {
         let address = template
             .strip_suffix("/{z}/{x}/{y}")
             .context("static tile template must end with /{z}/{x}/{y}")?;
         public_tiles_base_url(address)
-            .context("production static promotion requires a public tile address")?;
+            .context("staging/production static promotion requires a public tile address")?;
     }
     Ok(())
 }
@@ -102,6 +102,44 @@ fn validate_static_promotion_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_environment::RUNTIME_ENVIRONMENT_ENV;
+    #[test]
+    fn static_guard_requires_explicit_environment_and_public_staging_address() {
+        const CHILD: &str = "STATIC_URL_GUARD_TEST_CHILD";
+        if let Ok(environment) = std::env::var(CHILD) {
+            let result = guard_static_promotion_url(
+                "static_pmtiles",
+                "http://127.0.0.1:3111/parcels-test/{z}/{x}/{y}",
+            );
+            assert_eq!(
+                result.is_ok(),
+                matches!(environment.as_str(), "local" | "ci")
+            );
+            if environment == "missing" {
+                assert!(result
+                    .unwrap_err()
+                    .to_string()
+                    .contains(RUNTIME_ENVIRONMENT_ENV));
+            }
+            return;
+        }
+        for environment in ["missing", "staging", "production", "local", "ci", "invalid"] {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", "static_release_url::tests::static_guard_requires_explicit_environment_and_public_staging_address", "--nocapture"])
+                .env(CHILD, environment)
+                .env_remove(RUNTIME_ENVIRONMENT_ENV);
+            if environment != "missing" {
+                command.env(RUNTIME_ENVIRONMENT_ENV, environment);
+            }
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{environment}: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
     #[test]
     fn public_tile_address_refuses_what_a_browser_cannot_reach() {
         for refused in [
@@ -159,26 +197,22 @@ mod tests {
     fn production_guard_refuses_static_loopback_but_keeps_local_proofs() {
         let template = "http://127.0.0.1:3111/parcels-test/{z}/{x}/{y}";
         assert!(validate_static_promotion_url(
-            Some(RuntimeEnvironment::Production),
+            RuntimeEnvironment::Production,
             "static_pmtiles",
             template
         )
         .is_err());
-        for environment in [
-            None,
-            Some(RuntimeEnvironment::Local),
-            Some(RuntimeEnvironment::Ci),
-        ] {
+        for environment in [RuntimeEnvironment::Local, RuntimeEnvironment::Ci] {
             assert!(validate_static_promotion_url(environment, "static_pmtiles", template).is_ok());
         }
         assert!(validate_static_promotion_url(
-            Some(RuntimeEnvironment::Production),
+            RuntimeEnvironment::Production,
             "dynamic_postgis",
             template
         )
         .is_ok());
         assert!(validate_static_promotion_url(
-            Some(RuntimeEnvironment::Production),
+            RuntimeEnvironment::Production,
             "static_pmtiles",
             "https://tiles.example.com/parcels-test/{z}/{x}/{y}"
         )

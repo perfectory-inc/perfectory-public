@@ -27,7 +27,7 @@ use sqlx::{pool::PoolConnection, PgPool, Postgres, Row as _};
 use uuid::Uuid;
 
 use crate::{
-    static_release_url::{base_url, guard_static_promotion_url, public_tiles_base_url},
+    static_release_url::{base_url, public_tiles_base_url},
     tile_derivative_object_storage::TileDerivativeR2Config,
 };
 
@@ -170,7 +170,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         let release_id = static_release_id_for_build(build_id);
         let source_id = static_release_martin_source_id(&config.unit_key, release_id);
         let template = format!("{}/{source_id}/{{z}}/{{x}}/{{y}}", config.public_base);
-        guard_static_promotion_url("static_pmtiles", &template)?;
 
         if should_record(&input.status)? {
             let destination_key = storage.release_key(&config.unit_key, &release_id.to_string())?;
@@ -320,8 +319,10 @@ async fn release_build_lease(
 
 fn should_record(status: &str) -> anyhow::Result<bool> {
     match status {
-        "running" | "validated" => Ok(true),
-        "promoted" => Ok(false),
+        "running" => Ok(true),
+        // Promotion consumes the recorded artifact. Repeating proof after validation could
+        // produce different evidence and must never prevent a promotion retry.
+        "validated" | "promoted" => Ok(false),
         _ => anyhow::bail!("readdress build status {status} is terminal and cannot be resumed"),
     }
 }

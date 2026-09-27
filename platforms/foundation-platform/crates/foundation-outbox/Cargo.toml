@@ -22,6 +22,7 @@ rdkafka = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "macros"] }
 thiserror = { workspace = true }
+tempfile = "3"
 tokio = { workspace = true, features = ["fs", "io-util", "sync", "time", "macros"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
