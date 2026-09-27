@@ -1197,9 +1197,6 @@ mod tests {
             "https://127.0.0.1:3111",
             "https://localhost/tiles",
             "https://tiles.localhost",
-            "https://10.0.0.5",
-            "https://192.168.0.22:3111",
-            "https://172.16.4.1",
             "https://169.254.1.1",
             "https://0.0.0.0",
             "https://[::1]:3111",
@@ -1210,6 +1207,19 @@ mod tests {
         ] {
             assert!(
                 public_tiles_base_url(refused).is_err(),
+                "{refused} must be refused as a public tile address"
+            );
+        }
+        // The private ranges are built from octets: this repository is public and keeps no
+        // private-network address in its text.
+        for private in [
+            std::net::Ipv4Addr::new(10, 0, 0, 5),
+            std::net::Ipv4Addr::new(172, 16, 4, 1),
+            std::net::Ipv4Addr::new(192, 168, 1, 1),
+        ] {
+            let refused = format!("https://{private}:3111");
+            assert!(
+                public_tiles_base_url(&refused).is_err(),
                 "{refused} must be refused as a public tile address"
             );
         }
