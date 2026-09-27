@@ -395,14 +395,14 @@ env \
 행정경계(`publish-administrative-boundary-static-release`)와 필지
 (`publish-parcel-boundary-static-release`)도 같은 명령 본체를 쓴다(ADR-0110). 다른 것은 변수
 접두어뿐이다: `FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_STATIC_RELEASE_*`,
-`FOUNDATION_PLATFORM_PARCEL_BOUNDARY_STATIC_RELEASE_*`. 세 단위 공통 규칙:
+`FOUNDATION_PLATFORM_PARCEL_BOUNDARY_STATIC_RELEASE_*`. 아래 `<접두어>` 는 이 셋 중 하나다. 세 단위 공통 규칙:
 
-- `..._PUBLIC_TILES_BASE_URL` 은 발행된 릴리스에 영구히 박히는 브라우저용 주소다. `https` 이고
+- `<접두어>_PUBLIC_TILES_BASE_URL` 은 발행된 릴리스에 영구히 박히는 브라우저용 주소다. `https` 이고
   외부에서 닿는 호스트여야 하며, loopback·사설 IP·점 없는 호스트는 명령이 거부한다(플랫폼
   ADR-0004). 첫 전국 굽기는 이 검사가 없어 `http://127.0.0.1:3111` 을 기록했다.
-- `..._TOOL_TIMEOUT_SECONDS` 는 외부 도구 1회 실행의 상한이다(1..=43200). Martin HTTP·포인터 잠금
+- `<접두어>_TOOL_TIMEOUT_SECONDS` 는 외부 도구 1회 실행의 상한이다(1..=43200). Martin HTTP·포인터 잠금
   대기·static Martin 적재 대기는 이 값과 600초 중 작은 값으로 따로 묶인다.
-- `..._MARTIN_CP_CONCURRENCY` 는 선택이다(기본 2, 1..=64). 필지 굽기(약 270만 타일)는 쓰기가
+- `<접두어>_MARTIN_CP_CONCURRENCY` 는 선택이다(기본 2, 1..=64). 필지 굽기(약 270만 타일)는 쓰기가
   병목이라 이 값을 올려도 빨라지지 않았다. 실측 martin-cp 약 2시간, 전체 약 2.5시간이므로 필지는
   `TOOL_TIMEOUT_SECONDS` 를 21600 이상으로 둔다.
 - 굽기 전에 dynamic TileJSON bounds 가 서빙 뷰 전체를 덮는지 검사한다. 뷰의 SRID 에서 범위 상자를
@@ -410,7 +410,7 @@ env \
   `auto_bounds: calc`(모서리 4점만 변환)가 북단을 놓치므로(실측 39.446° 대 39.483°) 명시적 bounds
   를 준 소스 정의로 굽는다. 그 bounds 는 조밀화 범위를 덮어야 한다: 2026-09-27 전국 필지 기준
   `[124.55, 33.05, 132.005, 39.484]` 이상. 이 검사는 전국 필지에서 약 11분 걸린다.
-- 작업 디렉터리(`..._WORK_ROOT/{build_job_id}-{uuid}`)는 성공·실패와 무관하게 끝나면 지운다.
+- 작업 디렉터리(`<접두어>_WORK_ROOT/{build_job_id}-{uuid}`)는 성공·실패와 무관하게 끝나면 지운다.
 - 굽는 동안 `catalog.vector_tile_runtime_manifest_pointer` 에 SHARE 잠금을 쥔다. 그 사이 다른
   단위의 승격·롤백은 잠금 대기 한도에서 실패하므로(조용히 넘어가지 않는다), 필지 굽기 중에는 다른
   단위의 포인터를 움직이지 않는다.
