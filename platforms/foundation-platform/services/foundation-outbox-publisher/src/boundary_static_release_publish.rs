@@ -86,8 +86,15 @@ struct Config {
     build_idempotency_key: String,
     promote_idempotency_key: String,
     tool_timeout: Duration,
+    /// The bound on every wait that is not an external tool run: one Martin HTTP request, the
+    /// pointer-lock wait, and static Martin loading the uploaded release. These answer in seconds
+    /// when healthy, so they must not inherit the multi-hour tool bound a parcel bake needs.
+    control_timeout: Duration,
     martin_cp_concurrency: u16,
 }
+
+/// Upper bound on [`Config::control_timeout`].
+const CONTROL_TIMEOUT_CAP: Duration = Duration::from_secs(600);
 
 impl Config {
     fn from_env(spec: &UnitStaticReleaseSpec) -> anyhow::Result<Self> {
@@ -109,25 +116,24 @@ impl Config {
         let timeout_seconds = required_env(&tool_timeout_env)?
             .parse::<u64>()
             .with_context(|| format!("{tool_timeout_env} must be an integer"))?;
-        // Upper bound raised from 3600 to 12h: the initial national parcel bake (39.86M rows,
-        // z14-16) is write-bound in martin-cp and cannot finish inside one hour however high the
-        // concurrency, so a single tool invocation legitimately needs longer. Still bounded so a
-        // typo cannot wedge a build forever.
+        // The bound on one external tool run (martin-cp, mbtiles, pmtiles). The national parcel
+        // bake (39.86M rows, z14-16, about 2.7M tiles) is write-bound in martin-cp and measured
+        // about two hours, so one hour is too short however high the concurrency; 12h still stops a
+        // typo from wedging a build forever. Waits that are not tool runs use `control_timeout`.
         ensure!(
             (1..=43_200).contains(&timeout_seconds),
             "{tool_timeout_env} must be in 1..=43200"
         );
         let operator = Uuid::parse_str(&required_env(&operator_env)?)
             .with_context(|| format!("{operator_env} must be a UUID"))?;
-        // martin-cp parallelism. Defaults to 2 (the value complex/admin bakes proved), but a
-        // national parcel bake (39.86M rows, z14-16) cannot finish one martin-cp run inside the
-        // 3600s tool timeout at 2, so it is raised per unit. Bounded so a typo cannot oversubscribe.
+        // martin-cp parallelism. Optional; 2 is what the complex and admin bakes proved. Raising it
+        // does not shorten the parcel bake, which is bound by tile writes, not by rendering.
         let concurrency_env = format!("{}_MARTIN_CP_CONCURRENCY", spec.env_prefix);
-        let martin_cp_concurrency = match std::env::var(&concurrency_env) {
-            Ok(value) => value
+        let martin_cp_concurrency = match optional_env(&concurrency_env)? {
+            Some(value) => value
                 .parse::<u16>()
                 .with_context(|| format!("{concurrency_env} must be an integer"))?,
-            Err(_) => 2,
+            None => 2,
         };
         ensure!(
             (1..=64).contains(&martin_cp_concurrency),
@@ -139,13 +145,15 @@ impl Config {
             serving_current_table: spec.serving_current_table.to_owned(),
             dynamic_martin_base_url: base_url(&required_env(&dynamic_martin_env)?)?,
             static_martin_base_url: base_url(&required_env(&static_martin_env)?)?,
-            public_tiles_base_url: base_url(&required_env(&public_tiles_env)?)?,
+            public_tiles_base_url: public_tiles_base_url(&required_env(&public_tiles_env)?)
+                .with_context(|| format!("{public_tiles_env} is not a public tile address"))?,
             martin_config_path: PathBuf::from(required_env(&martin_config_env)?),
             work_root: PathBuf::from(required_env(&work_root_env)?),
             operator_staff_id: StaffId::new(operator),
             build_idempotency_key: required_env(&build_key_env)?,
             promote_idempotency_key: required_env(&promote_key_env)?,
             tool_timeout: Duration::from_secs(timeout_seconds),
+            control_timeout: Duration::from_secs(timeout_seconds).min(CONTROL_TIMEOUT_CAP),
             martin_cp_concurrency,
         })
     }
@@ -169,6 +177,9 @@ struct ActiveDynamicRelease {
 struct BuildFiles {
     mbtiles: PathBuf,
     pmtiles: PathBuf,
+    /// The validated archive cut down to its lowest zoom, from which the representative tile is
+    /// chosen.
+    representative_zoom: PathBuf,
     unpacked: PathBuf,
 }
 
@@ -186,7 +197,7 @@ pub(crate) async fn run(spec: &UnitStaticReleaseSpec) -> anyhow::Result<()> {
         .await
         .context("failed to connect to DATABASE_URL for static tile publication")?;
     let http = Client::builder()
-        .timeout(config.tool_timeout)
+        .timeout(config.control_timeout)
         .build()
         .context("failed to build bounded Martin HTTP client")?;
 
@@ -196,7 +207,7 @@ pub(crate) async fn run(spec: &UnitStaticReleaseSpec) -> anyhow::Result<()> {
         &pool,
         &config.unit_key,
         active.release_id,
-        config.tool_timeout,
+        config.control_timeout,
     )
     .await?;
     let tilejson = read_dynamic_tilejson(&http, &config).await?;
@@ -219,10 +230,19 @@ pub(crate) async fn run(spec: &UnitStaticReleaseSpec) -> anyhow::Result<()> {
         .await?;
 
     let publication = publish_candidate(&http, &config, &toolchain, &tilejson, build_job_id).await;
-    projection_snapshot
-        .rollback()
-        .await
-        .context("failed to release the frozen dynamic projection")?;
+    // The freeze lives on one pooled connection held for the whole bake. If that connection was
+    // lost (a restart or a dropped idle link), the lock went with it and the projection may have
+    // moved under the build, so the candidate is no longer evidence of what it claims. That is a
+    // build failure and must be recorded as one — returning early here would leave the build job
+    // with no outcome at all.
+    // A build that already failed keeps its own reason; a lost freeze only matters for one that
+    // would otherwise be recorded as validated.
+    let publication = match (publication, projection_snapshot.rollback().await) {
+        (Ok(_), Err(lost)) => Err(anyhow::Error::new(lost).context(
+            "the frozen dynamic projection was lost before the build finished; its output is not evidence",
+        )),
+        (publication, _) => publication,
+    };
     let (release_id, file_asset_id, verified, evidence) = match publication {
         Ok(candidate) => candidate,
         Err(error) => {
@@ -396,9 +416,45 @@ async fn publish_candidate(
     let files = BuildFiles {
         mbtiles: run_dir.join(format!("{}.mbtiles", config.unit_key)),
         pmtiles: run_dir.join(format!("{source_id}.pmtiles")),
+        representative_zoom: run_dir.join("representative-zoom.mbtiles"),
         unpacked: run_dir.join("unpacked"),
     };
-    build_archives(config, toolchain, tilejson, &source_id, &files).await?;
+    let candidate = publish_candidate_files(
+        http,
+        config,
+        toolchain,
+        tilejson,
+        build_job_id,
+        release_id,
+        &source_id,
+        &files,
+    )
+    .await;
+    // Every attempt's archives are local copies: once the PMTiles bytes are in R2 and rehashed they
+    // are no longer needed, and a failed attempt's are never used again. A national parcel attempt
+    // leaves several GB, so keeping them would fill the host within a few retries.
+    if let Err(error) = tokio::fs::remove_dir_all(&run_dir).await {
+        tracing::warn!(
+            path = %run_dir.display(),
+            error = %error,
+            "failed to remove the static release work directory"
+        );
+    }
+    candidate.map(|(verified, evidence)| (release_id, file_asset_id, verified, evidence))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn publish_candidate_files(
+    http: &Client,
+    config: &Config,
+    toolchain: &VerifiedToolchain,
+    tilejson: &DynamicTileJson,
+    build_job_id: VectorTileBuildJobId,
+    release_id: VectorTileReleaseId,
+    source_id: &str,
+    files: &BuildFiles,
+) -> anyhow::Result<(StreamingObjectRehash, String)> {
+    build_archives(config, toolchain, tilejson, source_id, files).await?;
     let representative = representative_tile(&files.unpacked)?;
 
     let storage_config = TileDerivativeR2Config::from_env()?;
@@ -415,11 +471,11 @@ async fn publish_candidate(
         &representative,
     )
     .await?;
-    wait_for_static_source(http, config, &source_id).await?;
+    wait_for_static_source(http, config, source_id).await?;
     let static_bytes = fetch_tile(
         http,
         &config.static_martin_base_url,
-        &source_id,
+        source_id,
         &representative,
     )
     .await?;
@@ -443,7 +499,7 @@ async fn publish_candidate(
         "dynamic_and_static_mvt_sha256": format!("{:x}", Sha256::digest(&dynamic_bytes)),
     }))?;
     let evidence = format!("{:x}", Sha256::digest(evidence_json));
-    Ok((release_id, file_asset_id, verified, evidence))
+    Ok((verified, evidence))
 }
 
 async fn read_active_dynamic_release(
@@ -512,16 +568,38 @@ async fn validate_dynamic_build_conditions(
         minzoom <= maxzoom,
         "dynamic TileJSON zoom range is reversed"
     );
-    // The served view's extent must reproject to 4326 before it can be compared with the TileJSON
-    // bounds, which Martin always reports in WGS84. `ST_Transform(geom, 4326)` is the identity for a
-    // view already stored in 4326 (`complex`, `admin`) and the real reprojection for one stored in
-    // 5179 (`parcels`), so one query is correct for every unit.
+    // The served view's extent must be compared in WGS84, which is what Martin reports. The box is
+    // taken in the view's own SRID from the index-friendly bounding boxes (`ST_Extent(geom)`),
+    // never by reprojecting every row: that is 39.86M full-vertex transforms for `parcels`. Only a
+    // box's four corners are not enough either, because in a projected SRID (5179 for `parcels`)
+    // a straight box edge is a curve in longitude/latitude — the northern edge bulges north near
+    // the central meridian. So the edges are densified to 1024 points per side before the
+    // reprojection, and the envelope of that is the conservative WGS84 extent. For a view already
+    // in 4326 the reprojection is the identity. The result is conservative — it can reach past the
+    // outermost row where the box's corner holds no data — so bounds must be given with that margin.
+    //
+    // Martin's own `auto_bounds: calc` reprojects only the corners, so for `parcels` it reports
+    // bounds short of the northernmost rows and this check refuses them, correctly: `martin-cp
+    // --bbox` would drop those tiles. Such a unit bakes from a source definition with explicit
+    // bounds.
     let covers: Option<bool> = sqlx::query_scalar(&format!(
         "SELECT ST_Covers(
              ST_Expand(ST_MakeEnvelope($1, $2, $3, $4, 4326), 1e-9),
-             ST_SetSRID(ST_Extent(ST_Transform(geom, 4326))::geometry, 4326))
-         FROM {}",
-        config.serving_current_table
+             ST_Envelope(ST_Transform(
+                 ST_Segmentize(
+                     ST_SetSRID(extent.box::geometry, extent.srid),
+                     GREATEST(
+                         ST_XMax(extent.box) - ST_XMin(extent.box),
+                         ST_YMax(extent.box) - ST_YMin(extent.box),
+                         1e-9
+                     ) / 1024.0),
+                 4326)))
+         FROM (
+             SELECT ST_Extent(served.geom) AS box,
+                    (SELECT ST_SRID(sample.geom) FROM {table} AS sample LIMIT 1) AS srid
+             FROM {table} AS served
+         ) AS extent",
+        table = config.serving_current_table
     ))
     .bind(bounds[0])
     .bind(bounds[1])
@@ -618,9 +696,21 @@ async fn build_archives(
             OsString::from("validate"),
             files.mbtiles.as_os_str().to_owned(),
         ],
+        // Only one representative tile is needed, so only the lowest zoom — the one with the fewest
+        // tiles — is unpacked. Unpacking the whole archive writes every tile as its own file:
+        // about 2.7M files for the national parcel bake, for a choice of one.
+        vec![
+            OsString::from("copy"),
+            files.mbtiles.as_os_str().to_owned(),
+            files.representative_zoom.as_os_str().to_owned(),
+            OsString::from("--min-zoom"),
+            OsString::from(minzoom.to_string()),
+            OsString::from("--max-zoom"),
+            OsString::from(minzoom.to_string()),
+        ],
         vec![
             OsString::from("unpack"),
-            files.mbtiles.as_os_str().to_owned(),
+            files.representative_zoom.as_os_str().to_owned(),
             files.unpacked.as_os_str().to_owned(),
         ],
     ] {
@@ -860,6 +950,7 @@ async fn prove_unreadable_martin_is_refused(root: &Path) -> anyhow::Result<()> {
         build_idempotency_key: "unused-build-key".to_owned(),
         promote_idempotency_key: "unused-promote-key".to_owned(),
         tool_timeout: Duration::from_millis(50),
+        control_timeout: Duration::from_millis(50),
         martin_cp_concurrency: 2,
     };
     let store = FileObjectStorage::new(root.join("unreadable-martin-object"))?;
@@ -965,7 +1056,7 @@ async fn wait_for_static_source(
     config: &Config,
     source_id: &str,
 ) -> anyhow::Result<()> {
-    let deadline = time::Instant::now() + config.tool_timeout;
+    let deadline = time::Instant::now() + config.control_timeout;
     let url = format!("{}/{source_id}", config.static_martin_base_url);
     loop {
         let remaining = deadline.saturating_duration_since(time::Instant::now());
@@ -1028,6 +1119,54 @@ fn required_env(name: &str) -> anyhow::Result<String> {
         .with_context(|| format!("missing required environment variable {name}"))
 }
 
+/// Reads an optional variable with the same trimming as [`required_env`]: unset or blank is
+/// `None`, and a value that is not valid UTF-8 is an error rather than a silent default.
+fn optional_env(name: &str) -> anyhow::Result<Option<String>> {
+    match std::env::var(name) {
+        Ok(value) => {
+            let value = value.trim();
+            Ok((!value.is_empty()).then(|| value.to_owned()))
+        }
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => bail!("{name} is not valid UTF-8"),
+    }
+}
+
+/// The base of the tile URL written into the release. That URL is immutable once published and
+/// is what browsers are told to fetch (ADR-0037: changing a serving address is a new publication),
+/// so it must be an address a browser outside this host can reach. Platform ADR-0004 requires the
+/// publish gate to refuse plain HTTP, loopback included; the first national bake recorded
+/// `http://127.0.0.1:3111` because nothing did.
+fn public_tiles_base_url(raw: &str) -> anyhow::Result<String> {
+    let value = base_url(raw)?;
+    let url = reqwest::Url::parse(&value).context("not a URL")?;
+    ensure!(url.scheme() == "https", "must use https");
+    let host = url.host_str().context("has no host")?.to_ascii_lowercase();
+    let internal = match host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+    {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
+        }
+        // `fc00::/7` is IPv6 unique-local, the private-network range.
+        Ok(std::net::IpAddr::V6(ip)) => {
+            ip.is_loopback() || ip.is_unspecified() || (ip.segments()[0] & 0xfe00) == 0xfc00
+        }
+        Err(_) => host == "localhost" || host.ends_with(".localhost") || !host.contains('.'),
+    };
+    ensure!(
+        !internal,
+        "must name a host reachable from outside, not {value}"
+    );
+    ensure!(
+        url.query().is_none() && url.fragment().is_none(),
+        "must not carry a query or fragment"
+    );
+    Ok(value)
+}
+
 fn base_url(raw: &str) -> anyhow::Result<String> {
     let value = raw.trim_end_matches('/');
     ensure!(
@@ -1049,6 +1188,37 @@ mod tests {
 
     fn temp_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("perfectory-{label}-{}", Uuid::new_v4()))
+    }
+
+    #[test]
+    fn public_tile_address_refuses_what_a_browser_cannot_reach() {
+        for refused in [
+            "http://tiles.example.com",
+            "https://127.0.0.1:3111",
+            "https://localhost/tiles",
+            "https://tiles.localhost",
+            "https://10.0.0.5",
+            "https://192.168.0.22:3111",
+            "https://172.16.4.1",
+            "https://169.254.1.1",
+            "https://0.0.0.0",
+            "https://[::1]:3111",
+            "https://[fd12::1]",
+            "https://martin-static:3000",
+            "https://tiles.example.com/?cache=0",
+            "ftp://tiles.example.com",
+        ] {
+            assert!(
+                public_tiles_base_url(refused).is_err(),
+                "{refused} must be refused as a public tile address"
+            );
+        }
+        assert_eq!(
+            public_tiles_base_url("https://tiles.example.com/v1/")
+                .ok()
+                .as_deref(),
+            Some("https://tiles.example.com/v1")
+        );
     }
 
     #[tokio::test]
