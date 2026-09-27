@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **447개**
-- 언어 분류: **{'english': 35, 'korean': 252, 'mixed': 160}**
+- 감사 문서: **448개**
+- 언어 분류: **{'english': 35, 'korean': 253, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **211개 정상 / 0개 누락 / 236개 해당 없음**
+- 메타데이터: **211개 정상 / 0개 누락 / 237개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -28,7 +28,7 @@
 | `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 11 |
 | `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | current | korean | ok | 3 |
-| `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 11 |
+| `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 12 |
 | `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 18 |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
@@ -120,7 +120,7 @@
 | `docs/adr/0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0098-the-pre-push-hook-keeps-only-fast-checks.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0099-daily-serving-updates-bake-only-changed-parcels.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0099-daily-serving-updates-bake-only-changed-parcels.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0101-unit-prices-preserve-every-reference-date.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0102-lakehouse-jobs-survive-r2-connection-resets.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 1 |
@@ -130,7 +130,8 @@
 | `docs/adr/0106-land-right-names-corroborate-unit-normalization.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0107-the-normalized-unit-designation-is-derived-not-approved.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0108-retire-the-postgres-serving-projections-superseded-by-r2-bakes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0110-serve-all-map-tiles-from-r2-static-pmtiles.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
