@@ -1,3 +1,4 @@
+import { env } from "@/lib/env";
 import {
   COMPLEX_CLICK_YIELDS_TO_LAYER_IDS,
   foundationVectorFillLayerId,
@@ -9,6 +10,13 @@ import {
   refreshFoundationVectorSources,
   startFoundationVectorManifestPolling,
 } from "@/lib/map/foundation-vector-source-refresh";
+import {
+  applyMapEditOverlay,
+  fetchMapEditOverlay,
+  type MapEditOverlay,
+  mapEditOverlayFillLayerId,
+  registerMapEditOverlayLayers,
+} from "@/lib/map/map-edit-overlay";
 import {
   LISTING_MARKER_RENDER_MAX_ZOOM,
   LISTING_MARKER_RENDER_MIN_ZOOM,
@@ -40,7 +48,7 @@ export type MapboxGLLike = {
   on?: (event: string, layer: string, handler: (e: unknown) => void) => void;
   isStyleLoaded?: () => boolean;
   once?: (event: string, handler: () => void) => void;
-  setFilter?: (layerId: string, filter: unknown[]) => void;
+  setFilter?: (layerId: string, filter: unknown[] | null) => void;
   queryRenderedFeatures?: (
     point: unknown,
     options?: { layers?: readonly string[] },
@@ -82,6 +90,8 @@ export async function setupMapboxRuntime(
   await setupMarkerTileLayers(mb, onParcelClick, manifest);
   await setupListingMarkerTileLayers(mb, onListingClick);
   if (isCancelled()) return;
+  const stopMapEditOverlay = startMapEditOverlay(mb, "complex");
+  if (stopMapEditOverlay) cleanups.push(stopMapEditOverlay);
   if (runtimeManifest) {
     let activeRuntimeManifest = runtimeManifest;
     const stopRuntimeManifestPolling = startFoundationVectorManifestPolling({
@@ -297,7 +307,10 @@ function setupComplexLayers(
   try {
     if (runtimeManifest?.publication_units.complex) {
       const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "complex");
-      if (registered.length > 0) registerComplexClick(mb, onComplexClick);
+      if (registered.length > 0) {
+        registerMapEditOverlayLayers(mb, "complex");
+        registerComplexClick(mb, onComplexClick);
+      }
       return;
     }
     const artifact = manifest ? getVectorTileArtifact(manifest, "complex") : undefined;
@@ -312,7 +325,10 @@ function setupComplexLayers(
       minzoom: artifact.render_min_zoom,
       maxzoom: artifact.render_max_zoom,
     });
-    if (registered.length > 0) registerComplexClick(mb, onComplexClick);
+    if (registered.length > 0) {
+      registerMapEditOverlayLayers(mb, "complex");
+      registerComplexClick(mb, onComplexClick);
+    }
   } catch (err) {
     logMapLayerFailure("complex-fill", err, { kind: "optional", source: "complex" });
   }
@@ -329,7 +345,7 @@ export function registerComplexClick(
   onComplexClick: (lakehouseComplexId: string) => void,
 ): void {
   if (typeof mb.on !== "function") return;
-  mb.on("click", foundationVectorFillLayerId("complex"), (e: unknown) => {
+  const handler = (e: unknown) => {
     const evt = e as {
       point?: unknown;
       features?: Array<{ id?: string | number; properties?: { complex_id?: string } }>;
@@ -342,6 +358,50 @@ export function registerComplexClick(
     const id =
       feature?.properties?.complex_id ?? (typeof feature?.id === "string" ? feature.id : undefined);
     if (typeof id === "string" && id.length > 0) onComplexClick(id);
+  };
+  mb.on("click", foundationVectorFillLayerId("complex"), handler);
+  // An edited complex is drawn from the edit overlay while its base polygon is hidden, so the same
+  // click must work there too (root ADR-0112).
+  if (mb.getLayer?.(mapEditOverlayFillLayerId("complex"))) {
+    mb.on("click", mapEditOverlayFillLayerId("complex"), handler);
+  }
+}
+
+/** How often customers' maps look for new admin edits (root ADR-0112 section 5, initial value). */
+export const MAP_EDIT_OVERLAY_POLL_INTERVAL_MS = 30_000;
+
+/**
+ * Keeps the unit's edit overlay current. Returns the stop function, or nothing when the unit's
+ * edit layers were never added (the base unit is not on the map).
+ *
+ * A failed read keeps the overlay last drawn: those edits are still pending and still true. Before
+ * the first successful read the map shows the base tiles alone (root ADR-0112 section 6).
+ */
+export function startMapEditOverlay(
+  mb: MapboxGLLike,
+  unit: string,
+  baseUrl: string = env.NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL,
+  fetcher: typeof fetch = fetch,
+): (() => void) | undefined {
+  if (!mb.getLayer?.(mapEditOverlayFillLayerId(unit))) return undefined;
+  return startFoundationVectorManifestPolling<MapEditOverlay>({
+    intervalMs: MAP_EDIT_OVERLAY_POLL_INTERVAL_MS,
+    fetchManifest: (signal, previous, etag) =>
+      fetchMapEditOverlay(fetcher, baseUrl, unit, {
+        signal,
+        ...(previous ? { previous } : {}),
+        ...(etag ? { etag } : {}),
+      }),
+    onManifest: (overlay) => {
+      try {
+        applyMapEditOverlay(mb, overlay);
+      } catch (error) {
+        logMapLayerFailure("map-edit-overlay-apply", error, { kind: "optional", source: unit });
+      }
+    },
+    onError: (error) =>
+      logMapLayerFailure("map-edit-overlay-poll", error, { kind: "optional", source: unit }),
+    visible: () => typeof document === "undefined" || document.visibilityState === "visible",
   });
 }
 

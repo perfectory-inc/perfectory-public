@@ -265,7 +265,9 @@ function buildCspHeader(hostname: string, nonce: string): string {
   // Manifest는 foundation-platform Catalog 또는 public R2/CDN manifest URL에서 읽고,
   // 실제 tile URL은 manifest.tiles_url_template이 결정한다.
   const tileOrigins = resolveVectorTileAllowedOrigins().join(" ");
-  const tileConnectSrc = tileOrigins ? ` ${tileOrigins}` : "";
+  // The admin edit overlay (root ADR-0112) is read by the browser alongside the tiles.
+  const mapEditOrigin = new URL(env.NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL).origin;
+  const tileConnectSrc = ` ${[tileOrigins, mapEditOrigin].filter(Boolean).join(" ")}`;
   const connectSrc = allowLocalHttpMapRuntime
     ? `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} http: https:${tileConnectSrc}`
     : `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} https://*.map.naver.com https://*.map.naver.net https://*.naver.com https://*.navercorp.com${tileConnectSrc}`;
