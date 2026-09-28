@@ -131,3 +131,17 @@ ADR-0111 A 단계로 필지·행정경계·산업단지 세 레이어가 R2 정�
 - 편집 쓰기 API 의 인증·권한(관리자만)은 신원 플랫폼의 기존 보호 API 틀을 쓴다. 세부는 1단계 PR
   에서 정한다.
 - ADR-0111 과 FP-ADR-0004 에 대체 각주를 단다.
+
+---
+
+> **개정 각주(2026-09-28, 1단계 구현 중 정한 세부):**
+> ① 7번 (가)의 레이크하우스 편집 원장은 `silver.map_edit_ledger`(append-only, 같은 `change_seq` 는
+> 한 번만)이고, 굽기의 입력은 원천을 직접 읽지 않고 **`gold.industrial_complex_boundary_served`** 스냅숏이다 —
+> 현재 공식 Silver 경계에 원장의 **모든** 편집을 순서대로 적용한 결과. 접기가 편집 저장소를 비우므로
+> 원장만이 옛 편집을 기억한다. 이 Gold 스냅숏이 release 의 canonical snapshot 이 된다.
+> ② Spark 이미지에 투영 라이브러리가 없으므로(ADR-0042) 편집 도형은 `export-map-edit-handoff` 가
+> EPSG:4326 → 5186 WKB 로 바꿔 넘긴다. 좌표계는 원천과 같은 5186 하나다.
+> ③ 카탈로그는 새 build kind `lakehouse_bake` 로 이 굽기를 받는다: 입력은 active 검증 정적 release,
+> 출력은 Gold 스냅숏 위의 새 data revision(입력과 같은 수집 원천에 묶임), 승격 후 fallback 없음.
+> ④ 3번의 "delete 대상 존재 확인"은 저장 경로가 아니라 Gold 빌드가 한다(`deletes_of_absent_features`
+> 로 집계) — 존재 판정 원천이 곧 걷어낼 `serving_postgis` 뿐이기 때문이다.

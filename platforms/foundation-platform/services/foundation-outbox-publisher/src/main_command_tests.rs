@@ -18,6 +18,23 @@ fn static_release_readdress_command_is_explicit_and_accepts_no_arguments() {
 }
 
 #[test]
+fn map_edit_handoff_export_command_is_explicit_and_accepts_no_arguments() {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "export-map-edit-handoff"]).unwrap(),
+        Command::ExportMapEditHandoff
+    );
+    assert!(!command_requires_expanded_stack(
+        Command::ExportMapEditHandoff
+    ));
+    assert!(parse_command([
+        "foundation-outbox-publisher",
+        "export-map-edit-handoff",
+        "unexpected"
+    ])
+    .is_err());
+}
+
+#[test]
 fn unit_official_price_projection_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

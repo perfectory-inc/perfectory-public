@@ -40,6 +40,7 @@ MODULES = (
     SHARED_MODULE,
     "vworld_parcel_boundaries_handoff_to_silver",
     "industrial_complex_boundaries_handoff_to_silver",
+    "industrial_complex_boundary_served_gold",
 )
 
 

@@ -42,6 +42,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 futures-util = { workspace = true }
 http-body = { workspace = true }
+proj4rs = { workspace = true }
 reqwest = { workspace = true }
 regex = { workspace = true }
 sha2 = { workspace = true }
