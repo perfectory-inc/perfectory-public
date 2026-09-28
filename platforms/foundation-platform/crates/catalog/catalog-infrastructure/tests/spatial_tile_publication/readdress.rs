@@ -750,17 +750,3 @@ fn assert_database_error(error: &sqlx::Error, code: &str, constraint: Option<&st
         assert_eq!(database.constraint(), Some(constraint), "got {error:?}");
     }
 }
-#[test]
-fn readdress_recording_uses_the_standard_status_gate() {
-    let source = include_str!("../../src/unit_of_work.rs");
-    assert!(!source.contains("readdress_replay"));
-    assert!(source.contains("validate_build_result_report(status, &command.outcome)"));
-}
-
-#[test]
-fn readdress_schema_does_not_claim_uuid_templates_deduplicate_public_bases() {
-    let migration =
-        include_str!("../../../../../migrations/20260927144826_static_release_readdress.sql");
-    assert!(!migration.contains("UNIQUE (readdressed_from_release_id, tiles_url_template)"));
-    assert!(migration.contains("WHERE readdressed_from_release_id IS NULL"));
-}

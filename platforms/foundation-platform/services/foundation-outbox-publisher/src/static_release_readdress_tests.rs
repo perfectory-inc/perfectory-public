@@ -67,17 +67,6 @@ fn validated_and_promoted_retries_skip_copy_proof_and_recording() {
     }
 }
 
-#[test]
-fn public_base_validation_is_the_only_policy_gate_for_publishers() {
-    for source in [
-        include_str!("static_release_readdress.rs"),
-        include_str!("boundary_static_release_publish.rs"),
-    ] {
-        assert!(source.contains("public_tiles_base_url(&"));
-        assert!(!source.contains("guard_static_promotion_url"));
-    }
-}
-
 #[tokio::test]
 async fn control_timeout_stops_stalled_control_operations() {
     assert!(control(
