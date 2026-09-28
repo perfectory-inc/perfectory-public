@@ -194,5 +194,49 @@
         "https://app.example.test/path"
       ]
     }
+  },
+  "map_edit_gateway": {
+    "worker_name": "foundation-map-edit-gateway",
+    "public_hostname": "map-edits.perfectory.io",
+    "public_hostname_aliases": [],
+    "d1_binding": "FOUNDATION_PLATFORM_MAP_EDITS",
+    "d1_database_name": "foundation-map-edits",
+    "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+    "write_token_binding": "FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN",
+    "compatibility_date": "2026-04-26",
+    "units": {
+      "complex": {
+        "feature_id_property": "complex_id",
+        "feature_id_pattern": "[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+        "properties": {
+          "official_complex_code": "string"
+        }
+      }
+    },
+    "geometry": {
+      "types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "bounds_wgs84": [124.0, 32.9, 132.0, 38.9], "bounds_wgs84_review": "public-repository-safety: reviewed-runtime-coordinate — the national extent an edit must fall inside, not a place",
+      "max_vertices": 20000,
+      "max_body_bytes": 1048576
+    },
+    "max_pending_edits_per_unit": 5000,
+    "overlay_cache_control": "public, max-age=0, must-revalidate",
+    "content_type": "application/json; charset=utf-8",
+    "cors": {
+      "grammar": "comma-separated-serialized-http-origins-v1",
+      "allow_wildcard": false,
+      "accepted": [
+        "https://app.example.test",
+        " http://localhost:3000 , https://app.example.test "
+      ],
+      "rejected": [
+        "*",
+        "file:///tmp/app",
+        "https://app.example.test/path"
+      ]
+    }
   }
 }
