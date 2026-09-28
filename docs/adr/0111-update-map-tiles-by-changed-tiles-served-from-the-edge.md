@@ -149,3 +149,9 @@ R2 에 올라가 있다(릴리스 d72f5ca3·9694ab53·62271990). 남은 문제�
 
 > **개정 각주(2026-09-28, 재주소 발행 구현 PR #238):** §11 의 세부 규칙을 구현하며 다음을 정했다.
 > 기존 release를 새로 선택하는 정적 승격 가드는 `RuntimeEnvironment::from_env` 로 환경을 필수 확인하며 `local`·`ci` 외에는 공개 HTTPS 주소만 허용한다. 공개 주소를 입력받는 발행 명령은 `public_tiles_base_url` 로 한 번 검증한다. 완전한 manifest를 만들 때 다른 unit에서 그대로 가져오는 release에는 승격 URL 가드를 다시 적용하지 않는다. **재시도와 유일성.** `catalog_mutation_idempotency` 의 명령 키가 재시도 정체성의 단일 기준이다. 같은 키는 같은 build를 반환하고 입력 변경은 거부한다. `validated`·`promoted` build는 복사·HTTP 증거·결과 기록을 반복하지 않고 저장된 산출물로 승격만 재시도한다. 새 명령 키는 같은 원본과 공개 base에도 새 release를 만들 수 있다. 원본/공개 base UNIQUE는 실패한 시도 후 별도 발행 및 원본 재활성화 후 재발행을 막으므로 채택하지 않는다. `tiles_url_template`에는 새 release UUID가 들어가므로 원본/템플릿 UNIQUE는 공개 base의 중복 방지가 될 수 없다. 미병합 마이그레이션에서 이 제약을 제거하고 기존 bake의 부분 유일성, release 식별자, 원본 계보·바이트 결속, 승격 CAS는 유지한다.
+
+> **대체 각주(2026-09-28):** 2번(브라우저 조합 금지), 4번의 "PostGIS warm" 부분, 7번, 10번,
+> 12번 D·E 단계는 [ADR-0112](./0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md)
+> 로 대체됐다: 확정 전 편집은 작은 편집 저장소(D1)가 들고 웹이 기본판 위에 feature 툼스톤 필터와
+> 새 폴리곤 레이어로 즉시 보여 주며, 주기 굽기(tippecanoe, R2 원천)가 편집을 접는다. dynamic
+> fallback 과 PostGIS 전량 사본·Martin 은 없앤다.

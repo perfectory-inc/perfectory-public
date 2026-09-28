@@ -123,3 +123,4 @@ last_reviewed: 2026-07-28
 - [0109 — 공짱 백엔드는 필지·건물 상세를 R2 엣지에서 직접 읽는다](./0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md)
 - [0110 — 지도 타일 전량을 R2 정적 PMTiles 로 서빙하고 PostGIS 는 warm delta 로 축소한다](./0110-serve-all-map-tiles-from-r2-static-pmtiles.md)
 - [0111 — 지도 타일은 전국 기본판 위에 바뀐 타일만 갈아 끼우고, 엣지 Worker 가 서빙한다](./0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md)
+- [0112 — 지도 폴리곤 편집은 작은 저장소의 오버레이로 즉시 보이고, 주기 굽기가 타일에 접어 넣는다](./0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md)
