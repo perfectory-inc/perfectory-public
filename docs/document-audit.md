@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **450개**
-- 언어 분류: **{'english': 35, 'korean': 255, 'mixed': 160}**
+- 감사 문서: **451개**
+- 언어 분류: **{'english': 35, 'korean': 256, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **212개 정상 / 0개 누락 / 238개 해당 없음**
+- 메타데이터: **212개 정상 / 0개 누락 / 239개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -131,8 +131,9 @@
 | `docs/adr/0107-the-normalized-unit-designation-is-derived-not-approved.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0108-retire-the-postgres-serving-projections-superseded-by-r2-bakes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0110-serve-all-map-tiles-from-r2-static-pmtiles.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0110-serve-all-map-tiles-from-r2-static-pmtiles.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
+| `docs/adr/0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -167,7 +168,7 @@
 | `platforms/foundation-platform/docs/adr/0001-inherit-gongzzang-adrs.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 2 |
 | `platforms/foundation-platform/docs/adr/0002-r2-primary-object-storage.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 5 |
 | `platforms/foundation-platform/docs/adr/0003-industrial-complex-catalog-ssot.md` | Foundation Platform | ADR | current | korean | not applicable: ADR fields | 2 |
-| `platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 16 |
+| `platforms/foundation-platform/docs/adr/0004-static-vector-tile-runtime-contract.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 17 |
 | `platforms/foundation-platform/docs/adr/0005-object-lake-layout-and-indexing.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 4 |
 | `platforms/foundation-platform/docs/adr/0006-lakehouse-table-format-and-serving-architecture.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 9 |
 | `platforms/foundation-platform/docs/adr/0007-netflix-style-lakehouse-compute-architecture.md` | Foundation Platform | ADR | current | mixed | not applicable: ADR fields | 3 |

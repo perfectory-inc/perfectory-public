@@ -512,3 +512,8 @@ bucket-scoped read-only credential이다.
 > [ADR-0111](../../../../docs/adr/0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md)
 > 로 대체됐다: 기본판 1개 + 패치 세대 1개, 조합은 서버에서 타일 단위로만. 브라우저·Martin 에서의
 > 조합과 feature 숨김 금지는 유지된다.
+
+> **대체 각주(2026-09-28):** dynamic fallback 과 "feature tombstone/suppression 전송 없음" 조항은
+> 루트 [ADR-0112](../../../../docs/adr/0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md)
+> 로 대체됐다: 세 폴리곤 unit 은 예비판 없이 R2 기본판만 서빙하고, 확정 전 편집은 기본판 release 에
+> 묶인 순번의 오버레이(가릴 id + 새 폴리곤)로 웹에서 겹친다.
