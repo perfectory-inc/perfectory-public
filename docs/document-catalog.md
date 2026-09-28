@@ -8,14 +8,14 @@
 
 ## 문서 규모
 
-- 문서 파일: **451개**
+- 문서 파일: **452개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 113 |
+| Foundation Platform | 114 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 17 |
 | Intelligence Platform | 19 |
@@ -27,7 +27,7 @@
 | 유형 | 문서 수 |
 |---|---:|
 | ADR | 197 |
-| README | 112 |
+| README | 113 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 3 |
@@ -153,6 +153,7 @@ platforms/foundation-platform/README.md
 platforms/foundation-platform/scripts/tiles/admin-boundary/README.md
 platforms/foundation-platform/services/foundation-api/README.md
 platforms/foundation-platform/services/foundation-building-gateway/README.md
+platforms/foundation-platform/services/foundation-map-edit-gateway/README.md
 platforms/foundation-platform/services/foundation-outbox-publisher/README.md
 platforms/foundation-platform/services/foundation-parcel-gateway/README.md
 platforms/foundation-platform/services/foundation-profile-gateway/README.md
@@ -770,6 +771,7 @@ tools/github/README.md
 | `platforms/foundation-platform/scripts/tiles/admin-boundary/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-building-gateway/README.md` | Foundation Platform | README | current |
+| `platforms/foundation-platform/services/foundation-map-edit-gateway/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-parcel-gateway/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-profile-gateway/README.md` | Foundation Platform | README | current |

@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "foundation-map-edit-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-26",
+  "workers_dev": false,
+  "keep_vars": true,
+  "routes": [
+    {
+      "pattern": "map-edits.perfectory.io",
+      "custom_domain": true
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "FOUNDATION_PLATFORM_MAP_EDITS",
+      "database_name": "foundation-map-edits",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
