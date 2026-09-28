@@ -3,12 +3,14 @@
 use catalog_domain::{CatalogMutationKind, ServingSourceKind, VectorTileBuildKind};
 
 #[test]
-fn readdress_has_a_distinct_idempotent_build_start_without_a_manifest_outcome() {
+fn readdress_has_a_distinct_idempotent_build_start_without_a_manifest_outcome() -> Result<(), String>
+{
     let kind = CatalogMutationKind::parse("start_static_release_readdress")
-        .expect("readdress must have its own mutation ledger kind");
+        .map_err(|error| format!("readdress must have its own mutation ledger kind: {error}"))?;
     assert!(!kind.answers_with_manifest());
     assert_ne!(kind, CatalogMutationKind::StartVectorTileBuild);
     assert!(CatalogMutationKind::ALL.contains(&kind));
+    Ok(())
 }
 
 #[test]

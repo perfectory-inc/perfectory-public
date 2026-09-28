@@ -117,19 +117,7 @@ R2 에 올라가 있다(릴리스 d72f5ca3·9694ab53·62271990). 남은 문제�
     기존 유일성(`…_unit_revision_snapshot_kind_key`)을 지킨다. 원본은 이력으로 남는다. 첫 적용
     대상은 `http://127.0.0.1:3111` 로 기록된 세 릴리스(d72f5ca3·9694ab53·62271990)다. 같은
     결함의 재발은 발행 단계(PR #235)와 승격 단계 양쪽에서 운영 URL 의 http·내부 주소를 거부해
-    막는다. 기존 release를 새로 선택하는 정적 승격 가드는 `RuntimeEnvironment::from_env` 로
-    환경을 필수 확인하며 `local`·`ci` 외에는 공개 HTTPS 주소만 허용한다. 공개 주소를 입력받는
-    발행 명령은 `public_tiles_base_url` 로 한 번 검증한다. 완전한 manifest를 만들 때 다른
-    unit에서 그대로 가져오는 release에는 승격 URL 가드를 다시 적용하지 않는다.
-
-    **재시도와 유일성.** `catalog_mutation_idempotency` 의 명령 키가 재시도 정체성의 단일
-    기준이다. 같은 키는 같은 build를 반환하고 입력 변경은 거부한다. `validated`·`promoted`
-    build는 복사·HTTP 증거·결과 기록을 반복하지 않고 저장된 산출물로 승격만 재시도한다.
-    새 명령 키는 같은 원본과 공개 base에도 새 release를 만들 수 있다. 원본/공개 base UNIQUE는
-    실패한 시도 후 별도 발행 및 원본 재활성화 후 재발행을 막으므로 채택하지 않는다.
-    `tiles_url_template`에는 새 release UUID가 들어가므로 원본/템플릿 UNIQUE는 공개 base의
-    중복 방지가 될 수 없다. 미병합 마이그레이션에서 이 제약을 제거하고 기존 bake의 부분
-    유일성, release 식별자, 원본 계보·바이트 결속, 승격 CAS는 유지한다.
+    막는다.
 
 12. **단계.** 각 단계는 별도 PR 이고, 앞 단계가 운영에서 확인된 뒤 다음으로 간다.
     - **A. 공개.** tile gateway Worker, 공개 호스트 계약, 재주소 발행 명령(11번)으로 세
@@ -156,3 +144,8 @@ R2 에 올라가 있다(릴리스 d72f5ca3·9694ab53·62271990). 남은 문제�
   코드는 작고, 같은 구조의 AWS(Lambda+CloudFront) 구현이 공개돼 있다.
 - ADR-0108·ADR-0110 의 "tombstone" 서술은 이 ADR 의 4번(서버 내부 변경 목록)과 3번(타일 단위
   빈 타일 표시)으로 대체된다. 두 ADR 에 정정 각주를 단다.
+
+---
+
+> **개정 각주(2026-09-28, 재주소 발행 구현 PR #238):** §11 의 세부 규칙을 구현하며 다음을 정했다.
+> 기존 release를 새로 선택하는 정적 승격 가드는 `RuntimeEnvironment::from_env` 로 환경을 필수 확인하며 `local`·`ci` 외에는 공개 HTTPS 주소만 허용한다. 공개 주소를 입력받는 발행 명령은 `public_tiles_base_url` 로 한 번 검증한다. 완전한 manifest를 만들 때 다른 unit에서 그대로 가져오는 release에는 승격 URL 가드를 다시 적용하지 않는다. **재시도와 유일성.** `catalog_mutation_idempotency` 의 명령 키가 재시도 정체성의 단일 기준이다. 같은 키는 같은 build를 반환하고 입력 변경은 거부한다. `validated`·`promoted` build는 복사·HTTP 증거·결과 기록을 반복하지 않고 저장된 산출물로 승격만 재시도한다. 새 명령 키는 같은 원본과 공개 base에도 새 release를 만들 수 있다. 원본/공개 base UNIQUE는 실패한 시도 후 별도 발행 및 원본 재활성화 후 재발행을 막으므로 채택하지 않는다. `tiles_url_template`에는 새 release UUID가 들어가므로 원본/템플릿 UNIQUE는 공개 base의 중복 방지가 될 수 없다. 미병합 마이그레이션에서 이 제약을 제거하고 기존 bake의 부분 유일성, release 식별자, 원본 계보·바이트 결속, 승격 CAS는 유지한다.

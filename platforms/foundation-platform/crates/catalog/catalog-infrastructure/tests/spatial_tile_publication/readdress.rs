@@ -59,9 +59,9 @@ async fn readdress_preserves_data_bytes_and_fallback_and_retries_write_nothing()
         lifecycle.record_result(result.clone()).await?;
         lifecycle.record_result(result.clone()).await?;
         let promote = promotion_command(build_job_id, input, "promote-readdress-complex-1");
-        let publisher = PromoteTileLayerStatic::new(uow);
-        let published = publisher.execute(promote.clone()).await?;
-        let selected = published_unit(&published, "complex")?;
+        let promoter = PromoteTileLayerStatic::new(uow);
+        let manifest = promoter.execute(promote.clone()).await?;
+        let selected = published_unit(&manifest, "complex")?;
         assert_eq!(
             selected.active_release_id,
             static_release_id_for_build(build_job_id)
@@ -85,7 +85,7 @@ async fn readdress_preserves_data_bytes_and_fallback_and_retries_write_nothing()
             input.serving_generation.value() + 1
         );
         assert_eq!(
-            published.manifest_generation.value(),
+            manifest.manifest_generation.value(),
             original.manifest_generation.value() + 1
         );
         let (ActiveTileSource::StaticPmtiles(before), ActiveTileSource::StaticPmtiles(after)) =
@@ -146,15 +146,15 @@ async fn readdress_preserves_data_bytes_and_fallback_and_retries_write_nothing()
                 "a promoted result cannot be recorded again"
             );
         }
-        let replay = publisher.execute(promote).await?;
+        let replay = promoter.execute(promote).await?;
         assert_eq!(
             serde_json::to_value(&replay)?,
-            serde_json::to_value(&published)?
+            serde_json::to_value(&manifest)?
         );
         assert_eq!(ledger_counts(&pool).await?, counts);
         assert_eq!(
             active_pointer(&pool).await?,
-            published.current_version.as_uuid()
+            manifest.current_version.as_uuid()
         );
         let status: String = sqlx::query_scalar(
             "SELECT status FROM catalog.vector_tile_build_job WHERE id = $1",
@@ -228,7 +228,7 @@ async fn readdress_refuses_wrong_input_unit_destination_and_changed_bytes() -> T
                     artifact.tiles_url_template = RuntimeTilesUrlTemplate::new(format!(
                         "https://unclaimed.example.test/{}/{{z}}/{{x}}/{{y}}",
                         static_release_martin_source_id("complex", artifact.release_id)
-                    ))?
+                    ))?;
                 }
             }
             assert!(
