@@ -231,7 +231,15 @@ describe("Foundation polygon layer setup", () => {
       () => undefined,
     );
 
-    expect(mb.layerIds()).toEqual(["complex-fill", "complex-outline", "parcels-fill"]);
+    // The admin edit overlay (root ADR-0112) sits directly above the complex base layers it hides
+    // features from, and still under the parcels.
+    expect(mb.layerIds()).toEqual([
+      "complex-fill",
+      "complex-outline",
+      "complex-edits-fill",
+      "complex-edits-outline",
+      "parcels-fill",
+    ]);
     expect(mb.sources.has("complex")).toBe(true);
     expect(mb.sources.has("parcels")).toBe(true);
   });

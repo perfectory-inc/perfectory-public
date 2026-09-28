@@ -13,7 +13,8 @@ type RefreshMapboxBridge = {
 
 /**
  * Retargets only units whose serving generation changed. The source id remains stable for dynamic
- * PostGIS; static sources are immutable URLs. No overlay or tombstone source is ever registered.
+ * PostGIS; static sources are immutable URLs. Unfolded admin edits are not a tile source: they
+ * arrive through the separate map edit overlay (root ADR-0112, `map-edit-overlay.ts`).
  */
 export function refreshFoundationVectorSources(
   mapbox: RefreshMapboxBridge,
@@ -40,24 +41,28 @@ export function refreshFoundationVectorSources(
   return changed;
 }
 
-/** Creates an abortable four-second poll loop with one in-flight request and bounded backoff. */
-export function startFoundationVectorManifestPolling(options: {
+/**
+ * Creates an abortable four-second poll loop with one in-flight request and bounded backoff.
+ *
+ * Generic over what is polled so the map edit overlay reuses the same loop instead of a second copy.
+ */
+export function startFoundationVectorManifestPolling<T = VectorTileRuntimeManifest>(options: {
   fetchManifest: (
     signal: AbortSignal,
-    previous?: VectorTileRuntimeManifest,
+    previous?: T,
     etag?: string,
-  ) => Promise<{ manifest: VectorTileRuntimeManifest; etag?: string }>;
-  onManifest: (manifest: VectorTileRuntimeManifest, etag?: string) => void;
+  ) => Promise<{ manifest: T; etag?: string }>;
+  onManifest: (manifest: T, etag?: string) => void;
   onError?: (error: unknown) => void;
   visible?: () => boolean;
   intervalMs?: number;
   random?: () => number;
-  initialManifest?: VectorTileRuntimeManifest;
+  initialManifest?: T;
   initialEtag?: string;
   startImmediately?: boolean;
 }): () => void {
   const controller = new AbortController();
-  let previous: VectorTileRuntimeManifest | undefined = options.initialManifest;
+  let previous: T | undefined = options.initialManifest;
   let etag: string | undefined = options.initialEtag;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let inFlight = false;
