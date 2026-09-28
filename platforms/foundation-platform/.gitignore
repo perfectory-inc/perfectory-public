@@ -27,6 +27,8 @@ target/release-artifacts/*
 **/*.rs.bk
 .env
 .env.local
+# Map edit store address and writer token for compose (ADR-0112); a secret, never committed.
+map-edit.env
 .env.*.local
 # Timestamped backups of the above; the root .gitignore carries the same
 # pair and the same reason.

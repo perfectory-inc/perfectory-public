@@ -27,6 +27,9 @@ pub mod industry;
 /// PNU-anchor backed marker tile contract.
 pub mod marker_tile;
 
+/// Polygon edits held until the next bake folds them into the tiles (ADR-0112).
+pub mod map_edit;
+
 /// Manufacturer metadata assigned to parcels.
 pub mod manufacturer;
 
@@ -76,6 +79,7 @@ pub use industry::{
     ParseIndustryCodeSystemError,
 };
 pub use manufacturer::Manufacturer;
+pub use map_edit::{MapEditError, MapEditGeometry, MapEditOperation};
 pub use marker_tile::{
     ComplexAnchorSummary, MarkerAnchorAlgorithm, MarkerTileContract, MarkerTileContractError,
     MarkerTileFeature, MarkerTileLayer, MarkerTileRequest, ParcelMarkerAnchor,

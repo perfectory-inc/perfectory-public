@@ -6,6 +6,9 @@
 
 #![deny(missing_docs)]
 
+/// Use case for saving an administrator's polygon edit before the next bake (ADR-0112).
+pub mod append_map_edit;
+
 /// Use case for archiving an industrial complex without hard deletion.
 pub mod archive_complex;
 
@@ -54,6 +57,7 @@ pub mod update_parcel_kind;
 /// Use cases for the static vector tile build lifecycle.
 pub mod vector_tile_build_lifecycle;
 
+pub use append_map_edit::{AppendMapEdit, AppendMapEditError, AppendMapEditInput};
 pub use archive_complex::{ArchiveIndustrialComplex, ArchiveIndustrialComplexInput};
 pub use complex_search::{
     ComplexSearchPaging, ComplexSearchQuery, ComplexSearchQueryError, ComplexSearchResult,

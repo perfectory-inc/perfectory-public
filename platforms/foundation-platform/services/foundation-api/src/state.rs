@@ -5,9 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use catalog_application::{
-    ports::RuntimeManifestPublicationCapability, ArchiveIndustrialComplex,
-    PromoteVectorTileManifest, RebuildParcelMarkerAnchors, RegisterIndustrialComplex,
-    RollbackVectorTileManifest, UpdateIndustrialComplex, UpdateParcelKind,
+    ports::{MapEditStore, RuntimeManifestPublicationCapability},
+    AppendMapEdit, ArchiveIndustrialComplex, PromoteVectorTileManifest, RebuildParcelMarkerAnchors,
+    RegisterIndustrialComplex, RollbackVectorTileManifest, UpdateIndustrialComplex,
+    UpdateParcelKind,
 };
 use catalog_infrastructure::{
     PgCatalogRepository, PgCatalogUnitOfWork, PgParcelMarkerAnchorRebuilder,
@@ -30,6 +31,7 @@ use sqlx::postgres::PgPoolOptions;
 use crate::identity_authorization::{HttpIdentityAuthorization, IdentityAuthorization};
 use crate::identity_http_client::HttpIdentityClient;
 use crate::identity_token_verifier::IdentityTokenVerifier;
+use crate::map_edit_http_store::{HttpMapEditStore, MapEditStoreConfig, UnconfiguredMapEditStore};
 use crate::traffic::TrafficConfig;
 
 /// What the schema probe found, in the three states a probe can honestly report.
@@ -131,6 +133,8 @@ pub struct AppConfig {
     pub identity_authorization_timeout_ms: u64,
     /// Whether this deployment may publish the v2 runtime manifest.
     pub runtime_manifest_publication: RuntimeManifestPublicationCapability,
+    /// The edit store for admin polygon edits (ADR-0112); `None` answers every edit with 503.
+    pub map_edit_store: Option<MapEditStoreConfig>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -179,6 +183,7 @@ impl AppConfig {
             runtime_manifest_publication: RuntimeManifestPublicationCapability::from_env_value(
                 lookup(RUNTIME_MANIFEST_PUBLICATION_ENV).as_deref(),
             ),
+            map_edit_store: MapEditStoreConfig::from_vars(&lookup)?,
         })
     }
 
@@ -251,6 +256,7 @@ pub struct AppState {
     pub promote_vector_tile_manifest: PromoteVectorTileManifest,
     pub rollback_vector_tile_manifest: RollbackVectorTileManifest,
     pub rebuild_parcel_marker_anchors: RebuildParcelMarkerAnchors,
+    pub append_map_edit: AppendMapEdit,
     pub record_lakehouse_batch_run: RecordLakehouseBatchRun,
     pub register_lakehouse_object_artifact: RegisterLakehouseObjectArtifact,
     pub submit_normalization_proposal: SubmitNormalizationProposal,
@@ -631,6 +637,10 @@ impl AppState {
             identity_authorization,
         )
         .with_runtime_manifest_publication(config.runtime_manifest_publication);
+        let state = match config.map_edit_store {
+            Some(store) => state.with_map_edit_store(Arc::new(HttpMapEditStore::new(store)?)),
+            None => state,
+        };
         Ok(state)
     }
 
@@ -641,6 +651,13 @@ impl AppState {
         capability: RuntimeManifestPublicationCapability,
     ) -> Self {
         self.runtime_manifest_publication = capability;
+        self
+    }
+
+    /// Sends admin polygon edits to this store instead of refusing them (ADR-0112).
+    #[must_use]
+    pub fn with_map_edit_store(mut self, store: Arc<dyn MapEditStore>) -> Self {
+        self.append_map_edit = AppendMapEdit::new(store);
         self
     }
 
@@ -728,6 +745,9 @@ impl AppState {
             promote_vector_tile_manifest,
             rollback_vector_tile_manifest,
             rebuild_parcel_marker_anchors,
+            // Fail closed like publication below: without a configured store an edit is refused,
+            // never silently dropped.
+            append_map_edit: AppendMapEdit::new(Arc::new(UnconfiguredMapEditStore)),
             record_lakehouse_batch_run,
             register_lakehouse_object_artifact,
             submit_normalization_proposal,

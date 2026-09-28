@@ -76,6 +76,9 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 encoding_rs = "0.8"
 geo-types = "0.7"
+# Topology checks (self-intersection, holes outside shells) for map edits before they are stored
+# (ADR-0112). The same OGC validity rules PostGIS `ST_IsValid` applies, without a database.
+geo = { version = "0.33", default-features = false }
 proj4rs = { version = "0.1.10", default-features = false }
 proj4wkt = "0.1.1"
 shapefile = { version = "0.9.0", default-features = false, features = ["encoding_rs", "geo-types"] }

@@ -71,7 +71,7 @@ fn catalog_admin_can_write_catalog() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn vector_tile_admin_can_administer_spatial_resources() -> Result<(), Box<dyn std::error::Error>> {
-    for action in ["manifest_admin", "anchor_rebuild"] {
+    for action in ["manifest_admin", "anchor_rebuild", "map_edit"] {
         let input = PolicyInput::resource_action(
             vec![RoleCode::parse("VECTOR_TILE_ADMIN")?],
             "foundation.spatial",

@@ -140,6 +140,12 @@ services:
       # 환경 파일이 정하고 여기서는 나르기만 한다. 비우면 운영 기본값 = 아무 origin 도 없음.
       FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: ${FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:-}
       RUST_LOG: ${RUST_LOG:-info}
+    # 관리자 폴리곤 편집 저장소(ADR-0112)의 주소와 쓰기 토큰. 토큰은 비밀이라 environment 에
+    # 기본값으로 두지 않고, 커밋하지 않는 이 파일로만 나른다. 파일이 없으면 편집은 503 으로
+    # 거부되고 저장되지 않는다.
+    env_file:
+      - path: ./map-edit.env
+        required: false
     ports:
       - "127.0.0.1:${FOUNDATION_API_PORT:-18080}:8080"
     depends_on:
