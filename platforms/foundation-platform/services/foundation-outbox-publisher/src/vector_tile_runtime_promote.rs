@@ -165,12 +165,20 @@ pub(crate) async fn run(unit: &UnitPromotion) -> anyhow::Result<()> {
                 row.try_get::<i64, _>("serving_generation")?,
             )
         };
-        let canonical_snapshot = sqlx::query_scalar::<_, String>(
-            "SELECT canonical_iceberg_snapshot_id FROM catalog.vector_tile_release WHERE id = $1",
+        let selected_release = sqlx::query(
+            "SELECT canonical_iceberg_snapshot_id, source_kind, tiles_url_template FROM catalog.vector_tile_release WHERE id = $1",
         )
         .bind(release_id)
         .fetch_one(&mut *transaction)
         .await?;
+        guard_selected_release_url(
+            unit_id,
+            publication_unit_id,
+            &selected_release.try_get::<String, _>("source_kind")?,
+            &selected_release.try_get::<String, _>("tiles_url_template")?,
+        )?;
+        let canonical_snapshot: String =
+            selected_release.try_get("canonical_iceberg_snapshot_id")?;
         sqlx::query(
             "INSERT INTO catalog.vector_tile_runtime_manifest_unit
                 (manifest_id, publication_unit_id, release_id, serving_generation,
@@ -200,6 +208,20 @@ pub(crate) async fn run(unit: &UnitPromotion) -> anyhow::Result<()> {
         unit.ok_prefix, promoted_generation, config.manifest_id, config.release_id
     );
     Ok(())
+}
+
+fn guard_selected_release_url(
+    unit_id: Uuid,
+    promoted_unit_id: Uuid,
+    source_kind: &str,
+    template: &str,
+) -> anyhow::Result<()> {
+    // Carried selections are historical facts. Their repair is an independent publication;
+    // otherwise one legacy URL blocks every unit from moving forward.
+    if unit_id != promoted_unit_id {
+        return Ok(());
+    }
+    crate::static_release_url::guard_static_promotion_url(source_kind, template)
 }
 
 struct Config {
@@ -648,4 +670,50 @@ async fn insert_release(
     .execute(&mut **transaction)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn carried_legacy_releases_do_not_block_a_new_selection() {
+        const CHILD: &str = "CARRIED_RELEASE_GUARD_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "vector_tile_runtime_promote::tests::carried_legacy_releases_do_not_block_a_new_selection", "--nocapture"])
+                .env(CHILD, "1")
+                .env("FOUNDATION_PLATFORM_RUNTIME_ENV", "production")
+                .output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let promoted = Uuid::from_u128(1);
+        let loopback = "http://127.0.0.1:3111/legacy/{z}/{x}/{y}";
+        for carried in 2..=4 {
+            guard_selected_release_url(
+                Uuid::from_u128(carried),
+                promoted,
+                "static_pmtiles",
+                loopback,
+            )
+            .unwrap();
+        }
+        assert!(
+            guard_selected_release_url(promoted, promoted, "static_pmtiles", loopback).is_err()
+        );
+        guard_selected_release_url(
+            promoted,
+            promoted,
+            "static_pmtiles",
+            "https://tiles.example.com/new/{z}/{x}/{y}",
+        )
+        .unwrap();
+        guard_selected_release_url(promoted, promoted, "dynamic_postgis", loopback).unwrap();
+    }
 }

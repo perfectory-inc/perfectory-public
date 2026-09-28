@@ -443,6 +443,97 @@ create-only PUT and the separate reader credential for the exact full-GET rehash
 that same read-only credential. Never use a prefix as an IAM boundary or point either credential at a
 lakehouse, Bronze, recovery, or backup bucket.
 
+### 검증된 정적 릴리스 재주소: `readdress-static-release`
+
+이미 검증된 정적 릴리스 S1의 브라우저 주소를 바꿀 때는 새로운 S2를 발행한다.
+이 명령은 `martin-cp`나 PMTiles 재굽기를 실행하지 않는다. S1 객체를 S2의 결정적 객체 키로
+create-only 복사하고, 별도 읽기 전용 인증으로 S2 전체를 다시 읽어 S1의 SHA-256과 바이트 수를
+대조한다. S1 객체·릴리스·과거 매니페스트는 그대로 남는다. 복사 크기가 5 GiB를 넘으면
+UploadPartCopy와 create-only 완료 조건을 사용한다. 기존 S2도 전체 재해시가 정확히 일치해야
+재사용할 수 있다.
+
+R2 복사는 `If-None-Match: *`와 `cf-copy-destination-if-none-match: *`를 사용하고 multipart
+완료도 `If-None-Match: *`를 요구한다. 저장소가 해당 조건을 지원하지 않는다고 명시적으로
+거부하는 경우에만 HEAD 부재 확인 후 복사와 원본·목적지 전체 재해시로 대체한다. 이 대체 경로는
+명령 밖의 동시 쓰기를 원자적으로 막지 못한다. 같은 S2 키를 다른 도구로 쓰지 않는다. CLI는
+빌드별 Postgres advisory lock으로 같은 작업의 동시 실행을 직렬화하고, 긴 복사 뒤 잠금 세션이
+살아 있는지 확인한 후에만 결과를 기록·승격한다. 잠금 획득·해제는 제어 timeout으로 제한하고
+세션을 잃거나 명령이 취소되면 연결을 닫아 잠금이 pool에 남지 않게 한다.
+
+새 도메인의 라우팅·인증서·Martin 정적 소스 검색을 먼저 준비한다. 이 명령은 Cloudflare
+설정이나 공개 DNS를 변경하지 않는다. 승격 전에 다음 세 경로에서 같은 대표 타일을 읽고 gzip을
+풀어 비어 있지 않은 바이트가 모두 같은지 확인한다.
+
+1. `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_SOURCE_TILES_BASE_URL` + S1의 release-addressed source.
+2. `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_VERIFY_TILES_BASE_URL` + S2의 release-addressed source.
+3. `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_PUBLIC_TILES_BASE_URL` + S2의 release-addressed source.
+
+응답의 `Content-Type`은 `application/vnd.mapbox-vector-tile`, `application/x-protobuf`,
+`application/protobuf`, `application/octet-stream`만 허용하며, 누락·HTML·JSON은 같은 바이트여도
+거부한다. MIME 대소문자와 매개변수는 비교에서 제외한다.
+
+필수 환경 변수는 다음과 같다. 모든 주소는 source ID를 붙이기 전의 base URL이다.
+
+| 변수 | 값과 의미 |
+|---|---|
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_CONFIRM` | 정확히 `1`; 새 릴리스 승격 확인 |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_UNIT_KEY` | Catalog 공개 단위 키 |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_EXPECTED_ACTIVE_RELEASE_ID` | 처음 시작할 때 활성인 검증된 정적 S1 UUID |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_PUBLIC_TILES_BASE_URL` | S2에 영구히 기록할 공개 HTTPS 주소 |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_VERIFY_TILES_BASE_URL` | S2를 확인하는 Martin 또는 공개 경로 |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_SOURCE_TILES_BASE_URL` | S1을 실제로 읽을 수 있는 경로; 생략 불가 |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_REPRESENTATIVE_TILE` | S1에 비어 있지 않은 타일의 `z/x/y`; z는 0..=30, x/y는 해당 zoom 범위 |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_OPERATOR_STAFF_ID` | 실행한 운영자 Staff UUID |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_IDEMPOTENCY_KEY` | 재주소 빌드 키; 같은 작업 재시도에는 동일 값 |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_PROMOTE_IDEMPOTENCY_KEY` | 승격 키; 같은 작업 재시도에는 동일 값 |
+| `FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_CONTROL_TIMEOUT_SECONDS` | 1..=600초; DB 제어 작업과 대표 타일 확인 대기 상한 |
+| `DATABASE_URL` | Catalog 연결 |
+| `FOUNDATION_PLATFORM_RUNTIME_ENV` | 운영 대상은 `production`; 로컬·CI 증명은 각각 `local`·`ci` |
+
+객체 저장소에는 기존 `FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_...` 설정을 사용한다.
+쓰기와 읽기 인증은 분리하며 타일 전용 버킷·고정 release prefix 가드를 그대로 적용한다.
+전체 객체 복사·재해시에 제어 작업 timeout을 씌우지 않으므로 큰 archive도 끝까지 검증한다.
+
+아래는 합성 예시이며 실행 증거가 아니다. `tiles.example.com`과 `0/0/0`은 문서용이다.
+운영에서는 준비된 공개 경로와 S1에 실제로 존재하는 대표 타일로 대체한다.
+R2 변수와 `DATABASE_URL`은 별도 secret 주입으로 제공한다.
+
+```bash
+FOUNDATION_PLATFORM_RUNTIME_ENV=production \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_CONFIRM=1 \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_UNIT_KEY=parcels \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_EXPECTED_ACTIVE_RELEASE_ID='<S1_UUID>' \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_PUBLIC_TILES_BASE_URL='https://tiles.example.com' \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_VERIFY_TILES_BASE_URL='https://tiles.example.com' \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_SOURCE_TILES_BASE_URL='https://source.example.com' \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_REPRESENTATIVE_TILE='0/0/0' \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_OPERATOR_STAFF_ID='<STAFF_UUID>' \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_IDEMPOTENCY_KEY='<BUILD_KEY>' \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_PROMOTE_IDEMPOTENCY_KEY='<PROMOTE_KEY>' \
+FOUNDATION_PLATFORM_STATIC_RELEASE_READDRESS_CONTROL_TIMEOUT_SECONDS=120 \
+  foundation-outbox-publisher readdress-static-release
+```
+
+복사·읽기·타일 확인 중 네트워크 장애나 프로세스 종료가 나면 같은 입력과 두 idempotency key로
+재시도한다. 빌드는 일시 장애만으로 `failed`가 되지 않는다. 이미 만들어진 S2는 정확한 전체
+재해시로만 재사용하며, `validated` 빌드는 같은 검증 증거로 결과를 다시 기록한다. 이미
+`promoted`인 경우 결과를 다시 기록하지 않고 최초 S1과 저장된 최초 serving generation으로
+승격의 멱등 응답을 받는다. 다른 terminal 상태는 재개하지 않는다. CAS가 거부하면 현재 활성
+릴리스와 원인을 확인하고 새 작업 여부를 결정한다. 현재 pointer를 보고 원본 S1을 바꾸거나
+기존 빌드를 다른 입력에 재사용하지 않는다.
+
+증거 digest는 S1/S2·빌드 UUID, 원본 generation·revision·snapshot, 객체 키·SHA-256·크기,
+세 base URL, 대표 타일과 압축 해제 바이트의 SHA-256·크기를 고정한다. 검증된 결과가 있는
+빌드에서 URL·대표 타일을 바꾼 재시도는 같은 증거가 아니므로 기존 결과를 덮어쓸 수 없다.
+성공 줄에는 build/release/manifest UUID와 generation·바이트 수·SHA-256이 나온다.
+구조화 로그의 `evidence_json`과 `evidence_sha256`을 함께 보존하면 digest를 다시 계산할 수 있다.
+
+공용 공개 URL 가드는 일반 정적 발행과 재주소에 같은 규칙을 적용하고,
+`FOUNDATION_PLATFORM_RUNTIME_ENV=production`인 정적 승격에서도 다시 검사한다. raw runtime
+승격은 새 매니페스트에 선택하는 정적 릴리스 주소도 검사한다. 다른 단위의 과거 내부 주소 때문에
+raw 승격이 거부되면 해당 단위부터 재주소한다. 재주소는 다른 단위의 기존 주소를 변경하지
+않으므로 여러 단위를 차례로 복구할 수 있다. 로컬·CI의 loopback 증명 경로는 유지한다.
+
 ### Production bucket naming
 
 Lakehouse 버킷과 같은 세 부분 규칙인 `<owner-service>-<purpose>-<environment>`을 사용하되,

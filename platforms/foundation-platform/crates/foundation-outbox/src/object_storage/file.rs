@@ -7,13 +7,15 @@ use std::{
 };
 
 use async_trait::async_trait;
-use tokio::io::{self, AsyncWriteExt as _};
+use tokio::io::{self, AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::errors::PublishError;
 
 use super::{
-    sha256_hex, EvidenceByteReader, ObjectStorageService, ObjectStorageStreamingService,
-    ObjectWriteMode, PutObjectRequest, StreamingObjectRehash, StreamingPutObjectRequest,
+    copy::{copy_plan, CopyPlan},
+    sha256_hex, CreateOnlyCopyObjectRequest, EvidenceByteReader, ObjectStorageService,
+    ObjectStorageStreamingService, ObjectWriteMode, PutObjectRequest, StreamingObjectRehash,
+    StreamingPutObjectRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -140,6 +142,108 @@ impl EvidenceByteReader for FileObjectStorage {
 
 #[async_trait]
 impl ObjectStorageStreamingService for FileObjectStorage {
+    async fn copy_object_create_only(
+        &self,
+        request: CreateOnlyCopyObjectRequest,
+    ) -> Result<(), PublishError> {
+        let plan = copy_plan(&request)?;
+        let source_path = self.resolve_key_path(&request.source_key)?;
+        let destination_path = self.resolve_key_path(&request.destination_key)?;
+        // Refuse retries before touching the source; reconciliation reads the existing destination.
+        match tokio::fs::metadata(&destination_path).await {
+            Ok(_) => {
+                return Err(PublishError::ObjectAlreadyExists {
+                    key: request.destination_key,
+                })
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(PublishError::Infrastructure(format!(
+                    "failed to stat copy destination: {error}"
+                )))
+            }
+        }
+        let mut source = tokio::fs::File::open(&source_path)
+            .await
+            .map_err(|error| copy_file_error(&error))?;
+        let before = source
+            .metadata()
+            .await
+            .map_err(|error| copy_file_error(&error))?;
+        if before.len() != request.size_bytes {
+            return Err(PublishError::Infrastructure(
+                "copy source size differs from source ledger".to_owned(),
+            ));
+        }
+        let before_modified = before.modified().map_err(|error| copy_file_error(&error))?;
+        let parent = destination_path.parent().ok_or_else(|| {
+            PublishError::Infrastructure("copy destination has no parent".to_owned())
+        })?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| copy_file_error(&error))?;
+        // Keep partial bytes private until the source checks succeed. The temp path's drop
+        // removes failed/cancelled attempts; persist_noclobber never replaces another writer.
+        // Use the same directory so publication cannot cross filesystems.
+        let temporary =
+            tempfile::NamedTempFile::new_in(parent).map_err(|error| copy_file_error(&error))?;
+        let (file, temporary_path) = temporary.into_parts();
+        let mut destination = tokio::fs::File::from_std(file);
+        let written = match plan {
+            CopyPlan::Single => io::copy(&mut source, &mut destination)
+                .await
+                .map_err(|error| copy_file_error(&error))?,
+            CopyPlan::Multipart {
+                part_bytes,
+                part_count,
+            } => {
+                let mut total = 0;
+                for _ in 0..part_count {
+                    let length = part_bytes.min(request.size_bytes - total);
+                    let mut part = (&mut source).take(length);
+                    let copied = io::copy(&mut part, &mut destination)
+                        .await
+                        .map_err(|error| copy_file_error(&error))?;
+                    if copied != length {
+                        return Err(PublishError::Infrastructure(
+                            "copy source ended before planned part boundary".to_owned(),
+                        ));
+                    }
+                    total += copied;
+                }
+                total
+            }
+        };
+        destination
+            .flush()
+            .await
+            .map_err(|error| copy_file_error(&error))?;
+        let after = source
+            .metadata()
+            .await
+            .map_err(|error| copy_file_error(&error))?;
+        if written != request.size_bytes
+            || after.len() != before.len()
+            || after.modified().map_err(|error| copy_file_error(&error))? != before_modified
+        {
+            return Err(PublishError::Infrastructure(
+                "copy source changed during local copy".to_owned(),
+            ));
+        }
+        // Close before publishing, including on Windows. flush above waits for Tokio writes.
+        drop(destination);
+        temporary_path
+            .persist_noclobber(&destination_path)
+            .map_err(|error| {
+                map_file_create_only_error(
+                    &request.destination_key,
+                    &destination_path,
+                    &error.error,
+                )
+            })?;
+        Ok(())
+    }
+
     async fn put_streaming_object(
         &self,
         request: StreamingPutObjectRequest,
@@ -256,6 +360,10 @@ impl ObjectStorageStreamingService for FileObjectStorage {
             observed_last_modified: Some(observed_last_modified.to_rfc3339()),
         }))
     }
+}
+
+fn copy_file_error(error: &std::io::Error) -> PublishError {
+    PublishError::Infrastructure(format!("failed to copy local object: {error}"))
 }
 
 /// Maps a `create_new(true)` open error for a `CreateOnly` local write.

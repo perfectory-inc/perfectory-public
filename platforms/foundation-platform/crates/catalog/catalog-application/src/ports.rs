@@ -306,6 +306,35 @@ impl StartVectorTileBuildCommand {
     }
 }
 
+/// Starts an address-only publication from the currently active validated static release.
+/// Revision, snapshot and the original CAS generation are read from the locked ledger rows.
+#[derive(Clone, Debug)]
+pub struct StartStaticReleaseReaddressCommand {
+    /// Publication unit whose address is being corrected.
+    pub unit_key: String,
+    /// Expected active static release; retained as immutable history.
+    pub input_release_id: VectorTileReleaseId,
+    /// New public base, bound into the idempotency claim before copying any bytes.
+    pub public_tiles_base_url: String,
+    /// Caller-chosen retry identity.
+    pub idempotency_key: String,
+    /// Staff operator requesting this publication.
+    pub operator_staff_id: StaffId,
+}
+
+impl StartStaticReleaseReaddressCommand {
+    /// Digests the original release, destination and actor independently of bake requests.
+    #[must_use]
+    pub fn request_fingerprint(&self) -> RequestFingerprint {
+        RequestFingerprintBuilder::new(CatalogMutationKind::StartStaticReleaseReaddress)
+            .text(&self.unit_key)
+            .displayed(&self.input_release_id)
+            .text(&self.public_tiles_base_url)
+            .displayed(&self.operator_staff_id)
+            .finish()
+    }
+}
+
 /// Command for recording what one static build attempt produced.
 #[derive(Clone, Debug)]
 pub struct RecordVectorTileBuildResultCommand {
@@ -320,8 +349,8 @@ pub struct RecordVectorTileBuildResultCommand {
 
 /// Command for promoting a validated static build to the active serving source for one unit.
 ///
-/// The layer set is absent on purpose. A static release replaces a dynamic one built from the same
-/// data revision, so it must serve the same layers; the transaction copies them from the input
+/// The layer set is absent on purpose. A static release preserves its input's data revision, both
+/// for a bake from dynamic and a readdress from static; the transaction copies layers from the input
 /// release, which makes "static serves different layers than dynamic" unrepresentable rather than
 /// merely checked.
 ///
@@ -914,6 +943,20 @@ pub trait CatalogUnitOfWork: Send + Sync {
         let _ = command;
         Err(CatalogError::InvalidVectorTileRuntimeManifest(
             "static build start is not implemented by this Catalog unit of work".to_owned(),
+        ))
+    }
+
+    /// Starts or replays an address-only static publication.
+    ///
+    /// # Errors
+    /// Returns an error for a nonactive/nonstatic input or a conflicting idempotency claim.
+    async fn start_static_release_readdress(
+        &self,
+        command: StartStaticReleaseReaddressCommand,
+    ) -> Result<VectorTileBuildJobId, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "static readdress is not implemented by this Catalog unit of work".to_owned(),
         ))
     }
 

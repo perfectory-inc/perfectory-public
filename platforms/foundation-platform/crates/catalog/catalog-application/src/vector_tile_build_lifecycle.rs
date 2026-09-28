@@ -21,7 +21,8 @@ use catalog_domain::{CatalogError, VectorTileBuildOutcome};
 use foundation_shared_kernel::ids::VectorTileBuildJobId;
 
 use crate::ports::{
-    CatalogUnitOfWork, RecordVectorTileBuildResultCommand, StartVectorTileBuildCommand,
+    CatalogUnitOfWork, RecordVectorTileBuildResultCommand, StartStaticReleaseReaddressCommand,
+    StartVectorTileBuildCommand,
 };
 
 /// Records static build attempts and their results through the Catalog unit of work.
@@ -49,6 +50,29 @@ impl VectorTileBuildLifecycle {
         self.uow
             .start_vector_tile_build(StartVectorTileBuildCommand {
                 unit_key: normalize_required(&command.unit_key, "unit_key")?,
+                idempotency_key: normalize_required(&command.idempotency_key, "idempotency_key")?,
+                ..command
+            })
+            .await
+    }
+
+    /// Starts an address-only publication, preserving the source archive and its data identity.
+    ///
+    /// # Errors
+    /// Returns an error for empty inputs or an input the ledger refuses.
+    pub async fn start_readdress(
+        &self,
+        command: StartStaticReleaseReaddressCommand,
+    ) -> Result<VectorTileBuildJobId, CatalogError> {
+        self.uow
+            .start_static_release_readdress(StartStaticReleaseReaddressCommand {
+                unit_key: normalize_required(&command.unit_key, "unit_key")?,
+                public_tiles_base_url: normalize_required(
+                    &command.public_tiles_base_url,
+                    "public_tiles_base_url",
+                )?
+                .trim_end_matches('/')
+                .to_owned(),
                 idempotency_key: normalize_required(&command.idempotency_key, "idempotency_key")?,
                 ..command
             })

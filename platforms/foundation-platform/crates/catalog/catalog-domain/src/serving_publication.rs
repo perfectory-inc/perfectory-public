@@ -473,6 +473,50 @@ pub fn validate_serving_transition(
     Ok(())
 }
 
+/// Operation recorded in the static publication ledger.
+/// Mirrors `vector_tile_build_job_kind_check`; an ordinary bake still takes a dynamic input.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VectorTileBuildKind {
+    /// Creates a new archive from the active dynamic projection.
+    Bake,
+    /// Copies a validated static archive to a newly owned release address.
+    Readdress,
+}
+
+impl VectorTileBuildKind {
+    /// Closed database vocabulary.
+    pub const ALL: [Self; 2] = [Self::Bake, Self::Readdress];
+
+    /// Database spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bake => "bake",
+            Self::Readdress => "readdress",
+        }
+    }
+
+    /// Only this complete source kind is a valid input for the operation.
+    #[must_use]
+    pub const fn input_source_kind(self) -> ServingSourceKind {
+        match self {
+            Self::Bake => ServingSourceKind::DynamicPostgis,
+            Self::Readdress => ServingSourceKind::StaticPmtiles,
+        }
+    }
+
+    /// Reads the closed ledger vocabulary.
+    ///
+    /// # Errors
+    /// Returns an error for unknown publication operations.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == value)
+            .ok_or_else(|| format!("unknown vector tile build kind: {value}"))
+    }
+}
+
 /// Lifecycle of one static build attempt.
 ///
 /// Spells `vector_tile_build_job_status_check`. The database constraint and this enum are two

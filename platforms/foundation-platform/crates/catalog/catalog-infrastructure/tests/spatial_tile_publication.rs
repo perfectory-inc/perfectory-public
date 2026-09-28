@@ -24,7 +24,7 @@ use catalog_domain::{
     CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind, FeatureIdProperty,
     MembershipAssertedBy, PmtilesChecksum, RuntimeTileLayer, RuntimeTileLineage,
     RuntimeTilesUrlTemplate, ServingGeneration, ServingSourceKind, ValidatedPmtilesArtifact,
-    VectorTileBuildOutcome, VectorTileBuildStatus, VectorTileRuntimeManifest,
+    VectorTileBuildKind, VectorTileBuildOutcome, VectorTileBuildStatus, VectorTileRuntimeManifest,
     CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use catalog_infrastructure::PgCatalogUnitOfWork;
@@ -41,6 +41,9 @@ use foundation_disposable_database::{run_in_disposable_database, TestResult};
 #[path = "support/spatial_tile_publication_evidence.rs"]
 mod spatial_tile_publication_evidence;
 use spatial_tile_publication_evidence::seed_parcel_source_evidence;
+
+#[path = "spatial_tile_publication/readdress.rs"]
+mod readdress;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../../migrations");
 
@@ -1610,7 +1613,7 @@ async fn a_database_vocabulary_is_spelled_the_same_way_in_both_languages() -> Te
     run_in_disposable_database("database_vocabulary", |pool| async move {
         MIGRATOR.run(&pool).await?;
 
-        let vocabularies: [(&str, Vec<&str>); 4] = [
+        let vocabularies: [(&str, Vec<&str>); 5] = [
             (
                 "catalog_mutation_idempotency_command_kind_check",
                 CatalogMutationKind::ALL
@@ -1630,6 +1633,13 @@ async fn a_database_vocabulary_is_spelled_the_same_way_in_both_languages() -> Te
                 VectorTileBuildStatus::ALL
                     .into_iter()
                     .map(VectorTileBuildStatus::as_str)
+                    .collect(),
+            ),
+            (
+                "vector_tile_build_job_kind_check",
+                VectorTileBuildKind::ALL
+                    .into_iter()
+                    .map(VectorTileBuildKind::as_str)
                     .collect(),
             ),
             (

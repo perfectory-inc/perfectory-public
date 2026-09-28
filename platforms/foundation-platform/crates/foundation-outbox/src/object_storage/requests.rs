@@ -2,6 +2,29 @@
 
 pub use aws_sdk_s3::primitives::ByteStream;
 
+/// Maximum bytes copied by a single S3 `CopyObject` request (5 GiB).
+pub const SINGLE_COPY_MAX_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+
+// S3 multipart limits shared by streaming writes and server-side copy planning.
+pub(super) const MAX_MULTIPART_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+pub(super) const MAX_MULTIPART_PARTS: u16 = 10_000;
+
+/// Server-side copy of one immutable object to an absent destination key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreateOnlyCopyObjectRequest {
+    /// Existing provider-relative source key in the configured bucket.
+    pub source_key: String,
+    /// New provider-relative destination key in the same bucket.
+    pub destination_key: String,
+    /// Exact source size from the authoritative source ledger.
+    pub size_bytes: u64,
+    /// Single-copy threshold, normally [`SINGLE_COPY_MAX_BYTES`].
+    ///
+    /// Smaller positive values permit local tests to exercise multipart planning. Values above
+    /// the provider limit are rejected before storage is accessed.
+    pub single_copy_max_bytes: u64,
+}
+
 /// Write-once policy a caller selects for a single object write.
 ///
 /// This is the storage-port half of the object commit protocol:

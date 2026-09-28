@@ -139,6 +139,7 @@ run_publisher() {
   done
   [[ "${1:-}" == "$RUST_IMAGE" ]] && shift
   docker run --rm --network "$NET" \
+    -e FOUNDATION_PLATFORM_RUNTIME_ENV=ci \
     -v "$REPO_HOST_PATH:/work" \
     -v perfectory-cargo-registry:/usr/local/cargo/registry \
     -v perfectory-rustup:/usr/local/rustup \

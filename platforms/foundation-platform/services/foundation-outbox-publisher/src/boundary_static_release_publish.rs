@@ -50,6 +50,7 @@ use tokio::{io::AsyncReadExt as _, time};
 use uuid::Uuid;
 
 use crate::static_release_toolchain::VerifiedToolchain;
+use crate::static_release_url::{base_url, public_tiles_base_url};
 use crate::tile_derivative_object_storage::TileDerivativeR2Config;
 
 /// The per-unit facts a static-release publication needs. Everything else in this module is shared.
@@ -1132,50 +1133,6 @@ fn optional_env(name: &str) -> anyhow::Result<Option<String>> {
     }
 }
 
-/// The base of the tile URL written into the release. That URL is immutable once published and
-/// is what browsers are told to fetch (ADR-0037: changing a serving address is a new publication),
-/// so it must be an address a browser outside this host can reach. Platform ADR-0004 requires the
-/// publish gate to refuse plain HTTP, loopback included; the first national bake recorded
-/// `http://127.0.0.1:3111` because nothing did.
-fn public_tiles_base_url(raw: &str) -> anyhow::Result<String> {
-    let value = base_url(raw)?;
-    let url = reqwest::Url::parse(&value).context("not a URL")?;
-    ensure!(url.scheme() == "https", "must use https");
-    let host = url.host_str().context("has no host")?.to_ascii_lowercase();
-    let internal = match host
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .parse::<std::net::IpAddr>()
-    {
-        Ok(std::net::IpAddr::V4(ip)) => {
-            ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
-        }
-        // `fc00::/7` is IPv6 unique-local, the private-network range.
-        Ok(std::net::IpAddr::V6(ip)) => {
-            ip.is_loopback() || ip.is_unspecified() || (ip.segments()[0] & 0xfe00) == 0xfc00
-        }
-        Err(_) => host == "localhost" || host.ends_with(".localhost") || !host.contains('.'),
-    };
-    ensure!(
-        !internal,
-        "must name a host reachable from outside, not {value}"
-    );
-    ensure!(
-        url.query().is_none() && url.fragment().is_none(),
-        "must not carry a query or fragment"
-    );
-    Ok(value)
-}
-
-fn base_url(raw: &str) -> anyhow::Result<String> {
-    let value = raw.trim_end_matches('/');
-    ensure!(
-        value.starts_with("http://") || value.starts_with("https://"),
-        "Martin base URLs must use http or https"
-    );
-    Ok(value.to_owned())
-}
-
 fn bounded_failure_reason(error: &anyhow::Error) -> String {
     error.to_string().chars().take(2_000).collect::<String>()
 }
@@ -1188,47 +1145,6 @@ mod tests {
 
     fn temp_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("perfectory-{label}-{}", Uuid::new_v4()))
-    }
-
-    #[test]
-    fn public_tile_address_refuses_what_a_browser_cannot_reach() {
-        for refused in [
-            "http://tiles.example.com",
-            "https://127.0.0.1:3111",
-            "https://localhost/tiles",
-            "https://tiles.localhost",
-            "https://169.254.1.1",
-            "https://0.0.0.0",
-            "https://[::1]:3111",
-            "https://[fd12::1]",
-            "https://martin-static:3000",
-            "https://tiles.example.com/?cache=0",
-            "ftp://tiles.example.com",
-        ] {
-            assert!(
-                public_tiles_base_url(refused).is_err(),
-                "{refused} must be refused as a public tile address"
-            );
-        }
-        // The private ranges are built from octets: this repository is public and keeps no
-        // private-network address in its text.
-        for private in [
-            std::net::Ipv4Addr::new(10, 0, 0, 5),
-            std::net::Ipv4Addr::new(172, 16, 4, 1),
-            std::net::Ipv4Addr::new(192, 168, 1, 1),
-        ] {
-            let refused = format!("https://{private}:3111");
-            assert!(
-                public_tiles_base_url(&refused).is_err(),
-                "{refused} must be refused as a public tile address"
-            );
-        }
-        assert_eq!(
-            public_tiles_base_url("https://tiles.example.com/v1/")
-                .ok()
-                .as_deref(),
-            Some("https://tiles.example.com/v1")
-        );
     }
 
     #[tokio::test]
