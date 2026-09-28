@@ -165,30 +165,34 @@ impl ObjectStorageStreamingService for FileObjectStorage {
         }
         let mut source = tokio::fs::File::open(&source_path)
             .await
-            .map_err(copy_file_error)?;
-        let before = source.metadata().await.map_err(copy_file_error)?;
+            .map_err(|error| copy_file_error(&error))?;
+        let before = source
+            .metadata()
+            .await
+            .map_err(|error| copy_file_error(&error))?;
         if before.len() != request.size_bytes {
             return Err(PublishError::Infrastructure(
                 "copy source size differs from source ledger".to_owned(),
             ));
         }
-        let before_modified = before.modified().map_err(copy_file_error)?;
+        let before_modified = before.modified().map_err(|error| copy_file_error(&error))?;
         let parent = destination_path.parent().ok_or_else(|| {
             PublishError::Infrastructure("copy destination has no parent".to_owned())
         })?;
         tokio::fs::create_dir_all(parent)
             .await
-            .map_err(copy_file_error)?;
+            .map_err(|error| copy_file_error(&error))?;
         // Keep partial bytes private until the source checks succeed. The temp path's drop
         // removes failed/cancelled attempts; persist_noclobber never replaces another writer.
         // Use the same directory so publication cannot cross filesystems.
-        let temporary = tempfile::NamedTempFile::new_in(parent).map_err(copy_file_error)?;
+        let temporary =
+            tempfile::NamedTempFile::new_in(parent).map_err(|error| copy_file_error(&error))?;
         let (file, temporary_path) = temporary.into_parts();
         let mut destination = tokio::fs::File::from_std(file);
         let written = match plan {
             CopyPlan::Single => io::copy(&mut source, &mut destination)
                 .await
-                .map_err(copy_file_error)?,
+                .map_err(|error| copy_file_error(&error))?,
             CopyPlan::Multipart {
                 part_bytes,
                 part_count,
@@ -199,7 +203,7 @@ impl ObjectStorageStreamingService for FileObjectStorage {
                     let mut part = (&mut source).take(length);
                     let copied = io::copy(&mut part, &mut destination)
                         .await
-                        .map_err(copy_file_error)?;
+                        .map_err(|error| copy_file_error(&error))?;
                     if copied != length {
                         return Err(PublishError::Infrastructure(
                             "copy source ended before planned part boundary".to_owned(),
@@ -210,11 +214,17 @@ impl ObjectStorageStreamingService for FileObjectStorage {
                 total
             }
         };
-        destination.flush().await.map_err(copy_file_error)?;
-        let after = source.metadata().await.map_err(copy_file_error)?;
+        destination
+            .flush()
+            .await
+            .map_err(|error| copy_file_error(&error))?;
+        let after = source
+            .metadata()
+            .await
+            .map_err(|error| copy_file_error(&error))?;
         if written != request.size_bytes
             || after.len() != before.len()
-            || after.modified().map_err(copy_file_error)? != before_modified
+            || after.modified().map_err(|error| copy_file_error(&error))? != before_modified
         {
             return Err(PublishError::Infrastructure(
                 "copy source changed during local copy".to_owned(),
@@ -352,7 +362,7 @@ impl ObjectStorageStreamingService for FileObjectStorage {
     }
 }
 
-fn copy_file_error(error: std::io::Error) -> PublishError {
+fn copy_file_error(error: &std::io::Error) -> PublishError {
     PublishError::Infrastructure(format!("failed to copy local object: {error}"))
 }
 
