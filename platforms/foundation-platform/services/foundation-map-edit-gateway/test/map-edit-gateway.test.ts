@@ -16,7 +16,7 @@ const releaseId = "00000000-0000-7000-8000-000000000001";
 // The reserved synthetic coordinate namespace of scripts/guard/public-fixture-safety.py.
 const square = {
   type: "Polygon",
-  coordinates: [[[127.123, 36.123], [127.124, 36.123], [127.124, 36.124], [127.123, 36.124], [127.123, 36.123]]],
+  coordinates: [[[127.123, 36.123], [127.1239, 36.123], [127.1239, 36.1239], [127.123, 36.1239], [127.123, 36.123]]],
 };
 
 const mf = new Miniflare({
@@ -146,7 +146,7 @@ describe("appending edits", () => {
     ["an open ring", { geometry: { type: "Polygon", coordinates: [square.coordinates[0]!.slice(0, 4)] } }, "ring_not_closed"],
     ["a point outside the national bounds", { geometry: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } }, "out_of_bounds"],
     ["a third dimension", { geometry: { type: "Polygon", coordinates: [square.coordinates[0]!.map(([x, y]) => [x, y, 0])] } }, "invalid_position"],
-    ["a line", { geometry: { type: "LineString", coordinates: [[127.123, 36.123], [127.124, 36.124]] } }, "unsupported_geometry"],
+    ["a line", { geometry: { type: "LineString", coordinates: [[127.123, 36.123], [127.1239, 36.1239]] } }, "unsupported_geometry"],
     ["an undeclared property", { properties: { official_complex_code: "SYN", name: "x" } }, "unknown_property"],
     ["a missing property", { properties: {} }, "invalid_properties"],
   ])("refuses %s", async (_label, patch, code) => {
