@@ -320,6 +320,15 @@ fn map_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
             ),
         )
         .route(
+            "/catalog/v1/map-edits/{unit}",
+            protected_route(
+                post(catalog::map_edits::append_map_edit),
+                state,
+                STAFF_SPATIAL_MAP_EDIT,
+                Some("unit"),
+            ),
+        )
+        .route(
             "/catalog/v1/parcel-marker-anchors:rebuild",
             protected_route(
                 post(catalog::rebuild_parcel_marker_anchors),
@@ -379,6 +388,11 @@ const STAFF_SPATIAL_ANCHOR_REBUILD: IdentityRoutePolicy = IdentityRoutePolicy {
     required_principal_kind: RequiredPrincipalKind::Staff,
     resource: "foundation.spatial",
     action: "anchor_rebuild",
+};
+const STAFF_SPATIAL_MAP_EDIT: IdentityRoutePolicy = IdentityRoutePolicy {
+    required_principal_kind: RequiredPrincipalKind::Staff,
+    resource: "foundation.spatial",
+    action: "map_edit",
 };
 const SERVICE_LAKEHOUSE_WRITE: IdentityRoutePolicy = IdentityRoutePolicy {
     required_principal_kind: RequiredPrincipalKind::Service,
@@ -925,6 +939,7 @@ fn canonical_route_label(path: &str) -> String {
         ["catalog", "v1", "vector-tiles", action] if action.starts_with("manifest:") => {
             "/catalog/v1/vector-tiles/manifest:action".to_owned()
         }
+        ["catalog", "v1", "map-edits", _] => "/catalog/v1/map-edits/{unit}".to_owned(),
         ["catalog", "v1", action] if action == &"parcel-marker-anchors:rebuild" => {
             "/catalog/v1/parcel-marker-anchors:rebuild".to_owned()
         }

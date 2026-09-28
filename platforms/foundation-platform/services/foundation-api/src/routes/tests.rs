@@ -360,5 +360,6 @@ where
 
 mod cors_and_labels;
 mod health_and_metrics;
+mod map_edits;
 mod normalization;
 mod routing;

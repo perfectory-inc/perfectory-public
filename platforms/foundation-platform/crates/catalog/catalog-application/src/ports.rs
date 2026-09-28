@@ -1021,3 +1021,57 @@ pub trait CatalogUnitOfWork: Send + Sync {
         ))
     }
 }
+
+/// One administrator edit, already checked, on its way to the edit store (ADR-0112).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MapEditRecord {
+    /// The publication unit the edit belongs to, e.g. `complex`.
+    pub unit: String,
+    /// The feature id the unit's tiles carry, e.g. a `complex_id`.
+    pub feature_id: String,
+    /// Replace/add or remove.
+    pub operation: catalog_domain::MapEditOperation,
+    /// The checked polygon for an upsert; `None` for a delete.
+    pub geometry: Option<catalog_domain::MapEditGeometry>,
+    /// The unit's public properties for an upsert; `None` for a delete. The store checks them
+    /// against its contract.
+    pub properties: Option<serde_json::Value>,
+    /// The staff member who made the edit.
+    pub editor: foundation_shared_kernel::ids::StaffId,
+    /// The caller's retry identity; the same key with the same edit is answered, not repeated.
+    pub idempotency_key: String,
+}
+
+/// What the edit store answered for an appended edit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MapEditAppended {
+    /// The store's order for the edit; folds are expressed in this sequence.
+    pub change_seq: u64,
+    /// Whether the store answered an earlier request with the same idempotency key.
+    pub replayed: bool,
+}
+
+/// Why the edit store did not take an edit.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum MapEditStoreError {
+    /// The store's contract refused the edit (unknown unit, id grammar, bounds, properties).
+    #[error("the edit store refused the edit: {0}")]
+    Refused(String),
+    /// The edit conflicts with the store's state (reused idempotency key, fold required).
+    #[error("the edit conflicts with the edit store: {0}")]
+    Conflict(String),
+    /// The store is not configured or could not be reached; the edit was not recorded.
+    #[error("the edit store is unavailable: {0}")]
+    Unavailable(String),
+}
+
+/// The small store of edits not yet folded into the base tiles (ADR-0112).
+#[async_trait]
+pub trait MapEditStore: Send + Sync {
+    /// Appends one edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MapEditStoreError`] when the store refuses the edit or cannot be reached.
+    async fn append(&self, record: &MapEditRecord) -> Result<MapEditAppended, MapEditStoreError>;
+}

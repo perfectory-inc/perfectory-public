@@ -12,6 +12,7 @@ use tracing_subscriber::EnvFilter;
 mod identity_authorization;
 mod identity_http_client;
 mod identity_token_verifier;
+mod map_edit_http_store;
 mod routes;
 mod state;
 mod traffic;

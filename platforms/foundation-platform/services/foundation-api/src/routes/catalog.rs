@@ -2,6 +2,7 @@
 pub mod building_units;
 /// `GET /catalog/v1/complexes` — the paged, filtered industrial-complex collection.
 pub mod complex_search;
+pub mod map_edits;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,

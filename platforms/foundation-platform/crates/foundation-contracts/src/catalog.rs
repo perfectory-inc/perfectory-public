@@ -1068,3 +1068,33 @@ impl<'de> Deserialize<'de> for VectorTileManifestDocument {
         }
     }
 }
+
+/// An administrator's polygon edit, shown to customers before the next bake folds it into the
+/// tiles (root ADR-0112).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MapEditRequest {
+    /// The feature id the unit's tiles carry, e.g. a `complex_id`.
+    pub feature_id: String,
+    /// `upsert` (replace or add the polygon) or `delete` (remove it from the map).
+    pub op: String,
+    /// `GeoJSON` `Polygon` or `MultiPolygon` in EPSG:4326; required for `upsert`, absent for
+    /// `delete`.
+    #[schema(value_type = Option<Object>)]
+    pub geometry: Option<Value>,
+    /// The unit's public tile properties; required for `upsert`, absent for `delete`.
+    #[schema(value_type = Option<Object>)]
+    pub properties: Option<Value>,
+    /// Retry identity: the same key with the same edit is answered, not repeated.
+    pub idempotency_key: String,
+}
+
+/// The edit store's answer for a saved edit.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MapEditResponse {
+    /// The publication unit the edit belongs to.
+    pub unit: String,
+    /// The store's order for the edit; bakes fold edits through this sequence.
+    pub change_seq: u64,
+    /// Whether this answers an earlier request with the same idempotency key.
+    pub replayed: bool,
+}

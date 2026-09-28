@@ -12,6 +12,10 @@ pub enum ApiError {
     Forbidden(String),
     Conflict(String),
     NotFound(String),
+    /// The request is well-formed but its content is refused (e.g. an invalid polygon).
+    Unprocessable(String),
+    /// A dependency this request needs is not configured or not reachable.
+    Unavailable(String),
     /// Internal failures that must be logged and redacted from the HTTP response.
     Internal(String),
 }
@@ -23,6 +27,8 @@ impl IntoResponse for ApiError {
             Self::Forbidden(message) => (StatusCode::FORBIDDEN, message),
             Self::Conflict(message) => (StatusCode::CONFLICT, message),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, message),
+            Self::Unprocessable(message) => (StatusCode::UNPROCESSABLE_ENTITY, message),
+            Self::Unavailable(message) => (StatusCode::SERVICE_UNAVAILABLE, message),
             Self::Internal(detail) => {
                 let correlation_id = Uuid::new_v4();
                 tracing::error!(

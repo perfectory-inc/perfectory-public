@@ -111,7 +111,7 @@ pub fn evaluate_policy(input: &PolicyInput) -> PolicyDecision {
                 | (
                     "VECTOR_TILE_ADMIN",
                     "foundation.spatial",
-                    "manifest_admin" | "anchor_rebuild"
+                    "manifest_admin" | "anchor_rebuild" | "map_edit"
                 )
         )
     });
