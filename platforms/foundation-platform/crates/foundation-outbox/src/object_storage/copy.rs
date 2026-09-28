@@ -51,8 +51,8 @@ pub(super) fn copy_plan(request: &CreateOnlyCopyObjectRequest) -> Result<CopyPla
 /// Copies an immutable object and rehashes every destination byte against source ledger evidence.
 ///
 /// A create-only collision is recoverable only when the destination's full SHA-256 and byte count
-/// both match `expected`. Metadata checksums, ETags, and object names are never sufficient. Source
-/// and destination ETags/timestamps may differ, so the returned value carries destination evidence.
+/// both match `expected`. Metadata checksums, `ETags`, and object names are never sufficient. Source
+/// and destination `ETags`/timestamps may differ, so the returned value carries destination evidence.
 ///
 /// # Errors
 /// Returns `PublishError` for invalid source evidence, non-collision write errors, missing readback,
