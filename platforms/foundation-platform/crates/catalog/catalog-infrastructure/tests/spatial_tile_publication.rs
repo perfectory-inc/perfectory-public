@@ -42,6 +42,8 @@ use foundation_disposable_database::{run_in_disposable_database, TestResult};
 mod spatial_tile_publication_evidence;
 use spatial_tile_publication_evidence::seed_parcel_source_evidence;
 
+#[path = "spatial_tile_publication/lakehouse_bake.rs"]
+mod lakehouse_bake;
 #[path = "spatial_tile_publication/readdress.rs"]
 mod readdress;
 

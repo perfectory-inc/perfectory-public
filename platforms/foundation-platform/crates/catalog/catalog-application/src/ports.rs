@@ -335,6 +335,38 @@ impl StartStaticReleaseReaddressCommand {
     }
 }
 
+/// Starts a lakehouse bake: a new archive baked from a lakehouse snapshot of source plus admin
+/// edits, replacing the active validated static release (root ADR-0112).
+///
+/// The build takes a new data revision over `canonical_iceberg_snapshot_id`, bound to the same
+/// collected source as the input's revision; everything else is read from the locked ledger rows.
+#[derive(Clone, Debug)]
+pub struct StartLakehouseBakeCommand {
+    /// Publication unit being rebaked.
+    pub unit_key: String,
+    /// Expected active static release; the promotion replaces it.
+    pub input_release_id: VectorTileReleaseId,
+    /// The lakehouse snapshot the archive is baked from; must differ from the input's.
+    pub canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId,
+    /// Caller-chosen retry identity.
+    pub idempotency_key: String,
+    /// Staff operator requesting this publication.
+    pub operator_staff_id: StaffId,
+}
+
+impl StartLakehouseBakeCommand {
+    /// Digests the replaced release, the baked snapshot and actor independently of other builds.
+    #[must_use]
+    pub fn request_fingerprint(&self) -> RequestFingerprint {
+        RequestFingerprintBuilder::new(CatalogMutationKind::StartLakehouseBake)
+            .text(&self.unit_key)
+            .displayed(&self.input_release_id)
+            .text(self.canonical_iceberg_snapshot_id.as_str())
+            .displayed(&self.operator_staff_id)
+            .finish()
+    }
+}
+
 /// Command for recording what one static build attempt produced.
 #[derive(Clone, Debug)]
 pub struct RecordVectorTileBuildResultCommand {
@@ -957,6 +989,21 @@ pub trait CatalogUnitOfWork: Send + Sync {
         let _ = command;
         Err(CatalogError::InvalidVectorTileRuntimeManifest(
             "static readdress is not implemented by this Catalog unit of work".to_owned(),
+        ))
+    }
+
+    /// Starts a lakehouse bake that replaces the active validated static release (root ADR-0112).
+    ///
+    /// # Errors
+    /// Returns an error for a nonactive/nonstatic input, a snapshot equal to the input's, or a
+    /// conflicting idempotency claim.
+    async fn start_lakehouse_bake(
+        &self,
+        command: StartLakehouseBakeCommand,
+    ) -> Result<VectorTileBuildJobId, CatalogError> {
+        let _ = command;
+        Err(CatalogError::InvalidVectorTileRuntimeManifest(
+            "lakehouse bake is not implemented by this Catalog unit of work".to_owned(),
         ))
     }
 

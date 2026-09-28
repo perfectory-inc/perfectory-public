@@ -560,7 +560,7 @@ async fn a_readdress_build_freezes_its_source_selection_and_destination_in_the_d
 }
 
 /// Creates S1 through the production bake path; the existing fixture owns revision/projection facts.
-async fn seed_static_release(
+pub async fn seed_static_release(
     pool: &PgPool,
 ) -> TestResult<(VectorTileRuntimeManifest, VectorTileRuntimeManifest)> {
     let source_record_id = seed_source_record(pool).await?;
@@ -625,7 +625,7 @@ fn readdress_command(
     }
 }
 
-fn validated_result(
+pub fn validated_result(
     build_job_id: VectorTileBuildJobId,
     base_url: &str,
 ) -> TestResult<RecordVectorTileBuildResultCommand> {
@@ -650,7 +650,7 @@ fn validated_result(
     })
 }
 
-fn promotion_command(
+pub fn promotion_command(
     build_job_id: VectorTileBuildJobId,
     input: &catalog_domain::PublicationUnit,
     key: &str,
@@ -665,7 +665,7 @@ fn promotion_command(
     }
 }
 
-async fn release_json(pool: &PgPool, id: VectorTileReleaseId) -> TestResult<serde_json::Value> {
+pub async fn release_json(pool: &PgPool, id: VectorTileReleaseId) -> TestResult<serde_json::Value> {
     Ok(sqlx::query_scalar(
         "SELECT to_jsonb(release) FROM catalog.vector_tile_release AS release WHERE id = $1",
     )
@@ -674,7 +674,7 @@ async fn release_json(pool: &PgPool, id: VectorTileReleaseId) -> TestResult<serd
     .await?)
 }
 
-async fn ledger_counts(pool: &PgPool) -> TestResult<(i64, i64, i64, i64, i64, i64)> {
+pub async fn ledger_counts(pool: &PgPool) -> TestResult<(i64, i64, i64, i64, i64, i64)> {
     Ok(sqlx::query_as(
         "SELECT (SELECT count(*) FROM catalog.vector_tile_release),
                 (SELECT count(*) FROM catalog.vector_tile_build_job),
@@ -741,7 +741,7 @@ async fn clone_release(
     Ok(id)
 }
 
-fn assert_database_error(error: &sqlx::Error, code: &str, constraint: Option<&str>) {
+pub fn assert_database_error(error: &sqlx::Error, code: &str, constraint: Option<&str>) {
     let database = error
         .as_database_error()
         .expect("expected a PostgreSQL constraint error");

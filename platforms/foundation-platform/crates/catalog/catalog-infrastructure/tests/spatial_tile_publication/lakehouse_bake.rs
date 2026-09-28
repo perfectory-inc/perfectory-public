@@ -1,0 +1,241 @@
+//! A lakehouse bake replaces the active static release with an archive baked from a new lakehouse
+//! snapshot, under a new revision tied to the same collected source, and leaves no fallback
+//! (root ADR-0112).
+
+use super::readdress::{
+    assert_database_error, ledger_counts, promotion_command, release_json, seed_static_release,
+    validated_result,
+};
+use super::*;
+use catalog_application::ports::StartLakehouseBakeCommand;
+use foundation_shared_kernel::ids::VectorTileBuildJobId;
+
+/// A lakehouse snapshot other than the one the seeded static release serves.
+const GOLD_SNAPSHOT: &str = "841361364657368625";
+
+fn bake_command(
+    input_release_id: VectorTileReleaseId,
+    snapshot: &str,
+    key: &str,
+) -> TestResult<StartLakehouseBakeCommand> {
+    Ok(StartLakehouseBakeCommand {
+        unit_key: "complex".to_owned(),
+        input_release_id,
+        canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId::new(snapshot.to_owned())?,
+        idempotency_key: key.to_owned(),
+        operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
+    })
+}
+
+async fn fallback(pool: &PgPool) -> TestResult<(Option<Uuid>, Option<Uuid>)> {
+    Ok(sqlx::query_as(
+        "SELECT fallback_release_id, fallback_data_revision
+         FROM catalog.vector_tile_publication_unit WHERE unit_key = 'complex'",
+    )
+    .fetch_one(pool)
+    .await?)
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_lakehouse_bake_serves_a_new_revision_and_leaves_no_fallback() -> TestResult {
+    run_in_disposable_database("tile_lakehouse_bake", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let (_dynamic, original) = seed_static_release(&pool).await?;
+        let input = published_unit(&original, "complex")?;
+        assert!(
+            fallback(&pool).await?.0.is_some(),
+            "the seeded bake keeps a dynamic fallback"
+        );
+        let input_row = release_json(&pool, input.active_release_id).await?;
+
+        let uow = Arc::new(PgCatalogUnitOfWork::new(pool.clone()));
+        let lifecycle = VectorTileBuildLifecycle::new(uow.clone());
+        let command = bake_command(input.active_release_id, GOLD_SNAPSHOT, "lakehouse-bake-1")?;
+        let build_job_id = lifecycle.start_lakehouse_bake(command.clone()).await?;
+        assert_eq!(
+            lifecycle.start_lakehouse_bake(command.clone()).await?,
+            build_job_id
+        );
+
+        let (kind, output_revision, frozen): (String, Uuid, String) = sqlx::query_as(
+            "SELECT kind, output_data_revision, frozen_source_snapshot_id
+             FROM catalog.vector_tile_build_job WHERE id = $1",
+        )
+        .bind(build_job_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(kind, "lakehouse_bake");
+        assert_eq!(frozen, GOLD_SNAPSHOT);
+        assert_ne!(output_revision, input.data_revision.as_uuid());
+        let (input_source, output_source): (Uuid, Uuid) = sqlx::query_as(
+            "SELECT (SELECT source_record_id FROM catalog.publication_revision WHERE id = $1),
+                    (SELECT source_record_id FROM catalog.publication_revision WHERE id = $2)",
+        )
+        .bind(input.data_revision.as_uuid())
+        .bind(output_revision)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(
+            output_source, input_source,
+            "the new revision keeps the collected source"
+        );
+
+        let result = validated_result(build_job_id, "https://tiles.example.test")?;
+        lifecycle.record_result(result).await?;
+        let manifest = PromoteTileLayerStatic::new(uow)
+            .execute(promotion_command(
+                build_job_id,
+                input,
+                "promote-lakehouse-bake-1",
+            ))
+            .await?;
+        let selected = published_unit(&manifest, "complex")?;
+        assert_eq!(
+            selected.active_release_id,
+            static_release_id_for_build(build_job_id)
+        );
+        assert_eq!(selected.data_revision.as_uuid(), output_revision);
+        assert_eq!(
+            selected.canonical_iceberg_snapshot_id.as_str(),
+            GOLD_SNAPSHOT
+        );
+        assert_eq!(
+            selected.serving_generation.value(),
+            input.serving_generation.value() + 1
+        );
+        assert_eq!(
+            serde_json::to_value(&selected.layers)?,
+            serde_json::to_value(&input.layers)?
+        );
+        assert_eq!(
+            fallback(&pool).await?,
+            (None, None),
+            "ADR-0112: no fallback after a lakehouse bake"
+        );
+
+        let row = release_json(&pool, selected.active_release_id).await?;
+        for field in ["source_record_id", "source_file_asset_ids"] {
+            assert_eq!(
+                row[field], input_row[field],
+                "a lakehouse bake changed {field}"
+            );
+        }
+        assert!(row["readdressed_from_release_id"].is_null());
+
+        // A retried start answers with the one build and writes nothing.
+        let counts = ledger_counts(&pool).await?;
+        assert_eq!(lifecycle.start_lakehouse_bake(command).await?, build_job_id);
+        assert_eq!(ledger_counts(&pool).await?, counts);
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_lakehouse_bake_refuses_the_same_snapshot_a_stale_input_and_a_dynamic_input() -> TestResult
+{
+    run_in_disposable_database("tile_lakehouse_bake_refusals", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let (dynamic, original) = seed_static_release(&pool).await?;
+        let input = published_unit(&original, "complex")?;
+        let lifecycle =
+            VectorTileBuildLifecycle::new(Arc::new(PgCatalogUnitOfWork::new(pool.clone())));
+        let counts = ledger_counts(&pool).await?;
+
+        let same = bake_command(
+            input.active_release_id,
+            input.canonical_iceberg_snapshot_id.as_str(),
+            "same",
+        )?;
+        assert!(
+            lifecycle.start_lakehouse_bake(same).await.is_err(),
+            "the same snapshot is not a new bake"
+        );
+        let dynamic_input = published_unit(&dynamic, "complex")?.active_release_id;
+        let stale = bake_command(dynamic_input, GOLD_SNAPSHOT, "stale")?;
+        assert!(
+            lifecycle.start_lakehouse_bake(stale).await.is_err(),
+            "only the active static release"
+        );
+        assert_eq!(
+            ledger_counts(&pool).await?,
+            counts,
+            "a refused start writes nothing"
+        );
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn direct_sql_cannot_rebind_a_lakehouse_bake_to_another_source_or_change_its_inputs(
+) -> TestResult {
+    run_in_disposable_database("tile_lakehouse_bake_schema", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let (_dynamic, original) = seed_static_release(&pool).await?;
+        let input = published_unit(&original, "complex")?;
+        let lifecycle = VectorTileBuildLifecycle::new(Arc::new(PgCatalogUnitOfWork::new(pool.clone())));
+        let build_job_id: VectorTileBuildJobId = lifecycle
+            .start_lakehouse_bake(bake_command(input.active_release_id, GOLD_SNAPSHOT, "schema")?)
+            .await?;
+
+        // A revision over another snapshot anchored to a different collected source.
+        let other_source = Uuid::new_v4();
+        let foreign_revision = Uuid::new_v4();
+        let mut tx = pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
+             VALUES ($1, 'test', $2, repeat('b', 64))",
+        )
+        .bind(other_source)
+        .bind(format!("foreign-{other_source}"))
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO catalog.publication_revision
+             (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
+             SELECT $1, id, '841361364657368626', $2 FROM catalog.vector_tile_publication_unit
+             WHERE unit_key = 'complex'",
+        )
+        .bind(foreign_revision)
+        .bind(other_source)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+
+        let error = sqlx::query(
+            "INSERT INTO catalog.vector_tile_build_job
+             (id, publication_unit_id, input_release_id, input_data_revision, frozen_source_snapshot_id,
+              status, idempotency_key, kind, input_serving_generation, output_data_revision)
+             SELECT $1, publication_unit_id, input_release_id, input_data_revision,
+                    '841361364657368626', 'running', 'foreign', 'lakehouse_bake',
+                    input_serving_generation, $2
+             FROM catalog.vector_tile_build_job WHERE id = $3",
+        )
+        .bind(Uuid::now_v7())
+        .bind(foreign_revision)
+        .bind(build_job_id.as_uuid())
+        .execute(&pool)
+        .await
+        .expect_err("a lakehouse bake cannot claim a revision of another collected source");
+        assert_database_error(&error, "23514", None);
+
+        let error = sqlx::query(
+            "UPDATE catalog.vector_tile_build_job SET frozen_source_snapshot_id = '841361364657368626'
+             WHERE id = $1",
+        )
+        .bind(build_job_id.as_uuid())
+        .execute(&pool)
+        .await
+        .expect_err("a lakehouse bake's inputs are frozen");
+        assert_database_error(&error, "23514", None);
+        Ok(())
+    })
+    .await
+}
