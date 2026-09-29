@@ -2,13 +2,14 @@
 """Load the merged legal-dong boundary GeoJSON into `silver.administrative_boundaries`.
 
 Root ADR-0112: the administrative boundary layer bakes from the lakehouse, so its geometry and its
-identity live here first. Until now the only copy was a PostGIS projection whose unit ids were
-random UUIDs minted inside Postgres; here the id is derived from the collected fact itself:
+identity live here first. The id belongs to the place, not to its code (root ADR-0113 §9, ADR-0103
+§1): a legal dong keeps the id it had before, and a dong that was renumbered takes the id of the
+dong it came from. Only a dong with no predecessor gets a new id, derived from its first code:
 
-    administrative_unit_id = uuid5(NAMESPACE_URL, "scope:legal-dong:<10-digit canonical_code>")
+    administrative_unit_id = uuid5(NAMESPACE_URL, "scope:legal-dong:<first 10-digit code of the chain>")
 
-— the same seed string the Postgres registry already used as its stable key, and the same
-derivation `complex_id` uses, so there is one rule for polygon ids and the lakehouse owns it.
+Which new code came from which old code is the parcel lineage's dong pairing
+(`parcel_lineage.pair_legal_dongs`), handed in as `--predecessor-map`.
 
 The input is what `scripts/tiles/admin-boundary/convert.sh` + `merge.py` produce: EPSG:4326,
 `-makevalid`, properties EMD_CD (8 digits), EMD_NM, SIGUNGU_CD (5 digits), SIGUNGU_NM. Each run
@@ -92,8 +93,47 @@ def multipolygon_wkb(geometry: dict[str, Any]) -> bytes:
     return b"".join([struct.pack("<BII", 1, 6, len(polygons)), *(_polygon(p) for p in polygons)])
 
 
+def resolve_unit_ids(
+    codes: list[str], predecessor_of: dict[str, str], previous_ids: dict[str, str]
+) -> tuple[dict[str, str], dict[str, int]]:
+    """The id each code carries in this snapshot (ADR-0113 §9).
+
+    Kept when the code existed before; inherited from its predecessor when it was renumbered;
+    otherwise the v5 of its first code (a first snapshot's predecessor code is that code). An id is
+    never given to two codes: if two codes would inherit the same id, only the one that is the
+    predecessor's own continuation — the same code, else the first in order — takes it and the other
+    starts its own.
+    """
+
+    ids: dict[str, str] = {}
+    taken: set[str] = set()
+    counts = {"kept": 0, "inherited": 0, "new": 0, "collisions": 0}
+    ordered = sorted(codes, key=lambda c: (c not in previous_ids, c))
+    for code in ordered:
+        if code in previous_ids:
+            candidate, how = previous_ids[code], "kept"
+        elif code in predecessor_of:
+            old = predecessor_of[code]
+            candidate, how = previous_ids.get(old, administrative_unit_id(old)), "inherited"
+        else:
+            candidate, how = administrative_unit_id(code), "new"
+        if candidate in taken:
+            candidate, how = administrative_unit_id(code), "new"
+            counts["collisions"] += 1
+            if candidate in taken:
+                raise ValueError(f"no free id for legal dong {code}")
+        ids[code] = candidate
+        taken.add(candidate)
+        counts[how] += 1
+    return ids, counts
+
+
 def silver_rows(
-    features: list[dict[str, Any]], source_snapshot_id: str, source_record_id: str, ingested_at: datetime
+    features: list[dict[str, Any]],
+    source_snapshot_id: str,
+    source_record_id: str,
+    ingested_at: datetime,
+    unit_ids: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """One Silver row per legal dong, refusing anything the contract would refuse."""
 
@@ -119,7 +159,7 @@ def silver_rows(
             raise ValueError(f"legal dong {canonical_code} appears twice in one source snapshot")
         wkb = multipolygon_wkb(feature.get("geometry") or {})
         rows[canonical_code] = {
-            "administrative_unit_id": administrative_unit_id(canonical_code),
+            "administrative_unit_id": (unit_ids or {}).get(canonical_code) or administrative_unit_id(canonical_code),
             "scope_kind": SCOPE_KIND,
             "canonical_code": canonical_code,
             "display_name": emd_nm,
@@ -144,6 +184,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input", required=True, help="Merged GeoJSON from merge.py (EPSG:4326).")
     parser.add_argument("--source-snapshot-id", required=True, help="e.g. vworldkr__boundary_emd-30603-202606")
     parser.add_argument("--source-record-id", required=True, help="The Bronze object key(s) this snapshot came from.")
+    parser.add_argument("--predecessor-map", help="JSON {new 10-digit code: old 10-digit code} from the dong pairing")
     parser.add_argument("--summary-output")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-namespace", default="silver")
@@ -180,7 +221,13 @@ def main(argv: list[str] | None = None) -> int:
     validate_args(args)
     document = json.loads(Path(args.input).read_text(encoding="utf-8"))
     ingested_at = datetime.now(timezone.utc).replace(microsecond=0)
-    rows = silver_rows(document.get("features") or [], args.source_snapshot_id, args.source_record_id, ingested_at)
+    predecessor_of = json.loads(Path(args.predecessor_map).read_text(encoding="utf-8")) if args.predecessor_map else {}
+    features = document.get("features") or []
+    codes = [f"{str((f.get('properties') or {}).get('EMD_CD') or '').strip()}00" for f in features]
+    # Before Spark the previous snapshot is unknown; the ids computed here are what a first
+    # snapshot would get, and `main` recomputes them against the table before writing.
+    unit_ids, id_counts = resolve_unit_ids(codes, predecessor_of, {})
+    rows = silver_rows(features, args.source_snapshot_id, args.source_record_id, ingested_at, unit_ids)
     summary: dict[str, Any] = {
         "schema_version": SUMMARY_SCHEMA_VERSION,
         "job": JOB_NAME,
@@ -189,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         "row_count": len(rows),
         "geometry_srid": GEOMETRY_SRID,
         "status": "validated" if args.validate_only else "ready",
+        "ids": id_counts,
     }
     if not args.validate_only:
         SparkSession = load_pyspark()
@@ -219,6 +267,23 @@ def main(argv: list[str] | None = None) -> int:
             ).collect()[0]["n"]
             if present:
                 raise ValueError(f"{args.source_snapshot_id} is already in {table}; the table is append-only")
+            previous = spark.sql(
+                f"SELECT source_snapshot_id FROM {table} GROUP BY source_snapshot_id "
+                f"ORDER BY max(ingested_at_utc) DESC, source_snapshot_id DESC LIMIT 1"
+            ).collect()
+            previous_ids = {}
+            if previous:
+                previous_ids = {
+                    r["canonical_code"]: r["administrative_unit_id"]
+                    for r in spark.sql(
+                        f"SELECT canonical_code, administrative_unit_id FROM {table} "
+                        f"WHERE source_snapshot_id = '{previous[0]['source_snapshot_id']}'"
+                    ).collect()
+                }
+                summary["previous_snapshot_id"] = previous[0]["source_snapshot_id"]
+            unit_ids, id_counts = resolve_unit_ids(codes, predecessor_of, previous_ids)
+            rows = silver_rows(features, args.source_snapshot_id, args.source_record_id, ingested_at, unit_ids)
+            summary["row_count"] = len(rows)
             schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in CONTRACT["columns"])
             spark.createDataFrame(rows, schema=schema).select(*COLUMNS).createOrReplaceTempView("admin_candidate")
             spark.sql(f"INSERT INTO {table} SELECT {', '.join(COLUMNS)} FROM admin_candidate")
@@ -227,6 +292,7 @@ def main(argv: list[str] | None = None) -> int:
             ).collect()[0]["n"]
             if written != len(rows):
                 raise ValueError(f"{table} read back {written} rows for the snapshot, wrote {len(rows)}")
+            summary["ids"] = id_counts
             summary["canonical_iceberg_snapshot_id"] = str(
                 spark.sql(f"SELECT snapshot_id FROM {table}.snapshots ORDER BY committed_at DESC LIMIT 1")
                 .collect()[0]["snapshot_id"]
