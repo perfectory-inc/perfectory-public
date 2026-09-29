@@ -2338,12 +2338,103 @@ pub const GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED: LakehouseTableContract =
         load: LakehouseLoadUnit::Derived,
     };
 
+const SILVER_ADMINISTRATIVE_BOUNDARIES_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "administrative_unit_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "scope_kind",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "canonical_code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "display_name",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "parent_canonical_code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "parent_display_name",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_wkb",
+        logical_type: "binary",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_srid",
+        logical_type: "int",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_checksum_sha256",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_record_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "ingested_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// Canonical Silver `GeoParquet` table for legal-dong administrative boundaries, one
+/// append-only snapshot per collected source (root ADR-0112).
+pub const SILVER_ADMINISTRATIVE_BOUNDARIES: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.administrative_boundaries",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::GeoParquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: SILVER_ADMINISTRATIVE_BOUNDARIES_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["source_snapshot_id", "canonical_code"],
+    quality_gates: &[
+        "geometry_srid = 4326",
+        "(canonical_code, source_snapshot_id) unique",
+        "administrative_unit_id is the UUIDv5 of scope:legal-dong:<canonical_code>",
+        "canonical_code is 10 digits",
+        "geometry_checksum_sha256 is 64 lowercase hex",
+        "append_only",
+    ],
+    // 한 번의 적재가 수집 원천 스냅숏 하나를 통째로 덧붙인다. 같은 source_snapshot_id 는 두 번 들어가지 않는다.
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
     crate::SILVER_UNIT_OFFICIAL_PRICE,
     SILVER_INDUSTRIAL_COMPLEXES,
     SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES,
+    SILVER_ADMINISTRATIVE_BOUNDARIES,
     SILVER_PARCEL_BOUNDARIES,
     SILVER_LAND_USE_PLAN,
     SILVER_LAND_USE_ZONE_CODES,

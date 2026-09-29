@@ -16,7 +16,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 이 카탈로그에 없으므로 추정하지 않습니다. 실행 경로가 있다는 표시는 운영 배포·전국 적재 완료를 뜻하지 않습니다.
 
 현재 범위: 원천 **9그룹 / 134 endpoint**,
-Silver·Gold **24표**,
+Silver·Gold **25표**,
 서빙·운영 원장 **70표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
@@ -74,6 +74,7 @@ Silver·Gold **24표**,
 | ↳ 산업단지 프로필 원본을 변환하며 시군구 경계의 DBF를 주소 행정구역 판정에 사용한다. | | | | |
 | 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | — | — | — |
 | ↳ 권위 전체자료 추출을 계약 행으로 변환한다. 말소일이 비면 현행으로 유도하며 위조된 코드·날짜는 거부한다. | | | | |
+| 브이월드 공간·토지 파일: VWorld 읍면동 경계 | 1 endpoint | 행정경계(읍면동) (`silver.administrative_boundaries`) | — | — |
 
 ## 수집 이후 아직 연결되지 않은 데이터
 
@@ -203,6 +204,7 @@ Silver·Gold **24표**,
 |---|---|---|
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
+| `silver.administrative_boundaries` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 
 ## 서빙·운영 원장 전체 목록
 
@@ -361,6 +363,8 @@ Silver·Gold **24표**,
 | 지도 편집 원장 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 산업단지 경계 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 산업단지 경계 서빙본 → 산업단지 지도 타일 | `bake-lakehouse-tiles`<br>`platforms/foundation-platform/scripts/ops/map-edit-fold.sh` |
+| 브이월드 공간·토지 파일 → 행정경계(읍면동) | `platforms/foundation-platform/scripts/tiles/admin-boundary/convert.sh`<br>`platforms/foundation-platform/scripts/tiles/admin-boundary/merge.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py` |
+| 행정경계(읍면동) → 행정경계 지도 타일 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py` |
 
 ## 이전 지도에서 바뀐 점
 

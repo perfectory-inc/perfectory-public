@@ -430,6 +430,93 @@
         "object_suffix_separator": null
       }
     },
+    "silver.administrative_boundaries": {
+      "table_name": "silver.administrative_boundaries",
+      "physical_format": "GeoParquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "administrative_unit_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "scope_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "canonical_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "display_name",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "parent_canonical_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "parent_display_name",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": true
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "source_snapshot_id",
+        "canonical_code"
+      ],
+      "quality_gates": [
+        "geometry_srid = 4326",
+        "(canonical_code, source_snapshot_id) unique",
+        "administrative_unit_id is the UUIDv5 of scope:legal-dong:<canonical_code>",
+        "canonical_code is 10 digits",
+        "geometry_checksum_sha256 is 64 lowercase hex",
+        "append_only"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.parcel_boundaries": {
       "table_name": "silver.parcel_boundaries",
       "physical_format": "GeoParquet",
