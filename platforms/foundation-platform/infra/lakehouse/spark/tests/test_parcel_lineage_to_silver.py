@@ -14,20 +14,20 @@ import parcel_lineage as pl  # noqa: E402
 from legal_dong_code_snapshot_to_reference import read_code_file, snapshot_rows  # noqa: E402
 from parcel_lineage_to_silver import derive, parse_args  # noqa: E402
 
-# Synthetic codes (public repository). Old sido 99 was renumbered to 98 on 2099-07-01; in the same
+# Synthetic codes in the reserved 99999 range. Old dongs 99999-1xx were renumbered to 99999-2xx on 2099-07-01; in the same
 # change one dong's land was partly transferred into another dong and re-lotted.
 CODES = pl.parse_code_list(
     "\n".join(
         [
             "법정동코드\t법정동명\t폐지여부",
-            "9911010100\t합성도 가구 갑동\t폐지",
-            "9911010200\t합성도 가구 을동\t폐지",
-            "9812010100\t합성시 가구 갑동\t존재",
-            "9812010200\t합성시 나구 을동\t존재",
+            "9999910100\t합성도 가구 갑동\t폐지",
+            "9999910200\t합성도 가구 을동\t폐지",
+            "9999920100\t합성시 가구 갑동\t존재",
+            "9999920200\t합성시 나구 을동\t존재",
         ]
     )
 )
-OLD_A, OLD_B, NEW_A, NEW_B = "9911010100", "9911010200", "9812010100", "9812010200"
+OLD_A, OLD_B, NEW_A, NEW_B = "9999910100", "9999910200", "9999920100", "9999920200"
 
 
 def pnu(dong, main, sub=0):
@@ -78,7 +78,7 @@ class DeriveTest(unittest.TestCase):
     def test_the_real_tables_need_the_explicit_flag(self):
         args = parse_args([
             "--from-snapshot-id", "a", "--to-snapshot-id", "b", "--from-date", "2099-06-01", "--to-date", "2099-10-01",
-            "--from-sido", "99", "--to-sido", "98",
+            "--from-sido", "99", "--to-sido", "99",
         ])
         from parcel_lineage_to_silver import validate_args
 
@@ -88,7 +88,7 @@ class DeriveTest(unittest.TestCase):
 
 class CodeSnapshotLoaderTest(unittest.TestCase):
     def test_the_zipped_cp949_file_becomes_one_row_per_code(self):
-        text = "법정동코드\t법정동명\t폐지여부\n9812010100\t합성시 가구 갑동\t존재\n9911010100\t합성도 가구 갑동\t폐지\n"
+        text = "법정동코드\t법정동명\t폐지여부\n9999920100\t합성시 가구 갑동\t존재\n9999910100\t합성도 가구 갑동\t폐지\n"
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
             archive.writestr("codes.txt", text.encode("cp949"))
@@ -97,7 +97,7 @@ class CodeSnapshotLoaderTest(unittest.TestCase):
             path.write_bytes(buffer.getvalue())
             now = datetime(2099, 1, 1, tzinfo=timezone.utc)
             rows = snapshot_rows(read_code_file(path), date(2099, 9, 1), "bronze/synthetic/codes.zip", now)
-        self.assertEqual([(r["region_cd"], r["status"]) for r in rows], [("9812010100", pl.EXISTS), ("9911010100", pl.ABOLISHED)])
+        self.assertEqual([(r["region_cd"], r["status"]) for r in rows], [("9999910100", pl.ABOLISHED), ("9999920100", pl.EXISTS)])
         self.assertEqual({r["snapshot_date"] for r in rows}, {date(2099, 9, 1)})
 
 
