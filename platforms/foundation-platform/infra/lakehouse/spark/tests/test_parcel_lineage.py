@@ -95,7 +95,7 @@ class HistoryTextTest(unittest.TestCase):
             self.event(pnu(d, 9), "지목변경"),
         ]
         links = pl.history_links(events, "2099-01-01", "2099-12-31")
-        by_rel = {l.relation: (l.predecessor_pnu, l.successor_pnu, l.grade) for l in links}
+        by_rel = {link.relation: (link.predecessor_pnu, link.successor_pnu, link.grade) for link in links}
         self.assertEqual(by_rel["merge"], (pnu(d, 62), pnu(d, 88), "official"))
         self.assertEqual(by_rel["split"], (pnu(d, 454), pnu(d, 454, 30), "official"))
         self.assertEqual(by_rel["registration_conversion"], (pnu(d, 27, 1, mountain=True), pnu(d, 337, 58), "official"))
@@ -128,7 +128,7 @@ class BuildingAndAttributeEvidenceTest(unittest.TestCase):
         before = {"k1": old_a, "k2": old_b, "k3": old_b}
         after = {"k1": new_x, "k2": new_x, "k3": new_y}
         links = pl.building_links(before, after, {old_a, old_b}, {new_x, new_y})
-        self.assertEqual([(l.predecessor_pnu, l.successor_pnu, l.grade) for l in links], [(old_a, new_x, "code_derived")])
+        self.assertEqual([(link.predecessor_pnu, link.successor_pnu, link.grade) for link in links], [(old_a, new_x, "code_derived")])
 
     def test_attribute_grades(self):
         old = {
@@ -145,12 +145,54 @@ class BuildingAndAttributeEvidenceTest(unittest.TestCase):
             "n4": pl.ParcelFacts("55", "01", "02", "0"),
             "n5": pl.ParcelFacts("999", "01", "01", "0"),
         }
-        grades = {l.successor_pnu: (l.predecessor_pnu, l.grade) for l in pl.attribute_links(old, new, "jurisdiction_transfer")}
+        grades = {link.successor_pnu: (link.predecessor_pnu, link.grade) for link in pl.attribute_links(old, new, "jurisdiction_transfer")}
         self.assertEqual(grades["n1"], ("o1", "evidence_strong"))
         self.assertEqual(grades["n2"], ("o2", "needs_review"))
         self.assertEqual(grades["n3"], ("o3", "evidence_weak"))
         self.assertEqual(grades["n4"], ("o5", "evidence_weak"), "ownership breaks the area+category tie")
         self.assertEqual(grades["n5"], ("", "pending"))
+
+
+class LotOrderTest(unittest.TestCase):
+    OLD, NEW = "9999910100", "9999920200"
+
+    def facts(self, pairs):
+        return {p: pl.ParcelFacts(a, c) for p, a, c in pairs}
+
+    def test_parcels_between_anchors_pair_in_order_when_area_and_category_agree(self):
+        o, n = self.OLD, self.NEW
+        anchors = {pnu(n, 800): pnu(o, 10), pnu(n, 810): pnu(o, 20)}
+        new = self.facts([(pnu(n, 801), "34", "16"), (pnu(n, 802), "290", "16"), (pnu(n, 803), "11", "05")])
+        old = self.facts([(pnu(o, 11), "34", "16"), (pnu(o, 12), "290", "16"), (pnu(o, 13), "288", "16")])
+        links = pl.lot_order_links(anchors, new, old, new, old, "jurisdiction_transfer")
+        self.assertEqual(
+            {(link.successor_pnu, link.predecessor_pnu) for link in links},
+            {(pnu(n, 801), pnu(o, 11)), (pnu(n, 802), pnu(o, 12))},
+            "the forest parcel with no counterpart stays unpaired",
+        )
+        self.assertEqual({link.grade for link in links}, {"evidence_strong"})
+
+    def test_equal_gaps_pair_even_when_values_repeat(self):
+        o, n = self.OLD, self.NEW
+        anchors = {pnu(n, 800): pnu(o, 10), pnu(n, 810): pnu(o, 20)}
+        new = self.facts([(pnu(n, 801), "50", "14"), (pnu(n, 802), "50", "14")])
+        old = self.facts([(pnu(o, 11), "50", "14"), (pnu(o, 12), "50", "14")])
+        links = pl.lot_order_links(anchors, new, old, new, old, "jurisdiction_transfer")
+        self.assertEqual(sorted((link.successor_pnu, link.predecessor_pnu) for link in links), [(pnu(n, 801), pnu(o, 11)), (pnu(n, 802), pnu(o, 12))])
+
+    def test_the_rule_is_off_when_anchors_break_the_order(self):
+        o, n = self.OLD, self.NEW
+        anchors = {pnu(n, 800): pnu(o, 20), pnu(n, 810): pnu(o, 10)}
+        new = self.facts([(pnu(n, 801), "34", "16")])
+        old = self.facts([(pnu(o, 15), "34", "16")])
+        self.assertEqual(pl.lot_order_links(anchors, new, old, new, old, "jurisdiction_transfer"), [])
+
+    def test_repeated_values_in_an_unequal_gap_are_not_guessed(self):
+        o, n = self.OLD, self.NEW
+        anchors = {pnu(n, 800): pnu(o, 10), pnu(n, 810): pnu(o, 20)}
+        new = self.facts([(pnu(n, 801), "50", "14"), (pnu(n, 802), "50", "14"), (pnu(n, 803), "9", "05")])
+        old = self.facts([(pnu(o, 11), "50", "14"), (pnu(o, 12), "50", "14")])
+        self.assertEqual(pl.lot_order_links(anchors, new, old, new, old, "jurisdiction_transfer"), [])
 
 
 class EffectiveLinkTest(unittest.TestCase):

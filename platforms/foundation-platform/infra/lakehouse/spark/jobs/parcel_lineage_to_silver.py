@@ -188,7 +188,20 @@ def derive(
         )
     already = {link.successor_pnu for link in building}
     attribute = pl.attribute_links(old_facts, {p: v for p, v in new_facts.items() if p not in already}, "jurisdiction_transfer")
-    links = code_links + history + building + attribute
+    anchors = {
+        link.successor_pnu: link.predecessor_pnu
+        for link in building + attribute
+        if link.predecessor_pnu and link.grade in ("code_derived", "evidence_strong")
+    }
+    ordered = pl.lot_order_links(
+        anchors,
+        [p for p in moved_in if p not in anchors],
+        [p for p in old_facts if p not in set(anchors.values())],
+        new_facts,
+        old_facts,
+        "jurisdiction_transfer",
+    )
+    links = code_links + history + building + attribute + ordered
     best, conflicts = pl.effective_links(links)
     rec = pl.reconcile(before, after, vanished, appeared, links)
     summary = {
