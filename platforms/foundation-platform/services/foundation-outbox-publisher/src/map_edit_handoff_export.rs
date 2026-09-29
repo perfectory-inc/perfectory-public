@@ -78,11 +78,6 @@ pub(crate) struct SilverProjection {
 }
 
 impl SilverProjection {
-    /// The industrial complex CRS, EPSG:5186.
-    pub(crate) fn new() -> anyhow::Result<Self> {
-        Self::for_srid(SILVER_SRID)
-    }
-
     /// The projection into `srid`, which must be a Silver CRS this export knows.
     pub(crate) fn for_srid(srid: i32) -> anyhow::Result<Self> {
         match srid {
