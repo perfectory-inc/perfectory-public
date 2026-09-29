@@ -2513,6 +2513,156 @@ pub const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED: LakehouseTableContract = Lakehous
     load: LakehouseLoadUnit::Derived,
 };
 
+const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "region_cd",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "full_name",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "status",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "snapshot_date",
+        logical_type: "date",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_record_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "ingested_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// Every snapshot of the official 법정동코드 전체자료 (code, full name, 존재/폐지). The file carries no
+/// dates and no successors, so change is read by comparing two snapshots (root ADR-0113 §5).
+pub const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT: LakehouseTableContract = LakehouseTableContract {
+    table_name: "reference.legal_dong_code_snapshot",
+    layer: LakehouseLayer::Reference,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["snapshot_date", "region_cd"],
+    quality_gates: &[
+        "append_only",
+        "(snapshot_date, region_cd) unique",
+        "region_cd is 10 digits",
+        "status is 존재 or 폐지",
+    ],
+    // 스냅숏 파일 하나가 한 번의 적재다. 같은 파일을 두 번 넣지 않는다.
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
+const SILVER_PARCEL_LINEAGE_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "predecessor_pnu",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "successor_pnu",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "relation",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "cardinality",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "effective_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "grade",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "evidence_kind",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "evidence_ref",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "from_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "to_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "rules_version",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "derivation_run_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "derived_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// Old parcel -> new parcel, with relation, grade and evidence, for one pair of cadastral snapshots
+/// (root ADR-0113 §1·§4). Append-only; the effective link is the highest grade per parcel.
+pub const SILVER_PARCEL_LINEAGE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.parcel_lineage",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: SILVER_PARCEL_LINEAGE_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["to_snapshot_id", "successor_pnu"],
+    quality_gates: &[
+        "append_only",
+        "grade is official, code_derived, evidence_strong, evidence_weak, needs_review or pending",
+        "relation is code_change, jurisdiction_transfer, registration_conversion, merge, split, resurvey or other",
+        "predecessor_pnu is empty only for pending",
+        "polygon overlap is never evidence",
+    ],
+    // 스냅숏 쌍·규칙 판마다 도출 한 번이 한 번의 적재다. 같은 도출을 두 번 쌓지 않는다.
+    load: LakehouseLoadUnit::Run {
+        column: "derivation_run_id",
+    },
+};
+
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
@@ -2540,6 +2690,8 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_BUILDING_PANEL,
     GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
     GOLD_ADMINISTRATIVE_BOUNDARY_SERVED,
+    REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
+    SILVER_PARCEL_LINEAGE,
     REFERENCE_LEGAL_DONG_CODE,
     REFERENCE_SIGUNGU_CANONICAL_CROSSWALK,
 ];

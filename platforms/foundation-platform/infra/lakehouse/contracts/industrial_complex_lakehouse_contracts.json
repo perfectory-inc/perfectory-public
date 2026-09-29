@@ -3129,6 +3129,150 @@
         "unit": "derived"
       }
     },
+    "reference.legal_dong_code_snapshot": {
+      "table_name": "reference.legal_dong_code_snapshot",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "region_cd",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "full_name",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "snapshot_date",
+          "logical_type": "date",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "snapshot_date",
+        "region_cd"
+      ],
+      "quality_gates": [
+        "append_only",
+        "(snapshot_date, region_cd) unique",
+        "region_cd is 10 digits",
+        "status is 존재 or 폐지"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.parcel_lineage": {
+      "table_name": "silver.parcel_lineage",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "predecessor_pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "successor_pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "relation",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "cardinality",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "effective_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "grade",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "evidence_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "evidence_ref",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "from_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "to_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "rules_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "derivation_run_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "derived_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "to_snapshot_id",
+        "successor_pnu"
+      ],
+      "quality_gates": [
+        "append_only",
+        "grade is official, code_derived, evidence_strong, evidence_weak, needs_review or pending",
+        "relation is code_change, jurisdiction_transfer, registration_conversion, merge, split, resurvey or other",
+        "predecessor_pnu is empty only for pending",
+        "polygon overlap is never evidence"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "derivation_run_id"
+      }
+    },
     "reference.legal_dong_code": {
       "table_name": "reference.legal_dong_code",
       "physical_format": "Parquet",
