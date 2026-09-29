@@ -123,6 +123,7 @@ mod building_unit_building_link_load;
 mod building_unit_catalog_projection_load;
 mod handoff_manifest_support;
 mod handoff_object_support;
+mod lakehouse_tile_bake;
 mod map_edit_handoff_export;
 mod national_bronze_object_manifest;
 mod national_data_collection_async;
@@ -289,6 +290,7 @@ enum Command {
     PublishParcelBoundaryStaticRelease,
     ReaddressStaticRelease,
     ExportMapEditHandoff,
+    BakeLakehouseTiles,
     LoadBuildingCatalogProjection,
     LoadBuildingUnitBuildingLink,
     LoadBuildingUnitCatalogProjection,
@@ -579,6 +581,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
         Command::ReaddressStaticRelease => Box::pin(static_release_readdress::run()),
         Command::ExportMapEditHandoff => Box::pin(map_edit_handoff_export::run()),
+        Command::BakeLakehouseTiles => Box::pin(lakehouse_tile_bake::run()),
         Command::PublishParcelBoundaryStaticRelease => {
             Box::pin(parcel_boundary_static_release_publish::run())
         }
@@ -1162,6 +1165,7 @@ where
         }
         Some("readdress-static-release") => Ok(Command::ReaddressStaticRelease),
         Some("export-map-edit-handoff") => Ok(Command::ExportMapEditHandoff),
+        Some("bake-lakehouse-tiles") => Ok(Command::BakeLakehouseTiles),
         Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
         Some("publish-parcel-boundary-static-release") => {
             Ok(Command::PublishParcelBoundaryStaticRelease)

@@ -194,6 +194,6 @@
     {"id": "map-edit-store-to-silver-map-edit-ledger", "from": "map-edit-store", "to": "silver-map-edit-ledger", "relation": "feeds", "status": "implemented", "via": ["export-map-edit-handoff", "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py"]},
     {"id": "silver-map-edit-ledger-to-gold-industrial-complex-boundary-served", "from": "silver-map-edit-ledger", "to": "gold-industrial-complex-boundary-served", "relation": "feeds", "status": "implemented", "via": ["platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py"]},
     {"id": "silver-industrial-complex-boundaries-to-gold-industrial-complex-boundary-served", "from": "silver-industrial-complex-boundaries", "to": "gold-industrial-complex-boundary-served", "relation": "feeds", "status": "implemented", "via": ["platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py"]},
-    {"id": "gold-industrial-complex-boundary-served-to-complex-tiles", "from": "gold-industrial-complex-boundary-served", "to": "complex-tiles", "relation": "feeds", "status": "planned", "via": ["platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py"]}
+    {"id": "gold-industrial-complex-boundary-served-to-complex-tiles", "from": "gold-industrial-complex-boundary-served", "to": "complex-tiles", "relation": "feeds", "status": "implemented", "via": ["bake-lakehouse-tiles", "platforms/foundation-platform/scripts/ops/map-edit-fold.sh"]}
   ]
 }

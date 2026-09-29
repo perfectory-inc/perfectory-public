@@ -753,7 +753,7 @@ async fn build_archives(
     )
 }
 
-async fn create_only_upload_and_rehash(
+pub(crate) async fn create_only_upload_and_rehash(
     writer: &dyn ObjectStorageStreamingService,
     reader: &dyn ObjectStorageStreamingService,
     path: &Path,
@@ -1101,7 +1101,7 @@ async fn fetch_tile(
         .to_vec())
 }
 
-fn ensure_tool_success(tool: &str, output: &Output) -> anyhow::Result<()> {
+pub(crate) fn ensure_tool_success(tool: &str, output: &Output) -> anyhow::Result<()> {
     if output.status.success() {
         return Ok(());
     }
@@ -1133,7 +1133,7 @@ fn optional_env(name: &str) -> anyhow::Result<Option<String>> {
     }
 }
 
-fn bounded_failure_reason(error: &anyhow::Error) -> String {
+pub(crate) fn bounded_failure_reason(error: &anyhow::Error) -> String {
     error.to_string().chars().take(2_000).collect::<String>()
 }
 

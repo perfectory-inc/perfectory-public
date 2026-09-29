@@ -35,6 +35,18 @@ fn map_edit_handoff_export_command_is_explicit_and_accepts_no_arguments() {
 }
 
 #[test]
+fn lakehouse_tile_bake_command_is_explicit_and_accepts_no_arguments() {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "bake-lakehouse-tiles"]).unwrap(),
+        Command::BakeLakehouseTiles
+    );
+    assert!(!command_requires_expanded_stack(
+        Command::BakeLakehouseTiles
+    ));
+    assert!(parse_command(["foundation-outbox-publisher", "bake-lakehouse-tiles", "x"]).is_err());
+}
+
+#[test]
 fn unit_official_price_projection_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
