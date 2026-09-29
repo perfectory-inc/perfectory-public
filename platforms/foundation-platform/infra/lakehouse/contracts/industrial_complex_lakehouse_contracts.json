@@ -3273,6 +3273,80 @@
         "column": "derivation_run_id"
       }
     },
+    "silver.parcel_registry": {
+      "table_name": "silver.parcel_registry",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "parcel_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_from",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "valid_to",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "redirect_to",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "to_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "id_rules_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "derivation_run_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "recorded_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "pnu",
+        "valid_from"
+      ],
+      "quality_gates": [
+        "append_only",
+        "status is current, historic or redirected",
+        "redirect_to is set only for redirected",
+        "a parcel_id is never issued for a second parcel",
+        "every parcel of a promoted snapshot has exactly one current parcel_id"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "derivation_run_id"
+      }
+    },
     "reference.legal_dong_code": {
       "table_name": "reference.legal_dong_code",
       "physical_format": "Parquet",

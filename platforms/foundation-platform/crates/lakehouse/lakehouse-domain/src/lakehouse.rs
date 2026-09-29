@@ -2663,6 +2663,83 @@ pub const SILVER_PARCEL_LINEAGE: LakehouseTableContract = LakehouseTableContract
     },
 };
 
+const SILVER_PARCEL_REGISTRY_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "parcel_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "pnu",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "status",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "valid_from",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "valid_to",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "redirect_to",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "to_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "id_rules_version",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "derivation_run_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "recorded_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// Bitemporal parcel registry: which stable `parcel_id` a PNU carried, from when to when (root ADR-0113
+/// §2·§3). Rows only open, close or redirect; folding them in date order gives the registry now.
+pub const SILVER_PARCEL_REGISTRY: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.parcel_registry",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: SILVER_PARCEL_REGISTRY_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["pnu", "valid_from"],
+    quality_gates: &[
+        "append_only",
+        "status is current, historic or redirected",
+        "redirect_to is set only for redirected",
+        "a parcel_id is never issued for a second parcel",
+        "every parcel of a promoted snapshot has exactly one current parcel_id",
+    ],
+    // 스냅숏 전이(또는 등급 상승 재실행) 한 번이 한 번의 적재다.
+    load: LakehouseLoadUnit::Run {
+        column: "derivation_run_id",
+    },
+};
+
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
@@ -2692,6 +2769,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_ADMINISTRATIVE_BOUNDARY_SERVED,
     REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
     SILVER_PARCEL_LINEAGE,
+    SILVER_PARCEL_REGISTRY,
     REFERENCE_LEGAL_DONG_CODE,
     REFERENCE_SIGUNGU_CANONICAL_CROSSWALK,
 ];
