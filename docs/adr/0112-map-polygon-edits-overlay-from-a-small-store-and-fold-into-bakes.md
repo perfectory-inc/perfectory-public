@@ -145,3 +145,7 @@ ADR-0111 A 단계로 필지·행정경계·산업단지 세 레이어가 R2 정�
 > 출력은 Gold 스냅숏 위의 새 data revision(입력과 같은 수집 원천에 묶임), 승격 후 fallback 없음.
 > ④ 3번의 "delete 대상 존재 확인"은 저장 경로가 아니라 Gold 빌드가 한다(`deletes_of_absent_features`
 > 로 집계) — 존재 판정 원천이 곧 걷어낼 `serving_postgis` 뿐이기 때문이다.
+
+> **Revision (2026-09-29):** 행정경계 유닛의 id 규칙 `uuid5("scope:legal-dong:" + 현재 코드)` 는 코드가 바뀌면
+> id 가 바뀌어 ADR-0103 1항을 어긴다. [ADR-0113](./0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md)
+> 6항이 "승계 사슬의 가장 이른 코드" 로 바꾼다. 개편 전 7월 스냅숏은 두 규칙의 결과가 같다.
