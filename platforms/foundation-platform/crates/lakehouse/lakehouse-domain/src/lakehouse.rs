@@ -2740,6 +2740,202 @@ pub const SILVER_PARCEL_REGISTRY: LakehouseTableContract = LakehouseTableContrac
     },
 };
 
+const GOLD_PLACE_ID_REGISTRY_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "unit",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "scope",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "place_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "status",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "current_code",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "redirect_to",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "release_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "published_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// Every id a unit ever served and its status now (root ADR-0113 §8, the GERS registry).
+pub const GOLD_PLACE_ID_REGISTRY: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.place_id_registry",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
+    columns: GOLD_PLACE_ID_REGISTRY_COLUMNS,
+    partition_spec: &["unit", "scope"],
+    sort_order: &["place_id"],
+    quality_gates: &[
+        "one row per (unit, scope, place_id)",
+        "status is current, historic or redirected",
+        "redirect_to is set only for redirected",
+    ],
+    // silver.parcel_registry · silver.administrative_boundaries 에서 발행마다 (unit, scope) 단위로 다시 쓴다.
+    load: LakehouseLoadUnit::Derived,
+};
+
+const GOLD_PLACE_ID_BRIDGE_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "unit",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "scope",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "place_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "valid_from",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "valid_to",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "release_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "published_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// Id <-> source code (PNU or legal-dong code) with the period the pair held (root ADR-0113 §8).
+pub const GOLD_PLACE_ID_BRIDGE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.place_id_bridge",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
+    columns: GOLD_PLACE_ID_BRIDGE_COLUMNS,
+    partition_spec: &["unit", "scope"],
+    sort_order: &["place_id"],
+    quality_gates: &[
+        "a code maps to one place_id at any time",
+        "valid_to is empty only for the open period",
+    ],
+    // silver.parcel_registry · silver.administrative_boundaries 에서 발행마다 (unit, scope) 단위로 다시 쓴다.
+    load: LakehouseLoadUnit::Derived,
+};
+
+const GOLD_PLACE_ID_CHANGELOG_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "unit",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "scope",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "place_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "change",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "from_code",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "to_code",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "redirect_to",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "previous_release_id",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "release_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "published_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// What each release changed: added, retired, renumbered, redirected ids (root ADR-0113 §8).
+pub const GOLD_PLACE_ID_CHANGELOG: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.place_id_changelog",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
+    columns: GOLD_PLACE_ID_CHANGELOG_COLUMNS,
+    partition_spec: &["unit", "scope"],
+    sort_order: &["place_id"],
+    quality_gates: &[
+        "append_only",
+        "change is added, retired, renumbered or redirected",
+    ],
+    // 발행 한 번이 한 번의 적재다. 같은 발행을 두 번 쌓지 않는다.
+    load: LakehouseLoadUnit::Run {
+        column: "release_id",
+    },
+};
+
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
@@ -2770,6 +2966,9 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
     SILVER_PARCEL_LINEAGE,
     SILVER_PARCEL_REGISTRY,
+    GOLD_PLACE_ID_REGISTRY,
+    GOLD_PLACE_ID_BRIDGE,
+    GOLD_PLACE_ID_CHANGELOG,
     REFERENCE_LEGAL_DONG_CODE,
     REFERENCE_SIGUNGU_CANONICAL_CROSSWALK,
 ];

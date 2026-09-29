@@ -48,6 +48,7 @@ MODULES = (
     "parcel_registry_to_silver",
     "legal_dong_predecessor_map",
     "parcel_matching_gate",
+    "place_id_release_to_gold",
 )
 
 
