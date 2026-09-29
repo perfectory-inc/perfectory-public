@@ -148,4 +148,4 @@ ADR-0111 A 단계로 필지·행정경계·산업단지 세 레이어가 R2 정�
 
 > **Revision (2026-09-29):** 행정경계 유닛의 id 규칙 `uuid5("scope:legal-dong:" + 현재 코드)` 는 코드가 바뀌면
 > id 가 바뀌어 ADR-0103 1항을 어긴다. [ADR-0113](./0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md)
-> 6항이 "승계 사슬의 가장 이른 코드" 로 바꾼다. 개편 전 7월 스냅숏은 두 규칙의 결과가 같다.
+> 9항이 "승계 사슬의 가장 이른 코드" 로 바꾼다. 개편 전 7월 스냅숏은 두 규칙의 결과가 같다.

@@ -134,7 +134,7 @@
 | `docs/adr/0110-serve-all-map-tiles-from-r2-static-pmtiles.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
-| `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
