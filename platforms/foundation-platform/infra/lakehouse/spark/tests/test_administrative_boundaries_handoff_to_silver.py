@@ -71,8 +71,18 @@ class SilverRowsTest(unittest.TestCase):
         self.assertEqual(row["geometry_srid"], GEOMETRY_SRID)
         self.assertEqual(row["geometry_checksum_sha256"], hashlib.sha256(row["geometry_wkb"]).hexdigest())
 
+    def test_a_legal_dong_in_a_non_autonomous_gu_names_its_city(self):
+        rows = silver_rows([feature(emd="99993101", sgg="99990", sgg_nm="합성시")], "s", "r", NOW)
+        self.assertEqual(rows[0]["parent_canonical_code"], "99990")
+
     def test_bad_codes_names_parents_and_repeats_are_refused(self):
-        for bad in (feature(emd="9999910"), feature(emd_nm=""), feature(sgg="88888"), feature(sgg_nm="")):
+        for bad in (
+            feature(emd="9999910"),
+            feature(emd_nm=""),
+            feature(sgg="88888"),
+            feature(emd="99993101", sgg="99992"),
+            feature(sgg_nm=""),
+        ):
             with self.subTest(bad=bad["properties"]), self.assertRaises(ValueError):
                 silver_rows([bad], "s", "r", NOW)
         with self.assertRaisesRegex(ValueError, "twice"):

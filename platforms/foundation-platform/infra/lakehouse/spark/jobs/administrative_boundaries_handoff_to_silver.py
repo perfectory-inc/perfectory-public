@@ -108,7 +108,11 @@ def silver_rows(
             raise ValueError(f"feature {number} has no 8-digit EMD_CD and 5-digit SIGUNGU_CD")
         if not emd_nm or not sgg_nm:
             raise ValueError(f"feature {number} ({emd_cd}) has no name")
-        if not emd_cd.startswith(sgg_cd):
+        # The parent is the self-governing sigungu (`COL_ADM_SE`). A legal dong in a city's
+        # non-autonomous gu (e.g. `xxxx3` under city `xxxx0`) names the city, not its gu.
+        own_sigungu = emd_cd[:5]
+        city = f"{emd_cd[:4]}0"
+        if sgg_cd not in (own_sigungu, city):
             raise ValueError(f"legal dong {emd_cd} does not belong to sigungu {sgg_cd}")
         canonical_code = f"{emd_cd}00"
         if canonical_code in rows:
