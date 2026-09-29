@@ -1689,6 +1689,95 @@
         "object_suffix_separator": null
       }
     },
+    "silver.map_edit_ledger": {
+      "table_name": "silver.map_edit_ledger",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "unit",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "change_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "feature_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "op",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "geometry_geojson",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": false
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "properties_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "editor",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "edited_at",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "export_batch_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "unit",
+        "change_seq"
+      ],
+      "quality_gates": [
+        "geometry_srid = 5186",
+        "(unit, change_seq) unique",
+        "op is upsert or delete",
+        "an upsert carries geometry_wkb and geometry_geojson; a delete carries neither",
+        "append_only"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "export_batch_id"
+      }
+    },
     "gold.complex_catalog": {
       "table_name": "gold.complex_catalog",
       "physical_format": "Parquet",
@@ -2795,6 +2884,77 @@
         "unlinked units remain visible",
         "row_digest contains content only",
         "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.industrial_complex_boundary_served": {
+      "table_name": "gold.industrial_complex_boundary_served",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "complex_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "official_complex_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": true
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "origin",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "silver_iceberg_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "edits_through_change_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "complex_id"
+      ],
+      "quality_gates": [
+        "geometry_srid = 5186",
+        "one row per complex_id",
+        "origin is source or edit",
+        "geometry_checksum_sha256 is 64 lowercase hex"
       ],
       "load": {
         "unit": "derived"

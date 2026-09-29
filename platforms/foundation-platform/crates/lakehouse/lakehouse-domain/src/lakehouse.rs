@@ -2173,6 +2173,171 @@ pub const REFERENCE_SIGUNGU_CANONICAL_CROSSWALK: LakehouseTableContract = Lakeho
     },
 };
 
+const SILVER_MAP_EDIT_LEDGER_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "unit",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "change_seq",
+        logical_type: "long",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "feature_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "op",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_geojson",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "geometry_wkb",
+        logical_type: "binary",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "geometry_srid",
+        logical_type: "int",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_checksum_sha256",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "properties_json",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "editor",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "edited_at",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "export_batch_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "ingested_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// Append-only lakehouse ledger of admin polygon edits (root ADR-0112 §7).
+pub const SILVER_MAP_EDIT_LEDGER: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.map_edit_ledger",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: SILVER_MAP_EDIT_LEDGER_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["unit", "change_seq"],
+    quality_gates: &[
+        "geometry_srid = 5186",
+        "(unit, change_seq) unique",
+        "op is upsert or delete",
+        "an upsert carries geometry_wkb and geometry_geojson; a delete carries neither",
+        "append_only",
+    ],
+    // 한 번의 내보내기가 편집 묶음 하나를 덧붙인다. 같은 change_seq 는 두 번 들어가지 않는다.
+    load: LakehouseLoadUnit::Run {
+        column: "export_batch_id",
+    },
+};
+
+const GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "complex_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "official_complex_code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_wkb",
+        logical_type: "binary",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_srid",
+        logical_type: "int",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_checksum_sha256",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "origin",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "silver_iceberg_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "edits_through_change_seq",
+        logical_type: "long",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "published_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// Gold projection of industrial complex boundaries as they are tiled: current official Silver boundaries with every ledgered admin edit applied (root ADR-0112 §7·§9).
+pub const GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED: LakehouseTableContract =
+    LakehouseTableContract {
+        table_name: "gold.industrial_complex_boundary_served",
+        layer: LakehouseLayer::Gold,
+        physical_format: LakehousePhysicalFormat::Parquet,
+        serving_role: LakehouseServingRole::Projection,
+        current_row_predicate: None,
+        columns: GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED_COLUMNS,
+        partition_spec: &[],
+        sort_order: &["complex_id"],
+        quality_gates: &[
+            "geometry_srid = 5186",
+            "one row per complex_id",
+            "origin is source or edit",
+            "geometry_checksum_sha256 is 64 lowercase hex",
+        ],
+        // silver.industrial_complex_boundaries 와 silver.map_edit_ledger 에서 파생. 생산자가 overwrite 로 돌아 덮어쓴다.
+        load: LakehouseLoadUnit::Derived,
+    };
+
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
@@ -2192,10 +2357,12 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS,
     SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
+    SILVER_MAP_EDIT_LEDGER,
     GOLD_COMPLEX_CATALOG,
     GOLD_COMPLEX_SPATIAL_LOCATOR,
     GOLD_PARCEL_PANEL,
     GOLD_BUILDING_PANEL,
+    GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
     REFERENCE_LEGAL_DONG_CODE,
     REFERENCE_SIGUNGU_CANONICAL_CROSSWALK,
 ];
