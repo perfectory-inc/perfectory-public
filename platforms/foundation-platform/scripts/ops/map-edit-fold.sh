@@ -24,6 +24,20 @@ RELEASE_ROOT="${FOUNDATION_MAP_EDIT_FOLD_RELEASE_ROOT:-/opt/foundation-platform/
 : "${FOUNDATION_PLATFORM_MAP_EDIT_GATEWAY_BASE_URL:?map-edit.env must provide the edit store URL}"
 : "${FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN:?map-edit.env must provide the writer token}"
 
+# recovery.env 는 DATABASE_URL 을 들고 있지 않다 — daily-source-sweep.sh 와 같은 재료로 조립한다.
+if [ -z "${DATABASE_URL:-}" ]; then
+  : "${FOUNDATION_ADMIN_PASSWORD:?recovery.env must provide FOUNDATION_ADMIN_PASSWORD}"
+  DATABASE_URL="$(python3 - <<PY
+import os, urllib.parse
+q = lambda s: urllib.parse.quote(s, safe=str())
+port = os.environ.get("FOUNDATION_DB_PORT", "15434")
+print("postgres://foundation_admin:" + q(os.environ["FOUNDATION_ADMIN_PASSWORD"])
+      + "@127.0.0.1:" + port + "/foundation")
+PY
+)"
+  export DATABASE_URL
+fi
+
 mkdir -p "${STATE_ROOT}"
 journal="${STATE_ROOT}/journal.log"
 run_log="${STATE_ROOT}/last-run.log"
@@ -90,7 +104,11 @@ FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_OUTPUT="${work}/edits.jsonl" \
   "${PUBLISHER_BIN}" export-map-edit-handoff >> "${run_log}" 2>&1
 
 container_work="/workspace/target/lakehouse/map-edit-fold/${UNIT}/${run_id}"
+# 한 번 쓰고 끝나는 초기화 컨테이너가 이름을 붙잡고 있으면 compose run 이 이름 충돌로 죽는다.
+docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
+: "${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:?map-edit-fold.env must name a writable Ivy cache}"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
+FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE}" \
 docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
   -p foundation-platform-compute --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \

@@ -18,4 +18,4 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/foundation-platform/map-edit-fold /var/lib/foundation-platform/lakehouse
+ReadWritePaths=/var/lib/foundation-platform/map-edit-fold /var/lib/foundation-platform/lakehouse /var/lib/foundation-platform/lakehouse-ivy
