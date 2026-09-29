@@ -3347,6 +3347,204 @@
         "column": "derivation_run_id"
       }
     },
+    "gold.place_id_registry": {
+      "table_name": "gold.place_id_registry",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "unit",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "scope",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "current_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "redirect_to",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "release_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "unit",
+        "scope"
+      ],
+      "sort_order": [
+        "place_id"
+      ],
+      "quality_gates": [
+        "one row per (unit, scope, place_id)",
+        "status is current, historic or redirected",
+        "redirect_to is set only for redirected"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.place_id_bridge": {
+      "table_name": "gold.place_id_bridge",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "unit",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "scope",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_from",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_to",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "release_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "unit",
+        "scope"
+      ],
+      "sort_order": [
+        "place_id"
+      ],
+      "quality_gates": [
+        "a code maps to one place_id at any time",
+        "valid_to is empty only for the open period"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.place_id_changelog": {
+      "table_name": "gold.place_id_changelog",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "unit",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "scope",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "change",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "from_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "to_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "redirect_to",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "previous_release_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "release_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "unit",
+        "scope"
+      ],
+      "sort_order": [
+        "place_id"
+      ],
+      "quality_gates": [
+        "append_only",
+        "change is added, retired, renumbered or redirected"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "release_id"
+      }
+    },
     "reference.legal_dong_code": {
       "table_name": "reference.legal_dong_code",
       "physical_format": "Parquet",
