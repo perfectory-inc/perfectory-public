@@ -2493,26 +2493,25 @@ const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
 
 /// The administrative boundaries exactly as they are tiled: the newest Silver snapshot with every
 /// ledgered `admin` edit applied (root ADR-0112 §7·§9).
-pub const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED: LakehouseTableContract =
-    LakehouseTableContract {
-        table_name: "gold.administrative_boundary_served",
-        layer: LakehouseLayer::Gold,
-        physical_format: LakehousePhysicalFormat::Parquet,
-        serving_role: LakehouseServingRole::Projection,
-        current_row_predicate: None,
-        columns: GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS,
-        partition_spec: &[],
-        sort_order: &["administrative_unit_id"],
-        quality_gates: &[
-            "geometry_srid = 4326",
-            "one row per administrative_unit_id",
-            "(scope_kind, canonical_code) unique",
-            "origin is source or edit",
-            "geometry_checksum_sha256 is 64 lowercase hex",
-        ],
-        // silver.administrative_boundaries 와 silver.map_edit_ledger 에서 파생. 생산자가 overwrite 로 돌아 덮어쓴다.
-        load: LakehouseLoadUnit::Derived,
-    };
+pub const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.administrative_boundary_served",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
+    columns: GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["administrative_unit_id"],
+    quality_gates: &[
+        "geometry_srid = 4326",
+        "one row per administrative_unit_id",
+        "(scope_kind, canonical_code) unique",
+        "origin is source or edit",
+        "geometry_checksum_sha256 is 64 lowercase hex",
+    ],
+    // silver.administrative_boundaries 와 silver.map_edit_ledger 에서 파생. 생산자가 overwrite 로 돌아 덮어쓴다.
+    load: LakehouseLoadUnit::Derived,
+};
 
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
