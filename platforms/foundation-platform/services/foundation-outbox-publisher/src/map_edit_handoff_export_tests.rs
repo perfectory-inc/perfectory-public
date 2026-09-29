@@ -23,7 +23,7 @@ fn edit<'a>(op: &'a str, geometry: Option<&'a Value>, properties: &'a Value) -> 
 
 #[test]
 fn the_projection_origin_lands_on_the_silver_false_origin() -> anyhow::Result<()> {
-    let projection = SilverProjection::new()?;
+    let projection = SilverProjection::for_srid(SILVER_SRID)?;
     // EPSG:5186's own definition: lat_0=38, lon_0=127 maps to x_0=200000, y_0=600000.
     let (x, y) = projection.project(127.0, 38.0)?; // public-repository-safety: reviewed-runtime-coordinate
     assert!((x - 200_000.0).abs() < 1e-6, "x={x}");
@@ -33,7 +33,7 @@ fn the_projection_origin_lands_on_the_silver_false_origin() -> anyhow::Result<()
 
 #[test]
 fn an_upsert_becomes_a_little_endian_wkb_multipolygon_in_the_silver_crs() -> anyhow::Result<()> {
-    let projection = SilverProjection::new()?;
+    let projection = SilverProjection::for_srid(SILVER_SRID)?;
     let properties = json!({"official_complex_code": "SYN"});
     let geometry = square();
     let row = handoff_row(
@@ -85,7 +85,7 @@ fn an_upsert_becomes_a_little_endian_wkb_multipolygon_in_the_silver_crs() -> any
 
 #[test]
 fn a_delete_carries_no_geometry() -> anyhow::Result<()> {
-    let projection = SilverProjection::new()?;
+    let projection = SilverProjection::for_srid(SILVER_SRID)?;
     let properties = json!({});
     let row = handoff_row("complex", edit("delete", None, &properties), &projection)?;
     assert_eq!(
@@ -102,7 +102,7 @@ fn a_delete_carries_no_geometry() -> anyhow::Result<()> {
 #[test]
 fn an_invalid_or_mismatched_edit_is_refused_before_it_becomes_lakehouse_data() -> anyhow::Result<()>
 {
-    let projection = SilverProjection::new()?;
+    let projection = SilverProjection::for_srid(SILVER_SRID)?;
     let properties = json!({});
     let bow_tie = json!({"type": "Polygon", "coordinates": [[
         [127.1231, 36.1231], [127.1234, 36.1234], [127.1234, 36.1231], [127.1231, 36.1234], [127.1231, 36.1231]
@@ -118,5 +118,27 @@ fn an_invalid_or_mismatched_edit_is_refused_before_it_becomes_lakehouse_data() -
     }
     let not_an_object = json!([1]);
     assert!(handoff_row("complex", edit("delete", None, &not_an_object), &projection).is_err());
+    Ok(())
+}
+
+#[test]
+fn a_unit_kept_in_epsg_4326_gets_the_saved_coordinates_unchanged() -> anyhow::Result<()> {
+    let projection = SilverProjection::for_srid(4326)?;
+    let properties = json!({"canonical_code": "SYN"});
+    let geometry = square();
+    let row = handoff_row(
+        "admin",
+        edit("upsert", Some(&geometry), &properties),
+        &projection,
+    )?;
+    assert_eq!(row.geometry_srid, 4326);
+    let hex = row.geometry_wkb_hex.unwrap_or_default();
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16))
+        .collect::<Result<Vec<u8>, _>>()?;
+    assert_eq!(f64::from_le_bytes(bytes[22..30].try_into()?), 127.1231);
+    assert_eq!(f64::from_le_bytes(bytes[30..38].try_into()?), 36.1231);
+    assert!(SilverProjection::for_srid(3857).is_err());
     Ok(())
 }

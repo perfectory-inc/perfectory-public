@@ -23,6 +23,19 @@ SLACK_CHANNEL="${FOUNDATION_MAP_EDIT_FOLD_SLACK_CHANNEL:-#alerts}"
 MAX_PENDING_AGE_HOURS="${FOUNDATION_MAP_EDIT_FOLD_MAX_PENDING_AGE_HOURS:-6}"
 RELEASE_ROOT="${FOUNDATION_MAP_EDIT_FOLD_RELEASE_ROOT:-/opt/foundation-platform/current}"
 
+# 유닛마다 Silver 좌표계와 서빙본을 만드는 Spark 작업이 다르다. 좌표계의 정본은 각 서빙본
+# 계약의 geometry_srid 관문이다 — 여기 값이 어긋나면 Spark 작업이 편집 내보내기를 거부한다.
+case "${UNIT}" in
+  complex)
+    HANDOFF_SRID=5186
+    SERVED_JOB=industrial_complex_boundary_served_gold.py
+    ;;
+  *)
+    echo "map-edit-fold: 모르는 유닛 ${UNIT}" >&2
+    exit 64
+    ;;
+esac
+
 : "${FOUNDATION_PLATFORM_MAP_EDIT_GATEWAY_BASE_URL:?map-edit.env must provide the edit store URL}"
 : "${FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN:?map-edit.env must provide the writer token}"
 
@@ -102,6 +115,7 @@ mkdir -p "${work}"
 chmod 0777 "${work}" # Spark 컨테이너는 uid 185 로 쓴다.
 
 FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_UNIT="${UNIT}" \
+FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_SRID="${HANDOFF_SRID}" \
 FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_OUTPUT="${work}/edits.jsonl" \
   "${PUBLISHER_BIN}" export-map-edit-handoff >> "${run_log}" 2>&1
 
@@ -117,7 +131,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
   spark spark-submit --master 'local[4]' --driver-memory 4g --conf spark.jars.ivy=/tmp/.ivy2 \
   --packages "$(python3 -c "import sys; sys.path.insert(0, '${RELEASE_ROOT}/infra/lakehouse/spark/jobs'); from lakehouse_engine import iceberg_packages; print(iceberg_packages())")" \
-  /workspace/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py \
+  "/workspace/infra/lakehouse/spark/jobs/${SERVED_JOB}" \
   --edits-input "${container_work}/edits.jsonl" \
   --output "${container_work}/served.jsonl" \
   --summary-output "${container_work}/served-summary.json" \

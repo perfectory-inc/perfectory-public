@@ -5,6 +5,8 @@ fn summary(rows: usize) -> ServedSummary {
     serde_json::from_value(json!({
         "schema_version": SERVED_SUMMARY_SCHEMA,
         "unit": "complex",
+        "feature_id_property": "complex_id",
+        "geometry_srid": 5186,
         "canonical_iceberg_snapshot_id": "841361364657368625",
         "edits_through_change_seq": 2,
         "served_row_count": rows,
@@ -15,8 +17,8 @@ fn summary(rows: usize) -> ServedSummary {
 
 fn line(id: &str, code: &str) -> String {
     json!({
-        "complex_id": id, "official_complex_code": code, "geometry_wkb_hex": "0106000000",
-        "geometry_srid": 5186, "geometry_checksum_sha256": "a", "origin": "source"
+        "feature_id": id, "properties": {"official_complex_code": code},
+        "geometry_wkb_hex": "0106000000", "geometry_srid": 5186, "origin": "source"
     })
     .to_string()
 }
@@ -51,7 +53,7 @@ fn served_rows_are_read_once_each_and_counted_against_the_summary() -> anyhow::R
     );
     let repeated = format!("{}\n{}\n", line("a", "SYN-1"), line("a", "SYN-2"));
     assert!(read_served_rows(&repeated, &summary(2)).is_err());
-    let wrong_crs = json!({"complex_id": "a", "official_complex_code": "x",
+    let wrong_crs = json!({"feature_id": "a", "properties": {"official_complex_code": "x"},
         "geometry_wkb_hex": "01", "geometry_srid": 4326})
     .to_string();
     assert!(read_served_rows(&wrong_crs, &summary(1)).is_err());
@@ -59,11 +61,35 @@ fn served_rows_are_read_once_each_and_counted_against_the_summary() -> anyhow::R
 }
 
 #[test]
-fn the_gdal_csv_quotes_codes_and_keeps_hex_wkb() -> anyhow::Result<()> {
+fn rows_with_different_property_sets_or_an_id_repeated_as_a_property_are_refused() {
+    let other = json!({"feature_id": "b", "properties": {"other": "x"},
+        "geometry_wkb_hex": "01", "geometry_srid": 5186})
+    .to_string();
+    let text = format!("{}\n{other}\n", line("a", "SYN-1"));
+    assert!(read_served_rows(&text, &summary(2)).is_err());
+    let repeated = json!({"feature_id": "a", "properties": {"complex_id": "a"},
+        "geometry_wkb_hex": "01", "geometry_srid": 5186})
+    .to_string();
+    assert!(read_served_rows(&repeated, &summary(1)).is_err());
+}
+
+#[test]
+fn the_summary_crs_must_be_one_the_bake_reprojects() {
+    let mut bad = summary(1);
+    bad.geometry_srid = 3857;
+    assert!(bad.validate("complex").is_err());
+}
+
+#[test]
+fn the_gdal_csv_carries_the_id_then_every_property_quoted() -> anyhow::Result<()> {
     let rows = read_served_rows(&line("a", "SYN\"1"), &summary(1))?;
     assert_eq!(
-        gdal_csv(&rows),
-        "complex_id,official_complex_code,geometry\na,\"SYN\"\"1\",0106000000\n"
+        gdal_csv(&rows, "complex_id"),
+        "\"complex_id\",\"official_complex_code\",geometry\n\"a\",\"SYN\"\"1\",0106000000\n"
+    );
+    assert_eq!(
+        served_properties(&rows, "complex_id"),
+        ["complex_id".to_owned(), "official_complex_code".to_owned()]
     );
     Ok(())
 }

@@ -1,9 +1,10 @@
 //! Exports the edit store's unfolded edits as the handoff the served-Gold Spark job reads
 //! (root ADR-0112 §7).
 //!
-//! Silver keeps boundaries in their source CRS (EPSG:5186) and the Spark image has no projection
-//! library (root ADR-0042), so an edit's polygon, saved in EPSG:4326, is reprojected here into the
-//! Silver CRS and written as WKB. The original GeoJSON travels too, so the lakehouse ledger keeps
+//! Silver keeps each unit's boundaries in their source CRS — EPSG:5186 for industrial complexes,
+//! EPSG:4326 for administrative boundaries and parcels — and the Spark image has no projection
+//! library (root ADR-0042), so an edit's polygon, saved in EPSG:4326, is written here as WKB in the
+//! unit's Silver CRS (`FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_SRID`). The original GeoJSON travels too, so the lakehouse ledger keeps
 //! exactly what the administrator saved. Each geometry is checked again with the same OGC validity
 //! rules the save path applied: this command is the last step before the edit becomes lakehouse data.
 
@@ -23,8 +24,10 @@ use crate::public_data_control_support::{optional_env_value, required_env_value}
 const PREFIX: &str = "FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF";
 const GATEWAY_BASE_URL_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_GATEWAY_BASE_URL";
 const WRITE_TOKEN_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN";
-/// The Silver boundary CRS (`silver.industrial_complex_boundaries`: `geometry_srid = 5186`).
+/// The industrial complex Silver CRS (`silver.industrial_complex_boundaries`: `geometry_srid = 5186`).
 pub(crate) const SILVER_SRID: i32 = 5186;
+/// The CRS edits are saved in, and the Silver CRS of the units that keep it.
+const EPSG_4326: i32 = 4326;
 const EPSG_5186_PROJ: &str =
     "+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs";
 const EPSG_4326_PROJ: &str = "+proj=longlat +ellps=GRS80 +no_defs";
@@ -67,23 +70,42 @@ pub(crate) struct EditHandoffRow {
     pub(crate) edited_at: String,
 }
 
-/// Reprojects EPSG:4326 longitude/latitude into the Silver CRS.
+/// Carries EPSG:4326 longitude/latitude into a unit's Silver CRS: through proj for EPSG:5186,
+/// unchanged for EPSG:4326.
 pub(crate) struct SilverProjection {
-    source: Proj,
-    target: Proj,
+    srid: i32,
+    projections: Option<(Proj, Proj)>,
 }
 
 impl SilverProjection {
-    pub(crate) fn new() -> anyhow::Result<Self> {
-        Ok(Self {
-            source: Proj::from_proj_string(EPSG_4326_PROJ).context("EPSG:4326 projection")?,
-            target: Proj::from_proj_string(EPSG_5186_PROJ).context("EPSG:5186 projection")?,
-        })
+    /// The projection into `srid`, which must be a Silver CRS this export knows.
+    pub(crate) fn for_srid(srid: i32) -> anyhow::Result<Self> {
+        match srid {
+            EPSG_4326 => Ok(Self {
+                srid,
+                projections: None,
+            }),
+            SILVER_SRID => Ok(Self {
+                srid,
+                projections: Some((
+                    Proj::from_proj_string(EPSG_4326_PROJ).context("EPSG:4326 projection")?,
+                    Proj::from_proj_string(EPSG_5186_PROJ).context("EPSG:5186 projection")?,
+                )),
+            }),
+            other => bail!("EPSG:{other} is not a Silver CRS the map edit export writes"),
+        }
+    }
+
+    pub(crate) const fn srid(&self) -> i32 {
+        self.srid
     }
 
     pub(crate) fn project(&self, longitude: f64, latitude: f64) -> anyhow::Result<(f64, f64)> {
+        let Some((source, target)) = &self.projections else {
+            return Ok((longitude, latitude));
+        };
         let mut point = (longitude.to_radians(), latitude.to_radians(), 0.0_f64);
-        transform(&self.source, &self.target, &mut point)
+        transform(source, target, &mut point)
             .context("coordinate transformation to EPSG:5186 failed")?;
         ensure!(
             point.0.is_finite() && point.1.is_finite(),
@@ -180,7 +202,7 @@ pub(crate) fn handoff_row(
         op: edit.op.to_owned(),
         geometry_geojson,
         geometry_wkb_hex,
-        geometry_srid: SILVER_SRID,
+        geometry_srid: projection.srid(),
         geometry_checksum_sha256,
         properties_json: serde_json::to_string(edit.properties)?,
         editor: edit.editor.to_owned(),
@@ -267,7 +289,12 @@ pub async fn run() -> anyhow::Result<()> {
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
     let edits = read_edits(&client, &base_url, &token, &unit).await?;
-    let projection = SilverProjection::new()?;
+    let srid = optional_env_value(&format!("{PREFIX}_SRID"))?
+        .map(|value| value.parse::<i32>())
+        .transpose()
+        .context("SRID must be an integer")?
+        .unwrap_or(SILVER_SRID);
+    let projection = SilverProjection::for_srid(srid)?;
     // Never overwritten: a handoff is evidence of what one fold carried.
     let mut file = std::fs::OpenOptions::new()
         .write(true)

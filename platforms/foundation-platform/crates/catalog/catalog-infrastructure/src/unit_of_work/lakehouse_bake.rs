@@ -37,8 +37,7 @@ pub(super) async fn start(
         "SELECT unit.id AS publication_unit_id, unit.active_release_id, unit.serving_generation,
                 release.data_revision, release.canonical_iceberg_snapshot_id,
                 release.source_kind, release.validated_at,
-                revision.source_record_id, revision.bronze_object_id,
-                revision.derived_from_administrative_revision
+                revision.source_record_id, revision.bronze_object_id
          FROM catalog.vector_tile_publication_unit AS unit
          JOIN catalog.vector_tile_release AS release
            ON release.id = $2 AND release.publication_unit_id = unit.id
@@ -122,9 +121,11 @@ async fn mint_output_revision(
 ) -> Result<Uuid, CatalogError> {
     let source_record_id: Option<Uuid> = input.try_get("source_record_id").map_err(map_sqlx)?;
     let bronze_object_id: Option<Uuid> = input.try_get("bronze_object_id").map_err(map_sqlx)?;
-    let derived_from: Option<Uuid> = input
-        .try_get("derived_from_administrative_revision")
-        .map_err(map_sqlx)?;
+    // Not the input's administrative revision: that link is keyed by the administrative revision's
+    // own snapshot, which a Gold snapshot never equals, so carrying it would be refused by
+    // `publication_revision_administrative_lineage_fkey` — and it would claim a derivation this
+    // revision does not have. A lakehouse bake derives from the Gold snapshot it names.
+    let derived_from: Option<Uuid> = None;
     // The revision ledger admits writes only from a publisher transaction.
     sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
         .execute(&mut **tx)

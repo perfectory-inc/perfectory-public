@@ -2252,7 +2252,7 @@ pub const SILVER_MAP_EDIT_LEDGER: LakehouseTableContract = LakehouseTableContrac
     partition_spec: &[],
     sort_order: &["unit", "change_seq"],
     quality_gates: &[
-        "geometry_srid = 5186",
+        "geometry_srid is the Silver CRS of the unit",
         "(unit, change_seq) unique",
         "op is upsert or delete",
         "an upsert carries geometry_wkb and geometry_geojson; a delete carries neither",
