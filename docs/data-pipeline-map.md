@@ -203,8 +203,6 @@ Silver·Gold **24표**,
 |---|---|---|
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
-| `silver.map_edit_ledger` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
-| `gold.industrial_complex_boundary_served` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 
 ## 서빙·운영 원장 전체 목록
 
@@ -362,7 +360,7 @@ Silver·Gold **24표**,
 | 지도 편집 저장소 → 지도 편집 원장 | `export-map-edit-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 지도 편집 원장 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 산업단지 경계 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
-| 산업단지 경계 서빙본 → 산업단지 지도 타일 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
+| 산업단지 경계 서빙본 → 산업단지 지도 타일 | `bake-lakehouse-tiles`<br>`platforms/foundation-platform/scripts/ops/map-edit-fold.sh` |
 
 ## 이전 지도에서 바뀐 점
 
