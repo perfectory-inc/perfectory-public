@@ -2415,7 +2415,7 @@ pub const SILVER_ADMINISTRATIVE_BOUNDARIES: LakehouseTableContract = LakehouseTa
     quality_gates: &[
         "geometry_srid = 4326",
         "(canonical_code, source_snapshot_id) unique",
-        "administrative_unit_id is the UUIDv5 of scope:legal-dong:<canonical_code>",
+        "administrative_unit_id is kept across renumbering; a new place gets the UUIDv5 of scope:legal-dong:<its first code>",
         "canonical_code is 10 digits",
         "geometry_checksum_sha256 is 64 lowercase hex",
         "append_only",

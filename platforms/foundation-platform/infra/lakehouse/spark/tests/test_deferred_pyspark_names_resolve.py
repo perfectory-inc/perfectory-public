@@ -46,6 +46,7 @@ MODULES = (
     "parcel_lineage_to_silver",
     "legal_dong_code_snapshot_to_reference",
     "parcel_registry_to_silver",
+    "legal_dong_predecessor_map",
 )
 
 

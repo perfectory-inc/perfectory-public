@@ -14,6 +14,7 @@ from administrative_boundaries_handoff_to_silver import (  # noqa: E402
     COLUMNS,
     GEOMETRY_SRID,
     administrative_unit_id,
+    resolve_unit_ids,
     multipolygon_wkb,
     parse_args,
     silver_rows,
@@ -40,6 +41,33 @@ class IdentityTest(unittest.TestCase):
             str(uuid.uuid5(uuid.NAMESPACE_URL, "scope:legal-dong:9999910100")),
         )
         self.assertEqual(uuid.UUID(administrative_unit_id("9999910100")).version, 5)
+
+
+class UnitIdAcrossRenumberingTest(unittest.TestCase):
+    def test_a_renumbered_dong_keeps_the_id_of_the_dong_it_came_from(self):
+        previous = {"9999910100": administrative_unit_id("9999910100"), "9999910200": administrative_unit_id("9999910200")}
+        ids, counts = resolve_unit_ids(
+            ["9999920100", "9999910200", "9999930100"],
+            {"9999920100": "9999910100"},
+            previous,
+        )
+        self.assertEqual(ids["9999920100"], previous["9999910100"], "renumbered: same place, same id")
+        self.assertEqual(ids["9999910200"], previous["9999910200"], "unchanged code keeps its id")
+        self.assertEqual(ids["9999930100"], administrative_unit_id("9999930100"), "a new place gets its own")
+        self.assertEqual(counts, {"kept": 1, "inherited": 1, "new": 1, "collisions": 0})
+
+    def test_a_first_snapshot_with_a_known_predecessor_uses_the_predecessor_code(self):
+        ids, _ = resolve_unit_ids(["9999920100"], {"9999920100": "9999910100"}, {})
+        self.assertEqual(ids["9999920100"], administrative_unit_id("9999910100"))
+
+    def test_an_id_is_never_given_to_two_dongs(self):
+        previous = {"9999910100": administrative_unit_id("9999910100")}
+        ids, counts = resolve_unit_ids(
+            ["9999910100", "9999920100"], {"9999920100": "9999910100"}, previous
+        )
+        self.assertNotEqual(ids["9999910100"], ids["9999920100"])
+        self.assertEqual(ids["9999910100"], previous["9999910100"], "the continuing code keeps it")
+        self.assertEqual(counts["collisions"], 1)
 
 
 class WkbTest(unittest.TestCase):
