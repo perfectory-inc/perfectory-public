@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import map_matching_gate
 import served_gold_common as common
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from platform_contracts import column_names, declared_geometry_srid, load_lakehouse_contract
@@ -53,6 +54,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--served-iceberg-namespace", default="gold")
     parser.add_argument("--served-iceberg-table", default="administrative_boundary_served")
     parser.add_argument(
+        "--code-list-table",
+        default="reference.legal_dong_code_snapshot",
+        help="namespace.table of the official code list snapshots the matching gate reads (ADR-0113 §7)",
+    )
+    parser.add_argument(
         "--allow-non-smoke-write",
         action="store_true",
         help="Required to write tables whose names do not end in _smoke.",
@@ -74,6 +80,9 @@ def validate_args(args: argparse.Namespace) -> None:
     ):
         if not IDENTIFIER_PATTERN.match(getattr(args, label)):
             raise ValueError(f"{label.replace('_', ' ')} is not a plain identifier")
+    parts = args.code_list_table.split(".")
+    if len(parts) != 2 or not all(IDENTIFIER_PATTERN.match(p) for p in parts):
+        raise ValueError("--code-list-table must be namespace.table")
     for table in (args.ledger_iceberg_table, args.served_iceberg_table):
         if not table.endswith("_smoke") and not args.allow_non_smoke_write:
             raise ValueError(
@@ -175,6 +184,38 @@ def read_newest_silver(spark: Any, table: str) -> tuple[list[dict[str, Any]], st
     return rows, source_snapshot, common.latest_snapshot(spark, table)
 
 
+def matching_gate(
+    spark: Any, catalog: str, code_list_table: str, served_table: str, served: list[dict[str, Any]], ledger: list[dict[str, Any]]
+) -> map_matching_gate.GateReport:
+    """ADR-0113 §7 for the administrative layer, before the served table is rewritten.
+
+    The official code list is the newest `reference.legal_dong_code_snapshot`; "served before" is
+    the served table as it stands, minus the places an admin edit deleted on purpose.
+    """
+
+    namespace, table = code_list_table.split(".")
+    code_table = qualified(catalog, namespace, table)
+    newest = spark.sql(f"SELECT CAST(max(snapshot_date) AS STRING) AS d FROM {code_table}").collect()[0]["d"]
+    if not newest:
+        report = map_matching_gate.GateReport()
+        report.refuse("no official code list snapshot", code_list_table)
+        return report
+    official = {
+        r["region_cd"]: (r["full_name"], r["status"])
+        for r in spark.sql(f"SELECT region_cd, full_name, status FROM {code_table} WHERE snapshot_date = DATE '{newest}'").collect()
+    }
+    previous = {
+        r[FEATURE_ID_PROPERTY]: r["canonical_code"]
+        for r in spark.sql(f"SELECT {FEATURE_ID_PROPERTY}, canonical_code FROM {served_table}").collect()
+    }
+    deleted = {row["feature_id"] for row in ledger if row["op"] == "delete"}
+    return map_matching_gate.check_admin_units(
+        [(row[FEATURE_ID_PROPERTY], row["canonical_code"]) for row in served],
+        official,
+        {i: c for i, c in previous.items() if i not in deleted},
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_args(args)
@@ -207,6 +248,9 @@ def main(argv: list[str] | None = None) -> int:
             qualified(catalog, args.served_iceberg_namespace, args.served_iceberg_table),
             catalog, args.served_iceberg_namespace, SERVED_CONTRACT,
         )
+        gate_report = matching_gate(spark, catalog, args.code_list_table, served_table, served, ledger)
+        if not gate_report.passed:
+            raise ValueError(gate_report.message())
         spark.createDataFrame(
             [
                 {
@@ -239,7 +283,8 @@ def main(argv: list[str] | None = None) -> int:
         gold_snapshot=gold_snapshot, through=through, handoff=len(handoff), appended=appended,
         ledger=len(ledger), served=len(served), base=len(base), output=output,
         generated_at=now.isoformat().replace("+00:00", "Z"), counts=counts,
-        extra={"silver_iceberg_snapshot_id": silver_snapshot, "source_snapshot_id": source_snapshot},
+        extra={"silver_iceberg_snapshot_id": silver_snapshot, "source_snapshot_id": source_snapshot,
+               "matching_gate": gate_report.as_dict()},
     )
     if args.summary_output:
         path = Path(args.summary_output)
