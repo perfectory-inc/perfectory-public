@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import served_gold_common as common
 from industrial_complex_boundaries_silver_to_postgis_handoff import (
     current_official_boundaries,
     project,
@@ -36,54 +37,26 @@ from industrial_complex_boundaries_silver_to_postgis_handoff import (
     validate_identifier,
 )
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
-from platform_contracts import (
-    column_names,
-    create_table_columns_sql,
-    declared_geometry_srid,
-    evolve_iceberg_table_to_contract,
-    load_lakehouse_contract,
-    partition_clause_sql,
-    spark_sql_type,
-)
+from platform_contracts import column_names, declared_geometry_srid, load_lakehouse_contract
 
 JOB_NAME = "industrial_complex_boundary_served_gold"
-SUMMARY_SCHEMA_VERSION = "foundation-platform.industrial_complex_boundary_served_gold.v1"
 UNIT = "complex"
 FEATURE_ID_PROPERTY = "complex_id"
 CODE_PROPERTY = "official_complex_code"
+# The tile properties besides the id; the bake carries exactly these.
+TILE_PROPERTIES: tuple[str, ...] = (CODE_PROPERTY,)
 
-LEDGER_CONTRACT = load_lakehouse_contract("silver.map_edit_ledger")
+LEDGER_CONTRACT = common.LEDGER_CONTRACT
+LEDGER_COLUMNS = common.LEDGER_COLUMNS
 SERVED_CONTRACT = load_lakehouse_contract("gold.industrial_complex_boundary_served")
-LEDGER_COLUMNS: tuple[str, ...] = column_names(LEDGER_CONTRACT)
 SERVED_COLUMNS: tuple[str, ...] = column_names(SERVED_CONTRACT)
 GEOMETRY_SRID: int = declared_geometry_srid(SERVED_CONTRACT)
-if declared_geometry_srid(LEDGER_CONTRACT) != GEOMETRY_SRID:
-    raise ValueError("silver.map_edit_ledger and the served table must share one CRS")
-
-# What the tile bake reads, in a stable order so two runs over one state produce identical files.
-BAKE_HANDOFF_COLUMNS: tuple[str, ...] = (
-    "complex_id",
-    "official_complex_code",
-    "geometry_wkb_hex",
-    "geometry_srid",
-    "geometry_checksum_sha256",
-    "origin",
-)
-# The edit handoff `export-map-edit-handoff` writes; checked by name so a rename fails here.
-EDIT_HANDOFF_COLUMNS: tuple[str, ...] = (
-    "unit",
-    "change_seq",
-    "feature_id",
-    "op",
-    "geometry_geojson",
-    "geometry_wkb_hex",
-    "geometry_srid",
-    "geometry_checksum_sha256",
-    "properties_json",
-    "editor",
-    "edited_at",
-)
 DEFAULT_MAX_ROWS = 100_000
+contract_schema = common.contract_schema
+edit_fingerprint = common.edit_fingerprint
+new_ledger_rows = common.new_ledger_rows
+write_create_only = common.write_create_only
+latest_snapshot = common.latest_snapshot
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -137,70 +110,9 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def read_edit_handoff(lines: list[str]) -> list[dict[str, Any]]:
-    """Parses the edit handoff, refusing anything the ledger contract would refuse."""
+    """Parses the complex edit handoff; an upsert must name the complex's official code."""
 
-    rows: list[dict[str, Any]] = []
-    seen: set[int] = set()
-    for number, line in enumerate(lines, start=1):
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        missing = [name for name in EDIT_HANDOFF_COLUMNS if name not in row]
-        if missing:
-            raise ValueError(f"edit handoff line {number} has no {', '.join(missing)}")
-        if row["unit"] != UNIT:
-            raise ValueError(f"edit handoff line {number} is for unit {row['unit']}, not {UNIT}")
-        if int(row["geometry_srid"]) != GEOMETRY_SRID:
-            raise ValueError(f"edit handoff line {number} is not in EPSG:{GEOMETRY_SRID}")
-        seq = int(row["change_seq"])
-        if seq <= 0 or seq in seen:
-            raise ValueError(f"edit handoff line {number} repeats or lacks a change_seq")
-        seen.add(seq)
-        upsert = row["op"] == "upsert"
-        if row["op"] not in ("upsert", "delete"):
-            raise ValueError(f"edit {seq} has op {row['op']}")
-        carries = [row["geometry_wkb_hex"], row["geometry_geojson"], row["geometry_checksum_sha256"]]
-        if upsert != all(value not in (None, "") for value in carries) or (
-            not upsert and any(value not in (None, "") for value in carries)
-        ):
-            raise ValueError(f"edit {seq}: an upsert carries its geometry, a delete carries none")
-        properties = json.loads(row["properties_json"])
-        if not isinstance(properties, dict):
-            raise ValueError(f"edit {seq} properties are not an object")
-        if upsert and not properties.get(CODE_PROPERTY):
-            raise ValueError(f"edit {seq} upserts a complex without {CODE_PROPERTY}")
-        rows.append(row)
-    return sorted(rows, key=lambda item: int(item["change_seq"]))
-
-
-def edit_fingerprint(row: dict[str, Any]) -> tuple[Any, ...]:
-    """What makes two ledger rows the same edit, independent of which export carried them."""
-
-    return (
-        int(row["change_seq"]),
-        row["feature_id"],
-        row["op"],
-        row.get("geometry_checksum_sha256") or None,
-        row["properties_json"],
-        row["editor"],
-        row["edited_at"],
-    )
-
-
-def new_ledger_rows(
-    ledgered: dict[int, tuple[Any, ...]], handoff: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    """The handoff rows the ledger does not hold yet; the same change_seq with other content is refused."""
-
-    fresh = []
-    for row in handoff:
-        seq = int(row["change_seq"])
-        known = ledgered.get(seq)
-        if known is None:
-            fresh.append(row)
-        elif known != edit_fingerprint(row):
-            raise ValueError(f"edit {seq} is already ledgered with different content; the ledger is append-only")
-    return fresh
+    return common.read_edit_handoff(lines, UNIT, GEOMETRY_SRID, (CODE_PROPERTY,))
 
 
 def apply_edits(
@@ -241,25 +153,7 @@ def apply_edits(
 
 
 def bake_handoff_lines(rows: list[dict[str, Any]]) -> str:
-    if not rows:
-        raise ValueError("the served set is empty; a bake of nothing would erase the layer")
-    body = "\n".join(
-        json.dumps(
-            {name: row[name] for name in BAKE_HANDOFF_COLUMNS},
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        for row in rows
-    )
-    return f"{body}\n"
-
-
-def write_create_only(path: Path, body: str) -> None:
-    if path.exists():
-        raise FileExistsError(f"served-boundary bake handoff already exists and is evidence: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body, encoding="utf-8")
+    return common.bake_handoff_lines(rows, FEATURE_ID_PROPERTY, TILE_PROPERTIES, GEOMETRY_SRID)
 
 
 def load_pyspark() -> tuple[Any, Any]:
@@ -279,43 +173,6 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
     return builder.config("spark.jars.packages", args.iceberg_packages).getOrCreate()
 
 
-def contract_schema(contract: dict[str, Any]) -> str:
-    """The DataFrame schema a contract declares, so rows are typed by the contract, not by hand."""
-
-    return ", ".join(
-        f"{column['name']} {spark_sql_type(column['logical_type'])}" for column in contract["columns"]
-    )
-
-
-def ensure_table(spark: Any, catalog: str, namespace: str, table: str, contract: dict[str, Any]) -> str:
-    qualified = qualified_table(catalog, namespace, table)
-    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{catalog}`.`{namespace}`")
-    spark.sql(
-        f"""
-        CREATE TABLE IF NOT EXISTS {qualified} (
-{create_table_columns_sql(contract)}
-        )
-        USING iceberg
-        {partition_clause_sql(contract)}
-        TBLPROPERTIES (
-            'format-version' = '2',
-            'write.parquet.compression-codec' = 'zstd'
-        )
-        """
-    )
-    evolve_iceberg_table_to_contract(spark, qualified, contract)
-    return qualified
-
-
-def latest_snapshot(spark: Any, table: str) -> str:
-    rows = spark.sql(
-        f"SELECT snapshot_id FROM {table}.snapshots ORDER BY committed_at DESC LIMIT 1"
-    ).collect()
-    if not rows:
-        raise ValueError(f"{table} has no committed snapshot")
-    return str(rows[0]["snapshot_id"])
-
-
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_args(args)
@@ -329,40 +186,12 @@ def main(argv: list[str] | None = None) -> int:
     SparkSession, F = load_pyspark()
     spark = build_spark_session(args, SparkSession)
     try:
-        ledger_table = ensure_table(
-            spark, args.iceberg_catalog_name, args.ledger_iceberg_namespace,
-            args.ledger_iceberg_table, LEDGER_CONTRACT,
+        ledger_table = common.ensure_table(
+            spark,
+            qualified_table(args.iceberg_catalog_name, args.ledger_iceberg_namespace, args.ledger_iceberg_table),
+            args.iceberg_catalog_name, args.ledger_iceberg_namespace, LEDGER_CONTRACT,
         )
-        existing = spark.sql(
-            f"SELECT change_seq, feature_id, op, geometry_checksum_sha256, properties_json, "
-            f"editor, edited_at FROM {ledger_table} WHERE unit = '{UNIT}'"
-        ).collect()
-        ledgered = {int(row["change_seq"]): edit_fingerprint(row.asDict()) for row in existing}
-        fresh = new_ledger_rows(ledgered, handoff)
-        if fresh:
-            frame = spark.createDataFrame(
-                [
-                    {
-                        **{name: row[name] for name in EDIT_HANDOFF_COLUMNS if name != "geometry_wkb_hex"},
-                        "change_seq": int(row["change_seq"]),
-                        "geometry_srid": int(row["geometry_srid"]),
-                        "geometry_wkb": bytes.fromhex(row["geometry_wkb_hex"]) if row["geometry_wkb_hex"] else None,
-                        "export_batch_id": batch_id,
-                        "ingested_at_utc": now,
-                    }
-                    for row in fresh
-                ],
-                schema=contract_schema(LEDGER_CONTRACT),
-            )
-            frame.select(*LEDGER_COLUMNS).createOrReplaceTempView("map_edit_ledger_append")
-            spark.sql(f"INSERT INTO {ledger_table} SELECT {', '.join(LEDGER_COLUMNS)} FROM map_edit_ledger_append")
-        ledger = [
-            row.asDict()
-            for row in spark.sql(
-                f"SELECT change_seq, feature_id, op, lower(hex(geometry_wkb)) AS geometry_wkb_hex, "
-                f"geometry_checksum_sha256, properties_json FROM {ledger_table} WHERE unit = '{UNIT}'"
-            ).collect()
-        ]
+        appended, ledger = common.append_to_ledger(spark, ledger_table, UNIT, handoff, batch_id, now)
 
         boundaries, complexes, silver_snapshot = read_sources(spark, args)
         selected = current_official_boundaries(boundaries, F)
@@ -374,9 +203,10 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(f"{len(served)} served rows exceed --max-rows {args.max_rows}")
         through = max((int(row["change_seq"]) for row in ledger), default=0)
 
-        served_table = ensure_table(
-            spark, args.iceberg_catalog_name, args.served_iceberg_namespace,
-            args.served_iceberg_table, SERVED_CONTRACT,
+        served_table = common.ensure_table(
+            spark,
+            qualified_table(args.iceberg_catalog_name, args.served_iceberg_namespace, args.served_iceberg_table),
+            args.iceberg_catalog_name, args.served_iceberg_namespace, SERVED_CONTRACT,
         )
         spark.createDataFrame(
             [
@@ -405,24 +235,13 @@ def main(argv: list[str] | None = None) -> int:
         spark.stop()
 
     write_create_only(output, bake_handoff_lines(served))
-    summary = {
-        "schema_version": SUMMARY_SCHEMA_VERSION,
-        "job": JOB_NAME,
-        "generated_at_utc": now.isoformat().replace("+00:00", "Z"),
-        "status": "ready",
-        "unit": UNIT,
-        "canonical_iceberg_snapshot_id": gold_snapshot,
-        "silver_iceberg_snapshot_id": silver_snapshot,
-        "edits_through_change_seq": through,
-        "edits_in_handoff": len(handoff),
-        "edits_appended_to_ledger": len(fresh),
-        "edits_in_ledger": len(ledger),
-        "served_row_count": len(served),
-        "source_row_count": len(base),
-        "geometry_srid": GEOMETRY_SRID,
-        "output_path": str(output),
-        **counts,
-    }
+    summary = common.summary(
+        job=JOB_NAME, unit=UNIT, feature_id_property=FEATURE_ID_PROPERTY, srid=GEOMETRY_SRID,
+        gold_snapshot=gold_snapshot, through=through, handoff=len(handoff), appended=appended,
+        ledger=len(ledger), served=len(served), base=len(base), output=output,
+        generated_at=now.isoformat().replace("+00:00", "Z"), counts=counts,
+        extra={"silver_iceberg_snapshot_id": silver_snapshot},
+    )
     if args.summary_output:
         path = Path(args.summary_output)
         path.parent.mkdir(parents=True, exist_ok=True)

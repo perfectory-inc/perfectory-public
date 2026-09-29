@@ -120,3 +120,25 @@ fn an_invalid_or_mismatched_edit_is_refused_before_it_becomes_lakehouse_data() -
     assert!(handoff_row("complex", edit("delete", None, &not_an_object), &projection).is_err());
     Ok(())
 }
+
+#[test]
+fn a_unit_kept_in_epsg_4326_gets_the_saved_coordinates_unchanged() -> anyhow::Result<()> {
+    let projection = SilverProjection::for_srid(4326)?;
+    let properties = json!({"canonical_code": "SYN"});
+    let geometry = square();
+    let row = handoff_row(
+        "admin",
+        edit("upsert", Some(&geometry), &properties),
+        &projection,
+    )?;
+    assert_eq!(row.geometry_srid, 4326);
+    let hex = row.geometry_wkb_hex.unwrap_or_default();
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16))
+        .collect::<Result<Vec<u8>, _>>()?;
+    assert_eq!(f64::from_le_bytes(bytes[22..30].try_into()?), 127.1231);
+    assert_eq!(f64::from_le_bytes(bytes[30..38].try_into()?), 36.1231);
+    assert!(SilverProjection::for_srid(3857).is_err());
+    Ok(())
+}

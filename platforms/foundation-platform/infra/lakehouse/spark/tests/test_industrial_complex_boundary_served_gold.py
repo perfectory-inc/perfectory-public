@@ -8,7 +8,6 @@ JOBS_DIR = Path(__file__).resolve().parents[1] / "jobs"
 sys.path.insert(0, str(JOBS_DIR))
 
 from industrial_complex_boundary_served_gold import (  # noqa: E402
-    BAKE_HANDOFF_COLUMNS,
     GEOMETRY_SRID,
     LEDGER_COLUMNS,
     SERVED_COLUMNS,
@@ -67,11 +66,6 @@ class ServedGoldContractTest(unittest.TestCase):
         self.assertEqual(GEOMETRY_SRID, 5186)
         self.assertIn("change_seq BIGINT", contract_schema(LEDGER_CONTRACT))
         self.assertIn("geometry_wkb BINARY", contract_schema(LEDGER_CONTRACT))
-        self.assertEqual(
-            BAKE_HANDOFF_COLUMNS,
-            ("complex_id", "official_complex_code", "geometry_wkb_hex", "geometry_srid",
-             "geometry_checksum_sha256", "origin"),
-        )
 
     def test_real_tables_need_an_explicit_flag(self):
         args = parse_args(["--edits-input", "e.jsonl", "--output", "o.jsonl"])
@@ -146,10 +140,19 @@ class BakeHandoffTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "erase the layer"):
             bake_handoff_lines([])
 
-    def test_lines_carry_exactly_the_bake_columns(self):
+    def test_lines_carry_the_id_the_tile_properties_and_the_crs(self):
         served, _ = apply_edits([base_row(A, "SYN-A")], [])
         line = json.loads(bake_handoff_lines(served))
-        self.assertEqual(tuple(sorted(line)), tuple(sorted(BAKE_HANDOFF_COLUMNS)))
+        self.assertEqual(
+            line,
+            {
+                "feature_id": A,
+                "properties": {"official_complex_code": "SYN-A"},
+                "geometry_wkb_hex": served[0]["geometry_wkb_hex"],
+                "geometry_srid": 5186,
+                "origin": "source",
+            },
+        )
 
 
 if __name__ == "__main__":

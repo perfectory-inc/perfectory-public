@@ -1,9 +1,10 @@
 //! Bakes a polygon unit's static PMTiles release from a served Gold snapshot and folds the admin
 //! edits it contains (root ADR-0112 §7·§9).
 //!
-//! The input is what `industrial_complex_boundary_served_gold.py` wrote: the served rows (Silver
-//! with every ledgered edit applied, EPSG:5186 WKB) and a summary naming the Gold snapshot and the
-//! last edit it includes. In order:
+//! The input is what a unit's served-Gold job wrote (`served_gold_common.py`): the served rows —
+//! Silver with every ledgered edit applied, as feature id + tile properties + WKB in the unit's
+//! Silver CRS — and a summary naming the Gold snapshot, the CRS and the last edit it includes. The
+//! bake is unit-agnostic: it carries exactly the properties the rows carry. In order:
 //!
 //! 1. start a `lakehouse_bake` build against the active validated static release;
 //! 2. reproject and repair with GDAL (`-makevalid`), tile with tippecanoe — both pinned containers
@@ -16,7 +17,7 @@
 //! No PostGIS is read or written. A failure before the promotion records the build as failed and
 //! changes nothing that is served.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -53,8 +54,9 @@ use crate::tile_derivative_object_storage::TileDerivativeR2Config;
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE";
 const IMAGES_JSON: &str = include_str!("../../../config/tile-bake-containers.contract.json");
-const SERVED_SUMMARY_SCHEMA: &str =
-    "foundation-platform.industrial_complex_boundary_served_gold.v1";
+const SERVED_SUMMARY_SCHEMA: &str = "foundation-platform.polygon_served_gold.v1";
+/// The Silver CRSs a served snapshot may arrive in; GDAL reprojects either to EPSG:4326.
+const SERVED_SRIDS: [i32; 2] = [4326, 5186];
 const MAP_EDIT_GATEWAY_BASE_URL_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_GATEWAY_BASE_URL";
 const MAP_EDIT_WRITE_TOKEN_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN";
 
@@ -81,6 +83,8 @@ struct Image {
 pub(crate) struct ServedSummary {
     schema_version: String,
     pub(crate) unit: String,
+    pub(crate) feature_id_property: String,
+    pub(crate) geometry_srid: i32,
     pub(crate) canonical_iceberg_snapshot_id: String,
     pub(crate) edits_through_change_seq: u64,
     pub(crate) served_row_count: usize,
@@ -104,21 +108,26 @@ impl ServedSummary {
             self.served_row_count > 0,
             "the served snapshot is empty; baking it would erase the layer"
         );
+        ensure!(
+            SERVED_SRIDS.contains(&self.geometry_srid),
+            "served snapshot CRS EPSG:{} is not one the bake reprojects",
+            self.geometry_srid
+        );
         Ok(())
     }
 }
 
-/// One served row, as the tile bake reads it.
+/// One served row, as the tile bake reads it: the feature id, the tile properties, the geometry.
 #[derive(Debug, Deserialize)]
 pub(crate) struct ServedRow {
-    pub(crate) complex_id: String,
-    pub(crate) official_complex_code: String,
+    pub(crate) feature_id: String,
+    pub(crate) properties: BTreeMap<String, String>,
     pub(crate) geometry_wkb_hex: String,
     pub(crate) geometry_srid: i32,
 }
 
-/// Parses the served handoff and returns its rows, refusing repeats and a count the summary did not
-/// promise.
+/// Parses the served handoff and returns its rows, refusing repeats, a CRS or a property set that
+/// differs between rows, and a count the summary did not promise.
 pub(crate) fn read_served_rows(
     text: &str,
     summary: &ServedSummary,
@@ -133,20 +142,36 @@ pub(crate) fn read_served_rows(
         let row: ServedRow = serde_json::from_str(line)
             .with_context(|| format!("served handoff line {} is not a served row", number + 1))?;
         ensure!(
-            row.geometry_srid == 5186,
-            "served row {} is not EPSG:5186",
-            row.complex_id
+            row.geometry_srid == summary.geometry_srid,
+            "served row {} is EPSG:{}, the snapshot EPSG:{}",
+            row.feature_id,
+            row.geometry_srid,
+            summary.geometry_srid
         );
         ensure!(
             !row.geometry_wkb_hex.is_empty()
                 && row.geometry_wkb_hex.bytes().all(|b| b.is_ascii_hexdigit()),
             "served row {} has no WKB",
-            row.complex_id
+            row.feature_id
         );
         ensure!(
-            ids.insert(row.complex_id.clone()),
-            "complex {} is served twice",
-            row.complex_id
+            !row.feature_id.is_empty()
+                && !row.properties.contains_key(&summary.feature_id_property),
+            "served row {} is missing its id or repeats it as a property",
+            row.feature_id
+        );
+        if let Some(first) = rows.first() {
+            let first: &ServedRow = first;
+            ensure!(
+                first.properties.keys().eq(row.properties.keys()),
+                "served row {} carries other properties than the first row",
+                row.feature_id
+            );
+        }
+        ensure!(
+            ids.insert(row.feature_id.clone()),
+            "feature {} is served twice",
+            row.feature_id
         );
         rows.push(row);
     }
@@ -159,15 +184,40 @@ pub(crate) fn read_served_rows(
     Ok(rows)
 }
 
-/// The GDAL input: one CSV row per feature, geometry as hex WKB.
-pub(crate) fn gdal_csv(rows: &[ServedRow]) -> String {
-    let mut csv = String::from("complex_id,official_complex_code,geometry\n");
+fn csv_field(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+/// The tile properties a served snapshot carries: the feature id first, then every row property.
+pub(crate) fn served_properties(rows: &[ServedRow], id_property: &str) -> Vec<String> {
+    std::iter::once(id_property.to_owned())
+        .chain(
+            rows.first()
+                .map(|row| row.properties.keys().cloned().collect::<Vec<_>>())
+                .unwrap_or_default(),
+        )
+        .collect()
+}
+
+/// The GDAL input: one CSV row per feature — id, properties, geometry as hex WKB.
+pub(crate) fn gdal_csv(rows: &[ServedRow], id_property: &str) -> String {
+    let columns = served_properties(rows, id_property);
+    let mut csv = columns
+        .iter()
+        .map(|name| csv_field(name))
+        .collect::<Vec<_>>()
+        .join(",");
+    csv.push_str(",geometry\n");
     for row in rows {
-        let code = row.official_complex_code.replace('"', "\"\"");
-        csv.push_str(&format!(
-            "{},\"{code}\",{}\n",
-            row.complex_id, row.geometry_wkb_hex
-        ));
+        let mut fields = vec![csv_field(&row.feature_id)];
+        fields.extend(
+            columns[1..]
+                .iter()
+                .map(|name| csv_field(row.properties.get(name).map_or("", String::as_str))),
+        );
+        fields.push(row.geometry_wkb_hex.clone());
+        csv.push_str(&fields.join(","));
+        csv.push('\n');
     }
     csv
 }
@@ -401,7 +451,24 @@ async fn build_archive(
     rows: &[ServedRow],
     layer: &ServedLayer,
 ) -> anyhow::Result<PathBuf> {
-    std::fs::write(work.join("served.csv"), gdal_csv(rows))?;
+    let carried = served_properties(rows, &layer.feature_id_property);
+    let missing: Vec<&String> = layer
+        .properties
+        .iter()
+        .filter(|name| !carried.contains(name))
+        .collect();
+    ensure!(
+        missing.is_empty(),
+        "the served snapshot lacks properties the served layer promises: {missing:?}"
+    );
+    std::fs::write(
+        work.join("served.csv"),
+        gdal_csv(rows, &layer.feature_id_property),
+    )?;
+    let source_srs = format!(
+        "EPSG:{}",
+        rows.first().map_or(4326, |row| row.geometry_srid)
+    );
     let mut gdal = run_args(work, &images.gdal.image, None);
     gdal.extend(
         [
@@ -415,7 +482,7 @@ async fn build_archive(
             "-oo",
             "KEEP_GEOM_COLUMNS=NO",
             "-s_srs",
-            "EPSG:5186",
+            source_srs.as_str(),
             "-t_srs",
             "EPSG:4326",
             "-makevalid",
@@ -471,7 +538,7 @@ async fn build_archive(
         ]
         .map(OsString::from),
     );
-    for property in &layer.properties {
+    for property in served_properties(rows, &layer.feature_id_property) {
         tippecanoe.push("-y".into());
         tippecanoe.push(property.into());
     }
@@ -507,7 +574,7 @@ async fn gate_archive(
     let decoded: Value =
         serde_json::from_slice(&decoded.stdout).context("tippecanoe-decode output")?;
     let found = decoded_feature_ids(&decoded, &layer.feature_id_property)?;
-    let served: BTreeSet<String> = rows.iter().map(|row| row.complex_id.clone()).collect();
+    let served: BTreeSet<String> = rows.iter().map(|row| row.feature_id.clone()).collect();
     ensure!(
         found == served,
         "maxzoom tiles carry {} ids, the served snapshot {}; missing {:?}, extra {:?}",
