@@ -481,11 +481,14 @@ pub enum VectorTileBuildKind {
     Bake,
     /// Copies a validated static archive to a newly owned release address.
     Readdress,
+    /// Bakes a new archive from a lakehouse snapshot of source plus admin edits, replacing the
+    /// active static release under a new data revision and leaving no fallback (root ADR-0112).
+    LakehouseBake,
 }
 
 impl VectorTileBuildKind {
     /// Closed database vocabulary.
-    pub const ALL: [Self; 2] = [Self::Bake, Self::Readdress];
+    pub const ALL: [Self; 3] = [Self::Bake, Self::Readdress, Self::LakehouseBake];
 
     /// Database spelling.
     #[must_use]
@@ -493,6 +496,7 @@ impl VectorTileBuildKind {
         match self {
             Self::Bake => "bake",
             Self::Readdress => "readdress",
+            Self::LakehouseBake => "lakehouse_bake",
         }
     }
 
@@ -501,7 +505,7 @@ impl VectorTileBuildKind {
     pub const fn input_source_kind(self) -> ServingSourceKind {
         match self {
             Self::Bake => ServingSourceKind::DynamicPostgis,
-            Self::Readdress => ServingSourceKind::StaticPmtiles,
+            Self::Readdress | Self::LakehouseBake => ServingSourceKind::StaticPmtiles,
         }
     }
 

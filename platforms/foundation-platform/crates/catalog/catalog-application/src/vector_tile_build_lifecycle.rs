@@ -21,8 +21,8 @@ use catalog_domain::{CatalogError, VectorTileBuildOutcome};
 use foundation_shared_kernel::ids::VectorTileBuildJobId;
 
 use crate::ports::{
-    CatalogUnitOfWork, RecordVectorTileBuildResultCommand, StartStaticReleaseReaddressCommand,
-    StartVectorTileBuildCommand,
+    CatalogUnitOfWork, RecordVectorTileBuildResultCommand, StartLakehouseBakeCommand,
+    StartStaticReleaseReaddressCommand, StartVectorTileBuildCommand,
 };
 
 /// Records static build attempts and their results through the Catalog unit of work.
@@ -73,6 +73,23 @@ impl VectorTileBuildLifecycle {
                 )?
                 .trim_end_matches('/')
                 .to_owned(),
+                idempotency_key: normalize_required(&command.idempotency_key, "idempotency_key")?,
+                ..command
+            })
+            .await
+    }
+
+    /// Starts a lakehouse bake that replaces the active static release under a new revision.
+    ///
+    /// # Errors
+    /// Returns an error for empty inputs or an input the ledger refuses.
+    pub async fn start_lakehouse_bake(
+        &self,
+        command: StartLakehouseBakeCommand,
+    ) -> Result<VectorTileBuildJobId, CatalogError> {
+        self.uow
+            .start_lakehouse_bake(StartLakehouseBakeCommand {
+                unit_key: normalize_required(&command.unit_key, "unit_key")?,
                 idempotency_key: normalize_required(&command.idempotency_key, "idempotency_key")?,
                 ..command
             })

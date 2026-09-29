@@ -13,9 +13,10 @@ use async_trait::async_trait;
 use catalog_application::ports::{
     CatalogUnitOfWork, MarkTileLayerDynamicCommand, PromoteTileLayerStaticCommand,
     PublishedRuntimeManifest, RecordVectorTileBuildResultCommand,
-    RuntimeManifestPublicationCapability, StartStaticReleaseReaddressCommand,
-    StartVectorTileBuildCommand, UpsertIndustrialComplexCommand, UpsertIndustrialComplexEffect,
-    UpsertIndustrialComplexOutcome, VectorTileArtifactPromotionCommand, VectorTileFileAssetCommand,
+    RuntimeManifestPublicationCapability, StartLakehouseBakeCommand,
+    StartStaticReleaseReaddressCommand, StartVectorTileBuildCommand,
+    UpsertIndustrialComplexCommand, UpsertIndustrialComplexEffect, UpsertIndustrialComplexOutcome,
+    VectorTileArtifactPromotionCommand, VectorTileFileAssetCommand,
     VectorTileManifestPromotionCommand, VectorTileManifestRollbackCommand,
     VectorTileSourceRecordCommand,
 };
@@ -51,6 +52,7 @@ use crate::row_map::{
 };
 use crate::sqlx_repository::load_vector_tile_runtime_manifest_by_id;
 
+mod lakehouse_bake;
 mod readdress;
 
 /// `PostgreSQL` implementation of Catalog mutation unit-of-work ports.
@@ -768,6 +770,13 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         readdress::start(&self.pool, command).await
     }
 
+    async fn start_lakehouse_bake(
+        &self,
+        command: StartLakehouseBakeCommand,
+    ) -> Result<VectorTileBuildJobId, CatalogError> {
+        lakehouse_bake::start(&self.pool, command).await
+    }
+
     async fn record_vector_tile_build_result(
         &self,
         command: RecordVectorTileBuildResultCommand,
@@ -908,12 +917,14 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         let target = find_publication_unit(&units, &command.unit_key)?;
         let build = lock_validated_build_tx(&mut tx, command.build_job_id, target.id).await?;
 
-        if build.kind == VectorTileBuildKind::Readdress
-            && build.input_serving_generation
-                != Some(u64_to_i64(command.expected_serving_generation.value())?)
+        if matches!(
+            build.kind,
+            VectorTileBuildKind::Readdress | VectorTileBuildKind::LakehouseBake
+        ) && build.input_serving_generation
+            != Some(u64_to_i64(command.expected_serving_generation.value())?)
         {
             return Err(invalid_runtime(
-                "readdress promotion must use the serving generation captured at start",
+                "readdress and lakehouse bake promotions must use the serving generation captured at start",
             ));
         }
 
@@ -963,6 +974,9 @@ struct LockedValidatedBuild {
     status: VectorTileBuildStatus,
     input_release_id: Uuid,
     input_data_revision: Uuid,
+    /// The revision the new release carries: the input's, except for a lakehouse bake, which
+    /// minted its own over the baked snapshot.
+    release_data_revision: Uuid,
     frozen_source_snapshot_id: String,
     input_source_record_id: Uuid,
     input_source_file_asset_ids: Vec<Uuid>,
@@ -1065,6 +1079,19 @@ async fn publish_static_release_tx(
         .await
         .map_err(map_sqlx)?;
     }
+    if plan.build.kind == VectorTileBuildKind::LakehouseBake {
+        // ADR-0112: no fallback. The gate already cleared it because the revision changed; saying so
+        // here keeps that true even if the gate's CASE is ever rewritten.
+        sqlx::query(
+            "UPDATE catalog.vector_tile_publication_unit
+             SET fallback_release_id = NULL, fallback_data_revision = NULL, updated_at = now()
+             WHERE id = $1",
+        )
+        .bind(plan.target.id)
+        .execute(&mut **tx)
+        .await
+        .map_err(map_sqlx)?;
+    }
     sqlx::query(
         "UPDATE catalog.vector_tile_build_job
          SET status = 'promoted', updated_at = now() WHERE id = $1",
@@ -1088,7 +1115,7 @@ async fn lock_validated_build_tx(
 ) -> Result<LockedValidatedBuild, CatalogError> {
     let row = sqlx::query(
         "SELECT unit.unit_key, build.kind, build.input_serving_generation, build.status,
-                build.input_release_id, build.input_data_revision,
+                build.input_release_id, build.input_data_revision, build.output_data_revision,
                 build.frozen_source_snapshot_id, build.result_release_id,
                 build.result_pmtiles_file_asset_id, build.result_pmtiles_object_key,
                 build.result_tiles_url_template, build.result_pmtiles_sha256,
@@ -1119,11 +1146,7 @@ async fn lock_validated_build_tx(
     if input_source_kind != kind.input_source_kind().as_str() {
         return Err(invalid_runtime(format!(
             "{} promotion build input must be {}, got {input_source_kind}",
-            if kind == VectorTileBuildKind::Bake {
-                "static"
-            } else {
-                "readdress"
-            },
+            kind.as_str(),
             kind.input_source_kind().as_str()
         )));
     }
@@ -1146,6 +1169,12 @@ async fn lock_validated_build_tx(
         status,
         input_release_id: row.try_get("input_release_id").map_err(map_sqlx)?,
         input_data_revision: row.try_get("input_data_revision").map_err(map_sqlx)?,
+        release_data_revision: match kind {
+            VectorTileBuildKind::LakehouseBake => required_uuid("output_data_revision")?,
+            VectorTileBuildKind::Bake | VectorTileBuildKind::Readdress => {
+                row.try_get("input_data_revision").map_err(map_sqlx)?
+            }
+        },
         frozen_source_snapshot_id: row.try_get("frozen_source_snapshot_id").map_err(map_sqlx)?,
         input_source_record_id: row.try_get("source_record_id").map_err(map_sqlx)?,
         input_source_file_asset_ids: row.try_get("source_file_asset_ids").map_err(map_sqlx)?,
@@ -1194,7 +1223,7 @@ fn plan_static_activation(
                     publication_unit_id: unit.id,
                     release_id: build.release_id,
                     serving_generation: advance_serving_generation(unit)?,
-                    data_revision: build.input_data_revision,
+                    data_revision: build.release_data_revision,
                     canonical_iceberg_snapshot_id: build.frozen_source_snapshot_id.clone(),
                 });
             }
@@ -1251,7 +1280,7 @@ async fn insert_static_release_tx(
     )
     .bind(build.release_id)
     .bind(publication_unit_id)
-    .bind(build.input_data_revision)
+    .bind(build.release_data_revision)
     .bind(&build.frozen_source_snapshot_id)
     .bind(build.input_source_record_id)
     .bind(&build.input_source_file_asset_ids)
