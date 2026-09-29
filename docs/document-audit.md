@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **452개**
-- 언어 분류: **{'english': 35, 'korean': 257, 'mixed': 160}**
+- 감사 문서: **453개**
+- 언어 분류: **{'english': 35, 'korean': 258, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **213개 정상 / 0개 누락 / 239개 해당 없음**
+- 메타데이터: **214개 정상 / 0개 누락 / 239개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -133,7 +133,7 @@
 | `docs/adr/0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0110-serve-all-map-tiles-from-r2-static-pmtiles.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
-| `docs/adr/0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -241,6 +241,7 @@
 | `platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-registry.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/map-edit-fold.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
