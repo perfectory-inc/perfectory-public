@@ -199,7 +199,10 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # deleted tests embedded silver-handoff fixtures and the shipped migrations (10 sites:
 # transfer_event 3, characteristic 2, forest_ledger 2, land_right 3). Serving moved to the R2
 # edge (parcel by-PNU bake), so those postgres projections and their proofs are gone.
-COMPILE_TIME_READ_BASELINE="${3:-104}"
+# 104 -> 105: root ADR-0112's lakehouse tile bake embeds config/tile-bake-containers.contract.json,
+# the pinned GDAL and tippecanoe images, the way the static-release toolchain embeds its own
+# contract: the images a bake ran are part of the binary that ran it, not a file found at runtime.
+COMPILE_TIME_READ_BASELINE="${3:-105}"
 
 cd "$repo_root"
 
