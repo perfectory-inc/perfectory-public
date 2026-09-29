@@ -124,3 +124,4 @@ last_reviewed: 2026-07-28
 - [0110 — 지도 타일 전량을 R2 정적 PMTiles 로 서빙하고 PostGIS 는 warm delta 로 축소한다](./0110-serve-all-map-tiles-from-r2-static-pmtiles.md)
 - [0111 — 지도 타일은 전국 기본판 위에 바뀐 타일만 갈아 끼우고, 엣지 Worker 가 서빙한다](./0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md)
 - [0112 — 지도 폴리곤 편집은 작은 저장소의 오버레이로 즉시 보이고, 주기 굽기가 타일에 접어 넣는다](./0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md)
+- [0113 — 필지 계보와 고정 필지 ID 가 지역 개편·합병·분할을 코드로 흡수하고, 모든 지도 굽기 앞에서 폴리곤 매칭을 검문한다](./0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md)
