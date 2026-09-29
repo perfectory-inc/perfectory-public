@@ -394,6 +394,92 @@ def attribute_links(old: Mapping[str, ParcelFacts], new: Mapping[str, ParcelFact
     return links
 
 
+def lot_key(pnu: str) -> tuple[str, str, int, int]:
+    """Order of lots inside a dong: ledger kind, main number, sub number."""
+
+    return (pnu[:10], pnu[10], int(pnu[11:15]), int(pnu[15:19]))
+
+
+def lot_order_links(
+    anchors: Mapping[str, str],
+    unmatched_new: Iterable[str],
+    unmatched_old: Iterable[str],
+    new_facts: Mapping[str, ParcelFacts],
+    old_facts: Mapping[str, ParcelFacts],
+    relation: str,
+) -> list[Link]:
+    """Pair re-lotted parcels by their place between anchored neighbours (ADR-0113 §4).
+
+    When land is transferred and re-lotted, the new lots are issued in the order of the old ones.
+    `anchors` (new -> old, code_derived or evidence_strong) fix points of that order. The rule is
+    used for a (new dong, old dong) pair only if the anchors never invert the order; then, inside
+    each gap between consecutive anchors:
+      - equal counts on both sides whose area and category agree pairwise in order -> all pair;
+      - otherwise a new parcel pairs with the one old parcel of the gap sharing its (area, category),
+        when that pair of values occurs exactly once on each side.
+    Everything paired is area- and category-equal and bounded by official neighbours.
+    """
+
+    def facts_key(f: ParcelFacts | None) -> tuple[str, str] | None:
+        if f is None or not _area(f.area_m2):
+            return None
+        return (_area(f.area_m2), f.land_category_code)
+
+    groups: dict[tuple[str, str], list[tuple[str, str]]] = collections.defaultdict(list)
+    for new, old in anchors.items():
+        groups[(new[:10], old[:10])].append((new, old))
+    news_by_dong: dict[str, list[str]] = collections.defaultdict(list)
+    for p in unmatched_new:
+        news_by_dong[p[:10]].append(p)
+    olds_by_dong: dict[str, list[str]] = collections.defaultdict(list)
+    for p in unmatched_old:
+        olds_by_dong[p[:10]].append(p)
+    old_dongs_of_new = collections.defaultdict(set)
+    for new_dong, old_dong in groups:
+        old_dongs_of_new[new_dong].add(old_dong)
+
+    links: list[Link] = []
+    for (new_dong, old_dong), pairs in sorted(groups.items()):
+        if len(old_dongs_of_new[new_dong]) != 1:
+            continue  # two source dongs feed this dong: position alone cannot say which
+        pairs.sort(key=lambda item: lot_key(item[0]))
+        olds_in_order = [lot_key(o) for _, o in pairs]
+        if any(b < a for a, b in zip(olds_in_order, olds_in_order[1:])):
+            continue  # the anchors do not keep the order: the premise fails here
+        bounds: list[tuple[str | None, str | None]] = [(None, None), *pairs, (None, None)]
+        news = sorted(news_by_dong.get(new_dong, []), key=lot_key)
+        olds = sorted(olds_by_dong.get(old_dong, []), key=lot_key)
+        for (n0, o0), (n1, o1) in zip(bounds, bounds[1:]):
+            gap_new = [p for p in news if (n0 is None or lot_key(p) > lot_key(n0)) and (n1 is None or lot_key(p) < lot_key(n1))]
+            gap_old = [p for p in olds if (o0 is None or lot_key(p) > lot_key(o0)) and (o1 is None or lot_key(p) < lot_key(o1))]
+            if not gap_new or not gap_old:
+                continue
+            if len(gap_new) == len(gap_old) and all(
+                facts_key(new_facts.get(n)) is not None and facts_key(new_facts.get(n)) == facts_key(old_facts.get(o))
+                for n, o in zip(gap_new, gap_old)
+            ):
+                chosen = list(zip(gap_new, gap_old))
+            else:
+                new_by_key: dict[tuple[str, str], list[str]] = collections.defaultdict(list)
+                old_by_key: dict[tuple[str, str], list[str]] = collections.defaultdict(list)
+                for n in gap_new:
+                    if (k := facts_key(new_facts.get(n))) is not None:
+                        new_by_key[k].append(n)
+                for o in gap_old:
+                    if (k := facts_key(old_facts.get(o))) is not None:
+                        old_by_key[k].append(o)
+                chosen = sorted(
+                    (new_by_key[k][0], old_by_key[k][0])
+                    for k in new_by_key
+                    if len(new_by_key[k]) == 1 and len(old_by_key.get(k, [])) == 1
+                )
+                matched_old = [lot_key(o) for _, o in sorted(chosen, key=lambda item: lot_key(item[0]))]
+                if any(b < a for a, b in zip(matched_old, matched_old[1:])):
+                    chosen = []  # the unique matches themselves would invert the order: take none
+            links.extend(Link(o, n, relation, "evidence_strong", "lot order+area+category") for n, o in chosen)
+    return links
+
+
 # --- effective link and reconciliation ------------------------------------------------------------
 
 
