@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform map edit fold: bake admin polygon edits into the tiles (ADR-0112)
+Description=Foundation Platform map edit fold for the %i unit: bake admin polygon edits into its tiles (ADR-0112)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -12,7 +12,7 @@ WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/map-edit.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
-ExecStart=/opt/foundation-platform/current/scripts/ops/map-edit-fold.sh
+ExecStart=/opt/foundation-platform/current/scripts/ops/map-edit-fold.sh %i
 TimeoutStartSec=2h
 NoNewPrivileges=true
 PrivateTmp=true

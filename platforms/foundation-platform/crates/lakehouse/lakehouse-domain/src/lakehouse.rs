@@ -2428,6 +2428,92 @@ pub const SILVER_ADMINISTRATIVE_BOUNDARIES: LakehouseTableContract = LakehouseTa
     },
 };
 
+const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "administrative_unit_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "scope_kind",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "canonical_code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "display_name",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_wkb",
+        logical_type: "binary",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_srid",
+        logical_type: "int",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_checksum_sha256",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "origin",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "silver_iceberg_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "edits_through_change_seq",
+        logical_type: "long",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "published_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// The administrative boundaries exactly as they are tiled: the newest Silver snapshot with every
+/// ledgered `admin` edit applied (root ADR-0112 §7·§9).
+pub const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED: LakehouseTableContract =
+    LakehouseTableContract {
+        table_name: "gold.administrative_boundary_served",
+        layer: LakehouseLayer::Gold,
+        physical_format: LakehousePhysicalFormat::Parquet,
+        serving_role: LakehouseServingRole::Projection,
+        current_row_predicate: None,
+        columns: GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS,
+        partition_spec: &[],
+        sort_order: &["administrative_unit_id"],
+        quality_gates: &[
+            "geometry_srid = 4326",
+            "one row per administrative_unit_id",
+            "(scope_kind, canonical_code) unique",
+            "origin is source or edit",
+            "geometry_checksum_sha256 is 64 lowercase hex",
+        ],
+        // silver.administrative_boundaries 와 silver.map_edit_ledger 에서 파생. 생산자가 overwrite 로 돌아 덮어쓴다.
+        load: LakehouseLoadUnit::Derived,
+    };
+
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
@@ -2454,6 +2540,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_PARCEL_PANEL,
     GOLD_BUILDING_PANEL,
     GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
+    GOLD_ADMINISTRATIVE_BOUNDARY_SERVED,
     REFERENCE_LEGAL_DONG_CODE,
     REFERENCE_SIGUNGU_CANONICAL_CROSSWALK,
 ];

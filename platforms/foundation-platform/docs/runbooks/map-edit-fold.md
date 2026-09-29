@@ -13,13 +13,20 @@ last_reviewed: 2026-09-29
 
 ## 흐름
 
-`foundation-map-edit-fold.timer`(매시간) → `scripts/ops/map-edit-fold.sh`:
+유닛마다 타이머가 하나다. 한 호스트에서 Spark·굽기가 겹치지 않도록 분을 나눈다.
+
+| 타이머 | 유닛 | 시각 | Silver 좌표계 | Spark 작업 |
+|---|---|---|---|---|
+| `foundation-map-edit-fold-complex.timer` | `complex` | 매시 05분 | EPSG:5186 | `industrial_complex_boundary_served_gold.py` |
+| `foundation-map-edit-fold-admin.timer` | `admin` | 매시 35분 | EPSG:4326 | `administrative_boundary_served_gold.py` |
+
+둘 다 `foundation-map-edit-fold@<unit>.service` → `scripts/ops/map-edit-fold.sh <unit>`:
 
 1. 손님 오버레이(`/overlay/{unit}`)가 200 인지 본다. 아니면 슬랙 `#alerts` 🔴.
 2. 접히지 않은 편집 수와 가장 오래된 편집의 나이를 본다. 6시간 이상이면 🟠.
 3. 편집이 없으면 끝(`pending=0 skipped` 한 줄). 같은 원천을 다시 구우면 타일 주소만 바뀌어 캐시가 버려진다.
    새 Silver 원천을 반영할 때는 `FOUNDATION_MAP_EDIT_FOLD_FORCE=1` 로 강제한다.
-4. `export-map-edit-handoff` → Spark `industrial_complex_boundary_served_gold.py`(원장 덧붙이기 + Gold 서빙본)
+4. `export-map-edit-handoff`(유닛의 Silver 좌표계로) → 유닛의 Spark 작업(원장 덧붙이기 + Gold 서빙본)
    → `bake-lakehouse-tiles`(GDAL·tippecanoe 굽기, 관문, R2, 승격, 접기 기록).
 5. 성공·실패 모두 `#alerts` 에 한 줄, journal 에 한 줄.
 
@@ -46,7 +53,7 @@ docker exec foundation-platform-runtime-postgres-1 psql -U foundation_admin -d f
   "SELECT unit_key, active_release_id, serving_generation, fallback_release_id IS NULL
    FROM catalog.vector_tile_publication_unit ORDER BY unit_key"
 # 타이머와 마지막 실행
-systemctl list-timers foundation-map-edit-fold.timer
+systemctl list-timers "foundation-map-edit-fold-*"
 sudo tail -3 /var/lib/foundation-platform/map-edit-fold/journal.log
 ```
 

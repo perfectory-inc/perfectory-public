@@ -291,8 +291,16 @@ case "${command}" in
       "${release_root}/current/infra/systemd/foundation-source-sweep.timer" \
       "${release_root}/current/infra/systemd/foundation-outbox-publish.service" \
       "${release_root}/current/infra/systemd/foundation-outbox-publish.timer" \
-      "${release_root}/current/infra/systemd/foundation-map-edit-fold.service" \
-      "${release_root}/current/infra/systemd/foundation-map-edit-fold.timer"
+      "${release_root}/current/infra/systemd/foundation-map-edit-fold@.service" \
+      "${release_root}/current/infra/systemd/foundation-map-edit-fold-complex.timer" \
+      "${release_root}/current/infra/systemd/foundation-map-edit-fold-admin.timer"
+    # The fold was one complex-only unit before it became a per-unit template; a host upgraded
+    # from then still carries it, and it would fold complex a second time every hour.
+    if [[ -e /etc/systemd/system/foundation-map-edit-fold.timer ]]; then
+      systemctl disable --now foundation-map-edit-fold.timer || true
+      rm -f /etc/systemd/system/foundation-map-edit-fold.timer \
+        /etc/systemd/system/foundation-map-edit-fold.service
+    fi
     systemctl daemon-reload
     systemctl enable --now foundation-postgres-backup.timer foundation-source-sweep.timer \
       foundation-outbox-publish.timer
@@ -300,7 +308,7 @@ case "${command}" in
     # off rather than failing every hour.
     if [[ -r /etc/foundation-platform/map-edit.env && -r /etc/foundation-platform/map-edit-fold.env ]]; then
       install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/map-edit-fold
-      systemctl enable --now foundation-map-edit-fold.timer
+      systemctl enable --now foundation-map-edit-fold-complex.timer foundation-map-edit-fold-admin.timer
     else
       printf 'map-edit-fold timer not enabled: its /etc/foundation-platform env files are missing\n' >&2
     fi

@@ -3047,6 +3047,88 @@
         "unit": "derived"
       }
     },
+    "gold.administrative_boundary_served": {
+      "table_name": "gold.administrative_boundary_served",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "administrative_unit_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "scope_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "canonical_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "display_name",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": true
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "origin",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "silver_iceberg_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "edits_through_change_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "administrative_unit_id"
+      ],
+      "quality_gates": [
+        "geometry_srid = 4326",
+        "one row per administrative_unit_id",
+        "(scope_kind, canonical_code) unique",
+        "origin is source or edit",
+        "geometry_checksum_sha256 is 64 lowercase hex"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "reference.legal_dong_code": {
       "table_name": "reference.legal_dong_code",
       "physical_format": "Parquet",

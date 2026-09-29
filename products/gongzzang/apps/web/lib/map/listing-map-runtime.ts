@@ -90,8 +90,10 @@ export async function setupMapboxRuntime(
   await setupMarkerTileLayers(mb, onParcelClick, manifest);
   await setupListingMarkerTileLayers(mb, onListingClick);
   if (isCancelled()) return;
-  const stopMapEditOverlay = startMapEditOverlay(mb, "complex");
-  if (stopMapEditOverlay) cleanups.push(stopMapEditOverlay);
+  for (const unit of ["complex", "admin"]) {
+    const stopMapEditOverlay = startMapEditOverlay(mb, unit);
+    if (stopMapEditOverlay) cleanups.push(stopMapEditOverlay);
+  }
   if (runtimeManifest) {
     let activeRuntimeManifest = runtimeManifest;
     const stopRuntimeManifestPolling = startFoundationVectorManifestPolling({
@@ -267,7 +269,8 @@ function setupAdminLayers(
 ): void {
   try {
     if (runtimeManifest?.publication_units.admin) {
-      registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "admin");
+      const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "admin");
+      if (registered.length > 0) registerMapEditOverlayLayers(mb, "admin");
       return;
     }
     const artifact = manifest ? getVectorTileArtifact(manifest, "admin") : undefined;
@@ -275,13 +278,14 @@ function setupAdminLayers(
       logMapLayerUnavailable("admin");
       return;
     }
-    registerFoundationVectorFillLayers(mb, "admin", {
+    const registered = registerFoundationVectorFillLayers(mb, "admin", {
       sourceId: "admin",
       source: buildVectorTileSource(manifest, "admin"),
       sourceLayer: artifact.source_layer,
       minzoom: artifact.render_min_zoom,
       maxzoom: artifact.render_max_zoom,
     });
+    if (registered.length > 0) registerMapEditOverlayLayers(mb, "admin");
   } catch (err) {
     logMapLayerFailure("admin-fill", err, { kind: "optional", source: "admin" });
   }
