@@ -290,10 +290,20 @@ case "${command}" in
       "${release_root}/current/infra/systemd/foundation-source-sweep.service" \
       "${release_root}/current/infra/systemd/foundation-source-sweep.timer" \
       "${release_root}/current/infra/systemd/foundation-outbox-publish.service" \
-      "${release_root}/current/infra/systemd/foundation-outbox-publish.timer"
+      "${release_root}/current/infra/systemd/foundation-outbox-publish.timer" \
+      "${release_root}/current/infra/systemd/foundation-map-edit-fold.service" \
+      "${release_root}/current/infra/systemd/foundation-map-edit-fold.timer"
     systemctl daemon-reload
     systemctl enable --now foundation-postgres-backup.timer foundation-source-sweep.timer \
       foundation-outbox-publish.timer
+    # The map edit fold needs its secrets (root ADR-0112); a host without them keeps the timer
+    # off rather than failing every hour.
+    if [[ -r /etc/foundation-platform/map-edit.env && -r /etc/foundation-platform/map-edit-fold.env ]]; then
+      install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/map-edit-fold
+      systemctl enable --now foundation-map-edit-fold.timer
+    else
+      printf 'map-edit-fold timer not enabled: its /etc/foundation-platform env files are missing\n' >&2
+    fi
     # A fresh timer that has never fired is unproven (the backup timer's own rule), so kick the
     # sweep once now, non-blocking. The sweep skips already-held files by fingerprint, so an
     # extra run is idempotent by construction.

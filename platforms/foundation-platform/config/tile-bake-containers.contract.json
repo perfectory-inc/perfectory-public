@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "purpose": "Single source of truth for the container images the lakehouse tile bake runs (root ADR-0112 §9). External images are pinned by digest; the tippecanoe image is built from infra/tiles/tippecanoe/Dockerfile, which pins its base digest and source commit.",
+  "images": {
+    "gdal": {
+      "image": "ghcr.io/osgeo/gdal:ubuntu-small-3.10.2@sha256:a2af3ef63be13b35790ce7a508ff395c409ef7a0b8ddc5ab9685dd4518af9779",
+      "reason": "ubuntu-small carries GEOS, which -makevalid needs; alpine-small does not."
+    },
+    "tippecanoe": {
+      "image": "foundation-tippecanoe:2.79.0-local",
+      "dockerfile": "platforms/foundation-platform/infra/tiles/tippecanoe/Dockerfile",
+      "version_banner": "tippecanoe v2.79.0",
+      "reason": "No official image or binary release exists, so it is built from the tagged source commit."
+    }
+  }
+}

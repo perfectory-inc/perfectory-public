@@ -144,7 +144,7 @@ services:
     # 기본값으로 두지 않고, 커밋하지 않는 이 파일로만 나른다. 파일이 없으면 편집은 503 으로
     # 거부되고 저장되지 않는다.
     env_file:
-      - path: ./map-edit.env
+      - path: ${FOUNDATION_PLATFORM_MAP_EDIT_ENV_FILE:-./map-edit.env}
         required: false
     ports:
       - "127.0.0.1:${FOUNDATION_API_PORT:-18080}:8080"
