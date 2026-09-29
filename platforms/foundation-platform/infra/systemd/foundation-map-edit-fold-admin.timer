@@ -1,0 +1,12 @@
+[Unit]
+Description=Fold administrative boundary polygon edits into the tiles every hour (ADR-0112)
+
+[Timer]
+# Each unit folds at its own minute so two Spark runs and two bakes never share the host.
+OnCalendar=*-*-* *:35:00
+Persistent=true
+RandomizedDelaySec=5m
+Unit=foundation-map-edit-fold@admin.service
+
+[Install]
+WantedBy=timers.target

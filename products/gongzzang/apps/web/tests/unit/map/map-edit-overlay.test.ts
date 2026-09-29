@@ -143,6 +143,35 @@ describe("drawing the overlay", () => {
     expect(registerMapEditOverlayLayers(mb, "complex")).toEqual([]);
   });
 
+  it("hides edited administrative boundaries by their lakehouse id the same way", () => {
+    const mb = fakeMapbox(["admin-fill", "admin-outline"]);
+    expect(registerMapEditOverlayLayers(mb, "admin")).toContain(mapEditOverlayFillLayerId("admin"));
+    applyMapEditOverlay(
+      mb,
+      parseMapEditOverlay(
+        overlayBody({
+          unit: "admin",
+          feature_id_property: "administrative_unit_id",
+          features: {
+            type: "FeatureCollection",
+            features: [
+              {
+                type: "Feature",
+                properties: { administrative_unit_id: EDITED, canonical_code: "SYN" },
+                geometry: SQUARE,
+              },
+            ],
+          },
+        }),
+        "admin",
+      ),
+    );
+    expect(mb.filters.get("admin-fill")).toEqual([
+      "!",
+      ["in", ["get", "administrative_unit_id"], ["literal", [EDITED, DELETED]]],
+    ]);
+  });
+
   it("adds nothing when the base unit is not on the map", () => {
     expect(registerMapEditOverlayLayers(fakeMapbox([]), "complex")).toEqual([]);
   });

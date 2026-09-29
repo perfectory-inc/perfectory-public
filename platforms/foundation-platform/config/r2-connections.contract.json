@@ -211,6 +211,15 @@
         "properties": {
           "official_complex_code": "string"
         }
+      },
+      "admin": {
+        "feature_id_property": "administrative_unit_id",
+        "feature_id_pattern": "[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+        "properties": {
+          "scope_kind": "string",
+          "canonical_code": "string",
+          "display_name": "string"
+        }
       }
     },
     "geometry": {

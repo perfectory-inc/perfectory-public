@@ -11,7 +11,8 @@
 # "할 일 없음"과 "확인 안 함"은 구별되어야 한다.
 set -euo pipefail
 
-UNIT="${FOUNDATION_MAP_EDIT_FOLD_UNIT:-complex}"
+# 유닛은 첫 인자다 — systemd 템플릿 `foundation-map-edit-fold@<unit>.service` 가 `%i` 로 넘긴다.
+UNIT="${1:-${FOUNDATION_MAP_EDIT_FOLD_UNIT:-complex}}"
 STATE_ROOT="${FOUNDATION_MAP_EDIT_FOLD_STATE_ROOT:-/var/lib/foundation-platform/map-edit-fold}"
 # 전용 폴더다. 공용 /var/lib/foundation-platform/lakehouse 는 Spark(uid 185) 소유라 서비스 계정이 쓸 수 없고,
 # 그 소유를 바꾸면 다른 적재 작업이 깨진다(2026-09-29 첫 설치에서 실제로 그랬다).
@@ -29,6 +30,10 @@ case "${UNIT}" in
   complex)
     HANDOFF_SRID=5186
     SERVED_JOB=industrial_complex_boundary_served_gold.py
+    ;;
+  admin)
+    HANDOFF_SRID=4326
+    SERVED_JOB=administrative_boundary_served_gold.py
     ;;
   *)
     echo "map-edit-fold: 모르는 유닛 ${UNIT}" >&2
