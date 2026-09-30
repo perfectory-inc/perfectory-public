@@ -14,6 +14,11 @@ FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /workspace/target/release/foundation-api /usr/local/bin/foundation-api
 COPY --from=builder /workspace/target/release/foundation-migrate /usr/local/bin/foundation-migrate
+# GET /catalog/v1/pipeline-graph reads the registry at run time. Its default path is resolved against
+# the build tree, which the runtime image does not have, so the endpoint answered 500 in production
+# until the registry was carried here and named by its environment variable (2026-09-30).
+COPY docs/catalog/pipeline-graph.v1.json /usr/local/share/foundation-platform/pipeline-graph.v1.json
+ENV FOUNDATION_PLATFORM_PIPELINE_GRAPH_REGISTRY_PATH=/usr/local/share/foundation-platform/pipeline-graph.v1.json
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
