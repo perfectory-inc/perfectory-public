@@ -291,9 +291,12 @@ async fn a_signed_in_steward_reaches_only_the_listed_routes_with_their_token() -
         .app
         .clone()
         .oneshot(
-            Request::get("/api/foundation/complexes")
-                .header(header::COOKIE, &cookie)
-                .body(Body::empty())?,
+            // Complexes are listed; their attachments are not.
+            Request::get(
+                "/api/foundation/complexes/00000000-0000-5000-8000-000000000001/attachments",
+            )
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())?,
         )
         .await?;
     assert_eq!(
