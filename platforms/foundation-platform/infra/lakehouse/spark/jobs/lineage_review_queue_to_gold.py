@@ -102,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in CONTRACT["columns"])
         out = [
             {"unit": UNIT, "subject_code": i.subject_code, "item_id": i.item_id, "status": i.status,
-             "candidates_json": i.candidates_json, "from_snapshot_id": i.from_snapshot_id or None,
+             "candidates_json": i.candidates_json, "evidence_etag": i.evidence_etag, "from_snapshot_id": i.from_snapshot_id or None,
              "to_snapshot_id": i.to_snapshot_id or None, "published_at_utc": now}
             for i in items
         ]

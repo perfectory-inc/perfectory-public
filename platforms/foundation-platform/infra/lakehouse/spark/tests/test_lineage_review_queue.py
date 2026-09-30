@@ -35,8 +35,13 @@ class ReviewQueueTest(unittest.TestCase):
         items, _ = q.review_queue([row(pnu(OLD, 3), pnu(NEW, 3), "needs_review", "area+category, ownership differs")])
         self.assertEqual(json.loads(items[0].candidates_json), [{
             "predecessor_pnu": pnu(OLD, 3), "relation": "jurisdiction_transfer", "grade": "needs_review",
-            "evidence_kind": "area+category, ownership differs", "evidence_ref": "",
+            "evidence_kind": "area+category, ownership differs", "evidence_ref": "", "in_effect": False,
         }])
+        self.assertEqual(items[0].evidence_etag, q.evidence_etag("needs_review", items[0].candidates_json))
+
+    def test_the_etag_matches_the_rust_twin(self):
+        # stewardship_domain::tests::the_etag_matches_the_python_twin pins the same vector.
+        self.assertEqual(q.evidence_etag("pending", "[]"), "012053e5d2845d033fa0c2799a9646e3367fc51fa516d45bb0e2f6b9a5a61a8f")
 
     def test_a_later_stronger_row_closes_the_item(self):
         items, counts = q.review_queue([

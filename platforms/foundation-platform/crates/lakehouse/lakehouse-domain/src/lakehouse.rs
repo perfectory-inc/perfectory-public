@@ -2963,6 +2963,11 @@ const GOLD_LINEAGE_REVIEW_QUEUE_COLUMNS: &[LakehouseColumn] = &[
         required: true,
     },
     LakehouseColumn {
+        name: "evidence_etag",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
         name: "from_snapshot_id",
         logical_type: "string",
         required: false,
@@ -2994,6 +2999,7 @@ pub const GOLD_LINEAGE_REVIEW_QUEUE: LakehouseTableContract = LakehouseTableCont
         "one row per (unit, subject_code)",
         "status is needs_review or pending",
         "item_id is the UUIDv5 of lineage-review:<unit>:<subject_code>",
+        "evidence_etag is the sha256 of status, a newline, and candidates_json (ADR-0115)",
     ],
     // silver.parcel_lineage 에서 매번 다시 쓴다. 결정은 이 표가 아니라 계보 행으로 쌓인다.
     load: LakehouseLoadUnit::Derived,

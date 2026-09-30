@@ -3385,6 +3385,11 @@
           "required": true
         },
         {
+          "name": "evidence_etag",
+          "logical_type": "string",
+          "required": true
+        },
+        {
           "name": "from_snapshot_id",
           "logical_type": "string",
           "required": false
@@ -3409,7 +3414,8 @@
       "quality_gates": [
         "one row per (unit, subject_code)",
         "status is needs_review or pending",
-        "item_id is the UUIDv5 of lineage-review:<unit>:<subject_code>"
+        "item_id is the UUIDv5 of lineage-review:<unit>:<subject_code>",
+        "evidence_etag is the sha256 of status, a newline, and candidates_json (ADR-0115)"
       ],
       "load": {
         "unit": "derived"
