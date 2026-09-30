@@ -49,6 +49,7 @@ MODULES = (
     "legal_dong_predecessor_map",
     "parcel_matching_gate",
     "place_id_release_to_gold",
+    "lineage_review_queue_to_gold",
 )
 
 

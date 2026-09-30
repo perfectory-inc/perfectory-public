@@ -3353,6 +3353,74 @@
         "column": "derivation_run_id"
       }
     },
+    "gold.lineage_review_queue": {
+      "table_name": "gold.lineage_review_queue",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "unit",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "subject_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "item_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "candidates_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "evidence_etag",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "from_snapshot_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "to_snapshot_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "unit"
+      ],
+      "sort_order": [
+        "subject_code"
+      ],
+      "quality_gates": [
+        "one row per (unit, subject_code)",
+        "status is needs_review or pending",
+        "item_id is the UUIDv5 of lineage-review:<unit>:<subject_code>",
+        "evidence_etag is the sha256 of status, a newline, and candidates_json (ADR-0115)"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "gold.place_id_registry": {
       "table_name": "gold.place_id_registry",
       "physical_format": "Parquet",
