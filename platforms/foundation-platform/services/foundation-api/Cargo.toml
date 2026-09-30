@@ -40,6 +40,9 @@ lakehouse-infrastructure          = { workspace = true }
 foundation-normalization-application    = { workspace = true }
 foundation-normalization-domain         = { workspace = true }
 foundation-normalization-infrastructure = { workspace = true }
+stewardship-application = { workspace = true }
+stewardship-domain = { workspace = true }
+stewardship-infrastructure = { workspace = true }
 
 [dev-dependencies]
 foundation-disposable-database = { workspace = true }

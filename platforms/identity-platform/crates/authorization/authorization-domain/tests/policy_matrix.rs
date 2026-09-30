@@ -84,6 +84,25 @@ fn vector_tile_admin_can_administer_spatial_resources() -> Result<(), Box<dyn st
 }
 
 #[test]
+fn a_lineage_steward_reviews_and_only_an_adjudicator_rules(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let allowed = |role: &str, action: &str| -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(evaluate_policy(&PolicyInput::resource_action(
+            vec![RoleCode::parse(role)?],
+            "foundation.lineage",
+            action,
+        ))
+        .is_allowed())
+    };
+    assert!(allowed("LINEAGE_STEWARD", "review")?);
+    assert!(!allowed("LINEAGE_STEWARD", "adjudicate")?);
+    assert!(allowed("LINEAGE_ADJUDICATOR", "review")?);
+    assert!(allowed("LINEAGE_ADJUDICATOR", "adjudicate")?);
+    assert!(!allowed("CATALOG_ADMIN", "review")?);
+    Ok(())
+}
+
+#[test]
 fn unrelated_role_is_denied_capability_access() -> Result<(), Box<dyn std::error::Error>> {
     let input = PolicyInput::resource_action(
         vec![RoleCode::parse("COMPLEX_EDITOR")?],
