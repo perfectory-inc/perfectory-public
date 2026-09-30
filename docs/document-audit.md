@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **457개**
-- 언어 분류: **{'english': 35, 'korean': 262, 'mixed': 160}**
+- 감사 문서: **458개**
+- 언어 분류: **{'english': 36, 'korean': 262, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **215개 정상 / 0개 누락 / 242개 해당 없음**
+- 메타데이터: **215개 정상 / 0개 누락 / 243개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -233,6 +233,7 @@
 | `platforms/foundation-platform/docs/events/webhook/receiver-contract.v1.example.json` | Foundation Platform | fixture | fixture | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/observability/slo-policy.v1.example.json` | Foundation Platform | fixture | fixture | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/openapi/catalog.v1.json` | Foundation Platform | contract | current | mixed | not applicable: machine contract | 4 |
+| `platforms/foundation-platform/docs/openapi/lineage-review.v1.json` | Foundation Platform | contract | current | english | not applicable: machine contract | 0 |
 | `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json` | Foundation Platform | contract | current | english | not applicable: machine contract | 2 |
 | `platforms/foundation-platform/docs/README.md` | Foundation Platform | README | current | korean | ok | 9 |
 | `platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 0 |
