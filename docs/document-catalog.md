@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **460개**
+- 문서 파일: **461개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,7 +19,7 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 142 |
+| Monorepo | 143 |
 | Repository tooling | 1 |
 
 ### 유형별
@@ -27,7 +27,7 @@
 | 유형 | 문서 수 |
 |---|---:|
 | ADR | 201 |
-| README | 114 |
+| README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 4 |
@@ -384,6 +384,7 @@ platforms/intelligence-platform/services/intelligence-worker/README.md
 ```text
 AGENTS.md
 CLAUDE.md
+consoles/dawneer/README.md
 CONTRIBUTING.md
 docs/adr/0001-monorepo-governance-and-conventions.md
 docs/adr/0002-docs-taxonomy-and-archive.md
@@ -538,6 +539,7 @@ tools/github/README.md
 |---|---|---|---|
 | `AGENTS.md` | Monorepo | agent rules | current |
 | `CLAUDE.md` | Monorepo | documentation | current |
+| `consoles/dawneer/README.md` | Monorepo | README | current |
 | `CONTRIBUTING.md` | Monorepo | documentation | current |
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current |
 | `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | current |

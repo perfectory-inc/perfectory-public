@@ -45,6 +45,10 @@
         "do_not_enforce_on_create": true,
         "required_status_checks": [
           {
+            "context": "required/dawneer",
+            "integration_id": 15368
+          },
+          {
             "context": "required/docs",
             "integration_id": 15368
           },

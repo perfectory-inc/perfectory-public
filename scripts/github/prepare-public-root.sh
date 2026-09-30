@@ -119,6 +119,7 @@ done
   PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/foundation-platform
   PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/identity-platform
   PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/intelligence-platform
+  PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh consoles/dawneer
   bash scripts/verify/frontend-test.sh
   bash scripts/ci/gitleaks-scan.sh all .
 ' _ "$public_clone"

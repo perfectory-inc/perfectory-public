@@ -1,0 +1,64 @@
+# intelligence-platform cargo-deny policy (derived from foundation-platform's config;
+# advisory exceptions reset — this workspace's accepted findings must be earned here).
+
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+# Fail on unmaintained/unsound advisories anywhere in the dependency graph, not just
+# workspace-local crates, so transitive advisories are caught rather than silently
+# scope-excluded. Accepted findings must be listed explicitly in `ignore` with a
+# justification (see foundation-platform adversarial review PCR2-73 / remediation #10).
+unmaintained = "all"
+unsound = "all"
+
+[licenses]
+confidence-threshold = 0.92
+unused-allowed-license = "allow"
+private = { ignore = true }
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "simplest-path"
+# openssl stays banned, with one accepted, tracked wrapper chain (2026-07-20):
+# schema_registry_converter 4.9 depends on reqwest 0.13 with default-tls, which
+# resolves to native-tls → openssl on Linux. The real fix is pointing
+# schema_registry_converter/reqwest at rustls features — a Cargo.lock change that
+# must be re-tested in the area container (Docker engine was down when this
+# policy landed). Any NEW dependent of openssl outside this chain still fails.
+# TODO: switch schema_registry_converter to rustls, then delete these wrappers.
+deny = [
+    { crate = "openssl", use-instead = "rustls", wrappers = ["native-tls"] },
+    { crate = "openssl-sys", use-instead = "rustls", wrappers = ["native-tls", "openssl"] },
+]
+
+[bans.workspace-dependencies]
+duplicates = "deny"
+include-path-dependencies = false
+unused = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "rev"
+allow-registry = [
+    "https://github.com/rust-lang/crates.io-index",
+]

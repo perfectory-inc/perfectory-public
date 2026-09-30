@@ -164,7 +164,8 @@ for workflow in "${workflows[@]}"; do
       return value == "products/gongzzang" \
         || value == "platforms/foundation-platform" \
         || value == "platforms/identity-platform" \
-        || value == "platforms/intelligence-platform"
+        || value == "platforms/intelligence-platform" \
+        || value == "consoles/dawneer"
     }
     {
       current=indentation($0)
