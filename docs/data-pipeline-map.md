@@ -61,7 +61,7 @@ Silver·Gold **31표**,
 | ↳ AL_D157 전체 사건을 PNU·이력순번으로 보존한다. 폐쇄·말소 사건도 연혁에 남는다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 토지권리등록 | 1 endpoint | 필지별 대지권 등록 (`silver.land_right_registration`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ AL_D006 PIPE CSV의 PNU·대지권일련번호별 등록과 폐쇄 행, 명칭·비율 원문을 보존한다. | | | | |
-| 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 표제부 (`silver.building_register_titles`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 ID 원장 (`silver.parcel_registry`) | 건물 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 표제부 (`silver.building_register_titles`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 ID 원장 (`silver.parcel_registry`) | 건물 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 층별 정보 (`silver.building_register_floors`) | — | — |
 | 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 호별 정보 (`silver.building_register_units`) | 건물의 호 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 건축HUB 파일: 건축물대장 전유공용면적 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호별 전유·공용 면적 (`silver.building_register_unit_areas`) | — | — |
@@ -75,7 +75,7 @@ Silver·Gold **31표**,
 | 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | — | — | — |
 | ↳ 권위 전체자료 추출을 계약 행으로 변환한다. 말소일이 비면 현행으로 유도하며 위조된 코드·날짜는 거부한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 읍면동 경계 | 1 endpoint | 행정경계(읍면동) (`silver.administrative_boundaries`)<br>행정경계 서빙본 (`gold.administrative_boundary_served`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`) | — | 행정경계 지도 타일<br>공짱 지도·상세 패널 |
-| 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | 필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 ID 원장 (`silver.parcel_registry`) | — | — |
+| 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | 필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 ID 원장 (`silver.parcel_registry`) | — | — |
 | ↳ 같은 권위(행정표준코드)의 전체자료 내려받기본(폐지 코드 포함)을 스냅숏 행으로 싣는다. 내려받기 수집 엔드포인트 등록은 수집 레인 몫이다. | | | | |
 
 ## 수집 이후 아직 연결되지 않은 데이터
@@ -206,7 +206,6 @@ Silver·Gold **31표**,
 |---|---|---|
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
-| `silver.parcel_lineage` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_registry` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_bridge` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_changelog` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -378,7 +377,7 @@ Silver·Gold **31표**,
 | 필지 경계 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |
 | 필지별 토지이동이력 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |
 | 건물 표제부 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |
-| 필지 계보 → 필지 by-PNU 제공용 패널 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
+| 필지 계보 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_attribute_carry.py` |
 | 필지 경계 → 필지 ID 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_registry_to_silver.py` |
 | 필지 계보 → 필지 ID 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_registry_to_silver.py` |
 | 필지 ID 원장 → 발행 ID 목록 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py` |

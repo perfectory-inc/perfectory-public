@@ -64,6 +64,14 @@ const GOLD_PARCEL_PANEL_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "long",
         required: true,
     },
+    // Sections that came from an older PNU through the parcel lineage, as a JSON object
+    // {section: "lineage:<grade>" | "origin:<relation>:<grade>"}; null when every section is the
+    // map PNU's own (root ADR-0113 §6).
+    LakehouseColumn {
+        name: "attached_via_json",
+        logical_type: "string",
+        required: false,
+    },
     // Deterministic SHA-256 of the content columns only, lineage excluded (root ADR-0099).
     // The daily delta job compares this fingerprint across snapshots to name the parcels
     // whose serving documents must be re-baked.
@@ -101,6 +109,7 @@ pub const GOLD_PARCEL_PANEL: LakehouseTableContract = LakehouseTableContract {
         "land_right_total is non-negative",
         "published_at_utc is present",
         "row_digest is the sha256 of the content columns only (ADR-0099)",
+        "a section attached through the lineage names its path in attached_via_json",
     ],
     // 여러 silver 표를 조인해 파생. 생산자가 overwrite 로 돌아 덮어쓴다.
     load: LakehouseLoadUnit::Derived,
