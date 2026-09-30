@@ -48,7 +48,7 @@ AI 에이전트(Claude Code / Cursor / Codex / Gemini / Cline / Aider 등) 공�
 | `foundation-platform` | Catalog + lakehouse + collection + canonical data foundation | `platforms/foundation-platform` |
 | `identity-platform` | Staff/service identity + Authz + policy | `platforms/identity-platform` |
 | `intelligence-platform` | AI runtime + proposal generation + vector/RAG | `platforms/intelligence-platform` |
-| `dawneer` (`Dawneer`/`더니어`) | 직원 통합 콘솔: 파이프라인·인사·데이터·승인 (화면만 소유) | `consoles/dawneer` — 새로 짓는 중, 아직 없음 (루트 ADR-0114) |
+| `dawneer` (`Dawneer`/`더니어`) | 직원 통합 콘솔: 파이프라인·인사·데이터·승인 (화면만 소유) | `consoles/dawneer` — 새로 짓는 중: 서버(로그인·중계) 있음, 화면 다음 (루트 ADR-0114, 0116) |
 
 > 2026-07-19부터 위 영역들은 perfectory 모노레포로 통합되었다 (루트 [ADR-0001](../../docs/adr/0001-monorepo-governance-and-conventions.md)). 옛 dawneer 저장소는 통합하지 않고 은퇴하며, 더니어는 `consoles/dawneer` 에 새로 짓는다 (루트 [ADR-0114](../../docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md)).
 

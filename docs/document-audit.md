@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **460개**
-- 언어 분류: **{'english': 36, 'korean': 264, 'mixed': 160}**
+- 감사 문서: **461개**
+- 언어 분류: **{'english': 36, 'korean': 265, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **216개 정상 / 0개 누락 / 244개 해당 없음**
+- 메타데이터: **217개 정상 / 0개 누락 / 244개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -22,6 +22,7 @@
 |---|---|---|---|---|---|---:|
 | `AGENTS.md` | Monorepo | agent rules | current | korean | not applicable: agent router | 14 |
 | `CLAUDE.md` | Monorepo | documentation | current | korean | not applicable: agent router | 0 |
+| `consoles/dawneer/README.md` | Monorepo | README | current | korean | ok | 1 |
 | `CONTRIBUTING.md` | Monorepo | documentation | current | korean | ok | 0 |
 | `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 14 |
 | `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
@@ -137,7 +138,7 @@
 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -289,7 +290,7 @@
 | `platforms/identity-platform/docs/README.md` | Identity Platform | README | current | korean | ok | 7 |
 | `platforms/identity-platform/docs/runbooks/production-bringup-on-a-lan-host.md` | Identity Platform | runbook | current | korean | ok | 1 |
 | `platforms/identity-platform/docs/runbooks/README.md` | Identity Platform | README | current | korean | ok | 0 |
-| `platforms/identity-platform/docs/runbooks/staff-console-sign-in.md` | Identity Platform | runbook | current | korean | ok | 1 |
+| `platforms/identity-platform/docs/runbooks/staff-console-sign-in.md` | Identity Platform | runbook | current | korean | ok | 2 |
 | `platforms/identity-platform/docs/runbooks/workload-identity-provisioning.md` | Identity Platform | runbook | current | mixed | ok | 5 |
 | `platforms/identity-platform/README.md` | Identity Platform | README | current | korean | ok | 3 |
 | `platforms/identity-platform/services/identity-api/README.md` | Identity Platform | README | current | mixed | ok | 0 |

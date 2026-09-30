@@ -498,6 +498,7 @@ for needle in (
     "PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/foundation-platform",
     "PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/identity-platform",
     "PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/intelligence-platform",
+    "PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh consoles/dawneer",
     "scripts/verify/frontend-test.sh",
     'control_legal_validator="$root/scripts/github/validate-legal-publication.sh"',
     'candidate_legal_validator="$source_root/scripts/github/validate-legal-publication.sh"',

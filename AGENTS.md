@@ -68,7 +68,7 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 - `platforms/foundation-platform` — 데이터 원장 SSOT. 규칙: [platforms/foundation-platform/AGENTS.md](./platforms/foundation-platform/AGENTS.md)
 - `platforms/identity-platform` — 인증/인가. 규칙: [platforms/identity-platform/AGENTS.md](./platforms/identity-platform/AGENTS.md)
 - `platforms/intelligence-platform` — LLM 정규화 제안. 규칙: [platforms/intelligence-platform/AGENTS.md](./platforms/intelligence-platform/AGENTS.md)
-- `consoles/dawneer` — 직원 통합 콘솔(화면만 소유). 계획, 아직 없음: [ADR-0114](./docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md)
+- `consoles/dawneer` — 직원 통합 콘솔(화면만 소유, 서버는 로그인·중계 BFF). 규칙: [consoles/dawneer/README.md](./consoles/dawneer/README.md)
 
 ## 모노레포 절대 규칙 (docs/adr/0001 요약)
 

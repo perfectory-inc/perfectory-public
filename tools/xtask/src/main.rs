@@ -869,6 +869,16 @@ const AREAS: &[Area] = &[
     // retriggered no area CI, fixed by `scripts/guard/xtask-path-coverage.sh`.
     // That made the workflows *rerun* on an xtask change; it did not make any of
     // them *test* xtask. A path filter is not coverage.
+    // The staff console (root ADR-0114, ADR-0116): a pure-Rust BFF with no backend-gated tests —
+    // its sign-in suite brings its own fake issuer and fake Foundation.
+    Area {
+        slug: "dawneer",
+        dir: "consoles/dawneer",
+        apt_deps: &[],
+        python_tests: &[],
+        node_tests: &[],
+        live_lanes: &[],
+    },
     Area {
         slug: "tooling",
         dir: "tools/xtask",

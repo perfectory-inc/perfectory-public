@@ -18,7 +18,7 @@ perfectory/
 ├── platforms/foundation-platform/      공공데이터·카탈로그·레이크하우스 SSOT
 ├── platforms/identity-platform/        직원·서비스 인증과 인가 정책
 ├── platforms/intelligence-platform/    LLM 정규화 제안 엔진
-├── consoles/dawneer/                   직원 통합 콘솔 (계획, ADR-0114)
+├── consoles/dawneer/                   직원 통합 콘솔 (ADR-0114, 0116)
 ├── docs/                               전역 문서·ADR·기술 기준
 ├── scripts/                            검증·가드·자동화
 └── .github/                            전역 CI/CD
