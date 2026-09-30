@@ -19,5 +19,6 @@ last_reviewed: 2026-07-29
 - [필지 by-PNU R2 서빙 굽기·발행](./parcel-by-pnu-serving-bake.md)
 - [지도 편집 접기 — 설치·운영·확인](./map-edit-fold.md)
 - [데이터 카탈로그(DataHub) — 설치·로그인·확인](./data-catalog.md)
+- [ai-server 메모리 예산 — 컨테이너 상한과 실측](./host-memory-budget.md)
 
 전체 목록은 [문서 색인](../../../../docs/document-catalog.md)에서 확인한다.
