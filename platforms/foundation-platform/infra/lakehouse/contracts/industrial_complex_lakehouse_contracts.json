@@ -2165,6 +2165,11 @@
           "required": true
         },
         {
+          "name": "attached_via_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "row_digest",
           "logical_type": "string",
           "required": true
@@ -2191,7 +2196,8 @@
         "pnu matches the cadastral grammar",
         "land_right_total is non-negative",
         "published_at_utc is present",
-        "row_digest is the sha256 of the content columns only (ADR-0099)"
+        "row_digest is the sha256 of the content columns only (ADR-0099)",
+        "a section attached through the lineage names its path in attached_via_json"
       ],
       "load": {
         "unit": "derived"

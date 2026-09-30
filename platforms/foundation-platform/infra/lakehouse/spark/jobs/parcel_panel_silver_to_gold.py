@@ -64,6 +64,8 @@ from pyspark.sql import functions as F
 from pyspark.sql import types as T
 from pyspark.storagelevel import StorageLevel
 
+from parcel_attribute_carry import carry_candidates
+from parcel_lineage import Link
 from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
@@ -108,6 +110,10 @@ LINEAGE_COLUMNS = ("row_digest", "source_snapshot_id", "published_at_utc")
 CONTENT_DIGEST_COLUMNS: tuple[str, ...] = tuple(
     column for column in GOLD_COLUMNS if column not in LINEAGE_COLUMNS
 )
+# Content columns the fingerprint takes only when they hold a value. `concat_ws` skips a NULL,
+# so a row whose every section is its own keeps the digest it had before this column existed —
+# widening the contract must not mark forty million rows as changed (root ADR-0113 §6).
+NULL_SKIPPED_DIGEST_COLUMNS: tuple[str, ...] = ("attached_via_json",)
 
 PARCEL_SOURCE = "silver.parcel_boundaries"
 ZONING_SOURCE = "silver.land_use_plan"
@@ -117,6 +123,7 @@ CHARACTERISTIC_SOURCE = "silver.land_characteristic"
 FOREST_SOURCE = "silver.land_forest_ledger"
 TRANSFER_SOURCE = "silver.land_transfer_history"
 LAND_RIGHT_SOURCE = "silver.land_right_registration"
+LINEAGE_SOURCE = "silver.parcel_lineage"
 ATTRIBUTE_SOURCES = (
     ZONING_SOURCE,
     PRICE_SOURCE,
@@ -240,6 +247,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--summary-output",
         help="Optional path for a machine-readable Spark run summary JSON file.",
+    )
+    parser.add_argument(
+        "--no-carry-lineage",
+        dest="carry_lineage",
+        action="store_false",
+        help=(
+            "Do not attach attributes held under an older PNU through silver.parcel_lineage "
+            "(root ADR-0113 §6). Only for inputs that carry no lineage table."
+        ),
     )
     parser.add_argument(
         "--lineage-output",
@@ -704,6 +720,87 @@ def build_land_rights(land_right: DataFrame) -> DataFrame:
     )
 
 
+SECTION_VIA_COLUMNS: dict[str, str] = {
+    "zonings": "zonings_via",
+    "price": "price_via",
+    "characteristics": "characteristics_via",
+    "forest_ledger": "forest_ledger_via",
+    "transfer_history": "transfer_history_via",
+    "land_rights": "land_rights_via",
+}
+
+
+def read_carry_candidates(
+    spark: SparkSession, args: argparse.Namespace, counters: dict[str, int]
+) -> DataFrame | None:
+    """The lineage's candidate sources per successor PNU, as a small frame (root ADR-0113 §6).
+
+    Lineage rows are few next to the panel (re-lotted parcels, not all parcels), so the chain walk
+    runs on the driver through the same function the tests pin, and the result is broadcast.
+    """
+
+    if not args.carry_lineage:
+        return None
+    lineage = read_source(spark, args, LINEAGE_SOURCE)
+    if args.region_prefix is not None:
+        lineage = lineage.where(F.col("successor_pnu").startswith(args.region_prefix))
+    links = [
+        Link(row.predecessor_pnu or "", row.successor_pnu, row.relation, row.grade, "")
+        for row in lineage.select("predecessor_pnu", "successor_pnu", "relation", "grade")
+        .distinct()
+        .collect()
+    ]
+    candidates, stopped = carry_candidates(links)
+    counters["lineage_links"] = len(links)
+    counters["lineage_candidates"] = len(candidates)
+    for reason, count in sorted(stopped.items()):
+        counters[f"lineage_stopped_{reason}"] = count
+    schema = "successor_pnu string, source_pnu string, hop int, path string"
+    rows = [(c.successor_pnu, c.source_pnu, c.hop, c.path) for c in candidates]
+    return F.broadcast(spark.createDataFrame(rows, schema=schema))
+
+
+def with_lineage_sources(
+    frame: DataFrame, region_prefix: str | None, candidates: DataFrame | None
+) -> DataFrame:
+    """The region's rows plus every row a candidate points at — a predecessor may sit under
+    another region's prefix (a sido merger moves every PNU out of its old sido prefix)."""
+
+    in_region = filtered_by_region(frame, region_prefix)
+    if region_prefix is None or candidates is None:
+        return in_region
+    sources = candidates.select(F.col("source_pnu").alias("pnu")).distinct()
+    elsewhere = frame.where(~F.col("pnu").startswith(region_prefix)).join(
+        F.broadcast(sources), on="pnu", how="left_semi"
+    )
+    return in_region.unionByName(elsewhere)
+
+
+def carry_section(section: DataFrame, via_column: str, candidates: DataFrame | None) -> DataFrame:
+    """The section under its own PNU, plus — for a PNU without one — the nearest lineage source's.
+
+    Same semantics as `parcel_attribute_carry.attach`: the own value wins, then the lowest hop.
+    """
+
+    own = section.withColumn(via_column, F.lit(None).cast(T.StringType()))
+    if candidates is None:
+        return own
+    value_columns = [column for column in section.columns if column != "pnu"]
+    nearest = Window.partitionBy("successor_pnu").orderBy(F.col("hop").asc())
+    carried = (
+        candidates.join(section.withColumnRenamed("pnu", "source_pnu"), on="source_pnu")
+        .withColumn("_carry_rank", F.row_number().over(nearest))
+        .where(F.col("_carry_rank") == 1)
+        .select(
+            F.col("successor_pnu").alias("pnu"),
+            *value_columns,
+            F.col("path").alias(via_column),
+        )
+        .join(section.select("pnu"), on="pnu", how="left_anti")
+    )
+    return own.unionByName(carried)
+
+
 def build_gold_panel_frame(
     parcels: DataFrame,
     sections: dict[str, DataFrame],
@@ -711,6 +808,12 @@ def build_gold_panel_frame(
     published_at_utc: str,
 ) -> DataFrame:
     base = parcels.select("pnu").distinct()
+    sections = {
+        name: frame
+        if SECTION_VIA_COLUMNS[name] in frame.columns
+        else frame.withColumn(SECTION_VIA_COLUMNS[name], F.lit(None).cast(T.StringType()))
+        for name, frame in sections.items()
+    }
     joined = (
         base.join(sections["zonings"], on="pnu", how="left")
         .join(sections["price"], on="pnu", how="left")
@@ -734,6 +837,7 @@ def build_gold_panel_frame(
         F.coalesce(F.col("land_right_total"), F.lit(0)).cast(T.LongType()).alias(
             "land_right_total"
         ),
+        attached_via_json(),
         F.lit(source_snapshot_id).alias("source_snapshot_id"),
         F.lit(published_at_utc).alias("published_at_utc"),
     ).withColumn(
@@ -745,13 +849,26 @@ def build_gold_panel_frame(
             F.concat_ws(
                 "\x1f",
                 *(
-                    F.coalesce(F.col(column).cast(T.StringType()), F.lit("\x00null"))
+                    F.col(column).cast(T.StringType())
+                    if column in NULL_SKIPPED_DIGEST_COLUMNS
+                    else F.coalesce(F.col(column).cast(T.StringType()), F.lit("\x00null"))
                     for column in CONTENT_DIGEST_COLUMNS
                 ),
             ),
             256,
         ),
     ).select(*GOLD_COLUMNS)
+
+
+def attached_via_json() -> F.Column:
+    """{section: path} for the sections that came through the lineage; NULL when none did."""
+
+    paths = F.to_json(
+        F.struct(*(F.col(via).alias(name) for name, via in SECTION_VIA_COLUMNS.items()))
+    )
+    return F.when(paths == F.lit("{}"), F.lit(None).cast(T.StringType())).otherwise(paths).alias(
+        "attached_via_json"
+    )
 
 
 def assert_columns(frame: DataFrame, expected_columns: tuple[str, ...]) -> None:
@@ -1081,9 +1198,12 @@ def main() -> int:
         )
         source_snapshots[PARCEL_SOURCE] = assert_single_snapshot(parcels, PARCEL_SOURCE)
 
+        candidates = read_carry_candidates(spark, args, counters)
         frames: dict[str, DataFrame] = {}
         for name in ATTRIBUTE_SOURCES:
-            frame = filtered_by_region(read_source(spark, args, name), args.region_prefix)
+            frame = with_lineage_sources(
+                read_source(spark, args, name), args.region_prefix, candidates
+            )
             source_snapshots[name] = assert_single_snapshot(frame, name)
             frames[name] = frame
 
@@ -1093,7 +1213,7 @@ def main() -> int:
         )
         anchors = resolve_zoning_anchors(zone_codes)
 
-        sections = {
+        built = {
             "zonings": build_zonings(frames[ZONING_SOURCE], anchors, spark, counters),
             "price": build_price(frames[PRICE_SOURCE], counters),
             "characteristics": build_characteristics(
@@ -1104,6 +1224,10 @@ def main() -> int:
             ),
             "transfer_history": build_transfer_history(frames[TRANSFER_SOURCE]),
             "land_rights": build_land_rights(frames[LAND_RIGHT_SOURCE]),
+        }
+        sections = {
+            name: carry_section(frame, SECTION_VIA_COLUMNS[name], candidates)
+            for name, frame in built.items()
         }
 
         gold = build_gold_panel_frame(
