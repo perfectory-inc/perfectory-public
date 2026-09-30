@@ -9,6 +9,14 @@
       "post_logout_redirect_uris": ["http://127.0.0.1:3120/"],
       "dev_mode": true,
       "dev_mode_reason": "The first console runs on a staff laptop over plain http on the loopback (root ADR-0116 §5); a public https origin turns this off."
+    },
+    {
+      "name": "datahub",
+      "display": "DataHub metadata catalog (trial)",
+      "redirect_uris": ["http://127.0.0.1:19002/callback/oidc"],
+      "post_logout_redirect_uris": ["http://127.0.0.1:19002/"],
+      "dev_mode": true,
+      "dev_mode_reason": "The trial catalog is reached from a staff laptop over an SSH tunnel on the loopback; a public https origin turns this off."
     }
   ]
 }
