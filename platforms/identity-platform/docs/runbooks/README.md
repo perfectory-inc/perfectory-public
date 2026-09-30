@@ -11,5 +11,6 @@ last_reviewed: 2026-07-29
 
 - [Workload identity 발급·회전](./workload-identity-provisioning.md)
 - [LAN 호스트에서 신원 스택 기동](./production-bringup-on-a-lan-host.md)
+- [직원 콘솔(더니어) 로그인 준비](./staff-console-sign-in.md)
 
 인증·인가 구조의 결정은 [Identity ADR](../adr/README.md), HTTP 계약은 `openapi/`가 소유한다.

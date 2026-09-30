@@ -12,6 +12,9 @@
 #   ZITADEL_PAT_FILE      bearer for the management API
 #                         (default /etc/identity-platform/secrets/zitadel-bootstrap-pat)
 #   ZITADEL_PROJECT_NAME  project to ensure (default perfectory)
+#   ZITADEL_SECRETS_DIR   where a staff console's client credentials are written, one
+#                         <name>-oidc-client.env per application, mode 0600
+#                         (default /etc/identity-platform/secrets)
 # The base URL is derived from config/identity-runtime-endpoints.contract.json.
 #
 # Options:
@@ -23,6 +26,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 platform_root="$(cd "${here}/../.." && pwd)"
 contract="${platform_root}/config/identity-runtime-endpoints.contract.json"
 policy="${platform_root}/config/workload-principal-policy.v1.json"
+consoles="${platform_root}/config/staff-console-applications.v1.json"
+secrets_dir="${ZITADEL_SECRETS_DIR:-/etc/identity-platform/secrets}"
 action_file="${here}/actions/principal-kind.js"
 pat_file="${ZITADEL_PAT_FILE:-/etc/identity-platform/secrets/zitadel-bootstrap-pat}"
 project_name="${ZITADEL_PROJECT_NAME:-perfectory}"
@@ -32,7 +37,7 @@ if [[ "${1:-}" == "--emit-bindings" ]]; then
   emit_bindings="${2:?--emit-bindings needs a path}"
 fi
 
-for f in "${contract}" "${policy}" "${action_file}" "${pat_file}"; do
+for f in "${contract}" "${policy}" "${consoles}" "${action_file}" "${pat_file}"; do
   [[ -r "${f}" ]] || { printf 'FAIL configure-zitadel: unreadable %s\n' "${f}" >&2; exit 66; }
 done
 
@@ -152,6 +157,93 @@ print(rows[0]['id'] if rows else '')")"
   fi
   bindings_rows="${bindings_rows}${slug} ${subject}"$'\n'
 done <<<"${slugs}"
+
+# --- staff console web applications (root ADR-0116) ---------------------
+# One confidential OIDC web app per entry of the console list: authorization code
+# with PKCE and refresh tokens, JWT access tokens (foundation-api verifies them
+# locally), basic client authentication. The client secret is shown by Zitadel
+# once; it goes straight into a 0600 file and never to stdout. A later run
+# converges the app to the list (redirect URIs change with the console's origin)
+# and only mints a new secret when its file is missing.
+console_rows="$(python3 -c "
+import json, sys
+for app in json.load(open(sys.argv[1]))['applications']:
+    print(app['name'])
+" "${consoles}")"
+while read -r console; do
+  [[ -n "${console}" ]] || continue
+  desired="$(python3 -c "
+import json, sys
+app = next(a for a in json.load(open(sys.argv[1]))['applications'] if a['name'] == sys.argv[2])
+print(json.dumps({
+    'redirectUris': app['redirect_uris'],
+    'postLogoutRedirectUris': app['post_logout_redirect_uris'],
+    'responseTypes': ['OIDC_RESPONSE_TYPE_CODE'],
+    'grantTypes': ['OIDC_GRANT_TYPE_AUTHORIZATION_CODE', 'OIDC_GRANT_TYPE_REFRESH_TOKEN'],
+    'appType': 'OIDC_APP_TYPE_WEB',
+    'authMethodType': 'OIDC_AUTH_METHOD_TYPE_BASIC',
+    'version': 'OIDC_VERSION_1_0',
+    'devMode': app['dev_mode'],
+    'accessTokenType': 'OIDC_TOKEN_TYPE_JWT',
+    'idTokenUserinfoAssertion': True,
+}, sort_keys=True))
+" "${consoles}" "${console}")"
+  app_id="$(api -X POST "${base_url}/management/v1/projects/${project_id}/apps/_search" \
+    -H 'Content-Type: application/json' \
+    -d "{\"queries\":[{\"nameQuery\":{\"name\":\"${console}\",\"method\":\"TEXT_QUERY_METHOD_EQUALS\"}}]}" \
+    | python3 -c "
+import json, sys
+rows = json.load(sys.stdin).get('result') or []
+print(rows[0]['id'] if rows else '')")"
+  credentials="${secrets_dir}/${console}-oidc-client.env"
+  if [[ -z "${app_id}" ]]; then
+    created="$(printf '%s' "${desired}" | python3 -c "
+import json, sys
+body = json.load(sys.stdin); body['name'] = sys.argv[1]; print(json.dumps(body))
+" "${console}" | api -X POST "${base_url}/management/v1/projects/${project_id}/apps/oidc" \
+        -H 'Content-Type: application/json' --data-binary @-)"
+    ( umask 077; printf '%s' "${created}" | python3 -c "
+import json, sys
+body = json.load(sys.stdin)
+print(f\"OIDC_CLIENT_ID={body['clientId']}\")
+print(f\"OIDC_CLIENT_SECRET={body['clientSecret']}\")
+" > "${credentials}" )
+    printf 'created console app %s client_id=%s credentials=%s\n' "${console}" \
+      "$(printf '%s' "${created}" | json_field clientId)" "${credentials}"
+    continue
+  fi
+  current="$(api "${base_url}/management/v1/projects/${project_id}/apps/${app_id}" | python3 -c "
+import json, sys
+c = json.load(sys.stdin)['app']['oidcConfig']
+keys = ['redirectUris','postLogoutRedirectUris','responseTypes','grantTypes','appType',
+        'authMethodType','version','devMode','accessTokenType','idTokenUserinfoAssertion']
+# Zitadel leaves an enum out of its answer when it holds the enum's zero value, so a
+# missing key reads as that default rather than as a difference to converge.
+defaults = {'appType': 'OIDC_APP_TYPE_WEB', 'authMethodType': 'OIDC_AUTH_METHOD_TYPE_BASIC',
+            'version': 'OIDC_VERSION_1_0', 'accessTokenType': 'OIDC_TOKEN_TYPE_BEARER',
+            'devMode': False, 'idTokenUserinfoAssertion': False}
+print(json.dumps({k: c.get(k, defaults.get(k, [])) for k in keys}, sort_keys=True))")"
+  if [[ "${current}" != "${desired}" ]]; then
+    printf '%s' "${desired}" | api -X PUT \
+      "${base_url}/management/v1/projects/${project_id}/apps/${app_id}/oidc_config" \
+      -H 'Content-Type: application/json' --data-binary @- >/dev/null
+    printf 'updated console app %s id=%s\n' "${console}" "${app_id}"
+  else
+    printf 'exists  console app %s id=%s\n' "${console}" "${app_id}"
+  fi
+  if [[ ! -s "${credentials}" ]]; then
+    client_id="$(api "${base_url}/management/v1/projects/${project_id}/apps/${app_id}" \
+      | json_field app oidcConfig clientId)"
+    ( umask 077; api -X POST -H 'Content-Type: application/json' -d '{}' \
+        "${base_url}/management/v1/projects/${project_id}/apps/${app_id}/oidc_config/_generate_client_secret" \
+      | python3 -c "
+import json, sys
+print(f'OIDC_CLIENT_ID={sys.argv[1]}')
+print(f\"OIDC_CLIENT_SECRET={json.load(sys.stdin)['clientSecret']}\")
+" "${client_id}" > "${credentials}" )
+    printf 'minted  console app %s credentials=%s (the file was missing)\n' "${console}" "${credentials}"
+  fi
+done <<<"${console_rows}"
 
 # --- bindings document ---------------------------------------------------
 if [[ -n "${emit_bindings}" ]]; then

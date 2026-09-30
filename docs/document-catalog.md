@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **458개**
+- 문서 파일: **460개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -17,16 +17,16 @@
 |---|---:|
 | Foundation Platform | 117 |
 | Gongzzang 제품 | 163 |
-| Identity Platform | 17 |
+| Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 141 |
+| Monorepo | 142 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 200 |
+| ADR | 201 |
 | README | 114 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -38,7 +38,7 @@
 | guide | 2 |
 | reference | 18 |
 | roadmap | 3 |
-| runbook | 32 |
+| runbook | 33 |
 
 ## 책임별 문서 트리
 
@@ -348,6 +348,7 @@ platforms/identity-platform/docs/openapi/identity.v1.json
 platforms/identity-platform/docs/README.md
 platforms/identity-platform/docs/runbooks/production-bringup-on-a-lan-host.md
 platforms/identity-platform/docs/runbooks/README.md
+platforms/identity-platform/docs/runbooks/staff-console-sign-in.md
 platforms/identity-platform/docs/runbooks/workload-identity-provisioning.md
 platforms/identity-platform/README.md
 platforms/identity-platform/services/identity-api/README.md
@@ -498,6 +499,7 @@ docs/adr/0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.m
 docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md
 docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md
 docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md
+docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -651,6 +653,7 @@ tools/github/README.md
 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -802,6 +805,7 @@ tools/github/README.md
 | `platforms/identity-platform/docs/README.md` | Identity Platform | README | current |
 | `platforms/identity-platform/docs/runbooks/production-bringup-on-a-lan-host.md` | Identity Platform | runbook | current |
 | `platforms/identity-platform/docs/runbooks/README.md` | Identity Platform | README | current |
+| `platforms/identity-platform/docs/runbooks/staff-console-sign-in.md` | Identity Platform | runbook | current |
 | `platforms/identity-platform/docs/runbooks/workload-identity-provisioning.md` | Identity Platform | runbook | current |
 | `platforms/identity-platform/README.md` | Identity Platform | README | current |
 | `platforms/identity-platform/services/identity-api/README.md` | Identity Platform | README | current |
