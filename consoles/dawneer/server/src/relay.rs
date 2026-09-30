@@ -25,6 +25,9 @@ const ROUTES: &[(Method, &[Segment])] = &[
         Method::GET,
         &[Literal("vector-tiles"), Literal("runtime-manifest")],
     ),
+    // The canonical industrial complexes, read-only; edits stay with their owners.
+    (Method::GET, &[Literal("complexes")]),
+    (Method::GET, &[Literal("complexes"), Uuid]),
     (Method::GET, &[Literal("lineage-review"), Literal("items")]),
     (
         Method::GET,
@@ -110,7 +113,16 @@ mod tests {
             !allowed(&Method::POST, "vector-tiles/manifest"),
             "status views are read-only"
         );
-        assert!(!allowed(&Method::GET, "complexes"), "another route");
+        assert!(allowed(&Method::GET, "complexes"));
+        assert!(allowed(&Method::GET, &format!("complexes/{ID}")));
+        assert!(
+            !allowed(&Method::POST, "complexes"),
+            "registering a complex is not the console's"
+        );
+        assert!(
+            !allowed(&Method::GET, &format!("complexes/{ID}/attachments")),
+            "another route"
+        );
         assert!(!allowed(
             &Method::POST,
             &format!("lineage-review/items/{ID}/delete")

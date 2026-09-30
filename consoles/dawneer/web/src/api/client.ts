@@ -2,6 +2,7 @@
 // The browser holds no token. Reads go to `/api/foundation/...`; every write carries the session's
 // CSRF value, and a decision carries an idempotency key so a retry cannot decide twice.
 import type { components } from "./foundation";
+import type { components as CatalogComponents } from "./catalog";
 import type { components as PipelineComponents } from "./pipeline-graph";
 
 type Schemas = components["schemas"];
@@ -14,6 +15,21 @@ export type StewardDecision = Schemas["LineageStewardDecision"];
 export type ReviewClaim = Schemas["LineageReviewClaim"];
 export type ApprovalRequest = Schemas["LineageApprovalRequest"];
 export type PipelineGraph = PipelineComponents["schemas"]["PipelineGraphResponse"];
+type CatalogSchemas = CatalogComponents["schemas"];
+export type TileManifest = CatalogSchemas["VectorTileRuntimeManifestResponse"];
+export type TileUnit = CatalogSchemas["VectorTilePublicationUnitResponse"];
+export type Complex = CatalogSchemas["IndustrialComplexResponse"];
+export type ComplexPage = CatalogSchemas["IndustrialComplexListResponse"];
+
+/** The complex list's filters, as Foundation names them. */
+export interface ComplexFilter {
+  q?: string;
+  sidoCode?: string;
+  status?: string;
+  page?: number;
+  size?: number;
+  sort?: "name_asc" | "area_desc" | "official_complex_code_asc";
+}
 
 export interface SessionInfo {
   sub: string;
@@ -125,6 +141,26 @@ export class DawneerClient {
   /** Every dataset, where it comes from and goes, with live status (read-only). */
   pipelineGraph(): Promise<PipelineGraph> {
     return this.call("pipeline-graph");
+  }
+
+  /** What the map serves right now: one entry per publication unit (read-only). */
+  tileManifest(): Promise<TileManifest> {
+    return this.call("vector-tiles/runtime-manifest");
+  }
+
+  listComplexes(filter: ComplexFilter): Promise<ComplexPage> {
+    const query = new URLSearchParams();
+    if (filter.q) query.set("q", filter.q);
+    if (filter.sidoCode) query.set("sido_code", filter.sidoCode);
+    if (filter.status) query.set("status", filter.status);
+    if (filter.sort) query.set("sort", filter.sort);
+    query.set("page", String(filter.page ?? 0));
+    query.set("size", String(filter.size ?? 50));
+    return this.call(`complexes?${query.toString()}`);
+  }
+
+  getComplex(complexId: string): Promise<Complex> {
+    return this.call(`complexes/${encodeURIComponent(complexId)}`);
   }
 
   rule(decisionId: string, request: ApprovalRequest): Promise<StewardDecision> {
