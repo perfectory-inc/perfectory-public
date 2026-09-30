@@ -1,6 +1,7 @@
 // Korean words for the Catalog API's codes and numbers. The codes are the contract; these are
 // only how the screen says them.
 
+// The source's own words (`lrstt_ty`), one to one.
 export const COMPLEX_KIND_LABEL: Record<string, string> = {
   national: "국가",
   general: "일반",
@@ -20,10 +21,11 @@ export const COMPLEX_STATUS_LABEL: Record<string, string> = {
   unknown: "알 수 없음",
 };
 
+// The source's own words (`lttot_sttus_nm`), one to one.
 export const LOT_SALES_LABEL: Record<string, string> = {
-  planned: "분양 전",
-  in_progress: "분양 중",
-  completed: "분양 완료",
+  planned: "분양계획",
+  in_progress: "분양중",
+  completed: "분양완료",
 };
 
 export const TILE_UNIT_LABEL: Record<string, string> = {

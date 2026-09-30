@@ -33,7 +33,7 @@ function ComplexDetail({ client, complexId, onClose }: { client: DawneerClient; 
         <div>
           <h2 className="text-lg font-semibold">{c.name}</h2>
           <p className="text-sm text-slate-500">
-            {label(COMPLEX_KIND_LABEL, c.kind)}산업단지 · {c.official_complex_code}
+            유형 {label(COMPLEX_KIND_LABEL, c.kind)} · {c.official_complex_code}
           </p>
         </div>
         <button type="button" onClick={onClose} className="rounded border border-slate-300 px-2 py-0.5 text-sm hover:bg-slate-100">
