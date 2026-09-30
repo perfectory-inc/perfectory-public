@@ -175,8 +175,18 @@ pub(crate) struct Readiness {
 }
 
 impl Readiness {
+    /// Whether this process can serve at all: its database and its verifier configuration.
+    ///
+    /// The issuer is deliberately not part of it. An issuer outage would otherwise mark every
+    /// identity-api unhealthy and hold back whatever waits on it — the compose smoke showed exactly
+    /// that cascade. An unreachable issuer is reported as `degraded` instead, and the runtime entry
+    /// point refuses to call a (re)start done while identity-api cannot reach it.
     pub(crate) const fn is_ready(&self) -> bool {
-        self.database && self.issuer && self.verifier_configuration_valid
+        self.database && self.verifier_configuration_valid
+    }
+
+    pub(crate) const fn is_degraded(&self) -> bool {
+        self.is_ready() && !self.issuer
     }
 }
 

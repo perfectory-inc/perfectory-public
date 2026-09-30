@@ -508,8 +508,9 @@ async fn liveness_and_readiness_report_only_safe_wiring_state() -> Result<(), Bo
     assert!(!text.contains("DATABASE_URL"));
     assert!(!text.contains("secret"));
 
-    // An issuer this process cannot reach fails every token check, so it is not ready either —
-    // the state a recreated identity-api with a stale loopback sidecar was in (2026-09-30).
+    // An issuer this process cannot reach fails every token check — the state a recreated
+    // identity-api with a stale loopback sidecar was in (2026-09-30). It is reported, not hidden,
+    // but it does not make the process unready: an issuer outage must not cascade.
     let issuer_down = send(
         &test_harness_with_readiness(true, false).app,
         Method::GET,
@@ -519,8 +520,9 @@ async fn liveness_and_readiness_report_only_safe_wiring_state() -> Result<(), Bo
         &[],
     )
     .await?;
-    assert_eq!(issuer_down.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(issuer_down.status, StatusCode::OK);
     let issuer_body: Value = serde_json::from_slice(&issuer_down.body)?;
+    assert_eq!(issuer_body["status"], "degraded");
     assert_eq!(issuer_body["issuer"], "unreachable");
     assert_eq!(issuer_body["database"], "ok");
 

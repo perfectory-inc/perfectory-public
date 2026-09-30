@@ -54,5 +54,21 @@ compose=(
 case "${1:-}" in
   up | start | restart | create)
     "${compose[@]}" up -d --no-deps --force-recreate zitadel-loopback
+    # A start is not done until identity-api can reach its issuer: /readyz reports it (`issuer`).
+    # Without this the broken state looked healthy and surfaced only as 503s to staff.
+    for _ in $(seq 1 30); do
+      readiness="$(curl -s --max-time 3 "http://127.0.0.1:${IDENTITY_API_PORT}/readyz" || true)"
+      case "${readiness}" in
+        *'"issuer":"reachable"'*)
+          printf 'identity-runtime: identity-api reaches its issuer
+' >&2
+          exit 0
+          ;;
+      esac
+      sleep 2
+    done
+    printf 'FAIL identity-runtime: identity-api cannot reach its issuer after start: %s
+' "${readiness:-no answer}" >&2
+    exit 1
     ;;
 esac

@@ -78,7 +78,9 @@ pub async fn ready(
     (
         status,
         Json(ReadinessResponse {
-            status: if readiness.is_ready() {
+            status: if readiness.is_degraded() {
+                "degraded"
+            } else if readiness.is_ready() {
                 "ready"
             } else {
                 "not_ready"
