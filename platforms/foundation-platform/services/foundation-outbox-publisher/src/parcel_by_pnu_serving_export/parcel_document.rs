@@ -11,6 +11,8 @@
 //! which is what makes root ADR-0096's "same JSON as postgres" proof a field-for-field diff
 //! instead of a judgement call.
 
+use std::collections::BTreeMap;
+
 use anyhow::Context;
 use foundation_contracts::catalog::{
     ParcelCharacteristicResponse, ParcelForestLedgerResponse, ParcelLandRightResponse,
@@ -65,7 +67,24 @@ struct ParcelByPnuDocument<'a> {
     transfer_history: Vec<ParcelTransferEventResponse>,
     land_rights: Vec<ParcelLandRightResponse>,
     land_right_total: u64,
+    /// Sections that came from an older PNU through the parcel lineage, keyed by section name:
+    /// `lineage:<grade>` (the same land under an older number) or `origin:<relation>:<grade>`
+    /// (the original parcel's value across a split or re-lotting). Absent when every section is
+    /// this PNU's own, so documents without a carried section stay byte-identical to before
+    /// (root ADR-0113 §6).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attached_via: Option<BTreeMap<String, String>>,
 }
+
+/// Section names `attached_via` may name — the document's own section fields.
+const CARRIED_SECTIONS: [&str; 6] = [
+    "zonings",
+    "price",
+    "characteristics",
+    "forest_ledger",
+    "transfer_history",
+    "land_rights",
+];
 
 /// Builds the serving artifact for one `gold.parcel_panel` row.
 ///
@@ -94,6 +113,7 @@ pub(super) fn build(
         transfer_history: required_section(row, "transfer_history_json")?,
         land_rights: required_section(row, "land_rights_json")?,
         land_right_total: required_u64(row, "land_right_total")?,
+        attached_via: attached_via(row)?,
     };
 
     let mut body = serde_json::to_vec_pretty(&document)
@@ -135,6 +155,27 @@ fn optional_section<T: DeserializeOwned>(
             "gold.parcel_panel column {column} must be a JSON string or null, got {other}"
         ),
     }
+}
+
+/// Parses `attached_via_json`: a JSON object from section name to its lineage path.
+fn attached_via(
+    row: &JsonMap<String, JsonValue>,
+) -> anyhow::Result<Option<BTreeMap<String, String>>> {
+    const COLUMN: &str = "attached_via_json";
+    let Some(paths) = optional_section::<BTreeMap<String, String>>(row, COLUMN)? else {
+        return Ok(None);
+    };
+    for (section, path) in &paths {
+        anyhow::ensure!(
+            CARRIED_SECTIONS.contains(&section.as_str()),
+            "gold.parcel_panel column {COLUMN} names an unknown section {section}"
+        );
+        anyhow::ensure!(
+            path.starts_with("lineage:") || path.starts_with("origin:"),
+            "gold.parcel_panel column {COLUMN} gives {section} an unknown path {path}"
+        );
+    }
+    Ok((!paths.is_empty()).then_some(paths))
 }
 
 fn optional_string(
@@ -228,8 +269,51 @@ mod tests {
         assert_eq!(document["transfer_history"], json!([]));
         assert_eq!(document["land_rights"], json!([]));
         assert_eq!(document["land_right_total"], 0);
+        assert!(
+            document.get("attached_via").is_none(),
+            "a row with nothing carried must not grow a field"
+        );
         assert!(first.body.ends_with(b"\n"));
         Ok(())
+    }
+
+    #[test]
+    fn a_carried_section_names_its_lineage_path() -> anyhow::Result<()> {
+        let mut carried = row();
+        carried.insert(
+            "attached_via_json".to_owned(),
+            JsonValue::String("{\"price\":\"lineage:code_derived\"}".to_owned()),
+        );
+        let document: JsonValue = serde_json::from_slice(&build(&provenance(), &carried)?.body)?;
+        assert_eq!(
+            document["attached_via"],
+            json!({"price": "lineage:code_derived"})
+        );
+
+        let mut plain = row();
+        plain.insert("attached_via_json".to_owned(), JsonValue::Null);
+        assert_eq!(
+            build(&provenance(), &plain)?,
+            build(&provenance(), &row())?,
+            "a null path column is the same document as no column"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn refuses_a_path_for_an_unknown_section_or_of_an_unknown_kind() {
+        for bad in [
+            "{\"owner\":\"lineage:official\"}",
+            "{\"price\":\"polygon_overlap\"}",
+        ] {
+            let mut row = row();
+            row.insert(
+                "attached_via_json".to_owned(),
+                JsonValue::String(bad.to_owned()),
+            );
+            let error = build(&provenance(), &row).expect_err("an unknown path must refuse");
+            assert!(error.to_string().contains("attached_via_json"), "{error}");
+        }
     }
 
     #[test]
