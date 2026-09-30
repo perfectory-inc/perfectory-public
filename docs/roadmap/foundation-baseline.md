@@ -18,8 +18,8 @@ last_reviewed: 2026-08-06
 
 ## G1 — 생산자 없는 canonical 표
 
-- canonical 표: **63개**
-- 그중 생산자 없음: **17개**
+- canonical 표: **68개**
+- 그중 생산자 없음: **19개**
 
 테스트와 시드를 뺀 `INSERT INTO`가 하나도 없는 표입니다. 시드를 세지 않는 이유는, 표를
 채우는 fixture가 바로 시스템이 그 표를 채우지 않는다는 사실을 가리기 때문입니다.
@@ -36,6 +36,8 @@ last_reviewed: 2026-08-06
 | `catalog.lakehouse_access_policy` |
 | `catalog.lakehouse_lineage_edge` |
 | `catalog.lakehouse_quality_check` |
+| `catalog.lineage_review_item` |
+| `catalog.lineage_steward_fold` |
 | `catalog.manufacturer` |
 | `catalog.notice_attachment` |
 | `catalog.outbox_quarantine` |
@@ -46,8 +48,8 @@ last_reviewed: 2026-08-06
 
 ## G4 — 쓰이지 않는 상태값
 
-- 상태 CHECK: **3개**
-- 그중 쓰는 경로가 없는 값: **2개**
+- 상태 CHECK: **4개**
+- 그중 쓰는 경로가 없는 값: **5개**
 
 값 리터럴을 **그 표를 언급하는 자리 근처에서만** 찾습니다. 저장소 전체에서 찾으면 다른
 표에 쓰이는 같은 이름의 값이 대신 세어져, 모든 상태가 도달 가능하다는 답이 나옵니다.
@@ -57,11 +59,14 @@ last_reviewed: 2026-08-06
 | 표 | 제약 | 값 |
 |---|---|---|
 | `catalog.administrative_boundary_revision` | `administrative_boundary_revision_status_check` | `superseded` |
+| `catalog.lineage_review_item` | `catalog.lineage_review_item.status` | `needs_review` |
+| `catalog.lineage_review_item` | `catalog.lineage_review_item.status` | `pending` |
+| `catalog.lineage_review_item` | `catalog.lineage_review_item.status` | `sample` |
 | `catalog.vector_tile_build_job` | `vector_tile_build_job_status_check` | `planned` |
 
 ## 기록 규모
 
-- ADR: **113개**
+- ADR: **114개**
 - `남은 부채` 항목: **62개**
 
 항목 수는 남은 일의 수가 아닙니다. 열림/닫힘은

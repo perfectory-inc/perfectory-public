@@ -12,6 +12,9 @@ members = [
     "crates/normalization/foundation-normalization-domain",
     "crates/normalization/foundation-normalization-application",
     "crates/normalization/foundation-normalization-infrastructure",
+    "crates/stewardship/stewardship-domain",
+    "crates/stewardship/stewardship-application",
+    "crates/stewardship/stewardship-infrastructure",
     "crates/catalog/catalog-domain",
     "crates/catalog/catalog-application",
     "crates/catalog/catalog-infrastructure",
@@ -137,6 +140,9 @@ lakehouse-infrastructure = { path = "crates/lakehouse/lakehouse-infrastructure" 
 foundation-normalization-domain     = { path = "crates/normalization/foundation-normalization-domain" }
 foundation-normalization-application = { path = "crates/normalization/foundation-normalization-application" }
 foundation-normalization-infrastructure = { path = "crates/normalization/foundation-normalization-infrastructure" }
+stewardship-domain = { path = "crates/stewardship/stewardship-domain" }
+stewardship-application = { path = "crates/stewardship/stewardship-application" }
+stewardship-infrastructure = { path = "crates/stewardship/stewardship-infrastructure" }
 catalog-domain          = { path = "crates/catalog/catalog-domain" }
 catalog-application             = { path = "crates/catalog/catalog-application" }
 catalog-infrastructure           = { path = "crates/catalog/catalog-infrastructure" }

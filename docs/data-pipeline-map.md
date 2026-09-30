@@ -17,7 +17,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 현재 범위: 원천 **9그룹 / 134 endpoint**,
 Silver·Gold **31표**,
-서빙·운영 원장 **70표**.
+서빙·운영 원장 **75표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
 [결정 ADR-0086](./adr/0086-the-pipeline-graph-names-every-dataset-once.md).
@@ -240,6 +240,7 @@ Silver·Gold **31표**,
 | 레이크하우스 저장·접근 정책 | `catalog.lakehouse_storage_namespace`<br>`catalog.lakehouse_access_policy` |
 | 레이크하우스 실행·품질·계보 | `catalog.lakehouse_batch_run`<br>`catalog.lakehouse_quality_check`<br>`catalog.lakehouse_lineage_edge` |
 | 카탈로그 변경 원장 | `catalog.catalog_edit`<br>`catalog.catalog_mutation_idempotency` |
+| 필지 계보 스튜어드 결정 | `catalog.lineage_review_claim`<br>`catalog.lineage_review_item`<br>`catalog.lineage_steward_approval`<br>`catalog.lineage_steward_decision`<br>`catalog.lineage_steward_fold` |
 | 정규화 제안·검토 | `catalog.normalization_application`<br>`catalog.normalization_proposal`<br>`catalog.normalization_proposal_review`<br>`catalog.normalization_proposal_submission_audit` |
 | 이벤트 발행·격리 | `catalog.outbox_event`<br>`catalog.outbox_quarantine` |
 | 필지 마커 | `catalog.parcel_marker_anchor`<br>`catalog.parcel_marker_anchor_generation_run` |

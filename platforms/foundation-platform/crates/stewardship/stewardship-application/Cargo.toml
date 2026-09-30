@@ -1,0 +1,17 @@
+[package]
+name = "stewardship-application"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+stewardship-domain = { workspace = true }
+uuid = { workspace = true }
