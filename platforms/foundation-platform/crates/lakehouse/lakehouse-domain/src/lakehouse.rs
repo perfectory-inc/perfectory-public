@@ -2984,7 +2984,7 @@ const GOLD_LINEAGE_REVIEW_QUEUE_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
-/// The parcels a person has to decide: best lineage grade needs_review or pending, no steward
+/// The parcels a person has to decide: best lineage grade `needs_review` or `pending`, no steward
 /// row yet (root ADR-0113 §10).
 pub const GOLD_LINEAGE_REVIEW_QUEUE: LakehouseTableContract = LakehouseTableContract {
     table_name: "gold.lineage_review_queue",
