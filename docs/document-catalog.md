@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **461개**
+- 문서 파일: **462개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 143 |
+| Monorepo | 144 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 201 |
+| ADR | 202 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -501,6 +501,7 @@ docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md
 docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md
 docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md
 docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md
+docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -656,6 +657,7 @@ tools/github/README.md
 | `docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
