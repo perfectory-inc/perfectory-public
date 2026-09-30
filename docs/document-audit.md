@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **464개**
-- 언어 분류: **{'english': 36, 'korean': 268, 'mixed': 160}**
+- 감사 문서: **465개**
+- 언어 분류: **{'english': 36, 'korean': 269, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **218개 정상 / 0개 누락 / 246개 해당 없음**
+- 메타데이터: **219개 정상 / 0개 누락 / 246개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -140,7 +140,7 @@
 | `docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -245,6 +245,7 @@
 | `platforms/foundation-platform/docs/runbooks/data-catalog.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/foundation-platform-low-cost-production-hardening.md` | Foundation Platform | runbook | current | korean | ok | 0 |
+| `platforms/foundation-platform/docs/runbooks/host-memory-budget.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-backfill-and-schema-rebuild.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-catalog-smoke.md` | Foundation Platform | runbook | current | mixed | ok | 0 |

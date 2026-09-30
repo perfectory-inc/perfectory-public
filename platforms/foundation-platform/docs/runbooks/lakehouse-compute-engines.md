@@ -58,6 +58,11 @@ cp infra/lakehouse/trino/templates/r2-iceberg.properties.template \
 
 그 다음 `infra/lakehouse/trino/catalog/r2.properties` 의 placeholder 를 실제 값으로 바꾼다.
 
+**이 파일은 Trino 가 떠 있는 동안에도 지우지 않는다.** Trino 는 시작할 때만 catalog 파일을 읽으므로, 지운 뒤에도
+돌던 Trino 는 `r2` 를 계속 보여 준다. 그러다 컨테이너를 다시 만들면 `r2` 가 사라진다(2026-10-01 메모리 상한을
+걸려고 다시 만들었을 때 실제로 일어났다). 파일은 운영 계정 소유 0600 으로 두고, Trino 는 읽기만 하므로 R2
+reader 키를 넣는다.
+
 필수 값:
 
 ```text
