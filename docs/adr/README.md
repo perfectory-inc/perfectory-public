@@ -127,3 +127,4 @@ last_reviewed: 2026-07-28
 - [0113 — 필지 계보와 고정 필지 ID 가 지역 개편·합병·분할을 코드로 흡수하고, 모든 지도 굽기 앞에서 폴리곤 매칭을 검문한다](./0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md)
 - [0114 — 더니어는 모노레포 안에 새로 짓는 직원 통합 콘솔이고, 고객 제품과 다른 자리(`consoles/`)에 둔다](./0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md)
 - [0115 — 스튜어드는 API 하나로 필지 계보를 결정하고, 결정은 레이크하우스 계보 행으로 접힌다](./0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md)
+- [0116 — 더니어는 직원의 토큰을 자기 Rust 서버에만 두고, 브라우저에는 세션 쿠키만 준다](./0116-dawneer-keeps-staff-tokens-on-its-rust-server.md)

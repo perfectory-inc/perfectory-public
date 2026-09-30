@@ -1,0 +1,14 @@
+{
+  "schema_version": "identity-platform.staff_console_applications.v1",
+  "description": "The OIDC web applications staff sign in through (root ADR-0116). configure-zitadel.sh ensures each one in the project; the list lives here and only here.",
+  "applications": [
+    {
+      "name": "dawneer",
+      "display": "Dawneer staff console",
+      "redirect_uris": ["http://127.0.0.1:3120/auth/callback"],
+      "post_logout_redirect_uris": ["http://127.0.0.1:3120/"],
+      "dev_mode": true,
+      "dev_mode_reason": "The first console runs on a staff laptop over plain http on the loopback (root ADR-0116 §5); a public https origin turns this off."
+    }
+  ]
+}
