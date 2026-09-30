@@ -61,9 +61,11 @@ TABLE = "`r2`.`gold`.`complex_catalog`"
 
 # The columns the projection gained after the live table was created. Spelled out here rather than
 # derived, so a later contract edit has to state its intent in the test too. Order matters: the
-# evolution walks the contract, so this is contract order, and the first four are the ones that
-# reached Gold before the ten below them.
+# evolution walks the contract, so this is contract order: the source words for the codes (root
+# ADR-0117 §5) sit beside their codes, and the rest reached Gold in two earlier rounds.
 ADDED_COLUMNS = (
+    "kind_raw",
+    "status_raw",
     "management_agency_name",
     "developer_name",
     "designated_date",
@@ -71,6 +73,7 @@ ADDED_COLUMNS = (
     "completion_date",
     "development_progress_percent",
     "lot_sales_status",
+    "lot_sales_status_raw",
     "business_period_raw",
     "business_period_start_month",
     "business_period_end_month",
@@ -214,7 +217,9 @@ class GoldProjectionColumnTest(unittest.TestCase):
                 inputs = lineage[column]
                 self.assertEqual(len(inputs), 1)
                 self.assertEqual(inputs[0]["dataset"], job.SILVER_CONTRACT_NAME)
-                self.assertEqual(inputs[0]["column"], column)
+                # Gold names the kind `kind`, so its source words follow it as `kind_raw`.
+                silver_column = "complex_kind_raw" if column == "kind_raw" else column
+                self.assertEqual(inputs[0]["column"], silver_column)
 
     def test_the_projection_does_not_carry_a_legal_dong_code(self) -> None:
         # Zero of Silver's 1,442 rows fill `primary_bjdong_code`. Projecting it would add a Gold

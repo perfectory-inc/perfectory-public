@@ -158,6 +158,19 @@ const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: true,
     },
+    // The source's own words for the codes above, trimmed and otherwise verbatim (root ADR-0117
+    // §5). The codes are for filtering; these are what a person is shown. Several words can share
+    // one code (`준비중` and `보상중` are both `planned`), so the code alone cannot say which.
+    LakehouseColumn {
+        name: "complex_kind_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "status_raw",
+        logical_type: "string",
+        required: false,
+    },
     // Region is optional for the whole administrative triple: the owner deferred per-region
     // industrial-complex work, and requiring a code no source states would only be satisfiable by
     // inventing one. Absent stays `null`, never `""` or a zero code (root ADR-0035).
@@ -228,6 +241,11 @@ const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
     },
     LakehouseColumn {
         name: "lot_sales_status",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "lot_sales_status_raw",
         logical_type: "string",
         required: false,
     },
@@ -1500,6 +1518,19 @@ const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: true,
     },
+    // The source's own words for the codes above, trimmed and otherwise verbatim (root ADR-0117
+    // §5). The codes are for filtering; these are what a person is shown. Several words can share
+    // one code (`준비중` and `보상중` are both `planned`), so the code alone cannot say which.
+    LakehouseColumn {
+        name: "kind_raw",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "status_raw",
+        logical_type: "string",
+        required: false,
+    },
     // The projection cannot require what the canonical table no longer carries for every row
     // (root ADR-0035).
     LakehouseColumn {
@@ -1565,6 +1596,11 @@ const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
     },
     LakehouseColumn {
         name: "lot_sales_status",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "lot_sales_status_raw",
         logical_type: "string",
         required: false,
     },

@@ -52,9 +52,12 @@ TABLE = "`r2`.`silver`.`industrial_complexes`"
 # later contract edit has to state its intent here too, and deriving this from the contract would
 # make every test below pass vacuously.
 ADDED_COLUMNS = (
+    "complex_kind_raw",
+    "status_raw",
     "construction_start_date",
     "development_progress_percent",
     "lot_sales_status",
+    "lot_sales_status_raw",
     "business_period_raw",
     "business_period_start_month",
     "business_period_end_month",

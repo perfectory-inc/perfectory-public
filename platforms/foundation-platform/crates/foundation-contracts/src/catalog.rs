@@ -82,6 +82,15 @@ pub struct IndustrialComplexResponse {
     /// `unknown` and `null` are different answers — `unknown` means the source stated a lifecycle
     /// this contract does not recognize, `null` means it stated none.
     pub status: Option<String>,
+    /// The source's own words for `kind` (for example `농공`), trimmed and otherwise verbatim.
+    ///
+    /// Show these to people; filter on the codes. Several source words can share one code, and
+    /// only these fields say which the source stated. `null` when the complex has no source row
+    /// (registered through this API) or was loaded before the words were kept.
+    pub kind_raw: Option<String>,
+    /// The source's own words for `status` (for example `보상중`, which shares `planned` with
+    /// `준비중`).
+    pub status_raw: Option<String>,
     /// Province-level administrative code, when one was sourced.
     pub sido_code: Option<String>,
     /// City/county/district administrative code, when one was sourced.
@@ -113,6 +122,8 @@ pub struct IndustrialComplexResponse {
     /// Wire values: `planned`, `in_progress`, `completed`. Independent of `status`, which is about
     /// building the complex: a complex can be `operating` with lots still on sale.
     pub lot_sales_status: Option<String>,
+    /// The source's own words for `lot_sales_status` (for example `분양계획`).
+    pub lot_sales_status_raw: Option<String>,
     /// Business period exactly as the source wrote it, normally `YYYY-MM~YYYY-MM`.
     pub business_period_raw: Option<String>,
     /// First month of `business_period_raw` as `YYYY-MM`, when that text parses.

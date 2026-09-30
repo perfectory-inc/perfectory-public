@@ -36,6 +36,10 @@ pub struct IndustrialComplexSilverRow {
     pub complex_kind: String,
     /// Operational status wire value. `unknown` is used until a source provides status.
     pub status: String,
+    /// The source's words for `complex_kind`, when the canonical row carries them.
+    pub complex_kind_raw: Option<String>,
+    /// The source's words for `status`; always `None` here because `status` is not read either.
+    pub status_raw: Option<String>,
     /// Two-digit province/city code derived from `primary_bjdong_code`, when one exists.
     pub sido_code: Option<String>,
     /// Five-digit city/county/district code derived from `primary_bjdong_code`, when one exists.
@@ -60,6 +64,8 @@ pub struct IndustrialComplexSilverRow {
     pub development_progress_percent: Option<String>,
     /// Optional `lot_sales_status` wire value.
     pub lot_sales_status: Option<String>,
+    /// The source's words for `lot_sales_status`, when the canonical row carries them.
+    pub lot_sales_status_raw: Option<String>,
     /// Optional business period exactly as the source wrote it.
     pub business_period_raw: Option<String>,
     /// Optional first month of the business period as `yyyy-MM`.
@@ -217,6 +223,11 @@ fn normalize_complex(
         complex_name,
         complex_kind: complex.kind.wire_name().to_owned(),
         status: DEFAULT_COMPLEX_STATUS.to_owned(),
+        // The source's words follow their codes (root ADR-0117 §5): the kind and the lot-sales
+        // status are read off the aggregate, so their words are too; `status` is the placeholder
+        // above, and a real word beside a placeholder code would contradict it.
+        complex_kind_raw: complex.kind_raw.clone(),
+        status_raw: None,
         // Both are prefixes of the legal-dong code, so both are unknown when it is
         // (root ADR-0034: a code carries its own granularity, and an absent one carries none).
         sido_code: primary_bjdong_code
@@ -243,6 +254,7 @@ fn normalize_complex(
         lot_sales_status: complex
             .lot_sales_status
             .map(|status| status.wire_name().to_owned()),
+        lot_sales_status_raw: complex.lot_sales_status_raw.clone(),
         business_period_raw: complex.business_period_raw.clone(),
         business_period_start_month: complex.business_period_start_month.clone(),
         business_period_end_month: complex.business_period_end_month.clone(),
@@ -352,7 +364,7 @@ fn increment_metric(metrics: &mut BTreeMap<String, u64>, name: &str) {
 fn row_to_json_value(row: &IndustrialComplexSilverRow) -> JsonValue {
     let required = |value: &String| JsonValue::String(value.clone());
     let optional = optional_string_json;
-    let entries: [(&str, JsonValue); 31] = [
+    let entries: [(&str, JsonValue); 34] = [
         ("complex_id", required(&row.complex_id)),
         (
             "official_complex_code",
@@ -365,6 +377,8 @@ fn row_to_json_value(row: &IndustrialComplexSilverRow) -> JsonValue {
         ),
         ("complex_kind", required(&row.complex_kind)),
         ("status", required(&row.status)),
+        ("complex_kind_raw", optional(row.complex_kind_raw.as_ref())),
+        ("status_raw", optional(row.status_raw.as_ref())),
         ("sido_code", optional(row.sido_code.as_ref())),
         ("sigungu_code", optional(row.sigungu_code.as_ref())),
         (
@@ -393,6 +407,10 @@ fn row_to_json_value(row: &IndustrialComplexSilverRow) -> JsonValue {
             optional(row.development_progress_percent.as_ref()),
         ),
         ("lot_sales_status", optional(row.lot_sales_status.as_ref())),
+        (
+            "lot_sales_status_raw",
+            optional(row.lot_sales_status_raw.as_ref()),
+        ),
         (
             "business_period_raw",
             optional(row.business_period_raw.as_ref()),

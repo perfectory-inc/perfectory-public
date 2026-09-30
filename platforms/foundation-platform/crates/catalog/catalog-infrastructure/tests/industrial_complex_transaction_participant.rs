@@ -357,6 +357,9 @@ async fn archived_official_code_can_be_reused_by_a_new_active_row() -> TestResul
                 development_method_raw: None,
                 development_purpose_raw: None,
                 invited_industries_raw: None,
+                kind_raw: None,
+                status_raw: None,
+                lot_sales_status_raw: None,
             }])
             .await?;
 
@@ -428,6 +431,9 @@ async fn create_complex(pool: &PgPool) -> TestResult<IndustrialComplex> {
         development_method_raw: None,
         development_purpose_raw: None,
         invited_industries_raw: None,
+        kind_raw: None,
+        status_raw: None,
+        lot_sales_status_raw: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
         archived_at: None,

@@ -213,6 +213,15 @@ pub struct IndustrialComplex {
     /// optional because the source workbook leaves cells blank, and a blank cell is `None` — never
     /// `""`, never a zero, never a substituted neighbour value.
     pub status: Option<IndustrialComplexStatus>,
+    /// The source's own words for [`Self::kind`], trimmed (root ADR-0117 §5).
+    ///
+    /// The three `_raw` words here are what a person is shown; the codes beside them are what a
+    /// filter matches. Several words can share one code (`준비중` and `보상중` are both `planned`),
+    /// so the code alone cannot say which the source stated. `None` for complexes with no source
+    /// row, such as those registered through the API.
+    pub kind_raw: Option<String>,
+    /// The source's own words for [`Self::status`], trimmed.
+    pub status_raw: Option<String>,
     /// Province-level administrative code, when the address resolution produced one.
     pub sido_code: Option<String>,
     /// City/county/district administrative code, when the address resolution produced one.
@@ -239,6 +248,8 @@ pub struct IndustrialComplex {
     pub development_progress_percent: Option<String>,
     /// How far the complex has got in selling or leasing its lots, when the source stated it.
     pub lot_sales_status: Option<IndustrialComplexLotSalesStatus>,
+    /// The source's own words for [`Self::lot_sales_status`], trimmed.
+    pub lot_sales_status_raw: Option<String>,
     /// Business period exactly as the source wrote it, normally `YYYY-MM~YYYY-MM`.
     pub business_period_raw: Option<String>,
     /// First month of [`Self::business_period_raw`] as `YYYY-MM`, when that text parses.
