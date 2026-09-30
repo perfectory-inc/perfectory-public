@@ -125,6 +125,7 @@ mod handoff_manifest_support;
 mod handoff_object_support;
 mod lakehouse_tile_bake;
 mod lineage_review_items_load;
+mod lineage_steward_fold;
 mod map_edit_handoff_export;
 mod national_bronze_object_manifest;
 mod national_data_collection_async;
@@ -298,6 +299,8 @@ enum Command {
     LoadParcelCatalogProjection,
     LoadUnitOfficialPriceProjection,
     LoadLineageReviewItems,
+    ExportLineageStewardFold,
+    RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
@@ -597,6 +600,8 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(unit_official_price_projection_load::run())
         }
         Command::LoadLineageReviewItems => Box::pin(lineage_review_items_load::run()),
+        Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
+        Command::RecordLineageStewardFolds => Box::pin(lineage_steward_fold::record()),
         Command::SealParcelPublicationEvidence => {
             Box::pin(parcel_publication_evidence_sealer::run())
         }
@@ -1181,6 +1186,8 @@ where
         Some("load-parcel-catalog-projection") => Ok(Command::LoadParcelCatalogProjection),
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
         Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
+        Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
+        Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
         Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),
         Some("promote-administrative-boundary-runtime") => {

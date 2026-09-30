@@ -29,3 +29,15 @@ last_reviewed: 2026-09-30
 
 역할(`identity-platform` 정책): `LINEAGE_STEWARD` = review, `LINEAGE_ADJUDICATOR` = review + adjudicate,
 `MASTER_ADMIN` = 전부. 요청·응답 타입은 `foundation-contracts::lineage_review` 이고 더니어가 그대로 쓴다.
+
+## 레이크하우스로 접기 (ADR-0115 §9)
+
+1. `foundation-outbox-publisher export-lineage-steward-fold` — 서 있고(대체 안 됨), 효력 있고(승인 불필요 또는 승인됨),
+   근거가 그대로이고, 아직 안 접힌 결정을 계보 행 파일로 쓴다. 행 모양은 `stewardship_domain::fold::lineage_row`.
+2. `lineage_steward_fold_to_silver.py --input <파일> --summary-output <요약>` — `silver.parcel_lineage` 에 한 번만 덧붙인다
+   (결정 id 로 만든 run id 라 재실행해도 두 번 쌓이지 않는다).
+3. `foundation-outbox-publisher record-lineage-steward-folds` — 요약을 읽어 접힘을 기록한다.
+
+계보를 읽는 넷(검토 목록·검문·패널 속성 붙이기·필지 ID 원장)은 모두 `lineage_review_queue.steward_resolved` 로 읽는다:
+근거가 그대로인 결정은 그 필지의 도출 행을 대신하고, 근거가 바뀐 결정은 효력을 잃어 필지가 검토 목록에 다시 오른다.
+

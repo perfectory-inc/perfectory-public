@@ -14,6 +14,7 @@ use stewardship_application::{
     DecideCommand, DecideOutcome, DecisionRecord, LineageStewardshipStore, ReviewItemFilter,
     ReviewItemView,
 };
+use stewardship_domain::fold::FoldableDecision;
 use stewardship_domain::handoff::ReviewHandoff;
 use stewardship_domain::{
     check_approval, check_decision, check_idempotency_key, claim_expiry, Claim, Outcome,
@@ -32,6 +33,85 @@ impl PgLineageStewardshipStore {
     #[must_use]
     pub const fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Decisions the lakehouse has not received yet (ADR-0115 §9): lineage-writing, standing
+    /// (not superseded), in effect (no second person needed, or approved), not folded, and on an
+    /// item whose snapshots are known. Oldest first, so a correction folds after what it corrects.
+    ///
+    /// # Errors
+    /// Returns a persistence failure.
+    pub async fn foldable_decisions(&self) -> Result<Vec<FoldableDecision>, StewardshipError> {
+        let rows = sqlx::query(
+            "SELECT d.decision_id, d.subject_code, d.outcome, d.predecessor_code, d.reason_code,
+                    d.decided_by, d.decided_at, d.evidence_etag, d.idempotency_key,
+                    i.candidates_json, i.from_snapshot_id, i.to_snapshot_id
+             FROM catalog.lineage_steward_decision d
+             JOIN catalog.lineage_review_item i USING (item_id)
+             LEFT JOIN catalog.lineage_steward_approval a USING (decision_id)
+             WHERE d.outcome IN ('link', 'not_a_link')
+               AND (NOT d.requires_approval OR a.verdict = 'approved')
+               AND NOT EXISTS (SELECT 1 FROM catalog.lineage_steward_fold f
+                               WHERE f.decision_id = d.decision_id)
+               AND NOT EXISTS (SELECT 1 FROM catalog.lineage_steward_decision s
+                               WHERE s.supersedes_decision_id = d.decision_id)
+               AND i.from_snapshot_id IS NOT NULL AND i.to_snapshot_id IS NOT NULL
+               -- A decision on evidence that has since changed has lapsed (ADR-0115 §3).
+               AND d.evidence_etag = i.evidence_etag
+             ORDER BY d.decided_at, d.decision_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        rows.iter()
+            .map(|row| {
+                let reason: Option<String> = row.try_get("reason_code").map_err(map_sqlx)?;
+                Ok(FoldableDecision {
+                    decision_id: row.try_get("decision_id").map_err(map_sqlx)?,
+                    subject_code: row.try_get("subject_code").map_err(map_sqlx)?,
+                    outcome: parse_outcome(
+                        &row.try_get::<String, _>("outcome").map_err(map_sqlx)?,
+                    )?,
+                    predecessor_code: row.try_get("predecessor_code").map_err(map_sqlx)?,
+                    reason_code: reason.as_deref().map(parse_reason).transpose()?,
+                    decided_by: row.try_get("decided_by").map_err(map_sqlx)?,
+                    decided_at: row.try_get("decided_at").map_err(map_sqlx)?,
+                    evidence_etag: row.try_get("evidence_etag").map_err(map_sqlx)?,
+                    idempotency_key: row.try_get("idempotency_key").map_err(map_sqlx)?,
+                    candidates_json: row.try_get("candidates_json").map_err(map_sqlx)?,
+                    from_snapshot_id: row.try_get("from_snapshot_id").map_err(map_sqlx)?,
+                    to_snapshot_id: row.try_get("to_snapshot_id").map_err(map_sqlx)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Records that the lakehouse holds these decisions (after the fold job appended them).
+    /// Recording one twice changes nothing.
+    ///
+    /// # Errors
+    /// Returns [`StewardshipError::InvalidInput`] for a blank run id, or a persistence failure.
+    pub async fn record_folds(
+        &self,
+        decision_ids: &[Uuid],
+        derivation_run_id: &str,
+    ) -> Result<u64, StewardshipError> {
+        if derivation_run_id.trim().is_empty() {
+            return Err(StewardshipError::InvalidInput(
+                "derivation_run_id is blank".to_owned(),
+            ));
+        }
+        let inserted = sqlx::query(
+            "INSERT INTO catalog.lineage_steward_fold (decision_id, derivation_run_id)
+             SELECT id, $2 FROM UNNEST($1::uuid[]) AS t(id)
+             ON CONFLICT (decision_id) DO NOTHING",
+        )
+        .bind(decision_ids)
+        .bind(derivation_run_id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(inserted.rows_affected())
     }
 
     /// Replaces a unit's review items with the queue the lakehouse handed off (ADR-0115 §9).
@@ -171,6 +251,21 @@ fn parse_outcome(value: &str) -> Result<Outcome, StewardshipError> {
         "escalate" => Ok(Outcome::Escalate),
         other => Err(StewardshipError::InvalidItem(format!(
             "unknown outcome {other}"
+        ))),
+    }
+}
+
+fn parse_reason(value: &str) -> Result<stewardship_domain::ReasonCode, StewardshipError> {
+    use stewardship_domain::ReasonCode;
+    match value {
+        "building_register" => Ok(ReasonCode::BuildingRegister),
+        "ownership_record" => Ok(ReasonCode::OwnershipRecord),
+        "site_survey" => Ok(ReasonCode::SiteSurvey),
+        "official_document" => Ok(ReasonCode::OfficialDocument),
+        "cadastral_map" => Ok(ReasonCode::CadastralMap),
+        "other" => Ok(ReasonCode::Other),
+        other => Err(StewardshipError::InvalidItem(format!(
+            "unknown reason {other}"
         ))),
     }
 }

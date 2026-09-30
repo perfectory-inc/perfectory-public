@@ -374,3 +374,38 @@ async fn a_handoff_replaces_the_queue_whole_and_never_goes_back() -> TestResult 
     })
     .await
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn only_standing_decisions_in_effect_fold_and_each_folds_once() -> TestResult {
+    run_in_disposable_database("steward_fold", |pool| async move {
+        migrate(&pool).await?;
+        let store = PgLineageStewardshipStore::new(pool.clone());
+        for (subject, status) in [(NEW_A, ReviewStatus::NeedsReview), (NEW_B, ReviewStatus::Sample)] {
+            let (id, _) = item(&pool, subject, status, status == ReviewStatus::Sample).await?;
+            sqlx::query("UPDATE catalog.lineage_review_item SET from_snapshot_id = 's1', to_snapshot_id = 's2' WHERE item_id = $1")
+                .bind(id)
+                .execute(&pool)
+                .await?;
+        }
+        let items = store.list_items(ReviewItemFilter { limit: 10, ..ReviewItemFilter::default() }, now()).await?;
+        let (a, b) = (&items[0].item, &items[1].item);
+        let alice = Uuid::from_u128(1);
+        store.decide(decide(a.item_id, &a.evidence_etag(), alice, "fold-link-a-0001", Outcome::Link)).await?;
+        // Overturning the sample's link waits for a second person, so it does not fold yet.
+        store.decide(decide(b.item_id, &b.evidence_etag(), alice, "fold-overturn-b-01", Outcome::NotALink)).await?;
+        store.decide(decide(a.item_id, &a.evidence_etag(), alice, "fold-unsure-a-0001", Outcome::Unsure)).await?;
+
+        let foldable = store.foldable_decisions().await?;
+        assert_eq!(foldable.iter().map(|d| d.subject_code.as_str()).collect::<Vec<_>>(), [NEW_A]);
+        let row = stewardship_domain::fold::lineage_row(&foldable[0])?;
+        assert_eq!((row.grade.as_str(), row.from_snapshot_id.as_str()), ("official", "s1"));
+
+        let ids = [foldable[0].decision_id];
+        assert_eq!(store.record_folds(&ids, "steward-fold-test").await?, 1);
+        assert_eq!(store.record_folds(&ids, "steward-fold-test").await?, 0, "recording twice changes nothing");
+        assert!(store.foldable_decisions().await?.is_empty());
+        Ok(())
+    })
+    .await
+}
