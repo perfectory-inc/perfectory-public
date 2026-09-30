@@ -29,6 +29,16 @@ use staff_identity_infrastructure::{
 pub trait ReadinessProbe: Send + Sync {
     /// Returns whether the Identity database can answer a minimal query.
     async fn database_ready(&self) -> bool;
+
+    /// Returns whether the issuer's discovery document can be read from where this process runs.
+    ///
+    /// Every staff and service token is verified against the issuer's keys, so an issuer this
+    /// process cannot reach fails every authorization while the database is fine. That happened:
+    /// recreating identity-api left its loopback sidecar in the old network namespace, `/readyz`
+    /// kept answering 200, and every staff call became a 500 (2026-09-30).
+    async fn issuer_ready(&self) -> bool {
+        true
+    }
 }
 
 /// Immutable application composition shared by all Identity routes.
@@ -131,14 +141,28 @@ impl AppState {
             EvaluateAccess::new(),
             service_credential_verifier,
             authorize_service_call,
-            Arc::new(PgReadinessProbe { pool }),
+            Arc::new(PgReadinessProbe {
+                pool,
+                discovery_url: format!(
+                    "{}/.well-known/openid-configuration",
+                    config.zitadel_issuer_url.trim_end_matches('/')
+                ),
+                http: reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(2))
+                    .build()
+                    .context("readiness HTTP client")?,
+            }),
         ))
     }
 
     pub(crate) async fn readiness(&self) -> Readiness {
-        let database = self.readiness_probe.database_ready().await;
+        let (database, issuer) = tokio::join!(
+            self.readiness_probe.database_ready(),
+            self.readiness_probe.issuer_ready()
+        );
         Readiness {
             database,
+            issuer,
             verifier_configuration_valid: self.verifier_configuration_valid,
         }
     }
@@ -146,17 +170,30 @@ impl AppState {
 
 pub(crate) struct Readiness {
     pub(crate) database: bool,
+    pub(crate) issuer: bool,
     pub(crate) verifier_configuration_valid: bool,
 }
 
 impl Readiness {
+    /// Whether this process can serve at all: its database and its verifier configuration.
+    ///
+    /// The issuer is deliberately not part of it. An issuer outage would otherwise mark every
+    /// identity-api unhealthy and hold back whatever waits on it — the compose smoke showed exactly
+    /// that cascade. An unreachable issuer is reported as `degraded` instead, and the runtime entry
+    /// point refuses to call a (re)start done while identity-api cannot reach it.
     pub(crate) const fn is_ready(&self) -> bool {
         self.database && self.verifier_configuration_valid
+    }
+
+    pub(crate) const fn is_degraded(&self) -> bool {
+        self.is_ready() && !self.issuer
     }
 }
 
 struct PgReadinessProbe {
     pool: PgPool,
+    discovery_url: String,
+    http: reqwest::Client,
 }
 
 #[async_trait]
@@ -166,6 +203,14 @@ impl ReadinessProbe for PgReadinessProbe {
             .fetch_one(&self.pool)
             .await
             .is_ok()
+    }
+
+    async fn issuer_ready(&self) -> bool {
+        self.http
+            .get(&self.discovery_url)
+            .send()
+            .await
+            .is_ok_and(|response| response.status().is_success())
     }
 }
 

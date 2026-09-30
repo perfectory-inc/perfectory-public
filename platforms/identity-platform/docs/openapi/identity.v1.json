@@ -453,11 +453,16 @@
         "required": [
           "status",
           "database",
+          "issuer",
           "verifier_configuration"
         ],
         "properties": {
           "database": {
             "type": "string"
+          },
+          "issuer": {
+            "type": "string",
+            "description": "Whether the issuer's discovery document answers from this process's network."
           },
           "status": {
             "type": "string"

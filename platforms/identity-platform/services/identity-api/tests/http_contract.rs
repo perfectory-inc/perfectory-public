@@ -508,6 +508,24 @@ async fn liveness_and_readiness_report_only_safe_wiring_state() -> Result<(), Bo
     assert!(!text.contains("DATABASE_URL"));
     assert!(!text.contains("secret"));
 
+    // An issuer this process cannot reach fails every token check — the state a recreated
+    // identity-api with a stale loopback sidecar was in (2026-09-30). It is reported, not hidden,
+    // but it does not make the process unready: an issuer outage must not cascade.
+    let issuer_down = send(
+        &test_harness_with_readiness(true, false).app,
+        Method::GET,
+        "/readyz",
+        None,
+        None,
+        &[],
+    )
+    .await?;
+    assert_eq!(issuer_down.status, StatusCode::OK);
+    let issuer_body: Value = serde_json::from_slice(&issuer_down.body)?;
+    assert_eq!(issuer_body["status"], "degraded");
+    assert_eq!(issuer_body["issuer"], "unreachable");
+    assert_eq!(issuer_body["database"], "ok");
+
     Ok(())
 }
 
@@ -571,6 +589,10 @@ struct Harness {
 }
 
 fn test_harness(database_ready: bool) -> Harness {
+    test_harness_with_readiness(database_ready, true)
+}
+
+fn test_harness_with_readiness(database_ready: bool, issuer_ready: bool) -> Harness {
     let events = Arc::new(Mutex::new(Vec::new()));
     let staff_repository = Arc::new(FakeStaffRepository);
     let session_uow = Arc::new(FakeSessionUnitOfWork {
@@ -602,7 +624,7 @@ fn test_harness(database_ready: bool) -> Harness {
             events: events.clone(),
         }),
         authorize,
-        Arc::new(FakeReadinessProbe(database_ready)),
+        Arc::new(FakeReadinessProbe(database_ready, issuer_ready)),
     );
     Harness {
         app: router(Arc::new(state)),
@@ -642,7 +664,7 @@ fn real_verifier_harness(issuer: &str) -> Harness {
         EvaluateAccess::new(),
         service_verifier,
         authorize,
-        Arc::new(FakeReadinessProbe(true)),
+        Arc::new(FakeReadinessProbe(true, true)),
     );
     Harness {
         app: router(Arc::new(state)),
@@ -864,12 +886,17 @@ impl IdentityAuditSink for FakeAuditSink {
     }
 }
 
-struct FakeReadinessProbe(bool);
+/// (database answers, issuer answers)
+struct FakeReadinessProbe(bool, bool);
 
 #[async_trait]
 impl ReadinessProbe for FakeReadinessProbe {
     async fn database_ready(&self) -> bool {
         self.0
+    }
+
+    async fn issuer_ready(&self) -> bool {
+        self.1
     }
 }
 
