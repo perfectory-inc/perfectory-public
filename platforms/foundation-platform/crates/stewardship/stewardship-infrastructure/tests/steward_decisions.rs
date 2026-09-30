@@ -12,7 +12,15 @@ use stewardship_domain::{
 use stewardship_infrastructure::PgLineageStewardshipStore;
 use uuid::Uuid;
 
-static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../../migrations");
+/// The platform's migrations, read at run time: cargo runs a test from its package directory, so
+/// the relative path resolves without a compile-time read (scripts/guard/build-coupling-baseline.sh).
+async fn migrate(pool: &PgPool) -> TestResult {
+    sqlx::migrate::Migrator::new(std::path::Path::new("../../../migrations"))
+        .await?
+        .run(pool)
+        .await?;
+    Ok(())
+}
 
 // Synthetic parcels in the repository-reserved 99999 namespace (public-fixture-safety).
 const NEW_A: &str = "9999930100100010000";
@@ -86,7 +94,7 @@ fn decide(item_id: Uuid, etag: &str, decider: Uuid, key: &str, outcome: Outcome)
 #[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
 async fn a_claimed_item_is_decided_once_and_a_retry_replays() -> TestResult {
     run_in_disposable_database("steward_decide", |pool| async move {
-        MIGRATOR.run(&pool).await?;
+        migrate(&pool).await?;
         let store = PgLineageStewardshipStore::new(pool.clone());
         let (id, etag) = item(&pool, NEW_A, ReviewStatus::NeedsReview, false).await?;
         let (alice, bob) = (Uuid::from_u128(1), Uuid::from_u128(2));
@@ -172,7 +180,7 @@ async fn a_claimed_item_is_decided_once_and_a_retry_replays() -> TestResult {
 #[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
 async fn stale_evidence_and_a_taken_predecessor_are_refused() -> TestResult {
     run_in_disposable_database("steward_refusals", |pool| async move {
-        MIGRATOR.run(&pool).await?;
+        migrate(&pool).await?;
         let store = PgLineageStewardshipStore::new(pool.clone());
         let (a, etag_a) = item(&pool, NEW_A, ReviewStatus::NeedsReview, false).await?;
         let (b, etag_b) = item(&pool, NEW_B, ReviewStatus::NeedsReview, false).await?;
@@ -211,7 +219,7 @@ async fn stale_evidence_and_a_taken_predecessor_are_refused() -> TestResult {
 #[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
 async fn overturning_a_link_in_effect_waits_for_a_second_person() -> TestResult {
     run_in_disposable_database("steward_four_eyes", |pool| async move {
-        MIGRATOR.run(&pool).await?;
+        migrate(&pool).await?;
         let store = PgLineageStewardshipStore::new(pool.clone());
         let (id, etag) = item(&pool, NEW_A, ReviewStatus::Sample, true).await?;
         let (alice, bob) = (Uuid::from_u128(1), Uuid::from_u128(2));
@@ -248,7 +256,7 @@ async fn overturning_a_link_in_effect_waits_for_a_second_person() -> TestResult 
 #[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
 async fn decisions_cannot_be_rewritten_and_claims_expire() -> TestResult {
     run_in_disposable_database("steward_append_only", |pool| async move {
-        MIGRATOR.run(&pool).await?;
+        migrate(&pool).await?;
         let store = PgLineageStewardshipStore::new(pool.clone());
         let (id, etag) = item(&pool, NEW_A, ReviewStatus::Pending, false).await?;
         let (alice, bob) = (Uuid::from_u128(1), Uuid::from_u128(2));
