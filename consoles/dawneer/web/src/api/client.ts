@@ -35,6 +35,11 @@ export class NotSignedIn extends Error {}
 
 export type Fetch = typeof fetch;
 
+// The browser's fetch must be called as a plain function (or on window). Kept as a default
+// argument and called as `this.fetchImpl(...)`, it runs with the client as `this` and throws
+// "Illegal invocation" — so the default is a wrapper that calls it unbound, at call time.
+const browserFetch: Fetch = (input, init) => fetch(input, init);
+
 async function readError(response: Response): Promise<string> {
   const text = await response.text();
   try {
@@ -48,7 +53,7 @@ async function readError(response: Response): Promise<string> {
 export class DawneerClient {
   constructor(
     private readonly session: SessionInfo,
-    private readonly fetchImpl: Fetch = fetch,
+    private readonly fetchImpl: Fetch = browserFetch,
   ) {}
 
   private async call<T>(path: string, init: RequestInit & { idempotencyKey?: string } = {}): Promise<T> {
@@ -124,7 +129,7 @@ export class DawneerClient {
 }
 
 /** Who is signed in, or null. */
-export async function loadSession(fetchImpl: Fetch = fetch): Promise<SessionInfo | null> {
+export async function loadSession(fetchImpl: Fetch = browserFetch): Promise<SessionInfo | null> {
   const response = await fetchImpl("/api/session", { credentials: "same-origin" });
   if (response.status === 401) return null;
   if (!response.ok) throw new ApiError(response.status, await readError(response));
@@ -132,7 +137,7 @@ export async function loadSession(fetchImpl: Fetch = fetch): Promise<SessionInfo
 }
 
 /** Ends the session and returns where to send the browser. */
-export async function signOut(session: SessionInfo, fetchImpl: Fetch = fetch): Promise<string> {
+export async function signOut(session: SessionInfo, fetchImpl: Fetch = browserFetch): Promise<string> {
   const response = await fetchImpl("/auth/logout", {
     method: "POST",
     headers: { "x-dawneer-csrf": session.csrf },

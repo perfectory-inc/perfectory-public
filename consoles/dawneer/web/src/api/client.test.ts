@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, DawneerClient, NotSignedIn, type Fetch, type SessionInfo } from "./client";
+import { ApiError, DawneerClient, loadSession, NotSignedIn, type Fetch, type SessionInfo } from "./client";
 
 const SESSION: SessionInfo = { sub: "1", name: "Synthetic", email: "s@example.test", csrf: "csrf-value" };
 const ITEM = "00000000-0000-5000-8000-000000000001";
@@ -53,5 +53,26 @@ describe("DawneerClient", () => {
     const refused = new DawneerClient(SESSION, conflict.fetchImpl).claim(ITEM);
     await expect(refused).rejects.toBeInstanceOf(ApiError);
     await expect(refused).rejects.toMatchObject({ status: 409, message: "the evidence changed since it was read" });
+  });
+});
+
+describe("the default fetch", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // A browser's fetch throws "Illegal invocation" when `this` is anything but the window or
+  // undefined; this stub does the same, so a default that is called as a method fails here.
+  function strictFetch() {
+    return vi.fn(function (this: unknown) {
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve(new Response(JSON.stringify({ items: [], next_after: null }), { status: 200 }));
+    });
+  }
+
+  it("is called unbound by the client and by loadSession", async () => {
+    const stub = strictFetch();
+    vi.stubGlobal("fetch", stub);
+    await new DawneerClient(SESSION).listItems({});
+    await loadSession();
+    expect(stub).toHaveBeenCalledTimes(2);
   });
 });
