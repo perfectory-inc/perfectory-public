@@ -8,14 +8,14 @@
 
 ## 문서 규모
 
-- 문서 파일: **463개**
+- 문서 파일: **464개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 117 |
+| Foundation Platform | 118 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
@@ -38,7 +38,7 @@
 | guide | 2 |
 | reference | 18 |
 | roadmap | 3 |
-| runbook | 33 |
+| runbook | 34 |
 
 ## 책임별 문서 트리
 
@@ -125,6 +125,7 @@ platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json
 platforms/foundation-platform/docs/README.md
 platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md
 platforms/foundation-platform/docs/runbooks/canonical-release-proof.md
+platforms/foundation-platform/docs/runbooks/data-catalog.md
 platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md
 platforms/foundation-platform/docs/runbooks/foundation-platform-low-cost-production-hardening.md
 platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md
@@ -761,6 +762,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/canonical-release-proof.md` | Foundation Platform | runbook | current |
+| `platforms/foundation-platform/docs/runbooks/data-catalog.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/foundation-platform-low-cost-production-hardening.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md` | Foundation Platform | runbook | current |

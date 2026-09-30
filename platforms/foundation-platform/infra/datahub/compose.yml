@@ -1,0 +1,335 @@
+# The data catalog (DataHub v1.7.0.1) on the Foundation host (root ADR-0117 §4, §7; ADR-0118 §6).
+#
+# Written from upstream's quickstart definition
+# (github.com/datahub-project/datahub, tag v1.7.0.1, docker/quickstart/docker-compose.quickstart-profile.yml)
+# with these choices, so an upgrade re-derives from the new tag and keeps them:
+# - every image pinned to the digest measured running on ai-server;
+# - only the web UI (19002) and the GMS API (18095) are published, and only on 127.0.0.1;
+# - no secret has a default: each comes from the runtime env file (datahub-runtime.sh
+#   init-secrets) or the Zitadel client file (identity-platform configure-zitadel.sh);
+# - staff sign in with Zitadel, password sign-in is off, and only pre-created accounts enter;
+#   the loopback sidecar makes the issuer address http://127.0.0.1:18453 answer inside the
+#   frontend container, as identity-api's sidecar does;
+# - every container has a memory cap; host binds of home directories and the unused Neo4j and
+#   CREATE_USER settings are left out.
+name: datahub
+services:
+  datahub-actions-quickstart:
+    image: "acryldata/datahub-actions:v1.7.0.1-slim@sha256:e55fbb8938b7b33791d554c3eb10c79fde0e88720d7a4d010f88bdd68b062bd3"
+    hostname: actions
+    depends_on:
+      datahub-gms-quickstart:
+        condition: service_healthy
+    environment:
+      ACTIONS_CONFIG: ""
+      ACTIONS_EXTRA_PACKAGES: ""
+      DATAHUB_GMS_HOST: datahub-gms
+      DATAHUB_GMS_PORT: "8080"
+      DATAHUB_GMS_PROTOCOL: http
+      DATAHUB_SYSTEM_CLIENT_ID: __datahub_system
+      DATAHUB_SYSTEM_CLIENT_SECRET: "${DATAHUB_SYSTEM_CLIENT_SECRET:?run datahub-runtime.sh init-secrets}"
+      ELASTICSEARCH_HOST: search
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_PROTOCOL: http
+      ELASTICSEARCH_USE_SSL: "false"
+      KAFKA_BOOTSTRAP_SERVER: "broker:29092"
+      KAFKA_PROPERTIES_SECURITY_PROTOCOL: PLAINTEXT
+      METADATA_AUDIT_EVENT_NAME: MetadataAuditEvent_v4
+      METADATA_CHANGE_LOG_VERSIONED_TOPIC_NAME: MetadataChangeLog_Versioned_v1
+      SCHEMA_REGISTRY_URL: "http://datahub-gms:8080/schema-registry/api/"
+    mem_limit: 768m
+    networks:
+      - default
+  datahub-gms-quickstart:
+    image: "acryldata/datahub-gms:v1.7.0.1@sha256:74e15e982b94d0e147de41d05133ef3df48f74a1004a9c997805e0aa7e010173"
+    hostname: datahub-gms
+    depends_on:
+      system-update-quickstart:
+        condition: service_completed_successfully
+    environment:
+      ALTERNATE_MCP_VALIDATION: "true"
+      CONFIG_ENTITY_REGISTRY_USE_OPTIMIZED_LOADING: "true"
+      DATAHUB_BASE_PATH: /
+      DATAHUB_GMS_BASE_PATH: /
+      DATAHUB_OBJECT_STORAGE_URI: "file:///tmp/datahub-object-storage"
+      DATAHUB_SERVER_TYPE: quickstart
+      DATAHUB_SYSTEM_CLIENT_SECRET: "${DATAHUB_SYSTEM_CLIENT_SECRET:?run datahub-runtime.sh init-secrets}"
+      DATAHUB_TELEMETRY_ENABLED: "false"
+      DATAHUB_TOKEN_SERVICE_SALT: "${DATAHUB_TOKEN_SERVICE_SALT:?run datahub-runtime.sh init-secrets}"
+      DATAHUB_TOKEN_SERVICE_SIGNING_KEY: "${DATAHUB_TOKEN_SERVICE_SIGNING_KEY:?run datahub-runtime.sh init-secrets}"
+      DATAHUB_UPGRADE_HISTORY_KAFKA_CONSUMER_GROUP_ID: generic-duhe-consumer-job-client-gms
+      EBEAN_DATASOURCE_DRIVER: com.mysql.jdbc.Driver
+      EBEAN_DATASOURCE_HOST: "mysql:3306"
+      EBEAN_DATASOURCE_PASSWORD: "${DATAHUB_DB_PASSWORD:?run datahub-runtime.sh init-secrets}"
+      EBEAN_DATASOURCE_URL: "jdbc:mysql://mysql:3306/datahub?verifyServerCertificate=false&useSSL=true&useUnicode=yes&characterEncoding=UTF-8&enabledTLSProtocols=TLSv1.2"
+      EBEAN_DATASOURCE_USERNAME: root
+      ELASTICSEARCH_HOST: search
+      ELASTICSEARCH_IMPLEMENTATION: opensearch
+      ELASTICSEARCH_INDEX_BUILDER_MAPPINGS_REINDEX: "true"
+      ELASTICSEARCH_INDEX_BUILDER_SETTINGS_REINDEX: "true"
+      ELASTICSEARCH_LIMIT_RESULTS_STRICT: "true"
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_PROTOCOL: http
+      ELASTICSEARCH_USE_SSL: "false"
+      ENTITY_REGISTRY_CONFIG_PATH: /datahub/datahub-gms/resources/entity-registry.yml
+      ENTITY_SERVICE_ENABLE_RETENTION: "true"
+      ENTITY_VERSIONING_ENABLED: "true"
+      ES_BULK_REFRESH_POLICY: NONE
+      EXTRACT_JAR_ENABLED: "true"
+      GMS_LIFECYCLE_TIMEOUT: 65s
+      GRAPH_SERVICE_DIFF_MODE_ENABLED: "true"
+      GRAPH_SERVICE_IMPL: elasticsearch
+      GRAPHQL_SHAPE_LOGGING_DURATION_THRESHOLD_MS: "3000"
+      GRAPHQL_SHAPE_LOGGING_ENABLED: "false"
+      GRAPHQL_SHAPE_LOGGING_ERROR_COUNT_THRESHOLD: "1"
+      GRAPHQL_SHAPE_LOGGING_FIELD_COUNT_THRESHOLD: "100"
+      GRAPHQL_SHAPE_LOGGING_RESPONSE_SIZE_THRESHOLD_BYTES: "1048576"
+      JAVA_OPTS: -Xms1g -Xmx1g
+      KAFKA_BOOTSTRAP_SERVER: "broker:29092"
+      KAFKA_SCHEMAREGISTRY_URL: "http://datahub-gms:8080/schema-registry/api/"
+      LOG_AGGREGATOR_ENDPOINT: ""
+      MAE_CONSUMER_ENABLED: "true"
+      MCE_CONSUMER_ENABLED: "true"
+      MCL_CONSUMER_BATCH_ENABLED: "true"
+      MCP_CONSUMER_BATCH_ENABLED: "true"
+      METADATA_SERVICE_AUTH_ENABLED: "false"
+      PE_CONSUMER_ENABLED: "true"
+      POLICY_CACHE_REFRESH_INTERVAL_SECONDS: "120"
+      SCHEMA_REGISTRY_TYPE: INTERNAL
+      SEARCH_BAR_API_VARIANT: SEARCH_ACROSS_ENTITIES
+      SERVER_SHUTDOWN_MODE: immediate
+      SHOW_HAS_SIBLINGS_FILTER: "true"
+      SHOW_HOME_PAGE_REDESIGN: "true"
+      SHOW_INGESTION_PAGE_REDESIGN: "true"
+      SHOW_SEARCH_BAR_AUTOCOMPLETE_REDESIGN: "true"
+      STRICT_URN_VALIDATION_ENABLED: "true"
+      THEME_V2_DEFAULT: "true"
+      UI_INGESTION_ENABLED: "true"
+      USAGE_AGGREGATION_ALIGNMENT_PERIOD_SECONDS: "3600"
+      USAGE_AGGREGATION_ENABLED: "true"
+      USAGE_AGGREGATION_FLUSH_INTERVAL_SECONDS: "30"
+      USAGE_AGGREGATION_INCLUDE_AGENT_NAME: "true"
+      UI_INGESTION_DEFAULT_CLI_VERSION: "1.7.0.1"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -sS --fail http://datahub-gms:8080/health"
+      timeout: 5s
+      interval: 1s
+      retries: 3
+      start_period: 1m30s
+    mem_limit: 2g
+    ports:
+      - "127.0.0.1:18095:8080"
+    networks:
+      - default
+  frontend-quickstart:
+    image: "acryldata/datahub-frontend-react:v1.7.0.1@sha256:99513cc1c45e4cc053ceb0f9aeb04a3263a8a747907bb0e85cac2eb03461310d"
+    hostname: datahub-frontend-react
+    depends_on:
+      system-update-quickstart:
+        condition: service_completed_successfully
+    environment:
+      DATAHUB_APP_VERSION: v1.7.0.1
+      DATAHUB_BASE_PATH: /
+      DATAHUB_GMS_BASE_PATH: /
+      DATAHUB_GMS_HOST: datahub-gms
+      DATAHUB_GMS_PORT: "8080"
+      DATAHUB_PLAY_MEM_BUFFER_SIZE: 10MB
+      DATAHUB_SECRET: "${DATAHUB_FRONTEND_SECRET:?run datahub-runtime.sh init-secrets}"
+      DATAHUB_SYSTEM_CLIENT_SECRET: "${DATAHUB_SYSTEM_CLIENT_SECRET:?run datahub-runtime.sh init-secrets}"
+      DATAHUB_TRACKING_TOPIC: DataHubUsageEvent_v1
+      ELASTIC_CLIENT_HOST: elasticsearch
+      ELASTIC_CLIENT_PORT: "9200"
+      FRONTEND_BEFORE_SERVICE_UNBIND_TIMEOUT: 10s
+      FRONTEND_GRACEFUL_SHUTDOWN_ENABLED: "false"
+      FRONTEND_SERVICE_REQUESTS_DONE_TIMEOUT: 65s
+      FRONTEND_SERVICE_STOP_TIMEOUT: 15s
+      JAVA_OPTS: -Xms512m -Xmx512m -Dhttp.port=9002 -Dconfig.file=datahub-frontend/conf/application.conf -Djava.security.auth.login.config=datahub-frontend/conf/jaas.conf -Dlogback.configurationFile=datahub-frontend/conf/logback.xml -Dlogback.debug=false -Dpidfile.path=/dev/null
+      KAFKA_BOOTSTRAP_SERVER: "broker:29092"
+      LOG_AGGREGATOR_ENDPOINT: ""
+      PLAY_HTTP_CONTEXT: /
+      THEME_V2_DEFAULT: "true"
+      AUTH_OIDC_ENABLED: "true"
+      AUTH_OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:?run identity-platform configure-zitadel.sh}"
+      AUTH_OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:?run identity-platform configure-zitadel.sh}"
+      AUTH_OIDC_DISCOVERY_URI: "http://127.0.0.1:18453/.well-known/openid-configuration"
+      AUTH_OIDC_BASE_URL: "http://127.0.0.1:19002"
+      AUTH_OIDC_SCOPE: openid profile email
+      AUTH_OIDC_USER_NAME_CLAIM: email
+      AUTH_OIDC_JIT_PROVISIONING_ENABLED: "false"
+      AUTH_OIDC_PRE_PROVISIONING_REQUIRED: "true"
+      AUTH_JAAS_ENABLED: "false"
+      AUTH_NATIVE_ENABLED: "false"
+    mem_limit: 1g
+    ports:
+      - "127.0.0.1:19002:9002"
+    volumes:
+      - "${DATAHUB_USER_PROPS_FILE:?run datahub-runtime.sh}:/datahub-frontend/conf/user.props:ro"
+    networks:
+      - default
+      - identity-shared
+  kafka-broker:
+    image: "confluentinc/cp-kafka:8.2.2@sha256:8e01c0305844d6c05bfb8e86479f5f363bb6a53497625395943a9da780de67ce"
+    hostname: broker
+    command:
+      - /bin/bash
+      - -c
+      - "# Generate KRaft clusterID\nfile_path=\"/var/lib/kafka/data/clusterID\"\n\nif [ ! -f \"$$file_path\" ]; then\n   /bin/kafka-storage random-uuid > $$file_path\n   echo \"Cluster id has been created...\"\n   # KRaft required step: Format the storage directory with a new cluster ID\n   kafka-storage format --ignore-formatted -t $$(cat \"$$file_path\") -c /etc/kafka/kafka.properties\nfi\n\nexport CLUSTER_ID=$$(cat \"$$file_path\")\necho \"CLUSTER_ID=$$CLUSTER_ID\"\n\n/etc/confluent/docker/run\n"
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: "BROKER://broker:29092,EXTERNAL://localhost:9092"
+      KAFKA_BROKER_ID: "1"
+      KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE: "false"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@broker:39092"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+      KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,BROKER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_LISTENERS: "BROKER://broker:29092,EXTERNAL://broker:9092,CONTROLLER://broker:39092"
+      KAFKA_LOG4J_LOGGERS: org.apache.kafka.image.loader.MetadataLoader=WARN
+      KAFKA_MAX_MESSAGE_BYTES: "5242880"
+      KAFKA_MESSAGE_MAX_BYTES: "5242880"
+      KAFKA_NODE_ID: "1"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_PROCESS_ROLES: "controller, broker"
+      KAFKA_ZOOKEEPER_CONNECT: ""
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "kafka-broker-api-versions --bootstrap-server broker:29092 >/dev/null 2>&1"
+      timeout: 10s
+      interval: 5s
+      retries: 12
+      start_period: 1m0s
+    mem_limit: 1g
+    volumes:
+      - "broker:/var/lib/kafka/data"
+    networks:
+      - default
+  mysql:
+    image: "mysql:8.2@sha256:212fe73edca5df6ff14826d5eb975c914bfb91f82a2e923f9050568f99525da1"
+    hostname: mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_bin
+      - --default-authentication-plugin=caching_sha2_password
+    environment:
+      MYSQL_DATABASE: datahub
+      MYSQL_PASSWORD: "${DATAHUB_DB_PASSWORD:?run datahub-runtime.sh init-secrets}"
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_ROOT_PASSWORD: "${DATAHUB_DB_PASSWORD:?run datahub-runtime.sh init-secrets}"
+      MYSQL_USER: datahub
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "mysqladmin ping -h mysql -u $$MYSQL_USER --password=$$MYSQL_PASSWORD"
+      timeout: 10s
+      interval: 2s
+      retries: 5
+      start_period: 20s
+    restart: on-failure
+    mem_limit: 1g
+    volumes:
+      - "mysqldata:/var/lib/mysql"
+    networks:
+      - default
+  opensearch:
+    image: "opensearchproject/opensearch:2.19.3@sha256:e96cc6ae1500a073d973c0906f30f7cf4d9c461f32f855f9242a2da933660cdd"
+    hostname: search
+    environment:
+      DISABLE_SECURITY_PLUGIN: "true"
+      ES_JAVA_OPTS: -Xms256m -Xmx512m -Dlog4j2.formatMsgNoLookups=true
+      OPENSEARCH_JAVA_OPTS: -Xms768m -Xmx1024m -Dlog4j2.formatMsgNoLookups=true
+      discovery.type: single-node
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -sS --fail http://search:$${DATAHUB_ELASTIC_PORT:-9200}/_cluster/health?wait_for_status=yellow&timeout=0s"
+      timeout: 15s
+      interval: 5s
+      retries: 10
+      start_period: 1m0s
+    mem_limit: 1536m
+    volumes:
+      - "osdata:/usr/share/opensearch/data"
+    networks:
+      - default
+  system-update-quickstart:
+    image: "acryldata/datahub-upgrade:v1.7.0.1@sha256:c3db54d8fb94bc761be611c014c5ede3fd02daac1f15c8c177d69eceee79a24c"
+    hostname: datahub-system-update
+    command:
+      - -u
+      - SystemUpdate
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    environment:
+      BACKFILL_BROWSE_PATHS_V2: "true"
+      CREATE_USER: "false"
+      DATAHUB_BASE_PATH: /
+      DATAHUB_GMS_BASE_PATH: /
+      DATAHUB_GMS_HOST: datahub-gms
+      DATAHUB_GMS_PORT: "8080"
+      DATAHUB_PRECREATE_TOPICS: "true"
+      DATAHUB_SQL_SETUP_ENABLED: "true"
+      DATAHUB_SYSTEM_CLIENT_SECRET: "${DATAHUB_SYSTEM_CLIENT_SECRET:?run datahub-runtime.sh init-secrets}"
+      DATAHUB_TOKEN_SERVICE_SALT: "${DATAHUB_TOKEN_SERVICE_SALT:?run datahub-runtime.sh init-secrets}"
+      DATAHUB_TOKEN_SERVICE_SIGNING_KEY: "${DATAHUB_TOKEN_SERVICE_SIGNING_KEY:?run datahub-runtime.sh init-secrets}"
+      EBEAN_DATASOURCE_DRIVER: com.mysql.jdbc.Driver
+      EBEAN_DATASOURCE_HOST: "mysql:3306"
+      EBEAN_DATASOURCE_PASSWORD: "${DATAHUB_DB_PASSWORD:?run datahub-runtime.sh init-secrets}"
+      EBEAN_DATASOURCE_URL: "jdbc:mysql://mysql:3306/datahub?verifyServerCertificate=false&useSSL=true&useUnicode=yes&characterEncoding=UTF-8&enabledTLSProtocols=TLSv1.2"
+      EBEAN_DATASOURCE_USERNAME: root
+      ELASTICSEARCH_BUILD_INDICES_CLONE_INDICES: "false"
+      ELASTICSEARCH_HOST: search
+      ELASTICSEARCH_IMPLEMENTATION: opensearch
+      ELASTICSEARCH_INDEX_BUILDER_MAPPINGS_REINDEX: "true"
+      ELASTICSEARCH_INDEX_BUILDER_REFRESH_INTERVAL_SECONDS: "3"
+      ELASTICSEARCH_INDEX_BUILDER_SETTINGS_REINDEX: "true"
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_PROTOCOL: http
+      ELASTICSEARCH_USE_SSL: "false"
+      ENTITY_REGISTRY_CONFIG_PATH: /datahub/datahub-gms/resources/entity-registry.yml
+      ENTITY_VERSIONING_ENABLED: "true"
+      GRAPH_SERVICE_IMPL: elasticsearch
+      KAFKA_BOOTSTRAP_SERVER: "broker:29092"
+      KAFKA_SCHEMAREGISTRY_URL: "http://datahub-gms:8080/schema-registry/api/"
+      LOG_AGGREGATOR_ENDPOINT: ""
+      PARTITIONS: "3"
+      REPROCESS_DEFAULT_BROWSE_PATHS_V2: "false"
+      SCHEMA_REGISTRY_SYSTEM_UPDATE: "true"
+      SCHEMA_REGISTRY_TYPE: INTERNAL
+      SPRING_KAFKA_PROPERTIES_AUTO_REGISTER_SCHEMAS: "true"
+      SPRING_KAFKA_PROPERTIES_USE_LATEST_VERSION: "true"
+      USE_CONFLUENT_SCHEMA_REGISTRY: "false"
+    mem_limit: 1g
+    networks:
+      - default
+  zitadel-loopback:
+    image: "alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
+    restart: unless-stopped
+    mem_limit: 64m
+    network_mode: "service:frontend-quickstart"
+    command:
+      - "TCP-LISTEN:18453,fork,reuseaddr,bind=127.0.0.1"
+      - "TCP:zitadel:18453"
+    depends_on:
+      frontend-quickstart:
+        condition: service_started
+networks:
+  default:
+    name: datahub_network
+  identity-shared:
+    external: true
+volumes:
+  broker:
+    name: datahub_broker
+  mysqldata:
+    name: datahub_mysqldata
+  osdata:
+    name: datahub_osdata
