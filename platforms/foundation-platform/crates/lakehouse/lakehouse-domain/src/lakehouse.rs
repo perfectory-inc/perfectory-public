@@ -2936,6 +2936,69 @@ pub const GOLD_PLACE_ID_CHANGELOG: LakehouseTableContract = LakehouseTableContra
     },
 };
 
+const GOLD_LINEAGE_REVIEW_QUEUE_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "unit",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "subject_code",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "item_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "status",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "candidates_json",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "from_snapshot_id",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "to_snapshot_id",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "published_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// The parcels a person has to decide: best lineage grade needs_review or pending, no steward
+/// row yet (root ADR-0113 §10).
+pub const GOLD_LINEAGE_REVIEW_QUEUE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.lineage_review_queue",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
+    columns: GOLD_LINEAGE_REVIEW_QUEUE_COLUMNS,
+    partition_spec: &["unit"],
+    sort_order: &["subject_code"],
+    quality_gates: &[
+        "one row per (unit, subject_code)",
+        "status is needs_review or pending",
+        "item_id is the UUIDv5 of lineage-review:<unit>:<subject_code>",
+    ],
+    // silver.parcel_lineage 에서 매번 다시 쓴다. 결정은 이 표가 아니라 계보 행으로 쌓인다.
+    load: LakehouseLoadUnit::Derived,
+};
+
 const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
@@ -2969,6 +3032,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_PLACE_ID_REGISTRY,
     GOLD_PLACE_ID_BRIDGE,
     GOLD_PLACE_ID_CHANGELOG,
+    GOLD_LINEAGE_REVIEW_QUEUE,
     REFERENCE_LEGAL_DONG_CODE,
     REFERENCE_SIGUNGU_CANONICAL_CROSSWALK,
 ];
