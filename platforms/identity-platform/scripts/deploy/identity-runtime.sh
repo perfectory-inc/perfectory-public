@@ -43,4 +43,16 @@ compose=(
   --env-file "${IDENTITY_PLATFORM_ENV_FILE}"
 )
 
-exec "${compose[@]}" "$@"
+"${compose[@]}" "$@"
+
+# zitadel-loopback lives in identity-api's network namespace (network_mode: service:identity-api).
+# When identity-api is (re)created that namespace is replaced and the sidecar keeps the dead one:
+# identity-api then cannot reach the issuer on its loopback and every token check fails, while
+# `/readyz` used to say ready (2026-09-30). Compose's `depends_on.restart` did not recreate it in a
+# test on the production host, so this entry point, the only one operators use, re-attaches the
+# sidecar after anything that can start identity-api.
+case "${1:-}" in
+  up | start | restart | create)
+    "${compose[@]}" up -d --no-deps --force-recreate zitadel-loopback
+    ;;
+esac

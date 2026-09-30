@@ -44,6 +44,8 @@ pub struct HealthResponse {
 pub struct ReadinessResponse {
     status: &'static str,
     database: &'static str,
+    /// Whether the issuer's discovery document answers from this process's network.
+    issuer: &'static str,
     verifier_configuration: &'static str,
 }
 
@@ -85,6 +87,11 @@ pub async fn ready(
                 "ok"
             } else {
                 "unavailable"
+            },
+            issuer: if readiness.issuer {
+                "reachable"
+            } else {
+                "unreachable"
             },
             verifier_configuration: if readiness.verifier_configuration_valid {
                 "valid"
