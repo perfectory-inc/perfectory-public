@@ -46,7 +46,7 @@ Silver·Gold **32표**,
 | ↳ 최신 전국 vintage 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다. | | | | |
 | 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 전유부 원문 27칸과 관리번호·동호를 완료 manifest 부분 목록을 통해 append-only Silver로 적재한다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 기본·식별자<br>필지 경계 서빙 | 필지 지도 타일<br>카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 기본·식별자<br>필지 계보 스튜어드 결정<br>필지 경계 서빙 | 필지 지도 타일<br>카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ D155 CSV만 연결한다. 같은 원천의 D154 도형은 Bronze에 남는다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 토지이용구역 코드 | 1 endpoint | 용도지역 코드 사전 (`silver.land_use_zone_code`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
@@ -57,11 +57,11 @@ Silver·Gold **32표**,
 | ↳ AL_D195 CSV 속성을 PNU로 연결한다. 도형은 기존 필지 경계가 소유한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 임야 | 1 endpoint | 필지별 임야대장 (`silver.land_forest_ledger`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ AL_D003 CSV 속성을 PNU로 연결한다. 도형은 기존 필지 경계가 소유한다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지이동연혁 | 1 endpoint | 필지별 토지이동이력 (`silver.land_transfer_history`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | — | — |
+| 브이월드 공간·토지 파일: VWorld 토지이동연혁 | 1 endpoint | 필지별 토지이동이력 (`silver.land_transfer_history`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | — |
 | ↳ AL_D157 전체 사건을 PNU·이력순번으로 보존한다. 폐쇄·말소 사건도 연혁에 남는다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 토지권리등록 | 1 endpoint | 필지별 대지권 등록 (`silver.land_right_registration`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`) | — | — |
 | ↳ AL_D006 PIPE CSV의 PNU·대지권일련번호별 등록과 폐쇄 행, 명칭·비율 원문을 보존한다. | | | | |
-| 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 표제부 (`silver.building_register_titles`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 건물 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 표제부 (`silver.building_register_titles`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 건물<br>필지 계보 스튜어드 결정 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 층별 정보 (`silver.building_register_floors`) | — | — |
 | 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 호별 정보 (`silver.building_register_units`) | 건물의 호 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 건축HUB 파일: 건축물대장 전유공용면적 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호별 전유·공용 면적 (`silver.building_register_unit_areas`) | — | — |
@@ -75,7 +75,7 @@ Silver·Gold **32표**,
 | 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | — | — | — |
 | ↳ 권위 전체자료 추출을 계약 행으로 변환한다. 말소일이 비면 현행으로 유도하며 위조된 코드·날짜는 거부한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 읍면동 경계 | 1 endpoint | 행정경계(읍면동) (`silver.administrative_boundaries`)<br>행정경계 서빙본 (`gold.administrative_boundary_served`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`) | — | 행정경계 지도 타일<br>공짱 지도·상세 패널 |
-| 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | 필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | — | — |
+| 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | 필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | — |
 | ↳ 같은 권위(행정표준코드)의 전체자료 내려받기본(폐지 코드 포함)을 스냅숏 행으로 싣는다. 내려받기 수집 엔드포인트 등록은 수집 레인 몫이다. | | | | |
 
 ## 수집 이후 아직 연결되지 않은 데이터
@@ -209,7 +209,6 @@ Silver·Gold **32표**,
 | `gold.place_id_registry` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_bridge` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_changelog` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
-| `gold.lineage_review_queue` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.parcel_registry` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 
 ## 서빙·운영 원장 전체 목록
@@ -393,6 +392,7 @@ Silver·Gold **32표**,
 | ID↔코드 연결표 → 공짱 지도·상세 패널 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
 | ID 변경 내역 → 공짱 지도·상세 패널 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
 | 필지 계보 → 필지 계보 검토 목록 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_review_queue_to_gold.py` |
+| 필지 계보 검토 목록 → 필지 계보 스튜어드 결정 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_review_queue_to_gold.py`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/lineage_review_items_load.rs` |
 | 필지 계보 검토 목록 → 스튜어드 검토 화면 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
 | 필지 ID 원장 → 필지 by-PNU 제공용 패널 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
 

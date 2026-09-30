@@ -64,6 +64,17 @@ class ReviewQueueTest(unittest.TestCase):
         self.assertEqual(second[0].to_snapshot_id, "s3")
 
 
+class HandoffTest(unittest.TestCase):
+    def test_the_handoff_carries_every_item_and_its_count(self):
+        items, _ = q.review_queue([row("", pnu(NEW, 4), "pending", "x"), row(pnu(OLD, 3), pnu(NEW, 3), "needs_review")])
+        document = q.handoff_document(items, "parcel", "2099-09-30T00:00:00Z")
+        self.assertEqual(document["schema_version"], q.HANDOFF_SCHEMA_VERSION)
+        self.assertEqual(document["item_count"], 2)
+        self.assertEqual({i["subject_code"] for i in document["items"]}, {pnu(NEW, 3), pnu(NEW, 4)})
+        first = document["items"][0]
+        self.assertEqual(first["evidence_etag"], q.evidence_etag(first["status"], first["candidates_json"]))
+
+
 class ReviewQueueJobArgsTest(unittest.TestCase):
     def test_a_one_sido_run_cannot_rewrite_the_national_queue(self):
         from lineage_review_queue_to_gold import parse_args, validate_args

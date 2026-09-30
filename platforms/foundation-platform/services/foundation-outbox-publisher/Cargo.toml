@@ -27,6 +27,8 @@ collection-application = { workspace = true }
 collection-infrastructure = { workspace = true }
 chrono = { workspace = true }
 foundation-contracts = { workspace = true }
+stewardship-domain = { workspace = true }
+stewardship-infrastructure = { workspace = true }
 foundation-shared-kernel = { workspace = true }
 foundation-shapefile = { workspace = true }
 lakehouse-application = { workspace = true }

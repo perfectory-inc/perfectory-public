@@ -59,6 +59,15 @@ fn unit_official_price_projection_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn lineage_review_load_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "load-lineage-review-items"])?,
+        Command::LoadLineageReviewItems
+    );
+    Ok(())
+}
+
+#[test]
 fn exclusive_unit_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

@@ -5,6 +5,8 @@
 //! future caller skips this crate: decisions, approvals and folds are append-only, and the approver
 //! of a decision cannot be its decider (`20260930120000_lineage_stewardship.sql`).
 
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{postgres::PgRow, PgPool, Postgres, Row, Transaction};
@@ -12,6 +14,7 @@ use stewardship_application::{
     DecideCommand, DecideOutcome, DecisionRecord, LineageStewardshipStore, ReviewItemFilter,
     ReviewItemView,
 };
+use stewardship_domain::handoff::ReviewHandoff;
 use stewardship_domain::{
     check_approval, check_decision, check_idempotency_key, claim_expiry, Claim, Outcome,
     ReviewItem, ReviewStatus, StewardshipError,
@@ -30,6 +33,106 @@ impl PgLineageStewardshipStore {
     pub const fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    /// Replaces a unit's review items with the queue the lakehouse handed off (ADR-0115 §9).
+    ///
+    /// One transaction: the unit's items are deleted and the handoff's inserted, so a reader sees
+    /// the old queue or the new one, never half of each. Claims on items that left the queue go
+    /// with them; decisions stay (they are history, keyed by item id, not by queue membership).
+    /// A handoff older than the one loaded is refused — the projection never moves back in time.
+    ///
+    /// # Errors
+    /// Returns [`StewardshipError::InvalidState`] for an older handoff, or a persistence failure.
+    pub async fn replace_review_items(
+        &self,
+        handoff: &ReviewHandoff,
+    ) -> Result<LoadVerdict, StewardshipError> {
+        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        // Serialize concurrent loads of the unit before reading what is loaded.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('lineage_review_item:' || $1))")
+            .bind(&handoff.unit)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        let loaded = sqlx::query(
+            "SELECT max(queue_published_at) AS published, array_agg(item_id) AS ids
+             FROM catalog.lineage_review_item WHERE unit = $1",
+        )
+        .bind(&handoff.unit)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let published: Option<DateTime<Utc>> = loaded.try_get("published").map_err(map_sqlx)?;
+        if let Some(at) = published.filter(|at| *at > handoff.published_at_utc) {
+            return Err(StewardshipError::InvalidState(format!(
+                "the loaded queue was published at {at} and this handoff at {}; refusing to go back",
+                handoff.published_at_utc
+            )));
+        }
+        let previous: Vec<Uuid> = loaded
+            .try_get::<Option<Vec<Uuid>>, _>("ids")
+            .map_err(map_sqlx)?
+            .unwrap_or_default();
+        let incoming: HashSet<Uuid> = handoff.items.iter().map(|item| item.item_id).collect();
+        let removed: Vec<Uuid> = previous
+            .iter()
+            .filter(|id| !incoming.contains(id))
+            .copied()
+            .collect();
+
+        sqlx::query("DELETE FROM catalog.lineage_review_claim WHERE item_id = ANY($1)")
+            .bind(&removed)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("DELETE FROM catalog.lineage_review_item WHERE unit = $1")
+            .bind(&handoff.unit)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        let items = &handoff.items;
+        sqlx::query(
+            "INSERT INTO catalog.lineage_review_item
+             (item_id, unit, subject_code, status, candidates_json, evidence_etag,
+              from_snapshot_id, to_snapshot_id, queue_published_at)
+             SELECT id, $1, code, status, candidates, etag, from_id, to_id, $2
+             FROM UNNEST($3::uuid[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[])
+                  AS t(id, code, status, candidates, etag, from_id, to_id)",
+        )
+        .bind(&handoff.unit)
+        .bind(handoff.published_at_utc)
+        .bind(items.iter().map(|i| i.item_id).collect::<Vec<_>>())
+        .bind(items.iter().map(|i| i.subject_code.clone()).collect::<Vec<_>>())
+        .bind(items.iter().map(|i| status_wire(i.status).to_owned()).collect::<Vec<_>>())
+        .bind(items.iter().map(|i| i.candidates_json.clone()).collect::<Vec<_>>())
+        .bind(items.iter().map(|i| i.evidence_etag.clone()).collect::<Vec<_>>())
+        .bind(items.iter().map(|i| i.from_snapshot_id.clone()).collect::<Vec<_>>())
+        .bind(items.iter().map(|i| i.to_snapshot_id.clone()).collect::<Vec<_>>())
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
+        let kept = previous.len() - removed.len();
+        Ok(LoadVerdict {
+            previous: previous.len(),
+            loaded: items.len(),
+            added: items.len() - kept,
+            removed: removed.len(),
+        })
+    }
+}
+
+/// What a load changed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LoadVerdict {
+    /// Items before the load.
+    pub previous: usize,
+    /// Items after it.
+    pub loaded: usize,
+    /// Items that were not there before.
+    pub added: usize,
+    /// Items that left the queue.
+    pub removed: usize,
 }
 
 #[allow(clippy::needless_pass_by_value)]
