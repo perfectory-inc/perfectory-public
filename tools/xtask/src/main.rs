@@ -870,13 +870,18 @@ const AREAS: &[Area] = &[
     // That made the workflows *rerun* on an xtask change; it did not make any of
     // them *test* xtask. A path filter is not coverage.
     // The staff console (root ADR-0114, ADR-0116): a pure-Rust BFF with no backend-gated tests —
-    // its sign-in suite brings its own fake issuer and fake Foundation.
+    // its sign-in suite brings its own fake issuer and fake Foundation — and the screens, whose API
+    // types must equal the committed Foundation OpenAPI document (`api:check`).
     Area {
         slug: "dawneer",
         dir: "consoles/dawneer",
         apt_deps: &[],
         python_tests: &[],
-        node_tests: &[],
+        node_tests: &[NodeTests {
+            dir: "web",
+            scripts: &["typecheck", "test", "build", "api:check"],
+            test_script: "test",
+        }],
         live_lanes: &[],
     },
     Area {
