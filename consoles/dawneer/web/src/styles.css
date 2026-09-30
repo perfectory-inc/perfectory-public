@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+:root {
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+}

@@ -15,7 +15,7 @@ last_reviewed: 2026-09-30
 ```
 consoles/dawneer/
 ├── server/   Rust 서버(BFF): Zitadel 로그인, 세션, 허용된 플랫폼 경로 중계
-└── web/      화면(다음 단계)
+└── web/      화면: React·TypeScript. API 타입은 Foundation OpenAPI 문서에서 생성(`pnpm api:generate`), 어긋나면 `api:check` 실패
 ```
 
 서버가 하는 일([ADR-0116](../../docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md)):
@@ -29,6 +29,8 @@ consoles/dawneer/
 | 그 밖 | 화면(`web/dist`) |
 
 ## 노트북에서 실행
+
+0. 화면을 굽는다: `cd web && pnpm install && pnpm build` (`dist/` 는 커밋하지 않는다)
 
 1. 터널과 계정: [직원 콘솔 로그인 준비](../../platforms/identity-platform/docs/runbooks/staff-console-sign-in.md)
 2. 서버의 `dawneer-oidc-client.env` 를 노트북의 저장소 밖 경로로 복사한다.
@@ -46,5 +48,5 @@ cargo run -p dawneer-server
 
 ## 검증
 
-`cargo xtask verify dawneer` — fmt, clippy, 시험. 로그인 시험(`server/tests/bff.rs`)은 가짜 발급자와 가짜 Foundation 을
+`cargo xtask verify dawneer` — fmt, clippy, 시험, 그리고 화면의 typecheck·test·build·api:check. 로그인 시험(`server/tests/bff.rs`)은 가짜 발급자와 가짜 Foundation 을
 스스로 띄운다.
