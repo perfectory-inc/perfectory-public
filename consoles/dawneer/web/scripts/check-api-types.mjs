@@ -12,6 +12,7 @@ const docs = resolve(here, "../../../../platforms/foundation-platform/docs/opena
 const pairs = [
   ["lineage-review.v1.json", "foundation.d.ts"],
   ["pipeline-graph.v1.json", "pipeline-graph.d.ts"],
+  ["catalog.v1.json", "catalog.d.ts"],
 ];
 
 const normalize = (text) => text.replaceAll("\r\n", "\n").trim();

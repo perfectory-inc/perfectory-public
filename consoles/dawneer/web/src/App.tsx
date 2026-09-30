@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import { DawneerClient, loadSession, signOut } from "./api/client";
+import { ComplexesPage } from "./pages/ComplexesPage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { ReviewItemPage } from "./pages/ReviewItemPage";
 import { ReviewListPage } from "./pages/ReviewListPage";
+import { TilesPage } from "./pages/TilesPage";
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(window.location.hash);
@@ -20,6 +22,8 @@ function useHashRoute(): string {
 const MENU = [
   { href: "#/", label: "필지 계보 검토", active: (route: string) => route === "/" || route.startsWith("/items/") },
   { href: "#/pipeline", label: "데이터 흐름", active: (route: string) => route === "/pipeline" },
+  { href: "#/tiles", label: "지도 타일 발행", active: (route: string) => route === "/tiles" },
+  { href: "#/complexes", label: "산업단지", active: (route: string) => route === "/complexes" },
 ] as const;
 
 export function App() {
@@ -81,6 +85,10 @@ export function App() {
           <ReviewItemPage client={client} itemId={itemId} me={current.sub} />
         ) : route === "/pipeline" ? (
           <PipelinePage client={client} />
+        ) : route === "/tiles" ? (
+          <TilesPage client={client} />
+        ) : route === "/complexes" ? (
+          <ComplexesPage client={client} />
         ) : (
           <ReviewListPage client={client} />
         )}

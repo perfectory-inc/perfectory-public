@@ -22,6 +22,14 @@ describe("DawneerClient", () => {
     expect(new Headers(calls[0]?.init.headers).get("x-dawneer-csrf")).toBeNull();
   });
 
+  it("asks for complexes with Foundation's own parameter names", async () => {
+    const { calls, fetchImpl } = recording(200, { complexes: [], total: 0, page: 1, size: 50, has_next: false });
+    await new DawneerClient(SESSION, fetchImpl).listComplexes({ q: "합성", sidoCode: "99", status: "operating", page: 1 });
+    expect(calls[0]?.url).toBe(
+      `/api/foundation/complexes?q=${encodeURIComponent("합성")}&sido_code=99&status=operating&page=1&size=50`,
+    );
+  });
+
   it("sends the CSRF value and the idempotency key with a decision", async () => {
     const { calls, fetchImpl } = recording(200, { disposition: "recorded", requires_approval: false });
     await new DawneerClient(SESSION, fetchImpl).decide(
