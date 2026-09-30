@@ -617,6 +617,12 @@ pub struct UpsertIndustrialComplexCommand {
     pub development_purpose_raw: Option<String>,
     /// Invited industry types to write, verbatim.
     pub invited_industries_raw: Option<String>,
+    /// The source's words for the kind to write (root ADR-0117 §5).
+    pub kind_raw: Option<String>,
+    /// The source's words for the status to write.
+    pub status_raw: Option<String>,
+    /// The source's words for the lot-sales status to write.
+    pub lot_sales_status_raw: Option<String>,
 }
 
 /// What one upsert command did to the canonical table.

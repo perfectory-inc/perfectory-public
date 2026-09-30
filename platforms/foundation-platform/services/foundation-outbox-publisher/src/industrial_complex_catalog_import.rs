@@ -129,6 +129,9 @@ impl RawIndustrialComplexCatalogRow {
             development_method_raw: None,
             development_purpose_raw: None,
             invited_industries_raw: None,
+            kind_raw: None,
+            status_raw: None,
+            lot_sales_status_raw: None,
         })
     }
 }

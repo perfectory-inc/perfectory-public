@@ -269,6 +269,9 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
                 development_method_raw: None,
                 development_purpose_raw: None,
                 invited_industries_raw: None,
+                kind_raw: None,
+                status_raw: None,
+                lot_sales_status_raw: None,
             },
             UpsertIndustrialComplexCommand {
                 official_complex_code: second_official_code,
@@ -295,6 +298,9 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
                 development_method_raw: None,
                 development_purpose_raw: None,
                 invited_industries_raw: None,
+                kind_raw: None,
+                status_raw: None,
+                lot_sales_status_raw: None,
             },
         ])
         .await
@@ -451,6 +457,9 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
             development_method_raw: None,
             development_purpose_raw: None,
             invited_industries_raw: None,
+            kind_raw: None,
+            status_raw: None,
+            lot_sales_status_raw: None,
             ..sourced
         }])
         .await
@@ -474,6 +483,9 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
     assert_eq!(cleared.development_method_raw, None);
     assert_eq!(cleared.development_purpose_raw, None);
     assert_eq!(cleared.invited_industries_raw, None);
+    assert_eq!(cleared.kind_raw, None);
+    assert_eq!(cleared.status_raw, None);
+    assert_eq!(cleared.lot_sales_status_raw, None);
 
     cleanup_by_complex_id(&pool, created.id).await;
 }
@@ -538,6 +550,9 @@ fn assert_every_sourced_column_round_tripped(
         stored.invited_industries_raw.as_deref(),
         Some("E2E 유치업종")
     );
+    assert_eq!(stored.kind_raw.as_deref(), Some("농공"));
+    assert_eq!(stored.status_raw.as_deref(), Some("조성완료"));
+    assert_eq!(stored.lot_sales_status_raw.as_deref(), Some("분양중"));
 }
 
 /// The command a Gold snapshot produces when every sourced column carries a value.
@@ -574,6 +589,9 @@ fn fully_sourced_command(
         development_method_raw: Some("공영개발 방식".to_owned()),
         development_purpose_raw: Some("E2E 조성목적".to_owned()),
         invited_industries_raw: Some("E2E 유치업종".to_owned()),
+        kind_raw: Some("농공".to_owned()),
+        status_raw: Some("조성완료".to_owned()),
+        lot_sales_status_raw: Some("분양중".to_owned()),
     }
 }
 
@@ -608,6 +626,9 @@ const fn identity_only_command() -> UpsertIndustrialComplexCommand {
         development_method_raw: None,
         development_purpose_raw: None,
         invited_industries_raw: None,
+        kind_raw: None,
+        status_raw: None,
+        lot_sales_status_raw: None,
     }
 }
 
@@ -639,6 +660,9 @@ fn sample_complex() -> IndustrialComplex {
         development_method_raw: None,
         development_purpose_raw: None,
         invited_industries_raw: None,
+        kind_raw: None,
+        status_raw: None,
+        lot_sales_status_raw: None,
         created_at: now,
         updated_at: now,
         archived_at: None,

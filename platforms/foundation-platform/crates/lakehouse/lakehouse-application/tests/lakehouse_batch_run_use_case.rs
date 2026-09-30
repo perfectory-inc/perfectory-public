@@ -95,7 +95,7 @@ const VALID_SUMMARY_JSON: &str = r#"{
             "invalid_checksum_count": 0,
             "invalid_region_code_count": 0
         },
-        "column_count": 31,
+        "column_count": 34,
         "columns": [
             "complex_id",
             "official_complex_code",
@@ -103,6 +103,8 @@ const VALID_SUMMARY_JSON: &str = r#"{
             "complex_name_normalized",
             "complex_kind",
             "status",
+            "complex_kind_raw",
+            "status_raw",
             "sido_code",
             "sigungu_code",
             "primary_bjdong_code",
@@ -115,6 +117,7 @@ const VALID_SUMMARY_JSON: &str = r#"{
             "official_area_sqm",
             "development_progress_percent",
             "lot_sales_status",
+            "lot_sales_status_raw",
             "business_period_raw",
             "business_period_start_month",
             "business_period_end_month",

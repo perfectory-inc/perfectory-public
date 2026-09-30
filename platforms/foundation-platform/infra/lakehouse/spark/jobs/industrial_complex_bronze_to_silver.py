@@ -344,6 +344,10 @@ def build_silver_frame(bronze: DataFrame) -> DataFrame:
         normalized_name.alias("complex_name_normalized"),
         F.trim(F.col("complex_kind")).alias("complex_kind"),
         F.trim(F.col("status")).alias("status"),
+        # The source's words beside the codes (root ADR-0117 §5). Read like the region columns:
+        # null stays null and `""` stays `""` for the empty-string gate.
+        F.trim(F.col("complex_kind_raw")).alias("complex_kind_raw"),
+        F.trim(F.col("status_raw")).alias("status_raw"),
         # The three region columns are read without `trim_to_null`. A JSON null stays null, and a
         # `""` stays `""` so the empty-string gate below can refuse it. Coercing blank to null here
         # would erase exactly the difference this change is about (root ADR-0035).
@@ -366,6 +370,7 @@ def build_silver_frame(bronze: DataFrame) -> DataFrame:
         # and a `""` stays `""`, so the empty-string gate below can refuse the producer that filled
         # a column with nothing instead of saying so.
         F.trim(F.col("lot_sales_status")).alias("lot_sales_status"),
+        F.trim(F.col("lot_sales_status_raw")).alias("lot_sales_status_raw"),
         F.trim(F.col("business_period_raw")).alias("business_period_raw"),
         F.trim(F.col("business_period_start_month")).alias("business_period_start_month"),
         F.trim(F.col("business_period_end_month")).alias("business_period_end_month"),
@@ -742,6 +747,12 @@ def column_lineage() -> list[dict[str, Any]]:
         "status": [
             {"dataset": BRONZE_DATASET_NAME, "column": "status", "transform": "trim"}
         ],
+        "complex_kind_raw": [
+            {"dataset": BRONZE_DATASET_NAME, "column": "complex_kind_raw", "transform": "trim"}
+        ],
+        "status_raw": [
+            {"dataset": BRONZE_DATASET_NAME, "column": "status_raw", "transform": "trim"}
+        ],
         "sido_code": [
             {"dataset": BRONZE_DATASET_NAME, "column": "sido_code", "transform": "trim"}
         ],
@@ -793,6 +804,13 @@ def column_lineage() -> list[dict[str, Any]]:
         ],
         "lot_sales_status": [
             {"dataset": BRONZE_DATASET_NAME, "column": "lot_sales_status", "transform": "trim"}
+        ],
+        "lot_sales_status_raw": [
+            {
+                "dataset": BRONZE_DATASET_NAME,
+                "column": "lot_sales_status_raw",
+                "transform": "trim",
+            }
         ],
         "business_period_raw": [
             {"dataset": BRONZE_DATASET_NAME, "column": "business_period_raw", "transform": "trim"}

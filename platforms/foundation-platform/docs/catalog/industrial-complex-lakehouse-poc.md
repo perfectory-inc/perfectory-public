@@ -123,6 +123,8 @@ PostGIS `ST_Transform` 이 한다 — 근거: [ADR-0042](../../../../docs/adr/00
 | `complex_name_normalized` | string | yes | 검색/중복검사용 정규화명 |
 | `complex_kind` | string | yes | `national`, `general`, `agricultural`, `urban_high_tech` |
 | `status` | string | yes | `planned`, `developing`, `operating`, `changed`, `abolished`, `unknown` |
+| `complex_kind_raw` | string | no | the source's own word for `complex_kind` (`lrstt_ty`), trimmed (root ADR-0117 §5) |
+| `status_raw` | string | no | the source's own word for `status` (`make_sttus_nm`); `준비중` and `보상중` share `planned` |
 | `sido_code` | string | no | 시도 코드. 출처가 행정구역 코드를 말했을 때만 채워진다 (root ADR-0035) |
 | `sigungu_code` | string | no | 시군구 코드. 같음 |
 | `primary_bjdong_code` | string | no | 대표 법정동 코드. 출처가 읍면동을 지목했을 때만 (root ADR-0034) |
@@ -135,6 +137,7 @@ PostGIS `ST_Transform` 이 한다 — 근거: [ADR-0042](../../../../docs/adr/00
 | `official_area_sqm` | decimal(18,2) | no | 공식 면적 |
 | `development_progress_percent` | decimal(5,2) | no | 조성진행률 0.00~100.00. `0` 은 값이며 부재가 아니다 |
 | `lot_sales_status` | string | no | `planned`, `in_progress`, `completed` |
+| `lot_sales_status_raw` | string | no | source word for `lot_sales_status` (`lttot_sttus_nm`) |
 | `business_period_raw` | string | no | 사업기간 원문. 보통 `YYYY-MM~YYYY-MM` |
 | `business_period_start_month` | string | no | 파싱된 시작월 `yyyy-MM`. 종료월과 항상 함께 null 이거나 함께 있다 |
 | `business_period_end_month` | string | no | 파싱된 종료월 `yyyy-MM` |
@@ -283,6 +286,8 @@ API list/detail 과 consumer read model 의 stable projection 이다.
 | `name` | string | yes | display name |
 | `kind` | string | yes | domain wire kind |
 | `status` | string | yes | serving status |
+| `kind_raw` | string | no | source word for `kind` |
+| `status_raw` | string | no | source word for `status` |
 | `sido_code` | string | no | region filter. canonical 표를 따라 선택 항목 (root ADR-0035) |
 | `sigungu_code` | string | no | region filter. 같음 |
 | `address_text` | string | no | official address |
@@ -294,6 +299,7 @@ API list/detail 과 consumer read model 의 stable projection 이다.
 | `official_area_sqm` | decimal(18,2) | no | official area |
 | `development_progress_percent` | decimal(5,2) | no | 조성진행률 0.00~100.00 |
 | `lot_sales_status` | string | no | `planned`, `in_progress`, `completed` |
+| `lot_sales_status_raw` | string | no | source word for `lot_sales_status` (`lttot_sttus_nm`) |
 | `business_period_raw` | string | no | 사업기간 원문 |
 | `business_period_start_month` | string | no | 파싱된 시작월 `yyyy-MM` |
 | `business_period_end_month` | string | no | 파싱된 종료월 `yyyy-MM` |

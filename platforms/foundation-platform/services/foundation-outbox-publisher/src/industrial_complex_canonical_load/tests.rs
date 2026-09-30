@@ -15,6 +15,8 @@ fn gold_row(code: &str, kind: &str, official_area_sqm: JsonValue) -> JsonMap<Str
         "name": "Sourced Industrial Complex",
         "kind": kind,
         "status": "operating",
+        "kind_raw": "국가",
+        "status_raw": "조성완료",
         "sido_code": "46",
         "sigungu_code": "46830",
         "address_text": "sourced address text",
@@ -24,6 +26,7 @@ fn gold_row(code: &str, kind: &str, official_area_sqm: JsonValue) -> JsonMap<Str
         "official_area_sqm": official_area_sqm,
         "development_progress_percent": "100.00",
         "lot_sales_status": "completed",
+        "lot_sales_status_raw": "분양완료",
         "business_period_raw": "1964-04~1974-11",
         "business_period_start_month": "1964-04",
         "business_period_end_month": "1974-11",
@@ -124,6 +127,10 @@ fn the_sourced_description_columns_reach_the_canonical_row() -> anyhow::Result<(
         row.invited_industries_raw.as_deref(),
         Some("sourced invited industries")
     );
+    // The source's words travel beside the codes (root ADR-0117 §5).
+    assert_eq!(row.kind_raw.as_deref(), Some("국가"));
+    assert_eq!(row.status_raw.as_deref(), Some("조성완료"));
+    assert_eq!(row.lot_sales_status_raw.as_deref(), Some("분양완료"));
     Ok(())
 }
 
@@ -143,6 +150,9 @@ fn an_absent_description_column_becomes_null_rather_than_a_substitute() -> anyho
         "development_purpose_raw",
         "invited_industries_raw",
         "construction_start_date",
+        "kind_raw",
+        "status_raw",
+        "lot_sales_status_raw",
     ] {
         row.insert(column.to_owned(), JsonValue::Null);
     }
@@ -160,6 +170,9 @@ fn an_absent_description_column_becomes_null_rather_than_a_substitute() -> anyho
     assert_eq!(planned.development_purpose_raw, None);
     assert_eq!(planned.invited_industries_raw, None);
     assert_eq!(planned.construction_start_date, None);
+    assert_eq!(planned.kind_raw, None);
+    assert_eq!(planned.status_raw, None);
+    assert_eq!(planned.lot_sales_status_raw, None);
     Ok(())
 }
 

@@ -73,6 +73,12 @@ pub struct IndustrialComplexCatalogRow {
     pub development_purpose_raw: Option<String>,
     /// Industry types the complex set out to attract, verbatim.
     pub invited_industries_raw: Option<String>,
+    /// The source's words for `kind`, trimmed (root ADR-0117 §5).
+    pub kind_raw: Option<String>,
+    /// The source's words for `status`, trimmed.
+    pub status_raw: Option<String>,
+    /// The source's words for `lot_sales_status`, trimmed.
+    pub lot_sales_status_raw: Option<String>,
 }
 
 /// Input for writing source-side industrial-complex rows into Catalog.
@@ -180,6 +186,9 @@ fn catalog_row_to_upsert_command(
             "invited_industries_raw",
             row.invited_industries_raw.as_deref(),
         ),
+        ("kind_raw", row.kind_raw.as_deref()),
+        ("status_raw", row.status_raw.as_deref()),
+        ("lot_sales_status_raw", row.lot_sales_status_raw.as_deref()),
     ] {
         validate_optional_clean_text(label, value)?;
     }
@@ -213,6 +222,9 @@ fn catalog_row_to_upsert_command(
         development_method_raw: row.development_method_raw.clone(),
         development_purpose_raw: row.development_purpose_raw.clone(),
         invited_industries_raw: row.invited_industries_raw.clone(),
+        kind_raw: row.kind_raw.clone(),
+        status_raw: row.status_raw.clone(),
+        lot_sales_status_raw: row.lot_sales_status_raw.clone(),
     })
 }
 
@@ -247,6 +259,9 @@ mod tests {
             development_method_raw: None,
             development_purpose_raw: None,
             invited_industries_raw: None,
+            kind_raw: None,
+            status_raw: None,
+            lot_sales_status_raw: None,
         }
     }
 
@@ -359,7 +374,7 @@ mod tests {
         /// Sets one free-text column, so the loop below can walk all of them.
         type SetFreeText = fn(&mut IndustrialComplexCatalogRow, String);
 
-        let blanks: [(&str, SetFreeText); 5] = [
+        let blanks: [(&str, SetFreeText); 8] = [
             ("business_period_raw", |row, value| {
                 row.business_period_raw = Some(value);
             }),
@@ -374,6 +389,15 @@ mod tests {
             }),
             ("invited_industries_raw", |row, value| {
                 row.invited_industries_raw = Some(value);
+            }),
+            ("kind_raw", |row, value| {
+                row.kind_raw = Some(value);
+            }),
+            ("status_raw", |row, value| {
+                row.status_raw = Some(value);
+            }),
+            ("lot_sales_status_raw", |row, value| {
+                row.lot_sales_status_raw = Some(value);
             }),
         ];
         for (label, set) in blanks {

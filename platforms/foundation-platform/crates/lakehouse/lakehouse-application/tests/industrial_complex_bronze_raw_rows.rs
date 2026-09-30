@@ -108,6 +108,9 @@ fn bronze_rows_emit_exactly_the_exported_transport_columns() -> TestResult {
     assert_eq!(record["complex_name"], "구로디지털단지");
     assert_eq!(record["complex_kind"], "national");
     assert_eq!(record["status"], "operating");
+    assert_eq!(record["complex_kind_raw"], "국가");
+    assert_eq!(record["status_raw"], "조성완료");
+    assert_eq!(record["lot_sales_status_raw"], "분양완료");
     assert_eq!(record["sido_code"], "11");
     assert_eq!(record["sigungu_code"], "11530");
     assert_eq!(record["primary_bjdong_code"], "1153010200");
@@ -510,6 +513,39 @@ fn mixed_snapshot_months_fail_instead_of_picking_one() -> TestResult {
         ),
         "{error}"
     );
+    Ok(())
+}
+
+/// Two source words share the `planned` code; only the kept word says which one the source
+/// stated (root ADR-0117 §5). The word is trimmed and otherwise verbatim, and a blank lot-sales
+/// cell leaves both the code and the word absent.
+#[test]
+fn the_source_word_survives_beside_the_code_it_maps_to() -> TestResult {
+    let mut compensating = source_record("111010");
+    compensating.status_label = " 보상중 ".to_owned();
+    compensating.lot_sales_status_label = Some("   ".to_owned());
+    let mut preparing = source_record("222020");
+    preparing.status_label = "준비중".to_owned();
+    let records = vec![compensating, preparing];
+    let mut addresses = address_book("111010")?;
+    addresses.insert("222020", sigungu_address("1153000000")?)?;
+
+    let rows =
+        normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+            records: &records,
+            addresses: &addresses,
+            bronze_object_key: BRONZE_OBJECT_KEY,
+            source_slug: SOURCE_SLUG,
+            ingested_at_utc: ingested_at()?,
+        })?;
+
+    assert_eq!(rows[0].status, "planned");
+    assert_eq!(rows[0].status_raw.as_deref(), Some("보상중"));
+    assert_eq!(rows[0].lot_sales_status, None);
+    assert_eq!(rows[0].lot_sales_status_raw, None);
+    assert_eq!(rows[1].status, "planned");
+    assert_eq!(rows[1].status_raw.as_deref(), Some("준비중"));
+    assert_eq!(rows[1].complex_kind_raw.as_deref(), Some("국가"));
     Ok(())
 }
 

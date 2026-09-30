@@ -108,9 +108,10 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
               lot_sales_status, business_period_raw, business_period_start_month,
               business_period_end_month, development_progress_percent, designation_basis_law_raw,
               development_method_raw, development_purpose_raw, invited_industries_raw,
-              created_at, updated_at, version)
+              created_at, updated_at, version, kind_raw, status_raw, lot_sales_status_raw)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                     $18, $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, $28)",
+                     $18, $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+                     $31)",
         )
         .bind(complex.id.as_uuid())
         .bind(complex.lakehouse_complex_id.map(|id| id.as_uuid()))
@@ -144,6 +145,9 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         .bind(complex.created_at)
         .bind(complex.updated_at)
         .bind(complex.version)
+        .bind(complex.kind_raw.as_deref())
+        .bind(complex.status_raw.as_deref())
+        .bind(complex.lot_sales_status_raw.as_deref())
         .execute(&mut *tx)
         .await;
 
@@ -2372,6 +2376,9 @@ async fn update_industrial_complex_from_upsert(
              development_method_raw = $22,
              development_purpose_raw = $23,
              invited_industries_raw = $24,
+             kind_raw = $25,
+             status_raw = $26,
+             lot_sales_status_raw = $27,
              updated_at = now(),
              version = version + 1
          WHERE id = $1
@@ -2405,6 +2412,9 @@ async fn update_industrial_complex_from_upsert(
     .bind(command.development_method_raw.as_deref())
     .bind(command.development_purpose_raw.as_deref())
     .bind(command.invited_industries_raw.as_deref())
+    .bind(command.kind_raw.as_deref())
+    .bind(command.status_raw.as_deref())
+    .bind(command.lot_sales_status_raw.as_deref())
     .fetch_one(&mut **tx)
     .await;
 
@@ -2434,9 +2444,9 @@ async fn insert_industrial_complex_from_upsert(
           lot_sales_status, business_period_raw, business_period_start_month,
           business_period_end_month, development_progress_percent, designation_basis_law_raw,
           development_method_raw, development_purpose_raw, invited_industries_raw,
-          created_at, updated_at, version)
+          created_at, updated_at, version, kind_raw, status_raw, lot_sales_status_raw)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                 $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, 1)
+                 $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, 1, $28, $29, $30)
          RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
     ))
     .bind(Uuid::now_v7())
@@ -2470,6 +2480,9 @@ async fn insert_industrial_complex_from_upsert(
     .bind(command.invited_industries_raw.as_deref())
     .bind(now)
     .bind(now)
+    .bind(command.kind_raw.as_deref())
+    .bind(command.status_raw.as_deref())
+    .bind(command.lot_sales_status_raw.as_deref())
     .fetch_one(&mut **tx)
     .await;
 
@@ -2565,6 +2578,15 @@ fn changed_industrial_complex_fields(
     }
     if existing.invited_industries_raw != command.invited_industries_raw {
         fields.push("invited_industries_raw".to_owned());
+    }
+    if existing.kind_raw != command.kind_raw {
+        fields.push("kind_raw".to_owned());
+    }
+    if existing.status_raw != command.status_raw {
+        fields.push("status_raw".to_owned());
+    }
+    if existing.lot_sales_status_raw != command.lot_sales_status_raw {
+        fields.push("lot_sales_status_raw".to_owned());
     }
     fields
 }

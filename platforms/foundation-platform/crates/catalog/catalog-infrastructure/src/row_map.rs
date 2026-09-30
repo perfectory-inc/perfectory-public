@@ -40,12 +40,12 @@ pub const INDUSTRIAL_COMPLEX_COLUMNS: &str = "id, lakehouse_complex_id, official
      completion_date, development_progress_percent::text AS development_progress_percent, \
      lot_sales_status, business_period_raw, business_period_start_month, \
      business_period_end_month, designation_basis_law_raw, development_method_raw, \
-     development_purpose_raw, invited_industries_raw, \
+     development_purpose_raw, invited_industries_raw, kind_raw, status_raw, lot_sales_status_raw, \
      created_at, updated_at, archived_at, version";
 
 pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
-    let kind_raw: String = row.try_get("kind").map_err(map_sqlx)?;
-    let kind = IndustrialComplexKind::from_wire(&kind_raw)
+    let kind_code: String = row.try_get("kind").map_err(map_sqlx)?;
+    let kind = IndustrialComplexKind::from_wire(&kind_code)
         .map_err(|e| CatalogError::Infrastructure(e.to_string()))?;
     let area_i64: i64 = row.try_get("area_m2").map_err(map_sqlx)?;
     let area = i64_to_u64(area_i64)?;
@@ -98,6 +98,9 @@ pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
         development_method_raw: row.try_get("development_method_raw").map_err(map_sqlx)?,
         development_purpose_raw: row.try_get("development_purpose_raw").map_err(map_sqlx)?,
         invited_industries_raw: row.try_get("invited_industries_raw").map_err(map_sqlx)?,
+        kind_raw: row.try_get("kind_raw").map_err(map_sqlx)?,
+        status_raw: row.try_get("status_raw").map_err(map_sqlx)?,
+        lot_sales_status_raw: row.try_get("lot_sales_status_raw").map_err(map_sqlx)?,
         created_at: row
             .try_get::<DateTime<Utc>, _>("created_at")
             .map_err(map_sqlx)?,

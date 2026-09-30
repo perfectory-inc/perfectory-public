@@ -75,6 +75,9 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
                     development_method_raw: None,
                     development_purpose_raw: None,
                     invited_industries_raw: None,
+                    kind_raw: None,
+                    status_raw: None,
+                    lot_sales_status_raw: None,
                     created_at: chrono::Utc::now(),
                     updated_at: chrono::Utc::now(),
                     archived_at: None,
@@ -158,6 +161,9 @@ async fn writes_valid_source_side_rows() -> Result<(), CatalogError> {
                     development_method_raw: None,
                     development_purpose_raw: None,
                     invited_industries_raw: None,
+                    kind_raw: None,
+                    status_raw: None,
+                    lot_sales_status_raw: None,
                 },
                 IndustrialComplexCatalogRow {
                     official_complex_code: "111010".to_owned(),
@@ -184,6 +190,9 @@ async fn writes_valid_source_side_rows() -> Result<(), CatalogError> {
                     development_method_raw: None,
                     development_purpose_raw: None,
                     invited_industries_raw: None,
+                    kind_raw: None,
+                    status_raw: None,
+                    lot_sales_status_raw: None,
                 },
             ],
         })
@@ -246,6 +255,9 @@ async fn rejects_placeholder_official_codes_before_writing() {
                 development_method_raw: None,
                 development_purpose_raw: None,
                 invited_industries_raw: None,
+                kind_raw: None,
+                status_raw: None,
+                lot_sales_status_raw: None,
             }],
         })
         .await;

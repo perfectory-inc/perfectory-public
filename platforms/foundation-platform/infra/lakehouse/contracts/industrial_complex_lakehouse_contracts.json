@@ -157,6 +157,16 @@
           "required": true
         },
         {
+          "name": "complex_kind_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "status_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "sido_code",
           "logical_type": "string",
           "required": false
@@ -213,6 +223,11 @@
         },
         {
           "name": "lot_sales_status",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "lot_sales_status_raw",
           "logical_type": "string",
           "required": false
         },
@@ -1897,6 +1912,16 @@
           "required": true
         },
         {
+          "name": "kind_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "status_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "sido_code",
           "logical_type": "string",
           "required": false
@@ -1948,6 +1973,11 @@
         },
         {
           "name": "lot_sales_status",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "lot_sales_status_raw",
           "logical_type": "string",
           "required": false
         },
@@ -3768,6 +3798,8 @@
         "complex_name",
         "complex_kind",
         "status",
+        "complex_kind_raw",
+        "status_raw",
         "sido_code",
         "sigungu_code",
         "primary_bjdong_code",
@@ -3780,6 +3812,7 @@
         "official_area_sqm",
         "development_progress_percent",
         "lot_sales_status",
+        "lot_sales_status_raw",
         "business_period_raw",
         "business_period_start_month",
         "business_period_end_month",

@@ -506,6 +506,12 @@ pub struct IndustrialComplexBronzeRawRow {
     pub complex_kind: String,
     /// `status` wire value.
     pub status: String,
+    /// `lrstt_ty` as the source wrote it, trimmed: the words a person is shown for `complex_kind`
+    /// (root ADR-0117 §5).
+    pub complex_kind_raw: Option<String>,
+    /// `make_sttus_nm` as the source wrote it, trimmed. `준비중` and `보상중` share one `status`
+    /// code, and only this column still tells them apart.
+    pub status_raw: Option<String>,
     /// Sourced administrative location; a row without one cannot be built.
     pub address: IndustrialComplexAddress,
     /// Managing agency name.
@@ -524,6 +530,8 @@ pub struct IndustrialComplexBronzeRawRow {
     pub development_progress_percent: Option<String>,
     /// `lot_sales_status` wire value.
     pub lot_sales_status: Option<String>,
+    /// `lttot_sttus_nm` as the source wrote it, trimmed; `None` when the cell was blank.
+    pub lot_sales_status_raw: Option<String>,
     /// Business period exactly as the source wrote it.
     pub business_period_raw: Option<String>,
     /// First month of the business period as `yyyy-MM`, when the raw text parses.
@@ -701,6 +709,10 @@ fn normalize_one_row(
             ],
             INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
         )?,
+        // The words the codes above were mapped from, kept beside them. Mapping succeeded, so
+        // each is the trimmed label the tables matched.
+        complex_kind_raw: optional_text(Some(record.complex_kind_label.as_str())),
+        status_raw: optional_text(Some(record.status_label.as_str())),
         official_complex_code,
         address,
         management_agency_name: optional_text(record.management_agency_name.as_deref()),
@@ -732,6 +744,7 @@ fn normalize_one_row(
             record.development_progress_percent_raw.as_deref(),
         )?,
         lot_sales_status,
+        lot_sales_status_raw: optional_text(record.lot_sales_status_label.as_deref()),
         business_period_start_month: business_period.as_ref().map(|(start, _)| start.clone()),
         business_period_end_month: business_period.map(|(_, end)| end),
         business_period_raw: optional_text(record.business_period_raw.as_deref()),
@@ -773,6 +786,8 @@ fn column_value(row: &IndustrialComplexBronzeRawRow, column: &str) -> Option<Jso
         "complex_name" => JsonValue::String(row.complex_name.clone()),
         "complex_kind" => JsonValue::String(row.complex_kind.clone()),
         "status" => JsonValue::String(row.status.clone()),
+        "complex_kind_raw" => optional_string_json(row.complex_kind_raw.as_ref()),
+        "status_raw" => optional_string_json(row.status_raw.as_ref()),
         // All three are `null` when no source stated an administrative code, and `sido_code` and
         // `sigungu_code` carry only what a real code derives into. `primary_bjdong_code` is `null`
         // even when a code exists, unless that code actually names a dong. Never `""` and never a
@@ -792,6 +807,7 @@ fn column_value(row: &IndustrialComplexBronzeRawRow, column: &str) -> Option<Jso
             optional_string_json(row.development_progress_percent.as_ref())
         }
         "lot_sales_status" => optional_string_json(row.lot_sales_status.as_ref()),
+        "lot_sales_status_raw" => optional_string_json(row.lot_sales_status_raw.as_ref()),
         "business_period_raw" => optional_string_json(row.business_period_raw.as_ref()),
         "business_period_start_month" => {
             optional_string_json(row.business_period_start_month.as_ref())

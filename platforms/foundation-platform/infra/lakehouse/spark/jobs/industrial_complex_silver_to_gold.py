@@ -257,6 +257,8 @@ def build_gold_catalog_frame(
         F.col("complex_name").alias("name"),
         F.col("complex_kind").alias("kind"),
         F.col("status"),
+        F.col("complex_kind_raw").alias("kind_raw"),
+        F.col("status_raw"),
         F.col("sido_code"),
         F.col("sigungu_code"),
         F.col("address_text"),
@@ -270,6 +272,7 @@ def build_gold_catalog_frame(
         .cast(T.DecimalType(5, 2))
         .alias("development_progress_percent"),
         F.col("lot_sales_status"),
+        F.col("lot_sales_status_raw"),
         F.col("business_period_raw"),
         F.col("business_period_start_month"),
         F.col("business_period_end_month"),
@@ -588,6 +591,12 @@ def column_lineage() -> list[dict[str, Any]]:
         "status": [
             {"dataset": SILVER_CONTRACT_NAME, "column": "status", "transform": "identity"}
         ],
+        "kind_raw": [
+            {"dataset": SILVER_CONTRACT_NAME, "column": "complex_kind_raw", "transform": "rename"}
+        ],
+        "status_raw": [
+            {"dataset": SILVER_CONTRACT_NAME, "column": "status_raw", "transform": "identity"}
+        ],
         "sido_code": [
             {"dataset": SILVER_CONTRACT_NAME, "column": "sido_code", "transform": "identity"}
         ],
@@ -644,6 +653,13 @@ def column_lineage() -> list[dict[str, Any]]:
         ],
         "lot_sales_status": [
             {"dataset": SILVER_CONTRACT_NAME, "column": "lot_sales_status", "transform": "identity"}
+        ],
+        "lot_sales_status_raw": [
+            {
+                "dataset": SILVER_CONTRACT_NAME,
+                "column": "lot_sales_status_raw",
+                "transform": "identity",
+            }
         ],
         "business_period_raw": [
             {
