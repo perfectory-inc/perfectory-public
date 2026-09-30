@@ -15,8 +15,16 @@ enum Segment {
 
 use Segment::{Literal, OneOf, Uuid};
 
-/// The relayed Foundation routes (root ADR-0115's steward API).
+/// The relayed Foundation routes: the steward API (root ADR-0115) and read-only status views.
 const ROUTES: &[(Method, &[Segment])] = &[
+    // Where every dataset comes from and goes, with live status (root ADR-0086).
+    (Method::GET, &[Literal("pipeline-graph")]),
+    // What the map serves now (root ADR-0111).
+    (Method::GET, &[Literal("vector-tiles"), Literal("manifest")]),
+    (
+        Method::GET,
+        &[Literal("vector-tiles"), Literal("runtime-manifest")],
+    ),
     (Method::GET, &[Literal("lineage-review"), Literal("items")]),
     (
         Method::GET,
@@ -95,6 +103,12 @@ mod tests {
         assert!(
             !allowed(&Method::POST, "lineage-review/items"),
             "another method"
+        );
+        assert!(allowed(&Method::GET, "pipeline-graph"));
+        assert!(allowed(&Method::GET, "vector-tiles/runtime-manifest"));
+        assert!(
+            !allowed(&Method::POST, "vector-tiles/manifest"),
+            "status views are read-only"
         );
         assert!(!allowed(&Method::GET, "complexes"), "another route");
         assert!(!allowed(

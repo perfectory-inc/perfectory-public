@@ -2,6 +2,7 @@
 // The browser holds no token. Reads go to `/api/foundation/...`; every write carries the session's
 // CSRF value, and a decision carries an idempotency key so a retry cannot decide twice.
 import type { components } from "./foundation";
+import type { components as PipelineComponents } from "./pipeline-graph";
 
 type Schemas = components["schemas"];
 export type ReviewItem = Schemas["LineageReviewItem"];
@@ -12,6 +13,7 @@ export type DecisionResponse = Schemas["LineageDecisionResponse"];
 export type StewardDecision = Schemas["LineageStewardDecision"];
 export type ReviewClaim = Schemas["LineageReviewClaim"];
 export type ApprovalRequest = Schemas["LineageApprovalRequest"];
+export type PipelineGraph = PipelineComponents["schemas"]["PipelineGraphResponse"];
 
 export interface SessionInfo {
   sub: string;
@@ -118,6 +120,11 @@ export class DawneerClient {
       body: JSON.stringify(decision),
       idempotencyKey,
     });
+  }
+
+  /** Every dataset, where it comes from and goes, with live status (read-only). */
+  pipelineGraph(): Promise<PipelineGraph> {
+    return this.call("pipeline-graph");
   }
 
   rule(decisionId: string, request: ApprovalRequest): Promise<StewardDecision> {

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import { DawneerClient, loadSession, signOut } from "./api/client";
+import { PipelinePage } from "./pages/PipelinePage";
 import { ReviewItemPage } from "./pages/ReviewItemPage";
 import { ReviewListPage } from "./pages/ReviewListPage";
 
@@ -14,6 +15,12 @@ function useHashRoute(): string {
   }, []);
   return hash.replace(/^#/, "") || "/";
 }
+
+/** The console's menus; each is a platform's own screen composed here (root ADR-0114). */
+const MENU = [
+  { href: "#/", label: "필지 계보 검토", active: (route: string) => route === "/" || route.startsWith("/items/") },
+  { href: "#/pipeline", label: "데이터 흐름", active: (route: string) => route === "/pipeline" },
+] as const;
 
 export function App() {
   const session = useQuery({ queryKey: ["session"], queryFn: () => loadSession() });
@@ -46,14 +53,20 @@ export function App() {
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between px-6 py-3">
           <nav className="flex items-center gap-6">
             <a href="#/" className="text-lg font-semibold">
               더니어
             </a>
-            <a href="#/" className="text-sm text-slate-600 hover:text-slate-900">
-              필지 계보 검토
-            </a>
+            {MENU.map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                className={`text-sm hover:text-slate-900 ${item.active(route) ? "font-semibold text-slate-900" : "text-slate-600"}`}
+              >
+                {item.label}
+              </a>
+            ))}
           </nav>
           <div className="flex items-center gap-3 text-sm">
             <span className="text-slate-600">{current.name || current.email}</span>
@@ -63,8 +76,14 @@ export function App() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-6">
-        {itemId ? <ReviewItemPage client={client} itemId={itemId} me={current.sub} /> : <ReviewListPage client={client} />}
+      <main className="mx-auto max-w-[1600px] px-6 py-6">
+        {itemId ? (
+          <ReviewItemPage client={client} itemId={itemId} me={current.sub} />
+        ) : route === "/pipeline" ? (
+          <PipelinePage client={client} />
+        ) : (
+          <ReviewListPage client={client} />
+        )}
       </main>
     </div>
   );
