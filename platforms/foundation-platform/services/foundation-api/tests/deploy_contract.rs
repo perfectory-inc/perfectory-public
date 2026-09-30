@@ -154,6 +154,30 @@ fn api_image_is_locked_non_root_and_health_checked() -> TestResult {
 }
 
 #[test]
+fn api_image_carries_the_pipeline_graph_registry_it_reads_at_run_time() -> TestResult {
+    let dockerfile = read_area_file("services/foundation-api/Dockerfile")?;
+    let runtime = dockerfile
+        .split("AS runtime")
+        .nth(1)
+        .ok_or("the Dockerfile has no runtime stage")?;
+    let copy = runtime
+        .lines()
+        .find(|line| line.starts_with("COPY docs/catalog/pipeline-graph.v1.json "))
+        .ok_or("the runtime image does not copy the pipeline graph registry")?;
+    let destination = copy
+        .split_whitespace()
+        .last()
+        .ok_or("the registry COPY names no destination")?;
+    assert!(
+        runtime.contains(&format!(
+            "ENV FOUNDATION_PLATFORM_PIPELINE_GRAPH_REGISTRY_PATH={destination}"
+        )),
+        "the registry path variable must name where the image put the registry"
+    );
+    Ok(())
+}
+
+#[test]
 fn all_docker_and_compose_images_are_immutable_and_helpers_are_non_root() -> TestResult {
     for dockerfile in [
         "services/foundation-api/Dockerfile",
