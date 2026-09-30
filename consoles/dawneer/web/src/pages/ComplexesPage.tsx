@@ -41,7 +41,7 @@ function ComplexDetail({ client, complexId, onClose }: { client: DawneerClient; 
         </button>
       </div>
       <dl className="mt-4">
-        <Row name="개발 단계">{label(COMPLEX_STATUS_LABEL, c.status)}</Row>
+        <Row name="조성 단계">{label(COMPLEX_STATUS_LABEL, c.status)}</Row>
         <Row name="분양">{label(LOT_SALES_LABEL, c.lot_sales_status)}</Row>
         <Row name="면적">{formatArea(c.area_m2)}</Row>
         <Row name="진척률">{c.development_progress_percent ? `${c.development_progress_percent}%` : null}</Row>
@@ -118,7 +118,7 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
           </select>
         </label>
         <label className="text-sm">
-          <span className="block text-slate-500">개발 단계</span>
+          <span className="block text-slate-500">조성 단계</span>
           <select
             className={select}
             value={status}
@@ -167,7 +167,7 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
                   <th className="px-3 py-2 font-normal">단지</th>
                   <th className="px-3 py-2 font-normal">유형</th>
                   <th className="px-3 py-2 font-normal">시도</th>
-                  <th className="px-3 py-2 font-normal">개발 단계</th>
+                  <th className="px-3 py-2 font-normal">조성 단계</th>
                   <th className="px-3 py-2 text-right font-normal">면적(㎡)</th>
                 </tr>
               </thead>

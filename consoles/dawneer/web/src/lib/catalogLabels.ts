@@ -8,12 +8,15 @@ export const COMPLEX_KIND_LABEL: Record<string, string> = {
   agricultural: "농공",
 };
 
+// Said in the source's own words (VWorld 산업단지 프로필 `make_sttus_nm`): `operating` is what the
+// source calls 조성완료 and `planned` covers its 준비중 and 보상중. "운영 중" would claim factories
+// are running, which the source does not say.
 export const COMPLEX_STATUS_LABEL: Record<string, string> = {
-  planned: "계획",
-  developing: "개발 중",
-  operating: "운영 중",
+  planned: "준비·보상 중",
+  developing: "조성 중",
+  operating: "조성 완료",
   changed: "변경",
-  abolished: "폐지",
+  abolished: "해제",
   unknown: "알 수 없음",
 };
 
