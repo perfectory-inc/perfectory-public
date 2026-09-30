@@ -31,7 +31,7 @@
     "iron-session": "^9.0.1",
     "ky": "^2.1.0",
     "lucide-react": "^1.43.0",
-    "next": "16.3.4",
+    "next": "16.3.8",
     "next-intl": "^4.14.2",
     "oauth4webapi": "^3.8.8",
     "pino": "^10.3.1",
