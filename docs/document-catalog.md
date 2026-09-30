@@ -8,14 +8,14 @@
 
 ## 문서 규모
 
-- 문서 파일: **457개**
+- 문서 파일: **458개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 116 |
+| Foundation Platform | 117 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 17 |
 | Intelligence Platform | 19 |
@@ -30,7 +30,7 @@
 | README | 114 |
 | agent rules | 5 |
 | architecture | 26 |
-| contract | 3 |
+| contract | 4 |
 | convention | 10 |
 | documentation | 33 |
 | draft | 2 |
@@ -120,6 +120,7 @@ platforms/foundation-platform/docs/events/webhook/parcel-marker-anchor-snapshot-
 platforms/foundation-platform/docs/events/webhook/receiver-contract.v1.example.json
 platforms/foundation-platform/docs/observability/slo-policy.v1.example.json
 platforms/foundation-platform/docs/openapi/catalog.v1.json
+platforms/foundation-platform/docs/openapi/lineage-review.v1.json
 platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json
 platforms/foundation-platform/docs/README.md
 platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md
@@ -746,6 +747,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/events/webhook/receiver-contract.v1.example.json` | Foundation Platform | fixture | fixture |
 | `platforms/foundation-platform/docs/observability/slo-policy.v1.example.json` | Foundation Platform | fixture | fixture |
 | `platforms/foundation-platform/docs/openapi/catalog.v1.json` | Foundation Platform | contract | current |
+| `platforms/foundation-platform/docs/openapi/lineage-review.v1.json` | Foundation Platform | contract | current |
 | `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json` | Foundation Platform | contract | current |
 | `platforms/foundation-platform/docs/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md` | Foundation Platform | runbook | current |

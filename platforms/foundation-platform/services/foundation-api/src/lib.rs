@@ -21,6 +21,7 @@ mod traffic;
 mod identity_authorization_tests;
 
 pub use routes::catalog_openapi_document;
+pub use routes::lineage_review_openapi_document;
 pub use state::{probe_schema, SchemaReadiness};
 
 /// Every migration this binary was built with, embedded at compile time.

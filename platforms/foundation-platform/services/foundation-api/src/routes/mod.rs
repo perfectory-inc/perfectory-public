@@ -42,6 +42,7 @@ pub mod pipeline_graph;
 use api_error::ApiError;
 
 pub use catalog_openapi::catalog_openapi_document;
+pub use lineage_review::lineage_review_openapi_document;
 
 #[cfg(test)]
 pub fn router(state: Arc<AppState>) -> Router {

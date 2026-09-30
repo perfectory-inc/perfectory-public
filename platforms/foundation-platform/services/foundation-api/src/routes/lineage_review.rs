@@ -64,22 +64,15 @@ const PAGE_LIMIT_DEFAULT: u32 = 50;
     modifiers(&LineageReviewSecurity),
     tags((name = "lineage-review", description = "Staff decisions on parcel lineage the evidence could not settle"))
 )]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the generated contract is consumed by offline contract checks, not a runtime docs endpoint"
-    )
-)]
 pub(super) struct LineageReviewApiDoc;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the OpenAPI derive macro consumes this modifier during offline contract generation"
-    )
-)]
+/// Returns the deterministic `OpenAPI` model of the steward API; the staff console generates its
+/// types from the committed copy (`docs/openapi/lineage-review.v1.json`).
+#[must_use]
+pub fn lineage_review_openapi_document() -> utoipa::openapi::OpenApi {
+    LineageReviewApiDoc::openapi()
+}
+
 struct LineageReviewSecurity;
 
 impl Modify for LineageReviewSecurity {
