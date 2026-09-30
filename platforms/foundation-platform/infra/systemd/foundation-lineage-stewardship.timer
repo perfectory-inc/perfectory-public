@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the parcel lineage stewardship cycle once a day (ADR-0115)
+
+[Timer]
+# After the morning source sweep, at a minute no map edit fold uses, so two Spark runs never share the host.
+OnCalendar=*-*-* 06:50:00
+Persistent=true
+RandomizedDelaySec=5m
+Unit=foundation-lineage-stewardship.service
+
+[Install]
+WantedBy=timers.target
