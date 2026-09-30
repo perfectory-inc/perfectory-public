@@ -30,12 +30,19 @@ from platform_contracts import (
 JOB_NAME = "lineage_review_queue_to_gold"
 CONTRACT = load_lakehouse_contract("gold.lineage_review_queue")
 UNIT = "parcel"
+# The daily cycle tells "no lineage yet" (waiting for the first cadastral pair) from a failure.
+NO_LINEAGE_EXIT = 3
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sido", help="Only successors under these comma-separated sido prefixes (a smoke run)")
     parser.add_argument("--summary-output")
+    parser.add_argument(
+        "--probe-only",
+        action="store_true",
+        help=f"Only report whether silver.parcel_lineage exists: exit 0 if it does, {NO_LINEAGE_EXIT} if not",
+    )
     parser.add_argument(
         "--handoff-output",
         help="Write the queue as the steward API's load file (load-lineage-review-items) after Gold is written",
@@ -55,7 +62,7 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--sido must be comma-separated two-digit prefixes")
     if args.sido is not None and args.gold_namespace == "gold":
         raise ValueError("a --sido run would rewrite the national queue with one sido; write a smoke namespace")
-    if args.gold_namespace == "gold" and not args.allow_non_smoke_write:
+    if args.gold_namespace == "gold" and not args.allow_non_smoke_write and not args.probe_only:
         raise ValueError("writing the gold namespace needs --allow-non-smoke-write")
     assert_catalog_env()
 
@@ -74,6 +81,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).config("spark.jars.packages", args.iceberg_packages).getOrCreate()
     cat = f"`{args.iceberg_catalog_name}`"
+    if args.probe_only:
+        try:
+            exists = spark.catalog.tableExists(f"{args.iceberg_catalog_name}.silver.parcel_lineage")
+        finally:
+            spark.stop()
+        if args.summary_output:
+            Path(args.summary_output).write_text(json.dumps({"job": JOB_NAME, "lineage_exists": exists}) + "\n", encoding="utf-8")
+        print(f"lineage-review-queue-probe lineage_exists={exists}")
+        return 0 if exists else NO_LINEAGE_EXIT
     try:
         lineage = spark.table(f"{cat}.`silver`.`parcel_lineage`")
         if args.sido:

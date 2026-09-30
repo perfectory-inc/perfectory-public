@@ -111,6 +111,16 @@ class ReviewQueueJobArgsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "national queue"):
             validate_args(parse_args(["--sido", "28", "--allow-non-smoke-write"]))
 
+    def test_a_probe_writes_nothing_so_it_needs_no_write_permission(self):
+        from unittest import mock
+
+        from lineage_review_queue_to_gold import parse_args, validate_args
+
+        with mock.patch("lineage_review_queue_to_gold.assert_catalog_env"):
+            validate_args(parse_args(["--probe-only"]))
+            with self.assertRaisesRegex(ValueError, "allow-non-smoke-write"):
+                validate_args(parse_args([]))
+
 
 if __name__ == "__main__":
     unittest.main()

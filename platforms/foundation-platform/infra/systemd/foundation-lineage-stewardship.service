@@ -1,0 +1,20 @@
+[Unit]
+Description=Foundation Platform parcel lineage stewardship cycle: fold decisions, rebuild and load the review queue (ADR-0115)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/lineage-stewardship-cycle.sh
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/lineage-stewardship /var/lib/foundation-platform/lakehouse-ivy
