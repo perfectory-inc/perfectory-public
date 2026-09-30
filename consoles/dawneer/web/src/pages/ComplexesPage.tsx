@@ -9,6 +9,7 @@ import {
   label,
   LOT_SALES_LABEL,
   SIDO_LABEL,
+  sourceWord,
 } from "../lib/catalogLabels";
 
 const PAGE_SIZE = 50;
@@ -33,7 +34,7 @@ function ComplexDetail({ client, complexId, onClose }: { client: DawneerClient; 
         <div>
           <h2 className="text-lg font-semibold">{c.name}</h2>
           <p className="text-sm text-slate-500">
-            유형 {label(COMPLEX_KIND_LABEL, c.kind)} · {c.official_complex_code}
+            유형 {sourceWord(c.kind_raw, COMPLEX_KIND_LABEL, c.kind)} · {c.official_complex_code}
           </p>
         </div>
         <button type="button" onClick={onClose} className="rounded border border-slate-300 px-2 py-0.5 text-sm hover:bg-slate-100">
@@ -41,8 +42,8 @@ function ComplexDetail({ client, complexId, onClose }: { client: DawneerClient; 
         </button>
       </div>
       <dl className="mt-4">
-        <Row name="조성 단계">{label(COMPLEX_STATUS_LABEL, c.status)}</Row>
-        <Row name="분양">{label(LOT_SALES_LABEL, c.lot_sales_status)}</Row>
+        <Row name="조성 단계">{sourceWord(c.status_raw, COMPLEX_STATUS_LABEL, c.status)}</Row>
+        <Row name="분양">{sourceWord(c.lot_sales_status_raw, LOT_SALES_LABEL, c.lot_sales_status)}</Row>
         <Row name="면적">{formatArea(c.area_m2)}</Row>
         <Row name="진척률">{c.development_progress_percent ? `${c.development_progress_percent}%` : null}</Row>
         <Row name="주소">{c.address_text}</Row>
@@ -184,9 +185,9 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
                       </button>
                       <span className="ml-2 font-mono text-xs text-slate-400">{c.official_complex_code}</span>
                     </td>
-                    <td className="px-3 py-2">{label(COMPLEX_KIND_LABEL, c.kind)}</td>
+                    <td className="px-3 py-2">{sourceWord(c.kind_raw, COMPLEX_KIND_LABEL, c.kind)}</td>
                     <td className="px-3 py-2">{label(SIDO_LABEL, c.sido_code)}</td>
-                    <td className="px-3 py-2">{label(COMPLEX_STATUS_LABEL, c.status)}</td>
+                    <td className="px-3 py-2">{sourceWord(c.status_raw, COMPLEX_STATUS_LABEL, c.status)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{c.area_m2.toLocaleString("ko-KR")}</td>
                   </tr>
                 ))}

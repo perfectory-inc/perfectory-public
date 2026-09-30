@@ -55,6 +55,16 @@ export const SIDO_LABEL: Record<string, string> = {
   "52": "전북",
 };
 
+/**
+ * The word to show for a coded value: the source's own word when the platform carries it
+ * (`*_raw`, root ADR-0117 §5), otherwise this screen's table, otherwise the code itself. The
+ * tables are a fallback for rows loaded before the words were kept, not a second source of truth.
+ */
+export function sourceWord(raw: string | null | undefined, table: Record<string, string>, code: string | null | undefined): string {
+  if (raw != null && raw.trim() !== "") return raw;
+  return label(table, code);
+}
+
 /** A code's Korean word, or the code itself when the screen does not know it yet. */
 export function label(table: Record<string, string>, code: string | null | undefined): string {
   if (code == null) return "—";

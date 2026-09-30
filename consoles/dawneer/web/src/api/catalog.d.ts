@@ -918,6 +918,14 @@ export interface components {
             /** @description Industrial complex kind as a public wire value. */
             kind: string;
             /**
+             * @description The source's own words for `kind` (for example `농공`), trimmed and otherwise verbatim.
+             *
+             *     Show these to people; filter on the codes. Several source words can share one code, and
+             *     only these fields say which the source stated. `null` when the complex has no source row
+             *     (registered through this API) or was loaded before the words were kept.
+             */
+            kind_raw?: string | null;
+            /**
              * Format: uuid
              * @description Identifier the same complex carries in the lakehouse, when it was sourced from there.
              *
@@ -933,6 +941,8 @@ export interface components {
              *     building the complex: a complex can be `operating` with lots still on sale.
              */
             lot_sales_status?: string | null;
+            /** @description The source's own words for `lot_sales_status` (for example `분양계획`). */
+            lot_sales_status_raw?: string | null;
             /** @description Organization that manages the complex. */
             management_agency_name?: string | null;
             /** @description Human-readable industrial complex name. */
@@ -958,6 +968,11 @@ export interface components {
              *     this contract does not recognize, `null` means it stated none.
              */
             status?: string | null;
+            /**
+             * @description The source's own words for `status` (for example `보상중`, which shares `planned` with
+             *     `준비중`).
+             */
+            status_raw?: string | null;
             /**
              * Format: date-time
              * @description UTC timestamp of the last canonical Catalog update.
