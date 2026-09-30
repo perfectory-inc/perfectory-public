@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **454개**
-- 언어 분류: **{'english': 35, 'korean': 259, 'mixed': 160}**
+- 감사 문서: **455개**
+- 언어 분류: **{'english': 35, 'korean': 260, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **214개 정상 / 0개 누락 / 240개 해당 없음**
+- 메타데이터: **214개 정상 / 0개 누락 / 241개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -23,7 +23,7 @@
 | `AGENTS.md` | Monorepo | agent rules | current | korean | not applicable: agent router | 14 |
 | `CLAUDE.md` | Monorepo | documentation | current | korean | not applicable: agent router | 0 |
 | `CONTRIBUTING.md` | Monorepo | documentation | current | korean | ok | 0 |
-| `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 13 |
+| `docs/adr/0001-monorepo-governance-and-conventions.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 14 |
 | `docs/adr/0002-docs-taxonomy-and-archive.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0003-docs-physical-taxonomy.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 11 |
@@ -135,6 +135,7 @@
 | `docs/adr/0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -389,7 +390,7 @@
 | `products/gongzzang/docs/adr/0047-collection-event-fabric.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 4 |
 | `products/gongzzang/docs/adr/0048-horizontal-platform-redefinition.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 18 |
 | `products/gongzzang/docs/adr/0049-identity-platform-contract-design.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 4 |
-| `products/gongzzang/docs/adr/0050-dawneer-workbench-and-internal-admin-surface.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 2 |
+| `products/gongzzang/docs/adr/0050-dawneer-workbench-and-internal-admin-surface.md` | Gongzzang 제품 | ADR | current | mixed | not applicable: ADR fields | 3 |
 | `products/gongzzang/docs/adr/README.md` | Gongzzang 제품 | README | current | mixed | ok | 3 |
 | `products/gongzzang/docs/architecture/caching.md` | Gongzzang 제품 | architecture | current | mixed | ok | 0 |
 | `products/gongzzang/docs/architecture/data-flow.md` | Gongzzang 제품 | architecture | current | korean | ok | 0 |
