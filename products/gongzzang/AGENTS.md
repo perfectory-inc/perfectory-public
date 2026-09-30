@@ -48,9 +48,9 @@ AI 에이전트(Claude Code / Cursor / Codex / Gemini / Cline / Aider 등) 공�
 | `foundation-platform` | Catalog + lakehouse + collection + canonical data foundation | `platforms/foundation-platform` |
 | `identity-platform` | Staff/service identity + Authz + policy | `platforms/identity-platform` |
 | `intelligence-platform` | AI runtime + proposal generation + vector/RAG | `platforms/intelligence-platform` |
-| `dawneer` (`Dawneer`/`더니어`) | B2B 산단 관리·사이트 제작 workbench + 단일 staff-facing admin composition surface | 별도 repo — 모노레포 미통합 |
+| `dawneer` (`Dawneer`/`더니어`) | 직원 통합 콘솔: 파이프라인·인사·데이터·승인 (화면만 소유) | `consoles/dawneer` — 새로 짓는 중, 아직 없음 (루트 ADR-0114) |
 
-> 2026-07-19부터 위 영역들은 perfectory 모노레포로 통합되었다 (루트 [ADR-0001](../../docs/adr/0001-monorepo-governance-and-conventions.md)). dawneer만 별도 repo로 남아 있다.
+> 2026-07-19부터 위 영역들은 perfectory 모노레포로 통합되었다 (루트 [ADR-0001](../../docs/adr/0001-monorepo-governance-and-conventions.md)). 옛 dawneer 저장소는 통합하지 않고 은퇴하며, 더니어는 `consoles/dawneer` 에 새로 짓는다 (루트 [ADR-0114](../../docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md)).
 
 - Dawneer는 presentation/workbench state만 소유하고 각 플랫폼과 Gongzzang의 published API를 조합한다.
   Staff 인증·권한은 Identity Platform이 소유하며, Gongzzang B2C 사용자는 계속 Gongzzang이 소유한다.
