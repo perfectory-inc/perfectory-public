@@ -17,3 +17,6 @@ pub mod normalization;
 
 /// Independently baked public buildings, floors and units.
 pub mod building_panel;
+
+/// Parcel-lineage steward review items, decisions and approvals (root ADR-0115).
+pub mod lineage_review;

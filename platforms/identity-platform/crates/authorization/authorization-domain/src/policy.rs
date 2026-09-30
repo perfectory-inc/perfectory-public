@@ -113,6 +113,14 @@ pub fn evaluate_policy(input: &PolicyInput) -> PolicyDecision {
                     "foundation.spatial",
                     "manifest_admin" | "anchor_rebuild" | "map_edit"
                 )
+                // Parcel-lineage stewardship (Foundation root ADR-0115): a steward decides review
+                // items; an adjudicator also rules on decisions that need a second person.
+                | (
+                    "LINEAGE_STEWARD" | "LINEAGE_ADJUDICATOR",
+                    "foundation.lineage",
+                    "review"
+                )
+                | ("LINEAGE_ADJUDICATOR", "foundation.lineage", "adjudicate")
         )
     });
 

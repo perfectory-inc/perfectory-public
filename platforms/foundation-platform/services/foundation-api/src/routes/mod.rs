@@ -35,6 +35,7 @@ mod api_error;
 pub mod catalog;
 mod catalog_openapi;
 mod lakehouse_registry;
+mod lineage_review;
 mod normalization;
 pub mod pipeline_graph;
 
@@ -81,6 +82,7 @@ fn application_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(map_catalog_routes(state))
         .merge(internal_routes(state))
         .merge(normalization::routes(state))
+        .merge(lineage_review::routes(state))
 }
 
 fn system_routes() -> Router<Arc<AppState>> {
@@ -398,6 +400,16 @@ const SERVICE_LAKEHOUSE_WRITE: IdentityRoutePolicy = IdentityRoutePolicy {
     required_principal_kind: RequiredPrincipalKind::Service,
     resource: "foundation.lakehouse",
     action: "write",
+};
+const STAFF_LINEAGE_REVIEW: IdentityRoutePolicy = IdentityRoutePolicy {
+    required_principal_kind: RequiredPrincipalKind::Staff,
+    resource: "foundation.lineage",
+    action: "review",
+};
+const STAFF_LINEAGE_ADJUDICATE: IdentityRoutePolicy = IdentityRoutePolicy {
+    required_principal_kind: RequiredPrincipalKind::Staff,
+    resource: "foundation.lineage",
+    action: "adjudicate",
 };
 const SERVICE_NORMALIZATION_PROPOSE: IdentityRoutePolicy = IdentityRoutePolicy {
     required_principal_kind: RequiredPrincipalKind::Service,
@@ -960,6 +972,20 @@ fn canonical_route_label(path: &str) -> String {
             if matches!(*action, "rollback") =>
         {
             "/catalog/v1/normalization/applications/{id}/{action}".to_owned()
+        }
+        ["catalog", "v1", "lineage-review", "items"] => {
+            "/catalog/v1/lineage-review/items".to_owned()
+        }
+        ["catalog", "v1", "lineage-review", "items", _] => {
+            "/catalog/v1/lineage-review/items/{id}".to_owned()
+        }
+        ["catalog", "v1", "lineage-review", "items", _, action]
+            if matches!(*action, "claim" | "release" | "decisions") =>
+        {
+            "/catalog/v1/lineage-review/items/{id}/{action}".to_owned()
+        }
+        ["catalog", "v1", "lineage-review", "decisions", _, "approval"] => {
+            "/catalog/v1/lineage-review/decisions/{id}/approval".to_owned()
         }
         _ => path.to_owned(),
     }

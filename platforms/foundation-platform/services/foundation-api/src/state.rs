@@ -27,6 +27,8 @@ use lakehouse_infrastructure::{
 };
 use sqlx::migrate::Migrate;
 use sqlx::postgres::PgPoolOptions;
+use stewardship_application::LineageStewardshipStore;
+use stewardship_infrastructure::PgLineageStewardshipStore;
 
 use crate::identity_authorization::{HttpIdentityAuthorization, IdentityAuthorization};
 use crate::identity_http_client::HttpIdentityClient;
@@ -263,6 +265,8 @@ pub struct AppState {
     pub review_normalization_proposal: ReviewNormalizationProposal,
     pub apply_normalization_proposal: ApplyNormalizationProposal,
     pub rollback_normalization_application: RollbackNormalizationApplication,
+    /// Review items, claims, decisions and approvals of parcel lineage (root ADR-0115).
+    pub lineage_stewardship: Arc<dyn LineageStewardshipStore>,
     pub identity_authorization: Arc<dyn IdentityAuthorization>,
     runtime_manifest_publication: RuntimeManifestPublicationCapability,
 }
@@ -654,6 +658,17 @@ impl AppState {
         self
     }
 
+    /// Uses this steward store instead of the database one (route tests).
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_lineage_stewardship_store(
+        mut self,
+        store: Arc<dyn LineageStewardshipStore>,
+    ) -> Self {
+        self.lineage_stewardship = store;
+        self
+    }
+
     /// Sends admin polygon edits to this store instead of refusing them (ADR-0112).
     #[must_use]
     pub fn with_map_edit_store(mut self, store: Arc<dyn MapEditStore>) -> Self {
@@ -731,6 +746,7 @@ impl AppState {
             ApplyNormalizationProposal::new(normalization_uow.clone());
         let rollback_normalization_application =
             RollbackNormalizationApplication::new(normalization_uow);
+        let lineage_stewardship = Arc::new(PgLineageStewardshipStore::new(pool.clone()));
 
         Self {
             database_pool: pool,
@@ -754,6 +770,7 @@ impl AppState {
             review_normalization_proposal,
             apply_normalization_proposal,
             rollback_normalization_application,
+            lineage_stewardship,
             identity_authorization,
             // Fail closed. Only a deployment that says so turns publication on, so a test
             // harness or a forgotten variable can never publish.
