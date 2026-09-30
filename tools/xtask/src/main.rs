@@ -660,6 +660,10 @@ const AREAS: &[Area] = &[
                         package: "lakehouse-infrastructure",
                         test: "lakehouse_registry_repository",
                     },
+                    LaneTarget {
+                        package: "stewardship-infrastructure",
+                        test: "steward_decisions",
+                    },
                 ],
             },
             LiveLane {

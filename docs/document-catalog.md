@@ -8,26 +8,26 @@
 
 ## 문서 규모
 
-- 문서 파일: **455개**
+- 문서 파일: **457개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 115 |
+| Foundation Platform | 116 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 17 |
 | Intelligence Platform | 19 |
-| Monorepo | 140 |
+| Monorepo | 141 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 199 |
-| README | 113 |
+| ADR | 200 |
+| README | 114 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 3 |
@@ -54,6 +54,7 @@ platforms/foundation-platform/crates/foundation-outbox/README.md
 platforms/foundation-platform/crates/foundation-shared-kernel/README.md
 platforms/foundation-platform/crates/lakehouse/README.md
 platforms/foundation-platform/crates/normalization/README.md
+platforms/foundation-platform/crates/stewardship/README.md
 platforms/foundation-platform/crates/technical/README.md
 platforms/foundation-platform/docs/adr/0001-inherit-gongzzang-adrs.md
 platforms/foundation-platform/docs/adr/0002-r2-primary-object-storage.md
@@ -495,6 +496,7 @@ docs/adr/0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md
 docs/adr/0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md
 docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md
 docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md
+docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -647,6 +649,7 @@ tools/github/README.md
 | `docs/adr/0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -677,6 +680,7 @@ tools/github/README.md
 | `platforms/foundation-platform/crates/foundation-shared-kernel/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/crates/lakehouse/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/crates/normalization/README.md` | Foundation Platform | README | current |
+| `platforms/foundation-platform/crates/stewardship/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/crates/technical/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/docs/adr/0001-inherit-gongzzang-adrs.md` | Foundation Platform | ADR | current |
 | `platforms/foundation-platform/docs/adr/0002-r2-primary-object-storage.md` | Foundation Platform | ADR | current |
