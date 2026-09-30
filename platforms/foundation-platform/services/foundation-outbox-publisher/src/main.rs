@@ -124,6 +124,7 @@ mod building_unit_catalog_projection_load;
 mod handoff_manifest_support;
 mod handoff_object_support;
 mod lakehouse_tile_bake;
+mod lineage_review_items_load;
 mod map_edit_handoff_export;
 mod national_bronze_object_manifest;
 mod national_data_collection_async;
@@ -296,6 +297,7 @@ enum Command {
     LoadBuildingUnitCatalogProjection,
     LoadParcelCatalogProjection,
     LoadUnitOfficialPriceProjection,
+    LoadLineageReviewItems,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
@@ -594,6 +596,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadUnitOfficialPriceProjection => {
             Box::pin(unit_official_price_projection_load::run())
         }
+        Command::LoadLineageReviewItems => Box::pin(lineage_review_items_load::run()),
         Command::SealParcelPublicationEvidence => {
             Box::pin(parcel_publication_evidence_sealer::run())
         }
@@ -1177,6 +1180,7 @@ where
         }
         Some("load-parcel-catalog-projection") => Ok(Command::LoadParcelCatalogProjection),
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
+        Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
         Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),
         Some("promote-administrative-boundary-runtime") => {

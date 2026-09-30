@@ -108,3 +108,35 @@ def review_queue(rows: Iterable[Mapping[str, Any]], unit: str = "parcel") -> tup
             )
         )
     return items, counts
+
+
+HANDOFF_SCHEMA_VERSION = "foundation-platform.lineage_review_handoff.v1"
+
+
+def handoff_document(items: Iterable[ReviewItem], unit: str, published_at_utc: str) -> dict[str, Any]:
+    """The queue as the steward API's database loads it (root ADR-0115 §9: the database is a
+    projection the lakehouse can rebuild at any time).
+
+    One JSON document, not JSON lines: a file cut short does not parse, so a partial queue can never
+    be loaded as if it were the whole one. `item_count` is checked against `items` on load.
+    """
+
+    rows = [
+        {
+            "item_id": i.item_id,
+            "subject_code": i.subject_code,
+            "status": i.status,
+            "candidates_json": i.candidates_json,
+            "evidence_etag": i.evidence_etag,
+            "from_snapshot_id": i.from_snapshot_id or None,
+            "to_snapshot_id": i.to_snapshot_id or None,
+        }
+        for i in items
+    ]
+    return {
+        "schema_version": HANDOFF_SCHEMA_VERSION,
+        "unit": unit,
+        "published_at_utc": published_at_utc,
+        "item_count": len(rows),
+        "items": rows,
+    }

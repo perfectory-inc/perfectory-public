@@ -285,3 +285,92 @@ async fn decisions_cannot_be_rewritten_and_claims_expire() -> TestResult {
     })
     .await
 }
+
+fn handoff_text(at: &str, subjects: &[(u128, &str)]) -> String {
+    let items = subjects
+        .iter()
+        .map(|(id, code)| {
+            format!(
+                "{{\"item_id\": \"{}\", \"subject_code\": \"{code}\", \"status\": \"pending\", \
+                 \"candidates_json\": \"[]\", \"evidence_etag\": \"{}\", \"from_snapshot_id\": null, \
+                 \"to_snapshot_id\": null}}",
+                Uuid::from_u128(*id),
+                evidence_etag(ReviewStatus::Pending, "[]")
+            )
+        })
+        .collect::<Vec<_>>();
+    format!(
+        "{{\"schema_version\": \"foundation-platform.lineage_review_handoff.v1\", \"unit\": \"parcel\", \
+         \"published_at_utc\": \"{at}\", \"item_count\": {}, \"items\": [{}]}}",
+        items.len(),
+        items.join(",")
+    )
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_handoff_replaces_the_queue_whole_and_never_goes_back() -> TestResult {
+    use stewardship_domain::handoff::parse_handoff;
+
+    run_in_disposable_database("steward_handoff", |pool| async move {
+        migrate(&pool).await?;
+        let store = PgLineageStewardshipStore::new(pool.clone());
+        let both = [(101, NEW_A), (102, NEW_B)];
+        let first = store
+            .replace_review_items(&parse_handoff(&handoff_text(
+                "2099-09-01T00:00:00Z",
+                &both,
+            ))?)
+            .await?;
+        assert_eq!(
+            (first.previous, first.loaded, first.added, first.removed),
+            (0, 2, 2, 0)
+        );
+        store
+            .claim(Uuid::from_u128(102), Uuid::from_u128(1), now())
+            .await?;
+        let second = store
+            .replace_review_items(&parse_handoff(&handoff_text(
+                "2099-09-02T00:00:00Z",
+                &both[..1],
+            ))?)
+            .await?;
+        assert_eq!(
+            (second.previous, second.loaded, second.added, second.removed),
+            (2, 1, 0, 1)
+        );
+        let older = store
+            .replace_review_items(&parse_handoff(&handoff_text(
+                "2099-08-01T00:00:00Z",
+                &both,
+            ))?)
+            .await;
+        assert!(
+            matches!(older, Err(StewardshipError::InvalidState(_))),
+            "{older:?}"
+        );
+        let listed = store
+            .list_items(
+                ReviewItemFilter {
+                    limit: 10,
+                    ..ReviewItemFilter::default()
+                },
+                now(),
+            )
+            .await?;
+        let codes: Vec<&str> = listed
+            .iter()
+            .map(|v| v.item.subject_code.as_str())
+            .collect();
+        assert_eq!(codes, [NEW_A]);
+        let claims: i64 = sqlx::query_scalar("SELECT count(*) FROM catalog.lineage_review_claim")
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(
+            claims, 0,
+            "a claim on an item that left the queue goes with it"
+        );
+        Ok(())
+    })
+    .await
+}

@@ -206,3 +206,34 @@ fn an_idempotency_key_binds_one_body() -> Result<(), StewardshipError> {
     assert!(check_idempotency_key("has space in it").is_err());
     Ok(())
 }
+
+#[test]
+fn a_whole_consistent_handoff_parses_and_anything_else_is_refused() {
+    use super::handoff::{parse_handoff, HANDOFF_SCHEMA_VERSION};
+
+    let good_etag = evidence_etag(ReviewStatus::Pending, "[]");
+    let document = |count: usize, etag: &str, schema: &str| {
+        format!(
+            "{{\"schema_version\": \"{schema}\", \"unit\": \"parcel\", \"published_at_utc\": \"2099-09-30T00:00:00Z\",              \"item_count\": {count}, \"items\": [{{\"item_id\": \"{}\", \"subject_code\": \"{NEW}\",              \"status\": \"pending\", \"candidates_json\": \"[]\", \"evidence_etag\": \"{etag}\",              \"from_snapshot_id\": null, \"to_snapshot_id\": null}}]}}",
+            Uuid::nil()
+        )
+    };
+    assert!(parse_handoff(&document(1, &good_etag, HANDOFF_SCHEMA_VERSION)).is_ok());
+    assert!(
+        parse_handoff(&document(2, &good_etag, HANDOFF_SCHEMA_VERSION)).is_err(),
+        "count mismatch"
+    );
+    assert!(
+        parse_handoff(&document(1, &"0".repeat(64), HANDOFF_SCHEMA_VERSION)).is_err(),
+        "etag mismatch"
+    );
+    assert!(
+        parse_handoff(&document(1, &good_etag, "v0")).is_err(),
+        "unknown schema"
+    );
+    let whole = document(1, &good_etag, HANDOFF_SCHEMA_VERSION);
+    assert!(
+        parse_handoff(&whole[..whole.len() - 3]).is_err(),
+        "a file cut short"
+    );
+}

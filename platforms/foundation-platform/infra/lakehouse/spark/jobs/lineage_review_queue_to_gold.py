@@ -36,6 +36,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sido", help="Only successors under these comma-separated sido prefixes (a smoke run)")
     parser.add_argument("--summary-output")
+    parser.add_argument(
+        "--handoff-output",
+        help="Write the queue as the steward API's load file (load-lineage-review-items) after Gold is written",
+    )
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--gold-namespace", default="gold")
     parser.add_argument("--allow-non-smoke-write", action="store_true")
@@ -119,6 +123,11 @@ def main(argv: list[str] | None = None) -> int:
         for i in items:
             by_sido[i.subject_code[:2]] = by_sido.get(i.subject_code[:2], 0) + 1
         summary: dict[str, Any] = {"job": JOB_NAME, "unit": UNIT, "open": len(items), **dict(counts), "open_by_sido": by_sido}
+        if args.handoff_output:
+            # Written only after Gold holds the same rows, so the database never gets ahead of it.
+            document = q.handoff_document(items, UNIT, now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            Path(args.handoff_output).write_text(json.dumps(document, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+            summary["handoff_output"] = args.handoff_output
     finally:
         spark.stop()
     if args.summary_output:

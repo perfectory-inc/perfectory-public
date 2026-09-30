@@ -6,6 +6,9 @@
 
 use std::fmt;
 
+/// The review queue file the lakehouse hands to the steward database.
+pub mod handoff;
+
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
