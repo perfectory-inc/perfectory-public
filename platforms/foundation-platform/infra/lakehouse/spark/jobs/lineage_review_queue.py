@@ -55,6 +55,89 @@ def item_id(unit: str, subject_code: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"lineage-review:{unit}:{subject_code}"))
 
 
+def fingerprint(derivation_rows: Iterable[Mapping[str, Any]]) -> tuple[str, str, str]:
+    """(status, candidates_json, evidence_etag) of one parcel's derived rows — exactly what the queue
+    shows a steward, so a decision can later be checked against the evidence it was made on.
+
+    Steward rows are not evidence about themselves and must not be passed in.
+    """
+
+    group = list(derivation_rows)
+    best = min(group, key=lambda r: GRADE_RANK[r["grade"]])
+    status = best["grade"] if best["grade"] in REVIEW_GRADES else "sample"
+    candidates = sorted(
+        (
+            {
+                "predecessor_pnu": r["predecessor_pnu"],
+                "relation": r["relation"],
+                "grade": r["grade"],
+                "evidence_kind": r.get("evidence_kind") or "",
+                "evidence_ref": r.get("evidence_ref") or "",
+                # The link in effect: only a sampled automatic link (ADR-0115 §10) has one, since
+                # a review item's best row is below that line.
+                "in_effect": status == "sample" and r is best,
+            }
+            for r in group
+            if r["predecessor_pnu"]
+        ),
+        key=lambda c: (GRADE_RANK[c["grade"]], c["predecessor_pnu"]),
+    )
+    candidates_json = json.dumps(candidates, ensure_ascii=False, sort_keys=True)
+    return status, candidates_json, evidence_etag(status, candidates_json)
+
+
+def steward_ref(row: Mapping[str, Any]) -> dict[str, Any]:
+    """The decision a steward row records (its `evidence_ref`, written by the fold)."""
+
+    try:
+        ref = json.loads(row.get("evidence_ref") or "{}")
+    except ValueError:
+        return {}
+    return ref if isinstance(ref, dict) else {}
+
+
+def standing_decision(rows: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    """The steward row in force for one parcel, or None (root ADR-0115 §3·§8).
+
+    A decision stands only on the evidence it was made on: when a later derivation changes the
+    parcel's candidates, the fingerprint no longer matches and the decision lapses — the parcel goes
+    back in front of a person. Among standing decisions the latest wins; a correction supersedes.
+    """
+
+    group = list(rows)
+    derived = [r for r in group if r.get("evidence_kind") != STEWARD]
+    stewards = [r for r in group if r.get("evidence_kind") == STEWARD]
+    if not stewards or not derived:
+        return None
+    current = fingerprint(derived)[2]
+    valid = [s for s in stewards if steward_ref(s).get("evidence_etag") == current]
+    if not valid:
+        return None
+    return max(valid, key=lambda s: (steward_ref(s).get("decided_at") or "", steward_ref(s).get("decision_id") or ""))
+
+
+def steward_resolved(rows: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Lineage rows as every consumer must read them: for a parcel with a standing steward decision,
+    that decision replaces the derived rows (a link names the one predecessor; "not a link" leaves
+    a pending row that links nothing). Every other parcel keeps its derived rows; lapsed steward
+    rows are dropped. The registry, the attribute carry, the matching gate and the queue all read
+    through this one function, so none of them can disagree about what a person decided.
+    """
+
+    by_successor: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_successor[row["successor_pnu"]].append(row)
+    resolved: list[Mapping[str, Any]] = []
+    for successor in sorted(by_successor):
+        group = by_successor[successor]
+        standing = standing_decision(group)
+        if standing is not None:
+            resolved.append(standing)
+        else:
+            resolved.extend(r for r in group if r.get("evidence_kind") != STEWARD)
+    return resolved
+
+
 def review_queue(rows: Iterable[Mapping[str, Any]], unit: str = "parcel") -> tuple[list[ReviewItem], Counter[str]]:
     """Open items and the counts behind them (`open_<status>`, `closed_by_steward`,
     `closed_by_evidence`)."""
@@ -67,42 +150,28 @@ def review_queue(rows: Iterable[Mapping[str, Any]], unit: str = "parcel") -> tup
     items: list[ReviewItem] = []
     for successor in sorted(by_successor):
         group = by_successor[successor]
-        if all(r["grade"] not in REVIEW_GRADES for r in group):
+        derived = [r for r in group if r.get("evidence_kind") != STEWARD]
+        if not derived or all(r["grade"] not in REVIEW_GRADES for r in derived):
             continue
-        if any(r.get("evidence_kind") == STEWARD for r in group):
-            counts["closed_by_steward"] += 1
-            continue
-        best = min(group, key=lambda r: GRADE_RANK[r["grade"]])
+        best = min(derived, key=lambda r: GRADE_RANK[r["grade"]])
         if best["grade"] not in REVIEW_GRADES:
             counts["closed_by_evidence"] += 1
             continue
-        candidates = sorted(
-            (
-                {
-                    "predecessor_pnu": r["predecessor_pnu"],
-                    "relation": r["relation"],
-                    "grade": r["grade"],
-                    "evidence_kind": r.get("evidence_kind") or "",
-                    "evidence_ref": r.get("evidence_ref") or "",
-                    # The link in effect, if any; a review item's best row is below that line, so
-                    # only a sampled automatic link (ADR-0115 §10) will carry true here.
-                    "in_effect": False,
-                }
-                for r in group
-                if r["predecessor_pnu"]
-            ),
-            key=lambda c: (GRADE_RANK[c["grade"]], c["predecessor_pnu"]),
-        )
-        latest = max(group, key=lambda r: (r.get("to_snapshot_id") or "", r.get("from_snapshot_id") or ""))
-        counts[f"open_{best['grade']}"] += 1
-        candidates_json = json.dumps(candidates, ensure_ascii=False, sort_keys=True)
+        if standing_decision(group) is not None:
+            counts["closed_by_steward"] += 1
+            continue
+        if any(r.get("evidence_kind") == STEWARD for r in group):
+            counts["reopened_by_new_evidence"] += 1
+        status, candidates_json, etag = fingerprint(derived)
+        latest = max(derived, key=lambda r: (r.get("to_snapshot_id") or "", r.get("from_snapshot_id") or ""))
+        counts[f"open_{status}"] += 1
         items.append(
             ReviewItem(
                 item_id=item_id(unit, successor),
                 subject_code=successor,
-                status=best["grade"],
+                status=status,
                 candidates_json=candidates_json,
-                evidence_etag=evidence_etag(best["grade"], candidates_json),
+                evidence_etag=etag,
                 from_snapshot_id=latest.get("from_snapshot_id") or "",
                 to_snapshot_id=latest.get("to_snapshot_id") or "",
             )

@@ -237,3 +237,56 @@ fn a_whole_consistent_handoff_parses_and_anything_else_is_refused() {
         "a file cut short"
     );
 }
+
+fn foldable(outcome: Outcome, predecessor: Option<&str>) -> super::fold::FoldableDecision {
+    let item = item(ReviewStatus::NeedsReview, false);
+    super::fold::FoldableDecision {
+        decision_id: Uuid::from_u128(7),
+        subject_code: NEW.to_owned(),
+        outcome,
+        predecessor_code: predecessor.map(ToOwned::to_owned),
+        reason_code: Some(ReasonCode::BuildingRegister),
+        decided_by: steward(1),
+        decided_at: now(),
+        evidence_etag: item.evidence_etag(),
+        idempotency_key: "decide-key-0001".to_owned(),
+        candidates_json: item.candidates_json,
+        from_snapshot_id: "s1".to_owned(),
+        to_snapshot_id: "s2".to_owned(),
+    }
+}
+
+#[test]
+fn a_link_folds_as_an_official_row_with_the_candidates_relation() -> Result<(), StewardshipError> {
+    let row = super::fold::lineage_row(&foldable(Outcome::Link, Some(OLD)))?;
+    assert_eq!(
+        (
+            row.predecessor_pnu.as_deref(),
+            row.relation.as_str(),
+            row.grade.as_str(),
+            row.evidence_kind.as_str()
+        ),
+        (Some(OLD), "jurisdiction_transfer", "official", "steward")
+    );
+    let evidence: super::fold::StewardEvidence = serde_json::from_str(&row.evidence_ref)
+        .map_err(|e| StewardshipError::InvalidInput(e.to_string()))?;
+    assert_eq!(
+        evidence.evidence_etag,
+        item(ReviewStatus::NeedsReview, false).evidence_etag()
+    );
+    assert_eq!(row.effective_date, "2099-09-30");
+    Ok(())
+}
+
+#[test]
+fn not_a_link_folds_as_a_pending_row_that_links_nothing() -> Result<(), StewardshipError> {
+    let row = super::fold::lineage_row(&foldable(Outcome::NotALink, None))?;
+    assert_eq!((row.predecessor_pnu, row.grade.as_str()), (None, "pending"));
+    Ok(())
+}
+
+#[test]
+fn only_lineage_decisions_on_a_listed_candidate_fold() {
+    assert!(super::fold::lineage_row(&foldable(Outcome::Unsure, None)).is_err());
+    assert!(super::fold::lineage_row(&foldable(Outcome::Link, Some(OTHER))).is_err());
+}

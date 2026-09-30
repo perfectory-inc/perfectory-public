@@ -64,6 +64,7 @@ from pyspark.sql import functions as F
 from pyspark.sql import types as T
 from pyspark.storagelevel import StorageLevel
 
+from lineage_review_queue import steward_resolved
 from parcel_attribute_carry import carry_candidates
 from parcel_lineage import Link
 from lakehouse_engine import (
@@ -744,11 +745,18 @@ def read_carry_candidates(
     lineage = read_source(spark, args, LINEAGE_SOURCE)
     if args.region_prefix is not None:
         lineage = lineage.where(F.col("successor_pnu").startswith(args.region_prefix))
-    links = [
-        Link(row.predecessor_pnu or "", row.successor_pnu, row.relation, row.grade, "")
-        for row in lineage.select("predecessor_pnu", "successor_pnu", "relation", "grade")
+    # A steward's standing decision replaces the derived rows of its parcel (root ADR-0115 §9).
+    rows = [
+        row.asDict()
+        for row in lineage.select(
+            "predecessor_pnu", "successor_pnu", "relation", "grade", "evidence_kind", "evidence_ref"
+        )
         .distinct()
         .collect()
+    ]
+    links = [
+        Link(row["predecessor_pnu"] or "", row["successor_pnu"], row["relation"], row["grade"], "")
+        for row in steward_resolved(rows)
     ]
     candidates, stopped = carry_candidates(links)
     counters["lineage_links"] = len(links)

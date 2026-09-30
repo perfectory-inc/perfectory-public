@@ -393,6 +393,7 @@ Silver·Gold **32표**,
 | ID 변경 내역 → 공짱 지도·상세 패널 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
 | 필지 계보 → 필지 계보 검토 목록 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_review_queue_to_gold.py` |
 | 필지 계보 검토 목록 → 필지 계보 스튜어드 결정 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_review_queue_to_gold.py`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/lineage_review_items_load.rs` |
+| 필지 계보 스튜어드 결정 → 필지 계보 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/lineage_steward_fold.rs`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_steward_fold_to_silver.py` |
 | 필지 계보 검토 목록 → 스튜어드 검토 화면 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
 | 필지 ID 원장 → 필지 by-PNU 제공용 패널 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
 

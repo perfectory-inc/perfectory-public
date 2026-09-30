@@ -68,6 +68,22 @@ fn lineage_review_load_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn lineage_steward_fold_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "export-lineage-steward-fold"])?,
+        Command::ExportLineageStewardFold
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "record-lineage-steward-folds"
+        ])?,
+        Command::RecordLineageStewardFolds
+    );
+    Ok(())
+}
+
+#[test]
 fn exclusive_unit_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

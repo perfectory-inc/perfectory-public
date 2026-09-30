@@ -23,6 +23,7 @@ from typing import Any
 import map_matching_gate as gate
 import parcel_identity as pi
 import parcel_lineage as pl
+from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from parcel_lineage_to_silver import IDENTIFIER, PREFIX, SNAPSHOT_ID, read_pnus, sql_prefixes
 
@@ -103,12 +104,17 @@ def main(argv: list[str] | None = None) -> int:
         verdict["official_code_snapshot"] = newest
         predecessors: dict[str, list[str]] = collections.defaultdict(list)
         if args.lineage_from_snapshot_id:
-            for r in spark.sql(
-                f"SELECT predecessor_pnu, successor_pnu, grade FROM {cat}.`silver`.`parcel_lineage` "
-                f"WHERE from_snapshot_id = '{args.lineage_from_snapshot_id}' AND to_snapshot_id = '{args.snapshot_id}' "
-                f"AND predecessor_pnu IS NOT NULL"
-            ).collect():
-                if pl.GRADE_RANK[r["grade"]] <= pl.GRADE_RANK["evidence_strong"]:
+            pair = [
+                r.asDict()
+                for r in spark.sql(
+                    f"SELECT predecessor_pnu, successor_pnu, relation, grade, evidence_kind, evidence_ref "
+                    f"FROM {cat}.`silver`.`parcel_lineage` "
+                    f"WHERE from_snapshot_id = '{args.lineage_from_snapshot_id}' AND to_snapshot_id = '{args.snapshot_id}'"
+                ).collect()
+            ]
+            # A steward's standing decision replaces the derived rows of its parcel (root ADR-0115 §9).
+            for r in steward_resolved(pair):
+                if r["predecessor_pnu"] and pl.GRADE_RANK[r["grade"]] <= pl.GRADE_RANK["evidence_strong"]:
                     predecessors[r["successor_pnu"]].append(r["predecessor_pnu"])
         verdict["attributes"] = {}
         for spec in args.attribute:

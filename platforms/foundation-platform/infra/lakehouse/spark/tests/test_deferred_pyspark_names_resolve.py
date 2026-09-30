@@ -50,6 +50,7 @@ MODULES = (
     "parcel_matching_gate",
     "place_id_release_to_gold",
     "lineage_review_queue_to_gold",
+    "lineage_steward_fold_to_silver",
 )
 
 

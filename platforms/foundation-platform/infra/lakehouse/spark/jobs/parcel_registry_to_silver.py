@@ -22,6 +22,7 @@ from typing import Any
 
 import parcel_identity as pi
 import parcel_lineage as pl
+from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import append_batch_once
 from parcel_lineage_to_silver import DATE, IDENTIFIER, PREFIX, SNAPSHOT_ID, read_pnus, sql_prefixes
@@ -151,13 +152,18 @@ def main(argv: list[str] | None = None) -> int:
         lineage: list[pl.Link] = []
         lineage_runs: list[str] = []
         if args.from_snapshot_id:
-            for r in spark.sql(
-                f"SELECT predecessor_pnu, successor_pnu, relation, grade, evidence_kind, derivation_run_id "
-                f"FROM {cat}.`{args.iceberg_namespace}`.`{args.lineage_table}` "
-                f"WHERE from_snapshot_id = '{args.from_snapshot_id}' AND to_snapshot_id = '{args.to_snapshot_id}'"
-            ).collect():
+            pair = [
+                r.asDict()
+                for r in spark.sql(
+                    f"SELECT predecessor_pnu, successor_pnu, relation, grade, evidence_kind, evidence_ref, derivation_run_id "
+                    f"FROM {cat}.`{args.iceberg_namespace}`.`{args.lineage_table}` "
+                    f"WHERE from_snapshot_id = '{args.from_snapshot_id}' AND to_snapshot_id = '{args.to_snapshot_id}'"
+                ).collect()
+            ]
+            lineage_runs = [r["derivation_run_id"] for r in pair]
+            # A steward's standing decision replaces the derived rows of its parcel (root ADR-0115 §9).
+            for r in steward_resolved(pair):
                 lineage.append(pl.Link(r["predecessor_pnu"] or "", r["successor_pnu"], r["relation"], r["grade"], r["evidence_kind"]))
-                lineage_runs.append(r["derivation_run_id"])
         mode, rows, summary = plan(registry, after, lineage, args.to_date, args.bootstrap)
         run_id = "parcel-registry-" + hashlib.sha256(json.dumps({
             "to": args.to_snapshot_id, "from": args.from_snapshot_id, "sido": sorted(region.split(",")),

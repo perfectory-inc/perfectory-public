@@ -20,6 +20,16 @@ def row(old, new, grade, kind="area+category", to="s2"):
             "grade": grade, "evidence_kind": kind, "evidence_ref": "", "from_snapshot_id": "s1", "to_snapshot_id": to}
 
 
+def steward(new, derived, predecessor, decided_at):
+    """A steward row as the fold writes it, made on the evidence `derived` shows."""
+
+    etag = q.fingerprint(derived)[2]
+    ref = {"decision_id": f"d-{decided_at}", "decided_at": decided_at, "evidence_etag": etag}
+    return {"predecessor_pnu": predecessor, "successor_pnu": new, "relation": "jurisdiction_transfer" if predecessor else "other",
+            "grade": "official" if predecessor else "pending", "evidence_kind": q.STEWARD, "evidence_ref": json.dumps(ref),
+            "from_snapshot_id": "s1", "to_snapshot_id": "s2"}
+
+
 class ReviewQueueTest(unittest.TestCase):
     def test_only_needs_review_and_pending_reach_a_person(self):
         items, counts = q.review_queue([
@@ -50,12 +60,31 @@ class ReviewQueueTest(unittest.TestCase):
         ])
         self.assertEqual((items, counts["closed_by_evidence"]), ([], 1))
 
-    def test_a_steward_decision_closes_the_item_even_if_it_says_no_match(self):
-        items, counts = q.review_queue([
-            row("", pnu(NEW, 4), "pending", "no unique attribute match"),
-            row("", pnu(NEW, 4), "pending", q.STEWARD, to="s3"),
-        ])
+    def test_a_steward_decision_on_the_current_evidence_closes_the_item(self):
+        derived = [row("", pnu(NEW, 4), "pending", "no unique attribute match")]
+        items, counts = q.review_queue(derived + [steward(pnu(NEW, 4), derived, "", "2099-10-01")])
         self.assertEqual((items, counts["closed_by_steward"]), ([], 1))
+
+    def test_new_evidence_after_a_decision_puts_the_parcel_back(self):
+        before = [row("", pnu(NEW, 4), "pending", "no unique attribute match")]
+        decision = steward(pnu(NEW, 4), before, "", "2099-10-01")
+        after = [row(pnu(OLD, 4), pnu(NEW, 4), "needs_review", "area+category, ownership differs", to="s3")]
+        items, counts = q.review_queue(before + after + [decision])
+        self.assertEqual([i.subject_code for i in items], [pnu(NEW, 4)])
+        self.assertEqual(counts["reopened_by_new_evidence"], 1)
+        self.assertEqual(q.steward_resolved(before + after + [decision]), before + after, "a lapsed decision is not read")
+
+    def test_a_standing_decision_replaces_the_derived_rows_and_the_latest_wins(self):
+        derived = [
+            row(pnu(OLD, 3), pnu(NEW, 3), "needs_review", "area+category, ownership differs"),
+            row(pnu(OLD, 5), pnu(NEW, 3), "needs_review", "area+category, ownership differs"),
+        ]
+        first = steward(pnu(NEW, 3), derived, pnu(OLD, 3), "2099-10-01")
+        correction = steward(pnu(NEW, 3), derived, pnu(OLD, 5), "2099-10-02")
+        self.assertEqual(q.steward_resolved(derived + [first]), [first])
+        self.assertEqual(q.steward_resolved(derived + [first, correction]), [correction])
+        untouched = row(pnu(OLD, 1), pnu(NEW, 1), "code_derived")
+        self.assertIn(untouched, q.steward_resolved([untouched] + derived + [first]))
 
     def test_the_item_id_is_stable_across_runs(self):
         first, _ = q.review_queue([row("", pnu(NEW, 4), "pending", "x", to="s2")])
