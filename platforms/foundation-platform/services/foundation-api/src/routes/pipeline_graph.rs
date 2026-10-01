@@ -504,6 +504,19 @@ mod tests {
         .expect("runtime bindings")
     }
 
+    /// The registry's own declaration of a node, so a test compares against it instead of a copy.
+    fn registry_node(id: &str) -> serde_json::Value {
+        pipeline_graph_artifacts()
+            .expect("pipeline graph artifacts")
+            .registry["nodes"]
+            .as_array()
+            .expect("nodes array")
+            .iter()
+            .find(|node| node["id"] == id)
+            .cloned()
+            .expect("node in the registry")
+    }
+
     #[test]
     fn registry_is_the_foundation_platform_pipeline_graph_contract() {
         let graph = &pipeline_graph_artifacts()
@@ -808,9 +821,12 @@ mod tests {
         })
         .expect("pipeline graph response");
 
+        // The overlay carries what the registry declares; it does not decide it. Pinning the
+        // declared value here would turn a real change in the graph into a red test.
+        let declared = registry_node("production-orchestrator");
         assert_eq!(
             graph["runtime"]["nodes"]["production-orchestrator"]["status"],
-            "missing"
+            declared["status"]
         );
         assert_eq!(
             graph["runtime"]["nodes"]["openlineage-production-receiver"]["status"],
@@ -822,11 +838,9 @@ mod tests {
                 .expect("reason")
                 .contains("production receiver endpoint")
         );
-        assert!(
-            graph["runtime"]["nodes"]["production-orchestrator"]["reason"]
-                .as_str()
-                .expect("reason")
-                .contains("approved production orchestrator run evidence")
+        assert_eq!(
+            graph["runtime"]["nodes"]["production-orchestrator"]["reason"],
+            declared["blocking_reason"]
         );
         assert!(
             graph["runtime"]["nodes"]["production-orchestrator"]["observed"]
@@ -894,19 +908,18 @@ mod tests {
         })
         .expect("pipeline graph response");
 
+        let declared = registry_node("production-orchestrator");
         assert_eq!(
             graph["runtime"]["nodes"]["production-orchestrator"]["status"],
-            "missing"
+            declared["status"]
         );
         assert_eq!(
             graph["runtime"]["nodes"]["consumer-deployed-receiver-e2e"]["status"],
             "blocked"
         );
-        assert!(
-            graph["runtime"]["nodes"]["production-orchestrator"]["reason"]
-                .as_str()
-                .expect("reason")
-                .contains("production orchestrator run evidence")
+        assert_eq!(
+            graph["runtime"]["nodes"]["production-orchestrator"]["reason"],
+            declared["blocking_reason"]
         );
         assert!(graph["runtime"].get("cutover").is_none());
     }

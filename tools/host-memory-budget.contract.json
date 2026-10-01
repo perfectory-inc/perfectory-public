@@ -36,6 +36,11 @@
       "profiles": []
     },
     {
+      "name": "airflow",
+      "files": ["platforms/foundation-platform/compose.orchestration.yml"],
+      "profiles": []
+    },
+    {
       "name": "identity-platform-runtime",
       "files": [
         "platforms/identity-platform/docker-compose.yml",

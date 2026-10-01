@@ -2,12 +2,9 @@
 
 Stands in until data contracts are registered directly (root ADR-0117 §2, §3); delete it then.
 
-- A lakehouse table (silver./gold./reference.) is named on DataHub's `iceberg` platform, the same
-  entity the lakehouse ingestion (recipes/lakehouse-iceberg.yml) fills with columns and snapshots,
-  so the declared plan and the measured table are one entity. Its title, description and declared
-  status go in the editable description, which ingestion never writes.
-- Every other node (sources, serving tables, surfaces) stays on the `perfectory` platform with
-  its properties written directly.
+- Nodes are named by dataset_names.py, the rule the Airflow jobs share. A lakehouse table's title,
+  description and declared status go in the editable description, which ingestion never writes;
+  every other node's properties are written directly.
 - One job per produced node ("build <node>") carries the declared edges as an OpenLineage event.
   This is the DECLARED plan, not an observed run; the job says so.
 - An earlier seed named lakehouse tables on `perfectory`; those duplicates are soft-deleted
@@ -25,25 +22,16 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from dataset_names import DECLARED, LAKEHOUSE, name_of, platform_of
+
 GRAPH = os.environ.get(
     "FOUNDATION_PIPELINE_GRAPH_URL", "http://127.0.0.1:18080/catalog/v1/pipeline-graph"
 )
 GMS = os.environ.get("DATAHUB_GMS_URL", "http://127.0.0.1:18095")
 LINEAGE = f"{GMS}/openapi/openlineage/api/v1/lineage"
 INGEST = f"{GMS}/aspects?action=ingestProposal"
-DECLARED = "perfectory"
-LAKEHOUSE = "iceberg"
-LAKEHOUSE_NAMESPACES = ("silver.", "gold.", "reference.")
 PRODUCER = "https://github.com/perfectory-inc/perfectory-public/pipeline-graph-seed"
 SCHEMA = "https://openlineage.io/spec/2-0-2/OpenLineage.json#/$defs/RunEvent"
-
-
-def name_of(node):
-    return node.get("table_name") or node["id"]
-
-
-def platform_of(node):
-    return LAKEHOUSE if name_of(node).startswith(LAKEHOUSE_NAMESPACES) else DECLARED
 
 
 def urn_of(platform, name):

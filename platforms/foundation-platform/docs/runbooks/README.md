@@ -15,7 +15,7 @@ last_reviewed: 2026-07-29
 - [공공데이터 Bronze 수집](./public-data-bronze-lane-orchestration.md)
 - [R2·lakehouse 실시간 검증](./r2-lakehouse-live-verification.md)
 - [lakehouse 장애 대응](./lakehouse-incident-response.md)
-- [운영 orchestrator 전환](./production-orchestrator-cutover.md)
+- [예약 작업 운영 (Airflow) — 설치·작업 옮기기·확인](./production-orchestrator-cutover.md)
 - [필지 by-PNU R2 서빙 굽기·발행](./parcel-by-pnu-serving-bake.md)
 - [지도 편집 접기 — 설치·운영·확인](./map-edit-fold.md)
 - [데이터 카탈로그(DataHub) — 설치·로그인·확인](./data-catalog.md)

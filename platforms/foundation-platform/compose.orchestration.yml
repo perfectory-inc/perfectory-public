@@ -1,0 +1,139 @@
+# The scheduler for Foundation's data jobs (root ADR-0118, ADR-0122). Run through
+# scripts/deploy/airflow-runtime.sh, which supplies the secrets file and the Zitadel client file;
+# never `docker compose` on this file directly.
+#
+# Airflow reads its DAGs and the job list from the release itself, mounted at the host path, so a
+# release switch (`/opt/foundation-platform/current`) is what changes the jobs. It runs nothing on
+# the host itself: a job is its systemd service, which the scheduler asks the host to start over
+# a key that can do only that (ADR-0122 §2).
+
+x-airflow-environment: &airflow-environment
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  # Two jobs at a time; the `spark` pool (one slot) keeps Spark to one of them (ADR-0122 §5).
+  AIRFLOW__CORE__PARALLELISM: "2"
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  # A job's DAG starts paused: it is switched on in the change that removes its systemd timer.
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+  AIRFLOW__CORE__DAGS_FOLDER: /opt/foundation-platform/current/orchestration/dags
+  AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+  AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY:?run airflow-runtime.sh init-secrets}"
+  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD:?run airflow-runtime.sh init-secrets}@airflow-db:5432/airflow"
+  AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_JWT_SECRET:?run airflow-runtime.sh init-secrets}"
+  AIRFLOW__API__SECRET_KEY: "${AIRFLOW_API_SECRET_KEY:?run airflow-runtime.sh init-secrets}"
+  AIRFLOW__API__BASE_URL: http://127.0.0.1:19080
+  # Every run reports to the data catalog (root ADR-0118 §2), on the network DataHub's GMS joins.
+  AIRFLOW__OPENLINEAGE__NAMESPACE: perfectory
+  AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type": "http", "url": "http://datahub-gms:8080", "endpoint": "openapi/openlineage/api/v1/lineage"}'
+
+services:
+  airflow-db:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    mem_limit: 512m
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: "${AIRFLOW_DB_PASSWORD:?run airflow-runtime.sh init-secrets}"
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  airflow-migrate:
+    image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
+    mem_limit: 1g
+    restart: "no"
+    command: ["db", "migrate"]
+    environment:
+      <<: *airflow-environment
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+
+  airflow-apiserver:
+    image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
+    mem_limit: 768m
+    restart: unless-stopped
+    command: ["api-server"]
+    environment:
+      <<: *airflow-environment
+      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:?run identity-platform configure-zitadel.sh}"
+      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:?run identity-platform configure-zitadel.sh}"
+    ports:
+      - "127.0.0.1:19080:8080"
+    volumes:
+      - /opt/foundation-platform:/opt/foundation-platform:ro
+      - ./orchestration/webserver_config.py:/opt/airflow/webserver_config.py:ro
+    networks:
+      - default
+      - identity-shared
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/api/v2/monitor/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 1m0s
+    depends_on:
+      airflow-migrate:
+        condition: service_completed_successfully
+
+  # The browser and the API server must name Zitadel by the same issuer, 127.0.0.1:18453 (root
+  # ADR-0081); inside the API server's network namespace this forwards that port to Zitadel.
+  airflow-zitadel-loopback:
+    image: "alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
+    mem_limit: 64m
+    restart: unless-stopped
+    network_mode: "service:airflow-apiserver"
+    command:
+      - "TCP-LISTEN:18453,fork,reuseaddr,bind=127.0.0.1"
+      - "TCP:zitadel:18453"
+    depends_on:
+      airflow-apiserver:
+        condition: service_started
+
+  airflow-scheduler:
+    image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
+    mem_limit: 1g
+    restart: unless-stopped
+    command: ["scheduler"]
+    environment:
+      <<: *airflow-environment
+      # The host, its account `foundation-scheduler`, that account's private key and the host's
+      # own key: the job tasks connect with this and nothing else (ADR-0122 §2).
+      AIRFLOW_CONN_FOUNDATION_HOST: "${AIRFLOW_CONN_FOUNDATION_HOST:?run airflow-runtime.sh init-secrets}"
+    extra_hosts:
+      - "foundation-host:host-gateway"
+    volumes:
+      - /opt/foundation-platform:/opt/foundation-platform:ro
+    networks:
+      - default
+      - metadata-shared
+    depends_on:
+      airflow-migrate:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
+    mem_limit: 512m
+    restart: unless-stopped
+    command: ["dag-processor"]
+    environment:
+      <<: *airflow-environment
+    volumes:
+      - /opt/foundation-platform:/opt/foundation-platform:ro
+    depends_on:
+      airflow-migrate:
+        condition: service_completed_successfully
+
+volumes:
+  airflow-db:
+
+networks:
+  identity-shared:
+    external: true
+  metadata-shared:
+    external: true
