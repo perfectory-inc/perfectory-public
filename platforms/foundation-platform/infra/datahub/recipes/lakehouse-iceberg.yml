@@ -1,0 +1,27 @@
+# Reads every table the lakehouse catalog (R2 Data Catalog, Iceberg REST) holds — names, columns,
+# types, current snapshot — into the data catalog (root ADR-0117 §3). Metadata only: no rows are
+# read. Run through `datahub-runtime.sh ingest lakehouse-iceberg`, which supplies the variables.
+source:
+  type: iceberg
+  config:
+    env: PROD
+    catalog:
+      lakehouse:
+        type: rest
+        uri: ${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI}
+        warehouse: ${FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE}
+        token: ${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN}
+        s3.endpoint: ${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT}
+        s3.access-key-id: ${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID}
+        s3.secret-access-key: ${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY}
+        s3.region: auto
+    profiling:
+      enabled: false
+    stateful_ingestion:
+      enabled: true
+      remove_stale_metadata: true
+pipeline_name: perfectory-lakehouse-iceberg
+sink:
+  type: datahub-rest
+  config:
+    server: http://datahub-gms:8080
