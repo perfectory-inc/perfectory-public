@@ -3,6 +3,9 @@
 #
 #   datahub-runtime.sh init-secrets        create the runtime env file once (0600); never prints it
 #   datahub-runtime.sh provision EMAIL...  pre-create staff accounts and make them admins
+#   datahub-runtime.sh ingest RECIPE       run infra/datahub/recipes/RECIPE.yml (e.g. lakehouse-iceberg);
+#                                         the recipe's ${VARIABLES} come from this process's
+#                                         environment and are passed by name, never printed
 #   datahub-runtime.sh <compose args...>   e.g. `up -d`, `ps`, `logs frontend-quickstart`
 #
 # After `up`/`restart`/`start` it waits until the UI and GMS answer and staff sign-in hands the
@@ -86,6 +89,25 @@ verify_up() {
   printf 'datahub-runtime: ui and gms answer; sign-in goes to Zitadel\n'
 }
 
+# The ingestion image runs a recipe from the repository against GMS on the metadata network.
+ingest_image="acryldata/datahub-ingestion:v1.7.0.1@sha256:8845102fd495f2589e1ffc00dbd85cee3cbb700abc20d62fac1929ce95535620"
+ingest() {
+  (($# == 1)) || fail "usage: $0 ingest RECIPE"
+  local recipe="${compose_dir}/recipes/$1.yml" name
+  [[ -r "${recipe}" ]] || fail "no recipe ${recipe}"
+  local -a pass=()
+  # Every ${NAME} the recipe uses must be set; each is handed to the container by name only.
+  while read -r name; do
+    [[ -n "${!name:-}" ]] || fail "${name} is required by recipe $1"
+    pass+=(-e "${name}")
+  done < <(grep -oE '\$\{[A-Z][A-Z0-9_]*\}' "${recipe}" | tr -d '${}' | sort -u)
+  docker network inspect metadata-shared >/dev/null 2>&1 ||
+    fail "the metadata-shared network is missing; run: $0 up -d"
+  docker run --rm --network metadata-shared "${pass[@]}" \
+    -v "${compose_dir}/recipes:/recipes:ro" \
+    "${ingest_image}" ingest -c "/recipes/$1.yml"
+}
+
 provision() {
   (($# > 0)) || fail "usage: $0 provision EMAIL..."
   local email body code role
@@ -118,6 +140,10 @@ case "$1" in
   provision)
     shift
     provision "$@"
+    ;;
+  ingest)
+    shift
+    ingest "$@"
     ;;
   *)
     compose "$@"

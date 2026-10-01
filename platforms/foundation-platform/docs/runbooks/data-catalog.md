@@ -35,6 +35,24 @@ Foundation 과 같은 장비에서 돈다.
 4. `scripts/deploy/datahub-runtime.sh provision <직원 이메일>` — 미리 등록된 계정만 들어올 수 있다
    (Zitadel 로그인만으로는 접근이 아니다).
 
+## 실물 수집
+
+`scripts/deploy/datahub-runtime.sh ingest lakehouse-iceberg` 가 `infra/datahub/recipes/lakehouse-iceberg.yml` 로
+레이크하우스 카탈로그의 모든 표(이름·칸·타입·스냅숏)를 읽어 온다. 행은 읽지 않는다. 레시피의 `${변수}` 는 실행하는
+프로세스의 환경에서 이름으로만 넘기며 값을 찍지 않는다(R2 reader 키·카탈로그 토큰). 매일 실행은 Airflow 가 맡는다
+(ADR-0118); 그 전까지는 손으로 돌린다.
+
+선언 흐름(`seed_declared_lineage.py`)은 레이크하우스 표를 같은 `iceberg` 엔티티에 붙인다 — 설명·선언 상태는
+사람 편집 설명칸에, 흐름은 작업(job)으로. 그래서 한 표에 계획(설명·흐름)과 실물(칸·스냅숏)이 함께 보인다.
+
+2026-10-01 첫 수집: 표 38개, 실패 0. 계획과 실물의 차이:
+
+| 차이 | 표 |
+|---|---|
+| 계획에 "implemented" 인데 레이크하우스에 없음 | `silver.parcel_registry`, `silver.parcel_lineage`, `gold.lineage_review_queue`, `reference.legal_dong_code`, `reference.sigungu_canonical_crosswalk` |
+| 계획에 계약만 있음(정상) | `gold.complex_spatial_locator`, `silver.complex_parcel_memberships` |
+| 레이크하우스에 있는데 계획에 없음 | 시험 흔적 8개(`*_smoke`, `*_probe`, `dist_probe.*`, `sail_probe.*`), `gold.building_resources`, `gongzzang_silver.court_auction_property` |
+
 ## 확인
 
 - 비밀번호 로그인은 꺼져 있다: `POST /logIn` 은 어떤 비밀번호로도 400 이다.

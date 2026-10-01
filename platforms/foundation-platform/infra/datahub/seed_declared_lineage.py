@@ -1,42 +1,121 @@
-"""Interim seed: sends Foundation's declared pipeline graph to DataHub as OpenLineage events.
+"""Interim seed: sends Foundation's declared pipeline graph to the data catalog (DataHub).
 
 Stands in until data contracts are registered directly (root ADR-0117 §2, §3); delete it then.
 
-One job per produced node ("build <node>"), whose inputs are the nodes that feed it. Each node's
-title, type and declared status go in its documentation facet. This is the DECLARED plan, not an
-observed run; the job says so. Standard library only; runs on ai-server.
+- A lakehouse table (silver./gold./reference.) is named on DataHub's `iceberg` platform, the same
+  entity the lakehouse ingestion (recipes/lakehouse-iceberg.yml) fills with columns and snapshots,
+  so the declared plan and the measured table are one entity. Its title, description and declared
+  status go in the editable description, which ingestion never writes.
+- Every other node (sources, serving tables, surfaces) stays on the `perfectory` platform with
+  its properties written directly.
+- One job per produced node ("build <node>") carries the declared edges as an OpenLineage event.
+  This is the DECLARED plan, not an observed run; the job says so.
+- An earlier seed named lakehouse tables on `perfectory`; those duplicates are soft-deleted
+  (status.removed), never hard-deleted.
+
+Standard library only; runs where it can reach Foundation and GMS (see datahub-runtime.sh).
 """
 
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 
-GRAPH = os.environ.get("FOUNDATION_PIPELINE_GRAPH_URL", "http://127.0.0.1:18080/catalog/v1/pipeline-graph")
+GRAPH = os.environ.get(
+    "FOUNDATION_PIPELINE_GRAPH_URL", "http://127.0.0.1:18080/catalog/v1/pipeline-graph"
+)
 GMS = os.environ.get("DATAHUB_GMS_URL", "http://127.0.0.1:18095")
 LINEAGE = f"{GMS}/openapi/openlineage/api/v1/lineage"
 INGEST = f"{GMS}/aspects?action=ingestProposal"
-NAMESPACE = "perfectory"
+DECLARED = "perfectory"
+LAKEHOUSE = "iceberg"
+LAKEHOUSE_NAMESPACES = ("silver.", "gold.", "reference.")
 PRODUCER = "https://github.com/perfectory-inc/perfectory-public/pipeline-graph-seed"
 SCHEMA = "https://openlineage.io/spec/2-0-2/OpenLineage.json#/$defs/RunEvent"
 
 
-def dataset(node):
-    name = node.get("table_name") or node["id"]
-    doc = f'{node.get("title", "")} — 종류 {node.get("type")}, 선언 상태 {node.get("status")}. {node.get("description", "")}'
-    return {
-        "namespace": NAMESPACE,
-        "name": name,
-        "facets": {
-            "documentation": {
-                "_producer": PRODUCER,
-                "_schemaURL": "https://openlineage.io/spec/facets/1-0-1/DocumentationDatasetFacet.json",
-                "description": doc.strip(),
+def name_of(node):
+    return node.get("table_name") or node["id"]
+
+
+def platform_of(node):
+    return LAKEHOUSE if name_of(node).startswith(LAKEHOUSE_NAMESPACES) else DECLARED
+
+
+def urn_of(platform, name):
+    return f"urn:li:dataset:(urn:li:dataPlatform:{platform},{name},PROD)"
+
+
+def description_of(node):
+    text = f'{node.get("title", "")} — {node.get("description", "")}'.strip(" —")
+    return f'{text}\n\n선언 상태: {node.get("status", "")} · 종류: {node.get("type", "")}'
+
+
+def post(url, body, headers=None):
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", **(headers or {})},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.status < 300
+
+
+def propose(urn, aspect_name, value):
+    return post(
+        INGEST,
+        {
+            "proposal": {
+                "entityType": "dataset",
+                "entityUrn": urn,
+                "changeType": "UPSERT",
+                "aspectName": aspect_name,
+                "aspect": {"contentType": "application/json", "value": json.dumps(value)},
             }
         },
+        {"X-RestLi-Protocol-Version": "2.0.0"},
+    )
+
+
+def lineage_event(target, sources, nodes, now):
+    def dataset(node):
+        return {"namespace": platform_of(node), "name": name_of(node)}
+
+    return {
+        "eventType": "COMPLETE",
+        "eventTime": now,
+        "producer": PRODUCER,
+        "schemaURL": SCHEMA,
+        "run": {
+            "runId": str(uuid.uuid4()),
+            # DataHub names the orchestrator from this facet; without it the event is refused.
+            "facets": {
+                "processing_engine": {
+                    "_producer": PRODUCER,
+                    "_schemaURL": "https://openlineage.io/spec/facets/1-1-1/ProcessingEngineRunFacet.json",
+                    "name": "perfectory-pipeline-graph",
+                    "version": "1",
+                }
+            },
+        },
+        "job": {
+            "namespace": DECLARED,
+            "name": f"build {target}",
+            "facets": {
+                "documentation": {
+                    "_producer": PRODUCER,
+                    "_schemaURL": "https://openlineage.io/spec/facets/1-0-1/DocumentationJobFacet.json",
+                    "description": "선언된 흐름(pipeline-graph.v1.json). 실제 실행 기록이 아니다.",
+                }
+            },
+        },
+        "inputs": [dataset(nodes[s]) for s in sorted(set(sources))],
+        "outputs": [dataset(nodes[target])],
     }
 
 
@@ -48,90 +127,57 @@ def main():
         if edge["from"] in nodes and edge["to"] in nodes:
             feeds[edge["to"]].append(edge["from"])
     now = datetime.now(timezone.utc).isoformat()
-    sent = failed = 0
+    counts = defaultdict(int)
+
+    def attempt(kind, call):
+        try:
+            counts[kind] += bool(call())
+        except urllib.error.HTTPError as error:
+            counts["failed"] += 1
+            print(kind, error.code, error.read()[:300], file=sys.stderr)
+
     for target, sources in sorted(feeds.items()):
-        event = {
-            "eventType": "COMPLETE",
-            "eventTime": now,
-            "producer": PRODUCER,
-            "schemaURL": SCHEMA,
-            "run": {
-                "runId": str(uuid.uuid4()),
-                # DataHub names the orchestrator from this facet; without it the event is refused.
-                "facets": {
-                    "processing_engine": {
-                        "_producer": PRODUCER,
-                        "_schemaURL": "https://openlineage.io/spec/facets/1-1-1/ProcessingEngineRunFacet.json",
-                        "name": "perfectory-pipeline-graph",
-                        "version": "1",
-                    }
-                },
-            },
-            "job": {
-                "namespace": NAMESPACE,
-                "name": f"build {target}",
-                "facets": {
-                    "documentation": {
-                        "_producer": PRODUCER,
-                        "_schemaURL": "https://openlineage.io/spec/facets/1-0-1/DocumentationJobFacet.json",
-                        "description": "선언된 흐름(pipeline-graph.v1.json). 실제 실행 기록이 아니다.",
-                    }
-                },
-            },
-            "inputs": [dataset(nodes[s]) for s in sorted(set(sources))],
-            "outputs": [dataset(nodes[target])],
-        }
-        request = urllib.request.Request(
-            LINEAGE, data=json.dumps(event).encode(), headers={"Content-Type": "application/json"}, method="POST"
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                sent += response.status < 300
-        except urllib.error.HTTPError as error:
-            failed += 1
-            print(target, error.code, error.read()[:300], file=sys.stderr)
-    # DataHub's OpenLineage converter keeps job documentation but drops a dataset's, so each
-    # dataset's title, description and declared status are written as its properties directly.
-    described = 0
+        attempt("jobs", lambda: post(LINEAGE, lineage_event(target, sources, nodes, now)))
+
     for node in nodes.values():
-        name = node.get("table_name") or node["id"]
-        urn = f"urn:li:dataset:(urn:li:dataPlatform:{NAMESPACE},{name},PROD)"
-        properties = {
-            "name": name,
-            "description": f'{node.get("title", "")} — {node.get("description", "")}'.strip(" —"),
-            "customProperties": {
-                "title": node.get("title", ""),
-                "node_type": str(node.get("type", "")),
-                "declared_status": str(node.get("status", "")),
-                "pipeline_graph_id": node["id"],
-            },
-        }
-        proposal = {
-            "proposal": {
-                "entityType": "dataset",
-                "entityUrn": urn,
-                "changeType": "UPSERT",
-                "aspectName": "datasetProperties",
-                "aspect": {"contentType": "application/json", "value": json.dumps(properties)},
-            }
-        }
-        request = urllib.request.Request(
-            INGEST,
-            data=json.dumps(proposal).encode(),
-            headers={"Content-Type": "application/json", "X-RestLi-Protocol-Version": "2.0.0"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                described += response.status < 300
-        except urllib.error.HTTPError as error:
-            failed += 1
-            print(name, error.code, error.read()[:300], file=sys.stderr)
+        name, platform = name_of(node), platform_of(node)
+        if platform == LAKEHOUSE:
+            attempt(
+                "lakehouse_described",
+                lambda: propose(
+                    urn_of(LAKEHOUSE, name),
+                    "editableDatasetProperties",
+                    {"description": description_of(node)},
+                ),
+            )
+            attempt(
+                "duplicates_removed",
+                lambda: propose(urn_of(DECLARED, name), "status", {"removed": True}),
+            )
+        else:
+            attempt(
+                "declared_described",
+                lambda: propose(
+                    urn_of(DECLARED, name),
+                    "datasetProperties",
+                    {
+                        "name": name,
+                        "description": description_of(node),
+                        "customProperties": {
+                            "title": node.get("title", ""),
+                            "node_type": str(node.get("type", "")),
+                            "declared_status": str(node.get("status", "")),
+                            "pipeline_graph_id": node["id"],
+                        },
+                    },
+                ),
+            )
+
     print(
-        f"nodes={len(nodes)} edges={len(graph['edges'])} jobs_sent={sent} "
-        f"datasets_described={described} failed={failed}"
+        f"nodes={len(nodes)} edges={len(graph['edges'])} "
+        + " ".join(f"{key}={value}" for key, value in sorted(counts.items()))
     )
-    return 1 if failed else 0
+    return 1 if counts["failed"] else 0
 
 
 if __name__ == "__main__":
