@@ -18,6 +18,7 @@ PLATFORM_ROOT = pathlib.Path(__file__).resolve().parents[2]
 JOBS = PLATFORM_ROOT / "orchestration" / "jobs.v1.json"
 GRAPH = PLATFORM_ROOT / "docs" / "catalog" / "pipeline-graph.v1.json"
 SYSTEMD = PLATFORM_ROOT / "infra" / "systemd"
+CONTRACTS = PLATFORM_ROOT / "contracts" / "data"
 # Where a unit's ExecStart finds the release on the host.
 RELEASE_PREFIX = "/opt/foundation-platform/current/"
 JOBS_SCHEMA = "foundation-platform.orchestration_jobs.v1"
@@ -38,7 +39,7 @@ class JobSpec:
     timeout_minutes: int
     pool: str
     systemd_service: str
-    systemd_timer: str
+    systemd_timer: str | None  # the timer the job replaced; None for a job that never had one
     enabled: bool
     inputs: list  # (namespace, name)
     outputs: list  # (namespace, name)
@@ -87,15 +88,31 @@ def load_specs(jobs=None, graph=None):
         if service in seen_services:
             raise JobListError(f"{job_id}: {service} already belongs to another job")
         seen_services.add(service)
-        if not TIMER_NAME.fullmatch(job["systemd_timer"]):
-            raise JobListError(f"{job_id}: {job['systemd_timer']!r} is not a foundation-*.timer name")
-        if not job["pipeline_graph_edges"]:
-            raise JobListError(f"{job_id}: a job states the pipeline-graph edges it carries out")
+        timer = job["systemd_timer"]
+        if timer is not None and not TIMER_NAME.fullmatch(timer):
+            raise JobListError(f"{job_id}: {timer!r} is not a foundation-*.timer name")
+        reads_contracts = job.get("reads_data_contracts", False)
+        if bool(job["pipeline_graph_edges"]) == bool(reads_contracts):
+            raise JobListError(
+                f"{job_id}: a job states the pipeline-graph edges it carries out, or that it reads the "
+                "data-contract tables (reads_data_contracts) -- exactly one"
+            )
         unknown = [edge for edge in job["pipeline_graph_edges"] if edge not in edges]
         if unknown:
             raise JobListError(f"{job_id}: pipeline-graph has no edge {unknown}")
 
         carried = [edges[edge] for edge in job["pipeline_graph_edges"]]
+        if reads_contracts:
+            by_table = {node["table_name"]: node["id"] for node in graph["nodes"] if node.get("table_name")}
+            tables = sorted(path.name[: -len(".odcs.yaml")] for path in CONTRACTS.glob("*.odcs.yaml"))
+            unknown_tables = [table for table in tables if table not in by_table]
+            if not tables or unknown_tables:
+                raise JobListError(f"{job_id}: data contracts {unknown_tables or 'none'} have no pipeline-graph table")
+            inputs = sorted({dataset(by_table[table]) for table in tables})
+            outputs = []
+        else:
+            inputs = sorted({dataset(edge["from"]) for edge in carried})
+            outputs = sorted({dataset(edge["to"]) for edge in carried})
         specs.append(
             JobSpec(
                 job_id=job_id,
@@ -105,10 +122,10 @@ def load_specs(jobs=None, graph=None):
                 timeout_minutes=int(job["timeout_minutes"]),
                 pool=job["pool"],
                 systemd_service=service,
-                systemd_timer=job["systemd_timer"],
+                systemd_timer=timer,
                 enabled=job["enabled"],
-                inputs=sorted({dataset(edge["from"]) for edge in carried}),
-                outputs=sorted({dataset(edge["to"]) for edge in carried}),
+                inputs=inputs,
+                outputs=outputs,
             )
         )
     return specs

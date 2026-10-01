@@ -344,14 +344,12 @@ case "${command}" in
     # hand is how the backup timer's install steps and the deployed tree drifted apart before.
     # Idempotent: reinstalling the same files and re-enabling an enabled timer are no-ops.
     [[ "$#" == 1 || "$#" == 2 ]] || usage
+    # Every unit the release ships, not a list of them here: a job's service added to infra/systemd
+    # is installed by the same release that lists it in orchestration/jobs.v1.json.
     install -o root -g root -m 0644 \
       -t /etc/systemd/system \
-      "${release_root}/current/infra/systemd/foundation-postgres-backup.service" \
-      "${release_root}/current/infra/systemd/foundation-postgres-backup.timer" \
-      "${release_root}/current/infra/systemd/foundation-source-sweep.service" \
-      "${release_root}/current/infra/systemd/foundation-outbox-publish.service" \
-      "${release_root}/current/infra/systemd/foundation-map-edit-fold@.service" \
-      "${release_root}/current/infra/systemd/foundation-lineage-stewardship.service"
+      "${release_root}"/current/infra/systemd/*.service \
+      "${release_root}"/current/infra/systemd/*.timer
     # The fold was one complex-only unit before it became a per-unit template; a host upgraded
     # from then still carries it, and it would fold complex a second time every hour.
     if [[ -e /etc/systemd/system/foundation-map-edit-fold.timer ]]; then

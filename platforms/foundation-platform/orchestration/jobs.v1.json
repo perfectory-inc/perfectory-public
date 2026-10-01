@@ -1,6 +1,6 @@
 {
   "schema_version": "foundation-platform.orchestration_jobs.v1",
-  "description": "Every scheduled data job (root ADR-0118, ADR-0122). What a job runs, as whom, with which environment and time limit is its systemd service in infra/systemd and nowhere else. This list adds when it runs, its resource pool, the pipeline-graph edges it carries out (its lineage, read from docs/catalog/pipeline-graph.v1.json) and whether Airflow runs it yet.",
+  "description": "Every scheduled data job (root ADR-0118, ADR-0122). What a job runs, as whom, with which environment and time limit is its systemd service in infra/systemd and nowhere else. This list adds when it runs, its resource pool, the pipeline-graph edges it carries out (its lineage, read from docs/catalog/pipeline-graph.v1.json) and whether Airflow runs it yet. A job that checks data rather than moving it names no edges and sets reads_data_contracts: its inputs are the tables the data contracts cover.",
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
   "jobs": [
     {
@@ -74,6 +74,18 @@
         "silver-parcel-lineage-to-gold-lineage-review-queue",
         "gold-lineage-review-queue-to-serving-lineage-stewardship"
       ],
+      "enabled": true
+    },
+    {
+      "id": "data_quality",
+      "description": "Run the data contracts' executable checks (allowed values, schema) against the lakehouse and report each result to the data catalog (root ADR-0117 §6, ADR-0123).",
+      "systemd_service": "foundation-data-quality.service",
+      "systemd_timer": null,
+      "schedule": "20 7 * * *",
+      "timeout_minutes": 40,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
       "enabled": true
     }
   ]
