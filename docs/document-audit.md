@@ -261,7 +261,7 @@
 | `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current | korean | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current | korean | ok | 2 |
 | `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/provider-outage-and-quota.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/public-data-bronze-lane-orchestration.md` | Foundation Platform | runbook | current | mixed | ok | 5 |

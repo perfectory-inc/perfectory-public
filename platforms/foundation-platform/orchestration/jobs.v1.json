@@ -14,7 +14,7 @@
       "pipeline_graph_edges": [
         "daily-source-sweep-to-source-building-hub-bulk"
       ],
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "outbox_publish",
@@ -44,7 +44,7 @@
         "silver-map-edit-ledger-to-gold-administrative-boundary-served",
         "gold-administrative-boundary-served-to-admin-tiles"
       ],
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "map_edit_fold_complex",
@@ -59,7 +59,7 @@
         "silver-map-edit-ledger-to-gold-industrial-complex-boundary-served",
         "gold-industrial-complex-boundary-served-to-complex-tiles"
       ],
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "lineage_stewardship",
@@ -74,7 +74,7 @@
         "silver-parcel-lineage-to-gold-lineage-review-queue",
         "gold-lineage-review-queue-to-serving-lineage-stewardship"
       ],
-      "enabled": false
+      "enabled": true
     }
   ]
 }

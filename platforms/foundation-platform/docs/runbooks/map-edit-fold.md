@@ -13,12 +13,12 @@ last_reviewed: 2026-09-29
 
 ## 흐름
 
-유닛마다 타이머가 하나다. 한 호스트에서 Spark·굽기가 겹치지 않도록 분을 나눈다.
+유닛마다 Airflow 작업이 하나다(루트 ADR-0122, `orchestration/jobs.v1.json`). 둘 다 자원 묶음 `spark`(자리 하나)에 있어 한 호스트에서 Spark·굽기가 겹치지 않는다.
 
-| 타이머 | 유닛 | 시각 | Silver 좌표계 | Spark 작업 |
+| Airflow 작업 | 유닛 | 시각(UTC) | Silver 좌표계 | Spark 작업 |
 |---|---|---|---|---|
-| `foundation-map-edit-fold-complex.timer` | `complex` | 매시 05분 | EPSG:5186 | `industrial_complex_boundary_served_gold.py` |
-| `foundation-map-edit-fold-admin.timer` | `admin` | 매시 35분 | EPSG:4326 | `administrative_boundary_served_gold.py` |
+| `foundation_map_edit_fold_complex` | `complex` | 매시 05분 | EPSG:5186 | `industrial_complex_boundary_served_gold.py` |
+| `foundation_map_edit_fold_admin` | `admin` | 매시 35분 | EPSG:4326 | `administrative_boundary_served_gold.py` |
 
 둘 다 `foundation-map-edit-fold@<unit>.service` → `scripts/ops/map-edit-fold.sh <unit>`:
 
@@ -41,7 +41,7 @@ last_reviewed: 2026-09-29
 | `/var/lib/foundation-platform/lakehouse-ivy` | Spark 패키지 캐시 | 0777 |
 | 도커 이미지 `foundation-tippecanoe:2.79.0-local` | `infra/tiles/tippecanoe/Dockerfile` 로 빌드 | — |
 
-두 env 파일이 있어야 `foundation-release.sh timers` 가 타이머를 켠다. 없으면 켜지 않고 그렇게 말한다.
+두 env 파일이 없으면 Airflow 가 시작시킨 서비스가 실패하고 그 실행이 Airflow 와 저널에 실패로 남는다.
 운영 compose 는 `map-edit.env` 를 `FOUNDATION_PLATFORM_MAP_EDIT_ENV_FILE` 로 읽어 foundation-api 에
 넘기므로, 이 파일을 바꾼 뒤에는 `foundation-release.sh migrate` 로 API 를 다시 올린다.
 
@@ -52,8 +52,8 @@ last_reviewed: 2026-09-29
 docker exec foundation-platform-runtime-postgres-1 psql -U foundation_admin -d foundation -At -c \
   "SELECT unit_key, active_release_id, serving_generation, fallback_release_id IS NULL
    FROM catalog.vector_tile_publication_unit ORDER BY unit_key"
-# 타이머와 마지막 실행
-systemctl list-timers "foundation-map-edit-fold-*"
+# Airflow 의 최근 실행과 마지막 접기 기록
+bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh exec -T airflow-scheduler \n  airflow dags list-runs foundation_map_edit_fold_admin -o plain | head -5
 sudo tail -3 /var/lib/foundation-platform/map-edit-fold/journal.log
 ```
 
@@ -61,7 +61,7 @@ sudo tail -3 /var/lib/foundation-platform/map-edit-fold/journal.log
 
 - **공용 `/var/lib/foundation-platform/lakehouse` 의 소유를 바꾸지 말 것.** Spark(uid 185) 소유이고 다른
   적재가 쓴다. 접기는 전용 `map-edit-fold/lakehouse` 를 쓴다.
-- **서비스 계정은 `recovery.env` 를 못 읽는다.** systemd 는 root 로 읽어 넘기므로 타이머는 괜찮지만,
+- **서비스 계정은 `recovery.env` 를 못 읽는다.** systemd 는 root 로 읽어 넘기므로 Airflow 가 시작시키는 서비스는 괜찮지만,
   손으로 돌릴 때는 root 가 env 를 읽고 `sudo --preserve-env -u foundation-platform` 으로 넘겨야 한다.
 - **Wrangler 자동 생성 D1 은 `database_id` 를 설정에 쓰지 않는다.** `d1 migrations apply --remote` 는 id 가
   있어야 하므로 배포용 체크아웃에만 임시로 넣고 되돌린다(`wrangler d1 list --json` 으로 조회).
