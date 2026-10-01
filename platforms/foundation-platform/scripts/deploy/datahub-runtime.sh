@@ -61,6 +61,9 @@ compose() {
   [[ -r "${oidc_file}" ]] || fail "missing ${oidc_file}; run identity-platform configure-zitadel.sh"
   docker network inspect identity-shared >/dev/null 2>&1 ||
     fail "the identity-shared network is missing; start identity-platform first"
+  # Foundation reaches GMS here (root ADR-0119); either side may start first, so both create it.
+  docker network inspect metadata-shared >/dev/null 2>&1 ||
+    docker network create metadata-shared >/dev/null
   DATAHUB_USER_PROPS_FILE="${user_props}" docker compose -p datahub \
     --project-directory "${compose_dir}" \
     --env-file "${env_file}" --env-file "${oidc_file}" \

@@ -13,7 +13,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "api:generate": "openapi-typescript ../../../platforms/foundation-platform/docs/openapi/lineage-review.v1.json -o src/api/foundation.d.ts && openapi-typescript ../../../platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json -o src/api/pipeline-graph.d.ts && openapi-typescript ../../../platforms/foundation-platform/docs/openapi/catalog.v1.json -o src/api/catalog.d.ts",
+    "api:generate": "openapi-typescript ../../../platforms/foundation-platform/docs/openapi/lineage-review.v1.json -o src/api/foundation.d.ts && openapi-typescript ../../../platforms/foundation-platform/docs/openapi/catalog.v1.json -o src/api/catalog.d.ts && openapi-typescript ../../../platforms/foundation-platform/docs/openapi/data-catalog.v1.json -o src/api/data-catalog.d.ts",
     "api:check": "node scripts/check-api-types.mjs"
   },
   "dependencies": {

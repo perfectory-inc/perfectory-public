@@ -20,3 +20,6 @@ pub mod building_panel;
 
 /// Parcel-lineage steward review items, decisions and approvals (root ADR-0115).
 pub mod lineage_review;
+
+/// Staff data catalog read contract (root ADR-0117, ADR-0119).
+pub mod data_catalog;

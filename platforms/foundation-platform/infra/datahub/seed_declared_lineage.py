@@ -8,14 +8,17 @@ observed run; the job says so. Standard library only; runs on ai-server.
 """
 
 import json
+import os
 import sys
 import urllib.request
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 
-GRAPH = "http://127.0.0.1:18080/catalog/v1/pipeline-graph"
-LINEAGE = "http://127.0.0.1:18095/openapi/openlineage/api/v1/lineage"
+GRAPH = os.environ.get("FOUNDATION_PIPELINE_GRAPH_URL", "http://127.0.0.1:18080/catalog/v1/pipeline-graph")
+GMS = os.environ.get("DATAHUB_GMS_URL", "http://127.0.0.1:18095")
+LINEAGE = f"{GMS}/openapi/openlineage/api/v1/lineage"
+INGEST = f"{GMS}/aspects?action=ingestProposal"
 NAMESPACE = "perfectory"
 PRODUCER = "https://github.com/perfectory-inc/perfectory-public/pipeline-graph-seed"
 SCHEMA = "https://openlineage.io/spec/2-0-2/OpenLineage.json#/$defs/RunEvent"
@@ -87,7 +90,47 @@ def main():
         except urllib.error.HTTPError as error:
             failed += 1
             print(target, error.code, error.read()[:300], file=sys.stderr)
-    print(f"nodes={len(nodes)} edges={len(graph['edges'])} jobs_sent={sent} failed={failed}")
+    # DataHub's OpenLineage converter keeps job documentation but drops a dataset's, so each
+    # dataset's title, description and declared status are written as its properties directly.
+    described = 0
+    for node in nodes.values():
+        name = node.get("table_name") or node["id"]
+        urn = f"urn:li:dataset:(urn:li:dataPlatform:{NAMESPACE},{name},PROD)"
+        properties = {
+            "name": name,
+            "description": f'{node.get("title", "")} — {node.get("description", "")}'.strip(" —"),
+            "customProperties": {
+                "title": node.get("title", ""),
+                "node_type": str(node.get("type", "")),
+                "declared_status": str(node.get("status", "")),
+                "pipeline_graph_id": node["id"],
+            },
+        }
+        proposal = {
+            "proposal": {
+                "entityType": "dataset",
+                "entityUrn": urn,
+                "changeType": "UPSERT",
+                "aspectName": "datasetProperties",
+                "aspect": {"contentType": "application/json", "value": json.dumps(properties)},
+            }
+        }
+        request = urllib.request.Request(
+            INGEST,
+            data=json.dumps(proposal).encode(),
+            headers={"Content-Type": "application/json", "X-RestLi-Protocol-Version": "2.0.0"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                described += response.status < 300
+        except urllib.error.HTTPError as error:
+            failed += 1
+            print(name, error.code, error.read()[:300], file=sys.stderr)
+    print(
+        f"nodes={len(nodes)} edges={len(graph['edges'])} jobs_sent={sent} "
+        f"datasets_described={described} failed={failed}"
+    )
     return 1 if failed else 0
 
 

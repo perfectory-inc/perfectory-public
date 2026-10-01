@@ -8,29 +8,29 @@
 
 ## 문서 규모
 
-- 문서 파일: **465개**
+- 문서 파일: **467개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 119 |
+| Foundation Platform | 120 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 145 |
+| Monorepo | 146 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 203 |
+| ADR | 204 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
-| contract | 4 |
+| contract | 5 |
 | convention | 10 |
 | documentation | 33 |
 | draft | 2 |
@@ -120,6 +120,7 @@ platforms/foundation-platform/docs/events/webhook/parcel-marker-anchor-snapshot-
 platforms/foundation-platform/docs/events/webhook/receiver-contract.v1.example.json
 platforms/foundation-platform/docs/observability/slo-policy.v1.example.json
 platforms/foundation-platform/docs/openapi/catalog.v1.json
+platforms/foundation-platform/docs/openapi/data-catalog.v1.json
 platforms/foundation-platform/docs/openapi/lineage-review.v1.json
 platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json
 platforms/foundation-platform/docs/README.md
@@ -505,6 +506,7 @@ docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-i
 docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md
 docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md
 docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md
+docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -662,6 +664,7 @@ tools/github/README.md
 | `docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -758,6 +761,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/events/webhook/receiver-contract.v1.example.json` | Foundation Platform | fixture | fixture |
 | `platforms/foundation-platform/docs/observability/slo-policy.v1.example.json` | Foundation Platform | fixture | fixture |
 | `platforms/foundation-platform/docs/openapi/catalog.v1.json` | Foundation Platform | contract | current |
+| `platforms/foundation-platform/docs/openapi/data-catalog.v1.json` | Foundation Platform | contract | current |
 | `platforms/foundation-platform/docs/openapi/lineage-review.v1.json` | Foundation Platform | contract | current |
 | `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json` | Foundation Platform | contract | current |
 | `platforms/foundation-platform/docs/README.md` | Foundation Platform | README | current |

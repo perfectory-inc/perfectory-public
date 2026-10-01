@@ -3,7 +3,7 @@
 // CSRF value, and a decision carries an idempotency key so a retry cannot decide twice.
 import type { components } from "./foundation";
 import type { components as CatalogComponents } from "./catalog";
-import type { components as PipelineComponents } from "./pipeline-graph";
+import type { components as DataCatalogComponents } from "./data-catalog";
 
 type Schemas = components["schemas"];
 export type ReviewItem = Schemas["LineageReviewItem"];
@@ -14,12 +14,16 @@ export type DecisionResponse = Schemas["LineageDecisionResponse"];
 export type StewardDecision = Schemas["LineageStewardDecision"];
 export type ReviewClaim = Schemas["LineageReviewClaim"];
 export type ApprovalRequest = Schemas["LineageApprovalRequest"];
-export type PipelineGraph = PipelineComponents["schemas"]["PipelineGraphResponse"];
 type CatalogSchemas = CatalogComponents["schemas"];
 export type TileManifest = CatalogSchemas["VectorTileRuntimeManifestResponse"];
 export type TileUnit = CatalogSchemas["VectorTilePublicationUnitResponse"];
 export type Complex = CatalogSchemas["IndustrialComplexResponse"];
 export type ComplexPage = CatalogSchemas["IndustrialComplexListResponse"];
+
+type DataCatalogSchemas = DataCatalogComponents["schemas"];
+export type CatalogEntity = DataCatalogSchemas["DataCatalogEntity"];
+export type CatalogSearchPage = DataCatalogSchemas["DataCatalogSearchPage"];
+export type CatalogNeighbourhood = DataCatalogSchemas["DataCatalogNeighbourhood"];
 
 /** The complex list's filters, as Foundation names them. */
 export interface ComplexFilter {
@@ -74,7 +78,11 @@ export class DawneerClient {
     private readonly fetchImpl: Fetch = browserFetch,
   ) {}
 
-  private async call<T>(path: string, init: RequestInit & { idempotencyKey?: string } = {}): Promise<T> {
+  private async call<T>(
+    path: string,
+    init: RequestInit & { idempotencyKey?: string } = {},
+    api: "foundation" | "data-catalog" = "foundation",
+  ): Promise<T> {
     const headers = new Headers(init.headers);
     const method = init.method ?? "GET";
     if (method !== "GET") {
@@ -82,7 +90,7 @@ export class DawneerClient {
       headers.set("content-type", "application/json");
     }
     if (init.idempotencyKey) headers.set("idempotency-key", init.idempotencyKey);
-    const response = await this.fetchImpl(`/api/foundation/${path}`, {
+    const response = await this.fetchImpl(`/api/${api}/${path}`, {
       ...init,
       method,
       headers,
@@ -138,10 +146,6 @@ export class DawneerClient {
     });
   }
 
-  /** Every dataset, where it comes from and goes, with live status (read-only). */
-  pipelineGraph(): Promise<PipelineGraph> {
-    return this.call("pipeline-graph");
-  }
 
   /** What the map serves right now: one entry per publication unit (read-only). */
   tileManifest(): Promise<TileManifest> {
@@ -157,6 +161,17 @@ export class DawneerClient {
     query.set("page", String(filter.page ?? 0));
     query.set("size", String(filter.size ?? 50));
     return this.call(`complexes?${query.toString()}`);
+  }
+
+  /** Datasets whose name or description matches, best first (read-only, root ADR-0119). */
+  searchCatalog(text: string, start = 0, count = 20): Promise<CatalogSearchPage> {
+    const query = new URLSearchParams({ q: text, start: String(start), count: String(count) });
+    return this.call(`search?${query.toString()}`, {}, "data-catalog");
+  }
+
+  /** One dataset or job with its columns and one step of lineage either way. */
+  catalogEntity(urn: string): Promise<CatalogNeighbourhood> {
+    return this.call(`entity?${new URLSearchParams({ urn }).toString()}`, {}, "data-catalog");
   }
 
   getComplex(complexId: string): Promise<Complex> {

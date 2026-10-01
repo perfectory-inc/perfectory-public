@@ -121,6 +121,19 @@ pub fn evaluate_policy(input: &PolicyInput) -> PolicyDecision {
                     "review"
                 )
                 | ("LINEAGE_ADJUDICATOR", "foundation.lineage", "adjudicate")
+                // The data catalog (root ADR-0117, ADR-0119): finding data and reading its
+                // description, lineage and runs. Every data role reads it; a reader-only role exists
+                // for staff who do nothing else with data.
+                | (
+                    "DATA_CATALOG_READER"
+                        | "CATALOG_ADMIN"
+                        | "LAKEHOUSE_ADMIN"
+                        | "VECTOR_TILE_ADMIN"
+                        | "LINEAGE_STEWARD"
+                        | "LINEAGE_ADJUDICATOR",
+                    "foundation.metadata",
+                    "read"
+                )
         )
     });
 

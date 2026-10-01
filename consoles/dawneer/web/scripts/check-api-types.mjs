@@ -11,8 +11,8 @@ const docs = resolve(here, "../../../../platforms/foundation-platform/docs/opena
 // Each committed type file and the OpenAPI document it must equal.
 const pairs = [
   ["lineage-review.v1.json", "foundation.d.ts"],
-  ["pipeline-graph.v1.json", "pipeline-graph.d.ts"],
   ["catalog.v1.json", "catalog.d.ts"],
+  ["data-catalog.v1.json", "data-catalog.d.ts"],
 ];
 
 const normalize = (text) => text.replaceAll("\r\n", "\n").trim();

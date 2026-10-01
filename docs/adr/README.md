@@ -130,3 +130,4 @@ last_reviewed: 2026-07-28
 - [0116 — 더니어는 직원의 토큰을 자기 Rust 서버에만 두고, 브라우저에는 세션 쿠키만 준다](./0116-dawneer-keeps-staff-tokens-on-its-rust-server.md)
 - [0117 — 메타데이터는 데이터셋마다 계약 하나, 사람이 보는 곳은 데이터 카탈로그 하나다](./0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md)
 - [0118 — 예약된 데이터 작업은 Airflow 가 돌리고, 실행마다 계보를 남기며, 서버 프로그램도 버전·메모리를 한 곳에서 정한다](./0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md)
+- [0119 — 직원은 데이터 카탈로그를 더니어에서 읽고, 더니어는 Foundation 을 거쳐 DataHub 에 닿는다](./0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md)

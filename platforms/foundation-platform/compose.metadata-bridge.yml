@@ -1,0 +1,15 @@
+# Metadata bridge for the foundation runtime (root ADR-0117, ADR-0119).
+# foundation-api serves the staff data catalog by asking DataHub's GMS, which listens only on the
+# shared metadata network under the name `datahub-gms`. With DataHub absent the data catalog
+# routes answer 503 and nothing else changes.
+services:
+  foundation-api:
+    environment:
+      FOUNDATION_PLATFORM_DATAHUB_GMS_URL: "http://datahub-gms:8080"
+    networks:
+      default:
+      metadata-shared:
+
+networks:
+  metadata-shared:
+    external: true

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DawneerClient, loadSession, signOut } from "./api/client";
 import { ComplexesPage } from "./pages/ComplexesPage";
-import { PipelinePage } from "./pages/PipelinePage";
+import { DataCatalogPage } from "./pages/DataCatalogPage";
 import { ReviewItemPage } from "./pages/ReviewItemPage";
 import { ReviewListPage } from "./pages/ReviewListPage";
 import { TilesPage } from "./pages/TilesPage";
@@ -21,7 +21,7 @@ function useHashRoute(): string {
 /** The console's menus; each is a platform's own screen composed here (root ADR-0114). */
 const MENU = [
   { href: "#/", label: "필지 계보 검토", active: (route: string) => route === "/" || route.startsWith("/items/") },
-  { href: "#/pipeline", label: "데이터 흐름", active: (route: string) => route === "/pipeline" },
+  { href: "#/catalog", label: "데이터 카탈로그", active: (route: string) => route === "/catalog" },
   { href: "#/tiles", label: "지도 타일 발행", active: (route: string) => route === "/tiles" },
   { href: "#/complexes", label: "산업단지", active: (route: string) => route === "/complexes" },
 ] as const;
@@ -83,8 +83,8 @@ export function App() {
       <main className="mx-auto max-w-[1600px] px-6 py-6">
         {itemId ? (
           <ReviewItemPage client={client} itemId={itemId} me={current.sub} />
-        ) : route === "/pipeline" ? (
-          <PipelinePage client={client} />
+        ) : route === "/catalog" ? (
+          <DataCatalogPage client={client} />
         ) : route === "/tiles" ? (
           <TilesPage client={client} />
         ) : route === "/complexes" ? (

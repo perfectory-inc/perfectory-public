@@ -121,8 +121,13 @@ services:
     mem_limit: 2g
     ports:
       - "127.0.0.1:18095:8080"
+    # Foundation reaches GMS on the shared metadata network by this name (root ADR-0119);
+    # nothing else on that network is DataHub's.
     networks:
-      - default
+      default:
+      metadata-shared:
+        aliases:
+          - datahub-gms
   frontend-quickstart:
     image: "acryldata/datahub-frontend-react:v1.7.0.1@sha256:99513cc1c45e4cc053ceb0f9aeb04a3263a8a747907bb0e85cac2eb03461310d"
     hostname: datahub-frontend-react
@@ -325,6 +330,8 @@ networks:
   default:
     name: datahub_network
   identity-shared:
+    external: true
+  metadata-shared:
     external: true
 volumes:
   broker:
