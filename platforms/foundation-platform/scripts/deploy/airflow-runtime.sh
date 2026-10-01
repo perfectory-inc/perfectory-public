@@ -106,10 +106,12 @@ ensure_pools() {
 sync_enabled() {
   local id enabled
   while read -r id enabled; do
+    # `compose exec` reads stdin: without </dev/null the first call swallows the rest of the
+    # job list, and only the first job's state was set (measured on ai-server 2026-10-01).
     if [[ "${enabled}" == true ]]; then
-      airflow_cli dags unpause "foundation_${id}" >/dev/null
+      airflow_cli dags unpause "foundation_${id}" </dev/null >/dev/null
     else
-      airflow_cli dags pause "foundation_${id}" >/dev/null
+      airflow_cli dags pause "foundation_${id}" </dev/null >/dev/null
     fi
     printf 'job %-24s enabled=%s\n' "${id}" "${enabled}"
   done < <(python3 -c '
