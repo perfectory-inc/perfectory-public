@@ -303,6 +303,30 @@ migrate_runtime() {
   # first identity bring-up as policy calls dying inside a healthy-looking container.
   "${runtime}" up -d --wait identity-zitadel-loopback identity-api-loopback
   verify_runtime_schema
+  migrate_lakehouse
+}
+
+# The lakehouse half of `migrate` (root ADR-0124): every published lakehouse table is brought to
+# the release's contracts -- columns added in contract order, order fixed by metadata, registered
+# backfills run -- and anything that cannot be (a column the contract does not declare, a required
+# column with no backfill) stops the deploy here, the way a failed database migration does. Until
+# this existed, a widened contract reached a table only if that table's own build happened to run:
+# gold.parcel_panel went three weeks without two contract columns.
+migrate_lakehouse() {
+  install -o root -g root -m 0644 -t /etc/systemd/system \
+    "${release_root}/current/infra/systemd/foundation-lakehouse-migrate.service"
+  install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/lakehouse-migrate
+  systemctl daemon-reload
+  # A oneshot's start returns when it has finished, with its result.
+  if systemctl start foundation-lakehouse-migrate.service; then
+    journalctl -u foundation-lakehouse-migrate.service --since "-2h" --no-pager -o cat |
+      grep -a '^lakehouse-migrate apply:' | tail -1
+  else
+    journalctl -u foundation-lakehouse-migrate.service --since "-2h" --no-pager -o cat |
+      grep -a '^lakehouse-migrate' | tail -40 >&2
+    printf 'lakehouse migration failed; the release is installed but not migrated\n' >&2
+    exit 75
+  fi
 }
 
 status() {

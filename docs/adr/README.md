@@ -135,3 +135,4 @@ last_reviewed: 2026-07-28
 - [0121 — 코드는 실제로 본 원천 글자만, 원천이 나눈 만큼 나눠, 원천의 뜻대로 이름 붙인다](./0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md)
 - [0122 — Airflow 는 예약 작업의 systemd 유닛을 시작시키고 기다릴 뿐, 실행은 지금처럼 systemd 가 한다](./0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md)
 - [0123 — 데이터 계약(ODCS)은 사실을 이미 가진 두 정본에서 생성한다](./0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md)
+- [0124 — 배포는 모든 레이크하우스 표를 계약에 맞춘다](./0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md)

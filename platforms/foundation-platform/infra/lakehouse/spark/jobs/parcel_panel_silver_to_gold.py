@@ -856,7 +856,7 @@ def row_digest_column() -> F.Column:
 
     계보(source_snapshot_id·published_at_utc)는 넣지 않는다 — 계보만 바뀐 행을 다시 굽지 않는
     것이 델타 파이프라인의 요점이다. NULL 은 어떤 실제 값과도 겹치지 않는 문지기 문자열로 고정해
-    해시를 결정적으로 만든다. parcel_panel_backfill_row_digest.py 도 이 함수를 쓰므로, 백필한
+    해시를 결정적으로 만든다. lakehouse_schema_migrate.py 의 등록 백필도 이 함수를 쓰므로, 백필한
     지문과 다시 만든 지문은 같은 칼럼의 같은 함수다.
     """
 

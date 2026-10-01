@@ -1,0 +1,22 @@
+[Unit]
+Description=Foundation Platform lakehouse migration: bring every published lakehouse table to its contract (ADR-0124)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/lakehouse-migrate.sh
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/lakehouse-migrate /var/lib/foundation-platform/lakehouse-ivy
+
+[Install]
+WantedBy=multi-user.target
