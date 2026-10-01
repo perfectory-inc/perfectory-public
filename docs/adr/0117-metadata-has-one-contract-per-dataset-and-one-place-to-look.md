@@ -100,3 +100,7 @@
   [OpenLineage Airflow](https://openlineage.io/docs/integrations/airflow/),
   [Airbnb 품질](https://medium.com/airbnb-engineering/data-quality-at-airbnb-870d03080469),
   [기술·데이터 카탈로그 구분](https://www.hpcwire.com/bigdatawire/2024/07/03/data-catalogs-vs-metadata-catalogs-whats-the-difference/).
+
+---
+
+2026-10-01 각주: §3·§4 의 "사람이 보는 곳" 은 [ADR-0119](./0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md) 가 더니어로 구체화했다(DataHub 화면은 관리자 전용).

@@ -62,6 +62,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/auth/logout", post(logout))
         .route("/api/session", get(session))
         .route("/api/foundation/{*path}", any(relay_route))
+        .route("/api/data-catalog/{*path}", any(data_catalog_route))
         .fallback_service(web)
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,
@@ -298,13 +299,72 @@ async fn relay_route(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let request = Relayed {
+        path,
+        method,
+        uri,
+        headers,
+        body,
+    };
+    relay(&state, request, "catalog/v1", relay::allowed).await
+}
+
+/// The staff data catalog (root ADR-0119): the same relay, to Foundation's data catalog API.
+async fn data_catalog_route(
+    State(state): State<Arc<AppState>>,
+    Path(path): Path<String>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let request = Relayed {
+        path,
+        method,
+        uri,
+        headers,
+        body,
+    };
+    relay(
+        &state,
+        request,
+        "data-catalog/v1",
+        relay::data_catalog_allowed,
+    )
+    .await
+}
+
+/// A browser request to relay.
+struct Relayed {
+    path: String,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+}
+
+/// Relays an allow-listed request to `<foundation>/<base>/<path>` with the session's token.
+async fn relay(
+    state: &Arc<AppState>,
+    request: Relayed,
+    base: &str,
+    allowed: fn(&Method, &str) -> bool,
+) -> Response {
+    let Relayed {
+        path,
+        method,
+        uri,
+        headers,
+        body,
+    } = request;
+    let state = state.clone();
     let Some((id, session)) = current(&state, &headers).await else {
         return plain(StatusCode::UNAUTHORIZED, "not signed in");
     };
     if method != Method::GET && !csrf_ok(&state, &headers, &session) {
         return plain(StatusCode::FORBIDDEN, "missing or wrong CSRF token");
     }
-    if !relay::allowed(&method, &path) {
+    if !allowed(&method, &path) {
         return plain(StatusCode::NOT_FOUND, "not a console route");
     }
     if body.len() > BODY_LIMIT {
@@ -313,11 +373,7 @@ async fn relay_route(
     let Some(token) = access_token(&state, &id, &session).await else {
         return plain(StatusCode::UNAUTHORIZED, "session expired; sign in again");
     };
-    let Ok(mut target) = state
-        .config
-        .foundation_base
-        .join(&format!("catalog/v1/{path}"))
-    else {
+    let Ok(mut target) = state.config.foundation_base.join(&format!("{base}/{path}")) else {
         return plain(StatusCode::BAD_REQUEST, "malformed path");
     };
     target.set_query(uri.query());

@@ -34,6 +34,7 @@ const PROMETHEUS_TEXT_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=u
 mod api_error;
 pub mod catalog;
 mod catalog_openapi;
+mod data_catalog;
 mod lakehouse_registry;
 mod lineage_review;
 mod normalization;
@@ -42,6 +43,7 @@ pub mod pipeline_graph;
 use api_error::ApiError;
 
 pub use catalog_openapi::catalog_openapi_document;
+pub use data_catalog::data_catalog_openapi_document;
 pub use lineage_review::lineage_review_openapi_document;
 
 #[cfg(test)]
@@ -84,6 +86,7 @@ fn application_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(internal_routes(state))
         .merge(normalization::routes(state))
         .merge(lineage_review::routes(state))
+        .merge(data_catalog::routes(state))
 }
 
 fn system_routes() -> Router<Arc<AppState>> {
@@ -401,6 +404,12 @@ const SERVICE_LAKEHOUSE_WRITE: IdentityRoutePolicy = IdentityRoutePolicy {
     required_principal_kind: RequiredPrincipalKind::Service,
     resource: "foundation.lakehouse",
     action: "write",
+};
+/// Reading the data catalog (root ADR-0117, ADR-0119).
+const STAFF_METADATA_READ: IdentityRoutePolicy = IdentityRoutePolicy {
+    required_principal_kind: RequiredPrincipalKind::Staff,
+    resource: "foundation.metadata",
+    action: "read",
 };
 const STAFF_LINEAGE_REVIEW: IdentityRoutePolicy = IdentityRoutePolicy {
     required_principal_kind: RequiredPrincipalKind::Staff,

@@ -30,6 +30,17 @@ describe("DawneerClient", () => {
     );
   });
 
+  it("reads the data catalog through its own relay", async () => {
+    const { calls, fetchImpl } = recording(200, { total: 0, start: 0, results: [] });
+    const client = new DawneerClient(SESSION, fetchImpl);
+    await client.searchCatalog("공시가격", 20, 20);
+    await client.catalogEntity("urn:li:dataset:(urn:li:dataPlatform:synthetic,silver.synthetic,PROD)");
+    expect(calls[0]?.url).toBe(`/api/data-catalog/search?q=${encodeURIComponent("공시가격")}&start=20&count=20`);
+    expect(calls[1]?.url).toBe(
+      `/api/data-catalog/entity?${new URLSearchParams({ urn: "urn:li:dataset:(urn:li:dataPlatform:synthetic,silver.synthetic,PROD)" }).toString()}`,
+    );
+  });
+
   it("sends the CSRF value and the idempotency key with a decision", async () => {
     const { calls, fetchImpl } = recording(200, { disposition: "recorded", requires_approval: false });
     await new DawneerClient(SESSION, fetchImpl).decide(

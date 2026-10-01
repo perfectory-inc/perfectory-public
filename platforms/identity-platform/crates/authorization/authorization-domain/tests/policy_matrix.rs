@@ -103,6 +103,39 @@ fn a_lineage_steward_reviews_and_only_an_adjudicator_rules(
 }
 
 #[test]
+fn every_data_role_reads_the_data_catalog_and_nothing_else_does(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let reads = |role: &str| -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(evaluate_policy(&PolicyInput::resource_action(
+            vec![RoleCode::parse(role)?],
+            "foundation.metadata",
+            "read",
+        ))
+        .is_allowed())
+    };
+    for role in [
+        "DATA_CATALOG_READER",
+        "CATALOG_ADMIN",
+        "LAKEHOUSE_ADMIN",
+        "VECTOR_TILE_ADMIN",
+        "LINEAGE_STEWARD",
+        "LINEAGE_ADJUDICATOR",
+        "MASTER_ADMIN",
+    ] {
+        assert!(reads(role)?, "{role} reads the data catalog");
+    }
+    assert!(!reads("COMPLEX_EDITOR")?);
+    // Reading the catalog grants nothing else.
+    assert!(!evaluate_policy(&PolicyInput::resource_action(
+        vec![RoleCode::parse("DATA_CATALOG_READER")?],
+        "foundation.catalog",
+        "write",
+    ))
+    .is_allowed());
+    Ok(())
+}
+
+#[test]
 fn unrelated_role_is_denied_capability_access() -> Result<(), Box<dyn std::error::Error>> {
     let input = PolicyInput::resource_action(
         vec![RoleCode::parse("COMPLEX_EDITOR")?],

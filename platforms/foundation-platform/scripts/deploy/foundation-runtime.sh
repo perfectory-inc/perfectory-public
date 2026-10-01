@@ -26,6 +26,9 @@ fi
 # parses it (root ADR-0080); creation is idempotent and owned by no one wrapper.
 docker network inspect identity-shared >/dev/null 2>&1 \
   || docker network create identity-shared >/dev/null
+# The same for the metadata bridge (root ADR-0119): DataHub's GMS joins it from its own wrapper.
+docker network inspect metadata-shared >/dev/null 2>&1 \
+  || docker network create metadata-shared >/dev/null
 
 # The bridge sidecars must listen exactly where the operative identity URLs in
 # the runtime env file point (root ADR-0081) — the ports are derived from those
@@ -55,6 +58,7 @@ compose=(
   -f "${root_dir}/docker-compose.yml"
   -f "${root_dir}/compose.recovery.yml"
   -f "${root_dir}/compose.identity-bridge.yml"
+  -f "${root_dir}/compose.metadata-bridge.yml"
   --project-name "${FOUNDATION_PLATFORM_COMPOSE_PROJECT}"
   --env-file "${FOUNDATION_PLATFORM_ENV_FILE}"
 )

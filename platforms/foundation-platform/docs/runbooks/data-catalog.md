@@ -8,7 +8,10 @@ last_reviewed: 2026-10-01
 # 데이터 카탈로그(DataHub) 운영
 
 [ADR-0117](../../../../docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md)이
-정한 "사람이 보는 곳 하나"다. Foundation 과 같은 장비에서 돈다.
+정한 데이터 카탈로그의 저장소다.
+직원은 더니어의 데이터 카탈로그 메뉴로 읽고(ADR-0119, Foundation `/data-catalog/v1/*` 경유), DataHub 웹 화면은
+플랫폼 관리자만 SSH 터널로 쓴다. Foundation API 는 공유 네트워크 `metadata-shared` 에서 `datahub-gms` 로 닿는다.
+Foundation 과 같은 장비에서 돈다.
 
 ## 무엇이 어디 있나
 

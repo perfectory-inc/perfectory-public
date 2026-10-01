@@ -17,8 +17,6 @@ use Segment::{Literal, OneOf, Uuid};
 
 /// The relayed Foundation routes: the steward API (root ADR-0115) and read-only status views.
 const ROUTES: &[(Method, &[Segment])] = &[
-    // Where every dataset comes from and goes, with live status (root ADR-0086).
-    (Method::GET, &[Literal("pipeline-graph")]),
     // What the map serves now (root ADR-0111).
     (Method::GET, &[Literal("vector-tiles"), Literal("manifest")]),
     (
@@ -62,11 +60,28 @@ fn is_uuid(value: &str) -> bool {
         })
 }
 
+/// The data catalog routes (root ADR-0119): the browser asks `/api/data-catalog/<path>` and only
+/// these are relayed to `<foundation>/data-catalog/v1/<path>`, read-only.
+const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
+    (Method::GET, &[Literal("search")]),
+    (Method::GET, &[Literal("entity")]),
+];
+
 /// Whether `method path` (path relative to `/catalog/v1/`) may be relayed.
 #[must_use]
 pub fn allowed(method: &Method, path: &str) -> bool {
+    matches(ROUTES, method, path)
+}
+
+/// Whether `method path` (path relative to `/data-catalog/v1/`) may be relayed.
+#[must_use]
+pub fn data_catalog_allowed(method: &Method, path: &str) -> bool {
+    matches(DATA_CATALOG_ROUTES, method, path)
+}
+
+fn matches(routes: &[(Method, &[Segment])], method: &Method, path: &str) -> bool {
     let parts: Vec<&str> = path.split('/').collect();
-    ROUTES.iter().any(|(m, segments)| {
+    routes.iter().any(|(m, segments)| {
         m == method
             && segments.len() == parts.len()
             && segments
@@ -107,7 +122,10 @@ mod tests {
             !allowed(&Method::POST, "lineage-review/items"),
             "another method"
         );
-        assert!(allowed(&Method::GET, "pipeline-graph"));
+        assert!(
+            !allowed(&Method::GET, "pipeline-graph"),
+            "the data catalog replaced the declared-graph view (root ADR-0119)"
+        );
         assert!(allowed(&Method::GET, "vector-tiles/runtime-manifest"));
         assert!(
             !allowed(&Method::POST, "vector-tiles/manifest"),
@@ -134,6 +152,21 @@ mod tests {
         assert!(
             !allowed(&Method::GET, &format!("lineage-review/items/{ID}/")),
             "trailing segment"
+        );
+    }
+
+    #[test]
+    fn the_data_catalog_is_read_only_and_has_two_routes() {
+        assert!(data_catalog_allowed(&Method::GET, "search"));
+        assert!(data_catalog_allowed(&Method::GET, "entity"));
+        assert!(!data_catalog_allowed(&Method::POST, "search"), "read-only");
+        assert!(
+            !data_catalog_allowed(&Method::GET, "graphql"),
+            "no pass-through"
+        );
+        assert!(
+            !allowed(&Method::GET, "search"),
+            "the catalog list does not open data catalog paths"
         );
     }
 }
