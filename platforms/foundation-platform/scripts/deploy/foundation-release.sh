@@ -349,13 +349,9 @@ case "${command}" in
       "${release_root}/current/infra/systemd/foundation-postgres-backup.service" \
       "${release_root}/current/infra/systemd/foundation-postgres-backup.timer" \
       "${release_root}/current/infra/systemd/foundation-source-sweep.service" \
-      "${release_root}/current/infra/systemd/foundation-source-sweep.timer" \
       "${release_root}/current/infra/systemd/foundation-outbox-publish.service" \
       "${release_root}/current/infra/systemd/foundation-map-edit-fold@.service" \
-      "${release_root}/current/infra/systemd/foundation-map-edit-fold-complex.timer" \
-      "${release_root}/current/infra/systemd/foundation-map-edit-fold-admin.timer" \
-      "${release_root}/current/infra/systemd/foundation-lineage-stewardship.service" \
-      "${release_root}/current/infra/systemd/foundation-lineage-stewardship.timer"
+      "${release_root}/current/infra/systemd/foundation-lineage-stewardship.service"
     # The fold was one complex-only unit before it became a per-unit template; a host upgraded
     # from then still carries it, and it would fold complex a second time every hour.
     if [[ -e /etc/systemd/system/foundation-map-edit-fold.timer ]]; then
@@ -381,31 +377,14 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
         print(job["systemd_timer"])
 ' "${jobs_file}")
     install_scheduler_access "${jobs_file}" "${2:-}"
+    # Working directories the fold and the stewardship cycle write, whoever starts them.
+    install -d -o foundation-platform -g foundation-platform \
+      /var/lib/foundation-platform/map-edit-fold /var/lib/foundation-platform/lineage-stewardship
     systemctl daemon-reload
-    systemctl enable --now foundation-postgres-backup.timer foundation-source-sweep.timer
-    # The map edit fold needs its secrets (root ADR-0112); a host without them keeps the timer
-    # off rather than failing every hour.
-    if [[ -r /etc/foundation-platform/map-edit.env && -r /etc/foundation-platform/map-edit-fold.env ]]; then
-      install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/map-edit-fold
-      systemctl enable --now foundation-map-edit-fold-complex.timer foundation-map-edit-fold-admin.timer
-    else
-      printf 'map-edit-fold timer not enabled: its /etc/foundation-platform env files are missing\n' >&2
-    fi
-    # The stewardship cycle reads the same catalog settings as the fold (root ADR-0115 §9). It waits
-    # (and says so in Slack) until the first parcel lineage exists.
-    if [[ -r /etc/foundation-platform/map-edit-fold.env ]]; then
-      install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/lineage-stewardship
-      systemctl enable --now foundation-lineage-stewardship.timer
-    else
-      printf 'lineage-stewardship timer not enabled: map-edit-fold.env is missing\n' >&2
-    fi
-    # A fresh timer that has never fired is unproven (the backup timer's own rule), so kick the
-    # sweep once now, non-blocking. The sweep skips already-held files by fingerprint, so an
-    # extra run is idempotent by construction.
-    systemctl start --no-block foundation-source-sweep.service
-    printf 'timers-ok backup=%s sweep=%s\n' \
-      "$(systemctl is-enabled foundation-postgres-backup.timer)" \
-      "$(systemctl is-enabled foundation-source-sweep.timer)"
+    # The database backup is host infrastructure, not a data job: it stays a systemd timer
+    # (root ADR-0118 §1). Every data job is started by Airflow (root ADR-0122).
+    systemctl enable --now foundation-postgres-backup.timer
+    printf 'timers-ok backup=%s\n' "$(systemctl is-enabled foundation-postgres-backup.timer)"
     ;;
   rollback)
     [[ "$#" == 1 ]] || usage

@@ -132,7 +132,7 @@ Live write에는 기존 Bronze 저장 설정도 필요하다.
 
 ## 매일 훑기 (root ADR-0077)
 
-서버의 systemd 타이머가 위 두 명령(plan → ingest)을 매일 새벽 돌린다. 이미 가진 파일은
+Airflow 작업 `foundation_source_sweep`(매일 03:40 UTC, 루트 ADR-0122)이 서버의 systemd 서비스를 시작시켜 위 두 명령(plan → ingest)을 돌린다. 이미 가진 파일은
 provider 파일 id 지문으로 받기 전에 건너뛰므로, 신규가 없는 날은 다운로드 0건으로 끝나고
 `/var/lib/foundation-platform/source-sweep/journal.log` 에 한 줄이 남는다. 신규가 있으면
 슬랙 `#alerts` 로 파일 목록이 온다 — 그 알림이 "오늘 반영하라"는 신호다(반영 자동화는
@@ -173,8 +173,8 @@ sudo install -o foundation-platform -g foundation-platform -m 0755 \
 sudo install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/source-sweep
 ```
 
-4. **타이머 설치·활성화** — 릴리스 스크립트의 `timers` 동사 하나로 끝난다 (유닛 파일이
-   릴리스 안에 있으므로 "어떤 타이머가 있어야 하는가"의 정본은 한 곳이다):
+4. **서비스 설치** — 릴리스 스크립트의 `timers` 동사가 서비스 유닛과 Airflow 의 시작 권한을 설치한다
+   (일정은 `orchestration/jobs.v1.json`, [예약 작업 운영](./production-orchestrator-cutover.md)):
 
 ```bash
 sudo /opt/foundation-platform/current/scripts/deploy/foundation-release.sh timers
@@ -182,5 +182,5 @@ journalctl -u foundation-source-sweep.service --since today | tail -20
 tail -3 /var/lib/foundation-platform/source-sweep/journal.log
 ```
 
-첫 실행이 journal 에 한 줄을 남기고 끝나야 운영으로 인정한다(백업 타이머의 규칙). 첫
+첫 실행이 journal 에 한 줄을 남기고 끝나야 운영으로 인정한다(백업 타이머의 규칙). 바로 한 번 돌리려면 `airflow-runtime.sh trigger source_sweep`. 첫
 실행은 마지막 수동 수집 이후 쌓인 신규 월분을 실제로 받으므로 오래 걸릴 수 있다.
