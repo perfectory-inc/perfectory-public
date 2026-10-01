@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **467개**
-- 언어 분류: **{'english': 37, 'korean': 270, 'mixed': 160}**
+- 감사 문서: **468개**
+- 언어 분류: **{'english': 37, 'korean': 271, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **219개 정상 / 0개 누락 / 248개 해당 없음**
+- 메타데이터: **219개 정상 / 0개 누락 / 249개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -84,14 +84,14 @@
 | `docs/adr/0059-shapefile-files-have-a-first-class-streaming-ingress.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0060-gold-artifact-identity-is-resolved-at-the-catalog-write-boundary.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0061-refused-parcel-numbers-are-named-not-totalled.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0062-an-ingest-batch-records-itself-in-the-table-it-writes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0062-an-ingest-batch-records-itself-in-the-table-it-writes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0063-a-partition-that-cannot-narrow-a-search-only-splits-files.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0064-the-parcel-table-is-read-without-vectorization.md` | Monorepo | ADR | Superseded by ADR-0065 | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0065-an-engine-version-is-written-once.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0066-a-table-that-fits-in-one-file-is-not-split.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0067-the-parcel-source-covers-the-country-twice.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0068-the-command-names-the-object-it-read.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 2 |
-| `docs/adr/0069-one-column-holds-five-kinds-of-thing.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 3 |
+| `docs/adr/0069-one-column-holds-five-kinds-of-thing.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 4 |
 | `docs/adr/0070-the-boundary-source-carries-neither-use-nor-area.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0071-a-deploy-that-leaves-the-schema-behind-has-not-finished.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0072-units-attach-to-parcels-by-pnu-and-orphans-are-counted.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
@@ -139,9 +139,10 @@
 | `docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
 | `docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
-| `docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

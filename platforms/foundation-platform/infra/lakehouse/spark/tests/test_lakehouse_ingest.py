@@ -29,6 +29,7 @@ from lakehouse_ingest import (  # noqa: E402
     SNAPSHOT_PROPERTY_PREFIX,
     append_batch_once,
     decide_whether_to_append,
+    identities_under_derivation,
     ingest_batch_token,
     read_ingested_objects,
     snapshot_property_options,
@@ -544,6 +545,65 @@ class OneEngineVersionTest(unittest.TestCase):
             "Iceberg 판 번호는 lakehouse-engine.contract.json 에만 적는다. "
             "여기에 뜨는 파일은 iceberg_packages() 를 부르도록 바꿔라",
         )
+
+class DerivationTest(unittest.TestCase):
+    """같은 원천 객체를 새 파생 규칙으로 한 번 더 붙일 수 있어야 하고, 같은 규칙으로는 두 번 붙지 않아야 한다.
+
+    계약에 칸이 늘면 같은 원천에서 표가 가진 적 없는 행이 나온다. 그때 객체만으로 판단하면 "이미 실음"으로
+    건너뛰어 다시 적재할 길이 없었다(root ADR-0120).
+    """
+
+    def test_without_a_label_the_identities_do_not_change(self) -> None:
+        self.assertEqual(identities_under_derivation(["b.zip", "a.zip"], None), ["b.zip", "a.zip"])
+
+    def test_a_label_names_each_object_under_it(self) -> None:
+        self.assertEqual(
+            identities_under_derivation(["b.zip", "a.zip"], " v2 "), ["a.zip@v2", "b.zip@v2"]
+        )
+
+    def test_a_label_that_would_not_split_back_is_refused(self) -> None:
+        for bad in ["", "  ", "a@b", "a,b"]:
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                identities_under_derivation(["a.zip"], bad)
+
+    def test_an_object_already_loaded_is_appended_once_more_under_a_new_label(self) -> None:
+        loaded = [FakeRow(1, {INGEST_BATCH_OBJECTS_KEY: "a.zip"})]
+        frame = FakeBatchFrame(["a.zip"])
+        skipped = append_batch_once(
+            FakeAnsweringSpark(registry=loaded, total_records=10),
+            frame,
+            ["source_record_id"],
+            "`c`.`s`.`t`",
+            "silver.parcel_boundaries",
+        )
+        self.assertFalse(skipped["appended"], "라벨 없이는 이미 실린 객체를 다시 붙이지 않는다")
+
+        again = FakeBatchFrame(["a.zip"])
+        result = append_batch_once(
+            FakeAnsweringSpark(registry=loaded, total_records=10),
+            again,
+            ["source_record_id"],
+            "`c`.`s`.`t`",
+            "silver.parcel_boundaries",
+            derivation="v2",
+        )
+        self.assertTrue(result["appended"])
+        self.assertEqual(result["record_ids"], ["a.zip@v2"])
+
+        rerun = FakeBatchFrame(["a.zip"])
+        repeat = append_batch_once(
+            FakeAnsweringSpark(
+                registry=loaded + [FakeRow(2, {INGEST_BATCH_OBJECTS_KEY: "a.zip@v2"})],
+                total_records=20,
+            ),
+            rerun,
+            ["source_record_id"],
+            "`c`.`s`.`t`",
+            "silver.parcel_boundaries",
+            derivation="v2",
+        )
+        self.assertFalse(repeat["appended"], "같은 라벨로는 두 번 붙지 않는다")
+        self.assertFalse(rerun.appended)
 
 
 if __name__ == "__main__":
