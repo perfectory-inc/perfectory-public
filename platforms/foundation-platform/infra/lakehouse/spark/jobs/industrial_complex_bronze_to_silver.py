@@ -25,7 +25,7 @@ from lakehouse_engine import (
     assert_iceberg_runtime_loaded,
     iceberg_packages,
 )
-from lakehouse_ingest import append_batch_once, batch_source_record_ids
+from lakehouse_ingest import append_batch_once
 from platform_contracts import (
     partition_clause_sql,
     column_names,
@@ -244,6 +244,15 @@ def parse_args() -> argparse.Namespace:
         "--allow-non-smoke-overwrite",
         action="store_true",
         help="Allow overwrite mode for tables whose names do not end with _smoke.",
+    )
+    parser.add_argument(
+        "--derivation",
+        default=None,
+        help=(
+            "Re-derive Bronze objects the table already holds, appending them once more under "
+            "this label (for example after the contract gained columns). Omit for a normal load "
+            "(root ADR-0120)."
+        ),
     )
     parser.add_argument(
         "--validate-only",
@@ -1014,6 +1023,7 @@ def write_silver_iceberg(
         table,
         RUN_SUMMARY_CONTRACT,
         write_mode=args.iceberg_write_mode,
+        derivation=args.derivation,
     )
     return added_columns, outcome
 
@@ -1043,17 +1053,27 @@ def read_iceberg_snapshot_for_batch(
 ) -> DataFrame:
     """Reads back only the rows this run appended.
 
-    Filtered on the source object, not on `source_snapshot_id`. The snapshot id names the
-    provider's extract, so every object of one extract carries the same value and a second
-    batch would read the first batch's rows back as its own — then fail the count check that
-    follows, reporting a write problem where there is none.
+    Filtered on the extract and the moment this batch entered the lakehouse together. The
+    snapshot id alone names the provider's extract, so a second batch of the same extract would
+    read the first batch's rows as its own. The raw `source_record_id` list cannot be the filter
+    either: this table writes one value per row (`...#{code}`), so the 1,442 rows of one object
+    exceed the per-batch limit and every run was refused after its write decision (root
+    ADR-0120). Each export stamps one `ingested_at_utc`, so the pair names exactly this batch,
+    re-derivations included.
     """
-    record_ids = batch_source_record_ids(silver)
-    return (
-        spark.table(qualified_iceberg_table(args))
-        .where(F.col("source_record_id").isin(record_ids))
-        .select(*SILVER_COLUMNS)
-    )
+    keys = [
+        (row.source_snapshot_id, row.ingested_at_utc)
+        for row in silver.select("source_snapshot_id", "ingested_at_utc").distinct().collect()
+    ]
+    if not keys:
+        raise ValueError("Cannot read back a batch that carries no rows")
+    batch = None
+    for snapshot_id, ingested_at in keys:
+        match = (F.col("source_snapshot_id") == snapshot_id) & (
+            F.col("ingested_at_utc") == ingested_at
+        )
+        batch = match if batch is None else batch | match
+    return spark.table(qualified_iceberg_table(args)).where(batch).select(*SILVER_COLUMNS)
 
 
 def main() -> int:

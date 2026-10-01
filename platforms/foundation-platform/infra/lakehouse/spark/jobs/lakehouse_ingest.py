@@ -231,6 +231,36 @@ def batch_load_identities(
     return identities
 
 
+# Separates a load identity from the derivation it was appended under. Neither it nor the object
+# separator may appear in a derivation label, so `object@label` always splits back the same way.
+DERIVATION_SEPARATOR = "@"
+
+
+def identities_under_derivation(identities: Sequence[str], derivation: str | None) -> list[str]:
+    """Name a batch by its objects and, when given, the derivation it is appended under.
+
+    The registry answers "has this object been appended?", and for a given way of deriving rows
+    that answer must stay yes forever (ADR-0062). But the way rows are derived changes: a contract
+    gains columns, and the same source object then yields rows the table has never held. Without a
+    second key there is no honest way to append them: the object reads as loaded, and the only
+    alternatives are rewriting rows in place or renaming the object, both forbidden.
+
+    `derivation` is that second key, given by the operator on the run that re-derives, so the
+    same object is appended once per derivation and a repeated run of that derivation is still
+    skipped. Absent, identities are exactly what they were, so no existing load changes meaning
+    (root ADR-0120).
+    """
+    if derivation is None:
+        return list(identities)
+    label = derivation.strip()
+    if not label or DERIVATION_SEPARATOR in label or OBJECT_NAME_SEPARATOR in label:
+        raise ValueError(
+            f"A derivation label must be non-empty and hold neither {DERIVATION_SEPARATOR!r} nor "
+            f"{OBJECT_NAME_SEPARATOR!r}: {derivation!r}"
+        )
+    return sorted(f"{identity}{DERIVATION_SEPARATOR}{label}" for identity in identities)
+
+
 def unquoted_table_name(qualified_table: str) -> str:
     """Strip the identifier quotes a `spark.sql` name carries.
 
@@ -250,6 +280,7 @@ def append_batch_once(
     qualified_table: str,
     contract_table: str,
     write_mode: str = "append",
+    derivation: str | None = None,
 ) -> dict[str, Any]:
     """Append this batch, or report that the table already holds it.
 
@@ -267,8 +298,13 @@ def append_batch_once(
     Returns what happened, so the caller can log its own line without repeating the decision:
     `appended` says whether rows were written, `record_ids` and `token` name the batch, and
     `existing_snapshot` is the snapshot that already holds it when nothing was written.
+
+    `derivation` re-derives objects the table already holds under a new label; see
+    `identities_under_derivation`.
     """
-    record_ids = batch_load_identities(frame, contract_table)
+    record_ids = identities_under_derivation(
+        batch_load_identities(frame, contract_table), derivation
+    )
     token = ingest_batch_token(record_ids)
     unquoted = unquoted_table_name(qualified_table)
     ingested = read_ingested_objects(spark, qualified_table, unquoted)
