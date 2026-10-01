@@ -77,10 +77,12 @@ spark() {
 json_field() { python3 -c "import json,sys; print(json.load(open(sys.argv[1]))$2)" "$1"; }
 
 # 0. 계보 표가 아직 없으면(9월 필지 적재 전) 할 일이 없다 — 조용히 넘기지 않고 그렇다고 남긴다.
-set +e
-spark lineage_review_queue_to_gold.py --probe-only --summary-output "${container_work}/probe.json"
-probe_rc=$?
-set -e
+# `|| probe_rc=$?`, not `set +e`: the ERR trap fires even with errexit off, so "no lineage yet"
+# (exit 3) was logged and posted to Slack as a failure on every run (found 2026-10-01). A command
+# on the left of `||` does not trip the trap.
+probe_rc=0
+spark lineage_review_queue_to_gold.py --probe-only --summary-output "${container_work}/probe.json" \
+  || probe_rc=$?
 if [ "${probe_rc}" = 3 ]; then
   printf '%s stewardship waiting: silver.parcel_lineage does not exist yet\n' "$(date -u +%FT%TZ)" >> "${journal}"
   notify_slack "⏳ 필지 계보 검토: 계보 표가 아직 없음 — 필지 스냅숏 적재 뒤 자동 시작"
