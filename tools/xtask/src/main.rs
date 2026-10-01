@@ -427,6 +427,21 @@ const AREAS: &[Area] = &[
                 ],
                 covers: &["infra/lakehouse/spark/tests"],
             },
+            // The scheduled-job list and the runner that executes it (root ADR-0122).
+            PythonTests {
+                dir: ".",
+                python_path: None,
+                args: &[
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "orchestration/tests",
+                    "-p",
+                    "test_*.py",
+                ],
+                covers: &["orchestration/tests"],
+            },
             // The two suites below belonged to no runner until ADR-0011. The dbt
             // contract tests had never executed at all: not in a workflow, not in
             // `lefthook.yml`, not here. Twenty-five of their twenty-six assertions

@@ -273,7 +273,7 @@ Silver·Gold **32표**,
 | 공짱 이벤트 수신기 (`gongzzang-catalog-consumer-receiver`) | 상태 미확인 | 공짱에서 카탈로그 변경을 수신한다. 배포된 수신기 검증은 별도 증거가 필요하다. |
 | 다우니어 이벤트 수신기 (`dawneer-catalog-consumer-receiver`) | 상태 미확인 | 다우니어 수신 계약이며 실제 배포 상태는 확인되지 않았다. |
 | 운영 계보 수신기 (`openlineage-production-receiver`) | 운영 증거 없음 | 운영 수신·보존 증거가 아직 첨부되지 않았다. |
-| 전체 파이프라인 운영 조율 (`production-orchestrator`) | 운영 증거 없음 | 매일 수집 타이머와 별개로 전체 변환의 재시도·배압 운영 증거가 아직 없다. |
+| 전체 파이프라인 운영 조율 (`production-orchestrator`) | 일부 연결 | Airflow 3 이 작업 목록(orchestration/jobs.v1.json)의 예약 작업을 작업마다 컨테이너 하나로 돌리고 실행 계보를 데이터 카탈로그로 보낸다(루트 ADR-0118, ADR-0122). 옮겨진 작업만 Airflow 가 돌고 나머지는 아직 systemd 타이머다. |
 | 배포된 수신기 종단 검증 (`consumer-deployed-receiver-e2e`) | 증거 미충족 | 카탈로그 변경이 배포된 제품 수신기에서 처리된 증거가 필요하다. |
 | 운영 관측 화면 배포 (`production-dashboard-deployment`) | 운영 증거 없음 | 실제 배포된 대시보드와 알림 경로 증거가 필요하다. |
 | 릴리스 공급망 검사 (`supply-chain-release-gates`) | 승인 증거 필요 | 릴리스 차단·서명·소프트웨어 구성 명세의 승인 증거를 요구한다. |

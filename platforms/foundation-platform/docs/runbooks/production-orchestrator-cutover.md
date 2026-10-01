@@ -2,61 +2,63 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-01
 ---
 
-# 운영 Orchestrator 전환
+# 예약 작업 운영 (Airflow)
 
-## 목적
+[ADR-0118](../../../../docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md),
+[ADR-0122](../../../../docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md).
+Airflow 가 일정·재시도·실행 이력·계보를 맡고, 작업 자체는 지금처럼 systemd 서비스가 돌린다.
 
-Foundation Platform이 lakehouse 수집·projection 작업을 수동 CLI 실행에서 운영 orchestrator로
-옮길 때 이 런북을 사용한다. orchestrator는 스케줄·재시도·의존성 순서·운영자 가시성을 맡지만
-카탈로그 데이터의 정본이 되지는 않는다.
+## 어디에 무엇이 있나
 
-## 승인 게이트
+| 무엇 | 정본 |
+|---|---|
+| 작업이 무엇을 어떤 계정·환경으로 돌리나 | `infra/systemd/*.service` |
+| 언제 돌리나, 자원 묶음, 데이터 지도 연결, Airflow 가 돌리나(`enabled`) | `orchestration/jobs.v1.json` |
+| DAG | `orchestration/dags/foundation_jobs.py` (작업 목록에서 만들어짐) |
+| Airflow 컨테이너 | `compose.orchestration.yml`, 실행은 `scripts/deploy/airflow-runtime.sh` |
+| 서버 쪽 권한 | `foundation-release.sh timers` 가 만드는 계정 `foundation-scheduler`, `/etc/sudoers.d/foundation-scheduler` |
+| Airflow 가 서버에서 돌릴 수 있는 유일한 명령 | `scripts/ops/start-scheduled-job.sh` |
 
-구현 선택을 승인하기 전에는 운영 orchestrator로 전환하지 않는다. Temporal·Dagster·Airflow 또는
-다른 runtime을 도입하면 패키지·인프라·운영 상태가 추가될 수 있다. 운영 스케줄을 켜기 전에
-결정을 ADR에 기록한다.
+## 처음 설치
 
-## 사전 조건
+```bash
+# 1. 로그인 앱(staff-console-applications.v1.json 의 airflow)을 Zitadel 에 만든다
+cd ~/identity-platform/current && bash infra/zitadel/configure-zitadel.sh
+# 2. 비밀값과 스케줄러 SSH 열쇠를 만든다 (값은 출력되지 않는다)
+bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh init-secrets
+# 3. Airflow 를 띄운다 (API·풀·DAG 켜짐 상태·Zitadel 로그인까지 확인)
+bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh up -d
+# 4. 서버 쪽 계정·열쇠·sudo 허용과 타이머를 맞춘다 (열쇠는 Airflow 망에서만 쓰인다)
+sudo -n /opt/foundation-platform/current/scripts/deploy/foundation-release.sh timers ~/airflow-state/scheduler_ed25519.pub
+# 5. 직원 계정을 미리 등록한다
+bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh provision admin@perfectory.io
+```
 
-- 정본 입력·출력 계약이 `crates/lakehouse/lakehouse-domain/src/lakehouse.rs`에 문서화되어 있다.
-- lakehouse smoke 흐름이 통과한다(Docker Spark 프로필에서 `infra/lakehouse/spark/jobs/`의
-  Spark 작업을 로컬 실행하는 cargo 테스트 포함).
-- `infra/lakehouse/spark/jobs/`의 lakehouse 작업 정의가 갱신·검토되었다(의존성 순서: Bronze→
-  Silver, Silver→Gold, gold-pointer publish).
-- 선택한 orchestrator의 소유자·배포 대상·롤백 경로·감사 로그가 문서화되어 있다.
-- 모든 스케줄 작업에 멱등 run ID·source snapshot ID·대상 테이블·예상 행 수가 있다.
+화면은 `http://127.0.0.1:19080` (SSH 터널). 로그인은 Zitadel 만 된다.
 
-> 2026-06-21 note: the former local pre-runtime manifest runner, the
-> `infra/orchestration/foundation-platform-lakehouse.jobs.yml` manifest, the GitHub `workflow_dispatch`
-> cutover-evidence path, and the dispatch/fetch helper scripts were all removed as ceremony. The
-> production orchestrator runtime itself is still unimplemented; when it is adopted, drive it from
-> the Spark jobs under `infra/lakehouse/spark/jobs/` and the `foundation-outbox-publisher`
-> publish subcommands, and record the runtime and rollback decisions in an ADR.
+## 작업 하나를 Airflow 로 옮기기
 
-## 전환 계획
+1. 꺼진 상태 그대로 한 번 돌려 본다: `airflow-runtime.sh exec airflow-scheduler airflow dags test foundation_<id>`.
+   타이머와 겹치지 않는 시각에 한다. 아직 꺼진 작업은 서버의 허용 목록에 없으므로, 이 시험은 시작 단계에서
+   거부되는 것이 정상이다 — 끝까지 돌리려면 2를 먼저 한다.
+2. 한 변경에서: `jobs.v1.json` 의 `enabled` 를 `true` 로, `infra/systemd/<timer>` 를 지우고, `foundation-release.sh`
+   `timers` 의 설치·켜기 목록에서 그 타이머를 뺀다. 시험(`orchestration/tests`)이 둘 중 하나만 바뀐 변경을 막는다.
+3. 병합 뒤 배포: `install` → `migrate` → `airflow-runtime.sh up -d`(DAG 켜짐) → `timers`(서버 타이머 끄기·허용 목록 갱신).
 
-1. 기존 수동 명령을 실행하고 batch 감사 행을 기록한다.
-2. 같은 작업을 스케줄 비활성 상태로 orchestrator에 등록한다.
-3. smoke 또는 staging 대상을 대상으로 임시 orchestrated 실행을 한 번 수행한다.
-4. 재시도 정책·timeout·취소·운영자 로그를 확인한다.
-5. orchestrated 출력이 수동 출력과 일치한 뒤에만 스케줄을 켠다.
-6. 수동 명령을 롤백 경로로 문서화해 유지한다.
+## 확인
 
-## 재시도·Backoff
+```bash
+airflow-runtime.sh exec airflow-scheduler airflow dags list-runs foundation_outbox_publish -o plain | head
+systemctl list-timers --all | grep foundation        # 옮긴 작업의 타이머는 없어야 한다
+journalctl -u foundation-outbox-publish.service -n 20 # Airflow 가 시작한 실행도 여기에 남는다
+```
 
-- 공급자·저장소·데이터베이스의 일시적 실패만 재시도한다.
-- 운영자 조치 없이 결정적 검증 실패를 재시도하지 않는다.
-- 명시적 최대 시도 횟수의 bounded retry를 사용한다.
-- 모든 실패 시도를 실행 요약 또는 감사 로그에 보존한다.
+데이터 카탈로그(DataHub)에서 작업 `foundation_<id>` 의 실행과 입력·출력이 보인다.
 
-## 롤백
+## 되돌리기
 
-orchestrated 실행이 수동 실행과 달라지면:
-
-1. orchestrator 스케줄을 끈다.
-2. 소비자는 이전의 검증된 포인터를 계속 사용하게 한다.
-3. 입력 쿼터·쓰기 승인 게이트가 허용할 때만 수동 명령을 실행한다.
-4. 장애 기록에 orchestrator run ID·source snapshot ID·실패 검증 출력을 첨부한다.
+`jobs.v1.json` 의 `enabled` 를 `false` 로, 타이머 파일과 `timers` 목록을 되살린 변경을 배포한다. `timers` 가 타이머를
+다시 켜고 허용 목록에서 그 서비스를 뺀다. Airflow 는 다음 `up` 에서 DAG 를 멈춘다.

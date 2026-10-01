@@ -17,6 +17,14 @@
       "post_logout_redirect_uris": ["http://127.0.0.1:19002/"],
       "dev_mode": true,
       "dev_mode_reason": "The trial catalog is reached from a staff laptop over an SSH tunnel on the loopback; a public https origin turns this off."
+    },
+    {
+      "name": "airflow",
+      "display": "Airflow data-job scheduler",
+      "redirect_uris": ["http://127.0.0.1:19080/auth/oauth-authorized/zitadel"],
+      "post_logout_redirect_uris": ["http://127.0.0.1:19080/"],
+      "dev_mode": true,
+      "dev_mode_reason": "The scheduler UI is reached from a staff laptop over an SSH tunnel on the loopback (root ADR-0122); a public https origin turns this off."
     }
   ]
 }

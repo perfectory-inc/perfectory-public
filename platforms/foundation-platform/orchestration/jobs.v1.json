@@ -1,0 +1,80 @@
+{
+  "schema_version": "foundation-platform.orchestration_jobs.v1",
+  "description": "Every scheduled data job (root ADR-0118, ADR-0122). What a job runs, as whom, with which environment and time limit is its systemd service in infra/systemd and nowhere else. This list adds when it runs, its resource pool, the pipeline-graph edges it carries out (its lineage, read from docs/catalog/pipeline-graph.v1.json) and whether Airflow runs it yet.",
+  "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
+  "jobs": [
+    {
+      "id": "source_sweep",
+      "description": "Daily source sweep: re-plan the provider list, skip files already held by fingerprint, land new ones in Bronze (root ADR-0077).",
+      "systemd_service": "foundation-source-sweep.service",
+      "systemd_timer": "foundation-source-sweep.timer",
+      "schedule": "40 3 * * *",
+      "timeout_minutes": 250,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "daily-source-sweep-to-source-building-hub-bulk"
+      ],
+      "enabled": false
+    },
+    {
+      "id": "outbox_publish",
+      "description": "Outbox publish tick: deliver pending catalog events to their receivers (root ADR-0079).",
+      "systemd_service": "foundation-outbox-publish.service",
+      "systemd_timer": "foundation-outbox-publish.timer",
+      "schedule": "0,30 * * * *",
+      "timeout_minutes": 20,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "outbox-catalog-event-fanout-to-event-fabric-registry",
+        "outbox-catalog-event-fanout-to-gongzzang-catalog-consumer-receiver",
+        "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "map_edit_fold_admin",
+      "description": "Fold staff polygon edits into the administrative boundary tiles (root ADR-0112).",
+      "systemd_service": "foundation-map-edit-fold@admin.service",
+      "systemd_timer": "foundation-map-edit-fold-admin.timer",
+      "schedule": "35 * * * *",
+      "timeout_minutes": 130,
+      "pool": "spark",
+      "pipeline_graph_edges": [
+        "map-edit-store-to-silver-map-edit-ledger",
+        "silver-map-edit-ledger-to-gold-administrative-boundary-served",
+        "gold-administrative-boundary-served-to-admin-tiles"
+      ],
+      "enabled": false
+    },
+    {
+      "id": "map_edit_fold_complex",
+      "description": "Fold staff polygon edits into the industrial complex tiles (root ADR-0112).",
+      "systemd_service": "foundation-map-edit-fold@complex.service",
+      "systemd_timer": "foundation-map-edit-fold-complex.timer",
+      "schedule": "5 * * * *",
+      "timeout_minutes": 130,
+      "pool": "spark",
+      "pipeline_graph_edges": [
+        "map-edit-store-to-silver-map-edit-ledger",
+        "silver-map-edit-ledger-to-gold-industrial-complex-boundary-served",
+        "gold-industrial-complex-boundary-served-to-complex-tiles"
+      ],
+      "enabled": false
+    },
+    {
+      "id": "lineage_stewardship",
+      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115).",
+      "systemd_service": "foundation-lineage-stewardship.service",
+      "systemd_timer": "foundation-lineage-stewardship.timer",
+      "schedule": "50 6 * * *",
+      "timeout_minutes": 130,
+      "pool": "spark",
+      "pipeline_graph_edges": [
+        "serving-lineage-stewardship-to-silver-parcel-lineage",
+        "silver-parcel-lineage-to-gold-lineage-review-queue",
+        "gold-lineage-review-queue-to-serving-lineage-stewardship"
+      ],
+      "enabled": false
+    }
+  ]
+}

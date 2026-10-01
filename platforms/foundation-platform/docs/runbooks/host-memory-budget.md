@@ -39,7 +39,8 @@ PERFECTORY_MEMORY_BUDGET_VERBOSE=1 bash scripts/guard/every-container-has-a-memo
 |---|---|---|
 | Trino | 16g (힙 12.8GB, 질의당 8GB) | 보관된 질의 100개 중 가장 큰 것이 7.0GB(2026-09-25). 질의 한도는 `infra/lakehouse/trino/config.properties` |
 | Spark | 20g (드라이버 힙 16g) | 아래 "Spark 측정" |
-| DataHub 7개 | 합계 7.3g (+ 업그레이드 작업 1g) | 실측 약 4.5GB |
+| DataHub 7개 | 합계 7.1g (+ 업그레이드 작업 1g) | 실측 약 4.5GB. actions 는 137MB 를 써서 512m |
+| Airflow 5개 | 합계 2.8g (+ DB 이전 작업 1g) | 2026-10-01 실측 합계 약 0.75GB |
 | Foundation PostgreSQL | 4g | `shared_buffers` 160MB, 실측 165MB. 대량 적재 때의 작업 메모리와 페이지 캐시를 위한 여유 |
 
 ### Spark 측정
