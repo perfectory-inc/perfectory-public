@@ -104,3 +104,5 @@
 ---
 
 2026-10-01 각주: §3·§4 의 "사람이 보는 곳" 은 [ADR-0119](./0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md) 가 더니어로 구체화했다(DataHub 화면은 관리자 전용).
+
+2026-10-01 각주: §2 의 정본 방향은 [ADR-0123](./0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md) 이 바꿨다 — ODCS 계약은 Rust 레이크하우스 계약과 데이터 지도에서 생성한다.
