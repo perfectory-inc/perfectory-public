@@ -377,9 +377,16 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
         print(job["systemd_timer"])
 ' "${jobs_file}")
     install_scheduler_access "${jobs_file}" "${2:-}"
-    # Working directories the fold and the stewardship cycle write, whoever starts them.
+    # Working directories the fold and the stewardship cycle write, whoever starts them. Their
+    # lakehouse workspaces are written by the Spark container too (uid 185), so they are 0777:
+    # the stewardship one was made 0755 by the script itself, Spark's write check refused it, and
+    # the cycle failed at its first step on every run (found 2026-10-01). The fold's had been
+    # made 0777 by hand from its runbook.
     install -d -o foundation-platform -g foundation-platform \
       /var/lib/foundation-platform/map-edit-fold /var/lib/foundation-platform/lineage-stewardship
+    install -d -o foundation-platform -g foundation-platform -m 0777 \
+      /var/lib/foundation-platform/map-edit-fold/lakehouse \
+      /var/lib/foundation-platform/lineage-stewardship/lakehouse
     systemctl daemon-reload
     # The database backup is host infrastructure, not a data job: it stays a systemd timer
     # (root ADR-0118 §1). Every data job is started by Airflow (root ADR-0122).
