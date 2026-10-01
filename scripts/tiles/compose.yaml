@@ -3,6 +3,7 @@ x-perfectory-contract-image-owner: scripts/tiles/tiles-slice-proof.sh
 services:
   postgis:
     image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+    mem_limit: 2g
     environment:
       POSTGRES_DB: tiles_slice_proof
       POSTGRES_PASSWORD: ${TILES_SLICE_POSTGRES_PASSWORD:?tiles-slice-proof must provide a disposable password}
@@ -20,6 +21,7 @@ services:
 
   dynamic-martin:
     image: ${PERFECTORY_MARTIN_IMAGE:?load the static-release toolchain contract}
+    mem_limit: 512m
     command:
       - --config
       - /etc/martin/config.yaml
@@ -43,6 +45,7 @@ services:
 
   static-martin:
     image: ${PERFECTORY_MARTIN_IMAGE:?load the static-release toolchain contract}
+    mem_limit: 512m
     profiles:
       - static
     command:

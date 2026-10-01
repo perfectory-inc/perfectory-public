@@ -29,7 +29,9 @@ WORK_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-$HOME/lakehouse-state}"
 IVY_CACHE="${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-$HOME/lakehouse-ivy}"
 RELEASE="${FOUNDATION_PLATFORM_RELEASE_DIR:-/opt/foundation-platform/current}"
 FILES_PER_BATCH="${FILES_PER_BATCH:-16}"
-DRIVER_MEM="${DRIVER_MEM:-24g}"
+# 16g is measured, not chosen: both national loads pass at it, and the spark service's mem_limit
+# (compose.lakehouse.yml) is sized for it. Raising it means raising that cap and the host budget.
+DRIVER_MEM="${DRIVER_MEM:-16g}"
 TASKS="${TASKS:-8}"
 COMPOSE_PROJECT="${COMPOSE_PROJECT:-foundation-platform-compute}"
 

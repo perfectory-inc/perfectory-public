@@ -25,7 +25,9 @@ RELEASE="${FOUNDATION_PLATFORM_RELEASE_DIR:-/opt/foundation-platform/current}"
 CONTRACT_FILE="${LAND_USE_PLAN_SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-land-use-plan-source-objects.json}"
 ZONE_CODE_CONTRACT="${LAND_USE_ZONE_CODE_SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-land-use-zone-code-source-objects.json}"
 FILES_PER_BATCH="${FILES_PER_BATCH:-4}"
-DRIVER_MEM="${DRIVER_MEM:-24g}"
+# 16g is measured, not chosen: both national loads pass at it, and the spark service's mem_limit
+# (compose.lakehouse.yml) is sized for it. Raising it means raising that cap and the host budget.
+DRIVER_MEM="${DRIVER_MEM:-16g}"
 TASKS="${TASKS:-8}"
 COMPOSE_PROJECT="${COMPOSE_PROJECT:-foundation-platform-compute}"
 
