@@ -907,6 +907,14 @@ export interface components {
             development_progress_percent?: string | null;
             /** @description Stated purpose the complex was developed for, in the source's own words. */
             development_purpose_raw?: string | null;
+            /**
+             * @description How far site formation has got, one value per word the source states (root ADR-0121).
+             *
+             *     Wire values: `site_completed` (조성완료), `site_in_progress` (조성중), `preparing` (준비중),
+             *     `compensating` (보상중). `null` when the complex has no source row or was loaded before
+             *     the column existed.
+             */
+            development_stage?: string | null;
             gold_pointer?: null | components["schemas"]["IndustrialComplexGoldPointerResponse"];
             /**
              * Format: uuid
@@ -961,11 +969,15 @@ export interface components {
             /** @description City/county/district administrative code, when one was sourced. */
             sigungu_code?: string | null;
             /**
+             * @deprecated
              * @description Where the complex is in its development lifecycle.
              *
              *     Wire values: `planned`, `developing`, `operating`, `changed`, `abolished`, `unknown`.
              *     `unknown` and `null` are different answers — `unknown` means the source stated a lifecycle
              *     this contract does not recognize, `null` means it stated none.
+             *
+             *     Deprecated: it merges the source's `준비중` and `보상중` into `planned` and calls `조성완료`
+             *     `operating`. Read `development_stage` (root ADR-0121); this field goes once consumers move.
              */
             status?: string | null;
             /**
@@ -1943,8 +1955,13 @@ export interface operations {
                 q?: string;
                 /** @description Two-digit province code */
                 sido_code?: string;
-                /** @description Comma-separated development lifecycle filter: planned, developing, operating, changed, abolished, unknown */
+                /**
+                 * @deprecated
+                 * @description Deprecated (root ADR-0121): comma-separated development lifecycle filter: planned, developing, operating, changed, abolished, unknown. Use development_stage.
+                 */
                 status?: string;
+                /** @description Comma-separated development stage filter: site_completed (조성완료), site_in_progress (조성중), preparing (준비중), compensating (보상중) */
+                development_stage?: string;
                 /** @description Zero-indexed page number (default 0) */
                 page?: number;
                 /** @description Page size (default 20, maximum 100) */

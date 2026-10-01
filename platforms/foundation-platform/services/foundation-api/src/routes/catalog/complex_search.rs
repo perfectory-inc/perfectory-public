@@ -11,8 +11,8 @@ use std::sync::Arc;
 use axum::extract::{Query, State};
 use axum::Json;
 use catalog_application::complex_search::{
-    parse_status_filter, ComplexSearchPaging, ComplexSearchQuery, ComplexSearchQueryError,
-    ComplexSearchSort, ComplexSearchText, SidoCodeFilter,
+    parse_development_stage_filter, parse_status_filter, ComplexSearchPaging, ComplexSearchQuery,
+    ComplexSearchQueryError, ComplexSearchSort, ComplexSearchText, SidoCodeFilter,
 };
 use catalog_application::ports::CatalogRepository;
 use foundation_contracts::catalog::IndustrialComplexListResponse;
@@ -33,8 +33,11 @@ pub struct ListComplexesQuery {
     pub q: Option<String>,
     /// Two-digit province code the complex's resolved address falls in.
     pub sido_code: Option<String>,
-    /// Development lifecycle filter, comma-separated (e.g. `"operating,developing"`).
+    /// Development lifecycle filter, comma-separated (e.g. `"operating,developing"`). Deprecated
+    /// with `status` (root ADR-0121); use `development_stage`.
     pub status: Option<String>,
+    /// Development stage filter, comma-separated (e.g. `"preparing,compensating"`).
+    pub development_stage: Option<String>,
     /// Zero-indexed page number (default `0`).
     pub page: Option<u32>,
     /// Page size (default `20`, maximum `100`).
@@ -68,6 +71,12 @@ impl ListComplexesQuery {
                 .map(parse_status_filter)
                 .transpose()?
                 .unwrap_or_default(),
+            development_stages: self
+                .development_stage
+                .as_deref()
+                .map(parse_development_stage_filter)
+                .transpose()?
+                .unwrap_or_default(),
             paging: ComplexSearchPaging::try_new(self.page, self.size)?,
             sort: self
                 .sort
@@ -91,7 +100,8 @@ impl ListComplexesQuery {
     params(
         ("q" = Option<String>, Query, description = "Substring of the complex name or official complex code"),
         ("sido_code" = Option<String>, Query, description = "Two-digit province code", min_length = 2, max_length = 2, pattern = "^[0-9]{2}$"),
-        ("status" = Option<String>, Query, description = "Comma-separated development lifecycle filter: planned, developing, operating, changed, abolished, unknown"),
+        ("status" = Option<String>, Query, deprecated, description = "Deprecated (root ADR-0121): comma-separated development lifecycle filter: planned, developing, operating, changed, abolished, unknown. Use development_stage."),
+        ("development_stage" = Option<String>, Query, description = "Comma-separated development stage filter: site_completed (조성완료), site_in_progress (조성중), preparing (준비중), compensating (보상중)"),
         ("page" = Option<u32>, Query, description = "Zero-indexed page number (default 0)"),
         ("size" = Option<u32>, Query, description = "Page size (default 20, maximum 100)", minimum = 1, maximum = 100),
         ("sort" = Option<String>, Query, description = "name_asc (default) | area_desc | official_complex_code_asc")
@@ -149,6 +159,7 @@ mod tests {
             q: q.map(ToOwned::to_owned),
             sido_code: sido_code.map(ToOwned::to_owned),
             status: status.map(ToOwned::to_owned),
+            development_stage: None,
             page,
             size,
             sort: sort.map(ToOwned::to_owned),

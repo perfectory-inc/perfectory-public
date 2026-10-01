@@ -7,7 +7,8 @@
 use std::sync::Arc;
 
 use catalog_domain::{
-    CatalogError, IndustrialComplexKind, IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
+    CatalogError, IndustrialComplexDevelopmentStage, IndustrialComplexKind,
+    IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::LakehouseComplexId;
@@ -73,6 +74,8 @@ pub struct IndustrialComplexCatalogRow {
     pub development_purpose_raw: Option<String>,
     /// Industry types the complex set out to attract, verbatim.
     pub invited_industries_raw: Option<String>,
+    /// Development stage the source stated (root ADR-0121).
+    pub development_stage: Option<IndustrialComplexDevelopmentStage>,
     /// The source's words for `kind`, trimmed (root ADR-0117 §5).
     pub kind_raw: Option<String>,
     /// The source's words for `status`, trimmed.
@@ -222,6 +225,7 @@ fn catalog_row_to_upsert_command(
         development_method_raw: row.development_method_raw.clone(),
         development_purpose_raw: row.development_purpose_raw.clone(),
         invited_industries_raw: row.invited_industries_raw.clone(),
+        development_stage: row.development_stage,
         kind_raw: row.kind_raw.clone(),
         status_raw: row.status_raw.clone(),
         lot_sales_status_raw: row.lot_sales_status_raw.clone(),
@@ -259,6 +263,7 @@ mod tests {
             development_method_raw: None,
             development_purpose_raw: None,
             invited_industries_raw: None,
+            development_stage: None,
             kind_raw: None,
             status_raw: None,
             lot_sales_status_raw: None,

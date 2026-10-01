@@ -257,6 +257,7 @@ def build_gold_catalog_frame(
         F.col("complex_name").alias("name"),
         F.col("complex_kind").alias("kind"),
         F.col("status"),
+        F.col("development_stage"),
         F.col("complex_kind_raw").alias("kind_raw"),
         F.col("status_raw"),
         F.col("sido_code"),
@@ -590,6 +591,9 @@ def column_lineage() -> list[dict[str, Any]]:
         ],
         "status": [
             {"dataset": SILVER_CONTRACT_NAME, "column": "status", "transform": "identity"}
+        ],
+        "development_stage": [
+            {"dataset": SILVER_CONTRACT_NAME, "column": "development_stage", "transform": "identity"}
         ],
         "kind_raw": [
             {"dataset": SILVER_CONTRACT_NAME, "column": "complex_kind_raw", "transform": "rename"}

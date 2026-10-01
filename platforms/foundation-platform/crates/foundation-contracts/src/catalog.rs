@@ -81,7 +81,17 @@ pub struct IndustrialComplexResponse {
     /// Wire values: `planned`, `developing`, `operating`, `changed`, `abolished`, `unknown`.
     /// `unknown` and `null` are different answers — `unknown` means the source stated a lifecycle
     /// this contract does not recognize, `null` means it stated none.
+    ///
+    /// Deprecated: it merges the source's `준비중` and `보상중` into `planned` and calls `조성완료`
+    /// `operating`. Read `development_stage` (root ADR-0121); this field goes once consumers move.
+    #[schema(deprecated)]
     pub status: Option<String>,
+    /// How far site formation has got, one value per word the source states (root ADR-0121).
+    ///
+    /// Wire values: `site_completed` (조성완료), `site_in_progress` (조성중), `preparing` (준비중),
+    /// `compensating` (보상중). `null` when the complex has no source row or was loaded before
+    /// the column existed.
+    pub development_stage: Option<String>,
     /// The source's own words for `kind` (for example `농공`), trimmed and otherwise verbatim.
     ///
     /// Show these to people; filter on the codes. Several source words can share one code, and

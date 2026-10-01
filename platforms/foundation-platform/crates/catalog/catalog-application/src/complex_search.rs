@@ -5,7 +5,7 @@
 //! [`ComplexSearchText`] cannot hold a pattern whose wildcards came from the caller — so a route
 //! that forgets to validate does not build a query that skips the bound, it fails to build one.
 
-use catalog_domain::IndustrialComplexStatus;
+use catalog_domain::{IndustrialComplexDevelopmentStage, IndustrialComplexStatus};
 use thiserror::Error;
 
 /// Page size served when the caller states none.
@@ -219,7 +219,10 @@ pub struct ComplexSearchQuery {
     /// answer, because such a complex is not known to be in any province.
     pub sido_code: Option<SidoCodeFilter>,
     /// Development lifecycle values to keep. Empty means every value, including none at all.
+    /// Deprecated with `status` (root ADR-0121).
     pub statuses: Vec<IndustrialComplexStatus>,
+    /// Development stages to keep. Empty means every stage, including none at all.
+    pub development_stages: Vec<IndustrialComplexDevelopmentStage>,
     /// Page and page size.
     pub paging: ComplexSearchPaging,
     /// Row order.
@@ -256,6 +259,28 @@ pub enum ComplexSearchQueryError {
     /// `status` named a lifecycle value the domain does not define.
     #[error("unknown status: {0:?}")]
     UnknownStatus(String),
+    /// `development_stage` named a stage the domain does not define.
+    #[error("unknown development_stage: {0:?}")]
+    UnknownDevelopmentStage(String),
+}
+
+/// Parses a comma-separated `development_stage` filter into domain values.
+///
+/// # Errors
+///
+/// Returns [`ComplexSearchQueryError::UnknownDevelopmentStage`] when an element is not a domain
+/// wire value.
+pub fn parse_development_stage_filter(
+    raw: &str,
+) -> Result<Vec<IndustrialComplexDevelopmentStage>, ComplexSearchQueryError> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            IndustrialComplexDevelopmentStage::from_wire(value)
+                .map_err(|_| ComplexSearchQueryError::UnknownDevelopmentStage(value.to_owned()))
+        })
+        .collect()
 }
 
 /// Parses a comma-separated `status` filter into domain values.
@@ -399,6 +424,24 @@ mod tests {
         assert_eq!(
             ComplexSearchSort::from_wire("price_asc"),
             Err(ComplexSearchQueryError::UnknownSort("price_asc".to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_development_stage_filter_parses_every_stage_and_refuses_the_rest() {
+        assert_eq!(
+            parse_development_stage_filter(" compensating,preparing ").expect("domain values"),
+            vec![
+                IndustrialComplexDevelopmentStage::Compensating,
+                IndustrialComplexDevelopmentStage::Preparing
+            ]
+        );
+        assert_eq!(
+            parse_development_stage_filter("planned"),
+            Err(ComplexSearchQueryError::UnknownDevelopmentStage(
+                "planned".to_owned()
+            )),
+            "a legacy status value is not a stage"
         );
     }
 

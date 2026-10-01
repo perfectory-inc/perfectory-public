@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **468개**
+- 문서 파일: **469개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 147 |
+| Monorepo | 148 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 205 |
+| ADR | 206 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -508,6 +508,7 @@ docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md
 docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md
 docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md
 docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md
+docs/adr/0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -667,6 +668,7 @@ tools/github/README.md
 | `docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

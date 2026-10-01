@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ago, COMPLEX_KIND_LABEL, COMPLEX_STATUS_LABEL, formatArea, formatBytes, label, sourceWord } from "./catalogLabels";
+import { ago, COMPLEX_KIND_LABEL, DEVELOPMENT_STAGE_LABEL, formatArea, formatBytes, label, sourceWord } from "./catalogLabels";
 
 describe("catalog labels", () => {
   it("says a known code in Korean and shows an unknown one as it is", () => {
@@ -24,8 +24,8 @@ describe("catalog labels", () => {
   });
 
   it("prefers the source's own word and falls back to the table only when it is absent", () => {
-    expect(sourceWord("보상중", COMPLEX_STATUS_LABEL, "planned")).toBe("보상중");
-    expect(sourceWord(null, COMPLEX_STATUS_LABEL, "planned")).toBe("준비·보상 중");
-    expect(sourceWord("  ", COMPLEX_STATUS_LABEL, "planned")).toBe("준비·보상 중");
+    expect(sourceWord("보상중", DEVELOPMENT_STAGE_LABEL, "compensating")).toBe("보상중");
+    expect(sourceWord(null, DEVELOPMENT_STAGE_LABEL, "compensating")).toBe("보상중");
+    expect(sourceWord("  ", DEVELOPMENT_STAGE_LABEL, "preparing")).toBe("준비중");
   });
 });

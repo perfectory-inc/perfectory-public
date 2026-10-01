@@ -3,7 +3,8 @@
 #![allow(clippy::err_expect, clippy::expect_used)]
 
 use catalog_domain::{
-    IndustrialComplexKind, IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
+    IndustrialComplexDevelopmentStage, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
+    IndustrialComplexStatus,
 };
 use chrono::{DateTime, Utc};
 use lakehouse_application::{
@@ -13,7 +14,8 @@ use lakehouse_application::{
     IndustrialComplexBronzeSourceRecord,
 };
 use lakehouse_domain::{
-    bronze_industrial_complexes_raw_jsonl_columns, INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
+    bronze_industrial_complexes_raw_jsonl_columns,
+    INDUSTRIAL_COMPLEX_DEVELOPMENT_STAGE_WIRE_VALUES, INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
     INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES, INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
 };
 use serde_json::Value;
@@ -1002,17 +1004,13 @@ fn exported_kind_domain_matches_the_catalog_classification() -> TestResult {
 
 #[test]
 fn every_mapped_status_stays_inside_the_exported_domain() -> TestResult {
-    for (label, expected) in [
-        // The four labels the 202506 Bronze object actually produced, all 1,442 rows.
-        ("조성완료", "operating"),
-        ("조성중", "developing"),
-        ("준비중", "planned"),
-        ("보상중", "planned"),
-        // Labels no measured snapshot has produced yet.
-        ("계획", "planned"),
-        ("미개발", "planned"),
-        ("변경", "changed"),
-        ("폐지", "abolished"),
+    // The four labels the 202506 Bronze object actually produced, all 1,442 rows, and nothing
+    // else: a label no snapshot has produced is not mapped at all (root ADR-0121).
+    for (label, expected, stage) in [
+        ("조성완료", "operating", "site_completed"),
+        ("조성중", "developing", "site_in_progress"),
+        ("준비중", "planned", "preparing"),
+        ("보상중", "planned", "compensating"),
     ] {
         let mut record = source_record("111010");
         record.status_label = label.to_owned();
@@ -1028,6 +1026,62 @@ fn every_mapped_status_stays_inside_the_exported_domain() -> TestResult {
             })?;
         assert_eq!(rows[0].status, expected);
         assert!(INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES.contains(&expected));
+        assert_eq!(rows[0].development_stage, stage);
+        assert!(INDUSTRIAL_COMPLEX_DEVELOPMENT_STAGE_WIRE_VALUES.contains(&stage));
+    }
+    Ok(())
+}
+
+/// A word the source has never been seen to state stops the export instead of being guessed at.
+/// These are exactly the spellings the label tables once mapped by presumption (root ADR-0121).
+#[test]
+fn a_word_never_measured_stops_the_export_instead_of_being_guessed() -> TestResult {
+    for (kind_label, status_label) in [
+        ("국가", "개발완료"),
+        ("국가", "계획"),
+        ("국가", "폐지"),
+        ("국가산업단지", "조성완료"),
+        ("농공단지", "조성완료"),
+    ] {
+        let mut record = source_record("111010");
+        record.complex_kind_label = kind_label.to_owned();
+        record.status_label = status_label.to_owned();
+        let records = vec![record];
+        let addresses = address_book("111010")?;
+        let result =
+            normalize_industrial_complex_bronze_raw_rows(&IndustrialComplexBronzeRawRowsInput {
+                records: &records,
+                addresses: &addresses,
+                bronze_object_key: BRONZE_OBJECT_KEY,
+                source_slug: SOURCE_SLUG,
+                ingested_at_utc: ingested_at()?,
+            });
+        assert!(
+            matches!(
+                result,
+                Err(IndustrialComplexBronzeRawPlanError::InvalidInput(_))
+            ),
+            "{kind_label:?}/{status_label:?} was mapped without a measurement"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn exported_development_stage_domain_matches_the_catalog_stages() -> TestResult {
+    let mut expected = IndustrialComplexDevelopmentStage::ALL
+        .iter()
+        .map(|stage| stage.wire_name())
+        .collect::<Vec<_>>();
+    expected.sort_unstable();
+    let mut exported = INDUSTRIAL_COMPLEX_DEVELOPMENT_STAGE_WIRE_VALUES.to_vec();
+    exported.sort_unstable();
+    assert_eq!(exported, expected);
+    for wire in INDUSTRIAL_COMPLEX_DEVELOPMENT_STAGE_WIRE_VALUES {
+        assert_eq!(
+            IndustrialComplexDevelopmentStage::from_wire(wire)?.wire_name(),
+            *wire
+        );
     }
     Ok(())
 }

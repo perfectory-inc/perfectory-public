@@ -4,7 +4,8 @@ use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 use super::{canonical_area_m2, gold_columns_not_loaded, plan_catalog_rows};
 use catalog_domain::{
-    IndustrialComplexKind, IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
+    IndustrialComplexDevelopmentStage, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
+    IndustrialComplexStatus,
 };
 use chrono::NaiveDate;
 
@@ -15,6 +16,7 @@ fn gold_row(code: &str, kind: &str, official_area_sqm: JsonValue) -> JsonMap<Str
         "name": "Sourced Industrial Complex",
         "kind": kind,
         "status": "operating",
+        "development_stage": "site_completed",
         "kind_raw": "국가",
         "status_raw": "조성완료",
         "sido_code": "46",
@@ -128,6 +130,10 @@ fn the_sourced_description_columns_reach_the_canonical_row() -> anyhow::Result<(
         Some("sourced invited industries")
     );
     // The source's words travel beside the codes (root ADR-0117 §5).
+    assert_eq!(
+        row.development_stage,
+        Some(IndustrialComplexDevelopmentStage::SiteCompleted)
+    );
     assert_eq!(row.kind_raw.as_deref(), Some("국가"));
     assert_eq!(row.status_raw.as_deref(), Some("조성완료"));
     assert_eq!(row.lot_sales_status_raw.as_deref(), Some("분양완료"));
@@ -153,6 +159,7 @@ fn an_absent_description_column_becomes_null_rather_than_a_substitute() -> anyho
         "kind_raw",
         "status_raw",
         "lot_sales_status_raw",
+        "development_stage",
     ] {
         row.insert(column.to_owned(), JsonValue::Null);
     }
@@ -170,6 +177,7 @@ fn an_absent_description_column_becomes_null_rather_than_a_substitute() -> anyho
     assert_eq!(planned.development_purpose_raw, None);
     assert_eq!(planned.invited_industries_raw, None);
     assert_eq!(planned.construction_start_date, None);
+    assert_eq!(planned.development_stage, None);
     assert_eq!(planned.kind_raw, None);
     assert_eq!(planned.status_raw, None);
     assert_eq!(planned.lot_sales_status_raw, None);

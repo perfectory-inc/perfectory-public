@@ -157,6 +157,11 @@
           "required": true
         },
         {
+          "name": "development_stage",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "complex_kind_raw",
           "logical_type": "string",
           "required": false
@@ -1910,6 +1915,11 @@
           "name": "status",
           "logical_type": "string",
           "required": true
+        },
+        {
+          "name": "development_stage",
+          "logical_type": "string",
+          "required": false
         },
         {
           "name": "kind_raw",
@@ -3798,6 +3808,7 @@
         "complex_name",
         "complex_kind",
         "status",
+        "development_stage",
         "complex_kind_raw",
         "status_raw",
         "sido_code",
@@ -3842,6 +3853,12 @@
         "changed",
         "abolished",
         "unknown"
+      ],
+      "development_stage": [
+        "site_completed",
+        "site_in_progress",
+        "preparing",
+        "compensating"
       ],
       "lot_sales_status": [
         "planned",
