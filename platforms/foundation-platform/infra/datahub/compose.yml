@@ -208,6 +208,9 @@ services:
       retries: 12
       start_period: 1m0s
     mem_limit: 1g
+    # Same defect as opensearch below, smaller: the broker is PID 1 and left exited healthcheck
+    # processes unreaped too. Docker's init reaps them.
+    init: true
     volumes:
       - "broker:/var/lib/kafka/data"
     networks:
@@ -256,6 +259,10 @@ services:
       retries: 10
       start_period: 1m0s
     mem_limit: 1536m
+    # The image's own process is PID 1 and never reaps the healthcheck's children: on 2026-10-01
+    # OpenSearch held 9,110 exited curl processes after five hours (one every five seconds).
+    # Docker's init reaps them.
+    init: true
     volumes:
       - "osdata:/usr/share/opensearch/data"
     networks:

@@ -45,6 +45,7 @@ for g in hook-isolation-self-test \
          public-doc-boundary-self-test \
          tracked-blob-sizes-self-test public-repository-safety \
          container-runtime-policy-self-test container-runtime-policy \
+         every-container-has-a-memory-cap-self-test every-container-has-a-memory-cap \
          workflow-policy-self-test github-policy-json-self-test \
          repository-identity-policy-self-test \
          legal-publication-self-test \

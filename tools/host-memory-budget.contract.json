@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md",
+  "rule": "Every compose service states mem_limit. On the shared host, the caps of the services that stay up, plus the largest one-shot job, plus host_reserved, fit in physical_memory. The caps themselves live only in the compose files; this file names the host, which compose projects run there, and what is outside the caps.",
+  "host": {
+    "name": "ai-server",
+    "physical_memory": "62g",
+    "host_reserved": "5g",
+    "host_reserved_covers": "The OS, the Docker daemon and containerd, the publisher and fold binaries the systemd timers run outside containers, and the non-Docker AI services (Open WebUI, LiteLLM) at their measured size. Ollama is not covered: see uncapped.",
+    "uncapped": [
+      {
+        "what": "ollama.service",
+        "why": "A systemd service, not a container, with MemoryMax=infinity. Models larger than the 8GB GPU spill into host memory; the largest pulled model is 23GB. Left uncapped by decision on 2026-10-01: loading a large model while Spark loads can exhaust the host, and nothing here prevents it."
+      }
+    ]
+  },
+  "projects": [
+    {
+      "name": "foundation-platform-runtime",
+      "files": [
+        "platforms/foundation-platform/docker-compose.yml",
+        "platforms/foundation-platform/compose.recovery.yml",
+        "platforms/foundation-platform/compose.identity-bridge.yml",
+        "platforms/foundation-platform/compose.metadata-bridge.yml"
+      ],
+      "profiles": ["recovery"]
+    },
+    {
+      "name": "foundation-platform-compute",
+      "files": ["platforms/foundation-platform/compose.lakehouse.yml"],
+      "profiles": ["lakehouse-query", "lakehouse-batch"]
+    },
+    {
+      "name": "datahub",
+      "files": ["platforms/foundation-platform/infra/datahub/compose.yml"],
+      "profiles": []
+    },
+    {
+      "name": "identity-platform-runtime",
+      "files": [
+        "platforms/identity-platform/docker-compose.yml",
+        "platforms/identity-platform/compose.server.yml"
+      ],
+      "profiles": []
+    },
+    {
+      "name": "zitadel-platform",
+      "files": ["platforms/identity-platform/infra/zitadel/docker-compose.yml"],
+      "profiles": []
+    }
+  ],
+  "not_on_host": [
+    {
+      "files": ["scripts/tiles/compose.yaml"],
+      "why": "The tile slice proof stack runs on a developer machine or CI runner only. It still states caps: Docker Desktop's VM is the whole budget there."
+    }
+  ],
+  "outside_scope": [
+    {
+      "path_prefix": "products/gongzzang/",
+      "why": "Gongzzang's production runs on AWS and is not changed from here; its local compose files belong to that product's own decision."
+    }
+  ]
+}

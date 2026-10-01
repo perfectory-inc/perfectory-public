@@ -45,6 +45,7 @@ services:
 
   foundation-backup:
     image: foundation-postgres-recovery:local
+    mem_limit: 1g
     profiles:
       - recovery
     restart: "no"
@@ -62,6 +63,7 @@ services:
 
   foundation-restore-drill:
     image: foundation-postgres-recovery:local
+    mem_limit: 1g
     profiles:
       - recovery
     restart: "no"
@@ -75,6 +77,7 @@ services:
 
   foundation-restored-postgres:
     image: foundation-postgres-recovery:local
+    mem_limit: 2g
     profiles:
       - recovery
     restart: "no"

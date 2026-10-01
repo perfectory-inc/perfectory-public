@@ -269,7 +269,7 @@
 | `platforms/foundation-platform/docs/runbooks/r2-namespace-contamination-recovery.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/r2-vector-tile-manifest-smoke.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/README.md` | Foundation Platform | README | current | korean | ok | 3 |
-| `platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md` | Foundation Platform | runbook | current | mixed | ok | 2 |
 | `platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/slo-alert-policy.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current | mixed | ok | 0 |

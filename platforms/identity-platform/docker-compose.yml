@@ -1,6 +1,7 @@
 services:
   identity-db:
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    mem_limit: 512m
     environment:
       POSTGRES_DB: identity
       POSTGRES_USER: identity_admin
@@ -17,6 +18,7 @@ services:
 
   identity-bootstrap:
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    mem_limit: 256m
     restart: "no"
     user: "70:70"
     environment:
@@ -38,6 +40,7 @@ services:
 
   identity-database-migrator:
     image: identity-platform-runtime:local
+    mem_limit: 256m
     pull_policy: never
     restart: "no"
     entrypoint: ["/usr/local/bin/identity-database-migrator"]
@@ -49,6 +52,7 @@ services:
 
   identity-runtime-grants:
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    mem_limit: 256m
     restart: "no"
     user: "70:70"
     environment:
@@ -72,6 +76,7 @@ services:
 
   identity-workload-provisioner:
     image: identity-platform-runtime:local
+    mem_limit: 256m
     pull_policy: never
     restart: "no"
     entrypoint: ["/usr/local/bin/identity-service-provisioner"]
@@ -86,6 +91,7 @@ services:
 
   identity-finalize:
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    mem_limit: 256m
     restart: "no"
     user: "70:70"
     environment:
@@ -102,6 +108,7 @@ services:
 
   identity-api:
     image: identity-platform-runtime:local
+    mem_limit: 256m
     build:
       context: .
       dockerfile: services/identity-api/Dockerfile
@@ -129,6 +136,7 @@ services:
 
   identity-policy-worker:
     image: identity-platform-policy-worker:local
+    mem_limit: 256m
     build:
       context: .
       dockerfile: services/identity-policy-worker/Dockerfile
