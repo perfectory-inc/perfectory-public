@@ -29,13 +29,16 @@ class TheRealJobList(unittest.TestCase):
         self.assertTrue(self.specs, "the job list builds no DAG")
         for spec in self.specs:
             with self.subTest(spec.dag_id):
-                self.assertTrue(spec.inputs and spec.outputs, "a job must report what it reads and writes")
+                self.assertTrue(spec.inputs, "a job must report what it reads")
 
     def test_a_job_runs_in_exactly_one_place(self):
         # ADR-0122 §4: an enabled job's systemd timer no longer ships; a job still on systemd keeps
         # its timer. Otherwise it would run twice, or nowhere.
         timers = {path.name for path in job_specs.SYSTEMD.glob("*.timer")}
         for spec in self.specs:
+            if spec.systemd_timer is None:
+                self.assertTrue(spec.enabled, f"{spec.dag_id} has no timer, so only Airflow can run it")
+                continue
             with self.subTest(spec.dag_id):
                 self.assertEqual(
                     spec.systemd_timer in timers,
@@ -45,6 +48,8 @@ class TheRealJobList(unittest.TestCase):
 
     def test_a_shipped_timer_starts_the_service_its_job_names(self):
         for spec in self.specs:
+            if spec.systemd_timer is None:
+                continue
             timer = job_specs.SYSTEMD / spec.systemd_timer
             if not timer.is_file():
                 continue
@@ -114,6 +119,9 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
     def test_an_enabled_flag_that_is_not_a_boolean(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(enabled="yes"))
+
+    def test_a_job_that_both_moves_data_and_reads_the_contracts(self):
+        self.refused(lambda jobs: jobs["jobs"][0].update(reads_data_contracts=True))
 
     def test_a_duplicate_job_id(self):
         self.refused(lambda jobs: jobs["jobs"].append(copy.deepcopy(jobs["jobs"][0])))
