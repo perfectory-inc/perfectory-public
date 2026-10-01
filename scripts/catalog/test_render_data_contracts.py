@@ -12,9 +12,9 @@ spec = importlib.util.spec_from_file_location("render_data_contracts", HERE / "r
 render = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(render)
 
-# The values ODCS v3.2.0 allows for the fields the renderer writes (schema/odcs-json-schema-v3.2.0.json).
-ODCS_API_VERSIONS = {"v3.2.0", "v3.1.0", "v3.0.2", "v3.0.1", "v3.0.0"}
-ODCS_LOGICAL_TYPES = {"string", "date", "timestamp", "time", "number", "integer", "object", "array", "boolean", "map", "vector"}
+# The values ODCS v3.1.0 allows for the fields the renderer writes (schema/odcs-json-schema-v3.1.0.json).
+ODCS_API_VERSIONS = {"v3.1.0", "v3.0.2", "v3.0.1", "v3.0.0"}
+ODCS_LOGICAL_TYPES = {"string", "date", "timestamp", "time", "number", "integer", "object", "array", "boolean"}
 ODCS_QUALITY_TYPES = {"text", "library", "sql", "custom"}
 ODCS_STATUSES = {"proposed", "draft", "active", "deprecated", "retired"}
 
@@ -50,6 +50,9 @@ class TheRenderedContracts(unittest.TestCase):
                     self.assertIn("name", prop)
                     if "logicalType" in prop:
                         self.assertIn(prop["logicalType"], ODCS_LOGICAL_TYPES)
+                    self.assertNotIn("enum", prop, "v3.1 has no enum; allowed values are an invalidValues rule")
+                    for rule in prop.get("quality", []):
+                        self.assertIn(rule["metric"], {"nullValues", "missingValues", "invalidValues", "duplicateValues", "rowCount"})
                 for rule in table.get("quality", []):
                     self.assertIn(rule["type"], ODCS_QUALITY_TYPES)
 
@@ -60,6 +63,16 @@ class TheRenderedContracts(unittest.TestCase):
             self.assertEqual([p["name"] for p in table["properties"]], [c["name"] for c in contract["columns"]])
             self.assertEqual([p["physicalType"] for p in table["properties"]], [c["logical_type"] for c in contract["columns"]])
             self.assertEqual([q["description"] for q in table.get("quality", [])], contract.get("quality_gates", []))
+
+    def test_allowed_values_come_from_the_value_domains(self):
+        for doc in self.documents.values():
+            domains = self.lakehouse.get("value_domains", {}).get(doc["id"], {})
+            (table,) = doc["schema"]
+            stated = {
+                p["name"]: p["quality"][0]["arguments"]["validValues"]
+                for p in table["properties"] if p.get("quality")
+            }
+            self.assertEqual(stated, domains)
 
     def test_the_committed_files_are_the_rendering(self):
         rendered = render.contracts_for(self.lakehouse, self.graph)

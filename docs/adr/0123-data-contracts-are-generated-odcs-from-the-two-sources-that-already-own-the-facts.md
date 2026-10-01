@@ -46,3 +46,7 @@ ODCS(Bitol, v3.2.0)가 주는 가치는 **표준 형식**이다. 데이터 카�
 - 다음: 계약을 데이터 카탈로그에 등록(설명·담당·칸 설명·품질 규칙, 임시 시드 `seed_declared_lineage.py` 대체),
   적재 뒤 품질 규칙 실행과 결과 게시(ADR-0117 §6).
 - 출처: [ODCS v3.2.0 JSON 스키마](https://github.com/bitol-io/open-data-contract-standard/tree/main/schema).
+
+---
+
+2026-10-01 각주: 첫 등록에서 DataHub 1.7 의 ODCS 수집기가 v3.1 까지만 읽는 것을 확인해 `apiVersion` 을 v3.1.0 으로 낮췄다. v3.1 에는 칸의 `enum` 이 없어 허용 값은 `invalidValues` 품질 규칙(`validValues` 목록)으로 적는다 — 카탈로그가 실제로 돌릴 수 있는 검사이기도 하다. 계약은 서버를 `lakehouse` 라는 이름으로만 적고(카탈로그 주소는 계정을 담은 실행 설정), 등록 레시피가 그 이름을 Iceberg 플랫폼에 잇는다.
