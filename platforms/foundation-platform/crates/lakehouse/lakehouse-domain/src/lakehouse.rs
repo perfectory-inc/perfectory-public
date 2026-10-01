@@ -158,6 +158,13 @@ const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: true,
     },
+    // One code per site-formation word the source states, named after it (root ADR-0121).
+    // Optional because rows loaded before it existed carry none; every new load fills it.
+    LakehouseColumn {
+        name: "development_stage",
+        logical_type: "string",
+        required: false,
+    },
     // The source's own words for the codes above, trimmed and otherwise verbatim (root ADR-0117
     // §5). The codes are for filtering; these are what a person is shown. Several words can share
     // one code (`준비중` and `보상중` are both `planned`), so the code alone cannot say which.
@@ -1517,6 +1524,13 @@ const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
         name: "status",
         logical_type: "string",
         required: true,
+    },
+    // One code per site-formation word the source states, named after it (root ADR-0121).
+    // Optional because rows loaded before it existed carry none; every new load fills it.
+    LakehouseColumn {
+        name: "development_stage",
+        logical_type: "string",
+        required: false,
     },
     // The source's own words for the codes above, trimmed and otherwise verbatim (root ADR-0117
     // §5). The codes are for filtering; these are what a person is shown. Several words can share

@@ -24,9 +24,9 @@ describe("DawneerClient", () => {
 
   it("asks for complexes with Foundation's own parameter names", async () => {
     const { calls, fetchImpl } = recording(200, { complexes: [], total: 0, page: 1, size: 50, has_next: false });
-    await new DawneerClient(SESSION, fetchImpl).listComplexes({ q: "합성", sidoCode: "99", status: "operating", page: 1 });
+    await new DawneerClient(SESSION, fetchImpl).listComplexes({ q: "합성", sidoCode: "99", developmentStage: "compensating", page: 1 });
     expect(calls[0]?.url).toBe(
-      `/api/foundation/complexes?q=${encodeURIComponent("합성")}&sido_code=99&status=operating&page=1&size=50`,
+      `/api/foundation/complexes?q=${encodeURIComponent("합성")}&sido_code=99&development_stage=compensating&page=1&size=50`,
     );
   });
 

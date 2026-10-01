@@ -132,3 +132,4 @@ last_reviewed: 2026-07-28
 - [0118 — 예약된 데이터 작업은 Airflow 가 돌리고, 실행마다 계보를 남기며, 서버 프로그램도 버전·메모리를 한 곳에서 정한다](./0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md)
 - [0119 — 직원은 데이터 카탈로그를 더니어에서 읽고, 더니어는 Foundation 을 거쳐 DataHub 에 닿는다](./0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md)
 - [0120 — 파생 규칙이 바뀌면 같은 원천 객체를 그 규칙의 이름으로 한 번 더 쌓는다](./0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md)
+- [0121 — 코드는 실제로 본 원천 글자만, 원천이 나눈 만큼 나눠, 원천의 뜻대로 이름 붙인다](./0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md)

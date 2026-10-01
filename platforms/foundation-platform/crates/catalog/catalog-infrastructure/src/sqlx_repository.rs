@@ -269,6 +269,14 @@ impl CatalogRepository for PgCatalogRepository {
                 .collect()
         });
 
+        let stages: Option<Vec<&str>> = (!query.development_stages.is_empty()).then(|| {
+            query
+                .development_stages
+                .iter()
+                .map(|stage| stage.wire_name())
+                .collect()
+        });
+
         let sql = format!(
             r"
             WITH filtered AS (
@@ -280,6 +288,7 @@ impl CatalogRepository for PgCatalogRepository {
                        OR official_complex_code ILIKE $1 ESCAPE '\')
                   AND ($2::text IS NULL OR sido_code = $2)
                   AND ($3::text[] IS NULL OR status = ANY($3::text[]))
+                  AND ($6::text[] IS NULL OR development_stage = ANY($6::text[]))
             ),
             total AS (SELECT COUNT(*)::bigint AS total_count FROM filtered),
             page AS (
@@ -299,6 +308,7 @@ impl CatalogRepository for PgCatalogRepository {
             .bind(statuses.as_deref())
             .bind(query.paging.limit())
             .bind(query.paging.offset())
+            .bind(stages.as_deref())
             .fetch_all(&self.pool)
             .await
             .map_err(map_sqlx)?;

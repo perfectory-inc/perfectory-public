@@ -17,7 +17,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use lakehouse_domain::{
-    bronze_industrial_complexes_raw_jsonl_columns, INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
+    bronze_industrial_complexes_raw_jsonl_columns,
+    INDUSTRIAL_COMPLEX_DEVELOPMENT_STAGE_WIRE_VALUES, INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
     INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES, INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -57,18 +58,6 @@ const COMPLEX_KIND_LABELS_OBSERVED: &[(&str, &str)] = &[
     ("농공", "agricultural"),        // 485 rows
 ];
 
-/// `lrstt_ty` spellings that no measured snapshot has produced yet.
-///
-/// Kept because another month may spell the classification out in full. Nothing has confirmed
-/// them, which is why they are not in [`COMPLEX_KIND_LABELS_OBSERVED`].
-const COMPLEX_KIND_LABELS_PRESUMED: &[(&str, &str)] = &[
-    ("국가산업단지", "national"),
-    ("일반산업단지", "general"),
-    ("도시첨단산업단지", "urban_high_tech"),
-    ("농공단지", "agricultural"),
-    ("농공산업단지", "agricultural"),
-];
-
 /// `make_sttus_nm` labels counted in the whole [`INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD`] table
 /// (1,442 rows).
 ///
@@ -103,29 +92,26 @@ const COMPLEX_STATUS_LABELS_OBSERVED: &[(&str, &str)] = &[
 /// Three labels, every row filled. This is the only one of the eight columns this producer took
 /// from the profile source that is an enumeration; the counts are the measurement, not an estimate.
 ///
-/// There is no presumed table beside it. A presumed table exists for `lrstt_ty` and
-/// `make_sttus_nm` because other months plausibly spell the same classification out in full; here
-/// there is no longer spelling to guess at, and inventing one would put an unmeasured mapping in
-/// the path of a real load.
+/// Like every label table here it lists measured words only; an unseen word stops the export
+/// rather than being guessed at (root ADR-0121).
 const COMPLEX_LOT_SALES_STATUS_LABELS_OBSERVED: &[(&str, &str)] = &[
     ("분양완료", "completed"), // 992 rows
     ("분양중", "in_progress"), // 294 rows
     ("분양계획", "planned"),   // 156 rows
 ];
 
-/// `make_sttus_nm` labels that no measured snapshot has produced yet.
+/// `make_sttus_nm` labels as the source states them, one code each (root ADR-0121).
 ///
-/// Kept because another month may use them. Nothing has confirmed them, which is why they are not
-/// in [`COMPLEX_STATUS_LABELS_OBSERVED`].
-const COMPLEX_STATUS_LABELS_PRESUMED: &[(&str, &str)] = &[
-    ("계획", "planned"),
-    ("계획중", "planned"),
-    ("미개발", "planned"),
-    ("개발중", "developing"),
-    ("개발완료", "operating"),
-    ("변경", "changed"),
-    ("해제", "abolished"),
-    ("폐지", "abolished"),
+/// The same four measured words as [`COMPLEX_STATUS_LABELS_OBSERVED`], but no two share a code
+/// and each code says what its word says. `준비중` and `보상중` are different stages in the source
+/// and stay different here; the legacy `status` merged them into `planned` and is deprecated.
+/// A word not in this table stops the export with its row number: a person confirms what it
+/// means and adds it with its evidence. Nothing is listed on the chance that a month might use it.
+const COMPLEX_DEVELOPMENT_STAGE_LABELS_OBSERVED: &[(&str, &str)] = &[
+    ("조성완료", "site_completed"), // 1069 rows
+    ("조성중", "site_in_progress"), // 289 rows
+    ("준비중", "preparing"),        // 47 rows
+    ("보상중", "compensating"),     // 37 rows
 ];
 
 /// How precise the administrative code an address source supplied actually is.
@@ -504,8 +490,10 @@ pub struct IndustrialComplexBronzeRawRow {
     pub complex_name: String,
     /// `complex_kind` wire value.
     pub complex_kind: String,
-    /// `status` wire value.
+    /// `status` wire value. Deprecated: it merges `준비중` and `보상중` (root ADR-0121).
     pub status: String,
+    /// `development_stage` wire value: one code per site-formation word (root ADR-0121).
+    pub development_stage: String,
     /// `lrstt_ty` as the source wrote it, trimmed: the words a person is shown for `complex_kind`
     /// (root ADR-0117 §5).
     pub complex_kind_raw: Option<String>,
@@ -696,18 +684,22 @@ fn normalize_one_row(
             record,
             "complex_kind",
             record.complex_kind_label.as_str(),
-            &[COMPLEX_KIND_LABELS_OBSERVED, COMPLEX_KIND_LABELS_PRESUMED],
+            &[COMPLEX_KIND_LABELS_OBSERVED],
             INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
         )?,
         status: map_label(
             record,
             "status",
             record.status_label.as_str(),
-            &[
-                COMPLEX_STATUS_LABELS_OBSERVED,
-                COMPLEX_STATUS_LABELS_PRESUMED,
-            ],
+            &[COMPLEX_STATUS_LABELS_OBSERVED],
             INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+        )?,
+        development_stage: map_label(
+            record,
+            "development_stage",
+            record.status_label.as_str(),
+            &[COMPLEX_DEVELOPMENT_STAGE_LABELS_OBSERVED],
+            INDUSTRIAL_COMPLEX_DEVELOPMENT_STAGE_WIRE_VALUES,
         )?,
         // The words the codes above were mapped from, kept beside them. Mapping succeeded, so
         // each is the trimmed label the tables matched.
@@ -786,6 +778,7 @@ fn column_value(row: &IndustrialComplexBronzeRawRow, column: &str) -> Option<Jso
         "complex_name" => JsonValue::String(row.complex_name.clone()),
         "complex_kind" => JsonValue::String(row.complex_kind.clone()),
         "status" => JsonValue::String(row.status.clone()),
+        "development_stage" => JsonValue::String(row.development_stage.clone()),
         "complex_kind_raw" => optional_string_json(row.complex_kind_raw.as_ref()),
         "status_raw" => optional_string_json(row.status_raw.as_ref()),
         // All three are `null` when no source stated an administrative code, and `sido_code` and
@@ -1105,9 +1098,9 @@ fn require_address_part(
 #[cfg(test)]
 mod tests {
     use super::{
-        industrial_complex_labels_measured_for, COMPLEX_KIND_LABELS_OBSERVED,
-        COMPLEX_KIND_LABELS_PRESUMED, COMPLEX_STATUS_LABELS_OBSERVED,
-        COMPLEX_STATUS_LABELS_PRESUMED, INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
+        industrial_complex_labels_measured_for, COMPLEX_DEVELOPMENT_STAGE_LABELS_OBSERVED,
+        COMPLEX_KIND_LABELS_OBSERVED, COMPLEX_STATUS_LABELS_OBSERVED,
+        INDUSTRIAL_COMPLEX_LABELS_MEASURED_SNAPSHOT_PERIOD,
     };
 
     /// The whole `202506` table, measured by reading the Bronze object: every distinct `lrstt_ty`
@@ -1194,22 +1187,29 @@ mod tests {
     }
 
     #[test]
-    fn a_label_is_listed_as_observed_or_presumed_but_never_both() {
-        for (observed, presumed) in [
-            (COMPLEX_KIND_LABELS_OBSERVED, COMPLEX_KIND_LABELS_PRESUMED),
-            (
-                COMPLEX_STATUS_LABELS_OBSERVED,
-                COMPLEX_STATUS_LABELS_PRESUMED,
-            ),
-        ] {
-            for (label, _) in observed {
-                assert!(
-                    !presumed
-                        .iter()
-                        .any(|(presumed_label, _)| presumed_label == label),
-                    "{label} is listed as both measured and presumed"
-                );
-            }
-        }
+    fn development_stage_names_each_measured_word_with_its_own_code() {
+        let words: Vec<&str> = COMPLEX_DEVELOPMENT_STAGE_LABELS_OBSERVED
+            .iter()
+            .map(|(label, _)| *label)
+            .collect();
+        let measured: Vec<&str> = MEASURED_STATUS_LABELS
+            .iter()
+            .map(|(label, _)| *label)
+            .collect();
+        assert_eq!(
+            words, measured,
+            "exactly the measured words, nothing presumed"
+        );
+        let mut codes: Vec<&str> = COMPLEX_DEVELOPMENT_STAGE_LABELS_OBSERVED
+            .iter()
+            .map(|(_, code)| *code)
+            .collect();
+        codes.sort_unstable();
+        codes.dedup();
+        assert_eq!(
+            codes.len(),
+            COMPLEX_DEVELOPMENT_STAGE_LABELS_OBSERVED.len(),
+            "no two source words share a development_stage code (root ADR-0121)"
+        );
     }
 }

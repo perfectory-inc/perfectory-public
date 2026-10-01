@@ -23,6 +23,7 @@ const SILVER_INDUSTRIAL_COMPLEX_COLUMNS: &[&str] = &[
     "complex_name_normalized",
     "complex_kind",
     "status",
+    "development_stage",
     "complex_kind_raw",
     "status_raw",
     "sido_code",

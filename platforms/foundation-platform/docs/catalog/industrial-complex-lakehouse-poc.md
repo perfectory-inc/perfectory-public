@@ -122,7 +122,8 @@ PostGIS `ST_Transform` 이 한다 — 근거: [ADR-0042](../../../../docs/adr/00
 | `complex_name` | string | yes | 공식 산업단지명 |
 | `complex_name_normalized` | string | yes | 검색/중복검사용 정규화명 |
 | `complex_kind` | string | yes | `national`, `general`, `agricultural`, `urban_high_tech` |
-| `status` | string | yes | `planned`, `developing`, `operating`, `changed`, `abolished`, `unknown` |
+| `status` | string | yes | deprecated (root ADR-0121): `planned`, `developing`, `operating`, `changed`, `abolished`, `unknown` |
+| `development_stage` | string | no | `site_completed` 조성완료, `site_in_progress` 조성중, `preparing` 준비중, `compensating` 보상중 (root ADR-0121) |
 | `complex_kind_raw` | string | no | the source's own word for `complex_kind` (`lrstt_ty`), trimmed (root ADR-0117 §5) |
 | `status_raw` | string | no | the source's own word for `status` (`make_sttus_nm`); `준비중` and `보상중` share `planned` |
 | `sido_code` | string | no | 시도 코드. 출처가 행정구역 코드를 말했을 때만 채워진다 (root ADR-0035) |
@@ -285,7 +286,8 @@ API list/detail 과 consumer read model 의 stable projection 이다.
 | `official_complex_code` | string | yes | source natural key |
 | `name` | string | yes | display name |
 | `kind` | string | yes | domain wire kind |
-| `status` | string | yes | serving status |
+| `status` | string | yes | serving status, deprecated (root ADR-0121) |
+| `development_stage` | string | no | one code per site-formation word (root ADR-0121) |
 | `kind_raw` | string | no | source word for `kind` |
 | `status_raw` | string | no | source word for `status` |
 | `sido_code` | string | no | region filter. canonical 표를 따라 선택 항목 (root ADR-0035) |

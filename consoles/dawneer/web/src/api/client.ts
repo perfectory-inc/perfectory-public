@@ -29,7 +29,8 @@ export type CatalogNeighbourhood = DataCatalogSchemas["DataCatalogNeighbourhood"
 export interface ComplexFilter {
   q?: string;
   sidoCode?: string;
-  status?: string;
+  /** Development stage codes, comma-separated (root ADR-0121). */
+  developmentStage?: string;
   page?: number;
   size?: number;
   sort?: "name_asc" | "area_desc" | "official_complex_code_asc";
@@ -156,7 +157,7 @@ export class DawneerClient {
     const query = new URLSearchParams();
     if (filter.q) query.set("q", filter.q);
     if (filter.sidoCode) query.set("sido_code", filter.sidoCode);
-    if (filter.status) query.set("status", filter.status);
+    if (filter.developmentStage) query.set("development_stage", filter.developmentStage);
     if (filter.sort) query.set("sort", filter.sort);
     query.set("page", String(filter.page ?? 0));
     query.set("size", String(filter.size ?? 50));

@@ -45,6 +45,20 @@ pub const INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES: &[&str] = &[
     "unknown",
 ];
 
+/// Wire values allowed in the `silver.industrial_complexes` `development_stage` column.
+///
+/// One per site-formation word the source has been measured to state, named after what that word
+/// says (root ADR-0121): `조성완료` `site_completed`, `조성중` `site_in_progress`, `준비중` `preparing`,
+/// `보상중` `compensating`. No value stands for a word nobody has seen. `crates/lakehouse/
+/// lakehouse-application/tests/industrial_complex_bronze_raw_rows.rs` pins this list to
+/// `catalog_domain::IndustrialComplexDevelopmentStage`, which owns the domain.
+pub const INDUSTRIAL_COMPLEX_DEVELOPMENT_STAGE_WIRE_VALUES: &[&str] = &[
+    "site_completed",
+    "site_in_progress",
+    "preparing",
+    "compensating",
+];
+
 /// Wire values allowed in the `silver.industrial_complexes` `lot_sales_status` column.
 ///
 /// `lttot_sttus_nm` (분양상태) is the one label column of the eight this contract took from the

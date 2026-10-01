@@ -64,6 +64,7 @@ TABLE = "`r2`.`gold`.`complex_catalog`"
 # evolution walks the contract, so this is contract order: the source words for the codes (root
 # ADR-0117 §5) sit beside their codes, and the rest reached Gold in two earlier rounds.
 ADDED_COLUMNS = (
+    "development_stage",
     "kind_raw",
     "status_raw",
     "management_agency_name",

@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **468개**
-- 언어 분류: **{'english': 37, 'korean': 271, 'mixed': 160}**
+- 감사 문서: **469개**
+- 언어 분류: **{'english': 37, 'korean': 272, 'mixed': 160}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 84개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **219개 정상 / 0개 누락 / 249개 해당 없음**
+- 메타데이터: **219개 정상 / 0개 누락 / 250개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -139,10 +139,11 @@
 | `docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
 | `docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
-| `docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

@@ -5,11 +5,12 @@
 
 use catalog_domain::{
     Blueprint, BlueprintKind, Building, CatalogError, ComplexNotice, DigitalTwinAsset,
-    DigitalTwinAssetKind, FileAsset, FileAssetVisibility, IndustrialComplex, IndustrialComplexKind,
-    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, IndustryAssignmentKind,
-    IndustryCodeSystem, IndustryGroup, IndustryGroupMember, NoticeType, Parcel,
-    ParcelIndustryAssignment, ParcelKind, SpatialLayer, SpatialLayerKind, TilesUrlTemplate,
-    VectorTileArtifact, VectorTileLineage, VectorTileManifest, ZoomRange,
+    DigitalTwinAssetKind, FileAsset, FileAssetVisibility, IndustrialComplex,
+    IndustrialComplexDevelopmentStage, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
+    IndustrialComplexStatus, IndustryAssignmentKind, IndustryCodeSystem, IndustryGroup,
+    IndustryGroupMember, NoticeType, Parcel, ParcelIndustryAssignment, ParcelKind, SpatialLayer,
+    SpatialLayerKind, TilesUrlTemplate, VectorTileArtifact, VectorTileLineage, VectorTileManifest,
+    ZoomRange,
 };
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::{
@@ -41,6 +42,7 @@ pub const INDUSTRIAL_COMPLEX_COLUMNS: &str = "id, lakehouse_complex_id, official
      lot_sales_status, business_period_raw, business_period_start_month, \
      business_period_end_month, designation_basis_law_raw, development_method_raw, \
      development_purpose_raw, invited_industries_raw, kind_raw, status_raw, lot_sales_status_raw, \
+     development_stage, \
      created_at, updated_at, archived_at, version";
 
 pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
@@ -63,6 +65,12 @@ pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
         .try_get::<Option<String>, _>("lot_sales_status")
         .map_err(map_sqlx)?
         .map(|raw| IndustrialComplexLotSalesStatus::from_wire(raw.as_str()))
+        .transpose()
+        .map_err(|error| CatalogError::Infrastructure(error.to_string()))?;
+    let development_stage = row
+        .try_get::<Option<String>, _>("development_stage")
+        .map_err(map_sqlx)?
+        .map(|raw| IndustrialComplexDevelopmentStage::from_wire(raw.as_str()))
         .transpose()
         .map_err(|error| CatalogError::Infrastructure(error.to_string()))?;
     Ok(IndustrialComplex {
@@ -98,6 +106,7 @@ pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
         development_method_raw: row.try_get("development_method_raw").map_err(map_sqlx)?,
         development_purpose_raw: row.try_get("development_purpose_raw").map_err(map_sqlx)?,
         invited_industries_raw: row.try_get("invited_industries_raw").map_err(map_sqlx)?,
+        development_stage,
         kind_raw: row.try_get("kind_raw").map_err(map_sqlx)?,
         status_raw: row.try_get("status_raw").map_err(map_sqlx)?,
         lot_sales_status_raw: row.try_get("lot_sales_status_raw").map_err(map_sqlx)?,

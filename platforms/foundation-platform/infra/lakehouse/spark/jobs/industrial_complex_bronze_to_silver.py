@@ -83,6 +83,9 @@ ALLOWED_COMPLEX_KINDS: tuple[str, ...] = value_domain(RUN_SUMMARY_CONTRACT, "com
 
 ALLOWED_STATUSES: tuple[str, ...] = value_domain(RUN_SUMMARY_CONTRACT, "status")
 
+ALLOWED_DEVELOPMENT_STAGES: tuple[str, ...] = value_domain(
+    RUN_SUMMARY_CONTRACT, "development_stage"
+)
 ALLOWED_LOT_SALES_STATUSES: tuple[str, ...] = value_domain(
     RUN_SUMMARY_CONTRACT, "lot_sales_status"
 )
@@ -151,6 +154,14 @@ def stable_uuid_v5_string(seed: str | None) -> str | None:
 def trim_to_null(column_name: str) -> F.Column:
     trimmed = F.trim(F.col(column_name))
     return F.when(F.length(trimmed) == 0, F.lit(None)).otherwise(trimmed)
+
+
+def invalid_development_stage() -> F.Column:
+    """Return a predicate matching a development stage that is present and off-domain."""
+
+    return F.col("development_stage").isNotNull() & ~F.col("development_stage").isin(
+        *ALLOWED_DEVELOPMENT_STAGES
+    )
 
 
 def invalid_lot_sales_status() -> F.Column:
@@ -353,6 +364,7 @@ def build_silver_frame(bronze: DataFrame) -> DataFrame:
         normalized_name.alias("complex_name_normalized"),
         F.trim(F.col("complex_kind")).alias("complex_kind"),
         F.trim(F.col("status")).alias("status"),
+        F.trim(F.col("development_stage")).alias("development_stage"),
         # The source's words beside the codes (root ADR-0117 §5). Read like the region columns:
         # null stays null and `""` stays `""` for the empty-string gate.
         F.trim(F.col("complex_kind_raw")).alias("complex_kind_raw"),
@@ -481,6 +493,7 @@ def collect_quality_metrics(silver: DataFrame) -> dict[str, int]:
             ),
             invalid_count(invalid_region_code(), "invalid_region_code_count"),
             invalid_count(invalid_lot_sales_status(), "invalid_lot_sales_status_count"),
+            invalid_count(invalid_development_stage(), "invalid_development_stage_count"),
             invalid_count(
                 invalid_development_progress_percent(),
                 "invalid_development_progress_percent_count",
@@ -559,6 +572,12 @@ def assert_quality_metrics(silver: DataFrame, metrics: dict[str, int]) -> None:
         metrics["invalid_lot_sales_status_count"],
         invalid_lot_sales_status(),
         "lot_sales_status is outside the allowed domain",
+    )
+    assert_no_invalid_rows(
+        silver,
+        metrics["invalid_development_stage_count"],
+        invalid_development_stage(),
+        "development_stage is outside the allowed domain",
     )
     assert_no_invalid_rows(
         silver,
@@ -755,6 +774,9 @@ def column_lineage() -> list[dict[str, Any]]:
         ],
         "status": [
             {"dataset": BRONZE_DATASET_NAME, "column": "status", "transform": "trim"}
+        ],
+        "development_stage": [
+            {"dataset": BRONZE_DATASET_NAME, "column": "development_stage", "transform": "trim"}
         ],
         "complex_kind_raw": [
             {"dataset": BRONZE_DATASET_NAME, "column": "complex_kind_raw", "transform": "trim"}

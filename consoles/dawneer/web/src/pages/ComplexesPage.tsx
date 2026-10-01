@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import type { Complex, ComplexFilter, DawneerClient } from "../api/client";
 import {
   COMPLEX_KIND_LABEL,
-  COMPLEX_STATUS_LABEL,
+  DEVELOPMENT_STAGE_LABEL,
   formatArea,
   label,
   LOT_SALES_LABEL,
@@ -42,7 +42,7 @@ function ComplexDetail({ client, complexId, onClose }: { client: DawneerClient; 
         </button>
       </div>
       <dl className="mt-4">
-        <Row name="조성 단계">{sourceWord(c.status_raw, COMPLEX_STATUS_LABEL, c.status)}</Row>
+        <Row name="조성 단계">{sourceWord(c.status_raw, DEVELOPMENT_STAGE_LABEL, c.development_stage)}</Row>
         <Row name="분양">{sourceWord(c.lot_sales_status_raw, LOT_SALES_LABEL, c.lot_sales_status)}</Row>
         <Row name="면적">{formatArea(c.area_m2)}</Row>
         <Row name="진척률">{c.development_progress_percent ? `${c.development_progress_percent}%` : null}</Row>
@@ -75,12 +75,12 @@ function ComplexDetail({ client, complexId, onClose }: { client: DawneerClient; 
 export function ComplexesPage({ client }: { client: DawneerClient }) {
   const [q, setQ] = useState("");
   const [sidoCode, setSidoCode] = useState("");
-  const [status, setStatus] = useState("");
+  const [developmentStage, setDevelopmentStage] = useState("");
   const [sort, setSort] = useState<NonNullable<ComplexFilter["sort"]>>("name_asc");
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
 
-  const filter: ComplexFilter = { q: q.trim(), sidoCode, status, sort, page, size: PAGE_SIZE };
+  const filter: ComplexFilter = { q: q.trim(), sidoCode, developmentStage, sort, page, size: PAGE_SIZE };
   const list = useQuery({ queryKey: ["complexes", filter], queryFn: () => client.listComplexes(filter) });
   const reset = () => setPage(0);
   const select = "rounded border border-slate-300 bg-white px-2 py-1";
@@ -122,14 +122,14 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
           <span className="block text-slate-500">조성 단계</span>
           <select
             className={select}
-            value={status}
+            value={developmentStage}
             onChange={(e) => {
-              setStatus(e.target.value);
+              setDevelopmentStage(e.target.value);
               reset();
             }}
           >
             <option value="">전체</option>
-            {Object.entries(COMPLEX_STATUS_LABEL).map(([code, name]) => (
+            {Object.entries(DEVELOPMENT_STAGE_LABEL).map(([code, name]) => (
               <option key={code} value={code}>
                 {name}
               </option>
@@ -187,7 +187,7 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
                     </td>
                     <td className="px-3 py-2">{sourceWord(c.kind_raw, COMPLEX_KIND_LABEL, c.kind)}</td>
                     <td className="px-3 py-2">{label(SIDO_LABEL, c.sido_code)}</td>
-                    <td className="px-3 py-2">{sourceWord(c.status_raw, COMPLEX_STATUS_LABEL, c.status)}</td>
+                    <td className="px-3 py-2">{sourceWord(c.status_raw, DEVELOPMENT_STAGE_LABEL, c.development_stage)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{c.area_m2.toLocaleString("ko-KR")}</td>
                   </tr>
                 ))}

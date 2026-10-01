@@ -9,16 +9,13 @@ export const COMPLEX_KIND_LABEL: Record<string, string> = {
   agricultural: "농공",
 };
 
-// Said in the source's own words (VWorld 산업단지 프로필 `make_sttus_nm`): `operating` is what the
-// source calls 조성완료 and `planned` covers its 준비중 and 보상중. "운영 중" would claim factories
-// are running, which the source does not say.
-export const COMPLEX_STATUS_LABEL: Record<string, string> = {
-  planned: "준비·보상 중",
-  developing: "조성 중",
-  operating: "조성 완료",
-  changed: "변경",
-  abolished: "해제",
-  unknown: "알 수 없음",
+// The development stage codes (root ADR-0121) with the source word each one names. Shown only for
+// rows loaded before the platform carried the word itself (`status_raw`).
+export const DEVELOPMENT_STAGE_LABEL: Record<string, string> = {
+  site_completed: "조성완료",
+  site_in_progress: "조성중",
+  preparing: "준비중",
+  compensating: "보상중",
 };
 
 // The source's own words (`lttot_sttus_nm`), one to one.

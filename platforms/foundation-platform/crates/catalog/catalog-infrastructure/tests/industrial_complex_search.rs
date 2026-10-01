@@ -188,6 +188,7 @@ fn search(text: Option<&str>, size: u32) -> ComplexSearchQuery {
         text: text.map(|value| ComplexSearchText::try_new(value).expect("a word")),
         sido_code: None,
         statuses: Vec::new(),
+        development_stages: Vec::new(),
         paging: ComplexSearchPaging::try_new(Some(0), Some(size)).expect("bounded size"),
         sort: ComplexSearchSort::Name,
     }

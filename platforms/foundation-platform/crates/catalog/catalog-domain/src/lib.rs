@@ -69,8 +69,9 @@ pub use file_asset::{
     ParseFileAssetVisibilityError,
 };
 pub use industrial_complex::{
-    ComplexMutation, IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
-    IndustrialComplexStatus, ParseIndustrialComplexKindError,
+    ComplexMutation, IndustrialComplex, IndustrialComplexDevelopmentStage, IndustrialComplexKind,
+    IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
+    ParseIndustrialComplexDevelopmentStageError, ParseIndustrialComplexKindError,
     ParseIndustrialComplexLotSalesStatusError, ParseIndustrialComplexStatusError,
 };
 pub use industry::{

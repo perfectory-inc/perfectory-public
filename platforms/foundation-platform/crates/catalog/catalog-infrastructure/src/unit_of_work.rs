@@ -24,12 +24,12 @@ use catalog_domain::{
     static_file_asset_id_for_build, static_release_id_for_build, static_release_martin_source_id,
     static_release_pmtiles_object_key, validate_build_promotion, validate_build_result_report,
     validate_build_snapshot_binding, BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError,
-    CatalogMutationKind, ComplexMutation, IndustrialComplex, IndustrialComplexLotSalesStatus,
-    IndustrialComplexStatus, Parcel, ParcelKind, ParcelKindEdit, RequestFingerprint,
-    RuntimeTileLayer, ServingGeneration, VectorTileArtifact, VectorTileBuildKind,
-    VectorTileBuildOutcome, VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict,
-    VectorTileBuildStatus, VectorTileManifest, VectorTileRuntimeManifest,
-    CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+    CatalogMutationKind, ComplexMutation, IndustrialComplex, IndustrialComplexDevelopmentStage,
+    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, Parcel, ParcelKind, ParcelKindEdit,
+    RequestFingerprint, RuntimeTileLayer, ServingGeneration, VectorTileArtifact,
+    VectorTileBuildKind, VectorTileBuildOutcome, VectorTileBuildPromotionInput,
+    VectorTileBuildPromotionVerdict, VectorTileBuildStatus, VectorTileManifest,
+    VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use chrono::Utc;
 use foundation_shared_kernel::events::catalog_v1::{
@@ -108,10 +108,11 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
               lot_sales_status, business_period_raw, business_period_start_month,
               business_period_end_month, development_progress_percent, designation_basis_law_raw,
               development_method_raw, development_purpose_raw, invited_industries_raw,
-              created_at, updated_at, version, kind_raw, status_raw, lot_sales_status_raw)
+              created_at, updated_at, version, kind_raw, status_raw, lot_sales_status_raw,
+              development_stage)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
                      $18, $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                     $31)",
+                     $31, $32)",
         )
         .bind(complex.id.as_uuid())
         .bind(complex.lakehouse_complex_id.map(|id| id.as_uuid()))
@@ -148,6 +149,11 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         .bind(complex.kind_raw.as_deref())
         .bind(complex.status_raw.as_deref())
         .bind(complex.lot_sales_status_raw.as_deref())
+        .bind(
+            complex
+                .development_stage
+                .map(IndustrialComplexDevelopmentStage::wire_name),
+        )
         .execute(&mut *tx)
         .await;
 
@@ -2379,6 +2385,7 @@ async fn update_industrial_complex_from_upsert(
              kind_raw = $25,
              status_raw = $26,
              lot_sales_status_raw = $27,
+             development_stage = $28,
              updated_at = now(),
              version = version + 1
          WHERE id = $1
@@ -2415,6 +2422,11 @@ async fn update_industrial_complex_from_upsert(
     .bind(command.kind_raw.as_deref())
     .bind(command.status_raw.as_deref())
     .bind(command.lot_sales_status_raw.as_deref())
+    .bind(
+        command
+            .development_stage
+            .map(IndustrialComplexDevelopmentStage::wire_name),
+    )
     .fetch_one(&mut **tx)
     .await;
 
@@ -2444,9 +2456,10 @@ async fn insert_industrial_complex_from_upsert(
           lot_sales_status, business_period_raw, business_period_start_month,
           business_period_end_month, development_progress_percent, designation_basis_law_raw,
           development_method_raw, development_purpose_raw, invited_industries_raw,
-          created_at, updated_at, version, kind_raw, status_raw, lot_sales_status_raw)
+          created_at, updated_at, version, kind_raw, status_raw, lot_sales_status_raw,
+          development_stage)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                 $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, 1, $28, $29, $30)
+                 $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, 1, $28, $29, $30, $31)
          RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
     ))
     .bind(Uuid::now_v7())
@@ -2483,6 +2496,11 @@ async fn insert_industrial_complex_from_upsert(
     .bind(command.kind_raw.as_deref())
     .bind(command.status_raw.as_deref())
     .bind(command.lot_sales_status_raw.as_deref())
+    .bind(
+        command
+            .development_stage
+            .map(IndustrialComplexDevelopmentStage::wire_name),
+    )
     .fetch_one(&mut **tx)
     .await;
 
@@ -2578,6 +2596,9 @@ fn changed_industrial_complex_fields(
     }
     if existing.invited_industries_raw != command.invited_industries_raw {
         fields.push("invited_industries_raw".to_owned());
+    }
+    if existing.development_stage != command.development_stage {
+        fields.push("development_stage".to_owned());
     }
     if existing.kind_raw != command.kind_raw {
         fields.push("kind_raw".to_owned());

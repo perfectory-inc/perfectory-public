@@ -35,7 +35,8 @@ use catalog_application::{
     UpsertIndustrialComplexCatalogRowsInput,
 };
 use catalog_domain::{
-    IndustrialComplexKind, IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
+    IndustrialComplexDevelopmentStage, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
+    IndustrialComplexStatus,
 };
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use chrono::{NaiveDate, SecondsFormat, Utc};
@@ -223,6 +224,7 @@ const GOLD_COLUMNS_LOADED: &[&str] = &[
     "name",
     "kind",
     "status",
+    "development_stage",
     "kind_raw",
     "status_raw",
     "sido_code",
@@ -353,6 +355,13 @@ fn plan_catalog_rows(rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<Cano
                 )
             })?;
 
+        // Same rule as the other coded columns: a value outside the domain is a broken projection,
+        // not an absent one, so it fails the load rather than being written as null.
+        let development_stage = optional_row_string(row, "development_stage")
+            .map(|raw| IndustrialComplexDevelopmentStage::from_wire(raw.as_str()))
+            .transpose()
+            .map_err(|error| anyhow::anyhow!("gold.complex_catalog development_stage: {error}"))?;
+
         match canonical_area_m2(row.get("official_area_sqm")) {
             Ok(area_m2) => planned.push(IndustrialComplexCatalogRow {
                 lakehouse_complex_id: Some(lakehouse_complex_id),
@@ -388,6 +397,7 @@ fn plan_catalog_rows(rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<Cano
                 development_method_raw: optional_row_string(row, "development_method_raw"),
                 development_purpose_raw: optional_row_string(row, "development_purpose_raw"),
                 invited_industries_raw: optional_row_string(row, "invited_industries_raw"),
+                development_stage,
                 kind_raw: optional_row_string(row, "kind_raw"),
                 status_raw: optional_row_string(row, "status_raw"),
                 lot_sales_status_raw: optional_row_string(row, "lot_sales_status_raw"),

@@ -177,6 +177,64 @@ pub enum ParseIndustrialComplexLotSalesStatusError {
     Unknown(String),
 }
 
+/// How far the complex's site formation has got, one value per word the source states.
+///
+/// Replaces [`IndustrialComplexStatus`], which merged `준비중` and `보상중` into one value and named
+/// `조성완료` "operating", a fact the source does not state (root ADR-0121). Each value is named
+/// after its source word, and only words a measured snapshot produced exist here: a new word is a
+/// fact about the source to fail over, not a bucket to hide in.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum IndustrialComplexDevelopmentStage {
+    /// Site formation is finished (`조성완료`).
+    SiteCompleted,
+    /// Site formation is under way (`조성중`).
+    SiteInProgress,
+    /// Being prepared; no site works yet (`준비중`).
+    Preparing,
+    /// Land compensation is being paid; no site works yet (`보상중`).
+    Compensating,
+}
+
+impl IndustrialComplexDevelopmentStage {
+    /// Every stage, in source order.
+    pub const ALL: [Self; 4] = [
+        Self::SiteCompleted,
+        Self::SiteInProgress,
+        Self::Preparing,
+        Self::Compensating,
+    ];
+
+    /// Returns the stable wire value used by DB rows, lakehouse columns, and HTTP DTOs.
+    #[must_use]
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::SiteCompleted => "site_completed",
+            Self::SiteInProgress => "site_in_progress",
+            Self::Preparing => "preparing",
+            Self::Compensating => "compensating",
+        }
+    }
+
+    /// Parses a stable wire value into a development stage.
+    ///
+    /// # Errors
+    /// Returns `ParseIndustrialComplexDevelopmentStageError::Unknown` for unsupported wire values.
+    pub fn from_wire(raw: &str) -> Result<Self, ParseIndustrialComplexDevelopmentStageError> {
+        Self::ALL
+            .into_iter()
+            .find(|stage| stage.wire_name() == raw)
+            .ok_or_else(|| ParseIndustrialComplexDevelopmentStageError::Unknown(raw.to_owned()))
+    }
+}
+
+/// Error returned while parsing an industrial complex development stage.
+#[derive(Debug, Error)]
+pub enum ParseIndustrialComplexDevelopmentStageError {
+    /// Unsupported wire value.
+    #[error("unknown IndustrialComplexDevelopmentStage wire value: {0:?}")]
+    Unknown(String),
+}
+
 /// Canonical industrial complex aggregate root.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndustrialComplex {
@@ -213,6 +271,9 @@ pub struct IndustrialComplex {
     /// optional because the source workbook leaves cells blank, and a blank cell is `None` — never
     /// `""`, never a zero, never a substituted neighbour value.
     pub status: Option<IndustrialComplexStatus>,
+    /// How far site formation has got, one value per source word (root ADR-0121). Supersedes
+    /// [`Self::status`].
+    pub development_stage: Option<IndustrialComplexDevelopmentStage>,
     /// The source's own words for [`Self::kind`], trimmed (root ADR-0117 §5).
     ///
     /// The three `_raw` words here are what a person is shown; the codes beside them are what a

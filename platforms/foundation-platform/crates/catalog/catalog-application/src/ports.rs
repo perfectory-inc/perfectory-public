@@ -10,12 +10,12 @@ use async_trait::async_trait;
 use catalog_domain::{
     Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind,
     ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
-    IndustrialComplex, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
-    IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
-    MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind, RequestFingerprint,
-    RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate,
-    ServingGeneration, SpatialLayer, UnitOfficialPriceRow, VectorTileBuildOutcome,
-    VectorTileManifest, VectorTileRuntimeManifest,
+    IndustrialComplex, IndustrialComplexDevelopmentStage, IndustrialComplexKind,
+    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, IndustryGroup, IndustryGroupMember,
+    MarkerAnchorAlgorithm, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
+    RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
+    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, UnitOfficialPriceRow,
+    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
@@ -617,6 +617,8 @@ pub struct UpsertIndustrialComplexCommand {
     pub development_purpose_raw: Option<String>,
     /// Invited industry types to write, verbatim.
     pub invited_industries_raw: Option<String>,
+    /// Development stage to write (root ADR-0121).
+    pub development_stage: Option<IndustrialComplexDevelopmentStage>,
     /// The source's words for the kind to write (root ADR-0117 §5).
     pub kind_raw: Option<String>,
     /// The source's words for the status to write.

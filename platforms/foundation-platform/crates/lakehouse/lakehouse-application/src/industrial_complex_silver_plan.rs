@@ -36,6 +36,8 @@ pub struct IndustrialComplexSilverRow {
     pub complex_kind: String,
     /// Operational status wire value. `unknown` is used until a source provides status.
     pub status: String,
+    /// One code per site-formation word, when the canonical row carries one (root ADR-0121).
+    pub development_stage: Option<String>,
     /// The source's words for `complex_kind`, when the canonical row carries them.
     pub complex_kind_raw: Option<String>,
     /// The source's words for `status`; always `None` here because `status` is not read either.
@@ -226,6 +228,9 @@ fn normalize_complex(
         // The source's words follow their codes (root ADR-0117 §5): the kind and the lot-sales
         // status are read off the aggregate, so their words are too; `status` is the placeholder
         // above, and a real word beside a placeholder code would contradict it.
+        development_stage: complex
+            .development_stage
+            .map(|stage| stage.wire_name().to_owned()),
         complex_kind_raw: complex.kind_raw.clone(),
         status_raw: None,
         // Both are prefixes of the legal-dong code, so both are unknown when it is
@@ -364,7 +369,7 @@ fn increment_metric(metrics: &mut BTreeMap<String, u64>, name: &str) {
 fn row_to_json_value(row: &IndustrialComplexSilverRow) -> JsonValue {
     let required = |value: &String| JsonValue::String(value.clone());
     let optional = optional_string_json;
-    let entries: [(&str, JsonValue); 34] = [
+    let entries: [(&str, JsonValue); 35] = [
         ("complex_id", required(&row.complex_id)),
         (
             "official_complex_code",
@@ -377,6 +382,10 @@ fn row_to_json_value(row: &IndustrialComplexSilverRow) -> JsonValue {
         ),
         ("complex_kind", required(&row.complex_kind)),
         ("status", required(&row.status)),
+        (
+            "development_stage",
+            optional(row.development_stage.as_ref()),
+        ),
         ("complex_kind_raw", optional(row.complex_kind_raw.as_ref())),
         ("status_raw", optional(row.status_raw.as_ref())),
         ("sido_code", optional(row.sido_code.as_ref())),
