@@ -27,6 +27,7 @@ platform_root="$(cd "${here}/../.." && pwd)"
 contract="${platform_root}/config/identity-runtime-endpoints.contract.json"
 policy="${platform_root}/config/workload-principal-policy.v1.json"
 consoles="${platform_root}/config/staff-console-applications.v1.json"
+login_policy="${platform_root}/config/staff-login-policy.v1.json"
 secrets_dir="${ZITADEL_SECRETS_DIR:-/etc/identity-platform/secrets}"
 action_file="${here}/actions/principal-kind.js"
 pat_file="${ZITADEL_PAT_FILE:-/etc/identity-platform/secrets/zitadel-bootstrap-pat}"
@@ -37,7 +38,7 @@ if [[ "${1:-}" == "--emit-bindings" ]]; then
   emit_bindings="${2:?--emit-bindings needs a path}"
 fi
 
-for f in "${contract}" "${policy}" "${consoles}" "${action_file}" "${pat_file}"; do
+for f in "${contract}" "${policy}" "${consoles}" "${login_policy}" "${action_file}" "${pat_file}"; do
   [[ -r "${f}" ]] || { printf 'FAIL configure-zitadel: unreadable %s\n' "${f}" >&2; exit 66; }
 done
 
@@ -244,6 +245,50 @@ print(f\"OIDC_CLIENT_SECRET={json.load(sys.stdin)['clientSecret']}\")
     printf 'minted  console app %s credentials=%s (the file was missing)\n' "${console}" "${credentials}"
   fi
 done <<<"${console_rows}"
+
+# --- organization login policy -----------------------------------------
+# The organization uses its own login policy, converged to staff-login-policy.v1.json: the
+# instance default allows public sign-up. Fields the file does not name keep Zitadel's values,
+# read from the policy in force, so a converge never resets lifetimes or second factors.
+current_policy="$(api "${base_url}/management/v1/policies/login")"
+desired_policy="$(printf '%s' "${current_policy}" | python3 -c "
+import json, sys
+current = json.load(sys.stdin)['policy']
+decided = json.load(open(sys.argv[1]))
+body = {k: v for k, v in current.items() if k not in ('details', 'isDefault')}
+body.update({
+    'allowUsernamePassword': decided['allow_username_password'],
+    'allowRegister': decided['allow_register'],
+    'allowExternalIdp': decided['allow_external_idp'],
+    'ignoreUnknownUsernames': decided['ignore_unknown_usernames'],
+    'forceMfa': decided['force_mfa'],
+})
+print(json.dumps(body, sort_keys=True))
+" "${login_policy}")"
+policy_state="$(CURRENT="${current_policy}" DESIRED="${desired_policy}" python3 -c "
+import json, os
+policy = json.loads(os.environ['CURRENT'])['policy']
+desired = json.loads(os.environ['DESIRED'])
+if policy.get('isDefault'):
+    print('default')
+else:
+    # Zitadel leaves a false boolean out of its answer, so a missing key reads as false.
+    same = all(policy.get(k, False if isinstance(v, bool) else None) == v for k, v in desired.items())
+    print('same' if same else 'differs')
+")"
+case "${policy_state}" in
+  default)
+    printf '%s' "${desired_policy}" | api -X POST "${base_url}/management/v1/policies/login" \
+      -H 'Content-Type: application/json' --data-binary @- >/dev/null
+    printf 'created organization login policy (sign-up off)\n'
+    ;;
+  differs)
+    printf '%s' "${desired_policy}" | api -X PUT "${base_url}/management/v1/policies/login" \
+      -H 'Content-Type: application/json' --data-binary @- >/dev/null
+    printf 'updated organization login policy\n'
+    ;;
+  *) printf 'exists  organization login policy\n' ;;
+esac
 
 # --- bindings document ---------------------------------------------------
 if [[ -n "${emit_bindings}" ]]; then
