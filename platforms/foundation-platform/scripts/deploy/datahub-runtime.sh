@@ -89,23 +89,32 @@ verify_up() {
   printf 'datahub-runtime: ui and gms answer; sign-in goes to Zitadel\n'
 }
 
-# The ingestion image runs a recipe from the repository against GMS on the metadata network.
-ingest_image="acryldata/datahub-ingestion:v1.7.0.1@sha256:8845102fd495f2589e1ffc00dbd85cee3cbb700abc20d62fac1929ce95535620"
+# Runs a repository recipe in the pinned ingestion image against GMS on the metadata network.
 ingest() {
   (($# == 1)) || fail "usage: $0 ingest RECIPE"
-  local recipe="${compose_dir}/recipes/$1.yml" name
+  local recipe="${compose_dir}/recipes/$1.yml" name names
   [[ -r "${recipe}" ]] || fail "no recipe ${recipe}"
-  local -a pass=()
-  # Every ${NAME} the recipe uses must be set; each is handed to the container by name only.
+  # Every ${NAME} the recipe uses must be set. Docker reads a bare NAME line in an env file as
+  # "take this variable's value from my environment", so the file holds names and no values.
+  names="$(mktemp)"
   while read -r name; do
-    [[ -n "${!name:-}" ]] || fail "${name} is required by recipe $1"
-    pass+=(-e "${name}")
+    [[ -n "${!name:-}" ]] || {
+      rm -f "${names}"
+      fail "${name} is required by recipe $1"
+    }
+    printf '%s\n' "${name}" >>"${names}"
   done < <(grep -oE '\$\{[A-Z][A-Z0-9_]*\}' "${recipe}" | tr -d '${}' | sort -u)
-  docker network inspect metadata-shared >/dev/null 2>&1 ||
+  docker network inspect metadata-shared >/dev/null 2>&1 || {
+    rm -f "${names}"
     fail "the metadata-shared network is missing; run: $0 up -d"
-  docker run --rm --network metadata-shared "${pass[@]}" \
+  }
+  local status=0
+  docker run --rm --network metadata-shared --env-file "${names}" \
     -v "${compose_dir}/recipes:/recipes:ro" \
-    "${ingest_image}" ingest -c "/recipes/$1.yml"
+    acryldata/datahub-ingestion:v1.7.0.1@sha256:8845102fd495f2589e1ffc00dbd85cee3cbb700abc20d62fac1929ce95535620 \
+    ingest -c "/recipes/$1.yml" || status=$?
+  rm -f "${names}"
+  return "${status}"
 }
 
 provision() {
