@@ -62,3 +62,9 @@ jobs:
         # The generator reported a flattering zero four separate ways before these cases pinned it.
         # A stale-file check alone would keep confirming whatever wrong number it last wrote.
         run: python3 -m unittest scripts/catalog/test_foundation_baseline.py -v
+      - name: Check generated data contracts
+        # ODCS contracts are rendered from the Rust lakehouse contracts and the pipeline graph
+        # (root ADR-0123); a hand edit or a source changed without re-rendering fails here.
+        run: python3 scripts/catalog/render-data-contracts.py --check
+      - name: Test data contract renderer
+        run: python3 -m unittest scripts/catalog/test_render_data_contracts.py -v
