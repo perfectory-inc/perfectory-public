@@ -4,6 +4,7 @@ import copy
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import unittest
 
@@ -60,6 +61,25 @@ class TheRealJobList(unittest.TestCase):
                 self.assertIsNotNone(limit, "the service states its own time limit")
                 minutes = int(limit.group(1)) * (60 if limit.group(2) == "h" else 1)
                 self.assertGreater(spec.timeout_minutes, minutes)
+
+    def test_what_each_service_runs_is_executable_in_the_repository(self):
+        # systemd answers 203/EXEC when ExecStart is not executable. The stewardship cycle shipped
+        # without its executable bit on 2026-09-30 and never ran once; the timer hid it until
+        # Airflow showed the failure (2026-10-01). Read from git, so a Windows checkout cannot pass
+        # a file that a Linux host would refuse to execute.
+        release = job_specs.RELEASE_PREFIX
+        for spec in self.specs:
+            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            exec_start = re.search(r"^ExecStart=(\S+)", unit, flags=re.MULTILINE).group(1)
+            with self.subTest(spec.dag_id):
+                self.assertTrue(exec_start.startswith(release), f"{exec_start} is not in the release")
+                relative = exec_start[len(release):]
+                listed = subprocess.run(
+                    ["git", "ls-files", "-s", "--", relative],
+                    cwd=job_specs.PLATFORM_ROOT, capture_output=True, text=True, check=True,
+                ).stdout.split()
+                self.assertTrue(listed, f"{relative} is not tracked")
+                self.assertEqual(listed[0], "100755", f"{relative} is not executable in git")
 
     def test_dag_ids_are_unique(self):
         ids = [spec.dag_id for spec in self.specs]

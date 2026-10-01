@@ -46,7 +46,9 @@ bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh provisio
    거부되는 것이 정상이다 — 끝까지 돌리려면 2를 먼저 한다.
 2. 한 변경에서: `jobs.v1.json` 의 `enabled` 를 `true` 로, `infra/systemd/<timer>` 를 지우고, `foundation-release.sh`
    `timers` 의 설치·켜기 목록에서 그 타이머를 뺀다. 시험(`orchestration/tests`)이 둘 중 하나만 바뀐 변경을 막는다.
-3. 병합 뒤 배포: `install` → `migrate` → `airflow-runtime.sh up -d`(DAG 켜짐) → `timers`(서버 타이머 끄기·허용 목록 갱신).
+3. 병합 뒤 배포: `install` → `migrate` → `timers`(서버 타이머 끄기·허용 목록 갱신) → `airflow-runtime.sh up -d`(DAG 켜짐).
+   순서가 거꾸로면 DAG 가 켜지자마자 돈 첫 시도가 허용 목록에 없어 거부되고 5분 뒤 재시도로 넘어간다
+   (2026-10-01 실제로 겪음). DAG 를 켜면 Airflow 는 지난 회차 하나를 바로 돌린다 — 켜는 시각이 곧 첫 실행이다.
 
 ## 확인
 

@@ -18,6 +18,8 @@ PLATFORM_ROOT = pathlib.Path(__file__).resolve().parents[2]
 JOBS = PLATFORM_ROOT / "orchestration" / "jobs.v1.json"
 GRAPH = PLATFORM_ROOT / "docs" / "catalog" / "pipeline-graph.v1.json"
 SYSTEMD = PLATFORM_ROOT / "infra" / "systemd"
+# Where a unit's ExecStart finds the release on the host.
+RELEASE_PREFIX = "/opt/foundation-platform/current/"
 JOBS_SCHEMA = "foundation-platform.orchestration_jobs.v1"
 POOLS = {"default_pool", "spark"}
 SERVICE_NAME = re.compile(r"foundation-[a-z0-9-]+(?:@([a-z0-9-]+))?\.service")
