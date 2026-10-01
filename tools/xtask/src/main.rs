@@ -427,21 +427,6 @@ const AREAS: &[Area] = &[
                 ],
                 covers: &["infra/lakehouse/spark/tests"],
             },
-            // The scheduled-job list and the runner that executes it (root ADR-0122).
-            PythonTests {
-                dir: ".",
-                python_path: None,
-                args: &[
-                    "-m",
-                    "unittest",
-                    "discover",
-                    "-s",
-                    "orchestration/tests",
-                    "-p",
-                    "test_*.py",
-                ],
-                covers: &["orchestration/tests"],
-            },
             // The two suites below belonged to no runner until ADR-0011. The dbt
             // contract tests had never executed at all: not in a workflow, not in
             // `lefthook.yml`, not here. Twenty-five of their twenty-six assertions
@@ -487,6 +472,21 @@ const AREAS: &[Area] = &[
                     "test_*.py",
                 ],
                 covers: &["tests/static_release_toolchain"],
+            },
+            // The scheduled-job list Airflow builds its DAGs from (root ADR-0122).
+            PythonTests {
+                dir: ".",
+                python_path: None,
+                args: &[
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "orchestration/tests",
+                    "-p",
+                    "test_*.py",
+                ],
+                covers: &["orchestration/tests"],
             },
         ],
         node_tests: &[
@@ -1948,7 +1948,7 @@ mod tests {
 
         let plans = python_test_plans(area, area_dir);
 
-        assert_eq!(plans.len(), 5);
+        assert_eq!(plans.len(), 6);
         assert_eq!(
             plans[0].current_dir,
             area_dir.join("services/foundation-provider-acquisition-worker")
@@ -2004,6 +2004,18 @@ mod tests {
                 "discover",
                 "-s",
                 "tests/static_release_toolchain",
+                "-p",
+                "test_*.py",
+            ],
+        );
+        assert_eq!(
+            plans[5].args,
+            &[
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "orchestration/tests",
                 "-p",
                 "test_*.py",
             ],
