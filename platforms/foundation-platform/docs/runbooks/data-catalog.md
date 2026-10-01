@@ -53,6 +53,24 @@ Foundation 과 같은 장비에서 돈다.
 | 계획에 계약만 있음(정상) | `gold.complex_spatial_locator`, `silver.complex_parcel_memberships` |
 | 레이크하우스에 있는데 계획에 없음 | 시험 흔적 8개(`*_smoke`, `*_probe`, `dist_probe.*`, `sail_probe.*`), `gold.building_resources`, `gongzzang_silver.court_auction_property` |
 
+## 데이터 계약 등록
+
+`contracts/data/*.odcs.yaml`(ADR-0123, 생성물)을 등록한다. 계약 파일이 바뀐 릴리스를 배포한 뒤 돌린다.
+
+```bash
+bash /opt/foundation-platform/current/scripts/deploy/datahub-runtime.sh ingest data-contracts
+```
+
+DataHub 의 `odcs` 수집기가 계약마다 `odcs` 플랫폼에 논리 데이터셋(계약 id 가 이름)을 만들고, 품질 규칙마다
+검사 항목(assertion)과 표 구조 검사를 붙이고, 같은 이름의 `iceberg` 표에 연결한다. 수집기는 공식 ODCS
+JSON 스키마로 계약을 검증한다(`validation_errors` 가 0 이어야 한다). 계약에서 빠진 표는 다음 실행에서 지워진다.
+
+2026-10-01 첫 등록: 계약 35개, 실제 표 연결 35개(모두 실재 확인), 검사 항목 148개 + 표 구조 35개, 검증 오류 0.
+
+- DataHub 1.7 은 ODCS v3.1 까지 읽는다(v3.2 계약은 "Unsupported apiVersion" 으로 하나도 들어가지 않는다).
+- 수집 결과의 절반 이상이 바뀌면 DataHub 가 옛 항목 삭제를 한 번 미룬다(`fail_safe_threshold`). 이름 규칙을 바꾼
+  직후라면 한 번 더 돌리면 정리된다.
+
 ## 확인
 
 - 비밀번호 로그인은 꺼져 있다: `POST /logIn` 은 어떤 비밀번호로도 400 이다.

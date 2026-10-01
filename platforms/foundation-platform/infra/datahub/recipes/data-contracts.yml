@@ -1,0 +1,26 @@
+# Registers the generated data contracts (root ADR-0117 §3, ADR-0123): every
+# contracts/data/*.odcs.yaml becomes a logical dataset on DataHub's `odcs` platform with its
+# schema, ownership and one assertion per quality rule, linked to the physical Iceberg table the
+# lakehouse ingestion (lakehouse-iceberg.yml) fills. The contracts name their server `lakehouse`
+# without an address; this binds that name to the Iceberg platform, and each contract's dotted
+# physicalName (silver.x, gold.x) is the table's name there. Run through
+# `datahub-runtime.sh ingest data-contracts`, which mounts the contracts read-only.
+source:
+  type: odcs
+  config:
+    path: /contracts/
+    env: PROD
+    # One table per contract (the renderer writes one schema entry), so the contract id alone names
+    # the logical dataset; the default template would repeat it (silver.x.silver.x).
+    logical_dataset_name_template: "{contract_id}"
+    server_overrides:
+      - server: lakehouse
+        platform: iceberg
+    stateful_ingestion:
+      enabled: true
+      remove_stale_metadata: true
+pipeline_name: perfectory-data-contracts
+sink:
+  type: datahub-rest
+  config:
+    server: http://datahub-gms:8080
