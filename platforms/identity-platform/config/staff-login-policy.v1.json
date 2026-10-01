@@ -1,0 +1,13 @@
+{
+  "schema_version": "identity-platform.staff_login_policy.v1",
+  "description": "The organization's Zitadel login policy. configure-zitadel.sh makes the organization use exactly these values over Zitadel's instance default; the decision lives here and only here.",
+  "allow_username_password": true,
+  "allow_register": false,
+  "allow_register_reason": "Staff accounts are created by an administrator and pre-provisioned in each console; a public sign-up button let anyone who reached the issuer create an account.",
+  "allow_external_idp": false,
+  "allow_external_idp_reason": "No external identity provider is configured; the switch stays off until one is decided.",
+  "ignore_unknown_usernames": true,
+  "ignore_unknown_usernames_reason": "The login screen does not reveal whether an account exists.",
+  "force_mfa": false,
+  "force_mfa_reason": "Second factors are offered (OTP, security key); requiring them is a separate decision taken with staff enrollment."
+}
