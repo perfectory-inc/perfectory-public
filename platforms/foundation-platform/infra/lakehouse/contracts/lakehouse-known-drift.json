@@ -1,0 +1,11 @@
+{
+  "schema_version": "foundation-platform.lakehouse_known_drift.v1",
+  "description": "Production lakehouse tables that disagree with their contract for a recorded reason (root ADR-0124). The deploy's lakehouse migration leaves a listed table untouched and reports it instead of stopping the deploy; once the table matches its contract the entry must be removed, and the migration fails until it is.",
+  "tables": {
+    "silver.building_register_units": {
+      "since": "2026-10-02",
+      "reason": "On 2026-09-30 15:40 UTC an unmerged changeset (Task68, source tree ebe1401b, snapshot 2378883755081217568) overwrote the table with unit-to-building links computed from the source parent key mgmUpBldrgstPk and added building_link_source_record_id, building_link_input_sha256 and building_link_reason, which the contract does not declare. 277,356 links changed.",
+      "closes_when": "The parent-key unit link decision (ADR-0106 in the unmerged changeset) is merged under a new ADR number with its contract columns, or the table is restored to the contract."
+    }
+  }
+}

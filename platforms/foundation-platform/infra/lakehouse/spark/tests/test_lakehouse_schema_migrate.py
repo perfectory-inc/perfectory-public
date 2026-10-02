@@ -70,5 +70,33 @@ class Backfills(unittest.TestCase):
                 self.assertTrue(declared.get(column), f"{table}.{column} is not a required contract column")
 
 
+class KnownDrift(unittest.TestCase):
+    def test_every_entry_states_why_and_when_it_closes(self) -> None:
+        for table, entry in migrate.load_known_drift().items():
+            with self.subTest(table):
+                self.assertTrue(entry["reason"] and entry["since"] and entry["closes_when"])
+
+    def test_an_entry_without_a_closing_condition_is_refused(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "drift.json")
+            path.write_text(json.dumps({
+                "schema_version": migrate.KNOWN_DRIFT_SCHEMA,
+                "tables": {"gold.t": {"since": "2026-10-02", "reason": "x", "closes_when": ""}},
+            }))
+            with self.assertRaises(ValueError):
+                migrate.load_known_drift(path)
+
+    def test_every_entry_names_a_contract_table(self) -> None:
+        from platform_contracts import load_lakehouse_artifact
+
+        contracts = load_lakehouse_artifact()["contracts"]
+        for table in migrate.load_known_drift():
+            self.assertIn(table, contracts)
+
+
 if __name__ == "__main__":
     unittest.main()

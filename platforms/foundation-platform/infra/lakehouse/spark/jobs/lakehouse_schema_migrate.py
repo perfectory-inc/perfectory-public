@@ -14,8 +14,11 @@ the release's schema. For each contract table the lakehouse holds:
    from the snapshot current at start, pinned by id; the filled column checked for the same row
    count and no NULL; the overwrite read back. Iceberg keeps the previous snapshot.
 
-A table the lakehouse does not hold yet is left to the load that creates it. Prints one line per
-table and exits 1 on anything that stops the deploy.
+A table the lakehouse does not hold yet is left to the load that creates it. A table listed in
+contracts/lakehouse-known-drift.json is left untouched and reported, with its recorded reason; a
+listed table that has come to match its contract fails the run until the entry is removed, so an
+exception cannot outlive its cause. Prints one line per table and exits 1 on anything that stops
+the deploy.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ import argparse
 import importlib
 import json
 import os
+from pathlib import Path
 from typing import Callable
 
 from pyspark.sql import Column, SparkSession
@@ -54,6 +58,21 @@ def backfill_function(table_name: str, column: str) -> Callable[[], Column]:
 
 class MigrationBlocked(ValueError):
     pass
+
+
+KNOWN_DRIFT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "lakehouse-known-drift.json"
+KNOWN_DRIFT_SCHEMA = "foundation-platform.lakehouse_known_drift.v1"
+
+
+def load_known_drift(path: Path = KNOWN_DRIFT_PATH) -> dict[str, dict]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("schema_version") != KNOWN_DRIFT_SCHEMA:
+        raise ValueError(f"{path.name} schema_version is not {KNOWN_DRIFT_SCHEMA}")
+    for table, entry in document["tables"].items():
+        missing = [field for field in ("since", "reason", "closes_when") if not entry.get(field)]
+        if missing:
+            raise ValueError(f"{path.name}: {table} does not state {missing}")
+    return document["tables"]
 
 
 def plan_table(contract: dict, actual: tuple[str, ...], has_rows: bool, table_name: str) -> dict:
@@ -142,6 +161,10 @@ def main() -> int:
     report, blocked = {}, []
     try:
         contracts = load_lakehouse_artifact()["contracts"]
+        known_drift = load_known_drift()
+        unknown_entries = sorted(set(known_drift) - set(contracts))
+        if unknown_entries:
+            blocked.append(f"known drift names tables with no contract: {unknown_entries}")
         for table_name, contract in sorted(contracts.items()):
             quoted = ".".join(f"`{part}`" for part in f"{catalog}.{table_name}".split("."))
             if not spark.catalog.tableExists(f"{catalog}.{table_name}"):
@@ -153,9 +176,23 @@ def main() -> int:
             try:
                 plan = plan_table(contract, actual, has_rows, table_name)
             except MigrationBlocked as error:
+                if table_name in known_drift:
+                    entry = known_drift[table_name]
+                    report[table_name] = {"state": "known_drift", "reason": entry["reason"]}
+                    print(
+                        f"lakehouse-migrate {table_name}: known drift since {entry['since']} "
+                        f"(closes when: {entry['closes_when']}) -- {error}"
+                    )
+                    continue
                 blocked.append(str(error))
                 report[table_name] = {"state": "blocked", "reason": str(error)}
                 print(f"lakehouse-migrate {table_name}: BLOCKED {error}")
+                continue
+            if table_name in known_drift:
+                stale = f"{table_name} no longer drifts but is still listed as known drift; remove the entry"
+                blocked.append(stale)
+                report[table_name] = {"state": "blocked", "reason": stale}
+                print(f"lakehouse-migrate {table_name}: BLOCKED {stale}")
                 continue
             if not plan["add"] and not plan["reorder"]:
                 report[table_name] = {"state": "matches"}
