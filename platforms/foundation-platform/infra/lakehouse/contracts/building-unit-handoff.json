@@ -11,6 +11,7 @@
     "register_pk",
     "pnu",
     "building_register_pk",
+    "building_link_evidence",
     "building_name",
     "dong_name",
     "ho_name",
@@ -19,5 +20,19 @@
     "usage_name",
     "structure_name"
   ],
-  "columns_reason": "Exactly the catalog.building_unit columns the loader fills, minus the ones it derives (id from register_pk, parcel_id from pnu, building_id from building_register_pk — ADR-0072 §2, §4; ADR-0075 §3). building_register_pk is null when the register states no link. The writer and the reader both read this list, so a column added for one is refused by the other until both moved."
+  "columns_reason": "Exactly the catalog.building_unit columns the loader fills, minus the ones it derives (id from register_pk, parcel_id from pnu, building_id from building_register_pk — ADR-0072 §2, §4; ADR-0075 §3). building_register_pk is null when the register states no link. The writer and the reader both read this list, so a column added for one is refused by the other until both moved.",
+  "relationship_evidence_policy": {
+    "source_method": "parent_key",
+    "sha256_pattern": "^[0-9a-f]{64}$",
+    "application_id_pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    "columns": [
+      "unit_row_id",
+      "building_link_method",
+      "building_link_source_record_id",
+      "building_link_input_sha256",
+      "building_link_reason",
+      "normalization_application_id"
+    ],
+    "rule": "자동 연결은 source_method·원본 행·입력 SHA-256을 요구하며 거절 사유와 application은 없어야 한다. 승인 보정은 application ID를 요구하며 이전 자동 원본 행·digest·거절 사유는 없어야 한다. 모든 연결은 unit_row_id를 보존한다. DB 적재는 application을 기존 유효 보정 원장과 대조한다."
+  }
 }

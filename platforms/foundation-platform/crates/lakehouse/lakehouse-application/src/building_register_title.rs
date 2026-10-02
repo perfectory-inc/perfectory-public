@@ -7,19 +7,10 @@
 
 use std::collections::HashMap;
 
-use foundation_normalization_domain::{canonical_dong_join_key, BuildingFloorCounts};
-use foundation_shared_kernel::pnu::hub_register_parcel_key;
+use foundation_normalization_domain::BuildingFloorCounts;
 
 /// Provider management key column (shared with 층별개요 for the 동-level join).
 const MGM_BLDRGST_PK_INDEX: usize = 0;
-/// PNU code columns (시군구/법정동/대지구분/본번/부번).
-const PNU_SIGUNGU_INDEX: usize = 8;
-const PNU_BEOPJEONGDONG_INDEX: usize = 9;
-const PNU_DAEJI_KIND_INDEX: usize = 10;
-const PNU_BONBEON_INDEX: usize = 11;
-const PNU_BUBEON_INDEX: usize = 12;
-/// 동명칭 column.
-const DONG_NAME_INDEX: usize = 22;
 /// 주부속구분명 column (`주건축물` / `부속건축물`).
 const MAIN_ANNEX_KIND_INDEX: usize = 24;
 /// 호수 column (unit count on the title card; `0` is meaningful — no units).
@@ -31,8 +22,8 @@ const GROUND_FLOOR_COUNT_INDEX: usize = 43;
 /// 지하층수 column (basement floor count).
 const BASEMENT_FLOOR_COUNT_INDEX: usize = 44;
 const MIN_FIELD_COUNT: usize = BASEMENT_FLOOR_COUNT_INDEX + 1;
-/// Minimum columns needed to extract the building link (PK + PNU + 동명).
-const MIN_LINK_FIELD_COUNT: usize = DONG_NAME_INDEX + 1;
+/// PK and register kind are the minimum identity fields.
+const MIN_LINK_FIELD_COUNT: usize = 4;
 
 /// Parses one hub.go.kr 표제부 (`mart_djy_03`) TXT line into the building management
 /// key and its title floor counts.
@@ -86,11 +77,8 @@ pub struct BuildingLink {
 /// One 표제부 line reduced to its building-link entry plus title attributes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BuildingTitleLinkEntry {
-    /// Register-internal parcel key (hub-native composition; **not** a PNU —
-    /// ADR 0023). Total even for block parcels, so 전유부↔표제부 links never break.
-    pub register_parcel_key: String,
-    /// Canonical 동 join key.
-    pub canonical_dong: String,
+    /// Provider register kind; a unit parent must be a collective-building title (`3`).
+    pub register_kind_code: String,
     /// 표제부 management key.
     pub mgm_bldrgst_pk: String,
     /// Raw 주부속구분명, when present.
@@ -99,15 +87,49 @@ pub struct BuildingTitleLinkEntry {
     pub title_unit_count: Option<u32>,
 }
 
-/// Index of 표제부 buildings for linking 전유부 호 to their building by
-/// `(PNU + canonical 동명)`, with a single-building fallback for nameless 동.
+/// 중복 PK는 하나로 보되, 다른 PK가 관측된 키는 이후에도 모호한 상태를 유지한다.
+#[derive(Debug)]
+enum BuildingKeyCandidate<T> {
+    Unique(T),
+    Ambiguous,
+}
+
+impl<T: PartialEq> BuildingKeyCandidate<T> {
+    fn observe(&mut self, pk: &T) {
+        if matches!(self, Self::Unique(existing) if existing != pk) {
+            *self = Self::Ambiguous;
+        }
+    }
+
+    const fn value(&self) -> Option<&T> {
+        match self {
+            Self::Unique(value) => Some(value),
+            Self::Ambiguous => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct TitleAttributes {
+    register_kind: BuildingKeyCandidate<String>,
+    main_or_annex: Option<BuildingKeyCandidate<String>>,
+    unit_count: Option<BuildingKeyCandidate<u32>>,
+}
+
+fn observe_optional<T: PartialEq>(slot: &mut Option<BuildingKeyCandidate<T>>, value: Option<T>) {
+    if let Some(value) = value {
+        match slot {
+            Some(candidate) => candidate.observe(&value),
+            None => *slot = Some(BuildingKeyCandidate::Unique(value)),
+        }
+    }
+}
+
+/// Source title index keyed only by opaque register PK. Names and parcel proximity cannot resolve a parent.
 #[derive(Debug, Default)]
 pub struct BuildingTitleKeyIndex {
-    by_parcel_dong: HashMap<(String, String), String>,
-    /// `register_parcel_key` -> (distinct 동 count, pk when exactly one).
-    single_building_by_parcel: HashMap<String, (u32, Option<String>)>,
-    /// pk -> (주부속구분명, title 호수). First entry per pk wins.
-    attrs_by_pk: HashMap<String, (Option<String>, Option<u32>)>,
+    /// Repeated nonempty observations must agree, independently of input order.
+    attrs_by_pk: HashMap<String, TitleAttributes>,
 }
 
 impl BuildingTitleKeyIndex {
@@ -117,53 +139,54 @@ impl BuildingTitleKeyIndex {
         Self::default()
     }
 
-    /// Number of `(PNU, 동명)` entries.
+    /// Number of distinct title register keys, including conflicting observations.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.by_parcel_dong.len()
+        self.attrs_by_pk.len()
     }
 
     /// Whether the index has no entries.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.by_parcel_dong.is_empty()
+        self.attrs_by_pk.is_empty()
     }
 
-    /// Inserts one 표제부 building. The first management key seen for a
-    /// `(PNU, canonical 동명)` wins, as does the first attribute set per key.
+    /// Observes a title register PK and its source attributes.
+    /// 같은 PK의 모순된 부가속성은 비워 두며 입력 순서에 의존하지 않는다.
     pub fn insert(&mut self, entry: BuildingTitleLinkEntry) {
         let BuildingTitleLinkEntry {
-            register_parcel_key,
-            canonical_dong,
+            register_kind_code,
             mgm_bldrgst_pk,
             main_or_annex,
             title_unit_count,
         } = entry;
-        self.attrs_by_pk
-            .entry(mgm_bldrgst_pk.clone())
-            .or_insert((main_or_annex, title_unit_count));
-        let key = (register_parcel_key.clone(), canonical_dong);
-        let is_new_dong = !self.by_parcel_dong.contains_key(&key);
-        self.by_parcel_dong
-            .entry(key)
-            .or_insert_with(|| mgm_bldrgst_pk.clone());
-        if is_new_dong {
-            let entry = self
-                .single_building_by_parcel
-                .entry(register_parcel_key)
-                .or_insert((0, None));
-            entry.0 += 1;
-            entry.1 = if entry.0 == 1 {
-                Some(mgm_bldrgst_pk)
-            } else {
-                None
-            };
+        match self.attrs_by_pk.entry(mgm_bldrgst_pk) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                let attrs = entry.get_mut();
+                attrs.register_kind.observe(&register_kind_code);
+                observe_optional(&mut attrs.main_or_annex, main_or_annex);
+                observe_optional(&mut attrs.unit_count, title_unit_count);
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(TitleAttributes {
+                    register_kind: BuildingKeyCandidate::Unique(register_kind_code),
+                    main_or_annex: main_or_annex.map(BuildingKeyCandidate::Unique),
+                    unit_count: title_unit_count.map(BuildingKeyCandidate::Unique),
+                });
+            }
         }
     }
 
     fn link_for(&self, pk: &str, method: &'static str) -> BuildingLink {
-        let (main_or_annex, title_unit_count) =
-            self.attrs_by_pk.get(pk).cloned().unwrap_or((None, None));
+        let attrs = self.attrs_by_pk.get(pk);
+        let main_or_annex = attrs
+            .and_then(|attrs| attrs.main_or_annex.as_ref())
+            .and_then(BuildingKeyCandidate::value)
+            .cloned();
+        let title_unit_count = attrs
+            .and_then(|attrs| attrs.unit_count.as_ref())
+            .and_then(BuildingKeyCandidate::value)
+            .copied();
         BuildingLink {
             building_mgm_bldrgst_pk: Some(pk.to_owned()),
             method,
@@ -172,29 +195,24 @@ impl BuildingTitleKeyIndex {
         }
     }
 
-    /// Resolves a 호's building via `(register parcel key + canonical 동명)`,
-    /// falling back to the single building on the parcel when the 동명 does not
-    /// match. Keys are the hub-native parcel composition, not standard PNUs.
-    #[must_use]
-    pub fn resolve(&self, register_parcel_key: &str, dong_name: &str) -> BuildingLink {
-        let canonical = canonical_dong_join_key(dong_name);
-        if !canonical.is_empty() {
-            if let Some(pk) = self
-                .by_parcel_dong
-                .get(&(register_parcel_key.to_owned(), canonical))
-            {
-                return self.link_for(pk, "canonical_dong");
-            }
+    /// Resolves an explicit source parent only to a consistent collective-building title.
+    ///
+    /// # Errors
+    /// Returns a machine-readable reason when the title is missing or has an invalid kind.
+    pub fn resolve_parent_pk(&self, pk: &str) -> Result<BuildingLink, &'static str> {
+        self.checked_link_for(pk, "parent_key")
+    }
+
+    fn checked_link_for(
+        &self,
+        pk: &str,
+        method: &'static str,
+    ) -> Result<BuildingLink, &'static str> {
+        let attrs = self.attrs_by_pk.get(pk).ok_or("parent_title_missing")?;
+        if attrs.register_kind.value().map(String::as_str) != Some("3") {
+            return Err("parent_title_kind_mismatch");
         }
-        match self.single_building_by_parcel.get(register_parcel_key) {
-            Some((1, Some(pk))) => self.link_for(pk, "single_building_fallback"),
-            _ => BuildingLink {
-                building_mgm_bldrgst_pk: None,
-                method: "unresolved",
-                building_main_or_annex: None,
-                building_title_unit_count: None,
-            },
-        }
+        Ok(self.link_for(pk, method))
     }
 }
 
@@ -215,14 +233,6 @@ pub fn parse_building_title_building_link_from_hub_bulk_text_line(
     if mgm_bldrgst_pk.is_empty() {
         return None;
     }
-    let register_parcel_key = hub_register_parcel_key(
-        fields[PNU_SIGUNGU_INDEX],
-        fields[PNU_BEOPJEONGDONG_INDEX],
-        fields[PNU_DAEJI_KIND_INDEX],
-        fields[PNU_BONBEON_INDEX],
-        fields[PNU_BUBEON_INDEX],
-    );
-    let canonical_dong = canonical_dong_join_key(fields[DONG_NAME_INDEX].trim());
     let main_or_annex = fields
         .get(MAIN_ANNEX_KIND_INDEX)
         .map(|value| value.trim())
@@ -233,8 +243,7 @@ pub fn parse_building_title_building_link_from_hub_bulk_text_line(
         .map(|value| value.trim())
         .and_then(|value| value.parse::<u32>().ok());
     Some(BuildingTitleLinkEntry {
-        register_parcel_key,
-        canonical_dong,
+        register_kind_code: fields[3].trim().to_owned(),
         mgm_bldrgst_pk: mgm_bldrgst_pk.to_owned(),
         main_or_annex,
         title_unit_count,
@@ -287,10 +296,9 @@ mod tests {
         assert!(parse_building_title_floor_counts_from_hub_bulk_text_line(&empty_key).is_none());
     }
 
-    fn entry(parcel_key: &str, dong: &str, pk: &str) -> BuildingTitleLinkEntry {
+    fn entry(pk: &str) -> BuildingTitleLinkEntry {
         BuildingTitleLinkEntry {
-            register_parcel_key: parcel_key.to_owned(),
-            canonical_dong: dong.to_owned(),
+            register_kind_code: "3".to_owned(),
             mgm_bldrgst_pk: pk.to_owned(),
             main_or_annex: None,
             title_unit_count: None,
@@ -301,21 +309,12 @@ mod tests {
     fn link_parse_carries_annex_kind_and_title_unit_count() -> Result<(), &'static str> {
         let mut fields = vec![String::new(); 45];
         fields[MGM_BLDRGST_PK_INDEX] = "100211753".to_owned();
-        fields[PNU_SIGUNGU_INDEX] = "99999".to_owned();
-        fields[PNU_BEOPJEONGDONG_INDEX] = "01101".to_owned();
-        fields[PNU_DAEJI_KIND_INDEX] = "0".to_owned();
-        fields[PNU_BONBEON_INDEX] = "0734".to_owned();
-        fields[PNU_BUBEON_INDEX] = "0000".to_owned();
-        fields[DONG_NAME_INDEX] = "301동".to_owned();
         fields[MAIN_ANNEX_KIND_INDEX] = "부속건축물".to_owned();
         fields[TITLE_UNIT_COUNT_INDEX] = "0".to_owned();
         let line = fields.join("|");
 
         let entry = parse_building_title_building_link_from_hub_bulk_text_line(&line)
             .ok_or("valid title line should parse a link entry")?;
-        // 내부 조인 키는 허브 조립 그대로 유지 (표준 PNU 아님 — ADR 0023).
-        assert_eq!(entry.register_parcel_key, "9999901101007340000");
-        assert_eq!(entry.canonical_dong, "301");
         assert_eq!(entry.mgm_bldrgst_pk, "100211753");
         assert_eq!(entry.main_or_annex.as_deref(), Some("부속건축물"));
         // "0" is meaningful here (no units) — must stay Some(0), not None.
@@ -335,45 +334,72 @@ mod tests {
     }
 
     #[test]
-    fn resolve_carries_building_title_attrs() {
-        let mut index = BuildingTitleKeyIndex::new();
-        let mut annex = entry("pnuA", "301", "pkA3");
-        annex.main_or_annex = Some("부속건축물".to_owned());
-        annex.title_unit_count = Some(0);
-        index.insert(annex);
-
-        let hit = index.resolve("pnuA", "301동");
-        assert_eq!(hit.building_mgm_bldrgst_pk.as_deref(), Some("pkA3"));
-        assert_eq!(hit.building_main_or_annex.as_deref(), Some("부속건축물"));
-        assert_eq!(hit.building_title_unit_count, Some(0));
-
-        let miss = index.resolve("pnuZ", "1동");
-        assert_eq!(miss.building_main_or_annex, None);
-        assert_eq!(miss.building_title_unit_count, None);
+    fn explicit_parent_requires_consistent_title_kind_three() {
+        for kind in ["", "1", "2", "4"] {
+            let mut index = BuildingTitleKeyIndex::new();
+            let mut title = entry("parent");
+            title.register_kind_code = kind.to_owned();
+            index.insert(title);
+            assert_eq!(
+                index.resolve_parent_pk("parent"),
+                Err("parent_title_kind_mismatch")
+            );
+        }
+        for kinds in [["3", "2", "3"], ["2", "3", "3"]] {
+            let mut index = BuildingTitleKeyIndex::new();
+            for kind in kinds {
+                let mut title = entry("parent");
+                title.register_kind_code = kind.to_owned();
+                index.insert(title);
+            }
+            assert_eq!(
+                index.resolve_parent_pk("parent"),
+                Err("parent_title_kind_mismatch")
+            );
+            assert_eq!(
+                index.resolve_parent_pk("absent"),
+                Err("parent_title_missing")
+            );
+        }
     }
 
     #[test]
-    fn building_index_links_by_canonical_dong_and_single_fallback() {
-        let mut index = BuildingTitleKeyIndex::new();
-        // Parcel A: two buildings 101동 / 102동.
-        index.insert(entry("pnuA", "101", "pkA1"));
-        index.insert(entry("pnuA", "102", "pkA2"));
-        // Parcel B: one nameless building.
-        index.insert(entry("pnuB", "", "pkB"));
-
-        // Canonical 동명 match ("제 101동" -> "101").
-        let hit = index.resolve("pnuA", "제 101동");
-        assert_eq!(hit.building_mgm_bldrgst_pk.as_deref(), Some("pkA1"));
-        assert_eq!(hit.method, "canonical_dong");
-
-        // Nameless 동 on a single-building parcel falls back.
-        let fallback = index.resolve("pnuB", "가동");
-        assert_eq!(fallback.building_mgm_bldrgst_pk.as_deref(), Some("pkB"));
-        assert_eq!(fallback.method, "single_building_fallback");
-
-        // Non-matching 동 on a multi-building parcel is unresolved.
-        let miss = index.resolve("pnuA", "307동");
-        assert_eq!(miss.building_mgm_bldrgst_pk, None);
-        assert_eq!(miss.method, "unresolved");
+    fn repeated_title_attributes_are_order_independent_and_conflicts_stay_null(
+    ) -> Result<(), &'static str> {
+        for reverse in [false, true] {
+            let mut observations = [
+                (Some("main"), Some(20)),
+                (None, None),
+                (Some("annex"), Some(30)),
+                (Some("main"), Some(20)),
+            ];
+            if reverse {
+                observations.reverse();
+            }
+            let mut index = BuildingTitleKeyIndex::new();
+            for (annex, count) in observations {
+                let mut title = entry("parent");
+                title.main_or_annex = annex.map(str::to_owned);
+                title.title_unit_count = count;
+                index.insert(title);
+            }
+            let direct = index.resolve_parent_pk("parent")?;
+            assert_eq!(direct.building_mgm_bldrgst_pk.as_deref(), Some("parent"));
+            assert_eq!(direct.building_main_or_annex, None);
+            assert_eq!(direct.building_title_unit_count, None);
+        }
+        for observations in [[None, Some(0)], [Some(0), None]] {
+            let mut index = BuildingTitleKeyIndex::new();
+            for count in observations {
+                let mut title = entry("parent");
+                title.title_unit_count = count;
+                index.insert(title);
+            }
+            assert_eq!(
+                index.resolve_parent_pk("parent")?.building_title_unit_count,
+                Some(0)
+            );
+        }
+        Ok(())
     }
 }

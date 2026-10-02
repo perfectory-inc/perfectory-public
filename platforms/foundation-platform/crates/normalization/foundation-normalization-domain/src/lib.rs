@@ -32,7 +32,8 @@ pub use building_register_floor::{
     RawBuildingRegisterFloor,
 };
 pub use building_register_unit::{
-    building_register_unit_designation, canonical_dong_join_key, normalize_building_register_unit,
+    building_register_unit_designation, building_register_unit_parent_binding,
+    canonical_dong_join_key, normalize_building_register_unit,
     validate_building_register_unit_proposal, validate_building_register_unit_target_identity,
     validate_building_register_unit_target_identity_matches, BuildingRegisterUnitReason,
     BuildingRegisterUnitStatus, NormalizedBuildingRegisterUnit, RawBuildingRegisterUnit,

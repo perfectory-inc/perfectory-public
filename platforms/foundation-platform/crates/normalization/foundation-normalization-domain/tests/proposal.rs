@@ -116,28 +116,110 @@ fn flexible_normalization_fields_must_be_json_objects() {
 fn building_register_unit_proposal_accepts_the_existing_schema_contract(
 ) -> Result<(), NormalizationError> {
     validate_building_register_unit_proposal(
-        "building_register_unit.normalized.v1",
-        "building_register_unit.normalized.v1",
+        "building_register_unit.normalized.v2",
+        "building_register_unit.normalized.v2",
         &unit_target_identity(),
         &json!({
             "normalization_status":"proposal_required",
+            "mgm_bldrgst_pk":"SYNTHETIC-UNIT-PK-0001",
+            "building_mgm_bldrgst_pk":null,
             "unit_number":null
         }),
     )
 }
 
 #[test]
+fn approved_unit_identity_requires_an_explicit_management_key() {
+    for key in [
+        json!(null),
+        json!(""),
+        json!("  "),
+        json!(7),
+        json!(false),
+        json!(" UNIT-1"),
+        json!("UNIT-1 "),
+    ] {
+        let result = validate_building_register_unit_proposal(
+            "building_register_unit.normalized.v2",
+            "building_register_unit.normalized.v2",
+            &unit_target_identity(),
+            &json!({"normalization_status":"accepted", "mgm_bldrgst_pk":key, "building_mgm_bldrgst_pk":null}),
+        );
+        assert!(
+            result.is_err(),
+            "an approval without a target management key must be refused"
+        );
+    }
+}
+
+#[test]
+fn parent_withdrawal_requires_explicit_null_and_all_keys_are_canonical(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let valid = json!({"normalization_status":"accepted", "mgm_bldrgst_pk":"UNIT-1",
+        "building_mgm_bldrgst_pk":null});
+    for parent in [
+        None,
+        Some(json!(7)),
+        Some(json!(false)),
+        Some(json!("")),
+        Some(json!(" ")),
+        Some(json!(" PARENT")),
+        Some(json!("PARENT ")),
+    ] {
+        let mut record = valid.clone();
+        match parent {
+            Some(parent) => record["building_mgm_bldrgst_pk"] = parent,
+            None => {
+                record
+                    .as_object_mut()
+                    .ok_or("record fixture")?
+                    .remove("building_mgm_bldrgst_pk");
+            }
+        }
+        assert!(validate_building_register_unit_proposal(
+            "building_register_unit.normalized.v2",
+            "building_register_unit.normalized.v2",
+            &unit_target_identity(),
+            &record
+        )
+        .is_err());
+    }
+    for parent in [json!(null), json!("PARENT")] {
+        let mut record = valid.clone();
+        record["building_mgm_bldrgst_pk"] = parent;
+        assert!(validate_building_register_unit_proposal(
+            "building_register_unit.normalized.v2",
+            "building_register_unit.normalized.v2",
+            &unit_target_identity(),
+            &record
+        )
+        .is_ok());
+    }
+    Ok(())
+}
+
+#[test]
 fn building_register_unit_proposal_rejects_schema_drift_with_exact_messages() {
     let cases = [
         (
-            "wrong",
             "building_register_unit.normalized.v1",
-            "target_schema_version must be building_register_unit.normalized.v1",
+            "building_register_unit.normalized.v2",
+            "target_schema_version must be building_register_unit.normalized.v2",
         ),
         (
+            "building_register_unit.normalized.v2",
             "building_register_unit.normalized.v1",
+            "proposal_schema_version must be building_register_unit.normalized.v2",
+        ),
+        (
             "wrong",
-            "proposal_schema_version must be building_register_unit.normalized.v1",
+            "building_register_unit.normalized.v2",
+            "target_schema_version must be building_register_unit.normalized.v2",
+        ),
+        (
+            "building_register_unit.normalized.v2",
+            "wrong",
+            "proposal_schema_version must be building_register_unit.normalized.v2",
         ),
     ];
 
@@ -178,8 +260,8 @@ fn building_register_unit_proposed_record_preserves_exact_validation_messages() 
     for (proposed_record, message) in cases {
         assert_eq!(
             validate_building_register_unit_proposal(
-                "building_register_unit.normalized.v1",
-                "building_register_unit.normalized.v1",
+                "building_register_unit.normalized.v2",
+                "building_register_unit.normalized.v2",
                 &unit_target_identity(),
                 &proposed_record,
             ),
@@ -189,7 +271,7 @@ fn building_register_unit_proposed_record_preserves_exact_validation_messages() 
 }
 
 #[test]
-fn building_register_unit_target_identity_enforces_the_exact_v1_shape() {
+fn building_register_unit_target_identity_enforces_the_source_row_shape() {
     let cases = [
         (
             json!({"raw_record_id":"unit-1"}),
@@ -224,8 +306,8 @@ fn building_register_unit_target_identity_enforces_the_exact_v1_shape() {
     for (target_identity, message) in cases {
         assert_eq!(
             validate_building_register_unit_proposal(
-                "building_register_unit.normalized.v1",
-                "building_register_unit.normalized.v1",
+                "building_register_unit.normalized.v2",
+                "building_register_unit.normalized.v2",
                 &target_identity,
                 &json!({"normalization_status":"accepted"}),
             ),
@@ -242,10 +324,10 @@ fn building_register_unit_target_identity_accepts_equivalent_key_order(
         json!({"raw_record_id":"unit-1","source_system":"source-a"}),
     ] {
         validate_building_register_unit_proposal(
-            "building_register_unit.normalized.v1",
-            "building_register_unit.normalized.v1",
+            "building_register_unit.normalized.v2",
+            "building_register_unit.normalized.v2",
             &target_identity,
-            &json!({"normalization_status":"accepted"}),
+            &json!({"normalization_status":"accepted", "mgm_bldrgst_pk":"SYNTHETIC-UNIT-PK-0001", "building_mgm_bldrgst_pk":null}),
         )?;
     }
     Ok(())

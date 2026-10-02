@@ -74,9 +74,10 @@ fn valid_unit_command() -> NormalizationProposalSubmissionCommand {
             "source_system": "foundation-platform.silver.building_register_units",
             "raw_record_id": raw_record_id
         }),
-        target_schema_version: "building_register_unit.normalized.v1".to_owned(),
-        proposal_schema_version: "building_register_unit.normalized.v1".to_owned(),
+        target_schema_version: "building_register_unit.normalized.v2".to_owned(),
+        proposal_schema_version: "building_register_unit.normalized.v2".to_owned(),
         proposed_record: json!({
+            "mgm_bldrgst_pk": format!("SYNTHETIC-UNIT-{raw_record_id}"),
             "building_link_method": "canonical_dong",
             "building_mgm_bldrgst_pk": "SYNTHETIC-BUILDING-PK-0001",
             "normalization_reason": "no_unit_number",

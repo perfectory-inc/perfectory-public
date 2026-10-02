@@ -39,12 +39,14 @@ from lakehouse_engine import (
     iceberg_packages,
 )
 
+from building_link_evidence import evidence_policy, verified_building_links
+
 JOB_NAME = "building_register_units_parcel_handoff"
 CONTRACT_PATH_ENV = "FOUNDATION_PLATFORM_BUILDING_UNIT_HANDOFF_CONTRACT_PATH"
 DEFAULT_CONTRACT_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "contracts", "building-unit-handoff.json"
 )
-MANIFEST_SCHEMA_VERSION = "foundation-platform.building_unit_handoff_manifest.v1"
+MANIFEST_SCHEMA_VERSION = "foundation-platform.building_unit_handoff_manifest.v2"
 PNU_PATTERN = r"^[0-9]{19}$"
 
 
@@ -113,6 +115,7 @@ def read_units(spark: Any, catalog: str) -> Any:
         F.col("unit_name_raw"),
         F.col("floor_kind"),
         F.col("floor_number"),
+        *[F.col(name) for name in evidence_policy()["columns"]],
     )
 
 
@@ -161,11 +164,12 @@ def floor_label_column() -> Any:
 
 
 def build_handoff_frame(units: Any, areas: Any, columns: list[str]) -> Any:
-    joined = units.join(areas, "register_pk", "left")
+    joined = verified_building_links(units).join(areas, "register_pk", "left")
     trimmed_link = F.trim(F.col("building_mgm_bldrgst_pk"))
     frame = joined.select(
         F.col("register_pk"),
         F.col("pnu"),
+        F.col("building_link_evidence"),
         # "The register wrote nothing" and "an empty key" are the same claim (ADR-0075 §2).
         F.when(F.length(trimmed_link) == 0, F.lit(None))
         .otherwise(trimmed_link)
@@ -220,7 +224,7 @@ def write_objects(
         count = 0
         with gzip.GzipFile(fileobj=payload, mode="wb") as gz:
             for row in rows.toLocalIterator():
-                gz.write(json.dumps(row.asDict(), ensure_ascii=False).encode("utf-8"))
+                gz.write(json.dumps(row.asDict(recursive=True), ensure_ascii=False).encode("utf-8"))
                 gz.write(b"\n")
                 count += 1
         key = f"{prefix}/{sigungu}{suffix}"

@@ -57,9 +57,11 @@ pub async fn submit_approved(
             bronze_object_id: None,
             target_kind: NormalizationTargetKind::BuildingRegisterUnit,
             target_identity: identity.clone(),
-            target_schema_version: "building_register_unit.normalized.v1".to_owned(),
-            proposal_schema_version: "building_register_unit.normalized.v1".to_owned(),
+            target_schema_version: "building_register_unit.normalized.v2".to_owned(),
+            proposal_schema_version: "building_register_unit.normalized.v2".to_owned(),
             proposed_record: json!({
+                "mgm_bldrgst_pk": format!("SYNTHETIC-UNIT-{raw_record_id}"),
+                "building_mgm_bldrgst_pk":null,
                 "normalization_status": "accepted",
                 "unit_number": unit_number
             }),

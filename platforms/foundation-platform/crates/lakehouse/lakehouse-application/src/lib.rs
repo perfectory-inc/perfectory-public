@@ -5,6 +5,7 @@
 /// Silver normalization helpers for official building-register floor rows.
 pub mod building_register_floor_silver_plan;
 
+pub mod building_register_basis;
 /// Building-register main title parsing for floor-count and building-link witnesses.
 pub mod building_register_row_identity;
 pub mod building_register_title;
@@ -55,6 +56,7 @@ pub mod vworld_cadastral_silver_plan;
 pub use build_industrial_complex_silver_handoff::{
     BuildIndustrialComplexSilverHandoff, BuildIndustrialComplexSilverHandoffInput,
 };
+pub use building_register_basis::{BuildingRegisterBasisIndex, BuildingRegisterUnitParent};
 pub use building_register_floor_silver_plan::{
     build_building_register_floor_entity_context_pack_input,
     build_building_register_floor_normalization_proposal_input,
@@ -88,7 +90,7 @@ pub use building_register_unit_silver_plan::{
     apply_building_register_unit_silver_overrides,
     building_register_unit_silver_override_from_application_snapshot,
     building_register_unit_silver_row_to_jsonl, normalize_building_register_unit_silver_rows,
-    normalize_building_register_unit_silver_rows_with_building_keys,
+    normalize_building_register_unit_silver_rows_with_parent_keys,
     parse_building_register_unit_source_row_from_hub_bulk_text_line,
     parse_building_register_unit_source_row_from_hub_bulk_text_line_via,
     BuildingRegisterUnitSilverOverride, BuildingRegisterUnitSilverOverrideIndex,

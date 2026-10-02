@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -111,7 +112,7 @@ impl FoundationNormalizationSubmitter for FoundationPlatformNormalizationClient 
         &self,
         submission: &NormalizationProposalSubmission,
     ) -> Result<FoundationSubmissionResult, FoundationSubmissionError> {
-        let payload = FoundationPlatformNormalizationSubmission::from(submission);
+        let payload = FoundationPlatformNormalizationSubmission::try_from(submission)?;
         let idempotency_key = normalization_idempotency_key(&submission.request);
         let mut request = self
             .client
@@ -201,24 +202,64 @@ struct FoundationPlatformNormalizationSubmission<'a> {
     submission_metadata: FoundationPlatformSubmissionMetadata<'a>,
 }
 
-impl<'a> From<&'a NormalizationProposalSubmission>
+impl<'a> TryFrom<&'a NormalizationProposalSubmission>
     for FoundationPlatformNormalizationSubmission<'a>
 {
-    fn from(submission: &'a NormalizationProposalSubmission) -> Self {
-        Self {
+    type Error = FoundationSubmissionError;
+
+    fn try_from(submission: &'a NormalizationProposalSubmission) -> Result<Self, Self::Error> {
+        let (target_identity, record) =
+            if submission.request.target_kind == "building_register_unit" {
+                let source_pk = submission
+                    .request
+                    .target_identity
+                    .get("mgm_bldrgst_pk")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty() && value.trim() == *value)
+                    .ok_or_else(|| FoundationSubmissionError::PreSendFailure {
+                        message:
+                            "unit request.target_identity.mgm_bldrgst_pk must be a non-empty string"
+                                .to_string(),
+                    })?;
+                let mut record = submission.proposal.proposed_record.clone();
+                let fields = record.as_object_mut().ok_or_else(|| {
+                    FoundationSubmissionError::PreSendFailure {
+                        message: "unit proposal record must be an object".to_string(),
+                    }
+                })?;
+                // The source context binds the approved target. A generated identifier cannot
+                // replace it, and the original durable submission stays unchanged for retries.
+                fields.insert(
+                    "mgm_bldrgst_pk".to_string(),
+                    Value::String(source_pk.to_string()),
+                );
+                (
+                    Cow::Owned(json!({
+                        "source_system": submission.request.source_system,
+                        "raw_record_id": submission.request.raw_record_id,
+                    })),
+                    Cow::Owned(record),
+                )
+            } else {
+                (
+                    Cow::Borrowed(&submission.request.target_identity),
+                    Cow::Borrowed(&submission.proposal.proposed_record),
+                )
+            };
+        Ok(Self {
             request: FoundationPlatformNormalizationRequest {
                 source_system: &submission.request.source_system,
                 raw_record_id: &submission.request.raw_record_id,
                 raw_object_key: submission.request.raw_object_key.as_deref(),
                 raw_checksum_sha256: submission.request.raw_checksum_sha256.as_deref(),
                 target_kind: &submission.request.target_kind,
-                target_identity: &submission.request.target_identity,
+                target_identity,
                 target_schema_version: &submission.request.target_schema_version,
             },
             proposal: FoundationPlatformNormalizationProposal {
                 raw_record_id: &submission.proposal.raw_record_id,
                 schema_version: &submission.proposal.schema_version,
-                record: &submission.proposal.proposed_record,
+                record,
                 confidence: submission.proposal.confidence,
                 evidence: json!({ "reasons": submission.proposal.reasons }),
             },
@@ -234,7 +275,7 @@ impl<'a> From<&'a NormalizationProposalSubmission>
                 policy_id: &submission.proposal.policy_id,
                 policy_version: &submission.proposal.policy_version,
             },
-        }
+        })
     }
 }
 
@@ -247,7 +288,7 @@ struct FoundationPlatformNormalizationRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     raw_checksum_sha256: Option<&'a str>,
     target_kind: &'a str,
-    target_identity: &'a Value,
+    target_identity: Cow<'a, Value>,
     target_schema_version: &'a str,
 }
 
@@ -255,7 +296,7 @@ struct FoundationPlatformNormalizationRequest<'a> {
 struct FoundationPlatformNormalizationProposal<'a> {
     raw_record_id: &'a str,
     schema_version: &'a str,
-    record: &'a Value,
+    record: Cow<'a, Value>,
     confidence: f64,
     evidence: Value,
 }

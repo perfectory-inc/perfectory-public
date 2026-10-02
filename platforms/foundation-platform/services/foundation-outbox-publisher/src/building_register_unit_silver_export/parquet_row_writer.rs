@@ -152,6 +152,9 @@ fn build_schema() -> Schema {
         Field::new("floor_number", DataType::Int32, true),
         Field::new("building_mgm_bldrgst_pk", DataType::Utf8, true),
         Field::new("building_link_method", DataType::Utf8, false),
+        Field::new("building_link_source_record_id", DataType::Utf8, true),
+        Field::new("building_link_input_sha256", DataType::Utf8, true),
+        Field::new("building_link_reason", DataType::Utf8, true),
         Field::new("building_main_or_annex", DataType::Utf8, true),
         Field::new("building_title_unit_count", DataType::Int32, true),
         Field::new("normalization_status", DataType::Utf8, false),
@@ -195,6 +198,9 @@ fn rows_to_batch(
     let mut floor_number = Int32Builder::new();
     let mut building_mgm_bldrgst_pk = StringBuilder::new();
     let mut building_link_method = StringBuilder::new();
+    let mut building_link_source_record_id = StringBuilder::new();
+    let mut building_link_input_sha256 = StringBuilder::new();
+    let mut building_link_reason = StringBuilder::new();
     let mut building_main_or_annex = StringBuilder::new();
     let mut building_title_unit_count = Int32Builder::new();
     let mut normalization_status = StringBuilder::new();
@@ -234,6 +240,18 @@ fn rows_to_batch(
             row.building_mgm_bldrgst_pk.as_deref(),
         );
         building_link_method.append_value(&row.building_link_method);
+        append_optional_string(
+            &mut building_link_source_record_id,
+            row.building_link_source_record_id.as_deref(),
+        );
+        append_optional_string(
+            &mut building_link_input_sha256,
+            row.building_link_input_sha256.as_deref(),
+        );
+        append_optional_string(
+            &mut building_link_reason,
+            row.building_link_reason.as_deref(),
+        );
         append_optional_string(
             &mut building_main_or_annex,
             row.building_main_or_annex.as_deref(),
@@ -281,6 +299,9 @@ fn rows_to_batch(
             Arc::new(floor_number.finish()),
             Arc::new(building_mgm_bldrgst_pk.finish()),
             Arc::new(building_link_method.finish()),
+            Arc::new(building_link_source_record_id.finish()),
+            Arc::new(building_link_input_sha256.finish()),
+            Arc::new(building_link_reason.finish()),
             Arc::new(building_main_or_annex.finish()),
             Arc::new(building_title_unit_count.finish()),
             Arc::new(normalization_status.finish()),

@@ -22,7 +22,8 @@ use crate::building_register_floor::{
 mod proposal;
 
 pub use proposal::{
-    validate_building_register_unit_proposal, validate_building_register_unit_target_identity,
+    building_register_unit_parent_binding, validate_building_register_unit_proposal,
+    validate_building_register_unit_target_identity,
     validate_building_register_unit_target_identity_matches, BUILDING_REGISTER_UNIT_SCHEMA_VERSION,
 };
 

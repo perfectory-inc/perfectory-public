@@ -1187,6 +1187,21 @@ const SILVER_BUILDING_REGISTER_UNITS_COLUMNS: &[LakehouseColumn] = &[
         required: true,
     },
     LakehouseColumn {
+        name: "building_link_source_record_id",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "building_link_input_sha256",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "building_link_reason",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
         name: "building_main_or_annex",
         logical_type: "string",
         required: false,
@@ -1986,6 +2001,7 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
         "unit_row_id",
     ],
     quality_gates: &[
+        "building_link_evidence_valid",
         "unit_row_id_not_null",
         "register_parcel_key_not_null",
         "normalization_status_in_allowed_values",

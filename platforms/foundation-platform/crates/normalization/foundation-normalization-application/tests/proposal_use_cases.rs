@@ -390,9 +390,11 @@ fn valid_unit_command_without_key() -> NormalizationProposalSubmissionCommand {
         "source_system":"foundation-platform.silver.building_register_units",
         "raw_record_id":"unit-1"
     });
-    "building_register_unit.normalized.v1".clone_into(&mut command.target_schema_version);
-    "building_register_unit.normalized.v1".clone_into(&mut command.proposal_schema_version);
+    "building_register_unit.normalized.v2".clone_into(&mut command.target_schema_version);
+    "building_register_unit.normalized.v2".clone_into(&mut command.proposal_schema_version);
     command.proposed_record = json!({
+        "mgm_bldrgst_pk":"SYNTHETIC-UNIT-PK-0001",
+        "building_mgm_bldrgst_pk":null,
         "normalization_status":"accepted",
         "unit_number":1
     });

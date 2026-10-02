@@ -52,7 +52,8 @@ workflows_dir="${LIVE_LANE_WORKFLOWS_DIR:-.github/workflows}"
 # Declared: LaneTarget { package: "P", test: "T" } — the two fields are adjacent,
 # so pair them by reading the package line and attaching the next test line.
 declared="$(
-  grep -oE '(package|test): "[A-Za-z0-9_.-]+"' "$xtask_src" \
+  sed '/LaneTarget::Binary {/,/}/d' "$xtask_src" \
+    | grep -oE '(package|test): "[A-Za-z0-9_.-]+"' \
     | sed 's/.*: "//; s/"$//' \
     | paste - - 2>/dev/null \
     | sort -u || true
@@ -163,7 +164,7 @@ actual_gating="$(
 # why the fragility stayed hidden until an ADR-0011 fixture exercised the empty
 # case. A guard that dies quietly is worse than one that fails loudly.
 declared_gating="$(
-  sed '/^#\[cfg(test)\]/,$d' "$xtask_src" \
+  sed '/^#\[cfg(test)\]/,$d; /LaneTarget::Binary {/,/}/d' "$xtask_src" \
     | grep -oE 'gating: LaneGating::(Ignored|Feature\("[^"]+"\))|package: "[^"]+"|test: "[^"]+"' \
     | awk '
         /^gating:/  { g = $0; sub(/^gating: LaneGating::/, "", g); next }
@@ -197,6 +198,51 @@ if [ -n "$gating_report" ]; then
   echo "    Ignored needs '#[ignore]'; Feature(\"f\") needs '#![cfg(feature = \"f\")]'." >&2
   exit 1
 fi
+
+# A binary contains tests for several backends. Its lane must name one exact
+# ignored test; sweeping all ignored tests would run unrelated live resources.
+# Cargo's executed-count verdict remains the runtime check for module reachability.
+python3 - "$xtask_src" "${scan_roots[@]}" <<'PY'
+from pathlib import Path
+import re
+import sys
+import tomllib
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
+# Only declarations: lane_commands also pattern-matches the enum above this table.
+source = re.split(r"\bconst\s+AREAS\s*:", source, maxsplit=1)[-1]
+for entry in re.finditer(r"LaneTarget::Binary\s*\{([^}]+)\}", source):
+    fields = dict(re.findall(r'(package|binary|filter):\s*"([^"]+)"', entry[1]))
+    if set(fields) != {"package", "binary", "filter"}:
+        sys.exit("FAIL live-lane-completeness: incomplete binary test selector")
+    gates = list(re.finditer(r'gating:\s*LaneGating::(Ignored|Feature)', source[:entry.start()]))
+    if not gates or gates[-1][1] != "Ignored":
+        sys.exit("FAIL live-lane-completeness: binary test selector must use Ignored gating")
+    package, binary, test = fields["package"], fields["binary"], fields["filter"]
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+", test):
+        sys.exit("FAIL live-lane-completeness: binary test must use an exact module-qualified name")
+    manifests = []
+    for root in sys.argv[2:]:
+        for manifest in Path(root).rglob("Cargo.toml"):
+            if {"target", "node_modules", ".git"}.intersection(manifest.parts):
+                continue
+            data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+            if data.get("package", {}).get("name") == package:
+                manifests.append((manifest, data))
+    if len(manifests) != 1:
+        sys.exit(f"FAIL live-lane-completeness: binary package {package} is not unique")
+    manifest, data = manifests[0]
+    declared = [item for item in data.get("bin", []) if item.get("name") == binary]
+    main = manifest.parent / (declared[0].get("path", "src/main.rs") if declared else "src/main.rs")
+    if not main.is_file() or (not declared and binary != package):
+        sys.exit(f"FAIL live-lane-completeness: binary {package}/{binary} does not exist")
+    # Match the attribute on this function, not an unrelated ignored test in the binary.
+    pattern = re.compile(r'#\[ignore[^\]]*\]\s*(?:async\s+)?fn\s+' + re.escape(test.rsplit("::", 1)[1]) + r'\s*\(')
+    matches = sum(len(pattern.findall(path.read_text(encoding="utf-8")))
+                  for path in (manifest.parent / "src").rglob("*.rs"))
+    if matches != 1:
+        sys.exit(f"FAIL live-lane-completeness: binary test {test} is not one ignored source test")
+PY
 
 # ---------------------------------------------------------------------------
 # Python 발견-선언 대조 (ADR-0011).

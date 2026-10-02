@@ -24,15 +24,15 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         cls.spark.sparkContext.setLogLevel("ERROR")
         cls.pnu = "9999900000100000000"
         cls.spark.createDataFrame([
-            ("A", cls.pnu, "101동", "101호"), ("B", cls.pnu, "101동", "102호"),
+            ("UNIT-1", cls.pnu, "101동", "101호"), ("UNIT-2", cls.pnu, "101동", "102호"),
         ], "mgmt_key string,pnu string,dong_name string,ho_name string").createOrReplaceTempView("exclusive_source")
         cls.spark.sql(silver.DICTIONARY_SQL).createOrReplaceTempView("unit_dictionary")
         cls.spark.createDataFrame([
-            ("A", " 20100101 ", "20100430", "37000000"),
-            ("A", "20100101", "20100531", "36000000"),
-            ("A", "20100601", "20100930", "35000000"),
-            ("B", "20100601", "20100930", "20"),
-            ("B", "20100601", "20100930", "100"),
+            ("UNIT-1", " 20100101 ", "20100430", "37000000"),
+            ("UNIT-1", "20100101", "20100531", "36000000"),
+            ("UNIT-1", "20100601", "20100930", "35000000"),
+            ("UNIT-2", "20100601", "20100930", "20"),
+            ("UNIT-2", "20100601", "20100930", "100"),
         ], "mgmt_key string,base_date string,notice_date string,price_won string").createOrReplaceTempView("price_source")
         cls.spark.sql(silver.PRICES_SQL).createOrReplaceTempView("reference_prices")
         cls.prices = (cls.spark.sql(silver.JOIN_SQL).withColumn("sido", F.lit("99"))
@@ -43,6 +43,12 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
             (cls.pnu, "UNIT-2", None, "", "101동", "102호", "102호", 1, "above_ground"),
         ], "pnu string,mgm_bldrgst_pk string,building_mgm_bldrgst_pk string,dong_join_name string,"
            "dong_name_raw string,unit_label_ko string,unit_name_raw string,floor_number int,floor_kind string")
+        cls.units = (cls.units.withColumn("unit_row_id", F.concat(F.lit("synthetic-row:"), F.col("mgm_bldrgst_pk")))
+                     .withColumn("building_link_method", F.when(F.col("building_mgm_bldrgst_pk").isNotNull(), F.lit("parent_key")).otherwise(F.lit("unresolved")))
+                     .withColumn("building_link_source_record_id", F.lit("synthetic-basis#line=1"))
+                     .withColumn("building_link_input_sha256", F.lit("a" * 64))
+                     .withColumn("building_link_reason", F.lit(None).cast("string"))
+                     .withColumn("normalization_application_id", F.lit(None).cast("string")))
         cls.titles = cls.spark.createDataFrame([
             (cls.pnu, "BLDG-1", "03000", None, 0.0, None, 0, None),
         ], "pnu string,mgm_bldrgst_pk string,purpose_code_raw string,structure_code_raw string,"

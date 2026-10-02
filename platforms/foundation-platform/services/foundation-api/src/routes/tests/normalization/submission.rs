@@ -149,11 +149,11 @@ async fn router_accepts_building_register_unit_normalization_proposal_after_serv
         );
         assert_eq!(
             recorded_command.target_schema_version,
-            "building_register_unit.normalized.v1"
+            "building_register_unit.normalized.v2"
         );
         assert_eq!(
             recorded_command.proposal_schema_version,
-            "building_register_unit.normalized.v1"
+            "building_register_unit.normalized.v2"
         );
         assert_eq!(
             recorded_command.submitted_by_service,

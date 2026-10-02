@@ -85,6 +85,119 @@ async fn posts_submission_with_authorization_and_parses_result() {
 }
 
 #[tokio::test]
+async fn unit_submission_binds_original_pk_and_canonical_target_identity() {
+    for model_pk in [None, Some(json!("MODEL-OTHER-UNIT"))] {
+        let captured = Arc::new(Mutex::new(None));
+        let base_url = spawn_success_server(captured.clone()).await;
+        let client =
+            FoundationPlatformNormalizationClient::new(FoundationPlatformNormalizationConfig {
+                base_url,
+                submission_path: "/internal/normalization/proposals".to_string(),
+                workload_token_provider: None,
+                timeout_seconds: 5,
+            })
+            .unwrap();
+        let mut sub = unit_submission();
+        if let Some(model_pk) = model_pk {
+            sub.proposal.proposed_record["mgm_bldrgst_pk"] = model_pk;
+        }
+        let original_proposal = sub.proposal.proposed_record.clone();
+
+        client.submit(&sub).await.unwrap();
+
+        let captured = captured.lock().unwrap().clone().unwrap();
+        assert_eq!(
+            captured.body["proposal"]["record"]["mgm_bldrgst_pk"],
+            "SOURCE-UNIT-1"
+        );
+        assert_eq!(
+            captured.body["request"]["target_identity"],
+            json!({
+                "source_system": sub.request.source_system,
+                "raw_record_id": sub.request.raw_record_id,
+            })
+        );
+        assert_eq!(
+            captured.body["proposal"]["record"]["building_mgm_bldrgst_pk"],
+            "APPROVAL-CANDIDATE-PARENT"
+        );
+        assert_eq!(sub.proposal.proposed_record, original_proposal);
+        assert_eq!(
+            captured.idempotency_key.as_deref(),
+            Some(normalization_idempotency_key(&sub.request).as_str())
+        );
+    }
+}
+
+#[tokio::test]
+async fn unit_submission_without_original_pk_is_rejected_before_http() {
+    for source_pk in [
+        None,
+        Some(Value::Null),
+        Some(json!("  ")),
+        Some(json!(123)),
+        Some(json!(" UNIT-1")),
+        Some(json!("UNIT-1 ")),
+    ] {
+        let captured = Arc::new(Mutex::new(None));
+        let base_url = spawn_success_server(captured.clone()).await;
+        let client =
+            FoundationPlatformNormalizationClient::new(FoundationPlatformNormalizationConfig {
+                base_url,
+                submission_path: "/internal/normalization/proposals".to_string(),
+                workload_token_provider: None,
+                timeout_seconds: 5,
+            })
+            .unwrap();
+        let mut sub = unit_submission();
+        sub.request
+            .target_identity
+            .as_object_mut()
+            .unwrap()
+            .remove("mgm_bldrgst_pk");
+        if let Some(source_pk) = source_pk {
+            sub.request.target_identity["mgm_bldrgst_pk"] = source_pk;
+        }
+        sub.proposal.proposed_record["mgm_bldrgst_pk"] = json!("MODEL-CANNOT-SUPPLY-IDENTITY");
+
+        let result = client.submit(&sub).await;
+
+        assert!(
+            captured.lock().unwrap().is_none(),
+            "invalid unit identity reached HTTP"
+        );
+        assert!(
+            matches!(result, Err(FoundationSubmissionError::PreSendFailure { message })
+            if message.contains("request.target_identity.mgm_bldrgst_pk"))
+        );
+    }
+}
+
+fn unit_submission() -> NormalizationProposalSubmission {
+    let mut sub = submission();
+    sub.request.target_kind = "building_register_unit".to_string();
+    sub.request.source_system = "foundation-platform.silver.building_register_units".to_string();
+    sub.request.target_schema_version = "building_register_unit.normalized.v2".to_string();
+    sub.request.target_identity = json!({
+        "silver_row_id": sub.request.raw_record_id,
+        "mgm_bldrgst_pk": "SOURCE-UNIT-1",
+        "pnu": "9999900000100000001",
+        "entity_context_key": "source-context",
+        "row_checksum_sha256": "a".repeat(64),
+        "source_line_number": 1,
+    });
+    sub.proposal.schema_version = sub.request.target_schema_version.clone();
+    sub.proposal.proposed_record = json!({
+        "unit_number": 101,
+        "building_mgm_bldrgst_pk": "APPROVAL-CANDIDATE-PARENT",
+        "building_link_method": "canonical_dong",
+        "normalization_status": "accepted",
+        "normalization_reason": "원본 호실에 대한 검토 제안",
+    });
+    sub
+}
+
+#[tokio::test]
 async fn sends_only_workload_bearer_for_foundation_authorization() {
     let captured = Arc::new(Mutex::new(None));
     let base_url = spawn_success_server(captured.clone()).await;
