@@ -181,7 +181,7 @@ def read_newest_silver(spark: Any, table: str) -> tuple[list[dict[str, Any]], st
     wrong = [row[FEATURE_ID_PROPERTY] for row in rows if int(row["geometry_srid"]) != GEOMETRY_SRID]
     if wrong:
         raise ValueError(f"{len(wrong)} Silver rows are not EPSG:{GEOMETRY_SRID}")
-    return rows, source_snapshot, common.latest_snapshot(spark, table)
+    return rows, source_snapshot, common.current_snapshot(spark, table)
 
 
 def matching_gate(
@@ -273,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         persisted = spark.sql(f"SELECT count(*) AS n FROM {served_table}").collect()[0]["n"]
         if persisted != len(served):
             raise ValueError(f"served table read back {persisted} rows, wrote {len(served)}")
-        gold_snapshot = common.latest_snapshot(spark, served_table)
+        gold_snapshot = common.current_snapshot(spark, served_table)
     finally:
         spark.stop()
 
