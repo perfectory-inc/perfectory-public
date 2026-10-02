@@ -17,6 +17,11 @@
 # dependency another service waits on to complete) run one at a time during a deploy or a timer,
 # so only the largest counts.
 #
+# Some one-shot containers are started by code itself, not by compose: the lakehouse
+# tile bake's GDAL and tippecanoe (root ADR-0133 §3). Their caps live in the contract the code
+# reads; `one_shot_contracts` names that contract and where its containers are, and this guard
+# counts each as a one-shot job. A container there without a `memory_limit` is a failure.
+#
 # Two more limits share this inventory. Every service names the file's log cap (`logging: *log-cap`,
 # anchored once per file): on 2026-10-02 one uncapped json-file log reached 32GB and filled the
 # root disk under the production database twice. And every service that stays up on the host
@@ -228,6 +233,52 @@ placed: set[str] = set()
 report: list[str] = []
 standing_total = 0
 largest_job = (0, "")
+
+def contract_one_shots(contract: dict) -> list[tuple[int, str]]:
+    """The caps of containers code starts itself, read from the contract that code reads."""
+    entries = contract.get("one_shot_contracts", [])
+    if not isinstance(entries, list):
+        errors.append(f"{CONTRACT}: one_shot_contracts must be an array")
+        return []
+    jobs: list[tuple[int, str]] = []
+    for entry in entries:
+        try:
+            if not isinstance(entry, dict) or set(entry) != {"contract", "containers", "why"}:
+                raise ValueError("an entry names only contract, containers and why")
+            relative = entry["contract"]
+            if not isinstance(relative, str) or not relative or "\\" in relative:
+                raise ValueError("contract must be a repository-relative POSIX path")
+            path = pathlib.PurePosixPath(relative)
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("contract path must not escape the repository")
+            source = (ROOT / path).resolve(strict=True)
+            if not source.is_relative_to(ROOT) or not source.is_file():
+                raise ValueError("contract must resolve to a file inside the repository")
+            containers = json.loads(source.read_text(encoding="utf-8"))
+            keys = entry["containers"]
+            if not isinstance(keys, list) or not keys or any(not isinstance(key, str) or not key for key in keys):
+                raise ValueError("containers must be a nonempty array of object member names")
+            for key in keys:
+                if not isinstance(containers, dict) or key not in containers:
+                    raise ValueError(f"containers member {key!r} is missing")
+                containers = containers[key]
+            if not isinstance(containers, dict) or not containers:
+                raise ValueError("containers must name a nonempty object of containers")
+            for name, container in sorted(containers.items()):
+                raw = container.get("memory_limit") if isinstance(container, dict) else None
+                cap = size_of(raw) if isinstance(raw, str) else None
+                if cap is None:
+                    errors.append(f"{relative}: container {name} states no memory_limit like 512m or 8g")
+                    continue
+                jobs.append((cap, f"{relative}#{name}"))
+        except (OSError, ValueError, RuntimeError) as error:
+            errors.append(f"{CONTRACT}: one_shot_contracts: {error}")
+    return jobs
+
+
+for cap, label in contract_one_shots(contract):
+    if cap > largest_job[0]:
+        largest_job = (cap, label)
 
 groups = [(project, True) for project in contract["projects"]]
 groups += [({"name": "not on " + host["name"], "files": entry["files"], "profiles": None}, False)
