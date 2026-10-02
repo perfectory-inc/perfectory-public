@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -415,7 +416,7 @@ class ReleaseAdmissionTests(unittest.TestCase):
         source, identity = self.network_fixture()
         with mock.patch.object(self.module.subprocess, "check_output",
                                side_effect=subprocess.CalledProcessError(1, ["gh"])):
-            with self.assertRaisesRegex(ValueError, "gh auth login as root"):
+            with self.assertRaisesRegex(ValueError, "public repository identity from https://api.github.com"):
                 source.refresh()
         source.git.side_effect = subprocess.CalledProcessError(128, ["git"])
         with mock.patch.object(self.module.subprocess, "check_output", return_value=json.dumps(identity).encode()), \
@@ -423,6 +424,102 @@ class ReleaseAdmissionTests(unittest.TestCase):
                 mock.patch.object(self.module, "protected_path"):
             with self.assertRaisesRegex(ValueError, "fetch canonical main"):
                 source.refresh()
+
+    # ADR-0136: the identity is read anonymously from the public REST API. These tests run the
+    # real reader script on a PATH that has no `gh`, with a fake `curl` standing in for the network.
+    def public_api_fixture(self, *, status=200, unreachable=False, repository_id=123456789,
+                           owner_id=306911903):
+        bin_dir = Path(tempfile.mkdtemp(prefix="no-gh-bin-", dir=self.root))
+        for name in ("dirname", "mktemp", "rm"):
+            (bin_dir / name).symlink_to(shutil.which(name))
+        (bin_dir / "python3").write_text(f'#!/bin/bash\nexec "{sys.executable}" "$@"\n')
+        # Only shell builtins below: the PATH deliberately holds nothing but the reader's needs.
+        response = json.dumps({
+            "id": repository_id, "node_id": "R_kgDOSynthetic",
+            "full_name": "perfectory-inc/perfectory-public", "private": False,
+            "owner": {"login": "perfectory-inc", "id": owner_id, "node_id": "O_kgDOEksanw"},
+        })
+        calls = bin_dir.parent / (bin_dir.name + ".curl-calls")
+        (bin_dir / "curl").write_text(f"""#!/bin/bash
+printf '%s\n' "$@" >>'{calls}'
+while [ "$#" -gt 0 ]; do
+  case "$1" in --output) output="$2"; shift 2 ;; *) shift ;; esac
+done
+{"exit 6" if unreachable else ""}
+printf '%s' '{response}' >"$output"
+printf '{status}'
+""")
+        for name in ("python3", "curl"):
+            (bin_dir / name).chmod(0o755)
+        source = self.module.CanonicalSource.__new__(self.module.CanonicalSource)
+        source.identity = self.root / "identity.json"
+        source.identity.write_text(json.dumps({
+            "hostname": "github.com", "full_name": "perfectory-inc/perfectory-public",
+            "repository_id": 123456789, "repository_node_id": "R_kgDOSynthetic",
+            "owner": {"login": "perfectory-inc", "id": 306911903, "node_id": "O_kgDOEksanw"},
+        }))
+        source.identity_reader = self.module.CONTROL_ROOT / "scripts/github/show-public-repository-identity.sh"
+        source.git = mock.Mock()
+        source.check_cache = mock.Mock()
+        self.assertIsNone(shutil.which("gh", path=str(bin_dir)))
+        environment = {"PATH": str(bin_dir), "LANG": "C.UTF-8", "HOME": str(self.root)}
+        patches = (mock.patch.object(self.module, "control_environment", return_value=environment),
+                   mock.patch.object(self.module, "SOURCE_CACHE", self.source),
+                   mock.patch.object(self.module, "protected_path"))
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        return source, calls
+
+    def test_valid_release_is_admitted_without_gh_on_the_path(self):
+        source, calls = self.public_api_fixture()
+        source.refresh()
+        source.git.assert_called_once_with(
+            "fetch", "--no-tags", "https://github.com/perfectory-inc/perfectory-public.git",
+            "+refs/heads/main:refs/heads/main",
+        )
+        recorded = calls.read_text().splitlines()
+        self.assertIn("https://api.github.com/repos/perfectory-inc/perfectory-public", recorded)
+        self.assertNotIn("Authorization", "\n".join(recorded))
+        self.install()
+        self.verify()
+
+    def test_wrong_repository_or_owner_id_from_the_api_is_refused(self):
+        for planted in ({"repository_id": 987654321}, {"owner_id": 1}):
+            with self.subTest(planted=planted):
+                source, _ = self.public_api_fixture(**planted)
+                with self.assertRaisesRegex(ValueError, "repository identity"):
+                    source.refresh()
+                source.git.assert_not_called()
+
+    def test_non_200_or_unreachable_api_is_refused_naming_the_identity_read(self):
+        for failure in ({"status": 404}, {"status": 403}, {"unreachable": True}):
+            with self.subTest(failure=failure):
+                source, _ = self.public_api_fixture(**failure)
+                with self.assertRaisesRegex(ValueError, "read the public repository identity") as refused:
+                    source.refresh()
+                self.assertNotIn("gh", str(refused.exception).replace("github", ""))
+                source.git.assert_not_called()
+
+    def test_admission_git_transport_runs_without_a_credential_helper(self):
+        source = self.module.CanonicalSource.__new__(self.module.CanonicalSource)
+        source.transport = self.module.CONTROL_ROOT / "scripts/github/safe-git-transport.sh"
+        with mock.patch.object(self.module.subprocess, "check_output", return_value=b"") as run:
+            source.git("fetch", "--no-tags", "https://github.com/perfectory-inc/perfectory-public.git")
+        command = run.call_args.args[0]
+        self.assertEqual(command[2], "--anonymous", command)
+        # The real transport in that mode configures no helper, so `gh` is never consulted.
+        helpers = subprocess.run(
+            ["bash", str(source.transport), "--anonymous", "--no-repository",
+             "config", "--get-all", "credential.helper"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(helpers.stdout.strip(), "")
+        with_gh = subprocess.run(
+            ["bash", str(source.transport), "--no-repository", "config", "--get-all", "credential.helper"],
+            capture_output=True, text=True,
+        )
+        self.assertIn("gh auth git-credential", with_gh.stdout)
 
     def test_legacy_release_cannot_build_artifacts_for_unbound_jobs(self):
         legacy = self.root / "legacy-release"

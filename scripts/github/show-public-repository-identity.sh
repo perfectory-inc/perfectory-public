@@ -1,34 +1,48 @@
 #!/usr/bin/env bash
 # Prints the immutable identity candidate for the one approved GitHub.com
 # repository. It validates but never edits the checked-in policy.
+#
+# The repository is public, so the identity is read from GitHub's REST API
+# without any credential (ADR-0136): no `gh`, no token, no netrc, no curlrc.
+# The host is fixed in the URL below; no environment variable can change it.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 target="perfectory-inc/perfectory-public"
+url="https://api.github.com/repos/$target"
 helper="$root/scripts/github/github-policy-json.py"
-if [ -n "${GH_HOST:-}" ] && [ "$GH_HOST" != github.com ]; then
-  echo "FAIL public-repository-identity: GH_HOST must be unset or github.com" >&2
-  exit 1
-fi
-for command_name in gh mktemp python3; do
+for command_name in curl mktemp python3; do
   command -v "$command_name" >/dev/null || {
     echo "FAIL public-repository-identity: missing command '$command_name'" >&2
     exit 1
   }
 done
 
-candidate="$(mktemp)"
+work="$(mktemp -d)"
 cleanup() {
-  [ ! -e "${candidate:-}" ] || rm -f -- "$candidate"
+  [ ! -e "${work:-}" ] || rm -rf -- "$work"
 }
 trap cleanup EXIT
 
-env -u GH_HOST gh api --hostname github.com "repos/$target" --jq '{
-  hostname: "github.com",
-  full_name,
-  repository_id: .id,
-  repository_node_id: .node_id,
-  owner: {login: .owner.login, id: .owner.id, node_id: .owner.node_id}
-}' >"$candidate"
-python3 "$helper" validate-repository-identity "$candidate"
-python3 "$helper" canonical "$candidate"
+# -q (first) ignores ~/.curlrc. No --netrc/--user/Authorization: the read is anonymous.
+set +e
+status="$(curl -q --proto '=https' --tlsv1.2 --silent --show-error \
+  --connect-timeout 10 --max-time 30 --max-redirs 0 \
+  --header 'Accept: application/vnd.github+json' \
+  --header 'X-GitHub-Api-Version: 2022-11-28' \
+  --output "$work/repository.json" --write-out '%{http_code}' \
+  "$url")"
+curl_status=$?
+set -e
+if [ "$curl_status" -ne 0 ]; then
+  echo "FAIL public-repository-identity: $url is unreachable (curl exit $curl_status)" >&2
+  exit 1
+fi
+if [ "$status" != 200 ]; then
+  echo "FAIL public-repository-identity: $url answered HTTP $status, not 200" >&2
+  exit 1
+fi
+
+python3 "$helper" repository-identity-from-rest "$work/repository.json" >"$work/candidate.json"
+python3 "$helper" validate-repository-identity "$work/candidate.json"
+python3 "$helper" canonical "$work/candidate.json"

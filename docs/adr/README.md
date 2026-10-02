@@ -156,3 +156,5 @@ last_reviewed: 2026-07-28
 - [ADR-0134 — 운영은 GitHub main 커밋만 설치하고, 산출물·설정은 불변 릴리스 밖에 둔다](./0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md)
 
 - [ADR-0135 — 첫 판 동등성 검사는 옛 오븐이 지운 것을 가려 세고, 설명 못 하는 차이만 막는다](./0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md)
+
+- [ADR-0136 — 릴리스 인증은 GitHub 로그인 없이 공개 저장소 identity를 읽는다](./0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md)

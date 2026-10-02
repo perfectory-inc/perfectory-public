@@ -586,15 +586,14 @@ for d in /opt /opt/foundation-platform /opt/foundation-platform/releases /var/li
   [[ -e "$d" ]] || install -d -o root -g root -m 0755 "$d"
   check "root:root, no group/other write: $d" "owned $d"
 done
-check "gh is /usr/bin/gh"                 "[[ \"$(command -v gh)\" == /usr/bin/gh ]]"
-check "root gh is logged in"              "gh auth status"
+check "root reads repository identity, no gh" "curl -q --proto =https --silent --fail --max-time 30 -H \"Accept: application/vnd.github+json\" https://api.github.com/repos/perfectory-inc/perfectory-public | grep -qF perfectory-inc/perfectory-public"
 check "root fetches canonical main"       "git ls-remote --exit-code https://github.com/perfectory-inc/perfectory-public.git refs/heads/main"
 check "docker buildx is installed"        "docker buildx version"
 check "python3 is /usr/bin/python3"       "[[ -x /usr/bin/python3 ]]"
 '
 ```
 
-`gh` 로그인이 없으면 `sudo gh auth login` 으로 root 계정에 한다(공개 저장소 identity 조회만 한다). Buildx 가 없으면
+`gh` 는 필요 없다. 공개 저장소 identity 는 자격증명 없이 읽는다([ADR-0136](../../../../docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md)) — 조회가 `FAIL` 이면 root 의 HTTPS 출구(프록시·방화벽)나 같은 IP 의 익명 요청 한도(시간당 60회)를 본다. Buildx 가 없으면
 `docker-buildx-plugin` 을 설치한다. 첫 빌드는 publisher 와 Spark JAR 을 받아 시간이 걸리고
 `/opt/foundation-platform/artifacts` 에 쌓인다(데이터 디스크 여유를 먼저 본다).
 

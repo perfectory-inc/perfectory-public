@@ -162,4 +162,37 @@ if GIT_AUTHOR_NAME=$'Synthetic\nInjected' \
   exit 1
 fi
 
+# Anonymous mode (release admission, ADR-0136) must not consult any credential
+# helper. A fake `gh` records every call; the default mode proves it is reachable.
+helper_bin="$test_root/helper-bin"
+mkdir -p "$helper_bin"
+cat >"$helper_bin/gh" <<'SH'
+#!/usr/bin/env bash
+printf '%s
+' "$*" >>"$FAKE_GH_CALLS"
+SH
+chmod +x "$helper_bin/gh"
+credential_request=$'protocol=https
+host=github.com
+path=perfectory-inc/perfectory-public.git
+
+'
+gh_calls="$test_root/gh.calls"
+printf '%s' "$credential_request" | PATH="$helper_bin:$PATH" FAKE_GH_CALLS="$gh_calls"   "$transport" --no-repository credential fill >/dev/null 2>&1 || true
+if ! grep -Fq 'auth git-credential get' "$gh_calls" 2>/dev/null; then
+  echo "FAIL safe-git-transport-self-test: default mode no longer reaches the gh credential helper" >&2
+  exit 1
+fi
+rm -f -- "$gh_calls"
+printf '%s' "$credential_request" | PATH="$helper_bin:$PATH" FAKE_GH_CALLS="$gh_calls"   "$transport" --anonymous --no-repository credential fill >/dev/null 2>&1 || true
+if [ -e "$gh_calls" ]; then
+  echo "FAIL safe-git-transport-self-test: anonymous mode invoked a credential helper" >&2
+  exit 1
+fi
+anonymous_helpers="$(PATH="$helper_bin:$PATH"   "$transport" --anonymous --no-repository config --get-all credential.helper || true)"
+if [ -n "$anonymous_helpers" ]; then
+  echo "FAIL safe-git-transport-self-test: anonymous mode configured a credential helper" >&2
+  exit 1
+fi
+
 echo "OK safe-git-transport-self-test"

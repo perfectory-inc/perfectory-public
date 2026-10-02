@@ -168,6 +168,25 @@ def validate_repository_identity(value: Any, *, allow_unset: bool) -> None:
         raise ValueError("repository immutable id/node_id is malformed")
 
 
+def repository_identity_from_rest(value: Any) -> dict[str, Any]:
+    """Project GitHub's `GET /repos/{owner}/{repo}` response onto the identity shape."""
+    try:
+        owner = value["owner"]
+        return {
+            "hostname": "github.com",
+            "full_name": value["full_name"],
+            "repository_id": value["id"],
+            "repository_node_id": value["node_id"],
+            "owner": {
+                "login": owner["login"],
+                "id": owner["id"],
+                "node_id": owner["node_id"],
+            },
+        }
+    except (KeyError, TypeError) as error:
+        raise ValueError("repository REST response lacks identity fields") from error
+
+
 def validate_repository_runtime_identity(
     value: Any, *, repository_id: str, owner_id: str
 ) -> None:
@@ -391,6 +410,9 @@ def parse_args() -> argparse.Namespace:
     summaries.add_argument("--expected", action="store_true")
     summaries.add_argument("paths", nargs="+")
 
+    from_rest = subparsers.add_parser("repository-identity-from-rest")
+    from_rest.add_argument("path")
+
     identity = subparsers.add_parser("validate-repository-identity")
     identity.add_argument("--allow-unset", action="store_true")
     identity.add_argument("path")
@@ -452,6 +474,8 @@ def main() -> int:
         value = load_json(args.path)
         if args.command == "canonical":
             canonical_dump(value)
+        elif args.command == "repository-identity-from-rest":
+            canonical_dump(repository_identity_from_rest(value))
         elif args.command == "normalize-ruleset":
             canonical_dump(
                 normalize_ruleset(value, without_status=args.without_status)

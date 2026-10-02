@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **482개**
+- 문서 파일: **483개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 161 |
+| Monorepo | 162 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 219 |
+| ADR | 220 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -522,6 +522,7 @@ docs/adr/0132-release-activation-preserves-enabled-job-identities.md
 docs/adr/0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md
 docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md
 docs/adr/0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md
+docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -695,6 +696,7 @@ tools/github/README.md
 | `docs/adr/0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md` | Monorepo | ADR | accepted |
 | `docs/adr/0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md` | Monorepo | ADR | accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

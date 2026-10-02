@@ -114,8 +114,8 @@ public fork를 회수할 수 없다. [ADR 0007](../../docs/adr/0007-public-code-
    test -z "$(git status --porcelain=v1 --untracked-files=all)"
    ```
 
-   읽기 전용 도우미는 `github.com`만 사용하고 정본 대상만 조회하며 변경할 수 없는
-   소유자를 검증한다. 엄격한 래퍼는 저장소에 기록된 양의 repository ID와 유효한
+   읽기 전용 도우미는 `api.github.com`의 공개 REST API를 자격증명 없이(`gh` 로그인
+   불필요, 루트 ADR-0136) 정본 대상 하나만 조회하며 변경할 수 없는 소유자를 검증한다. 엄격한 래퍼는 저장소에 기록된 양의 repository ID와 유효한
    repository node ID를 요구하고 owner ID/node ID도 정확한 정본 불변값으로
    유지한다. 정본 public CI는 이 엄격한 양의 식별자를 요구하며 숫자형
    `GITHUB_REPOSITORY_ID`, `GITHUB_REPOSITORY_OWNER_ID`가 체크인된 저장소·소유자
