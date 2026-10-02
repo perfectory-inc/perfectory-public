@@ -485,3 +485,45 @@ async fn a_bake_of_a_silver_snapshot_without_a_passing_verdict_for_it_does_not_s
     })
     .await
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_parcels_bake_without_a_silver_snapshot_does_not_start() -> TestResult {
+    run_in_disposable_database(
+        "tile_lakehouse_bake_parcels_needs_silver",
+        |pool| async move {
+            MIGRATOR.run(&pool).await?;
+            let (_dynamic, original) = seed_static_release(&pool).await?;
+            let input = published_unit(&original, "complex")?;
+            // Nothing references unit_key, so the seeded unit can stand in for parcels.
+            sqlx::query(
+                "UPDATE catalog.vector_tile_publication_unit SET unit_key = 'parcels'
+             WHERE unit_key = 'complex'",
+            )
+            .execute(&pool)
+            .await?;
+            let lifecycle =
+                VectorTileBuildLifecycle::new(Arc::new(PgCatalogUnitOfWork::new(pool.clone())));
+            let counts = ledger_counts(&pool).await?;
+            let mut command = bake_command(input.active_release_id, GOLD_SNAPSHOT, "parcels-v1")?;
+            command.unit_key = "parcels".to_owned();
+            let error = lifecycle
+                .start_lakehouse_bake(command)
+                .await
+                .expect_err("a parcels bake that keeps the inherited source must not start");
+            assert!(
+                error
+                    .to_string()
+                    .contains("must name the Silver snapshot it read"),
+                "{error}"
+            );
+            assert_eq!(
+                ledger_counts(&pool).await?,
+                counts,
+                "a refused start writes nothing"
+            );
+            Ok(())
+        },
+    )
+    .await
+}

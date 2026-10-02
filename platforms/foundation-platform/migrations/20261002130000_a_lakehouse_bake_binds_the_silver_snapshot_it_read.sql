@@ -52,6 +52,7 @@ DECLARE
     input_revision catalog.publication_revision%ROWTYPE;
     output_revision catalog.publication_revision%ROWTYPE;
     bound_record catalog.source_record%ROWTYPE;
+    selected_unit text;
 BEGIN
     IF TG_OP = 'UPDATE' THEN
         IF (OLD.kind = 'lakehouse_bake' OR NEW.kind = 'lakehouse_bake') AND
@@ -71,9 +72,16 @@ BEGIN
     IF NEW.kind <> 'lakehouse_bake' THEN
         RETURN NEW;
     END IF;
-    SELECT active_release_id, serving_generation INTO selected_release, selected_generation
+    SELECT active_release_id, serving_generation, unit_key
+    INTO selected_release, selected_generation, selected_unit
     FROM catalog.vector_tile_publication_unit
     WHERE id = NEW.publication_unit_id FOR UPDATE;
+    -- ADR-0133 §5: a parcels bake always binds the Silver snapshot it read. Without this a caller
+    -- could start a parcels bake with no snapshot and keep the input's inherited source.
+    IF selected_unit = 'parcels' AND NEW.source_snapshot_id IS NULL THEN
+        RAISE EXCEPTION 'a parcels lakehouse bake must name the Silver snapshot it read and its matching verdict'
+            USING ERRCODE = '23514';
+    END IF;
     IF selected_release IS DISTINCT FROM NEW.input_release_id
        OR selected_generation IS DISTINCT FROM NEW.input_serving_generation THEN
         RAISE EXCEPTION 'lakehouse bake input must be the active release and generation'

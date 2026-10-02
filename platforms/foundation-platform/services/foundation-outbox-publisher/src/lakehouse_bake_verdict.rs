@@ -102,7 +102,9 @@ mod tests {
     }
 
     #[test]
-    fn a_v1_summary_needs_no_verdict() -> anyhow::Result<()> {
+    fn no_bound_snapshot_needs_no_verdict() -> anyhow::Result<()> {
+        // Which summaries bind a snapshot is decided by ServedSummary::bound_silver_snapshot and
+        // tested with a real admin-shaped v1 summary in lakehouse_tile_bake_tests.rs.
         assert!(silver_source(None)?.is_none());
         Ok(())
     }
