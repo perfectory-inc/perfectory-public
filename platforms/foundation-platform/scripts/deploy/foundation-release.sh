@@ -309,9 +309,8 @@ migrate_runtime() {
 # The lakehouse half of `migrate` (root ADR-0124): every published lakehouse table is brought to
 # the release's contracts -- columns added in contract order, order fixed by metadata, registered
 # backfills run -- and anything that cannot be (a column the contract does not declare, a required
-# column with no backfill) stops the deploy here, the way a failed database migration does. Until
-# this existed, a widened contract reached a table only if that table's own build happened to run:
-# gold.parcel_panel went three weeks without two contract columns.
+# column with no backfill) stops the deploy here, the way a failed database migration does.
+# Temporary compatibility exceptions are owned and reported by the migration job (ADR-0124).
 migrate_lakehouse() {
   install -o root -g root -m 0644 -t /etc/systemd/system \
     "${release_root}/current/infra/systemd/foundation-lakehouse-migrate.service"

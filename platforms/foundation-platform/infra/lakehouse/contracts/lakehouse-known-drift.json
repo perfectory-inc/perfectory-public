@@ -1,11 +1,16 @@
 {
   "schema_version": "foundation-platform.lakehouse_known_drift.v1",
-  "description": "Production lakehouse tables that disagree with their contract for a recorded reason (root ADR-0124). The deploy's lakehouse migration leaves a listed table untouched and reports it instead of stopping the deploy; once the table matches its contract the entry must be removed, and the migration fails until it is.",
+  "description": "Temporary, column-scoped schema compatibility exceptions (root ADR-0124). Only the named extra columns with their declared types and nullability are retained; all other schema and backfill checks remain mandatory. Remove the entry when its columns join the contract or are no longer present.",
   "tables": {
     "silver.building_register_units": {
       "since": "2026-10-02",
-      "reason": "On 2026-09-30 15:40 UTC an unmerged changeset (Task68, preserved source tree ebe1401b) overwrote the table with unit-to-building links computed from the source parent key mgmUpBldrgstPk and added building_link_source_record_id, building_link_input_sha256 and building_link_reason, which the contract does not declare. 277,356 links changed.",
-      "closes_when": "The parent-key unit link decision (ADR-0106 in the unmerged changeset) is merged under a new ADR number with its contract columns, or the table is restored to the contract."
+      "reason": "Parent-key building links carry evidence columns pending review and integration of their writer and canonical contract. Preserve those values while the remaining schema migrates normally.",
+      "closes_when": "Remove this entry in the parent-key building-link change that declares these columns in the canonical contract, or when the table no longer carries these extra columns.",
+      "extra_columns": [
+        { "name": "building_link_source_record_id", "logical_type": "string", "nullable": true },
+        { "name": "building_link_input_sha256", "logical_type": "string", "nullable": true },
+        { "name": "building_link_reason", "logical_type": "string", "nullable": true }
+      ]
     }
   }
 }
