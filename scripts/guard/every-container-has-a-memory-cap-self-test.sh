@@ -125,7 +125,7 @@ expect_pass "a compose file under an outside_scope prefix"
 printf 'services:\n  proof:\n    image: fixture/proof:1\n' > "$fixture/local/compose.yaml"
 expect_fail "an uncapped service in a stack that never runs on the host"
 
-# Containers code starts with docker run count as one-shot jobs at the caps their contract states.
+# Containers that code starts itself count as one-shot jobs at the caps their contract states.
 write_one_shot_fixture() {
   local containers="$1" entry="${2:-}"
   write_contract 6g

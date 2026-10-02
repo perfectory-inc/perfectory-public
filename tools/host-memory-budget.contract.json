@@ -67,7 +67,7 @@
     {
       "contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json",
       "containers": ["images"],
-      "why": "The lakehouse tile bake starts GDAL then tippecanoe with docker run, one at a time, under the caps this contract states (root ADR-0133 §3). They run after the served-Gold Spark job of the same timer finishes, so they count as one-shot jobs."
+      "why": "The lakehouse tile bake starts GDAL then tippecanoe itself, one at a time, under the caps this contract states (root ADR-0133 §3). They run after the served-Gold Spark job of the same timer finishes, so they count as one-shot jobs."
     }
   ],
   "not_on_host": [

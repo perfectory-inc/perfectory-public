@@ -17,7 +17,7 @@
 # dependency another service waits on to complete) run one at a time during a deploy or a timer,
 # so only the largest counts.
 #
-# Some one-shot containers are started by code with `docker run`, not by compose: the lakehouse
+# Some one-shot containers are started by code itself, not by compose: the lakehouse
 # tile bake's GDAL and tippecanoe (root ADR-0133 §3). Their caps live in the contract the code
 # reads; `one_shot_contracts` names that contract and where its containers are, and this guard
 # counts each as a one-shot job. A container there without a `memory_limit` is a failure.
