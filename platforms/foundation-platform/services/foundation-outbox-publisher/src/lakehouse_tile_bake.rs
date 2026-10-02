@@ -63,6 +63,10 @@ use crate::tile_derivative_object_storage::TileDerivativeR2Config;
 
 #[path = "pmtiles_feature_ids.rs"]
 pub(crate) mod pmtiles_feature_ids;
+#[path = "tile_equivalence.rs"]
+pub(crate) mod tile_equivalence;
+
+use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE";
 const CONTRACT_JSON: &str = include_str!("../../../config/tile-bake-containers.contract.json");
@@ -74,6 +78,8 @@ const MAP_EDIT_GATEWAY_BASE_URL_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_GATEWA
 const MAP_EDIT_WRITE_TOKEN_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN";
 /// How many ids a gate failure names; the counts are always complete.
 const NAMED_IDS: usize = 5;
+/// Range size for reading the active archive: one directory or a few tiles per request.
+const EQUIVALENCE_READ_CHUNK_BYTES: usize = 256 * 1024;
 
 /// `config/tile-bake-containers.contract.json`: the pinned images, their memory caps, and how much
 /// free work disk a bake needs.
@@ -540,6 +546,7 @@ pub(crate) fn gate_archive(
     columns: &[String],
     ids: &ServedIds,
     name_missing: impl FnOnce(&[u128]) -> anyhow::Result<Vec<String>>,
+    observe: &mut dyn FnMut(u64, &str) -> anyhow::Result<()>,
 ) -> anyhow::Result<String> {
     let mut header = vec![0_u8; pmtiles_feature_ids::HEADER_BYTES];
     File::open(archive)
@@ -556,7 +563,8 @@ pub(crate) fn gate_archive(
             id_property: &layer.feature_id_property,
             properties: columns,
         },
-        |id| {
+        |tile, id| {
+            observe(tile, id)?;
             if let Some(index) = ids.position(id_hash(id)) {
                 found[index / 64] |= 1_u64 << (index % 64);
             } else {
@@ -689,6 +697,8 @@ impl Config {
 
 struct ActiveStatic {
     release_id: VectorTileReleaseId,
+    origin: ActiveOrigin,
+    pmtiles_object_key: String,
     serving_generation: ServingGeneration,
     snapshot: String,
     layer: ServedLayer,
@@ -697,7 +707,11 @@ struct ActiveStatic {
 async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<ActiveStatic> {
     let row = sqlx::query(
         "SELECT unit.active_release_id, unit.serving_generation, release.source_kind,
-                release.canonical_iceberg_snapshot_id, layer.source_layer, layer.feature_id_property,
+                release.canonical_iceberg_snapshot_id, release.pmtiles_object_key,
+                EXISTS (SELECT 1 FROM catalog.vector_tile_build_job AS build
+                        WHERE build.result_release_id = release.id
+                          AND build.kind = 'lakehouse_bake') AS produced_by_lakehouse_bake,
+                layer.source_layer, layer.feature_id_property,
                 layer.tile_min_zoom, layer.tile_max_zoom, layer.feature_filter_properties
          FROM catalog.vector_tile_publication_unit AS unit
          JOIN catalog.vector_tile_release AS release ON release.id = unit.active_release_id
@@ -729,6 +743,14 @@ async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<Act
     );
     Ok(ActiveStatic {
         release_id: VectorTileReleaseId::new(row.try_get("active_release_id")?),
+        origin: if row.try_get("produced_by_lakehouse_bake")? {
+            ActiveOrigin::LakehouseBake
+        } else {
+            ActiveOrigin::OtherOven
+        },
+        pmtiles_object_key: row
+            .try_get::<Option<String>, _>("pmtiles_object_key")?
+            .context("the active static release names no PMTiles object")?,
         serving_generation: ServingGeneration::new(u64::try_from(
             row.try_get::<i64, _>("serving_generation")?,
         )?)
@@ -937,6 +959,7 @@ async fn record_fold(
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     let contract = BakeContract::parse(CONTRACT_JSON)?;
+    let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)
             .context("served summary")?;
@@ -954,7 +977,7 @@ pub async fn run() -> anyhow::Result<()> {
         .join(format!("{}-{}", config.unit_key, Uuid::now_v7()));
     std::fs::create_dir_all(work.join("tmp"))
         .with_context(|| format!("work directory {}", work.display()))?;
-    let result = bake_in(&config, &contract, summary, &work).await;
+    let result = bake_in(&config, &contract, &samples, summary, &work).await;
     // The archive is in R2 (or the attempt failed); nothing in the work directory is used again.
     if let Err(error) = std::fs::remove_dir_all(&work) {
         tracing::warn!(path = %work.display(), error = %error, "failed to remove the bake work directory");
@@ -965,6 +988,7 @@ pub async fn run() -> anyhow::Result<()> {
 async fn bake_in(
     config: &Config,
     contract: &BakeContract,
+    samples: &SampleContract,
     summary: ServedSummary,
     work: &Path,
 ) -> anyhow::Result<()> {
@@ -1020,7 +1044,8 @@ async fn bake_in(
         build_job_id,
         work,
         prepared,
-        &active.layer,
+        &active,
+        samples,
         summary.clone(),
     )
     .await;
@@ -1077,28 +1102,68 @@ async fn bake_and_upload(
     build_job_id: VectorTileBuildJobId,
     work: &Path,
     (columns, ids): (Vec<String>, ServedIds),
-    layer: &ServedLayer,
+    active: &ActiveStatic,
+    samples: &SampleContract,
     summary: Arc<ServedSummary>,
 ) -> anyhow::Result<(BuildEvidenceDigest, ValidatedPmtilesArtifact)> {
+    let layer = &active.layer;
     let archive =
         build_archive(config, images, work, &columns, summary.geometry_srid, layer).await?;
-    let ids_digest = {
+    let (ids_digest, collector) = {
         let (archive, layer, summary, handoff) = (
             archive.clone(),
             layer.clone(),
             summary.clone(),
             config.served_handoff.clone(),
         );
+        let mut collector = SampleCollector::new(samples, &config.unit_key);
         tokio::task::spawn_blocking(move || {
-            gate_archive(&archive, &layer, &columns, &ids, |missing| {
-                ids_with_hashes(&summary, &handoff, missing)
-            })
+            let digest = gate_archive(
+                &archive,
+                &layer,
+                &columns,
+                &ids,
+                |missing| ids_with_hashes(&summary, &handoff, missing),
+                &mut |tile, id| collector.observe(tile, id),
+            )?;
+            anyhow::Ok((digest, collector))
         })
         .await
         .context("the archive gate stopped")??
     };
-    let release_id = static_release_id_for_build(build_job_id);
     let storage = TileDerivativeR2Config::from_env()?;
+    let equivalence = match tile_equivalence::skipped(active.origin) {
+        Some(skipped) => skipped,
+        None => {
+            // The active archive is read by range: its directory and the sampled tiles, never whole.
+            let active_reader = R2ObjectStorage::from_config(storage.reader_config())
+                .open_seekable_object(&active.pmtiles_object_key, EQUIVALENCE_READ_CHUNK_BYTES)
+                .await
+                .with_context(|| format!("the active archive {}", active.pmtiles_object_key))?;
+            let (archive, layer, samples) = (archive.clone(), layer.clone(), samples.clone());
+            let outcome = tokio::task::spawn_blocking(move || {
+                tile_equivalence::first_release_gate(
+                    active_reader,
+                    File::open(&archive)?,
+                    &samples,
+                    (&layer.source_layer, &layer.feature_id_property),
+                    (layer.tile_min_zoom, layer.tile_max_zoom),
+                    &collector,
+                )
+            })
+            .await
+            .context("the equivalence gate stopped")??;
+            // Beside the work directory, which is removed: the whole evidence outlives the bake.
+            let evidence_file = config.work_root.join(format!(
+                "{}-first-release-equivalence-{build_job_id}.json",
+                config.unit_key
+            ));
+            std::fs::write(&evidence_file, serde_json::to_vec_pretty(&outcome)?)
+                .with_context(|| format!("equivalence evidence {}", evidence_file.display()))?;
+            tile_equivalence::verdict(&outcome, &evidence_file.display().to_string())?
+        }
+    };
+    let release_id = static_release_id_for_build(build_job_id);
     let object_key = storage.release_key(&config.unit_key, &release_id.to_string())?;
     ensure!(
         object_key == static_release_pmtiles_object_key(&config.unit_key, release_id),
@@ -1119,6 +1184,7 @@ async fn bake_and_upload(
         "edits_through_change_seq": summary.edits_through_change_seq,
         "served_row_count": summary.served_row_count,
         "maxzoom_feature_id_hashes_sha256": ids_digest,
+        "first_release_equivalence": equivalence,
         "pmtiles_sha256": verified.checksum_sha256,
         "pmtiles_bytes": verified.size_bytes,
     }))?;

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "purpose": "The tiles a lakehouse bake compares with the active archive before it may replace a release that was not itself baked from the lakehouse (root ADR-0133 §4). Read by bake-lakehouse-tiles; the comparison rule is in services/foundation-outbox-publisher/src/tile_equivalence.rs.",
+  "zooms": [14, 15, 16],
+  "densest_tiles": 20,
+  "random_tiles": 40,
+  "random_seed": 20261002,
+  "corner_inset_percent": 10,
+  "example_ids": 20,
+  "tiny_extent_units": 32,
+  "region_id_prefix_chars": {
+    "parcels": 2
+  },
+  "region_reason": "A region is the feature ids sharing a prefix. A parcel id's first two characters are its sido code, so each sido's tile extent is read from the new archive's maxzoom walk at bake time; no coordinates are written here. A unit without an entry is sampled by its densest and random tiles only.",
+  "tiny_reason": "An extra feature inside a tile whose part in the tile spans at most this many of the 4096 tile units is classified tiny: below one pixel of a 256-pixel tile, which PostGIS ST_AsMVTGeom drops. Every inside extra still refuses the bake until a decision says otherwise (root ADR-0133 §4).",
+  "sample_reason": "Every sampled maxzoom tile is compared at every zoom in zooms that the layer serves, through its ancestors. Densest tiles come from the active archive's directory, the seeded random tiles from the new archive's maxzoom tiles."
+}

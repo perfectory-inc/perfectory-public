@@ -14,7 +14,7 @@
 //! it is read here. MVT is protobuf, so it is decoded with `prost` rather than by hand.
 
 use std::fs::File;
-use std::io::{Read as _, Seek as _, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use anyhow::{bail, ensure, Context as _};
@@ -195,6 +195,197 @@ pub(crate) struct Value {
     pub(crate) string_value: Option<String>,
 }
 
+/// The tile id of `z/x/y`: every lower zoom first, then the Hilbert position on the zoom (spec v3).
+pub(crate) fn tile_id(zoom: u8, x: u32, y: u32) -> u64 {
+    let (mut x, mut y) = (u64::from(x), u64::from(y));
+    let mut position = 0_u64;
+    let side = 1_u64 << zoom;
+    let mut s = side >> 1;
+    while s > 0 {
+        let rx = u64::from(x & s > 0);
+        let ry = u64::from(y & s > 0);
+        position += s * s * ((3 * rx) ^ ry);
+        // Encoding rotates within the whole side, decoding within the current quadrant.
+        rotate(side, &mut x, &mut y, rx, ry);
+        s >>= 1;
+    }
+    first_tile_id(zoom) + position
+}
+
+/// The `z/x/y` of a tile id, the inverse of [`tile_id`].
+pub(crate) fn tile_zxy(id: u64) -> anyhow::Result<(u8, u32, u32)> {
+    let mut first = 0_u64;
+    for zoom in 0..32_u8 {
+        let count = 1_u64 << (2 * u32::from(zoom));
+        if id < first + count {
+            let (mut x, mut y, mut t, mut s) = (0_u64, 0_u64, id - first, 1_u64);
+            while s < (1_u64 << zoom) {
+                let rx = 1 & (t / 2);
+                let ry = 1 & (t ^ rx);
+                rotate(s, &mut x, &mut y, rx, ry);
+                x += s * rx;
+                y += s * ry;
+                t /= 4;
+                s *= 2;
+            }
+            return Ok((zoom, u32::try_from(x)?, u32::try_from(y)?));
+        }
+        first += count;
+    }
+    bail!("tile id {id} is beyond zoom 31")
+}
+
+fn rotate(s: u64, x: &mut u64, y: &mut u64, rx: u64, ry: u64) {
+    if ry == 0 {
+        if rx == 1 {
+            *x = s - 1 - *x;
+            *y = s - 1 - *y;
+        }
+        std::mem::swap(x, y);
+    }
+}
+
+/// The tile-id range `[start, end)` of one zoom.
+pub(crate) fn zoom_range(zoom: u8) -> (u64, u64) {
+    (first_tile_id(zoom), first_tile_id(zoom + 1))
+}
+
+/// A PMTiles v3 archive of MVT tiles over any seekable bytes: the local file a bake just wrote, or
+/// an R2 object read by range. Only the directories and tiles asked for are read.
+pub(crate) struct Archive<R> {
+    reader: R,
+    header: Header,
+}
+
+impl<R: Read + Seek> Archive<R> {
+    pub(crate) fn open(mut reader: R) -> anyhow::Result<Self> {
+        let mut bytes = vec![0_u8; HEADER_BYTES];
+        reader.seek(SeekFrom::Start(0))?;
+        reader
+            .read_exact(&mut bytes)
+            .context("archive is shorter than a PMTiles header")?;
+        let header = Header::parse(&bytes)?;
+        ensure!(
+            header.tile_type == TILE_TYPE_MVT,
+            "archive tiles are not MVT"
+        );
+        Ok(Self { reader, header })
+    }
+
+    pub(crate) const fn header(&self) -> &Header {
+        &self.header
+    }
+
+    fn read_block(&mut self, offset: u64, length: u64, what: &str) -> anyhow::Result<Vec<u8>> {
+        ensure!(
+            length <= MAX_BLOCK_BYTES,
+            "{what} claims {length} bytes, more than any tile or directory this bake writes"
+        );
+        self.reader.seek(SeekFrom::Start(offset))?;
+        let mut bytes = vec![0_u8; usize::try_from(length)?];
+        self.reader
+            .read_exact(&mut bytes)
+            .with_context(|| format!("{what} runs past the end of the archive"))?;
+        Ok(bytes)
+    }
+
+    fn directory_at(&mut self, offset: u64, length: u64) -> anyhow::Result<Vec<Entry>> {
+        let raw = self.read_block(offset, length, "a directory")?;
+        decode_directory(&decompress(
+            raw,
+            self.header.internal_compression,
+            "a directory",
+        )?)
+    }
+
+    fn leaf_offset(&self, entry: &Entry) -> anyhow::Result<u64> {
+        self.header
+            .leaf_directories_offset
+            .checked_add(entry.offset)
+            .context("leaf directory offset overflows")
+    }
+
+    /// The decompressed bytes of one tile entry.
+    pub(crate) fn entry_tile(&mut self, entry: &Entry) -> anyhow::Result<Vec<u8>> {
+        let at = self
+            .header
+            .tile_data_offset
+            .checked_add(entry.offset)
+            .context("tile offset overflows")?;
+        let raw = self.read_block(at, entry.length, "a tile")?;
+        decompress(raw, self.header.tile_compression, "a tile")
+    }
+
+    /// The decompressed bytes of the tile with this id, or `None` when the archive has no such tile.
+    pub(crate) fn tile(&mut self, id: u64) -> anyhow::Result<Option<Vec<u8>>> {
+        let (mut offset, mut length) = self.header.root_directory;
+        for _ in 0..MAX_DIRECTORY_DEPTH {
+            let entries = self.directory_at(offset, length)?;
+            let Some(entry) = entries
+                .partition_point(|entry| entry.tile_id <= id)
+                .checked_sub(1)
+                .and_then(|index| entries.get(index).copied())
+            else {
+                return Ok(None);
+            };
+            if entry.run_length == 0 {
+                offset = self.leaf_offset(&entry)?;
+                length = entry.length;
+                continue;
+            }
+            if id < entry.tile_id.saturating_add(entry.run_length) {
+                return self.entry_tile(&entry).map(Some);
+            }
+            return Ok(None);
+        }
+        bail!("archive directories nest deeper than {MAX_DIRECTORY_DEPTH}")
+    }
+
+    /// Calls `on_entry` with every tile entry overlapping tile ids `[start, end)`, in tile-id order,
+    /// reading only the leaf directories that can hold them.
+    pub(crate) fn for_each_entry(
+        &mut self,
+        range: (u64, u64),
+        on_entry: &mut dyn FnMut(&mut Self, Entry) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        let root = self.header.root_directory;
+        self.walk(root, 0, u64::MAX, range, on_entry)
+    }
+
+    fn walk(
+        &mut self,
+        (offset, length): (u64, u64),
+        depth: usize,
+        limit: u64,
+        range: (u64, u64),
+        on_entry: &mut dyn FnMut(&mut Self, Entry) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        ensure!(
+            depth < MAX_DIRECTORY_DEPTH,
+            "archive directories nest deeper than {MAX_DIRECTORY_DEPTH}"
+        );
+        let entries = self.directory_at(offset, length)?;
+        for (index, entry) in entries.iter().enumerate() {
+            let next = entries.get(index + 1).map_or(limit, |next| next.tile_id);
+            if entry.run_length == 0 {
+                // A leaf holds tile ids [entry.tile_id, next); skip it when that misses the range.
+                if next <= range.0 || entry.tile_id >= range.1 {
+                    continue;
+                }
+                let leaf = (self.leaf_offset(entry)?, entry.length);
+                self.walk(leaf, depth + 1, next, range, on_entry)?;
+            } else {
+                let end = entry.tile_id.saturating_add(entry.run_length);
+                if end <= range.0 || entry.tile_id >= range.1 {
+                    continue;
+                }
+                on_entry(self, *entry)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// What the walk expects of every tile it reads.
 pub(crate) struct Expect<'a> {
     pub(crate) zoom: u8,
@@ -204,149 +395,53 @@ pub(crate) struct Expect<'a> {
     pub(crate) properties: &'a [String],
 }
 
-/// Calls `on_id` with the id property of every feature in every tile of `expect.zoom`, in
-/// tile-id order. A feature appears once per tile it is in, so the same id can come many times.
-/// Returns the number of tiles read.
+/// Calls `on_id` with the tile id and the id property of every feature in every tile of
+/// `expect.zoom`, in tile-id order. A feature appears once per tile it is in, so the same id can
+/// come many times. Returns the number of tiles read.
 pub(crate) fn for_each_feature_id(
     archive: &Path,
     expect: &Expect<'_>,
-    mut on_id: impl FnMut(&str) -> anyhow::Result<()>,
+    mut on_id: impl FnMut(u64, &str) -> anyhow::Result<()>,
 ) -> anyhow::Result<u64> {
-    let mut file = File::open(archive).with_context(|| format!("archive {}", archive.display()))?;
-    let mut bytes = vec![0_u8; HEADER_BYTES];
-    file.read_exact(&mut bytes)
-        .context("archive is shorter than a PMTiles header")?;
-    let header = Header::parse(&bytes)?;
-    ensure!(
-        header.tile_type == TILE_TYPE_MVT,
-        "archive tiles are not MVT"
-    );
-    let mut walk = Walk {
-        file,
-        header,
-        expect,
-        range: (first_tile_id(expect.zoom), first_tile_id(expect.zoom + 1)),
-        tiles: 0,
-    };
-    let root = walk.header.root_directory;
-    walk.directory(root.0, root.1, 0, u64::MAX, &mut on_id)?;
-    Ok(walk.tiles)
-}
-
-struct Walk<'a> {
-    file: File,
-    header: Header,
-    expect: &'a Expect<'a>,
-    /// Tile ids `[start, end)` of the asked zoom.
-    range: (u64, u64),
-    tiles: u64,
-}
-
-impl Walk<'_> {
-    fn read_block(&mut self, offset: u64, length: u64, what: &str) -> anyhow::Result<Vec<u8>> {
-        ensure!(
-            length <= MAX_BLOCK_BYTES,
-            "{what} claims {length} bytes, more than any tile or directory this bake writes"
-        );
-        self.file.seek(SeekFrom::Start(offset))?;
-        let mut bytes = vec![0_u8; usize::try_from(length)?];
-        self.file
-            .read_exact(&mut bytes)
-            .with_context(|| format!("{what} runs past the end of the archive"))?;
-        Ok(bytes)
-    }
-
-    /// Visits one directory whose entries' tile ids lie below `limit` (the next sibling's start).
-    fn directory(
-        &mut self,
-        offset: u64,
-        length: u64,
-        depth: usize,
-        limit: u64,
-        on_id: &mut impl FnMut(&str) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
-        ensure!(
-            depth < MAX_DIRECTORY_DEPTH,
-            "archive directories nest deeper than {MAX_DIRECTORY_DEPTH}"
-        );
-        let raw = self.read_block(offset, length, "a directory")?;
-        let entries = decode_directory(&decompress(
-            raw,
-            self.header.internal_compression,
-            "a directory",
-        )?)?;
-        for (index, entry) in entries.iter().enumerate() {
-            let next = entries.get(index + 1).map_or(limit, |next| next.tile_id);
-            if entry.run_length == 0 {
-                // A leaf holds tile ids [entry.tile_id, next); skip it when that misses the zoom.
-                if next <= self.range.0 || entry.tile_id >= self.range.1 {
-                    continue;
-                }
-                let leaf = self
-                    .header
-                    .leaf_directories_offset
-                    .checked_add(entry.offset)
-                    .context("leaf directory offset overflows")?;
-                self.directory(leaf, entry.length, depth + 1, next, on_id)?;
-            } else {
-                let end = entry.tile_id.saturating_add(entry.run_length);
-                if end <= self.range.0 || entry.tile_id >= self.range.1 {
-                    continue;
-                }
-                let at = self
-                    .header
-                    .tile_data_offset
-                    .checked_add(entry.offset)
-                    .context("tile offset overflows")?;
-                self.tile(at, entry.length, entry.tile_id, on_id)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn tile(
-        &mut self,
-        offset: u64,
-        length: u64,
-        tile_id: u64,
-        on_id: &mut impl FnMut(&str) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
-        let raw = self.read_block(offset, length, "a tile")?;
-        let bytes = decompress(raw, self.header.tile_compression, "a tile")?;
+    let file = File::open(archive).with_context(|| format!("archive {}", archive.display()))?;
+    let mut archive = Archive::open(file)?;
+    let mut tiles = 0_u64;
+    archive.for_each_entry(zoom_range(expect.zoom), &mut |archive, entry| {
+        let bytes = archive.entry_tile(&entry)?;
+        let tile_id = entry.tile_id;
         let tile = Tile::decode(bytes.as_slice())
             .with_context(|| format!("tile {tile_id} is not an MVT tile"))?;
-        self.tiles += 1;
+        tiles += 1;
         for layer in &tile.layers {
             ensure!(
-                layer.name == self.expect.layer,
+                layer.name == expect.layer,
                 "tile {tile_id} carries layer {:?}, the bake writes only {:?}",
                 layer.name,
-                self.expect.layer
+                expect.layer
             );
             if let Some(key) = layer
                 .keys
                 .iter()
-                .find(|key| !self.expect.properties.contains(key))
+                .find(|key| !expect.properties.contains(key))
             {
                 bail!(
                     "tile {tile_id} carries property {key:?}, which the served snapshot does not"
                 );
             }
-            let id_key = layer
-                .keys
-                .iter()
-                .position(|key| key == self.expect.id_property);
+            let id_key = layer.keys.iter().position(|key| key == expect.id_property);
             for feature in &layer.features {
-                on_id(feature_id(layer, feature, id_key).with_context(|| {
+                let id = feature_id(layer, feature, id_key).with_context(|| {
                     format!(
                         "a feature in tile {tile_id} has no text {}",
-                        self.expect.id_property
+                        expect.id_property
                     )
-                })?)?;
+                })?;
+                on_id(tile_id, id)?;
             }
         }
         Ok(())
-    }
+    })?;
+    Ok(tiles)
 }
 
 fn feature_id<'a>(layer: &'a Layer, feature: &Feature, id_key: Option<usize>) -> Option<&'a str> {

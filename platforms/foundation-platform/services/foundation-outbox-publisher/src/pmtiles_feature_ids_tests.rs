@@ -17,7 +17,7 @@ fn varint(out: &mut Vec<u8>, mut value: u64) {
     }
 }
 
-fn gzip(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(bytes).unwrap_or_default();
     encoder.finish().unwrap_or_default()
@@ -140,7 +140,7 @@ fn ids_at(path: &Path, zoom: u8, layer: &str) -> anyhow::Result<(Vec<String>, u6
             id_property: "pnu",
             properties: &names,
         },
-        |id| {
+        |_, id| {
             ids.push(id.to_owned());
             Ok(())
         },
@@ -153,6 +153,55 @@ pub(crate) fn written(bytes: &[u8]) -> anyhow::Result<tempfile::NamedTempFile> {
     file.write_all(bytes)?;
     file.flush()?;
     Ok(file)
+}
+
+#[test]
+fn tile_ids_follow_the_spec_hilbert_order_and_invert() -> anyhow::Result<()> {
+    // The spec's zoom-1 order: (0,0), (0,1), (1,1), (1,0).
+    assert_eq!(tile_id(0, 0, 0), 0);
+    assert_eq!(
+        [
+            tile_id(1, 0, 0),
+            tile_id(1, 0, 1),
+            tile_id(1, 1, 1),
+            tile_id(1, 1, 0)
+        ],
+        [1, 2, 3, 4]
+    );
+    assert_eq!(tile_id(2, 0, 0), 5);
+    for (zoom, x, y) in [
+        (3, 5, 2),
+        (14, 9_001, 4_002),
+        (16, 65_535, 0),
+        (16, 1, 65_535),
+    ] {
+        assert_eq!(tile_zxy(tile_id(zoom, x, y))?, (zoom, x, y));
+    }
+    Ok(())
+}
+
+#[test]
+fn a_tile_is_found_by_id_through_its_leaf_or_reported_absent() -> anyhow::Result<()> {
+    let bytes = archive(
+        1,
+        2,
+        &[
+            (1, tile("parcel", &["99999-low"])),
+            (5, tile("parcel", &["99999-a"])),
+            (6, tile("parcel", &["99999-b"])),
+            (20, tile("parcel", &["99999-c"])),
+        ],
+    );
+    let mut archive = Archive::open(std::io::Cursor::new(bytes))?;
+    let found = archive.tile(6)?.context("tile 6")?;
+    assert_eq!(Tile::decode(found.as_slice())?.layers[0].features.len(), 1);
+    assert!(archive.tile(7)?.is_none(), "no entry covers tile 7");
+    assert!(
+        archive.tile(0)?.is_none(),
+        "nothing precedes the first entry"
+    );
+    assert!(archive.tile(21)?.is_none());
+    Ok(())
 }
 
 #[test]

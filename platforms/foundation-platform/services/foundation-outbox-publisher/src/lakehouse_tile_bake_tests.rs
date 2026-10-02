@@ -286,13 +286,58 @@ fn served(ids: &[&str]) -> ServedIds {
 fn gate(archive_bytes: &[u8], layer: &ServedLayer, ids: &[&str]) -> anyhow::Result<String> {
     let file = written(archive_bytes)?;
     let columns = ["pnu".to_owned(), "kind".to_owned()];
-    gate_archive(file.path(), layer, &columns, &served(ids), |missing| {
-        Ok(ids
-            .iter()
-            .filter(|id| missing.contains(&id_hash(id)))
-            .map(|id| (*id).to_owned())
-            .collect())
-    })
+    gate_archive(
+        file.path(),
+        layer,
+        &columns,
+        &served(ids),
+        |missing| {
+            Ok(ids
+                .iter()
+                .filter(|id| missing.contains(&id_hash(id)))
+                .map(|id| (*id).to_owned())
+                .collect())
+        },
+        &mut |_, _| Ok(()),
+    )
+}
+
+#[test]
+fn the_id_gate_hands_every_maxzoom_tile_and_id_to_the_sample_collector() -> anyhow::Result<()> {
+    let file = written(&two_zoom_archive(1, 2))?;
+    let columns = ["pnu".to_owned(), "kind".to_owned()];
+    let mut seen = Vec::new();
+    gate_archive(
+        file.path(),
+        &parcel_layer(1, 2),
+        &columns,
+        &served(&["9999900001", "9999900002", "9999900003"]),
+        |_| Ok(Vec::new()),
+        &mut |tile, id| {
+            seen.push((tile, id.to_owned()));
+            Ok(())
+        },
+    )?;
+    assert_eq!(
+        seen,
+        [
+            (5, "9999900001".to_owned()),
+            (5, "9999900002".to_owned()),
+            (9, "9999900002".to_owned()),
+            (9, "9999900003".to_owned())
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn an_active_release_baked_from_the_lakehouse_skips_the_first_release_gate() {
+    let skipped = tile_equivalence::skipped(ActiveOrigin::LakehouseBake);
+    assert!(skipped
+        .as_ref()
+        .and_then(|value| value.get("skipped"))
+        .is_some());
+    assert!(tile_equivalence::skipped(ActiveOrigin::OtherOven).is_none());
 }
 
 fn two_zoom_archive(min: u8, max: u8) -> Vec<u8> {
