@@ -7,6 +7,14 @@
 # the host itself: a job is its systemd service, which the scheduler asks the host to start over
 # a key that can do only that (ADR-0122 §2).
 
+# Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
+# guard every-container-has-a-memory-cap).
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 x-airflow-environment: &airflow-environment
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   # Two jobs at a time; the `spark` pool (one slot) keeps Spark to one of them (ADR-0122 §5).
@@ -28,6 +36,7 @@ x-airflow-environment: &airflow-environment
 
 services:
   airflow-db:
+    logging: *log-cap
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     mem_limit: 512m
     restart: unless-stopped
@@ -44,6 +53,7 @@ services:
       retries: 20
 
   airflow-migrate:
+    logging: *log-cap
     image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
     mem_limit: 1g
     restart: "no"
@@ -55,6 +65,7 @@ services:
         condition: service_healthy
 
   airflow-apiserver:
+    logging: *log-cap
     image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
     mem_limit: 768m
     restart: unless-stopped
@@ -84,6 +95,7 @@ services:
   # The browser and the API server must name Zitadel by the same issuer, 127.0.0.1:18453 (root
   # ADR-0081); inside the API server's network namespace this forwards that port to Zitadel.
   airflow-zitadel-loopback:
+    logging: *log-cap
     image: "alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
     mem_limit: 64m
     restart: unless-stopped
@@ -96,6 +108,7 @@ services:
         condition: service_started
 
   airflow-scheduler:
+    logging: *log-cap
     image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
     mem_limit: 1g
     restart: unless-stopped
@@ -117,6 +130,7 @@ services:
         condition: service_completed_successfully
 
   airflow-dag-processor:
+    logging: *log-cap
     image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
     mem_limit: 512m
     restart: unless-stopped

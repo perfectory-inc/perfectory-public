@@ -348,14 +348,19 @@ def check_compose(path: str, text: str) -> None:
         if include_match:
             check_include(path, lines, index, include_match)
 
+        # The one other shared block is the log cap (every-container-has-a-memory-cap fixes its
+        # exact shape): a json-file size limit cannot hide an image, port or namespace.
+        log_cap = re.match(r"^x-log-cap: &log-cap\s*$", content) or re.match(
+            r"^ {4}logging: \*log-cap\s*$", content
+        )
         anchors = re.findall(r":\s*&([A-Za-z_][A-Za-z0-9_-]*)", content)
-        if anchors and not re.match(
+        if anchors and not log_cap and not re.match(
             r"^\s*(?:environment|x-[A-Za-z0-9_-]*environment):\s*&[A-Za-z_][A-Za-z0-9_-]*\s*$",
             content,
         ):
             fail(path, index + 1, "YAML anchors are allowed only for environment mappings")
         aliases = re.findall(r"\*([A-Za-z_][A-Za-z0-9_-]*)", content)
-        if aliases:
+        if aliases and not log_cap:
             merge = re.match(r"^\s*<<:\s*\*[A-Za-z_][A-Za-z0-9_-]*\s*$", content)
             if not merge or parent_mapping_key(lines, index) != "environment":
                 fail(path, index + 1, "YAML aliases are allowed only as environment mapping merges")

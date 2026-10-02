@@ -1,5 +1,15 @@
+# Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
+# guard every-container-has-a-memory-cap).
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   identity-db:
+    logging: *log-cap
+    restart: unless-stopped
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     mem_limit: 512m
     environment:
@@ -17,6 +27,7 @@ services:
       retries: 10
 
   identity-bootstrap:
+    logging: *log-cap
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     mem_limit: 256m
     restart: "no"
@@ -39,6 +50,7 @@ services:
         condition: service_healthy
 
   identity-database-migrator:
+    logging: *log-cap
     image: identity-platform-runtime:local
     mem_limit: 256m
     pull_policy: never
@@ -51,6 +63,7 @@ services:
         condition: service_completed_successfully
 
   identity-runtime-grants:
+    logging: *log-cap
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     mem_limit: 256m
     restart: "no"
@@ -75,6 +88,7 @@ services:
         condition: service_completed_successfully
 
   identity-workload-provisioner:
+    logging: *log-cap
     image: identity-platform-runtime:local
     mem_limit: 256m
     pull_policy: never
@@ -90,6 +104,7 @@ services:
         condition: service_completed_successfully
 
   identity-finalize:
+    logging: *log-cap
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     mem_limit: 256m
     restart: "no"
@@ -107,6 +122,8 @@ services:
         condition: service_completed_successfully
 
   identity-api:
+    logging: *log-cap
+    restart: unless-stopped
     image: identity-platform-runtime:local
     mem_limit: 256m
     build:
@@ -135,6 +152,7 @@ services:
       retries: 10
 
   identity-policy-worker:
+    logging: *log-cap
     image: identity-platform-policy-worker:local
     mem_limit: 256m
     build:

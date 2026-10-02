@@ -27,33 +27,48 @@ JSON
 # One standing service (1g), two one-shot jobs (3g each: one by restart, one by being waited on),
 # one service behind a profile the host does not run (8g).
 write_stack() {
-  local api_cap="$1"
+  local api_cap="$1" api_restart="${2-    restart: unless-stopped}" api_logging="${3-    logging: *log-cap}"
   cat > "$fixture/stack/docker-compose.yml" <<YAML
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
 services:
   migrate:
     image: fixture/migrate:1
     mem_limit: 3g
+    logging: *log-cap
     restart: "no"
   seed:
     image: fixture/seed:1
+    logging: *log-cap
     mem_limit: 3g
   api:
     image: fixture/api:1
+${api_logging}
 ${api_cap}
-    restart: unless-stopped
+${api_restart}
     depends_on:
       seed:
         condition: service_completed_successfully
   debug:
     image: fixture/debug:1
+    logging: *log-cap
     mem_limit: 8g
     profiles:
       - debug
 YAML
   cat > "$fixture/local/compose.yaml" <<YAML
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
 services:
   proof:
     image: fixture/proof:1
+    logging: *log-cap
     mem_limit: 512m
 YAML
 }
@@ -88,6 +103,16 @@ expect_fail "a service with no mem_limit"
 
 write_stack "    mem_limit: lots"
 expect_fail "a mem_limit that is not a size"
+
+write_stack "    mem_limit: 1g" "    restart: \"no\"" "    logging: *log-cap"
+expect_pass "a one-shot service needs no restart policy"
+write_stack "    mem_limit: 1g" "" "    logging: *log-cap"
+expect_fail "a service that stays up on the host but does not restart"
+write_stack "    mem_limit: 1g" "    restart: unless-stopped" ""
+expect_fail "a service that names no log cap"
+write_stack "    mem_limit: 1g"
+sed -i 's/^    max-file: "3"$//' "$fixture/stack/docker-compose.yml"
+expect_fail "a log cap anchor without max-file"
 
 write_stack "    mem_limit: 1g"
 mkdir -p "$fixture/new-stack"

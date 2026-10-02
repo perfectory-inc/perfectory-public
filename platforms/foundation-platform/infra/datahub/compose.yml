@@ -12,9 +12,19 @@
 #   frontend container, as identity-api's sidecar does;
 # - every container has a memory cap; host binds of home directories and the unused Neo4j and
 #   CREATE_USER settings are left out.
+# Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
+# guard every-container-has-a-memory-cap).
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 name: datahub
 services:
   datahub-actions-quickstart:
+    logging: *log-cap
+    restart: unless-stopped
     image: "acryldata/datahub-actions:v1.7.0.1-slim@sha256:e55fbb8938b7b33791d554c3eb10c79fde0e88720d7a4d010f88bdd68b062bd3"
     hostname: actions
     depends_on:
@@ -41,6 +51,8 @@ services:
     networks:
       - default
   datahub-gms-quickstart:
+    logging: *log-cap
+    restart: unless-stopped
     image: "acryldata/datahub-gms:v1.7.0.1@sha256:74e15e982b94d0e147de41d05133ef3df48f74a1004a9c997805e0aa7e010173"
     hostname: datahub-gms
     depends_on:
@@ -129,6 +141,8 @@ services:
         aliases:
           - datahub-gms
   frontend-quickstart:
+    logging: *log-cap
+    restart: unless-stopped
     image: "acryldata/datahub-frontend-react:v1.7.0.1@sha256:99513cc1c45e4cc053ceb0f9aeb04a3263a8a747907bb0e85cac2eb03461310d"
     hostname: datahub-frontend-react
     depends_on:
@@ -175,6 +189,8 @@ services:
       - default
       - identity-shared
   kafka-broker:
+    logging: *log-cap
+    restart: unless-stopped
     image: "confluentinc/cp-kafka:8.2.2@sha256:8e01c0305844d6c05bfb8e86479f5f363bb6a53497625395943a9da780de67ce"
     hostname: broker
     command:
@@ -216,6 +232,7 @@ services:
     networks:
       - default
   mysql:
+    logging: *log-cap
     image: "mysql:8.2@sha256:212fe73edca5df6ff14826d5eb975c914bfb91f82a2e923f9050568f99525da1"
     hostname: mysql
     command:
@@ -243,6 +260,8 @@ services:
     networks:
       - default
   opensearch:
+    logging: *log-cap
+    restart: unless-stopped
     image: "opensearchproject/opensearch:2.19.3@sha256:e96cc6ae1500a073d973c0906f30f7cf4d9c461f32f855f9242a2da933660cdd"
     hostname: search
     environment:
@@ -268,6 +287,7 @@ services:
     networks:
       - default
   system-update-quickstart:
+    logging: *log-cap
     image: "acryldata/datahub-upgrade:v1.7.0.1@sha256:c3db54d8fb94bc761be611c014c5ede3fd02daac1f15c8c177d69eceee79a24c"
     hostname: datahub-system-update
     command:
@@ -323,6 +343,7 @@ services:
     networks:
       - default
   zitadel-loopback:
+    logging: *log-cap
     image: "alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
     restart: unless-stopped
     mem_limit: 64m
