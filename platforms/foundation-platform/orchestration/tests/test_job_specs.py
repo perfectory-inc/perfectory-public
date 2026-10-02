@@ -1,6 +1,7 @@
 """The job list builds the DAGs the scheduler runs (root ADR-0122); these pin what it may say."""
 
 import copy
+import hashlib
 import json
 import os
 import pathlib
@@ -166,23 +167,37 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
 
 class FloorCycleAdapter(unittest.TestCase):
-    def release_wrapper(self, root, publisher_source):
-        release = root / "release"
+    # The host layout (root ADR-0134): the read-only source under releases/<sha>, its trusted
+    # build output under artifacts/<sha>, and FLOOR's configuration under config/<sha>.
+    RELEASE_ID = "e" * 40
+
+    def release_wrapper(self, root, publisher_source, release_id=RELEASE_ID):
+        release = root / "releases" / release_id
         ops = release / "scripts/ops"
         ops.mkdir(parents=True)
-        for name in ["building-register-floor-cycle.sh", "runtime-database-url.py"]:
+        for name in ["building-register-floor-cycle.sh", "runtime-database-url.py", "admitted-writer-runtime.sh"]:
             (ops / name).write_bytes((job_specs.PLATFORM_ROOT / "scripts/ops" / name).read_bytes())
-        (release / "bin").mkdir()
-        binary = release / "bin/foundation-outbox-publisher"
+        artifacts = root / "artifacts" / release_id
+        artifacts.mkdir(parents=True)
+        binary = artifacts / "foundation-outbox-publisher"
         binary.write_text(publisher_source)
-        binary.chmod(0o755)
+        binary.chmod(0o555)
+        (artifacts / "build.json").write_text(json.dumps({"source": release_id, "files": {
+            "foundation-outbox-publisher": hashlib.sha256(publisher_source.encode()).hexdigest(),
+            "jars/fixture.jar": "0" * 64}}))
         return ops / "building-register-floor-cycle.sh", release
+
+    @staticmethod
+    def floor_config(release):
+        config = release.parent.parent / "config" / release.name / "building-register-floor.env"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        return config
 
     def test_run_and_cleanup_use_the_same_captured_configuration_after_current_switches(self):
         unit = (job_specs.SYSTEMD / "foundation-building-register-floor.service").read_text()
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            releases = [root / name for name in ["a", "b"]]
+            releases = [root / "releases" / (name * 40) for name in ["a", "b"]]
             for release in releases:
                 wrapper = release / "scripts/ops/building-register-floor-cycle.sh"
                 wrapper.parent.mkdir(parents=True)
@@ -193,12 +208,16 @@ class FloorCycleAdapter(unittest.TestCase):
             runtime = root / "runtime"
             runtime.mkdir()
             for release in releases:
-                (release / ".foundation-floor.env").write_text(
+                self.floor_config(release).write_text(
                     "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=" + str(release) + "\n")
+                # Nothing inside the release is read: admission refuses any file it does not hold.
+                (release / ".foundation-floor.env").write_text(
+                    "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=/not-the-config\n")
             invocation = "a" * 32
             environment = {"PATH": os.environ["PATH"], "RUNTIME_DIRECTORY": str(runtime),
                            "INVOCATION_ID": invocation}
-            for phase, expected in [("ExecStart", "a:run"), ("ExecStopPost", "a:cleanup")]:
+            for phase, expected in [("ExecStart", releases[0].name + ":run"),
+                                    ("ExecStopPost", releases[0].name + ":cleanup")]:
                 command = re.search(r"^" + phase + r"=/bin/bash -ec '(.+)'$", unit, flags=re.MULTILINE)
                 self.assertIsNotNone(command)
                 script = command.group(1).replace("$$", "$").replace(
@@ -222,18 +241,26 @@ class FloorCycleAdapter(unittest.TestCase):
             missing = subprocess.run(["bash", "-ec", stop], env=environment, capture_output=True)
             self.assertNotEqual(missing.returncode, 0)
             self.assertEqual(missing.stdout, b"")
-            snapshot.symlink_to(releases[1] / ".foundation-floor.env")
+            snapshot.symlink_to(self.floor_config(releases[1]))
             linked = subprocess.run(["bash", "-ec", stop], env=environment, capture_output=True)
             self.assertNotEqual(linked.returncode, 0)
             self.assertEqual(linked.stdout, b"")
             snapshot.unlink()
             # A copied config must not redirect this invocation away from the captured current.
-            (releases[1] / ".foundation-floor.env").write_text(
+            self.floor_config(releases[1]).write_text(
                 "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=" + str(releases[0]) + "\n")
             redirected = subprocess.run(["bash", "-ec", start], env=environment, capture_output=True)
             self.assertNotEqual(redirected.returncode, 0)
             self.assertEqual(redirected.stdout, b"")
             self.assertFalse(snapshot.exists(), "failed start must not redirect ExecStopPost either")
+            # A link in place of the configuration is not read either.
+            config = self.floor_config(releases[1])
+            config.unlink()
+            config.symlink_to(self.floor_config(releases[0]))
+            linked = subprocess.run(["bash", "-ec", start], env=environment, capture_output=True)
+            self.assertNotEqual(linked.returncode, 0)
+            self.assertEqual(linked.stdout, b"")
+            self.assertFalse(snapshot.exists())
 
     def test_compose_connection_is_projected_without_copying_credentials(self):
         source_url = "postgres://reader:encoded%40password@postgres:5433/catalogue?sslmode=disable"
@@ -266,19 +293,16 @@ class FloorCycleAdapter(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertNotIn("password", result.stderr)
 
-    def test_publisher_default_follows_the_physical_release_for_run_and_cleanup(self):
-        script = job_specs.PLATFORM_ROOT / "scripts/ops/building-register-floor-cycle.sh"
+    def test_publisher_is_the_release_artifact_for_run_and_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            release = root / "release"
-            (release / "scripts/ops").mkdir(parents=True)
-            (release / "bin").mkdir()
-            copied = release / "scripts/ops" / script.name
-            copied.write_bytes(script.read_bytes())
-            publisher = release / "bin/foundation-outbox-publisher"
-            publisher.write_text('#!/bin/sh\nprintf "%s" "$1"\n')
-            publisher.chmod(0o755)
+            _, release = self.release_wrapper(root, '#!/bin/sh\nprintf "%s" "$1"\n')
             (root / "current").symlink_to(release, target_is_directory=True)
+            # The shared binary production ran before root ADR-0134, and the old override.
+            stale = root / "bin/foundation-outbox-publisher"
+            stale.parent.mkdir()
+            stale.write_text('#!/bin/sh\nprintf stale\n')
+            stale.chmod(0o755)
             env = {
                 "PATH": os.environ["PATH"], "INVOCATION_ID": "a" * 32,
                 "DATABASE_URL": "postgres://fixture/fixture",
@@ -287,13 +311,24 @@ class FloorCycleAdapter(unittest.TestCase):
                 "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE": "sha256:" + "a" * 64,
                 "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": str(root / "state"),
                 "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE": str(root / "ivy"),
-                "FOUNDATION_BUILDING_REGISTER_FLOOR_PUBLISHER_BIN": "/not-the-release/publisher",
+                "FOUNDATION_BUILDING_REGISTER_FLOOR_PUBLISHER_BIN": str(stale),
+                "PUBLISHER_BIN": str(stale),
             }
+            script = root / "current/scripts/ops/building-register-floor-cycle.sh"
             for args, command in [([], "run-building-register-floor-cycle"), (["cleanup"], "stop-building-register-floor-cycle")]:
-                result = subprocess.run(["bash", str(root / "current/scripts/ops" / script.name), *args],
-                                        env=env, capture_output=True, text=True)
+                result = subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, command)
+            # A substituted artifact is refused before it runs, for cleanup as well.
+            binary = root / "artifacts" / release.name / "foundation-outbox-publisher"
+            binary.chmod(0o755)
+            binary.write_text('#!/bin/sh\nprintf substituted\n')
+            binary.chmod(0o555)
+            for args in [[], ["cleanup"]]:
+                result = subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 65)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("publisher sha256 differs", result.stderr)
 
     def test_cleanup_needs_only_invocation_and_rejects_unknown_arguments(self):
         with tempfile.TemporaryDirectory() as directory:

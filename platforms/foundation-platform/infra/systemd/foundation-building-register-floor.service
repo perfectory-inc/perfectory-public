@@ -15,9 +15,10 @@ EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
 # Capture public release configuration once, including through ExecStopPost.
 # A current/previous switch cannot redirect cleanup to another release's binary.
+# The configuration lives beside the immutable release, under config/<release id>/ (root ADR-0134 §3).
 RuntimeDirectory=foundation-building-register-floor
 RuntimeDirectoryMode=0700
-ExecStart=/bin/bash -ec '[[ "$${INVOCATION_ID}" =~ ^[0-9a-f]{32}$$ ]]; release="$$(readlink -e /opt/foundation-platform/current)"; readonly release; snapshot="$${RUNTIME_DIRECTORY:?}/$${INVOCATION_ID}.env"; (set -o noclobber; cat "$${release}/.foundation-floor.env" > "$${snapshot}"); [[ -f "$${snapshot}" && ! -L "$${snapshot}" && -s "$${snapshot}" ]]; set -a; . "$${snapshot}"; [[ "$${FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT:?}" == "$${release}" ]] || { rm -f -- "$${snapshot}"; exit 65; }; exec "$${release}/scripts/ops/building-register-floor-cycle.sh"'
+ExecStart=/bin/bash -ec '[[ "$${INVOCATION_ID}" =~ ^[0-9a-f]{32}$$ ]]; release="$$(readlink -e /opt/foundation-platform/current)"; readonly release; [[ "$${release}" =~ ^(/.+)/releases/([0-9a-f]{40})$$ ]]; config="$${BASH_REMATCH[1]}/config/$${BASH_REMATCH[2]}/building-register-floor.env"; snapshot="$${RUNTIME_DIRECTORY:?}/$${INVOCATION_ID}.env"; [[ -f "$${config}" && ! -L "$${config}" ]]; (set -o noclobber; cat "$${config}" > "$${snapshot}"); [[ -f "$${snapshot}" && ! -L "$${snapshot}" && -s "$${snapshot}" ]]; set -a; . "$${snapshot}"; [[ "$${FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT:?}" == "$${release}" ]] || { rm -f -- "$${snapshot}"; exit 65; }; exec "$${release}/scripts/ops/building-register-floor-cycle.sh"'
 ExecStopPost=/bin/bash -ec '[[ "$${INVOCATION_ID}" =~ ^[0-9a-f]{32}$$ ]]; snapshot="$${RUNTIME_DIRECTORY:?}/$${INVOCATION_ID}.env"; [[ -f "$${snapshot}" && ! -L "$${snapshot}" && -s "$${snapshot}" ]]; set -a; . "$${snapshot}"; exec "$${FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT:?}/scripts/ops/building-register-floor-cycle.sh" cleanup'
 TimeoutStartSec=4h
 TimeoutStopSec=120
