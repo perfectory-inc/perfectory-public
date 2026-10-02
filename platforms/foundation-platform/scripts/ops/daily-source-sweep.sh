@@ -6,9 +6,9 @@
 # 신규 0 인 날도 journal 에 한 줄을 남긴다 — "아무 일도 없었음"과 "확인 안 함"은
 # 구별되어야 한다. 신규가 있거나 실패하면 슬랙 #alerts 가 안다.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 
 STATE_ROOT="${FOUNDATION_SOURCE_SWEEP_STATE_ROOT:-/var/lib/foundation-platform/source-sweep}"
-PUBLISHER_BIN="${FOUNDATION_SOURCE_SWEEP_PUBLISHER_BIN:-/var/lib/foundation-platform/bin/foundation-outbox-publisher}"
 SLACK_TOKEN_FILE="${FOUNDATION_SOURCE_SWEEP_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}"
 SLACK_CHANNEL="${FOUNDATION_SOURCE_SWEEP_SLACK_CHANNEL:-#alerts}"
 

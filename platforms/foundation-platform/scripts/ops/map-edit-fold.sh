@@ -10,6 +10,7 @@
 # 실패하면 슬랙 #alerts 가 안다. 아무 일도 없던 시간에도 journal 에 한 줄을 남긴다 —
 # "할 일 없음"과 "확인 안 함"은 구별되어야 한다.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 
 # 유닛은 첫 인자다 — systemd 템플릿 `foundation-map-edit-fold@<unit>.service` 가 `%i` 로 넘긴다.
 UNIT="${1:-${FOUNDATION_MAP_EDIT_FOLD_UNIT:-complex}}"
@@ -17,12 +18,10 @@ STATE_ROOT="${FOUNDATION_MAP_EDIT_FOLD_STATE_ROOT:-/var/lib/foundation-platform/
 # 전용 폴더다. 공용 /var/lib/foundation-platform/lakehouse 는 Spark(uid 185) 소유라 서비스 계정이 쓸 수 없고,
 # 그 소유를 바꾸면 다른 적재 작업이 깨진다(2026-09-29 첫 설치에서 실제로 그랬다).
 LAKEHOUSE_STATE_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-/var/lib/foundation-platform/map-edit-fold/lakehouse}"
-PUBLISHER_BIN="${FOUNDATION_MAP_EDIT_FOLD_PUBLISHER_BIN:-/var/lib/foundation-platform/bin/foundation-outbox-publisher}"
 SLACK_TOKEN_FILE="${FOUNDATION_MAP_EDIT_FOLD_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}"
 SLACK_CHANNEL="${FOUNDATION_MAP_EDIT_FOLD_SLACK_CHANNEL:-#alerts}"
 # 이보다 오래 접히지 않은 편집은 매시간 접기가 돌지 않았다는 뜻이다.
 MAX_PENDING_AGE_HOURS="${FOUNDATION_MAP_EDIT_FOLD_MAX_PENDING_AGE_HOURS:-6}"
-RELEASE_ROOT="${FOUNDATION_MAP_EDIT_FOLD_RELEASE_ROOT:-/opt/foundation-platform/current}"
 
 # 유닛마다 Silver 좌표계와 서빙본을 만드는 Spark 작업이 다르다. 좌표계의 정본은 각 서빙본
 # 계약의 geometry_srid 관문이다 — 여기 값이 어긋나면 Spark 작업이 편집 내보내기를 거부한다.
@@ -127,15 +126,14 @@ FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_OUTPUT="${work}/edits.jsonl" \
 container_work="/workspace/target/lakehouse/map-edit-fold/${UNIT}/${run_id}"
 # 한 번 쓰고 끝나는 초기화 컨테이너가 이름을 붙잡고 있으면 compose run 이 이름 충돌로 죽는다.
 docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
-: "${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:?map-edit-fold.env must name a writable Ivy cache}"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
-FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE}" \
+FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
 docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
   -p foundation-platform-compute --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark spark-submit --master 'local[4]' --driver-memory 4g --conf spark.jars.ivy=/tmp/.ivy2 \
-  --packages "$(python3 -c "import sys; sys.path.insert(0, '${RELEASE_ROOT}/infra/lakehouse/spark/jobs'); from lakehouse_engine import iceberg_packages; print(iceberg_packages())")" \
+  spark spark-submit --master 'local[4]' --driver-memory 4g \
+  --jars "${SPARK_RELEASE_JARS}" \
   "/workspace/infra/lakehouse/spark/jobs/${SERVED_JOB}" \
   --edits-input "${container_work}/edits.jsonl" \
   --output "${container_work}/served.jsonl" \
