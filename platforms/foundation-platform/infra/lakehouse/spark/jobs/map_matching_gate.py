@@ -20,6 +20,20 @@ EXISTS = "존재"
 # the map; renumbering never does that (ids are carried). Tolerated: none.
 MAX_VANISHED_ADMIN_IDS = 0
 SAMPLE = 20
+# The parcel refusals, named once: `parcel_matching_gate.py` reports the same reasons from joins.
+MALFORMED_PNU = "malformed PNU"
+NO_LEGAL_DONG = "legal dong not existing in the official list"
+NO_BOUNDARY = "no administrative boundary for the parcel's 읍면동"
+NO_CURRENT_ID = "no current parcel id"
+ID_ON_TWO_PARCELS = "parcel id on two parcels"
+
+
+def attribute_held_elsewhere(name: str) -> str:
+    return f"{name} held under a predecessor number but not attached"
+
+
+def attribute_absent(name: str) -> str:
+    return f"{name}: no source value"
 
 
 @dataclass
@@ -110,21 +124,21 @@ def check_parcels(
     for pnu in pnus:
         report.checked += 1
         if len(pnu) != 19 or not pnu.isdigit():
-            report.refuse("malformed PNU", pnu)
+            report.refuse(MALFORMED_PNU, pnu)
             continue
         if official.get(pnu[:10], ("", ""))[1] != EXISTS:
-            report.refuse("legal dong not existing in the official list", pnu)
+            report.refuse(NO_LEGAL_DONG, pnu)
         if pnu[:8] + "00" not in admin_codes:
-            report.refuse("no administrative boundary for the parcel's 읍면동", pnu)
+            report.refuse(NO_BOUNDARY, pnu)
         if current_ids is not None:
             pid = current_ids.get(pnu)
             if pid is None:
-                report.refuse("no current parcel id", pnu)
+                report.refuse(NO_CURRENT_ID, pnu)
             else:
                 id_count[pid] += 1
     for pid, n in id_count.items():
         if n > 1:
-            report.refuse("parcel id on two parcels", pid)
+            report.refuse(ID_ON_TWO_PARCELS, pid)
     return report
 
 
@@ -148,7 +162,7 @@ def check_attribute(
             continue
         held = [old for old in predecessors.get(pnu, ()) if old in has_value]
         if held:
-            report.refuse(f"{name} held under a predecessor number but not attached", f"{pnu}<-{held[0]}")
+            report.refuse(attribute_held_elsewhere(name), f"{pnu}<-{held[0]}")
         else:
-            report.allow(f"{name}: no source value")
+            report.allow(attribute_absent(name))
     return report

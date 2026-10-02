@@ -521,6 +521,20 @@ const AREAS: &[Area] = &[
                 ],
                 covers: &["orchestration/tests"],
             },
+            PythonTests {
+                dir: ".",
+                python_path: None,
+                args: &[
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "tests/release_admission",
+                    "-p",
+                    "test_*.py",
+                ],
+                covers: &["tests/release_admission"],
+            },
         ],
         node_tests: &[
             NodeTests {
@@ -2128,7 +2142,7 @@ mod tests {
 
         let plans = python_test_plans(area, area_dir);
 
-        assert_eq!(plans.len(), 6);
+        assert_eq!(plans.len(), 7);
         assert_eq!(
             plans[0].current_dir,
             area_dir.join("services/foundation-provider-acquisition-worker")
@@ -2196,6 +2210,18 @@ mod tests {
                 "discover",
                 "-s",
                 "orchestration/tests",
+                "-p",
+                "test_*.py",
+            ],
+        );
+        assert_eq!(
+            plans[6].args,
+            &[
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "tests/release_admission",
                 "-p",
                 "test_*.py",
             ],

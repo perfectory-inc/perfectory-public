@@ -152,3 +152,7 @@ last_reviewed: 2026-07-28
 - [ADR-0132 — 새 버전은 켜져 있던 자동작업을 조용히 제거하지 않는다](./0132-release-activation-preserves-enabled-job-identities.md)
 
 - [ADR-0133 — 필지 타일은 레이크하우스에서 전국을 다시 굽는다](./0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md)
+
+- [ADR-0134 — 운영은 GitHub main 커밋만 설치하고, 산출물·설정은 불변 릴리스 밖에 둔다](./0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md)
+
+- [ADR-0135 — 첫 판 동등성 검사는 옛 오븐이 지운 것을 가려 세고, 설명 못 하는 차이만 막는다](./0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md)

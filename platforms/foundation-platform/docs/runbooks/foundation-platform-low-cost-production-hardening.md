@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-02
 ---
 
 # Foundation Platform 저비용 운영 강화 런북
@@ -120,6 +120,19 @@ host 밖 R2에 repository를 둔다.
 `/opt/foundation-platform/current`를 원자적으로 전환하고 이전 대상을 `previous`에 기록한다.
 변경 가능한 복구 증거는 변경 불가 릴리스 밖의 `/var/lib/foundation-platform/recovery`에 둔다.
 
+[root ADR-0134](../../../../docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md)에
+따라 설치는 GitHub main에 병합된 커밋만 받는다. 배포기와 검증기는 관리자가 따로 둔 root 소유 제어
+체크아웃 `/opt/perfectory-control/current`(모노레포 전체)에서 실행하며, 후보 압축파일 안의 코드를
+관리자 권한으로 실행하지 않는다. 설치는 정본 main을 독립 fetch해 조상 여부와 압축파일의 모든 바이트를
+대조하고, 압축파일을 풀지 않고 Git 객체에서 읽기 전용(`0444`/`0555`) 트리를 쓴다. 이어 같은 커밋의
+publisher와 Spark JAR을 Buildx로 빌드해 `/opt/foundation-platform/artifacts/<sha>/`에 둔다(`build.json`이
+파일별 sha256을 봉인). 운영자 설정은 `/opt/foundation-platform/config/<sha>/`에 둔다. 릴리스 안에는 어떤
+파일도 추가하지 않는다 — 추가 파일·쓰기 가능·변조된 릴리스는 활성화·롤백·실행 전 검사에서 거부된다.
+
+선행 조건(root의 `gh auth`, root의 HTTPS fetch, Docker Buildx), 기존 배치에서의 1회 전환, 비상 절차는
+[lakehouse-compute-engines 런북의 "릴리스 인증 전환"](./lakehouse-compute-engines.md#릴리스-인증-전환-1회)이
+정본이다. sudo는 아래 제어 경로 하나만 허용한다(`foundation-release.sh deployer-access <계정>`).
+
 ```bash
 release_id="$(git rev-parse HEAD)"
 # 릴리스는 platforms/foundation-platform 을 루트로 하는 트리다 — 모노레포 전체가 아니다.
@@ -128,9 +141,7 @@ release_id="$(git rev-parse HEAD)"
 # 그 release id 가 잘못된 아카이브의 sha256 로 봉인되어 같은 id 로 다시 설치할 수 없다.
 git archive --format=tar.gz --output="/tmp/foundation-${release_id}.tar.gz" \
   "${release_id}:platforms/foundation-platform"
-sudo FOUNDATION_PLATFORM_RELEASE_ROOT=/opt/foundation-platform \
-  FOUNDATION_PLATFORM_STATE_ROOT=/var/lib/foundation-platform \
-  scripts/deploy/foundation-release.sh install \
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh install \
     "${release_id}" "/tmp/foundation-${release_id}.tar.gz"
 ```
 

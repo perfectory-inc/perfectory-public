@@ -12,14 +12,82 @@ PY
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-release_script="${repo_root}/scripts/deploy/foundation-release.sh"
+umask 022
 test_root="$(mktemp -d)"
-trap 'rm -rf "${test_root}"' EXIT
+# Git must not read the invoking account's configuration (CI runs this as nobody under root's HOME).
+export HOME="${test_root}"
+# Admitted releases and artifacts are read-only; the owner can still lift that to clean up.
+trap 'chmod -R u+w "${test_root}"; rm -rf "${test_root}"' EXIT
 
 release_root="${test_root}/opt/foundation-platform"
 state_root="${test_root}/var/lib/foundation-platform"
-release_a="1111111111111111111111111111111111111111"
-release_b="2222222222222222222222222222222222222222"
+
+# Canonical main is a real Git repository here. Every release id below is a real commit on its
+# `main`, and admission compares the real ancestry and every archive byte (root ADR-0134).
+canonical="${test_root}/canonical"
+mkdir -p "${canonical}/platforms/foundation-platform"
+git -C "${canonical}" init -q -b main
+git -C "${canonical}" config user.name 'Release rehearsal'
+git -C "${canonical}" config user.email 'release-rehearsal@example.invalid'
+
+# Substitute only the privileged host/network connector, in a test copy of the installer.
+# Production has no verifier-path or repository override. The real admission implementation
+# still compares real Git ancestry and every file; this is not a marker-accepting stub.
+release_script="${test_root}/foundation-release.sh"
+sed "s|^admission=.*|admission=\"${test_root}/admission\"|" \
+  "${repo_root}/scripts/deploy/foundation-release.sh" >"${release_script}"
+chmod +x "${release_script}"
+cat >"${test_root}/admission" <<'ADMISSION'
+#!/usr/bin/env bash
+exec python3 - "$@" <<'PY'
+import importlib.util, os, pathlib, subprocess, sys
+spec = importlib.util.spec_from_file_location("admission", os.environ["REHEARSAL_ADMISSION_SOURCE"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+def git(*args):
+    return subprocess.check_output(["git", "-C", os.environ["REHEARSAL_CANONICAL"], *args])
+try:
+    if sys.argv[1] == "prepare":
+        sha, archive, target = sys.argv[2:]
+        module.check_control_commit(git, sha, pathlib.Path(os.environ["REHEARSAL_CONTROL_ROOT"]))
+        module.prepare_release(module.release_files(git, sha), sha, pathlib.Path(archive), pathlib.Path(target))
+    elif sys.argv[1] in ("verify", "build"):
+        target = pathlib.Path(sys.argv[2])
+        module.verify_release(module.release_files(git, target.name), target.name, target, os.getuid())
+        artifacts = target.parent.parent / "artifacts" / target.name
+        if sys.argv[1] == "build" and not artifacts.exists():
+            # Stands in for the Buildx/Spark build only; sealing and verification are the real code.
+            artifacts.mkdir(parents=True)
+            (artifacts / "jars").mkdir()
+            (artifacts / "jars/fixture.jar").write_bytes(b"credential-free fixture dependency")
+            (artifacts / "foundation-outbox-publisher").write_bytes(b"credential-free fixture binary")
+            module.seal_artifacts(target.name, artifacts, "sha256:" + "a" * 64)
+        module.verify_artifacts(target.name, artifacts, os.getuid())
+    else:
+        raise ValueError("unknown rehearsal admission command")
+except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    print("admission refused: " + str(error), file=sys.stderr)
+    sys.exit(65)
+PY
+ADMISSION
+chmod +x "${test_root}/admission"
+export REHEARSAL_ADMISSION_SOURCE="${repo_root}/../../scripts/deploy/foundation-release-admission.py"
+export REHEARSAL_CANONICAL="${canonical}"
+# The control checkout records the canonical commit it was installed from; the first commit on
+# main is an ancestor of every rehearsal release.
+export REHEARSAL_CONTROL_ROOT="${test_root}/control"
+mkdir -p "${REHEARSAL_CONTROL_ROOT}"
+
+# Commits a source tree as the next canonical main and prints its id.
+register_release() {
+  local source="$1" target="${canonical}/platforms/foundation-platform"
+  rm -rf "${target}"
+  mkdir -p "${target}"
+  cp -r "${source}/." "${target}/"
+  git -C "${canonical}" add -A
+  git -C "${canonical}" commit -qm 'Canonical rehearsal release'
+  git -C "${canonical}" rev-parse HEAD
+}
 
 # A release carries its own deploy scripts, and `install` now ends by asking the running
 # database whether it has what this release ships (root ADR-0071). A fixture holding one text
@@ -91,14 +159,21 @@ printf '20260719000001\n20260719000002\n' >"${test_root}/applied.txt"
 export REHEARSAL_APPLIED_FILE="${test_root}/applied.txt"
 export PATH="${test_root}/bin:${PATH}"
 
+
 build_source "${test_root}/source-a" release-a "20260719000001 20260719000002"
 build_source "${test_root}/source-b" release-b "20260719000001 20260719000002"
 # The release the running database is not ready for.
 build_source "${test_root}/source-ahead" release-ahead \
   "20260719000001 20260719000002 20260901000001"
-tar -C "${test_root}/source-a" -czf "${test_root}/release-a.tar.gz" .
-tar -C "${test_root}/source-b" -czf "${test_root}/release-b.tar.gz" .
-tar -C "${test_root}/source-ahead" -czf "${test_root}/release-ahead.tar.gz" .
+build_source "${test_root}/source-prepared" release-prepared "20260719000001 20260719000002"
+release_a="$(register_release "${test_root}/source-a")"
+printf '%s\n' "${release_a}" >"${REHEARSAL_CONTROL_ROOT}/.perfectory-control-commit"
+release_b="$(register_release "${test_root}/source-b")"
+release_ahead="$(register_release "${test_root}/source-ahead")"
+prepared="$(register_release "${test_root}/source-prepared")"
+for name in a b ahead prepared; do
+  tar -C "${test_root}/source-${name}" -czf "${test_root}/release-${name}.tar.gz" .
+done
 
 run_release() {
   FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" \
@@ -118,13 +193,26 @@ assert_link() {
   }
 }
 
+# Lifts the read-only bit only for the length of one planted change.
+with_writable() {
+  local path="$1"; shift
+  local mode
+  mode="$(stat -c '%a' "${path}")"
+  chmod u+w "${path}"
+  "$@"
+  chmod "${mode}" "${path}"
+}
+
 run_release prepare "${release_a}" "${test_root}/release-a.tar.gz"
 [[ ! -e "${release_root}/current" && ! -L "${release_root}/current" ]]
 [[ ! -e "${release_root}/previous" && ! -L "${release_root}/previous" ]]
 run_release install "${release_a}" "${test_root}/release-a.tar.gz"
 assert_link "${release_root}/current" "releases/${release_a}"
 [[ "$(cat "${release_root}/current/version.txt")" == "release-a" ]]
-[[ "$(stat -c '%a' "${release_root}/releases/${release_a}")" == "755" ]]
+# Installed from canonical Git, read-only; the trusted build output sits outside it.
+[[ "$(stat -c '%a' "${release_root}/releases/${release_a}")" == "555" ]]
+[[ -x "${release_root}/artifacts/${release_a}/foundation-outbox-publisher" ]]
+[[ ! -e "${release_root}/releases/${release_a}/bin" ]]
 [[ -d "${state_root}/recovery" ]]
 
 run_release install "${release_a}" "${test_root}/release-a.tar.gz"
@@ -169,11 +257,11 @@ current_before_large="$(readlink "${release_root}/current")"
 mkdir -p "${test_root}/source-large/src"
 cp -r "${test_root}/source-a/." "${test_root}/source-large/"
 for i in $(seq 1 3000); do
-  : >"${test_root}/source-large/src/zz-padding-${i}.txt"
+  printf '%s\n' "${i}" >"${test_root}/source-large/src/zz-padding-${i}.txt"
 done
 tar -C "${test_root}/source-large" -czf "${test_root}/release-large.tar.gz" .
-run_release install "4444444444444444444444444444444444444444" \
-  "${test_root}/release-large.tar.gz" || {
+release_large="$(register_release "${test_root}/source-large")"
+run_release install "${release_large}" "${test_root}/release-large.tar.gz" || {
   printf 'a valid release archive with many entries after the marker was refused\n' >&2
   exit 1
 }
@@ -200,7 +288,6 @@ fi
 # A release the running database is not ready for must not be reported as installed, and the
 # release must still be on disk afterwards: the check refuses to call the deploy finished, it
 # does not undo it (root ADR-0071).
-release_ahead="3333333333333333333333333333333333333333"
 if run_release install "${release_ahead}" "${test_root}/release-ahead.tar.gz"; then
   printf 'a deploy that left the schema behind reported success\n' >&2
   exit 1
@@ -213,9 +300,117 @@ printf '20260719000001\n20260719000002\n20260901000001\n' >"${test_root}/applied
 run_release install "${release_ahead}" "${test_root}/release-ahead.tar.gz"
 assert_link "${release_root}/current" "releases/${release_ahead}"
 
+# --- Only canonical main installs (root ADR-0134 §1) -------------------------------------------
+# A real commit that never reached main, with its own honest archive, is still refused.
+git -C "${canonical}" checkout -qb private-feature
+printf 'private\n' >"${canonical}/platforms/foundation-platform/version.txt"
+git -C "${canonical}" commit -qam 'Unmerged rehearsal'
+unmerged="$(git -C "${canonical}" rev-parse HEAD)"
+git -C "${canonical}" archive --format=tar.gz -o "${test_root}/unmerged.tar.gz" \
+  "${unmerged}:platforms/foundation-platform"
+git -C "${canonical}" checkout -q main
+if run_release install "${unmerged}" "${test_root}/unmerged.tar.gz" 2>"${test_root}/unmerged.log"; then
+  printf 'unmerged source was accepted\n' >&2
+  exit 1
+fi
+grep -q 'not in independently fetched canonical main' "${test_root}/unmerged.log"
+[[ ! -e "${release_root}/releases/${unmerged}" ]]
+[[ ! -e "${release_root}/artifacts/${unmerged}" ]]
+assert_link "${release_root}/current" "releases/${release_ahead}"
+printf 'refused-unmerged-sha=pass\n'
+
+# A control checkout from another line of history cannot admit anything.
+printf '%s\n' "${unmerged}" >"${REHEARSAL_CONTROL_ROOT}/.perfectory-control-commit"
+if run_release prepare "${prepared}" "${test_root}/release-prepared.tar.gz" 2>"${test_root}/control.log"; then
+  printf 'a control checkout off canonical main admitted a release\n' >&2
+  exit 1
+fi
+grep -q 'not an ancestor of release' "${test_root}/control.log"
+# Nor can a control checkout newer than the release being installed.
+printf '%s\n' "${release_large}" >"${REHEARSAL_CONTROL_ROOT}/.perfectory-control-commit"
+if run_release prepare "${prepared}" "${test_root}/release-prepared.tar.gz" 2>"${test_root}/control.log"; then
+  printf 'a release older than the control checkout was admitted\n' >&2
+  exit 1
+fi
+grep -q 'not an ancestor of release' "${test_root}/control.log"
+[[ ! -e "${release_root}/releases/${prepared}" ]]
+printf '%s\n' "${release_a}" >"${REHEARSAL_CONTROL_ROOT}/.perfectory-control-commit"
+printf 'refused-control-drift=pass\n'
+
+# A merged id cannot label other bytes either.
+if run_release prepare "${prepared}" "${test_root}/unmerged.tar.gz"; then
+  printf 'a merged id was installed from unmerged bytes\n' >&2
+  exit 1
+fi
+[[ ! -e "${release_root}/releases/${prepared}" ]]
+
+# --- An installed release holds exactly its canonical files (root ADR-0134 §2) ---------------
+# The layout production had before this change — the publisher in bin/ and FLOOR's config in
+# .foundation-floor.env, both inside releases/<sha> — is exactly an extra file now.
+legacy="${release_root}/releases/${release_b}"
+for extra in bin/foundation-outbox-publisher .foundation-floor.env; do
+  plant_extra() {
+    mkdir -p "$(dirname "${legacy}/${extra}")"
+    printf 'planted\n' >"${legacy}/${extra}"
+    chmod 0444 "${legacy}/${extra}"
+    [[ "${extra}" != bin/* ]] || chmod 0555 "${legacy}/bin"
+  }
+  with_writable "${legacy}" plant_extra
+  if run_release activate "${release_b}" 2>"${test_root}/extra.log"; then
+    printf 'a release with an extra file was activated: %s\n' "${extra}" >&2
+    exit 1
+  fi
+  grep -q 'file set differs' "${test_root}/extra.log"
+  assert_link "${release_root}/current" "releases/${release_ahead}"
+  [[ ! -d "${legacy}/bin" ]] || chmod u+w "${legacy}/bin"
+  with_writable "${legacy}" rm -rf "${legacy:?}/bin" "${legacy}/.foundation-floor.env"
+done
+run_release activate "${release_b}"
+run_release activate "${release_ahead}"
+printf 'refused-extra-file=pass\n'
+
+tampered="${release_root}/releases/${release_b}/version.txt"
+chmod u+w "${tampered}"
+if run_release activate "${release_b}"; then
+  printf 'a writable release was activated\n' >&2
+  exit 1
+fi
+printf 'private\n' >"${tampered}"
+chmod 0444 "${tampered}"
+if run_release activate "${release_b}"; then
+  printf 'a tampered release was activated\n' >&2
+  exit 1
+fi
+ln -sfn "releases/${release_b}" "${release_root}/previous"
+if run_release rollback; then
+  printf 'a tampered release was rolled back to\n' >&2
+  exit 1
+fi
+assert_link "${release_root}/current" "releases/${release_ahead}"
+chmod u+w "${tampered}"
+printf 'release-b\n' >"${tampered}"
+chmod 0444 "${tampered}"
+run_release activate "${release_b}"
+run_release activate "${release_ahead}"
+
+# --- The trusted build output is bound by its sha256 (root ADR-0134 §3) ------------------------
+publisher="${release_root}/artifacts/${release_b}/foundation-outbox-publisher"
+cp "${publisher}" "${test_root}/publisher.saved"
+with_writable "${publisher}" sh -c 'printf "#!/bin/sh\nexit 0\n" >"$1"' _ "${publisher}"
+if run_release activate "${release_b}" 2>"${test_root}/artifact.log"; then
+  printf 'a publisher with the wrong sha256 was activated\n' >&2
+  exit 1
+fi
+grep -q 'artifact contents differ' "${test_root}/artifact.log"
+assert_link "${release_root}/current" "releases/${release_ahead}"
+with_writable "${publisher}" cp "${test_root}/publisher.saved" "${publisher}"
+run_release activate "${release_b}"
+run_release activate "${release_ahead}"
+printf 'refused-wrong-publisher-sha256=pass\n'
+
+# --- prepare stages a release without activating it ------------------------------------------
 current_before_prepare="$(readlink "${release_root}/current")"
 previous_before_prepare="$(readlink "${release_root}/previous")"
-prepared=5555555555555555555555555555555555555555
 assert_inactive() {
   assert_link "${release_root}/current" "${current_before_prepare}"
   assert_link "${release_root}/previous" "${previous_before_prepare}"
@@ -227,52 +422,19 @@ refuse() {
   fi
   assert_inactive
 }
-run_release prepare "${prepared}" "${test_root}/release-a.tar.gz"
+run_release prepare "${prepared}" "${test_root}/release-prepared.tar.gz"
 assert_inactive
-run_release prepare "${prepared}" "${test_root}/release-a.tar.gz"
+[[ -d "${release_root}/artifacts/${prepared}" ]]
+run_release prepare "${prepared}" "${test_root}/release-prepared.tar.gz"
 assert_inactive
 refuse prepare "${prepared}" "${test_root}/release-b.tar.gz"
 refuse prepare invalid "${test_root}/release-a.tar.gz"
-printf '#!/bin/sh\nexit 0\n' >"${test_root}/publisher"
-publisher_sha="$(sha256sum "${test_root}/publisher" | awk '{print $1}')"
-publisher_path="${release_root}/releases/${prepared}/bin/foundation-outbox-publisher"
-refuse publisher "${prepared}" "${test_root}/publisher" "$(printf '0%.0s' {1..64})"
-[[ ! -e "${publisher_path}" ]]
-refuse publisher 6666666666666666666666666666666666666666 "${test_root}/publisher" "${publisher_sha}"
-ln -s "${test_root}/publisher" "${test_root}/publisher-link"
-refuse publisher "${prepared}" "${test_root}/publisher-link" "${publisher_sha}"
-mkfifo "${test_root}/publisher-fifo"
-refuse publisher "${prepared}" "${test_root}/publisher-fifo" "${publisher_sha}"
-mkdir "${test_root}/outside"
-ln -s "${test_root}/outside" "${release_root}/releases/${prepared}/bin"
-refuse publisher "${prepared}" "${test_root}/publisher" "${publisher_sha}"
-[[ ! -e "${test_root}/outside/foundation-outbox-publisher" ]]
-rm "${release_root}/releases/${prepared}/bin"
-run_release publisher "${prepared}" "${test_root}/publisher" "${publisher_sha}"
-assert_inactive
-cmp "${test_root}/publisher" "${publisher_path}"
-[[ "$(stat -c '%a' "${publisher_path}")" == 755 ]]
-if [[ "$(id -u)" == 0 ]]; then [[ "$(stat -c '%u:%g' "${publisher_path}")" == 0:0 ]]; fi
-before_retry="$(stat -c '%i:%Y' "${publisher_path}")"
-run_release publisher "${prepared}" "${test_root}/publisher" "${publisher_sha}"
-[[ "$(stat -c '%i:%Y' "${publisher_path}")" == "${before_retry}" ]]
-printf '#!/bin/sh\nexit 1\n' >"${test_root}/different"
-different_sha="$(sha256sum "${test_root}/different" | awk '{print $1}')"
-refuse publisher "${prepared}" "${test_root}/different" "${different_sha}"
-cmp "${test_root}/publisher" "${publisher_path}"
-mv "${publisher_path}" "${publisher_path}.saved"
-ln -s "${publisher_path}.saved" "${publisher_path}"
-refuse publisher "${prepared}" "${test_root}/publisher" "${publisher_sha}"
-rm "${publisher_path}"
-mv "${publisher_path}.saved" "${publisher_path}"
-mv "${release_root}/releases/${prepared}" "${test_root}/relocated-release"
-ln -s "${test_root}/relocated-release" "${release_root}/releases/${prepared}"
-refuse publisher "${prepared}" "${test_root}/publisher" "${publisher_sha}"
-rm "${release_root}/releases/${prepared}"
-mv "${test_root}/relocated-release" "${release_root}/releases/${prepared}"
-assert_inactive
+# There is no command that accepts a caller's publisher binary.
+refuse publisher "${prepared}" "${test_root}/publisher.saved" "$(printf '0%.0s' {1..64})"
+
+# --- FLOOR's configuration lives outside the release ------------------------------------------
 config_source="${test_root}/floor.env"
-config_target="${release_root}/releases/${prepared}/.foundation-floor.env"
+config_target="${release_root}/config/${prepared}/building-register-floor.env"
 history_witness="${test_root}/floor-history.json"
 printf '{}\n' >"${history_witness}"
 chmod 0444 "${history_witness}"
@@ -296,14 +458,25 @@ for line in (release / 'infra/systemd/building-register-floor.env.example').read
     name = line.split('=', 1)[0]
     assert re.fullmatch(r'[A-Z][A-Z0-9_]*', name)
     value = str(release) if name == 'FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT' else 'fixture'
+    if name == 'FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE':
+        # The image ID this release's build recorded (the rehearsal build's fixed ID).
+        value = 'sha256:' + 'a' * 64
     if name == 'FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH':
         value = sys.argv[2]
     print(f'{name}={value}')
 PY
+release_listing_before="$(cd "${release_root}/releases/${prepared}" && find . | sort | sha256sum)"
 run_release floor-config "${prepared}" "${config_source}"
 assert_inactive
 cmp "${config_source}" "${config_target}"
 [[ "$(stat -c '%a' "${config_target}")" == 644 ]]
+[[ "$(cd "${release_root}/releases/${prepared}" && find . | sort | sha256sum)" == "${release_listing_before}" ]]
+[[ ! -e "${release_root}/releases/${prepared}/.foundation-floor.env" ]]
+# The configured release is still admitted: nothing was written inside it.
+run_release activate "${prepared}"
+run_release activate "$(basename "${current_before_prepare}")"
+ln -sfn "${previous_before_prepare}" "${release_root}/previous"
+assert_inactive
 config_before="$(stat -c '%i:%Y' "${config_target}")"
 run_release floor-config "${prepared}" "${config_source}"
 [[ "$(stat -c '%i:%Y' "${config_target}")" == "${config_before}" ]]
@@ -330,9 +503,8 @@ for invalid_history in relative/history "${test_root}/missing-history" "${test_r
     "${config_source}" >"${test_root}/invalid-history.env"
   refuse floor-config "${prepared}" "${test_root}/invalid-history.env"
 done
-cp "${history_witness}" "${release_root}/releases/${prepared}/history.json"
-chmod 0444 "${release_root}/releases/${prepared}/history.json"
-sed "s|^FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH=.*|FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH=${release_root}/releases/${prepared}/history.json|" \
+# A canonical file of the release itself is still not an operator-held witness.
+sed "s|^FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH=.*|FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH=${release_root}/releases/${prepared}/version.txt|" \
   "${config_source}" >"${test_root}/internal-history.env"
 refuse floor-config "${prepared}" "${test_root}/internal-history.env"
 cp "${config_source}" "${test_root}/secret.env"
@@ -340,15 +512,25 @@ printf 'DATABASE_URL=postgres://fixture\n' >>"${test_root}/secret.env"
 refuse floor-config "${prepared}" "${test_root}/secret.env"
 sed '/^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=/d' "${config_source}" >"${test_root}/missing.env"
 refuse floor-config "${prepared}" "${test_root}/missing.env"
-sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=.*|FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=${IMAGE}|' "${config_source}" >"${test_root}/interpolation.env"
+sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=.*|FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=${NETWORK}|' "${config_source}" >"${test_root}/interpolation.env"
 refuse floor-config "${prepared}" "${test_root}/interpolation.env"
 for invalid_value in '' '"quoted"' 'back\slash' 'two words'; do
   FIXTURE_VALUE="${invalid_value}" awk '
-    /^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=/ { print "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=" ENVIRON["FIXTURE_VALUE"]; next }
+    /^FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=/ { print "FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=" ENVIRON["FIXTURE_VALUE"]; next }
     { print }
   ' "${config_source}" >"${test_root}/unsafe.env"
   refuse floor-config "${prepared}" "${test_root}/unsafe.env"
 done
+# A well-formed, pinned digest that is not this release's build output (root ADR-0134 §3).
+sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=.*|FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=sha256:'"$(printf 'b%.0s' {1..64})"'|' \
+  "${config_source}" >"${test_root}/foreign-image.env"
+if run_release floor-config "${prepared}" "${test_root}/foreign-image.env" 2>"${test_root}/foreign-image.log"; then
+  printf 'a FLOOR image other than the release build output was accepted\n' >&2
+  exit 1
+fi
+grep -q 'must be publisher_image' "${test_root}/foreign-image.log"
+assert_inactive
+printf 'refused-foreign-floor-image=pass\n'
 sed 's|^FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=.*|FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=/other/release|' "${config_source}" >"${test_root}/wrong-root.env"
 refuse floor-config "${prepared}" "${test_root}/wrong-root.env"
 cp "${config_source}" "${test_root}/duplicate.env"
@@ -361,7 +543,13 @@ ln -s "${config_target}.saved" "${config_target}"
 refuse floor-config "${prepared}" "${config_source}"
 rm "${config_target}"
 mv "${config_target}.saved" "${config_target}"
-sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=.*|FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=changed|' "${config_source}" >"${test_root}/conflict.env"
+mkdir "${test_root}/outside"
+mv "${release_root}/config/${prepared}" "${test_root}/outside/${prepared}"
+ln -s "${test_root}/outside/${prepared}" "${release_root}/config/${prepared}"
+refuse floor-config "${prepared}" "${config_source}"
+rm "${release_root}/config/${prepared}"
+mv "${test_root}/outside/${prepared}" "${release_root}/config/${prepared}"
+sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=.*|FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=changed|' "${config_source}" >"${test_root}/conflict.env"
 refuse floor-config "${prepared}" "${test_root}/conflict.env"
 cmp "${config_source}" "${config_target}"
 assert_inactive
@@ -433,13 +621,15 @@ PY
   prepare_state
   grep -Fx "${policy}" "${dropin}"
   [[ "$(stat -c '%i:%Y' "${dropin}")" == "${dropin_before}" ]]
-  python3 - "${config_target}" "${release_root}/releases/${release_a}" <<'PY'
+  mkdir -p "${release_root}/config/${release_a}"
+  python3 - "${config_target}" "${release_root}/releases/${prepared}" "${release_root}/releases/${release_a}" \
+    "${release_root}/config/${release_a}/building-register-floor.env" <<'PY'
 import pathlib, sys
-source, release = map(pathlib.Path, sys.argv[1:])
-body = source.read_text().replace(str(source.parent), str(release))
+source, prepared, release, target = map(pathlib.Path, sys.argv[1:])
+body = source.read_text().replace(str(prepared), str(release))
 body = body.replace('/var/lib/foundation-platform/building-register-floor',
                     '/data/foundation-platform/building-register-floor')
-(release / '.foundation-floor.env').write_text(body)
+target.write_text(body)
 PY
   run_release activate "${release_a}"
   assert_link "${release_root}/current" "releases/${release_a}"
@@ -448,9 +638,9 @@ PY
   assert_link "${release_root}/current" "releases/${prepared}"
   [[ "$(sha256sum "${dropin}")" == "${dropin_sha}" ]]
   # Execute the actual embedded validator with an OS-call interposer, no production hook.
-  python3 - "${release_script}" "${config_target}" <<'PY'
+  python3 - "${release_script}" "${config_target}" "${release_root}/releases/${prepared}" <<'PY'
 import os, pathlib, stat, sys, tempfile
-script, config = map(pathlib.Path, sys.argv[1:])
+script, config, release = map(pathlib.Path, sys.argv[1:])
 code = 'import hashlib' + script.read_text().split("<<'PY'\nimport hashlib", 1)[1].split('\nPY', 1)[0]
 values = dict(line.split('=', 1) for line in config.read_text().splitlines())
 ivy = pathlib.Path(values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'])
@@ -458,7 +648,7 @@ victim = pathlib.Path(tempfile.mkdtemp())
 os.chmod(victim, 0o711)
 before = victim.stat()
 real_open, real_mkdir = os.open, os.mkdir
-sys.argv = ['validator', str(config), str(config.parent), 'state']
+sys.argv = ['validator', str(config), str(release), 'state']
 held = ivy.with_name('held-ivy')
 os.chmod(ivy, 0o750)
 triggered = False
@@ -515,31 +705,124 @@ print('floor-state-symlink-race=pass')
 PY
   printf 'floor-state-rehearsal=pass\n'
 fi
-# A release cannot silently forget a running capability. Initial fixtures above deliberately
-# lack a jobs file, exercising bootstrap from releases that predate orchestration.
-guard_candidate=8888888888888888888888888888888888888888
-run_release prepare "${guard_candidate}" "${test_root}/release-a.tar.gz"
-current_before_guard="$(readlink "${release_root}/current")"
+
+# --- A release cannot silently forget a running capability (root ADR-0132) --------------------
+# Every candidate is a canonical commit: an installed release can no longer be edited into one.
+guard_source="${test_root}/source-guard"
+build_source "${guard_source}" release-guard "20260719000001 20260719000002 20260901000001"
+mkdir -p "${guard_source}/orchestration"
+printf '%s\n' '{"jobs":[{"id":"fixture_job","enabled":true}]}' >"${guard_source}/orchestration/jobs.v1.json"
+guard_current="$(register_release "${guard_source}")"
+tar -C "${guard_source}" -czf "${test_root}/guard-current.tar.gz" .
+run_release install "${guard_current}" "${test_root}/guard-current.tar.gz"
 previous_before_guard="$(readlink "${release_root}/previous")"
-current_jobs="${release_root}/current/orchestration/jobs.v1.json"
-candidate_jobs="${release_root}/releases/${guard_candidate}/orchestration/jobs.v1.json"
-mkdir -p "$(dirname "${current_jobs}")" "$(dirname "${candidate_jobs}")"
-printf '%s\n' '{"jobs":[{"id":"fixture_job","enabled":true}]}' >"${current_jobs}"
-for candidate in missing '{"jobs":[]}' '{"jobs":[{"id":"different_job","enabled":true}]}' \
+guard_candidate() {
+  if [[ "$1" == missing ]]; then
+    rm -f "${guard_source}/orchestration/jobs.v1.json"
+    printf 'missing\n' >"${guard_source}/orchestration/reason.txt"
+  else
+    printf '%s\n' "$1" >"${guard_source}/orchestration/jobs.v1.json"
+  fi
+  candidate="$(register_release "${guard_source}")"
+  tar -C "${guard_source}" -czf "${test_root}/guard-${candidate}.tar.gz" .
+  run_release prepare "${candidate}" "${test_root}/guard-${candidate}.tar.gz"
+  rm -f "${guard_source}/orchestration/reason.txt"
+}
+for content in missing '{"jobs":[]}' '{"jobs":[{"id":"different_job","enabled":true}]}' \
   '{"jobs":[{"id":"fixture_job","enabled":"false"}]}' \
   '{"jobs":[{"id":"fixture_job","enabled":true},{"id":"fixture_job","enabled":false}]}'; do
-  if [[ "${candidate}" == missing ]]; then rm -f "${candidate_jobs}"; else printf '%s\n' "${candidate}" >"${candidate_jobs}"; fi
-  if run_release activate "${guard_candidate}"; then
+  guard_candidate "${content}"
+  if run_release activate "${candidate}"; then
     echo 'activation silently removed an enabled job' >&2; exit 1
   fi
-  assert_link "${release_root}/current" "${current_before_guard}"
+  assert_link "${release_root}/current" "releases/${guard_current}"
   assert_link "${release_root}/previous" "${previous_before_guard}"
 done
-printf '%s\n' '{"jobs":[{"id":"fixture_job","enabled":false}]}' >"${candidate_jobs}"
-run_release activate "${guard_candidate}"
-assert_link "${release_root}/current" "releases/${guard_candidate}"
-# Explicit rollback remains a recovery operation, not a new activation admission.
-printf '%s\n' '{"jobs":[{"id":"new_only_job","enabled":true}]}' >"${candidate_jobs}"
+guard_candidate '{"jobs":[{"id":"fixture_job","enabled":false},{"id":"new_only_job","enabled":true}]}'
+run_release activate "${candidate}"
+assert_link "${release_root}/current" "releases/${candidate}"
+# Explicit rollback remains a recovery operation, not a new activation admission: the previous
+# release lacks new_only_job, which is enabled now.
 run_release rollback
-assert_link "${release_root}/current" "${current_before_guard}"
+assert_link "${release_root}/current" "releases/${guard_current}"
+
+# --- Admission is installed on the unit systemd loads (root ADR-0134 §3) ----------------------
+dropin_unit() {
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" bash -c \
+    'source <(sed "/^command=/,\$d" "$1"); admission_dropin_unit "$2"' _ "${release_script}" "$1"
+}
+[[ "$(dropin_unit foundation-map-edit-fold@complex.service)" == foundation-map-edit-fold@.service ]]
+[[ "$(dropin_unit foundation-building-register-floor.service)" == foundation-building-register-floor.service ]]
+for invalid_service in ssh.service 'foundation-x@../y.service' foundation-x.timer; do
+  if dropin_unit "${invalid_service}" >/dev/null 2>&1; then
+    printf 'admission drop-in accepted an invalid unit: %s\n' "${invalid_service}" >&2
+    exit 1
+  fi
+done
+printf 'admission-dropin-on-template=pass\n'
+
+# --- sudo names only the control checkout's copy of this script (root ADR-0134 §2) -------------
+release_functions() {
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" bash -c \
+    'source <(sed "/^command=/,\$d" "$1"); shift; "$@"' _ "${release_script}" "$@"
+}
+release_functions render_deployer_sudoers deployer >"${test_root}/sudoers-rendered"
+[[ "$(grep -v '^#' "${test_root}/sudoers-rendered")" == \
+  'deployer ALL=(root) NOPASSWD: /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh' ]]
+if release_functions render_deployer_sudoers 'deployer ALL' >/dev/null 2>&1; then
+  printf 'a sudoers rule was rendered for an injected account name\n' >&2
+  exit 1
+fi
+mkdir -p "${test_root}/sudoers.d"
+cp "${test_root}/sudoers-rendered" "${test_root}/sudoers.d/foundation-release"
+release_functions find_other_release_grants "${test_root}/sudoers.d/"* >/dev/null
+# The rule production carries today: it matches every directory under the release root.
+printf 'deployer ALL=(root) NOPASSWD: /opt/foundation-platform/*/scripts/deploy/foundation-release.sh\n' \
+  >"${test_root}/sudoers.d/legacy-deployer"
+if release_functions find_other_release_grants "${test_root}/sudoers.d/"* >"${test_root}/grants.log"; then
+  printf 'a wildcard grant over every release was not reported\n' >&2
+  exit 1
+fi
+grep -q 'legacy-deployer' "${test_root}/grants.log"
+# The order ADR-0134 §2 prescribes: installing the new rule beside the old one reports and
+# succeeds; the final --exclusive step fails until the old line is gone.
+release_functions deployer_grant_verdict deployer '' "${test_root}/sudoers.d/"* >"${test_root}/verdict.log"
+grep -q '^deployer-access-installed' "${test_root}/verdict.log"
+if release_functions deployer_grant_verdict deployer --exclusive "${test_root}/sudoers.d/"* >/dev/null 2>&1; then
+  printf 'the exclusive step passed while the wildcard grant remained\n' >&2
+  exit 1
+fi
+# A second path on the same line as the exact one is still a second grant.
+rm "${test_root}/sudoers.d/legacy-deployer"
+release_functions deployer_grant_verdict deployer --exclusive "${test_root}/sudoers.d/"* | grep -q '^deployer-access-ok'
+printf 'deployer ALL=(root) NOPASSWD: %s, /opt/foundation-platform/releases/*/scripts/deploy/foundation-release.sh\n' \
+  /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh \
+  >"${test_root}/sudoers.d/combined"
+if release_functions find_other_release_grants "${test_root}/sudoers.d/"* >/dev/null; then
+  printf 'a wildcard grant sharing a line with the control path was not reported\n' >&2
+  exit 1
+fi
+printf 'sudoers-control-path-only=pass\n'
+
+# A modified active tree cannot install host units. The stand-in records any attempted host
+# mutation, so "failed later because the test user cannot write /etc" cannot masquerade as a gate.
+export REHEARSAL_INSTALL_CALLED="${test_root}/install-called"
+cat >"${test_root}/bin/install" <<'INSTALL'
+#!/usr/bin/env bash
+: >"${REHEARSAL_INSTALL_CALLED}"
+exit 1
+INSTALL
+chmod +x "${test_root}/bin/install"
+tampered="${release_root}/releases/${release_b}/version.txt"
+with_writable "${tampered}" sh -c 'printf "private\n" >"$1"' _ "${tampered}"
+ln -sfn "releases/${release_b}" "${release_root}/current"
+for command in timers migrate; do
+  if run_release "${command}" >"${test_root}/${command}.log" 2>&1; then
+    printf 'tampered current release entered %s\n' "${command}" >&2
+    exit 1
+  fi
+  [[ ! -e "${REHEARSAL_INSTALL_CALLED}" ]]
+  grep -q 'installed release contents differ' "${test_root}/${command}.log"
+done
+
 printf 'foundation-release-test=pass\n'
