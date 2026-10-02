@@ -1,16 +1,26 @@
 {
   "schema_version": 1,
-  "purpose": "Single source of truth for the container images the lakehouse tile bake runs (root ADR-0112 §9). External images are pinned by digest; the tippecanoe image is built from infra/tiles/tippecanoe/Dockerfile, which pins its base digest and source commit.",
+  "purpose": "Single source of truth for the container images the lakehouse tile bake runs, their memory caps and the work disk a bake needs (root ADR-0112 §9, ADR-0133 §3). External images are pinned by digest; the tippecanoe image is built from infra/tiles/tippecanoe/Dockerfile, which pins its base digest and source commit.",
   "images": {
     "gdal": {
       "image": "ghcr.io/osgeo/gdal:ubuntu-small-3.10.2@sha256:a2af3ef63be13b35790ce7a508ff395c409ef7a0b8ddc5ab9685dd4518af9779",
-      "reason": "ubuntu-small carries GEOS, which -makevalid needs; alpine-small does not."
+      "reason": "ubuntu-small carries GEOS, which -makevalid needs; alpine-small does not.",
+      "memory_limit": "4g",
+      "memory_reason": "ogr2ogr streams the CSV row by row into the GeoJSON sequence; 4g is headroom over the Seoul pilot, not a measurement. The first national bake re-measures it (root ADR-0133 §7)."
     },
     "tippecanoe": {
       "image": "foundation-tippecanoe:2.79.0-local",
       "dockerfile": "platforms/foundation-platform/infra/tiles/tippecanoe/Dockerfile",
       "version_banner": "tippecanoe v2.79.0",
-      "reason": "No official image or binary release exists, so it is built from the tagged source commit."
+      "reason": "No official image or binary release exists, so it is built from the tagged source commit.",
+      "memory_limit": "8g",
+      "memory_reason": "The Seoul pilot (898,741 parcels) peaked at 0.96GB; the national run (about 40M) is unmeasured, and its sort and tile work spill to the -t directory. The first national bake re-measures it (root ADR-0133 §7)."
     }
+  },
+  "work_disk": {
+    "min_free_bytes": 2147483648,
+    "min_free_bytes_per_handoff_byte": 8,
+    "production_root": "/data/foundation-platform/tile-bake",
+    "reason": "The work directory holds, at its peak, the GDAL CSV (about the handoff's size), the GeoJSON sequence (larger), tippecanoe's temporary files under -t and the archive. A bake refuses to start below max(min_free_bytes, handoff bytes x min_free_bytes_per_handoff_byte). The multiple is an estimate the first national bake re-measures. In production a national unit's work root is under production_root, on /data, never the root disk."
   }
 }
