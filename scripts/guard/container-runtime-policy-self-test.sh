@@ -255,6 +255,25 @@ services:
 YAML
 expect_rejected unsupported-compose-service-anchor "$service_anchor"
 
+log_cap="$test_root/log-cap"
+make_repo "$log_cap"
+cat >"$log_cap/compose.yml" <<'YAML'
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+services:
+  application:
+    image: synthetic-application:local
+    logging: *log-cap
+YAML
+expect_accepted compose-log-cap-anchor "$log_cap"
+sed -i 's/^    logging: \*log-cap$/    image: *log-cap/' "$log_cap/compose.yml"
+expect_rejected compose-log-cap-alias-outside-logging "$log_cap"
+sed -i 's/^    image: \*log-cap$/    logging: *log-cap/; s/^x-log-cap: &log-cap$/x-service: \&log-cap/' "$log_cap/compose.yml"
+expect_rejected compose-log-cap-anchor-on-another-key "$log_cap"
+
 flow_mapping="$test_root/flow-mapping"
 make_repo "$flow_mapping"
 cat >"$flow_mapping/compose.yml" <<'YAML'
