@@ -1130,7 +1130,12 @@ async fn lock_validated_build_tx(
                 build.result_pmtiles_file_asset_id, build.result_pmtiles_object_key,
                 build.result_tiles_url_template, build.result_pmtiles_sha256,
                 build.result_pmtiles_bytes, build.result_evidence_sha256,
-                input.source_record_id, input.source_file_asset_ids, input.source_kind
+                -- A bake bound to the Silver snapshot it read carries that snapshot's record and
+                -- none of the input's file assets, which describe another collection.
+                COALESCE(build.bound_source_record_id, input.source_record_id) AS source_record_id,
+                CASE WHEN build.bound_source_record_id IS NULL THEN input.source_file_asset_ids
+                     ELSE '{}'::uuid[] END AS source_file_asset_ids,
+                input.source_kind
          FROM catalog.vector_tile_build_job AS build
          JOIN catalog.vector_tile_publication_unit AS unit
            ON unit.id = build.publication_unit_id

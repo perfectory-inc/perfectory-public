@@ -1011,6 +1011,9 @@ async fn bake_in(
             .map_err(anyhow::Error::msg)?,
             idempotency_key: config.build_idempotency_key.clone(),
             operator_staff_id: config.operator_staff_id,
+            silver_source: crate::lakehouse_bake_verdict::silver_source(
+                summary.source_snapshot_id.as_deref(),
+            )?,
         })
         .await?;
 
