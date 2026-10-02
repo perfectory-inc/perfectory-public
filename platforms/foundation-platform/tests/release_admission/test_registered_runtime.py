@@ -21,6 +21,7 @@ OPS = AREA / "scripts/ops"
 HELPER = "admitted-writer-runtime.sh"
 CATALOG_TARGET = "/etc/trino/catalog/r2.properties"
 PUBLISHER_IMAGE = "sha256:" + "a" * 64
+TIPPECANOE_IMAGE = "sha256:" + "d" * 64
 
 
 class ReleaseFixture(unittest.TestCase):
@@ -64,7 +65,7 @@ class ReleaseFixture(unittest.TestCase):
             "foundation-outbox-publisher": manifest_publisher or hashlib.sha256(publisher).hexdigest(),
             "jars/official.jar": hashlib.sha256(b"frozen dependency").hexdigest(),
         }
-        (artifacts / "build.json").write_text(json.dumps({"source": release_id, "publisher_image": PUBLISHER_IMAGE, "files": files}))
+        (artifacts / "build.json").write_text(json.dumps({"source": release_id, "publisher_image": PUBLISHER_IMAGE, "tippecanoe_image": TIPPECANOE_IMAGE, "files": files}))
         return artifacts
 
     def source_helper(self, helper, mode="--current", env=None):
@@ -133,6 +134,22 @@ class AdmittedRuntimeTests(ReleaseFixture):
         result = self.source_helper(self.base / "current/scripts/ops" / HELPER)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("another release", result.stderr)
+
+    def test_tile_bake_runs_the_release_tippecanoe_image(self):
+        helper = self.base / "current/scripts/ops" / HELPER
+        script = 'source "$1" --current; printf "%s" "$FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_TIPPECANOE_IMAGE"'
+        env = dict(os.environ, FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_TIPPECANOE_IMAGE="foundation-tippecanoe:2.79.0-local")
+        result = subprocess.run(["bash", "-eu", "-c", script, "test", str(helper)], env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, TIPPECANOE_IMAGE)
+        # A build that recorded no tippecanoe image (the hand-built tag era) is refused.
+        manifest = json.loads((self.artifacts / "build.json").read_text())
+        del manifest["tippecanoe_image"]
+        (self.artifacts / "build.json").write_text(json.dumps(manifest))
+        result = subprocess.run(["bash", "-eu", "-c", script, "test", str(helper)], env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 65)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("records no tippecanoe image", result.stderr)
 
     def test_floor_image_other_than_the_release_build_output_is_refused(self):
         helper = self.base / "current/scripts/ops" / HELPER

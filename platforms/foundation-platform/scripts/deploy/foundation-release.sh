@@ -845,6 +845,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     install -d -o foundation-platform -g foundation-platform -m 0777 \
       /var/lib/foundation-platform/map-edit-fold/lakehouse \
       /var/lib/foundation-platform/lineage-stewardship/lakehouse
+    # The by-PNU bakes' work files: on the data disk, the only path their unit may write.
+    install -d -o foundation-platform -g foundation-platform /data/foundation-platform/by-pnu-bake
     systemctl daemon-reload
     # The database backup is host infrastructure, not a data job: it stays a systemd timer
     # (root ADR-0118 §1). Every data job is started by Airflow (root ADR-0122).

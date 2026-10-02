@@ -1,0 +1,25 @@
+[Unit]
+Description=Foundation Platform by-PNU serving bake for the %i lane: Gold panel to one R2 object per PNU (ADR-0122; parcels ADR-0096, buildings ADR-0100)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# The same files the FLOOR cycle reads: the lakehouse catalog and the R2 lakehouse writer. The
+# optional last file holds only non-secret tuning (FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY).
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=-/etc/foundation-platform/by-pnu-bake.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-bake.sh %i
+# A national first bake runs about a day; a later run resumes where this one stopped.
+TimeoutStartSec=20h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Work files only on the data disk, never the root disk.
+ReadWritePaths=/data/foundation-platform/by-pnu-bake

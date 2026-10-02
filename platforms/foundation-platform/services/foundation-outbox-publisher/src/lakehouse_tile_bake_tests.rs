@@ -478,6 +478,34 @@ fn the_contract_caps_every_container_and_the_runs_pass_the_caps() -> anyhow::Res
 }
 
 #[test]
+fn the_release_tippecanoe_image_replaces_the_hand_built_tag() -> anyhow::Result<()> {
+    let image = format!("sha256:{}", "a".repeat(64));
+    let contract =
+        BakeContract::parse(CONTRACT_JSON)?.with_release_tippecanoe(Some(image.clone()))?;
+    let args = run_args(Path::new("/work"), &contract.images.tippecanoe);
+    assert_eq!(args.last(), Some(&OsString::from(&image)));
+    let unchanged = BakeContract::parse(CONTRACT_JSON)?.with_release_tippecanoe(None)?;
+    assert_eq!(
+        unchanged.images.tippecanoe.image,
+        "foundation-tippecanoe:2.79.0-local"
+    );
+    for bad in [
+        "foundation-tippecanoe:latest".to_owned(),
+        format!("sha256:{}", "A".repeat(64)),
+        format!("sha256:{}", "a".repeat(63)),
+        format!("other@sha256:{}", "a".repeat(64)),
+    ] {
+        assert!(
+            BakeContract::parse(CONTRACT_JSON)?
+                .with_release_tippecanoe(Some(bad.clone()))
+                .is_err(),
+            "{bad:?} is refused"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_container_profile_without_a_memory_cap_is_refused() -> anyhow::Result<()> {
     let mut contract: Value = serde_json::from_str(CONTRACT_JSON)?;
     if let Some(gdal) = contract

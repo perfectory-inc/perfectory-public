@@ -207,7 +207,8 @@ class ReleaseAdmissionTests(unittest.TestCase):
         (artifacts / "jars").mkdir()
         (artifacts / "jars/iceberg.jar").write_bytes(b"resolved canonical dependency")
         (artifacts / "foundation-outbox-publisher").write_bytes(b"built canonical binary")
-        self.module.seal_artifacts(self.merged, artifacts, "sha256:" + "a" * 64)
+        self.module.seal_artifacts(self.merged, artifacts, {"publisher": "sha256:" + "a" * 64,
+                                                             "tippecanoe": "sha256:" + "d" * 64})
         self.addCleanup(lambda: self.make_writable(artifacts))
         return artifacts
 
@@ -264,18 +265,33 @@ class ReleaseAdmissionTests(unittest.TestCase):
             if args[1:3] == ["buildx", "create"]:
                 self.assertIn("docker-container", args)
                 self.assertRegex(self.module.BUILDKIT_IMAGE, r"@sha256:[0-9a-f]{64}$")
-                limits = self.module.build_limits()["publisher"]
+                # Each image gets its own builder, held to its own entry in the build contract.
+                image = args[args.index("--name") + 1].split("-")[2]
+                limits = self.module.build_limits()[image]
                 memory = limits["memory_limit"]
                 self.assertIn(f"image={self.module.BUILDKIT_IMAGE},memory={memory},memory-swap={memory},"
                               f"cpu-period=100000,cpu-quota={limits['cpus'] * 100000},restart-policy=no", args)
             elif args[1:3] == ["buildx", "build"]:
                 self.assertIn("--no-cache", args)
-                self.assertIn(f"CARGO_BUILD_JOBS={self.module.build_limits()['publisher']['cargo_build_jobs']}", args)
-                # A tag keeps the image through `docker image prune`.
-                self.assertEqual(args[args.index("--tag") + 1], "foundation-outbox-publisher:" + self.merged)
+                # A tag keeps each image through `docker image prune`; tippecanoe is built from
+                # the repository Dockerfile, with only its own directory as context.
+                dockerfile, tag = args[args.index("-f") + 1], args[args.index("--tag") + 1]
+                built = {
+                    "services/foundation-outbox-publisher/Dockerfile.lakehouse-control":
+                        ("foundation-outbox-publisher:" + self.merged, ".", "a", "publisher"),
+                    "infra/tiles/tippecanoe/Dockerfile":
+                        ("foundation-tippecanoe:" + self.merged, "infra/tiles/tippecanoe", "d", "tippecanoe"),
+                }[dockerfile]
+                self.assertEqual((tag, args[-1]), built[:2])
+                # Built by its own builder, with its own job count from the contract.
+                self.assertIn(f"-{built[3]}-", args[args.index("--builder") + 1])
+                limits = self.module.build_limits()[built[3]]
+                [(argument, jobs)] = limits["build_args"].items()
+                self.assertEqual(jobs, limits["cargo_build_jobs" if built[3] == "publisher" else "make_jobs"])
+                self.assertIn(f"{argument}={jobs}", args)
                 if getattr(self, "fail_build", False):
                     raise subprocess.CalledProcessError(97, args)
-                Path(args[args.index("--iidfile") + 1]).write_text("sha256:" + "a" * 64)
+                Path(args[args.index("--iidfile") + 1]).write_text("sha256:" + built[2] * 64)
             elif args[1] == "create":
                 self.assertEqual(args[2], "sha256:" + "a" * 64)
                 return b"fixture-container"
@@ -324,13 +340,20 @@ class ReleaseAdmissionTests(unittest.TestCase):
         self.assertTrue(any(call[1] == "rm" for call in calls))
         manifest = json.loads((artifact_root / self.merged / "build.json").read_text())
         self.assertEqual(manifest["publisher_tag"], "foundation-outbox-publisher:" + self.merged)
+        self.assertEqual(manifest["tippecanoe_tag"], "foundation-tippecanoe:" + self.merged)
+        self.assertEqual(manifest["tippecanoe_image"], "sha256:" + "d" * 64)
+        self.assertEqual(sum(call[1:3] == ["buildx", "build"] for call in calls), 2)
 
     def test_builder_uses_admitted_context_and_clean_process_environment(self):
         self.exercise_builder()
 
     def test_build_limits_come_from_the_control_contract_and_cover_the_measured_build(self):
         contract = json.loads(self.module.BUILD_CONTRACT.read_text(encoding="utf-8"))
-        self.assertEqual(self.module.build_limits(), contract["builders"])
+        limits = self.module.build_limits()
+        self.assertEqual({name: {key: value for key, value in entry.items() if key != "build_args"}
+                          for name, entry in limits.items()}, contract["builders"])
+        # Every image the release builds has its own builder entry (ADR-0137).
+        self.assertLessEqual({name for name, _, _, _ in self.module.RELEASE_IMAGES}, set(limits))
         # The cap must hold the measured anonymous peak it cites; 4g did not (ADR-0137).
         publisher = contract["builders"]["publisher"]
         measured = int(re.search(r"peaked at ([0-9,]+) bytes", publisher["memory_reason"]).group(1).replace(",", ""))
@@ -440,23 +463,44 @@ class ReleaseAdmissionTests(unittest.TestCase):
             self.module.spark_image_from_compose(b'{"services": {"spark": {"image": "spark:latest"}}}')
         self.assertIn("lakehouse-batch", self.module.SPARK_COMPOSE_CONFIG)
 
-    def test_missing_or_replaced_publisher_image_is_refused(self):
+    def test_missing_or_replaced_release_image_is_refused(self):
         artifacts = self.artifacts()
-        image = "sha256:" + "a" * 64
-        inspect = ["/usr/bin/docker", "image", "inspect", "--format", "{{.Id}}",
-                   "foundation-outbox-publisher:" + self.merged]
-        with mock.patch.object(self.module.subprocess, "check_output", return_value=(image + "\n").encode()) as call:
-            self.module.require_publisher_image(self.merged, artifacts)
-        self.assertEqual(call.call_args.args[0], inspect)
-        # Pruned: the tag no longer resolves.
-        with mock.patch.object(self.module.subprocess, "check_output",
-                               side_effect=subprocess.CalledProcessError(1, inspect)):
-            with self.assertRaisesRegex(ValueError, "is missing"):
-                self.module.require_publisher_image(self.merged, artifacts)
-        # Retagged onto another image.
-        with mock.patch.object(self.module.subprocess, "check_output", return_value=b"sha256:" + b"c" * 64):
-            with self.assertRaisesRegex(ValueError, "not the image"):
-                self.module.require_publisher_image(self.merged, artifacts)
+        recorded = {"foundation-outbox-publisher:" + self.merged: "sha256:" + "a" * 64,
+                    "foundation-tippecanoe:" + self.merged: "sha256:" + "d" * 64}
+        def docker(images):
+            def inspect(args, **kwargs):
+                self.assertEqual(args[:5], ["/usr/bin/docker", "image", "inspect", "--format", "{{.Id}}"])
+                if args[5] not in images:
+                    raise subprocess.CalledProcessError(1, args)
+                return (images[args[5]] + "\n").encode()
+            return inspect
+        with mock.patch.object(self.module.subprocess, "check_output", side_effect=docker(recorded)) as call:
+            self.module.require_release_images(self.merged, artifacts)
+        self.assertEqual({c.args[0][5] for c in call.call_args_list}, set(recorded))
+        for name, tag in (("publisher", "foundation-outbox-publisher:"), ("tippecanoe", "foundation-tippecanoe:")):
+            with self.subTest(name=name):
+                # Pruned: the tag no longer resolves.
+                pruned = {key: value for key, value in recorded.items() if key != tag + self.merged}
+                with mock.patch.object(self.module.subprocess, "check_output", side_effect=docker(pruned)):
+                    with self.assertRaisesRegex(ValueError, f"{name} image .* is missing"):
+                        self.module.require_release_images(self.merged, artifacts)
+                # Retagged onto another image.
+                retagged = dict(recorded, **{tag + self.merged: "sha256:" + "c" * 64})
+                with mock.patch.object(self.module.subprocess, "check_output", side_effect=docker(retagged)):
+                    with self.assertRaisesRegex(ValueError, f"{name} image .* is not the image"):
+                        self.module.require_release_images(self.merged, artifacts)
+
+    def test_build_output_must_record_every_release_image(self):
+        artifacts = self.root / "unsealed"
+        (artifacts / "jars").mkdir(parents=True)
+        (artifacts / "jars/iceberg.jar").write_bytes(b"jar")
+        (artifacts / "foundation-outbox-publisher").write_bytes(b"binary")
+        for images in ({"publisher": "sha256:" + "a" * 64},
+                       {"publisher": "sha256:" + "a" * 64, "tippecanoe": "foundation-tippecanoe:2.79.0-local"}):
+            with self.subTest(images=images):
+                with self.assertRaisesRegex(ValueError, "immutable image ID"):
+                    self.module.seal_artifacts(self.merged, artifacts, images)
+        self.assertFalse((artifacts / "build.json").exists())
 
     def test_verify_current_refuses_when_the_publisher_image_was_pruned(self):
         artifacts = self.artifacts()

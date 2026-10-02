@@ -144,7 +144,7 @@
 | `docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0125-unit-building-links-require-source-parent-key-evidence.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |

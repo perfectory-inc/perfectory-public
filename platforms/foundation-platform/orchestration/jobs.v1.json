@@ -100,6 +100,42 @@
       "pipeline_graph_edges": [],
       "reads_data_contracts": true,
       "enabled": true
+    },
+    {
+      "id": "parcel_by_pnu_serving_bake",
+      "description": "Bake gold.parcel_panel into one R2 serving object per PNU and publish the manifest (root ADR-0096): only when Gold has a snapshot the published generation does not serve, objects create-only, the manifest moved only when the shards' exported rows add up to the Gold row count.",
+      "systemd_service": "foundation-by-pnu-serving-bake@parcel.service",
+      "systemd_timer": null,
+      "schedule": "15 10 * * *",
+      "timeout_minutes": 1260,
+      "pool": "spark",
+      "pipeline_graph_edges": [
+        "gold-parcel-panel-to-parcel-by-pnu-serving"
+      ],
+      "enabled": false,
+      "disabled_reason": "Replaces the hand-kept server script that baked this lane before 2026-10. Off until one supervised run of the repository job on the data host has baked and published a generation whose object count matched its Gold row count; switching it on is a separate deploy step (runbook docs/runbooks/parcel-by-pnu-serving-bake.md, 'Scheduled bake')."
+    },
+    {
+      "id": "building_by_pnu_serving_bake",
+      "description": "Bake gold.building_panel into one R2 serving object per PNU and publish the manifest (root ADR-0100): only when Gold has a snapshot the published generation does not serve, objects create-only, the manifest moved only when the shards' exported rows add up to the Gold row count.",
+      "systemd_service": "foundation-by-pnu-serving-bake@building.service",
+      "systemd_timer": null,
+      "schedule": "15 12 * * *",
+      "timeout_minutes": 1260,
+      "pool": "spark",
+      "pipeline_graph_edges": [
+        "gold-building-panel-to-building-by-pnu-serving"
+      ],
+      "enabled": false,
+      "disabled_reason": "Replaces the hand-kept server script that baked this lane before 2026-10. Off until one supervised run of the repository job on the data host has baked and published a generation whose object count matched its Gold row count; switching it on is a separate deploy step (runbook docs/runbooks/parcel-by-pnu-serving-bake.md, 'Scheduled bake')."
+    }
+  ],
+  "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",
+  "serving_surfaces_without_a_job_means": "Every pipeline-graph serving surface whose surface_kind is r2_baked_documents or tiles is produced by a job in this list (a job edge ends at it), or is named here with the reason it has none yet. orchestration/tests/test_job_specs.py refuses a baked surface with neither, and an entry here that is stale (the surface has a job, or is not a baked surface).",
+  "serving_surfaces_without_a_job": [
+    {
+      "surface": "parcel-tiles",
+      "reason": "The national parcel tiles are rebaked from the lakehouse (root ADR-0133); that bake's job is registered with the ADR-0133 work, not here. Until then they are baked by hand per docs/runbooks/tiles-object-storage-first-slice.md."
     }
   ]
 }

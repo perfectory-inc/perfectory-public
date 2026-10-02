@@ -178,16 +178,20 @@ def artifact_files(target: Path) -> dict[str, str]:
     return result
 
 
-def seal_artifacts(release_id: str, target: Path, publisher_image: str) -> None:
+def seal_artifacts(release_id: str, target: Path, images: dict[str, str]) -> None:
     """Only the trusted builder calls this, in an administrator-owned staging directory."""
     files = artifact_files(target)
     jars = [name for name in files if re.fullmatch(r"jars/[A-Za-z0-9_.-]+\.jar", name)]
     if not jars or set(files) != {"foundation-outbox-publisher", *jars}:
         raise ValueError("unexpected build output; a publisher and resolved jars are required")
-    (target / "build.json").write_text(json.dumps({
-        "source": release_id, "publisher_image": publisher_image, "publisher_tag": publisher_tag(release_id),
-        "files": files,
-    }, sort_keys=True) + "\n", encoding="utf-8")
+    if set(images) != {name for name, _, _, _ in RELEASE_IMAGES} or not all(
+            re.fullmatch(r"sha256:[0-9a-f]{64}", image) for image in images.values()):
+        raise ValueError("every release image needs an immutable image ID")
+    manifest = {"source": release_id, "files": files}
+    for name, tag_of, _, _ in RELEASE_IMAGES:
+        manifest[f"{name}_image"] = images[name]
+        manifest[f"{name}_tag"] = tag_of(release_id)
+    (target / "build.json").write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
     for path in target.rglob("*"):
         if path.is_file():
             if os.geteuid() == 0:
@@ -252,22 +256,36 @@ def publisher_tag(release_id: str) -> str:
     return f"foundation-outbox-publisher:{release_id}"
 
 
-def require_publisher_image(release_id: str, artifacts: Path) -> None:
-    """The image FLOOR runs must still exist, under the tag the build recorded, with its ID."""
+def tippecanoe_tag(release_id: str) -> str:
+    return f"foundation-tippecanoe:{release_id}"
+
+
+# The images a release builds, each recorded in build.json as <name>_image (ID) and <name>_tag.
+# FLOOR runs the publisher image; the lakehouse tile bake runs tippecanoe from the repository
+# Dockerfile, no longer a tag built by hand on the host (root ADR-0134 §3).
+RELEASE_IMAGES = (
+    ("publisher", publisher_tag, "services/foundation-outbox-publisher/Dockerfile.lakehouse-control", "."),
+    ("tippecanoe", tippecanoe_tag, "infra/tiles/tippecanoe/Dockerfile", "infra/tiles/tippecanoe"),
+)
+
+
+def require_release_images(release_id: str, artifacts: Path) -> None:
+    """Every image the release built must still exist, under its recorded tag, with its ID."""
     manifest = json.loads((artifacts / "build.json").read_text(encoding="utf-8"))
-    tag, image = manifest.get("publisher_tag"), manifest.get("publisher_image")
-    if tag != publisher_tag(release_id) or not isinstance(image, str):
-        raise ValueError("build output does not record this release's publisher image tag")
-    try:
-        actual = subprocess.check_output(
-            ["/usr/bin/docker", "image", "inspect", "--format", "{{.Id}}", tag],
-            env=control_environment(), stderr=subprocess.DEVNULL,
-        ).decode().strip()
-    except (OSError, subprocess.CalledProcessError) as error:
-        raise ValueError(f"publisher image {tag} is missing; as root move {artifacts} aside and run "
-                         "prepare again to rebuild it (runbook: release admission)") from error
-    if actual != image:
-        raise ValueError(f"publisher image {tag} is not the image the release build recorded")
+    for name, tag_of, _, _ in RELEASE_IMAGES:
+        tag, image = manifest.get(f"{name}_tag"), manifest.get(f"{name}_image")
+        if tag != tag_of(release_id) or not isinstance(image, str):
+            raise ValueError(f"build output does not record this release's {name} image tag")
+        try:
+            actual = subprocess.check_output(
+                ["/usr/bin/docker", "image", "inspect", "--format", "{{.Id}}", tag],
+                env=control_environment(), stderr=subprocess.DEVNULL,
+            ).decode().strip()
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise ValueError(f"{name} image {tag} is missing; as root move {artifacts} aside and run "
+                             "prepare again to rebuild it (runbook: release admission)") from error
+        if actual != image:
+            raise ValueError(f"{name} image {tag} is not the image the release build recorded")
 
 
 CONTROL_COMMIT_FILE = ".perfectory-control-commit"
@@ -306,14 +324,19 @@ def build_limits() -> dict[str, dict[str, object]]:
     try:
         builders = json.loads(BUILD_CONTRACT.read_text(encoding="utf-8"))["builders"]
         limits = {}
-        for name, keys in (("publisher", ("cpus", "cargo_build_jobs")), ("dependency_resolver", ("cpus",))):
+        # Each image builder's job count reaches its Dockerfile as the build argument it names.
+        jobs_argument = {"publisher": "CARGO_BUILD_JOBS", "tippecanoe": "MAKE_JOBS"}
+        for name, keys in (("publisher", ("cpus", "cargo_build_jobs")), ("tippecanoe", ("cpus", "make_jobs")),
+                           ("dependency_resolver", ("cpus",))):
             entry = builders[name]
             for key in keys:
                 if not isinstance(entry[key], int) or isinstance(entry[key], bool) or not 1 <= entry[key] <= 64:
                     raise ValueError(f"{name}.{key} must be an integer from 1 to 64")
             if not isinstance(entry["memory_limit"], str) or not re.fullmatch(r"[1-9][0-9]*[mg]", entry["memory_limit"]):
                 raise ValueError(f"{name}.memory_limit must look like 512m or 22g")
-            limits[name] = entry
+            limits[name] = dict(entry)
+            if name in jobs_argument:
+                limits[name]["build_args"] = {jobs_argument[name]: entry[keys[1]]}
         return limits
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise ValueError(f"release build contract {BUILD_CONTRACT} is unreadable: {error}") from error
@@ -380,7 +403,7 @@ def build_artifacts(target: Path) -> None:
 
 
 def build_locked(target: Path, release_id: str, destination: Path, limits) -> None:
-    publisher, resolution = limits["publisher"], limits["dependency_resolver"]
+    resolution = limits["dependency_resolver"]
     build_environment = control_environment()
     def run(*args):
         return subprocess.check_output(list(args), cwd=target, env=build_environment, stderr=subprocess.PIPE)
@@ -393,27 +416,33 @@ def build_locked(target: Path, release_id: str, destination: Path, limits) -> No
         build_environment["DOCKER_CONFIG"] = str(docker_config)
         output = work / "output"
         output.mkdir()
-        iid = work / "publisher-image"
-        builder = "foundation-release-" + work.name.removeprefix(".")
-        configuration = work / "buildkitd.toml"
-        configuration.write_text("")
-        run("/usr/bin/docker", "buildx", "create", "--name", builder, "--driver", "docker-container",
-            "--driver-opt", f"image={BUILDKIT_IMAGE},memory={publisher['memory_limit']},memory-swap={publisher['memory_limit']},"
-            f"cpu-period=100000,cpu-quota={publisher['cpus'] * 100000},restart-policy=no",
-            "--buildkitd-config", str(configuration))
-        try:
-            run("/usr/bin/docker", "buildx", "build", "--builder", builder, "--load", "--pull",
-                "--no-cache", "--iidfile", str(iid), "--tag", publisher_tag(release_id),
-                "--build-arg", f"CARGO_BUILD_JOBS={publisher['cargo_build_jobs']}",
-                "-f", "services/foundation-outbox-publisher/Dockerfile.lakehouse-control", ".")
-        finally:
+        images = {}
+        # One temporary builder per image, each held to its own contract entry: a builder caps
+        # every build it runs, so sharing one would give tippecanoe the publisher's 22g (ADR-0137).
+        for name, tag_of, dockerfile, context in RELEASE_IMAGES:
+            limit = limits[name]
+            builder = f"foundation-release-{name}-" + work.name.removeprefix(".")
+            configuration = work / f"buildkitd-{name}.toml"
+            configuration.write_text("")
+            run("/usr/bin/docker", "buildx", "create", "--name", builder, "--driver", "docker-container",
+                "--driver-opt", f"image={BUILDKIT_IMAGE},memory={limit['memory_limit']},memory-swap={limit['memory_limit']},"
+                f"cpu-period=100000,cpu-quota={limit['cpus'] * 100000},restart-policy=no",
+                "--buildkitd-config", str(configuration))
             try:
-                run("/usr/bin/docker", "buildx", "rm", builder)
-            except subprocess.CalledProcessError as error:
-                raise ValueError(f"temporary builder cleanup failed; administrator must remove {builder}") from error
-        publisher_image = iid.read_text().strip()
-        if not re.fullmatch(r"sha256:[0-9a-f]{64}", publisher_image):
-            raise ValueError("publisher build did not return an immutable image ID")
+                iid = work / f"{name}-image"
+                run("/usr/bin/docker", "buildx", "build", "--builder", builder, "--load", "--pull",
+                    "--no-cache", "--iidfile", str(iid), "--tag", tag_of(release_id),
+                    *(arg for key, value in limit["build_args"].items() for arg in ("--build-arg", f"{key}={value}")),
+                    "-f", dockerfile, context)
+                images[name] = iid.read_text().strip()
+                if not re.fullmatch(r"sha256:[0-9a-f]{64}", images[name]):
+                    raise ValueError(f"{name} build did not return an immutable image ID")
+            finally:
+                try:
+                    run("/usr/bin/docker", "buildx", "rm", builder)
+                except subprocess.CalledProcessError as error:
+                    raise ValueError(f"temporary builder cleanup failed; administrator must remove {builder}") from error
+        publisher_image = images["publisher"]
         container = run("/usr/bin/docker", "create", publisher_image).decode().strip()
         try:
             run("/usr/bin/docker", "cp", container + ":/usr/local/bin/foundation-outbox-publisher",
@@ -445,7 +474,7 @@ def build_locked(target: Path, release_id: str, destination: Path, limits) -> No
             if jar.is_symlink() or not jar.is_file():
                 raise ValueError("dependency resolver produced a non-regular jar")
             shutil.copyfile(jar, output / "jars" / jar.name)
-        seal_artifacts(release_id, output, publisher_image)
+        seal_artifacts(release_id, output, images)
         output.rename(destination)
     verify_artifacts(release_id, destination)
 
@@ -548,7 +577,7 @@ def main() -> int:
                 build_artifacts(target)
             else:
                 verify_artifacts(target.name, ARTIFACT_ROOT / target.name)
-            require_publisher_image(target.name, ARTIFACT_ROOT / target.name)
+            require_release_images(target.name, ARTIFACT_ROOT / target.name)
         print("foundation-release-admission=ok")
         return 0
     except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.CalledProcessError) as error:

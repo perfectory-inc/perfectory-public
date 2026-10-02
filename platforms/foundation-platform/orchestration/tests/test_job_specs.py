@@ -69,7 +69,10 @@ class TheRealJobList(unittest.TestCase):
         timers = {path.name for path in job_specs.SYSTEMD.glob("*.timer")}
         for spec in self.specs:
             if spec.systemd_timer is None:
-                self.assertTrue(spec.enabled, f"{spec.dag_id} has no timer, so only Airflow can run it")
+                # No timer: Airflow runs it, or (disabled_reason) nothing does until a deploy turns it on.
+                if not spec.enabled:
+                    job = next(job for job in real_inputs()[0]["jobs"] if job["id"] == spec.job_id)
+                    self.assertTrue(job.get("disabled_reason"), f"{spec.dag_id} runs nowhere and says nothing")
                 continue
             with self.subTest(spec.dag_id):
                 self.assertEqual(
@@ -165,6 +168,71 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
     def test_a_duplicate_job_id(self):
         self.refused(lambda jobs: jobs["jobs"].append(copy.deepcopy(jobs["jobs"][0])))
 
+    def test_a_disabled_job_without_a_timer_that_does_not_say_why(self):
+        def silent(jobs):
+            bake = next(job for job in jobs["jobs"] if job["id"] == "parcel_by_pnu_serving_bake")
+            bake["disabled_reason"] = "  "
+        self.refused(silent)
+        self.refused(lambda jobs: next(job for job in jobs["jobs"] if job["id"] == "parcel_by_pnu_serving_bake")
+                     .pop("disabled_reason"))
+
+    def test_an_enabled_job_that_still_carries_a_disabled_reason(self):
+        self.refused(lambda jobs: jobs["jobs"][0].update(disabled_reason="stale"))
+
+
+class EveryBakedSurfaceHasAJob(unittest.TestCase):
+    """A serving surface made by a bake is produced by a registered job, or exempt with a reason."""
+
+    def test_the_real_lists_pass(self):
+        self.assertEqual(job_specs.baked_surfaces_without_a_job(), [])
+
+    def test_the_by_pnu_bakes_are_registered_jobs(self):
+        jobs, graph = real_inputs()
+        edges = {edge["id"]: edge["to"] for edge in graph["edges"]}
+        produced = {edges[edge]: job["id"] for job in jobs["jobs"] for edge in job["pipeline_graph_edges"]}
+        self.assertEqual(produced["parcel-by-pnu-serving"], "parcel_by_pnu_serving_bake")
+        self.assertEqual(produced["building-by-pnu-serving"], "building_by_pnu_serving_bake")
+
+    def problems(self, mutate_jobs=lambda jobs: None, mutate_graph=lambda graph: None):
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        mutate_jobs(jobs)
+        mutate_graph(graph)
+        return job_specs.baked_surfaces_without_a_job(jobs, graph)
+
+    def test_a_planted_baked_surface_without_a_job_is_refused(self):
+        def plant(graph):
+            graph["nodes"].append({"id": "planted-by-pnu-serving", "type": "serving_surface",
+                                   "surface_kind": "r2_baked_documents"})
+            graph["edges"].append({"id": "gold-parcel-panel-to-planted-by-pnu-serving",
+                                   "from": "gold-parcel-panel", "to": "planted-by-pnu-serving"})
+        self.assertEqual(self.problems(mutate_graph=plant), [
+            "baked serving surface 'planted-by-pnu-serving' has no producing job in jobs.v1.json and no exemption"])
+
+    def test_a_planted_tile_unit_without_a_job_is_refused(self):
+        def plant(graph):
+            graph["nodes"].append({"id": "planted-tiles", "type": "serving_surface", "surface_kind": "tiles"})
+        self.assertEqual(len(self.problems(mutate_graph=plant)), 1)
+
+    def test_removing_a_bake_job_exposes_its_surface(self):
+        def drop(jobs):
+            jobs["jobs"] = [job for job in jobs["jobs"] if job["id"] != "building_by_pnu_serving_bake"]
+        self.assertEqual(self.problems(mutate_jobs=drop), [
+            "baked serving surface 'building-by-pnu-serving' has no producing job in jobs.v1.json and no exemption"])
+
+    def test_a_stale_unknown_or_unreasoned_exemption_is_refused(self):
+        for surface, reason, expected in [
+            ("parcel-by-pnu-serving", "kept by hand", "is stale"),
+            ("no-such-surface", "kept by hand", "is not a baked serving surface"),
+            ("gongzzang-panel", "kept by hand", "is not a baked serving surface"),
+        ]:
+            with self.subTest(surface=surface):
+                problems = self.problems(mutate_jobs=lambda jobs: jobs["serving_surfaces_without_a_job"].append(
+                    {"surface": surface, "reason": reason}))
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(expected, problems[0])
+        problems = self.problems(mutate_jobs=lambda jobs: jobs["serving_surfaces_without_a_job"][0].update(reason=""))
+        self.assertEqual(problems, ["exemption 'parcel-tiles' gives no reason"])
+
 
 class FloorCycleAdapter(unittest.TestCase):
     # The host layout (root ADR-0134): the read-only source under releases/<sha>, its trusted
@@ -182,7 +250,7 @@ class FloorCycleAdapter(unittest.TestCase):
         binary = artifacts / "foundation-outbox-publisher"
         binary.write_text(publisher_source)
         binary.chmod(0o555)
-        (artifacts / "build.json").write_text(json.dumps({"source": release_id, "publisher_image": "sha256:" + "a" * 64, "files": {
+        (artifacts / "build.json").write_text(json.dumps({"source": release_id, "publisher_image": "sha256:" + "a" * 64, "tippecanoe_image": "sha256:" + "d" * 64, "files": {
             "foundation-outbox-publisher": hashlib.sha256(publisher_source.encode()).hexdigest(),
             "jars/fixture.jar": "0" * 64}}))
         return ops / "building-register-floor-cycle.sh", release

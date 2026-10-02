@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-02
+last_reviewed: 2026-10-03
 ---
 
 # 필지 by-PNU R2 서빙 — 굽기·발행·검증 런북
@@ -155,3 +155,55 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
   직접 덮어쓰기와 재조회 검증을 수행하므로, `--validate-only`만으로 실제 쓰기·복구까지
   검증됐다고 표시하지 않는다. `row_digest`가 없는 과거 판은 일일 변경분 비교의 기준으로
   사용할 수 없으며, 새 계약으로 전체 굽기를 검증한 기준 판이 먼저 필요하다.
+
+## 8. 예약 굽기 (Scheduled bake — 필지·건물 공통)
+
+2026-10 이전에는 두 레인(필지 by-PNU 약 3,986만 객체, 건물 by-PNU 약 594만 객체)을 서버에 손으로 둔
+스크립트로만 구웠다. 이제 정본은 저장소의 작업이다([루트 ADR-0122](../../../../docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md)).
+
+| 무엇 | 정본 |
+| --- | --- |
+| 작업 목록·일정·풀·켜짐 | `orchestration/jobs.v1.json` 의 `parcel_by_pnu_serving_bake`, `building_by_pnu_serving_bake` |
+| 실행 계정·환경·시간 상한·쓰기 경로 | `infra/systemd/foundation-by-pnu-serving-bake@.service` (`%i` = `parcel`·`building`) |
+| 한 번의 실행 | `scripts/ops/by-pnu-serving-bake.sh <레인>` |
+| 할 일이 있는지 | `foundation-outbox-publisher show-<레인>-by-pnu-serving-state` (읽기 전용) |
+
+한 번의 실행은 이렇다.
+
+1. 상태 명령이 Gold 표의 현재 스냅숏과 manifest 가 서빙 중인 세대·스냅숏을 파일로 적는다. 같으면
+   `nothing to do` 를 남기고 성공으로 끝난다. manifest 를 읽을 수 없으면 실패한다(첫 발행은 3절의
+   운영자 단계이며 예약 작업이 추정하지 않는다).
+2. 목표 세대 = 발행 세대 + 1. 같은 스냅숏으로 반쯤 구운 세대가 있으면 그 세대를 이어 굽는다(`in-progress.json`).
+   스냅숏이 바뀌었으면 반쯤 구운 세대는 그대로 두고(서빙되지 않음) 다음 세대로 간다.
+3. PNU 앞자리 샤드로 굽는다. 시작은 `1`…`9`, 익스포터가 행 상한(실행당 200만)을 넘는다며 거부한 샤드는
+   10개로 쪼개고, 다음 실행을 위해 잎 샤드 목록(`shard-plan.txt`)을 기억한다. 충돌(429 등)은 같은 샤드를
+   재시도하며, 재시도는 목록에 이미 있는 객체를 건너뛴다. 객체는 create-only 다 — 스크립트가
+   `ALLOW_OVERWRITE`·`ALLOW_REPOINT`·`FIRST_PUBLICATION` 을 환경에서 지운다.
+4. 모든 샤드가 같은 스냅숏·같은 세대이고 샤드들의 `exported_row_count` 합이 Gold 행 수(`scanned_row_count`)와
+   같을 때만 `PUBLISH_FROM_LISTING` 으로 manifest 를 옮긴다(발행 명령이 목록 개수를 다시 대조한다). 하나라도
+   어긋나면 발행하지 않고 실패한다 — 2026-09-10 에 495만 개가 모자란 굽기가 조용히 끝났던 일을 막는 자리다.
+5. 발행 뒤 샤드 요약에서 객체 목록을 지우고 개수만 남긴다.
+
+작업 파일은 `/data/foundation-platform/by-pnu-bake/<레인>/` 에만 있다. unit 은 `ProtectSystem=strict` 이고 이
+경로만 쓸 수 있으며, `foundation-release.sh timers` 가 디렉터리를 만든다. 환경은 FLOOR 와 같은
+`recovery.env`·`source-sweep.env`·`map-edit-fold.env`(카탈로그와 R2 lakehouse writer)와, 선택 파일
+`/etc/foundation-platform/by-pnu-bake.env`(비밀 없는 조정값: `FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY`, 기본 128)다.
+
+### 켜는 순서 (감독 실행 뒤 별도 배포)
+
+두 작업은 `enabled: false` 로 등록돼 있다. 호스트는 꺼진 작업의 시작을 거부하므로 Airflow 로는 돌지 않는다.
+
+1. 배포(`timers` 포함) 뒤 데이터 호스트에서 root 가 한 번 직접 시작하고 저널을 지켜본다:
+   `sudo systemctl start foundation-by-pnu-serving-bake@building.service` 뒤
+   `journalctl -u foundation-by-pnu-serving-bake@building.service -f`.
+   `nothing to do` 이거나 `published generation N: <개수> objects` 로 끝나야 한다. 엣지에서 5·6절 검증을 한다.
+2. 같은 일을 `parcel` 로 한다(첫 전국 굽기는 하루 가까이 걸리며, 시간 상한에 걸려도 다음 시작이 이어 굽는다).
+3. 둘 다 확인되면 `jobs.v1.json` 에서 `enabled: true` 로 바꾸고 `disabled_reason` 을 지운 변경을 병합·배포한 뒤
+   `airflow-runtime.sh up -d` 로 DAG 를 켠다.
+
+### 손 스크립트에서 옮겨 온 것과 버린 것
+
+손 스크립트(2026-09-12, 서버 보관본만 있음)의 하위 명령 분류는 이 작업을 넣은 PR 본문에 표로 있다. 요지:
+샤드 굽기·목록 발행·건물 굽기·건물 발행은 위 작업이 되었고, Gold 생성(Spark)은 각 레인의 기존 Spark 잡이
+정본이며, 개수 세기·목록 보기·접두사 삭제 같은 점검·수리 명령은 옮기지 않는다(삭제는 append-only 원칙에 어긋나고
+개수 대조는 발행 명령이 한다).
