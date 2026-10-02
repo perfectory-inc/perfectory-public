@@ -331,16 +331,27 @@ async fn a_bake_of_a_silver_snapshot_anchors_its_revision_to_that_snapshot() -> 
             .execute(promotion_command(build_job_id, input, "promote-silver-1"))
             .await?;
         let selected = published_unit(&manifest, "complex")?;
-        let row = release_json(&pool, selected.active_release_id).await?;
-        assert_ne!(row["source_record_id"], input_row["source_record_id"]);
-        assert_eq!(row["source_file_asset_ids"], serde_json::json!([]));
         let bound: Uuid = sqlx::query_scalar(
-            "SELECT bound_source_record_id FROM catalog.vector_tile_build_job WHERE id = $1",
+            "SELECT revision.source_record_id FROM catalog.publication_revision AS revision
+             JOIN catalog.vector_tile_build_job AS build
+               ON build.output_data_revision = revision.id
+              AND build.bound_source_record_id = revision.source_record_id
+             WHERE build.id = $1 AND revision.id = $2",
         )
         .bind(build_job_id.as_uuid())
+        .bind(selected.data_revision.as_uuid())
         .fetch_one(&pool)
         .await?;
-        assert_eq!(row["source_record_id"], serde_json::json!(bound));
+        assert_ne!(
+            serde_json::json!(bound),
+            input_row["source_record_id"],
+            "the served revision names the Silver snapshot, not the input's source"
+        );
+        // The release keeps the file lineage of its PMTiles; the provenance anchor is the revision.
+        let row = release_json(&pool, selected.active_release_id).await?;
+        for field in ["source_record_id", "source_file_asset_ids"] {
+            assert_eq!(row[field], input_row[field], "{field}");
+        }
         Ok(())
     })
     .await
