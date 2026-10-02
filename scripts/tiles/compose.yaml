@@ -1,7 +1,16 @@
+# Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
+# guard every-container-has-a-memory-cap).
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 x-perfectory-contract-image-owner: scripts/tiles/tiles-slice-proof.sh
 
 services:
   postgis:
+    logging: *log-cap
     image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
     mem_limit: 2g
     environment:
@@ -20,6 +29,7 @@ services:
       start_period: 5s
 
   dynamic-martin:
+    logging: *log-cap
     image: ${PERFECTORY_MARTIN_IMAGE:?load the static-release toolchain contract}
     mem_limit: 512m
     command:
@@ -44,6 +54,7 @@ services:
         target: /artifacts
 
   static-martin:
+    logging: *log-cap
     image: ${PERFECTORY_MARTIN_IMAGE:?load the static-release toolchain contract}
     mem_limit: 512m
     profiles:

@@ -1,3 +1,11 @@
+# Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
+# guard every-container-has-a-memory-cap).
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 x-foundation-recovery-writer-environment: &foundation-recovery-writer-environment
   PGBACKREST_REPO1_S3_BUCKET: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET}
   PGBACKREST_REPO1_S3_ENDPOINT: ${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST}
@@ -16,6 +24,7 @@ x-foundation-recovery-reader-environment: &foundation-recovery-reader-environmen
 
 services:
   postgres:
+    logging: *log-cap
     image: foundation-postgres-recovery:local
     build:
       context: .
@@ -44,6 +53,7 @@ services:
       retries: 30
 
   foundation-backup:
+    logging: *log-cap
     image: foundation-postgres-recovery:local
     mem_limit: 1g
     profiles:
@@ -66,6 +76,7 @@ services:
         condition: service_healthy
 
   foundation-restore-drill:
+    logging: *log-cap
     image: foundation-postgres-recovery:local
     mem_limit: 1g
     profiles:
@@ -81,6 +92,7 @@ services:
       - ./infra/postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
 
   foundation-restored-postgres:
+    logging: *log-cap
     image: foundation-postgres-recovery:local
     mem_limit: 2g
     profiles:
