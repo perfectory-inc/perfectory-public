@@ -54,6 +54,10 @@ services:
       <<: *foundation-recovery-writer-environment
     volumes:
       - pgdata:/var/lib/postgresql/data:ro
+      # The tablespaces live outside pgdata (docker-compose.yml, root ADR-0082). pgBackRest follows
+      # pg_tblspc into them, so a backup that cannot see this path aborts: it did, every night from
+      # 2026-09-04 until 2026-10-02, after the parcel mirror moved to the bulk disk.
+      - ${FOUNDATION_PLATFORM_POSTGRES_TABLESPACE_ROOT:-./target/postgres-tablespaces}:/tablespaces:ro
       - postgres_socket:/var/run/postgresql
       - pgbackrest_spool:/var/spool/pgbackrest
       - ./infra/postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
@@ -72,6 +76,7 @@ services:
       <<: *foundation-recovery-reader-environment
     volumes:
       - recovery_data:/var/lib/postgresql/data
+      - recovery_tablespaces:/tablespaces
       - pgbackrest_restore_spool:/var/spool/pgbackrest
       - ./infra/postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
 
@@ -88,6 +93,7 @@ services:
       POSTGRES_DB: foundation
     volumes:
       - recovery_data:/var/lib/postgresql/data
+      - recovery_tablespaces:/tablespaces
       - recovery_socket:/var/run/postgresql
       - pgbackrest_restore_spool:/var/spool/pgbackrest
       - ./infra/postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
@@ -102,4 +108,5 @@ volumes:
   pgbackrest_spool:
   pgbackrest_restore_spool:
   recovery_data:
+  recovery_tablespaces:
   recovery_socket:
