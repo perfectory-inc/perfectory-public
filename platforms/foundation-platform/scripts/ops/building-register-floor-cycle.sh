@@ -2,8 +2,11 @@
 # Airflow의 spark pool이 전체 stage/history/native/scalar 실행을 소유한다.
 set -euo pipefail
 
-root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-publisher="${root_dir}/bin/foundation-outbox-publisher"
+# The publisher is this release's trusted build output outside the release (root ADR-0134 §3).
+# Any installed release, not only `current`: ExecStopPost cleans up with the release it started.
+source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --installed
+root_dir="${RELEASE_ROOT}"
+publisher="${PUBLISHER_BIN}"
 readonly root_dir publisher
 
 case "${1:-run}" in

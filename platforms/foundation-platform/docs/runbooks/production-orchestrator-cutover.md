@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-02
 ---
 
 # 예약 작업 운영 (Airflow)
@@ -21,6 +21,8 @@ Airflow 가 일정·재시도·실행 이력·계보를 맡고, 작업 자체는
 | Airflow 컨테이너 | `compose.orchestration.yml`, 실행은 `scripts/deploy/airflow-runtime.sh` |
 | 서버 쪽 권한 | `foundation-release.sh timers` 가 만드는 계정 `foundation-scheduler`, `/etc/sudoers.d/foundation-scheduler` |
 | Airflow 가 서버에서 돌릴 수 있는 유일한 명령 | `scripts/ops/start-scheduled-job.sh` |
+| 작업이 시작 직전에 받는 검사 | `infra/systemd/foundation-release-admission.conf` — `timers` 가 각 작업 unit 에, 템플릿 인스턴스는 템플릿(`foundation-x@.service.d/`)에 설치한다 ([ADR-0134](../../../../docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md)) |
+| 배포기를 sudo 로 실행할 수 있는 경로 | 제어 체크아웃의 `foundation-release.sh` 하나 (`deployer-access` 가 설치) |
 
 ## 처음 설치
 
@@ -32,7 +34,7 @@ bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh init-sec
 # 3. Airflow 를 띄운다 (API·풀·DAG 켜짐 상태·Zitadel 로그인까지 확인)
 bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh up -d
 # 4. 서버 쪽 계정·열쇠·sudo 허용과 타이머를 맞춘다 (열쇠는 Airflow 망에서만 쓰인다)
-sudo -n /opt/foundation-platform/current/scripts/deploy/foundation-release.sh timers ~/airflow-state/scheduler_ed25519.pub
+sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh timers ~/airflow-state/scheduler_ed25519.pub
 # 5. 직원 계정을 미리 등록한다
 bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh provision admin@perfectory.io
 ```
@@ -46,7 +48,8 @@ bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh provisio
    거부되는 것이 정상이다 — 끝까지 돌리려면 2를 먼저 한다.
 2. 한 변경에서: `jobs.v1.json` 의 `enabled` 를 `true` 로, `infra/systemd/<timer>` 를 지우고, `foundation-release.sh`
    `timers` 의 설치·켜기 목록에서 그 타이머를 뺀다. 시험(`orchestration/tests`)이 둘 중 하나만 바뀐 변경을 막는다.
-3. 병합 뒤 배포: `install` → `migrate` → `timers`(서버 타이머 끄기·허용 목록 갱신) → `airflow-runtime.sh up -d`(DAG 켜짐).
+3. 병합 뒤 배포: `install` → `migrate` → `timers`(서버 타이머 끄기·허용 목록·인증 drop-in 갱신) → `airflow-runtime.sh up -d`(DAG 켜짐).
+   `install` 은 GitHub main 에 병합된 커밋만 받는다. 병합 전 브랜치 SHA 로는 설치되지 않는다.
    순서가 거꾸로면 DAG 가 켜지자마자 돈 첫 시도가 허용 목록에 없어 거부되고 5분 뒤 재시도로 넘어간다
    (2026-10-01 실제로 겪음). DAG 를 켜면 Airflow 는 지난 회차 하나를 바로 돌린다 — 켜는 시각이 곧 첫 실행이다.
 
