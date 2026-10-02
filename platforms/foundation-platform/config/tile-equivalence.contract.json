@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "purpose": "The tiles a lakehouse bake compares with the active archive before it may replace a release that was not itself baked from the lakehouse (root ADR-0133 §4). Read by bake-lakehouse-tiles; the comparison rule is in services/foundation-outbox-publisher/src/tile_equivalence.rs.",
+  "zooms": [14, 15, 16],
+  "densest_tiles": 20,
+  "random_tiles": 40,
+  "random_seed": 20261002,
+  "corner_inset_percent": 10,
+  "example_ids": 20,
+  "tiny_max_area_tile_units": 64,
+  "additions_max_ratio": 0.001,
+  "region_id_prefix_chars": {
+    "parcels": 2
+  },
+  "region_reason": "A region is the feature ids sharing a prefix. A parcel id's first two characters are its sido code, so each sido's tile extent is read from the new archive's maxzoom walk at bake time; no coordinates are written here. A unit without an entry is sampled by its densest and random tiles only.",
+  "tiny_reason": "Root ADR-0135 §2. An extra feature inside a tile whose part in the tile has an area of at most tiny_max_area_tile_units square tile units (a quarter of one pixel of a 256-pixel tile at extent 4096) is tiny: geometry PostGIS ST_AsMVTGeom drops. It is allowed and counted. Area, not span, because a thin sliver has a long span and almost no area.",
+  "additions_reason": "Root ADR-0135 §2. An extra whose maxzoom tile in the active archive lacks it too is an addition: the active release never had the feature. Additions are allowed while they are at most additions_max_ratio of the sampled active ids; above it the bake is refused for a person to check the source difference. Anything else inside a tile (unexplained) refuses.",
+  "sample_reason": "Every sampled maxzoom tile is compared at every zoom in zooms that the layer serves, through its ancestors. Densest tiles come from the active archive's directory, the seeded random tiles from the new archive's maxzoom tiles."
+}

@@ -210,7 +210,10 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # history_witness, remote command fixtures, and the native Compose mount test. This keeps
 # Rust and Python on one synthetic witness instead of copying its operationally shaped fields.
 # The historical production witness stays external deployment data, never an embedded capture.
-COMPILE_TIME_READ_BASELINE="${3:-110}"
+# 110 -> 111: root ADR-0133 §4's first-release equivalence gate embeds
+# config/tile-equivalence.contract.json beside the tile-bake contract, for the same reason:
+# the sample a bake compared is part of the binary that compared it.
+COMPILE_TIME_READ_BASELINE="${3:-111}"
 
 cd "$repo_root"
 
