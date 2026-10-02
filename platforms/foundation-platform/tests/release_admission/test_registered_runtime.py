@@ -197,19 +197,33 @@ class MapEditFoldBinaryTests(ReleaseFixture):
         self.assertIn("building-register-floor-cycle.sh", found)
 
 
-def trino_catalog_mounts(services):
-    """Returns the Trino catalog mounts, refusing any form that can start without the file."""
+CATALOG_BLOCK = re.compile(r"^      - type: bind\n(?:        .*\n)*?        target: " + re.escape(CATALOG_TARGET)
+                           + r"\n(?:        .*\n)*", re.M)
+
+
+def trino_catalog_source_block(text):
+    """The compose source's catalog volume entry: the one place `create_host_path` is decided.
+
+    Compose's normalized output cannot judge that field: one version prints false and omits
+    true, another does the opposite.
+    """
+    blocks = CATALOG_BLOCK.findall(text)
+    if len(blocks) != 1 or not re.search(r"^          create_host_path: false$", blocks[0], re.M):
+        raise ValueError("Trino's catalog bind must say create_host_path: false")
+    return blocks[0]
+
+
+def trino_catalog_mounts(services, text):
+    """Returns the Trino catalog mount, refusing any form that can start without the file."""
+    trino_catalog_source_block(text)
     mounts = [volume for volume in services["trino"].get("volumes", [])
               if volume.get("target", "").startswith("/etc/trino/catalog")]
     if len(mounts) != 1:
         raise ValueError("Trino must mount exactly one catalog file")
     mount = mounts[0]
     if (mount.get("type") != "bind" or mount.get("target") != CATALOG_TARGET
-            or not mount.get("source", "").endswith("r2.properties") or mount.get("read_only") is not True
-            # Compose normalizes the short form to create_host_path: true. Older Compose prints
-            # nothing for false, so absent and false both mean "do not create".
-            or mount.get("bind", {}).get("create_host_path", False) is not False):
-        raise ValueError("Trino's catalog must be a read-only file bind with create_host_path: false")
+            or not mount.get("source", "").endswith("r2.properties") or mount.get("read_only") is not True):
+        raise ValueError("Trino's catalog must be a read-only bind of the r2.properties file")
     return mount
 
 
@@ -239,7 +253,7 @@ class TrinoCatalogMountTests(unittest.TestCase):
         return compose_services(compose, self.env)
 
     def test_catalog_is_one_file_that_must_already_exist(self):
-        mount = trino_catalog_mounts(self.services(self.text))
+        mount = trino_catalog_mounts(self.services(self.text), self.text)
         self.assertEqual(Path(mount["source"]), self.catalog / "r2.properties")
 
     def test_short_syntax_or_created_host_path_is_refused(self):
@@ -257,7 +271,7 @@ class TrinoCatalogMountTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertNotEqual(text, self.text)
                 with self.assertRaises(ValueError):
-                    trino_catalog_mounts(self.services(text))
+                    trino_catalog_mounts(self.services(text), text)
 
     @unittest.skipUnless(platform.system() == "Linux" and shutil.which("docker"),
                          "the bind-source check is the Linux engine's; Docker Desktop creates the path")
@@ -266,22 +280,23 @@ class TrinoCatalogMountTests(unittest.TestCase):
             self.skipTest("no Docker daemon")
         # The real mount, on a small pinned image this compose file already uses, so the test
         # needs neither the Trino image nor credentials.
-        mount = trino_catalog_mounts(self.services(self.text))
+        trino_catalog_mounts(self.services(self.text), self.text)
+        block = trino_catalog_source_block(self.text)
         image = re.search(r"image: (busybox:[^\s]+)", self.text).group(1)
         probe = self.root / "probe.yml"
-        probe.write_text(json.dumps({"services": {"probe": {
-            "image": image, "mem_limit": "32m", "command": ["cat", CATALOG_TARGET], "volumes": [mount],
-        }}}))
+        # The catalog entry exactly as the compose source writes it, under a probe service.
+        probe.write_text("services:\n  probe:\n    image: " + image + "\n    mem_limit: 32m\n"
+                         "    command: [\"cat\", \"" + CATALOG_TARGET + "\"]\n    volumes:\n" + block)
         run = ["docker", "compose", "-p", "foundation-trino-catalog-test-" + str(os.getpid()),
                "-f", str(probe), "run", "--rm", "probe"]
         self.addCleanup(subprocess.run, run[:6] + ["down"], capture_output=True)
-        missing = subprocess.run(run, capture_output=True, text=True, timeout=300)
+        missing = subprocess.run(run, env=self.env, capture_output=True, text=True, timeout=300)
         self.assertNotEqual(missing.returncode, 0, missing.stdout)
-        self.assertIn("bind source path does not exist", missing.stderr)
+        self.assertIn("bind source path does not exist: " + str(self.catalog / "r2.properties"), missing.stderr)
         self.assertFalse((self.catalog / "r2.properties").exists(), "compose created the missing catalog")
         self.catalog.mkdir()
         (self.catalog / "r2.properties").write_text("connector.name=iceberg\n")
-        present = subprocess.run(run, capture_output=True, text=True, timeout=300)
+        present = subprocess.run(run, env=self.env, capture_output=True, text=True, timeout=300)
         self.assertEqual(present.returncode, 0, present.stderr)
         self.assertIn("connector.name=iceberg", present.stdout)
 
