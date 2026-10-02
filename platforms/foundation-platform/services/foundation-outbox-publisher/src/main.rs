@@ -125,6 +125,7 @@ mod building_unit_building_link_load;
 mod building_unit_catalog_projection_load;
 mod handoff_manifest_support;
 mod handoff_object_support;
+mod lakehouse_bake_verdict;
 mod lakehouse_tile_bake;
 mod lineage_review_items_load;
 mod lineage_steward_fold;

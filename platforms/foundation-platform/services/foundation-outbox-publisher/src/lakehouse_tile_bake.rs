@@ -190,6 +190,17 @@ impl ServedSummary {
         Ok(())
     }
 
+    /// The Silver snapshot this bake binds (ADR-0133 §5): only a v2 summary binds one. A v1 summary
+    /// may still carry `source_snapshot_id` as an extra field (the admin served-Gold job writes it),
+    /// and that must never turn a v1 bake into a Silver-bound one.
+    pub(crate) fn bound_silver_snapshot(&self) -> Option<&str> {
+        if self.schema_version == SERVED_SUMMARY_V2 {
+            self.source_snapshot_id.as_deref()
+        } else {
+            None
+        }
+    }
+
     fn validate_parts(&self) -> anyhow::Result<()> {
         ensure!(
             self.source_snapshot_id
@@ -1011,6 +1022,9 @@ async fn bake_in(
             .map_err(anyhow::Error::msg)?,
             idempotency_key: config.build_idempotency_key.clone(),
             operator_staff_id: config.operator_staff_id,
+            silver_source: crate::lakehouse_bake_verdict::silver_source(
+                summary.bound_silver_snapshot(),
+            )?,
         })
         .await?;
 
