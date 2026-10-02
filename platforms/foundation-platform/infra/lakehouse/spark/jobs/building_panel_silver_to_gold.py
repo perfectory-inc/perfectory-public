@@ -271,7 +271,16 @@ def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counter
         F.to_json(F.coalesce("buildings", F.array()), JSON_OPTIONS).alias("buildings_json"),
         F.to_json(F.coalesce("unlinked_units", F.array()), JSON_OPTIONS).alias("unlinked_units_json"),
         F.lit(source_snapshot_id).alias("source_snapshot_id"), F.lit(published_at_utc).alias("published_at_utc"))
-    return gold.withColumn("row_digest", F.sha2(F.to_json(F.struct(*CONTENT_DIGEST_COLUMNS), JSON_OPTIONS), 256)).select(*GOLD_COLUMNS)
+    return gold.withColumn("row_digest", row_digest_column()).select(*GOLD_COLUMNS)
+
+
+def row_digest_column():
+    """The row's content fingerprint (root ADR-0099), from the row's own content columns.
+
+    Shared with lakehouse_schema_migrate's registered backfill (root ADR-0124), so a backfilled
+    digest and a rebuilt one are the same function of the same columns.
+    """
+    return F.sha2(F.to_json(F.struct(*CONTENT_DIGEST_COLUMNS), JSON_OPTIONS), 256)
 
 
 def validate_gold_frame(gold, expected_count):

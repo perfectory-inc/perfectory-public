@@ -1,0 +1,16 @@
+{
+  "schema_version": "foundation-platform.lakehouse_known_drift.v1",
+  "description": "Temporary, column-scoped schema compatibility exceptions (root ADR-0124). Only the named extra columns with their declared types and nullability are retained; all other schema and backfill checks remain mandatory. Remove the entry when its columns join the contract or are no longer present.",
+  "tables": {
+    "silver.building_register_units": {
+      "since": "2026-10-02",
+      "reason": "Parent-key building links carry evidence columns pending review and integration of their writer and canonical contract. Preserve those values while the remaining schema migrates normally.",
+      "closes_when": "Remove this entry in the parent-key building-link change that declares these columns in the canonical contract, or when the table no longer carries these extra columns.",
+      "extra_columns": [
+        { "name": "building_link_source_record_id", "logical_type": "string", "nullable": true },
+        { "name": "building_link_input_sha256", "logical_type": "string", "nullable": true },
+        { "name": "building_link_reason", "logical_type": "string", "nullable": true }
+      ]
+    }
+  }
+}

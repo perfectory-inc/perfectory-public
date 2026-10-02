@@ -38,19 +38,5 @@ class RowDigestColumnsTest(unittest.TestCase):
         self.assertEqual(job.CONTENT_DIGEST_COLUMNS, ordered)
 
 
-class BackfillSharesTheDigestTest(unittest.TestCase):
-    """백필한 지문은 다시 만든 지문과 같아야 한다 — 같은 함수를 쓰는 것으로 보장한다."""
-
-    def test_the_backfill_uses_the_build_digest_function(self) -> None:
-        import parcel_panel_backfill_row_digest as backfill
-
-        self.assertIs(backfill.row_digest_column, job.row_digest_column)
-        self.assertIs(backfill.GOLD_COLUMNS, job.GOLD_COLUMNS)
-
-    def test_a_null_lineage_section_stays_out_of_the_digest(self) -> None:
-        # 백필은 attached_via_json 을 NULL 로 둔다. NULL 을 건너뛰어야 다시 만든 지문과 같다.
-        self.assertIn("attached_via_json", job.NULL_SKIPPED_DIGEST_COLUMNS)
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -461,6 +461,25 @@ docker exec -it foundation-platform-spark bash
 - Gold projection write / smoke table write
 - backfill/rewrite/compaction PoC
 
+## 배포 때 표를 계약에 맞추기
+
+[ADR-0124](../../../../docs/adr/0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md).
+`foundation-release.sh migrate` 가 DB 마이그레이션 뒤에 `foundation-lakehouse-migrate` 서비스
+(`scripts/ops/lakehouse-migrate.sh` → `lakehouse_schema_migrate.py --mode apply`)를 돌린다.
+
+| 운영 표의 상태 | 배포가 하는 일 |
+|---|---|
+| 계약에 있는 칸이 없음(빈 값 허용) | 칸을 계약 순서 자리에 붙인다 |
+| 계약에 있는 필수 칸이 없고 데이터가 있음 | `BACKFILLS` 에 등록된 그 표의 빌드 함수로 채운다. 등록이 없으면 **배포를 멈춘다** |
+| 등록된 필수 백필 칸이 이미 있지만 빈 값이 남음 | 실패 후 재시도로 보고 다시 채운다 |
+| 칸 순서가 계약과 다름 | 메타데이터만으로 순서를 바꾼다(데이터 다시 쓰지 않음) |
+| 칸 타입이 계약과 다름 | **배포를 멈춘다** |
+| 계약에 없는 칸이 있음 | **배포를 멈춘다**. ADR-0124의 `lakehouse-known-drift.json`에 이름·타입·nullable을 명시한 칸만 값을 보존하고 별도로 보고한다 |
+| 표가 아직 없음 | 그 표의 적재가 만든다 |
+
+바꾸지 않고 보기만: 같은 작업을 `--mode plan` 으로 돌린다. 실행 기록은
+`/var/lib/foundation-platform/lakehouse-migrate/runs/<시각>/run.log`.
+
 ## 안전 규칙
 
 - `gongzzang` 과 `Dawneer` 는 Trino/Spark 에 직접 붙지 않는다.
