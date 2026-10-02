@@ -206,7 +206,9 @@ def trino_catalog_mounts(services):
     mount = mounts[0]
     if (mount.get("type") != "bind" or mount.get("target") != CATALOG_TARGET
             or not mount.get("source", "").endswith("r2.properties") or mount.get("read_only") is not True
-            or mount.get("bind", {}).get("create_host_path") is not False):
+            # Compose normalizes the short form to create_host_path: true. Older Compose prints
+            # nothing for false, so absent and false both mean "do not create".
+            or mount.get("bind", {}).get("create_host_path", False) is not False):
         raise ValueError("Trino's catalog must be a read-only file bind with create_host_path: false")
     return mount
 
