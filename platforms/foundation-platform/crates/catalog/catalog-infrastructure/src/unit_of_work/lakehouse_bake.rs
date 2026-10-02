@@ -1,7 +1,10 @@
 //! Lakehouse bake start (root ADR-0112). Reuses the bake ledger, deterministic identities and
 //! promotion; what is new is the output revision, minted here over the baked snapshot.
+//!
+//! A bake that names the Silver snapshot it read (root ADR-0133 §5) anchors that revision to the
+//! source record describing that snapshot, and records the matching verdict that passed it; the
+//! build-row guard refuses the row without a passing verdict for the same snapshot.
 
-use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Transaction};
 
 use super::{
@@ -9,6 +12,17 @@ use super::{
     CatalogMutationKind, PgPool, Row, StartLakehouseBakeCommand, Utc, Uuid, VectorTileBuildJobId,
     VectorTileBuildKind,
 };
+use catalog_application::ports::LakehouseBakeSilverSource;
+
+/// `catalog.source_record.source` of a record describing one `silver.parcel_boundaries` snapshot.
+/// The migration that indexes it unique per snapshot spells the same value.
+const SILVER_PARCEL_SOURCE: &str = "lakehouse:silver.parcel_boundaries";
+
+/// The collected source an output revision is anchored to: exactly one of the two.
+struct Anchor {
+    source_record_id: Option<Uuid>,
+    bronze_object_id: Option<Uuid>,
+}
 
 pub(super) async fn start(
     pool: &PgPool,
@@ -76,11 +90,13 @@ pub(super) async fn start(
         ));
     }
     let publication_unit_id: Uuid = row.try_get("publication_unit_id").map_err(map_sqlx)?;
+    let silver = command.silver_source.as_ref();
+    let (bound_source_record_id, anchor) = output_anchor(&mut tx, silver, &row).await?;
     let output_data_revision = mint_output_revision(
         &mut tx,
         publication_unit_id,
         command.canonical_iceberg_snapshot_id.as_str(),
-        &row,
+        &anchor,
     )
     .await?;
 
@@ -89,8 +105,9 @@ pub(super) async fn start(
         "INSERT INTO catalog.vector_tile_build_job
          (id, publication_unit_id, input_release_id, input_data_revision,
           frozen_source_snapshot_id, status, idempotency_key, kind,
-          input_serving_generation, output_data_revision)
-         VALUES ($1, $2, $3, $4, $5, 'running', $6, 'lakehouse_bake', $7, $8)",
+          input_serving_generation, output_data_revision, source_snapshot_id,
+          matching_verdict, matching_verdict_sha256, bound_source_record_id)
+         VALUES ($1, $2, $3, $4, $5, 'running', $6, 'lakehouse_bake', $7, $8, $9, $10, $11, $12)",
     )
     .bind(build_job_id.as_uuid())
     .bind(publication_unit_id)
@@ -103,6 +120,10 @@ pub(super) async fn start(
             .map_err(map_sqlx)?,
     )
     .bind(output_data_revision)
+    .bind(silver.map(|source| source.source_snapshot_id.as_str()))
+    .bind(silver.map(|source| &source.matching_verdict))
+    .bind(silver.map(|source| source.matching_verdict_sha256.as_str()))
+    .bind(bound_source_record_id)
     .execute(&mut *tx)
     .await
     .map_err(map_sqlx)?;
@@ -110,17 +131,77 @@ pub(super) async fn start(
     Ok(build_job_id)
 }
 
+/// What the output revision is anchored to: the record of the Silver snapshot the bake read, which
+/// is also returned to be bound on the build row, or else the input revision's collected source.
+async fn output_anchor(
+    tx: &mut Transaction<'_, Postgres>,
+    silver: Option<&LakehouseBakeSilverSource>,
+    input: &sqlx::postgres::PgRow,
+) -> Result<(Option<Uuid>, Anchor), CatalogError> {
+    match silver {
+        Some(source) => {
+            let record = silver_source_record(tx, source).await?;
+            Ok((
+                Some(record),
+                Anchor {
+                    source_record_id: Some(record),
+                    bronze_object_id: None,
+                },
+            ))
+        }
+        None => Ok((
+            None,
+            Anchor {
+                source_record_id: input.try_get("source_record_id").map_err(map_sqlx)?,
+                bronze_object_id: input.try_get("bronze_object_id").map_err(map_sqlx)?,
+            },
+        )),
+    }
+}
+
+/// The source record that describes one Silver parcel snapshot, minted the first time a bake
+/// names it and reused after; the partial unique index keeps it one per snapshot.
+async fn silver_source_record(
+    tx: &mut Transaction<'_, Postgres>,
+    source: &LakehouseBakeSilverSource,
+) -> Result<Uuid, CatalogError> {
+    let snapshot = source.source_snapshot_id.trim();
+    if snapshot.is_empty() {
+        return Err(invalid_runtime(
+            "a lakehouse bake that names its Silver source must name the snapshot",
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO catalog.source_record (id, source, external_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (external_id) WHERE source = 'lakehouse:silver.parcel_boundaries' DO NOTHING",
+    )
+    .bind(Uuid::now_v7())
+    .bind(SILVER_PARCEL_SOURCE)
+    .bind(snapshot)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    sqlx::query_scalar(
+        "SELECT id FROM catalog.source_record WHERE source = $1 AND external_id = $2",
+    )
+    .bind(SILVER_PARCEL_SOURCE)
+    .bind(snapshot)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(map_sqlx)
+}
+
 /// Mints (or, on a retry, reuses) the revision the baked release carries: one per unit per snapshot,
-/// anchored to the same collected source as the input's revision. Reuse is accepted only when the
-/// existing row names that same source.
+/// anchored to `anchor`. Reuse is accepted only when the existing row names that same source.
 async fn mint_output_revision(
     tx: &mut Transaction<'_, Postgres>,
     publication_unit_id: Uuid,
     snapshot: &str,
-    input: &PgRow,
+    anchor: &Anchor,
 ) -> Result<Uuid, CatalogError> {
-    let source_record_id: Option<Uuid> = input.try_get("source_record_id").map_err(map_sqlx)?;
-    let bronze_object_id: Option<Uuid> = input.try_get("bronze_object_id").map_err(map_sqlx)?;
+    let source_record_id = anchor.source_record_id;
+    let bronze_object_id = anchor.bronze_object_id;
     // Not the input's administrative revision: that link is keyed by the administrative revision's
     // own snapshot, which a Gold snapshot never equals, so carrying it would be refused by
     // `publication_revision_administrative_lineage_fkey` — and it would claim a derivation this

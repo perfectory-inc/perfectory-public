@@ -338,8 +338,10 @@ impl StartStaticReleaseReaddressCommand {
 /// Starts a lakehouse bake: a new archive baked from a lakehouse snapshot of source plus admin
 /// edits, replacing the active validated static release (root ADR-0112).
 ///
-/// The build takes a new data revision over `canonical_iceberg_snapshot_id`, bound to the same
-/// collected source as the input's revision; everything else is read from the locked ledger rows.
+/// The build takes a new data revision over `canonical_iceberg_snapshot_id`. Without
+/// `silver_source` it is bound to the same collected source as the input's revision; with it, to
+/// the Silver snapshot the served Gold was read from (root ADR-0133 §5). Everything else is read
+/// from the locked ledger rows.
 #[derive(Clone, Debug)]
 pub struct StartLakehouseBakeCommand {
     /// Publication unit being rebaked.
@@ -352,18 +354,40 @@ pub struct StartLakehouseBakeCommand {
     pub idempotency_key: String,
     /// Staff operator requesting this publication.
     pub operator_staff_id: StaffId,
+    /// The Silver snapshot a v2 served summary names, with the matching verdict that passed it.
+    /// `None` for a v1 summary (complex, admin).
+    pub silver_source: Option<LakehouseBakeSilverSource>,
+}
+
+/// The Silver snapshot a lakehouse bake read and the ADR-0113 §7 verdict that let it be baked.
+#[derive(Clone, Debug)]
+pub struct LakehouseBakeSilverSource {
+    /// `silver.parcel_boundaries` `source_snapshot_id` the served Gold was built from.
+    pub source_snapshot_id: String,
+    /// The verdict JSON `parcel_matching_gate.py` wrote, verbatim.
+    pub matching_verdict: serde_json::Value,
+    /// Lowercase hex SHA-256 of the verdict file's bytes.
+    pub matching_verdict_sha256: String,
 }
 
 impl StartLakehouseBakeCommand {
-    /// Digests the replaced release, the baked snapshot and actor independently of other builds.
+    /// Digests the replaced release, the baked snapshot, the Silver source and its verdict, and
+    /// the actor, independently of other builds.
     #[must_use]
     pub fn request_fingerprint(&self) -> RequestFingerprint {
-        RequestFingerprintBuilder::new(CatalogMutationKind::StartLakehouseBake)
+        let builder = RequestFingerprintBuilder::new(CatalogMutationKind::StartLakehouseBake)
             .text(&self.unit_key)
             .displayed(&self.input_release_id)
             .text(self.canonical_iceberg_snapshot_id.as_str())
-            .displayed(&self.operator_staff_id)
-            .finish()
+            .displayed(&self.operator_staff_id);
+        // Appended only when present, so a v1 bake keeps the fingerprint it had before.
+        match &self.silver_source {
+            Some(source) => builder
+                .text(&source.source_snapshot_id)
+                .text(&source.matching_verdict_sha256)
+                .finish(),
+            None => builder.finish(),
+        }
     }
 }
 

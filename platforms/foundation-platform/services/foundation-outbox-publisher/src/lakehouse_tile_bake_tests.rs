@@ -19,6 +19,27 @@ fn summary(rows: usize) -> ServedSummary {
     .unwrap_or_else(|error| panic!("summary fixture: {error}"))
 }
 
+#[test]
+fn a_v1_summary_carrying_a_source_snapshot_binds_no_silver_source() -> anyhow::Result<()> {
+    // The admin served-Gold job writes a v1 summary with `source_snapshot_id` as an extra field.
+    let admin: ServedSummary = serde_json::from_value(json!({
+        "schema_version": SERVED_SUMMARY_V1,
+        "unit": "admin",
+        "feature_id_property": "unit_id",
+        "geometry_srid": 4326,
+        "canonical_iceberg_snapshot_id": "841361364657368625",
+        "edits_through_change_seq": 0,
+        "served_row_count": 1,
+        "status": "ready",
+        "source_snapshot_id": "synthetic-admin-snapshot",
+    }))?;
+    admin.validate("admin")?;
+    assert_eq!(admin.bound_silver_snapshot(), None);
+    // Without a verdict in the environment this must not fail: a v1 bake needs none.
+    assert!(crate::lakehouse_bake_verdict::silver_source(admin.bound_silver_snapshot())?.is_none());
+    Ok(())
+}
+
 fn line(id: &str, code: &str) -> String {
     json!({
         "feature_id": id, "properties": {"official_complex_code": code},
