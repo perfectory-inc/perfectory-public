@@ -1,5 +1,5 @@
 //! The decode-equivalence gate a lakehouse bake passes before it replaces a release that was not
-//! itself baked from the lakehouse (root ADR-0133 §4, ADR-0112 §9).
+//! itself baked from the lakehouse (root ADR-0133 §4 as amended by ADR-0135, ADR-0112 §9).
 //!
 //! The first lakehouse bake of a unit swaps oven as well as data: the active archive came from
 //! PostGIS through `martin-cp`, the new one from GDAL and tippecanoe. The maxzoom id gate proves the
@@ -7,12 +7,13 @@
 //! same tiles. So sample tiles are decoded from both archives and compared:
 //!
 //! - (a) every feature id in the active tile is in the new tile;
-//! - (b) an id only the new tile has lies outside the tile's own `0..extent` square — a neighbour
-//!   tippecanoe keeps in the tile buffer. Only these features' geometry is decoded. One that lies
-//!   inside is a failure, and is classified so its cause is visible: `tiny` (its part in the tile
-//!   spans at most `tiny_extent_units`, which the old oven's `ST_AsMVTGeom` drops), `addition` (the
+//! - (b) an id only the new tile has is classified (ADR-0135 §2), and only these features' geometry
+//!   is decoded: `buffer` (outside the tile's own `0..extent` square — a neighbour tippecanoe keeps
+//!   in the tile buffer), `tiny` (the area of its part inside the tile is at most
+//!   `tiny_max_area_tile_units`: geometry the old oven's `ST_AsMVTGeom` drops), `addition` (the
 //!   active archive's maxzoom tile under it lacks the id too: the active release never had the
-//!   feature) or `unexplained`;
+//!   feature; allowed up to `additions_max_ratio` of the sampled active ids) or `unexplained`, which
+//!   must be none;
 //! - (c) a shared id carries the same properties, compared as text. A value whose MVT type changed
 //!   (an integer that is now a string) is counted as `type_changed`; it is not a failure.
 //!
@@ -22,8 +23,8 @@
 //! each with its ancestors. Regions are feature-id prefixes; their tile extents are recorded while
 //! the id gate walks the new archive, so no coordinates live in the repository.
 //!
-//! Measured 2026-10-02 on Seoul (15 tiles): no id missing, 4–16% extra ids, all in the buffer. So
-//! (a) and (c) are exact.
+//! (a) and (c) are exact. Every category is counted per zoom and per region, with examples, whether
+//! or not the bake may promote (ADR-0135 §3).
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
@@ -48,7 +49,10 @@ pub(crate) struct SampleContract {
     pub(crate) random_seed: u64,
     pub(crate) corner_inset_percent: u32,
     pub(crate) example_ids: usize,
-    pub(crate) tiny_extent_units: i64,
+    /// ADR-0135 §2: the largest area, in square tile units, of an inside extra counted as tiny.
+    pub(crate) tiny_max_area_tile_units: f64,
+    /// ADR-0135 §2: the largest share of the sampled active ids that additions may reach.
+    pub(crate) additions_max_ratio: f64,
     #[serde(default)]
     pub(crate) region_id_prefix_chars: BTreeMap<String, usize>,
 }
@@ -67,8 +71,12 @@ impl SampleContract {
             "corner_inset_percent must be below 50"
         );
         ensure!(
-            contract.tiny_extent_units >= 0,
-            "tiny_extent_units cannot be negative"
+            contract.tiny_max_area_tile_units >= 0.0,
+            "tiny_max_area_tile_units cannot be negative"
+        );
+        ensure!(
+            (0.0..=1.0).contains(&contract.additions_max_ratio),
+            "additions_max_ratio is a share between 0 and 1"
         );
         ensure!(
             contract.example_ids > 0,
@@ -366,8 +374,8 @@ fn features_by_id(
     Ok((features, extent))
 }
 
-/// The vertices of an MVT command stream, in tile units.
-pub(crate) fn geometry_points(packed: &[u8]) -> anyhow::Result<Vec<(i64, i64)>> {
+/// The rings of an MVT command stream, in tile units: each `MoveTo` starts one.
+pub(crate) fn geometry_rings(packed: &[u8]) -> anyhow::Result<Vec<Vec<(i64, i64)>>> {
     let mut words = Vec::new();
     let mut at = 0;
     while at < packed.len() {
@@ -386,7 +394,7 @@ pub(crate) fn geometry_points(packed: &[u8]) -> anyhow::Result<Vec<(i64, i64)>> 
         words.push(value);
     }
     let (mut x, mut y) = (0_i64, 0_i64);
-    let mut points = Vec::new();
+    let mut rings: Vec<Vec<(i64, i64)>> = Vec::new();
     let mut index = 0;
     while index < words.len() {
         let command = words[index];
@@ -403,14 +411,84 @@ pub(crate) fn geometry_points(packed: &[u8]) -> anyhow::Result<Vec<(i64, i64)>> 
                     index += 2;
                     x += zigzag(dx);
                     y += zigzag(dy);
-                    points.push((x, y));
+                    if id == 1 || rings.is_empty() {
+                        rings.push(Vec::new());
+                    }
+                    if let Some(ring) = rings.last_mut() {
+                        ring.push((x, y));
+                    }
                 }
             }
             7 => {}
             other => bail!("geometry command {other} is not MoveTo, LineTo or ClosePath"),
         }
     }
-    Ok(points)
+    Ok(rings)
+}
+
+/// The vertices of an MVT command stream, in tile units.
+pub(crate) fn geometry_points(packed: &[u8]) -> anyhow::Result<Vec<(i64, i64)>> {
+    Ok(geometry_rings(packed)?.into_iter().flatten().collect())
+}
+
+/// The area, in square tile units, of the part of a polygon's rings inside the tile's
+/// `0..extent` square (ADR-0135 §2: tiny is decided by area, not span — a long thin sliver has a
+/// large span and almost no area). Each ring is clipped to the square (Sutherland–Hodgman, exact
+/// for a convex clip) and the signed areas are summed, so holes subtract.
+pub(crate) fn area_inside(rings: &[Vec<(i64, i64)>], extent: i64) -> f64 {
+    #[allow(clippy::cast_precision_loss)]
+    let to_float = |(x, y): (i64, i64)| (x as f64, y as f64);
+    #[allow(clippy::cast_precision_loss)]
+    let side = extent as f64;
+    let mut total = 0.0;
+    for ring in rings {
+        let mut polygon: Vec<(f64, f64)> = ring.iter().copied().map(to_float).collect();
+        // Each edge of the square as (inside test, intersection with the boundary line).
+        let edges: [(fn(f64, f64, f64) -> bool, usize, bool); 4] = [
+            (|value, _, _| value >= 0.0, 0, false),
+            (|value, _, side| value <= side, 0, true),
+            (|value, _, _| value >= 0.0, 1, false),
+            (|value, _, side| value <= side, 1, true),
+        ];
+        for (inside, axis, far) in edges {
+            let bound = if far { side } else { 0.0 };
+            let coordinate = |point: (f64, f64)| if axis == 0 { point.0 } else { point.1 };
+            let mut clipped = Vec::with_capacity(polygon.len() + 4);
+            for index in 0..polygon.len() {
+                let current = polygon[index];
+                let previous = polygon[(index + polygon.len() - 1) % polygon.len()];
+                let (current_in, previous_in) = (
+                    inside(coordinate(current), 0.0, side),
+                    inside(coordinate(previous), 0.0, side),
+                );
+                if current_in != previous_in {
+                    let t = (bound - coordinate(previous))
+                        / (coordinate(current) - coordinate(previous));
+                    clipped.push((
+                        previous.0 + t * (current.0 - previous.0),
+                        previous.1 + t * (current.1 - previous.1),
+                    ));
+                }
+                if current_in {
+                    clipped.push(current);
+                }
+            }
+            polygon = clipped;
+            if polygon.is_empty() {
+                break;
+            }
+        }
+        let count = polygon.len();
+        total += (0..count)
+            .map(|index| {
+                let (x0, y0) = polygon[index];
+                let (x1, y1) = polygon[(index + 1) % count];
+                x0 * y1 - x1 * y0
+            })
+            .sum::<f64>()
+            / 2.0;
+    }
+    total.abs()
 }
 
 const fn zigzag(value: u64) -> i64 {
@@ -461,13 +539,14 @@ impl Breakdown {
 /// The ids only the new tile has that lie inside the tile, by what explains them.
 #[derive(Debug, Default, Clone, Serialize)]
 pub(crate) struct ExtraInside {
-    /// Its part inside the tile spans at most `tiny_extent_units`: the old oven's `ST_AsMVTGeom`
-    /// drops such geometry.
+    /// Its part inside the tile has an area of at most `tiny_max_area_tile_units`: the old oven's
+    /// `ST_AsMVTGeom` drops such geometry. Allowed (ADR-0135 §2).
     pub(crate) tiny: Breakdown,
     /// The active archive's maxzoom tile at the feature's position does not have the id either: the
-    /// active release does not carry the feature at all.
+    /// active release does not carry the feature at all. Allowed up to `additions_max_ratio` of the
+    /// sampled active ids (ADR-0135 §2).
     pub(crate) addition: Breakdown,
-    /// Neither.
+    /// Neither. Must be none (ADR-0135 §2).
     pub(crate) unexplained: Breakdown,
 }
 
@@ -497,12 +576,37 @@ pub(crate) struct Equivalence {
     pub(crate) type_changed: Tally,
     pub(crate) extra_in_buffer: u64,
     pub(crate) regions: BTreeMap<String, RegionTally>,
+    /// The contract bounds this outcome was judged by, kept with it as evidence.
+    pub(crate) tiny_max_area_tile_units: f64,
+    pub(crate) additions_max_ratio: f64,
 }
 
 impl Equivalence {
-    /// Strict: nothing missing, nothing extra inside a tile, nothing changed (root ADR-0133 §4).
-    pub(crate) const fn passed(&self) -> bool {
-        self.missing.count == 0 && self.extra_inside.count() == 0 && self.changed.count == 0
+    /// The share of the sampled active ids that additions reached.
+    pub(crate) fn additions_ratio(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        let (additions, active) = (
+            self.extra_inside.addition.count as f64,
+            self.active_ids as f64,
+        );
+        if self.active_ids == 0 {
+            if self.extra_inside.addition.count == 0 {
+                0.0
+            } else {
+                f64::INFINITY
+            }
+        } else {
+            additions / active
+        }
+    }
+
+    /// ADR-0135 §1–2: nothing missing, nothing changed, nothing unexplained, and additions no more
+    /// than their contract share. Buffer and tiny extras are allowed and only counted.
+    pub(crate) fn passed(&self) -> bool {
+        self.missing.count == 0
+            && self.changed.count == 0
+            && self.extra_inside.unexplained.count == 0
+            && self.additions_ratio() <= self.additions_max_ratio
     }
 
     /// The refusal, short enough for a build's failure reason: every count, and the ids of what
@@ -523,7 +627,12 @@ impl Equivalence {
             "changed": {"count": self.changed.count, "ids": ids(&self.changed.examples)},
             "extra_inside": {
                 "tiny": {"count": inside.tiny.count, "by_zoom": inside.tiny.by_zoom},
-                "addition": {"count": inside.addition.count, "by_zoom": inside.addition.by_zoom},
+                "addition": {
+                    "count": inside.addition.count,
+                    "ratio": self.additions_ratio(),
+                    "max_ratio": self.additions_max_ratio,
+                    "ids": ids(&inside.addition.examples),
+                },
                 "unexplained": {
                     "count": inside.unexplained.count,
                     "ids": ids(&inside.unexplained.examples),
@@ -540,7 +649,7 @@ pub(crate) struct Compare<'a> {
     pub(crate) layer: &'a str,
     pub(crate) id_property: &'a str,
     pub(crate) max_zoom: u8,
-    pub(crate) tiny_extent_units: i64,
+    pub(crate) tiny_max_area_tile_units: f64,
     pub(crate) region_chars: Option<usize>,
     pub(crate) limit: usize,
 }
@@ -651,15 +760,17 @@ pub(crate) fn compare_tile(
             outcome.extra_in_buffer += 1;
             continue;
         };
-        passed = false;
         let region = compare.region(id);
-        let span = (clipped.2 - clipped.0).max(clipped.3 - clipped.1);
-        let kind = if span <= compare.tiny_extent_units {
+        // ADR-0135 §2: tiny by area inside the tile, then addition, else unexplained.
+        let kind = if area_inside(&geometry_rings(&view.geometry)?, extent)
+            <= compare.tiny_max_area_tile_units
+        {
             &mut outcome.extra_inside.tiny
         } else {
             let under =
                 maxzoom_tile_under(&points, clipped, (zoom, x, y), extent, compare.max_zoom)?;
             if active_maxzoom(under)?.contains(id) {
+                passed = false;
                 &mut outcome.extra_inside.unexplained
             } else {
                 &mut outcome.extra_inside.addition
@@ -758,7 +869,7 @@ pub(crate) fn first_release_gate<A: Read + Seek, B: Read + Seek>(
         &densest,
         &collector.reservoir,
     )?;
-    compare_archives(
+    let mut outcome = compare_archives(
         &mut active,
         &mut new,
         &samples,
@@ -766,12 +877,15 @@ pub(crate) fn first_release_gate<A: Read + Seek, B: Read + Seek>(
             layer,
             id_property,
             max_zoom,
-            tiny_extent_units: contract.tiny_extent_units,
+            tiny_max_area_tile_units: contract.tiny_max_area_tile_units,
             region_chars: collector.prefix_chars,
             limit: contract.example_ids,
         },
         collector.regions.keys().cloned(),
-    )
+    )?;
+    outcome.tiny_max_area_tile_units = contract.tiny_max_area_tile_units;
+    outcome.additions_max_ratio = contract.additions_max_ratio;
+    Ok(outcome)
 }
 
 /// The gate's verdict: the evidence when it passed, a refusal naming the counts when it did not.

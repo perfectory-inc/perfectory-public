@@ -52,6 +52,36 @@ fn square(x: i64, y: i64, side: i64) -> Vec<u8> {
     ])
 }
 
+/// Polygon rings given in absolute tile units, as a packed MVT command stream.
+fn polygon(rings: &[&[(i64, i64)]]) -> Vec<u8> {
+    let (mut x, mut y) = (0, 0);
+    let mut words = Vec::new();
+    for ring in rings {
+        for (index, (px, py)) in ring.iter().enumerate() {
+            if index == 0 {
+                words.push(9);
+            } else if index == 1 {
+                words.push(2 | (u64::try_from(ring.len() - 1).unwrap_or(0) << 3));
+            }
+            words.push(zz(px - x));
+            words.push(zz(py - y));
+            (x, y) = (*px, *py);
+        }
+        words.push(15);
+    }
+    varints(&words)
+}
+
+/// A `width` by `height` rectangle with its lower corner at `(x, y)`.
+fn rect(x: i64, y: i64, width: i64, height: i64) -> Vec<u8> {
+    polygon(&[&[
+        (x, y),
+        (x + width, y),
+        (x + width, y + height),
+        (x, y + height),
+    ]])
+}
+
 /// One synthetic feature: id, other properties, geometry.
 struct Synthetic<'a> {
     id: &'a str,
@@ -108,7 +138,8 @@ fn contract() -> SampleContract {
         random_seed: 7,
         corner_inset_percent: 10,
         example_ids: 20,
-        tiny_extent_units: 32,
+        tiny_max_area_tile_units: 64.0,
+        additions_max_ratio: 0.001,
         region_id_prefix_chars: BTreeMap::from([("parcels".to_owned(), 7)]),
     }
 }
@@ -171,7 +202,7 @@ fn compare() -> Compare<'static> {
         layer: "parcels",
         id_property: "pnu",
         max_zoom: 2,
-        tiny_extent_units: 32,
+        tiny_max_area_tile_units: 64.0,
         region_chars: Some(7),
         limit: 20,
     }
@@ -216,11 +247,12 @@ fn an_active_id_missing_from_the_new_tile_is_refused() {
 }
 
 #[test]
-fn an_extra_id_inside_the_tile_is_refused() {
-    // Not tiny, and the active maxzoom tile under it lacks it too: an addition, still refused.
+fn an_addition_above_its_share_of_the_sampled_active_ids_is_refused() {
+    // Not tiny, and the active maxzoom tile under it lacks it too: an addition. One in a handful of
+    // sampled active ids is far above the contract's 0.1% (ADR-0135 §2).
     let refusal = refusal(&[inside("9999911111"), inside("9999933333")]);
     assert!(
-        refusal.contains("\"addition\":{\"by_zoom\":{\"2\":1},\"count\":1}"),
+        refusal.contains("\"addition\":{\"count\":1,\"ids\":[\"9999933333\"]"),
         "{refusal}"
     );
 }
@@ -230,7 +262,7 @@ fn an_inside_extra_is_classified_tiny_addition_or_unexplained() -> anyhow::Resul
     let tiny = Synthetic {
         id: "9999933333",
         kind: text("land"),
-        geometry: square(100, 100, 20),
+        geometry: rect(100, 100, 1, 60),
     };
     let active = decompressed(&mvt(&[inside("9999911111")]))?;
     let new = decompressed(&mvt(&[inside("9999911111"), tiny, inside("9999944444")]))?;
@@ -243,7 +275,10 @@ fn an_inside_extra_is_classified_tiny_addition_or_unexplained() -> anyhow::Resul
         &mut no_active_maxzoom,
         &mut outcome,
     )?;
-    assert!(!passed, "every inside extra still refuses");
+    assert!(
+        passed,
+        "tiny extras and additions do not fail a tile; only their totals are judged"
+    );
     let inside_extras = &outcome.extra_inside;
     assert_eq!(inside_extras.tiny.examples, ["9999933333@2/0/0"]);
     assert_eq!(inside_extras.addition.examples, ["9999944444@2/0/0"]);
@@ -255,7 +290,7 @@ fn an_inside_extra_is_classified_tiny_addition_or_unexplained() -> anyhow::Resul
     // oven dropped it at the lower zoom for no reason the gate knows.
     let mut outcome = Equivalence::default();
     let mut asked = Vec::new();
-    compare_tile(
+    let passed = compare_tile(
         Some(&active),
         Some(&new),
         &compare(),
@@ -266,6 +301,7 @@ fn an_inside_extra_is_classified_tiny_addition_or_unexplained() -> anyhow::Resul
         },
         &mut outcome,
     )?;
+    assert!(!passed, "an unexplained extra fails its tile");
     assert_eq!(outcome.extra_inside.unexplained.count, 1);
     assert_eq!(
         asked,
@@ -322,7 +358,8 @@ fn an_extra_id_only_in_the_buffer_passes_and_is_counted() -> anyhow::Result<()> 
     ])?;
     assert_eq!(evidence["extra_in_buffer"], 2);
     assert_eq!(evidence["extra_inside"]["addition"]["count"], 0);
-    // One unit inside the tile is inside (and tiny).
+    // One unit inside the tile is inside: 121 square units is not tiny, so it is an addition, above
+    // its share of these few sampled ids.
     let poking_in = Synthetic {
         id: "9999933333",
         kind: text("land"),
@@ -578,5 +615,127 @@ fn the_contract_parses_and_refuses_what_it_cannot_sample() -> anyhow::Result<()>
         );
         value[field] = saved;
     }
+    Ok(())
+}
+
+/// One extra beside `9999911111` in z2 tile 5, judged with the active maxzoom tile under it
+/// already carrying the extra — so unless it is tiny it is unexplained.
+fn judge_extra(geometry: Vec<u8>) -> anyhow::Result<(bool, Equivalence)> {
+    let extra = Synthetic {
+        id: "9999933333",
+        kind: text("land"),
+        geometry,
+    };
+    let active = decompressed(&mvt(&[inside("9999911111")]))?;
+    let new = decompressed(&mvt(&[inside("9999911111"), extra]))?;
+    let mut outcome = Equivalence {
+        additions_max_ratio: 0.001,
+        tiny_max_area_tile_units: 64.0,
+        ..Equivalence::default()
+    };
+    let passed = compare_tile(
+        Some(&active),
+        Some(&new),
+        &compare(),
+        5,
+        &mut |_| Ok(BTreeSet::from(["9999933333".to_owned()])),
+        &mut outcome,
+    )?;
+    Ok((passed, outcome))
+}
+
+#[test]
+fn a_small_span_with_an_area_above_the_tiny_bound_is_unexplained_and_refused() -> anyhow::Result<()>
+{
+    // 10 x 10: a span of 10 units, but 100 square units of area (ADR-0135 §2 decides by area).
+    let (passed, outcome) = judge_extra(rect(100, 100, 10, 10))?;
+    assert!(!passed);
+    assert_eq!(outcome.extra_inside.tiny.count, 0);
+    assert_eq!(
+        outcome.extra_inside.unexplained.examples,
+        ["9999933333@2/0/0"]
+    );
+    assert!(!outcome.passed());
+    let refusal = verdict(&outcome, "synthetic.json")
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(
+        refusal.contains("\"unexplained\":{\"count\":1,\"ids\":[\"9999933333\"]"),
+        "{refusal}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_thin_sliver_with_a_small_area_is_tiny_allowed_and_counted() -> anyhow::Result<()> {
+    // 1 x 64: a span of 64 units, but exactly the 64 square units the contract allows.
+    let (passed, outcome) = judge_extra(rect(100, 100, 1, 64))?;
+    assert!(passed);
+    assert!(outcome.passed());
+    let evidence = verdict(&outcome, "synthetic.json")?;
+    let tiny = &evidence["extra_inside"]["tiny"];
+    assert_eq!(tiny["count"], 1);
+    assert_eq!(tiny["by_zoom"]["2"], 1);
+    assert_eq!(tiny["by_region"]["9999933"], 1);
+    assert_eq!(tiny["examples"][0], "9999933333@2/0/0");
+    assert_eq!(evidence["tiny_max_area_tile_units"], 64.0);
+    // One more square unit and it is no longer tiny.
+    let (passed, outcome) = judge_extra(rect(100, 100, 1, 65))?;
+    assert!(!passed);
+    assert_eq!(outcome.extra_inside.unexplained.count, 1);
+    Ok(())
+}
+
+#[test]
+fn additions_are_allowed_up_to_their_share_and_refused_just_above_it() -> anyhow::Result<()> {
+    let with_additions = |additions: u64, active_ids: u64| {
+        let mut outcome = Equivalence {
+            active_ids,
+            additions_max_ratio: 0.001,
+            ..Equivalence::default()
+        };
+        outcome.extra_inside.addition.count = additions;
+        outcome
+    };
+    let at_the_ratio = with_additions(1, 1_000);
+    assert!(at_the_ratio.passed());
+    let evidence = verdict(&at_the_ratio, "synthetic.json")?;
+    assert_eq!(evidence["extra_inside"]["addition"]["count"], 1);
+    assert_eq!(evidence["additions_max_ratio"], 0.001);
+    assert!(!with_additions(2, 1_000).passed(), "0.2% is above 0.1%");
+    assert!(!with_additions(1, 999).passed(), "just above the ratio");
+    assert!(with_additions(0, 0).passed());
+    assert!(
+        !with_additions(1, 0).passed(),
+        "an addition against no sampled id"
+    );
+    let refusal = verdict(&with_additions(2, 1_000), "synthetic.json")
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(refusal.contains("\"ratio\":0.002"), "{refusal}");
+    Ok(())
+}
+
+#[test]
+fn the_area_inside_is_clipped_to_the_tile_and_holes_subtract() -> anyhow::Result<()> {
+    let area = |geometry: Vec<u8>| -> anyhow::Result<f64> {
+        Ok(area_inside(&geometry_rings(&geometry)?, 4096))
+    };
+    assert!(
+        (area(rect(-50, 0, 100, 100))? - 5_000.0).abs() < 1e-9,
+        "half is outside"
+    );
+    assert!(
+        (area(rect(4000, 4000, 200, 200))? - 9_216.0).abs() < 1e-9,
+        "a corner"
+    );
+    assert!(area(rect(5000, 0, 10, 10))?.abs() < 1e-9, "wholly outside");
+    let holed = polygon(&[
+        &[(0, 0), (100, 0), (100, 100), (0, 100)],
+        &[(25, 25), (25, 75), (75, 75), (75, 25)],
+    ]);
+    assert!((area(holed)? - 7_500.0).abs() < 1e-9);
     Ok(())
 }
