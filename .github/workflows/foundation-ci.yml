@@ -63,7 +63,7 @@ jobs:
   rust-quality:
     name: Rust fmt, unit tests, clippy
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout

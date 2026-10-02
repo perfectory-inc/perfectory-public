@@ -162,3 +162,9 @@ panic = "abort"
 [profile.dev]
 opt-level = 0
 debug = true
+
+# Keep host build dependencies and target dependencies on one debug profile across
+# Clippy and tests. Workspace code keeps full symbols above; dependency line info
+# and native C++ assertions remain enabled (root ADR-0004).
+[profile.dev.package."*"]
+debug = 1

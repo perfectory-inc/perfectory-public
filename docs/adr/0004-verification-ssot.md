@@ -88,3 +88,27 @@ xtask 메타데이터를 입력으로 기록한다. 실제 ring fingerprint에 x
 `CARGO_INCREMENTAL`, `RUSTFLAGS` 등 사용자의 빌드·캐시 설정은 유지한다. 전체 `CARGO_*`를
 지우거나 캐시를 강제로 삭제하는 방법은 필요한 실행 설정까지 바꾸므로 채택하지 않는다.
 제거 대상과 설정 보존을 회귀 검사로 고정한다.
+
+## Foundation 외부 라이브러리의 빌드 프로필 (2026-10-02)
+
+Clippy의 `check`와 시험의 `build`는 같은 라이브러리를 읽어도 서로 다른 Cargo 그래프다.
+외부 라이브러리를 실행 코드와 build script가 함께 사용하면 기본 프로필 선택에서 디버그
+정보 수준이 달라질 수 있다. `libduckdb-sys`의 build script 의존성 그래프가 달라져
+Clippy 뒤의 시험에서 같은 C++ 엔진을 다시 컴파일했고 CI의 제한 시간을 넘었다.
+부모 crate 환경을 제거하는 위 규칙만으로 이 프로필 차이까지 없어지지는 않는다.
+
+Foundation workspace의 `[profile.dev.package."*"]`에서 외부 의존성의 `debug = 1`을
+정의한다. `test`는 `dev`를 상속하므로 별도 시험 설정이나 CI 환경변수 사본을 만들지 않는다.
+[Cargo의 패키지 프로필 규칙](https://doc.rust-lang.org/cargo/reference/profiles.html#overrides)에 따라
+workspace 코드는 기존 전체 디버그 정보를 유지하고 외부 의존성은 호출 위치 정보가 남는
+제한된 디버그 정보를 사용한다. 단언·정수 넘침 검사·최적화 수준은 바꾸지 않는다.
+`libduckdb-sys`가 `DEBUG=false`일 때 정의하는 `NDEBUG`도 이 선택으로 추가되지 않는다.
+외부 라이브러리의 상세 변수 정보가 필요할 때는 Cargo의 해당 패키지 프로필을 임시로
+재정의할 수 있으며, 그 경우 추가 컴파일이 발생할 수 있다.
+
+고정 Cargo 버전의 빌드 계획을 대조해 C++ 빌드 의존성 전체가 `check`와 `test`에서
+같은 설정인지 확인한다. `libduckdb-sys`만 좁혀 조정하는 대안은 그 앞의 Rust 빌드 의존성
+차이를 남기므로 기각한다. 디버그 정보를 전부 끄는 대안은 C++ 내부 단언도 바꾸므로
+채택하지 않는다. 캐시 삭제·추가 빌드 래퍼·시간 제한만 늘리는 방법도 원인을 없애지 않는다.
+CI의 시간 제한은 캐시가 없는 최초 네이티브 컴파일과 전체 검사를 포함하도록 유한하게 두되,
+실제 검증 명령과 시험 범위는 기존 `cargo xtask verify foundation`을 그대로 사용한다.
