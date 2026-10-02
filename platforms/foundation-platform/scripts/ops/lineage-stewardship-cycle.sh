@@ -11,13 +11,12 @@
 # "할 일 없음"과 "확인 안 함"은 구별되어야 한다: 계보 표가 아직 없으면 그렇다고 알리고, 어느 단계든
 # 실패하면 슬랙 #alerts 가 안다. 모든 산출물은 실행마다 새 작업 폴더에 남는다.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 
 STATE_ROOT="${FOUNDATION_LINEAGE_STEWARDSHIP_STATE_ROOT:-/var/lib/foundation-platform/lineage-stewardship}"
 LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
-PUBLISHER_BIN="${FOUNDATION_LINEAGE_STEWARDSHIP_PUBLISHER_BIN:-/var/lib/foundation-platform/bin/foundation-outbox-publisher}"
 SLACK_TOKEN_FILE="${FOUNDATION_LINEAGE_STEWARDSHIP_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}"
 SLACK_CHANNEL="${FOUNDATION_LINEAGE_STEWARDSHIP_SLACK_CHANNEL:-#alerts}"
-RELEASE_ROOT="${FOUNDATION_LINEAGE_STEWARDSHIP_RELEASE_ROOT:-/opt/foundation-platform/current}"
 
 # recovery.env 는 DATABASE_URL 을 들고 있지 않다 — map-edit-fold.sh 와 같은 재료로 조립한다.
 if [ -z "${DATABASE_URL:-}" ]; then
@@ -32,7 +31,6 @@ PY
 )"
   export DATABASE_URL
 fi
-: "${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:?map-edit-fold.env must name a writable Ivy cache}"
 
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"
@@ -64,13 +62,13 @@ trap 'on_error ${LINENO}' ERR
 spark() {
   docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
-  FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE}" \
+  FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
   docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
     -p foundation-platform-compute --profile lakehouse-batch run --rm \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-    spark spark-submit --master 'local[4]' --driver-memory 4g --conf spark.jars.ivy=/tmp/.ivy2 \
-    --packages "$(python3 -c "import sys; sys.path.insert(0, '${RELEASE_ROOT}/infra/lakehouse/spark/jobs'); from lakehouse_engine import iceberg_packages; print(iceberg_packages())")" \
+    spark spark-submit --master 'local[4]' --driver-memory 4g \
+    --jars "${SPARK_RELEASE_JARS}" \
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 
