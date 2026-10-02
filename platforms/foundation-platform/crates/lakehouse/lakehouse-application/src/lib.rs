@@ -68,6 +68,7 @@ pub use building_register_floor_silver_plan::{
     normalize_building_register_floor_silver_rows_with_title_counts,
     parse_building_register_floor_source_row_from_hub_bulk_text_line,
     parse_building_register_floor_source_rows_from_public_data_json,
+    write_building_register_floor_entity_context_pack_line,
     BuildingRegisterFloorEntityContextPackInput, BuildingRegisterFloorNormalizationProposalInput,
     BuildingRegisterFloorSilverHandoff, BuildingRegisterFloorSilverOutputs,
     BuildingRegisterFloorSilverPlanError, BuildingRegisterFloorSilverRow,

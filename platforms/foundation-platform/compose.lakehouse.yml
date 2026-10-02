@@ -42,7 +42,8 @@ services:
     # rows) at 3.1GiB. The cap leaves about 3GB above the peak.
     mem_limit: 20g
     container_name: foundation-platform-spark
-    restart: unless-stopped
+    # Batch callers use compose run --rm. A sleeping standing container would sit beside every job.
+    restart: "no"
     profiles:
       - lakehouse-batch
     depends_on:
@@ -50,7 +51,7 @@ services:
         condition: service_completed_successfully
     user: "${FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}:${FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}"
     working_dir: /workspace
-    command: ["sleep", "infinity"]
+    command: ["spark-submit", "--version"]
     volumes:
       - ./infra/lakehouse/spark:/workspace/infra/lakehouse/spark:ro
       - ./infra/lakehouse/contracts:/workspace/infra/lakehouse/contracts:ro

@@ -84,6 +84,20 @@ last_reviewed: 2026-08-05
 
 ## 우선순위 1 — 실제 파이프라인 완성
 
+층 자동화의 구현은 [ADR-0127](../adr/0127-floor-duckdb-staging-preserves-normalization-and-native-resource-contracts.md)과
+[ADR-0128](../adr/0128-floor-inputs-bind-to-bronze-and-scalar-retries-bind-to-their-append.md)를 따른다.
+기존 Bronze 원장에서 완전한 원본 쌍을 선택하고, 입력·완료 산출물·Iceberg 커밋을 대조한 뒤
+필요한 단계만 실행한다. `orchestration/jobs.v1.json`이 예약·서비스·계보의 단일 정의다.
+[ADR-0132](../adr/0132-release-activation-preserves-enabled-job-identities.md)는 활성화 때
+기존 enabled 작업의 누락을 거부한다. 코드 병합과 운영 설치·실행 검증은 별개다.
+
+- [ ] 병합된 릴리스로 FLOOR 서비스·설정을 설치하고 실제 예약 및 재시도 결과 검증
+- [ ] 새 기준월의 Bronze → FLOOR Silver 및 후속 조회 반영 검증
+- [ ] 실제 R2 Class A 요청 감소와 원본/완료 산출물 재사용 비용 측정
+- [ ] [고정 입력 판](../adr/0130-panel-input-snapshots-are-complete-and-bound-before-spark.md)으로 전체 범위 패널을 검증 후 승격
+- [ ] [지번 연결 입력 근거](../adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md)의 실제 원장·표·시점 대조 후 실행
+
+
 - [ ] 국가 수집 대상별 bulk/API 선택과 실제 공급자 자격증명·쿼터 검증
 - [ ] Bronze → Silver → Gold를 실제 R2/Iceberg backend 자격증명으로 실행하고 결과를 검증
 

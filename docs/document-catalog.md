@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **473개**
+- 문서 파일: **479개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 152 |
+| Monorepo | 158 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 210 |
+| ADR | 216 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -513,6 +513,12 @@ docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md
 docs/adr/0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md
 docs/adr/0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md
 docs/adr/0125-unit-building-links-require-source-parent-key-evidence.md
+docs/adr/0127-floor-duckdb-staging-preserves-normalization-and-native-resource-contracts.md
+docs/adr/0128-floor-inputs-bind-to-bronze-and-scalar-retries-bind-to-their-append.md
+docs/adr/0129-compute-memory-counts-one-shot-spark-and-native-contracts.md
+docs/adr/0130-panel-input-snapshots-are-complete-and-bound-before-spark.md
+docs/adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md
+docs/adr/0132-release-activation-preserves-enabled-job-identities.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -677,6 +683,12 @@ tools/github/README.md
 | `docs/adr/0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0125-unit-building-links-require-source-parent-key-evidence.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0127-floor-duckdb-staging-preserves-normalization-and-native-resource-contracts.md` | Monorepo | ADR | accepted |
+| `docs/adr/0128-floor-inputs-bind-to-bronze-and-scalar-retries-bind-to-their-append.md` | Monorepo | ADR | accepted |
+| `docs/adr/0129-compute-memory-counts-one-shot-spark-and-native-contracts.md` | Monorepo | ADR | accepted |
+| `docs/adr/0130-panel-input-snapshots-are-complete-and-bound-before-spark.md` | Monorepo | ADR | accepted |
+| `docs/adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md` | Monorepo | ADR | accepted |
+| `docs/adr/0132-release-activation-preserves-enabled-job-identities.md` | Monorepo | ADR | accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

@@ -55,13 +55,13 @@ mod building_hub_bronze_catalog_recovery;
 mod building_hub_bulk_collection_plan;
 mod building_hub_bulk_ingest;
 mod building_link_evidence;
-mod building_register_floor_silver_export;
+use foundation_outbox_publisher::building_register_floor_silver_export;
 mod building_register_ingest;
 mod building_register_local_bronze_proof;
 mod building_register_page_count_batch;
 mod building_register_page_count_plan_writer;
 mod building_register_smoke;
-mod building_register_snapshot;
+use foundation_outbox_publisher::building_register_snapshot;
 mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
@@ -88,7 +88,7 @@ mod industrial_complex_gold_profile_export;
 mod industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
 mod ingestion_run_recovery;
-mod lakehouse_engine_contract;
+use foundation_outbox_publisher::lakehouse_engine_contract;
 mod lakehouse_inventory;
 mod lakehouse_quality_rules_evaluate;
 mod lakehouse_registry_control;
@@ -234,6 +234,10 @@ enum Command {
     CollectIndustrialComplexAddressSource,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
+    StageBuildingRegisterFloorInputs,
+    SelectBuildingRegisterFloorInputs,
+    RunBuildingRegisterFloorCycle,
+    StopBuildingRegisterFloorCycle,
     ExportBuildingRegisterApartmentPriceSilverHandoff,
     ExportBuildingRegisterExclusiveUnitSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
@@ -420,9 +424,15 @@ const fn command_requires_expanded_stack(command: Command) -> bool {
 }
 
 async fn run_command(command: Command) -> anyhow::Result<()> {
+    let log_writer = if command == Command::SelectBuildingRegisterFloorInputs {
+        // Selection stdout is one bounded JSON document even with verbose SQL logging enabled.
+        tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stderr)
+    } else {
+        tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stdout)
+    };
     tracing_subscriber::registry()
         .with(EnvFilter::from_default_env())
-        .with(fmt::layer().json())
+        .with(fmt::layer().json().with_writer(log_writer))
         .init();
 
     let future: CommandFuture = match command {
@@ -442,7 +452,13 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::DeleteR2Candidates => Box::pin(r2_delete_candidates::run()),
         Command::ExportBuildingRegisterFloorSilverHandoff => {
-            Box::pin(async { building_register_floor_silver_export::run() })
+            Box::pin(building_register_floor_silver_export::run())
+        }
+        Command::StageBuildingRegisterFloorInputs => {
+            Box::pin(building_register_floor_silver_export::stage_inputs())
+        }
+        Command::SelectBuildingRegisterFloorInputs => {
+            Box::pin(building_register_floor_silver_export::select_inputs_cli())
         }
         Command::ExportBuildingRegisterUnitAreaSilverHandoff => {
             Box::pin(async { building_register_unit_area_silver_export::run() })
@@ -547,6 +563,10 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::RunNationalDataCollection => {
             Box::pin(async { national_data_collection_run::run() })
         }
+        Command::StopBuildingRegisterFloorCycle => {
+            Box::pin(async { remote_lakehouse_job::stop_floor_cycle() })
+        }
+        Command::RunBuildingRegisterFloorCycle => Box::pin(remote_lakehouse_job::run_floor_cycle()),
         Command::RunRemoteLakehouseJob => Box::pin(remote_lakehouse_job::run()),
         Command::CollectBuildingHubBronzeCatalogRecoveryInventory => {
             Box::pin(building_hub_bronze_catalog_recovery::collect_inventory())
@@ -1135,6 +1155,8 @@ where
             Ok(Command::ResumeNationalDataCollectionLedger)
         }
         Some("run-national-data-collection") => Ok(Command::RunNationalDataCollection),
+        Some("stop-building-register-floor-cycle") => Ok(Command::StopBuildingRegisterFloorCycle),
+        Some("run-building-register-floor-cycle") => Ok(Command::RunBuildingRegisterFloorCycle),
         Some("run-remote-lakehouse-job") => Ok(Command::RunRemoteLakehouseJob),
         Some("collect-building-hub-bronze-catalog-recovery-inventory") => {
             Ok(Command::CollectBuildingHubBronzeCatalogRecoveryInventory)
@@ -1301,6 +1323,12 @@ where
         }
         Some("export-building-register-floor-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterFloorSilverHandoff)
+        }
+        Some("stage-building-register-floor-inputs") => {
+            Ok(Command::StageBuildingRegisterFloorInputs)
+        }
+        Some("select-building-register-floor-inputs") => {
+            Ok(Command::SelectBuildingRegisterFloorInputs)
         }
         Some("export-building-register-unit-area-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterUnitAreaSilverHandoff)

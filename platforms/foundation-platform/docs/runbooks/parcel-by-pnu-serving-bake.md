@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-09-09
+last_reviewed: 2026-10-02
 ---
 
 # 필지 by-PNU R2 서빙 — 굽기·발행·검증 런북
@@ -32,12 +32,27 @@ last_reviewed: 2026-09-09
 리허설을 먼저 돌린다. `--validate-only` 는 표를 건드리지 않으므로 덮어쓰기 승인 플래그가
 필요 없다(시험 `tests/test_parcel_panel_validate_args.py` 가 고정).
 
+아래 `--region-prefix 11`은 서울 실증 범위다. 더 넓은 운영 표에 그대로 덮어쓰면 그 범위를
+잃을 수 있다. 운영 재생성 전에는 모든 입력의 수집 범위와 현재 필지 수를 독립적으로
+확인하고 `--expected-count`로 고정한다. 검증용 쓰기는 별도 `_smoke` 표를 사용한다.
+검증용 표에서 운영 표로 승격하는 기능은 현재 이 생산자에 없다.
+
+Iceberg 입력에는 `--source-snapshots-path`가 필수다. JSON 객체는 사용할 모든 Silver 표를
+키로, 실제 Iceberg 판 번호를 값으로 갖는다. 표 목록은 생산자의 `input_sources`에서 나온다.
+`--iceberg-snapshot-id`는 이 파일의 `silver.parcel_boundaries` 값과 일치해야 한다.
+공통 판 해석기는 파일을 Spark 시작 전에 한 번만 읽고 모든 조회와 실행 요약에 사용한다
+([ADR-0130](../../../../docs/adr/0130-panel-input-snapshots-are-complete-and-bound-before-spark.md)).
+검증과 재생성에는 동일한 판 파일을 사용하며, 수집 범위·업무 시점의 적합성은 별도로 확인한다.
+기본 동작은 `silver.parcel_lineage`의 지번 변경 관계도 읽는다. 입력이 없다는 이유로
+`--no-carry-lineage`를 넣어 정상 운영 검증을 통과시킨 것으로 계산하지 않는다.
+
 ```bash
 # 리허설 — 수치만 판정
 parcel_panel_silver_to_gold.py \
   --input-mode iceberg --write-mode iceberg \
   --region-prefix 11 \
   --iceberg-snapshot-id <silver.parcel_boundaries 현재 스냅숏> \
+  --source-snapshots-path <사용할 모든 입력 표의 판 번호 JSON> \
   --validate-only --summary-output <검증 요약 경로>
 
 # 요약의 row_count·품질 지표 확인 후 실쓰기 (덮어쓰기는 명시 승인)
@@ -132,4 +147,11 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 
 - Worker 가 503: manifest 부재·비파싱이다. 3절 발행 상태부터 본다(설계된 전면 거부).
 - 굽기 중단: 같은 세대로 재실행하면 된다(2절의 create-only 재사용).
-- 세대 롤백: manifest 를 이전 세대로 재발행하면 끝이다. 객체는 지우지 않는다.
+- 세대 복구: `check_generation_transition`은 현재보다 낮은 세대의 발행을 거부한다.
+  과거 세대를 그대로 재발행하는 롤백 명령은 지원하지 않는다. 기존 객체를 보존하고,
+  검증된 과거 내용을 더 높은 새 세대로 준비·검증·발행하는 복구 경로를 먼저 리허설한다.
+  이 런북은 그 복구 리허설이 완료됐다는 증거가 아니다.
+- Gold 복구: 기존 표의 스키마와 Iceberg 스냅샷을 먼저 보존한다. 생산자는 스키마 추가 후
+  직접 덮어쓰기와 재조회 검증을 수행하므로, `--validate-only`만으로 실제 쓰기·복구까지
+  검증됐다고 표시하지 않는다. `row_digest`가 없는 과거 판은 일일 변경분 비교의 기준으로
+  사용할 수 없으며, 새 계약으로 전체 굽기를 검증한 기준 판이 먼저 필요하다.

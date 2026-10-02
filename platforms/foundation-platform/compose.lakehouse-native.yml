@@ -1,0 +1,8 @@
+# FLOOR native execution only. Values come from the validated engine contract.
+# Required interpolation prevents a missing budget becoming an unlimited container.
+services:
+  lakehouse-control:
+    mem_limit: "${FOUNDATION_PLATFORM_NATIVE_MEMORY_MIB:?native engine memory is required}m"
+    memswap_limit: "${FOUNDATION_PLATFORM_NATIVE_MEMORY_SWAP_MIB:?native engine total memory is required}m"
+    cpus: "${FOUNDATION_PLATFORM_NATIVE_CPU_SLOTS:?native engine CPUs are required}"
+    pids_limit: "${FOUNDATION_PLATFORM_NATIVE_PIDS_LIMIT:?native engine PIDs are required}"

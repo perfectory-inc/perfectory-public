@@ -14,9 +14,15 @@ from lakehouse_engine import required_catalog_env
 
 
 class BuildingPanelArgumentsTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.pins_path = Path(directory.name) / "pins.json"
+        self.pins_path.write_text(json.dumps({k: "1" for k in job.ALL_SOURCES}), encoding="utf-8")
+
     def parse(self, *extra):
         return job.parse_args(["--input-mode", "iceberg", "--write-mode", "iceberg",
-                               "--iceberg-snapshot-id", "1", *extra])
+                               "--iceberg-snapshot-id", "1", "--source-snapshots-path", str(self.pins_path), *extra])
 
     def test_write_authorization_is_required_only_for_writes(self):
         with patch.dict(os.environ, {k: "probe" for k in required_catalog_env("r2")}):

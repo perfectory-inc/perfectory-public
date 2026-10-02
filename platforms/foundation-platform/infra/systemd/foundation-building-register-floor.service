@@ -1,0 +1,28 @@
+[Unit]
+Description=Foundation latest committed building register FLOOR cycle
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+UMask=0007
+WorkingDirectory=/
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+# Capture public release configuration once, including through ExecStopPost.
+# A current/previous switch cannot redirect cleanup to another release's binary.
+RuntimeDirectory=foundation-building-register-floor
+RuntimeDirectoryMode=0700
+ExecStart=/bin/bash -ec '[[ "$${INVOCATION_ID}" =~ ^[0-9a-f]{32}$$ ]]; release="$$(readlink -e /opt/foundation-platform/current)"; readonly release; snapshot="$${RUNTIME_DIRECTORY:?}/$${INVOCATION_ID}.env"; (set -o noclobber; cat "$${release}/.foundation-floor.env" > "$${snapshot}"); [[ -f "$${snapshot}" && ! -L "$${snapshot}" && -s "$${snapshot}" ]]; set -a; . "$${snapshot}"; [[ "$${FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT:?}" == "$${release}" ]] || { rm -f -- "$${snapshot}"; exit 65; }; exec "$${release}/scripts/ops/building-register-floor-cycle.sh"'
+ExecStopPost=/bin/bash -ec '[[ "$${INVOCATION_ID}" =~ ^[0-9a-f]{32}$$ ]]; snapshot="$${RUNTIME_DIRECTORY:?}/$${INVOCATION_ID}.env"; [[ -f "$${snapshot}" && ! -L "$${snapshot}" && -s "$${snapshot}" ]]; set -a; . "$${snapshot}"; exec "$${FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT:?}/scripts/ops/building-register-floor-cycle.sh" cleanup'
+TimeoutStartSec=4h
+TimeoutStopSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# foundation-release.sh timers derives ReadWritePaths from its dedicated namespace policy.

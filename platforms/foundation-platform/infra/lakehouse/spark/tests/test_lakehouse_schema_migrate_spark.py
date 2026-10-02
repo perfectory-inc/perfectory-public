@@ -52,6 +52,97 @@ class MigrationSpark(unittest.TestCase):
         self.spark.sql(f"CREATE TABLE proof.{name} ({columns}) USING iceberg")
         return f"proof.{name}"
 
+    def scalar_fixture(self, name, batch):
+        from datetime import datetime, timedelta
+        from pyspark.sql import functions as F
+
+        # 컬럼 계약은 그대로 쓰되, 한 행 증명에 대규모 bucket shuffle은 필요하지 않다.
+        contract = dict(load_lakehouse_contract(name), partition_spec=[], sort_order=[])
+        expressions = []
+        for index, column in enumerate(contract["columns"]):
+            logical_type = column["logical_type"]
+            if logical_type == "timestamp":
+                value = datetime(2099, 1, 1) + timedelta(seconds=index)
+            elif logical_type in ("int", "long"):
+                value = 100 + index
+            elif logical_type == "double":
+                value = 200.25 + index
+            else:
+                value = f"synthetic-{batch}-{column['name']}"
+            expressions.append(F.lit(value).cast(migrate.spark_sql_type(logical_type)).alias(column["name"]))
+        return contract, self.spark.range(1).select(*expressions)
+
+    def scalar_args(self, name, mode):
+        from argparse import Namespace
+
+        namespace, table = name.split(".")
+        return Namespace(contract=name, iceberg_catalog_name="proof", iceberg_namespace=namespace,
+                         iceberg_table=table, iceberg_write_mode=mode, derivation=None)
+
+    def test_scalar_unit_tables_keep_named_values_before_and_after_schema_reorder(self):
+        from pyspark.sql import functions as F
+        import silver_scalar_handoff_to_lakehouse as scalar
+
+        evidence = {"building_link_source_record_id", "building_link_input_sha256", "building_link_reason"}
+        for name in ("silver.building_register_units", "silver.building_register_unit_areas"):
+            for mode in ("append", "overwrite"):
+                with self.subTest(table=name, mode=mode):
+                    contract, first = self.scalar_fixture(name, "first")
+                    columns = contract["columns"]
+                    # UNIT 근거 3개는 과거 ADD COLUMN처럼 끝에 둔다. 나머지도 순서를 뒤집어
+                    # 같은 문자열 타입끼리의 위치 교환까지 값 비교로 검출한다.
+                    shuffled = [c for c in reversed(columns) if c["name"] not in evidence]
+                    shuffled.extend(c for c in columns if c["name"] in evidence)
+                    table = self.table(name, create_table_columns_sql(dict(contract, columns=shuffled)))
+                    first_expected = first.first().asDict()
+                    outcome = scalar.write_silver_iceberg(
+                        self.spark, first.select(*reversed(first.columns)), self.scalar_args(name, mode), contract, F)
+                    self.assertTrue(outcome["appended"])
+                    self.assertEqual(self.spark.table(table).first().asDict(), first_expected)
+                    self.assertEqual(self.spark.table(table).columns, [c["name"] for c in shuffled])
+
+                    plan = migrate.inspect_table(self.spark, table, contract, name)
+                    self.assertTrue(plan["reorder"])
+                    self.assertEqual(plan["add"], [])
+                    self.assertEqual(plan["backfill"], [])
+                    migrate.apply_table(self.spark, "proof", name, contract, plan)
+                    self.assertEqual(self.spark.table(table).columns, list(column_names(contract)))
+                    self.assertEqual(self.spark.table(table).first().asDict(), first_expected)
+
+                    _, second = self.scalar_fixture(name, "second")
+                    second_expected = second.first().asDict()
+                    scalar.write_silver_iceberg(
+                        self.spark, second.select(*reversed(second.columns)), self.scalar_args(name, mode), contract, F)
+                    rows = self.spark.table(table).collect()
+                    expected = [first_expected, second_expected] if mode == "append" else [second_expected]
+                    self.assertCountEqual([row.asDict() for row in rows], expected)
+
+    def test_scalar_unit_tables_reject_missing_input_columns_without_committing(self):
+        from pyspark.errors import AnalysisException
+        from pyspark.sql import functions as F
+        import silver_scalar_handoff_to_lakehouse as scalar
+
+        for name, missing in (("silver.building_register_units", "building_link_input_sha256"),
+                              ("silver.building_register_unit_areas", "area_m2_raw")):
+            with self.subTest(table=name, missing=missing):
+                contract, frame = self.scalar_fixture(name, "present")
+                table = self.table(name, create_table_columns_sql(contract))
+                scalar.write_silver_iceberg(self.spark, frame, self.scalar_args(name, "append"), contract, F)
+                before = self.spark.table(table).first().asDict()
+                snapshot_query = f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'"
+                snapshot = self.spark.sql(snapshot_query).first()[0]
+                _, incomplete = self.scalar_fixture(name, "missing")
+                handoff = str(Path(self.workspace.name) / f"{name}-missing-handoff")
+                incomplete.drop(missing).write.parquet(handoff)
+                with self.assertRaisesRegex(ValueError, missing):
+                    scalar.read_handoff_parquet(self.spark, handoff, contract)
+                with self.assertRaisesRegex(AnalysisException, missing):
+                    scalar.write_silver_iceberg(
+                        self.spark, incomplete.drop(missing), self.scalar_args(name, "append"), contract, F)
+                self.assertEqual(self.spark.sql(snapshot_query).first()[0], snapshot)
+                self.assertEqual(self.spark.table(table).count(), 1)
+                self.assertEqual(self.spark.table(table).first().asDict(), before)
+
     def test_each_registered_backfill_matches_a_rebuild_and_retries_after_add_column(self):
         from pyspark.sql import functions as F
 

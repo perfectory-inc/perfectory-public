@@ -121,6 +121,34 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
 ' "${jobs_file}")
 }
 
+wait_for_declared_dags() {
+  local listing
+  for _ in $(seq 1 30); do
+    if listing="$(airflow_cli dags list --output json)" &&
+      printf '%s' "${listing}" | python3 -c '
+import json, sys
+try:
+    expected = {"foundation_" + job["id"] for job in json.load(open(sys.argv[1]))["jobs"]}
+    rows = json.load(sys.stdin)
+    if not expected or not isinstance(rows, list) or any(
+        not isinstance(row, dict) or not isinstance(row.get("dag_id"), str) for row in rows
+    ):
+        raise ValueError("invalid DAG list")
+    missing = expected - {row["dag_id"] for row in rows}
+    if missing:
+        print("waiting for declared DAGs: " + ", ".join(sorted(missing)), file=sys.stderr)
+        sys.exit(1)
+except (ValueError, TypeError, KeyError, OSError) as error:
+    print("cannot validate declared DAG readiness: " + str(error), file=sys.stderr)
+    sys.exit(1)
+' "${jobs_file}"; then
+      return 0
+    fi
+    sleep 5
+  done
+  fail "declared DAGs did not become ready; pool and activation state were not changed"
+}
+
 verify_up() {
   local code redirect
   for _ in $(seq 1 60); do
@@ -129,11 +157,9 @@ verify_up() {
     sleep 10
   done
   [[ "${code}" == 200 ]] || fail "the API answered ${code} after 10 minutes"
-  # The DAG processor parses the jobs a moment after start; pausing waits for them to exist.
-  for _ in $(seq 1 30); do
-    airflow_cli dags list -o plain 2>/dev/null | grep -q '^foundation_' && break
-    sleep 5
-  done
+  # Existing DAGs do not prove a newly released job has been parsed. Do not change any
+  # scheduler state until every job in the single authoritative list is present.
+  wait_for_declared_dags
   ensure_pools
   sync_enabled
   redirect="$(curl -s -o /dev/null -w '%{redirect_url}' "${api}/auth/login/zitadel?next=" || true)"

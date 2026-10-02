@@ -319,6 +319,105 @@ struct BronzeFixture {
     bronze_object_key: ObjectKey,
 }
 
+async fn insert_month_candidate(
+    uow: &PgBronzeIngestUnitOfWork,
+    fixture: &BronzeFixture,
+    source: SourceCatalogId,
+    run: IngestionRunId,
+    month: u32,
+    revision: u32,
+) {
+    let mut row = fixture.bronze_object(source, run, Uuid::new_v4());
+    let key = format!(
+        "bronze/source={}/month-{month}-revision-{revision}.zip",
+        fixture.source.slug
+    );
+    row.object_key = ObjectKey::parse(&key).expect("fixture key");
+    row.dedupe_key.clone_from(&key);
+    row.source_identity_key = key;
+    row.snapshot_date = NaiveDate::from_ymd_opt(2099, month, 1).expect("fixture month");
+    row.snapshot_period = Some(format!("2099-{month:02}"));
+    row.snapshot_granularity = SnapshotGranularity::Month;
+    row.snapshot_basis = SnapshotBasis::ProviderFilePeriod;
+    // Reverse collection chronology deliberately: provider month alone must order selection.
+    row.collected_at = NaiveDate::from_ymd_opt(2100 - i32::try_from(month).expect("month"), 1, 1)
+        .expect("fixture collection date")
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight")
+        .and_utc();
+    uow.record_bronze_object(&row)
+        .await
+        .expect("record candidate");
+}
+
+#[tokio::test]
+#[ignore = "requires local docker stack"]
+async fn latest_complete_month_is_atomic_bounded_and_never_ordered_by_collection_time() {
+    let pool = pool().await;
+    let repo = PgBronzeIngestRepository::new(pool.clone());
+    let uow = PgBronzeIngestUnitOfWork::new(pool.clone());
+    let left = BronzeFixture::new();
+    let right = BronzeFixture::new();
+    let left_source = uow
+        .upsert_source_catalog_entry(&left.source)
+        .await
+        .expect("left source");
+    let right_source = uow
+        .upsert_source_catalog_entry(&right.source)
+        .await
+        .expect("right source");
+    let left_run = uow
+        .create_ingestion_run(&BronzeFixture::run(left_source.id))
+        .await
+        .expect("left run");
+    let right_run = uow
+        .create_ingestion_run(&BronzeFixture::run(right_source.id))
+        .await
+        .expect("right run");
+    assert!(repo
+        .latest_complete_bronze_month_candidates(&left_source.slug, &right_source.slug)
+        .await
+        .expect("empty selection")
+        .is_empty());
+    for month in [7, 9] {
+        insert_month_candidate(&uow, &left, left_source.id, left_run.id, month, 1).await;
+        insert_month_candidate(&uow, &right, right_source.id, right_run.id, month, 1).await;
+    }
+    insert_month_candidate(&uow, &left, left_source.id, left_run.id, 10, 1).await;
+    let selected = repo
+        .latest_complete_bronze_month_candidates(&left_source.slug, &right_source.slug)
+        .await
+        .expect("latest complete month");
+    assert_eq!(selected.len(), 2);
+    assert!(selected
+        .iter()
+        .all(|row| row.object.snapshot_period.as_deref() == Some("2099-09")));
+    assert!(selected
+        .iter()
+        .any(|row| row.source_slug == left_source.slug));
+    assert!(selected
+        .iter()
+        .any(|row| row.source_slug == right_source.slug));
+    // More than one candidate is not hidden by latest-collected or UUID tie breaking.
+    for revision in 2..6 {
+        insert_month_candidate(&uow, &left, left_source.id, left_run.id, 9, revision).await;
+    }
+    let ambiguous = repo
+        .latest_complete_bronze_month_candidates(&left_source.slug, &right_source.slug)
+        .await
+        .expect("ambiguity sentinel");
+    assert_eq!(ambiguous.len(), 3);
+    assert!(ambiguous
+        .iter()
+        .all(|row| row.object.snapshot_period.as_deref() == Some("2099-09")));
+    assert!(repo
+        .latest_complete_bronze_month_candidates(&left_source.slug, &left_source.slug)
+        .await
+        .is_err());
+    cleanup(&pool, left_source.id).await;
+    cleanup(&pool, right_source.id).await;
+}
+
 impl BronzeFixture {
     fn new() -> Self {
         let now = Utc::now();

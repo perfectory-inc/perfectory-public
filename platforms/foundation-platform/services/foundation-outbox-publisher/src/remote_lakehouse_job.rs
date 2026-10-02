@@ -10,6 +10,12 @@ use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+mod floor_cycle;
+mod floor_history;
+mod floor_source;
+mod scalar;
+use scalar::build_silver_scalar_remote_script;
+
 const SUMMARY_BEGIN_MARKER: &str = "__FOUNDATION_PLATFORM_SPARK_SUMMARY_BEGIN__";
 const SUMMARY_END_MARKER: &str = "__FOUNDATION_PLATFORM_SPARK_SUMMARY_END__";
 const LAKEHOUSE_COMPOSE_COMMAND: &str = "docker compose -f compose.lakehouse.yml";
@@ -35,10 +41,13 @@ struct RemoteLakehouseJobConfig {
     input_path_override: Option<String>,
     input_file_batch_size_override: Option<u32>,
     source_snapshot: BuildingRegisterSourceSnapshotConfig,
+    floor_source: Option<floor_source::FloorSource>,
+    local: Option<floor_cycle::LocalExecution>,
     audit: RemoteLakehouseAuditConfig,
     /// Resolved once here rather than at each script builder, because the builders return a
     /// `String` and a corrupt contract is not something a script body can report.
     iceberg_packages: String,
+    native_execution_profile: crate::lakehouse_engine_contract::ExecutionProfile,
 }
 
 impl RemoteLakehouseJobConfig {
@@ -77,9 +86,16 @@ impl RemoteLakehouseJobConfig {
                 &mut lookup,
                 "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_INPUT_FILE_BATCH_SIZE",
             )?,
+            floor_source: if job == RemoteLakehouseJob::PipelineFull {
+                Some(floor_source::FloorSource::from_lookup(&mut lookup)?)
+            } else {
+                None
+            },
             source_snapshot,
+            local: None,
             audit: RemoteLakehouseAuditConfig::from_lookup(&mut lookup)?,
             iceberg_packages: crate::lakehouse_engine_contract::iceberg_packages()?.to_owned(),
+            native_execution_profile: crate::lakehouse_engine_contract::execution_profile()?,
         })
     }
 }
@@ -298,9 +314,16 @@ struct RemoteCommandPlan {
 }
 
 pub async fn run() -> anyhow::Result<()> {
-    let config = RemoteLakehouseJobConfig::from_env()?;
+    run_config(RemoteLakehouseJobConfig::from_env()?).await
+}
+
+async fn run_config(config: RemoteLakehouseJobConfig) -> anyhow::Result<()> {
+    validate_remote_execution(&config)?;
     let plan = build_remote_lakehouse_job_plan(&config);
     if !config.execute {
+        if config.job == RemoteLakehouseJob::PipelineFull {
+            println!("remote-lakehouse-job-review-only: manual whole FLOOR execution is retired; use foundation-building-register-floor.service for the latest complete inputs; exact historical pair replay is not supported by the scheduled cycle");
+        }
         println!(
             "remote-lakehouse-job-plan-ok job={} execute=false ssh_target={} remote_root={}",
             config.job.as_str(),
@@ -327,6 +350,33 @@ pub async fn run() -> anyhow::Result<()> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let summary_json = extract_marked_summary_json(&stdout)?;
+    finish_job(&config, summary_json).await
+}
+
+fn validate_remote_execution(config: &RemoteLakehouseJobConfig) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !(config.execute && config.job == RemoteLakehouseJob::PipelineFull),
+        "manual remote whole FLOOR execution is retired; use foundation-building-register-floor.service (run-building-register-floor-cycle) for the latest complete inputs; exact historical pair replay is not supported by the scheduled cycle"
+    );
+    Ok(())
+}
+
+async fn finish_job(config: &RemoteLakehouseJobConfig, summary_json: String) -> anyhow::Result<()> {
+    if config.job == RemoteLakehouseJob::PipelineFull {
+        if let Some(retained_rows) = floor_history::retained_outcome(
+            &summary_json,
+            config
+                .floor_source
+                .as_ref()
+                .context("missing FLOOR source configuration")?,
+        )? {
+            println!(
+                "remote-lakehouse-job-ok job={} action=already_retained retained_row_count={} persisted_row_count=0 audit_recorded=false",
+                config.job.as_str(), retained_rows
+            );
+            return Ok(());
+        }
+    }
     if config.job == RemoteLakehouseJob::UnitProposalContextFull {
         if !matches!(config.audit, RemoteLakehouseAuditConfig::Disabled) {
             bail!("lakehouse batch audit is not supported for AI proposal input artifacts");
@@ -369,6 +419,14 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+pub fn stop_floor_cycle() -> anyhow::Result<()> {
+    floor_cycle::stop()
+}
+
+pub async fn run_floor_cycle() -> anyhow::Result<()> {
+    floor_cycle::run().await
 }
 
 impl RemoteCommandPlan {
@@ -655,7 +713,13 @@ fn build_building_register_floor_pipeline_script(
     pipeline: BuildingRegisterFloorPipelineSpec,
 ) -> String {
     let root = shell_quote(&config.remote_root);
-    let env_file = shell_quote(&config.env_file);
+    let environment = floor_cycle::environment_script(config);
+    let runtime_setup = floor_cycle::runtime_setup(config);
+    let run_flags = if config.local.is_some() {
+        " --no-deps --pull never"
+    } else {
+        ""
+    };
     let spark_script =
         build_silver_scalar_remote_script(config, pipeline.lakehouse_job.silver_scalar_spec());
     let chunk_rows_env = pipeline.chunk_rows.map_or_else(String::new, |chunk_rows| {
@@ -663,38 +727,85 @@ fn build_building_register_floor_pipeline_script(
             "  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_CHUNK_ROWS='{chunk_rows}' \\\n"
         )
     });
-    format!(
+    let run_root = config
+        .floor_source
+        .as_ref()
+        .map(floor_source::FloorSource::root);
+    let output_path = run_root.as_ref().map_or_else(
+        || pipeline.output_path.to_owned(),
+        |root| format!("{root}/handoff"),
+    );
+    let proposal_path = run_root.as_ref().map_or_else(
+        || pipeline.proposal_path.to_owned(),
+        |root| format!("{root}/proposals.jsonl"),
+    );
+    let export_summary_path = run_root.as_ref().map_or_else(
+        || pipeline.export_summary_path.to_owned(),
+        |root| format!("{root}/export-summary.json"),
+    );
+    let identity_env = config.floor_source.as_ref().map_or_else(|| format!(
+        "  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SNAPSHOT_ID=\"{}-$(date -u +%Y%m%dT%H%M%SZ)\" \\\n  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_VALID_FROM_UTC=\"$(date -u +%Y-%m-%dT00:00:00Z)\" \\\n", pipeline.source_snapshot_prefix), floor_source::FloorSource::exporter_env);
+    let profile = &config.native_execution_profile;
+    let memory_mib = profile.memory_mib;
+    let cpu_slots = profile.cpu_slots;
+    let pids_limit = profile.pids_limit;
+    // Docker's memory-swap is the total memory + swap ceiling; equal means no swap.
+    let memory_swap_mib = u64::from(memory_mib) + u64::from(profile.swap_mib);
+    let native_compose = floor_cycle::native_compose(config);
+    let inspection_env = if config.floor_source.is_some() {
+        "  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SOURCE_INSPECTION_PATH \\\n"
+    } else {
+        ""
+    };
+    let native_run = format!(
         "\
-set -euo pipefail
-cd {root}
-if [ ! -f {env_file} ]; then
-  echo 'missing remote lakehouse env file' >&2
-  exit 2
-fi
-if ! test -d 'target/lakehouse/bronze/source={source_slug}'; then
-  echo 'missing building-register floor Bronze source under target/lakehouse' >&2
-  exit 5
-fi
-mkdir -p 'target/remote-lakehouse/ai' 'target/remote-lakehouse/summaries'
-{LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-control build lakehouse-control
-{LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-control run --rm \\
+{native_compose} --profile lakehouse-control run --rm{run_flags} \\
   --user \"$(id -u):$(id -g)\" \\
-  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_BRONZE_ROOT='target/lakehouse' \\
+{inspection_env}  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_BRONZE_ROOT='target/lakehouse' \\
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SLUG='{source_slug}' \\
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_OUTPUT_PATH='{output_path}' \\
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_OUTPUT_FORMAT='{output_format}' \\
 {chunk_rows_env}  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_NORMALIZATION_PROPOSAL_INPUT_PATH='{proposal_path}' \\
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SUMMARY_PATH='{export_summary_path}' \\
-  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SNAPSHOT_ID=\"{source_snapshot_prefix}-$(date -u +%Y%m%dT%H%M%SZ)\" \\
-  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_VALID_FROM_UTC=\"$(date -u +%Y-%m-%dT00:00:00Z)\" \\
-  lakehouse-control export-building-register-floor-silver-handoff
-{spark_script}",
+{identity_env}",
         source_slug = pipeline.source_slug,
-        output_path = pipeline.output_path,
         output_format = pipeline.output_format,
-        proposal_path = pipeline.proposal_path,
-        export_summary_path = pipeline.export_summary_path,
-        source_snapshot_prefix = pipeline.source_snapshot_prefix,
+    );
+    let native_export =
+        format!("{native_run}  lakehouse-control export-building-register-floor-silver-handoff");
+    let prepare_inputs = if config.floor_source.is_some() {
+        // Credentials pass by environment name only and are needed only for missing staged files.
+        format!(
+            "\
+{native_run}  -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT \\
+  -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID \\
+  -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET \\
+  -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION \\
+  -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID \\
+  -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY \\
+  lakehouse-control stage-building-register-floor-inputs\n"
+        )
+    } else {
+        format!(
+            "\
+if ! test -d 'target/lakehouse/bronze/source={}'; then
+  echo 'missing building-register floor Bronze source under target/lakehouse' >&2
+  exit 5
+fi\n",
+            pipeline.source_slug
+        )
+    };
+    let historical_preflight = floor_history::preflight_script(config, &native_export);
+    format!(
+        "\
+set -euo pipefail
+cd {root}
+{environment}export FOUNDATION_PLATFORM_NATIVE_MEMORY_MIB='{memory_mib}'
+export FOUNDATION_PLATFORM_NATIVE_CPU_SLOTS='{cpu_slots}'
+export FOUNDATION_PLATFORM_NATIVE_PIDS_LIMIT='{pids_limit}'
+export FOUNDATION_PLATFORM_NATIVE_MEMORY_SWAP_MIB='{memory_swap_mib}'
+{runtime_setup}{prepare_inputs}{historical_preflight}{native_export}
+{spark_script}",
     )
 }
 
@@ -1127,176 +1238,6 @@ echo '{SUMMARY_BEGIN_MARKER}'
 cat {summary_path}
 echo '{SUMMARY_END_MARKER}'
 "
-    )
-}
-
-fn build_silver_scalar_remote_script(
-    config: &RemoteLakehouseJobConfig,
-    spec: SilverScalarRemoteJobSpec,
-) -> String {
-    let root = shell_quote(&config.remote_root);
-    let env_file = shell_quote(&config.env_file);
-    let spec_input_path = config
-        .input_path_override
-        .as_deref()
-        .unwrap_or(spec.input_path);
-    let input_path = shell_quote(spec_input_path);
-    let summary_path = shell_quote(spec.summary_path);
-    let input_file_batch_size = config
-        .input_file_batch_size_override
-        .unwrap_or(spec.default_input_file_batch_size);
-    let input_preflight = if spec.require_non_empty_input {
-        format!(
-            "\
-if [ -f {input_path} ]; then
-  if ! test -s {input_path}; then
-    echo 'missing or empty Silver handoff input' >&2
-    exit 3
-  fi
-elif [ -d {input_path} ]; then
-  if [ -z \"$(find -L {input_path} -type f -size +0c -print -quit)\" ]; then
-    echo 'missing or empty Silver handoff input' >&2
-    exit 3
-  fi
-else
-  echo 'missing or empty Silver handoff input' >&2
-  exit 3
-fi
-"
-        )
-    } else {
-        String::new()
-    };
-    let expected_count_arg = spec
-        .expected_count
-        .map(|count| format!("  --expected-count {count} \\\n"))
-        .unwrap_or_default();
-    let java_extra_options_args =
-        spec.spark_java_extra_options
-            .map_or_else(String::new, |java_extra_options| {
-                format!(
-                    "  --conf spark.driver.extraJavaOptions={java_extra_options} \\\n  --conf spark.executor.extraJavaOptions={java_extra_options} \\\n"
-                )
-            });
-    let allow_non_smoke_overwrite_arg = if spec.allow_non_smoke_overwrite {
-        "  --allow-non-smoke-overwrite \\\n"
-    } else {
-        ""
-    };
-    // Read off the engine contract, not written here. A remote submission that pinned its own
-    // Iceberg would load a different jar than the job it submits expects (root ADR-0064). The
-    // config resolved it while it could still report a bad contract; this only formats it.
-    let iceberg_packages = &config.iceberg_packages;
-    format!(
-        "\
-set -euo pipefail
-cd {root}
-if [ ! -f {env_file} ]; then
-  echo 'missing remote lakehouse env file' >&2
-  exit 2
-fi
-{input_preflight}\
-set -a
-. {env_file}
-set +a
-if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET:-}}\" ]; then
-  echo 'lakehouse catalog bucket mismatch: FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET is missing' >&2
-  exit 9
-fi
-catalog_bucket=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI##*/}}\"
-if [ \"$catalog_bucket\" != \"$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET\" ]; then
-  echo \"lakehouse catalog bucket mismatch: catalog_uri_bucket=$catalog_bucket r2_bucket=$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET\" >&2
-  exit 9
-fi
-case \"${{FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE:-}}\" in
-  *_\"$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET\") ;;
-  *)
-    echo \"lakehouse warehouse bucket mismatch: warehouse=$FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE r2_bucket=$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET\" >&2
-    exit 9
-    ;;
-esac
-if [ -n \"${{FOUNDATION_PLATFORM_LAKEHOUSE_OAUTH2_SERVER_URI:-}}\" ]; then
-  expected_oauth_uri=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI%/}}/v1/oauth/tokens\"
-  if [ \"$FOUNDATION_PLATFORM_LAKEHOUSE_OAUTH2_SERVER_URI\" != \"$expected_oauth_uri\" ]; then
-    echo 'lakehouse oauth uri mismatch: expected catalog_uri + /v1/oauth/tokens' >&2
-    exit 9
-  fi
-fi
-render_trino_catalog_from_env() {{
-  mkdir -p 'infra/lakehouse/trino/catalog'
-  cat > 'infra/lakehouse/trino/catalog/r2.properties' <<TRINO_CATALOG
-connector.name=iceberg
-iceberg.catalog.type=rest
-iceberg.rest-catalog.uri=${{FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI}}
-iceberg.rest-catalog.warehouse=${{FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE}}
-iceberg.rest-catalog.security=OAUTH2
-iceberg.rest-catalog.oauth2.token=${{FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN}}
-iceberg.rest-catalog.oauth2.server-uri=${{FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI%/}}/v1/oauth/tokens
-fs.s3.enabled=true
-s3.region=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION:-auto}}
-s3.endpoint=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT}}
-s3.aws-access-key=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}}
-s3.aws-secret-key=${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}}
-s3.path-style-access=true
-TRINO_CATALOG
-  chmod 600 'infra/lakehouse/trino/catalog/r2.properties'
-}}
-render_trino_catalog_from_env
-mkdir -p 'target/lakehouse/smoke'
-{LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-batch run --rm \\
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \\
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \\
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN \\
-  -e FOUNDATION_PLATFORM_SPARK_SKIP_STOP_ON_SUCCESS=1 \\
-  spark spark-submit \\
-  --master {spec_spark_master} \\
-  --driver-memory {spec_spark_driver_memory} \\
-  --conf spark.jars.ivy=/tmp/.ivy2 \\
-{java_extra_options_args}\
-  --packages {iceberg_packages} \\
-  /workspace/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py \\
-  --input /workspace/{spec_input_path} \\
-  --input-format {spec_input_format} \\
-  --contract {spec_contract} \\
-  --write-mode iceberg \\
-  --iceberg-write-mode overwrite \\
-  --iceberg-table {spec_iceberg_table} \\
-{expected_count_arg}{allow_non_smoke_overwrite_arg}  --input-file-batch-size {input_file_batch_size} \\
-  --defer-iceberg-readback-validation \\
-  --summary-output /workspace/{spec_summary_path}
-expected_rows=\"$(grep -o '\"row_count\":[0-9][0-9]*' {summary_path} | tail -n 1 | sed 's/[^0-9]//g')\"
-if [ -z \"$expected_rows\" ]; then
-  echo 'missing row_count in Spark summary' >&2
-  exit 6
-fi
-{LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-query up -d --force-recreate trino
-for attempt in $(seq 1 60); do
-  if {LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-query exec -T trino trino --catalog r2 --schema silver --execute \"SELECT 1\" >/dev/null 2>&1; then
-    break
-  fi
-  if [ \"$attempt\" -eq 60 ]; then
-    echo 'trino did not become ready for Iceberg readback validation' >&2
-    exit 7
-  fi
-  sleep 2
-done
-actual_rows=\"$({LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-query exec -T trino trino --catalog r2 --schema silver --execute \"SELECT count(*) FROM {spec_iceberg_table}\" | tr -d '\"[:space:]')\"
-if [ \"$actual_rows\" != \"$expected_rows\" ]; then
-  echo \"trino row count mismatch table={spec_iceberg_table} expected=$expected_rows actual=$actual_rows\" >&2
-  exit 8
-fi
-echo '{SUMMARY_BEGIN_MARKER}'
-cat {summary_path}
-echo '{SUMMARY_END_MARKER}'
-",
-        spec_input_path = spec_input_path,
-        spec_input_format = spec.input_format,
-        spec_contract = spec.contract,
-        spec_summary_path = spec.summary_path,
-        spec_iceberg_table = spec.iceberg_table,
-        spec_spark_master = spec.spark_master,
-        spec_spark_driver_memory = spec.spark_driver_memory,
-        java_extra_options_args = java_extra_options_args
     )
 }
 

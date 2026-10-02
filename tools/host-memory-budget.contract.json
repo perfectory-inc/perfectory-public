@@ -1,7 +1,13 @@
 {
   "schema_version": 1,
   "decision": "docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md",
-  "rule": "Every compose service states mem_limit. On the shared host, the caps of the services that stay up, plus the largest one-shot job, plus host_reserved, fit in physical_memory. The caps themselves live only in the compose files; this file names the host, which compose projects run there, and what is outside the caps.",
+  "rule": "Every compose service states mem_limit. On the shared host, the caps of the services that stay up, plus the largest one-shot job, plus host_reserved, fit in physical_memory. Compose states literal caps or required parameters whose numeric values live in the referenced source contract; this file names those bindings, the host, which compose projects run there, and what is outside the caps.",
+  "memory_parameters": {
+    "FOUNDATION_PLATFORM_NATIVE_MEMORY_MIB": {
+      "contract": "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
+      "json_path": ["execution_profile", "memory_mib"]
+    }
+  },
   "host": {
     "name": "ai-server",
     "physical_memory": "62g",
@@ -27,8 +33,11 @@
     },
     {
       "name": "foundation-platform-compute",
-      "files": ["platforms/foundation-platform/compose.lakehouse.yml"],
-      "profiles": ["lakehouse-query", "lakehouse-batch"]
+      "files": [
+        "platforms/foundation-platform/compose.lakehouse.yml",
+        "platforms/foundation-platform/compose.lakehouse-native.yml"
+      ],
+      "profiles": ["lakehouse-query", "lakehouse-batch", "lakehouse-control"]
     },
     {
       "name": "datahub",

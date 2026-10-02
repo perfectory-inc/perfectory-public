@@ -14,13 +14,13 @@ use foundation_normalization_domain::BuildingFloorCounts;
 use lakehouse_application::parse_building_title_floor_counts_from_hub_bulk_text_line;
 use zip::ZipArchive;
 
-use super::hub_bulk_decoder::single_file_entry_index;
+use crate::building_register_zip_lines::single_file_entry_index;
 
 /// Builds a `mgm_bldrgst_pk -> BuildingFloorCounts` map from 표제부 Bronze zip objects.
 ///
 /// The first row seen for a management key wins. Objects are UTF-8 pipe-delimited
 /// hub bulk TXT inside a single-file zip, same as the floor bulk objects.
-pub(crate) fn load_building_title_floor_counts(
+pub(super) fn load_building_title_floor_counts(
     object_paths: &[PathBuf],
 ) -> anyhow::Result<HashMap<String, BuildingFloorCounts>> {
     let mut counts = HashMap::new();

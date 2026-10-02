@@ -11,7 +11,13 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = ["bundled-duckdb"]
+bundled-duckdb = ["duckdb/bundled"]
+
 [dependencies]
+duckdb = { workspace = true }
+tempfile = { workspace = true }
 anyhow = { workspace = true }
 apache-avro = { workspace = true }
 arrow-array = { workspace = true }
@@ -56,6 +62,9 @@ foundation-outbox = { workspace = true }
 outbound-http-infrastructure = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5"] }
 zip = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true }
 
 [dev-dependencies]
 foundation-disposable-database = { workspace = true }

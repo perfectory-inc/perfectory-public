@@ -14,7 +14,7 @@ last_reviewed: 2026-10-01
 
 | 무엇 | 정본 |
 |---|---|
-| 서비스마다의 상한 | 각 compose 파일의 `mem_limit` (여기에는 다시 적지 않는다) |
+| 서비스마다의 상한 | 각 compose 파일의 `mem_limit`. native 값은 engine contract의 `execution_profile.memory_mib`를 참조한다 |
 | 어떤 compose 묶음이 ai-server 에서 도는지, 어떤 profile 로, 호스트 몫과 상한 밖에 있는 것 | [`tools/host-memory-budget.contract.json`](../../../../tools/host-memory-budget.contract.json) |
 | 합계 검사 | [`scripts/guard/every-container-has-a-memory-cap.sh`](../../../../scripts/guard/every-container-has-a-memory-cap.sh) |
 
@@ -28,10 +28,16 @@ PERFECTORY_MEMORY_BUDGET_VERBOSE=1 bash scripts/guard/every-container-has-a-memo
 
 - 계속 떠 있는 서비스는 상한 그대로 더한다.
 - 한 번 돌고 끝나는 작업(`restart: "no"`, 또는 다른 서비스가 `service_completed_successfully` 로 기다리는 것)은
-  배포나 타이머가 하나씩 돌리므로 가장 큰 하나만 더한다.
+  가장 큰 하나만 더한다. 예약 데이터 작업은 Airflow의 `spark` pool 한 슬롯을 사용하며,
+  직접 실행한 작업의 동시 실행까지 이 가드가 막지는 않는다.
 - 호스트가 켜지 않는 profile 의 서비스는 더하지 않는다.
 - 여기에 `host_reserved`(OS, Docker, 컨테이너 밖에서 도는 발행기·타이머 실행 파일, Open WebUI·LiteLLM)를 더한다.
 - compose 파일이 새로 생기면 계약이 그 파일을 어디에 둘지(ai-server 묶음, 호스트 밖, 범위 밖) 정하기 전까지 가드가 막는다.
+
+Spark는 `compose run --rm`으로 작업할 때만 실행한다. 기본 명령도 종료되므로 대기 컨테이너를
+상시 서비스로 켜 두지 않는다. native overlay는 같은 compute 묶음에서 검사하며 메모리 수치는
+[engine contract](../../infra/lakehouse/contracts/lakehouse-engine.contract.json)에서만 읽는다.
+결정과 적용 경계는 [ADR-0129](../../../../docs/adr/0129-compute-memory-counts-one-shot-spark-and-native-contracts.md)를 따른다.
 
 ## 큰 상한의 근거
 
@@ -72,6 +78,10 @@ PERFECTORY_MEMORY_BUDGET_VERBOSE=1 bash scripts/guard/every-container-has-a-memo
 잠깐 멈추므로 타이머가 돌지 않는 시간에 한다. Trino·Spark 의 compose 는 원격 적재 뿌리
 `/home/perfectory/foundation-platform-compute` 에 따로 복사돼 있으니([remote-lakehouse-job-runner](./remote-lakehouse-job-runner.md))
 그 사본도 같은 판으로 맞춘다.
+
+Spark 정의를 반영할 때는 실행 중인 적재가 없는지 확인한 뒤 기존 `spark` 서비스를 새 정의로
+재생성한다. 기본 `spark-submit --version`은 종료돼야 하며 `sleep infinity` 컨테이너가 남으면
+새 예산의 전제가 충족되지 않는다. FLOOR 전체 경로의 예약 연결과 운영 설치는 별도 검증한다.
 
 반영 뒤 확인:
 

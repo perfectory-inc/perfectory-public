@@ -1,6 +1,41 @@
 use super::{command_requires_expanded_stack, parse_command, Command};
 
 #[test]
+fn floor_cycle_command_accepts_no_manual_selection_arguments() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["publisher", "stop-building-register-floor-cycle"])?,
+        Command::StopBuildingRegisterFloorCycle
+    );
+    assert!(parse_command(["publisher", "stop-building-register-floor-cycle", "all"]).is_err());
+    assert_eq!(
+        parse_command(["publisher", "run-building-register-floor-cycle"])?,
+        Command::RunBuildingRegisterFloorCycle
+    );
+    assert!(parse_command([
+        "publisher",
+        "run-building-register-floor-cycle",
+        "other.zip"
+    ])
+    .is_err());
+    Ok(())
+}
+
+#[test]
+fn floor_input_selection_command_accepts_no_arguments() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["publisher", "select-building-register-floor-inputs"])?,
+        Command::SelectBuildingRegisterFloorInputs
+    );
+    assert!(parse_command([
+        "publisher",
+        "select-building-register-floor-inputs",
+        "unexpected"
+    ])
+    .is_err());
+    Ok(())
+}
+
+#[test]
 fn static_release_readdress_command_is_explicit_and_accepts_no_arguments() {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "readdress-static-release"]).unwrap(),
@@ -850,6 +885,10 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
         (
             "export-building-register-floor-silver-handoff",
             Command::ExportBuildingRegisterFloorSilverHandoff,
+        ),
+        (
+            "stage-building-register-floor-inputs",
+            Command::StageBuildingRegisterFloorInputs,
         ),
         (
             "export-parcel-marker-anchor-artifacts",

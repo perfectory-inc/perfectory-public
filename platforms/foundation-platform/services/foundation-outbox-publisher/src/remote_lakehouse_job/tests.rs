@@ -12,17 +12,33 @@ fn smoke_config() -> RemoteLakehouseJobConfig {
         input_path_override: None,
         input_file_batch_size_override: None,
         source_snapshot: BuildingRegisterSourceSnapshotConfig::NotRequired,
+        floor_source: None,
+        local: None,
         audit: RemoteLakehouseAuditConfig::Disabled,
         // The real coordinates, not a stand-in: the assertions below pin the exact remote
         // command, so a fixture that invented its own packages would pass while the shipped
         // command loaded something else.
+        native_execution_profile: crate::lakehouse_engine_contract::execution_profile()
+            .expect("the native engine profile must resolve"),
         iceberg_packages: crate::lakehouse_engine_contract::iceberg_packages()
             .expect("the embedded engine contract must resolve")
             .to_owned(),
     }
 }
 
+fn history_fixture() -> anyhow::Result<
+    foundation_outbox_publisher::building_register_floor_silver_export::HistoryWitness,
+> {
+    foundation_outbox_publisher::building_register_floor_silver_export::HistoryWitness::load(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../infra/lakehouse/spark/tests/fixtures/building_register_floor_history.json")
+            .canonicalize()?,
+        None,
+    )
+}
+
 fn synthetic_snapshot_config(job: &str) -> anyhow::Result<RemoteLakehouseJobConfig> {
+    let history_path = history_fixture()?.path().display().to_string();
     RemoteLakehouseJobConfig::from_lookup(|name| match name {
         "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_SSH_TARGET" => {
             Some("perfectory@lakehouse.internal.test".to_owned())
@@ -31,8 +47,15 @@ fn synthetic_snapshot_config(job: &str) -> anyhow::Result<RemoteLakehouseJobConf
             Some("/home/perfectory/foundation-platform-compute".to_owned())
         }
         "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_JOB" => Some(job.to_owned()),
+        "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH" => Some(history_path.clone()),
         "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_SNAPSHOT_DATE" => {
             Some("2099-12-31".to_owned())
+        }
+        "FOUNDATION_PLATFORM_BUILDING_REGISTER_RETAINED_INGESTED_AT_UTC" => {
+            Some("2099-12-31T12:00:00Z".into())
+        }
+        "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_FLOOR_SOURCE_OBJECT" => {
+            Some("OPN20991231SYNTHETIC-FLOOR.zip".into())
         }
         "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_UNIT_SOURCE_OBJECT" => {
             Some("OPN20991231SYNTHETIC-UNIT.zip".to_owned())
@@ -145,7 +168,7 @@ fn handoff_smoke_plan_uses_exported_handoff_without_fixture_row_count() -> anyho
     let plan = build_remote_lakehouse_job_plan(&config);
 
     assert!(plan.remote_script.contains(
-        "--input /workspace/target/lakehouse/silver_handoff/building_register_floors.jsonl"
+        "--input '/workspace/target/lakehouse/silver_handoff/building_register_floors.jsonl'"
     ));
     assert!(plan
         .remote_script
@@ -171,14 +194,14 @@ fn handoff_smoke_plan_allows_chunked_input_directory_override() -> anyhow::Resul
     let plan = build_remote_lakehouse_job_plan(&config);
 
     assert!(plan.remote_script.contains(
-        "--input /workspace/target/lakehouse/silver_handoff/building_register_floors_hub_chunks"
+        "--input '/workspace/target/lakehouse/silver_handoff/building_register_floors_hub_chunks'"
     ));
     assert!(plan.remote_script.contains(
         "find -L 'target/lakehouse/silver_handoff/building_register_floors_hub_chunks' -type f -size +0c -print -quit"
     ));
     assert!(!plan.remote_script.contains("| grep -q"));
     assert!(!plan.remote_script.contains(
-        "--input /workspace/target/lakehouse/silver_handoff/building_register_floors.jsonl"
+        "--input '/workspace/target/lakehouse/silver_handoff/building_register_floors.jsonl'"
     ));
     Ok(())
 }
@@ -229,7 +252,7 @@ fn pipeline_smoke_plan_exports_handoff_before_spark_write() -> anyhow::Result<()
         .remote_script
         .contains("FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SNAPSHOT_ID"));
     assert!(!plan.remote_script.contains(
-        "--input /workspace/target/lakehouse/silver_handoff/building_register_floors.jsonl"
+        "--input '/workspace/target/lakehouse/silver_handoff/building_register_floors.jsonl'"
     ));
     assert!(plan
         .remote_script
@@ -247,7 +270,7 @@ fn pipeline_smoke_plan_uses_containerized_control_runner() -> anyhow::Result<()>
 
     assert!(plan
         .remote_script
-        .contains("docker compose -f compose.lakehouse.yml --profile lakehouse-control run --rm"));
+        .contains("docker compose -f compose.lakehouse.yml -f compose.lakehouse-native.yml --profile lakehouse-control run --rm"));
     assert!(plan.remote_script.contains("--user \"$(id -u):$(id -g)\""));
     assert!(plan.remote_script.contains("lakehouse-control"));
     assert!(!plan.remote_script.contains("command -v cargo"));
@@ -259,33 +282,87 @@ fn pipeline_smoke_plan_uses_containerized_control_runner() -> anyhow::Result<()>
 
 #[test]
 fn pipeline_full_plan_uses_parquet_handoff_without_jsonl_full_bloat() -> anyhow::Result<()> {
-    let mut config = smoke_config();
-    config.job = RemoteLakehouseJob::parse("building_register_floors_pipeline_full")?;
-    config.input_file_batch_size_override = Some(4);
-
+    let config = synthetic_snapshot_config("building_register_floors_pipeline_full")?;
     let plan = build_remote_lakehouse_job_plan(&config);
+    let script = &plan.remote_script;
+    assert!(script.contains("export-building-register-floor-silver-handoff"));
+    assert!(script.contains("FLOOR_VERIFY_BRONZE_LEDGER=1"));
+    assert!(script.contains("FLOOR_REUSE_COMPLETED_HANDOFF=1"));
+    assert!(script.contains("SOURCE_OBJECT='OPN20991231SYNTHETIC-FLOOR.zip'"));
+    assert!(script.contains("TITLE_SOURCE_OBJECT='OPN20991231SYNTHETIC-TITLE.zip'"));
+    assert!(script.contains("RETAINED_INGESTED_AT_UTC='2099-12-31T12:00:00+00:00'"));
+    assert!(script.contains("--input-format parquet"));
+    assert!(script.contains("--iceberg-write-mode append"));
+    assert!(script.contains("--input-file-batch-size 0"));
+    assert!(!script.contains("--defer-iceberg-readback-validation"));
+    assert!(!script.contains("--allow-non-smoke-overwrite"));
+    assert!(!script.contains("SELECT count(*) FROM"));
+    assert!(!script.contains("$(date"));
+    assert!(!script.contains("--derivation"));
+    assert!(script.contains("-e DATABASE_URL "));
+    assert!(!script.contains("-e DATABASE_URL="));
+    let root = config.floor_source.as_ref().context("floor config")?.root();
+    assert!(script.contains(&format!("--input '/workspace/{root}/handoff'")));
+    assert!(script.contains(&format!("OUTPUT_PATH='{root}/handoff'")));
+    Ok(())
+}
 
-    assert!(plan
+#[test]
+fn manual_whole_floor_execution_is_retired_but_review_and_other_jobs_remain() -> anyhow::Result<()>
+{
+    let mut config = synthetic_snapshot_config("building_register_floors_pipeline_full")?;
+    config.execute = false;
+    validate_remote_execution(&config)?;
+    assert!(!build_remote_lakehouse_job_plan(&config)
         .remote_script
-        .contains("export-building-register-floor-silver-handoff"));
-    assert!(plan.remote_script.contains(
-        "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_OUTPUT_FORMAT='parquet'"
-    ));
-    assert!(plan.remote_script.contains(
-        "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_CHUNK_ROWS='250000'"
-    ));
-    assert!(plan
-        .remote_script
-        .contains("target/lakehouse/silver_handoff/building_register_floors_hub_parquet"));
-    assert!(plan.remote_script.contains("--input-format parquet"));
-    assert!(plan
-        .remote_script
-        .contains("--iceberg-table building_register_floors"));
-    assert!(plan.remote_script.contains("--allow-non-smoke-overwrite"));
-    assert!(plan.remote_script.contains("--input-file-batch-size 4"));
-    assert!(!plan
-        .remote_script
-        .contains("building_register_floors_hub_full"));
+        .is_empty());
+    config.execute = true;
+    let error = validate_remote_execution(&config).expect_err("manual FLOOR must be rejected");
+    assert!(error
+        .to_string()
+        .contains("foundation-building-register-floor.service"));
+    assert!(error
+        .to_string()
+        .contains("run-building-register-floor-cycle"));
+    for job in [
+        RemoteLakehouseJob::Smoke,
+        RemoteLakehouseJob::HandoffSmoke,
+        RemoteLakehouseJob::PipelineSmoke,
+        RemoteLakehouseJob::PipelineHubSmoke,
+        RemoteLakehouseJob::UnitPipelineFull,
+        RemoteLakehouseJob::UnitAreaPipelineFull,
+    ] {
+        config.job = job;
+        validate_remote_execution(&config)?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn manual_whole_floor_rejection_never_starts_ssh() -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir()?;
+    let ssh = dir.path().join("ssh");
+    let marker = dir.path().join("called");
+    std::fs::write(
+        &ssh,
+        format!(
+            "#!/bin/sh\ntouch {}\n",
+            shell_quote(&marker.to_string_lossy())
+        ),
+    )?;
+    std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755))?;
+    let mut config = synthetic_snapshot_config("building_register_floors_pipeline_full")?;
+    config.execute = true;
+    config.ssh_path = ssh.to_string_lossy().into_owned();
+    let result = run_config(config)
+        .await
+        .expect_err("manual FLOOR must be rejected");
+    assert!(result
+        .to_string()
+        .contains("run-building-register-floor-cycle"));
+    assert!(!marker.exists());
     Ok(())
 }
 
@@ -989,16 +1066,34 @@ fn audit_record_input_preserves_summary_staff_and_request_id() {
 
 #[test]
 fn unit_pipeline_requires_and_stages_same_snapshot_parent_basis() {
-    let config =
-        synthetic_snapshot_config("building_register_units_pipeline_smoke").expect("valid inputs");
-    let script = build_remote_lakehouse_job_plan(&config).remote_script;
-    assert!(script.contains("stage_bronze_object 'hubgokr__building_register_basis_outline' 'OPN20991231SYNTHETIC-BASIS.zip'"));
-    assert!(script.contains("FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_BASIS_SOURCE_OBJECT='OPN20991231SYNTHETIC-BASIS.zip'"));
+    for job in [
+        "building_register_units_pipeline_smoke",
+        "building_register_units_pipeline_full",
+    ] {
+        let mut config = synthetic_snapshot_config(job).expect("valid inputs");
+        assert!(config.floor_source.is_none());
+        config.execute = true;
+        validate_remote_execution(&config)
+            .expect("the FLOOR-only execution restriction excludes UNIT");
+        let script = build_remote_lakehouse_job_plan(&config).remote_script;
+        let stage = script
+            .find("stage_bronze_object 'hubgokr__building_register_basis_outline' 'OPN20991231SYNTHETIC-BASIS.zip'")
+            .expect("the UNIT parent BASIS must be staged");
+        let export = script
+            .find("export-building-register-unit-silver-handoff")
+            .expect("the canonical UNIT exporter must remain selected");
+        assert!(stage < export);
+        assert!(script.contains("FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_BASIS_SOURCE_OBJECT='OPN20991231SYNTHETIC-BASIS.zip'"));
+    }
 }
 
 #[test]
-fn unit_pipeline_refuses_missing_or_other_month_parent_basis() {
-    for basis in [None, Some("OPN20991130SYNTHETIC-BASIS.zip")] {
+fn unit_pipeline_refuses_missing_or_different_snapshot_parent_basis() {
+    for basis in [
+        None,
+        Some("OPN20991230SYNTHETIC-BASIS.zip"),
+        Some("OPN20991130SYNTHETIC-BASIS.zip"),
+    ] {
         let error = BuildingRegisterSourceSnapshotConfig::from_lookup(
             RemoteLakehouseJob::UnitPipelineFull,
             &mut |name| match name {
@@ -1018,4 +1113,317 @@ fn unit_pipeline_refuses_missing_or_other_month_parent_basis() {
             .to_string()
             .contains(BUILDING_REGISTER_BASIS_SOURCE_OBJECT_ENV));
     }
+}
+
+#[test]
+fn floor_native_invocation_enforces_the_embedded_execution_profile() -> anyhow::Result<()> {
+    let config = smoke_config();
+    let profile = crate::lakehouse_engine_contract::execution_profile()?;
+    let script = build_building_register_floor_pipeline_script(
+        &config,
+        BuildingRegisterFloorPipelineSpec::full(),
+    );
+    for (name, value) in [
+        ("MEMORY_MIB", u64::from(profile.memory_mib)),
+        ("CPU_SLOTS", u64::from(profile.cpu_slots)),
+        ("PIDS_LIMIT", u64::from(profile.pids_limit)),
+        (
+            "MEMORY_SWAP_MIB",
+            u64::from(profile.memory_mib) + u64::from(profile.swap_mib),
+        ),
+    ] {
+        assert!(script.contains(&format!(
+            "export FOUNDATION_PLATFORM_NATIVE_{name}='{value}'"
+        )));
+    }
+    assert!(script.contains("-f compose.lakehouse.yml -f compose.lakehouse-native.yml --profile lakehouse-control run --rm"));
+    let limits = include_str!("../../../../compose.lakehouse-native.yml");
+    for setting in ["mem_limit:", "memswap_limit:", "cpus:", "pids_limit:"] {
+        assert!(limits.contains(setting));
+    }
+    assert!(
+        !limits.contains(":-"),
+        "native limits must not have fallback defaults"
+    );
+    Ok(())
+}
+
+#[test]
+fn floor_full_requires_exact_inputs_retained_time_and_history() -> anyhow::Result<()> {
+    let history_path = history_fixture()?.path().display().to_string();
+    for missing in [
+        "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_FLOOR_SOURCE_OBJECT",
+        "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_TITLE_SOURCE_OBJECT",
+        "FOUNDATION_PLATFORM_BUILDING_REGISTER_RETAINED_INGESTED_AT_UTC",
+        "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH",
+    ] {
+        let result = floor_source::FloorSource::from_lookup(&mut |name| {
+            if name == missing {
+                return None;
+            }
+            match name {
+                "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_FLOOR_SOURCE_OBJECT" => {
+                    Some("OPN20991231FLOOR.zip".into())
+                }
+                "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_TITLE_SOURCE_OBJECT" => {
+                    Some("OPN20991231TITLE.zip".into())
+                }
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_RETAINED_INGESTED_AT_UTC" => {
+                    Some("2099-12-31T12:00:00Z".into())
+                }
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH" => {
+                    Some(history_path.clone())
+                }
+                _ => None,
+            }
+        });
+        assert!(result.is_err(), "accepted missing {missing}");
+    }
+    Ok(())
+}
+
+#[test]
+fn floor_derivation_uses_separate_artifacts_and_is_shell_quoted() -> anyhow::Result<()> {
+    let mut config = synthetic_snapshot_config("building_register_floors_pipeline_full")?;
+    let original = config.floor_source.as_ref().context("floor")?.root();
+    config.floor_source.as_mut().context("floor")?.ingested_at += chrono::Duration::days(1);
+    assert_eq!(
+        config.floor_source.as_ref().context("floor")?.root(),
+        original
+    );
+    config.floor_source.as_mut().context("floor")?.derivation = Some("floor 'fix' $(false)".into());
+    assert_ne!(
+        config.floor_source.as_ref().context("floor")?.root(),
+        original
+    );
+    let plan = build_remote_lakehouse_job_plan(&config);
+    assert!(plan.remote_script.contains(&format!(
+        "--derivation {}",
+        shell_quote("floor 'fix' $(false)")
+    )));
+    assert!(!plan
+        .remote_script
+        .contains("--iceberg-write-mode overwrite"));
+    Ok(())
+}
+
+#[test]
+fn floor_history_precedes_export_and_propagates_errors() -> anyhow::Result<()> {
+    let config = synthetic_snapshot_config("building_register_floors_pipeline_full")?;
+    let script = build_remote_lakehouse_job_plan(&config).remote_script;
+    let stage = script
+        .find("lakehouse-control stage-building-register-floor-inputs")
+        .context("exact input staging")?;
+    let inspection = script
+        .find("export FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SOURCE_INSPECTION_PATH")
+        .context("inspection")?;
+    let history = script
+        .find("building_register_floor_history.py")
+        .context("history")?;
+    let exporter = script
+        .rfind("lakehouse-control export-building-register-floor-silver-handoff")
+        .context("export")?;
+    let scalar = script
+        .find("silver_scalar_handoff_to_lakehouse.py")
+        .context("scalar")?;
+    assert!(stage < inspection && inspection < history && history < exporter && exporter < scalar);
+    assert!(!script.contains("missing building-register floor Bronze source"));
+    assert!(!script.contains("s3 sync"));
+    assert!(script.contains("floor_preflight_status=$?"));
+    assert!(script.contains("\"$floor_preflight_status\" -ne 10"));
+    assert!(script.contains("exit \"$floor_preflight_status\""));
+    assert!(script.contains("mktemp -d"));
+    assert!(script
+        .contains("--source-receipt \"/workspace/$floor_preflight_container_dir/source.json\""));
+    assert!(script.contains("chmod 640 \"$floor_preflight_dir/source.json\""));
+    Ok(())
+}
+
+#[test]
+fn local_floor_script_separates_host_state_and_container_paths() -> anyhow::Result<()> {
+    let mut config = synthetic_snapshot_config("building_register_floors_pipeline_full")?;
+    let relative = config.floor_source.as_ref().context("floor")?.root();
+    let suffix = relative
+        .strip_prefix("target/lakehouse/")
+        .context("state suffix")?;
+    config.local = Some(floor_cycle::LocalExecution {
+        project: format!("foundation-floor-{}", "1".repeat(32)),
+        state_root: "/var/lib/floor state".into(),
+        ivy_cache: "/var/lib/floor state/ivy".into(),
+        image: format!("sha256:{}", "a".repeat(64)),
+        database_network: "runtime_default".into(),
+        database_endpoint: "postgres:5432".into(),
+        outcome: "/var/lib/floor state/attempt/outcome.json".into(),
+    });
+    let script = build_remote_lakehouse_job_plan(&config).remote_script;
+    assert!(script.contains(&format!(
+        "mktemp -d '/var/lib/floor state/{suffix}'/source-check.XXXXXXXX"
+    )));
+    assert!(script.contains(&format!(
+        "floor_preflight_container_dir='{relative}'/\"${{floor_preflight_dir##*/}}\""
+    )));
+    assert!(script.contains(&format!("--input '/workspace/{relative}/handoff'")));
+    assert!(script.contains(&format!(
+        "--summary-output '/workspace/{relative}/spark-summary.json'"
+    )));
+    assert!(script.contains(&format!(
+        "cat '/var/lib/floor state/{suffix}/spark-summary.json'"
+    )));
+    assert!(!script.contains("/workspace//var/lib/"));
+    assert!(!script.contains(". '.env.lakehouse'"));
+    assert!(!script.contains("build lakehouse-control"));
+    assert!(script.contains(
+        "-f '/var/lib/floor state/attempt/native-compose.json' --profile lakehouse-control run"
+    ));
+    assert_eq!(script.matches("-f '/var/lib/floor state/attempt/native-compose.json' --profile lakehouse-batch run --rm --no-deps --pull never").count(), 2);
+    assert!(!script.contains("-e FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH"));
+    assert!(!script.contains("mkdir -p 'target/lakehouse/smoke'"));
+    assert!(script.contains("run --rm --no-deps --pull never"));
+    assert!(script.contains("--conf spark.jars.ivy=/home/spark/.ivy2"));
+    assert!(script.contains("--user \"${FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}:$(id -g)\""));
+    let destination = shell_quote("/var/lib/floor state/attempt/outcome.json");
+    let history_capture = script
+        .find(&format!(
+            "cat \"$floor_preflight_dir/history.json\" > {destination}"
+        ))
+        .context("retained outcome capture")?;
+    let early_exit = script[history_capture..]
+        .find("exit 0")
+        .context("retained early exit")?
+        + history_capture;
+    let scalar = script
+        .find("silver_scalar_handoff_to_lakehouse.py")
+        .context("scalar")?;
+    let scalar_capture = script
+        .find(&format!(
+            "cat '/var/lib/floor state/{suffix}/spark-summary.json' > {destination}"
+        ))
+        .context("scalar outcome capture")?;
+    let final_marker = script
+        .rfind(SUMMARY_BEGIN_MARKER)
+        .context("summary marker")?;
+    assert!(history_capture < early_exit && early_exit < scalar);
+    assert!(scalar < scalar_capture && scalar_capture < final_marker);
+    assert_eq!(script.matches("(set -C; cat ").count(), 2);
+    Ok(())
+}
+
+#[test]
+fn historical_retention_summary_cannot_claim_a_new_write() -> anyhow::Result<()> {
+    let witness = history_fixture()?.value()?;
+    let source = floor_source::FloorSource {
+        history: history_fixture()?,
+        floor: format!(
+            "{}.zip",
+            witness["inputs"]["floor"]["provider_file_id"]
+                .as_str()
+                .context("floor ID")?
+        ),
+        title: format!(
+            "{}.zip",
+            witness["inputs"]["title"]["provider_file_id"]
+                .as_str()
+                .context("title ID")?
+        ),
+        ingested_at: chrono::DateTime::parse_from_rfc3339("2026-10-01T00:00:00Z")?
+            .with_timezone(&chrono::Utc),
+        derivation: None,
+    };
+    let value = serde_json::json!({
+        "schema_version": "foundation-platform.floor-history-check.v1",
+        "action": "already_retained", "persisted_row_count": 0,
+        "inputs": witness["inputs"], "derivation": null,
+        "source_snapshot_id": witness["source_snapshot_id"],
+        "table_uuid": witness["table_uuid"], "snapshot_id": witness["snapshot_id"],
+        "observed_head_snapshot_id": witness["snapshot_id"],
+        "retained_row_count": witness["row_count"],
+    });
+    assert_eq!(
+        floor_history::retained_outcome(&value.to_string(), &source)?,
+        witness["row_count"].as_u64()
+    );
+    for key in [
+        "action",
+        "persisted_row_count",
+        "source_snapshot_id",
+        "table_uuid",
+        "snapshot_id",
+        "retained_row_count",
+        "observed_head_snapshot_id",
+    ] {
+        let mut changed = value.clone();
+        changed[key] = serde_json::json!("wrong");
+        assert!(
+            floor_history::retained_outcome(&changed.to_string(), &source).is_err(),
+            "accepted {key}"
+        );
+    }
+    assert_eq!(
+        floor_history::retained_outcome("{\"schema_version\":\"scalar\"}", &source)?,
+        None
+    );
+    let mut derived_source = source.clone();
+    derived_source.derivation = Some("normalizer-v2".into());
+    let mut mislabeled = value.clone();
+    mislabeled["derivation"] = serde_json::json!("normalizer-v2");
+    assert!(floor_history::retained_outcome(&mislabeled.to_string(), &derived_source).is_err());
+    let mut unknown_kind = value.clone();
+    unknown_kind["retention_kind"] = serde_json::json!("unknown");
+    assert!(floor_history::retained_outcome(&unknown_kind.to_string(), &source).is_err());
+    Ok(())
+}
+
+#[test]
+fn registered_retention_requires_its_commit_and_retained_time() -> anyhow::Result<()> {
+    let witness = history_fixture()?.value()?;
+    let config = synthetic_snapshot_config("building_register_floors_pipeline_full")?;
+    let source = config.floor_source.as_ref().context("floor source")?;
+    let mut inputs = witness["inputs"].clone();
+    for (role, name) in [("floor", &source.floor), ("title", &source.title)] {
+        inputs[role]["provider_file_id"] =
+            serde_json::json!(name.strip_suffix(".zip").context("source name")?);
+        inputs[role]["provider_month"] = serde_json::json!("2099-12-01");
+    }
+    let identity = foundation_outbox_publisher::building_register_floor_silver_export::source_identity_from_semantic(inputs.clone(), &source.history)?;
+    let value = serde_json::json!({
+        "schema_version": "foundation-platform.floor-history-check.v1",
+        "retention_kind": "registered_append",
+        "action": "already_retained", "persisted_row_count": 0,
+        "source_snapshot_id": identity, "inputs": inputs,
+        "table_uuid": witness["table_uuid"], "snapshot_id": "123",
+        "observed_head_snapshot_id": "124", "retained_row_count": 3,
+        "retained_ingested_at_utc": "2026-10-21T10:00:00Z", "derivation": null,
+    });
+    assert_eq!(
+        floor_history::retained_outcome(&value.to_string(), source)?,
+        Some(3)
+    );
+    for (key, invalid) in [
+        ("retained_row_count", serde_json::json!(0)),
+        ("persisted_row_count", serde_json::json!(3)),
+        ("retained_ingested_at_utc", serde_json::json!("2026-10-21")),
+        (
+            "source_snapshot_id",
+            serde_json::json!("building-register-floor-content-v1-other"),
+        ),
+        ("table_uuid", serde_json::json!("other-table")),
+        ("derivation", serde_json::json!("other-derivation")),
+        ("snapshot_id", serde_json::json!("0")),
+        ("observed_head_snapshot_id", serde_json::json!(-1)),
+    ] {
+        let mut changed = value.clone();
+        changed[key] = invalid;
+        assert!(
+            floor_history::retained_outcome(&changed.to_string(), source).is_err(),
+            "accepted {key}"
+        );
+    }
+    let mut changed = value.clone();
+    changed["inputs"]["floor"]["provider_file_id"] = serde_json::json!("OPN20991231OTHER");
+    // Even an internally consistent receipt for another source cannot satisfy this request.
+    changed["source_snapshot_id"] = serde_json::json!(
+        foundation_outbox_publisher::building_register_floor_silver_export::source_identity_from_semantic(changed["inputs"].clone(), &source.history)?
+    );
+    assert!(floor_history::retained_outcome(&changed.to_string(), source).is_err());
+    Ok(())
 }

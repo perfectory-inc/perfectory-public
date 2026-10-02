@@ -67,10 +67,12 @@ tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
 # 직렬화·타입
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 regex = "1"
+rustix = { version = "=1.1.5", features = ["fs"] }
 sha2 = "0.10"
 tempfile = "3.27"
+duckdb = { version = "=1.10506.0", default-features = false }
 futures-util = "0.3"
 bytes = "1"
 http-body = "1"

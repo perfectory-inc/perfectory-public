@@ -1,38 +1,85 @@
 //! Building-register floor Bronze-to-Silver handoff export command.
 
 use std::{
-    collections::HashMap,
     env, fs,
     fs::File,
     io::{BufWriter, Write as _},
     path::{Path, PathBuf},
 };
 
+mod blocking;
+mod committed_inputs;
+mod completed_handoff;
+mod floor_scratch;
+mod history_witness;
+#[cfg(test)]
 mod hub_bulk_decoder;
+mod input_evidence;
+mod output_layout;
+#[cfg(test)]
+mod output_layout_tests;
 mod parquet_row_writer;
+mod ready_summary;
+mod scratch_blob;
+mod selection;
+mod source_inputs;
+mod source_inspection;
+mod staging;
+#[cfg(test)]
 mod title_counts_loader;
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
-use foundation_normalization_domain::BuildingFloorCounts;
+pub use committed_inputs::CommittedInputs;
+use floor_scratch::FloorScratch;
+pub use history_witness::{
+    source_identity_from_semantic, HistoryWitness, HISTORY_CONTAINER_PATH, HISTORY_PATH_ENV,
+    HISTORY_SHA256_ENV,
+};
 use lakehouse_application::{
     build_building_register_floor_normalization_proposal_input,
     build_building_register_floor_silver_handoff,
     normalize_building_register_floor_silver_rows_from_public_data_bronze_json,
-    normalize_building_register_floor_silver_rows_with_title_counts,
-    BuildingRegisterFloorSilverRow, BuildingRegisterFloorSilverRowsInput,
-    BuildingRegisterFloorSourceRow, PublicDataBuildingRegisterFloorBronzeJsonInput,
+    BuildingRegisterFloorSilverRow, PublicDataBuildingRegisterFloorBronzeJsonInput,
 };
 use parquet_row_writer::ParquetSilverRowWriter;
-use title_counts_loader::load_building_title_floor_counts;
+pub use selection::{select_inputs, FloorInputSelection};
+
+/// Writes one bounded JSON selection from the committed Bronze ledger to stdout.
+/// # Errors
+/// Returns an error for missing or ambiguous inputs, invalid evidence or output failures.
+pub async fn select_inputs_cli() -> anyhow::Result<()> {
+    selection::run().await
+}
 
 /// Default 표제부 Bronze source slug used as the building-title floor-count witness.
-const DEFAULT_TITLE_SOURCE_SLUG: &str = "hubgokr__building_register_main";
+const DEFAULT_TITLE_SOURCE_SLUG: &str =
+    crate::building_register_source_role::SourceRole::Title.slug();
+
+/// Stages exactly the authenticated FLOOR/title Bronze objects for a full export.
+/// # Errors
+/// Rejects unauthenticated inputs, unsafe paths, mismatched bytes or failed storage reads.
+pub async fn stage_inputs() -> anyhow::Result<()> {
+    let config = ExportConfig::from_env().await?;
+    staging::run(config).await
+}
 
 /// Runs the local Bronze-to-Silver handoff export.
-pub fn run() -> anyhow::Result<()> {
-    let config = ExportConfig::from_env()?;
-    let report = export_handoff(&config)?;
+/// # Errors
+/// 입력·정규화·출력·정리 또는 완료 증거 검증이 실패하면 오류를 반환한다.
+pub async fn run() -> anyhow::Result<()> {
+    let inspection_path = source_inspection::path_from_env()?;
+    let config = ExportConfig::from_env().await?;
+    if let Some(path) = inspection_path {
+        source_inspection::run(&config, &path).await?;
+        tracing::info!(
+            receipt_path = %path.display(),
+            source_snapshot_id = %config.source_snapshot_id,
+            "building-register floor source inspection succeeded"
+        );
+        return Ok(());
+    }
+    let report = export_handoff(&config).await?;
     tracing::info!(
         input_object_count = report.input_object_count,
         row_count = report.row_count,
@@ -47,11 +94,15 @@ pub fn run() -> anyhow::Result<()> {
 struct ExportConfig {
     bronze_local_object_root: PathBuf,
     source_selector: SourceSelector,
+    exact_inputs: Option<source_inputs::ExactInputs>,
+    committed_inputs: Option<committed_inputs::CommittedInputs>,
+    reuse_completed: bool,
     output_path: PathBuf,
     proposal_input_path: Option<PathBuf>,
     summary_path: Option<PathBuf>,
     source_snapshot_id: String,
     valid_from_utc: DateTime<Utc>,
+    ingested_at_utc: DateTime<Utc>,
     max_rows: Option<usize>,
     chunk_rows: Option<usize>,
     output_format: OutputFormat,
@@ -66,7 +117,8 @@ enum SourceSelector {
     Prefix(String),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[allow(clippy::struct_field_names)] // Each field is a distinct observed count.
 struct ExportReport {
     input_object_count: usize,
     row_count: usize,
@@ -81,12 +133,18 @@ enum OutputFormat {
 }
 
 impl ExportConfig {
-    fn from_env() -> anyhow::Result<Self> {
-        Ok(Self {
+    async fn from_env() -> anyhow::Result<Self> {
+        let exact_inputs = source_inputs::ExactInputs::from_env()?;
+        let committed_inputs = committed_inputs::from_env(exact_inputs.as_ref()).await?;
+        let mut config = Self {
+            ingested_at_utc: crate::building_register_snapshot::ingested_at_utc()?,
             bronze_local_object_root: required_path_env(
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_BRONZE_ROOT",
             )?,
             source_selector: SourceSelector::from_env()?,
+            exact_inputs,
+            committed_inputs: committed_inputs.clone(),
+            reuse_completed: completed_handoff::reuse_flag()?,
             output_path: required_path_env(
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_OUTPUT_PATH",
             )?,
@@ -96,12 +154,18 @@ impl ExportConfig {
             summary_path: optional_path_env(
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SUMMARY_PATH",
             )?,
-            source_snapshot_id: required_env(
-                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SNAPSHOT_ID",
-            )?,
-            valid_from_utc: parse_utc_env(
-                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_VALID_FROM_UTC",
-            )?,
+            source_snapshot_id: match &committed_inputs {
+                Some(inputs) => inputs.source_snapshot_id()?,
+                None => required_env(
+                    "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SNAPSHOT_ID",
+                )?,
+            },
+            valid_from_utc: match &committed_inputs {
+                Some(inputs) => inputs.valid_from_utc()?,
+                None => parse_utc_env(
+                    "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_VALID_FROM_UTC",
+                )?,
+            },
             max_rows: optional_usize_env(
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_MAX_ROWS",
             )?,
@@ -109,90 +173,149 @@ impl ExportConfig {
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_CHUNK_ROWS",
             )?,
             output_format: OutputFormat::from_env()?,
-            title_source_slug: title_source_slug_from_env()?,
-        })
-    }
-}
-
-/// Reads the 표제부 witness source slug: defaults to `hubgokr__building_register_main`,
-/// and an empty or `none` value disables the building-title witness.
-fn title_source_slug_from_env() -> anyhow::Result<Option<String>> {
-    Ok(
-        match optional_env(
-            "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_TITLE_SOURCE_SLUG",
-        )? {
-            Some(value) if value.trim().is_empty() || value == "none" => None,
-            Some(value) => Some(value),
-            None => Some(DEFAULT_TITLE_SOURCE_SLUG.to_owned()),
-        },
-    )
-}
-
-impl OutputFormat {
-    fn from_env() -> anyhow::Result<Self> {
-        let Some(raw) = optional_env(
-            "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_OUTPUT_FORMAT",
-        )?
-        else {
-            return Ok(Self::Jsonl);
+            title_source_slug: source_inputs::title_source_slug_from_env()?,
         };
-        match raw.as_str() {
-            "jsonl" => Ok(Self::Jsonl),
-            "parquet" => Ok(Self::Parquet),
-            _ => bail!(
-                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_OUTPUT_FORMAT must be one of jsonl, parquet"
-            ),
-        }
-    }
-
-    const fn wire_name(self) -> &'static str {
-        match self {
-            Self::Jsonl => "jsonl",
-            Self::Parquet => "parquet",
-        }
+        completed_handoff::validate_flag(&config)?;
+        completed_handoff::restore_time(&mut config)?;
+        Ok(config)
     }
 }
 
-impl SourceSelector {
-    fn from_env() -> anyhow::Result<Self> {
-        let source_slug =
-            optional_env("FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SLUG")?;
-        let source_slug_prefix = optional_env(
-            "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SLUG_PREFIX",
+struct PreparedExport {
+    report: ExportReport,
+    summary: Option<(PathBuf, Vec<u8>)>,
+    /// Keep the stable lock held until the parent publishes the ready summary.
+    _lock: Option<File>,
+}
+
+async fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
+    let config = config.clone();
+    let runtime = tokio::runtime::Handle::current();
+    blocking::run(move |cancellation| runtime.block_on(prepare_handoff(&config, &cancellation)))
+        .await
+}
+
+async fn prepare_handoff(
+    config: &ExportConfig,
+    cancellation: &blocking::Cancellation,
+) -> anyhow::Result<PreparedExport> {
+    cancellation.check()?;
+    let (object_paths, title_paths) = prepare_inputs(config)?;
+    let input_evidence_before =
+        input_evidence::capture_selected_cancellable(&object_paths, &title_paths, cancellation)
+            .await?;
+    if let Some(committed) = &config.committed_inputs {
+        committed.verify(config, &input_evidence_before)?;
+    }
+    let lock = config
+        .summary_path
+        .as_ref()
+        .map(|path| completed_handoff::lock(path))
+        .transpose()?;
+    if let Some(summary_path) = &config.summary_path {
+        if completed_handoff::summary_exists(summary_path)? {
+            if !config.reuse_completed {
+                bail!(
+                    "floor ready summary already exists: {}",
+                    summary_path.display()
+                );
+            }
+            cancellation.check()?;
+            let report = completed_handoff::reuse(
+                config,
+                &input_evidence_before,
+                summary_path,
+                cancellation,
+            )?;
+            cancellation.check()?;
+            return Ok(PreparedExport {
+                report,
+                summary: None,
+                _lock: lock,
+            });
+        }
+    }
+    let mut scratch = if object_paths.iter().any(|path| {
+        path.extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+    }) {
+        let scratch = FloorScratch::with_cancellation(
+            &config.output_path,
+            crate::serving_scratch::configured_maximum_bytes()?,
+            cancellation.clone(),
         )?;
-        match (source_slug, source_slug_prefix) {
-            (Some(slug), None) => Ok(Self::Exact(slug)),
-            (None, Some(prefix)) => Ok(Self::Prefix(prefix)),
-            (Some(_), Some(_)) => bail!(
-                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SLUG and FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SLUG_PREFIX cannot both be set"
-            ),
-            (None, None) => bail!(
-                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SLUG or FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SILVER_HANDOFF_SOURCE_SLUG_PREFIX is required"
-            ),
-        }
-    }
+        Some(scratch)
+    } else {
+        None
+    };
 
-    fn source_summary(&self) -> serde_json::Value {
-        match self {
-            Self::Exact(source_slug) => serde_json::json!({
-                "source_slug": source_slug
-            }),
-            Self::Prefix(source_slug_prefix) => serde_json::json!({
-                "source_slug_prefix": source_slug_prefix
-            }),
-        }
-    }
+    let exported = write_handoff_objects(
+        config,
+        &object_paths,
+        &title_paths,
+        &mut scratch,
+        cancellation,
+    );
+    let closed = scratch.take().map_or_else(|| Ok(()), FloorScratch::close);
+    // Finish cleanup even when parsing, SQL, serialization, or output writing failed.
+    let (row_count, proposal_required_count, normalization_proposal_count, source_snapshot_ids) =
+        match (exported, closed) {
+            (Ok(result), Ok(())) => result,
+            (Err(error), Ok(())) | (Ok(_), Err(error)) => return Err(error),
+            (Err(error), Err(cleanup)) => {
+                return Err(error.context(format!("floor scratch cleanup also failed: {cleanup:#}")))
+            }
+        };
+    let input_evidence_after =
+        input_evidence::capture_selected_cancellable(&object_paths, &title_paths, cancellation)
+            .await?;
+    input_evidence::unchanged(&input_evidence_before, &input_evidence_after)?;
+    cancellation.check()?;
+    let report = ExportReport {
+        input_object_count: object_paths.len(),
+        row_count,
+        proposal_required_count,
+        normalization_proposal_count,
+    };
+    let summary = ready_summary::prepare(
+        config,
+        &input_evidence_after,
+        &report,
+        &source_snapshot_ids,
+        cancellation,
+    )?;
+    Ok(PreparedExport {
+        summary,
+        _lock: lock,
+        report,
+    })
 }
 
-fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
-    let object_paths =
-        collect_bronze_object_paths(&config.bronze_local_object_root, &config.source_selector)?;
+fn prepare_inputs(config: &ExportConfig) -> anyhow::Result<(Vec<PathBuf>, Vec<PathBuf>)> {
+    let object_paths = if let Some(exact) = &config.exact_inputs {
+        vec![exact.paths(config)?.0]
+    } else {
+        collect_bronze_object_paths(&config.bronze_local_object_root, &config.source_selector)?
+    };
     if object_paths.is_empty() {
         bail!("no building-register floor Bronze objects found for source selector");
     }
 
-    let title_floor_counts = load_title_floor_counts(config)?;
+    let title_paths = title_object_paths(config)?;
+    output_layout::validate(config, &object_paths, &title_paths)?;
+    Ok((object_paths, title_paths))
+}
 
+fn write_handoff_objects(
+    config: &ExportConfig,
+    object_paths: &[PathBuf],
+    title_paths: &[PathBuf],
+    scratch: &mut Option<FloorScratch>,
+    cancellation: &blocking::Cancellation,
+) -> anyhow::Result<(usize, u64, u64, Vec<String>)> {
+    if let Some(scratch) = scratch.as_mut() {
+        scratch.load_titles(title_paths)?;
+    }
     let mut output_writer =
         SilverRowWriter::new(&config.output_path, config.chunk_rows, config.output_format)?;
     let mut proposal_writer = config
@@ -205,7 +328,8 @@ fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
     let mut normalization_proposal_count = 0u64;
     let mut source_snapshot_ids = Vec::<String>::new();
     let mut remaining_rows = config.max_rows;
-    for object_path in &object_paths {
+    for object_path in object_paths {
+        cancellation.check()?;
         if matches!(remaining_rows, Some(0)) {
             break;
         }
@@ -217,7 +341,7 @@ fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
             &mut output_writer,
             proposal_writer.as_mut(),
             remaining_rows,
-            &title_floor_counts,
+            scratch.as_mut(),
         )?;
         row_count += object_report.row_count;
         if let Some(remaining) = remaining_rows.as_mut() {
@@ -240,56 +364,12 @@ fn export_handoff(config: &ExportConfig) -> anyhow::Result<ExportReport> {
             .flush()
             .context("failed to flush building-register floor proposal input")?;
     }
-    if let Some(summary_path) = &config.summary_path {
-        let floor_entity_context_pack_input = config.proposal_input_path.as_ref().map(|path| {
-            serde_json::json!({
-                "path": path.display().to_string(),
-                "proposal_count": normalization_proposal_count
-            })
-        });
-        let summary = serde_json::json!({
-            "schema_version": "foundation-platform.building_register_floor_silver_handoff_export.v1",
-            "generated_at_utc": Utc::now().to_rfc3339(),
-            "status": "ready",
-            "completion_claim_allowed": false,
-            "production_cutover_allowed": false,
-            "national_rollout_allowed": false,
-            "source": {
-                "bronze_local_object_root": config.bronze_local_object_root.display().to_string(),
-                "selector": config.source_selector.source_summary(),
-                "input_object_count": object_paths.len(),
-                "source_snapshot_id": config.source_snapshot_id.as_str(),
-                "max_rows": config.max_rows,
-                "chunk_rows": config.chunk_rows,
-                "output_format": config.output_format.wire_name()
-            },
-            "output": {
-                "path": config.output_path.display().to_string(),
-                "format": config.output_format.wire_name(),
-                "contract": "silver.building_register_floors",
-                "row_count": row_count,
-                "proposal_required_count": proposal_required_count,
-                "floor_entity_context_pack_input": floor_entity_context_pack_input,
-                "source_snapshot_ids": source_snapshot_ids
-            },
-            "evidence_limitations": [
-                "local_bronze_to_silver_handoff_only",
-                "does_not_write_iceberg_table",
-                "does_not_apply_ai_or_human_review",
-                "does_not_approve_production_cutover"
-            ]
-        });
-        let payload = serde_json::to_vec_pretty(&summary)
-            .context("failed to serialize building-register floor Silver handoff export summary")?;
-        write_file(summary_path, &payload)?;
-    }
-
-    Ok(ExportReport {
-        input_object_count: object_paths.len(),
+    Ok::<_, anyhow::Error>((
         row_count,
         proposal_required_count,
         normalization_proposal_count,
-    })
+        source_snapshot_ids,
+    ))
 }
 
 fn proposal_chunk_rows(path: &Path, handoff_chunk_rows: Option<usize>) -> Option<usize> {
@@ -458,7 +538,7 @@ fn export_object(
     output_writer: &mut SilverRowWriter,
     proposal_writer: Option<&mut JsonlRowWriter>,
     remaining_rows: Option<usize>,
-    title_floor_counts: &HashMap<String, BuildingFloorCounts>,
+    scratch: Option<&mut FloorScratch>,
 ) -> anyhow::Result<ObjectExportReport> {
     match object_path
         .extension()
@@ -474,15 +554,16 @@ fn export_object(
             proposal_writer,
             remaining_rows,
         ),
-        Some("zip") => export_hub_bulk_zip_object(
-            config,
-            object_path,
-            bronze_object_key,
-            output_writer,
-            proposal_writer,
-            remaining_rows,
-            title_floor_counts,
-        ),
+        Some("zip") => scratch
+            .context("HUB floor ZIP export requires invocation scratch")?
+            .export_object(
+                config,
+                object_path,
+                bronze_object_key,
+                output_writer,
+                proposal_writer,
+                remaining_rows,
+            ),
         extension => bail!(
             "unsupported building-register floor Bronze object extension {:?}: {}",
             extension,
@@ -507,7 +588,7 @@ fn export_public_data_json_object(
             source_snapshot_id: config.source_snapshot_id.as_str(),
             bronze_object_key,
             valid_from_utc: config.valid_from_utc,
-            ingested_at_utc: Utc::now(),
+            ingested_at_utc: config.ingested_at_utc,
         },
     )
     .with_context(|| {
@@ -551,153 +632,18 @@ fn export_public_data_json_object(
     })
 }
 
-fn export_hub_bulk_zip_object(
-    config: &ExportConfig,
-    object_path: &Path,
-    bronze_object_key: &str,
-    output_writer: &mut SilverRowWriter,
-    proposal_writer: Option<&mut JsonlRowWriter>,
-    remaining_rows: Option<usize>,
-    title_floor_counts: &HashMap<String, BuildingFloorCounts>,
-) -> anyhow::Result<ObjectExportReport> {
-    let ingested_at_utc = Utc::now();
-    let mut row_count = 0usize;
-    let mut proposal_required_count = 0u64;
-    // Full resolved rows of every building that still holds a proposal, kept so the
-    // proposal context packs reflect the building-resolved state without re-reading
-    // the Bronze object.
-    let mut proposal_context_rows = Vec::<BuildingRegisterFloorSilverRow>::new();
-    // HUB floor rows arrive grouped by building (동); buffer the current building
-    // so building-level contradiction resolution runs on the full group before
-    // any of its rows are written.
-    let mut buffer: Vec<BuildingRegisterFloorSourceRow> = Vec::new();
-    let mut current_pk: Option<String> = None;
-    hub_bulk_decoder::HubBuildingRegisterFloorBulkDecoder::decode_zip_rows(
-        object_path,
-        bronze_object_key,
-        remaining_rows,
-        |source_row| {
-            if current_pk.as_deref() != Some(source_row.mgm_bldrgst_pk.as_str()) {
-                flush_hub_building(
-                    &mut buffer,
-                    config,
-                    bronze_object_key,
-                    ingested_at_utc,
-                    title_floor_counts,
-                    output_writer,
-                    &mut row_count,
-                    &mut proposal_required_count,
-                    &mut proposal_context_rows,
-                )?;
-                current_pk = Some(source_row.mgm_bldrgst_pk.clone());
-            }
-            buffer.push(source_row);
-            Ok(())
-        },
-    )?;
-    flush_hub_building(
-        &mut buffer,
-        config,
-        bronze_object_key,
-        ingested_at_utc,
-        title_floor_counts,
-        output_writer,
-        &mut row_count,
-        &mut proposal_required_count,
-        &mut proposal_context_rows,
-    )?;
-    let normalization_proposal_count = write_hub_bulk_proposal_context_packs(
-        &proposal_context_rows,
-        proposal_writer,
-        object_path,
-    )?;
-
-    Ok(ObjectExportReport {
-        row_count,
-        proposal_required_count,
-        normalization_proposal_count,
-        source_snapshot_ids: vec![config.source_snapshot_id.clone()],
-    })
-}
-
-/// Normalizes and writes one buffered building (동) of HUB floor rows, running
-/// building-level contradiction resolution (with the 표제부 witness) across the
-/// group, then clears the buffer. Buildings that still hold a proposal keep their
-/// full resolved rows for the proposal context packs.
-#[allow(clippy::too_many_arguments)]
-fn flush_hub_building(
-    buffer: &mut Vec<BuildingRegisterFloorSourceRow>,
-    config: &ExportConfig,
-    bronze_object_key: &str,
-    ingested_at_utc: DateTime<Utc>,
-    title_floor_counts: &HashMap<String, BuildingFloorCounts>,
-    output_writer: &mut SilverRowWriter,
-    row_count: &mut usize,
-    proposal_required_count: &mut u64,
-    proposal_context_rows: &mut Vec<BuildingRegisterFloorSilverRow>,
-) -> anyhow::Result<()> {
-    if buffer.is_empty() {
-        return Ok(());
-    }
-    let rows = normalize_building_register_floor_silver_rows_with_title_counts(
-        &BuildingRegisterFloorSilverRowsInput {
-            records: buffer,
-            source_snapshot_id: config.source_snapshot_id.as_str(),
-            bronze_object_key,
-            valid_from_utc: config.valid_from_utc,
-            ingested_at_utc,
-        },
-        title_floor_counts,
-    )
-    .context("failed to build HUB Silver rows for a building")?;
-    output_writer
-        .write_rows(&rows)
-        .context("failed to write HUB Silver handoff for a building")?;
-    *row_count += rows.len();
-    let building_proposal_count = count_proposal_required(&rows);
-    *proposal_required_count += building_proposal_count;
-    if building_proposal_count > 0 {
-        proposal_context_rows.extend(rows.iter().cloned());
-    }
-    buffer.clear();
-    Ok(())
-}
-
-fn write_hub_bulk_proposal_context_packs(
-    proposal_context_rows: &[BuildingRegisterFloorSilverRow],
-    proposal_writer: Option<&mut JsonlRowWriter>,
-    object_path: &Path,
-) -> anyhow::Result<u64> {
-    if proposal_context_rows.is_empty() {
-        return Ok(0);
-    }
-
-    let proposal_input =
-        build_building_register_floor_normalization_proposal_input(proposal_context_rows)?;
-    if let Some(writer) = proposal_writer {
-        writer
-            .write_jsonl(proposal_input.jsonl.as_str())
-            .with_context(|| {
-                format!(
-                    "failed to write HUB proposal input for {}",
-                    object_path.display()
-                )
-            })?;
-    }
-    Ok(proposal_input.proposal_count)
-}
-
 fn count_proposal_required(rows: &[BuildingRegisterFloorSilverRow]) -> u64 {
     rows.iter()
         .filter(|row| row.normalization_status == "proposal_required")
         .count() as u64
 }
 
-fn load_title_floor_counts(
-    config: &ExportConfig,
-) -> anyhow::Result<HashMap<String, BuildingFloorCounts>> {
+fn title_object_paths(config: &ExportConfig) -> anyhow::Result<Vec<PathBuf>> {
+    if let Some(exact) = &config.exact_inputs {
+        return Ok(vec![exact.paths(config)?.1]);
+    }
     let Some(slug) = config.title_source_slug.as_deref() else {
-        return Ok(HashMap::new());
+        return Ok(Vec::new());
     };
     let source_root = config
         .bronze_local_object_root
@@ -708,7 +654,7 @@ fn load_title_floor_counts(
             source_root = %source_root.display(),
             "표제부 floor-count witness source not found; resolving floors without the building-title witness"
         );
-        return Ok(HashMap::new());
+        return Ok(Vec::new());
     }
     let mut object_paths = Vec::new();
     collect_json_files(&source_root, &mut object_paths)?;
@@ -716,13 +662,7 @@ fn load_title_floor_counts(
         path.extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
     });
-    let counts = load_building_title_floor_counts(&object_paths)?;
-    tracing::info!(
-        buildings = counts.len(),
-        source_slug = slug,
-        "loaded 표제부 building-title floor-count witness"
-    );
-    Ok(counts)
+    Ok(object_paths)
 }
 
 fn collect_bronze_object_paths(
@@ -836,13 +776,22 @@ fn bronze_object_key(root: &Path, object_path: &Path) -> anyhow::Result<String> 
     Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
-fn write_file(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+fn write_file_create_new(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let parent = path
         .parent()
-        .context("output path must have a parent directory")?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("failed to create output directory {}", parent.display()))?;
-    fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))
+        .context("summary path must have a parent directory")?;
+    fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(bytes)?;
+    temporary.flush()?;
+    temporary.as_file().sync_all()?;
+    temporary.persist_noclobber(path).map_err(|error| {
+        anyhow::anyhow!(
+            "floor ready summary already exists or cannot be published at {}: {error}",
+            path.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn required_env(name: &str) -> anyhow::Result<String> {
@@ -895,6 +844,10 @@ fn parse_utc_env(name: &str) -> anyhow::Result<DateTime<Utc>> {
 }
 
 #[cfg(test)]
+#[path = "building_register_floor_silver_export/interleaved_group_tests.rs"]
+mod interleaved_group_tests;
+
+#[cfg(test)]
 mod tests {
     use super::hub_bulk_decoder::HubBuildingRegisterFloorBulkDecoder;
     use super::{export_handoff, ExportConfig, OutputFormat, SourceSelector};
@@ -907,8 +860,8 @@ mod tests {
     use uuid::Uuid;
     use zip::{write::SimpleFileOptions, ZipWriter};
 
-    #[test]
-    fn exports_building_register_floor_bronze_json_to_silver_handoff() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn exports_building_register_floor_bronze_json_to_silver_handoff() -> anyhow::Result<()> {
         let root = temp_root("foundation-platform-building-register-floor-silver-export");
         let object_key = "bronze/source=datagokr__building_register_floor_overview/sigungu=11680/bjdong=10300/page-000001.json";
         let bronze_path = root.join(object_key);
@@ -924,6 +877,10 @@ mod tests {
             .join("building_register_floors-summary.json");
 
         let report = export_handoff(&ExportConfig {
+            committed_inputs: None,
+            reuse_completed: false,
+            exact_inputs: None,
+            ingested_at_utc: Utc::now(),
             bronze_local_object_root: root.clone(),
             source_selector: SourceSelector::Exact(
                 "datagokr__building_register_floor_overview".to_owned(),
@@ -938,7 +895,8 @@ mod tests {
             chunk_rows: None,
             output_format: OutputFormat::Jsonl,
             title_source_slug: None,
-        })?;
+        })
+        .await?;
 
         assert_eq!(report.input_object_count, 1);
         assert_eq!(report.row_count, 2);
@@ -975,8 +933,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn exports_prefix_matched_building_register_floor_sources() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn exports_prefix_matched_building_register_floor_sources() -> anyhow::Result<()> {
         let root = temp_root("foundation-platform-building-register-floor-silver-export-prefix");
         for (bjdong, floor_label) in [("10300", "지1층"), ("10400", "지하1층")] {
             let object_key = format!(
@@ -992,6 +950,10 @@ mod tests {
             .join("building_register_floors-prefix.jsonl");
 
         let report = export_handoff(&ExportConfig {
+            committed_inputs: None,
+            reuse_completed: false,
+            exact_inputs: None,
+            ingested_at_utc: Utc::now(),
             bronze_local_object_root: root.clone(),
             source_selector: SourceSelector::Prefix(
                 "datagokr__building_register_floor_overview".to_owned(),
@@ -1005,7 +967,8 @@ mod tests {
             chunk_rows: None,
             output_format: OutputFormat::Jsonl,
             title_source_slug: None,
-        })?;
+        })
+        .await?;
 
         assert_eq!(report.input_object_count, 2);
         assert_eq!(report.row_count, 4);
@@ -1016,8 +979,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn exports_hub_bulk_zip_to_silver_handoff_without_json_pages() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn exports_hub_bulk_zip_to_silver_handoff_without_json_pages() -> anyhow::Result<()> {
         let root = temp_root("foundation-platform-building-register-floor-hub-zip-export");
         let object_key =
             "bronze/source=hubgokr__building_register_floor_overview/OPN209912310000000013.zip";
@@ -1034,6 +997,10 @@ mod tests {
             .join("building_register_floor_proposals-hub.jsonl");
 
         let report = export_handoff(&ExportConfig {
+            committed_inputs: None,
+            reuse_completed: false,
+            exact_inputs: None,
+            ingested_at_utc: Utc::now(),
             bronze_local_object_root: root.clone(),
             source_selector: SourceSelector::Exact(
                 "hubgokr__building_register_floor_overview".to_owned(),
@@ -1047,7 +1014,8 @@ mod tests {
             chunk_rows: None,
             output_format: OutputFormat::Jsonl,
             title_source_slug: None,
-        })?;
+        })
+        .await?;
 
         assert_eq!(report.input_object_count, 1);
         assert_eq!(report.row_count, 2);
@@ -1072,8 +1040,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn hub_bulk_proposal_input_keeps_same_building_floor_context() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn hub_bulk_proposal_input_keeps_same_building_floor_context() -> anyhow::Result<()> {
         let root = temp_root("foundation-platform-building-register-floor-hub-context-pack");
         let object_key =
             "bronze/source=hubgokr__building_register_floor_overview/OPN209912310000000013.zip";
@@ -1090,6 +1058,10 @@ mod tests {
             .join("building_register_floor_proposals-hub.jsonl");
 
         let report = export_handoff(&ExportConfig {
+            committed_inputs: None,
+            reuse_completed: false,
+            exact_inputs: None,
+            ingested_at_utc: Utc::now(),
             bronze_local_object_root: root.clone(),
             source_selector: SourceSelector::Exact(
                 "hubgokr__building_register_floor_overview".to_owned(),
@@ -1103,7 +1075,8 @@ mod tests {
             chunk_rows: None,
             output_format: OutputFormat::Jsonl,
             title_source_slug: None,
-        })?;
+        })
+        .await?;
 
         assert_eq!(report.row_count, 2);
         assert_eq!(report.normalization_proposal_count, 1);
@@ -1126,8 +1099,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn exports_hub_bulk_zip_respects_max_rows_for_smoke() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn exports_hub_bulk_zip_respects_max_rows_for_smoke() -> anyhow::Result<()> {
         let root = temp_root("foundation-platform-building-register-floor-hub-zip-export-limit");
         let object_key =
             "bronze/source=hubgokr__building_register_floor_overview/OPN209912310000000013.zip";
@@ -1141,6 +1114,10 @@ mod tests {
             .join("building_register_floors-hub-limited.jsonl");
 
         let report = export_handoff(&ExportConfig {
+            committed_inputs: None,
+            reuse_completed: false,
+            exact_inputs: None,
+            ingested_at_utc: Utc::now(),
             bronze_local_object_root: root.clone(),
             source_selector: SourceSelector::Exact(
                 "hubgokr__building_register_floor_overview".to_owned(),
@@ -1154,7 +1131,8 @@ mod tests {
             chunk_rows: None,
             output_format: OutputFormat::Jsonl,
             title_source_slug: None,
-        })?;
+        })
+        .await?;
 
         assert_eq!(report.input_object_count, 1);
         assert_eq!(report.row_count, 1);
@@ -1165,8 +1143,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn exports_hub_bulk_zip_to_chunked_handoff_parts() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn exports_hub_bulk_zip_to_chunked_handoff_parts() -> anyhow::Result<()> {
         let root = temp_root("foundation-platform-building-register-floor-hub-zip-export-chunked");
         let object_key =
             "bronze/source=hubgokr__building_register_floor_overview/OPN209912310000000013.zip";
@@ -1181,6 +1159,10 @@ mod tests {
             .join("building_register_floor_proposals");
 
         let report = export_handoff(&ExportConfig {
+            committed_inputs: None,
+            reuse_completed: false,
+            exact_inputs: None,
+            ingested_at_utc: Utc::now(),
             bronze_local_object_root: root.clone(),
             source_selector: SourceSelector::Exact(
                 "hubgokr__building_register_floor_overview".to_owned(),
@@ -1194,7 +1176,8 @@ mod tests {
             chunk_rows: Some(1),
             output_format: OutputFormat::Jsonl,
             title_source_slug: None,
-        })?;
+        })
+        .await?;
 
         assert_eq!(report.input_object_count, 1);
         assert_eq!(report.row_count, 2);
@@ -1217,8 +1200,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn exports_hub_bulk_zip_to_chunked_parquet_parts_without_jsonl_bloat() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn exports_hub_bulk_zip_to_chunked_parquet_parts_without_jsonl_bloat(
+    ) -> anyhow::Result<()> {
         let root = temp_root("foundation-platform-building-register-floor-hub-zip-parquet-export");
         let object_key =
             "bronze/source=hubgokr__building_register_floor_overview/OPN209912310000000013.zip";
@@ -1232,6 +1216,10 @@ mod tests {
             .join("building_register_floors_parquet");
 
         let report = export_handoff(&ExportConfig {
+            committed_inputs: None,
+            reuse_completed: false,
+            exact_inputs: None,
+            ingested_at_utc: Utc::now(),
             bronze_local_object_root: root.clone(),
             source_selector: SourceSelector::Exact(
                 "hubgokr__building_register_floor_overview".to_owned(),
@@ -1245,7 +1233,8 @@ mod tests {
             chunk_rows: Some(1),
             output_format: OutputFormat::Parquet,
             title_source_slug: None,
-        })?;
+        })
+        .await?;
 
         assert_eq!(report.input_object_count, 1);
         assert_eq!(report.row_count, 2);
@@ -1266,8 +1255,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn chunked_parquet_handoff_keeps_proposal_input_as_single_jsonl_file() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn chunked_parquet_handoff_keeps_proposal_input_as_single_jsonl_file(
+    ) -> anyhow::Result<()> {
         let root = temp_root("foundation-platform-building-register-floor-parquet-proposal-export");
         let object_key = "bronze/source=datagokr__building_register_floor_overview/sigungu=11680/bjdong=10300/page-000001.json";
         write_file(&root.join(object_key), sample_payload().as_bytes())?;
@@ -1279,6 +1269,10 @@ mod tests {
             .join("building_register_floor_proposals.jsonl");
 
         let report = export_handoff(&ExportConfig {
+            committed_inputs: None,
+            reuse_completed: false,
+            exact_inputs: None,
+            ingested_at_utc: Utc::now(),
             bronze_local_object_root: root.clone(),
             source_selector: SourceSelector::Exact(
                 "datagokr__building_register_floor_overview".to_owned(),
@@ -1293,7 +1287,8 @@ mod tests {
             chunk_rows: Some(1),
             output_format: OutputFormat::Parquet,
             title_source_slug: None,
-        })?;
+        })
+        .await?;
 
         assert_eq!(report.row_count, 2);
         assert!(output_dir.join("part-000001.parquet").is_file());
@@ -1307,8 +1302,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn chunked_parquet_export_removes_stale_part_files() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn chunked_parquet_export_removes_stale_part_files() -> anyhow::Result<()> {
         let root =
             temp_root("foundation-platform-building-register-floor-hub-zip-parquet-stale-export");
         let object_key =
@@ -1325,6 +1320,10 @@ mod tests {
         fs::write(output_dir.join("part-000003.parquet"), b"stale parquet")?;
 
         export_handoff(&ExportConfig {
+            committed_inputs: None,
+            reuse_completed: false,
+            exact_inputs: None,
+            ingested_at_utc: Utc::now(),
             bronze_local_object_root: root.clone(),
             source_selector: SourceSelector::Exact(
                 "hubgokr__building_register_floor_overview".to_owned(),
@@ -1338,7 +1337,8 @@ mod tests {
             chunk_rows: Some(1),
             output_format: OutputFormat::Parquet,
             title_source_slug: None,
-        })?;
+        })
+        .await?;
 
         assert!(output_dir.join("part-000001.parquet").is_file());
         assert!(output_dir.join("part-000002.parquet").is_file());
@@ -1348,8 +1348,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn hub_bulk_decoder_reads_zip_rows_with_lineage_and_limit() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn hub_bulk_decoder_reads_zip_rows_with_lineage_and_limit() -> anyhow::Result<()> {
         let root = temp_root("foundation-platform-building-register-floor-hub-decoder-limit");
         let object_key =
             "bronze/source=hubgokr__building_register_floor_overview/OPN209912310000000013.zip";

@@ -69,3 +69,22 @@ Rust로 구현한 이유는 언어 정책과 대규모 저장소의 검증 사�
 - `cargo xtask verify all`로 전체 모노레포의 Rust 품질 검증을 로컬에서 재현할 수 있다.
 - 독립 크레이트 `xtask`는 전역적으로 유일한 이름을 사용하며 어느 영역 workspace에도
   속하지 않는다. 저장소 루트에서 실행한다.
+
+## 중첩 Cargo의 부모 crate 환경 경계 (2026-10-01)
+
+`cargo run`으로 시작한 xtask는 부모 crate의 `CARGO_MANIFEST_DIR`와 `CARGO_PKG_*`를
+상속받는다. 이를 영역 Cargo에 다시 전달하면 build script의 `rerun-if-env-changed`가
+xtask 메타데이터를 입력으로 기록한다. 실제 ring fingerprint에 xtask 경로와 버전이 남았고,
+직접 Cargo와 xtask를 번갈아 실행할 때 ring → rustls → ureq → libduckdb-sys의 캐시가
+무효화되어 같은 소스를 다시 네이티브 빌드했다.
+
+두 Cargo 실행 helper는 같은 명령 생성 함수를 사용하며 부모 crate 메타데이터만 제거한다.
+같은 부류의 재발을 막기 위해 `CARGO_MANIFEST_*`, `CARGO_PKG_*`, `CARGO_BIN_EXE_*`와
+`CARGO_CRATE_NAME`, `CARGO_BIN_NAME`, `CARGO_PRIMARY_PACKAGE`, `CARGO_TARGET_TMPDIR`를 경계로 삼는다.
+이는 [Cargo가 crate에 주는 메타데이터](https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates)다.
+`rerun-if-env-changed`의 비교 대상은 build script 내부가 아니라
+[Cargo가 호출될 때 받은 환경](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-env-changed)이다.
+`CARGO_TARGET_DIR`, `CARGO_PROFILE_*`, `CARGO_NET_*`, `CARGO_BUILD_*`, `CARGO_HOME`,
+`CARGO_INCREMENTAL`, `RUSTFLAGS` 등 사용자의 빌드·캐시 설정은 유지한다. 전체 `CARGO_*`를
+지우거나 캐시를 강제로 삭제하는 방법은 필요한 실행 설정까지 바꾸므로 채택하지 않는다.
+제거 대상과 설정 보존을 회귀 검사로 고정한다.

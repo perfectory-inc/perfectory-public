@@ -10,6 +10,9 @@ lakehouse_gid="${FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}"
 usage() {
   cat >&2 <<'USAGE'
 usage:
+  foundation-release.sh prepare <40-char-git-sha> <source.tar.gz>
+  foundation-release.sh publisher <40-char-git-sha> <binary-file> <sha256>
+  foundation-release.sh floor-config <40-char-git-sha> <non-secret-env-file>
   foundation-release.sh install <40-char-git-sha> <source.tar.gz>
   foundation-release.sh activate <40-char-git-sha>
   foundation-release.sh migrate
@@ -148,6 +151,38 @@ activate_release() {
     exit 65
   fi
 
+  # Compare the two existing contracts, not a second capability registry. A release predating
+  # orchestration has nothing to preserve; removing an enabled job requires an explicit false
+  # entry first. The dedicated rollback command intentionally bypasses this admission gate.
+  python3 - "${release_root}/current/orchestration/jobs.v1.json" \
+    "$(release_path "${release_id}")/orchestration/jobs.v1.json" <<'PY'
+import json, pathlib, sys
+
+def jobs(path):
+    if not path.exists():
+        if path.is_symlink():
+            raise ValueError('dangling jobs contract')
+        return {}
+    raw = json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(raw, dict) or not isinstance(raw.get('jobs'), list):
+        raise ValueError('jobs contract must contain a jobs array')
+    result = {}
+    for job in raw['jobs']:
+        if (not isinstance(job, dict) or not isinstance(job.get('id'), str) or
+            not job['id'] or type(job.get('enabled')) is not bool or job['id'] in result):
+            raise ValueError('invalid or duplicate job identity/enabled value')
+        result[job['id']] = job['enabled']
+    return result
+
+try:
+    previous, candidate = map(jobs, map(pathlib.Path, sys.argv[1:]))
+    missing = sorted(name for name, enabled in previous.items() if enabled and name not in candidate)
+    if missing:
+        raise ValueError('candidate removes enabled jobs; retain explicit enabled:false entries: ' + ', '.join(missing))
+except (OSError, ValueError) as error:
+    sys.exit('release activation refused: ' + str(error))
+PY
+
   if [[ -n "${current_target}" && "${current_target}" != "${next_target}" ]]; then
     atomic_link "${current_target}" "${release_root}/previous"
   fi
@@ -194,6 +229,7 @@ validate_archive_paths() {
 install_release() {
   local release_id="$1"
   local archive="$2"
+  local activate="${3:-yes}"
   local target archive_sha recorded_sha staging=""
   require_release_id "${release_id}"
   [[ -f "${archive}" ]] || {
@@ -214,7 +250,7 @@ install_release() {
       printf 'release id already exists with a different archive: %s\n' "${release_id}" >&2
       exit 65
     }
-    activate_release "${release_id}"
+    if [[ "${activate}" == yes ]]; then activate_release "${release_id}"; fi
     return
   fi
 
@@ -227,7 +263,258 @@ install_release() {
   mv "${staging}" "${target}"
   staging=""
   trap - RETURN
-  activate_release "${release_id}"
+  if [[ "${activate}" == yes ]]; then activate_release "${release_id}"; fi
+}
+
+# Artifacts belong to the immutable release, never a shared executable or environment file.
+# A same-directory hard link publishes create-only: concurrent publishers cannot overwrite.
+install_release_artifact() (
+  set -Eeuo pipefail
+  local release_id="$1" source="$2" expected="$3" kind="$4"
+  local target directory output mode staged=""
+  require_release_id "${release_id}"
+  [[ "${expected}" =~ ^[0-9a-f]{64}$ ]] || { echo 'invalid artifact sha256' >&2; exit 64; }
+  [[ -f "${source}" && ! -L "${source}" ]] || { echo 'artifact source must be a regular non-symlink file' >&2; exit 65; }
+  [[ "$(sha256sum "${source}" | awk '{print $1}')" == "${expected}" ]] || {
+    echo 'artifact source sha256 mismatch' >&2; exit 65;
+  }
+  assert_installed_release "${release_id}"
+  target="$(release_path "${release_id}")"
+  # Refuse symlinks in any destination ancestor, including the installed release itself.
+  [[ "$(realpath -e "${target}")" == "$(realpath -ms "${target}")" &&
+     -f "${target}/.foundation-release-id" && ! -L "${target}/.foundation-release-id" ]] || {
+    echo 'artifact release path must not traverse symlinks' >&2; exit 65;
+  }
+  case "${kind}" in
+    publisher) directory="${target}/bin"; output="${directory}/foundation-outbox-publisher"; mode=755 ;;
+    floor-config) directory="${target}"; output="${directory}/.foundation-floor.env"; mode=644 ;;
+    *) exit 64 ;;
+  esac
+  [[ ! -L "${directory}" ]] || { echo 'artifact directory is a symlink' >&2; exit 65; }
+  if [[ ! -e "${directory}" ]]; then mkdir -m 0755 "${directory}"; fi
+  [[ -d "${directory}" && "$(realpath -e "${directory}")" == "$(realpath -ms "${directory}")" ]] || {
+    echo 'invalid artifact directory' >&2; exit 65;
+  }
+  check_artifact() {
+    [[ -f "${output}" && ! -L "${output}" &&
+       "$(sha256sum "${output}" | awk '{print $1}')" == "${expected}" &&
+       "$(stat -c '%a' "${output}")" == "${mode}" ]] || {
+      echo 'existing release artifact differs or is not a regular file with the required mode' >&2; return 65;
+    }
+    if [[ "$(id -u)" == 0 ]]; then
+      [[ "$(stat -c '%u:%g' "${output}")" == 0:0 ]] || { echo 'artifact is not root-owned' >&2; return 65; }
+    fi
+  }
+  if [[ -e "${output}" || -L "${output}" ]]; then check_artifact; exit; fi
+  staged="$(mktemp "${directory}/.artifact.XXXXXX")"
+  trap '[[ -z "${staged}" ]] || rm -f -- "${staged}"' EXIT
+  cp -- "${source}" "${staged}"
+  [[ "$(sha256sum "${staged}" | awk '{print $1}')" == "${expected}" ]] || {
+    echo 'artifact changed while copying' >&2; exit 65;
+  }
+  chmod "${mode}" "${staged}"
+  if [[ "$(id -u)" == 0 ]]; then chown root:root "${staged}"; fi
+  if ! ln -T -- "${staged}" "${output}"; then check_artifact; fi
+)
+
+validate_floor_config() {
+  local source="$1" target="$2" mode="$3"
+  [[ -f "${source}" && ! -L "${source}" ]] || { echo 'floor config must be a regular non-symlink file' >&2; return 65; }
+  # The release example owns the key set. This only validates non-secret env transport;
+  # image/network/endpoint semantics remain with the runtime validators.
+  python3 - "${source}" "${target}" "${mode}" <<'PY'
+import hashlib, grp, os, pathlib, pwd, re, secrets, stat, subprocess, sys
+source, release = map(pathlib.Path, sys.argv[1:3])
+mode = sys.argv[3]
+example = release / 'infra/systemd/building-register-floor.env.example'
+def fail():
+    sys.exit('invalid public FLOOR configuration or release configuration schema')
+def parse(text, example=False):
+    values = {}
+    for line in text.split('\n'):
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        match = re.fullmatch(r'([A-Z][A-Z0-9_]*)=([A-Za-z0-9_./:@-]*)', line)
+        if not match or match[1] in values or (not example and not match[2]):
+            fail()
+        values[match[1]] = match[2]
+    return values
+try:
+    if not example.is_file() or example.is_symlink() or example.resolve() != example.absolute():
+        fail()
+    with source.open('rb') as handle:
+        raw = handle.read(65537)
+    if len(raw) > 65536 or any(byte < 32 and byte != 10 or byte == 127 for byte in raw):
+        fail()
+    values = parse(raw.decode('utf-8'))
+    allowed = parse(example.read_text(encoding='utf-8'), example=True)
+    if not allowed or values.keys() != allowed.keys():
+        fail()
+    if values.get('FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT') != str(release.resolve()):
+        fail()
+    witness = pathlib.Path(values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH'])
+    if (not witness.is_absolute() or '..' in witness.parts or
+        witness.resolve(strict=True) != witness or release.resolve() in witness.parents):
+        fail()
+    # Production installs/state preparation run as root. Rootless temporary rehearsals own
+    # their own fixture; they cannot write the protected production release/config paths.
+    owners = {0, os.geteuid()}
+    for parent in witness.parents:
+        info = parent.lstat()
+        sticky_root = info.st_uid == 0 and info.st_mode & stat.S_ISVTX
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in owners or
+            (info.st_mode & 0o022 and not sticky_root)):
+            fail()
+    descriptor = os.open(witness, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as handle:
+        info = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid not in owners or
+            info.st_nlink != 1 or info.st_mode & 0o222 or not 0 < info.st_size <= 65536):
+            fail()
+        handle.read(1)
+    if os.geteuid() == 0:
+        account = pwd.getpwnam('foundation-platform')
+        service_gid = grp.getgrnam('foundation-platform').gr_gid
+        # Root can read 0400 files that the host/native service and Spark cannot. Ask the
+        # kernel under their actual IDs, without inheriting root's supplementary groups.
+        probe = ('import os,stat,sys; '
+                 'fd=os.open(sys.argv[1],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK); '
+                 'assert stat.S_ISREG(os.fstat(fd).st_mode); os.read(fd,1); os.close(fd)')
+        for reader_uid in {account.pw_uid, 185}:
+            subprocess.run([sys.executable, '-I', '-c', probe, str(witness)],
+                           user=reader_uid, group=service_gid, extra_groups=[],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, check=True, timeout=10)
+except (OSError, UnicodeError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError):
+    fail()
+if mode == 'hash':
+    print(hashlib.sha256(raw).hexdigest())
+    sys.exit(0)
+if mode != 'state' or os.geteuid() != 0:
+    fail()
+
+# Only the two dedicated host namespaces are supported. The configuration owns the
+# selected path; this allowlist is a privilege boundary, not another default.
+state = pathlib.Path(values['FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT'])
+ivy = pathlib.Path(values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'])
+approved_namespaces = ('/var/lib/foundation-platform/building-register-floor',
+                       '/data/foundation-platform/building-register-floor')
+if str(state) not in approved_namespaces:
+    fail()
+if str(state) != values['FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT']:
+    fail()
+if (str(ivy) != values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'] or
+    '..' in ivy.parts or ivy == state or state not in ivy.parents):
+    fail()
+uid, gid = account.pw_uid, service_gid
+dropin = pathlib.Path('/etc/systemd/system/foundation-building-register-floor.service.d/10-state.conf')
+dedicated = [state]
+for part in ivy.relative_to(state).parts:
+    dedicated.append(dedicated[-1] / part)
+
+directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+descriptors = {pathlib.Path('/'): os.open('/', directory_flags)}
+
+def open_directory(path, create=False):
+    if path in descriptors:
+        return descriptors[path]
+    parent = open_directory(path.parent, create)
+    if parent is None:
+        return None
+    created = None
+    try:
+        fd = os.open(path.name, directory_flags, dir_fd=parent)
+    except FileNotFoundError:
+        if not create:
+            return None
+        # A concurrent creator is an existing directory, never ours to chown.
+        try:
+            os.mkdir(path.name, 0o700, dir_fd=parent)
+            created = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        except FileExistsError:
+            pass
+        fd = os.open(path.name, directory_flags, dir_fd=parent)
+    info = os.fstat(fd)
+    if created is not None:
+        if ((created.st_dev, created.st_ino) != (info.st_dev, info.st_ino) or
+            info.st_uid != 0 or info.st_mode & 0o777 != 0o700):
+            os.close(fd)
+            fail()
+        if path in dedicated:
+            os.fchown(fd, uid, gid)
+        os.fchmod(fd, 0o2770 if path in dedicated else 0o755)
+        info = os.fstat(fd)
+    if (path in dedicated or str(path) in approved_namespaces) and (info.st_uid, info.st_gid) != (uid, gid):
+        os.close(fd)
+        fail()
+    if path == dropin.parent and (info.st_uid != 0 or info.st_mode & 0o022):
+        os.close(fd)
+        fail()
+    descriptors[path] = fd
+    return fd
+
+# Hold existing directory inodes through mutation; no later pathname chmod/chown.
+for path in (*(pathlib.Path(name) for name in approved_namespaces), ivy, dropin.parent):
+    open_directory(path)
+if source.stat().st_uid != 0 or stat.S_IMODE(source.stat().st_mode) != 0o644:
+    fail()
+body = ('[Service]\nReadWritePaths=\nReadWritePaths=' +
+        ' '.join('-' + path for path in approved_namespaces) + '\n').encode()
+existing = None
+parent = open_directory(dropin.parent)
+if parent is not None:
+    try:
+        fd = os.open(dropin.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    except FileNotFoundError:
+        pass
+    else:
+        with os.fdopen(fd, 'rb') as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0:
+                fail()
+            existing = (handle.read(len(body) + 1), stat.S_IMODE(info.st_mode), info.st_gid)
+for directory in dedicated:
+    fd = open_directory(directory, create=True)
+    if stat.S_IMODE(os.fstat(fd).st_mode) != 0o2770:
+        os.fchmod(fd, 0o2770)
+parent = open_directory(dropin.parent, create=True)
+if existing == (body, 0o644, 0):
+    sys.exit(0)
+pending = '.state.' + secrets.token_hex(16)
+fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+try:
+    with os.fdopen(fd, 'wb') as handle:
+        handle.write(body)
+        os.fchmod(handle.fileno(), 0o644)
+        os.fchown(handle.fileno(), 0, 0)
+    os.replace(pending, dropin.name, src_dir_fd=parent, dst_dir_fd=parent)
+finally:
+    try:
+        os.unlink(pending, dir_fd=parent)
+    except FileNotFoundError:
+        pass
+PY
+}
+
+install_floor_config() {
+  local release_id="$1" source="$2" expected target
+  require_release_id "${release_id}"
+  assert_installed_release "${release_id}"
+  target="$(release_path "${release_id}")"
+  expected="$(validate_floor_config "${source}" "${target}" hash)" || exit 65
+  install_release_artifact "${release_id}" "${source}" "${expected}" floor-config
+}
+
+prepare_floor_state() {
+  local target release_id
+  target="$(realpath -e "${release_root}/current")"
+  release_id="${target##*/}"
+  require_release_id "${release_id}"
+  assert_installed_release "${release_id}"
+  [[ "${target}" == "$(realpath -ms "$(release_path "${release_id}")")" ]] || {
+    echo 'current FLOOR release is outside the installed release tree' >&2; return 65;
+  }
+  validate_floor_config "${target}/.foundation-floor.env" "${target}" state
 }
 
 rollback_release() {
@@ -337,6 +624,18 @@ status() {
 
 command="${1:-}"
 case "${command}" in
+  prepare)
+    [[ "$#" == 3 ]] || usage
+    install_release "$2" "$3" no
+    ;;
+  publisher)
+    [[ "$#" == 4 ]] || usage
+    install_release_artifact "$2" "$3" "$4" publisher
+    ;;
+  floor-config)
+    [[ "$#" == 3 ]] || usage
+    install_floor_config "$2" "$3"
+    ;;
   install)
     [[ "$#" == 3 ]] || usage
     install_release "$2" "$3"
@@ -367,6 +666,8 @@ case "${command}" in
     # hand is how the backup timer's install steps and the deployed tree drifted apart before.
     # Idempotent: reinstalling the same files and re-enabling an enabled timer are no-ops.
     [[ "$#" == 1 || "$#" == 2 ]] || usage
+    # Refuse invalid config/ownership before replacing any installed unit or drop-in.
+    prepare_floor_state
     # Every unit the release ships, not a list of them here: a job's service added to infra/systemd
     # is installed by the same release that lists it in orchestration/jobs.v1.json.
     install -o root -g root -m 0644 \

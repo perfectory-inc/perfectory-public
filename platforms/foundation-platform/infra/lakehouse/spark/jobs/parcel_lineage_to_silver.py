@@ -23,13 +23,14 @@ import functools
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import parcel_lineage as pl
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import append_batch_once
+from parcel_lineage_inputs import LineageInputs, bind_input_views, load_lineage_inputs, physical_inputs
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
@@ -61,6 +62,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--building-to-snapshot-id", help="silver.building_register_titles source_snapshot_id, later")
     parser.add_argument("--ownership-old-jsonl", help="{pnu, owner_kind, co_owner_count} for the earlier side")
     parser.add_argument("--ownership-new-jsonl", help="{pnu, owner_kind, co_owner_count, area_m2, land_category_code} for the later side")
+    parser.add_argument("--source-snapshots-path", help="JSON of consumed roles to {table: namespace.table, snapshot_id: Iceberg ID}.")
     parser.add_argument("--summary-output")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-namespace", default="silver")
@@ -70,7 +72,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def validate_args(args: argparse.Namespace) -> None:
+def logical_vintage(value: str) -> str:
+    # Both spellings were written for the same June extract. A storage/name repair is not
+    # a second cadastral vintage, even when it has a different physical Iceberg snapshot.
+    return re.sub(r"^vworldkr__parcel[-:](\d{6})$", r"vworldkr__parcel:\1", value)
+
+
+def validate_args(args: argparse.Namespace) -> LineageInputs:
     for label in ("iceberg_catalog_name", "iceberg_namespace", "iceberg_table"):
         if not IDENTIFIER.fullmatch(getattr(args, label)):
             raise ValueError(f"{label} must be a plain SQL identifier")
@@ -82,46 +90,42 @@ def validate_args(args: argparse.Namespace) -> None:
         value = getattr(args, label)
         if value is not None and not DATE.fullmatch(value):
             raise ValueError(f"--{label.replace('_', '-')} must be YYYY-MM-DD")
+        if value is not None:
+            date.fromisoformat(value)
     if args.from_date >= args.to_date:
         raise ValueError("--from-date must be before --to-date")
+    if logical_vintage(args.from_snapshot_id) == logical_vintage(args.to_snapshot_id):
+        raise ValueError("lineage endpoints must represent different logical source vintages")
     for label in ("from_sido", "to_sido"):
         if not all(PREFIX.fullmatch(p) for p in getattr(args, label).split(",")):
             raise ValueError(f"--{label.replace('_', '-')} must be comma-separated two-digit sido prefixes")
-    if bool(args.building_from_snapshot_id) != bool(args.building_to_snapshot_id):
-        raise ValueError("--building-from-snapshot-id and --building-to-snapshot-id go together")
     if not args.iceberg_table.endswith("_smoke") and not args.allow_non_smoke_write:
         raise ValueError(f"writing {args.iceberg_table} needs --allow-non-smoke-write")
+    inputs = load_lineage_inputs(args)
     assert_catalog_env()
+    return inputs
 
 
-def derivation_run_id(args: argparse.Namespace, code_snapshot_date: str) -> str:
-    """The same inputs give the same id, so a re-run is recognised and not appended twice."""
+def input_provenance(args: argparse.Namespace, inputs: LineageInputs, code_snapshot_date: str) -> dict[str, Any]:
+    """One document names the consumed inputs for both the summary and append identity."""
+    return {
+        "iceberg_inputs": physical_inputs(args.iceberg_catalog_name, inputs),
+        "from_snapshot_id": args.from_snapshot_id,
+        "to_snapshot_id": args.to_snapshot_id,
+        "from_date": args.from_date,
+        "to_date": args.to_date,
+        "from_sido": sorted(set(args.from_sido.split(","))),
+        "to_sido": sorted(set(args.to_sido.split(","))),
+        "code_snapshot_date": code_snapshot_date,
+        "building_source_snapshot_ids": {"from": args.building_from_snapshot_id, "to": args.building_to_snapshot_id},
+        "ownership_sha256": {"old": inputs.ownership_old.sha256, "new": inputs.ownership_new.sha256},
+        "rules_version": pl.RULES_VERSION,
+    }
 
-    key = json.dumps(
-        {
-            "from": args.from_snapshot_id,
-            "to": args.to_snapshot_id,
-            "from_sido": sorted(args.from_sido.split(",")),
-            "to_sido": sorted(args.to_sido.split(",")),
-            "codes": code_snapshot_date,
-            "building": [args.building_from_snapshot_id, args.building_to_snapshot_id],
-            "ownership": [bool(args.ownership_old_jsonl), bool(args.ownership_new_jsonl)],
-            "rules": pl.RULES_VERSION,
-        },
-        sort_keys=True,
-    )
+
+def derivation_run_id(provenance: dict[str, Any]) -> str:
+    key = json.dumps(provenance, sort_keys=True, separators=(",", ":"))
     return "parcel-lineage-" + hashlib.sha256(key.encode()).hexdigest()[:24]
-
-
-def read_jsonl(path: str | None) -> dict[str, dict[str, Any]]:
-    if not path:
-        return {}
-    out = {}
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            row = json.loads(line)
-            out[row["pnu"]] = row
-    return out
 
 
 def derive(
@@ -238,41 +242,44 @@ def as_event(row: Any) -> pl.MovementEvent:
     )
 
 
-def read_pnus(spark: Any, cat: str, snapshot: str, sidos: str) -> set[str]:
+def read_pnus(spark: Any, cat: str, snapshot: str, sidos: str, *, table: str | None = None) -> set[str]:
+    # Registry and matching-gate callers retain their existing table selection. This job's
+    # main always supplies its bound view, so neither endpoint can fall back to a live head.
+    relation = table if table is not None else f"{cat}.`silver`.`parcel_boundaries`"
     return {
         row["pnu"]
         for row in spark.sql(
-            f"SELECT DISTINCT pnu FROM {cat}.`silver`.`parcel_boundaries` "
+            f"SELECT DISTINCT pnu FROM {relation} "
             f"WHERE source_snapshot_id = '{snapshot}' AND substr(pnu, 1, 2) IN ({sql_prefixes(sidos)})"
         ).collect()
     }
 
 
-def latest_code_snapshot(spark: Any, cat: str, to_date: str) -> str | None:
+def latest_code_snapshot(spark: Any, table: str, to_date: str) -> str | None:
     return spark.sql(
-        f"SELECT CAST(max(snapshot_date) AS STRING) AS d FROM {cat}.`reference`.`legal_dong_code_snapshot` "
+        f"SELECT CAST(max(snapshot_date) AS STRING) AS d FROM {table} "
         f"WHERE snapshot_date <= DATE '{to_date}'"
     ).collect()[0]["d"]
 
 
-def read_codes(spark: Any, cat: str, snapshot_date: str) -> dict[str, tuple[str, str]]:
+def read_codes(spark: Any, table: str, snapshot_date: str) -> dict[str, tuple[str, str]]:
     return {
         row["region_cd"]: (row["full_name"], row["status"])
         for row in spark.sql(
-            f"SELECT region_cd, full_name, status FROM {cat}.`reference`.`legal_dong_code_snapshot` "
+            f"SELECT region_cd, full_name, status FROM {table} "
             f"WHERE snapshot_date = DATE '{snapshot_date}'"
         ).collect()
     }
 
 
-def read_window_events(spark: Any, cat: str, sidos: str, from_date: str, to_date: str) -> set[pl.MovementEvent]:
+def read_window_events(spark: Any, table: str, sidos: str, from_date: str, to_date: str) -> set[pl.MovementEvent]:
     """Only what a rule reads: merge/split/conversion texts and jurisdiction transfers. The renaming
     events (one per parcel of a renumbered sido) are read by no rule and would fill the driver."""
 
     return {
         as_event(row)
         for row in spark.sql(
-            f"SELECT DISTINCT {HISTORY_COLUMNS} FROM {cat}.`silver`.`land_transfer_history` "
+            f"SELECT DISTINCT {HISTORY_COLUMNS} FROM {table} "
             f"WHERE substr(pnu, 1, 2) IN ({sql_prefixes(sidos)}) "
             f"AND moved_at >= '{from_date}' AND moved_at < '{to_date}' "
             f"AND (reason_code = '{pl.JURISDICTION_TRANSFER_CODE}' OR reason LIKE '%합병되어%말소%' "
@@ -281,7 +288,7 @@ def read_window_events(spark: Any, cat: str, sidos: str, from_date: str, to_date
     }
 
 
-def read_facts_before(spark: Any, cat: str, from_date: str, pool: set[str]) -> list[pl.MovementEvent]:
+def read_facts_before(spark: Any, table: str, from_date: str, pool: set[str]) -> list[pl.MovementEvent]:
     """The pre-window history of just the parcels the attribute rule needs."""
 
     if not pool:
@@ -291,17 +298,17 @@ def read_facts_before(spark: Any, cat: str, from_date: str, pool: set[str]) -> l
         as_event(row)
         for row in spark.sql(
             f"SELECT DISTINCT h.pnu, h.reason_code, h.reason, h.moved_at, h.erased_at, h.land_category_code, h.area_m2 "
-            f"FROM {cat}.`silver`.`land_transfer_history` h JOIN lineage_pool p ON h.pnu = p.pnu "
+            f"FROM {table} h JOIN lineage_pool p ON h.pnu = p.pnu "
             f"WHERE h.moved_at < '{from_date}'"
         ).collect()
     ]
 
 
-def read_buildings(spark: Any, cat: str, snapshot: str, sidos: str) -> dict[str, str]:
+def read_buildings(spark: Any, table: str, snapshot: str, sidos: str) -> dict[str, str]:
     return {
         row["mgm_bldrgst_pk"]: row["pnu"]
         for row in spark.sql(
-            f"SELECT mgm_bldrgst_pk, pnu FROM {cat}.`silver`.`building_register_titles` "
+            f"SELECT mgm_bldrgst_pk, pnu FROM {table} "
             f"WHERE source_snapshot_id = '{snapshot}' AND substr(pnu, 1, 2) IN ({sql_prefixes(sidos)})"
         ).collect()
         if row["pnu"]
@@ -310,7 +317,7 @@ def read_buildings(spark: Any, cat: str, snapshot: str, sidos: str) -> dict[str,
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    validate_args(args)
+    inputs = validate_args(args)
     from pyspark.sql import SparkSession  # noqa: PLC0415
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -318,28 +325,32 @@ def main(argv: list[str] | None = None) -> int:
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).config("spark.jars.packages", args.iceberg_packages).getOrCreate()
     cat = f"`{args.iceberg_catalog_name}`"
     try:
-        before = read_pnus(spark, cat, args.from_snapshot_id, args.from_sido)
-        after = read_pnus(spark, cat, args.to_snapshot_id, args.to_sido)
+        views = bind_input_views(spark, args.iceberg_catalog_name, inputs)
+        before = read_pnus(spark, cat, args.from_snapshot_id, args.from_sido, table=views["boundaries_from"])
+        after = read_pnus(spark, cat, args.to_snapshot_id, args.to_sido, table=views["boundaries_to"])
         if not before or not after:
             raise ValueError(f"no parcels for one side: before={len(before)} after={len(after)}")
-        code_date = args.code_snapshot_date or latest_code_snapshot(spark, cat, args.to_date)
+        code_date = args.code_snapshot_date or latest_code_snapshot(spark, views["codes"], args.to_date)
         if not code_date:
             raise ValueError("no legal dong code snapshot on or before --to-date")
-        codes = read_codes(spark, cat, code_date)
+        codes = read_codes(spark, views["codes"], code_date)
+        if not codes:
+            raise ValueError(f"no legal dong codes at selected capture date {code_date}")
+        provenance = input_provenance(args, inputs, code_date)
+        run_id = derivation_run_id(provenance)
         all_sido = ",".join(sorted(set(args.from_sido.split(",")) | set(args.to_sido.split(","))))
-        events = read_window_events(spark, cat, all_sido, args.from_date, args.to_date)
+        events = read_window_events(spark, views["history"], all_sido, args.from_date, args.to_date)
         buildings_before: dict[str, str] = {}
         buildings_after: dict[str, str] = {}
         if args.building_from_snapshot_id:
-            buildings_before = read_buildings(spark, cat, args.building_from_snapshot_id, args.from_sido)
-            buildings_after = read_buildings(spark, cat, args.building_to_snapshot_id, args.to_sido)
+            buildings_before = read_buildings(spark, views["buildings_from"], args.building_from_snapshot_id, args.from_sido)
+            buildings_after = read_buildings(spark, views["buildings_to"], args.building_to_snapshot_id, args.to_sido)
         links, summary = derive(
             before, after, codes, events, args.from_date, args.to_date,
-            functools.partial(read_facts_before, spark, cat, args.from_date),
+            functools.partial(read_facts_before, spark, views["history"], args.from_date),
             buildings_before, buildings_after,
-            read_jsonl(args.ownership_old_jsonl), read_jsonl(args.ownership_new_jsonl),
+            inputs.ownership_old.rows, inputs.ownership_new.rows,
         )
-        run_id = derivation_run_id(args, code_date)
         cards = pl.cardinality(links)
         rows = [
             {
@@ -378,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         summary.update({
             "job": JOB_NAME,
             "derivation_run_id": run_id,
+            "input_provenance": provenance,
             "code_snapshot_date": code_date,
             "rows": len(rows),
             "appended": outcome["appended"],

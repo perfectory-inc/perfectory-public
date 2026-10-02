@@ -109,13 +109,18 @@ max rows:      10000
 
 ### Full / Hub Smoke
 
-`building_register_floors_pipeline_hub_smoke`와 `building_register_floors_pipeline_full`은 층별개요
-pipeline의 확장 job이다. full job은 smoke table이 아닌 canonical table을 대상으로 하므로 별도 승인 없이
-실행하지 않는다.
+`building_register_floors_pipeline_hub_smoke`는 층별개요 smoke pipeline이다.
+`building_register_floors_pipeline_full`의 수동 remote 실행은 폐기했다. `execute=false` 계획은
+검토 전용이며 `execute=true`는 SSH·이미지 빌드·원본 준비 전에 거절된다.
+운영 전체 FLOOR 처리는 기존 Airflow 경로가 시작하는 `foundation-building-register-floor.service`
+(`run-building-register-floor-cycle`)를 사용한다. 이 경로는 항상 최신 complete 입력 쌍을 선택한다.
+더 최신 월이 있는 상태에서 과거 특정 입력 쌍을 골라 전체 재파생하는 수동 E2E 경로는 지원하지 않는다.
+저수준 stage/export 및 historical/scalar 인증 기능의 존재가 이 수동 운영 경로의 지원을 뜻하지 않는다.
 
 ## Fail-Fast 규칙
 
-모든 pipeline job은 다음 조건을 먼저 확인하고, 실패하면 Spark 실행 전에 멈춘다.
+실행 가능한 remote pipeline job은 다음 조건을 먼저 확인하고, 실패하면 Spark 실행 전에 멈춘다.
+폐기된 수동 whole FLOOR 실행은 위의 별도 실행 게이트에서 먼저 거절한다.
 
 - 원격 `.env.lakehouse` 파일이 있어야 한다.
 - R2 credential이 있어야 한다.

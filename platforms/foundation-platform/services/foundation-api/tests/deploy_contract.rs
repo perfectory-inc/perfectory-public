@@ -59,13 +59,15 @@ fn compose_builds_migrates_and_runs_the_foundation_api_with_separate_roles() -> 
 }
 
 #[test]
-fn long_running_runtime_services_restart_after_docker_daemon_recovery() -> TestResult {
+fn runtime_services_restart_and_batch_jobs_remain_one_shot() -> TestResult {
     let compose = read_area_file("docker-compose.yml")?;
     let lakehouse = read_area_file("compose.lakehouse.yml")?;
 
-    for (service, document) in [
-        ("foundation-api", compose.as_str()),
-        ("spark", lakehouse.as_str()),
+    for (service, document, restart) in [
+        ("foundation-api", compose.as_str(), "unless-stopped"),
+        ("trino", lakehouse.as_str(), "unless-stopped"),
+        ("spark", lakehouse.as_str(), "\"no\""),
+        ("lakehouse-control", lakehouse.as_str(), "\"no\""),
     ] {
         let header = format!("  {service}:");
         let service_contract = document
@@ -76,9 +78,13 @@ fn long_running_runtime_services_restart_after_docker_daemon_recovery() -> TestR
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            service_contract.contains("restart: unless-stopped"),
-            "{service} must recover after a Docker daemon restart"
+            service_contract.contains(&format!("restart: {restart}")),
+            "{service} must preserve its declared runtime lifecycle"
         );
+        if service == "spark" {
+            assert!(service_contract.contains("command: [\"spark-submit\", \"--version\"]"));
+            assert!(!service_contract.contains("infinity"));
+        }
     }
     Ok(())
 }

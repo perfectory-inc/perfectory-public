@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-01
 ---
 
 # Lakehouse Compute Engines
@@ -44,6 +44,78 @@ Spark/Trino 는 `foundation-platform` 제품 요청 경로가 아니라 교체 �
 image/cache 와 `target/lakehouse` smoke output 정도만 맡는다. Trino port 는 기본적으로
 `127.0.0.1:${FOUNDATION_PLATFORM_TRINO_PORT:-18081}` 에만 bind 한다. 다른 PC 에서 접속해야 하면 포트를 LAN 에
 그냥 열지 말고 SSH tunnel 또는 인증이 붙은 reverse proxy 를 사용한다.
+
+## 예약 FLOOR 실행의 호스트 준비
+
+설계 정본은 [ADR-0128](../../../../docs/adr/0128-floor-inputs-bind-to-bronze-and-scalar-retries-bind-to-their-append.md)다.
+주기·pool·timeout은 `orchestration/jobs.v1.json`을 읽는다. `foundation-building-register-floor.service`가
+기존 원장 선택부터 Silver 적재까지 한 주기를 실행한다. 큰 자료 처리는 지정된 배치 Linux 서버에서만 한다.
+
+배포할 때 `foundation-release.sh prepare <sha> <archive>`로 소스를 준비한 뒤,
+`publisher <sha> <binary> <sha256>`로 해당 release의 `bin/foundation-outbox-publisher`를 설치한다.
+두 명령은 `current`와 `previous`를 바꾸지 않는다. 같은 바이트의 재시도는 파일을 다시 쓰지 않고,
+다른 바이트·심볼릭 링크는 거부한다. 이미 배포된 공유 바이너리는 덮어쓰지 않는다.
+wrapper는 자신의 실제 release 경로에서 바이너리를 찾는다.
+그 바이너리의 native image를 미리 빌드해 immutable ID/digest로 지정한다. 호스트와 image 내부
+바이너리 SHA-256을 비교하고 실제 명령이 실행되는지 검사한다. 예약 호출은 빌드하지 않는다.
+`FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK`에는 기존 DB bridge 이름,
+`FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_ENDPOINT`에는 그 network에서의 DB DNS 이름과 내부 port를
+지정한다. 컨테이너 IP를 고정하지 않는다. 같은 `DATABASE_URL`의 계정·비밀번호·DB를 재사용하고
+child 프로세스의 주소만 바꾸므로 새 비밀번호 파일은 없다. 실행별 임시 Compose 파일은 고정 native image와 native 전용 external network,
+두 실행기의 같은 읽기 전용 과거 근거 mount·경로·SHA를 포함한다. 기존 DB network의 수명 주기는 바꾸지 않는다.
+`infra/systemd/building-register-floor.env.example`의 키만 채운 비밀 없는 파일을
+`floor-config <sha> <file>`로 release의 `.foundation-floor.env`에 설치한다. ROOT는 해당 release의
+실제 경로다. image·DB network·작업 경로가 코드와 함께 고정되므로 `current` 전환 시 함께 바뀐다.
+`RuntimeDirectory`의 실행 ID별 공개 설정 사본을 시작과 `ExecStopPost`에서 함께 읽어
+시작했던 release를 끝까지 사용한다. systemd가 종료 처리 후 임시 사본을 제거한다.
+전환된 release는 다음 실행부터 적용된다. FLOOR가 없던
+이전 release로 되돌릴 때는 해당 DAG를 멈춘 상태로 유지한다.
+systemd는 기존 `recovery.env`, `source-sweep.env`, `map-edit-fold.env`의 자격증명을 재사용한다.
+DB URL을 따로 저장하지 않는다. wrapper는 `docker compose config --format json --no-env-resolution`이
+해석한 `foundation-api`의 DB 계정과 `postgres`의 공개 loopback port를 사용한다. 주소 외의 역할·
+비밀번호·DB·옵션은 유지하며 모호하거나 외부로 열린 port는 거부한다. Compose 출력과 DB URL은
+로그에 남기지 않는다. 새 최고관리자 계정을 만들지 않는다. `timers`는 비밀 없는 설정에서 state/Ivy
+경로를 읽어 서비스 사용자·그룹의 `2770`으로 준비한다. 설치기의 동일한 전용 namespace 허용 목록이
+설정의 경로 검사와 systemd `ReadWritePaths`를 소유한다. 두 허용 root를 sandbox에 고정하고
+없는 root는 무시하므로, 버전 전환·롤백 때 선택된 작업 경로가 달라져도 쓰기 권한이 어긋나지 않는다.
+실제로 준비하는 폴더는 설정에서 고른 root와 하위 작업 폴더뿐이다. unit에 경로 목록을 복사하지 않는다.
+심볼릭 링크를 따르지 않는 디렉터리 descriptor로 소유권을 확인하고 권한을 적용한다.
+Spark가 만든 하위 파일의 소유권을 재귀적으로 바꾸지 않는다.
+데이터 디스크를 사용하는 경우 `/data/foundation-platform/building-register-floor`처럼 허용된 전용 경로를 선택한다.
+설치 전 해당 디스크의 공간을 확인하며 기본 시스템 디스크에 큰 작업 파일을 계속 쌓지 않는다.
+release는 프로그램과 계약을 보관하고 state는 재사용할
+원본·handoff·작업 결과를 보관한다. 이 작업 파일은 원본/적재 완료 원장을 대체하지 않는다.
+
+과거 층 적재 근거는 공개 코드에 포함하지 않는다. 운영자는 보존된 기존 근거를 원장·원본·Iceberg와
+대조하고, 릴리스 밖의 root 소유 읽기 전용 파일로 준비한다.
+과거 근거 전용 디렉터리는 예를 들어 `/etc/foundation-platform-inputs`를
+`root:foundation-platform 0750`으로, 그 안의 `building-register-floor-history.json`은
+`root:foundation-platform 0440`으로 준비한다. 모든 상위 디렉터리에 서비스 그룹의 탐색 권한이
+있어야 한다. 기존 비밀 디렉터리의 권한을 넓히지 말고 별도 전용 디렉터리를 사용한다.
+`FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH`에 그 절대 경로를 지정한다.
+설치기는 root 소유·쓰기 불가 조건에 더해 호스트 서비스 UID와 Spark UID185가 동일 서비스
+GID로 파일을 읽을 수 있는지 실제로 검사한다. 코드 저장소의 가짜
+시험 fixture를 운영 근거로 쓰지 않는다. parent가 계산한 내용 SHA-256을 native/Spark가 함께
+검증하므로 별도 SHA 설정값을 수동 관리하지 않는다. 파일이 없거나 실행 도중 바뀌면 중단한다.
+이 파일 준비와 서비스 설치는 병합된 릴리스의 배포 단계이며 PR 검증 중에는 운영에 쓰지 않는다.
+
+병합된 코드로 배포할 때는 DAG를 멈춘 상태에서 `floor-config` → `activate <sha>` →
+`timers` 순서로 설정·릴리스·서비스를 준비한다. host unit·환경·바이너리·image·Spark
+의존성을 확인한 뒤 Airflow의 제한된 host 시작 경로로 시험한다. `airflow-runtime.sh`의
+`up`·`restart`·`start`는 `enabled:true`인 DAG를 다시 켜므로, 이 명령은 가동 검증을
+마친 뒤에만 실행한다. PR 검증 중에는 실행하지 않는다. 중단은 systemd를 통해 수행한다.
+`ExecStopPost`가 이번 `INVOCATION_ID`에 속한 컨테이너만 끝까지 정리한다. 수동 CLI 검사는
+운영 예약과 겹치지 않는 격리 시험 환경에서만 한다. 테스트용 HadoopCatalog 증거를 운영 R2
+반영 증거로 바꾸어 읽지 않는다. 실제 설치와 자료 반영 상태는
+[출시 로드맵](../../../../docs/roadmap/production-readiness.md)이 정본이다.
+
+이미 검증한 Cargo 산출물이 있으면 Dockerfile을 복제하거나 다시 컴파일할 필요가 없다.
+[BuildKit named context](https://docs.docker.com/reference/cli/docker/buildx/build/#additional-build-contexts---build-context)로
+기존 `Dockerfile.lakehouse-control`의 `rust-builder` stage만 대체할 수 있다. 이 context는
+검증한 바이너리를 `src/target/release/foundation-outbox-publisher`에, 해당 빌드 환경의 공개 CA
+bundle을 `etc/ssl/certs/ca-certificates.crt`에 제공한다. 경로명은 최적화 프로필의 증거가 아니다.
+검증한 소스·Cargo 프로필·바이너리 hash와 최종 image ID를 함께 기록한다. 런타임 정의와 기본
+Cargo release 빌드 경로는 기존 Dockerfile 하나가 계속 소유한다.
 
 ## Trino Catalog 설정
 
@@ -104,8 +176,7 @@ SELECT * FROM r2.silver.industrial_complexes LIMIT 10;
 Spark profile 은 container 를 오래 띄워 두는 batch job shell 로 시작한다.
 
 ```bash
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch up -d spark
-docker exec -it foundation-platform-spark spark-submit --version
+docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm spark spark-submit --version
 ```
 
 Spark container 는 repo 전체를 mount 하지 않는다. 컨테이너가 보는 것은 lakehouse Spark job, lakehouse
@@ -119,7 +190,7 @@ Linux bind mount 는 host directory 가 root 소유로 자동 생성될 수 있�
 Bronze -> Silver 변환 contract smoke:
 
 ```bash
-docker exec -it foundation-platform-spark spark-submit \
+docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm spark spark-submit \
   /workspace/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py \
   --input /workspace/infra/lakehouse/spark/fixtures/bronze/industrial_complexes.jsonl \
   --output /workspace/target/lakehouse/silver/industrial_complexes \
@@ -223,11 +294,11 @@ persisted row count 가 candidate row count 와 같은 최신 row 만 반환한�
 R2 Data Catalog / Iceberg write smoke (live R2/Iceberg credential 을 환경에 주입한 뒤 실행):
 
 ```bash
-docker exec -i \
+docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI="<catalog-uri>" \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE="foundation-platform" \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN="<catalog-token>" \
-  foundation-platform-spark spark-submit \
+  spark spark-submit \
   --conf spark.jars.ivy=/tmp/.ivy2 \
   --packages "$(python3 -c 'import sys; sys.path.insert(0, "infra/lakehouse/spark/jobs"); from lakehouse_engine import iceberg_packages; print(iceberg_packages())')" \
   /workspace/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py \
@@ -249,7 +320,7 @@ SELECT * FROM r2.silver.industrial_complexes_smoke LIMIT 1;
 명시해야 하며, table 이름이 `_smoke` 로 끝나지 않으면 non-smoke 허용 flag 없이는 거부한다.
 non-smoke table 은 fixture 입력을 사용할 수 없다. canonical table 을 대상으로 할 때는 실제 Bronze
 handoff 경로를 입력으로 명시해야 한다.
-Spark job 은 Cloudflare R2 Data Catalog 의 Iceberg REST endpoint 에 붙고, token 은 Docker exec
+Spark job 은 Cloudflare R2 Data Catalog 의 Iceberg REST endpoint 에 붙고, token 은 Compose run
 환경변수 전달로만 넘긴다. script 는 secret 값을 출력하지 않는다.
 live write smoke 도 같은 run summary contract 를 `industrial_complexes_iceberg.json` 으로 남기고,
 `foundation-platform.lakehouse_lineage_event.v1` runtime lineage artifact 를 쓴 뒤 target qualified table,
@@ -261,11 +332,11 @@ Silver handoff 또는 smoke 입력이 있으면 Gold `complex_catalog` projectio
 smoke 테이블에 기록한다.
 
 ```bash
-docker exec -i \
+docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI="<catalog-uri>" \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE="foundation-platform" \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN="<catalog-token>" \
-  foundation-platform-spark spark-submit \
+  spark spark-submit \
   --conf spark.jars.ivy=/tmp/.ivy2 \
   --packages "$(python3 -c 'import sys; sys.path.insert(0, "infra/lakehouse/spark/jobs"); from lakehouse_engine import iceberg_packages; print(iceberg_packages())')" \
   /workspace/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py \
@@ -447,11 +518,10 @@ Spark Iceberg runtime 은 `spark-submit --packages` 로 driver 시작 전에 주
 Spark container 를 띄우고 batch shell 로 들어가려면:
 
 ```bash
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch up -d spark
-docker exec -it foundation-platform-spark bash
+docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm spark bash
 ```
 
-이미 Spark container 가 떠 있으면 `docker compose ... up` 단계를 건너뛰고 바로 `docker exec` 로
+Spark는 작업별 컨테이너에서 실행하므로 `docker compose ... run --rm`으로
 들어갈 수 있다.
 
 초기에는 Spark 를 product API path 에 넣지 않는다. Spark 는 다음 작업만 맡는다.

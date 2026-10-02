@@ -16,3 +16,27 @@ mod hub_register_silver_export;
 
 /// Headerless HUB exclusive-unit ZIP to partitioned Silver handoff.
 pub mod building_register_exclusive_unit_silver_export;
+
+/// Shared FLOOR producer and native resource contract support.
+pub mod building_register_floor_silver_export;
+
+/// Shared FLOOR producer and native resource contract support.
+pub mod bounded_bytes;
+
+/// Shared FLOOR producer and native resource contract support.
+pub mod bounded_parquet_writer;
+
+/// Shared FLOOR producer and native resource contract support.
+pub mod building_register_zip_lines;
+
+/// Shared FLOOR producer and native resource contract support.
+pub mod building_register_snapshot;
+
+/// Shared FLOOR producer and native resource contract support.
+pub mod building_register_source_role;
+
+/// Shared FLOOR producer and native resource contract support.
+pub mod serving_scratch;
+
+/// Shared FLOOR producer and native resource contract support.
+pub mod lakehouse_engine_contract;

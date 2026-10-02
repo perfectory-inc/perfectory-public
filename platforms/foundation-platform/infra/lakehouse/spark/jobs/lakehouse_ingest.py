@@ -123,6 +123,25 @@ def table_holds_rows(spark: Any, qualified_table: str, unquoted_table: str) -> b
     return False
 
 
+def read_recorded_append(spark: Any, table: str, snapshot_id: int) -> Any:
+    """Read only rows added by one authenticated append, never its earlier derivations."""
+    snapshots = spark.sql(
+        f"SELECT parent_id, operation FROM {table}.snapshots "
+        f"WHERE snapshot_id = {int(snapshot_id)}"
+    ).collect()
+    if len(snapshots) != 1 or snapshots[0].operation != "append":
+        raise ValueError("Cannot authenticate retry: recorded append snapshot is unavailable")
+    reader = spark.read.format("iceberg")
+    parent_id = snapshots[0].parent_id
+    if parent_id is None:
+        reader = reader.option("snapshot-id", str(snapshot_id))
+    else:
+        reader = reader.option("start-snapshot-id", str(parent_id)).option(
+            "end-snapshot-id", str(snapshot_id)
+        )
+    return reader.load(unquoted_table_name(table))
+
+
 def decide_whether_to_append(
     ingested: dict[str, int],
     record_ids: Sequence[str],

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "table_name": "silver.building_register_floors",
+  "table_uuid": "11111111-1111-4111-8111-111111111111",
+  "snapshot_id": "10",
+  "operation": "overwrite",
+  "source_snapshot_id": "building-register-floor-selection-v2-99999aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "valid_from_utc": "2099-09-20T00:00:00Z",
+  "ingested_at_utc": "2099-09-29T17:53:49.231Z",
+  "row_count": 3,
+  "inputs": {
+    "floor": {
+      "role_slug": "hubgokr__building_register_floor_overview",
+      "provider_file_id": "OPN20990920SYNTHETIC-FLOOR",
+      "provider_month": "2099-09-01",
+      "size_bytes": 128,
+      "checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "title": {
+      "role_slug": "hubgokr__building_register_main",
+      "provider_file_id": "OPN20990920SYNTHETIC-TITLE",
+      "provider_month": "2099-09-01",
+      "size_bytes": 256,
+      "checksum_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "bronze_object_key": "bronze/source=hubgokr__building_register_floor_overview/OPN20990920SYNTHETIC-FLOOR--sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.zip"
+}
