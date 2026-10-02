@@ -202,7 +202,10 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # 104 -> 105: root ADR-0112's lakehouse tile bake embeds config/tile-bake-containers.contract.json,
 # the pinned GDAL and tippecanoe images, the way the static-release toolchain embeds its own
 # contract: the images a bake ran are part of the binary that ran it, not a file found at runtime.
-COMPILE_TIME_READ_BASELINE="${3:-105}"
+# 105 -> 106: ADR-0125 embeds building-unit-handoff.json once in handoff_manifest_support.
+# Catalog, recovery and Gold validators share its relationship evidence policy; embedding
+# keeps the validator's policy bound to its binary instead of a caller-selected runtime file.
+COMPILE_TIME_READ_BASELINE="${3:-106}"
 
 cd "$repo_root"
 

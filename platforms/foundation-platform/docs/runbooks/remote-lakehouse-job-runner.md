@@ -98,6 +98,15 @@ max rows:      10000
 
 이 job은 smoke 전용이다. non-smoke overwrite 플래그를 쓰지 않는다.
 
+호실 부모 연결은 [ADR-0125](../../../../docs/adr/0125-unit-building-links-require-source-parent-key-evidence.md)를 따른다.
+전유부·표제부와 같은 날짜의 기본개요 ZIP도 필요하다.
+`FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_BASIS_SOURCE_OBJECT`에 정확한 파일명을
+지정하면 runner가 `hubgokr__building_register_basis_outline`에서 함께 준비한다. 이름이 비슷한
+건물을 자동 선택하지 않는다. 배포의 스키마 마이그레이션을 먼저 완료하고 새 수출·적재·handoff
+`v2`·Gold 순서로 실행한다. 기존 활성 승인에 원천 호실 PK가 없으면 멈추므로, 원천을 확인한
+명시적인 재승인·철회 절차로 처리한다.
+
+
 ### Full / Hub Smoke
 
 `building_register_floors_pipeline_hub_smoke`와 `building_register_floors_pipeline_full`은 층별개요

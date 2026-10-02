@@ -143,6 +143,7 @@ async fn a_listed_generation_key_is_skipped_and_the_rest_are_written() -> anyhow
         &provenance(),
         &selected,
         &existing,
+        &crate::building_link_evidence::ApprovedBuildingLinks::default(),
     )
     .await?;
 
@@ -154,6 +155,79 @@ async fn a_listed_generation_key_is_skipped_and_the_rest_are_written() -> anyhow
     );
     assert_eq!(entries[0].write_outcome, "listed");
     assert_eq!(entries[1].write_outcome, "created");
+    Ok(())
+}
+
+#[tokio::test]
+async fn listed_bytes_cannot_bypass_the_fresh_relationship_check() -> anyhow::Result<()> {
+    let root = temporary_root("listed-stale-document");
+    let store =
+        BuildingServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    let old = building_document::build(&provenance(), &row(PNU_A))?;
+    let key = building_by_pnu_serving_object_key(1, PNU_A)?;
+    store
+        .write_object_create_only(&key, &old.body, &old.checksum_sha256)
+        .await?;
+    let mut current = row(PNU_A);
+    current.insert(
+        "unlinked_units_json".to_owned(),
+        json!(serde_json::to_string(&vec![
+            building_document::tests::unit(None)?
+        ])?),
+    );
+    let result = write_artifacts(
+        &config(root.clone(), false),
+        &store,
+        &provenance(),
+        &[&current],
+        &HashSet::from([key.clone()]),
+        &crate::building_link_evidence::ApprovedBuildingLinks::default(),
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(store.read_bytes(&key).await?, old.body);
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn serving_writer_receives_the_current_approval_snapshot() -> anyhow::Result<()> {
+    let root = temporary_root("approval-injection");
+    let store =
+        BuildingServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    let mut current = row(PNU_A);
+    current.insert(
+        "unlinked_units_json".to_owned(),
+        json!(serde_json::to_string(&vec![
+            building_document::tests::unit(None)?
+        ])?),
+    );
+    let active = crate::building_link_evidence::ApprovedBuildingLinks::fixture(
+        "11111111-1111-4111-8111-111111111111",
+        "source-row:UNIT-1",
+        "UNIT-1",
+        None,
+    );
+    let result = write_artifacts(
+        &config(root.clone(), false),
+        &store,
+        &provenance(),
+        &[&current],
+        &HashSet::new(),
+        &active,
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "source-only row must not hide the current approved withdrawal"
+    );
+    assert!(store
+        .read_bytes(&building_by_pnu_serving_object_key(1, PNU_A)?)
+        .await
+        .is_err());
+    if root.exists() {
+        std::fs::remove_dir_all(root)?;
+    }
     Ok(())
 }
 

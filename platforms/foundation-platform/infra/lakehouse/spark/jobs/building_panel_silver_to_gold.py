@@ -27,6 +27,8 @@ from platform_contracts import (column_names, create_table_columns_sql, current_
     partition_column_names, required_column_names, sort_order)
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
+from building_link_evidence import verified_building_links
+
 JOB_NAME = "building_panel_silver_to_gold"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
 GOLD_CONTRACT_NAME = "gold.building_panel"
@@ -188,15 +190,15 @@ def unit_areas(areas):
 
 
 def build_units(units, titles, areas, prices):
-    links = titles.select("pnu", F.col("mgm_bldrgst_pk").alias("building_register_pk"), F.col("id").alias("building_id"))
-    units = units.withColumn("building_register_pk", text_or_null("building_mgm_bldrgst_pk"))
-    joined = units.join(links, ["pnu", "building_register_pk"], "left").join(unit_areas(areas), "mgm_bldrgst_pk", "left")
+    links = titles.select(F.col("pnu").alias("_parent_pnu"), F.col("mgm_bldrgst_pk").alias("building_register_pk"), F.col("id").alias("building_id"))
+    units = verified_building_links(units).withColumn("building_register_pk", text_or_null("building_mgm_bldrgst_pk"))
+    joined = units.join(links, "building_register_pk", "left").join(unit_areas(areas), "mgm_bldrgst_pk", "left")
     number, kind = F.col("floor_number"), F.col("floor_kind")
     label = (F.when(number.isNull(), F.lit(""))
              .when(kind == "basement", F.concat(F.lit("지하 "), number.cast("string"), F.lit("층")))
              .when(kind == "rooftop", F.lit("옥탑"))
              .otherwise(F.concat(number.cast("string"), F.lit("층"))))
-    projected = joined.select("pnu", "building_register_pk", "building_id",
+    projected = joined.select("pnu", F.col("pnu").alias("unit_pnu"), "_parent_pnu", "building_register_pk", "building_id", "building_link_evidence",
         F.col("mgm_bldrgst_pk").alias("register_pk"), canonical_id("building_unit", F.col("mgm_bldrgst_pk")).alias("id"),
         canonical_id("parcel", F.col("pnu")).alias("parcel_id"),
         F.coalesce("dong_join_name", F.lit("")).alias("building_name"),
@@ -237,16 +239,16 @@ def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counter
     counters["unlinked_floor_count"] = floors.join(titles.select("mgm_bldrgst_pk"), "mgm_bldrgst_pk", "left_anti").count()
     projected_units = build_units(units, titles, areas, frames[PRICE_SOURCE])
     counters["unlinked_unit_count"] = projected_units.where(F.col("building_id").isNull()).count()
-    unit_fields = ["dong_name", "ho_name", "id", "parcel_id", "building_id", "register_pk",
-                   "building_name", "floor_label", "exclusive_area_m2", "usage_name", "structure_name", "official_price_history"]
+    unit_fields = ["dong_name", "ho_name", "id", "parcel_id", "building_id", "register_pk", "building_register_pk",
+                   "building_name", "floor_label", "exclusive_area_m2", "usage_name", "structure_name", "official_price_history", "building_link_evidence", "unit_pnu"]
     nested_units = sorted_objects(projected_units.where(F.col("building_id").isNotNull()),
-                                  ["pnu", "building_id"], unit_fields, "units")
+                                  ["_parent_pnu", "building_id"], unit_fields, "units").withColumnRenamed("_parent_pnu", "pnu")
     unlinked = sorted_objects(projected_units.where(F.col("building_id").isNull()), ["pnu"], unit_fields, "unlinked_units")
     floor_fields = ["floor_row_id", "floor_kind", "floor_number", "floor_index", "floor_display_ko"]
     nested_floors = sorted_objects(floors, ["mgm_bldrgst_pk"], floor_fields, "floors")
     roof = floors.groupBy("mgm_bldrgst_pk").agg(F.max(F.when(F.col("floor_kind") == "rooftop", 1).otherwise(0)).alias("_roof"))
     # Common rooftop rows may name their title directly or an exclusive register linked to it.
-    area_links = units.select(F.col("mgm_bldrgst_pk").alias("_unit_pk"), F.col("building_mgm_bldrgst_pk").alias("_title_pk"))
+    area_links = verified_building_links(units).select(F.col("mgm_bldrgst_pk").alias("_unit_pk"), F.col("building_mgm_bldrgst_pk").alias("_title_pk"))
     roof_areas = areas.where((F.col("area_kind") == "common") & (F.col("floor_kind") == "rooftop"))
     roof_areas = roof_areas.join(area_links, roof_areas.mgm_bldrgst_pk == area_links._unit_pk, "left").withColumn(
         "_building_pk", F.coalesce("_title_pk", "mgm_bldrgst_pk"))

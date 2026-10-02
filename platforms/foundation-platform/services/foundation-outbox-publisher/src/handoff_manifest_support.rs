@@ -9,6 +9,10 @@
 use anyhow::bail;
 use serde::Deserialize;
 
+/// Shared relationship policy read by the Spark writer and every Rust unit consumer.
+pub(crate) const BUILDING_UNIT_HANDOFF_CONTRACT: &str =
+    include_str!("../../../infra/lakehouse/contracts/building-unit-handoff.json");
+
 /// The handoff contract: every name the Spark writer and a reader must agree on, once.
 #[derive(Debug, Deserialize)]
 pub(crate) struct HandoffContract {

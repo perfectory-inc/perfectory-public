@@ -6,10 +6,11 @@
   "manifest_object": "silver-handoff/building_unit_building_link/manifest.json",
   "manifest_object_reason": "The source is an Iceberg table, so the export decides how many objects it writes; the manifest is written last and names each with its row count, and a loader that cannot find it refuses rather than succeeding at nothing.",
   "partition_rule": "sigungu",
-  "partition_rule_reason": "One object per five-digit PNU prefix, the grain both prior projections load at. Rows whose pnu is null never entered catalog.building_unit, and rows whose building key is null have no pair to carry — both are left behind and counted in the manifest, never dropped silently.",
+  "partition_rule_reason": "유효한 PNU의 시군구별로 나눈다. 부모 키가 NULL인 행도 연결 철회를 전달한다. PNU 없는 행과 미해결 관계 건수는 manifest에 각각 남긴다.",
   "columns": [
     "register_pk",
-    "building_register_pk"
+    "building_register_pk",
+    "building_link_evidence"
   ],
-  "columns_reason": "Exactly the pair the backfill joins on: the unit's own natural key, and the building register key the loader turns into building_id by the same derivation that issued the building rows' ids (ADR-0074 §3). Both sides read this list, so a column added on one is refused by the other until both moved."
+  "columns_reason": "호실 PK, 명시적 NULL을 허용하는 부모 건물 PK, building-unit-handoff.json의 관계 근거를 함께 전달한다. 소비자는 현재 활성 승인 원장과 대조한다(ADR-0125)."
 }

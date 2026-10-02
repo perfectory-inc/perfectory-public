@@ -34,6 +34,7 @@ use foundation_shared_kernel::pnu::Pnu;
 use serde::Deserialize;
 use sqlx::{Connection, Executor, PgConnection};
 
+use crate::building_link_evidence::{ApprovedBuildingLinks, BuildingLinkEvidence};
 use crate::handoff_manifest_support::{
     validate_manifest, verdict, HandoffContract, Manifest, PassTotals,
 };
@@ -45,7 +46,7 @@ use crate::public_data_control_support::{
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_UNIT_PROJECTION_LOAD_CONFIRM";
 const CONTRACT_PATH_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_UNIT_HANDOFF_CONTRACT_PATH";
 const DEFAULT_CONTRACT_PATH: &str = "infra/lakehouse/contracts/building-unit-handoff.json";
-const MANIFEST_SCHEMA_VERSION: &str = "foundation-platform.building_unit_handoff_manifest.v1";
+const MANIFEST_SCHEMA_VERSION: &str = "foundation-platform.building_unit_handoff_manifest.v2";
 const OBJECT_ATTEMPTS: usize = 3;
 const OBJECT_RETRY_BASE_DELAY_SECONDS: u64 = 5;
 
@@ -61,7 +62,9 @@ struct UnitManifestExtras {
 struct HandoffUnitRow {
     register_pk: String,
     pnu: String,
+    #[serde(deserialize_with = "crate::building_link_evidence::required_nullable_key")]
     building_register_pk: Option<String>,
+    building_link_evidence: BuildingLinkEvidence,
     dong_name: String,
     ho_name: String,
     floor_label: String,
@@ -88,7 +91,11 @@ impl Config {
 }
 
 /// Parses one handoff object into rows, refusing an empty or malformed one.
-fn units_in_object(object_bytes: &[u8], object_key: &str) -> anyhow::Result<Vec<HandoffUnitRow>> {
+fn units_in_object(
+    object_bytes: &[u8],
+    object_key: &str,
+    approvals: &ApprovedBuildingLinks,
+) -> anyhow::Result<Vec<HandoffUnitRow>> {
     let text = gunzip_text(object_bytes, object_key)?;
     let mut rows = Vec::new();
     for (index, line) in text.lines().enumerate() {
@@ -107,13 +114,18 @@ fn units_in_object(object_bytes: &[u8], object_key: &str) -> anyhow::Result<Vec<
                 index + 1
             )
         })?;
-        if row.register_pk.trim().is_empty() {
+        if row.register_pk.is_empty() || row.register_pk.trim() != row.register_pk {
             bail!(
                 "handoff object {object_key} line {} has no register_pk, and the natural key is \
                  what the merge conflicts on",
                 index + 1
             );
         }
+        approvals.validate(
+            &row.building_link_evidence,
+            &row.register_pk,
+            row.building_register_pk.as_deref(),
+        )?;
         rows.push(row);
     }
     if rows.is_empty() {
@@ -271,12 +283,13 @@ async fn load_one(
     storage: &R2ObjectStorage,
     conn: &mut PgConnection,
     key: &str,
+    approvals: &ApprovedBuildingLinks,
 ) -> anyhow::Result<(u64, u64, u64, u64)> {
     let bytes = storage
         .get_object_bytes_range_retried(key)
         .await
         .with_context(|| format!("failed to read handoff object {key}"))?;
-    let rows = units_in_object(&bytes, key)?;
+    let rows = units_in_object(&bytes, key, approvals)?;
     load_object(conn, &rows).await
 }
 
@@ -315,6 +328,7 @@ pub async fn run() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let approvals = ApprovedBuildingLinks::load(&config.database_url).await?;
     let mut conn = PgConnection::connect(config.database_url.as_str())
         .await
         .context("failed to connect to DATABASE_URL for the building unit projection load")?;
@@ -328,7 +342,7 @@ pub async fn run() -> anyhow::Result<()> {
     for (index, object) in manifest.objects.iter().enumerate() {
         let mut outcome = None;
         for attempt in 1..=OBJECT_ATTEMPTS {
-            match load_one(&storage, &mut conn, object.key.as_str()).await {
+            match load_one(&storage, &mut conn, object.key.as_str(), &approvals).await {
                 Ok(counts) => {
                     outcome = Some(counts);
                     break;
@@ -414,9 +428,13 @@ mod tests {
     }
 
     fn row_json(register_pk: &str, pnu: &str, building_register_pk: &str) -> String {
-        format!(
-            "{{\"register_pk\":\"{register_pk}\",\"pnu\":\"{pnu}\",             \"building_register_pk\":{building_register_pk},\"building_name\":\"본관\",             \"dong_name\":\"101동\",\"ho_name\":\"101호\",\"floor_label\":\"1층\",             \"exclusive_area_m2\":84.5,\"usage_name\":\"공장\",\"structure_name\":\"철골\"}}"
-        )
+        serde_json::json!({
+            "register_pk": register_pk, "pnu": pnu,
+            "building_register_pk": serde_json::from_str::<serde_json::Value>(building_register_pk).expect("parent fixture"),
+            "building_link_evidence": crate::building_link_evidence::source_fixture(),
+            "building_name": "main", "dong_name": "101", "ho_name": "101", "floor_label": "1",
+            "exclusive_area_m2": 84.5, "usage_name": "factory", "structure_name": "steel",
+        }).to_string()
     }
 
     #[test]
@@ -427,10 +445,11 @@ mod tests {
             row_json("PK-2", "9999900000100000002", "null")
         );
 
-        let rows = units_in_object(&gzipped(&body), "k").expect("rows");
+        let rows =
+            units_in_object(&gzipped(&body), "k", &ApprovedBuildingLinks::default()).expect("rows");
 
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].ho_name, "101호");
+        assert_eq!(rows[0].ho_name, "101");
         assert_eq!(rows[0].building_register_pk.as_deref(), Some("BLDG-1"));
         // The register stated no link, and the row says so rather than carrying one (ADR-0075).
         assert_eq!(rows[1].building_register_pk, None);
@@ -440,7 +459,7 @@ mod tests {
     fn a_row_without_a_register_pk_stops_the_object() {
         let body = row_json("  ", "9999900000100000001", "null");
 
-        let error = units_in_object(&gzipped(&body), "k")
+        let error = units_in_object(&gzipped(&body), "k", &ApprovedBuildingLinks::default())
             .expect_err("the natural key is what the merge conflicts on");
 
         assert!(format!("{error:#}").contains("register_pk"));
@@ -448,16 +467,54 @@ mod tests {
 
     #[test]
     fn plain_text_where_gzip_was_promised_is_an_error() {
-        let error = units_in_object(b"{}\n", "k").expect_err("plain bytes must be refused");
+        let error = units_in_object(b"{}\n", "k", &ApprovedBuildingLinks::default())
+            .expect_err("plain bytes must be refused");
 
         assert!(format!("{error:#}").contains("decompress"));
     }
 
     #[test]
     fn an_empty_object_is_an_error_not_a_success() {
-        let error =
-            units_in_object(&gzipped(""), "k").expect_err("an empty object must not be a pass");
+        let error = units_in_object(&gzipped(""), "k", &ApprovedBuildingLinks::default())
+            .expect_err("an empty object must not be a pass");
 
         assert!(format!("{error:#}").contains("no rows"));
+    }
+
+    #[test]
+    fn projection_requires_explicit_parent_and_source_or_current_approval() -> anyhow::Result<()> {
+        let source: serde_json::Value =
+            serde_json::from_str(&row_json("UNIT-1", "9999900000100000001", "\"BLDG-1\""))?;
+        let empty = ApprovedBuildingLinks::default();
+        for key in ["building_register_pk", "building_link_evidence"] {
+            let mut bad = source.clone();
+            bad.as_object_mut().expect("row").remove(key);
+            assert!(units_in_object(&gzipped(&bad.to_string()), "missing", &empty).is_err());
+        }
+        let mut guessed = source.clone();
+        guessed["building_link_evidence"]["building_link_method"] =
+            serde_json::json!("canonical_dong");
+        assert!(units_in_object(&gzipped(&guessed.to_string()), "guess", &empty).is_err());
+
+        let application = "11111111-1111-4111-8111-111111111111";
+        let active = ApprovedBuildingLinks::fixture(
+            application,
+            "source-row:UNIT-1",
+            "UNIT-1",
+            Some("BLDG-1"),
+        );
+        assert!(units_in_object(&gzipped(&source.to_string()), "stale-source", &active).is_err());
+        let mut approved = source;
+        approved["building_link_evidence"] = serde_json::json!({
+            "unit_row_id": "source-row:UNIT-1", "building_link_method": "parent_key",
+            "normalization_application_id": application
+        });
+        units_in_object(&gzipped(&approved.to_string()), "approved", &active)?;
+        assert!(units_in_object(&gzipped(&approved.to_string()), "inactive", &empty).is_err());
+        approved["building_register_pk"] = serde_json::Value::Null;
+        assert!(
+            units_in_object(&gzipped(&approved.to_string()), "wrong-decision", &active).is_err()
+        );
+        Ok(())
     }
 }

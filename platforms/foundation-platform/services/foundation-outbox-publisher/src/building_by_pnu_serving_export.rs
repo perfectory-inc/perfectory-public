@@ -32,6 +32,7 @@ use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
 use crate::building_by_pnu_serving_store::{local_root, BuildingServingObjectStore};
+use crate::building_link_evidence::ApprovedBuildingLinks;
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, LakehouseObjectReader};
 use crate::r2_layout::building_by_pnu_serving_object_key;
@@ -87,7 +88,8 @@ pub async fn run() -> anyhow::Result<()> {
 
     let lakehouse = LakehouseObjectReader::from_env()?;
     let output = BuildingServingObjectStore::open(&config.output)?;
-    let summary = export(&config, &lakehouse, &output, &snapshot).await?;
+    let approvals = ApprovedBuildingLinks::load_current().await?;
+    let summary = export(&config, &lakehouse, &output, &snapshot, &approvals).await?;
 
     if let Some(summary_path) = &config.summary_path {
         write_summary(summary_path, &summary)?;
@@ -243,6 +245,7 @@ async fn export(
     lakehouse: &LakehouseObjectReader,
     output: &BuildingServingObjectStore,
     snapshot: &IcebergSnapshotManifestList,
+    approvals: &ApprovedBuildingLinks,
 ) -> anyhow::Result<ServingExportSummary> {
     let provenance = GoldSnapshotProvenance {
         table: snapshot.table_name.clone(),
@@ -295,7 +298,15 @@ async fn export(
     } else {
         HashSet::new()
     };
-    let entries = write_artifacts(config, output, &provenance, &selected, &existing_keys).await?;
+    let entries = write_artifacts(
+        config,
+        output,
+        &provenance,
+        &selected,
+        &existing_keys,
+        approvals,
+    )
+    .await?;
 
     let created_object_count = count_outcome(&entries, "created")?;
     let reused_object_count = count_outcome(&entries, "reused")?;
@@ -379,6 +390,7 @@ async fn write_artifacts(
     provenance: &GoldSnapshotProvenance,
     rows: &[&JsonMap<String, JsonValue>],
     existing_keys: &HashSet<String>,
+    approvals: &ApprovedBuildingLinks,
 ) -> anyhow::Result<Vec<ServingExportEntry>> {
     let mut writes = Vec::with_capacity(rows.len());
     for (index, row) in rows.iter().enumerate() {
@@ -389,6 +401,7 @@ async fn write_artifacts(
             row,
             index,
             existing_keys,
+            approvals,
         ));
     }
     let mut indexed = stream::iter(writes)
@@ -407,13 +420,16 @@ async fn write_artifact(
     row: &JsonMap<String, JsonValue>,
     index: usize,
     existing_keys: &HashSet<String>,
+    approvals: &ApprovedBuildingLinks,
 ) -> anyhow::Result<(usize, ServingExportEntry)> {
-    let artifact = building_document::build(provenance, row)?;
+    let artifact = building_document::build_with_approvals(provenance, row, approvals)?;
     let object_key = building_by_pnu_serving_object_key(config.target_generation, &artifact.pnu)?;
     let write_outcome = if existing_keys.contains(&object_key) {
-        // The listing already names this key: record the locally rebuilt artifact without a
-        // network round trip. The document is a pure function of the Gold row, the original
-        // write was create-only, and publish-time sampling reads a spread of these back.
+        // A listed key cannot stand in for a document validated against the active ledger.
+        ensure!(
+            output.read_bytes(&object_key).await? == artifact.body,
+            "listed serving object {object_key} differs from the verified building document"
+        );
         "listed"
     } else {
         write_with_policy(config, output, &object_key, &artifact).await?

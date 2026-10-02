@@ -19,6 +19,8 @@ const BUILDING_REGISTER_UNIT_SOURCE_OBJECT_ENV: &str =
     "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_UNIT_SOURCE_OBJECT";
 const BUILDING_REGISTER_TITLE_SOURCE_OBJECT_ENV: &str =
     "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_TITLE_SOURCE_OBJECT";
+const BUILDING_REGISTER_BASIS_SOURCE_OBJECT_ENV: &str =
+    "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_BASIS_SOURCE_OBJECT";
 const BUILDING_REGISTER_UNIT_AREA_SOURCE_OBJECT_ENV: &str =
     "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_UNIT_AREA_SOURCE_OBJECT";
 
@@ -108,6 +110,11 @@ impl BuildingRegisterSourceSnapshotConfig {
                         BUILDING_REGISTER_TITLE_SOURCE_OBJECT_ENV,
                         &metadata,
                     )?,
+                    basis_source_object: required_snapshot_object(
+                        lookup,
+                        BUILDING_REGISTER_BASIS_SOURCE_OBJECT_ENV,
+                        &metadata,
+                    )?,
                     metadata,
                 }))
             }
@@ -150,6 +157,7 @@ impl BuildingRegisterSourceSnapshotConfig {
 struct BuildingRegisterUnitSourceSnapshot {
     source_object: String,
     title_source_object: String,
+    basis_source_object: String,
     metadata: BuildingRegisterSnapshotMetadata,
 }
 
@@ -191,23 +199,8 @@ fn required_snapshot_object(
     metadata: &BuildingRegisterSnapshotMetadata,
 ) -> anyhow::Result<String> {
     let source_object = required_lookup(lookup, name)?;
-    if source_object.contains('/') || source_object.contains('\\') {
-        bail!("{name} must be a Bronze object file name, not a path");
-    }
-    if !source_object.ends_with(".zip")
-        || !source_object
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || ".-_".contains(character))
-    {
-        bail!("{name} must be a safe .zip object file name");
-    }
-    let expected_prefix = format!("OPN{}", metadata.compact_date());
-    if !source_object.starts_with(&expected_prefix) {
-        bail!(
-            "{name} must embed snapshot date {} after the OPN prefix",
-            metadata.compact_date()
-        );
-    }
+    crate::building_register_snapshot::validate_object_name(&source_object, metadata.date)
+        .map_err(|error| anyhow::anyhow!("{name}: {error:#}"))?;
     Ok(source_object)
 }
 
@@ -809,7 +802,7 @@ lakehouse_gid=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}}\"
 docker run --rm --entrypoint sh \\
   -v \"$PWD/target/lakehouse:/lakehouse\" \\
   amazon/aws-cli:2.17.62 \\
-  -c \"mkdir -p \\\"/lakehouse/bronze/source={source_slug}\\\" \\\"/lakehouse/bronze/source={title_source_slug}\\\" /lakehouse/silver_handoff && chown -R \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" \\\"/lakehouse/bronze/source={source_slug}\\\" \\\"/lakehouse/bronze/source={title_source_slug}\\\" && chown \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" /lakehouse /lakehouse/silver_handoff\"
+  -c \"mkdir -p \\\"/lakehouse/bronze/source={source_slug}\\\" \\\"/lakehouse/bronze/source={title_source_slug}\\\" \\\"/lakehouse/bronze/source=hubgokr__building_register_basis_outline\\\" /lakehouse/silver_handoff && chown -R \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" \\\"/lakehouse/bronze/source={source_slug}\\\" \\\"/lakehouse/bronze/source={title_source_slug}\\\" \\\"/lakehouse/bronze/source=hubgokr__building_register_basis_outline\\\" && chown \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" /lakehouse /lakehouse/silver_handoff\"
 stage_bronze_object() {{
   source_slug=\"$1\"
   source_object=\"$2\"
@@ -829,6 +822,7 @@ stage_bronze_object() {{
 }}
 stage_bronze_object '{source_slug}' '{source_object}'
 stage_bronze_object '{title_source_slug}' '{title_source_object}'
+stage_bronze_object 'hubgokr__building_register_basis_outline' '{basis_source_object}'
 docker run --rm --entrypoint sh \\
   -v \"$PWD/target/remote-lakehouse:/remote-lakehouse\" \\
   amazon/aws-cli:2.17.62 \\
@@ -841,6 +835,10 @@ if ! test -f 'target/lakehouse/bronze/source={title_source_slug}/{title_source_o
   echo 'missing pinned building-register title Bronze zip under target/lakehouse' >&2
   exit 5
 fi
+if ! test -f 'target/lakehouse/bronze/source=hubgokr__building_register_basis_outline/{basis_source_object}'; then
+  echo 'missing pinned building-register basis Bronze zip under target/lakehouse' >&2
+  exit 5
+fi
 mkdir -p 'target/remote-lakehouse/summaries'
 {LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-control build lakehouse-control
 {LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-control run --rm \\
@@ -850,6 +848,7 @@ mkdir -p 'target/remote-lakehouse/summaries'
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_SOURCE_OBJECT='{source_object}' \\
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_TITLE_SOURCE_SLUG='{title_source_slug}' \\
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_TITLE_SOURCE_OBJECT='{title_source_object}' \\
+  -e FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_BASIS_SOURCE_OBJECT='{basis_source_object}' \\
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_OUTPUT_PATH='{output_path}' \\
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_OUTPUT_FORMAT='{output_format}' \\
   -e FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_APPLY_APPROVED_OVERRIDES='1' \\
@@ -865,6 +864,7 @@ mkdir -p 'target/remote-lakehouse/summaries'
         source_object = source.source_object,
         title_source_slug = pipeline.title_source_slug,
         title_source_object = source.title_source_object,
+        basis_source_object = source.basis_source_object,
         output_path = pipeline.output_path,
         output_format = pipeline.output_format,
         chunk_rows_env = chunk_rows_env,

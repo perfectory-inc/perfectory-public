@@ -5,7 +5,31 @@ use serde_json::Value as JsonValue;
 use crate::NormalizationError;
 
 /// Stable schema used by reviewed building-register-unit proposals.
-pub const BUILDING_REGISTER_UNIT_SCHEMA_VERSION: &str = "building_register_unit.normalized.v1";
+pub const BUILDING_REGISTER_UNIT_SCHEMA_VERSION: &str = "building_register_unit.normalized.v2";
+
+/// Reads the canonical source unit key and an explicitly nullable parent claim.
+///
+/// # Errors
+/// Refuses omitted, incorrectly typed, blank or whitespace-padded keys. Only an
+/// explicit JSON null denotes a reviewed withdrawal of the parent relation.
+pub fn building_register_unit_parent_binding(
+    proposed_record: &serde_json::Map<String, JsonValue>,
+) -> Result<(&str, Option<&str>), NormalizationError> {
+    let canonical_key = |field: &str| {
+        proposed_record.get(field).and_then(JsonValue::as_str)
+            .filter(|value| !value.is_empty() && value.trim() == *value)
+            .ok_or_else(|| NormalizationError::InvalidInput(format!(
+                "building_register_unit proposed_record.{field} must be an explicit canonical nonempty string"
+            )))
+    };
+    let source_key = canonical_key("mgm_bldrgst_pk")?;
+    let parent = if proposed_record.get("building_mgm_bldrgst_pk") == Some(&JsonValue::Null) {
+        None
+    } else {
+        Some(canonical_key("building_mgm_bldrgst_pk")?)
+    };
+    Ok((source_key, parent))
+}
 
 /// Validates the persisted schema and proposed-record contract for a unit override.
 ///
@@ -57,10 +81,11 @@ pub fn validate_building_register_unit_proposal(
             ));
         }
     }
+    building_register_unit_parent_binding(proposed_record)?;
     Ok(())
 }
 
-/// Validates the stable v1 identity for a building-register-unit override.
+/// Validates the source-row identity for a building-register-unit override.
 ///
 /// # Errors
 /// Returns [`NormalizationError::InvalidInput`] unless the identity contains exactly the
@@ -71,7 +96,7 @@ pub fn validate_building_register_unit_target_identity(
     parse_target_identity(target_identity).map(|_| ())
 }
 
-/// Validates a v1 unit identity and matches it to its submitted source record.
+/// Validates a unit identity and matches it to its submitted source record.
 ///
 /// # Errors
 /// Returns [`NormalizationError::InvalidInput`] when the identity shape is invalid or either

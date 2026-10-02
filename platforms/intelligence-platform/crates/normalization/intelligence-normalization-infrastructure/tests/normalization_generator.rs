@@ -344,7 +344,7 @@ fn building_register_unit_request() -> NormalizationRequest {
                 "normalization_reason"
             ]
         }),
-        target_schema_version: "building_register_unit.normalized.v1".to_string(),
+        target_schema_version: "building_register_unit.normalized.v2".to_string(),
         raw_object_key: Some(
             "bronze/source=hubgokr__building_register_exclusive_unit/OPN.zip".to_string(),
         ),

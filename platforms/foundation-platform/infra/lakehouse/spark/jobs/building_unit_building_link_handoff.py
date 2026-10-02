@@ -31,12 +31,14 @@ from lakehouse_engine import (
     iceberg_packages,
 )
 
+from building_link_evidence import verified_building_links
+
 JOB_NAME = "building_unit_building_link_handoff"
 CONTRACT_PATH_ENV = "FOUNDATION_PLATFORM_BUILDING_UNIT_LINK_HANDOFF_CONTRACT_PATH"
 DEFAULT_CONTRACT_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "contracts", "building-unit-building-link-handoff.json"
 )
-MANIFEST_SCHEMA_VERSION = "foundation-platform.building_unit_building_link_handoff_manifest.v1"
+MANIFEST_SCHEMA_VERSION = "foundation-platform.building_unit_building_link_handoff_manifest.v2"
 
 
 def load_handoff_contract() -> dict[str, Any]:
@@ -95,10 +97,11 @@ def build_spark_session(args: argparse.Namespace) -> Any:
 def read_units(spark: Any, catalog: str) -> Any:
     """One candidate pair per unit row, in the loader's column names, plus the partition key."""
 
-    return spark.table(f"`{catalog}`.`silver`.`building_register_units`").select(
+    return verified_building_links(spark.table(f"`{catalog}`.`silver`.`building_register_units`")).select(
         F.col("mgm_bldrgst_pk").alias("register_pk"),
         F.col("building_mgm_bldrgst_pk").alias("building_register_pk"),
         F.col("pnu"),
+        F.col("building_link_evidence"),
     )
 
 
@@ -126,7 +129,7 @@ def write_objects(
         count = 0
         with gzip.GzipFile(fileobj=payload, mode="wb") as gz:
             for row in rows.toLocalIterator():
-                gz.write(json.dumps(row.asDict(), ensure_ascii=False).encode("utf-8"))
+                gz.write(json.dumps(row.asDict(recursive=True), ensure_ascii=False).encode("utf-8"))
                 gz.write(b"\n")
                 count += 1
         key = f"{prefix}/{sigungu}{suffix}"
@@ -176,7 +179,8 @@ def main(argv: list[str] | None = None) -> int:
         has_link = F.col("building_register_pk").isNotNull() & (
             F.length(F.trim(F.col("building_register_pk"))) > 0
         )
-        exportable = frame.where(has_pnu & has_link).persist()
+        # Explicit NULLs withdraw stale links in the recovery loader.
+        exportable = frame.where(has_pnu).persist()
         null_pnu_count = int(frame.where(~has_pnu).count())
         unlinked_count = int(frame.where(has_pnu & ~has_link).count())
 

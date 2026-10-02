@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::building_link_evidence::{ApprovedBuildingLinks, BuildingLinkEvidence};
 use anyhow::{ensure, Context};
 use catalog_domain::{
     building_id_for_register_pk, building_unit_id_for_register_pk, parcel_id_for_pnu,
@@ -45,9 +46,18 @@ struct BuildingByPnuDocument<'a> {
     unlinked_units: Vec<UnitResponse>,
 }
 
+#[cfg(test)]
 pub(super) fn build(
     provenance: &GoldSnapshotProvenance,
     row: &JsonMap<String, JsonValue>,
+) -> anyhow::Result<BuildingServingArtifact> {
+    build_with_approvals(provenance, row, &ApprovedBuildingLinks::default())
+}
+
+pub(super) fn build_with_approvals(
+    provenance: &GoldSnapshotProvenance,
+    row: &JsonMap<String, JsonValue>,
+    approvals: &ApprovedBuildingLinks,
 ) -> anyhow::Result<BuildingServingArtifact> {
     let pnu = row
         .get("pnu")
@@ -112,6 +122,8 @@ pub(super) fn build(
                 raw_unit,
                 parcel_id,
                 Some(building.id),
+                Some(building.register_pk.as_str()),
+                approvals,
                 &mut units_seen,
             )?;
         }
@@ -121,7 +133,15 @@ pub(super) fn build(
     for raw in raw_unlinked {
         let unit: UnitResponse = serde_json::from_value(raw.clone())
             .context("unlinked_units_json does not parse as UnitResponse")?;
-        validate_unit(&unit, &raw, parcel_id, None, &mut units_seen)?;
+        validate_unit(
+            &unit,
+            &raw,
+            parcel_id,
+            None,
+            None,
+            approvals,
+            &mut units_seen,
+        )?;
         unlinked_units.push(unit);
     }
     let document = BuildingByPnuDocument {
@@ -158,21 +178,52 @@ fn validate_unit(
     raw: &JsonValue,
     parcel_id: uuid::Uuid,
     building_id: Option<uuid::Uuid>,
+    building_register_pk: Option<&str>,
+    approvals: &ApprovedBuildingLinks,
     seen: &mut BTreeSet<uuid::Uuid>,
 ) -> anyhow::Result<()> {
     let pk = raw
         .get("register_pk")
         .and_then(JsonValue::as_str)
-        .filter(|pk| !pk.trim().is_empty())
+        .filter(|pk| !pk.is_empty() && pk.trim() == *pk)
         .context("Gold unit has no register_pk")?;
     ensure!(
         unit.id == building_unit_id_for_register_pk(pk),
         "unit id disagrees with catalog-domain"
     );
+    let source_pnu = raw
+        .get("unit_pnu")
+        .and_then(JsonValue::as_str)
+        .context("Gold unit is missing its source unit_pnu")?;
+    let source_pnu = Pnu::parse(source_pnu.to_owned()).context("invalid source unit PNU")?;
+    let source_parcel_id = parcel_id_for_pnu(&source_pnu).as_uuid();
     ensure!(
-        unit.parcel_id == parcel_id && unit.building_id == building_id,
-        "unit attachment disagrees with its parent"
+        unit.parcel_id == source_parcel_id && unit.building_id == building_id,
+        "unit identity disagrees with its source parcel or parent"
     );
+    ensure!(
+        building_id.is_some() || source_parcel_id == parcel_id,
+        "unlinked unit belongs to a different parcel"
+    );
+    let raw_parent = raw
+        .get("building_register_pk")
+        .context("Gold unit must carry an explicit nullable building_register_pk")?;
+    ensure!(
+        raw_parent.is_null() || raw_parent.is_string(),
+        "invalid unit parent key type"
+    );
+    ensure!(
+        building_register_pk.is_none() || raw_parent.as_str() == building_register_pk,
+        "unit source parent differs from its Gold nesting"
+    );
+    let evidence: BuildingLinkEvidence = serde_json::from_value(
+        raw.get("building_link_evidence")
+            .context("Gold unit lacks building_link_evidence")?
+            .clone(),
+    )?;
+    // A verified source parent can be absent from the visible title projection.
+    // Keep that claim for evidence validation while the public unit remains unlinked.
+    approvals.validate(&evidence, pk, raw_parent.as_str())?;
     ensure!(
         seen.insert(unit.id),
         "unit appears more than once in Gold row"
@@ -203,12 +254,13 @@ pub(super) mod tests {
 
     pub(crate) fn unit(building_id: Option<uuid::Uuid>) -> anyhow::Result<JsonValue> {
         // The reserved fixture PNU is parsed fallibly in tests that use this helper.
-        Ok(
-            json!({"register_pk": "UNIT-1", "id": building_unit_id_for_register_pk("UNIT-1"),
+        Ok(json!({"register_pk": "UNIT-1", "unit_pnu": PNU,
+            "building_register_pk": building_id.map(|_| "BLDG-1"),
+            "building_link_evidence": crate::building_link_evidence::source_fixture(),
+            "id": building_unit_id_for_register_pk("UNIT-1"),
             "parcel_id": parcel_id_for_pnu(&Pnu::parse(PNU.to_owned())?).as_uuid(), "building_id": building_id,
             "building_name": "", "dong_name": "", "ho_name": "101", "floor_label": "1",
-            "exclusive_area_m2": null, "usage_name": "", "structure_name": "", "official_price_history": []}),
-        )
+            "exclusive_area_m2": null, "usage_name": "", "structure_name": "", "official_price_history": []}))
     }
 
     fn provenance() -> GoldSnapshotProvenance {
@@ -226,6 +278,174 @@ pub(super) mod tests {
             ("buildings_json".to_owned(), json!("[]")),
             ("unlinked_units_json".to_owned(), json!("[]")),
         ])
+    }
+
+    fn row_with_building(unit: JsonValue) -> anyhow::Result<JsonMap<String, JsonValue>> {
+        let mut row = row();
+        row.insert(
+            "buildings_json".to_owned(),
+            json!(serde_json::to_string(&json!([{
+                "register_pk": "BLDG-1", "id": building_id_for_register_pk("BLDG-1"),
+                "parcel_id": parcel_id_for_pnu(&Pnu::parse(PNU.to_owned())?).as_uuid(),
+                "purpose_code": "03000", "structure_code": null, "floor_area_m2": null,
+                "stories": null, "below_ground_floors": 0, "has_rooftop": false,
+                "rooftop_area_m2": null, "rooftop_usage": "", "built_year": null,
+                "floors": [], "units": [unit]
+            }]))?),
+        );
+        Ok(row)
+    }
+
+    #[test]
+    fn nested_unit_keeps_its_source_parcel_even_when_the_parent_pnu_differs() -> anyhow::Result<()>
+    {
+        let mut raw = unit(Some(building_id_for_register_pk("BLDG-1")))?;
+        let other_pnu = "9999900000200000000";
+        let own_parcel = parcel_id_for_pnu(&Pnu::parse(other_pnu.to_owned())?).as_uuid();
+        raw["unit_pnu"] = json!(other_pnu);
+        raw["parcel_id"] = json!(own_parcel);
+        let artifact = build(&provenance(), &row_with_building(raw.clone())?)?;
+        let document: JsonValue = serde_json::from_slice(&artifact.body)?;
+        assert_eq!(document["pnu"], PNU);
+        assert_eq!(
+            document["buildings"][0]["units"][0]["parcel_id"],
+            json!(own_parcel)
+        );
+        raw["parcel_id"] = json!(parcel_id_for_pnu(&Pnu::parse(PNU.to_owned())?).as_uuid());
+        assert!(build(&provenance(), &row_with_building(raw)?).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn nested_unit_requires_explicit_parent_and_complete_relationship_evidence(
+    ) -> anyhow::Result<()> {
+        let source = unit(Some(building_id_for_register_pk("BLDG-1")))?;
+        for key in ["unit_pnu", "building_register_pk", "building_link_evidence"] {
+            let mut bad = source.clone();
+            bad.as_object_mut().expect("unit").remove(key);
+            assert!(
+                build(&provenance(), &row_with_building(bad)?).is_err(),
+                "{key}"
+            );
+        }
+        for parent in [json!(null), json!("BLDG-2"), json!(false)] {
+            let mut bad = source.clone();
+            bad["building_register_pk"] = parent;
+            assert!(build(&provenance(), &row_with_building(bad)?).is_err());
+        }
+        for (key, value) in [
+            ("building_link_method", json!("canonical_dong")),
+            ("building_link_input_sha256", json!("invalid")),
+            ("building_link_reason", json!("basis_parent_conflict")),
+        ] {
+            let mut bad = source.clone();
+            bad["building_link_evidence"][key] = value;
+            assert!(
+                build(&provenance(), &row_with_building(bad)?).is_err(),
+                "{key}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn proven_parent_without_a_visible_title_remains_an_unlinked_unit() -> anyhow::Result<()> {
+        let mut raw = unit(None)?;
+        raw["building_register_pk"] = json!("MISSING-TITLE");
+        let mut gold = row();
+        gold.insert(
+            "unlinked_units_json".to_owned(),
+            json!(serde_json::to_string(&vec![raw.clone()])?),
+        );
+        let artifact = build(&provenance(), &gold)?;
+        let document: JsonValue = serde_json::from_slice(&artifact.body)?;
+        assert_eq!(
+            document["unlinked_units"][0]["building_id"],
+            JsonValue::Null
+        );
+        assert_eq!(document["unlinked_units"][0]["id"], raw["id"]);
+        for bad_parent in [json!("UNIT-1"), json!(false)] {
+            let mut bad = raw.clone();
+            bad["building_register_pk"] = bad_parent;
+            gold.insert(
+                "unlinked_units_json".to_owned(),
+                json!(serde_json::to_string(&vec![bad])?),
+            );
+            assert!(build(&provenance(), &gold).is_err());
+        }
+        raw["building_link_evidence"]["building_link_input_sha256"] = json!("invalid");
+        gold.insert(
+            "unlinked_units_json".to_owned(),
+            json!(serde_json::to_string(&vec![raw])?),
+        );
+        assert!(build(&provenance(), &gold).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn unlinked_approved_parent_still_requires_the_exact_active_binding() -> anyhow::Result<()> {
+        let application = "11111111-1111-4111-8111-111111111111";
+        let active = ApprovedBuildingLinks::fixture(
+            application,
+            "source-row:UNIT-1",
+            "UNIT-1",
+            Some("MISSING-TITLE"),
+        );
+        let mut raw = unit(None)?;
+        raw["building_register_pk"] = json!("MISSING-TITLE");
+        raw["building_link_evidence"] = json!({"unit_row_id":"source-row:UNIT-1",
+            "building_link_method":"parent_key", "normalization_application_id":application});
+        let mut gold = row();
+        gold.insert(
+            "unlinked_units_json".to_owned(),
+            json!(serde_json::to_string(&vec![raw.clone()])?),
+        );
+        build_with_approvals(&provenance(), &gold, &active)?;
+        assert!(build(&provenance(), &gold).is_err());
+        for wrong_parent in [json!("OTHER-TITLE"), JsonValue::Null] {
+            raw["building_register_pk"] = wrong_parent;
+            gold.insert(
+                "unlinked_units_json".to_owned(),
+                json!(serde_json::to_string(&vec![raw.clone()])?),
+            );
+            assert!(build_with_approvals(&provenance(), &gold, &active).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn serving_requires_the_current_approval_for_the_same_unit_and_parent() -> anyhow::Result<()> {
+        let application = "11111111-1111-4111-8111-111111111111";
+        let active = ApprovedBuildingLinks::fixture(
+            application,
+            "source-row:UNIT-1",
+            "UNIT-1",
+            Some("BLDG-1"),
+        );
+        let mut raw = unit(Some(building_id_for_register_pk("BLDG-1")))?;
+        assert!(
+            build_with_approvals(&provenance(), &row_with_building(raw.clone())?, &active).is_err()
+        );
+        raw["building_link_evidence"] = json!({
+            "unit_row_id": "source-row:UNIT-1", "building_link_method": "parent_key",
+            "normalization_application_id": application
+        });
+        let row = row_with_building(raw)?;
+        build_with_approvals(&provenance(), &row, &active)?;
+        assert!(build(&provenance(), &row).is_err());
+        for invalid in [
+            ApprovedBuildingLinks::fixture(application, "other-row", "UNIT-1", Some("BLDG-1")),
+            ApprovedBuildingLinks::fixture(
+                application,
+                "source-row:UNIT-1",
+                "UNIT-2",
+                Some("BLDG-1"),
+            ),
+            ApprovedBuildingLinks::fixture(application, "source-row:UNIT-1", "UNIT-1", None),
+        ] {
+            assert!(build_with_approvals(&provenance(), &row, &invalid).is_err());
+        }
+        Ok(())
     }
 
     #[test]

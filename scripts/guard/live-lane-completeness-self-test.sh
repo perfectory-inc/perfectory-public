@@ -95,6 +95,54 @@ fn parses_without_any_backend() {}
 RUST
 expect_accepted "declared #[ignore] target plus a backend-free test" "$ok"
 
+# Exact binary selectors share the lane runner but must not sweep all ignored
+# tests of a process that also owns other live backends.
+xtask_integration="$xtask"
+xtask="$test_root/xtask-binary.rs"
+cat >"$xtask" <<'RUST'
+fn render() {
+    if let LaneTarget::Binary { filter, .. } = target { use_filter(filter); }
+}
+const AREAS: &[Area] = &[Area {
+    live_lanes: &[LiveLane {
+        name: "postgres",
+        required_env: &["DATABASE_URL"],
+        gating: LaneGating::Ignored,
+        targets: &[
+            LaneTarget::Test {
+                package: "example-persistence",
+                test: "declared_live_reads",
+            },
+            LaneTarget::Binary {
+                package: "example-persistence",
+                binary: "example-persistence",
+                filter: "tests::withdrawal",
+            },
+        ],
+    }],
+}];
+RUST
+mkdir -p "$ok/crates/example-persistence/src"
+cat >"$ok/crates/example-persistence/src/main.rs" <<'RUST'
+fn main() {}
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[ignore = "requires disposable PostgreSQL"]
+    fn withdrawal() {}
+}
+RUST
+expect_accepted "exact ignored binary test is declared" "$ok"
+sed 's/tests::withdrawal/tests::missing/' "$xtask" >"$xtask.next"
+mv "$xtask.next" "$xtask"
+expect_rejected "binary selector names no ignored test" "$ok"
+sed 's/tests::missing/tests::withdrawal/' "$xtask" >"$xtask.next"
+mv "$xtask.next" "$xtask"
+sed '/#\[ignore/d' "$ok/crates/example-persistence/src/main.rs" >"$test_root/main.rs"
+mv "$test_root/main.rs" "$ok/crates/example-persistence/src/main.rs"
+expect_rejected "binary selector would select zero non-ignored tests" "$ok"
+xtask="$xtask_integration"
+
 # --- rejected: an #[ignore] target missing from the table ---------------------
 missing_ignore="$test_root/missing-ignore"
 make_crate "$missing_ignore" example-persistence

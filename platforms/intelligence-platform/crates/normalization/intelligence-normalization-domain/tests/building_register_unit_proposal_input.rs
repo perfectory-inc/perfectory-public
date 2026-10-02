@@ -38,7 +38,7 @@ fn maps_launch_v1_unit_context_pack_and_preserves_entity_context() {
     assert_eq!(request.target_kind, "building_register_unit");
     assert_eq!(
         request.target_schema_version,
-        "building_register_unit.normalized.v1"
+        "building_register_unit.normalized.v2"
     );
     assert_eq!(
         request.target_schema["required"],

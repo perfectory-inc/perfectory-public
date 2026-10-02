@@ -264,13 +264,14 @@ fn valid_building_register_unit_normalization_proposal_body() -> serde_json::Val
                 "raw_record_id": "building-register-unit:bronze/source=hubgokr__building_register_exclusive_unit/OPN209912310000000003.zip#line-000001",
                 "source_system": "foundation-platform.silver.building_register_units"
             },
-            "target_schema_version": "building_register_unit.normalized.v1",
+            "target_schema_version": "building_register_unit.normalized.v2",
             "dictionaries": {}
         },
         "proposal": {
             "raw_record_id": "building-register-unit:bronze/source=hubgokr__building_register_exclusive_unit/OPN209912310000000003.zip#line-000001",
-            "schema_version": "building_register_unit.normalized.v1",
+            "schema_version": "building_register_unit.normalized.v2",
             "record": {
+                "mgm_bldrgst_pk": "SYNTHETIC-UNIT-PK-0001",
                 "building_link_method": "canonical_dong",
                 "building_mgm_bldrgst_pk": "SYNTHETIC-BUILDING-PK-0001",
                 "normalization_reason": "no_unit_number",

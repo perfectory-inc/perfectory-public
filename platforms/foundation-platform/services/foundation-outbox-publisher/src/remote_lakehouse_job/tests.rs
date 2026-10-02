@@ -40,6 +40,9 @@ fn synthetic_snapshot_config(job: &str) -> anyhow::Result<RemoteLakehouseJobConf
         "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_TITLE_SOURCE_OBJECT" => {
             Some("OPN20991231SYNTHETIC-TITLE.zip".to_owned())
         }
+        "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_BASIS_SOURCE_OBJECT" => {
+            Some("OPN20991231SYNTHETIC-BASIS.zip".to_owned())
+        }
         "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_UNIT_AREA_SOURCE_OBJECT" => {
             Some("OPN20991231SYNTHETIC-UNIT-AREA.zip".to_owned())
         }
@@ -865,6 +868,9 @@ fn valid_synthetic_unit_snapshot_metadata_is_rendered_into_plan() -> anyhow::Res
         "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_TITLE_SOURCE_OBJECT" => {
             Some("OPN20991231SYNTHETIC-TITLE.zip".to_owned())
         }
+        "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_BASIS_SOURCE_OBJECT" => {
+            Some("OPN20991231SYNTHETIC-BASIS.zip".to_owned())
+        }
         _ => None,
     })?;
 
@@ -979,4 +985,37 @@ fn audit_record_input_preserves_summary_staff_and_request_id() {
     assert_eq!(input.summary_json, "summary-json");
     assert_eq!(input.recorded_by_staff_id, staff_id);
     assert_eq!(input.request_id, Some("lakehouse-smoke".to_owned()));
+}
+
+#[test]
+fn unit_pipeline_requires_and_stages_same_snapshot_parent_basis() {
+    let config =
+        synthetic_snapshot_config("building_register_units_pipeline_smoke").expect("valid inputs");
+    let script = build_remote_lakehouse_job_plan(&config).remote_script;
+    assert!(script.contains("stage_bronze_object 'hubgokr__building_register_basis_outline' 'OPN20991231SYNTHETIC-BASIS.zip'"));
+    assert!(script.contains("FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_BASIS_SOURCE_OBJECT='OPN20991231SYNTHETIC-BASIS.zip'"));
+}
+
+#[test]
+fn unit_pipeline_refuses_missing_or_other_month_parent_basis() {
+    for basis in [None, Some("OPN20991130SYNTHETIC-BASIS.zip")] {
+        let error = BuildingRegisterSourceSnapshotConfig::from_lookup(
+            RemoteLakehouseJob::UnitPipelineFull,
+            &mut |name| match name {
+                BUILDING_REGISTER_SNAPSHOT_DATE_ENV => Some("2099-12-31".to_owned()),
+                BUILDING_REGISTER_UNIT_SOURCE_OBJECT_ENV => {
+                    Some("OPN20991231SYNTHETIC-UNIT.zip".to_owned())
+                }
+                BUILDING_REGISTER_TITLE_SOURCE_OBJECT_ENV => {
+                    Some("OPN20991231SYNTHETIC-TITLE.zip".to_owned())
+                }
+                BUILDING_REGISTER_BASIS_SOURCE_OBJECT_ENV => basis.map(str::to_owned),
+                _ => None,
+            },
+        )
+        .expect_err("parent evidence must name the same snapshot");
+        assert!(error
+            .to_string()
+            .contains(BUILDING_REGISTER_BASIS_SOURCE_OBJECT_ENV));
+    }
 }

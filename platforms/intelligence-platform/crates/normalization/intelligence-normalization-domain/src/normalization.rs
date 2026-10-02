@@ -498,7 +498,7 @@ mod tests {
                 },
                 "additionalProperties": false
             }),
-            target_schema_version: "building_register_unit.normalized.v1".to_string(),
+            target_schema_version: "building_register_unit.normalized.v2".to_string(),
             raw_object_key: Some(
                 "bronze/source=hubgokr__building_register_exclusive_unit/OPN.zip".to_string(),
             ),
@@ -523,7 +523,7 @@ mod tests {
             }),
             confidence: 0.95,
             reasons: vec!["\u{AC19}\u{C740} \u{BC94}\u{C704}\u{C758} \u{D638}\u{C2E4} \u{C21C}\u{BC88}\u{ACFC} \u{B3D9}/\u{CE35} \u{B9E5}\u{B77D}\u{C744} \u{ADFC}\u{AC70}\u{B85C} \u{D310}\u{B2E8}\u{D588}\u{C2B5}\u{B2C8}\u{B2E4}.".to_string()],
-            schema_version: "building_register_unit.normalized.v1".to_string(),
+            schema_version: "building_register_unit.normalized.v2".to_string(),
             policy_id: default_policy_id(),
             policy_version: "v1".to_string(),
             model_profile_id: None,

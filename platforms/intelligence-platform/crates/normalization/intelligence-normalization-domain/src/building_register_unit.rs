@@ -8,7 +8,7 @@ use crate::NormalizationRequest;
 
 const INPUT_SCHEMA_VERSION: &str = "foundation-platform.unit_entity_context_pack.v1";
 const TARGET_KIND: &str = "building_register_unit";
-const TARGET_SCHEMA_VERSION: &str = "building_register_unit.normalized.v1";
+const TARGET_SCHEMA_VERSION: &str = "building_register_unit.normalized.v2";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BuildingRegisterUnitProposalInputContext {

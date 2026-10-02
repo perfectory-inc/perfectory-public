@@ -83,9 +83,31 @@ enum LaneGating {
 
 /// A single cargo test target, addressed the way `foundation-kafka-live.sh`
 /// already addresses it: `-p <package> --test <test>`.
-struct LaneTarget {
-    package: &'static str,
-    test: &'static str,
+enum LaneTarget {
+    Test {
+        package: &'static str,
+        test: &'static str,
+    },
+    Binary {
+        package: &'static str,
+        binary: &'static str,
+        filter: &'static str,
+    },
+}
+
+impl LaneTarget {
+    const fn package(&self) -> &'static str {
+        match self {
+            Self::Test { package, .. } | Self::Binary { package, .. } => package,
+        }
+    }
+
+    const fn selection(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::Test { test, .. } => ("--test", test),
+            Self::Binary { binary, .. } => ("--bin", binary),
+        }
+    }
 }
 
 /// A test-shaped npm script that no workflow invokes ON PURPOSE.
@@ -140,12 +162,21 @@ fn lane_commands(lane: &LiveLane) -> Vec<Vec<String>> {
                 command.push(feature.to_owned());
             }
             command.extend(
-                ["-p", target.package, "--test", target.test, "--"]
-                    .iter()
-                    .map(|arg| (*arg).to_owned()),
+                [
+                    "-p",
+                    target.package(),
+                    target.selection().0,
+                    target.selection().1,
+                    "--",
+                ]
+                .iter()
+                .map(|arg| (*arg).to_owned()),
             );
             if lane.gating == LaneGating::Ignored {
                 command.push("--ignored".to_owned());
+            }
+            if let LaneTarget::Binary { filter, .. } = target {
+                command.extend(["--exact".to_owned(), (*filter).to_owned()]);
             }
             // Serial: these suites share one database and truncate it between
             // cases, so parallel targets would tear each other's fixtures down.
@@ -168,7 +199,7 @@ fn feature_gated_packages(area: &Area) -> Vec<&'static str> {
         .live_lanes
         .iter()
         .filter(|lane| matches!(lane.gating, LaneGating::Feature(_)))
-        .flat_map(|lane| lane.targets.iter().map(|target| target.package))
+        .flat_map(|lane| lane.targets.iter().map(LaneTarget::package))
         .collect();
     packages.sort_unstable();
     packages.dedup();
@@ -234,12 +265,14 @@ fn lane_target_verdict(
 ) -> Result<usize, String> {
     match executed_test_count(output) {
         0 => Err(format!(
-            "{area} lane '{lane}': `-p {} --test {}` executed 0 tests. cargo \
+            "{area} lane '{lane}': `-p {} {} {}` executed 0 tests. cargo \
              exits 0 when a filter matches nothing, so this would have been \
              recorded as a pass. Check the lane's gating — `#[ignore]` targets \
              need `-- --ignored`, `#![cfg(feature = \"…\")]` targets need \
              `--features …` and must not be filtered on `--ignored`.",
-            target.package, target.test
+            target.package(),
+            target.selection().0,
+            target.selection().1
         )),
         count => Ok(count),
     }
@@ -307,83 +340,83 @@ const AREAS: &[Area] = &[
             required_env: &["DATABASE_URL"],
             gating: LaneGating::Feature("integration"),
             targets: &[
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "admin_action_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "analysis_report_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "audit_log_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "bookmark_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "business_verification_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "error_map_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "featured_content_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "foundation_anchor_import_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "foundation_anchor_visibility_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "listing_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "listing_marker_tile_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "listing_photo_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "listing_report_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "listing_review_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "notification_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "outbox_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "outbox_publisher_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "search_history_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "system_alert_integration",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "gongzzang-persistence",
                     test: "user_integration",
                 },
@@ -535,147 +568,152 @@ const AREAS: &[Area] = &[
                 required_env: &["DATABASE_URL"],
                 gating: LaneGating::Ignored,
                 targets: &[
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "administrative_boundary_identity",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "catalog_round_trip",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "catalog_ssot_reads",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "complex_anchor_summary_reads",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "industrial_complex_search",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "industrial_complex_transaction_participant",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "marker_tile_reads",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "parcel_complex_membership",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "parcel_edit_ledger",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "parcel_marker_anchor_rebuild",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "spatial_tile_publication",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "vector_tile_manifest_promote",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "vector_tile_manifest_reads",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "vector_tile_manifest_rollback",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "vector_tile_runtime_manifest_promote",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "collection-infrastructure",
                         test: "bronze_catalog_recovery_atomicity",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "collection-infrastructure",
                         test: "bronze_ingest_round_trip",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-api",
                         test: "schema_readiness_probe",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-normalization-infrastructure",
                         test: "active_override_reader",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-normalization-infrastructure",
                         test: "building_register_unit_transactions",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-normalization-infrastructure",
                         test: "industrial_complex_ledger_integrity",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-normalization-infrastructure",
                         test: "normalization_application_roundtrip",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-normalization-infrastructure",
                         test: "normalization_atomicity",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-normalization-infrastructure",
                         test: "normalization_proposal_roundtrip",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox",
                         test: "postgres_jobbus",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox",
                         test: "publish_roundtrip",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox-publisher",
                         test: "administrative_boundary_publication",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox-publisher",
                         test: "industrial_complex_boundary_publication",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox-publisher",
                         test: "parcel_boundary_publication",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox-publisher",
                         test: "parcel_publication_source_evidence",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox-publisher",
                         test: "unit_official_price_publication",
                     },
-                    LaneTarget {
+                    LaneTarget::Binary {
+                        package: "foundation-outbox-publisher",
+                        binary: "foundation-outbox-publisher",
+                        filter: "building_unit_building_link_load::tests::postgres_link_load_withdraws_missing_parents_and_reassigns_without_losing_units",
+                    },
+                    LaneTarget::Test {
                         package: "lakehouse-infrastructure",
                         test: "gold_publication_atomicity",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "lakehouse-infrastructure",
                         test: "lakehouse_batch_run_audit",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "lakehouse-infrastructure",
                         test: "lakehouse_registry_atomicity",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "lakehouse-infrastructure",
                         test: "lakehouse_registry_repository",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "stewardship-infrastructure",
                         test: "steward_decisions",
                     },
@@ -696,15 +734,15 @@ const AREAS: &[Area] = &[
                 ],
                 gating: LaneGating::Ignored,
                 targets: &[
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox",
                         test: "live_kafka_karapace",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox",
                         test: "live_kafka_outbox_roundtrip",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "foundation-outbox",
                         test: "live_kafka_outage",
                     },
@@ -728,7 +766,7 @@ const AREAS: &[Area] = &[
                     "FOUNDATION_PLATFORM_R2_LIVE_WRITE_CONFIRM",
                 ],
                 gating: LaneGating::Ignored,
-                targets: &[LaneTarget {
+                targets: &[LaneTarget::Test {
                     package: "foundation-outbox",
                     test: "r2_smoke_contract",
                 }],
@@ -743,7 +781,7 @@ const AREAS: &[Area] = &[
                     "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
                 ],
                 gating: LaneGating::Ignored,
-                targets: &[LaneTarget {
+                targets: &[LaneTarget::Test {
                     package: "lakehouse-infrastructure",
                     test: "lakehouse_live_smoke",
                 }],
@@ -767,7 +805,7 @@ const AREAS: &[Area] = &[
                     "DATA_GO_KR_SERVICE_KEY",
                 ],
                 gating: LaneGating::Ignored,
-                targets: &[LaneTarget {
+                targets: &[LaneTarget::Test {
                     package: "collection-infrastructure",
                     test: "data_go_kr_bld_rgst_live_smoke",
                 }],
@@ -799,11 +837,11 @@ const AREAS: &[Area] = &[
             ],
             gating: LaneGating::Ignored,
             targets: &[
-                LaneTarget {
+                LaneTarget::Test {
                     package: "authorization-infrastructure",
                     test: "role_grant_postgres",
                 },
-                LaneTarget {
+                LaneTarget::Test {
                     package: "identity-service-provisioner",
                     test: "live_provisioning",
                 },
@@ -838,7 +876,7 @@ const AREAS: &[Area] = &[
                     "INTELLIGENCE_TEST_KARAPACE_URL",
                 ],
                 gating: LaneGating::Ignored,
-                targets: &[LaneTarget {
+                targets: &[LaneTarget::Test {
                     package: "messaging-infrastructure",
                     test: "live_kafka_karapace",
                 }],
@@ -847,7 +885,7 @@ const AREAS: &[Area] = &[
                 name: "redis",
                 required_env: &["INTELLIGENCE_REDIS_LIVE_TEST_URL"],
                 gating: LaneGating::Ignored,
-                targets: &[LaneTarget {
+                targets: &[LaneTarget::Test {
                     package: "intelligence-normalization-infrastructure",
                     test: "redis_rate_limit_live",
                 }],
@@ -857,15 +895,15 @@ const AREAS: &[Area] = &[
                 required_env: &["INTELLIGENCE_TEST_DATABASE_URL"],
                 gating: LaneGating::Ignored,
                 targets: &[
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "knowledge-infrastructure",
                         test: "knowledge_index_contract",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "knowledge-infrastructure",
                         test: "knowledge_source_registry_contract",
                     },
-                    LaneTarget {
+                    LaneTarget::Test {
                         package: "intelligence-normalization-infrastructure",
                         test: "workflow_state_contract_suite",
                     },
@@ -1677,6 +1715,40 @@ mod tests {
     /// A feature-gated lane needs the OPPOSITE flags of an `#[ignore]` lane, and
     /// getting it wrong is silent.
     ///
+    #[test]
+    fn postgres_lane_selects_the_recovery_sql_binary_test_exactly() {
+        let area = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
+        let lane = area
+            .live_lanes
+            .iter()
+            .find(|lane| lane.name == "postgres")
+            .unwrap();
+        let commands = lane_commands(lane);
+        let binaries: Vec<_> = commands
+            .iter()
+            .filter(|args| args.iter().any(|arg| arg == "--bin"))
+            .collect();
+        assert_eq!(binaries.len(), 1);
+        assert_eq!(*binaries[0], vec![
+            "test", "--locked", "-p", "foundation-outbox-publisher", "--bin", "foundation-outbox-publisher",
+            "--", "--ignored", "--exact",
+            "building_unit_building_link_load::tests::postgres_link_load_withdraws_missing_parents_and_reassigns_without_losing_units",
+            "--test-threads=1",
+        ]);
+        let target = lane
+            .targets
+            .iter()
+            .find(|target| matches!(target, LaneTarget::Binary { .. }))
+            .unwrap();
+        assert!(lane_target_verdict(
+            "foundation",
+            "postgres",
+            target,
+            "test result: ok. 0 passed; 0 failed; 0 ignored;"
+        )
+        .is_err());
+    }
+
     /// gongzzang's 20 integration targets carry zero `#[ignore]`; they are
     /// compiled out by `#![cfg(feature = "integration")]`. Running them the
     /// `#[ignore]` way fails twice over: without `--features integration` the
@@ -1921,7 +1993,7 @@ mod tests {
     /// that silently stops matching. The lane's own report is what closes it.
     #[test]
     fn a_lane_target_that_executed_nothing_is_a_failure_not_a_pass() {
-        let target = LaneTarget {
+        let target = LaneTarget::Test {
             package: "gongzzang-persistence",
             test: "user_integration",
         };

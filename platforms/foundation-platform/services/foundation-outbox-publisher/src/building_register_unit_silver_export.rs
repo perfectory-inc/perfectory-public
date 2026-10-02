@@ -8,7 +8,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod parent_inputs;
 mod parquet_row_writer;
+use parent_inputs::ParentInputs;
+#[cfg(test)]
+mod parent_key_tests;
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
@@ -18,7 +22,7 @@ use foundation_outbox_publisher::sigungu_crosswalk::hub_sigungu_crosswalk;
 use lakehouse_application::{
     building_register_unit_silver_override_from_application_snapshot,
     building_register_unit_silver_row_to_jsonl,
-    normalize_building_register_unit_silver_rows_with_building_keys,
+    normalize_building_register_unit_silver_rows_with_parent_keys,
     parse_building_register_unit_source_row_from_hub_bulk_text_line_via,
     parse_building_title_building_link_from_hub_bulk_text_line, BuildingRegisterUnitSilverOverride,
     BuildingRegisterUnitSilverOverrideIndex, BuildingRegisterUnitSilverRow,
@@ -29,6 +33,7 @@ use sqlx::PgPool;
 use zip::ZipArchive;
 
 const DEFAULT_SOURCE_SLUG: &str = "hubgokr__building_register_exclusive_unit";
+const DEFAULT_BASIS_SOURCE_SLUG: &str = "hubgokr__building_register_basis_outline";
 const DEFAULT_TITLE_SOURCE_SLUG: &str = "hubgokr__building_register_main";
 const APPLY_APPROVED_OVERRIDES_ENV: &str =
     "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_APPLY_APPROVED_OVERRIDES";
@@ -42,6 +47,8 @@ struct UnitExportConfig {
     title_source_slug: Option<String>,
     /// Exact building-register title Bronze zip for the building-key index; same pin rule.
     title_source_object: Option<String>,
+    basis_source_slug: String,
+    basis_source_object: Option<String>,
     output_path: PathBuf,
     summary_path: Option<PathBuf>,
     source_snapshot_id: String,
@@ -57,6 +64,13 @@ struct UnitExportReport {
     row_count: usize,
     accepted_count: u64,
     applied_override_count: u64,
+}
+
+#[derive(Default)]
+struct LinkExportCounts {
+    methods: BTreeMap<String, u64>,
+    reasons: BTreeMap<String, u64>,
+    null_pnu_rows: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,13 +134,18 @@ async fn load_active_unit_overrides(
 }
 
 fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport> {
-    let object_path = locate_source_object(config)?;
-    let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
+    if config.source_snapshot_id.trim().is_empty() {
+        bail!("source_snapshot_id must not be empty");
+    }
+    let inputs = ParentInputs::load(config)?;
+    let object_path = &inputs.unit_path;
+    let bronze_object_key = &inputs.unit_key;
     let sigungu_crosswalk = hub_sigungu_crosswalk()?;
-    let building_keys = load_building_key_index(config)?;
+    let building_keys = &inputs.titles;
     let active_overrides =
         BuildingRegisterUnitSilverOverrideIndex::new(&config.active_overrides)
             .context("failed to build active building-register unit override index")?;
+    inputs.verify_unchanged()?;
 
     let mut output_writer =
         SilverRowWriter::new(&config.output_path, config.chunk_rows, config.output_format)?;
@@ -135,25 +154,26 @@ fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport>
     let mut accepted_count = 0u64;
     let mut applied_override_count = 0u64;
     let mut reason_counts = BTreeMap::<String, u64>::new();
-    let mut link_method_counts = BTreeMap::<String, u64>::new();
+    let mut link_counts = LinkExportCounts::default();
 
-    decode_zip_lines(&object_path, config.max_rows, |line, line_number| {
+    decode_zip_lines(object_path, config.max_rows, |line, line_number| {
         let record = parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
             &sigungu_crosswalk,
             line,
-            &bronze_object_key,
+            bronze_object_key,
             line_number,
         )
         .with_context(|| format!("failed to parse building-register unit line {line_number}"))?;
-        let mut rows = normalize_building_register_unit_silver_rows_with_building_keys(
+        let mut rows = normalize_building_register_unit_silver_rows_with_parent_keys(
             &BuildingRegisterUnitSilverRowsInput {
                 records: std::slice::from_ref(&record),
                 source_snapshot_id: config.source_snapshot_id.as_str(),
-                bronze_object_key: &bronze_object_key,
+                bronze_object_key,
                 valid_from_utc: config.valid_from_utc,
                 ingested_at_utc,
             },
-            &building_keys,
+            building_keys,
+            &inputs.basis,
         )
         .context("failed to build building-register unit Silver row")?;
         for row in &mut rows {
@@ -173,9 +193,16 @@ fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport>
             *reason_counts
                 .entry(row.normalization_reason.clone())
                 .or_insert(0) += 1;
-            *link_method_counts
+            *link_counts
+                .methods
                 .entry(row.building_link_method.clone())
                 .or_insert(0) += 1;
+            if let Some(reason) = &row.building_link_reason {
+                *link_counts.reasons.entry(reason.clone()).or_insert(0) += 1;
+            }
+            if row.pnu.is_none() {
+                link_counts.null_pnu_rows += 1;
+            }
         }
         Ok(())
     })?;
@@ -183,16 +210,18 @@ fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport>
         .flush()
         .context("failed to flush building-register unit Silver handoff")?;
 
+    inputs.verify_unchanged()?;
     if let Some(summary_path) = &config.summary_path {
         write_summary(
             config,
-            &bronze_object_key,
+            bronze_object_key,
             row_count,
             accepted_count,
             applied_override_count,
             &reason_counts,
-            &link_method_counts,
+            &link_counts,
             building_keys.len(),
+            &inputs,
             summary_path,
         )?;
     }
@@ -202,38 +231,6 @@ fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport>
         accepted_count,
         applied_override_count,
     })
-}
-
-/// Streams the building-register title Bronze zip into a `(PNU + dong name) -> building key` index.
-fn load_building_key_index(config: &UnitExportConfig) -> anyhow::Result<BuildingTitleKeyIndex> {
-    let mut index = BuildingTitleKeyIndex::new();
-    let Some(slug) = config.title_source_slug.as_deref() else {
-        return Ok(index);
-    };
-    let source_root = config
-        .bronze_local_object_root
-        .join("bronze")
-        .join(format!("source={slug}"));
-    if !source_root.is_dir() {
-        tracing::warn!(
-            source_root = %source_root.display(),
-            "title building-key source not found; units will be left unlinked"
-        );
-        return Ok(index);
-    }
-    let title_object = locate_zip_object(
-        &config.bronze_local_object_root,
-        slug,
-        config.title_source_object.as_deref(),
-        "title",
-    )?;
-    decode_zip_lines(&title_object, None, |line, _| {
-        if let Some(entry) = parse_building_title_building_link_from_hub_bulk_text_line(line) {
-            index.insert(entry);
-        }
-        Ok(())
-    })?;
-    Ok(index)
 }
 
 impl UnitExportConfig {
@@ -258,6 +255,13 @@ impl UnitExportConfig {
             },
             title_source_object: optional_env(
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_TITLE_SOURCE_OBJECT",
+            )?,
+            basis_source_slug: optional_env(
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_BASIS_SOURCE_SLUG",
+            )?
+            .unwrap_or_else(|| DEFAULT_BASIS_SOURCE_SLUG.to_owned()),
+            basis_source_object: optional_env(
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_BASIS_SOURCE_OBJECT",
             )?,
             output_path: required_path_env(
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_OUTPUT_PATH",
@@ -298,15 +302,6 @@ impl OutputFormat {
             ),
         }
     }
-}
-
-fn locate_source_object(config: &UnitExportConfig) -> anyhow::Result<PathBuf> {
-    locate_zip_object(
-        &config.bronze_local_object_root,
-        &config.source_slug,
-        config.source_object.as_deref(),
-        "unit",
-    )
 }
 
 /// Chooses one zip from a prefix that may accumulate monthly snapshots.
@@ -436,12 +431,14 @@ fn write_summary(
     accepted_count: u64,
     applied_override_count: u64,
     reason_counts: &BTreeMap<String, u64>,
-    link_method_counts: &BTreeMap<String, u64>,
+    link_counts: &LinkExportCounts,
     building_key_count: usize,
+    inputs: &ParentInputs,
     summary_path: &Path,
 ) -> anyhow::Result<()> {
     let proposal_count = row_count as u64 - accepted_count;
-    let linked = link_method_counts
+    let linked = link_counts
+        .methods
         .iter()
         .filter(|(method, _)| method.as_str() != "unresolved")
         .map(|(_, count)| count)
@@ -460,6 +457,8 @@ fn write_summary(
             "source_snapshot_id": config.source_snapshot_id,
             "max_rows": config.max_rows,
             "title_building_key_count": building_key_count,
+            "inputs": inputs.evidence,
+            "building_link_input_sha256": inputs.basis.input_sha256(),
         },
         "output": {
             "path": config.output_path.display().to_string(),
@@ -470,12 +469,14 @@ fn write_summary(
             "proposal_required_count": proposal_count,
             "reason_counts": reason_counts,
             "building_linked_count": linked,
-            "building_link_method_counts": link_method_counts,
+            "building_link_method_counts": link_counts.methods,
+            "building_link_reason_counts": link_counts.reasons,
+            "null_pnu_row_count": link_counts.null_pnu_rows,
         },
         "evidence_limitations": [
             "local_bronze_to_silver_handoff_only",
             "does_not_write_iceberg_table",
-            "fuzzy_dong_names_left_for_splink",
+            "relationships_require_source_identifiers_or_approved_corrections",
             "does_not_approve_production_cutover"
         ]
     });
@@ -719,11 +720,11 @@ mod tests {
     use uuid::Uuid;
     use zip::{write::SimpleFileOptions, ZipWriter};
 
-    fn temp_root(name: &str) -> PathBuf {
+    pub(super) fn temp_root(name: &str) -> PathBuf {
         env::temp_dir().join(format!("{name}-{}", Uuid::new_v4()))
     }
 
-    fn unit_line(
+    pub(super) fn unit_line(
         pk: &str,
         dong: &str,
         unit: &str,
@@ -746,7 +747,11 @@ mod tests {
         fields.join("|")
     }
 
-    fn write_zip_file(path: &Path, entry_name: &str, payload: &[u8]) -> anyhow::Result<()> {
+    pub(super) fn write_zip_file(
+        path: &Path,
+        entry_name: &str,
+        payload: &[u8],
+    ) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -776,16 +781,19 @@ mod tests {
             )?;
         }
 
+        parent_key_tests::stage_empty_references(&root)?;
         let mut config = UnitExportConfig {
             bronze_local_object_root: root.clone(),
             source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
             source_object: None,
-            title_source_slug: None,
+            title_source_slug: Some(DEFAULT_TITLE_SOURCE_SLUG.to_owned()),
             title_source_object: None,
+            basis_source_slug: DEFAULT_BASIS_SOURCE_SLUG.to_owned(),
+            basis_source_object: None,
             output_path: root.join("out.jsonl"),
             summary_path: None,
             source_snapshot_id: "hubgokr-building-register-unit-20260620".to_owned(),
-            valid_from_utc: DateTime::parse_from_rfc3339("2026-06-20T00:00:00Z")?.to_utc(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
             max_rows: None,
             output_format: OutputFormat::Jsonl,
             chunk_rows: None,
@@ -821,16 +829,19 @@ mod tests {
             .join("silver-handoff")
             .join("building_register_units_parquet");
 
+        parent_key_tests::stage_empty_references(&root)?;
         let report = export_handoff(&UnitExportConfig {
             bronze_local_object_root: root.clone(),
             source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
             source_object: None,
-            title_source_slug: None,
+            title_source_slug: Some(DEFAULT_TITLE_SOURCE_SLUG.to_owned()),
             title_source_object: None,
+            basis_source_slug: DEFAULT_BASIS_SOURCE_SLUG.to_owned(),
+            basis_source_object: None,
             output_path: output_dir.clone(),
             summary_path: None,
             source_snapshot_id: "hubgokr-building-register-unit-20260420".to_owned(),
-            valid_from_utc: DateTime::parse_from_rfc3339("2026-04-20T00:00:00Z")?.to_utc(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
             max_rows: None,
             output_format: OutputFormat::Parquet,
             chunk_rows: Some(1),
@@ -855,7 +866,7 @@ mod tests {
         assert_eq!(string_value(&first_batch, "unit_name_raw", 0)?, "624");
         assert_eq!(string_value(&first_batch, "unit_label_ko", 0)?, "");
         assert_eq!(string_value(&first_batch, "unit_designation", 0)?, "624");
-        // Title-attr columns exist even when no title zip was staged (all null).
+        // Empty reference inputs preserve nullable title attributes.
         assert!(first_batch
             .schema()
             .column_with_name("building_main_or_annex")
@@ -894,21 +905,25 @@ mod tests {
             .join("building_register_units.jsonl");
         let target_unit_row_id = format!("building-register-unit:{object_key}#line-000001");
 
+        parent_key_tests::stage_empty_references(&root)?;
         let report = export_handoff(&UnitExportConfig {
             bronze_local_object_root: root.clone(),
             source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
             source_object: None,
-            title_source_slug: None,
+            title_source_slug: Some(DEFAULT_TITLE_SOURCE_SLUG.to_owned()),
             title_source_object: None,
+            basis_source_slug: DEFAULT_BASIS_SOURCE_SLUG.to_owned(),
+            basis_source_object: None,
             output_path: output_file.clone(),
             summary_path: None,
             source_snapshot_id: "hubgokr-building-register-unit-20260420".to_owned(),
-            valid_from_utc: DateTime::parse_from_rfc3339("2026-04-20T00:00:00Z")?.to_utc(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
             max_rows: None,
             output_format: OutputFormat::Jsonl,
             chunk_rows: None,
             active_overrides: vec![lakehouse_application::BuildingRegisterUnitSilverOverride {
                 target_unit_row_id,
+                target_mgm_bldrgst_pk: "1002129933".to_owned(),
                 application_id: Some("normalization-application-approved-1".to_owned()),
                 unit_number: Some(101),
                 unit_label_ko: None,
@@ -968,6 +983,8 @@ mod tests {
                 snapshot: serde_json::json!({
                     "target_identity": {"raw_record_id":"unit-row-1"},
                     "proposed_record": {
+                        "mgm_bldrgst_pk":"SYNTHETIC-UNIT-PK-0001",
+                        "building_mgm_bldrgst_pk":"SYNTHETIC-BUILDING-PK-0001",
                         "building_link_method":"canonical_dong",
                         "normalization_reason":"accepted_numeric_unit",
                         "normalization_status":"accepted",
@@ -988,7 +1005,7 @@ mod tests {
         Ok(())
     }
 
-    fn read_first_parquet_batch(path: &PathBuf) -> anyhow::Result<RecordBatch> {
+    pub(super) fn read_first_parquet_batch(path: &PathBuf) -> anyhow::Result<RecordBatch> {
         let file = File::open(path)?;
         let builder = parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
@@ -998,7 +1015,11 @@ mod tests {
             .ok_or_else(|| anyhow::anyhow!("expected at least one parquet batch"))
     }
 
-    fn string_value(batch: &RecordBatch, column_name: &str, row: usize) -> anyhow::Result<String> {
+    pub(super) fn string_value(
+        batch: &RecordBatch,
+        column_name: &str,
+        row: usize,
+    ) -> anyhow::Result<String> {
         let column_index = batch
             .schema()
             .fields()

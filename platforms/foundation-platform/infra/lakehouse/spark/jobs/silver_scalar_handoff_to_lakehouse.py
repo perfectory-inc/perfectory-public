@@ -378,6 +378,10 @@ def invalid_count(predicate: Any, alias: str, F: Any) -> Any:
 
 def collect_quality_metrics(frame: Any, contract: dict[str, Any], F: Any) -> dict[str, int]:
     expressions = [F.count(F.lit(1)).cast("long").alias("row_count")]
+    if contract["table_name"] == "silver.building_register_units":
+        from building_link_evidence import invalid_building_link_evidence
+
+        expressions.append(invalid_count(invalid_building_link_evidence(), "invalid_building_link_evidence_count", F))
     for column in required_column_names(contract):
         expressions.append(invalid_count(F.col(column).isNull(), f"{column}__null_count", F))
     for column in required_string_column_names(contract):
@@ -429,6 +433,11 @@ def assert_no_invalid_rows(
 
 
 def assert_quality_metrics(frame: Any, contract: dict[str, Any], metrics: dict[str, int], F: Any) -> None:
+    if contract["table_name"] == "silver.building_register_units":
+        from building_link_evidence import invalid_building_link_evidence
+
+        assert_no_invalid_rows(frame, metrics["invalid_building_link_evidence_count"],
+                               invalid_building_link_evidence(), "building link lacks source or approval evidence")
     for column in required_column_names(contract):
         assert_no_invalid_rows(
             frame,

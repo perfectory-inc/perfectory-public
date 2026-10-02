@@ -4,10 +4,11 @@ use crate::building_register_row_identity::row_identity;
 use std::collections::{BTreeMap, HashMap};
 
 use foundation_normalization_domain::{
-    normalize_building_register_unit, NormalizedBuildingRegisterUnit, RawBuildingRegisterFloor,
-    RawBuildingRegisterUnit,
+    building_register_unit_parent_binding, normalize_building_register_unit,
+    NormalizedBuildingRegisterUnit, RawBuildingRegisterFloor, RawBuildingRegisterUnit,
 };
 
+use crate::building_register_basis::{BuildingRegisterBasisIndex, BuildingRegisterUnitParent};
 use crate::building_register_title::BuildingTitleKeyIndex;
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::pnu::{
@@ -106,9 +107,15 @@ pub struct BuildingRegisterUnitSilverRow {
     pub floor_number: Option<u16>,
     /// 표제부 management key of the building this 호 belongs to, when linked.
     pub building_mgm_bldrgst_pk: Option<String>,
-    /// How the building link was made: `canonical_dong`, `single_building_fallback`,
-    /// or `unresolved`.
+    /// Automatic links are `parent_key` or `unresolved`; other historical methods require
+    /// an active staff-approved normalization application.
     pub building_link_method: String,
+    /// Basic-outline source row supplying the parent relationship, when present.
+    pub building_link_source_record_id: Option<String>,
+    /// SHA-256 of the exact unit/title/basic-outline input manifest.
+    pub building_link_input_sha256: Option<String>,
+    /// Machine-readable reason the source parent is absent or rejected.
+    pub building_link_reason: Option<String>,
     /// Raw 주부속구분명 of the linked building (`주건축물` / `부속건축물`).
     pub building_main_or_annex: Option<String>,
     /// Unit count (호수) on the linked building's title card; `0` = no units,
@@ -141,6 +148,8 @@ pub struct BuildingRegisterUnitSilverRow {
 pub struct BuildingRegisterUnitSilverOverride {
     /// Target Silver row id, equal to `BuildingRegisterUnitSilverRow.unit_row_id`.
     pub target_unit_row_id: String,
+    /// Source unit management key explicitly bound by the approved record.
+    pub target_mgm_bldrgst_pk: String,
     /// Staff-approved application id that produced this override.
     pub application_id: Option<String>,
     /// Approved unit number.
@@ -201,10 +210,20 @@ impl BuildingRegisterUnitSilverOverrideIndex {
         let Some(override_record) = self.overrides_by_row.get(row.unit_row_id.as_str()) else {
             return Ok(false);
         };
+        if override_record.target_mgm_bldrgst_pk != row.mgm_bldrgst_pk {
+            return Err(BuildingRegisterUnitSilverPlanError::InvalidInput(
+                "approved target mgm_bldrgst_pk disagrees with the source unit".to_owned(),
+            ));
+        }
         row.unit_number = override_record.unit_number;
         row.unit_label_ko = override_record.unit_label_ko.clone();
         row.building_mgm_bldrgst_pk = override_record.building_mgm_bldrgst_pk.clone();
         row.building_link_method = override_record.building_link_method.clone();
+        row.building_link_source_record_id = None;
+        row.building_link_input_sha256 = None;
+        row.building_link_reason = None;
+        row.building_main_or_annex = None;
+        row.building_title_unit_count = None;
         row.normalization_status = override_record.normalization_status.clone();
         row.normalization_reason = override_record.normalization_reason.clone();
         row.normalization_application_id = override_record.application_id.clone();
@@ -317,22 +336,6 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via<
 pub fn normalize_building_register_unit_silver_rows(
     input: &BuildingRegisterUnitSilverRowsInput<'_>,
 ) -> Result<Vec<BuildingRegisterUnitSilverRow>, BuildingRegisterUnitSilverPlanError> {
-    normalize_building_register_unit_silver_rows_with_building_keys(
-        input,
-        &BuildingTitleKeyIndex::new(),
-    )
-}
-
-/// Normalizes unit source rows into Silver rows and links each 호 to its building
-/// via the 표제부 `(PNU + 동명)` index.
-///
-/// # Errors
-/// Returns `BuildingRegisterUnitSilverPlanError` when required lineage is empty or row JSON
-/// serialization fails while computing checksums.
-pub fn normalize_building_register_unit_silver_rows_with_building_keys(
-    input: &BuildingRegisterUnitSilverRowsInput<'_>,
-    building_keys: &BuildingTitleKeyIndex,
-) -> Result<Vec<BuildingRegisterUnitSilverRow>, BuildingRegisterUnitSilverPlanError> {
     if input.source_snapshot_id.trim().is_empty() || input.bronze_object_key.trim().is_empty() {
         return Err(BuildingRegisterUnitSilverPlanError::InvalidInput(
             "source_snapshot_id and bronze_object_key must not be empty".to_owned(),
@@ -342,8 +345,52 @@ pub fn normalize_building_register_unit_silver_rows_with_building_keys(
     input
         .records
         .iter()
-        .map(|record| build_silver_row(record, input, building_keys))
+        .map(|record| build_silver_row(record, input))
         .collect()
+}
+
+/// Normalizes units using the explicit provider hierarchy.
+///
+/// Only an explicit provider hierarchy can resolve an automatic link. Missing or invalid
+/// source relationships remain unresolved even when names match or there is one title.
+///
+/// # Errors
+/// Returns an input error when normalization or checksum serialization fails.
+pub fn normalize_building_register_unit_silver_rows_with_parent_keys(
+    input: &BuildingRegisterUnitSilverRowsInput<'_>,
+    building_keys: &BuildingTitleKeyIndex,
+    basis: &BuildingRegisterBasisIndex,
+) -> Result<Vec<BuildingRegisterUnitSilverRow>, BuildingRegisterUnitSilverPlanError> {
+    let mut rows = normalize_building_register_unit_silver_rows(input)?;
+    for row in &mut rows {
+        row.building_link_source_record_id = basis.source_record_id(&row.mgm_bldrgst_pk);
+        row.building_link_input_sha256 = Some(basis.input_sha256().to_owned());
+        let result = match basis.resolve_unit(&row.mgm_bldrgst_pk) {
+            BuildingRegisterUnitParent::Linked(parent) => building_keys.resolve_parent_pk(parent),
+            BuildingRegisterUnitParent::Absent(reason)
+            | BuildingRegisterUnitParent::Rejected(reason) => Err(reason),
+        };
+        match result {
+            Ok(link) => {
+                row.building_mgm_bldrgst_pk = link.building_mgm_bldrgst_pk;
+                link.method.clone_into(&mut row.building_link_method);
+                row.building_main_or_annex = link.building_main_or_annex;
+                row.building_title_unit_count = link.building_title_unit_count;
+                row.building_link_reason = None;
+            }
+            Err(reason) => {
+                row.building_mgm_bldrgst_pk = None;
+                "unresolved".clone_into(&mut row.building_link_method);
+                row.building_main_or_annex = None;
+                row.building_title_unit_count = None;
+                row.building_link_reason = Some(reason.to_owned());
+            }
+        }
+    }
+    for row in &mut rows {
+        row.row_checksum_sha256 = row_checksum(row)?;
+    }
+    Ok(rows)
 }
 
 /// Applies active staff-approved unit overrides to Silver rows and recomputes row checksums.
@@ -414,20 +461,21 @@ pub fn building_register_unit_silver_override_from_application_snapshot(
                 "proposed_record.unit_number exceeds u32".to_owned(),
             )
         })?;
-    let building_mgm_bldrgst_pk = proposed_record
-        .get("building_mgm_bldrgst_pk")
-        .and_then(JsonValue::as_str)
-        .map(str::to_owned);
+    let (target_mgm_bldrgst_pk, building_mgm_bldrgst_pk) =
+        building_register_unit_parent_binding(proposed_record).map_err(|error| {
+            BuildingRegisterUnitSilverPlanError::InvalidInput(error.to_string())
+        })?;
     let unit_label_ko = proposed_record
         .get("unit_label_ko")
         .and_then(JsonValue::as_str)
         .map(str::to_owned);
     let override_record = BuildingRegisterUnitSilverOverride {
         target_unit_row_id,
+        target_mgm_bldrgst_pk: target_mgm_bldrgst_pk.to_owned(),
         application_id: None,
         unit_number,
         unit_label_ko,
-        building_mgm_bldrgst_pk,
+        building_mgm_bldrgst_pk: building_mgm_bldrgst_pk.map(str::to_owned),
         building_link_method: required_proposed_text(proposed_record, "building_link_method")?,
         normalization_status: required_proposed_text(proposed_record, "normalization_status")?,
         normalization_reason: required_proposed_text(proposed_record, "normalization_reason")?,
@@ -455,6 +503,10 @@ fn validate_unit_override(
     override_record: &BuildingRegisterUnitSilverOverride,
 ) -> Result<(), BuildingRegisterUnitSilverPlanError> {
     validate_non_empty("target_unit_row_id", &override_record.target_unit_row_id)?;
+    validate_non_empty(
+        "target_mgm_bldrgst_pk",
+        &override_record.target_mgm_bldrgst_pk,
+    )?;
     validate_non_empty(
         "building_link_method",
         &override_record.building_link_method,
@@ -493,7 +545,6 @@ fn validate_non_empty(field: &str, value: &str) -> Result<(), BuildingRegisterUn
 fn build_silver_row(
     record: &BuildingRegisterUnitSourceRow,
     input: &BuildingRegisterUnitSilverRowsInput<'_>,
-    building_keys: &BuildingTitleKeyIndex,
 ) -> Result<BuildingRegisterUnitSilverRow, BuildingRegisterUnitSilverPlanError> {
     let normalized = normalize_building_register_unit(RawBuildingRegisterUnit {
         dong_name: &record.dong_name_raw,
@@ -505,8 +556,6 @@ fn build_silver_row(
             floor_label: None,
         },
     });
-    let building_link = building_keys.resolve(&record.register_parcel_key, &record.dong_name_raw);
-
     let mut row = BuildingRegisterUnitSilverRow {
         unit_row_id: row_identity(
             "building-register-unit",
@@ -526,10 +575,13 @@ fn build_silver_row(
         floor_kind: normalized.floor.kind.wire_name().to_owned(),
         floor_index: normalized.floor.floor_index,
         floor_number: normalized.floor.floor_number,
-        building_mgm_bldrgst_pk: building_link.building_mgm_bldrgst_pk,
-        building_link_method: building_link.method.to_owned(),
-        building_main_or_annex: building_link.building_main_or_annex,
-        building_title_unit_count: building_link.building_title_unit_count,
+        building_mgm_bldrgst_pk: None,
+        building_link_method: "unresolved".to_owned(),
+        building_link_source_record_id: None,
+        building_link_input_sha256: None,
+        building_link_reason: Some("source_parent_key_required".to_owned()),
+        building_main_or_annex: None,
+        building_title_unit_count: None,
         normalization_status: normalized.status.wire_name().to_owned(),
         normalization_reason: unit_reason_wire(&normalized),
         normalization_application_id: None,
@@ -599,6 +651,21 @@ fn row_to_json_value(row: &BuildingRegisterUnitSilverRow) -> JsonValue {
         &mut record,
         "building_link_method",
         &row.building_link_method,
+    );
+    insert_optional_string(
+        &mut record,
+        "building_link_source_record_id",
+        row.building_link_source_record_id.as_deref(),
+    );
+    insert_optional_string(
+        &mut record,
+        "building_link_input_sha256",
+        row.building_link_input_sha256.as_deref(),
+    );
+    insert_optional_string(
+        &mut record,
+        "building_link_reason",
+        row.building_link_reason.as_deref(),
     );
     insert_optional_string(
         &mut record,
@@ -852,6 +919,27 @@ mod tests {
         Ok(())
     }
 
+    fn empty_basis() -> Result<BuildingRegisterBasisIndex, BuildingRegisterUnitSilverPlanError> {
+        BuildingRegisterBasisIndex::new("bronze/basis.zip", &"a".repeat(64))
+    }
+
+    fn basis_for(
+        unit_pk: &str,
+        parent_pk: &str,
+    ) -> Result<BuildingRegisterBasisIndex, BuildingRegisterUnitSilverPlanError> {
+        let mut basis = empty_basis()?;
+        for (pk, parent, kind, line_number) in
+            [(unit_pk, parent_pk, "4", 1), (parent_pk, "", "3", 2)]
+        {
+            let mut fields = vec![""; 30];
+            fields[0] = pk;
+            fields[1] = parent;
+            fields[4] = kind;
+            basis.insert_hub_line(&fields.join("|"), line_number)?;
+        }
+        Ok(basis)
+    }
+
     #[test]
     fn carries_building_title_attrs_in_silver_row() -> Result<(), Box<dyn std::error::Error>> {
         use crate::building_register_title::BuildingTitleLinkEntry;
@@ -863,15 +951,15 @@ mod tests {
         )?;
         let mut index = BuildingTitleKeyIndex::new();
         index.insert(BuildingTitleLinkEntry {
-            register_parcel_key: record.register_parcel_key.clone(),
-            canonical_dong: "301".to_owned(),
+            register_kind_code: "3".to_owned(),
+
             mgm_bldrgst_pk: "1002110000".to_owned(),
             main_or_annex: Some("부속건축물".to_owned()),
             title_unit_count: Some(0),
         });
         let valid_from_utc = DateTime::parse_from_rfc3339("2026-06-20T00:00:00Z")?.to_utc();
         let ingested_at_utc = DateTime::parse_from_rfc3339("2026-07-05T00:00:00Z")?.to_utc();
-        let rows = normalize_building_register_unit_silver_rows_with_building_keys(
+        let rows = normalize_building_register_unit_silver_rows_with_parent_keys(
             &BuildingRegisterUnitSilverRowsInput {
                 records: std::slice::from_ref(&record),
                 source_snapshot_id: "hub-2026-06",
@@ -880,6 +968,7 @@ mod tests {
                 ingested_at_utc,
             },
             &index,
+            &basis_for(&record.mgm_bldrgst_pk, "1002110000")?,
         )?;
         let row = rows.first().ok_or("one row expected")?;
         assert_eq!(row.building_mgm_bldrgst_pk.as_deref(), Some("1002110000"));
@@ -915,12 +1004,273 @@ mod tests {
     }
 
     #[test]
+    fn approved_unit_identity_cannot_be_transplanted_to_another_register_key(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut row = normalize_one(&line("", "101호", "20", "above", "1"))?;
+        let original = row.clone();
+        let snapshot = serde_json::json!({
+            "target_identity": {"raw_record_id": row.unit_row_id},
+            "proposed_record": {
+                "mgm_bldrgst_pk": "DIFFERENT-UNIT",
+                "building_mgm_bldrgst_pk": "APPROVED-PARENT",
+                "building_link_method": "parent_key",
+                "normalization_status": "accepted",
+                "normalization_reason": "accepted_numeric_unit"
+            }
+        });
+        let approved = building_register_unit_silver_override_from_application_snapshot(&snapshot)?;
+        let index = BuildingRegisterUnitSilverOverrideIndex::new(&[approved])?;
+        assert!(index.apply_to_row(&mut row).is_err());
+        assert_eq!(
+            row, original,
+            "mismatched approval must not mutate any field"
+        );
+        let mut missing = snapshot;
+        missing["proposed_record"]
+            .as_object_mut()
+            .ok_or("snapshot proposed_record must be an object")?
+            .remove("mgm_bldrgst_pk");
+        assert!(
+            building_register_unit_silver_override_from_application_snapshot(&missing).is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_parent_wire_shape_cannot_invent_a_withdrawal(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let valid = serde_json::json!({"target_identity":{"raw_record_id":"UNIT-ROW"},
+            "proposed_record":{"mgm_bldrgst_pk":"UNIT-1", "building_mgm_bldrgst_pk":null,
+                "building_link_method":"unresolved", "normalization_status":"accepted",
+                "normalization_reason":"reviewed withdrawal"}});
+        assert_eq!(
+            building_register_unit_silver_override_from_application_snapshot(&valid)?
+                .building_mgm_bldrgst_pk,
+            None
+        );
+        for key in ["mgm_bldrgst_pk", "building_mgm_bldrgst_pk"] {
+            for value in [
+                None,
+                Some(serde_json::json!(7)),
+                Some(serde_json::json!(false)),
+                Some(serde_json::json!("")),
+                Some(serde_json::json!(" PADDED")),
+                Some(serde_json::json!("PADDED ")),
+            ] {
+                let mut invalid = valid.clone();
+                match value {
+                    Some(value) => invalid["proposed_record"][key] = value,
+                    None => {
+                        invalid["proposed_record"]
+                            .as_object_mut()
+                            .ok_or("record")?
+                            .remove(key);
+                    }
+                }
+                assert!(
+                    building_register_unit_silver_override_from_application_snapshot(&invalid)
+                        .is_err(),
+                    "{key}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn assert_approved_building_override(
+        rows: &mut [BuildingRegisterUnitSilverRow],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // The exporter applies this same override index after automatic linking.
+        let original_rows = rows.to_vec();
+        let approved = BuildingRegisterUnitSilverOverride {
+            target_unit_row_id: rows[0].unit_row_id.clone(),
+            target_mgm_bldrgst_pk: rows[0].mgm_bldrgst_pk.clone(),
+            application_id: Some("normalization-application-approved-1".to_owned()),
+            unit_number: Some(624),
+            unit_label_ko: None,
+            building_mgm_bldrgst_pk: Some("approved-building".to_owned()),
+            building_link_method: "canonical_dong".to_owned(),
+            normalization_status: "accepted".to_owned(),
+            normalization_reason: "accepted_numeric_unit".to_owned(),
+        };
+        let overrides = BuildingRegisterUnitSilverOverrideIndex::new(&[approved])?;
+        for (i, row) in rows.iter_mut().enumerate() {
+            assert_eq!(overrides.apply_to_row(row)?, i == 0);
+        }
+        assert_eq!(
+            rows[0].building_mgm_bldrgst_pk.as_deref(),
+            Some("approved-building")
+        );
+        assert_eq!(rows[0].building_link_method, "canonical_dong");
+        assert_eq!(
+            rows[0].normalization_application_id.as_deref(),
+            Some("normalization-application-approved-1")
+        );
+        assert_ne!(
+            rows[0].row_checksum_sha256,
+            original_rows[0].row_checksum_sha256
+        );
+        assert_eq!(&rows[1..], &original_rows[1..]);
+        Ok(())
+    }
+
+    #[test]
+    fn unresolved_building_links_preserve_silver_rows_and_source_lineage(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::building_register_title::BuildingTitleLinkEntry;
+
+        let bronze_key = "bronze/source=hubgokr__building_register_exclusive_unit/x.zip";
+        let valid_from_utc = DateTime::parse_from_rfc3339("2026-06-20T00:00:00Z")?.to_utc();
+        let ingested_at_utc = DateTime::parse_from_rfc3339("2026-07-05T00:00:00Z")?.to_utc();
+        let records = ["101동", "102동", ""]
+            .iter()
+            .enumerate()
+            .map(|(i, dong)| {
+                parse_building_register_unit_source_row_from_hub_bulk_text_line(
+                    &line(dong, "624호", "20", "지상", "6"),
+                    bronze_key,
+                    i as u64 + 1,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (case, parent_pks, _parent_parcel) in [
+            (
+                "ambiguous",
+                vec!["a", "b", "a"],
+                records[0].register_parcel_key.as_str(),
+            ),
+            ("missing", vec![], records[0].register_parcel_key.as_str()),
+            ("other_parcel", vec!["a"], "9999900401000890005"),
+        ] {
+            let mut index = BuildingTitleKeyIndex::new();
+            for pk in parent_pks {
+                index.insert(BuildingTitleLinkEntry {
+                    register_kind_code: "3".to_owned(),
+
+                    mgm_bldrgst_pk: pk.to_owned(),
+                    main_or_annex: Some("주건축물".to_owned()),
+                    title_unit_count: Some(10),
+                });
+            }
+            let input = BuildingRegisterUnitSilverRowsInput {
+                records: &records,
+                source_snapshot_id: "hub-2026-06",
+                bronze_object_key: bronze_key,
+                valid_from_utc,
+                ingested_at_utc,
+            };
+            let mut rows = normalize_building_register_unit_silver_rows_with_parent_keys(
+                &input,
+                &index,
+                &empty_basis()?,
+            )?;
+            assert_eq!(rows.len(), records.len(), "case={case}");
+            for (row, record) in rows.iter().zip(&records) {
+                assert_eq!(row.building_mgm_bldrgst_pk, None, "case={case}");
+                assert_eq!(row.building_link_method, "unresolved");
+                assert_eq!(row.building_main_or_annex, None);
+                assert_eq!(row.building_title_unit_count, None);
+                assert_eq!(row.normalization_application_id, None);
+                assert_eq!(row.normalization_status, "accepted");
+                assert_eq!(
+                    row.unit_row_id,
+                    format!(
+                        "building-register-unit:{bronze_key}#line-{:06}",
+                        record.source_line_number.ok_or("source line must exist")?
+                    )
+                );
+                assert_eq!(row.source_record_id, record.source_record_id);
+                assert_eq!(row.mgm_bldrgst_pk, record.mgm_bldrgst_pk);
+                assert_eq!(row.pnu, record.pnu);
+                assert_eq!(row.register_parcel_key, record.register_parcel_key);
+                assert_eq!(row.dong_name_raw, record.dong_name_raw);
+                assert_eq!(row.unit_name_raw, record.unit_name_raw);
+                assert_eq!(row.source_line_number, record.source_line_number);
+                assert_eq!(row.source_snapshot_id, input.source_snapshot_id);
+                assert_eq!(row.bronze_object_key, bronze_key);
+                assert_eq!(row.valid_from_utc, valid_from_utc);
+                assert_eq!(row.ingested_at_utc, ingested_at_utc);
+                assert_eq!(row.unit_number, Some(624));
+                assert_eq!(row.floor_index, Some(6));
+                let json = row_to_json_value(row);
+                assert_eq!(json["building_mgm_bldrgst_pk"], JsonValue::Null);
+                assert_eq!(json["building_link_method"], "unresolved");
+            }
+
+            assert_approved_building_override(&mut rows)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn title_without_source_parent_never_resolves_any_dong(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::building_register_title::BuildingTitleLinkEntry;
+
+        let bronze_key = "bronze/source=hubgokr__building_register_exclusive_unit/x.zip";
+        for land_kind in ["0", "2"] {
+            for (dong, expected_method) in [
+                (" 제 101동 ", "unresolved"),
+                ("", "unresolved"),
+                (" \t", "unresolved"),
+                ("102동", "unresolved"),
+                ("제 동", "unresolved"),
+            ] {
+                let raw = line(dong, "624호", "20", "지상", "6");
+                let mut fields = raw.split('|').collect::<Vec<_>>();
+                fields[DAEJI_KIND_INDEX] = land_kind;
+                let record = parse_building_register_unit_source_row_from_hub_bulk_text_line(
+                    &fields.join("|"),
+                    bronze_key,
+                    1,
+                )?;
+                let mut index = BuildingTitleKeyIndex::new();
+                index.insert(BuildingTitleLinkEntry {
+                    register_kind_code: "3".to_owned(),
+
+                    mgm_bldrgst_pk: "a".to_owned(),
+                    main_or_annex: None,
+                    title_unit_count: None,
+                });
+                let rows = normalize_building_register_unit_silver_rows_with_parent_keys(
+                    &BuildingRegisterUnitSilverRowsInput {
+                        records: std::slice::from_ref(&record),
+                        source_snapshot_id: "hub-2026-06",
+                        bronze_object_key: bronze_key,
+                        valid_from_utc: DateTime::parse_from_rfc3339("2026-06-20T00:00:00Z")?
+                            .to_utc(),
+                        ingested_at_utc: DateTime::parse_from_rfc3339("2026-07-05T00:00:00Z")?
+                            .to_utc(),
+                    },
+                    &index,
+                    &empty_basis()?,
+                )?;
+                assert_eq!(rows.len(), 1);
+                let row = &rows[0];
+                assert_eq!(
+                    row.building_link_method, expected_method,
+                    "land={land_kind}, dong={dong:?}"
+                );
+                assert_eq!(
+                    row.building_mgm_bldrgst_pk.as_deref(),
+                    (expected_method != "unresolved").then_some("a")
+                );
+                assert_eq!(row.pnu.is_none(), land_kind == "2");
+                assert_eq!(row.register_parcel_key, record.register_parcel_key);
+                assert_eq!(row.normalization_status, "accepted");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn active_unit_override_updates_silver_row_and_recomputes_checksum(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut row = normalize_one(&line("A", "unit", "20", "above", "1"))?;
         let original_checksum = row.row_checksum_sha256.clone();
         let override_record = BuildingRegisterUnitSilverOverride {
             target_unit_row_id: row.unit_row_id.clone(),
+            target_mgm_bldrgst_pk: row.mgm_bldrgst_pk.clone(),
             application_id: Some("normalization-application-approved-1".to_owned()),
             unit_number: Some(101),
             unit_label_ko: None,
@@ -956,6 +1306,7 @@ mod tests {
             },
             "proposed_record": {
                 "unit_number": 101,
+                "mgm_bldrgst_pk": "SYNTHETIC-UNIT-PK-0001",
                 "building_mgm_bldrgst_pk": "building-pk-approved",
                 "building_link_method": "canonical_dong",
                 "normalization_status": "accepted",
@@ -989,6 +1340,7 @@ mod tests {
             },
             "proposed_record": {
                 "unit_number": null,
+                "mgm_bldrgst_pk": "SYNTHETIC-UNIT-PK-0001",
                 "building_mgm_bldrgst_pk": "SYNTHETIC-BUILDING-PK-0001",
                 "building_link_method": "canonical_dong",
                 "normalization_status": "proposal_required",
