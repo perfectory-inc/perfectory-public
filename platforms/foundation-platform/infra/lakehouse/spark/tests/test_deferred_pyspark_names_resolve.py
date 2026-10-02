@@ -43,6 +43,8 @@ MODULES = (
     "industrial_complex_boundary_served_gold",
     "administrative_boundaries_handoff_to_silver",
     "administrative_boundary_served_gold",
+    "parcel_boundary_served_gold",
+    "served_gold_common",
     "parcel_lineage_to_silver",
     "legal_dong_code_snapshot_to_reference",
     "parcel_registry_to_silver",

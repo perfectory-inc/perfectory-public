@@ -3191,6 +3191,72 @@
         "unit": "derived"
       }
     },
+    "gold.parcel_boundary_served": {
+      "table_name": "gold.parcel_boundary_served",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": true
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "origin",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "silver_iceberg_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "edits_through_change_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "pnu"
+      ],
+      "quality_gates": [
+        "geometry_srid = 4326",
+        "one row per pnu",
+        "origin is source or edit",
+        "geometry_checksum_sha256 is 64 lowercase hex"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "reference.legal_dong_code_snapshot": {
       "table_name": "reference.legal_dong_code_snapshot",
       "physical_format": "Parquet",

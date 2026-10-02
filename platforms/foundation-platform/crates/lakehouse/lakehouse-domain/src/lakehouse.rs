@@ -2579,6 +2579,77 @@ pub const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED: LakehouseTableContract = Lakehous
     load: LakehouseLoadUnit::Derived,
 };
 
+const GOLD_PARCEL_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "pnu",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_wkb",
+        logical_type: "binary",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_srid",
+        logical_type: "int",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "geometry_checksum_sha256",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "origin",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "silver_iceberg_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "edits_through_change_seq",
+        logical_type: "long",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "published_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// The parcel boundaries exactly as they are tiled: one Silver `source_snapshot_id` with every
+/// ledgered `parcels` edit applied, built on the Spark executors (root ADR-0133 §2).
+pub const GOLD_PARCEL_BOUNDARY_SERVED: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.parcel_boundary_served",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
+    columns: GOLD_PARCEL_BOUNDARY_SERVED_COLUMNS,
+    // No partitions, for the reason silver.parcel_boundaries has none: every reader takes the
+    // whole snapshot (root ADR-0066).
+    partition_spec: &[],
+    sort_order: &["pnu"],
+    quality_gates: &[
+        "geometry_srid = 4326",
+        "one row per pnu",
+        "origin is source or edit",
+        "geometry_checksum_sha256 is 64 lowercase hex",
+    ],
+    // silver.parcel_boundaries 의 한 판과 silver.map_edit_ledger 에서 파생. 생산자가 overwrite 로 돌아 덮어쓴다.
+    load: LakehouseLoadUnit::Derived,
+};
+
 const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "region_cd",
@@ -3098,6 +3169,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_BUILDING_PANEL,
     GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
     GOLD_ADMINISTRATIVE_BOUNDARY_SERVED,
+    GOLD_PARCEL_BOUNDARY_SERVED,
     REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
     SILVER_PARCEL_LINEAGE,
     SILVER_PARCEL_REGISTRY,
