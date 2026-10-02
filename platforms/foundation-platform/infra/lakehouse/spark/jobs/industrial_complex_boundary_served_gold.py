@@ -56,7 +56,7 @@ contract_schema = common.contract_schema
 edit_fingerprint = common.edit_fingerprint
 new_ledger_rows = common.new_ledger_rows
 write_create_only = common.write_create_only
-latest_snapshot = common.latest_snapshot
+current_snapshot = common.current_snapshot
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -230,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
         persisted = spark.sql(f"SELECT count(*) AS n FROM {served_table}").collect()[0]["n"]
         if persisted != len(served):
             raise ValueError(f"served table read back {persisted} rows, wrote {len(served)}")
-        gold_snapshot = latest_snapshot(spark, served_table)
+        gold_snapshot = current_snapshot(spark, served_table)
     finally:
         spark.stop()
 

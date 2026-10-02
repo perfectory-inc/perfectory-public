@@ -184,6 +184,20 @@ def _assemble_catalog_settings(catalog: str, reader: _EnvReader) -> dict[str, st
     return settings
 
 
+def current_snapshot(spark: Any, table: str) -> str:
+    """The snapshot the table's `main` branch points at: what a reader of the table sees now.
+
+    Not the newest commit. After `rollback_to_snapshot` or a cherry-pick the newest row of
+    `.snapshots` is a state the table no longer has, and a job that pinned it would read or label
+    rolled-back data (root ADR-0124 §3 fixed the same pick in `lakehouse_schema_migrate.py`).
+    A table without a `main` ref has no current state, so it is refused.
+    """
+    rows = spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").collect()
+    if not rows:
+        raise ValueError(f"{table} has no main ref, so it has no current snapshot")
+    return str(rows[0]["snapshot_id"])
+
+
 def catalog_settings(catalog: str, lookup: Any = None) -> dict[str, str]:
     """Every setting needed to reach the Iceberg REST catalog, as one mapping.
 
