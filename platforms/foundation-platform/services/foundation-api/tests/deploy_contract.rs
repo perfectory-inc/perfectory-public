@@ -893,6 +893,28 @@ fn assert_postgres_backup_scheduler_contract() -> TestResult {
         "ExecStart=/opt/foundation-platform/current/scripts/recovery/run-postgres-backup.sh"
     ));
     assert!(service.contains("ReadWritePaths=/var/lib/foundation-platform/recovery"));
+    // A failed backup reports itself; the script's own exit code reached nobody for four weeks.
+    assert!(service.contains("OnFailure=foundation-unit-failed@%n.service"));
+    read_area_file("infra/systemd/foundation-unit-failed@.service")?;
+
+    // pgBackRest follows pg_tblspc, so the backup must see every tablespace the database mounts.
+    let database = read_area_file("docker-compose.yml")?;
+    let recovery = read_area_file("compose.recovery.yml")?;
+    let tablespace_mounts: Vec<&str> = database
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.ends_with(":/tablespaces"))
+        .collect();
+    assert!(
+        !tablespace_mounts.is_empty(),
+        "the database mounts no tablespace root"
+    );
+    for mount in tablespace_mounts {
+        assert!(
+            recovery.contains(&format!("{mount}:ro")),
+            "the backup does not mount the database's tablespace root `{mount}`"
+        );
+    }
 
     let release = read_area_file("scripts/deploy/foundation-release.sh")?;
     for required in [
