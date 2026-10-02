@@ -1,8 +1,17 @@
 # Foundation Platform lakehouse compute boundary.
 # This file must remain runnable without Foundation API or database credentials.
 
+# Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
+# guard every-container-has-a-memory-cap).
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   trino:
+    logging: *log-cap
     image: trinodb/trino:481@sha256:5b5e0a97f599a30a2e23c7c7061e4e4d546a914b4fad2a2a002998140ceb4006
     container_name: foundation-platform-trino
     profiles:
@@ -20,6 +29,7 @@ services:
       - ./infra/lakehouse/trino/config.properties:/etc/trino/config.properties:ro
 
   lakehouse-target-init:
+    logging: *log-cap
     image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
     mem_limit: 32m
     container_name: foundation-platform-lakehouse-target-init
@@ -36,6 +46,7 @@ services:
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-./target/lakehouse-ivy}:/home/spark/.ivy2
 
   spark:
+    logging: *log-cap
     image: apache/spark:3.5.6-scala2.12-java17-python3-ubuntu@sha256:702d82ecea50c6f8344d3df753ba26f05ffd9d1d052e180fed9c3d6c04f77730
     # Loads run with a 16g driver heap. Measured on ai-server 2026-10-01 in validate mode at 16g:
     # the national parcel load (39,861,511 rows) peaked at 17.1GiB, the land-use load (247,584,668
@@ -71,6 +82,7 @@ services:
       FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE: ${FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE:-foundation-platform}
 
   lakehouse-control:
+    logging: *log-cap
     image: foundation-platform-lakehouse-control:local
     mem_limit: 1g
     # A command run once per call (`compose run`), never a standing service.

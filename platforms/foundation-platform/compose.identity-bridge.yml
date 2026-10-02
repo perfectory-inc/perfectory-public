@@ -12,6 +12,14 @@
 # the alias/container-port literals are checked against the identity
 # platform's endpoint contract by the endpoint guard — they are the carried
 # copy, not the decision.
+# Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
+# guard every-container-has-a-memory-cap).
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   foundation-api:
     networks:
@@ -19,6 +27,7 @@ services:
       identity-shared:
 
   identity-zitadel-loopback:
+    logging: *log-cap
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     mem_limit: 64m
     restart: unless-stopped
@@ -31,6 +40,7 @@ services:
         condition: service_started
 
   identity-api-loopback:
+    logging: *log-cap
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     mem_limit: 64m
     restart: unless-stopped

@@ -3,8 +3,17 @@
 # and nowhere else: zitadel-runtime.sh derives IDENTITY_ZITADEL_LOOPBACK_PORT from that
 # contract before compose reads this file, so a port literal here would be a second copy
 # of the decision — the endpoint guard rejects exactly that.
+# Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
+# guard every-container-has-a-memory-cap).
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   zitadel-db:
+    logging: *log-cap
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     mem_limit: 1g
     restart: unless-stopped
@@ -21,6 +30,7 @@ services:
       retries: 10
 
   zitadel:
+    logging: *log-cap
     image: ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c
     mem_limit: 1g
     restart: unless-stopped

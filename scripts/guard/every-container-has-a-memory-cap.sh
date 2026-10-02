@@ -16,6 +16,12 @@
 # Budget arithmetic: services that stay up count at their cap; one-shot jobs (restart "no", or a
 # dependency another service waits on to complete) run one at a time during a deploy or a timer,
 # so only the largest counts.
+#
+# Two more limits share this inventory. Every service names the file's log cap (`logging: *log-cap`,
+# anchored once per file): on 2026-10-02 one uncapped json-file log reached 32GB and filled the
+# root disk under the production database twice. And every service that stays up on the host
+# restarts: the data catalog's Kafka broker stopped on that full disk, stayed stopped, and the
+# catalog server logged its reconnect attempts at 5.7GB an hour until the disk filled again.
 set -euo pipefail
 
 root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
@@ -42,6 +48,12 @@ SIZE = re.compile(r"([0-9]+)([kmg])")
 PARAMETER_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
 REQUIRED_MEMORY = re.compile(r"\$\{([A-Z_][A-Z0-9_]*):\?[^${}\r\n]+\}([kmg])")
 UNIT = {"k": 1 << 10, "m": 1 << 20, "g": 1 << 30}
+LOG_CAP_REFERENCE = "*log-cap"
+LOG_CAP_ANCHOR = re.compile(
+    r'^x-log-cap: &log-cap\n  driver: json-file\n  options:\n    max-size: "[0-9]+m"\n    max-file: "[0-9]+"$',
+    re.M,
+)
+RESTARTS = {"unless-stopped", "always", "on-failure"}
 SKIP_DIRS = {".git", "node_modules", "target", ".next", ".venv", "dist"}
 
 errors: list[str] = []
@@ -150,8 +162,10 @@ def parse(relative: str) -> tuple[list[str], dict[str, dict]]:
         match = re.match(r"^    ([a-z_]+):\s*(.*)$", line)
         if match:
             key, value = match.group(1), match.group(2).strip()
-            if key in ("mem_limit", "restart", "image"):
+            if key in ("mem_limit", "restart", "image", "logging"):
                 entry[key] = value.strip("\"'")
+                if key == "logging":
+                    entry["logging_file"] = relative
             continue
         if key == "profiles":
             match = re.match(r"^      - \s*(\S+)", line)
@@ -180,7 +194,7 @@ def project_services(files: list[str], seen: set[str]) -> dict[str, dict]:
             merged.setdefault(included, service)
         for service_name, service in services.items():
             current = merged.setdefault(service_name, {"profiles": [], "waits_on_completion_of": []})
-            for field in ("mem_limit", "restart", "image"):
+            for field in ("mem_limit", "restart", "image", "logging", "logging_file"):
                 if field in service:
                     current[field] = service[field]
             # Errors point at the definition that names the image, where the cap belongs.
@@ -223,6 +237,11 @@ for project, on_host in groups:
     services = project_services(project["files"], placed)
     jobs = {dependency for service in services.values() for dependency in service["waits_on_completion_of"]}
     for service_name, service in sorted(services.items()):
+        where = service.get("file", project["files"][0])
+        if service.get("logging") != LOG_CAP_REFERENCE:
+            errors.append(f"{where}: service {service_name} does not name the file's log cap (logging: {LOG_CAP_REFERENCE})")
+        elif not LOG_CAP_ANCHOR.search((ROOT / service["logging_file"]).read_text(encoding="utf-8")):
+            errors.append(f"{service['logging_file']}: names {LOG_CAP_REFERENCE} but defines no x-log-cap anchor with max-size and max-file")
         cap = memory_cap(service.get("mem_limit", ""), parameters)
         if cap is None:
             where = service.get("file", project["files"][0])
@@ -240,6 +259,8 @@ for project, on_host in groups:
             if cap > largest_job[0]:
                 largest_job = (cap, f"{project['name']}/{service_name}")
             continue
+        if service.get("restart") not in RESTARTS:
+            errors.append(f"{where}: service {service_name} stays up on {host['name']} but does not restart (restart: unless-stopped)")
         standing_total += cap
         report.append(f"  {gib(cap):>8}  {project['name']}/{service_name}")
 
