@@ -27,7 +27,7 @@ from pathlib import Path
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
+from lakehouse_engine import apply_catalog_settings, assert_catalog_env, current_snapshot, iceberg_packages
 
 JOB_NAME = "parcel_panel_delta"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
@@ -95,13 +95,7 @@ def main() -> int:
 
     current_snapshot_id = args.current_snapshot_id
     if current_snapshot_id is None:
-        row = spark.sql(
-            f"SELECT snapshot_id FROM `{args.iceberg_catalog_name}`.{GOLD_TABLE}.snapshots "
-            "ORDER BY committed_at DESC LIMIT 1"
-        ).first()
-        if row is None:
-            raise ValueError(f"{GOLD_TABLE} has no snapshot to compare")
-        current_snapshot_id = str(row.snapshot_id)
+        current_snapshot_id = current_snapshot(spark, f"`{args.iceberg_catalog_name}`.{GOLD_TABLE}")
     if str(current_snapshot_id) == str(args.baseline_snapshot_id):
         raise ValueError(
             "baseline and current name the same snapshot; there is nothing to compare"

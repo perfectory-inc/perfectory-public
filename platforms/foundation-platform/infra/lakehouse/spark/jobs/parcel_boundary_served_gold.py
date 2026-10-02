@@ -268,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         through = max((int(row["change_seq"]) for row in ledger), default=0)
 
         silver_table = qualified(catalog, args.iceberg_namespace, args.iceberg_table)
-        silver_snapshot = common.latest_snapshot(spark, silver_table)
+        silver_snapshot = common.current_snapshot(spark, silver_table)
         # Pinned to one Iceberg snapshot, so the checks and the write read the same rows.
         base = spark.sql(
             f"SELECT pnu, geometry_wkb, geometry_srid, geometry_checksum_sha256, source_snapshot_id "
@@ -291,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
             F.lit(now).cast("timestamp").alias("published_at_utc"),
         ).select(*SERVED_COLUMNS).createOrReplaceTempView("served_candidate")
         spark.sql(f"INSERT OVERWRITE {served_table} SELECT {', '.join(SERVED_COLUMNS)} FROM served_candidate")
-        gold_snapshot = common.latest_snapshot(spark, served_table)
+        gold_snapshot = common.current_snapshot(spark, served_table)
         written = spark.sql(f"SELECT pnu, geometry_wkb, origin FROM {served_table} VERSION AS OF {gold_snapshot}")
         persisted = written.count()
         if persisted != expected:

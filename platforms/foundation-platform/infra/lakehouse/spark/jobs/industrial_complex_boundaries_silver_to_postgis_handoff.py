@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
+from lakehouse_engine import apply_catalog_settings, assert_catalog_env, current_snapshot, iceberg_packages
 from platform_contracts import (
     column_names,
     declared_geometry_srid,
@@ -334,15 +334,11 @@ def read_sources(spark: Any, args: argparse.Namespace) -> tuple[Any, Any, str | 
     complexes_table = qualified_table(
         args.iceberg_catalog_name, args.complexes_iceberg_namespace, args.complexes_iceberg_table
     )
-    snapshot = spark.sql(
-        f"SELECT snapshot_id FROM {boundaries_table}.snapshots ORDER BY committed_at DESC LIMIT 1"
-    ).collect()
-    if not snapshot:
-        raise ValueError(f"{boundaries_table} has no Iceberg snapshot to project")
+    # `spark.table` reads the main ref, so the label names that ref, not the newest commit.
     return (
         spark.table(boundaries_table),
         spark.table(complexes_table),
-        str(snapshot[0]["snapshot_id"]),
+        current_snapshot(spark, boundaries_table),
     )
 
 

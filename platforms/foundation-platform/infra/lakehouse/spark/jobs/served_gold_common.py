@@ -44,6 +44,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from lakehouse_engine import current_snapshot
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
@@ -325,15 +326,6 @@ def ensure_table(spark: Any, qualified: str, catalog: str, namespace: str, contr
     )
     evolve_iceberg_table_to_contract(spark, qualified, contract)
     return qualified
-
-
-def latest_snapshot(spark: Any, table: str) -> str:
-    rows = spark.sql(
-        f"SELECT snapshot_id FROM {table}.snapshots ORDER BY committed_at DESC LIMIT 1"
-    ).collect()
-    if not rows:
-        raise ValueError(f"{table} has no committed snapshot")
-    return str(rows[0]["snapshot_id"])
 
 
 def append_to_ledger(

@@ -229,6 +229,25 @@ class ParcelServedGoldIcebergTest(unittest.TestCase):
             self.assertEqual(job.main(argv), 0)
         return json.loads((out / "summary.json").read_text(encoding="utf-8"))
 
+    def test_the_current_snapshot_is_the_main_ref_not_the_newest_commit(self):
+        from lakehouse_engine import current_snapshot
+
+        table = "`proof`.`gold`.`rollback_probe`"
+        self.spark.sql(f"CREATE TABLE {table} (n int) USING iceberg")
+        with self.assertRaisesRegex(ValueError, "no main ref"):
+            current_snapshot(self.spark, table)
+        self.spark.sql(f"INSERT INTO {table} VALUES (1)")
+        s1 = current_snapshot(self.spark, table)
+        self.spark.sql(f"INSERT INTO {table} VALUES (2)")
+        s2 = current_snapshot(self.spark, table)
+        self.assertNotEqual(s1, s2)
+        self.spark.sql(f"CALL proof.system.rollback_to_snapshot('gold.rollback_probe', {s1})")
+        newest = self.spark.sql(
+            f"SELECT snapshot_id FROM {table}.snapshots ORDER BY committed_at DESC LIMIT 1"
+        ).collect()[0]["snapshot_id"]
+        self.assertEqual(str(newest), s2, "the newest commit is still S2 after the rollback")
+        self.assertEqual(current_snapshot(self.spark, table), s1, "the table's state is S1")
+
     def test_one_snapshot_is_served_and_handed_to_the_bake_in_parts(self):
         out = Path(self.workspace.name) / "run-1"
         summary = self.run_main(out)
