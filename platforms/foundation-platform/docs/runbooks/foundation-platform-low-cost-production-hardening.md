@@ -120,6 +120,25 @@ host 밖 R2에 repository를 둔다.
 `/opt/foundation-platform/current`를 원자적으로 전환하고 이전 대상을 `previous`에 기록한다.
 변경 가능한 복구 증거는 변경 불가 릴리스 밖의 `/var/lib/foundation-platform/recovery`에 둔다.
 
+[root ADR-0126](../../../../docs/adr/0126-production-iceberg-writes-run-admitted-canonical-source.md)에
+따라 먼저 관리자가 검토한 정본 커밋의 전체 모노레포를 root 소유
+`/opt/perfectory-control/current`에 별도 설치한다. 제어 체크아웃·부모·Git cache는 다른 주체에게
+쓰기 가능하지 않아야 한다. `/usr/bin/python3`, `/usr/bin/git`, `/usr/bin/gh`, Bash가 필요하다.
+영역 archive에 root identity 정책을 복사하거나 후보 트리의 검증기를 신뢰하지 않는다.
+아래 설치는 live 정본 identity, 독립 fetch한 main ancestry, 전체 archive 바이트를 대조한다.
+미병합 SHA, 기존 writable release, 변조된 release는 거부하므로 이전 비인증 릴리스를 그대로
+활성화하지 않고 정본 archive에서 새로 인증해 설치해야 한다.
+
+설치는 활성화 전에 기존 Dockerfile/Cargo lockfile의 publisher를 빌드하고, 고정 Spark 이미지와
+engine contract로 JAR을 자격증명 없이 해석한다. Docker와 dependency registry에 연결할 수
+있어야 하며, 첫 빌드는 시간이 걸린다. Docker Buildx의 `docker-container` driver가 필요하다.
+임시 builder와 JAR resolver는 각각 2 CPU/4 GiB 상한이고 swap 추가 사용을 허용하지 않는다.
+Cargo jobs도 2로 제한한다. host Docker daemon의 저장·전송 I/O는 별도이며, Buildx 미지원 시
+제한 없는 빌드로 fallback하지 않는다. `/opt/foundation-platform/artifacts/<sha>`의 바이너리와
+JAR은 root 소유 읽기 전용 산출물이다. 실패한 빌드로 current를 바꾸지 않는다. 이미 생성한
+산출물은 파일 집합·해시·권한을 다시 검사하며, 외부 바이너리나 기존 Ivy cache를 가져오지 않는다.
+빌드는 `ldd`로 native publisher와 host runtime library 호환성을 검사하며 누락 시 활성화를 거부한다.
+
 ```bash
 release_id="$(git rev-parse HEAD)"
 # 릴리스는 platforms/foundation-platform 을 루트로 하는 트리다 — 모노레포 전체가 아니다.
@@ -130,11 +149,25 @@ git archive --format=tar.gz --output="/tmp/foundation-${release_id}.tar.gz" \
   "${release_id}:platforms/foundation-platform"
 sudo FOUNDATION_PLATFORM_RELEASE_ROOT=/opt/foundation-platform \
   FOUNDATION_PLATFORM_STATE_ROOT=/var/lib/foundation-platform \
-  scripts/deploy/foundation-release.sh install \
+  /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh install \
     "${release_id}" "/tmp/foundation-${release_id}.tar.gz"
 ```
 
 같은 릴리스 진입점은 변경 불가 소스 트리 밖에 레이크하우스 계산 상태를 준비한다.
+
+`timers`는 등록된 각 data job에 고정 제어 검증기의 `ExecStartPre`도 설치한다.
+`infra/systemd/foundation-lakehouse-writer.conf.example`은 private 호스트 권한 전환용 검토
+설정이며 자동 설치하지 않는다. 전용 비로그인 writer, root 소유 `0600` writer 환경파일,
+operator/agent의 Docker·무제한 sudo 제거, 기존 공유 catalog write token 회수와 조회 token
+분리를 함께 완료해야 한다. 실제 계정·credential·host 증거는 private 운영 저장소에 둔다.
+직접 Spark/원격 backfill도 등록된 고정 service를 통해 실행하도록 전환하기 전까지는 전체
+운영 쓰기 경계가 활성화됐다고 보고하지 않는다.
+
+등록된 publisher/Spark writer의 source/binary 경로는 환경파일로 바꿀 수 없다. Spark는 같은 release의 동결 JAR을
+읽기 전용으로 mount한다. 생성된 Trino 설정은 `FOUNDATION_PLATFORM_TRINO_CATALOG_DIR` 또는
+lakehouse state root의 `trino/catalog`에 두며, source tree를 지정하면 거부한다. 기존 임의 원격
+SSH shell은 writer credential의 배포 대상이 아니다. 새 운영 backfill은 source 경로와 data 인자를
+검토한 고정 service로 등록한 뒤 호출한다.
 
 - `/var/lib/foundation-platform/lakehouse`
 - `/var/lib/foundation-platform/remote-lakehouse`

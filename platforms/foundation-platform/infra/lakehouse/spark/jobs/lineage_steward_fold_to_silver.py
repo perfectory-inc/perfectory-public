@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         from pyspark.sql import SparkSession  # noqa: PLC0415
 
         builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")
-        spark = apply_catalog_settings(builder, args.iceberg_catalog_name).config("spark.jars.packages", args.iceberg_packages).getOrCreate()
+        spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
         try:
             columns = column_names(CONTRACT)
             schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in CONTRACT["columns"])

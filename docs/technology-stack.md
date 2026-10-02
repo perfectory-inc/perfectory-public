@@ -23,7 +23,11 @@ local/CI/staging/production에서 어떤 backend를 바라보는지를 한 곳�
 
 출시 전 임시 운영 정책: 개발자 PC에서 실행하더라도 현재 private `.env.local`은
 `FOUNDATION_PLATFORM_RUNTIME_ENV=production`으로 명시하고, 이미 존재하는 production R2와
-Iceberg REST 카탈로그를 공유한다. `FOUNDATION_PLATFORM_EXECUTION_CONTEXT=developer`와
+Iceberg REST 카탈로그를 공유한다. 단, [ADR-0126](./adr/0126-production-iceberg-writes-run-admitted-canonical-source.md)에
+따라 개발자·조회 클라이언트의 catalog token은 read-only로 분리하고, 운영 Iceberg 쓰기 token은
+인증된 정본 릴리스를 실행하는 전용 작업 주체에만 둔다. 이 경계의 private 운영 전환을
+완료하기 전에는 공유 token이 소스 검증을 우회할 수 있다. 환경 표시는 쓰기 인가 증명이 아니다.
+`FOUNDATION_PLATFORM_EXECUTION_CONTEXT=developer`와
 `FOUNDATION_PLATFORM_PRELAUNCH_SHARED=1`도 함께 요구한다. 이는 `local` 환경의 정의를 바꾸는 것이 아니다. Postgres,
 Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가 레포에 없는
 백엔드는 로컬 구성을 유지하며, 주소를 추측해 운영에 연결하지 않는다. 외부 출시 전에

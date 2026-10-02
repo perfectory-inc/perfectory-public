@@ -13,6 +13,7 @@ on:
       - main
     paths:
       - "platforms/foundation-platform/**"
+      - "scripts/deploy/**"
       - "scripts/tiles/**"
       - "scripts/verify/integration.sh"
       - "scripts/verify/foundation-kafka-live.sh"

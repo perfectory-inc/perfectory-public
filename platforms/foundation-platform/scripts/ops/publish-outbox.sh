@@ -4,8 +4,8 @@
 # publish-outbox-once 는 성공 시 무음이므로 판정은 원장이 한다: 실행 후에도 pending 이
 # 남는 것은 정상(다음 틱이 잇는다), 명령 실패만 슬랙으로 외친다.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh"
 
-PUBLISHER_BIN="${FOUNDATION_OUTBOX_PUBLISHER_BIN:-/var/lib/foundation-platform/bin/foundation-outbox-publisher}"
 SLACK_TOKEN_FILE="${FOUNDATION_SOURCE_SWEEP_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}"
 SLACK_CHANNEL="${FOUNDATION_SOURCE_SWEEP_SLACK_CHANNEL:-#alerts}"
 

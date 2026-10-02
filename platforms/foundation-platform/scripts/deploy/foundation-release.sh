@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 022
+
+# Independent root-owned control checkout, not code taken from the candidate archive.
+# No environment override: a caller cannot appoint the verifier that grants admission.
+admission="/opt/perfectory-control/current/scripts/deploy/foundation-release-admission.py"
 
 release_root="${FOUNDATION_PLATFORM_RELEASE_ROOT:-/opt/foundation-platform}"
 state_root="${FOUNDATION_PLATFORM_STATE_ROOT:-/var/lib/foundation-platform}"
@@ -133,6 +138,29 @@ assert_installed_release() {
     printf 'release identity evidence is missing or invalid: %s\n' "${path}" >&2
     exit 65
   }
+  "${admission}" verify "${path}"
+}
+
+assert_current_release() {
+  local current_target
+  current_target="$(readlink "${release_root}/current")"
+  [[ "${current_target}" =~ ^releases/([0-9a-f]{40})$ ]] || {
+    printf 'current is not an installed release link\n' >&2
+    exit 65
+  }
+  assert_installed_release "${BASH_REMATCH[1]}"
+}
+
+install_release_admission() {
+  local service="$1"
+  [[ "${service}" =~ ^foundation-[a-z0-9-]+(@[a-z0-9-]+)?\.service$ ]] || {
+    printf 'refusing invalid service name for release admission\n' >&2
+    exit 65
+  }
+  install -d -o root -g root -m 0755 "/etc/systemd/system/${service}.d"
+  install -o root -g root -m 0644 \
+    "${release_root}/current/infra/systemd/foundation-release-admission.conf" \
+    "/etc/systemd/system/${service}.d/10-release-admission.conf"
 }
 
 activate_release() {
@@ -208,6 +236,7 @@ install_release() {
   mkdir -p "${releases_dir}" "${state_root}/recovery"
   prepare_mutable_state
   if [[ -e "${target}" ]]; then
+    "${admission}" build "${target}"
     assert_installed_release "${release_id}"
     recorded_sha="$(cat "${target}/.foundation-release-archive-sha256")"
     [[ "${recorded_sha}" == "${archive_sha}" ]] || {
@@ -220,13 +249,13 @@ install_release() {
 
   staging="$(mktemp -d "${releases_dir}/.${release_id}.tmp.XXXXXX")"
   trap '[[ -z "${staging:-}" ]] || rm -rf "${staging}"' RETURN
-  tar --no-same-owner --no-same-permissions -xzf "${archive}" -C "${staging}"
-  chmod 0755 "${staging}"
-  printf '%s\n' "${release_id}" >"${staging}/.foundation-release-id"
-  printf '%s\n' "${archive_sha}" >"${staging}/.foundation-release-archive-sha256"
+  # Admission fetches canonical main, checks ancestry AND the complete archive contents,
+  # then writes read-only files from those Git objects. The supplied tar is never extracted.
+  "${admission}" prepare "${release_id}" "${archive}" "${staging}"
   mv "${staging}" "${target}"
   staging=""
   trap - RETURN
+  "${admission}" build "${target}"
   activate_release "${release_id}"
 }
 
@@ -250,6 +279,7 @@ rollback_release() {
 }
 
 verify_runtime_schema() {
+  assert_current_release
   # Deploying source cannot move the schema: the migrations are compiled into the runtime image
   # by `sqlx::migrate!`. On 2026-09-01 that gap was six weeks and thirty-three-minus-four
   # migrations wide, with every catalog table empty and the API answering `[]`, and no step
@@ -274,6 +304,7 @@ verify_runtime_schema() {
 }
 
 migrate_runtime() {
+  assert_current_release
   # Rebuild before applying. The migrator is the release's own binary and the migrations live
   # inside it, so an image built from an older tree applies an older set however new the source
   # on disk is — which is exactly how the runtime came to be six weeks behind.
@@ -311,10 +342,16 @@ migrate_runtime() {
 # backfills run -- and anything that cannot be (a column the contract does not declare, a required
 # column with no backfill) stops the deploy here, the way a failed database migration does.
 # Temporary compatibility exceptions are owned and reported by the migration job (ADR-0124).
-migrate_lakehouse() {
+install_lakehouse_migration_unit() {
   install -o root -g root -m 0644 -t /etc/systemd/system \
     "${release_root}/current/infra/systemd/foundation-lakehouse-migrate.service"
+  install_release_admission foundation-lakehouse-migrate.service
   install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/lakehouse-migrate
+}
+
+migrate_lakehouse() {
+  assert_current_release
+  install_lakehouse_migration_unit
   systemctl daemon-reload
   # A oneshot's start returns when it has finished, with its result.
   if systemctl start foundation-lakehouse-migrate.service; then
@@ -367,12 +404,16 @@ case "${command}" in
     # hand is how the backup timer's install steps and the deployed tree drifted apart before.
     # Idempotent: reinstalling the same files and re-enabling an enabled timer are no-ops.
     [[ "$#" == 1 || "$#" == 2 ]] || usage
+    assert_current_release
     # Every unit the release ships, not a list of them here: a job's service added to infra/systemd
     # is installed by the same release that lists it in orchestration/jobs.v1.json.
     install -o root -g root -m 0644 \
       -t /etc/systemd/system \
       "${release_root}"/current/infra/systemd/*.service \
       "${release_root}"/current/infra/systemd/*.timer
+    # This on-demand writer is not in Airflow's schedule registry. Both installation paths
+    # must install its admission drop-in before a direct systemctl start becomes possible.
+    install_lakehouse_migration_unit
     # The fold was one complex-only unit before it became a per-unit template; a host upgraded
     # from then still carries it, and it would fold complex a second time every hour.
     if [[ -e /etc/systemd/system/foundation-map-edit-fold.timer ]]; then
@@ -384,6 +425,19 @@ case "${command}" in
     # switches its DAG on (root ADR-0122 §4), so it runs in exactly one place. Its service stays:
     # systemd still runs it, Airflow only starts it.
     jobs_file="${release_root}/current/orchestration/jobs.v1.json"
+    # systemd owns every scheduled entry point, including a direct `systemctl start`.
+    # Checking in the SSH dispatcher alone would leave that second path unguarded.
+    services="$(python3 -c '
+import json, re, sys
+for job in json.load(open(sys.argv[1]))["jobs"]:
+    if not re.fullmatch(r"foundation-[a-z0-9-]+(@[a-z0-9-]+)?\.service", job["systemd_service"]):
+        sys.exit("refusing invalid registered service name")
+    print(job["systemd_service"])
+' "${jobs_file}")"
+    while read -r service; do
+      [[ -n "${service}" ]] || continue
+      install_release_admission "${service}"
+    done <<<"${services}"
     while read -r timer; do
       [[ -n "${timer}" ]] || continue
       if [[ -e "/etc/systemd/system/${timer}" ]]; then

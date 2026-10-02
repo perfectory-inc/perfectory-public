@@ -1,0 +1,13 @@
+# Reviewable private-host activation template, NOT installed by `timers`.
+# Apply only to registered services that write Iceberg, after creating this non-login account,
+# removing operator/agent Docker access, rotating the shared catalog write credential, and
+# assigning the service's state directories to the writer. See root ADR-0126.
+[Service]
+User=foundation-writer
+Group=foundation-writer
+SupplementaryGroups=docker
+EnvironmentFile=/etc/foundation-platform/lakehouse-writer.env
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-02
 ---
 
 # Lakehouse Compute Engines
@@ -49,35 +49,39 @@ image/cache 와 `target/lakehouse` smoke output 정도만 맡는다. Trino port 
 
 실제 catalog 파일에는 R2 key/token 이 들어가므로 git 에 커밋하지 않는다.
 
-ignored catalog 파일은 template 을 복사한 뒤 placeholder 를 실제 값으로 바꿔서 만든다.
+기존 template을 `scripts/deploy/render-trino-catalog.sh`로 렌더한다. 생성 파일은
+릴리스 밖에 두며, Compose도 동일한 `FOUNDATION_PLATFORM_TRINO_CATALOG_DIR`을 읽는다.
+운영에서는 관리자가 query 계정 소유로 준비한 외부 state 디렉터리를 사용한다. 아래 경로는
+개발용 예이며 운영 쓰기 권한을 부여하지 않는다.
 
 ```bash
-cp infra/lakehouse/trino/templates/r2-iceberg.properties.template \
-   infra/lakehouse/trino/catalog/r2.properties
+export FOUNDATION_PLATFORM_TRINO_CATALOG_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/foundation-platform/trino/catalog"
+# 아래 필수 reader 환경값은 승인된 비공개 환경파일에서 공급한다.
+source scripts/deploy/render-trino-catalog.sh
 ```
-
-그 다음 `infra/lakehouse/trino/catalog/r2.properties` 의 placeholder 를 실제 값으로 바꾼다.
 
 **이 파일은 Trino 가 떠 있는 동안에도 지우지 않는다.** Trino 는 시작할 때만 catalog 파일을 읽으므로, 지운 뒤에도
 돌던 Trino 는 `r2` 를 계속 보여 준다. 그러다 컨테이너를 다시 만들면 `r2` 가 사라진다(2026-10-01 메모리 상한을
-걸려고 다시 만들었을 때 실제로 일어났다). 파일은 운영 계정 소유 0600 으로 두고, Trino 는 읽기만 하므로 R2
-reader 키를 넣는다.
+걸려고 다시 만들었을 때 실제로 일어났다). renderer는 host 디렉터리를 `0700`으로 보호하고 파일은
+`0644`로 쓴다. Compose는 이 파일 하나만 읽기 전용으로 mount하므로 Trino UID가 비공개 host
+디렉터리를 순회할 필요가 없다. catalog token과 R2 key 모두 provider가 강제하는 read-only
+권한이어야 한다. 환경변수 이름만으로 권한이 좁아지는 것은 아니다.
 
 필수 값:
 
 ```text
 FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI
 FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE
-FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN
+FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN
 FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
-FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
-FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
+FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
 ```
 
 ## Trino 실행
 
-먼저 `infra/lakehouse/trino/catalog/r2.properties` 가 존재하고 template placeholder 가 남아 있지
-않은지 확인한 뒤 Trino container 를 띄운다.
+위 renderer가 성공한 같은 shell에서 Trino container를 띄운다. 별도 shell에서는 같은 외부
+디렉터리를 먼저 export한다. 기존 릴리스 내부 catalog 경로는 더 이상 mount하지 않는다.
 
 ```bash
 docker compose -f compose.lakehouse.yml --profile lakehouse-query up -d trino

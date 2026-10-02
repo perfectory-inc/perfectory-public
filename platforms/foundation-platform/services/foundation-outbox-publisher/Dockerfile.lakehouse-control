@@ -19,7 +19,9 @@ COPY services /src/services
 COPY schemas /src/schemas
 COPY infra /src/infra
 
-RUN cargo build --locked --release -p foundation-outbox-publisher
+# Cargo job count is a concurrency hint; the admitted builder separately enforces cgroup caps.
+ARG CARGO_BUILD_JOBS=2
+RUN cargo build --locked --release --jobs ${CARGO_BUILD_JOBS} -p foundation-outbox-publisher
 
 FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
 

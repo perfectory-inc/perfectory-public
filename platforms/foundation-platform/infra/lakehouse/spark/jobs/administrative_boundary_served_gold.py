@@ -157,7 +157,7 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
         .config("spark.sql.shuffle.partitions", "2")
     )
     builder = apply_catalog_settings(builder, args.iceberg_catalog_name)
-    return builder.config("spark.jars.packages", args.iceberg_packages).getOrCreate()
+    return builder.getOrCreate()
 
 
 def read_newest_silver(spark: Any, table: str) -> tuple[list[dict[str, Any]], str, str]:

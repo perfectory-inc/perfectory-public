@@ -113,22 +113,16 @@ fn scalar_handoff_plan_renders_trino_catalog_from_remote_env_before_readback() {
 
     let render_pos = plan
         .remote_script
-        .find("render_trino_catalog_from_env")
+        .find(". scripts/deploy/render-trino-catalog.sh")
         .expect("remote script should render the Trino catalog from .env.lakehouse");
     let trino_up_pos = plan
         .remote_script
         .find("docker compose -f compose.lakehouse.yml --profile lakehouse-query up")
         .expect("remote script should start Trino for readback validation");
     assert!(render_pos < trino_up_pos);
-    assert!(plan
+    assert!(!plan
         .remote_script
         .contains("infra/lakehouse/trino/catalog/r2.properties"));
-    assert!(plan
-        .remote_script
-        .contains("iceberg.rest-catalog.uri=${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI}"));
-    assert!(plan.remote_script.contains(
-        "iceberg.rest-catalog.oauth2.server-uri=${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI%/}/v1/oauth/tokens"
-    ));
     assert!(plan
         .remote_script
         .contains("docker compose -f compose.lakehouse.yml --profile lakehouse-query up -d --force-recreate trino"));

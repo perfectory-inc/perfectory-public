@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
     )
-    spark = apply_catalog_settings(builder, args.iceberg_catalog_name).config("spark.jars.packages", args.iceberg_packages).getOrCreate()
+    spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     cat = f"`{args.iceberg_catalog_name}`"
     if args.probe_only:
         try:
