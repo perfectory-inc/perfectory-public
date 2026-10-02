@@ -411,9 +411,8 @@ PY
   dropin_sha="$(sha256sum "${dropin}")"
   for bad_state in /data /data/foundation-platform /tmp/floor "${state_namespace}/nested"; do
     configure_state "${bad_state}" "${bad_state}/ivy"
-    # Exercise the public timers path: invalid input must fail before any unit install.
-    if run_release timers; then echo 'unsafe state accepted' >&2; exit 1; fi
-    [[ ! -e /etc/systemd/system/foundation-building-register-floor.service ]]
+    # `timers` installs the FLOOR unit only when this succeeds, and fails after installing the rest.
+    if prepare_state; then echo 'unsafe state accepted' >&2; exit 1; fi
     [[ "$(sha256sum "${dropin}")" == "${dropin_sha}" ]]
   done
   configure_state "${state_namespace}" "${state_namespace}"

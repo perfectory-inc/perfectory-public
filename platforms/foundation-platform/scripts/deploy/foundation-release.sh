@@ -666,14 +666,19 @@ case "${command}" in
     # hand is how the backup timer's install steps and the deployed tree drifted apart before.
     # Idempotent: reinstalling the same files and re-enabling an enabled timer are no-ops.
     [[ "$#" == 1 || "$#" == 2 ]] || usage
-    # Refuse invalid config/ownership before replacing any installed unit or drop-in.
-    prepare_floor_state
+    # FLOOR's unit is installed only with a valid FLOOR config and state, and nothing else waits on
+    # them: an invalid FLOOR config used to stop this step before it installed any unit, retired
+    # any timer, regenerated the scheduler's sudoers or enabled the backup timer.
+    floor_unit=foundation-building-register-floor.service
+    floor_status=0
+    prepare_floor_state || floor_status=$?
     # Every unit the release ships, not a list of them here: a job's service added to infra/systemd
     # is installed by the same release that lists it in orchestration/jobs.v1.json.
-    install -o root -g root -m 0644 \
-      -t /etc/systemd/system \
-      "${release_root}"/current/infra/systemd/*.service \
-      "${release_root}"/current/infra/systemd/*.timer
+    for unit in "${release_root}"/current/infra/systemd/*.service \
+      "${release_root}"/current/infra/systemd/*.timer; do
+      [[ "${unit##*/}" != "${floor_unit}" || "${floor_status}" == 0 ]] || continue
+      install -o root -g root -m 0644 -t /etc/systemd/system "${unit}"
+    done
     # The fold was one complex-only unit before it became a per-unit template; a host upgraded
     # from then still carries it, and it would fold complex a second time every hour.
     if [[ -e /etc/systemd/system/foundation-map-edit-fold.timer ]]; then
@@ -713,6 +718,11 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The database backup is host infrastructure, not a data job: it stays a systemd timer
     # (root ADR-0118 §1). Every data job is started by Airflow (root ADR-0122).
     systemctl enable --now foundation-postgres-backup.timer
+    if [[ "${floor_status}" != 0 ]]; then
+      printf 'timers incomplete: %s was not installed; its FLOOR config or state is invalid\n' \
+        "${floor_unit}" >&2
+      exit 65
+    fi
     printf 'timers-ok backup=%s\n' "$(systemctl is-enabled foundation-postgres-backup.timer)"
     ;;
   rollback)

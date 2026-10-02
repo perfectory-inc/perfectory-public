@@ -99,8 +99,11 @@ GID로 파일을 읽을 수 있는지 실제로 검사한다. 코드 저장소�
 검증하므로 별도 SHA 설정값을 수동 관리하지 않는다. 파일이 없거나 실행 도중 바뀌면 중단한다.
 이 파일 준비와 서비스 설치는 병합된 릴리스의 배포 단계이며 PR 검증 중에는 운영에 쓰지 않는다.
 
-병합된 코드로 배포할 때는 DAG를 멈춘 상태에서 `floor-config` → `activate <sha>` →
-`timers` 순서로 설정·릴리스·서비스를 준비한다. host unit·환경·바이너리·image·Spark
+병합된 코드로 배포할 때는 DAG를 멈춘 상태에서 `prepare <sha> <archive>` → `publisher` →
+`floor-config` → `activate <sha>` → `migrate` → `timers` 순서로 설정·릴리스·스키마·서비스를 준비한다.
+`activate`는 스키마를 옮기지 않는다. DB 마이그레이션과 레이크하우스 표 맞춤(ADR-0124)은 `migrate`가 하고,
+이 단계를 건너뛴 배포는 끝난 배포가 아니다. `timers`는 FLOOR 설정이 틀려도 나머지 unit·timer·허용 목록을
+설치하고, FLOOR unit만 빼고 실패로 끝난다. host unit·환경·바이너리·image·Spark
 의존성을 확인한 뒤 Airflow의 제한된 host 시작 경로로 시험한다. `airflow-runtime.sh`의
 `up`·`restart`·`start`는 `enabled:true`인 DAG를 다시 켜므로, 이 명령은 가동 검증을
 마친 뒤에만 실행한다. PR 검증 중에는 실행하지 않는다. 중단은 systemd를 통해 수행한다.
