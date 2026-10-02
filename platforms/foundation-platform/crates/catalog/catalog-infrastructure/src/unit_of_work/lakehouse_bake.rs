@@ -91,20 +91,7 @@ pub(super) async fn start(
     }
     let publication_unit_id: Uuid = row.try_get("publication_unit_id").map_err(map_sqlx)?;
     let silver = command.silver_source.as_ref();
-    let bound_source_record_id = match silver {
-        Some(source) => Some(silver_source_record(&mut tx, source).await?),
-        None => None,
-    };
-    let anchor = match bound_source_record_id {
-        Some(record) => Anchor {
-            source_record_id: Some(record),
-            bronze_object_id: None,
-        },
-        None => Anchor {
-            source_record_id: row.try_get("source_record_id").map_err(map_sqlx)?,
-            bronze_object_id: row.try_get("bronze_object_id").map_err(map_sqlx)?,
-        },
-    };
+    let (bound_source_record_id, anchor) = output_anchor(&mut tx, silver, &row).await?;
     let output_data_revision = mint_output_revision(
         &mut tx,
         publication_unit_id,
@@ -142,6 +129,34 @@ pub(super) async fn start(
     .map_err(map_sqlx)?;
     tx.commit().await.map_err(map_sqlx)?;
     Ok(build_job_id)
+}
+
+/// What the output revision is anchored to: the record of the Silver snapshot the bake read, which
+/// is also returned to be bound on the build row, or else the input revision's collected source.
+async fn output_anchor(
+    tx: &mut Transaction<'_, Postgres>,
+    silver: Option<&LakehouseBakeSilverSource>,
+    input: &sqlx::postgres::PgRow,
+) -> Result<(Option<Uuid>, Anchor), CatalogError> {
+    match silver {
+        Some(source) => {
+            let record = silver_source_record(tx, source).await?;
+            Ok((
+                Some(record),
+                Anchor {
+                    source_record_id: Some(record),
+                    bronze_object_id: None,
+                },
+            ))
+        }
+        None => Ok((
+            None,
+            Anchor {
+                source_record_id: input.try_get("source_record_id").map_err(map_sqlx)?,
+                bronze_object_id: input.try_get("bronze_object_id").map_err(map_sqlx)?,
+            },
+        )),
+    }
 }
 
 /// The source record that describes one Silver parcel snapshot, minted the first time a bake
