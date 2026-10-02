@@ -29,7 +29,7 @@ usage:
   foundation-release.sh verify
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh rollback
-  foundation-release.sh deployer-access <account>
+  foundation-release.sh deployer-access <account> [--exclusive]
   foundation-release.sh status
 USAGE
   exit 64
@@ -214,8 +214,13 @@ find_other_release_grants() {
   return "${found}"
 }
 
+# Two steps, in this order (root ADR-0134 §2): `deployer-access <account>` installs the exact rule
+# and lists any older grant still present, which keeps working until it is deleted; after the new
+# path has been used successfully, the old line is deleted and `deployer-access <account>
+# --exclusive` fails while any other grant remains.
 install_deployer_access() {
-  local account="$1" staged sudoers=/etc/sudoers.d/foundation-release
+  local account="$1" mode="${2:-}" staged sudoers=/etc/sudoers.d/foundation-release
+  [[ -z "${mode}" || "${mode}" == --exclusive ]] || usage
   id "${account}" >/dev/null 2>&1 || {
     printf 'deployer account does not exist: %s\n' "${account}" >&2
     exit 67
@@ -229,9 +234,18 @@ install_deployer_access() {
   }
   install -o root -g root -m 0440 "${staged}" "${sudoers}"
   rm -f "${staged}"
-  if ! find_other_release_grants /etc/sudoers /etc/sudoers.d/*; then
-    printf 'another sudoers rule still grants this script; remove it (runbook: release admission)\n' >&2
-    exit 65
+  deployer_grant_verdict "${account}" "${mode}" /etc/sudoers /etc/sudoers.d/* || exit 65
+}
+
+deployer_grant_verdict() {
+  local account="$1" mode="$2"; shift 2
+  if ! find_other_release_grants "$@"; then
+    if [[ "${mode}" == --exclusive ]]; then
+      printf 'another sudoers rule still grants this script; delete it (runbook: release admission)\n' >&2
+      return 65
+    fi
+    printf 'deployer-access-installed account=%s; the grants listed above remain until deleted\n' "${account}"
+    return 0
   fi
   printf 'deployer-access-ok account=%s command=%s\n' "${account}" "${control_release_script}"
 }
@@ -418,7 +432,7 @@ validate_floor_config() {
   # The release example owns the key set. This only validates non-secret env transport;
   # image/network/endpoint semantics remain with the runtime validators.
   python3 - "${source}" "${target}" "${mode}" <<'PY'
-import hashlib, grp, os, pathlib, pwd, re, secrets, stat, subprocess, sys
+import hashlib, grp, json, os, pathlib, pwd, re, secrets, stat, subprocess, sys
 source, release = map(pathlib.Path, sys.argv[1:3])
 mode = sys.argv[3]
 example = release / 'infra/systemd/building-register-floor.env.example'
@@ -447,6 +461,11 @@ try:
         fail()
     if values.get('FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT') != str(release.resolve()):
         fail()
+    # FLOOR's native image is the one this release's trusted build produced (root ADR-0134 §3):
+    # the image ID build.json recorded, not any digest that merely looks pinned.
+    build = release.resolve().parent.parent / 'artifacts' / release.name / 'build.json'
+    if values.get('FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE') != json.loads(build.read_text(encoding='utf-8')).get('publisher_image'):
+        sys.exit('FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE must be publisher_image from ' + str(build))
     witness = pathlib.Path(values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH'])
     if (not witness.is_absolute() or '..' in witness.parts or
         witness.resolve(strict=True) != witness or release.resolve() in witness.parents):
@@ -842,8 +861,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     rollback_release
     ;;
   deployer-access)
-    [[ "$#" == 2 ]] || usage
-    install_deployer_access "$2"
+    [[ "$#" == 2 || "$#" == 3 ]] || usage
+    install_deployer_access "$2" "${3:-}"
     ;;
   status)
     [[ "$#" == 1 ]] || usage

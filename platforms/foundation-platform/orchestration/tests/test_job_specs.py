@@ -182,7 +182,7 @@ class FloorCycleAdapter(unittest.TestCase):
         binary = artifacts / "foundation-outbox-publisher"
         binary.write_text(publisher_source)
         binary.chmod(0o555)
-        (artifacts / "build.json").write_text(json.dumps({"source": release_id, "files": {
+        (artifacts / "build.json").write_text(json.dumps({"source": release_id, "publisher_image": "sha256:" + "a" * 64, "files": {
             "foundation-outbox-publisher": hashlib.sha256(publisher_source.encode()).hexdigest(),
             "jars/fixture.jar": "0" * 64}}))
         return ops / "building-register-floor-cycle.sh", release

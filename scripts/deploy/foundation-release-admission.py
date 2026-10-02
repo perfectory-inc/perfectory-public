@@ -177,7 +177,8 @@ def seal_artifacts(release_id: str, target: Path, publisher_image: str) -> None:
     if not jars or set(files) != {"foundation-outbox-publisher", *jars}:
         raise ValueError("unexpected build output; a publisher and resolved jars are required")
     (target / "build.json").write_text(json.dumps({
-        "source": release_id, "publisher_image": publisher_image, "files": files,
+        "source": release_id, "publisher_image": publisher_image, "publisher_tag": publisher_tag(release_id),
+        "files": files,
     }, sort_keys=True) + "\n", encoding="utf-8")
     for path in target.rglob("*"):
         if path.is_file():
@@ -221,6 +222,66 @@ def engine_packages(target: Path) -> str:
          "from lakehouse_engine import iceberg_packages;print(iceberg_packages())"],
         cwd=target, env=control_environment(), stderr=subprocess.PIPE,
     ).decode().strip()
+
+
+# Spark is in the lakehouse-batch profile; without it Compose leaves the service out of `config`.
+SPARK_COMPOSE_CONFIG = ("/usr/bin/docker", "compose", "--env-file", "/dev/null", "-f", "compose.lakehouse.yml",
+                        "--profile", "lakehouse-batch", "config", "--format", "json")
+
+
+def spark_image_from_compose(raw: bytes) -> str:
+    try:
+        image = json.loads(raw)["services"]["spark"]["image"]
+    except (ValueError, KeyError, TypeError) as error:
+        raise ValueError("compose.lakehouse.yml config does not name the spark service image") from error
+    if not isinstance(image, str) or not re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", image):
+        raise ValueError("Spark base image must be pinned by digest")
+    return image
+
+
+def publisher_tag(release_id: str) -> str:
+    # A tagged image survives `docker image prune`; an untagged --load result does not.
+    return f"foundation-outbox-publisher:{release_id}"
+
+
+def require_publisher_image(release_id: str, artifacts: Path) -> None:
+    """The image FLOOR runs must still exist, under the tag the build recorded, with its ID."""
+    manifest = json.loads((artifacts / "build.json").read_text(encoding="utf-8"))
+    tag, image = manifest.get("publisher_tag"), manifest.get("publisher_image")
+    if tag != publisher_tag(release_id) or not isinstance(image, str):
+        raise ValueError("build output does not record this release's publisher image tag")
+    try:
+        actual = subprocess.check_output(
+            ["/usr/bin/docker", "image", "inspect", "--format", "{{.Id}}", tag],
+            env=control_environment(), stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError(f"publisher image {tag} is missing; as root move {artifacts} aside and run "
+                         "prepare again to rebuild it (runbook: release admission)") from error
+    if actual != image:
+        raise ValueError(f"publisher image {tag} is not the image the release build recorded")
+
+
+CONTROL_COMMIT_FILE = ".perfectory-control-commit"
+
+
+def check_control_commit(git, release_id: str, control_root: Path) -> str:
+    """The control checkout must be canonical main at or before the release it installs.
+
+    Otherwise the verifier and the release script that admit a release can come from a
+    different line of history than the release itself (root ADR-0134 §1).
+    """
+    try:
+        control = (control_root / CONTROL_COMMIT_FILE).read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"control checkout has no {CONTROL_COMMIT_FILE}; reinstall it (runbook)") from error
+    require_sha(control)
+    try:
+        git("merge-base", "--is-ancestor", control, release_id)
+    except subprocess.CalledProcessError as error:
+        raise ValueError(f"control checkout {control} is not an ancestor of release {release_id}; "
+                         "update the control checkout to canonical main") from error
+    return control
 
 
 def require_buildx() -> None:
@@ -267,7 +328,8 @@ def build_artifacts(target: Path) -> None:
             "--buildkitd-config", str(configuration))
         try:
             run("/usr/bin/docker", "buildx", "build", "--builder", builder, "--load", "--pull",
-                "--no-cache", "--iidfile", str(iid), "--build-arg", f"CARGO_BUILD_JOBS={BUILD_CPUS}",
+                "--no-cache", "--iidfile", str(iid), "--tag", publisher_tag(release_id),
+                "--build-arg", f"CARGO_BUILD_JOBS={BUILD_CPUS}",
                 "-f", "services/foundation-outbox-publisher/Dockerfile.lakehouse-control", ".")
         finally:
             try:
@@ -290,11 +352,7 @@ def build_artifacts(target: Path) -> None:
             raise ValueError("publisher requires unavailable host runtime libraries")
         # Compose and the engine contract remain the image/package SSOT. The clean process
         # environment and /dev/null env-file exclude operator overrides and production tokens.
-        compose = json.loads(run("/usr/bin/docker", "compose", "--env-file", "/dev/null", "-f",
-                                 "compose.lakehouse.yml", "config", "--format", "json"))
-        spark_image = compose["services"]["spark"]["image"]
-        if not re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", spark_image):
-            raise ValueError("Spark base image must be pinned by digest")
+        spark_image = spark_image_from_compose(run(*SPARK_COMPOSE_CONFIG))
         packages = engine_packages(target)
         resolver = work / "resolve.py"
         resolver.write_text("print('release dependency resolution complete')\n")
@@ -400,6 +458,7 @@ def main() -> int:
         if args.command == "prepare":
             protected_path(args.target)
             source.refresh()
+            check_control_commit(source.git, args.release_id, CONTROL_ROOT)
             prepare_release(release_files(source.git, args.release_id), args.release_id, args.archive, args.target)
         else:
             source.check_cache()
@@ -409,11 +468,18 @@ def main() -> int:
                 build_artifacts(target)
             else:
                 verify_artifacts(target.name, ARTIFACT_ROOT / target.name)
+            require_publisher_image(target.name, ARTIFACT_ROOT / target.name)
         print("foundation-release-admission=ok")
         return 0
-    except (OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as error:
-        # Subprocess output can include private transport details. Do not echo it.
-        message = "canonical source command failed" if isinstance(error, subprocess.CalledProcessError) else str(error)
+    except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.CalledProcessError) as error:
+        # Subprocess output can include private transport details. Do not echo it. Any other
+        # failure still ends here as a refusal, never as a traceback that reads like success.
+        if isinstance(error, subprocess.CalledProcessError):
+            message = "host command failed: " + os.path.basename(str(error.cmd[0] if error.cmd else ""))
+        elif isinstance(error, KeyError):
+            message = f"required field missing: {error}"
+        else:
+            message = str(error)
         print(f"foundation-release-admission: refused: {message}", file=sys.stderr)
         return 65
 

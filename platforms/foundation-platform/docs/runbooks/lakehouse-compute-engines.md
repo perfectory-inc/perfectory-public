@@ -568,42 +568,198 @@ Spark는 작업별 컨테이너에서 실행하므로 `docker compose ... run --
 
 ## 릴리스 인증 전환 (1회)
 
-[ADR-0134](../../../../docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md) 이전 운영 릴리스(a70e832d)는 tar 로 풀린 쓰기 가능 트리이고, 안에
+[ADR-0134](../../../../docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md) 이전 운영 릴리스 `a70e832d` 는 tar 로 풀린 쓰기 가능 트리이고, 안에
 `bin/foundation-outbox-publisher` 와 `.foundation-floor.env` 를 가진다. 인증은 이런 트리를 추가 파일·쓰기
-가능으로 거부하므로, 이 릴리스는 전환 뒤 `activate`·`rollback` 대상이 아니다. 지우지 않고 그대로 둔다.
-전환은 이 ADR 이 들어간 병합 커밋 `<sha>` 를 새로 설치하는 것이다. 아래는 host 관리자(root) 작업이다.
+가능으로 거부하므로, 이 릴리스는 전환 뒤 `activate`·`rollback` 대상이 아니다. 지우지 않고 그대로 둔다(아래
+"비상 복귀"가 이 디렉터리를 쓴다). 전환은 이 ADR 이 들어간 병합 커밋 `<sha>` 를 새로 설치하는 것이다. 아래는
+host 관리자(root) 작업이며, 명령의 `$sha` 는 설치할 40자리 커밋이다.
 
-1. **DAG 정지.** Airflow 에서 해당 DAG 를 끄고 실행 중인 unit 이 없는지 확인한다.
-2. **선행 조건.** 없으면 설치가 그 이름을 대며 실패한다. 우회 스위치는 없다.
-   - root 의 GitHub 조회: `sudo gh auth status` (`gh auth login` 을 root 로). 정본 identity 를 `gh api` 로 대조한다.
-   - root 의 HTTPS fetch: `sudo git ls-remote https://github.com/perfectory-inc/perfectory-public.git main`
-   - Buildx: `sudo docker buildx version` (`docker-container` driver 를 쓴다; 없으면 `docker-buildx-plugin` 설치)
-   - 디스크: 첫 빌드는 publisher 와 Spark JAR 을 받아 시간이 걸리고 `/opt/foundation-platform/artifacts` 에 쌓인다.
-3. **제어 체크아웃.** 검토한 병합 커밋의 모노레포 전체를 root 소유로 `/opt/perfectory-control/current` 에
-   둔다(부모까지 다른 사용자가 쓸 수 없어야 한다). 이후 배포기는 항상 여기 것을 쓴다.
-4. **sudo 규칙.** `sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh deployer-access <배포 계정>`.
-   예전 `/opt/foundation-platform/*/scripts/deploy/foundation-release.sh` 줄이 남아 있으면 이 명령이 그 파일과
-   줄을 보여 주며 실패한다. `visudo -f <그 파일>` 로 그 줄을 지우고 다시 실행해 `deployer-access-ok` 를 본다.
-5. **설치·빌드.** `git archive --format=tar.gz -o /tmp/foundation-<sha>.tar.gz "<sha>:platforms/foundation-platform"` 후
-   `… foundation-release.sh prepare <sha> /tmp/foundation-<sha>.tar.gz`.
-6. **FLOOR 설정 이전.** 기존 `releases/a70e832d…/.foundation-floor.env` 를 복사해
-   `FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT` 를 `/opt/foundation-platform/releases/<sha>` 로,
-   `FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE` 를 `artifacts/<sha>/build.json` 의 `publisher_image` 로 바꾼 뒤
-   `… foundation-release.sh floor-config <sha> <그 파일>`. 결과는 `config/<sha>/building-register-floor.env` 다.
-7. **Trino catalog 이전.** 지금 Trino 가 읽는 `r2.properties` 를 릴리스 밖 디렉터리(위 "Trino Catalog 설정")로 옮기고
-   Trino 를 띄우는 shell/unit 에 `FOUNDATION_PLATFORM_TRINO_CATALOG_DIR` 를 둔다. 옮긴 뒤 다시 띄워 `SHOW CATALOGS` 에
-   `r2` 가 있는지 본다.
-8. **활성화.** `… activate <sha>` → `… migrate` → `… timers [<scheduler key>]`. `timers` 가 등록 작업의 unit 과
-   `foundation-lakehouse-migrate.service` 에 `10-release-admission.conf` 를 설치한다. 템플릿 인스턴스는 템플릿
-   (`foundation-map-edit-fold@.service.d/`)에 들어간다. 예전 인스턴스별 drop-in 은 없다(이전 배포가 만든 적 없음).
-9. **확인.** `systemctl cat foundation-map-edit-fold@complex.service` 에 `ExecStartPre=+…admission.py verify-current` 가
-   보이는지, 각 작업을 한 번 시작해 성공하는지 본 뒤 DAG 를 켠다. 등록 작업은 더 이상
-   `/var/lib/foundation-platform/bin` 의 바이너리를 쓰지 않는다. 그 파일은 지우지 않는다(수동 작업이 쓸 수 있다).
-   수동 적재 스크립트(`scripts/load/*-handoff-export.sh`)는 새 release 안에 `bin/` 이 없으므로
-   `FOUNDATION_PLATFORM_PUBLISHER_BIN=/opt/foundation-platform/artifacts/<sha>/foundation-outbox-publisher` 를 명시해 돌린다.
+### 1. 선행 조건 확인
 
-전환 뒤 문제가 생기면 먼저 인증된 다른 릴리스로 `rollback`/`activate` 한다. a70e832d 로 돌아가야 하거나 GitHub·Buildx
-장애로 새 인증이 불가능하면 ADR-0134 §5 의 비상 절차(root 가 drop-in 을 치우고 기록을 남긴 뒤 `timers` 로 복구)를 따른다.
+없으면 설치가 그 이름을 대며 실패한다. 우회 스위치는 없다. 한 번에 확인한다 — 모든 줄이 `ok` 여야 한다.
+
+```bash
+sudo bash -c '
+check() { if eval "$2" >/dev/null 2>&1; then echo "ok   $1"; else echo "FAIL $1"; fi; }
+owned() { [[ "$(stat -c %U:%G "$1")" == root:root && $(( 0$(stat -c %a "$1") & 022 )) == 0 ]]; }
+for d in /opt /opt/foundation-platform /opt/foundation-platform/releases /var/lib /var/lib/perfectory; do
+  [[ -e "$d" ]] || install -d -o root -g root -m 0755 "$d"
+  check "root:root, no group/other write: $d" "owned $d"
+done
+check "gh is /usr/bin/gh"                 "[[ \"$(command -v gh)\" == /usr/bin/gh ]]"
+check "root gh is logged in"              "gh auth status"
+check "root fetches canonical main"       "git ls-remote --exit-code https://github.com/perfectory-inc/perfectory-public.git refs/heads/main"
+check "docker buildx is installed"        "docker buildx version"
+check "python3 is /usr/bin/python3"       "[[ -x /usr/bin/python3 ]]"
+'
+```
+
+`gh` 로그인이 없으면 `sudo gh auth login` 으로 root 계정에 한다(공개 저장소 identity 조회만 한다). Buildx 가 없으면
+`docker-buildx-plugin` 을 설치한다. 첫 빌드는 publisher 와 Spark JAR 을 받아 시간이 걸리고
+`/opt/foundation-platform/artifacts` 에 쌓인다(데이터 디스크 여유를 먼저 본다).
+
+### 2. 제어 체크아웃 설치·갱신
+
+배포기와 검증기는 이 체크아웃에서만 실행된다. 정본 main 의 커밋 하나를 root 소유로 풀고 그 커밋을
+`.perfectory-control-commit` 에 적는다. `prepare` 는 이 커밋이 설치하려는 릴리스의 조상(또는 같은 커밋)이 아니면
+거부한다 — 제어 코드와 릴리스가 다른 역사에서 오면 바로 드러난다. 설치와 갱신은 같은 명령이다.
+
+```bash
+sha=<검토한 main 커밋 40자리>
+sudo bash -euo pipefail -c '
+sha="$1"; mirror=/var/lib/perfectory/control-source.git
+install -d -o root -g root -m 0755 /opt/perfectory-control /opt/perfectory-control/releases /var/lib/perfectory
+[[ -d "$mirror" ]] || git init -q --bare "$mirror"
+git --git-dir="$mirror" fetch -q --no-tags https://github.com/perfectory-inc/perfectory-public.git +refs/heads/main:refs/heads/main
+git --git-dir="$mirror" merge-base --is-ancestor "$sha" refs/heads/main     # main 에 병합된 커밋만
+target=/opt/perfectory-control/releases/$sha
+if [[ ! -e "$target" ]]; then
+  staging=$(mktemp -d /opt/perfectory-control/releases/.staging.XXXXXX)
+  git --git-dir="$mirror" archive "$sha" | tar -x --no-same-owner -C "$staging"
+  printf "%s
+" "$sha" >"$staging/.perfectory-control-commit"
+  chown -R root:root "$staging"; chmod -R u+rwX,go+rX,go-w "$staging"; chmod 0755 "$staging"
+  mv -T "$staging" "$target"
+fi
+ln -sfn "releases/$sha" /opt/perfectory-control/current.next
+mv -T /opt/perfectory-control/current.next /opt/perfectory-control/current
+' _ "$sha"
+sudo stat -c '%U:%G %a %n' /opt/perfectory-control /opt/perfectory-control/current/scripts/deploy/foundation-release-admission.py
+```
+
+결과: 디렉터리 `root:root 0755`, 파일 `root:root 0644`(실행 파일 `0755`), 쓰기는 root 만. 갱신은 같은 명령을 새
+`sha` 로 다시 실행한다. 새 릴리스를 설치하기 **전에** 제어 체크아웃을 그 릴리스와 같거나 이전의 main 커밋으로
+맞춘다. 옛 `releases/<sha>` 는 `current` 가 가리키지 않으면 지워도 된다.
+
+### 3. sudo 규칙 — 새 규칙을 먼저, 옛 줄은 마지막에
+
+```bash
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh deployer-access <배포 계정>
+```
+
+정확한 경로 하나만 허용하는 `/etc/sudoers.d/foundation-release` 를 설치한다. 옛
+`/opt/foundation-platform/*/scripts/deploy/foundation-release.sh` 줄이 아직 있으면 그 파일과 줄을 보여 주고
+`deployer-access-installed` 로 끝난다. 그 줄은 아직 지우지 않는다(전환이 끝날 때까지 기존 경로를 남긴다).
+옛 줄 삭제와 `--exclusive` 확인은 이 절의 마지막 단계(8)다.
+
+### 4. 설치·빌드
+
+```bash
+git archive --format=tar.gz -o /tmp/foundation-$sha.tar.gz "$sha:platforms/foundation-platform"
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh prepare $sha /tmp/foundation-$sha.tar.gz
+```
+
+`/opt/foundation-platform/artifacts/$sha/build.json` 에 `publisher_image`(image ID)와
+`publisher_tag`(`foundation-outbox-publisher:$sha`)가 기록된다. 태그가 있으므로 `docker image prune` 이 지우지
+않는다. 그래도 이미지가 없어지면 `verify-current` 가 거부하므로 등록 작업이 시작되지 않는다. 복구는
+`sudo mv /opt/foundation-platform/artifacts/$sha /opt/foundation-platform/artifacts/.pruned-$sha` 뒤 같은 `prepare`.
+
+### 5. FLOOR 설정 이전
+
+```bash
+sudo cp /opt/foundation-platform/releases/a70e832dca9e5dd9fb749cd8e1750619611745b7/.foundation-floor.env /tmp/floor-$sha.env
+image=$(sudo python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["publisher_image"])' \
+  /opt/foundation-platform/artifacts/$sha/build.json)
+sudo sed -i -e "s|^FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=.*|FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=/opt/foundation-platform/releases/$sha|" \
+  -e "s|^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=.*|FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=$image|" /tmp/floor-$sha.env
+sudo chown root:root /tmp/floor-$sha.env && sudo chmod 0644 /tmp/floor-$sha.env
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh floor-config $sha /tmp/floor-$sha.env
+```
+
+`FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE` 는 `build.json` 의 `publisher_image` 와 같아야 한다. 다른 digest 는
+`floor-config` 가 거부하고, 실행 때도 `admitted-writer-runtime.sh` 가 다시 거부한다.
+
+### 6. Trino catalog — 옮기지 말고 복사
+
+지금 Trino 는 `~perfectory/foundation-platform-compute` 에서 compose 프로젝트 `foundation-platform-compute` 로
+돌고, 그 사본의 compose 는 짧은 bind 문법이다. 원본을 **옮기면**(mv) 그 사본으로 다시 띄우는 순간 빈 디렉터리가
+생겨 2026-10-01 처럼 `r2` 가 사라진다. 원본은 그대로 두고 **복사**한다.
+
+```bash
+sudo install -d -o root -g root -m 0700 /var/lib/foundation-platform/trino/catalog
+sudo cp ~perfectory/foundation-platform-compute/infra/lakehouse/trino/catalog/r2.properties \
+  /var/lib/foundation-platform/trino/catalog/r2.properties
+sudo chmod 0644 /var/lib/foundation-platform/trino/catalog/r2.properties
+# 같은 프로젝트 이름이므로 기존 컨테이너(foundation-platform-trino, 127.0.0.1:18081)를 교체한다. 다른
+# 프로젝트 이름으로 띄우면 컨테이너 이름과 18081 이 충돌한다.
+FOUNDATION_PLATFORM_TRINO_CATALOG_DIR=/var/lib/foundation-platform/trino/catalog \
+  docker compose -p foundation-platform-compute --project-directory /opt/foundation-platform/current \
+  -f /opt/foundation-platform/current/compose.lakehouse.yml --profile lakehouse-query up -d --force-recreate trino
+until docker exec foundation-platform-trino trino --execute 'SELECT 1' >/dev/null 2>&1; do sleep 2; done
+docker exec foundation-platform-trino trino --execute 'SHOW CATALOGS' | tr -d '"' | grep -qx r2 && echo 'r2 catalog ok'
+```
+
+`r2 catalog ok` 가 나오지 않으면 같은 명령의 `--project-directory`/`-f` 를 `~perfectory/foundation-platform-compute`
+로 바꿔 예전 사본으로 되돌린다(원본 파일이 그대로 있으므로 그대로 뜬다).
+
+### 7. 활성화
+
+```bash
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh activate $sha
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh migrate
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh timers ~/airflow-state/scheduler_ed25519.pub
+systemctl cat foundation-map-edit-fold@complex.service | grep 'admission.py verify-current'
+```
+
+`timers` 가 등록 작업의 unit 과 `foundation-lakehouse-migrate.service` 에 `10-release-admission.conf` 를 설치한다.
+템플릿 인스턴스는 템플릿(`foundation-map-edit-fold@.service.d/`)에 들어간다. 각 작업을 한 번 시작해
+(`sudo systemctl start foundation-outbox-publish.service; systemctl show -p Result --value foundation-outbox-publish.service`
+가 `success`) 확인한 뒤 DAG 를 켠다. 등록 작업은 더 이상 `/var/lib/foundation-platform/bin` 의 바이너리를 쓰지 않는다.
+그 파일은 지우지 않는다. 수동 적재 스크립트(`scripts/load/*-handoff-export.sh`)는 새 release 안에 `bin/` 이 없으므로
+`FOUNDATION_PLATFORM_PUBLISHER_BIN=/opt/foundation-platform/artifacts/<sha>/foundation-outbox-publisher` 를 명시해 돌린다.
+
+### 8. 옛 sudo 줄 삭제 (마지막)
+
+새 경로로 7단계까지 끝난 뒤에만 한다.
+
+```bash
+sudo grep -rn 'foundation-release\.sh' /etc/sudoers /etc/sudoers.d/   # 옛 줄이 있는 파일 확인
+sudo visudo -f /etc/sudoers.d/<그 파일>                                   # 옛 와일드카드 줄만 지운다
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh deployer-access <배포 계정> --exclusive                         # deployer-access-ok 여야 한다
+```
+
+### 비상 복귀 — `a70e832d` 로
+
+먼저 인증된 다른 릴리스로 `rollback`/`activate` 한다. 그것이 불가능할 때(GitHub·Buildx 장애로 새 인증 불가,
+또는 인증 이전 릴리스로 돌아가야 할 때)만 root 가 아래를 그대로 실행하고 사고 기록에 시각·이유를 남긴다.
+`rollback` 은 인증되지 않은 `a70e832d` 를 거부하므로 쓰지 않는다.
+
+```bash
+old=a70e832dca9e5dd9fb749cd8e1750619611745b7
+# 1) DAG 정지 (켜 둔 채 바꾸면 전환 도중 시작된 실행이 섞인다)
+for id in $(python3 -c 'import json,sys; [print(j["id"]) for j in json.load(open(sys.argv[1]))["jobs"] if j["enabled"]]' \
+    /opt/foundation-platform/releases/$old/orchestration/jobs.v1.json); do
+  bash /opt/foundation-platform/releases/$old/scripts/deploy/airflow-runtime.sh exec airflow-scheduler airflow dags pause "foundation_$id"
+done
+# 2) current 를 옛 릴리스로 (원자적 교체)
+sudo ln -sfn releases/$old /opt/foundation-platform/current.next
+sudo mv -T /opt/foundation-platform/current.next /opt/foundation-platform/current
+# 3) 인증 drop-in 제거 — 인스턴스와 템플릿 모두, 빈 디렉터리도
+sudo find /etc/systemd/system -path '/etc/systemd/system/foundation-*.service.d/10-release-admission.conf' -print -delete
+sudo find /etc/systemd/system -maxdepth 1 -type d -name 'foundation-*.service.d' -empty -print -delete
+# 4) 옛 릴리스의 unit 재설치 (FLOOR unit 은 릴리스 안 .foundation-floor.env 를 읽는 옛 형태)
+sudo install -o root -g root -m 0644 -t /etc/systemd/system \
+  /opt/foundation-platform/releases/$old/infra/systemd/*.service /opt/foundation-platform/releases/$old/infra/systemd/*.timer
+sudo systemctl daemon-reload
+```
+
+확인 — 모든 줄이 기대와 같아야 DAG 를 다시 켠다.
+
+```bash
+readlink /opt/foundation-platform/current                                  # releases/a70e832dca9e5dd9fb749cd8e1750619611745b7
+sudo find /etc/systemd/system -name 10-release-admission.conf | wc -l      # 0
+systemctl cat foundation-building-register-floor.service | grep -c foundation-floor.env   # 1
+for svc in foundation-outbox-publish.service foundation-source-sweep.service \
+    'foundation-map-edit-fold@admin.service' 'foundation-map-edit-fold@complex.service' \
+    foundation-lineage-stewardship.service foundation-data-quality.service; do
+  sudo systemctl start "$svc"
+  printf '%s %s\n' "$svc" "$(systemctl show -p Result --value "$svc")"   # 각 줄 success
+done
+```
+
+FLOOR(`foundation-building-register-floor.service`)는 최대 4시간 걸리므로 손으로 시작하지 않고 DAG 를 켠 뒤 Airflow 의
+첫 실행이 `success` 인지(`airflow-runtime.sh exec airflow-scheduler airflow dags list-runs foundation_building_register_floor -o plain`)
+본다. 모두 확인되면 1) 에서 멈춘 DAG 를 `airflow dags unpause` 로 켠다. 원인을 고친 뒤에는 이 절의 1~8단계로 다시 전환한다.
 
 ## 안전 규칙
 

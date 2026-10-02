@@ -20,6 +20,7 @@ AREA = Path(__file__).resolve().parents[2]
 OPS = AREA / "scripts/ops"
 HELPER = "admitted-writer-runtime.sh"
 CATALOG_TARGET = "/etc/trino/catalog/r2.properties"
+PUBLISHER_IMAGE = "sha256:" + "a" * 64
 
 
 class ReleaseFixture(unittest.TestCase):
@@ -63,7 +64,7 @@ class ReleaseFixture(unittest.TestCase):
             "foundation-outbox-publisher": manifest_publisher or hashlib.sha256(publisher).hexdigest(),
             "jars/official.jar": hashlib.sha256(b"frozen dependency").hexdigest(),
         }
-        (artifacts / "build.json").write_text(json.dumps({"source": release_id, "files": files}))
+        (artifacts / "build.json").write_text(json.dumps({"source": release_id, "publisher_image": PUBLISHER_IMAGE, "files": files}))
         return artifacts
 
     def source_helper(self, helper, mode="--current", env=None):
@@ -132,6 +133,17 @@ class AdmittedRuntimeTests(ReleaseFixture):
         result = self.source_helper(self.base / "current/scripts/ops" / HELPER)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("another release", result.stderr)
+
+    def test_floor_image_other_than_the_release_build_output_is_refused(self):
+        helper = self.base / "current/scripts/ops" / HELPER
+        bound = self.source_helper(helper, env=dict(os.environ, FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=PUBLISHER_IMAGE))
+        self.assertEqual(bound.returncode, 0, bound.stderr)
+        # A pinned, well-formed digest that this release did not build.
+        foreign = self.source_helper(helper, env=dict(os.environ,
+                                     FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE="sha256:" + "b" * 64))
+        self.assertEqual(foreign.returncode, 65)
+        self.assertEqual(foreign.stdout, "")
+        self.assertIn("not this release's publisher_image", foreign.stderr)
 
     def test_writable_publisher_is_refused(self):
         (self.artifacts / "foundation-outbox-publisher").chmod(0o755)

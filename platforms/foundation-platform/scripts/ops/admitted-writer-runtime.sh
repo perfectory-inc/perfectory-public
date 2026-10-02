@@ -65,6 +65,10 @@ if info is None or not stat.S_ISREG(info.st_mode) or info.st_mode & 0o222:
     refuse("publisher must be a read-only regular file in the release artifacts")
 if hashlib.sha256(publisher.read_bytes()).hexdigest() != files.get("foundation-outbox-publisher"):
     refuse("publisher sha256 differs from the release build manifest")
+# FLOOR's native image (its configuration names it) must be the image this build produced.
+image = os.environ.get("FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE")
+if image is not None and image != manifest.get("publisher_image"):
+    refuse("FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE is not this release's publisher_image")
 jars = sorted(name for name in files if name.startswith("jars/"))
 if not jars:
     refuse("build manifest lists no frozen jars")

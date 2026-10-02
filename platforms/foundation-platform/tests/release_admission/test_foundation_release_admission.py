@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -266,6 +267,8 @@ class ReleaseAdmissionTests(unittest.TestCase):
             elif args[1:3] == ["buildx", "build"]:
                 self.assertIn("--no-cache", args)
                 self.assertIn("CARGO_BUILD_JOBS=2", args)
+                # A tag keeps the image through `docker image prune`.
+                self.assertEqual(args[args.index("--tag") + 1], "foundation-outbox-publisher:" + self.merged)
                 if getattr(self, "fail_build", False):
                     raise subprocess.CalledProcessError(97, args)
                 Path(args[args.index("--iidfile") + 1]).write_text("sha256:" + "a" * 64)
@@ -276,7 +279,11 @@ class ReleaseAdmissionTests(unittest.TestCase):
                 Path(args[-1]).write_bytes(b"actual fixture publisher output")
             elif args[1] == "compose":
                 self.assertEqual(args[2:4], ["--env-file", "/dev/null"])
-                return json.dumps({"services": {"spark": {"image": "spark@sha256:" + "b" * 64}}}).encode()
+                # Like real Compose: a service behind a profile is absent from `config` unless
+                # that profile is asked for. Spark is in lakehouse-batch.
+                profiles = {args[i + 1] for i, arg in enumerate(args) if arg == "--profile"}
+                services = {"spark": {"image": "spark@sha256:" + "b" * 64}} if "lakehouse-batch" in profiles else {}
+                return json.dumps({"services": services}).encode()
             elif args[0] == "/usr/bin/python3":
                 return b"fixture:dependency:1\n"
             elif args[1] == "run":
@@ -309,9 +316,80 @@ class ReleaseAdmissionTests(unittest.TestCase):
         self.addCleanup(lambda: self.make_writable(artifact_root))
         real_verify(self.merged, artifact_root / self.merged, os.getuid())
         self.assertTrue(any(call[1] == "rm" for call in calls))
+        manifest = json.loads((artifact_root / self.merged / "build.json").read_text())
+        self.assertEqual(manifest["publisher_tag"], "foundation-outbox-publisher:" + self.merged)
 
     def test_builder_uses_admitted_context_and_clean_process_environment(self):
         self.exercise_builder()
+
+    def test_compose_config_without_the_spark_service_is_a_refusal_not_a_crash(self):
+        for raw in (b'{"services": {}}', b"not json", b'{"services": {"spark": {}}}'):
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(ValueError, "spark"):
+                    self.module.spark_image_from_compose(raw)
+        with self.assertRaisesRegex(ValueError, "pinned by digest"):
+            self.module.spark_image_from_compose(b'{"services": {"spark": {"image": "spark:latest"}}}')
+        self.assertIn("lakehouse-batch", self.module.SPARK_COMPOSE_CONFIG)
+
+    def test_missing_or_replaced_publisher_image_is_refused(self):
+        artifacts = self.artifacts()
+        image = "sha256:" + "a" * 64
+        inspect = ["/usr/bin/docker", "image", "inspect", "--format", "{{.Id}}",
+                   "foundation-outbox-publisher:" + self.merged]
+        with mock.patch.object(self.module.subprocess, "check_output", return_value=(image + "\n").encode()) as call:
+            self.module.require_publisher_image(self.merged, artifacts)
+        self.assertEqual(call.call_args.args[0], inspect)
+        # Pruned: the tag no longer resolves.
+        with mock.patch.object(self.module.subprocess, "check_output",
+                               side_effect=subprocess.CalledProcessError(1, inspect)):
+            with self.assertRaisesRegex(ValueError, "is missing"):
+                self.module.require_publisher_image(self.merged, artifacts)
+        # Retagged onto another image.
+        with mock.patch.object(self.module.subprocess, "check_output", return_value=b"sha256:" + b"c" * 64):
+            with self.assertRaisesRegex(ValueError, "not the image"):
+                self.module.require_publisher_image(self.merged, artifacts)
+
+    def test_verify_current_refuses_when_the_publisher_image_was_pruned(self):
+        artifacts = self.artifacts()
+        with mock.patch.object(self.module.os, "geteuid", return_value=0), \
+                mock.patch.object(self.module, "CanonicalSource"), \
+                mock.patch.object(self.module, "current_release", return_value=self.target), \
+                mock.patch.object(self.module, "release_files"), \
+                mock.patch.object(self.module, "verify_release"), \
+                mock.patch.object(self.module, "verify_artifacts"), \
+                mock.patch.object(self.module, "ARTIFACT_ROOT", artifacts.parent), \
+                mock.patch.object(self.module.subprocess, "check_output",
+                                  side_effect=subprocess.CalledProcessError(1, ["/usr/bin/docker"])), \
+                mock.patch.object(sys, "argv", ["admission", "verify-current"]), \
+                mock.patch.object(sys, "stderr", io.StringIO()) as stderr, \
+                mock.patch.object(sys, "stdout", io.StringIO()) as stdout:
+            self.assertEqual(self.module.main(), 65)
+        self.assertIn("is missing", stderr.getvalue())
+        self.assertNotIn("admission=ok", stdout.getvalue())
+
+    def test_control_checkout_must_be_main_at_or_before_the_release(self):
+        control = self.root / "control"
+        control.mkdir()
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(self.source), *args])
+        first = self.git("rev-list", "--max-parents=0", "main").strip()
+        self.git("checkout", "-q", "main")
+        (self.area / "scripts/later.py").write_text("print('later')\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "later main")
+        later = self.git("rev-parse", "HEAD").strip()
+        (control / ".perfectory-control-commit").write_text(self.merged + "\n")
+        self.assertEqual(self.module.check_control_commit(git, self.merged, control), self.merged)
+        self.module.check_control_commit(git, later, control)
+        self.assertEqual(first, self.merged)
+        for drifted in (later, self.unmerged):
+            with self.subTest(control=drifted):
+                (control / ".perfectory-control-commit").write_text(drifted + "\n")
+                with self.assertRaisesRegex(ValueError, "not an ancestor"):
+                    self.module.check_control_commit(git, self.merged, control)
+        (control / ".perfectory-control-commit").unlink()
+        with self.assertRaisesRegex(ValueError, "perfectory-control-commit"):
+            self.module.check_control_commit(git, self.merged, control)
 
     def test_build_failure_removes_owned_builder_without_publishing_artifacts(self):
         self.fail_build = True

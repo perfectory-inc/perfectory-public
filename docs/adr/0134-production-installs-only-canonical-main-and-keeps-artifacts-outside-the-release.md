@@ -53,6 +53,11 @@ Git 설정, 객체 치환, Python 검색 경로를 신뢰하지 않는다.
 비교한다. 설치할 바이트는 후보 tar에서 풀지 않고 독립 fetch한 Git에서 쓴다. squash 전 feature
 SHA는 비슷한 변경이 나중에 main에 들어가도 병합 SHA가 아니므로 거부한다.
 
+제어 체크아웃은 자기가 풀린 정본 커밋을 `.perfectory-control-commit`에 기록한다(설치·갱신 명령은
+런북 "릴리스 인증 전환" 2단계가 정본이다). `prepare`는 이 커밋이 설치할 릴리스의 조상이거나 같은 커밋이
+아니면 거부한다. 그래서 다른 역사에서 온 제어 코드나, 설치할 릴리스보다 새로운 제어 코드(그 릴리스가 모르는
+규칙으로 판정하는 경우)는 설치 전에 드러난다.
+
 ### 2. 설치 후에도 실제 바이트를 검사하고, sudo는 제어 경로 하나만 허용한다
 
 `foundation-release.sh`의 `prepare`·`install`·`activate`·`rollback`·`migrate`·`verify`·`timers`가
@@ -63,9 +68,12 @@ SHA는 비슷한 변경이 나중에 main에 들어가도 병합 SHA가 아니�
 
 `foundation-release.sh deployer-access <account>`는 `/etc/sudoers.d/foundation-release`에
 `<account> ALL=(root) NOPASSWD: /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh`
-한 줄만 설치하고 `visudo`로 검증한다. 설치 뒤 `/etc/sudoers`·`/etc/sudoers.d`에서 이 스크립트를
-다른 경로로 허용하는 줄이 남아 있으면 그 줄을 보여 주고 실패한다. 예전 와일드카드 줄은 이
-명령이 지우지 않는다(남이 소유한 파일이다). 운영자가 지운 뒤 다시 실행해 통과를 확인한다.
+한 줄만 설치하고 `visudo`로 검증한다. 순서는 **새 규칙을 먼저, 옛 줄 삭제는 마지막**이다.
+`deployer-access <account>`는 새 규칙을 설치하고, `/etc/sudoers`·`/etc/sudoers.d`에 이 스크립트를 다른
+경로로 허용하는 줄이 남아 있으면 그 줄을 보여 주며 `deployer-access-installed`로 끝난다(전환이 끝날
+때까지 기존 경로가 남아 있어야 한다). 전환 마지막에 운영자가 옛 줄을 `visudo`로 지우고
+`deployer-access <account> --exclusive`를 실행한다. 이 단계는 다른 허용 줄이 하나라도 남아 있으면
+실패한다. 옛 줄은 명령이 지우지 않는다(남이 소유한 파일이다).
 
 ### 3. 산출물과 설정은 릴리스 밖에 두고, 작업은 같은 릴리스 id로만 찾는다
 
@@ -75,7 +83,7 @@ SHA는 비슷한 변경이 나중에 main에 들어가도 병합 SHA가 아니�
 ├── artifacts/<sha>/                관리자 빌드 산출물, 읽기 전용
 │   ├── foundation-outbox-publisher
 │   ├── jars/*.jar
-│   └── build.json                  source·publisher image ID·파일별 sha256
+│   └── build.json                  source·publisher image ID·태그·파일별 sha256
 ├── config/<sha>/building-register-floor.env   FLOOR 비밀 없는 설정, root 0644
 ├── current -> releases/<sha>
 └── previous -> releases/<sha>
@@ -87,11 +95,17 @@ SHA는 비슷한 변경이 나중에 main에 들어가도 병합 SHA가 아니�
   `lakehouse_engine.iceberg_packages()`가 정본이다. 자격증명 없는 일회용 Spark 컨테이너가 빈 Ivy
   디렉터리에 받은 JAR 전체를 동결한다. Buildx `docker-container` driver(이미지 digest 고정,
   2 CPU·`4g`, swap 추가 없음)만 쓰며, 없으면 제한 없는 `docker build`로 우회하지 않고 거부한다.
-  `ldd`로 host loader 호환을 확인한다.
+  `ldd`로 host loader 호환을 확인한다. compose 설정은 `--profile lakehouse-batch`로 읽는다(Spark는 그
+  profile에만 있어 profile 없이 읽으면 서비스 목록이 비고, 읽지 못하면 거부한다).
+- publisher image는 `foundation-outbox-publisher:<sha>`로 태그해 `build.json`의 `publisher_tag`에
+  기록한다. 태그 없는 `--load` 결과는 `docker image prune`이 지운다. `verify`·`verify-current`는 그 태그가
+  `publisher_image`와 같은 image ID로 남아 있는지 확인하고, 없으면 거부한다.
 - 호출자의 바이너리를 받는 명령은 없다. `publisher <sha> <binary> <sha256>` 명령은 삭제했다.
   sha256을 같이 받아도 그 값은 호출자가 고른 것이라 인증이 아니다.
 - `floor-config <sha> <file>`은 `config/<sha>/building-register-floor.env`에 create-only로 쓴다.
-  키 목록·경로 검사(ADR-0128)는 그대로다. `foundation-building-register-floor.service`는
+  키 목록·경로 검사(ADR-0128)는 그대로다. `FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE`는 같은
+  릴리스 `build.json`의 `publisher_image`와 같아야 한다 — 모양만 digest인 다른 image는 설치 때
+  `floor-config`가, 실행 때 `admitted-writer-runtime.sh`가 거부한다. `foundation-building-register-floor.service`는
   `current`가 가리키는 릴리스 id로 이 파일을 찾고, 링크는 읽지 않는다.
 - `scripts/ops/admitted-writer-runtime.sh`는 등록 작업 다섯(`map-edit-fold.sh`·
   `daily-source-sweep.sh`·`publish-outbox.sh`·`lineage-stewardship-cycle.sh`·
@@ -125,7 +139,10 @@ Linux에서만 한다). 기본값은 개발용 `./infra/lakehouse/trino/catalog`
 | root의 `gh` 인증 | 공개 저장소 identity를 `gh api`로 대조한다 | `sudo gh auth status` |
 | root의 HTTPS fetch | 정본 main을 literal URL로 가져온다 | `sudo git ls-remote https://github.com/<정본>.git main` |
 | Docker Buildx `docker-container` driver | 제한 있는 publisher 빌드 | `sudo docker buildx version` |
-| `/opt/perfectory-control/current` | 신뢰의 시작점 | root 소유·쓰기 불가 |
+| `/opt/perfectory-control/current` | 신뢰의 시작점 | root 소유·쓰기 불가, `.perfectory-control-commit` |
+| `/opt/foundation-platform{,/releases}`, `/var/lib/perfectory` | 부모를 바꿀 수 있으면 검사가 무의미 | `root:root`, group/other 쓰기 없음 |
+
+런북 1단계의 확인 명령 하나가 위 조건을 모두 `ok`/`FAIL`로 보여 준다.
 
 `gh` 대신 같은 identity를 내는 공개 조회로 바꾸려면 `show-public-repository-identity.sh`를
 바꾸는 별도 결정이 필요하다. 지금은 root `gh` 인증이 조건이다.
@@ -134,10 +151,11 @@ Linux에서만 한다). 기본값은 개발용 `./infra/lakehouse/trino/catalog`
 
 1. 먼저 이미 인증된 릴리스로 `rollback`/`activate`한다. 보호된 Git cache로 검사하므로 네트워크가
    필요 없다.
-2. 그것도 불가능할 때만 host 관리자(root)가 직접: 해당 unit의 `10-release-admission.conf`를
-   치우고 `systemctl daemon-reload` 한 뒤 작업을 돌리고, 사고 기록에 시각·이유·실행한 SHA를
-   남긴다. 끝나면 `timers`를 다시 실행해 drop-in을 복구한다. 이 절차는 root 권한 그 자체이며
-   스크립트에 플래그·환경변수 우회를 만들지 않는다. 우회가 코드에 있으면 sudo 받은 누구나 쓴다.
+2. 그것도 불가능할 때만 host 관리자(root)가 런북의 "비상 복귀" 명령을 그대로 실행한다: DAG 정지,
+   `current`를 옛 릴리스로 원자 교체, 인스턴스·템플릿의 `10-release-admission.conf` 전부 제거, 옛
+   릴리스의 unit 재설치, `systemctl daemon-reload`, 작업별 `Result=success` 확인. 사고 기록에
+   시각·이유·SHA를 남긴다. 이 절차는 root 권한 그 자체이며 스크립트에 플래그·환경변수 우회를 만들지
+   않는다. 우회가 코드에 있으면 sudo 받은 누구나 쓴다.
 
 ### 6. 현재 운영 배치에서의 1회 전환
 
@@ -145,10 +163,12 @@ Linux에서만 한다). 기본값은 개발용 `./infra/lakehouse/trino/catalog`
 릴리스는 1항 검사로 활성화·롤백 대상이 될 수 없다. 전환은 이 ADR을 포함한 병합 커밋을 새로
 설치하는 것으로 한다. 기존 디렉터리는 지우지 않는다. 절차는
 [lakehouse-compute-engines 런북](../../platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md)의
-"릴리스 인증 전환" 절이 정본이다. 요지는: DAG 정지 → 선행 조건 확인 → 제어 체크아웃 설치 →
-`deployer-access` → 새 SHA `prepare`(빌드 포함) → 기존 `.foundation-floor.env`를 새 ROOT로 고쳐
-`floor-config` → `activate` → `migrate` → `timers` → 예전 와일드카드 sudo 줄 삭제.
-전환 뒤 `rollback`으로 a70e832d에 돌아갈 수 없다. 돌아가야 하면 5항 비상 절차다.
+"릴리스 인증 전환" 절이 정본이다. 순서: 선행 조건 확인 → 제어 체크아웃 설치 → `deployer-access`(새 규칙
+먼저) → 새 SHA `prepare`(빌드 포함) → 기존 `.foundation-floor.env`를 새 ROOT·`publisher_image`로 고쳐
+`floor-config` → Trino catalog **복사**(옮기지 않는다 — 옛 사본의 짧은 bind가 빈 디렉터리를 만든다)와 같은
+compose 프로젝트로 재기동 → `activate` → `migrate` → `timers` → 옛 와일드카드 sudo 줄 삭제와
+`deployer-access --exclusive`(마지막).
+전환 뒤 `rollback`으로 a70e832d에 돌아갈 수 없다. 돌아가야 하면 5항 비상 절차(런북 "비상 복귀")다.
 
 ### 7. 막지 못한 경로를 완료라고 부르지 않는다
 

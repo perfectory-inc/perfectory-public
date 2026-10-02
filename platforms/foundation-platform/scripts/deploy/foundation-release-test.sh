@@ -49,6 +49,7 @@ def git(*args):
 try:
     if sys.argv[1] == "prepare":
         sha, archive, target = sys.argv[2:]
+        module.check_control_commit(git, sha, pathlib.Path(os.environ["REHEARSAL_CONTROL_ROOT"]))
         module.prepare_release(module.release_files(git, sha), sha, pathlib.Path(archive), pathlib.Path(target))
     elif sys.argv[1] in ("verify", "build"):
         target = pathlib.Path(sys.argv[2])
@@ -72,6 +73,10 @@ ADMISSION
 chmod +x "${test_root}/admission"
 export REHEARSAL_ADMISSION_SOURCE="${repo_root}/../../scripts/deploy/foundation-release-admission.py"
 export REHEARSAL_CANONICAL="${canonical}"
+# The control checkout records the canonical commit it was installed from; the first commit on
+# main is an ancestor of every rehearsal release.
+export REHEARSAL_CONTROL_ROOT="${test_root}/control"
+mkdir -p "${REHEARSAL_CONTROL_ROOT}"
 
 # Commits a source tree as the next canonical main and prints its id.
 register_release() {
@@ -162,6 +167,7 @@ build_source "${test_root}/source-ahead" release-ahead \
   "20260719000001 20260719000002 20260901000001"
 build_source "${test_root}/source-prepared" release-prepared "20260719000001 20260719000002"
 release_a="$(register_release "${test_root}/source-a")"
+printf '%s\n' "${release_a}" >"${REHEARSAL_CONTROL_ROOT}/.perfectory-control-commit"
 release_b="$(register_release "${test_root}/source-b")"
 release_ahead="$(register_release "${test_root}/source-ahead")"
 prepared="$(register_release "${test_root}/source-prepared")"
@@ -313,6 +319,24 @@ grep -q 'not in independently fetched canonical main' "${test_root}/unmerged.log
 assert_link "${release_root}/current" "releases/${release_ahead}"
 printf 'refused-unmerged-sha=pass\n'
 
+# A control checkout from another line of history cannot admit anything.
+printf '%s\n' "${unmerged}" >"${REHEARSAL_CONTROL_ROOT}/.perfectory-control-commit"
+if run_release prepare "${prepared}" "${test_root}/release-prepared.tar.gz" 2>"${test_root}/control.log"; then
+  printf 'a control checkout off canonical main admitted a release\n' >&2
+  exit 1
+fi
+grep -q 'not an ancestor of release' "${test_root}/control.log"
+# Nor can a control checkout newer than the release being installed.
+printf '%s\n' "${release_large}" >"${REHEARSAL_CONTROL_ROOT}/.perfectory-control-commit"
+if run_release prepare "${prepared}" "${test_root}/release-prepared.tar.gz" 2>"${test_root}/control.log"; then
+  printf 'a release older than the control checkout was admitted\n' >&2
+  exit 1
+fi
+grep -q 'not an ancestor of release' "${test_root}/control.log"
+[[ ! -e "${release_root}/releases/${prepared}" ]]
+printf '%s\n' "${release_a}" >"${REHEARSAL_CONTROL_ROOT}/.perfectory-control-commit"
+printf 'refused-control-drift=pass\n'
+
 # A merged id cannot label other bytes either.
 if run_release prepare "${prepared}" "${test_root}/unmerged.tar.gz"; then
   printf 'a merged id was installed from unmerged bytes\n' >&2
@@ -434,6 +458,9 @@ for line in (release / 'infra/systemd/building-register-floor.env.example').read
     name = line.split('=', 1)[0]
     assert re.fullmatch(r'[A-Z][A-Z0-9_]*', name)
     value = str(release) if name == 'FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT' else 'fixture'
+    if name == 'FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE':
+        # The image ID this release's build recorded (the rehearsal build's fixed ID).
+        value = 'sha256:' + 'a' * 64
     if name == 'FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH':
         value = sys.argv[2]
     print(f'{name}={value}')
@@ -485,15 +512,25 @@ printf 'DATABASE_URL=postgres://fixture\n' >>"${test_root}/secret.env"
 refuse floor-config "${prepared}" "${test_root}/secret.env"
 sed '/^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=/d' "${config_source}" >"${test_root}/missing.env"
 refuse floor-config "${prepared}" "${test_root}/missing.env"
-sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=.*|FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=${IMAGE}|' "${config_source}" >"${test_root}/interpolation.env"
+sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=.*|FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=${NETWORK}|' "${config_source}" >"${test_root}/interpolation.env"
 refuse floor-config "${prepared}" "${test_root}/interpolation.env"
 for invalid_value in '' '"quoted"' 'back\slash' 'two words'; do
   FIXTURE_VALUE="${invalid_value}" awk '
-    /^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=/ { print "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=" ENVIRON["FIXTURE_VALUE"]; next }
+    /^FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=/ { print "FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=" ENVIRON["FIXTURE_VALUE"]; next }
     { print }
   ' "${config_source}" >"${test_root}/unsafe.env"
   refuse floor-config "${prepared}" "${test_root}/unsafe.env"
 done
+# A well-formed, pinned digest that is not this release's build output (root ADR-0134 §3).
+sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=.*|FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=sha256:'"$(printf 'b%.0s' {1..64})"'|' \
+  "${config_source}" >"${test_root}/foreign-image.env"
+if run_release floor-config "${prepared}" "${test_root}/foreign-image.env" 2>"${test_root}/foreign-image.log"; then
+  printf 'a FLOOR image other than the release build output was accepted\n' >&2
+  exit 1
+fi
+grep -q 'must be publisher_image' "${test_root}/foreign-image.log"
+assert_inactive
+printf 'refused-foreign-floor-image=pass\n'
 sed 's|^FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=.*|FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=/other/release|' "${config_source}" >"${test_root}/wrong-root.env"
 refuse floor-config "${prepared}" "${test_root}/wrong-root.env"
 cp "${config_source}" "${test_root}/duplicate.env"
@@ -512,7 +549,7 @@ ln -s "${test_root}/outside/${prepared}" "${release_root}/config/${prepared}"
 refuse floor-config "${prepared}" "${config_source}"
 rm "${release_root}/config/${prepared}"
 mv "${test_root}/outside/${prepared}" "${release_root}/config/${prepared}"
-sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=.*|FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=changed|' "${config_source}" >"${test_root}/conflict.env"
+sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=.*|FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=changed|' "${config_source}" >"${test_root}/conflict.env"
 refuse floor-config "${prepared}" "${test_root}/conflict.env"
 cmp "${config_source}" "${config_target}"
 assert_inactive
@@ -747,8 +784,17 @@ if release_functions find_other_release_grants "${test_root}/sudoers.d/"* >"${te
   exit 1
 fi
 grep -q 'legacy-deployer' "${test_root}/grants.log"
+# The order ADR-0134 §2 prescribes: installing the new rule beside the old one reports and
+# succeeds; the final --exclusive step fails until the old line is gone.
+release_functions deployer_grant_verdict deployer '' "${test_root}/sudoers.d/"* >"${test_root}/verdict.log"
+grep -q '^deployer-access-installed' "${test_root}/verdict.log"
+if release_functions deployer_grant_verdict deployer --exclusive "${test_root}/sudoers.d/"* >/dev/null 2>&1; then
+  printf 'the exclusive step passed while the wildcard grant remained\n' >&2
+  exit 1
+fi
 # A second path on the same line as the exact one is still a second grant.
 rm "${test_root}/sudoers.d/legacy-deployer"
+release_functions deployer_grant_verdict deployer --exclusive "${test_root}/sudoers.d/"* | grep -q '^deployer-access-ok'
 printf 'deployer ALL=(root) NOPASSWD: %s, /opt/foundation-platform/releases/*/scripts/deploy/foundation-release.sh\n' \
   /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh \
   >"${test_root}/sudoers.d/combined"
