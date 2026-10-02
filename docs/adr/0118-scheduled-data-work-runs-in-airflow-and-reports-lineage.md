@@ -61,3 +61,25 @@
   [Kafka 4.x](https://kafka.apache.org/blog/2026/05/30/apache-kafka-4.2.1-release-announcement/),
   [Netflix Maestro](https://blog.bytebytego.com/p/how-netflix-orchestrates-millions),
   [배민 DataHub](https://techblog.woowahan.com/21434/).
+
+---
+
+> **개정 각주(2026-10-03, 검토한 대안 보완):** 이 결정은 검토한 대안을 적지 않았다.
+>
+> **검토한 대안: Dagster.** 이전 조사(`docs/reference/geography-identity-enterprise-survey.md`)가 "코드가 자산 그래프의 정본"이라는
+> 점을 들어 추천했다. 작업이 아니라 데이터 결과물(Silver·Gold·타일 판)을 단위로 다루므로, 개념은 이 저장소의 레이크하우스 구조와
+> 더 맞는다.
+>
+> **지금 고르지 않은 이유.**
+> - 대규모 운영 사례와 계보 연동(OpenLineage 내장, DataHub)은 Airflow 쪽이 더 넓다.
+> - ADR-0122로 DAG는 systemd 서비스를 시작만 하는 얇은 층이다. 작업 로직은 저장소 코드에 있어 DAG 없이도 시험할 수 있다. 그래서
+>   Dagster의 주된 이점(입출력 함수로서의 시험)이 지금은 작다.
+>
+> **다시 검토하는 조건.** 하나라도 생기면 다시 본다.
+> - 결과물 사이 의존이 수십 개를 넘어 DAG 순서 관리가 어려워진다.
+> - 운영에 배포해야만 드러나는 오케스트레이션 결함이 반복된다. 2026-09-30~10-01에는 세 건이었다: 첫 작업만 동기화,
+>   배포 순서, 실행 권한.
+> - 여러 팀이 같은 데이터를 나눠 만든다.
+>
+> **옮길 때의 방식.** Airflow를 유지한 채 Dagster를 점진적으로 붙인다(Mapbox 사례, `dagster-airlift`). 한 번에 대체하지 않는다.
+> 출처: [Dagster at Mapbox](https://dagster.io/customers/incremental-adoption-mapbox), [Dagster customers](https://dagster.io/customers).
