@@ -95,6 +95,9 @@ calamine = { version = "0.36.1", default-features = false, features = ["dates"] 
 # gzip rather than zstd because `spark.read.json` opens a `.gz` with no configuration, and a
 # format the reader needs to be told about is a format someone will forget to tell it about.
 flate2 = "1.1"
+# MVT tiles are protobuf. The lakehouse tile bake's maxzoom gate decodes their ids with it
+# (root ADR-0133 §3) instead of a hand-written wire decoder.
+prost = { version = "0.14", default-features = false, features = ["derive", "std"] }
 arrow-array = "59"
 arrow-schema = "59"
 # zstd is the compression the Gold Iceberg tables are written with; a reader without it fails at

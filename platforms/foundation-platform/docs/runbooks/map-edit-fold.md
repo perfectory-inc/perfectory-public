@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-09-29
+last_reviewed: 2026-10-02
 ---
 
 # 지도 편집 접기 — 설치·운영·확인 런북
@@ -56,6 +56,42 @@ docker exec foundation-platform-runtime-postgres-1 psql -U foundation_admin -d f
 bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh exec -T airflow-scheduler \n  airflow dags list-runs foundation_map_edit_fold_admin -o plain | head -5
 sudo tail -3 /var/lib/foundation-platform/map-edit-fold/journal.log
 ```
+
+## 굽기 오븐 `bake-lakehouse-tiles` (루트 ADR-0133 §3)
+
+오븐은 유닛을 가리지 않는다. 산업단지·행정경계와 전국 필지(약 4천만 건)가 같은 코드로 굽는다.
+
+| 무엇 | 정본 | 내용 |
+|---|---|---|
+| 입력 요약 | 서빙본 요약 `schema_version` | `polygon_served_gold.v1`: `..._SERVED_HANDOFF` 가 JSONL 파일 하나다. `polygon_served_gold.v2`: `..._SERVED_HANDOFF` 가 조각 폴더이고, 요약의 `handoff_parts[{path, rows, sha256}]` 의 `path` 는 그 폴더 기준 상대 경로다 |
+| 조각 검사 | `lakehouse_tile_bake.rs` `prepare_handoff` | 조각을 한 번 흘려 읽으며 행마다 검사하고, 조각마다 행 수와 SHA-256 을 요약과 대조하고, GDAL 입력을 쓰고, id 마다 16바이트 hash 만 남긴다 |
+| 컨테이너 상한 | [`config/tile-bake-containers.contract.json`](../../config/tile-bake-containers.contract.json) `images.*.memory_limit` | `docker run --memory <상한> --memory-swap <상한>`. 호스트 합계에는 `tools/host-memory-budget.contract.json` `one_shot_contracts` 로 한 번만 도는 작업으로 들어간다 |
+| 작업 디스크 | 같은 계약의 `work_disk` | 시작 전에 `..._WORK_ROOT` 의 여유가 `max(min_free_bytes, 입력 바이트 × min_free_bytes_per_handoff_byte)` 보다 작으면 거부한다. 작업 폴더 `<WORK_ROOT>/<unit>-<uuid>` 안에 GDAL CSV, GeoJSON 줄, tippecanoe 임시 폴더(`-t /w/tmp`), 결과 판이 생기고 끝나면 지운다 |
+| maxzoom 관문 | `pmtiles_feature_ids.rs` | PMTiles 디렉터리를 타일 id 순서로 따라가 maxzoom 타일만 읽고, MVT 에서 layer 이름·속성표·feature 태그만 해독한다(도형은 읽지 않는다). 빠진 id 와 남는 id 를 세고 다섯 개까지 이름을 남긴다 |
+
+전국 필지의 작업 루트는 루트 디스크가 아니라 `/data` 아래(`work_disk.production_root`)여야 한다. 산업단지·행정경계는
+지금처럼 접기 폴더를 쓴다. 메모리 상한(GDAL 4g, tippecanoe 8g)과 디스크 배수(8)는 서울 시험 굽기(898,741건,
+0.96GB)를 근거로 넉넉히 잡은 값이다. 전국을 처음 실제로 굽고 나면 최대 메모리·작업 디스크·시간을 여기 적고 계약 값을
+고친다(ADR-0133 §7).
+
+## 굽기 오븐 `bake-lakehouse-tiles` (루트 ADR-0133 §3)
+
+오븐은 유닛을 가리지 않는다. 산업단지·행정경계도 전국 필지(약 4천만 건)도 같은 코드로 굽는다.
+
+| 무엇 | 정본 | 내용 |
+|---|---|---|
+| 입력 요약 | 서빙본 요약의 `schema_version` | `polygon_served_gold.v1` 이면 `..._SERVED_HANDOFF` 는 JSONL 파일 하나다. `polygon_served_gold.v2` 이면 `..._SERVED_HANDOFF` 는 조각 폴더다. 요약의 `handoff_parts[{path, rows, sha256}]` 에 적힌 `path` 는 그 폴더 기준 상대 경로다 |
+| 조각 검사 | `lakehouse_tile_bake.rs` 의 `prepare_handoff` | 조각을 한 번 흘려 읽는다. 읽으면서 행마다 검사하고, 조각마다 행 수와 SHA-256 을 요약과 대조하고, GDAL 입력을 쓴다. id 는 하나마다 16바이트 hash 만 남긴다 |
+| 컨테이너 상한 | [`config/tile-bake-containers.contract.json`](../../config/tile-bake-containers.contract.json) 의 `images.*.memory_limit` | `docker run --memory <상한> --memory-swap <상한>` 으로 띄운다. 호스트 합계에는 `tools/host-memory-budget.contract.json` 의 `one_shot_contracts` 를 거쳐 한 번만 도는 작업으로 들어간다 |
+| 작업 디스크 | 같은 계약의 `work_disk` | 시작 전에 `..._WORK_ROOT` 의 여유 공간을 본다. `max(min_free_bytes, 입력 바이트 × min_free_bytes_per_handoff_byte)` 보다 작으면 거부한다. 작업 폴더 `<WORK_ROOT>/<unit>-<uuid>` 에는 GDAL CSV, GeoJSON 줄, tippecanoe 임시 폴더(`-t /w/tmp`), 결과 판이 생긴다. 굽기가 끝나면 폴더를 지운다 |
+| maxzoom 관문 | `pmtiles_feature_ids.rs` | PMTiles 디렉터리를 타일 id 순서로 따라가며 maxzoom 타일만 읽는다. MVT 에서는 layer 이름, 속성표, feature 태그만 해독하고 도형은 읽지 않는다. 빠진 id 와 남는 id 를 세고, 다섯 개까지 이름을 남긴다 |
+
+전국 필지의 작업 루트는 루트 디스크가 아니라 `/data` 아래(`work_disk.production_root`)에 둔다. 산업단지·행정경계는
+지금처럼 접기 폴더를 쓴다.
+
+메모리 상한(GDAL 4g, tippecanoe 8g)과 디스크 배수(8)는 서울 시험 굽기(898,741건, 최대 메모리 0.96GB)를 근거로
+넉넉히 잡은 값이다. 전국을 처음 실제로 구운 뒤에는 최대 메모리, 작업 디스크, 걸린 시간을 여기 적고 계약 값을
+고친다(ADR-0133 §7).
 
 ## 함정 (2026-09-29 첫 설치에서 실제로 겪음)
 

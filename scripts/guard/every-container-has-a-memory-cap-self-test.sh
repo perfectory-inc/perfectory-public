@@ -125,6 +125,43 @@ expect_pass "a compose file under an outside_scope prefix"
 printf 'services:\n  proof:\n    image: fixture/proof:1\n' > "$fixture/local/compose.yaml"
 expect_fail "an uncapped service in a stack that never runs on the host"
 
+# Containers code starts with docker run count as one-shot jobs at the caps their contract states.
+write_one_shot_fixture() {
+  local containers="$1" entry="${2:-}"
+  write_contract 6g
+  write_stack "    mem_limit: 1g"
+  printf '{"images": %s}\n' "$containers" > "$fixture/tools/bake.json"
+  python3 - "$fixture" "$entry" <<'PY'
+import json, pathlib, sys
+root, entry = pathlib.Path(sys.argv[1]), sys.argv[2]
+path = root / "tools/host-memory-budget.contract.json"
+contract = json.loads(path.read_text())
+contract["one_shot_contracts"] = [
+    json.loads(entry) if entry else {"contract": "tools/bake.json", "containers": ["images"], "why": "fixture"}
+]
+path.write_text(json.dumps(contract))
+PY
+}
+
+# 1g standing + 3g compose job + 1g reserved leaves 1g of the 6g host: a 4g contract job fits, 5g not.
+write_one_shot_fixture '{"gdal": {"memory_limit": "2g"}, "tile": {"memory_limit": "4g"}}'
+expect_pass "contract one-shot caps that do not exceed what the host has left"
+write_one_shot_fixture '{"gdal": {"memory_limit": "2g"}, "tile": {"memory_limit": "5g"}}'
+expect_fail "a contract one-shot cap larger than the host has left"
+write_one_shot_fixture '{"gdal": {"memory_limit": "2g"}, "tile": {"image": "fixture/tile:1"}}'
+expect_fail "a contract container without a memory_limit"
+write_one_shot_fixture '{"gdal": {"memory_limit": "plenty"}}'
+expect_fail "a contract memory_limit that is not a size"
+write_one_shot_fixture '{}'
+expect_fail "a one-shot contract that names no containers"
+write_one_shot_fixture '{"gdal": {"memory_limit": "2g"}}' '{"contract": "../bake.json", "containers": ["images"], "why": "x"}'
+expect_fail "a one-shot contract outside the repository"
+write_one_shot_fixture '{"gdal": {"memory_limit": "2g"}}' '{"contract": "tools/bake.json", "containers": ["absent"], "why": "x"}'
+expect_fail "a one-shot contract whose containers member is missing"
+write_one_shot_fixture '{"gdal": {"memory_limit": "2g"}}' '{"contract": "tools/bake.json", "containers": ["images"]}'
+expect_fail "a one-shot contract entry without its reason"
+rm -f "$fixture/tools/bake.json"
+
 # The overlay's required parameter reads its one numeric source, never the caller's environment.
 write_parameter_fixture() {
   write_contract 6g

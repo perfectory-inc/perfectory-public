@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-02
 ---
 
 # ai-server 메모리 예산
@@ -15,6 +15,7 @@ last_reviewed: 2026-10-01
 | 무엇 | 정본 |
 |---|---|
 | 서비스마다의 상한 | 각 compose 파일의 `mem_limit`. native 값은 engine contract의 `execution_profile.memory_mib`를 참조한다 |
+| 코드가 `docker run` 으로 띄우는 한 번짜리 컨테이너의 상한 | 그 코드가 읽는 계약. 계약의 `one_shot_contracts` 가 가리킨다. 지금은 타일 굽기의 [`tile-bake-containers.contract.json`](../../config/tile-bake-containers.contract.json) 하나다 |
 | 어떤 compose 묶음이 ai-server 에서 도는지, 어떤 profile 로, 호스트 몫과 상한 밖에 있는 것 | [`tools/host-memory-budget.contract.json`](../../../../tools/host-memory-budget.contract.json) |
 | 합계 검사 | [`scripts/guard/every-container-has-a-memory-cap.sh`](../../../../scripts/guard/every-container-has-a-memory-cap.sh) |
 
