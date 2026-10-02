@@ -550,12 +550,6 @@ pub(crate) struct ExtraInside {
     pub(crate) unexplained: Breakdown,
 }
 
-impl ExtraInside {
-    pub(crate) const fn count(&self) -> u64 {
-        self.tiny.count + self.addition.count + self.unexplained.count
-    }
-}
-
 /// Sampled and passed tiles of one region.
 #[derive(Debug, Default, Clone, Copy, Serialize)]
 pub(crate) struct RegionTally {
