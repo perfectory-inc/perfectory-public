@@ -16,7 +16,7 @@
 //! - (c) a shared id carries the same properties, compared as text. A value whose MVT type changed
 //!   (an integer that is now a string) is counted as `type_changed`; it is not a failure.
 //!
-//! Samples, at every contract zoom the layer serves (`config/tile-equivalence-sample.contract.json`):
+//! Samples, at every contract zoom the layer serves (`config/tile-equivalence.contract.json`):
 //! each region's centre tile and four inset corners, the densest maxzoom tiles of the active
 //! archive (read from its directory only) and a seeded reservoir of the new archive's maxzoom tiles,
 //! each with its ancestors. Regions are feature-id prefixes; their tile extents are recorded while
@@ -37,9 +37,9 @@ use serde_json::Value;
 use super::pmtiles_feature_ids::{tile_id, tile_zxy, zoom_range, Archive};
 
 pub(crate) const SAMPLE_CONTRACT_JSON: &str =
-    include_str!("../../../config/tile-equivalence-sample.contract.json");
+    include_str!("../../../config/tile-equivalence.contract.json");
 
-/// `config/tile-equivalence-sample.contract.json`.
+/// `config/tile-equivalence.contract.json`.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct SampleContract {
     pub(crate) zooms: Vec<u8>,

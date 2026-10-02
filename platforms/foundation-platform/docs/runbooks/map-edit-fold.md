@@ -84,7 +84,7 @@ sudo tail -3 /var/lib/foundation-platform/map-edit-fold/journal.log
 
 | 무엇 | 정본 | 내용 |
 |---|---|---|
-| 표본 | [`config/tile-equivalence-sample.contract.json`](../../config/tile-equivalence-sample.contract.json) | `zooms` 마다 비교한다. 지역마다 가운데와 안쪽으로 들인 네 모서리, 활성 판 디렉터리에서 가장 긴 maxzoom 타일 `densest_tiles` 개, 새 판 maxzoom 타일에서 `random_seed` 로 고른 `random_tiles` 개를 쓰고, 각 타일의 조상도 함께 본다. 지역은 `region_id_prefix_chars` 의 id 앞자리다(필지는 시도 코드 두 자리). 지역 범위는 maxzoom id 관문이 새 판을 읽을 때 같이 잰다 |
+| 표본 | [`config/tile-equivalence.contract.json`](../../config/tile-equivalence.contract.json) | `zooms` 마다 비교한다. 지역마다 가운데와 안쪽으로 들인 네 모서리, 활성 판 디렉터리에서 가장 긴 maxzoom 타일 `densest_tiles` 개, 새 판 maxzoom 타일에서 `random_seed` 로 고른 `random_tiles` 개를 쓰고, 각 타일의 조상도 함께 본다. 지역은 `region_id_prefix_chars` 의 id 앞자리다(필지는 시도 코드 두 자리). 지역 범위는 maxzoom id 관문이 새 판을 읽을 때 같이 잰다 |
 | 활성 판 읽기 | `tile_derivative` 읽기 설정 | R2 범위 읽기로 디렉터리와 표본 타일만 읽는다. 5GB 파일을 통째로 받지 않는다 |
 | 통과 조건 | `tile_equivalence.rs` | (가) 활성 타일의 id 가 새 타일에 모두 있다. (나) 새 타일에만 있는 id 는 도형 범위가 타일의 `0..extent` 밖이다(버퍼 이웃). 이런 feature 만 도형을 해독한다. (다) 같은 id 의 속성이 글자로 같다. MVT 형식만 다르면(정수 → 문자열) `type_changed` 로 세지만 실패는 아니다 |
 | 타일 안의 남는 id | 같은 파일의 `ExtraInside` | 모두 실패다. 원인을 보이도록 셋으로 나눠 zoom·지역별로 센다. `tiny`: 타일 안 부분이 `tiny_extent_units` 이하. `addition`: 그 위치의 활성 maxzoom 타일에도 없다(활성 판에 아예 없는 feature). `unexplained`: 그 밖 |
