@@ -413,17 +413,6 @@ pub(crate) fn geometry_points(packed: &[u8]) -> anyhow::Result<Vec<(i64, i64)>> 
     Ok(points)
 }
 
-/// The bounding box of an MVT command stream, in tile units.
-pub(crate) fn geometry_bounds(packed: &[u8]) -> anyhow::Result<Option<(i64, i64, i64, i64)>> {
-    Ok(geometry_points(packed)?
-        .into_iter()
-        .fold(None, |bounds, (x, y)| {
-            Some(bounds.map_or((x, y, x, y), |(a, b, c, d)| {
-                (a.min(x), b.min(y), c.max(x), d.max(y))
-            }))
-        }))
-}
-
 const fn zigzag(value: u64) -> i64 {
     // The cast reinterprets the bits, which is what zigzag decoding is.
     #[allow(clippy::cast_possible_wrap)]

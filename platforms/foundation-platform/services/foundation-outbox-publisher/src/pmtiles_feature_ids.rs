@@ -272,10 +272,6 @@ impl<R: Read + Seek> Archive<R> {
         Ok(Self { reader, header })
     }
 
-    pub(crate) const fn header(&self) -> &Header {
-        &self.header
-    }
-
     fn read_block(&mut self, offset: u64, length: u64, what: &str) -> anyhow::Result<Vec<u8>> {
         ensure!(
             length <= MAX_BLOCK_BYTES,

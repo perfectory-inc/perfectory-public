@@ -3,6 +3,17 @@ use std::io::Cursor;
 use super::super::pmtiles_feature_ids::tests::{archive, gzip};
 use super::*;
 
+/// The bounding box of an MVT command stream, in tile units.
+fn geometry_bounds(packed: &[u8]) -> anyhow::Result<Option<(i64, i64, i64, i64)>> {
+    Ok(geometry_points(packed)?
+        .into_iter()
+        .fold(None, |bounds, (x, y)| {
+            Some(bounds.map_or((x, y, x, y), |(a, b, c, d)| {
+                (a.min(x), b.min(y), c.max(x), d.max(y))
+            }))
+        }))
+}
+
 fn varints(words: &[u64]) -> Vec<u8> {
     let mut out = Vec::new();
     for word in words {
