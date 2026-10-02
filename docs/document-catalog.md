@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **479개**
+- 문서 파일: **480개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 158 |
+| Monorepo | 159 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 216 |
+| ADR | 217 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -519,6 +519,7 @@ docs/adr/0129-compute-memory-counts-one-shot-spark-and-native-contracts.md
 docs/adr/0130-panel-input-snapshots-are-complete-and-bound-before-spark.md
 docs/adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md
 docs/adr/0132-release-activation-preserves-enabled-job-identities.md
+docs/adr/0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -689,6 +690,7 @@ tools/github/README.md
 | `docs/adr/0130-panel-input-snapshots-are-complete-and-bound-before-spark.md` | Monorepo | ADR | accepted |
 | `docs/adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md` | Monorepo | ADR | accepted |
 | `docs/adr/0132-release-activation-preserves-enabled-job-identities.md` | Monorepo | ADR | accepted |
+| `docs/adr/0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

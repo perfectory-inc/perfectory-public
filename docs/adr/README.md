@@ -150,3 +150,5 @@ last_reviewed: 2026-07-28
 - [ADR-0131 — 지번 연결은 실제로 읽은 모든 입력에 묶는다](./0131-parcel-lineage-binds-every-input-and-derivation-identity.md)
 
 - [ADR-0132 — 새 버전은 켜져 있던 자동작업을 조용히 제거하지 않는다](./0132-release-activation-preserves-enabled-job-identities.md)
+
+- [ADR-0133 — 필지 타일은 레이크하우스에서 전국을 다시 굽는다](./0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md)
