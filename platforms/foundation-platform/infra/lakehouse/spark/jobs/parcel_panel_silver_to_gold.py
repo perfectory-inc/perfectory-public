@@ -65,6 +65,7 @@ from pyspark.sql import types as T
 from pyspark.storagelevel import StorageLevel
 
 from lineage_review_queue import steward_resolved
+from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
 from parcel_attribute_carry import carry_candidates
 from parcel_lineage import Link
 from lakehouse_engine import (
@@ -209,6 +210,10 @@ def parse_args() -> argparse.Namespace:
         help="Iceberg snapshot id of silver.parcel_boundaries represented by this projection.",
     )
     parser.add_argument(
+        "--source-snapshots-path",
+        help="JSON file pinning every input table, including parcel_lineage when carry is enabled.",
+    )
+    parser.add_argument(
         "--published-at-utc",
         default=None,
         help="Publication timestamp in UTC. Defaults to current UTC time.",
@@ -279,7 +284,7 @@ def normalize_utc_timestamp(value: str | None) -> str:
     return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def validate_args(args: argparse.Namespace) -> None:
+def validate_args(args: argparse.Namespace) -> dict[str, str]:
     if args.input_mode == "parquet" and not args.input_root:
         raise ValueError("--input-root is required when --input-mode=parquet")
     if args.write_mode == "parquet" and not args.output:
@@ -306,22 +311,29 @@ def validate_args(args: argparse.Namespace) -> None:
 
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
         assert_catalog_env()
+    return load_source_snapshot_pins(args.input_mode, args.source_snapshots_path,
+        input_sources(args), PARCEL_SOURCE, args.iceberg_snapshot_id)
+
+
+def input_sources(args: argparse.Namespace) -> tuple[str, ...]:
+    return (*ALL_SOURCES, *((LINEAGE_SOURCE,) if args.carry_lineage else ()))
 
 
 def source_table_name(contract_name: str) -> str:
     return contract_name.split(".", maxsplit=1)[1]
 
 
-def read_source(spark: SparkSession, args: argparse.Namespace, contract_name: str) -> DataFrame:
+def read_source(
+    spark: SparkSession, args: argparse.Namespace, contract_name: str, pins: dict[str, str]
+) -> DataFrame:
     contract = load_lakehouse_contract(contract_name)
     expected_columns = column_names(contract)
     table = source_table_name(contract_name)
     if args.input_mode == "parquet":
         frame = spark.read.parquet(str(Path(args.input_root) / table))
     else:
-        frame = spark.table(
-            f"`{args.iceberg_catalog_name}`.`{args.source_iceberg_namespace}`.`{table}`"
-        )
+        frame = read_pinned_iceberg(spark,
+            f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{table}", contract_name, pins)
     missing = sorted(set(expected_columns) - set(frame.columns))
     if missing:
         raise ValueError(f"{contract_name} input is missing columns: {', '.join(missing)}")
@@ -732,7 +744,7 @@ SECTION_VIA_COLUMNS: dict[str, str] = {
 
 
 def read_carry_candidates(
-    spark: SparkSession, args: argparse.Namespace, counters: dict[str, int]
+    spark: SparkSession, args: argparse.Namespace, counters: dict[str, int], pins: dict[str, str]
 ) -> DataFrame | None:
     """The lineage's candidate sources per successor PNU, as a small frame (root ADR-0113 §6).
 
@@ -742,7 +754,7 @@ def read_carry_candidates(
 
     if not args.carry_lineage:
         return None
-    lineage = read_source(spark, args, LINEAGE_SOURCE)
+    lineage = read_source(spark, args, LINEAGE_SOURCE, pins)
     if args.region_prefix is not None:
         lineage = lineage.where(F.col("successor_pnu").startswith(args.region_prefix))
     # A steward's standing decision replaces the derived rows of its parcel (root ADR-0115 §9).
@@ -973,6 +985,7 @@ def build_run_summary(
     section_counters: dict[str, int],
     source_snapshots: dict[str, str],
     schema_evolution_added_columns: tuple[str, ...] = (),
+    source_iceberg_snapshots: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     metrics = dict(quality_metrics)
     metrics.update(section_counters)
@@ -987,7 +1000,7 @@ def build_run_summary(
         .replace("+00:00", "Z"),
         "input": {
             "kind": args.input_mode,
-            "sources": list(ALL_SOURCES),
+            "sources": list(input_sources(args)),
             "region_prefix": args.region_prefix,
         },
         "target": (
@@ -1020,6 +1033,7 @@ def build_run_summary(
         "source_snapshot_count": len(source_snapshots),
         "source_snapshot_ids": [source_snapshots[name] for name in sorted(source_snapshots)],
         "source_snapshots_by_dataset": dict(sorted(source_snapshots.items())),
+        "source_iceberg_snapshots_by_dataset": dict(sorted((source_iceberg_snapshots or {}).items())),
         "source_snapshot_truncated": False,
     }
 
@@ -1051,7 +1065,7 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
                 "table": source_table_name(name),
                 "storage_format": args.input_mode,
             }
-            for name in (*ATTRIBUTE_SOURCES, ZONE_CODE_SOURCE)
+            for name in summary["input"]["sources"] if name != PARCEL_SOURCE
         ],
         "output_dataset": {
             "qualified_name": GOLD_CONTRACT_NAME,
@@ -1071,7 +1085,7 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
             **summary["quality_metrics"],
             "row_count": int(summary["row_count"]),
         },
-        "column_lineage": column_lineage(),
+        "column_lineage": column_lineage(args.carry_lineage),
         "openlineage_mapping": {
             "event_type": "COMPLETE",
             "job_namespace": "foundation-platform.lakehouse",
@@ -1082,7 +1096,7 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
     }
 
 
-def column_lineage() -> list[dict[str, Any]]:
+def column_lineage(carry_lineage: bool = True) -> list[dict[str, Any]]:
     def one(dataset: str, column: str, transform: str) -> list[dict[str, str]]:
         return [{"dataset": dataset, "column": column, "transform": transform}]
 
@@ -1119,6 +1133,34 @@ def column_lineage() -> list[dict[str, Any]]:
             "foundation-platform.job_arguments", "published_at_utc", "literal"
         ),
     }
+    # A path exists only when a section has no own value and an eligible predecessor holds it.
+    # Reuse section dependencies: filtering a source row can change that presence decision.
+    lineage_map["attached_via_json"] = (
+        one(
+            LINEAGE_SOURCE,
+            "predecessor_pnu,successor_pnu,relation,grade,evidence_kind,evidence_ref",
+            "steward_resolved_nearest_holder_path",
+        )
+        + one(PARCEL_SOURCE, "pnu", "panel_membership")
+        + [source for dataset in ATTRIBUTE_SOURCES
+           for source in one(dataset, "pnu", "own_or_predecessor_section_presence")]
+        + [{**source, "transform": f"section_presence:{source['transform']}"}
+           for section in SECTION_VIA_COLUMNS for source in lineage_map[f"{section}_json"]]
+        if carry_lineage
+        else one("foundation-platform.job_arguments", "carry_lineage", "literal_null_when_disabled")
+    )
+    # Check the contract before deriving the digest, so new content columns fail with their
+    # names here instead of a KeyError when a completion event is built after the Gold write.
+    mapped = set(lineage_map) | {"row_digest"}
+    missing, extra = sorted(set(GOLD_COLUMNS) - mapped), sorted(mapped - set(GOLD_COLUMNS))
+    if missing or extra:
+        raise ValueError(f"Gold column lineage does not match the contract: missing={missing} extra={extra}")
+    # Trace the hash through the exact content inputs used by build_gold_panel_frame. Never
+    # point it back at its own Gold row or maintain another list of fingerprint columns.
+    lineage_map["row_digest"] = [
+        {**source, "transform": f"sha256_content:{source['transform']}"}
+        for column in CONTENT_DIGEST_COLUMNS for source in lineage_map[column]
+    ]
     return [
         {"output_column": column, "inputs": lineage_map[column]} for column in GOLD_COLUMNS
     ]
@@ -1193,7 +1235,8 @@ def build_spark_session(args: argparse.Namespace) -> SparkSession:
 def main() -> int:
     args = parse_args()
     args.published_at_utc = normalize_utc_timestamp(args.published_at_utc)
-    validate_args(args)
+    pins = validate_args(args)
+    column_lineage(args.carry_lineage)
     spark = build_spark_session(args)
 
     try:
@@ -1207,21 +1250,21 @@ def main() -> int:
                 "say which boundary row is the parcel's current one"
             )
         parcels = filtered_by_region(
-            read_source(spark, args, PARCEL_SOURCE).where(F.expr(parcel_predicate)),
+            read_source(spark, args, PARCEL_SOURCE, pins).where(F.expr(parcel_predicate)),
             args.region_prefix,
         )
         source_snapshots[PARCEL_SOURCE] = assert_single_snapshot(parcels, PARCEL_SOURCE)
 
-        candidates = read_carry_candidates(spark, args, counters)
+        candidates = read_carry_candidates(spark, args, counters, pins)
         frames: dict[str, DataFrame] = {}
         for name in ATTRIBUTE_SOURCES:
             frame = with_lineage_sources(
-                read_source(spark, args, name), args.region_prefix, candidates
+                read_source(spark, args, name, pins), args.region_prefix, candidates
             )
             source_snapshots[name] = assert_single_snapshot(frame, name)
             frames[name] = frame
 
-        zone_codes = read_source(spark, args, ZONE_CODE_SOURCE)
+        zone_codes = read_source(spark, args, ZONE_CODE_SOURCE, pins)
         source_snapshots[ZONE_CODE_SOURCE] = assert_single_snapshot(
             zone_codes, ZONE_CODE_SOURCE
         )
@@ -1261,6 +1304,7 @@ def main() -> int:
                     quality_metrics=quality_metrics,
                     section_counters=counters,
                     source_snapshots=source_snapshots,
+                    source_iceberg_snapshots=pins,
                 ),
                 args.summary_output,
             )
@@ -1297,6 +1341,7 @@ def main() -> int:
             section_counters=counters,
             source_snapshots=source_snapshots,
             schema_evolution_added_columns=added_columns,
+            source_iceberg_snapshots=pins,
         )
         emit_run_summary(summary, args.summary_output)
         emit_lineage_event(build_lineage_event(args, summary), args.lineage_output)

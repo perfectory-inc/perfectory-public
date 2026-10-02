@@ -1,10 +1,12 @@
 import io
+import json
 import sys
 import unittest
 import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 
 JOBS_DIR = Path(__file__).resolve().parents[1] / "jobs"
@@ -84,6 +86,55 @@ class DeriveTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "allow-non-smoke-write"):
             validate_args(args)
+
+
+class DerivationIdentityTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.pins = Path(self.directory.name) / "pins.json"
+        self.pins.write_text(json.dumps({
+            role: {"table": table, "snapshot_id": str(index)}
+            for index, (role, table) in enumerate([
+                ("boundaries_from", "silver.parcel_boundaries"),
+                ("boundaries_to", "staging.parcel_boundaries"),
+                ("codes", "reference.legal_dong_code_snapshot"),
+                ("history", "silver.land_transfer_history"),
+            ], 1)
+        }), encoding="utf-8")
+
+    def args(self):
+        return parse_args([
+            "--from-snapshot-id", "a", "--to-snapshot-id", "b",
+            "--from-date", "2099-06-01", "--to-date", "2099-10-01",
+            "--from-sido", "99", "--to-sido", "99",
+            "--iceberg-table", "lineage_smoke", "--source-snapshots-path", str(self.pins),
+        ])
+
+    def identity(self, args):
+        from parcel_lineage_to_silver import derivation_run_id, input_provenance, validate_args
+
+        with mock.patch("parcel_lineage_to_silver.assert_catalog_env"):
+            inputs = validate_args(args)
+        return derivation_run_id(input_provenance(args, inputs, "2099-09-01"))
+
+    def test_different_history_window_cannot_reuse_the_recorded_append(self):
+        args = self.args()
+        original = self.identity(args)
+        args.from_date = "2099-05-01"
+        self.assertNotEqual(original, self.identity(args))
+
+    def test_changed_ownership_evidence_cannot_reuse_the_recorded_append(self):
+        args = self.args()
+        with TemporaryDirectory() as directory:
+            evidence = Path(directory) / "old.jsonl"
+            args.ownership_old_jsonl = str(evidence)
+            row = {"pnu": pnu(OLD_A, 1), "owner_kind": "01", "co_owner_count": "0"}
+            evidence.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            original = self.identity(args)
+            row["owner_kind"] = "02"
+            evidence.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            self.assertNotEqual(original, self.identity(args))
 
 
 class CodeSnapshotLoaderTest(unittest.TestCase):

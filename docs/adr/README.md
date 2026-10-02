@@ -138,3 +138,15 @@ last_reviewed: 2026-07-28
 - [0124 — 배포는 모든 레이크하우스 표를 계약에 맞춘다](./0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md)
 
 - [0125 — 호실의 건물 연결은 원천 부모 키와 근거를 함께 갖는다](./0125-unit-building-links-require-source-parent-key-evidence.md)
+
+- [ADR 0127: 층 자료의 DuckDB 임시 처리는 정규화와 공통 자원 계약을 보존한다](./0127-floor-duckdb-staging-preserves-normalization-and-native-resource-contracts.md)
+
+- [ADR 0128: 층 입력은 Bronze 원장에, 재시도 시각은 실제 적재 커밋에 묶는다](./0128-floor-inputs-bind-to-bronze-and-scalar-retries-bind-to-their-append.md)
+
+- [ADR 0129: 작업용 Spark는 종료되고 메모리 예산은 실제 실행 형태를 센다](./0129-compute-memory-counts-one-shot-spark-and-native-contracts.md)
+
+- [ADR-0130 — 필지·건물 조회자료는 입력 판 전체를 고정한다](./0130-panel-input-snapshots-are-complete-and-bound-before-spark.md)
+
+- [ADR-0131 — 지번 연결은 실제로 읽은 모든 입력에 묶는다](./0131-parcel-lineage-binds-every-input-and-derivation-identity.md)
+
+- [ADR-0132 — 새 버전은 켜져 있던 자동작업을 조용히 제거하지 않는다](./0132-release-activation-preserves-enabled-job-identities.md)

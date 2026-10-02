@@ -420,9 +420,8 @@ rewrite 실행은 후속 infra worker 가 담당한다.
 R2 Data Catalog credential 이 없어도 Bronze -> Silver 변환 계약은 로컬 Docker Spark 로 검증한다.
 
 ```bash
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch up -d spark
-docker exec -it foundation-platform-spark spark-submit \
-  /opt/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py
+docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm spark spark-submit \
+  /workspace/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py
 ```
 
 이 smoke 는 Bronze JSONL fixture 를 읽고 `silver.industrial_complexes` column order, required field,
@@ -464,8 +463,8 @@ Live Iceberg write 는 dedicated smoke table 로 먼저 검증한다. Live R2/Ic
 주입한 뒤 같은 Spark job 을 live write 모드로 실행한다.
 
 ```bash
-docker exec -it foundation-platform-spark spark-submit \
-  /opt/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py --live-write
+docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm spark spark-submit \
+  /workspace/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py --live-write
 ```
 
 기본 table 은 `silver.industrial_complexes_smoke` 이며, canonical

@@ -4,6 +4,19 @@
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
   "jobs": [
     {
+      "id": "building_register_floor",
+      "description": "최신 complete Bronze FLOOR/title pair를 매일 재확인하고 FLOOR Silver 적재를 재시도한다. source_sweep의 신규 수집 건수와 독립적이다.",
+      "systemd_service": "foundation-building-register-floor.service",
+      "systemd_timer": "foundation-building-register-floor.timer",
+      "schedule": "20 8 * * *",
+      "timeout_minutes": 250,
+      "pool": "spark",
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-floors"
+      ],
+      "enabled": true
+    },
+    {
       "id": "source_sweep",
       "description": "Daily source sweep: re-plan the provider list, skip files already held by fingerprint, land new ones in Bronze (root ADR-0077).",
       "systemd_service": "foundation-source-sweep.service",

@@ -1456,11 +1456,8 @@ fn repo_root() -> PathBuf {
 /// long builds; the captured stdout is echoed the moment the command ends, so
 /// CI logs lose nothing.
 fn cargo_capturing_stdout(area_dir: &Path, args: &[&str]) -> Result<String, String> {
-    let mut command = Command::new("cargo");
+    let mut command = cargo_command(area_dir, args);
     command
-        .current_dir(area_dir)
-        .env("SQLX_OFFLINE", "true")
-        .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit());
     let rendered = format!("{command:?}");
@@ -1629,12 +1626,43 @@ fn run_reporting(command: &mut Command) -> Result<(), String> {
 /// database. The exiting form this replaced is gone: every caller sat inside an authoritative gate,
 /// and a gate that exits on its first failure cannot obey ADR-0012 rule 1.
 fn cargo_reporting(area_dir: &Path, args: &[&str]) -> Result<(), String> {
+    run_reporting(&mut cargo_command(area_dir, args))
+}
+
+fn cargo_command(area_dir: &Path, args: &[&str]) -> Command {
     let mut command = Command::new("cargo");
     command
         .current_dir(area_dir)
         .env("SQLX_OFFLINE", "true")
         .args(args);
-    run_reporting(&mut command)
+    remove_parent_crate_metadata(&mut command);
+    command
+}
+
+fn remove_parent_crate_metadata(command: &mut Command) {
+    // `cargo run` injects xtask's crate metadata. Native build scripts can track
+    // those inherited values with rerun-if-env-changed, invalidating direct Cargo
+    // builds when the caller alternates. Keep user build/cache settings intact.
+    let keys: Vec<_> = std::env::vars_os()
+        .map(|(key, _)| key)
+        .chain(command.get_envs().map(|(key, _)| key.to_owned()))
+        .filter(|key| {
+            let key = key.to_string_lossy();
+            key.starts_with("CARGO_MANIFEST_")
+                || key.starts_with("CARGO_PKG_")
+                || key.starts_with("CARGO_BIN_EXE_")
+                || matches!(
+                    key.as_ref(),
+                    "CARGO_CRATE_NAME"
+                        | "CARGO_BIN_NAME"
+                        | "CARGO_PRIMARY_PACKAGE"
+                        | "CARGO_TARGET_TMPDIR"
+                )
+        })
+        .collect();
+    for key in keys {
+        command.env_remove(key);
+    }
 }
 
 fn fail_usage(message: &str) -> ! {
@@ -1645,6 +1673,86 @@ fn fail_usage(message: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_cargo_removes_only_parent_crate_metadata() {
+        let mut command = Command::new("cargo");
+        let metadata = [
+            "CARGO_MANIFEST_DIR",
+            "CARGO_MANIFEST_PATH",
+            "CARGO_PKG_NAME",
+            "CARGO_PKG_VERSION_MAJOR",
+            "CARGO_PKG_NEW_METADATA",
+            "CARGO_CRATE_NAME",
+            "CARGO_BIN_NAME",
+            "CARGO_PRIMARY_PACKAGE",
+            "CARGO_TARGET_TMPDIR",
+            "CARGO_BIN_EXE_example",
+        ];
+        let settings = [
+            "CARGO_TARGET_DIR",
+            "CARGO_PROFILE_DEV_DEBUG",
+            "CARGO_PROFILE_TEST_DEBUG",
+            "CARGO_NET_OFFLINE",
+            "CARGO_BUILD_JOBS",
+            "CARGO_INCREMENTAL",
+            "CARGO_HOME",
+            "RUSTFLAGS",
+            "CARGO",
+            "RUSTC_WRAPPER",
+            "CARGO_ENCODED_RUSTFLAGS",
+        ];
+        for key in metadata {
+            command.env(key, "parent-crate");
+        }
+        for key in settings {
+            command.env(key, "explicit-setting");
+        }
+        remove_parent_crate_metadata(&mut command);
+        let overrides: std::collections::BTreeMap<_, _> = command.get_envs().collect();
+        for key in metadata {
+            assert_eq!(
+                overrides.get(std::ffi::OsStr::new(key)),
+                Some(&None),
+                "{key}"
+            );
+        }
+        for key in settings {
+            assert_eq!(
+                overrides.get(std::ffi::OsStr::new(key)),
+                Some(&Some(std::ffi::OsStr::new("explicit-setting"))),
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn shared_cargo_command_keeps_arguments_directory_and_user_settings() {
+        let directory = Path::new("area-workspace");
+        let command = cargo_command(directory, &["test", "--locked", "--workspace"]);
+        assert_eq!(command.get_current_dir(), Some(directory));
+        assert_eq!(command.get_program(), "cargo");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["test", "--locked", "--workspace"]
+        );
+        let overrides: std::collections::BTreeMap<_, _> = command.get_envs().collect();
+        assert_eq!(
+            overrides.get(std::ffi::OsStr::new("SQLX_OFFLINE")),
+            Some(&Some(std::ffi::OsStr::new("true")))
+        );
+        for key in [
+            "CARGO_TARGET_DIR",
+            "CARGO_PROFILE_DEV_DEBUG",
+            "CARGO_NET_OFFLINE",
+            "CARGO_BUILD_JOBS",
+        ] {
+            assert!(
+                !overrides.contains_key(std::ffi::OsStr::new(key)),
+                "user setting {key} must stay inherited"
+            );
+        }
+    }
 
     /// An authoritative gate reports every failure, not the first one (ADR-0012 rule 1).
     ///

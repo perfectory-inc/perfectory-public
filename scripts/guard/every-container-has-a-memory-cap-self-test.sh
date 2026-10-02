@@ -100,4 +100,82 @@ expect_pass "a compose file under an outside_scope prefix"
 printf 'services:\n  proof:\n    image: fixture/proof:1\n' > "$fixture/local/compose.yaml"
 expect_fail "an uncapped service in a stack that never runs on the host"
 
+# The overlay's required parameter reads its one numeric source, never the caller's environment.
+write_parameter_fixture() {
+  write_contract 6g
+  write_stack "    mem_limit: 1g"
+  printf '{"execution_profile":{"memory_mib":1024}}\n' > "$fixture/tools/engine.json"
+  python3 - "$fixture" <<'PY'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+path = root / "tools/host-memory-budget.contract.json"
+contract = json.loads(path.read_text())
+contract["projects"][0]["files"].append("stack/compose.native.yml")
+contract["memory_parameters"] = {
+    "NATIVE_MEMORY_MIB": {"contract": "tools/engine.json", "json_path": ["execution_profile", "memory_mib"]}
+}
+path.write_text(json.dumps(contract))
+PY
+  write_parameter_overlay '${NATIVE_MEMORY_MIB:?native memory is required}m'
+}
+
+write_parameter_overlay() {
+  printf 'services:\n  api:\n    mem_limit: "%s"\n' "$1" > "$fixture/stack/compose.native.yml"
+}
+
+write_parameter_fixture
+export NATIVE_MEMORY_MIB=999999
+expect_pass "a required cap parameter resolved from its source contract instead of ambient environment"
+printf '{"execution_profile":{"memory_mib":3072}}\n' > "$fixture/tools/engine.json"
+expect_fail "the source contract increases the host total beyond physical memory"
+
+for source in '{}' '{"execution_profile":{"memory_mib":true}}' \
+  '{"execution_profile":{"memory_mib":0}}' '{"execution_profile":{"memory_mib":-1}}' \
+  '{"execution_profile":{"memory_mib":1.5}}' '{"execution_profile":{"memory_mib":"1024"}}' 'invalid-json'; do
+  printf '%s\n' "$source" > "$fixture/tools/engine.json"
+  expect_fail "a missing, non-positive or non-integer source memory value"
+done
+
+write_parameter_fixture
+export UNKNOWN_MEMORY=1024
+for interpolation in '${UNKNOWN_MEMORY:?required}m' '${NATIVE_MEMORY_MIB:-1024}m' \
+  '${NATIVE_MEMORY_MIB}m' '${NATIVE_MEMORY_MIB:?}m' '${NATIVE_MEMORY_MIB:?${OTHER}}m' \
+  '${NATIVE_MEMORY_MIB:?required}m extra'; do
+  write_parameter_overlay "$interpolation"
+  expect_fail "unsupported or unbound memory interpolation"
+done
+unset NATIVE_MEMORY_MIB UNKNOWN_MEMORY
+
+for defect in missing-file absolute escape symlink missing-path wrong-path-type wrong-binding-type extra-field wrong-map-type; do
+  write_parameter_fixture
+  python3 - "$fixture" "$defect" <<'PY'
+import json, pathlib, sys
+root, defect = pathlib.Path(sys.argv[1]), sys.argv[2]
+path = root / "tools/host-memory-budget.contract.json"
+contract = json.loads(path.read_text())
+binding = contract["memory_parameters"]["NATIVE_MEMORY_MIB"]
+if defect == "missing-file":
+    binding["contract"] = "tools/absent.json"
+elif defect == "absolute":
+    binding["contract"] = str(root / "tools/engine.json")
+elif defect == "escape":
+    binding["contract"] = "../engine.json"
+elif defect == "symlink":
+    (root / "tools/escape.json").symlink_to(root.parent)
+    binding["contract"] = "tools/escape.json"
+elif defect == "missing-path":
+    binding.pop("json_path")
+elif defect == "wrong-path-type":
+    binding["json_path"] = "execution_profile.memory_mib"
+elif defect == "wrong-binding-type":
+    contract["memory_parameters"]["NATIVE_MEMORY_MIB"] = 1024
+elif defect == "extra-field":
+    binding["fallback"] = 1024
+elif defect == "wrong-map-type":
+    contract["memory_parameters"] = []
+path.write_text(json.dumps(contract))
+PY
+  expect_fail "invalid memory parameter binding: $defect"
+done
+
 echo "OK $name"

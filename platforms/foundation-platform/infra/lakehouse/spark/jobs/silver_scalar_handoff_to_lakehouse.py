@@ -29,12 +29,21 @@ from lakehouse_engine import (
     iceberg_packages,
 )
 import lakehouse_object_store
-from lakehouse_ingest import append_batch_once
+from lakehouse_ingest import (
+    MAX_BATCH_SOURCE_RECORDS,
+    append_batch_once,
+    batch_load_identities,
+    identities_under_derivation,
+    read_ingested_objects,
+    read_recorded_append,
+    unquoted_table_name,
+)
 from platform_contracts import (
     column_names,
     columns,
     create_table_columns_sql,
     load_lakehouse_contract,
+    load_unit,
     partition_clause_sql,
     partition_spec_sql,
     required_column_names,
@@ -101,6 +110,11 @@ def parse_args() -> argparse.Namespace:
         choices=("append", "overwrite"),
         default="append",
         help="How candidate rows are written to the Iceberg table.",
+    )
+    parser.add_argument(
+        "--derivation",
+        default=None,
+        help="Optional name for a changed derivation of the same source object (append only).",
     )
     parser.add_argument(
         "--iceberg-packages",
@@ -194,6 +208,11 @@ def resolve_iceberg_table(args: argparse.Namespace) -> str:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    derivation = getattr(args, "derivation", None)
+    if derivation is not None:
+        identities_under_derivation((), derivation)
+        if args.write_mode != "iceberg" or args.iceberg_write_mode != "append":
+            raise ValueError("--derivation requires --write-mode=iceberg and --iceberg-write-mode=append")
     if args.input_file_batch_size < 0:
         raise ValueError("--input-file-batch-size must be zero or greater")
     if args.input_file_batch_size > 0 and args.write_mode != "iceberg":
@@ -721,6 +740,11 @@ def write_silver_iceberg(
     files this commit produces, and the append below writes whatever frame it is handed.
     """
     write_mode = iceberg_write_mode or args.iceberg_write_mode
+    derivation = getattr(args, "derivation", None)
+    if derivation is not None:
+        identities_under_derivation((), derivation)
+        if write_mode != "append":
+            raise ValueError("--derivation requires an append Iceberg write")
     if "append_only" in contract.get("quality_gates", []) and write_mode != "append":
         raise ValueError(f"{contract['table_name']} is append-only")
     create_iceberg_table_if_missing(spark, args, contract)
@@ -737,6 +761,7 @@ def write_silver_iceberg(
         qualified_iceberg_table(args),
         args.contract,
         write_mode=write_mode,
+        derivation=derivation,
     )
 
 
@@ -765,51 +790,166 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
 
 
 
-def load_identity_column(contract: dict[str, Any]) -> str:
-    """The column the contract declares one load is identified by (root ADR-0069).
-
-    Read-back verification must count exactly the rows this run's inputs identify. The old
-    hardcoded `source_snapshot_id` was only correct for run-unit contracts; an object-unit
-    national extract shares one snapshot across every object, so the second object's
-    verification counted the first object's rows too and failed on its own success.
-    """
-    load = contract.get("load")
-    column = (load or {}).get("column")
-    if not column:
+def collect_readback_pairs(frame: Any) -> list[tuple[str, datetime]]:
+    """Bound the exact extract/time keys before a write can need readback (ADR-0120)."""
+    rows = frame.select("source_snapshot_id", "ingested_at_utc").distinct().limit(
+        MAX_BATCH_SOURCE_RECORDS + 1
+    ).collect()
+    if not rows:
+        raise ValueError("Cannot verify Iceberg write because the batch has no readback pairs")
+    if len(rows) > MAX_BATCH_SOURCE_RECORDS:
         raise ValueError(
-            f"contract {contract.get('table_name')} declares no load identity column to verify by"
+            f"Iceberg write verification supports at most {MAX_BATCH_SOURCE_RECORDS} "
+            "(source_snapshot_id, ingested_at_utc) pairs"
         )
-    return str(column)
+    pairs = []
+    for row in rows:
+        snapshot_id, ingested_at = row[0], row[1]
+        if not isinstance(snapshot_id, str) or not snapshot_id.strip():
+            raise ValueError("Iceberg readback requires a non-empty source_snapshot_id")
+        if not isinstance(ingested_at, datetime):
+            raise ValueError("Iceberg readback requires a valid non-null ingested_at_utc timestamp")
+        pairs.append((snapshot_id, ingested_at))
+    return pairs
 
 
 def read_iceberg_snapshot_for_batch(spark: Any, frame: Any, args: argparse.Namespace, contract: dict[str, Any], F: Any) -> Any:
-    column = load_identity_column(contract)
-    identity_rows = frame.select(column).distinct().limit(65).collect()
-    identity_values = [row[0] for row in identity_rows]
-    return read_iceberg_snapshot_for_identity_values(spark, identity_values, args, contract, F)
+    return read_iceberg_snapshot_for_pairs(
+        spark, collect_readback_pairs(frame), args, contract, F
+    )
 
 
-def read_iceberg_snapshot_for_identity_values(
+def read_iceberg_snapshot_for_pairs(
     spark: Any,
-    identity_values: Sequence[str],
+    pairs: Sequence[tuple[str, datetime]],
     args: argparse.Namespace,
     contract: dict[str, Any],
     F: Any,
 ) -> Any:
-    column = load_identity_column(contract)
-    values = sorted(set(identity_values))
-    if not values:
-        raise ValueError(f"Cannot verify Iceberg write because {column} is empty")
-    if len(values) > 64:
-        raise ValueError(
-            "Iceberg write verification supports at most 64 load identities; "
-            "pass --defer-iceberg-readback-validation for a larger run"
-        )
     return (
         spark.table(qualified_iceberg_table(args))
-        .where(F.col(column).isin(values))
+        .where(readback_pair_predicate(pairs, F))
         .select(*column_names(contract))
     )
+
+
+def readback_pair_predicate(
+    pairs: Sequence[tuple[str, datetime]], F: Any, *, at_or_after: bool = False,
+) -> Any:
+    exact_pairs = list(dict.fromkeys(pairs))
+    if not exact_pairs:
+        raise ValueError("Cannot verify Iceberg write because the batch has no readback pairs")
+    if len(exact_pairs) > MAX_BATCH_SOURCE_RECORDS:
+        raise ValueError(
+            f"Iceberg write verification supports at most {MAX_BATCH_SOURCE_RECORDS} "
+            "(source_snapshot_id, ingested_at_utc) pairs"
+        )
+    predicate = None
+    for snapshot_id, ingested_at in exact_pairs:
+        if not isinstance(snapshot_id, str) or not snapshot_id.strip() or not isinstance(ingested_at, datetime):
+            raise ValueError("Iceberg readback requires a valid source snapshot and timestamp pair")
+        time_column = F.col("ingested_at_utc")
+        time_match = time_column >= ingested_at if at_or_after else time_column == ingested_at
+        match = (F.col("source_snapshot_id") == snapshot_id) & time_match
+        predicate = match if predicate is None else predicate | match
+    return predicate
+
+
+def validate_batch_ingestion_time(
+    spark: Any, frame: Any, pairs: Sequence[tuple[str, datetime]],
+    args: argparse.Namespace, F: Any,
+) -> None:
+    """Retries retain their commit time; a new derivation must become the newest version."""
+    derivation = getattr(args, "derivation", None)
+    table = qualified_iceberg_table(args)
+    unquoted = unquoted_table_name(table)
+    if not spark.catalog.tableExists(unquoted):
+        return
+    ids = identities_under_derivation(batch_load_identities(frame, args.contract), derivation)
+    ingested = read_ingested_objects(spark, table, unquoted)
+    if all(identity in ingested for identity in ids):
+        if not recorded_input_times_match(
+            spark, table, {ingested[identity] for identity in ids}, frame, args.contract
+        ):
+            raise ValueError("Retry timestamp does not belong to this derivation's recorded append")
+        return
+    if derivation is None:
+        return
+    existing = spark.table(table).where(
+        readback_pair_predicate(pairs, F, at_or_after=True)
+    ).limit(1).count()
+    if existing:
+        raise ValueError(
+            "A new derivation must use a new ingested_at_utc timestamp; "
+            "the timestamp must be later than all stored versions of this source snapshot"
+        )
+
+
+
+def recorded_input_times_match(
+    spark: Any, table: str, snapshot_ids: set[int], frame: Any, contract_name: str,
+) -> bool:
+    """Authenticate retained times with the exact commit already named by the ingest registry.
+
+    Iceberg incremental reads select the parent-exclusive/commit-inclusive append; reading a
+    whole historical snapshot would include older derivations and accept their timestamps.
+    No second registry or metadata property is written.
+    """
+    load_column = load_unit(contract_name)["column"]
+    key_columns = list(dict.fromkeys([load_column, "source_snapshot_id", "ingested_at_utc"]))
+    requested = frame.select(*key_columns).distinct()
+    recorded = None
+    for snapshot_id in sorted(snapshot_ids):
+        committed = read_recorded_append(spark, table, snapshot_id).select(*key_columns).distinct()
+        recorded = committed if recorded is None else recorded.unionByName(committed)
+    if recorded is None:
+        raise ValueError("Cannot authenticate retry without its recorded append")
+    # Keep load identity attached to time throughout comparison. A union of time pairs
+    # alone would accept A/B exchanging timestamps when they share one source snapshot.
+    return requested.join(recorded, on=key_columns, how="left_anti").limit(1).count() == 0
+
+def preflight_file_batches(
+    spark: Any, batches: Sequence[Sequence[str]], args: argparse.Namespace,
+    contract: dict[str, Any], F: Any, T: Any,
+) -> list[tuple[str, datetime]]:
+    """Reject a split load identity before any of its file batches can be committed."""
+    seen_identities: set[str] = set()
+    seen_pairs: set[tuple[str, datetime]] = set()
+    pairs: list[tuple[str, datetime]] = []
+    for batch in batches:
+        handoff = read_handoff(spark, batch, contract, args.input_format, T)
+        frame = (
+            cast_handoff_frame(handoff, contract, F)
+            if args.input_format == "jsonl"
+            else handoff.select(*column_names(contract))
+        )
+        identities = set(batch_load_identities(frame, args.contract))
+        repeated = identities & seen_identities
+        if repeated:
+            raise ValueError(
+                "Input file batches split one load identity; append-once would skip later "
+                f"chunks: {sorted(repeated)[:4]}"
+            )
+        seen_identities.update(identities)
+        batch_pairs = collect_readback_pairs(frame)
+        if not args.defer_iceberg_readback_validation:
+            repeated_pairs = set(batch_pairs) & seen_pairs
+            if repeated_pairs:
+                raise ValueError(
+                    "Input file batches share a readback pair; verification cannot isolate "
+                    "their rows. Use one logical input batch or distinct timestamps."
+                )
+            seen_pairs.update(batch_pairs)
+            pairs.extend(batch_pairs)
+            if len(seen_pairs) > MAX_BATCH_SOURCE_RECORDS:
+                raise ValueError(
+                    f"Iceberg write verification supports at most {MAX_BATCH_SOURCE_RECORDS} "
+                    "(source_snapshot_id, ingested_at_utc) pairs"
+                )
+        validate_batch_ingestion_time(
+            spark, frame, batch_pairs, args, F
+        )
+    return pairs
 
 
 def run_batched_input(
@@ -821,10 +961,13 @@ def run_batched_input(
     StorageLevel: Any,
 ) -> int:
     batches = collect_input_batches(args.input, args.input_file_batch_size, args.input_format)
+    readback_pairs = (
+        preflight_file_batches(spark, batches, args, contract, F, T)
+        if not args.validate_only else []
+    )
     row_count = 0
     batch_metrics: list[dict[str, int]] = []
     source_snapshot_ids: list[str] = []
-    load_identity_values: list[str] = []
 
     for batch_index, batch in enumerate(batches):
         frame = None
@@ -844,11 +987,6 @@ def run_batched_input(
             source_snapshot_ids.extend(
                 collect_source_snapshot_summary(frame)["source_snapshot_ids"]
             )
-            identity_column = load_identity_column(contract)
-            load_identity_values.extend(
-                row[0] for row in frame.select(identity_column).distinct().collect()
-            )
-
             if not args.validate_only:
                 outcome = write_silver_iceberg(
                     spark,
@@ -897,9 +1035,9 @@ def run_batched_input(
         persisted_count = row_count
         persisted_quality_metrics = quality_metrics
     else:
-        persisted = read_iceberg_snapshot_for_identity_values(
+        persisted = read_iceberg_snapshot_for_pairs(
             spark,
-            load_identity_values,
+            readback_pairs,
             args,
             contract,
             F,
@@ -975,6 +1113,10 @@ def main() -> int:
             success_target = f"output={args.output}"
             success_label = "silver-scalar-handoff-write-ok"
         else:
+            readback_pairs = collect_readback_pairs(frame)
+            validate_batch_ingestion_time(
+                spark, frame, readback_pairs, args, F
+            )
             outcome = write_silver_iceberg(spark, frame, args, contract, F)
             if not outcome["appended"]:
                 print(
@@ -983,18 +1125,23 @@ def main() -> int:
                     f"snapshot={outcome['existing_snapshot']} "
                     f"objects={len(outcome['record_ids'])}"
                 )
-                return 0
             success_target = (
                 f"table={resolve_iceberg_namespace(args)}.{resolve_iceberg_table(args)}"
             )
-            success_label = "silver-scalar-handoff-iceberg-write-ok"
+            success_label = (
+                "silver-scalar-handoff-iceberg-write-ok"
+                if outcome["appended"]
+                else "silver-scalar-handoff-iceberg-already-ingested-validated"
+            )
 
         if args.write_mode == "iceberg" and args.defer_iceberg_readback_validation:
             persisted_count = row_count
             persisted_quality_metrics = quality_metrics
         else:
             if args.write_mode == "iceberg":
-                persisted = read_iceberg_snapshot_for_batch(spark, frame, args, contract, F)
+                persisted = read_iceberg_snapshot_for_pairs(
+                    spark, readback_pairs, args, contract, F
+                )
             persisted_count, persisted_quality_metrics = validate_frame(
                 persisted,
                 contract,

@@ -1,7 +1,10 @@
 import sys
 import unittest
+from contextlib import ExitStack
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
 
 
 JOBS_DIR = Path(__file__).resolve().parents[1] / "jobs"
@@ -10,17 +13,24 @@ sys.path.insert(0, str(JOBS_DIR))
 from silver_scalar_handoff_to_lakehouse import (  # noqa: E402
     build_run_summary,
     cluster_frame_for_iceberg_write,
+    collect_readback_pairs,
     collect_input_batches,
     default_iceberg_target,
+    validate_batch_ingestion_time,
     handoff_storage_level,
     iceberg_write_mode_for_input_batch,
     merge_quality_metrics,
+    main,
+    parse_args,
     read_handoff_jsonl,
     read_handoff_parquet,
+    read_iceberg_snapshot_for_batch,
+    read_iceberg_snapshot_for_pairs,
     run_summary_disposition,
     should_skip_spark_stop_after_success,
     simple_parquet_partition_columns,
     source_snapshot_summary_from_ids,
+    preflight_file_batches,
     validate_args,
     write_silver_iceberg,
 )
@@ -28,6 +38,233 @@ from platform_contracts import load_lakehouse_contract  # noqa: E402
 
 
 class SilverScalarHandoffToLakehouseTest(unittest.TestCase):
+    def test_derivation_defaults_to_none_and_invalid_modes_or_labels_fail_before_write(self) -> None:
+        with patch.object(sys, "argv", [
+            "silver_scalar_handoff_to_lakehouse", "--input", "/tmp/input",
+            "--contract", "silver.building_register_floors",
+        ]):
+            self.assertIsNone(parse_args().derivation)
+        args = FakeArgs(
+            input="/tmp/input", contract="silver.building_register_floors",
+            write_mode="parquet", output="/tmp/output", input_file_batch_size=0,
+            defer_iceberg_readback_validation=False, summary_output=None,
+        )
+        self.assertIsNone(getattr(args, "derivation", None))
+        args.derivation = "floor-rules-2026-10"
+        with self.assertRaisesRegex(ValueError, "requires --write-mode=iceberg"):
+            validate_args(args)
+        args.write_mode = "iceberg"
+        args.iceberg_write_mode = "overwrite"
+        with self.assertRaisesRegex(ValueError, "requires --write-mode=iceberg"):
+            validate_args(args)
+        args.iceberg_write_mode = "append"
+        for label in ("", "bad@label", "bad,label"):
+            args.derivation = label
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, "derivation label"):
+                validate_args(args)
+
+    def test_iceberg_write_forwards_derivation_without_changing_source_rows(self) -> None:
+        contract = load_lakehouse_contract("silver.building_register_units")
+        args = FakeArgs(
+            contract="silver.building_register_units", iceberg_catalog_name="r2",
+            iceberg_namespace="silver", iceberg_table="building_register_units",
+            iceberg_write_mode="append", derivation="floor-rules-2026-10",
+        )
+        spark = FakeIcebergSpark(tuple(column["name"] for column in contract["columns"]))
+        frame = FakeIcebergFrame()
+        with patch(
+            "silver_scalar_handoff_to_lakehouse.append_batch_once",
+            return_value={"appended": True},
+        ) as append:
+            write_silver_iceberg(spark, frame, args, contract, FakeFunctions)
+        self.assertEqual(append.call_args.kwargs["derivation"], "floor-rules-2026-10")
+        self.assertEqual(append.call_args.kwargs["write_mode"], "append")
+        self.assertEqual(frame.record_ids, ("bronze/source=x/a.zip",))
+
+    def test_readback_matches_exact_snapshot_timestamp_pairs(self) -> None:
+        first = datetime(2026, 10, 1, 1)
+        second = datetime(2026, 10, 1, 2)
+        frame = PairFrame([("snapshot-a", first), ("snapshot-b", second)])
+        spark = PairSpark([
+            ("snapshot-a", first), ("snapshot-b", second),
+            ("snapshot-a", second), ("snapshot-b", first),
+            ("snapshot-a", datetime(2026, 9, 1, 1)),
+        ])
+        args = FakeArgs(contract="silver.building_register_units",
+            iceberg_catalog_name="r2", iceberg_namespace="silver",
+            iceberg_table="building_register_units",
+        )
+        contract = {"table_name": "silver.building_register_units", "columns": [{"name": "unit_row_id"}]}
+        read = read_iceberg_snapshot_for_batch(spark, frame, args, contract, PairFunctions)
+        self.assertEqual(read.rows, [("snapshot-a", first), ("snapshot-b", second)])
+        self.assertEqual(
+            read_iceberg_snapshot_for_pairs(
+                spark, collect_readback_pairs(frame), args, contract, PairFunctions
+            ).rows,
+            read.rows,
+        )
+
+    def test_readback_rejects_null_timestamp_and_more_than_64_pairs(self) -> None:
+        with self.assertRaisesRegex(ValueError, "valid non-null ingested_at_utc"):
+            collect_readback_pairs(PairFrame([("snapshot-a", None)]))
+        with self.assertRaisesRegex(ValueError, "at most 64"):
+            collect_readback_pairs(PairFrame([
+                (f"snapshot-{index}", datetime(2026, 10, 1, 1))
+                for index in range(65)
+            ]))
+
+    def test_file_batch_preflight_rejects_split_load_before_any_write(self) -> None:
+        args = FakeArgs(
+            input_format="parquet", contract="silver.building_register_units",
+            defer_iceberg_readback_validation=False,
+        )
+        contract = load_lakehouse_contract("silver.building_register_units")
+        frame = PairFrame([("run-1", datetime(2026, 10, 1, 1))])
+        frame.source_snapshot_id = "run-1"
+        with patch(
+            "silver_scalar_handoff_to_lakehouse.read_handoff", return_value=frame
+        ), patch(
+            "silver_scalar_handoff_to_lakehouse.batch_load_identities", return_value=["run-1"]
+        ):
+            with self.assertRaisesRegex(ValueError, "split one load identity"):
+                preflight_file_batches(
+                    new_table_spark(), [["part-1"], ["part-2"]], args, contract,
+                    PairFunctions, object(),
+                )
+
+    def test_file_batch_preflight_rejects_shared_readback_pair_with_distinct_loads(self) -> None:
+        args = FakeArgs(
+            input_format="parquet", contract="silver.building_register_units",
+            defer_iceberg_readback_validation=False, derivation=None,
+        )
+        contract = load_lakehouse_contract(args.contract)
+        pair = ("same-snapshot", datetime(2026, 10, 1, 1))
+        with patch(
+            "silver_scalar_handoff_to_lakehouse.read_handoff",
+            side_effect=[PairFrame([pair]), PairFrame([pair])],
+        ), patch(
+            "silver_scalar_handoff_to_lakehouse.batch_load_identities",
+            side_effect=[["load-1"], ["load-2"]],
+        ):
+            with self.assertRaisesRegex(ValueError, "share a readback pair"):
+                preflight_file_batches(
+                    new_table_spark(), [["part-1"], ["part-2"]], args, contract,
+                    PairFunctions, object(),
+                )
+
+    def test_file_batch_preflight_bounds_total_pairs_before_writing(self) -> None:
+        args = FakeArgs(
+            input_format="parquet", contract="silver.building_register_units",
+            defer_iceberg_readback_validation=False, derivation=None,
+        )
+        contract = load_lakehouse_contract(args.contract)
+        batches = [
+            PairFrame([(f"snapshot-{offset + index}", datetime(2026, 10, 1, 1))
+                       for index in range(33)])
+            for offset in (0, 33)
+        ]
+        with patch(
+            "silver_scalar_handoff_to_lakehouse.read_handoff", side_effect=batches
+        ), patch(
+            "silver_scalar_handoff_to_lakehouse.batch_load_identities",
+            side_effect=[["load-1"], ["load-2"]],
+        ):
+            with self.assertRaisesRegex(ValueError, "at most 64"):
+                preflight_file_batches(
+                    new_table_spark(), [["part-1"], ["part-2"]], args, contract,
+                    PairFunctions, object(),
+                )
+
+    def test_new_derivation_rejects_old_timestamp_but_retry_keeps_it(self) -> None:
+        args = FakeArgs(
+            contract="silver.building_register_units", derivation="floor-rules-2026-10",
+            iceberg_catalog_name="r2", iceberg_namespace="silver",
+            iceberg_table="building_register_units",
+        )
+        pair = ("same-snapshot", datetime(2026, 10, 1, 1))
+        spark = MagicMock()
+        spark.catalog.tableExists.return_value = True
+        spark.table.return_value = PairSpark([pair])
+        with patch(
+            "silver_scalar_handoff_to_lakehouse.batch_load_identities",
+            return_value=["source-a"],
+        ), patch(
+            "silver_scalar_handoff_to_lakehouse.read_ingested_objects",
+            side_effect=[{}, {"source-a@floor-rules-2026-10": 42}],
+        ), patch("silver_scalar_handoff_to_lakehouse.recorded_input_times_match", return_value=True):
+            with self.assertRaisesRegex(ValueError, "new ingested_at_utc"):
+                validate_batch_ingestion_time(
+                    spark, object(), [pair], args, PairFunctions
+                )
+            validate_batch_ingestion_time(
+                spark, object(), [pair], args, PairFunctions
+            )
+
+    def test_retry_rejects_another_derivations_timestamp(self) -> None:
+        old = ("same-snapshot", datetime(2026, 10, 1, 1))
+        other = ("same-snapshot", datetime(2026, 10, 1, 2))
+        args = FakeArgs(contract="silver.building_register_units", derivation="rules-a",
+                        iceberg_catalog_name="r2", iceberg_namespace="silver",
+                        iceberg_table="building_register_units")
+        spark = MagicMock()
+        spark.catalog.tableExists.return_value = True
+        with patch("silver_scalar_handoff_to_lakehouse.batch_load_identities", return_value=["source-a"]), \
+             patch("silver_scalar_handoff_to_lakehouse.read_ingested_objects", return_value={"source-a@rules-a": 42}), \
+             patch("silver_scalar_handoff_to_lakehouse.recorded_input_times_match", return_value=False):
+            with self.assertRaisesRegex(ValueError, "does not belong"):
+                validate_batch_ingestion_time(spark, object(), [other], args, PairFunctions)
+
+    def test_skipped_single_append_still_validates_readback_and_emits_summary(self) -> None:
+        args = FakeArgs(
+            input="/tmp/input", input_format="parquet", input_file_batch_size=0,
+            contract="silver.building_register_units", write_mode="iceberg",
+            iceberg_write_mode="append", iceberg_catalog_name="r2",
+            iceberg_namespace="silver", iceberg_table="building_register_units",
+            validate_only=False, expected_count=None, summary_output="/tmp/summary.json",
+            defer_iceberg_readback_validation=False, derivation=None,
+        )
+        contract = load_lakehouse_contract(args.contract)
+        frame = MagicMock()
+        frame.persist.return_value = frame
+        spark = MagicMock()
+        pairs = [("snapshot-a", datetime(2026, 10, 1, 1))]
+        with ExitStack() as stack:
+            replacements = {
+                "parse_args": args,
+                "validate_args": None,
+                "load_lakehouse_contract": contract,
+                "validate_scalar_contract": None,
+                "load_pyspark": (object(), PairFunctions, object(), FakeStorageLevel),
+                "build_spark_session": spark,
+                "read_handoff": frame,
+                "collect_source_snapshot_summary": source_snapshot_summary_from_ids(["snapshot-a"]),
+                "collect_readback_pairs": pairs,
+                "validate_batch_ingestion_time": None,
+                "write_silver_iceberg": {
+                    "appended": False, "token": "token", "existing_snapshot": 42,
+                    "record_ids": ["source-a"],
+                },
+                "read_iceberg_snapshot_for_pairs": frame,
+                "exit_after_success_if_requested": None,
+            }
+            mocks = {
+                name: stack.enter_context(
+                    patch(f"silver_scalar_handoff_to_lakehouse.{name}", return_value=value)
+                )
+                for name, value in replacements.items()
+            }
+            metrics = {"row_count": 2}
+            stack.enter_context(patch(
+                "silver_scalar_handoff_to_lakehouse.validate_frame",
+                side_effect=[(2, metrics), (2, metrics)],
+            ))
+            emit = stack.enter_context(patch(
+                "silver_scalar_handoff_to_lakehouse.emit_run_summary"
+            ))
+            self.assertEqual(main(), 0)
+        mocks["read_iceberg_snapshot_for_pairs"].assert_called_once()
+        self.assertEqual(emit.call_args.args[0]["persisted_row_count"], 2)
+        self.assertEqual(emit.call_args.args[1], "/tmp/summary.json")
     def test_default_iceberg_target_uses_contract_namespace_and_table(self) -> None:
         self.assertEqual(
             default_iceberg_target("silver.building_register_floors"),
@@ -584,6 +821,9 @@ def compact_sql_statements(statements: list[str]) -> str:
 class FakeArgs:
     def __init__(self, **values: str) -> None:
         self.input_format = "jsonl"
+        self.iceberg_catalog_name = "r2"
+        self.iceberg_namespace = None
+        self.iceberg_table = None
         self.__dict__.update(values)
 
 
@@ -608,6 +848,80 @@ class FakeFunctions:
     @staticmethod
     def pmod(left: str, right: str) -> str:
         return f"pmod({left},{right})"
+
+
+def new_table_spark():
+    spark = MagicMock()
+    spark.catalog.tableExists.return_value = False
+    return spark
+
+
+class PairFrame:
+    def __init__(self, rows: list[tuple[str, datetime | None]]) -> None:
+        self.rows = rows
+
+    def select(self, *_columns: str) -> "PairFrame":
+        return self
+
+    def distinct(self) -> "PairFrame":
+        return self
+
+    def limit(self, count: int) -> "PairFrame":
+        return PairFrame(self.rows[:count])
+
+    def collect(self) -> list[tuple[str, datetime | None]]:
+        return self.rows
+
+
+class PairPredicate:
+    def __init__(self, predicate: object) -> None:
+        self.predicate = predicate
+
+    def __and__(self, other: "PairPredicate") -> "PairPredicate":
+        return PairPredicate(lambda row: self.predicate(row) and other.predicate(row))
+
+    def __or__(self, other: "PairPredicate") -> "PairPredicate":
+        return PairPredicate(lambda row: self.predicate(row) or other.predicate(row))
+
+
+class PairColumn:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __eq__(self, value: object) -> PairPredicate:
+        index = {"source_snapshot_id": 0, "ingested_at_utc": 1}[self.name]
+        return PairPredicate(lambda row: row[index] == value)
+
+
+    def __ge__(self, value: object) -> PairPredicate:
+        index = {"source_snapshot_id": 0, "ingested_at_utc": 1}[self.name]
+        return PairPredicate(lambda row: row[index] >= value)
+
+
+class PairFunctions:
+    @staticmethod
+    def col(name: str) -> PairColumn:
+        return PairColumn(name)
+
+
+class PairSpark:
+    def __init__(self, rows: list[tuple[str, datetime]]) -> None:
+        self.rows = rows
+
+    def table(self, _name: str) -> "PairSpark":
+        return self
+
+    def where(self, predicate: PairPredicate) -> "PairSpark":
+        return PairSpark([row for row in self.rows if predicate.predicate(row)])
+
+    def select(self, *_columns: str) -> "PairSpark":
+        return self
+
+    def limit(self, count: int) -> "PairSpark":
+        return PairSpark(self.rows[:count])
+
+    def count(self) -> int:
+        return len(self.rows)
 
 
 class FakeClusterFrame:

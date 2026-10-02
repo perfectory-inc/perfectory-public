@@ -58,8 +58,8 @@ cd "$RELEASE" || { echo "릴리스 디렉터리 없음: $RELEASE" >&2; exit 1; }
 PACKAGES=$(python3 -c "
 import json, sys
 c = json.load(open('$RELEASE/infra/lakehouse/contracts/lakehouse-engine.contract.json'))
-if c['schema_version'] != 2:
-    sys.exit('engine contract schema_version %r is not the 2 this script reads' % c['schema_version'])
+if c['schema_version'] != 3:
+    sys.exit('engine contract schema_version %r is not the 3 this script reads' % c['schema_version'])
 # Every block the contract names. Reading only 'iceberg' would submit without the s3a
 # filesystem and the failure would be a job that cannot open its own input.
 print(','.join(

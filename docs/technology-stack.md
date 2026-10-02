@@ -53,6 +53,8 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 | C2 broker | Redpanda `v24.3.6` | Intelligence local/CI compose 전용 |
 | C2 schema registry | Karapace `6.2.0` | Intelligence local/CI compose 전용 |
 | Lakehouse compute | Spark `3.5.6`, Trino `481` | Foundation lakehouse Compose |
+| 층 자료 임시 그룹 처리 | DuckDB — 정확한 crate 버전은 [Foundation Cargo workspace](../platforms/foundation-platform/Cargo.toml)가 소유 | 기존 Rust 정규화에 완전한 건물 그룹을 전달. 영속 원장 아님. [ADR-0127](./adr/0127-floor-duckdb-staging-preserves-normalization-and-native-resource-contracts.md), 기존 Cargo 검증 경로에서 검사하며 운영 설치·실행은 별도 확인 |
+| Unix 입력 파일 열기 | [rustix](https://github.com/bytecodealliance/rustix) — 버전은 Foundation Cargo workspace/lockfile 소유 | 파일 교체 중에도 no-follow·nonblocking open을 보장. 직접 syscall/OS 숫자 상수를 만들지 않음 |
 | Lakehouse table/catalog | Iceberg Spark runtime `1.6.1`, R2 REST catalog 설정 | 자격증명 주입 시 실행; 기본 Compose는 shell |
 | SQL transform | dbt-trino project | 9개 model, staging/intermediate/silver만 존재 |
 | Observability | Prometheus `v3.5.0`, Alertmanager `v0.28.1`, tracing/OpenTelemetry/Sentry adapters | Compose/manifest 실행 경로 확인 |

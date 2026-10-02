@@ -205,7 +205,12 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # 105 -> 106: ADR-0125 embeds building-unit-handoff.json once in handoff_manifest_support.
 # Catalog, recovery and Gold validators share its relationship evidence policy; embedding
 # keeps the validator's policy bound to its binary instead of a caller-selected runtime file.
-COMPILE_TIME_READ_BASELINE="${3:-106}"
+# 106 -> 110: the FLOOR remote command test embeds the native Compose resource contract.
+# Three test helpers locate the shared synthetic JSON through their crate manifest directory:
+# history_witness, remote command fixtures, and the native Compose mount test. This keeps
+# Rust and Python on one synthetic witness instead of copying its operationally shaped fields.
+# The historical production witness stays external deployment data, never an embedded capture.
+COMPILE_TIME_READ_BASELINE="${3:-110}"
 
 cd "$repo_root"
 

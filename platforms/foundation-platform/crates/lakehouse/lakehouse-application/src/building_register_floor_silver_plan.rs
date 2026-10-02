@@ -15,6 +15,7 @@ use foundation_normalization_domain::{
     FloorRowEvidence, NormalizedBuildingRegisterFloor, RawBuildingRegisterFloor,
 };
 use lakehouse_domain::{LakehouseTableContract, SILVER_BUILDING_REGISTER_FLOORS};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -53,7 +54,7 @@ pub struct BuildingRegisterFloorSilverRowsInput<'a> {
 }
 
 /// Parsed source-side floor fields before deterministic normalization.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BuildingRegisterFloorSourceRow {
     /// Stable row-level source lineage id.
     pub source_record_id: String,
@@ -72,7 +73,7 @@ pub struct BuildingRegisterFloorSourceRow {
 }
 
 /// Silver `silver.building_register_floors` row prepared from one source row.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BuildingRegisterFloorSilverRow {
     /// Stable Silver row id.
     pub floor_row_id: String,
@@ -365,8 +366,6 @@ pub fn build_building_register_floor_normalization_proposal_input(
 pub fn build_building_register_floor_entity_context_pack_input(
     input: &BuildingRegisterFloorEntityContextPackInput<'_>,
 ) -> Result<BuildingRegisterFloorNormalizationProposalInput, BuildingRegisterFloorSilverPlanError> {
-    const SCHEMA_VERSION: &str = "foundation-platform.floor_entity_context_pack.v1";
-
     let mut rows_by_building = BTreeMap::<&str, Vec<&BuildingRegisterFloorSilverRow>>::new();
     for row in input.rows {
         rows_by_building
@@ -375,37 +374,70 @@ pub fn build_building_register_floor_entity_context_pack_input(
             .push(row);
     }
 
-    let records = input
+    let mut jsonl = Vec::new();
+    let mut proposal_count = 0;
+    for target_row in input
         .rows
         .iter()
         .filter(|row| row.normalization_status == "proposal_required")
-        .map(|target_row| {
-            let building_rows = rows_by_building
-                .get(target_row.mgm_bldrgst_pk.as_str())
-                .ok_or_else(|| {
-                    BuildingRegisterFloorSilverPlanError::InvalidInput(format!(
-                        "missing floor context rows for mgm_bldrgst_pk={}",
-                        target_row.mgm_bldrgst_pk
-                    ))
-                })?;
-            let context_pack =
-                floor_entity_context_pack_value(SCHEMA_VERSION, target_row, building_rows)?;
-            compact_json_line(&context_pack)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let jsonl = records.join("\n");
-    let jsonl = if jsonl.is_empty() {
-        String::new()
-    } else {
-        format!("{jsonl}\n")
-    };
+    {
+        let building_rows = rows_by_building
+            .get(target_row.mgm_bldrgst_pk.as_str())
+            .ok_or_else(|| {
+                BuildingRegisterFloorSilverPlanError::InvalidInput(format!(
+                    "missing floor context rows for mgm_bldrgst_pk={}",
+                    target_row.mgm_bldrgst_pk
+                ))
+            })?;
+        write_building_register_floor_entity_context_pack_line(
+            target_row,
+            building_rows,
+            &mut jsonl,
+        )?;
+        proposal_count += 1;
+    }
+    let jsonl = String::from_utf8(jsonl)
+        .map_err(|error| BuildingRegisterFloorSilverPlanError::InvalidInput(error.to_string()))?;
 
     Ok(BuildingRegisterFloorNormalizationProposalInput {
-        schema_version: SCHEMA_VERSION,
-        proposal_count: records.len() as u64,
+        schema_version: FLOOR_CONTEXT_PACK_SCHEMA_VERSION,
+        proposal_count,
         jsonl,
     })
+}
+
+const FLOOR_CONTEXT_PACK_SCHEMA_VERSION: &str = "foundation-platform.floor_entity_context_pack.v1";
+
+/// Writes one proposal context JSONL record using the same serializer as the aggregate API.
+/// The caller can provide a bounded writer to reject an oversized record during serialization.
+///
+/// # Errors
+/// Returns `BuildingRegisterFloorSilverPlanError` for invalid context or writer failure.
+pub fn write_building_register_floor_entity_context_pack_line(
+    target_row: &BuildingRegisterFloorSilverRow,
+    building_rows: &[&BuildingRegisterFloorSilverRow],
+    writer: &mut impl std::io::Write,
+) -> Result<(), BuildingRegisterFloorSilverPlanError> {
+    if building_rows.is_empty()
+        || building_rows
+            .iter()
+            .any(|row| row.mgm_bldrgst_pk != target_row.mgm_bldrgst_pk)
+        || !building_rows.contains(&target_row)
+    {
+        return Err(BuildingRegisterFloorSilverPlanError::InvalidInput(
+            "floor context must contain the target and only its building".to_owned(),
+        ));
+    }
+    let context_pack = floor_entity_context_pack_value(
+        FLOOR_CONTEXT_PACK_SCHEMA_VERSION,
+        target_row,
+        building_rows,
+    )?;
+    serde_json::to_writer(&mut *writer, &context_pack)
+        .map_err(|error| BuildingRegisterFloorSilverPlanError::InvalidInput(error.to_string()))?;
+    writer
+        .write_all(b"\n")
+        .map_err(|error| BuildingRegisterFloorSilverPlanError::InvalidInput(error.to_string()))
 }
 
 fn floor_entity_context_pack_value(

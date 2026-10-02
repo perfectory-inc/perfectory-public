@@ -21,19 +21,47 @@ CONTRACT_PATH_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_ENGINE_CONTRACT_PATH"
 DEFAULT_CONTRACT_PATH = (
     Path(__file__).resolve().parents[2] / "contracts" / "lakehouse-engine.contract.json"
 )
-CONTRACT_SCHEMA_VERSION = 2
+CONTRACT_SCHEMA_VERSION = 3
 
 
 def load_engine_contract() -> dict[str, Any]:
     path = Path(os.getenv(CONTRACT_PATH_ENV, str(DEFAULT_CONTRACT_PATH)))
     contract = json.loads(path.read_text(encoding="utf-8"))
     version = contract.get("schema_version")
-    if version != CONTRACT_SCHEMA_VERSION:
+    if type(version) is not int or version != CONTRACT_SCHEMA_VERSION:
         raise ValueError(
             f"unsupported lakehouse engine contract schema_version {version!r}; "
             f"expected {CONTRACT_SCHEMA_VERSION!r}"
         )
+    validate_native_policies(contract)
     return contract
+
+
+def validate_native_policies(contract: dict[str, Any]) -> None:
+    """Reject malformed budgets before constructing any native or Spark submission."""
+    fields = {
+        "execution_profile": {"memory_mib", "cpu_slots", "pids_limit", "swap_mib"},
+        "serving_parquet": {
+            "row_group_target_bytes", "max_row_group_bytes",
+            "row_group_check_min_records", "row_group_check_max_records",
+        },
+    }
+    for section, expected in fields.items():
+        values = contract.get(section)
+        if not isinstance(values, dict) or set(values) != expected:
+            raise ValueError(f"invalid {section} fields")
+        for key, value in values.items():
+            minimum = 0 if key == "swap_mib" else 1
+            if type(value) is not int or not minimum <= value < (1 << 31):
+                raise ValueError(f"invalid {section}.{key} integer budget")
+    profile = contract["execution_profile"]
+    if (profile["memory_mib"] < 2 or profile["swap_mib"] != 0
+            or profile["cpu_slots"] > profile["pids_limit"]):
+        raise ValueError("execution_profile violates the supported native physical envelope")
+    parquet = contract["serving_parquet"]
+    if (parquet["row_group_target_bytes"] >= parquet["max_row_group_bytes"]
+            or parquet["row_group_check_min_records"] > parquet["row_group_check_max_records"]):
+        raise ValueError("invalid serving Parquet writer/reader limits")
 
 
 def _version_tuple(value: str) -> tuple[int, ...]:

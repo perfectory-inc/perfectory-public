@@ -28,9 +28,35 @@ pub struct CompleteIngestionRunCommand {
     pub error_message: Option<String>,
 }
 
+/// One committed candidate from a source pair's latest complete provider month.
+#[derive(Clone, Debug)]
+pub struct BronzeMonthCandidate {
+    /// Source slug joined to the committed object's source catalog ID.
+    pub source_slug: String,
+    /// Committed Bronze metadata; an enclosing failed run does not invalidate it.
+    pub object: BronzeObject,
+}
+
 /// Read-only Bronze ingestion queries.
 #[async_trait]
 pub trait BronzeIngestRepository: Send + Sync {
+    /// Reads at most three candidates from the latest month containing both source roles.
+    ///
+    /// One database statement must choose the month and read its rows. Three rows signal
+    /// ambiguity; callers must not select a winner by collection time or UUID. A newer
+    /// incomplete month is skipped, while an ambiguous complete month is returned as such.
+    /// # Errors
+    /// Returns an infrastructure error when unsupported or when repository access fails.
+    async fn latest_complete_bronze_month_candidates(
+        &self,
+        _left_slug: &str,
+        _right_slug: &str,
+    ) -> Result<Vec<BronzeMonthCandidate>, CollectionError> {
+        Err(CollectionError::Infrastructure(
+            "latest complete Bronze month selection is unsupported".to_owned(),
+        ))
+    }
+
     /// Finds a source catalog entry by slug.
     ///
     /// # Errors

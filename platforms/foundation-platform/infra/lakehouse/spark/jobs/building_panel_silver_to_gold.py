@@ -22,6 +22,7 @@ from pyspark.sql import DataFrame, SparkSession, Window, functions as F, types a
 from pyspark.storagelevel import StorageLevel
 
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
+from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
 from platform_contracts import (column_names, create_table_columns_sql, current_row_predicate,
     evolve_iceberg_table_to_contract, load_lakehouse_contract, partition_clause_sql,
     partition_column_names, required_column_names, sort_order)
@@ -98,21 +99,12 @@ def validate_args(args):
         raise ValueError("Refusing non-smoke overwrite without --allow-non-smoke-overwrite")
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
         assert_catalog_env(args.iceberg_catalog_name)
-    if args.source_snapshots_path:
-        load_snapshot_pins(args)
+    return load_snapshot_pins(args)
 
 
 def load_snapshot_pins(args):
-    if not args.source_snapshots_path:
-        return {TITLE_SOURCE: str(int(args.iceberg_snapshot_id))} if args.input_mode == "iceberg" else {}
-    pins = json.loads(Path(args.source_snapshots_path).read_text(encoding="utf-8"))
-    if not isinstance(pins, dict) or set(pins) != set(ALL_SOURCES):
-        raise ValueError("--source-snapshots-path must name every Silver source exactly once")
-    if any(not re.fullmatch(r"[1-9][0-9]*", str(v)) for v in pins.values()):
-        raise ValueError("source snapshot IDs must be positive integers")
-    if str(pins[TITLE_SOURCE]) != args.iceberg_snapshot_id:
-        raise ValueError("title snapshot pin disagrees with --iceberg-snapshot-id")
-    return pins
+    return load_source_snapshot_pins(args.input_mode, args.source_snapshots_path,
+                                     ALL_SOURCES, TITLE_SOURCE, args.iceberg_snapshot_id)
 
 
 def read_source(spark, args, name, pins):
@@ -121,10 +113,8 @@ def read_source(spark, args, name, pins):
     if args.input_mode == "parquet":
         frame = spark.read.parquet(str(Path(args.input_root) / table))
     else:
-        reader = spark.read.format("iceberg")
-        if name in pins:
-            reader = reader.option("snapshot-id", str(pins[name]))
-        frame = reader.load(f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{table}")
+        frame = read_pinned_iceberg(spark,
+            f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{table}", name, pins)
     missing = set(column_names(contract)) - set(frame.columns)
     if missing:
         raise ValueError(f"{name} input is missing columns: {sorted(missing)}")
@@ -371,7 +361,7 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
 
 def main():
     args = parse_args()
-    validate_args(args)
+    pins = validate_args(args)
     args.published_at_utc = normalize_utc_timestamp(args.published_at_utc)
     builder = SparkSession.builder.appName(JOB_NAME).config("spark.sql.session.timeZone", "UTC")
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
@@ -382,7 +372,7 @@ def main():
         assert_iceberg_runtime_loaded(spark, args.iceberg_packages)
     gold = None
     try:
-        pins, frames, snapshots, counters = load_snapshot_pins(args), {}, {}, {}
+        frames, snapshots, counters = {}, {}, {}
         for name in ALL_SOURCES:
             frame = read_source(spark, args, name, pins)
             snapshots[name] = assert_single_snapshot(frame, name)
@@ -422,6 +412,7 @@ def main():
             "columns": list(GOLD_COLUMNS), "column_count": len(GOLD_COLUMNS), "required_columns": list(REQUIRED_GOLD_COLUMNS),
             "schema_evolution_added_columns": list(added), "source_snapshot_count": len(snapshots),
             "source_snapshot_ids": [snapshots[n] for n in sorted(snapshots)], "source_snapshots_by_dataset": snapshots,
+            "source_iceberg_snapshots_by_dataset": dict(sorted(pins.items())),
             "source_snapshot_truncated": False,
         }
         emit_json(summary, args.summary_output, "gold-building-panel-summary-json")

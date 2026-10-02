@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "purpose": "Single source of truth for the packages every lakehouse Spark job submits with. The Iceberg version lived in twelve files before this one existed, so raising it meant editing twelve places and nobody ever did: the deployment sat on 1.6.1 while five releases went by.",
   "iceberg": {
     "version": "1.11.0",
@@ -23,5 +23,17 @@
     "version": "3.5.6",
     "scala_binary_version": "2.12",
     "artifact_suffix_reason": "The Iceberg runtime artifact name embeds both, so the artifacts above are only valid for this pair."
+  },
+  "execution_profile": {
+    "memory_mib": 4096,
+    "cpu_slots": 2,
+    "pids_limit": 512,
+    "swap_mib": 0
+  },
+  "serving_parquet": {
+    "row_group_target_bytes": 8388608,
+    "max_row_group_bytes": 268435456,
+    "row_group_check_min_records": 1,
+    "row_group_check_max_records": 16
   }
 }

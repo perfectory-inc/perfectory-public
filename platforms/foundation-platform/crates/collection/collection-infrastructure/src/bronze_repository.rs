@@ -5,14 +5,17 @@ use collection_application::{
     bronze_catalog_recovery::{
         ApplyBronzeCatalogRecoveryCommand, BronzeCatalogRecoveryCatalogWriter,
     },
-    ports::{BronzeIngestRepository, BronzeIngestUnitOfWork, CompleteIngestionRunCommand},
+    ports::{
+        BronzeIngestRepository, BronzeIngestUnitOfWork, BronzeMonthCandidate,
+        CompleteIngestionRunCommand,
+    },
 };
 use collection_domain::{
     BronzeObject, CollectionError, IngestionRun, IngestionRunStatus, SchemaProfile,
     SourceCatalogEntry,
 };
 use foundation_shared_kernel::ids::{IngestionRunId, SourceCatalogId};
-use sqlx::{PgConnection, PgPool};
+use sqlx::{PgConnection, PgPool, Row};
 use uuid::Uuid;
 
 use crate::row_map::{
@@ -69,6 +72,53 @@ impl PgBronzeIngestUnitOfWork {
 
 #[async_trait]
 impl BronzeIngestRepository for PgBronzeIngestRepository {
+    async fn latest_complete_bronze_month_candidates(
+        &self,
+        left_slug: &str,
+        right_slug: &str,
+    ) -> Result<Vec<BronzeMonthCandidate>, CollectionError> {
+        if left_slug.is_empty() || right_slug.is_empty() || left_slug == right_slug {
+            return Err(CollectionError::Infrastructure(
+                "two distinct source slugs are required".to_owned(),
+            ));
+        }
+        // LIMIT 3 is an ambiguity sentinel, never a winner-selection tie breaker.
+        // A single SELECT gives the month decision and both roles one MVCC snapshot.
+        let rows = sqlx::query(
+            "WITH selected_month AS (
+                SELECT b.snapshot_date
+                FROM catalog.bronze_object b
+                JOIN catalog.source_catalog s ON s.id = b.source_catalog_id
+                WHERE s.slug IN ($1, $2)
+                GROUP BY b.snapshot_date
+                HAVING bool_or(s.slug = $1) AND bool_or(s.slug = $2)
+                ORDER BY b.snapshot_date DESC
+                LIMIT 1
+             )
+             SELECT b.*, s.slug AS selection_source_slug
+             FROM catalog.bronze_object b
+             JOIN catalog.source_catalog s ON s.id = b.source_catalog_id
+             WHERE s.slug IN ($1, $2)
+               AND b.snapshot_date = (SELECT snapshot_date FROM selected_month)
+             LIMIT 3",
+        )
+        .bind(left_slug)
+        .bind(right_slug)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| map_sqlx(&error))?;
+        rows.iter()
+            .map(|row| {
+                Ok(BronzeMonthCandidate {
+                    source_slug: row
+                        .try_get("selection_source_slug")
+                        .map_err(|error| map_sqlx(&error))?,
+                    object: row_to_bronze_object(row)?,
+                })
+            })
+            .collect()
+    }
+
     async fn find_source_catalog_by_slug(
         &self,
         slug: &str,

@@ -74,8 +74,9 @@ Bronze 모양 객체를 넣고 `wrangler dev --local`을 실행한다. manifest 
 ## Gold와 웹 계약 검증
 
 Gold 잡은 `infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py`다. 다섯 Silver 원천의
-단일 스냅숏과 자연키를 검증하고 PNU당 건물·층·호를 묶는다. `--source-snapshots-path`를
-사용하면 모든 원천 Iceberg 스냅숏을 JSON 파일로 고정한다. `--validate-only`에서도
+단일 스냅숏과 자연키를 검증하고 PNU당 건물·층·호를 묶는다. Iceberg 입력은 필수 인자
+`--source-snapshots-path`로 모든 원천 판을 고정한다. 필지와 같은 공통 해석기를 사용하고
+실행 요약에 실제 사용한 물리적 판을 별도로 남긴다. `--validate-only`에서도
 동일한 원천·샤드·품질 검증을 수행하고 쓰기만 생략한다.
 
 Foundation 디렉터리에서 기존 Python CI 스위트로 순수 계약을 검증한다. `cargo xtask verify

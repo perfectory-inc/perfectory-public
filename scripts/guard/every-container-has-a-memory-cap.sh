@@ -7,7 +7,8 @@
 # so one leak in any of them could take the database and every timer down with it (root ADR-0118
 # §6).
 #
-# The caps live in the compose files and nowhere else. tools/host-memory-budget.contract.json says
+# The caps live in compose, with required parameters bound to their numeric source contracts.
+# tools/host-memory-budget.contract.json says
 # which compose projects run on the host, with which profiles, and what the caps do not cover;
 # this guard reads both and adds them up. A compose file the contract does not place is a failure,
 # so a new stack cannot reach the host without a budget decision.
@@ -38,6 +39,8 @@ NAME = sys.argv[2]
 CONTRACT = "tools/host-memory-budget.contract.json"
 COMPOSE_NAME = re.compile(r"(?:docker-)?compose(?:[.-][a-z0-9_.-]+)?\.ya?ml")
 SIZE = re.compile(r"([0-9]+)([kmg])")
+PARAMETER_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
+REQUIRED_MEMORY = re.compile(r"\$\{([A-Z_][A-Z0-9_]*):\?[^${}\r\n]+\}([kmg])")
 UNIT = {"k": 1 << 10, "m": 1 << 20, "g": 1 << 30}
 SKIP_DIRS = {".git", "node_modules", "target", ".next", ".venv", "dist"}
 
@@ -47,6 +50,54 @@ errors: list[str] = []
 def size_of(raw: str) -> int | None:
     match = SIZE.fullmatch(raw.strip().strip("\"'").lower())
     return int(match.group(1)) * UNIT[match.group(2)] if match else None
+
+
+def memory_parameters(contract: dict) -> dict[str, int]:
+    """Resolve declared JSON object members, without evaluating environment or templates."""
+    bindings = contract.get("memory_parameters", {})
+    if not isinstance(bindings, dict):
+        errors.append(f"{CONTRACT}: memory_parameters must be an object")
+        return {}
+    values: dict[str, int] = {}
+    for name, binding in bindings.items():
+        try:
+            if not PARAMETER_NAME.fullmatch(name):
+                raise ValueError("invalid parameter name")
+            if not isinstance(binding, dict) or set(binding) != {"contract", "json_path"}:
+                raise ValueError("binding must contain only contract and json_path")
+            relative = binding["contract"]
+            if not isinstance(relative, str) or not relative or "\\" in relative or ":" in relative:
+                raise ValueError("contract must be a repository-relative POSIX path")
+            path = pathlib.PurePosixPath(relative)
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("contract path must not escape the repository")
+            source = (ROOT / path).resolve(strict=True)
+            if not source.is_relative_to(ROOT) or not source.is_file():
+                raise ValueError("contract must resolve to a file inside the repository")
+            keys = binding["json_path"]
+            if not isinstance(keys, list) or not keys or any(not isinstance(key, str) or not key for key in keys):
+                raise ValueError("json_path must be a nonempty array of object member names")
+            value = json.loads(source.read_text(encoding="utf-8"))
+            for key in keys:
+                if not isinstance(value, dict) or key not in value:
+                    raise ValueError(f"json_path member {key!r} is missing")
+                value = value[key]
+            if type(value) is not int or value <= 0:
+                raise ValueError("memory value must be a positive integer, not a boolean")
+            values[name] = value
+        except (OSError, ValueError, RuntimeError) as error:
+            errors.append(f"{CONTRACT}: memory_parameters[{name!r}]: {error}")
+    return values
+
+
+def memory_cap(raw: str, parameters: dict[str, int]) -> int | None:
+    literal = size_of(raw)
+    if literal is not None:
+        return literal
+    match = REQUIRED_MEMORY.fullmatch(raw.strip().strip("\"'"))
+    if match is None or match.group(1) not in parameters:
+        return None
+    return parameters[match.group(1)] * UNIT[match.group(2)]
 
 
 def gib(value: int) -> str:
@@ -150,6 +201,7 @@ if contract.get("schema_version") != 1:
     print(f"FAIL {NAME}: {CONTRACT} schema_version is not the 1 this guard reads", file=sys.stderr)
     sys.exit(1)
 
+parameters = memory_parameters(contract)
 host = contract["host"]
 physical = size_of(host["physical_memory"])
 reserved = size_of(host["host_reserved"])
@@ -171,11 +223,11 @@ for project, on_host in groups:
     services = project_services(project["files"], placed)
     jobs = {dependency for service in services.values() for dependency in service["waits_on_completion_of"]}
     for service_name, service in sorted(services.items()):
-        cap = size_of(service.get("mem_limit", ""))
+        cap = memory_cap(service.get("mem_limit", ""), parameters)
         if cap is None:
             where = service.get("file", project["files"][0])
             errors.append(
-                f"{where}: service {service_name} states no mem_limit like 512m or 4g"
+                f"{where}: service {service_name} states no valid literal or contract-bound required mem_limit"
                 f" (project {project['name']})"
             )
             continue

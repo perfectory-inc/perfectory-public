@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufWriter, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use arrow_array::{
@@ -7,130 +7,37 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
 use lakehouse_application::BuildingRegisterFloorSilverRow;
-use parquet::{arrow::ArrowWriter, basic::Compression, file::properties::WriterProperties};
 
 use super::{create_file_writer, prepare_clean_output_dir};
+use crate::bounded_parquet_writer::BoundedParquetWriter;
 
-const DEFAULT_BATCH_ROWS: usize = 8192;
+#[cfg(test)]
+mod tests;
 
-pub(crate) struct ParquetSilverRowWriter {
-    mode: ParquetOutputMode,
-    schema: Arc<Schema>,
-    batch_rows: usize,
-    buffer: Vec<BuildingRegisterFloorSilverRow>,
-    current_writer: Option<ArrowWriter<BufWriter<File>>>,
-    current_row_count: usize,
-    chunk_count: usize,
-}
-
-enum ParquetOutputMode {
-    Single(PathBuf),
-    Chunked { root: PathBuf, chunk_rows: usize },
+pub(super) struct ParquetSilverRowWriter {
+    inner: BoundedParquetWriter<BuildingRegisterFloorSilverRow>,
 }
 
 impl ParquetSilverRowWriter {
     pub(crate) fn new(path: PathBuf, chunk_rows: Option<usize>) -> Result<Self> {
-        if let Some(chunk_rows) = chunk_rows {
-            prepare_clean_output_dir(&path, "chunked Parquet")?;
-            return Ok(Self {
-                mode: ParquetOutputMode::Chunked {
-                    root: path,
-                    chunk_rows,
-                },
-                schema: Arc::new(build_schema()),
-                batch_rows: DEFAULT_BATCH_ROWS,
-                buffer: Vec::with_capacity(DEFAULT_BATCH_ROWS),
-                current_writer: None,
-                current_row_count: 0,
-                chunk_count: 0,
-            });
-        }
-
         Ok(Self {
-            mode: ParquetOutputMode::Single(path),
-            schema: Arc::new(build_schema()),
-            batch_rows: DEFAULT_BATCH_ROWS,
-            buffer: Vec::with_capacity(DEFAULT_BATCH_ROWS),
-            current_writer: None,
-            current_row_count: 0,
-            chunk_count: 0,
+            inner: BoundedParquetWriter::new(
+                path,
+                chunk_rows,
+                Arc::new(build_schema()),
+                rows_to_batch,
+                create_file_writer,
+                prepare_clean_output_dir,
+            )?,
         })
     }
 
     pub(crate) fn write_rows(&mut self, rows: &[BuildingRegisterFloorSilverRow]) -> Result<()> {
-        for row in rows {
-            self.ensure_writer()?;
-            self.buffer.push(row.clone());
-            self.current_row_count += 1;
-
-            if self.buffer.len() >= self.batch_rows || self.chunk_boundary_reached() {
-                self.flush_batch()?;
-            }
-            if self.chunk_boundary_reached() {
-                self.close_current_writer()?;
-            }
-        }
-        Ok(())
+        self.inner.write_rows(rows)
     }
 
     pub(crate) fn flush(&mut self) -> Result<()> {
-        self.flush_batch()?;
-        self.close_current_writer()
-    }
-
-    fn ensure_writer(&mut self) -> Result<()> {
-        if self.current_writer.is_some() {
-            return Ok(());
-        }
-
-        let path = match &self.mode {
-            ParquetOutputMode::Single(path) => path.clone(),
-            ParquetOutputMode::Chunked { root, .. } => {
-                self.chunk_count += 1;
-                self.current_row_count = 0;
-                root.join(format!("part-{:06}.parquet", self.chunk_count))
-            }
-        };
-        let writer = create_file_writer(&path)?;
-        let properties = WriterProperties::builder()
-            .set_compression(Compression::SNAPPY)
-            .build();
-        self.current_writer = Some(
-            ArrowWriter::try_new(writer, Arc::clone(&self.schema), Some(properties))
-                .with_context(|| format!("failed to create Parquet writer {}", path.display()))?,
-        );
-        Ok(())
-    }
-
-    fn chunk_boundary_reached(&self) -> bool {
-        matches!(
-            self.mode,
-            ParquetOutputMode::Chunked { chunk_rows, .. } if self.current_row_count >= chunk_rows
-        )
-    }
-
-    fn flush_batch(&mut self) -> Result<()> {
-        if self.buffer.is_empty() {
-            return Ok(());
-        }
-        let batch = rows_to_batch(&self.buffer, Arc::clone(&self.schema))?;
-        let writer = self
-            .current_writer
-            .as_mut()
-            .context("Parquet writer is not open")?;
-        writer
-            .write(&batch)
-            .context("failed to write Parquet batch")?;
-        self.buffer.clear();
-        Ok(())
-    }
-
-    fn close_current_writer(&mut self) -> Result<()> {
-        self.flush_batch()?;
-        if let Some(writer) = self.current_writer.take() {
-            writer.close().context("failed to close Parquet writer")?;
-        }
-        Ok(())
+        self.inner.flush()
     }
 }
 
