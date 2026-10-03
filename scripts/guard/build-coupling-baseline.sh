@@ -213,7 +213,9 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # 110 -> 111: root ADR-0133 §4's first-release equivalence gate embeds
 # config/tile-equivalence.contract.json beside the tile-bake contract, for the same reason:
 # the sample a bake compared is part of the binary that compared it.
-COMPILE_TIME_READ_BASELINE="${3:-111}"
+# 111 -> 110: root ADR-0141 reads both by-PNU gateway blocks through one module
+# (by_pnu_gateway_contract.rs) instead of one embedding of the R2 contract per lane.
+COMPILE_TIME_READ_BASELINE="${3:-110}"
 
 cd "$repo_root"
 

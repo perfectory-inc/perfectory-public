@@ -1,13 +1,33 @@
 import connectionContract from "../../../config/r2-connections.contract.json";
 
 const policy = connectionContract.parcel_by_pnu_gateway;
+const patchPolicy = connectionContract.by_pnu_serving_patches;
+const UNIT = "parcel-by-pnu";
+/// The manifest schemas this Worker resolves (root ADR-0141 §4). The publisher asks for this list
+/// at `request_path.capabilities` before it writes the first manifest of a newer schema.
+const MANIFEST_SCHEMA_VERSIONS = [1, 2] as const;
 const pnuPattern = new RegExp(`^(?:${policy.object_key.pnu_pattern})$`);
+const prefixPattern = new RegExp(`^[0-9]{${patchPolicy.pnu_prefix_length}}$`);
 // A synthetic cache identity for the parsed manifest: the manifest's own R2 key is not a public
 // URL of this Worker, and caching under a request URL would let a client shape the cache.
 const manifestCacheUrl = "https://foundation-parcel-gateway.invalid/serving-manifest";
 
 interface Env {
   [binding: string]: string | Pick<R2Bucket, "get">;
+}
+
+interface ServingPatch {
+  generation: number;
+  prefixes: ReadonlySet<string>;
+}
+
+/// What one manifest serves: a base generation and its patches, newest first.
+interface ServingPlan {
+  base: number;
+  patches: readonly ServingPatch[];
+  /// Names the served state in the per-PNU edge cache key, so a new patch or base never answers
+  /// from a response cached under the previous one.
+  fingerprint: string;
 }
 
 function canonicalPnu(url: URL): string | null {
@@ -74,39 +94,64 @@ function objectHeaders(object: R2Object): Headers {
   });
 }
 
-/// The pointer is an outage boundary, not a data boundary: a parcel that was never baked is a
-/// 404, but a manifest that cannot be read or does not validate means the whole lane is not
-/// serving, and that must surface as 503 rather than as forty million spurious 404s.
-function parseManifestGeneration(raw: unknown): number | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const manifest = raw as Record<string, unknown>;
-  if (manifest.schema_version !== 1 || manifest.unit !== "parcel-by-pnu") return null;
-  const generation = manifest.current_generation;
-  if (typeof generation !== "number" || !Number.isSafeInteger(generation) || generation < 1) {
-    return null;
-  }
-  return generation;
+function isGeneration(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
 
-async function resolveGeneration(
+/// The pointer is an outage boundary, not a data boundary: a parcel that was never baked is a
+/// 404, but a manifest that cannot be read or does not validate means the whole lane is not
+/// serving, and that must surface as 503 rather than as forty million spurious 404s. A v1
+/// manifest is a base with no patches.
+function parseManifest(raw: unknown): ServingPlan | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const manifest = raw as Record<string, unknown>;
+  if (manifest.unit !== UNIT) return null;
+  if (manifest.schema_version === 1) {
+    if (!isGeneration(manifest.current_generation)) return null;
+    return { base: manifest.current_generation, patches: [], fingerprint: `v${manifest.current_generation}` };
+  }
+  if (manifest.schema_version !== 2 || !isGeneration(manifest.base_generation)) return null;
+  if (!Array.isArray(manifest.patches) || manifest.patches.length > patchPolicy.max_patches) return null;
+  const patches: ServingPatch[] = [];
+  for (const entry of manifest.patches as unknown[]) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const { generation, prefixes } = entry as Record<string, unknown>;
+    if (!isGeneration(generation)) return null;
+    const previous = patches.at(-1);
+    if (previous !== undefined && previous.generation <= generation) return null;
+    if (!Array.isArray(prefixes) || prefixes.length === 0) return null;
+    if (!prefixes.every((prefix) => typeof prefix === "string" && prefixPattern.test(prefix))) {
+      return null;
+    }
+    patches.push({ generation, prefixes: new Set(prefixes as string[]) });
+  }
+  const newest = patches[0];
+  return {
+    base: manifest.base_generation,
+    patches,
+    fingerprint: newest === undefined ? `v${manifest.base_generation}` : `v${manifest.base_generation}p${newest.generation}`,
+  };
+}
+
+async function resolvePlan(
   bucket: Pick<R2Bucket, "get">,
   ctx: ExecutionContext,
-): Promise<number | null> {
+): Promise<ServingPlan | null> {
   const cached = await caches.default.match(manifestCacheUrl);
   if (cached !== undefined) {
-    const generation = parseManifestGeneration(await cached.json().catch(() => null));
-    if (generation !== null) return generation;
+    const plan = parseManifest(await cached.json().catch(() => null));
+    if (plan !== null) return plan;
   }
   const object = await bucket.get(policy.object_key.manifest_object);
   if (object === null || !("body" in object)) return null;
   const text = await object.text();
-  let generation: number | null = null;
+  let plan: ServingPlan | null = null;
   try {
-    generation = parseManifestGeneration(JSON.parse(text));
+    plan = parseManifest(JSON.parse(text));
   } catch {
-    generation = null;
+    plan = null;
   }
-  if (generation === null) return null;
+  if (plan === null) return null;
   const response = new Response(text, {
     headers: {
       "Cache-Control": `max-age=${policy.manifest_edge_cache_seconds}`,
@@ -114,7 +159,70 @@ async function resolveGeneration(
     },
   });
   ctx.waitUntil(caches.default.put(manifestCacheUrl, response));
-  return generation;
+  return plan;
+}
+
+/// The edge cache identity of one PNU's answer under one served state.
+function servingCacheUrl(requestUrl: string, plan: ServingPlan): string {
+  const url = new URL(requestUrl);
+  url.searchParams.set("serving", plan.fingerprint);
+  return url.toString();
+}
+
+type Found =
+  | { kind: "object"; object: R2Object | R2ObjectBody; body?: string }
+  | { kind: "deleted" }
+  | { kind: "absent" };
+
+/// Newest patch first, then the base. A patch whose prefix list lacks the PNU's prefix holds
+/// nothing for it and costs no read. A tombstone ends the search: the PNU is gone (ADR-0141 §2).
+async function findObject(
+  bucket: Pick<R2Bucket, "get">,
+  plan: ServingPlan,
+  pnu: string,
+  conditions: Headers,
+): Promise<Found> {
+  const { root, suffix } = policy.object_key;
+  const pnuPrefix = pnu.slice(0, patchPolicy.pnu_prefix_length);
+  for (const patch of plan.patches) {
+    if (!patch.prefixes.has(pnuPrefix)) continue;
+    const object = await bucket.get(`${root}/v${plan.base}/p${patch.generation}/${pnu}${suffix}`, {
+      onlyIf: conditions,
+    });
+    if (object === null) continue;
+    // A tombstone is small; a document never is that small and is served as stored. An object
+    // whose ETag the client already holds was served to it before, so it is no tombstone.
+    if (!("body" in object) || object.size > patchPolicy.tombstone_max_bytes) {
+      return { kind: "object", object };
+    }
+    const body = await object.text();
+    const parsed = (() => {
+      try {
+        return JSON.parse(body) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })();
+    if (parsed?.deleted === true && parsed.schema_version === patchPolicy.tombstone_schema_version) {
+      return { kind: "deleted" };
+    }
+    return { kind: "object", object, body };
+  }
+  const object = await bucket.get(`${root}/v${plan.base}/${pnu}${suffix}`, { onlyIf: conditions });
+  return object === null ? { kind: "absent" } : { kind: "object", object };
+}
+
+function capabilities(): Response {
+  return new Response(
+    `${JSON.stringify({ unit: UNIT, manifest_schema_versions: MANIFEST_SCHEMA_VERSIONS })}\n`,
+    {
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Type": policy.content_type,
+        "X-Content-Type-Options": "nosniff",
+      },
+    },
+  );
 }
 
 async function fetchParcel(
@@ -122,7 +230,15 @@ async function fetchParcel(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
-  const pnu = canonicalPnu(new URL(request.url));
+  const url = new URL(request.url);
+  if (
+    url.pathname === policy.request_path.capabilities &&
+    url.search === "" &&
+    ["GET", "HEAD"].includes(request.method)
+  ) {
+    return capabilities();
+  }
+  const pnu = canonicalPnu(url);
   if (pnu === null) return new Response(null, { status: 404 });
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     return new Response(null, {
@@ -163,18 +279,8 @@ async function fetchParcel(
     return new Response(null, { status: 204, headers });
   }
 
-  if (request.method === "GET") {
-    const ifNoneMatch = request.headers.get("If-None-Match");
-    const cacheRequest =
-      ifNoneMatch === null
-        ? new Request(request.url)
-        : new Request(request.url, { headers: { "If-None-Match": ifNoneMatch } });
-    const cached = await caches.default.match(cacheRequest);
-    if (cached !== undefined) return withCors(cached, origin, allowed);
-  }
-
-  const generation = await resolveGeneration(bucket, ctx);
-  if (generation === null) {
+  const plan = await resolvePlan(bucket, ctx);
+  if (plan === null) {
     return withCors(
       new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }),
       origin,
@@ -182,17 +288,37 @@ async function fetchParcel(
     );
   }
 
-  const key = `${policy.object_key.root}/v${generation}/${pnu}${policy.object_key.suffix}`;
-  const object = await bucket.get(key, { onlyIf: request.headers });
-  if (object === null) return new Response(null, { status: 404 });
+  const cacheUrl = servingCacheUrl(request.url, plan);
+  if (request.method === "GET") {
+    const ifNoneMatch = request.headers.get("If-None-Match");
+    const cacheRequest =
+      ifNoneMatch === null
+        ? new Request(cacheUrl)
+        : new Request(cacheUrl, { headers: { "If-None-Match": ifNoneMatch } });
+    const cached = await caches.default.match(cacheRequest);
+    if (cached !== undefined) return withCors(cached, origin, allowed);
+  }
+
+  const found = await findObject(bucket, plan, pnu, request.headers);
+  if (found.kind === "absent") return new Response(null, { status: 404 });
+  if (found.kind === "deleted") {
+    return withCors(
+      new Response(`${JSON.stringify({ error: "deleted", pnu })}\n`, {
+        status: 404,
+        headers: { "Cache-Control": "no-store", "Content-Type": policy.content_type },
+      }),
+      origin,
+      allowed,
+    );
+  }
+  const { object } = found;
   const headers = objectHeaders(object);
   if (!("body" in object)) {
     return withCors(new Response(null, { status: 304, headers }), origin, allowed);
   }
-  const response = new Response(object.body, { status: 200, headers });
+  const response = new Response(found.body ?? object.body, { status: 200, headers });
   if (request.method === "GET") {
-    const cacheRequest = new Request(request.url);
-    ctx.waitUntil(caches.default.put(cacheRequest, response.clone()));
+    ctx.waitUntil(caches.default.put(new Request(cacheUrl), response.clone()));
   }
   return withCors(response, origin, allowed);
 }
@@ -203,4 +329,12 @@ export default {
   },
 };
 
-export { canonicalPnu, corsHeaders, fetchParcel, parseAllowedOrigins, parseManifestGeneration };
+export {
+  canonicalPnu,
+  corsHeaders,
+  fetchParcel,
+  MANIFEST_SCHEMA_VERSIONS,
+  parseAllowedOrigins,
+  parseManifest,
+  servingCacheUrl,
+};

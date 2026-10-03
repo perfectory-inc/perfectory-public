@@ -97,8 +97,22 @@ foundation-outbox-publisher publish-parcel-by-pnu-serving-manifest
 # 최초 발행(기존 manifest 부재)만 FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FIRST_PUBLICATION=true
 ```
 
-발행 로그의 `current_generation`·`gold_iceberg_snapshot_id`·`object_count` 가 굽기 요약과
+발행 로그의 `base_generation`·`reflected_gold_iceberg_snapshot_id`·`object_count` 가 굽기 요약과
 일치해야 한다.
+
+manifest 는 v2 다([루트 ADR-0141](../../../../docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md) 4절):
+기본 세대(`base_generation`·`base_object_count`·`document_schema_version`), 패치 목록(`patches`, 최신이 앞,
+항목마다 `generation`·`gold_iceberg_snapshot_id`·`upserted`·`deleted`·`prefixes`), 마지막으로 반영한 Gold 스냅숏
+(`reflected_gold_iceberg_snapshot_id`), 응답 가능한 PNU 수(`object_count`). 게이트웨이는 v1 manifest 를 패치 없는
+v2 로 읽는다.
+
+- **발행마다 바뀌기 전 manifest 를 남긴다.** `{root}/manifest-history/{발행시각}-{sha256}.json` 에 create-only 로
+  쓴 뒤에 manifest 를 바꾼다. 되돌리기는 7절.
+- **배포 순서: 게이트웨이 먼저.** 옛 Worker 는 `schema_version: 2` 를 못 읽어 전부 503 이 된다. 그래서 발행 명령은
+  레인의 첫 v2 manifest 를 쓰기 전에 공개 호스트의 `request_path.capabilities`(예: `/parcels/by-pnu/_capabilities`)를
+  묻고, 응답의 `manifest_schema_versions` 에 2 가 없으면 manifest 를 그대로 두고 거부한다.
+- 같은 세대 제자리 덮어쓰기(`ALLOW_OVERWRITE`)와 같은 세대 재지정(`ALLOW_REPOINT`)은 없어졌다. 환경에 남아 있으면
+  익스포터와 발행 명령이 값과 무관하게 거부한다. 바뀐 문서는 패치 세대로 간다(8절).
 
 ## 4. Cloudflare (코드로 전부 가능, 대시보드 불필요)
 
@@ -147,8 +161,11 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 
 - Worker 가 503: manifest 부재·비파싱이다. 3절 발행 상태부터 본다(설계된 전면 거부).
 - 굽기 중단: 같은 세대로 재실행하면 된다(2절의 create-only 재사용).
-- 세대 복구: `check_generation_transition`은 현재보다 낮은 세대의 발행을 거부한다.
-  과거 세대를 그대로 재발행하는 롤백 명령은 지원하지 않는다. 기존 객체를 보존하고,
+- 패치 되돌리기([루트 ADR-0141](../../../../docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md) 4절):
+  `..._CONFIRM_PUBLISH=true ..._ROLLBACK_TO_MANIFEST_KEY=<manifest-history 키>` 로 발행 명령을 돌린다. 그 기록이
+  같은 기본 세대이고 그 패치 목록이 지금 목록의 뒤쪽 일부(최신 패치 몇 개를 뺀 것)일 때만 받는다. 패치 객체는 지우지
+  않으므로 앞으로 다시 가는 것도 같은 명령이다. 되돌린 패치 번호는 버킷에 객체가 남아 있어 다음 패치가 그 위로 간다.
+- 기본 세대 복구: 기본 세대는 앞으로만 간다. 과거 기본 세대로 되돌리는 명령은 없다. 기존 객체를 보존하고,
   검증된 과거 내용을 더 높은 새 세대로 준비·검증·발행하는 복구 경로를 먼저 리허설한다.
   이 런북은 그 복구 리허설이 완료됐다는 증거가 아니다.
 - Gold 복구: 기존 표의 스키마와 Iceberg 스냅샷을 먼저 보존한다. 생산자는 스키마 추가 후
@@ -171,11 +188,12 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 
 한 번의 실행은 이렇다.
 
-1. 상태 명령이 Gold 표의 현재 스냅숏, manifest 가 서빙 중인 세대·스냅숏, 그리고 버킷에 객체가 하나라도
-   있는 세대 전부(`generations_with_objects`, 구분자 목록 한 번)를 파일로 적는다. 스냅숏이 같으면
-   `nothing to do` 를 남기고 성공으로 끝난다. manifest 를 읽을 수 없으면 실패한다(첫 발행은 3절의
-   운영자 단계이며 예약 작업이 추정하지 않는다).
-2. 이 상태 루트가 같은 스냅숏으로 시작해 기록한 세대(`in-progress.json`)가 있으면 그 세대를 이어 굽는다.
+1. 상태 명령이 Gold 표의 현재 스냅숏, manifest 가 서빙 중인 기본 세대·패치·마지막 반영 스냅숏, 기본 세대의 문서
+   스키마, 계약의 패치 한도, 그리고 버킷에 객체가 하나라도 있는 세대·패치 전부를 파일로 적는다. Gold 스냅숏이
+   이미 반영돼 있으면 `nothing to do` 를 남기고 성공으로 끝난다. manifest 를 읽을 수 없으면 실패한다(첫 발행은
+   3절의 운영자 단계이며 예약 작업이 추정하지 않는다).
+2. 반영 방법을 고른다(아래 "패치 세대"). 패치이면 패치 번호를, 전량이면 세대를 고른다. 이 상태 루트가 같은 스냅숏·같은
+   방법으로 시작해 기록한 대상(`in-progress.json`)이 있으면 그것을 이어 굽는다.
    아니면 새 세대 = (발행 세대, 버킷에 객체가 있는 가장 높은 세대, 기록된 세대) 중 최댓값 + 1. 기록 없이
    객체만 있는 세대 — 손 스크립트가 반쯤 쓴 세대, 상태 루트를 지우기 전의 세대 — 는 이어 굽지 않는다:
    익스포터가 목록에 있는 키를 다시 읽지 않고 완료로 세므로, 다른 스냅숏의 객체가 섞여도 행 수 합과 목록
@@ -187,13 +205,58 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 3. PNU 앞자리 샤드로 굽는다. 시작은 `1`…`9`, 익스포터가 행 상한(실행당 90만)을 넘는다며 거부한 샤드는
    10개로 쪼개고(스캔은 상한을 넘는 첫 행에서 멈추므로 거부되는 샤드도 상한만큼만 쥔다), 다음 실행을 위해 잎 샤드 목록(`shard-plan.txt`)을 기억한다. 충돌(429 등)은 같은 샤드를
    재시도하며, 재시도는 목록에 이미 있는 객체를 건너뛴다. 객체는 create-only 다 — 스크립트가
-   `ALLOW_OVERWRITE`·`ALLOW_REPOINT`·`FIRST_PUBLICATION` 을 환경에서 지운다. 샤드마다 굽기 대상 스냅숏을
+   `FIRST_PUBLICATION`·`ROLLBACK_TO_MANIFEST_KEY` 와 없어진 덮어쓰기 스위치를 환경에서 지운다. 샤드마다 굽기 대상 스냅숏을
    `EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID` 로 넘기므로, 굽는 중 Gold 가 바뀌면 다음 샤드가 스캔 전에 거부하고
    작업이 그 자리에서 실패한다(다음 실행이 새 세대로 시작한다).
 4. 모든 샤드가 같은 스냅숏·같은 세대이고 샤드들의 `exported_row_count` 합이 Gold 행 수(`scanned_row_count`)와
    같을 때만 `PUBLISH_FROM_LISTING` 으로 manifest 를 옮긴다(발행 명령이 목록 개수를 다시 대조한다). 하나라도
    어긋나면 발행하지 않고 실패한다 — 2026-09-10 에 495만 개가 모자란 굽기가 조용히 끝났던 일을 막는 자리다.
-5. 발행 뒤 샤드 요약에서 객체 목록을 지우고 개수만 남긴다.
+5. 발행 뒤 샤드 요약에서 객체 목록을 지우고 개수만 남긴다. 실행마다 `runs/<스냅숏>-<대상>/run-summary.json` 에
+   고른 방법·이유·변경 수·대상·발행 결과가 남는다.
+
+### 패치 세대 ([루트 ADR-0141](../../../../docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md))
+
+한도는 `config/r2-connections.contract.json` 의 `by_pnu_serving_patches` 하나가 정본이다(`max_patches` 7,
+`max_cumulative_change_ratio` 0.05, `max_delta_fraction` 0.5). 작업은 상태 명령이 옮겨 준 값을 읽는다.
+
+| 경우 | 방법 |
+| --- | --- |
+| `FOUNDATION_BY_PNU_BAKE_FORCE_FULL=true` (+ 필수 `..._FORCE_FULL_REASON`, 요약에 남는다) | 전량 |
+| 익스포터의 문서 스키마 ≠ 기본 세대의 문서 스키마 | 전량 |
+| 기본 세대가 이미 `max_patches` 개의 패치를 지님 | 전량(압축) |
+| 변경 집합이 `max_delta_fraction` 초과 | **거부**, 발행 없음 |
+| 비교할 스냅숏이 없음(지정 안 됨·만료·지문 없음) | **거부**, 발행 없음 — "변경 없음"이 아니다 |
+| 변경 없음 | `reflected_gold_iceberg_snapshot_id` 만 옮기는 발행(객체 쓰기 없음) |
+| 누적 변경(기존 패치 + 이번) > `max_cumulative_change_ratio` × `base_object_count` | 전량(압축) |
+| 그 밖 | 패치 |
+
+- 변경 집합은 `by_pnu_panel_delta.py` 가 마지막 반영 스냅숏과 새 스냅숏의 `row_digest` 를 PNU 로 맞대 낸다. 거부는
+  종료 코드로 구별한다(3 = 비교 스냅숏 없음, 4 = 델타 아님). 거부된 날은 운영자가 이유를 적어 전량을 강제한다.
+- Spark 는 측정한 작은 서비스 `spark-small`(2560m)에서 `local[4]`, driver 1500m 로 돈다. 굽기와 차례로 돌므로 작업의
+  메모리 출처는 단위의 14G 와 `spark-small` 중 큰 것이다(`tools/host-memory-budget.contract.json`).
+- 패치의 익스포트는 변경 집합의 행만 남기므로 한 샤드(표 전체)로 시작하고, 행 상한을 넘으면 `1`…`9` 로 쪼갠다.
+  삭제 PNU 는 툼스톤(`{"deleted": true, ...}`, 계약의 `tombstone_max_bytes` 이하)이 된다. 메모리 상한은 전량과 같은
+  행 상한이 묶으므로 `MemoryMax` 는 그대로다.
+- 발행 명령이 다시 확인한다: (가) 변경 목록의 모든 PNU 가 패치에 객체나 툼스톤으로 있다, (나) 표본의
+  `source.iceberg_snapshot_id` 가 패치 스냅숏이다(삭제는 툼스톤이어야 한다), (다) 목록 밖 객체가 패치에 없다,
+  그리고 변경 집합의 기준이 manifest 의 반영 스냅숏과 같다. 하나라도 어기면 manifest 는 그대로다.
+
+측정(2026-10-03, ai-server scratch, 읽기 전용, 운영 Gold):
+
+| 측정 | 행 | 익명 메모리 최대 | 걸린 시간 |
+|---|---:|---:|---:|
+| 필지 변경 집합, `spark-small` 상한 2560m, driver 1500m | 39,861,511 × 2 | 1,508,237,312 B | 152초 |
+| 필지 변경 집합, 상한 2560m, driver 4g | 39,861,511 × 2 | 2,553,245,696 B (상한에 닿음) | 177초 |
+| 필지 변경 집합, 상한 6g, driver 4g | 39,861,511 × 2 | 2,277,449,728 B | 105초 |
+| 건물 변경 집합, 상한 2560m, driver 1500m | 5,939,794 × 2 | 1,621,483,520 B | 32초 |
+| 지문 없는 옛 필지 스냅숏을 기준으로 | — | — | 3초에 종료 코드 3 거부 |
+| 실제 두 전국 필지 스냅숏(2026-09-09 → 2026-10-01; 옛 판의 지문은 Gold 잡의 `row_digest_column` 으로 계산) | 39,861,511 × 2 | 2,170,056,704 B | 469초 |
+
+- 실제 두 스냅숏의 변경 집합은 **0건**이었다(10-01 판은 같은 내용에 지문을 더한 판). 이런 날은 패치를 쓰지 않고
+  `reflected_gold_iceberg_snapshot_id` 만 옮긴다 — 빈 패치로 `max_patches` 를 채우면 조용한 일주일이 81시간 전량
+  굽기로 끝난다.
+- 툼스톤은 약 195바이트(계약 상한 512)다. 패치 항목 하나는 manifest 에 약 150바이트 + 앞자리 하나당 약 13바이트를
+  더한다(시군구 250개 전부여도 약 3.4KB). 실제 일일 변경 수는 첫 운영에서 잰다(ADR-0141 Consequences).
 
 건물 레인은 승인된 건물 연결을 운영 DB 에서 읽는다. `DATABASE_URL` 은 FLOOR 와 같이 compose 의 API 연결을
 루프백 포트로 옮겨 얻으며(`runtime-database-url.py`), 얻지 못하면 굽기 전에 78 로 끝난다.

@@ -26,6 +26,10 @@ TimeoutStartSec=20h
 # over 900,000 rows before it holds more, so 14G is that measured peak x1.3. The building lane's
 # shards peak lower (6.1GB measured at 867,696 rows). scripts/guard/every-container-has-a-memory-cap.sh
 # reads this line; without it the guard fails.
+# A patch (root ADR-0141) keeps only its change set's rows under the same row cap, so it needs no
+# more. Its change set runs before the export in the compose `spark-small` container (2560m), a
+# Docker cgroup outside this unit that the host budget counts beside it; measured 1,508,237,312
+# bytes of anonymous memory for the national parcel comparison.
 MemoryMax=14G
 MemorySwapMax=0
 # A lane killed at MemoryMax must not stop the other: by default systemd stops the whole unit when

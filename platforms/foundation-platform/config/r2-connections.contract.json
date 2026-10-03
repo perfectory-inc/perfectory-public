@@ -45,12 +45,15 @@
     "object_key": {
       "root": "serving/parcels/by-pnu",
       "generation_dir_pattern": "v[1-9][0-9]{0,17}",
+      "patch_dir_pattern": "p[1-9][0-9]{0,17}",
       "pnu_pattern": "[0-9]{10}[1289][0-9]{8}",
       "suffix": ".json",
-      "manifest_object": "serving/parcels/by-pnu/manifest.json"
+      "manifest_object": "serving/parcels/by-pnu/manifest.json",
+      "manifest_history_dir": "serving/parcels/by-pnu/manifest-history"
     },
     "request_path": {
-      "prefix": "/parcels/by-pnu/"
+      "prefix": "/parcels/by-pnu/",
+      "capabilities": "/parcels/by-pnu/_capabilities"
     },
     "cors": {
       "grammar": "comma-separated-serialized-http-origins-v1",
@@ -122,6 +125,16 @@
       }
     }
   },
+  "by_pnu_serving_patches": {
+    "decision": "docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md",
+    "manifest_schema_version": 2,
+    "max_patches": 7,
+    "max_cumulative_change_ratio": 0.05,
+    "max_delta_fraction": 0.5,
+    "pnu_prefix_length": 5,
+    "tombstone_schema_version": "foundation-platform.by_pnu_serving_tombstone.v1",
+    "tombstone_max_bytes": 512
+  },
   "building_by_pnu_gateway": {
     "worker_name": "foundation-building-gateway",
     "public_hostname": "buildings.perfectory.io",
@@ -136,12 +149,15 @@
     "object_key": {
       "root": "serving/buildings/by-pnu",
       "generation_dir_pattern": "v[1-9][0-9]{0,17}",
+      "patch_dir_pattern": "p[1-9][0-9]{0,17}",
       "pnu_pattern": "[0-9]{10}[1289][0-9]{8}",
       "suffix": ".json",
-      "manifest_object": "serving/buildings/by-pnu/manifest.json"
+      "manifest_object": "serving/buildings/by-pnu/manifest.json",
+      "manifest_history_dir": "serving/buildings/by-pnu/manifest-history"
     },
     "request_path": {
-      "prefix": "/buildings/by-pnu/"
+      "prefix": "/buildings/by-pnu/",
+      "capabilities": "/buildings/by-pnu/_capabilities"
     },
     "cors": {
       "grammar": "comma-separated-serialized-http-origins-v1",

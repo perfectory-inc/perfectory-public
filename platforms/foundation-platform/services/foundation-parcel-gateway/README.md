@@ -19,15 +19,19 @@ last_reviewed: 2026-09-09
 
 - 허용: `GET`, `HEAD`, `OPTIONS`와 정확한 `/parcels/by-pnu/{pnu}` (PNU 19자리, 11번째
   자리는 대장 구분 `[1289]`)
-- 세대 해석: manifest(`serving/parcels/by-pnu/manifest.json`)를 읽어
-  `v{current_generation}` 객체를 서빙한다. manifest 해석 결과는 엣지에
-  `manifest_edge_cache_seconds` 동안 캐시된다 → 세대 교체 가시화는 그 안에 이뤄진다.
+- 세대 해석(루트 ADR-0141): manifest(`serving/parcels/by-pnu/manifest.json`)는 기본 세대와 패치 목록(최신이
+  앞)을 싣는다. 응답은 가장 최신 패치부터 기본 세대까지 처음 찾은 객체다. 패치의 `prefixes`(PNU 앞 5자리)에 없는
+  PNU 는 그 패치를 읽지 않는다. 툼스톤(`deleted: true`)을 만나면 더 내려가지 않고 `{"error":"deleted"}` 404
+  (`no-store`)를 낸다. v1 manifest(`current_generation`)는 패치 없는 기본 세대로 읽는다. manifest 해석 결과는 엣지에
+  `manifest_edge_cache_seconds` 동안 캐시된다.
+- `GET /parcels/by-pnu/_capabilities` 는 이 Worker 가 읽는 manifest 스키마 목록을 낸다. 발행 명령은 첫 v2
+  manifest 를 쓰기 전에 이것을 확인한다 — 게이트웨이를 먼저 배포한다.
 - **manifest 를 신뢰할 수 없으면 503** (부재·비파싱·다른 unit/schema/세대 0): 포인터 장애는
   레인 전체의 장애이지 4천만 필지의 가짜 404가 아니다. 503은 `no-store`로 캐시되지 않는다.
 - 거부: query, 원시 객체 키, 다른 prefix, traversal, 비정규 PNU는 404; 다른 method는 405;
   미허용 Origin은 403
-- 캐시: 객체는 `public, max-age=3600` — 같은 세대 안에서 델타 재굽기가 제자리 덮어쓰기를
-  하므로 immutable이 아니고, 신선도는 1시간으로 유계다
+- 캐시: 객체는 `public, max-age=3600`. 개별 PNU 응답의 엣지 캐시 키에 서빙 상태의 지문(`v{기본}p{최신 패치}`)이
+  들어가므로, 새 패치나 새 기본 세대가 발행되면 옛 응답이 즉시 쓰이지 않는다(manifest 캐시 1분 이내)
 - 조건부 요청: R2/Cache API의 ETag와 `If-None-Match` 판단을 사용하고 일치하면 304
 - 권한: R2 binding 하나의 `get`만 타입에 노출; list/write와 S3 자격증명 없음
 

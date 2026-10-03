@@ -16,8 +16,7 @@ use crate::r2_command_support::{
     r2_config_from_env_file, read_json, resolve_path, utc_now, write_json_file,
 };
 use crate::r2_layout::{
-    is_bronze_catalog_recovery_evidence_key, is_parcel_by_pnu_serving_manifest_key,
-    is_parcel_by_pnu_serving_object_key, PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT,
+    is_bronze_catalog_recovery_evidence_key, PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT,
     VECTOR_TILE_ARTIFACT_ROOT, VECTOR_TILE_MANIFEST_ROOT,
 };
 
@@ -480,34 +479,8 @@ fn classify_key(key: &str) -> Classification {
             reason: "Canonical runtime manifest pointer.",
         };
     }
-    if crate::r2_layout::is_building_by_pnu_serving_manifest_key(key) {
-        return Classification {
-            name: "building_by_pnu_serving_manifest_pointer",
-            action: "keep",
-            reason: "Canonical building by-PNU manifest pointer (root ADR-0100).",
-        };
-    }
-    if crate::r2_layout::is_building_by_pnu_serving_object_key(key) {
-        return Classification {
-            name: "building_by_pnu_serving_object",
-            action: "keep",
-            reason: "Canonical building by-PNU serving object (root ADR-0100).",
-        };
-    }
-    if is_parcel_by_pnu_serving_manifest_key(key) {
-        return Classification {
-            name: "parcel_by_pnu_serving_manifest_pointer",
-            action: "keep",
-            reason: "Canonical parcel by-PNU serving manifest pointer (root ADR-0096).",
-        };
-    }
-    if is_parcel_by_pnu_serving_object_key(key) {
-        return Classification {
-            name: "parcel_by_pnu_serving_object",
-            action: "keep",
-            reason:
-                "Pre-baked parcel by-PNU serving object under the contract grammar (root ADR-0096).",
-        };
+    if let Some(classification) = by_pnu_serving_classification(key) {
+        return classification;
     }
     if is_current_spatial_artifact(key) {
         return Classification {
@@ -965,6 +938,40 @@ mod tests {
     }
 
     #[test]
+    fn patch_objects_and_manifest_history_are_kept_only_under_their_grammar() {
+        let sha = "a".repeat(64);
+        for (key, name) in [
+            (
+                "serving/parcels/by-pnu/v3/p2/9999900000100000000.json".to_owned(),
+                "parcel_by_pnu_serving_patch_object",
+            ),
+            (
+                "serving/buildings/by-pnu/v3/p2/9999900000100000000.json".to_owned(),
+                "building_by_pnu_serving_patch_object",
+            ),
+            (
+                format!("serving/parcels/by-pnu/manifest-history/20261003T101500Z-{sha}.json"),
+                "parcel_by_pnu_serving_manifest_history",
+            ),
+        ] {
+            let classification = classify_key(&key);
+            assert_eq!(classification.name, name, "{key}");
+            assert_eq!(classification.action, "keep");
+        }
+        for junk in [
+            "serving/parcels/by-pnu/v3/p02/9999900000100000000.json".to_owned(),
+            "serving/parcels/by-pnu/v3/p2/x/9999900000100000000.json".to_owned(),
+            format!("serving/parcels/by-pnu/manifest-history/latest-{sha}.json"),
+        ] {
+            assert_eq!(
+                classify_key(&junk).name,
+                "unknown",
+                "junk key was kept: {junk}"
+            );
+        }
+    }
+
+    #[test]
     fn building_serving_objects_are_kept_only_under_the_canonical_grammar() {
         for (key, name) in [
             (
@@ -1195,4 +1202,62 @@ mod tests {
 
         assert!(error.to_string().contains("requires DATABASE_URL"));
     }
+}
+
+/// The keys of both by-PNU serving lanes (root ADR-0096, ADR-0100, ADR-0141): the manifest, the
+/// base objects, the patch objects and tombstones, and the replaced manifests kept for rollback.
+fn by_pnu_serving_classification(key: &str) -> Option<Classification> {
+    use crate::by_pnu_gateway_contract::ByPnuLane;
+    use crate::r2_layout::by_pnu;
+
+    type Recogniser = fn(ByPnuLane, &str) -> bool;
+    const KINDS: [(Recogniser, [&str; 2], &str); 4] = [
+        (
+            by_pnu::is_manifest_key,
+            [
+                "parcel_by_pnu_serving_manifest_pointer",
+                "building_by_pnu_serving_manifest_pointer",
+            ],
+            "Canonical by-PNU serving manifest pointer (root ADR-0096, ADR-0100).",
+        ),
+        (
+            by_pnu::is_object_key,
+            [
+                "parcel_by_pnu_serving_object",
+                "building_by_pnu_serving_object",
+            ],
+            "Pre-baked by-PNU serving object of a base generation (root ADR-0096, ADR-0100).",
+        ),
+        (
+            by_pnu::is_patch_object_key,
+            [
+                "parcel_by_pnu_serving_patch_object",
+                "building_by_pnu_serving_patch_object",
+            ],
+            "Create-only document or tombstone of a by-PNU patch generation (root ADR-0141).",
+        ),
+        (
+            by_pnu::is_manifest_history_key,
+            [
+                "parcel_by_pnu_serving_manifest_history",
+                "building_by_pnu_serving_manifest_history",
+            ],
+            "A replaced by-PNU manifest, kept so a rollback can name it (root ADR-0141).",
+        ),
+    ];
+    for (index, lane) in [ByPnuLane::Parcel, ByPnuLane::Building]
+        .into_iter()
+        .enumerate()
+    {
+        for (recognises, names, reason) in KINDS {
+            if recognises(lane, key) {
+                return Some(Classification {
+                    name: names[index],
+                    action: "keep",
+                    reason,
+                });
+            }
+        }
+    }
+    None
 }

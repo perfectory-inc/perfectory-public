@@ -8,8 +8,8 @@
 ## 요약
 
 - 감사 문서: **488개**
-- 언어 분류: **{'english': 37, 'korean': 294, 'mixed': 157}**
-- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 81개** (기계 계약·라우터·법률 예외 제외)
+- 언어 분류: **{'english': 37, 'korean': 295, 'mixed': 156}**
+- 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
 - 메타데이터: **228개 정상 / 0개 누락 / 260개 해당 없음**
 - 중복 파일명 후보: **0개**
@@ -161,7 +161,7 @@
 | `docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -300,7 +300,7 @@
 | `platforms/foundation-platform/services/foundation-building-gateway/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-map-edit-gateway/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current | korean | ok | 0 |
-| `platforms/foundation-platform/services/foundation-parcel-gateway/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
+| `platforms/foundation-platform/services/foundation-parcel-gateway/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-profile-gateway/README.md` | Foundation Platform | README | current | mixed | ok | 0 |
 | `platforms/foundation-platform/services/foundation-provider-acquisition-worker/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/services/foundation-tile-gateway/README.md` | Foundation Platform | README | current | korean | ok | 0 |
