@@ -129,6 +129,7 @@
     "decision": "docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md",
     "manifest_schema_version": 2,
     "max_patches": 7,
+    "manifest_patch_ceiling": 64,
     "max_cumulative_change_ratio": 0.05,
     "max_delta_fraction": 0.5,
     "pnu_prefix_length": 5,

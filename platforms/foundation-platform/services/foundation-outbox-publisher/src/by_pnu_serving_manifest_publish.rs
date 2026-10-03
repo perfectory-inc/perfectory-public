@@ -16,6 +16,10 @@
 //! history, so the bucket keeps every state it served. The first v2 manifest a lane gets is
 //! written only after the lane's public gateway says it reads v2: an older Worker would answer
 //! every request 503.
+//!
+//! The manifest write is a compare-and-swap over the version read at the start: two publishes
+//! that read the same manifest cannot both move it, and the one that loses is refused, naming
+//! the conflict, with nothing written.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -249,8 +253,8 @@ async fn read_existing(
     store: &ByPnuServingStore,
 ) -> anyhow::Result<Option<StoredManifest>> {
     let lane = store.lane();
-    match store.read_bytes(by_pnu::manifest_key(lane)?).await {
-        Ok(bytes) => {
+    match store.read_manifest().await {
+        Ok((bytes, version)) => {
             ensure!(
                 !config.first_publication,
                 "{} is set but a serving manifest already exists",
@@ -258,7 +262,11 @@ async fn read_existing(
             );
             let manifest = ServedManifest::parse(lane, &bytes)
                 .context("the existing serving manifest cannot be read; refusing to replace it")?;
-            Ok(Some(StoredManifest { manifest, bytes }))
+            Ok(Some(StoredManifest {
+                manifest,
+                bytes,
+                version,
+            }))
         }
         Err(error) if config.first_publication => {
             tracing::info!(error = %format!("{error:#}"), "first publication of the lane");
@@ -272,7 +280,8 @@ async fn read_existing(
     }
 }
 
-/// Stores the replaced manifest in the history, then writes the new one.
+/// Stores the replaced manifest in the history, then writes the new one over exactly the version
+/// read at the start (or, on a first publication, only where none exists).
 async fn commit(
     store: &ByPnuServingStore,
     existing: Option<&StoredManifest>,
@@ -301,7 +310,12 @@ async fn commit(
     let body = manifest.to_bytes()?;
     let checksum = format!("{:x}", Sha256::digest(&body));
     store
-        .write_manifest(by_pnu::manifest_key(lane)?, &body, &checksum)
+        .write_manifest(
+            by_pnu::manifest_key(lane)?,
+            &body,
+            &checksum,
+            existing.map(|stored| stored.version.as_str()),
+        )
         .await
 }
 
@@ -321,8 +335,9 @@ fn new_base(
             existing.manifest.base_generation
         );
     }
+    let policy = by_pnu_serving_patch_policy()?;
     Ok(ServingManifest {
-        schema_version: by_pnu_serving_patch_policy()?.manifest_schema_version,
+        schema_version: policy.manifest_schema_version,
         unit: lane.unit().to_owned(),
         base_generation: generation,
         base_object_count: object_count,
@@ -330,6 +345,7 @@ fn new_base(
         gold_table: gold_table(lane).to_owned(),
         gold_iceberg_snapshot_id: snapshot.to_owned(),
         reflected_gold_iceberg_snapshot_id: snapshot.to_owned(),
+        pnu_prefix_length: policy.pnu_prefix_length,
         patches: Vec::new(),
         object_count,
         published_at_utc: now(),
@@ -572,6 +588,21 @@ pub(crate) async fn patch(
          a new base (full bake), not a patch",
         document_schema_version(lane)
     );
+    // The served patches stay in the next manifest, which is held to the contract as it is now.
+    ensure!(
+        served.patches.len() <= policy.max_patches,
+        "the base carries {} patches, over the contract's max_patches {}; a full bake compacts \
+         them",
+        served.patches.len(),
+        policy.max_patches
+    );
+    ensure!(
+        served.patches.is_empty() || served.pnu_prefix_length == Some(policy.pnu_prefix_length),
+        "the served patches are listed by {:?}-digit prefixes but the contract's \
+         pnu_prefix_length is {}; a full bake compacts them",
+        served.pnu_prefix_length,
+        policy.pnu_prefix_length
+    );
 
     let raw = std::fs::read_to_string(&input.change_set_summary).with_context(|| {
         format!(
@@ -630,6 +661,7 @@ pub(crate) async fn patch(
         gold_table: served.gold_table.clone(),
         gold_iceberg_snapshot_id: served.gold_iceberg_snapshot_id.clone(),
         reflected_gold_iceberg_snapshot_id: input.expected_gold_iceberg_snapshot_id.clone(),
+        pnu_prefix_length: policy.pnu_prefix_length,
         patches: served.patches.clone(),
         object_count,
         published_at_utc: now(),
@@ -649,6 +681,21 @@ pub(crate) async fn patch(
         patch > served.newest_patch(),
         "patch generation {patch} is not above the newest served patch {}",
         served.newest_patch()
+    );
+    // A rollback leaves the dropped patches' objects in place, unserved. Their numbers are
+    // spent: reusing one would mix its old objects with the new change set's.
+    let spent = store
+        .list_patches_with_objects(served.base_generation)
+        .await?
+        .into_iter()
+        .filter(|listed| *listed != patch)
+        .max()
+        .unwrap_or(0);
+    ensure!(
+        patch > spent,
+        "patch generation {patch} is not above patch {spent}, which already holds objects of \
+         generation {} (a rolled-back or half-written patch); patch numbers are never reused",
+        served.base_generation
     );
     ensure!(
         served.patches.len() < policy.max_patches,
@@ -801,8 +848,18 @@ pub(crate) async fn rollback(
         Some(schema) => schema,
         None => served_document_schema(store, served).await?,
     };
+    let policy = by_pnu_serving_patch_policy()?;
+    // A target with patches keeps the prefix length they are listed by; the write then holds it
+    // to the contract as it is now.
+    let pnu_prefix_length = if target.patches.is_empty() {
+        policy.pnu_prefix_length
+    } else {
+        target
+            .pnu_prefix_length
+            .with_context(|| format!("{history_key} lists patches but no prefix length"))?
+    };
     Ok(ServingManifest {
-        schema_version: by_pnu_serving_patch_policy()?.manifest_schema_version,
+        schema_version: policy.manifest_schema_version,
         unit: target.unit,
         base_generation: target.base_generation,
         base_object_count: target.base_object_count,
@@ -810,6 +867,7 @@ pub(crate) async fn rollback(
         gold_table: target.gold_table,
         gold_iceberg_snapshot_id: target.gold_iceberg_snapshot_id,
         reflected_gold_iceberg_snapshot_id: target.reflected_gold_iceberg_snapshot_id,
+        pnu_prefix_length,
         patches: target.patches,
         object_count: target.object_count,
         published_at_utc: now(),

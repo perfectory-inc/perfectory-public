@@ -55,11 +55,12 @@ if command.startswith("show-"):
                                  "patch_count": int(os.environ.get("FAKE_PATCH_COUNT", "0")),
                                  "newest_patch": int(os.environ.get("FAKE_NEWEST_PATCH", "0")),
                                  "cumulative_changes": int(os.environ.get("FAKE_CUMULATIVE", "0")),
-                                 "object_count": 100},
+                                 "object_count": 100,
+                                 "pnu_prefix_length": int(os.environ.get("FAKE_SERVED_PREFIX_LENGTH", "5"))},
                    "generations_with_objects": json.loads(os.environ.get("FAKE_LISTED", "[]")),
                    "patches_with_objects": json.loads(os.environ.get("FAKE_PATCHES_LISTED", "[]")),
                    "policy": {"max_patches": 7, "max_cumulative_change_ratio": 0.05,
-                              "max_delta_fraction": 0.5}}, out)
+                              "max_delta_fraction": 0.5, "pnu_prefix_length": 5}}, out)
 elif command.startswith("export-"):
     prefix = os.environ.get(prefix_env + "PNU_PREFIX", "")
     target = int(os.environ[prefix_env + "TARGET_GENERATION"])
@@ -495,6 +496,29 @@ class ByPnuServingBake(unittest.TestCase):
         summary = self.run_summary("full")
         self.assertIn("max_patches", summary["reason"])
         self.assertEqual(summary["target_generation"], 3)
+
+    def test_a_lowered_patch_limit_still_sends_the_bake_to_a_full_compaction(self):
+        # The base carries more patches than the contract now allows.
+        result, calls = self.patch_bake(FAKE_PATCH_COUNT="9", FAKE_NEWEST_PATCH="9")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        self.assertIn("max_patches", self.run_summary("full")["reason"])
+
+    def test_a_changed_prefix_length_sends_a_patched_base_to_a_full_compaction(self):
+        result, calls = self.patch_bake(FAKE_PATCH_COUNT="1", FAKE_NEWEST_PATCH="1",
+                                        FAKE_SERVED_PREFIX_LENGTH="4")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PUBLISH_FROM_LISTING"], "true")
+        self.assertIn("pnu_prefix_length", self.run_summary("full")["reason"])
+        # With no patch to carry forward, the next patch is simply listed by the new length.
+        for path in self.state_root.glob("parcel/*.json"):
+            path.unlink()
+        self.log.unlink()
+        result, calls = self.patch_bake(FAKE_SERVED_PREFIX_LENGTH="4", FAKE_DELTA_UPSERTS=json.dumps(PNUS[:1]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(self.run_summary("patch")["mode"], "patch")
 
     def test_a_change_set_over_the_cumulative_ratio_goes_to_the_full_path(self):
         # 4 earlier changes + 2 now = 6 of 100 base objects, over the contract's 5%.

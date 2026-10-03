@@ -328,6 +328,7 @@ describe("foundation building gateway", () => {
   it("manifest validation accepts only the lane's own pointer shapes", () => {
     expect(parseManifest({ schema_version: 1, unit: "building-by-pnu", current_generation: 7 })).toEqual({
       base: 7,
+      prefixLength: 0,
       patches: [],
       fingerprint: "v7",
     });
@@ -335,6 +336,7 @@ describe("foundation building gateway", () => {
       schema_version: 2,
       unit: "building-by-pnu",
       base_generation: 7,
+      pnu_prefix_length: 5,
       patches: [
         { generation: 3, prefixes: ["99999"] },
         { generation: 1, prefixes: ["99998", "99999"] },
@@ -344,6 +346,7 @@ describe("foundation building gateway", () => {
     expect(v2?.fingerprint).toBe("v7p3");
     expect(v2?.patches.map((patch) => patch.generation)).toEqual([3, 1]);
     const patch = (generation: unknown, prefixes: unknown) => ({ generation, prefixes });
+    const v2Head = { schema_version: 2, unit: "building-by-pnu", base_generation: 1, pnu_prefix_length: 5 };
     for (const invalid of [
       null,
       "text",
@@ -354,25 +357,43 @@ describe("foundation building gateway", () => {
       { schema_version: 2, unit: "building-by-pnu", current_generation: 1 },
       { schema_version: 3, unit: "building-by-pnu", base_generation: 1, patches: [] },
       { schema_version: 1, unit: "tiles", current_generation: 1 },
-      { schema_version: 2, unit: "building-by-pnu", base_generation: 1 },
-      { schema_version: 2, unit: "building-by-pnu", base_generation: 1, patches: [patch(1, ["9999"])] },
-      { schema_version: 2, unit: "building-by-pnu", base_generation: 1, patches: [patch(1, [])] },
-      { schema_version: 2, unit: "building-by-pnu", base_generation: 1, patches: [patch(0, ["99999"])] },
+      { ...v2Head },
+      { ...v2Head, pnu_prefix_length: undefined, patches: [] },
+      { ...v2Head, pnu_prefix_length: 0, patches: [] },
+      { ...v2Head, pnu_prefix_length: 20, patches: [] },
+      { ...v2Head, pnu_prefix_length: "5", patches: [] },
+      { ...v2Head, patches: [patch(1, ["9999"])] },
+      { ...v2Head, pnu_prefix_length: 4, patches: [patch(1, ["99999"])] },
+      { ...v2Head, patches: [patch(1, [])] },
+      { ...v2Head, patches: [patch(0, ["99999"])] },
+      { ...v2Head, patches: [patch(1, ["99999"]), patch(2, ["99999"])] },
       {
-        schema_version: 2,
-        unit: "building-by-pnu",
-        base_generation: 1,
-        patches: [patch(1, ["99999"]), patch(2, ["99999"])],
-      },
-      {
-        schema_version: 2,
-        unit: "building-by-pnu",
-        base_generation: 1,
-        patches: Array.from({ length: GATEWAY_PATCHES.max_patches + 1 }, (_, i) => patch(99 - i, ["99999"])),
+        ...v2Head,
+        patches: Array.from({ length: GATEWAY_PATCHES.manifest_patch_ceiling + 1 }, (_, i) =>
+          patch(999 - i, ["99999"]),
+        ),
       },
     ]) {
       expect(parseManifest(invalid), JSON.stringify(invalid)).toBeNull();
     }
+  });
+
+  it("only the fixed ceiling and the manifest's own prefix length bind what is read", () => {
+    // A manifest written before max_patches was lowered and pnu_prefix_length changed.
+    const prefixLength = GATEWAY_PATCHES.pnu_prefix_length - 1;
+    const plan = parseManifest({
+      schema_version: 2,
+      unit: "building-by-pnu",
+      base_generation: 1,
+      pnu_prefix_length: prefixLength,
+      patches: Array.from({ length: GATEWAY_PATCHES.max_patches + 1 }, (_, i) => ({
+        generation: 99 - i,
+        prefixes: ["9".repeat(prefixLength)],
+      })),
+    });
+    expect(plan?.patches).toHaveLength(GATEWAY_PATCHES.max_patches + 1);
+    expect(plan?.prefixLength).toBe(prefixLength);
+    expect(GATEWAY_PATCHES.max_patches).toBeLessThanOrEqual(GATEWAY_PATCHES.manifest_patch_ceiling);
   });
 
   it("production source exposes no R2 list or write capability", async () => {
@@ -393,7 +414,10 @@ describe("foundation building gateway patch generations (root ADR-0141)", () => 
     `${GATEWAY.object_key.root}/v${SERVED_GENERATION}/p${patch}/${pnu}${GATEWAY.object_key.suffix}`;
   const json = { httpMetadata: { contentType: "application/json; charset=utf-8" } };
 
-  function manifestV2(patches: { generation: number; prefixes: string[] }[]): string {
+  function manifestV2(
+    patches: { generation: number; prefixes: string[] }[],
+    prefixLength: number = GATEWAY_PATCHES.pnu_prefix_length,
+  ): string {
     return `${JSON.stringify({
       schema_version: 2,
       unit: "building-by-pnu",
@@ -403,6 +427,7 @@ describe("foundation building gateway patch generations (root ADR-0141)", () => 
       gold_table: "gold.panel",
       gold_iceberg_snapshot_id: "999990000000000001",
       reflected_gold_iceberg_snapshot_id: "999990000000000002",
+      pnu_prefix_length: prefixLength,
       patches: patches.map((patch) => ({
         ...patch,
         gold_iceberg_snapshot_id: "999990000000000002",
@@ -509,6 +534,60 @@ describe("foundation building gateway patch generations (root ADR-0141)", () => 
     expect(await response.json()).toEqual({ error: "deleted", pnu: PATCHED_PNU });
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("access-control-allow-origin")).toBe(ALLOWED_ORIGIN);
+  });
+
+  it("a newer tombstone hides an older patch's document", async () => {
+    if (runtime === undefined) throw new Error("Miniflare did not start");
+    const bucket = await runtime.getR2Bucket(R2_BINDING);
+    const older = `{"pnu":"${PATCHED_PNU}","patch":1,"padding":"${"o".repeat(600)}"}\n`;
+    await bucket.put(patchKey(1, PATCHED_PNU), older, json);
+    await bucket.put(patchKey(3, PATCHED_PNU), tombstone(PATCHED_PNU), json);
+    await publish(
+      manifestV2([
+        { generation: 3, prefixes: ["99999"] },
+        { generation: 1, prefixes: ["99999"] },
+      ]),
+    );
+    const response = await runtime.dispatchFetch(BUILDING_URL);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "deleted", pnu: PATCHED_PNU });
+  });
+
+  it("a conditional request cannot turn a tombstone into a 304", async () => {
+    if (runtime === undefined) throw new Error("Miniflare did not start");
+    const bucket = await runtime.getR2Bucket(R2_BINDING);
+    await bucket.put(patchKey(1, PATCHED_PNU), tombstone(PATCHED_PNU), json);
+    await publish(manifestV2([{ generation: 1, prefixes: ["99999"] }]));
+    const stored = await bucket.head(patchKey(1, PATCHED_PNU));
+    if (stored === null) throw new Error("tombstone fixture is missing");
+    for (const headers of [
+      { "If-None-Match": stored.httpEtag },
+      { "If-None-Match": "*" },
+      { "If-Modified-Since": new Date(Date.now() + 86_400_000).toUTCString() },
+    ]) {
+      const response = await runtime.dispatchFetch(BUILDING_URL, { headers });
+      expect(response.status, JSON.stringify(headers)).toBe(404);
+      expect(await response.json()).toEqual({ error: "deleted", pnu: PATCHED_PNU });
+    }
+  });
+
+  it("a manifest over today's max_patches, listed by another prefix length, still serves", async () => {
+    if (runtime === undefined) throw new Error("Miniflare did not start");
+    const bucket = await runtime.getR2Bucket(R2_BINDING);
+    const prefixLength = GATEWAY_PATCHES.pnu_prefix_length - 1;
+    const prefix = PATCHED_PNU.slice(0, prefixLength);
+    const count = GATEWAY_PATCHES.max_patches + 1;
+    const changed = `{"pnu":"${PATCHED_PNU}","patch":${count},"padding":"${"k".repeat(600)}"}\n`;
+    await bucket.put(patchKey(count, PATCHED_PNU), changed, json);
+    await publish(
+      manifestV2(
+        Array.from({ length: count }, (_, i) => ({ generation: count - i, prefixes: [prefix] })),
+        prefixLength,
+      ),
+    );
+    const response = await runtime.dispatchFetch(BUILDING_URL);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(changed);
   });
 
   it("a small patch document that is not a tombstone is served", async () => {

@@ -95,16 +95,26 @@ pub(crate) struct ByPnuRequestPath {
 /// How patch generations are bounded (root ADR-0141 §5). `max_patches` and
 /// `max_cumulative_change_ratio` choose between a patch and a full bake; the bake script reads
 /// the same block.
+///
+/// `max_patches` and `pnu_prefix_length` bind only a manifest being **written**. A reader (the
+/// gateway Workers, the publisher reading the live manifest, the state report) accepts up to
+/// `manifest_patch_ceiling` patches and the prefix length the manifest itself declares, so
+/// tuning either value never takes a live lane down or blocks the full bake that repairs it.
 #[derive(Debug, Deserialize)]
 pub(crate) struct ByPnuServingPatchPolicy {
     pub(crate) manifest_schema_version: u32,
     pub(crate) max_patches: usize,
+    /// The most patches any reader accepts. Not a tuning knob: it only ever rises.
+    pub(crate) manifest_patch_ceiling: usize,
     pub(crate) max_cumulative_change_ratio: f64,
     pub(crate) max_delta_fraction: f64,
     pub(crate) pnu_prefix_length: usize,
     pub(crate) tombstone_schema_version: String,
     pub(crate) tombstone_max_bytes: usize,
 }
+
+/// The prefix lengths a PNU (19 digits) can have.
+pub(crate) const PNU_PREFIX_LENGTHS: std::ops::RangeInclusive<usize> = 1..=19;
 
 fn contract() -> anyhow::Result<&'static R2ConnectionContract> {
     static CONTRACT: OnceLock<Result<R2ConnectionContract, String>> = OnceLock::new();
@@ -120,10 +130,11 @@ fn contract() -> anyhow::Result<&'static R2ConnectionContract> {
             }
             let patches = &contract.by_pnu_serving_patches;
             if patches.max_patches == 0
+                || patches.max_patches > patches.manifest_patch_ceiling
                 || !(patches.max_cumulative_change_ratio > 0.0
                     && patches.max_cumulative_change_ratio <= patches.max_delta_fraction
                     && patches.max_delta_fraction <= 1.0)
-                || !(1..=19).contains(&patches.pnu_prefix_length)
+                || !PNU_PREFIX_LENGTHS.contains(&patches.pnu_prefix_length)
             {
                 return Err("by_pnu_serving_patches holds bounds that cannot all hold".to_owned());
             }

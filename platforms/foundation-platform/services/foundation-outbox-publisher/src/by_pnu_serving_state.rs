@@ -67,6 +67,9 @@ pub(crate) struct PublishedState {
     newest_patch: u64,
     cumulative_changes: u64,
     object_count: u64,
+    /// The prefix length the patches are listed by; `None` for a v1 manifest. When it differs
+    /// from the contract's and there are patches, only a full bake can write the next manifest.
+    pnu_prefix_length: Option<usize>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -74,6 +77,7 @@ struct PatchBounds {
     max_patches: usize,
     max_cumulative_change_ratio: f64,
     max_delta_fraction: f64,
+    pnu_prefix_length: usize,
 }
 
 /// `show-parcel-by-pnu-serving-state`.
@@ -152,6 +156,7 @@ pub(crate) async fn read_state(
             newest_patch: manifest.newest_patch(),
             cumulative_changes: manifest.cumulative_changes(),
             object_count: manifest.object_count,
+            pnu_prefix_length: manifest.pnu_prefix_length,
         },
         generations_with_objects: ascending(store.list_generations_with_objects().await?),
         patches_with_objects: ascending(
@@ -163,6 +168,7 @@ pub(crate) async fn read_state(
             max_patches: policy.max_patches,
             max_cumulative_change_ratio: policy.max_cumulative_change_ratio,
             max_delta_fraction: policy.max_delta_fraction,
+            pnu_prefix_length: policy.pnu_prefix_length,
         },
     })
 }
@@ -226,7 +232,12 @@ mod tests {
              \"object_count\":1,\"published_at_utc\":\"2026-01-01T00:00:00Z\"}";
         let checksum = "a".repeat(64);
         store
-            .write_manifest(by_pnu::manifest_key(lane)?, manifest.as_bytes(), &checksum)
+            .write_manifest(
+                by_pnu::manifest_key(lane)?,
+                manifest.as_bytes(),
+                &checksum,
+                None,
+            )
             .await?;
         store
             .write_object_create_only(
@@ -255,6 +266,11 @@ mod tests {
             "999990000000000001"
         );
         assert_eq!(value["published"]["patch_count"], 0);
+        assert!(value["published"]["pnu_prefix_length"].is_null());
+        assert_eq!(
+            value["policy"]["pnu_prefix_length"],
+            by_pnu_serving_patch_policy()?.pnu_prefix_length
+        );
         assert_eq!(value["generations_with_objects"], serde_json::json!([3]));
         assert_eq!(value["patches_with_objects"], serde_json::json!([2]));
         assert_eq!(

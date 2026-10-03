@@ -7,7 +7,11 @@ const UNIT = "parcel-by-pnu";
 /// at `request_path.capabilities` before it writes the first manifest of a newer schema.
 const MANIFEST_SCHEMA_VERSIONS = [1, 2] as const;
 const pnuPattern = new RegExp(`^(?:${policy.object_key.pnu_pattern})$`);
-const prefixPattern = new RegExp(`^[0-9]{${patchPolicy.pnu_prefix_length}}$`);
+/// The prefix lengths a 19-digit PNU can have. A manifest declares its own; the contract's
+/// `pnu_prefix_length` and `max_patches` bind only the publisher writing the next manifest, so
+/// tuning them never makes the live manifest unreadable (root ADR-0141 §5). What the Worker holds
+/// every manifest to is the fixed `manifest_patch_ceiling`.
+const PNU_PREFIX_LENGTHS = { min: 1, max: 19 } as const;
 // A synthetic cache identity for the parsed manifest: the manifest's own R2 key is not a public
 // URL of this Worker, and caching under a request URL would let a client shape the cache.
 const manifestCacheUrl = "https://foundation-parcel-gateway.invalid/serving-manifest";
@@ -24,6 +28,8 @@ interface ServingPatch {
 /// What one manifest serves: a base generation and its patches, newest first.
 interface ServingPlan {
   base: number;
+  /// The length of every prefix in `patches`, as the manifest declares it.
+  prefixLength: number;
   patches: readonly ServingPatch[];
   /// Names the served state in the per-PNU edge cache key, so a new patch or base never answers
   /// from a response cached under the previous one.
@@ -108,10 +114,27 @@ function parseManifest(raw: unknown): ServingPlan | null {
   if (manifest.unit !== UNIT) return null;
   if (manifest.schema_version === 1) {
     if (!isGeneration(manifest.current_generation)) return null;
-    return { base: manifest.current_generation, patches: [], fingerprint: `v${manifest.current_generation}` };
+    return {
+      base: manifest.current_generation,
+      prefixLength: 0,
+      patches: [],
+      fingerprint: `v${manifest.current_generation}`,
+    };
   }
   if (manifest.schema_version !== 2 || !isGeneration(manifest.base_generation)) return null;
-  if (!Array.isArray(manifest.patches) || manifest.patches.length > patchPolicy.max_patches) return null;
+  const prefixLength = manifest.pnu_prefix_length;
+  if (
+    typeof prefixLength !== "number" ||
+    !Number.isSafeInteger(prefixLength) ||
+    prefixLength < PNU_PREFIX_LENGTHS.min ||
+    prefixLength > PNU_PREFIX_LENGTHS.max
+  ) {
+    return null;
+  }
+  const prefixPattern = new RegExp(`^[0-9]{${prefixLength}}$`);
+  if (!Array.isArray(manifest.patches) || manifest.patches.length > patchPolicy.manifest_patch_ceiling) {
+    return null;
+  }
   const patches: ServingPatch[] = [];
   for (const entry of manifest.patches as unknown[]) {
     if (typeof entry !== "object" || entry === null) return null;
@@ -128,6 +151,7 @@ function parseManifest(raw: unknown): ServingPlan | null {
   const newest = patches[0];
   return {
     base: manifest.base_generation,
+    prefixLength,
     patches,
     fingerprint: newest === undefined ? `v${manifest.base_generation}` : `v${manifest.base_generation}p${newest.generation}`,
   };
@@ -174,8 +198,21 @@ type Found =
   | { kind: "deleted" }
   | { kind: "absent" };
 
+function isTombstone(body: string): boolean {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown> | null;
+    return parsed?.deleted === true && parsed.schema_version === patchPolicy.tombstone_schema_version;
+  } catch {
+    return false;
+  }
+}
+
 /// Newest patch first, then the base. A patch whose prefix list lacks the PNU's prefix holds
 /// nothing for it and costs no read. A tombstone ends the search: the PNU is gone (ADR-0141 §2).
+///
+/// The client's validators (If-None-Match, If-Modified-Since) answer only for a document. A small
+/// object may be a tombstone, and whether it is one is read from its stored body before any
+/// validator can turn the deletion into a 304.
 async function findObject(
   bucket: Pick<R2Bucket, "get">,
   plan: ServingPlan,
@@ -183,30 +220,19 @@ async function findObject(
   conditions: Headers,
 ): Promise<Found> {
   const { root, suffix } = policy.object_key;
-  const pnuPrefix = pnu.slice(0, patchPolicy.pnu_prefix_length);
+  const pnuPrefix = pnu.slice(0, plan.prefixLength);
   for (const patch of plan.patches) {
     if (!patch.prefixes.has(pnuPrefix)) continue;
-    const object = await bucket.get(`${root}/v${plan.base}/p${patch.generation}/${pnu}${suffix}`, {
-      onlyIf: conditions,
-    });
+    const key = `${root}/v${plan.base}/p${patch.generation}/${pnu}${suffix}`;
+    const object = await bucket.get(key, { onlyIf: conditions });
     if (object === null) continue;
-    // A tombstone is small; a document never is that small and is served as stored. An object
-    // whose ETag the client already holds was served to it before, so it is no tombstone.
-    if (!("body" in object) || object.size > patchPolicy.tombstone_max_bytes) {
-      return { kind: "object", object };
-    }
-    const body = await object.text();
-    const parsed = (() => {
-      try {
-        return JSON.parse(body) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    })();
-    if (parsed?.deleted === true && parsed.schema_version === patchPolicy.tombstone_schema_version) {
-      return { kind: "deleted" };
-    }
-    return { kind: "object", object, body };
+    // A document is never as small as a tombstone and is answered as the validators say.
+    if (object.size > patchPolicy.tombstone_max_bytes) return { kind: "object", object };
+    const stored = "body" in object ? object : await bucket.get(key);
+    if (stored === null || !("body" in stored)) continue;
+    const body = await stored.text();
+    if (isTombstone(body)) return { kind: "deleted" };
+    return "body" in object ? { kind: "object", object, body } : { kind: "object", object };
   }
   const object = await bucket.get(`${root}/v${plan.base}/${pnu}${suffix}`, { onlyIf: conditions });
   return object === null ? { kind: "absent" } : { kind: "object", object };

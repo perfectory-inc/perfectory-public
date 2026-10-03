@@ -16,9 +16,10 @@
 # 2. chooses how to reflect the new snapshot (root ADR-0141 §5, §8), and records the choice:
 #    - full: a new base generation, when the operator forces it (FOUNDATION_BY_PNU_BAKE_FORCE_FULL
 #      with a FOUNDATION_BY_PNU_BAKE_FORCE_FULL_REASON), when the export now bakes another document
-#      schema than the base holds, when the base already carries max_patches patches, or when the
-#      change set would take the patches past max_cumulative_change_ratio of the base. A full bake
-#      is also the compaction.
+#      schema than the base holds, when the base already carries max_patches patches (or more,
+#      after max_patches was lowered), when its patches are listed by another prefix length than
+#      the contract's pnu_prefix_length, or when the change set would take the patches past
+#      max_cumulative_change_ratio of the base. A full bake is also the compaction.
 #    - otherwise the change set decides. `by_pnu_panel_delta.py` compares row_digest between the
 #      reflected snapshot and the new one; it refuses when the comparison snapshot is gone or the
 #      change set is more than max_delta_fraction of the table, and then nothing is published. An
@@ -105,7 +106,7 @@ FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH="${state}" \
   "${PUBLISHER_BIN}" "show-${UNIT}-by-pnu-serving-state"
 read -r gold base base_objects reflected patch_count newest_patch cumulative served_schema \
   schema_now highest_listed highest_patch_listed max_patches max_ratio max_delta_fraction \
-  < <(python3 -I - "${state}" <<'PY'
+  served_prefix_length prefix_length < <(python3 -I - "${state}" <<'PY'
 import json, sys
 state = json.load(open(sys.argv[1]))
 if state.get("schema_version") != "foundation-platform.by_pnu_serving_state.v2":
@@ -121,10 +122,11 @@ print(state["gold_iceberg_snapshot_id"] or "-", published["base_generation"],
       published["document_schema_version"] or "-", state["document_schema_version"],
       max(state["generations_with_objects"], default=0),
       max(state["patches_with_objects"], default=0),
-      policy["max_patches"], policy["max_cumulative_change_ratio"], policy["max_delta_fraction"])
+      policy["max_patches"], policy["max_cumulative_change_ratio"], policy["max_delta_fraction"],
+      published["pnu_prefix_length"] or "-", policy["pnu_prefix_length"])
 PY
 )
-[[ -n "${max_delta_fraction:-}" ]] || { log "refused: cannot read the lane state ${state}"; exit 65; }
+[[ -n "${prefix_length:-}" ]] || { log "refused: cannot read the lane state ${state}"; exit 65; }
 if [[ "${gold}" == - ]]; then
   log "nothing to do: the Gold table has no snapshot"
   exit 0
@@ -167,7 +169,9 @@ if [[ "${FORCE_FULL}" == true ]]; then
 elif [[ "${served_schema}" != "${schema_now}" ]]; then
   mode=full reason="the export bakes ${schema_now} documents, the base holds ${served_schema}"
 elif ((patch_count >= max_patches)); then
-  mode=full reason="the base carries ${patch_count} patches, the contract's max_patches"
+  mode=full reason="the base carries ${patch_count} patches, the contract's max_patches is ${max_patches}"
+elif ((patch_count > 0)) && [[ "${served_prefix_length}" != "${prefix_length}" ]]; then
+  mode=full reason="the patches are listed by ${served_prefix_length}-digit prefixes, the contract's pnu_prefix_length is ${prefix_length}"
 fi
 
 run_delta() {

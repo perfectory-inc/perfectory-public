@@ -20,10 +20,11 @@ last_reviewed: 2026-09-10
 - 허용: `GET`, `HEAD`, `OPTIONS`와 정확한 `/buildings/by-pnu/{pnu}` (PNU 19자리, 11번째
   자리는 대장 구분 `[1289]`)
 - 세대 해석(루트 ADR-0141): manifest(`serving/buildings/by-pnu/manifest.json`)는 기본 세대와 패치 목록(최신이
-  앞)을 싣는다. 응답은 가장 최신 패치부터 기본 세대까지 처음 찾은 객체다. 패치의 `prefixes`(PNU 앞 5자리)에 없는
+  앞)을 싣는다. 응답은 가장 최신 패치부터 기본 세대까지 처음 찾은 객체다. 패치의 `prefixes`(manifest 가 스스로 적은 `pnu_prefix_length` 자리의 PNU 앞자리)에 없는
   PNU 는 그 패치를 읽지 않는다. 툼스톤(`deleted: true`)을 만나면 더 내려가지 않고 `{"error":"deleted"}` 404
   (`no-store`)를 낸다. v1 manifest(`current_generation`)는 패치 없는 기본 세대로 읽는다. manifest 해석 결과는 엣지에
-  `manifest_edge_cache_seconds` 동안 캐시된다.
+  `manifest_edge_cache_seconds` 동안 캐시된다. 패치 수는 계약의 고정 상한 `manifest_patch_ceiling` 까지 읽는다 —
+  조정값 `max_patches`·`pnu_prefix_length` 는 발행 명령이 새 manifest 를 쓸 때만 본다.
 - `GET /buildings/by-pnu/_capabilities` 는 이 Worker 가 읽는 manifest 스키마 목록을 낸다. 발행 명령은 첫 v2
   manifest 를 쓰기 전에 이것을 확인한다 — 게이트웨이를 먼저 배포한다.
 - **manifest 를 신뢰할 수 없으면 503** (부재·비파싱·다른 unit/schema/세대 0): 포인터 장애는
@@ -32,8 +33,11 @@ last_reviewed: 2026-09-10
 - 거부: query, 원시 객체 키, 다른 prefix, traversal, 비정규 PNU는 404; 다른 method는 405;
   미허용 Origin은 403
 - 캐시: 객체는 `public, max-age=3600`. 개별 PNU 응답의 엣지 캐시 키에 서빙 상태의 지문(`v{기본}p{최신 패치}`)이
-  들어가므로, 새 패치나 새 기본 세대가 발행되면 옛 응답이 즉시 쓰이지 않는다(manifest 캐시 1분 이내)
-- 조건부 요청: R2/Cache API의 ETag와 `If-None-Match` 판단을 사용하고 일치하면 304
+  들어가므로, 새 패치나 새 기본 세대가 발행되면 엣지는 옛 응답을 즉시 쓰지 않는다(manifest 캐시 1분 이내).
+  **브라우저는 다르다**: 같은 URL 의 응답을 `max-age`(계약의 `cache_control`) 동안 다시 묻지 않고 쓸 수 있다
+  (루트 ADR-0141 2026-10-04 개정 주석).
+- 조건부 요청: R2/Cache API의 ETag와 `If-None-Match` 판단을 사용하고 일치하면 304. 패치의 작은 객체는 먼저
+  본문을 읽어 툼스톤인지 정한다 — 조건부 헤더로 삭제된 PNU 의 304 를 받아 낼 수 없다.
 - 권한: R2 binding 하나의 `get`만 타입에 노출; list/write와 S3 자격증명 없음
 
 ## 로컬 검증

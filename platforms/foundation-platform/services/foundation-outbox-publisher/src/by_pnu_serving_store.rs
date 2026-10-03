@@ -10,7 +10,7 @@
 //!
 //! Every object is create-only: base objects, patch objects and tombstones, and the history copy
 //! of each replaced manifest (root ADR-0141). There is no overwrite path. The manifest is the one
-//! mutable object.
+//! mutable object, and it is replaced only over the version the publish read (compare-and-swap).
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
@@ -19,7 +19,8 @@ use anyhow::{bail, ensure, Context};
 use foundation_outbox::{
     object_storage::R2ObjectStorageConfig,
     object_storage::{
-        ObjectWriteMode, PutObjectRequest, R2InventoryRequest, MAX_R2_INVENTORY_MAX_KEYS,
+        ConditionalWrite, ObjectWriteMode, PutObjectRequest, R2InventoryRequest,
+        MAX_R2_INVENTORY_MAX_KEYS,
     },
     EvidenceByteReader, FileObjectStorage, ObjectStorageService, PublishError, R2ObjectStorage,
 };
@@ -34,6 +35,10 @@ use crate::r2_layout::by_pnu;
 pub(crate) struct ByPnuServingStore {
     lane: ByPnuLane,
     backend: Backend,
+    /// Stands in for another publish moving the manifest between this publish's read and its
+    /// write (tests only).
+    #[cfg(test)]
+    race_before_manifest_write: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 }
 
 #[derive(Clone)]
@@ -66,7 +71,22 @@ impl ByPnuServingStore {
                 Backend::R2(Box::new(R2ObjectStorage::from_config(config)), bucket_name)
             }
         };
-        Ok(Self { lane, backend })
+        Ok(Self {
+            lane,
+            backend,
+            #[cfg(test)]
+            race_before_manifest_write: None,
+        })
+    }
+
+    /// Runs `race` right before every manifest write, as another writer would (tests only).
+    #[cfg(test)]
+    pub(crate) fn with_race_before_manifest_write(
+        mut self,
+        race: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        self.race_before_manifest_write = Some(std::sync::Arc::new(race));
+        self
     }
 
     pub(crate) const fn lane(&self) -> ByPnuLane {
@@ -328,33 +348,103 @@ impl ByPnuServingStore {
         }
     }
 
-    /// Writes the serving manifest — the lane's one deliberately mutable object.
+    /// Reads the serving manifest with the version a later [`Self::write_manifest`] must still
+    /// find: the R2 `ETag`, or locally the SHA-256 of the bytes.
     ///
     /// # Errors
-    /// Returns an error when the key is not the contract manifest key or the write fails.
+    /// Returns an error when the manifest is absent or the provider rejects the read.
+    pub(crate) async fn read_manifest(&self) -> anyhow::Result<(Vec<u8>, String)> {
+        let key = by_pnu::manifest_key(self.lane)?;
+        match &self.backend {
+            Backend::Local(..) => {
+                let bytes = self.read_bytes(key).await?;
+                let version = local_version(&bytes);
+                Ok((bytes, version))
+            }
+            Backend::R2(storage, _) => storage
+                .get_object_bytes_and_e_tag(key)
+                .await
+                .with_context(|| format!("failed to read the serving manifest {key}")),
+        }
+    }
+
+    /// Writes the serving manifest — the lane's one deliberately mutable object — as a
+    /// compare-and-swap: over the version `expected` names (R2 `If-Match`), or, with no
+    /// expected version, only where no manifest exists yet (`If-None-Match: *`).
+    ///
+    /// The local backend compares then writes; it is a rehearsal store with one writer, and the
+    /// comparison is what its tests exercise.
+    ///
+    /// # Errors
+    /// Returns an error when the key is not the contract manifest key, the stored manifest is no
+    /// longer the expected version (another publish moved it), or the write fails.
     pub(crate) async fn write_manifest(
         &self,
         key: &str,
         body: &[u8],
         sha256: &str,
+        expected: Option<&str>,
     ) -> anyhow::Result<()> {
         ensure!(
             by_pnu::is_manifest_key(self.lane, key),
             "refusing to write {key} : it is not the {} by-PNU serving manifest key",
             self.lane.noun()
         );
+        #[cfg(test)]
+        if let Some(race) = &self.race_before_manifest_write {
+            race();
+        }
         let policy = self.lane.policy()?;
         let request = PutObjectRequest {
             key: key.to_owned(),
             body: body.to_vec(),
             content_type: policy.content_type.clone(),
             cache_control: policy.manifest_cache_control.clone(),
-            write_mode: ObjectWriteMode::OverwriteAllowed,
+            write_mode: if expected.is_some() {
+                ObjectWriteMode::OverwriteAllowed
+            } else {
+                ObjectWriteMode::CreateOnly
+            },
             sha256: Some(sha256.to_owned()),
         };
-        self.put(request)
-            .await
-            .with_context(|| format!("failed to write the serving manifest {key}"))
+        let lost = |found: &str| {
+            anyhow::anyhow!(
+                "the serving manifest {key} changed while this publish ran ({found}); another \
+                 publish moved it. Nothing was written — rerun against the manifest now served"
+            )
+        };
+        let Some(expected) = expected else {
+            return match self.put(request).await {
+                Ok(()) => Ok(()),
+                Err(PublishError::ObjectAlreadyExists { .. }) => {
+                    Err(lost("a manifest appeared where none was"))
+                }
+                Err(error) => Err(error)
+                    .with_context(|| format!("failed to write the serving manifest {key}")),
+            };
+        };
+        match &self.backend {
+            Backend::Local(storage, _) => {
+                let current = storage.read_evidence_bytes(key).await.ok();
+                if current.as_deref().map(local_version).as_deref() != Some(expected) {
+                    return Err(lost("its version is no longer the one read"));
+                }
+                storage
+                    .put_object(request)
+                    .await
+                    .with_context(|| format!("failed to write the serving manifest {key}"))
+            }
+            Backend::R2(storage, _) => match storage
+                .put_object_if_match(request, expected)
+                .await
+                .with_context(|| format!("failed to write the serving manifest {key}"))?
+            {
+                ConditionalWrite::Written => Ok(()),
+                ConditionalWrite::VersionChanged => {
+                    Err(lost("R2 refused the write: If-Match no longer holds"))
+                }
+            },
+        }
     }
 
     /// Reads the exact stored bytes of one object.
@@ -375,6 +465,12 @@ impl ByPnuServingStore {
             Backend::R2(storage, _) => storage.put_object(request).await,
         }
     }
+}
+
+/// The version of a locally stored manifest: the SHA-256 of its bytes.
+fn local_version(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 /// `(name, is_directory)` of every entry of a local directory; a missing directory is empty.
@@ -506,7 +602,7 @@ mod tests {
                 .await
                 .is_err());
             assert!(store
-                .write_manifest(&object, b"{}\n", CHECKSUM)
+                .write_manifest(&object, b"{}\n", CHECKSUM, None)
                 .await
                 .is_err());
             assert!(store
@@ -525,11 +621,54 @@ mod tests {
                 .write_manifest_history(&object, b"{}\n", CHECKSUM)
                 .await
                 .is_err());
-            store.write_manifest(manifest, b"{}\n", CHECKSUM).await?;
+            store
+                .write_manifest(manifest, b"{}\n", CHECKSUM, None)
+                .await?;
             let leaked = root.join("bronze/vworld/2026/raw.jsonl").exists();
             std::fs::remove_dir_all(&root)?;
             assert!(!leaked, "a refused write still produced the object");
         }
+        Ok(())
+    }
+
+    /// The manifest moves only over the version that was read; a lost race writes nothing.
+    #[tokio::test]
+    async fn the_manifest_is_replaced_only_over_the_version_read() -> anyhow::Result<()> {
+        let lane = ByPnuLane::Parcel;
+        let root = temporary_root("manifest-cas");
+        let store =
+            ByPnuServingStore::open(lane, &ProfileStoreConfig::Local { root: root.clone() })?;
+        let key = by_pnu::manifest_key(lane)?;
+        store.write_manifest(key, b"one\n", CHECKSUM, None).await?;
+        let created_twice = store.write_manifest(key, b"two\n", CHECKSUM, None).await;
+        let (bytes, version) = store.read_manifest().await?;
+        let stale = store
+            .write_manifest(key, b"two\n", CHECKSUM, Some("not-the-version"))
+            .await;
+        store
+            .write_manifest(key, b"two\n", CHECKSUM, Some(&version))
+            .await?;
+        let replayed = store
+            .write_manifest(key, b"three\n", CHECKSUM, Some(&version))
+            .await;
+        let (last, _) = store.read_manifest().await?;
+        std::fs::remove_dir_all(&root)?;
+
+        assert_eq!(bytes, b"one\n");
+        for (label, result) in [
+            ("a second first write", created_twice),
+            ("a write over an unknown version", stale),
+            ("a write over a replaced version", replayed),
+        ] {
+            let error = result.err().map(|error| format!("{error:#}"));
+            assert!(
+                error
+                    .as_deref()
+                    .is_some_and(|message| message.contains("changed while this publish ran")),
+                "{label} was not refused as a lost race: {error:?}"
+            );
+        }
+        assert_eq!(last, b"two\n");
         Ok(())
     }
 

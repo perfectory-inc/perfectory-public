@@ -6,12 +6,18 @@
 //!
 //! A v1 manifest (one generation, no patches) is read as a v2 manifest with an empty patch list,
 //! so the first patch publish after the change can start from what the bucket already serves.
+//!
+//! Reading and writing check different things. The contract's `max_patches` and
+//! `pnu_prefix_length` bind only the manifest being written; a manifest being read is held to the
+//! fixed `manifest_patch_ceiling` and to the prefix length it declares itself. Lowering either
+//! value therefore leaves the live manifest readable, and the full bake that compacts it can
+//! still replace it.
 
 use anyhow::{bail, ensure, Context};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane};
+use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane, PNU_PREFIX_LENGTHS};
 
 /// The manifest every publish writes.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -31,6 +37,8 @@ pub(crate) struct ServingManifest {
     /// The latest Gold snapshot whose changes the served state fully reflects: the next change
     /// set is computed against it. A change set with nothing in it advances only this.
     pub(crate) reflected_gold_iceberg_snapshot_id: String,
+    /// The length of every prefix in `patches`; the Worker slices the requested PNU by it.
+    pub(crate) pnu_prefix_length: usize,
     /// Newest first. Every entry holds objects.
     pub(crate) patches: Vec<PatchEntry>,
     /// PNUs that answer: base + new − deleted over every patch.
@@ -46,16 +54,18 @@ pub(crate) struct PatchEntry {
     pub(crate) gold_iceberg_snapshot_id: String,
     pub(crate) upserted: u64,
     pub(crate) deleted: u64,
-    /// The distinct PNU prefixes (contract `pnu_prefix_length`) the patch holds objects under;
-    /// the Worker skips a patch whose list lacks the requested PNU's prefix.
+    /// The distinct PNU prefixes (the manifest's `pnu_prefix_length`) the patch holds objects
+    /// under; the Worker skips a patch whose list lacks the requested PNU's prefix.
     pub(crate) prefixes: Vec<String>,
 }
 
-/// What the publish found in the bucket: the manifest and its exact bytes.
+/// What the publish found in the bucket: the manifest, its exact bytes, and the version the
+/// replacing write must still find there.
 #[derive(Clone, Debug)]
 pub(crate) struct StoredManifest {
     pub(crate) manifest: ServedManifest,
     pub(crate) bytes: Vec<u8>,
+    pub(crate) version: String,
 }
 
 /// A manifest as read, v1 or v2. A v1 manifest never recorded its document schema.
@@ -69,6 +79,8 @@ pub(crate) struct ServedManifest {
     pub(crate) gold_table: String,
     pub(crate) gold_iceberg_snapshot_id: String,
     pub(crate) reflected_gold_iceberg_snapshot_id: String,
+    /// `None` for a v1 manifest, which holds no patches.
+    pub(crate) pnu_prefix_length: Option<usize>,
     pub(crate) patches: Vec<PatchEntry>,
     pub(crate) object_count: u64,
     pub(crate) published_at_utc: String,
@@ -89,8 +101,8 @@ impl ServedManifest {
     /// Parses a stored manifest of `lane`, v1 or v2.
     ///
     /// # Errors
-    /// Refuses another lane's manifest, an unknown schema, and a v2 manifest whose patch list
-    /// breaks its own invariants.
+    /// Refuses another lane's manifest, an unknown schema, and a v2 manifest that breaks
+    /// [`ServingManifest::check_readable`]. The contract's tunable bounds are not applied here.
     pub(crate) fn parse(lane: ByPnuLane, bytes: &[u8]) -> anyhow::Result<Self> {
         let raw: JsonValue =
             serde_json::from_slice(bytes).context("the serving manifest is not JSON")?;
@@ -111,6 +123,7 @@ impl ServedManifest {
                     gold_table: v1.gold_table,
                     reflected_gold_iceberg_snapshot_id: v1.gold_iceberg_snapshot_id.clone(),
                     gold_iceberg_snapshot_id: v1.gold_iceberg_snapshot_id,
+                    pnu_prefix_length: None,
                     patches: Vec::new(),
                     object_count: v1.object_count,
                     published_at_utc: v1.published_at_utc,
@@ -119,7 +132,7 @@ impl ServedManifest {
             2 => {
                 let v2: ServingManifest = serde_json::from_value(raw)
                     .context("the v2 serving manifest does not parse")?;
-                v2.check()?;
+                v2.check_readable()?;
                 Self {
                     wire_schema_version: v2.schema_version,
                     unit: v2.unit,
@@ -129,6 +142,7 @@ impl ServedManifest {
                     gold_table: v2.gold_table,
                     gold_iceberg_snapshot_id: v2.gold_iceberg_snapshot_id,
                     reflected_gold_iceberg_snapshot_id: v2.reflected_gold_iceberg_snapshot_id,
+                    pnu_prefix_length: Some(v2.pnu_prefix_length),
                     patches: v2.patches,
                     object_count: v2.object_count,
                     published_at_utc: v2.published_at_utc,
@@ -166,13 +180,13 @@ impl ServedManifest {
 }
 
 impl ServingManifest {
-    /// Checks the invariants every reader relies on.
+    /// Checks the invariants every reader relies on — and nothing a contract change can move.
     ///
     /// # Errors
-    /// Refuses a wrong schema version, patches not strictly newest first, an empty patch, a
-    /// prefix list that is not sorted distinct digits of the contract length, and more patches
-    /// than the contract allows.
-    pub(crate) fn check(&self) -> anyhow::Result<()> {
+    /// Refuses a wrong schema version, more patches than the fixed `manifest_patch_ceiling`, a
+    /// prefix length no PNU has, patches not strictly newest first, an empty patch, and a prefix
+    /// list that is not sorted distinct digits of the declared length.
+    pub(crate) fn check_readable(&self) -> anyhow::Result<()> {
         let policy = by_pnu_serving_patch_policy()?;
         ensure!(
             self.schema_version == policy.manifest_schema_version,
@@ -180,10 +194,15 @@ impl ServingManifest {
             policy.manifest_schema_version
         );
         ensure!(
-            self.patches.len() <= policy.max_patches,
-            "{} patches exceed the contract's max_patches {}; a full bake compacts them",
+            self.patches.len() <= policy.manifest_patch_ceiling,
+            "{} patches exceed the contract's manifest_patch_ceiling {}",
             self.patches.len(),
-            policy.max_patches
+            policy.manifest_patch_ceiling
+        );
+        ensure!(
+            PNU_PREFIX_LENGTHS.contains(&self.pnu_prefix_length),
+            "pnu_prefix_length {} is not a PNU prefix length",
+            self.pnu_prefix_length
         );
         for pair in self.patches.windows(2) {
             ensure!(
@@ -202,23 +221,47 @@ impl ServingManifest {
             ensure!(
                 patch.prefixes.windows(2).all(|pair| pair[0] < pair[1])
                     && patch.prefixes.iter().all(|prefix| {
-                        prefix.len() == policy.pnu_prefix_length
+                        prefix.len() == self.pnu_prefix_length
                             && prefix.bytes().all(|byte| byte.is_ascii_digit())
                     }),
                 "patch {} prefixes must be sorted distinct {}-digit PNU prefixes",
                 patch.generation,
-                policy.pnu_prefix_length
+                self.pnu_prefix_length
             );
         }
+        Ok(())
+    }
+
+    /// Checks a manifest about to be written: readable, and within the contract as it is now.
+    ///
+    /// # Errors
+    /// Refuses what [`Self::check_readable`] refuses, more patches than the contract's
+    /// `max_patches`, and a prefix length other than the contract's `pnu_prefix_length`.
+    pub(crate) fn check_writable(&self) -> anyhow::Result<()> {
+        self.check_readable()?;
+        let policy = by_pnu_serving_patch_policy()?;
+        ensure!(
+            self.patches.len() <= policy.max_patches,
+            "{} patches exceed the contract's max_patches {}; a full bake compacts them",
+            self.patches.len(),
+            policy.max_patches
+        );
+        ensure!(
+            self.pnu_prefix_length == policy.pnu_prefix_length,
+            "the patches are listed by {}-digit prefixes but the contract's pnu_prefix_length is \
+             {}; a full bake compacts them",
+            self.pnu_prefix_length,
+            policy.pnu_prefix_length
+        );
         Ok(())
     }
 
     /// The v2 bytes the store writes, newline-terminated.
     ///
     /// # Errors
-    /// Refuses a manifest that breaks [`Self::check`].
+    /// Refuses a manifest that breaks [`Self::check_writable`].
     pub(crate) fn to_bytes(&self) -> anyhow::Result<Vec<u8>> {
-        self.check()?;
+        self.check_writable()?;
         let mut body =
             serde_json::to_vec_pretty(self).context("failed to serialize the serving manifest")?;
         body.push(b'\n');
@@ -323,6 +366,7 @@ mod tests {
             gold_table: "gold.parcel_panel".to_owned(),
             gold_iceberg_snapshot_id: SNAPSHOT.to_owned(),
             reflected_gold_iceberg_snapshot_id: SNAPSHOT.to_owned(),
+            pnu_prefix_length: 5,
             patches,
             object_count: 10,
             published_at_utc: "2026-01-01T00:00:00Z".to_owned(),
@@ -377,12 +421,10 @@ mod tests {
             ("repeated prefixes", vec![patch(1, &["99999", "99999"])]),
             ("short prefix", vec![patch(1, &["9999"])]),
             ("no prefixes", vec![patch(1, &[])]),
-            (
-                "too many",
-                (1..=8).rev().map(|g| patch(g, &["99999"])).collect(),
-            ),
         ] {
-            assert!(v2(patches).to_bytes().is_err(), "{label} was accepted");
+            let manifest = v2(patches);
+            assert!(manifest.to_bytes().is_err(), "{label} was written");
+            assert!(manifest.check_readable().is_err(), "{label} was read");
         }
         let mut empty = patch(1, &["99999"]);
         empty.upserted = 0;
@@ -390,6 +432,54 @@ mod tests {
             v2(vec![empty]).to_bytes().is_err(),
             "an empty patch was accepted"
         );
+    }
+
+    /// Lowering `max_patches` or changing `pnu_prefix_length` must not make the live manifest
+    /// unreadable: only a manifest being written is held to them.
+    #[test]
+    fn the_tunable_bounds_bind_writes_and_only_the_ceiling_binds_reads() -> anyhow::Result<()> {
+        let policy = by_pnu_serving_patch_policy()?;
+        let prefix = "9".repeat(policy.pnu_prefix_length);
+        let patches = |count: usize| -> anyhow::Result<Vec<PatchEntry>> {
+            Ok((1..=u64::try_from(count)?)
+                .rev()
+                .map(|g| patch(g, &[prefix.as_str()]))
+                .collect())
+        };
+        let over_k = v2(patches(policy.max_patches + 1)?);
+        assert!(
+            over_k.to_bytes().is_err(),
+            "more than max_patches was written"
+        );
+        let read = ServedManifest::parse(ByPnuLane::Parcel, &serde_json::to_vec(&over_k)?)?;
+        assert_eq!(read.patches.len(), policy.max_patches + 1);
+
+        let other = if policy.pnu_prefix_length == 1 {
+            2
+        } else {
+            policy.pnu_prefix_length - 1
+        };
+        let mut relisted = v2(vec![patch(1, &["9".repeat(other).as_str()])]);
+        relisted.pnu_prefix_length = other;
+        assert!(
+            relisted.to_bytes().is_err(),
+            "a prefix length other than the contract's was written"
+        );
+        let read = ServedManifest::parse(ByPnuLane::Parcel, &serde_json::to_vec(&relisted)?)?;
+        assert_eq!(read.pnu_prefix_length, Some(other));
+
+        let over_ceiling = v2(patches(policy.manifest_patch_ceiling + 1)?);
+        assert!(
+            ServedManifest::parse(ByPnuLane::Parcel, &serde_json::to_vec(&over_ceiling)?).is_err(),
+            "more than manifest_patch_ceiling was read"
+        );
+        let mut impossible = v2(Vec::new());
+        impossible.pnu_prefix_length = 20;
+        assert!(
+            impossible.check_readable().is_err(),
+            "a 20-digit prefix was read"
+        );
+        Ok(())
     }
 
     #[test]

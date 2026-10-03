@@ -162,9 +162,17 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 - Worker 가 503: manifest 부재·비파싱이다. 3절 발행 상태부터 본다(설계된 전면 거부).
 - 굽기 중단: 같은 세대로 재실행하면 된다(2절의 create-only 재사용).
 - 패치 되돌리기([루트 ADR-0141](../../../../docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md) 4절):
-  `..._CONFIRM_PUBLISH=true ..._ROLLBACK_TO_MANIFEST_KEY=<manifest-history 키>` 로 발행 명령을 돌린다. 그 기록이
-  같은 기본 세대이고 그 패치 목록이 지금 목록의 뒤쪽 일부(최신 패치 몇 개를 뺀 것)일 때만 받는다. 패치 객체는 지우지
-  않으므로 앞으로 다시 가는 것도 같은 명령이다. 되돌린 패치 번호는 버킷에 객체가 남아 있어 다음 패치가 그 위로 간다.
+  1. **먼저 Airflow 에서 `foundation_by_pnu_serving_bake` 를 일시정지하고**, `systemctl is-active
+     foundation-by-pnu-serving-bake.service` 가 `inactive`(또는 `failed`)인지 확인한다. 되돌리면 manifest 의
+     반영 스냅숏도 되돌아가므로, 멈추지 않으면 다음 실행이 같은 Gold 에서 같은 변경 집합을 다시 계산해 되돌린 변경을
+     새 패치로 다시 발행한다. Gold 를 고치거나 되돌린 원인을 해소한 뒤에 다시 켠다.
+  2. `..._CONFIRM_PUBLISH=true ..._ROLLBACK_TO_MANIFEST_KEY=<manifest-history 키>` 로 발행 명령을 돌린다. 그 기록이
+     같은 기본 세대이고 그 패치 목록이 지금 목록의 뒤쪽 일부(최신 패치 몇 개를 뺀 것)일 때만 받는다. 패치 객체는
+     지우지 않으므로 앞으로 다시 가는 것도 같은 명령이다.
+  - 되돌린 패치 번호는 버킷에 객체가 남아 있어 다시 쓰이지 않는다: 발행 명령이 객체를 가진 모든 패치 디렉터리보다
+    큰 번호만 받는다.
+  - manifest 쓰기는 발행이 처음 읽은 판 위에서만 된다(R2 `If-Match`). 그 사이 다른 발행이 manifest 를 옮겼으면
+    "changed while this publish ran" 으로 거부되고 아무것도 쓰지 않는다 — 지금 판을 보고 다시 판단한다.
 - 기본 세대 복구: 기본 세대는 앞으로만 간다. 과거 기본 세대로 되돌리는 명령은 없다. 기존 객체를 보존하고,
   검증된 과거 내용을 더 높은 새 세대로 준비·검증·발행하는 복구 경로를 먼저 리허설한다.
   이 런북은 그 복구 리허설이 완료됐다는 증거가 아니다.
@@ -216,14 +224,21 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 
 ### 패치 세대 ([루트 ADR-0141](../../../../docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md))
 
-한도는 `config/r2-connections.contract.json` 의 `by_pnu_serving_patches` 하나가 정본이다(`max_patches` 7,
-`max_cumulative_change_ratio` 0.05, `max_delta_fraction` 0.5). 작업은 상태 명령이 옮겨 준 값을 읽는다.
+한도는 `config/r2-connections.contract.json` 의 `by_pnu_serving_patches` 하나가 정본이다(`max_patches`,
+`max_cumulative_change_ratio`, `max_delta_fraction`, `pnu_prefix_length` — 값은 그 파일에서 읽는다). 작업은 상태
+명령이 옮겨 준 값을 읽는다.
+
+`max_patches` 와 `pnu_prefix_length` 는 **새로 쓰는** manifest 에만 걸린다. 읽는 쪽(gateway Worker, 발행 명령,
+상태 명령)은 같은 블록의 고정 상한 `manifest_patch_ceiling` 과 manifest 가 스스로 적은 `pnu_prefix_length` 만 본다.
+그래서 두 값을 바꿔도 서빙 중인 manifest 는 계속 읽히고, 다음 실행이 아래 표대로 전량 압축으로 고친다.
+`manifest_patch_ceiling` 은 조정값이 아니며 낮추지 않는다(낮추면 그보다 긴 manifest 가 503 이 된다).
 
 | 경우 | 방법 |
 | --- | --- |
 | `FOUNDATION_BY_PNU_BAKE_FORCE_FULL=true` (+ 필수 `..._FORCE_FULL_REASON`, 요약에 남는다) | 전량 |
 | 익스포터의 문서 스키마 ≠ 기본 세대의 문서 스키마 | 전량 |
-| 기본 세대가 이미 `max_patches` 개의 패치를 지님 | 전량(압축) |
+| 기본 세대가 이미 `max_patches` 개 이상의 패치를 지님(한도를 낮춘 뒤 포함) | 전량(압축) |
+| 패치가 있고, 그 앞자리 길이가 계약의 `pnu_prefix_length` 와 다름 | 전량(압축) |
 | 변경 집합이 `max_delta_fraction` 초과 | **거부**, 발행 없음 |
 | 비교할 스냅숏이 없음(지정 안 됨·만료·지문 없음) | **거부**, 발행 없음 — "변경 없음"이 아니다 |
 | 변경 없음 | `reflected_gold_iceberg_snapshot_id` 만 옮기는 발행(객체 쓰기 없음) |
@@ -255,7 +270,7 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 - 실제 두 스냅숏의 변경 집합은 **0건**이었다(10-01 판은 같은 내용에 지문을 더한 판). 이런 날은 패치를 쓰지 않고
   `reflected_gold_iceberg_snapshot_id` 만 옮긴다 — 빈 패치로 `max_patches` 를 채우면 조용한 일주일이 81시간 전량
   굽기로 끝난다.
-- 툼스톤은 약 195바이트(계약 상한 512)다. 패치 항목 하나는 manifest 에 약 150바이트 + 앞자리 하나당 약 13바이트를
+- 툼스톤은 약 195바이트로 계약의 `tombstone_max_bytes` 안이다. 패치 항목 하나는 manifest 에 약 150바이트 + 앞자리 하나당 약 13바이트를
   더한다(시군구 250개 전부여도 약 3.4KB). 실제 일일 변경 수는 첫 운영에서 잰다(ADR-0141 Consequences).
 
 건물 레인은 승인된 건물 연결을 운영 DB 에서 읽는다. `DATABASE_URL` 은 FLOOR 와 같이 compose 의 API 연결을

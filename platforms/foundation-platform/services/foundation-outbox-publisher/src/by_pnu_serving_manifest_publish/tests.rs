@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Context as _;
 use sha2::{Digest, Sha256};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -11,8 +12,8 @@ use super::{
     document_schema_version, gold_table, publish, ListingExpectation, PatchInput, PublishConfig,
     PublishInput,
 };
-use crate::by_pnu_gateway_contract::ByPnuLane;
-use crate::by_pnu_serving_manifest::{tombstone_body, ServedManifest, ServingManifest};
+use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane};
+use crate::by_pnu_serving_manifest::{tombstone_body, PatchEntry, ServedManifest, ServingManifest};
 use crate::by_pnu_serving_store::ByPnuServingStore;
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::r2_layout::by_pnu;
@@ -411,53 +412,88 @@ async fn an_empty_change_set_advances_only_the_reflected_snapshot() -> anyhow::R
     Ok(())
 }
 
+/// `n` synthetic PNUs (11th digit 1), distinct from the named ones.
+fn synthetic_pnus(n: usize) -> Vec<String> {
+    (0..n).map(|n| format!("99999{n:05}100000000")).collect()
+}
+
+/// The `k`-th synthetic snapshot id after the base one.
+fn snapshot(k: usize) -> String {
+    format!("9999900000{:08}", 1 + k)
+}
+
 #[tokio::test]
 async fn the_patch_bounds_of_the_contract_are_enforced_at_publish() -> anyhow::Result<()> {
-    let fx = fixture(ByPnuLane::Parcel, "bounds").await?;
-    // 20 base objects: one change is 5%, the contract's bound; two are over it.
-    let pnus = (0..20)
-        .map(|n| format!("99999000{n:02}100000000"))
-        .collect::<Vec<_>>();
+    let ratio = by_pnu_serving_patch_policy()?.max_cumulative_change_ratio;
+    // A base where the contract's ratio allows `at` changes and refuses one more.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a small positive count
+    let size = (2.0 / ratio).ceil() as usize + 1;
+    #[allow(clippy::cast_precision_loss)] // counts far below 2^52
+    let at = (1..=size)
+        .take_while(|changes| *changes as f64 / size as f64 <= ratio)
+        .last()
+        .context("the contract's ratio allows no change at all")?;
+    let pnus = synthetic_pnus(size);
     let refs = pnus.iter().map(String::as_str).collect::<Vec<_>>();
-    fx.base_exact(&refs).await?;
-    fx.bake_patch(1, NEXT_SNAPSHOT, &refs[..2], &[]).await?;
-    let files = fx.change_set("r", BASE_SNAPSHOT, NEXT_SNAPSHOT, &refs[..2], 0, &[])?;
-    let error = fx
-        .publish(fx.patch_input(Some(1), NEXT_SNAPSHOT, files), false)
-        .await
-        .expect_err("a patch over the cumulative ratio was published");
-    assert!(
-        error.to_string().contains("max_cumulative_change_ratio"),
-        "{error:#}"
-    );
+    for (label, changes, allowed) in [("over", at + 1, false), ("at", at, true)] {
+        let fx = fixture(ByPnuLane::Parcel, &format!("bounds-{label}")).await?;
+        fx.base_exact(&refs).await?;
+        fx.bake_patch(1, NEXT_SNAPSHOT, &refs[..changes], &[])
+            .await?;
+        let files = fx.change_set(
+            label,
+            BASE_SNAPSHOT,
+            NEXT_SNAPSHOT,
+            &refs[..changes],
+            0,
+            &[],
+        )?;
+        let result = fx
+            .publish(fx.patch_input(Some(1), NEXT_SNAPSHOT, files), false)
+            .await;
+        if allowed {
+            result.with_context(|| format!("{changes} of {size} changes were refused"))?;
+        } else {
+            let error = result.expect_err("a patch over the cumulative ratio was published");
+            assert!(
+                error.to_string().contains("max_cumulative_change_ratio"),
+                "{error:#}"
+            );
+        }
+    }
     Ok(())
 }
 
 #[tokio::test]
 async fn a_patch_number_must_move_past_the_newest_and_stop_at_max_patches() -> anyhow::Result<()> {
+    let policy = by_pnu_serving_patch_policy()?;
     let fx = fixture(ByPnuLane::Parcel, "count").await?;
-    let pnus = (0..200)
-        .map(|n| format!("99999{n:05}100000000"))
-        .collect::<Vec<_>>();
+    // One change per patch, K + 1 patches, all inside the cumulative ratio.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    let size =
+        ((policy.max_patches + 1) as f64 / policy.max_cumulative_change_ratio).ceil() as usize + 1;
+    let pnus = synthetic_pnus(size);
     let refs = pnus.iter().map(String::as_str).collect::<Vec<_>>();
     fx.base_exact(&refs).await?;
-    let snapshots = (2..=9)
-        .map(|n| format!("99999000000000000{n}"))
-        .collect::<Vec<_>>();
     let mut reflected = BASE_SNAPSHOT.to_owned();
-    for (index, snapshot) in snapshots.iter().enumerate() {
+    for (index, changed) in refs.iter().take(policy.max_patches + 1).enumerate() {
+        let snapshot = snapshot(index + 1);
         let patch = u64::try_from(index)? + 1;
-        let pnu = [refs[index]];
-        fx.bake_patch(patch, snapshot, &pnu, &[]).await?;
-        let files = fx.change_set(&format!("k{patch}"), &reflected, snapshot, &pnu, 0, &[])?;
+        let pnu = [*changed];
+        fx.bake_patch(patch, &snapshot, &pnu, &[]).await?;
+        let files = fx.change_set(&format!("k{patch}"), &reflected, &snapshot, &pnu, 0, &[])?;
         let result = fx
-            .publish(fx.patch_input(Some(patch), snapshot, files), false)
+            .publish(fx.patch_input(Some(patch), &snapshot, files), false)
             .await;
-        if patch <= 7 {
+        if index < policy.max_patches {
             result?;
-            reflected.clone_from(snapshot);
+            reflected = snapshot;
         } else {
-            let error = result.expect_err("an eighth patch was published");
+            let error = result.expect_err("a patch past max_patches was published");
             assert!(error.to_string().contains("max_patches"), "{error:#}");
         }
     }
@@ -767,5 +803,309 @@ fn the_removed_overwrite_and_repoint_switches_are_refused_when_set() {
             |_| false
         )
         .is_ok());
+    }
+}
+
+/// Root ADR-0141 §5 lets `K` and the prefix length be tuned. A live manifest written under the
+/// old values must keep serving and must not block the full bake that compacts it.
+#[tokio::test]
+async fn a_manifest_written_under_a_larger_k_or_another_prefix_length_is_compacted_by_a_full_bake(
+) -> anyhow::Result<()> {
+    let policy = by_pnu_serving_patch_policy()?;
+    let shorter = policy.pnu_prefix_length - 1;
+    for lane in LANES {
+        let fx = fixture(lane, "lowered-k").await?;
+        let base = fx.base(&[PNU_A]).await?;
+        // What the publisher wrote before K was lowered and the prefix length changed: one
+        // patch more than the contract now allows, listed by shorter prefixes.
+        let stale = ServingManifest {
+            pnu_prefix_length: shorter,
+            patches: (1..=u64::try_from(policy.max_patches)? + 1)
+                .rev()
+                .map(|generation| PatchEntry {
+                    generation,
+                    gold_iceberg_snapshot_id: BASE_SNAPSHOT.to_owned(),
+                    upserted: 1,
+                    deleted: 0,
+                    prefixes: vec![PNU_A[..shorter].to_owned()],
+                })
+                .collect(),
+            ..base
+        };
+        assert!(
+            stale.to_bytes().is_err(),
+            "the fixture is writable as it is"
+        );
+        let key = by_pnu::manifest_key(lane)?;
+        std::fs::write(fx.root.join(key), serde_json::to_vec_pretty(&stale)?)?;
+        assert_eq!(fx.live().await?.patches.len(), policy.max_patches + 1);
+
+        // Neither a patch nor a reflect can carry those patches forward ...
+        fx.bake_patch(9, NEXT_SNAPSHOT, &[PNU_A], &[]).await?;
+        let files = fx.change_set("k", BASE_SNAPSHOT, NEXT_SNAPSHOT, &[PNU_A], 0, &[])?;
+        let error = fx
+            .publish(fx.patch_input(Some(9), NEXT_SNAPSHOT, files), false)
+            .await
+            .expect_err("a patch was stacked on a manifest over max_patches");
+        assert!(
+            error.to_string().contains("a full bake compacts"),
+            "{error:#}"
+        );
+        let files = fx.change_set("e", BASE_SNAPSHOT, NEXT_SNAPSHOT, &[], 0, &[])?;
+        assert!(fx
+            .publish(fx.patch_input(None, NEXT_SNAPSHOT, files), false)
+            .await
+            .is_err());
+
+        // ... and the full bake replaces it, keeping the old state in the history.
+        fx.put(
+            &by_pnu::object_key(lane, 4, PNU_A)?,
+            &fx.document(PNU_A, LATER_SNAPSHOT),
+        )
+        .await?;
+        let compacted = fx
+            .publish(
+                PublishInput::Listing(ListingExpectation {
+                    target_generation: 4,
+                    expected_gold_iceberg_snapshot_id: LATER_SNAPSHOT.to_owned(),
+                    expected_object_count: 1,
+                }),
+                false,
+            )
+            .await?;
+        assert_eq!(compacted.base_generation, 4);
+        assert!(compacted.patches.is_empty());
+        assert_eq!(compacted.pnu_prefix_length, policy.pnu_prefix_length);
+        let mut kept = false;
+        for history in fx.history()? {
+            kept |= ServedManifest::parse(lane, &fx.store.read_bytes(&history).await?)?
+                .patches
+                .len()
+                == policy.max_patches + 1;
+        }
+        assert!(kept, "the compacted manifest is not in the history");
+    }
+    Ok(())
+}
+
+/// A rollback leaves the dropped patches' objects in the bucket. Their numbers are spent.
+#[tokio::test]
+async fn a_rolled_back_patch_number_is_never_reused() -> anyhow::Result<()> {
+    const FOURTH_SNAPSHOT: &str = "999990000000000004";
+    for lane in LANES {
+        let fx = fixture(lane, "spent").await?;
+        fx.base(&[PNU_A, PNU_B, PNU_C]).await?;
+        for (patch, baseline, current, pnu) in [
+            (3, BASE_SNAPSHOT, NEXT_SNAPSHOT, PNU_A),
+            (4, NEXT_SNAPSHOT, LATER_SNAPSHOT, PNU_B),
+            (5, LATER_SNAPSHOT, FOURTH_SNAPSHOT, PNU_C),
+        ] {
+            fx.bake_patch(patch, current, &[pnu], &[]).await?;
+            let files = fx.change_set(&format!("s{patch}"), baseline, current, &[pnu], 0, &[])?;
+            fx.publish(fx.patch_input(Some(patch), current, files), false)
+                .await?;
+        }
+        let only_three = fx
+            .history_with(|manifest| manifest.patches.len() == 1)
+            .await?;
+        let rolled = fx
+            .publish(PublishInput::Rollback(only_three), false)
+            .await?;
+        assert_eq!(rolled.patches.len(), 1);
+
+        // The change set the next scheduled run computes again: same baseline, same snapshot,
+        // the same bytes already in p4. Only the spent number stops it.
+        let files = fx.change_set("again", NEXT_SNAPSHOT, LATER_SNAPSHOT, &[PNU_B], 0, &[])?;
+        let error = fx
+            .publish(fx.patch_input(Some(4), LATER_SNAPSHOT, files), false)
+            .await
+            .expect_err("a rolled-back patch number was reused");
+        assert!(error.to_string().contains("never reused"), "{error:#}");
+        assert_eq!(fx.live().await?.patches.len(), 1);
+
+        // Above every patch that holds objects, the same change goes out.
+        fx.bake_patch(6, LATER_SNAPSHOT, &[PNU_B], &[]).await?;
+        let files = fx.change_set("fresh", NEXT_SNAPSHOT, LATER_SNAPSHOT, &[PNU_B], 0, &[])?;
+        fx.publish(fx.patch_input(Some(6), LATER_SNAPSHOT, files), false)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Every publish path writes the manifest over the version it read. A publish that loses the
+/// race to another one is refused and the other publish's manifest stays.
+#[tokio::test]
+async fn every_publish_path_refuses_a_manifest_moved_since_it_was_read() -> anyhow::Result<()> {
+    for lane in LANES {
+        // First publication, then the two full paths.
+        let fx = fixture(lane, "race-full").await?;
+        let manifest_path = fx.root.join(by_pnu::manifest_key(lane)?);
+        fx.put(
+            &by_pnu::object_key(lane, 3, PNU_A)?,
+            &fx.document(PNU_A, BASE_SNAPSHOT),
+        )
+        .await?;
+        let first = PublishInput::Listing(ListingExpectation {
+            target_generation: 3,
+            expected_gold_iceberg_snapshot_id: BASE_SNAPSHOT.to_owned(),
+            expected_object_count: 1,
+        });
+        let error = fx
+            .raced_publish(first.clone(), true, &manifest_path)
+            .await
+            .expect_err("a first publication overwrote a manifest that appeared meanwhile");
+        assert!(
+            format!("{error:#}").contains("changed while this publish ran"),
+            "{error:#}"
+        );
+        std::fs::remove_file(&manifest_path)?;
+        fx.publish(first, true).await?;
+
+        fx.put(
+            &by_pnu::object_key(lane, 4, PNU_A)?,
+            &fx.document(PNU_A, BASE_SNAPSHOT),
+        )
+        .await?;
+        let listing = PublishInput::Listing(ListingExpectation {
+            target_generation: 4,
+            expected_gold_iceberg_snapshot_id: BASE_SNAPSHOT.to_owned(),
+            expected_object_count: 1,
+        });
+        fx.assert_race_refused("full from the listing", listing, &manifest_path)
+            .await?;
+        let summary = fx.export_summary(5, PNU_A, BASE_SNAPSHOT).await?;
+        fx.assert_race_refused(
+            "full from an export summary",
+            PublishInput::ExportSummary(summary),
+            &manifest_path,
+        )
+        .await?;
+
+        // Patch, reflect and rollback over a published base.
+        let fx = fixture(lane, "race-patch").await?;
+        let manifest_path = fx.root.join(by_pnu::manifest_key(lane)?);
+        fx.base(&[PNU_A]).await?;
+        fx.bake_patch(1, NEXT_SNAPSHOT, &[PNU_A], &[]).await?;
+        let patch_files = fx.change_set("p", BASE_SNAPSHOT, NEXT_SNAPSHOT, &[PNU_A], 0, &[])?;
+        fx.assert_race_refused(
+            "patch",
+            fx.patch_input(Some(1), NEXT_SNAPSHOT, patch_files.clone()),
+            &manifest_path,
+        )
+        .await?;
+        let reflect_files = fx.change_set("r", BASE_SNAPSHOT, NEXT_SNAPSHOT, &[], 0, &[])?;
+        fx.assert_race_refused(
+            "reflect",
+            fx.patch_input(None, NEXT_SNAPSHOT, reflect_files),
+            &manifest_path,
+        )
+        .await?;
+        fx.publish(fx.patch_input(Some(1), NEXT_SNAPSHOT, patch_files), false)
+            .await?;
+        let base_only = fx
+            .history_with(|manifest| manifest.patches.is_empty())
+            .await?;
+        fx.assert_race_refused(
+            "rollback",
+            PublishInput::Rollback(base_only),
+            &manifest_path,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// What another publish leaves in place of the manifest in the race tests.
+const RACED_MANIFEST: &[u8] = b"{\"moved_by\":\"another publish\"}\n";
+
+impl Fixture {
+    /// The last history key, in key order, whose manifest `wanted` accepts.
+    async fn history_with(
+        &self,
+        wanted: impl Fn(&ServedManifest) -> bool,
+    ) -> anyhow::Result<String> {
+        let mut found = None;
+        for key in self.history()? {
+            if wanted(&ServedManifest::parse(
+                self.lane,
+                &self.store.read_bytes(&key).await?,
+            )?) {
+                found = Some(key);
+            }
+        }
+        found.context("no manifest of that shape is in the history")
+    }
+
+    /// Publishes through a store on which another publish rewrites the manifest right before
+    /// this publish writes it.
+    async fn raced_publish(
+        &self,
+        input: PublishInput,
+        first: bool,
+        manifest_path: &Path,
+    ) -> anyhow::Result<ServingManifest> {
+        let path = manifest_path.to_owned();
+        let store = self.store.clone().with_race_before_manifest_write(move || {
+            let _ = std::fs::write(&path, RACED_MANIFEST);
+        });
+        publish(&self.config(input, first), &store, &self.gateway.uri()).await
+    }
+
+    /// The raced publish is refused naming the conflict, and the other publish's manifest
+    /// stays. The manifest is then put back for the next case.
+    async fn assert_race_refused(
+        &self,
+        label: &str,
+        input: PublishInput,
+        manifest_path: &Path,
+    ) -> anyhow::Result<()> {
+        let before = std::fs::read(manifest_path)?;
+        let error = self
+            .raced_publish(input, false, manifest_path)
+            .await
+            .err()
+            .with_context(|| format!("{label}: a publish that lost the race was written"))?;
+        assert!(
+            format!("{error:#}").contains("changed while this publish ran"),
+            "{label}: {error:#}"
+        );
+        assert_eq!(
+            std::fs::read(manifest_path)?,
+            RACED_MANIFEST,
+            "{label}: the winning manifest was overwritten"
+        );
+        std::fs::write(manifest_path, before)?;
+        Ok(())
+    }
+
+    /// Bakes `pnu` into base `generation` and writes the export summary naming it.
+    async fn export_summary(
+        &self,
+        generation: u64,
+        pnu: &str,
+        snapshot: &str,
+    ) -> anyhow::Result<PathBuf> {
+        let key = by_pnu::object_key(self.lane, generation, pnu)?;
+        let body = self.document(pnu, snapshot);
+        self.put(&key, &body).await?;
+        let path = self.root.join(format!("summary-g{generation}.json"));
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": format!(
+                    "foundation-platform.{}_by_pnu_serving_export_summary.v1",
+                    self.lane.noun()
+                ),
+                "gold_table": gold_table(self.lane),
+                "gold_iceberg_snapshot_id": snapshot,
+                "target_generation": generation,
+                "artifacts": [{
+                    "pnu": pnu,
+                    "object_key": key,
+                    "object_checksum_sha256": format!("{:x}", Sha256::digest(&body)),
+                }],
+            }))?,
+        )?;
+        Ok(path)
     }
 }
