@@ -116,15 +116,17 @@ pub(crate) mod test_support {
         ENV_LOCK.get_or_init(|| Mutex::new(())).lock().await
     }
 }
-mod building_by_pnu_gateway_contract;
 mod building_by_pnu_serving_export;
-mod building_by_pnu_serving_manifest_publish;
-mod building_by_pnu_serving_store;
 mod building_catalog_projection_load;
 mod building_unit_building_link_load;
 mod building_unit_catalog_projection_load;
+mod by_pnu_gateway_contract;
 mod by_pnu_serving_generations;
+mod by_pnu_serving_manifest;
+mod by_pnu_serving_manifest_publish;
+mod by_pnu_serving_patch_export;
 mod by_pnu_serving_state;
+mod by_pnu_serving_store;
 mod handoff_manifest_support;
 mod handoff_object_support;
 mod lakehouse_bake_verdict;
@@ -150,10 +152,7 @@ mod pagination_guard;
 mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
 mod parcel_boundary_static_release_publish;
-mod parcel_by_pnu_gateway_contract;
 mod parcel_by_pnu_serving_export;
-mod parcel_by_pnu_serving_manifest_publish;
-mod parcel_by_pnu_serving_store;
 mod parcel_catalog_projection_load;
 mod parcel_marker_anchor_artifact_export;
 mod parcel_marker_anchor_pbf_artifact_build;
@@ -727,12 +726,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishIndustrialComplexGoldPointer => {
             Box::pin(industrial_complex_gold_pointer_publish::run())
         }
-        Command::PublishBuildingByPnuServingManifest => {
-            Box::pin(building_by_pnu_serving_manifest_publish::run())
-        }
-        Command::PublishParcelByPnuServingManifest => {
-            Box::pin(parcel_by_pnu_serving_manifest_publish::run())
-        }
+        Command::PublishBuildingByPnuServingManifest => Box::pin(
+            by_pnu_serving_manifest_publish::run(by_pnu_gateway_contract::ByPnuLane::Building),
+        ),
+        Command::PublishParcelByPnuServingManifest => Box::pin(
+            by_pnu_serving_manifest_publish::run(by_pnu_gateway_contract::ByPnuLane::Parcel),
+        ),
         Command::PublishIndustrialComplexGoldPointers => {
             Box::pin(industrial_complex_gold_pointer_publish::run_from_export_summary())
         }

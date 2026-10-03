@@ -6,11 +6,11 @@ use serde_json::{json, Map as JsonMap, Value as JsonValue};
 use super::building_document::{self, GoldSnapshotProvenance};
 use super::{
     claim_a_fresh_shard, refuse_a_moved_table, select_rows, spread_write_order, write_artifacts,
-    write_with_policy, ServingExportConfig,
+    write_create_only, ServingExportConfig, LANE,
 };
-use crate::building_by_pnu_serving_store::BuildingServingObjectStore;
+use crate::by_pnu_serving_patch_export::PatchTarget;
+use crate::by_pnu_serving_store::ByPnuServingStore;
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
-use crate::r2_layout::building_by_pnu_serving_object_key;
 
 // PNUs and snapshot ids sit in the repository-reserved synthetic namespaces
 // (`scripts/guard/public-fixture-safety.py`).
@@ -42,15 +42,15 @@ fn row(pnu: &str) -> JsonMap<String, JsonValue> {
     ])
 }
 
-fn config(root: PathBuf, allow_overwrite: bool) -> ServingExportConfig {
+fn config(root: PathBuf) -> ServingExportConfig {
     ServingExportConfig {
         output: ProfileStoreConfig::Local { root },
         target_generation: 1,
         expected_row_count: None,
         max_concurrency: 1,
         summary_path: None,
-        allow_overwrite,
         pnu_allowlist: None,
+        patch: None,
         resume_from_listing: true,
         pnu_prefix: None,
         expected_gold_snapshot: None,
@@ -84,10 +84,9 @@ fn a_shard_refuses_when_gold_moved_after_the_bake_began() -> anyhow::Result<()> 
 async fn a_fresh_generation_holding_objects_is_refused_and_only_an_empty_one_is_marked(
 ) -> anyhow::Result<()> {
     let root = temporary_root("fresh-claimed");
-    let store =
-        BuildingServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    let store = ByPnuServingStore::open(LANE, &ProfileStoreConfig::Local { root: root.clone() })?;
     let marker = root.join("shard.fresh-checked");
-    let mut fresh = config(root.clone(), false);
+    let mut fresh = config(root.clone());
     fresh.fresh_generation = true;
     fresh.fresh_check_marker = Some(marker.clone());
     // Empty: a fresh generation starts, and says so before its first write.
@@ -103,7 +102,7 @@ async fn a_fresh_generation_holding_objects_is_refused_and_only_an_empty_one_is_
     let artifact = building_document::build(&provenance(), &row(PNU_A))?;
     store
         .write_object_create_only(
-            &building_by_pnu_serving_object_key(1, PNU_A)?,
+            &crate::r2_layout::by_pnu::object_key(LANE, 1, PNU_A)?,
             &artifact.body,
             &artifact.checksum_sha256,
         )
@@ -126,9 +125,9 @@ async fn a_fresh_generation_holding_objects_is_refused_and_only_an_empty_one_is_
         "a refused range must not be recorded as checked"
     );
     // The run that did start it resumes over its own objects.
-    claim_a_fresh_shard(&config(PathBuf::new(), false), listed)?;
+    claim_a_fresh_shard(&config(PathBuf::new()), listed)?;
     // A fresh run that cannot record its check is refused rather than left unrecorded.
-    let mut unmarked = config(PathBuf::new(), false);
+    let mut unmarked = config(PathBuf::new());
     unmarked.fresh_generation = true;
     assert!(claim_a_fresh_shard(&unmarked, 0).is_err());
     Ok(())
@@ -138,11 +137,11 @@ async fn a_fresh_generation_holding_objects_is_refused_and_only_an_empty_one_is_
 fn select_rows_refuses_duplicates_and_scopes_to_the_allowlist() -> anyhow::Result<()> {
     let rows = vec![row(PNU_A), row(PNU_B)];
 
-    let all = select_rows(&rows, None)?;
+    let all = select_rows(&rows, None, None)?;
     assert_eq!(all.len(), 2);
 
     let allowlist = BTreeSet::from([PNU_A.to_owned()]);
-    let scoped = select_rows(&rows, Some(&allowlist))?;
+    let scoped = select_rows(&rows, Some(&allowlist), None)?;
     assert_eq!(scoped.len(), 1);
     assert_eq!(
         scoped[0].get("pnu").and_then(JsonValue::as_str),
@@ -150,13 +149,13 @@ fn select_rows_refuses_duplicates_and_scopes_to_the_allowlist() -> anyhow::Resul
     );
 
     let duplicated = vec![row(PNU_A), row(PNU_A)];
-    let error = select_rows(&duplicated, None)
+    let error = select_rows(&duplicated, None, None)
         .err()
         .ok_or_else(|| anyhow::anyhow!("duplicate PNU must refuse"))?;
     assert!(error.to_string().contains(PNU_A), "{error}");
 
     let absent = BTreeSet::from(["9999900000800000000".to_owned()]);
-    let error = select_rows(&rows, Some(&absent))
+    let error = select_rows(&rows, Some(&absent), None)
         .err()
         .ok_or_else(|| anyhow::anyhow!("allowlisting an absent building must refuse"))?;
     assert!(error.to_string().contains("9999900000800000000"), "{error}");
@@ -164,16 +163,14 @@ fn select_rows_refuses_duplicates_and_scopes_to_the_allowlist() -> anyhow::Resul
 }
 
 #[tokio::test]
-async fn a_re_run_reuses_and_a_change_needs_the_stated_overwrite() -> anyhow::Result<()> {
-    let root = temporary_root("write-policy");
-    let store =
-        BuildingServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
-    let baseline_config = config(root.clone(), false);
-    let key = building_by_pnu_serving_object_key(1, PNU_A)?;
+async fn a_re_run_reuses_and_a_changed_document_is_refused_in_place() -> anyhow::Result<()> {
+    let root = temporary_root("create-only");
+    let store = ByPnuServingStore::open(LANE, &ProfileStoreConfig::Local { root: root.clone() })?;
+    let key = crate::r2_layout::by_pnu::object_key(LANE, 1, PNU_A)?;
 
     let artifact = building_document::build(&provenance(), &row(PNU_A))?;
-    let first = write_with_policy(&baseline_config, &store, &key, &artifact).await?;
-    let second = write_with_policy(&baseline_config, &store, &key, &artifact).await?;
+    let first = write_create_only(&store, &key, &artifact.body, &artifact.checksum_sha256).await?;
+    let second = write_create_only(&store, &key, &artifact.body, &artifact.checksum_sha256).await?;
 
     let mut changed_row = row(PNU_A);
     changed_row.insert(
@@ -183,30 +180,63 @@ async fn a_re_run_reuses_and_a_change_needs_the_stated_overwrite() -> anyhow::Re
         ])?),
     );
     let changed = building_document::build(&provenance(), &changed_row)?;
-    let refused = write_with_policy(&baseline_config, &store, &key, &changed).await;
-    let overwritten =
-        write_with_policy(&config(root.clone(), true), &store, &key, &changed).await?;
+    let refused = write_create_only(&store, &key, &changed.body, &changed.checksum_sha256).await;
     let stored = store.read_bytes(&key).await?;
 
     std::fs::remove_dir_all(&root)?;
     assert_eq!(first, "created");
     assert_eq!(second, "reused");
-    assert!(
-        refused.is_err(),
-        "changed bytes were written without the stated overwrite"
+    // A changed document goes into a new patch generation (root ADR-0141); nothing overwrites.
+    assert!(refused.is_err(), "changed bytes replaced a served object");
+    assert_eq!(stored, artifact.body);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_patch_writes_its_change_set_and_tombstones_into_the_patch_directory(
+) -> anyhow::Result<()> {
+    let root = temporary_root("patch");
+    let store = ByPnuServingStore::open(LANE, &ProfileStoreConfig::Local { root: root.clone() })?;
+    let mut patch_config = config(root.clone());
+    patch_config.patch = Some(PatchTarget {
+        patch: 2,
+        deleted: BTreeSet::from([PNU_B.to_owned()]),
+    });
+    let rows = [row(PNU_A)];
+    let selected = rows.iter().collect::<Vec<_>>();
+    let entries = write_artifacts(
+        &patch_config,
+        &store,
+        &provenance(),
+        &selected,
+        &HashSet::new(),
+        &crate::building_link_evidence::ApprovedBuildingLinks::default(),
+    )
+    .await?;
+    let listed = crate::by_pnu_serving_patch_export::list_existing(
+        &store,
+        1,
+        patch_config.patch.as_ref(),
+        None,
+    )
+    .await?;
+    let base = store.list_existing_generation_keys(1, None).await?;
+    std::fs::remove_dir_all(&root)?;
+    assert_eq!(
+        entries[0].object_key,
+        crate::r2_layout::by_pnu::patch_object_key(LANE, 1, 2, PNU_A)?
     );
-    assert_eq!(overwritten, "overwritten");
-    assert_eq!(stored, changed.body, "the delta re-bake did not land");
+    assert!(base.is_empty(), "a patch wrote into the base generation");
+    assert_eq!(listed.len(), 1);
     Ok(())
 }
 
 #[tokio::test]
 async fn a_listed_generation_key_is_skipped_and_the_rest_are_written() -> anyhow::Result<()> {
     let root = temporary_root("resume-listing");
-    let store =
-        BuildingServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    let store = ByPnuServingStore::open(LANE, &ProfileStoreConfig::Local { root: root.clone() })?;
     let artifact = building_document::build(&provenance(), &row(PNU_A))?;
-    let key = building_by_pnu_serving_object_key(1, PNU_A)?;
+    let key = crate::r2_layout::by_pnu::object_key(LANE, 1, PNU_A)?;
     store
         .write_object_create_only(&key, &artifact.body, &artifact.checksum_sha256)
         .await?;
@@ -217,7 +247,7 @@ async fn a_listed_generation_key_is_skipped_and_the_rest_are_written() -> anyhow
     let rows = [row(PNU_A), row(PNU_B)];
     let selected = rows.iter().collect::<Vec<_>>();
     let entries = write_artifacts(
-        &config(root.clone(), false),
+        &config(root.clone()),
         &store,
         &provenance(),
         &selected,
@@ -240,10 +270,9 @@ async fn a_listed_generation_key_is_skipped_and_the_rest_are_written() -> anyhow
 #[tokio::test]
 async fn listed_bytes_cannot_bypass_the_fresh_relationship_check() -> anyhow::Result<()> {
     let root = temporary_root("listed-stale-document");
-    let store =
-        BuildingServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    let store = ByPnuServingStore::open(LANE, &ProfileStoreConfig::Local { root: root.clone() })?;
     let old = building_document::build(&provenance(), &row(PNU_A))?;
-    let key = building_by_pnu_serving_object_key(1, PNU_A)?;
+    let key = crate::r2_layout::by_pnu::object_key(LANE, 1, PNU_A)?;
     store
         .write_object_create_only(&key, &old.body, &old.checksum_sha256)
         .await?;
@@ -255,7 +284,7 @@ async fn listed_bytes_cannot_bypass_the_fresh_relationship_check() -> anyhow::Re
         ])?),
     );
     let result = write_artifacts(
-        &config(root.clone(), false),
+        &config(root.clone()),
         &store,
         &provenance(),
         &[&current],
@@ -272,8 +301,7 @@ async fn listed_bytes_cannot_bypass_the_fresh_relationship_check() -> anyhow::Re
 #[tokio::test]
 async fn serving_writer_receives_the_current_approval_snapshot() -> anyhow::Result<()> {
     let root = temporary_root("approval-injection");
-    let store =
-        BuildingServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    let store = ByPnuServingStore::open(LANE, &ProfileStoreConfig::Local { root: root.clone() })?;
     let mut current = row(PNU_A);
     current.insert(
         "unlinked_units_json".to_owned(),
@@ -288,7 +316,7 @@ async fn serving_writer_receives_the_current_approval_snapshot() -> anyhow::Resu
         None,
     );
     let result = write_artifacts(
-        &config(root.clone(), false),
+        &config(root.clone()),
         &store,
         &provenance(),
         &[&current],
@@ -301,7 +329,7 @@ async fn serving_writer_receives_the_current_approval_snapshot() -> anyhow::Resu
         "source-only row must not hide the current approved withdrawal"
     );
     assert!(store
-        .read_bytes(&building_by_pnu_serving_object_key(1, PNU_A)?)
+        .read_bytes(&crate::r2_layout::by_pnu::object_key(LANE, 1, PNU_A)?)
         .await
         .is_err());
     if root.exists() {
@@ -313,11 +341,10 @@ async fn serving_writer_receives_the_current_approval_snapshot() -> anyhow::Resu
 #[tokio::test]
 async fn a_shard_listing_sees_only_its_own_range() -> anyhow::Result<()> {
     let root = temporary_root("shard-listing");
-    let store =
-        BuildingServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    let store = ByPnuServingStore::open(LANE, &ProfileStoreConfig::Local { root: root.clone() })?;
     for pnu in [PNU_A, PNU_B] {
         let artifact = building_document::build(&provenance(), &row(pnu))?;
-        let key = building_by_pnu_serving_object_key(1, pnu)?;
+        let key = crate::r2_layout::by_pnu::object_key(LANE, 1, pnu)?;
         store
             .write_object_create_only(&key, &artifact.body, &artifact.checksum_sha256)
             .await?;
@@ -335,7 +362,7 @@ async fn a_shard_listing_sees_only_its_own_range() -> anyhow::Result<()> {
     std::fs::remove_dir_all(&root)?;
     assert_eq!(
         shard_a,
-        HashSet::from([building_by_pnu_serving_object_key(1, PNU_A)?]),
+        HashSet::from([crate::r2_layout::by_pnu::object_key(LANE, 1, PNU_A)?]),
         "the shard listing leaked another shard's keys"
     );
     assert_eq!(both.len(), 2);
@@ -372,7 +399,7 @@ fn neighbouring_pnus_are_pushed_apart_deterministically() {
 #[test]
 fn the_object_key_carries_the_target_generation() -> anyhow::Result<()> {
     assert_eq!(
-        building_by_pnu_serving_object_key(7, PNU_B)?,
+        crate::r2_layout::by_pnu::object_key(LANE, 7, PNU_B)?,
         format!("serving/buildings/by-pnu/v7/{PNU_B}.json")
     );
     Ok(())

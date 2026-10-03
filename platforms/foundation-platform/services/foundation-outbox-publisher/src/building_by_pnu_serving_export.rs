@@ -10,8 +10,9 @@
 //! generation that is not fully there.
 //!
 //! Objects are written create-only. A re-export of the same snapshot into the same generation is
-//! an idempotent re-run; different bytes at an existing key are refused unless the caller
-//! explicitly states the delta re-bake intent with the overwrite flag.
+//! an idempotent re-run; different bytes at an existing key are refused. A changed document goes
+//! into a patch generation (`TARGET_PATCH` with the change set's allowlist and `DELETE_LIST_PATH`,
+//! root ADR-0141): only the change set's rows are kept, and deleted PNUs get tombstones.
 
 pub(crate) mod building_document;
 
@@ -31,15 +32,15 @@ use lakehouse_infrastructure::{
 use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
-use crate::building_by_pnu_serving_store::{local_root, BuildingServingObjectStore};
 use crate::building_link_evidence::ApprovedBuildingLinks;
+use crate::by_pnu_gateway_contract::ByPnuLane;
+use crate::by_pnu_serving_patch_export::{self as patch_export, PatchTarget};
+use crate::by_pnu_serving_store::{local_root, refuse_removed_switches, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, LakehouseObjectReader};
-use crate::r2_layout::building_by_pnu_serving_object_key;
-use building_document::{
-    BuildingServingArtifact, GoldSnapshotProvenance, BUILDING_DOCUMENT_SCHEMA_VERSION,
-};
+use building_document::{GoldSnapshotProvenance, BUILDING_DOCUMENT_SCHEMA_VERSION};
 
+const LANE: ByPnuLane = ByPnuLane::Building;
 const SUMMARY_SCHEMA_VERSION: &str =
     "foundation-platform.building_by_pnu_serving_export_summary.v1";
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_CONFIRM_EXPORT";
@@ -51,7 +52,6 @@ const EXPECTED_ROW_COUNT_ENV: &str =
     "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_EXPECTED_ROW_COUNT";
 const MAX_CONCURRENCY_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_MAX_CONCURRENCY";
 const SUMMARY_PATH_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_SUMMARY_PATH";
-const ALLOW_OVERWRITE_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_ALLOW_OVERWRITE";
 const PNU_ALLOWLIST_PATH_ENV: &str =
     "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PNU_ALLOWLIST_PATH";
 const RESUME_FROM_LISTING_ENV: &str =
@@ -100,7 +100,7 @@ pub async fn run() -> anyhow::Result<()> {
         })?;
 
     let lakehouse = LakehouseObjectReader::from_env()?;
-    let output = BuildingServingObjectStore::open(&config.output)?;
+    let output = ByPnuServingStore::open(LANE, &config.output)?;
     let approvals = ApprovedBuildingLinks::load_current().await?;
     let summary = export(&config, &lakehouse, &output, &snapshot, &approvals).await?;
 
@@ -118,7 +118,8 @@ pub async fn run() -> anyhow::Result<()> {
         created_object_count = summary.created_object_count,
         reused_object_count = summary.reused_object_count,
         listed_object_count = summary.listed_object_count,
-        overwritten_object_count = summary.overwritten_object_count,
+        tombstone_count = summary.tombstone_count,
+        target_patch = summary.target_patch,
         output_storage_driver = summary.output_storage_driver,
         "building by-PNU serving export succeeded"
     );
@@ -132,8 +133,9 @@ struct ServingExportConfig {
     expected_row_count: Option<u64>,
     max_concurrency: usize,
     summary_path: Option<PathBuf>,
-    allow_overwrite: bool,
     pnu_allowlist: Option<BTreeSet<String>>,
+    /// A patch generation over `target_generation` (root ADR-0141), with its deletes.
+    patch: Option<PatchTarget>,
     resume_from_listing: bool,
     pnu_prefix: Option<String>,
     /// The Gold snapshot the whole bake is of. A shard of a multi-shard bake that finds the table
@@ -158,6 +160,8 @@ struct ServingExportSummary {
     gold_metadata_location: String,
     gold_manifest_list_location: String,
     target_generation: u64,
+    /// The patch generation this run wrote into, when it baked a change set.
+    target_patch: Option<u64>,
     /// Shard filter this run kept, when one was set — the summary says what it covers.
     pnu_prefix: Option<String>,
     data_file_count: u64,
@@ -170,7 +174,9 @@ struct ServingExportSummary {
     /// Skipped because one generation listing already named the key (resume path). Unlike
     /// `reused`, these were not byte-verified this run — publish-time sampling covers them.
     listed_object_count: u64,
-    overwritten_object_count: u64,
+    /// Tombstones of the change set's deletes in this shard (a patch only); they are listed in
+    /// `artifacts` with the documents.
+    tombstone_count: u64,
     artifacts: Vec<ServingExportEntry>,
 }
 
@@ -186,6 +192,7 @@ struct ServingExportEntry {
 
 impl ServingExportConfig {
     fn from_env() -> anyhow::Result<Self> {
+        refuse_removed_switches(LANE, &["ALLOW_OVERWRITE", "ALLOW_REPOINT"])?;
         let confirm = optional_env(CONFIRM_ENV)?.unwrap_or_default();
         ensure!(
             confirm.eq_ignore_ascii_case("true"),
@@ -201,9 +208,22 @@ impl ServingExportConfig {
             "{TARGET_GENERATION_ENV} must be at least 1"
         );
 
+        let patch = patch_export::from_env(LANE, optional_env)?;
         let pnu_allowlist = optional_env(PNU_ALLOWLIST_PATH_ENV)?
-            .map(|raw| read_pnu_allowlist(Path::new(raw.as_str())))
+            .map(|raw| {
+                let path = Path::new(raw.as_str());
+                // A patch's change set may hold only deletes; a rehearsal allowlist names someone.
+                if patch.is_some() {
+                    patch_export::read_pnu_list(LANE, path)
+                } else {
+                    read_pnu_allowlist(path)
+                }
+            })
             .transpose()?;
+        ensure!(
+            patch.is_none() || pnu_allowlist.is_some(),
+            "a patch needs its upserts as {PNU_ALLOWLIST_PATH_ENV} (an empty file when there are              none)"
+        );
 
         Ok(Self {
             output: ProfileStoreConfig::parse(
@@ -222,14 +242,12 @@ impl ServingExportConfig {
                 .transpose()?
                 .unwrap_or(DEFAULT_MAX_CONCURRENCY),
             summary_path: optional_env(SUMMARY_PATH_ENV)?.map(PathBuf::from),
-            allow_overwrite: optional_env(ALLOW_OVERWRITE_ENV)?
-                .is_some_and(|value| value.eq_ignore_ascii_case("true")),
             pnu_allowlist,
+            patch,
             // On by default: the bucket is the record (root ADR-0062), so a re-run skips
             // every object one paged listing says is already there instead of paying a
             // conditional put and a read-back per object. Off means every object is
-            // byte-verified against the store again. The delta re-bake (allow_overwrite)
-            // ignores this — it exists to rewrite listed objects.
+            // byte-verified against the store again.
             resume_from_listing: optional_env(RESUME_FROM_LISTING_ENV)?
                 .is_none_or(|value| value.eq_ignore_ascii_case("true")),
             pnu_prefix: optional_env(PNU_PREFIX_ENV)?
@@ -271,7 +289,7 @@ fn read_pnu_allowlist(path: &Path) -> anyhow::Result<BTreeSet<String>> {
 async fn export(
     config: &ServingExportConfig,
     lakehouse: &LakehouseObjectReader,
-    output: &BuildingServingObjectStore,
+    output: &ByPnuServingStore,
     snapshot: &IcebergSnapshotManifestList,
     approvals: &ApprovedBuildingLinks,
 ) -> anyhow::Result<ServingExportSummary> {
@@ -291,15 +309,14 @@ async fn export(
         &GOLD_BUILDING_PANEL,
         lakehouse,
         snapshot,
-        |row| {
-            match (
-                &config.pnu_prefix,
-                row.get("pnu").and_then(JsonValue::as_str),
-            ) {
-                (Some(prefix), Some(pnu)) => pnu.starts_with(prefix.as_str()),
-                (Some(_), None) => true, // 식별자 없는 행은 남겨서 문서 조립이 사유를 말하며 거부하게 한다
-                (None, _) => true,
-            }
+        |row| match row.get("pnu").and_then(JsonValue::as_str) {
+            Some(pnu) => patch_export::keeps(
+                pnu,
+                config.pnu_prefix.as_deref(),
+                config.pnu_allowlist.as_ref(),
+                config.patch.as_ref(),
+            ),
+            None => true, // 식별자 없는 행은 남겨서 문서 조립이 사유를 말하며 거부하게 한다
         },
         Some(MAX_ROWS_PER_RUN),
     )
@@ -328,19 +345,31 @@ async fn export(
         rows.manifest_record_count
     );
 
-    let mut selected = select_rows(&rows.rows, config.pnu_allowlist.as_ref())?;
+    patch_export::refuse_live_deletes(
+        config.patch.as_ref(),
+        rows.rows
+            .iter()
+            .filter_map(|row| row.get("pnu").and_then(JsonValue::as_str)),
+    )?;
+    let mut selected = select_rows(
+        &rows.rows,
+        config.pnu_allowlist.as_ref(),
+        config.pnu_prefix.as_deref(),
+    )?;
     spread_write_order(&mut selected);
-    let listed = if config.fresh_generation
-        || (config.resume_from_listing && !config.allow_overwrite)
-    {
-        output
-            .list_existing_generation_keys(config.target_generation, config.pnu_prefix.as_deref())
-            .await?
+    let listed = if config.fresh_generation || config.resume_from_listing {
+        patch_export::list_existing(
+            output,
+            config.target_generation,
+            config.patch.as_ref(),
+            config.pnu_prefix.as_deref(),
+        )
+        .await?
     } else {
         HashSet::new()
     };
     claim_a_fresh_shard(config, listed.len())?;
-    let existing_keys = if config.resume_from_listing && !config.allow_overwrite {
+    let existing_keys = if config.resume_from_listing {
         listed
     } else {
         HashSet::new()
@@ -358,7 +387,32 @@ async fn export(
     let created_object_count = count_outcome(&entries, "created")?;
     let reused_object_count = count_outcome(&entries, "reused")?;
     let listed_object_count = count_outcome(&entries, "listed")?;
-    let overwritten_object_count = count_outcome(&entries, "overwritten")?;
+    let exported_row_count = u64::try_from(entries.len()).context("exported row count overflow")?;
+    let mut entries = entries;
+    if let Some(patch) = &config.patch {
+        for tombstone in patch_export::write_tombstones(
+            output,
+            config.target_generation,
+            patch,
+            config.pnu_prefix.as_deref(),
+            &provenance.table,
+            &provenance.iceberg_snapshot_id,
+            &existing_keys,
+            config.max_concurrency,
+        )
+        .await?
+        {
+            entries.push(ServingExportEntry {
+                pnu: tombstone.pnu,
+                object_key: tombstone.object_key,
+                object_size_bytes: tombstone.object_size_bytes,
+                object_checksum_sha256: tombstone.object_checksum_sha256,
+                write_outcome: tombstone.write_outcome,
+            });
+        }
+    }
+    let tombstone_count = exported_row_count
+        .abs_diff(u64::try_from(entries.len()).context("tombstone count overflow")?);
     Ok(ServingExportSummary {
         schema_version: SUMMARY_SCHEMA_VERSION,
         document_schema_version: BUILDING_DOCUMENT_SCHEMA_VERSION,
@@ -367,16 +421,17 @@ async fn export(
         gold_metadata_location: provenance.metadata_location.clone(),
         gold_manifest_list_location: provenance.manifest_list_location.clone(),
         target_generation: config.target_generation,
+        target_patch: config.patch.as_ref().map(|patch| patch.patch),
         pnu_prefix: config.pnu_prefix.clone(),
         data_file_count,
         scanned_row_count,
-        exported_row_count: u64::try_from(entries.len()).context("exported row count overflow")?,
+        exported_row_count,
         output_storage_driver: output.storage_driver(),
         output_bucket: output.bucket().map(ToOwned::to_owned),
         created_object_count,
         reused_object_count,
         listed_object_count,
-        overwritten_object_count,
+        tombstone_count,
         artifacts: entries,
     })
 }
@@ -414,6 +469,7 @@ fn claim_a_fresh_shard(config: &ServingExportConfig, listed: usize) -> anyhow::R
         .with_context(|| format!("{FRESH_GENERATION_ENV} needs {FRESH_CHECK_MARKER_ENV}"))?;
     let body = serde_json::json!({
         "target_generation": config.target_generation,
+        "target_patch": config.patch.as_ref().map(|patch| patch.patch),
         "pnu_prefix": config.pnu_prefix,
         "listed_object_count": 0,
     });
@@ -446,6 +502,7 @@ fn spread_write_order(rows: &mut [&JsonMap<String, JsonValue>]) {
 fn select_rows<'a>(
     rows: &'a [JsonMap<String, JsonValue>],
     allowlist: Option<&BTreeSet<String>>,
+    pnu_prefix: Option<&str>,
 ) -> anyhow::Result<Vec<&'a JsonMap<String, JsonValue>>> {
     let mut seen = BTreeSet::new();
     let mut selected = Vec::new();
@@ -465,6 +522,7 @@ fn select_rows<'a>(
     if let Some(list) = allowlist {
         let missing = list
             .iter()
+            .filter(|pnu| pnu_prefix.is_none_or(|prefix| pnu.starts_with(prefix)))
             .filter(|pnu| !seen.contains(*pnu))
             .collect::<Vec<_>>();
         ensure!(
@@ -477,7 +535,7 @@ fn select_rows<'a>(
 
 async fn write_artifacts(
     config: &ServingExportConfig,
-    output: &BuildingServingObjectStore,
+    output: &ByPnuServingStore,
     provenance: &GoldSnapshotProvenance,
     rows: &[&JsonMap<String, JsonValue>],
     existing_keys: &HashSet<String>,
@@ -506,7 +564,7 @@ async fn write_artifacts(
 
 async fn write_artifact(
     config: &ServingExportConfig,
-    output: &BuildingServingObjectStore,
+    output: &ByPnuServingStore,
     provenance: &GoldSnapshotProvenance,
     row: &JsonMap<String, JsonValue>,
     index: usize,
@@ -514,7 +572,12 @@ async fn write_artifact(
     approvals: &ApprovedBuildingLinks,
 ) -> anyhow::Result<(usize, ServingExportEntry)> {
     let artifact = building_document::build_with_approvals(provenance, row, approvals)?;
-    let object_key = building_by_pnu_serving_object_key(config.target_generation, &artifact.pnu)?;
+    let object_key = patch_export::object_key(
+        LANE,
+        config.target_generation,
+        config.patch.as_ref(),
+        &artifact.pnu,
+    )?;
     let write_outcome = if existing_keys.contains(&object_key) {
         // A listed key cannot stand in for a document validated against the active ledger.
         ensure!(
@@ -523,7 +586,13 @@ async fn write_artifact(
         );
         "listed"
     } else {
-        write_with_policy(config, output, &object_key, &artifact).await?
+        write_create_only(
+            output,
+            &object_key,
+            &artifact.body,
+            &artifact.checksum_sha256,
+        )
+        .await?
     };
     Ok((
         index,
@@ -538,38 +607,23 @@ async fn write_artifact(
     ))
 }
 
-/// Create-only by default; the overwrite flag turns a byte-collision into a stated delta re-bake.
-async fn write_with_policy(
-    config: &ServingExportConfig,
-    output: &BuildingServingObjectStore,
+/// Create-only: an identical object is reused, different bytes at the key are refused.
+async fn write_create_only(
+    output: &ByPnuServingStore,
     object_key: &str,
-    artifact: &BuildingServingArtifact,
+    body: &[u8],
+    checksum_sha256: &str,
 ) -> anyhow::Result<&'static str> {
-    if !config.allow_overwrite {
-        return Ok(
-            if output
-                .write_object_create_only(object_key, &artifact.body, &artifact.checksum_sha256)
-                .await?
-            {
-                "created"
-            } else {
-                "reused"
-            },
-        );
-    }
-    match output
-        .write_object_create_only(object_key, &artifact.body, &artifact.checksum_sha256)
-        .await
-    {
-        Ok(true) => Ok("created"),
-        Ok(false) => Ok("reused"),
-        Err(_) => {
-            output
-                .write_object_overwrite(object_key, &artifact.body, &artifact.checksum_sha256)
-                .await?;
-            Ok("overwritten")
-        }
-    }
+    Ok(
+        if output
+            .write_object_create_only(object_key, body, checksum_sha256)
+            .await?
+        {
+            "created"
+        } else {
+            "reused"
+        },
+    )
 }
 
 fn count_outcome(entries: &[ServingExportEntry], outcome: &str) -> anyhow::Result<u64> {

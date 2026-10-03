@@ -1,8 +1,10 @@
 //! Cloudflare R2 (S3-compatible) object storage adapter and its supporting helpers.
 
+mod conditional;
 mod copy;
 mod streaming;
 
+pub use conditional::ConditionalWrite;
 pub use streaming::{
     R2MultipartUploadReport, R2MultipartUploadWriter, R2ReadRequestMetrics, R2SeekableObjectReader,
 };

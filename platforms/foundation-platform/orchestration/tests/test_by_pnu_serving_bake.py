@@ -1,10 +1,15 @@
 """The scheduled by-PNU bake (scripts/ops/by-pnu-serving-bake.sh) against a fake publisher.
 
 The fake stands in for the three publisher commands and keeps their contracts: the state command
-writes the lane state, the export refuses a shard over its row cap with the same words the real
-one uses, and every call's environment is recorded. The release layout is the host's (root
-ADR-0134): the script and its runtime helper in releases/<sha>, the fake in artifacts/<sha> with a
-build.json that seals it. PNUs are synthetic (99999...).
+writes the lane state (v2: the served base, its patches, the reflected snapshot and the contract
+bounds), the export refuses a shard over its row cap with the same words the real one uses, and
+every call's environment is recorded. A fake `docker` stands in for the change-set Spark job
+(`by_pnu_panel_delta.py`) and writes its three files where the container would. The release
+layout is the host's (root ADR-0134): the script and its runtime helper in releases/<sha>, the fake
+in artifacts/<sha> with a build.json that seals it. PNUs are synthetic (99999...).
+
+Most tests drive the full path: their base was baked with another document schema, which only a
+full bake can serve (root ADR-0141 §5). `PatchPath` drives the patch, reflect and choice paths.
 """
 
 import hashlib
@@ -37,21 +42,40 @@ lane = "PARCEL" if "parcel" in command else "BUILDING"
 prefix_env = f"FOUNDATION_PLATFORM_{lane}_BY_PNU_SERVING_"
 if command.startswith("show-"):
     with open(os.environ["FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH"], "w") as out:
-        json.dump({"schema_version": "foundation-platform.by_pnu_serving_state.v1",
+        json.dump({"schema_version": "foundation-platform.by_pnu_serving_state.v2",
                    "gold_iceberg_snapshot_id": os.environ["FAKE_GOLD"] or None,
-                   "published": {"current_generation": int(os.environ["FAKE_PUBLISHED_GENERATION"]),
+                   "document_schema_version": "doc.v2",
+                   "published": {"manifest_schema_version": 2,
+                                 "base_generation": int(os.environ["FAKE_PUBLISHED_GENERATION"]),
+                                 "base_object_count": int(os.environ.get("FAKE_BASE_OBJECTS", "100")),
+                                 "document_schema_version": os.environ.get("FAKE_SERVED_SCHEMA", "doc.v1"),
                                  "gold_iceberg_snapshot_id": os.environ["FAKE_PUBLISHED_SNAPSHOT"],
-                                 "object_count": 1},
-                   "generations_with_objects": json.loads(os.environ.get("FAKE_LISTED", "[]"))}, out)
+                                 "reflected_gold_iceberg_snapshot_id": os.environ.get(
+                                     "FAKE_REFLECTED", os.environ["FAKE_PUBLISHED_SNAPSHOT"]),
+                                 "patch_count": int(os.environ.get("FAKE_PATCH_COUNT", "0")),
+                                 "newest_patch": int(os.environ.get("FAKE_NEWEST_PATCH", "0")),
+                                 "cumulative_changes": int(os.environ.get("FAKE_CUMULATIVE", "0")),
+                                 "object_count": 100,
+                                 "pnu_prefix_length": int(os.environ.get("FAKE_SERVED_PREFIX_LENGTH", "5"))},
+                   "generations_with_objects": json.loads(os.environ.get("FAKE_LISTED", "[]")),
+                   "patches_with_objects": json.loads(os.environ.get("FAKE_PATCHES_LISTED", "[]")),
+                   "policy": {"max_patches": 7, "max_cumulative_change_ratio": 0.05,
+                              "max_delta_fraction": 0.5, "pnu_prefix_length": 5}}, out)
 elif command.startswith("export-"):
-    prefix = os.environ[prefix_env + "PNU_PREFIX"]
+    prefix = os.environ.get(prefix_env + "PNU_PREFIX", "")
     target = int(os.environ[prefix_env + "TARGET_GENERATION"])
+    patch = os.environ.get(prefix_env + "TARGET_PATCH")
+    def listed(name):
+        path = os.environ.get(prefix_env + name)
+        return None if path is None else open(path).read().split()
+    allow, deletes = listed("PNU_ALLOWLIST_PATH"), listed("DELETE_LIST_PATH") or []
     moved = os.environ.get("FAKE_MOVED_SNAPSHOT") if os.environ.get("FAKE_MOVED_PREFIX") == prefix else None
     expected = os.environ.get(prefix_env + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID")
     if moved and expected and expected != moved and not os.environ.get("FAKE_UNCHECKED_SNAPSHOT"):
         sys.exit(f"Error: gold.panel moved during the bake: this bake is of snapshot {expected} but the table is now at {moved}")
     pnus = json.loads(os.environ["FAKE_PNUS"])
-    kept = [pnu for pnu in pnus if pnu.startswith(prefix)]
+    kept = [pnu for pnu in pnus if pnu.startswith(prefix) and (allow is None or pnu in allow)]
+    tombstones = [pnu for pnu in deletes if pnu.startswith(prefix)]
     if len(kept) > int(os.environ["FAKE_CAP"]):
         sys.exit(f"Error: snapshot keeps {len(kept)} rows in memory; this export refuses more than "
                  f"{os.environ['FAKE_CAP']} — shard the run with {prefix_env}PNU_PREFIX, not a bigger heap")
@@ -74,16 +98,51 @@ elif command.startswith("export-"):
         sys.exit("Error: R2 answered 429 Reduce your concurrent request rate")
     short = os.environ.get("FAKE_SHORT_PREFIX") == prefix and os.environ.get("FAKE_SHORT_LANE", lane) == lane
     exported = len(kept) - (1 if short else 0)
+    lost_tombstone = 1 if tombstones and os.environ.get("FAKE_LOSE_TOMBSTONE") else 0
     snapshot = moved
     with open(os.environ[prefix_env + "SUMMARY_PATH"], "w") as out:
         json.dump({"gold_iceberg_snapshot_id": snapshot or os.environ["FAKE_GOLD"],
-                   "target_generation": target,
-                   "pnu_prefix": prefix, "scanned_row_count": len(pnus), "exported_row_count": exported,
-                   "overwritten_object_count": 0, "artifacts": [{"pnu": pnu} for pnu in kept]}, out)
+                   "target_generation": target, "target_patch": int(patch) if patch else None,
+                   "pnu_prefix": prefix or None, "scanned_row_count": len(pnus),
+                   "exported_row_count": exported, "tombstone_count": len(tombstones) - lost_tombstone,
+                   "artifacts": [{"pnu": pnu} for pnu in kept + tombstones]}, out)
 elif command.startswith("publish-"):
     pass
 else:
     sys.exit(f"unexpected command {command}")
+'''
+
+# The change-set Spark job, as `docker compose ... run spark-small spark-submit ...` runs it. It
+# writes where the container would: /workspace/target/lakehouse is the lane's state root.
+FAKE_DOCKER = r'''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+if args[:1] == ["rm"]:
+    sys.exit(0)
+job = next(i for i, arg in enumerate(args) if arg.endswith("by_pnu_panel_delta.py"))
+options = dict(zip(args[job + 1::2], args[job + 2::2]))
+service = args[args.index("spark-submit") - 1]
+memory = args[args.index("--driver-memory") + 1]
+with open(os.environ["FAKE_LOG"], "a") as log:
+    log.write(json.dumps({"command": "delta", "env": {}, "options": options,
+                          "service": service, "driver_memory": memory}) + "\n")
+code = int(os.environ.get("FAKE_DELTA_EXIT", "0"))
+if code:
+    print("by_pnu_panel_delta-refused: planted")
+    sys.exit(code)
+root = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT"]
+host = lambda path: root + path.removeprefix("/workspace/target/lakehouse")
+upserts = json.loads(os.environ.get("FAKE_DELTA_UPSERTS", "[]"))
+deletes = json.loads(os.environ.get("FAKE_DELTA_DELETES", "[]"))
+for name, pnus in (("--upsert-output", upserts), ("--delete-output", deletes)):
+    with open(host(options[name]), "w") as out:
+        out.writelines(pnu + "\n" for pnu in pnus)
+with open(host(options["--summary-output"]), "w") as out:
+    json.dump({"job_name": "by_pnu_panel_delta",
+               "quality_metrics": {"upsert_count": len(upserts), "delete_count": len(deletes),
+                                   "new_count": int(os.environ.get("FAKE_DELTA_NEW", "0"))},
+               "input": {"baseline_snapshot_id": options["--baseline-snapshot-id"],
+                         "current_snapshot_id": options["--current-snapshot-id"]}}, out)
 '''
 
 
@@ -104,6 +163,10 @@ class ByPnuServingBake(unittest.TestCase):
         publisher = artifacts / "foundation-outbox-publisher"
         publisher.write_text(FAKE_PUBLISHER)
         publisher.chmod(0o555)
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "docker").write_text(FAKE_DOCKER)
+        (bin_dir / "docker").chmod(0o755)
         (artifacts / "build.json").write_text(json.dumps({
             "source": RELEASE_ID, "publisher_image": "sha256:" + "a" * 64,
             "tippecanoe_image": "sha256:" + "d" * 64,
@@ -113,7 +176,7 @@ class ByPnuServingBake(unittest.TestCase):
         self.state_root = self.root / "data/by-pnu-bake"
         self.log = self.root / "calls.jsonl"
         self.env = {
-            "PATH": os.environ["PATH"], "FAKE_LOG": str(self.log), "FAKE_PNUS": json.dumps(PNUS),
+            "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(self.log), "FAKE_PNUS": json.dumps(PNUS),
             "FAKE_CAP": "4", "FAKE_GOLD": "202", "FAKE_PUBLISHED_GENERATION": "2",
             "FAKE_PUBLISHED_SNAPSHOT": "101",
             "FOUNDATION_BY_PNU_BAKE_STATE_ROOT": str(self.state_root),
@@ -134,7 +197,8 @@ class ByPnuServingBake(unittest.TestCase):
     def test_a_snapshot_the_manifest_already_serves_is_nothing_to_do(self):
         result, calls = self.bake(FAKE_GOLD="101")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("nothing to do: generation 2 already serves Gold snapshot 101", result.stdout)
+        self.assertIn("nothing to do: the served state (generation 2, 0 patches) already reflects Gold snapshot 101",
+                      result.stdout)
         self.assertEqual([call["command"] for call in calls], ["show-parcel-by-pnu-serving-state"])
 
     def test_a_complete_bake_publishes_the_next_generation_with_the_gold_row_count(self):
@@ -171,7 +235,7 @@ class ByPnuServingBake(unittest.TestCase):
                       result.stderr)
         self.assertEqual(self.published(calls), [])
         # A rerun of the same snapshot resumes the same generation, not a new one.
-        self.assertEqual(json.loads((self.state_root / "parcel/in-progress.json").read_text())["target_generation"], 3)
+        self.assertEqual(json.loads((self.state_root / "parcel/in-progress.json").read_text())["target"], 3)
 
     def exports(self, calls):
         return [call for call in calls if call["command"].startswith("export-")]
@@ -182,6 +246,8 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertIn("the Gold table moved off snapshot 202 during the bake", result.stdout)
         # The half-written generation is named, so its manual cleanup can find it.
         self.assertIn("abandoned: generation 3 holds the objects this bake wrote for Gold snapshot 202", result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [],
+                         "a base of another document schema was weighed as a patch")
         self.assertEqual(self.published(calls), [])
         exports = self.exports(calls)
         for call in exports:
@@ -266,7 +332,7 @@ class ByPnuServingBake(unittest.TestCase):
         result, _ = self.bake(FAKE_MOVED_PREFIX="2", FAKE_MOVED_SNAPSHOT="303", FAKE_GOLD="404")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(json.loads((self.state_root / "parcel/in-progress.json").read_text()),
-                         {"gold_iceberg_snapshot_id": "404", "target_generation": 3})
+                         {"gold_iceberg_snapshot_id": "404", "mode": "full", "base_generation": 2, "target": 3})
 
     def test_a_new_generation_that_already_holds_objects_is_refused(self):
         # The state listing missed them (another writer after it was read): the export refuses
@@ -282,7 +348,7 @@ class ByPnuServingBake(unittest.TestCase):
         # fails on one shard after its check passed.
         result, _ = self.bake(FAKE_CRASH_ONCE_PREFIX="9999917", FOUNDATION_BY_PNU_BAKE_ATTEMPTS="1")
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(json.loads((self.state_root / "parcel/in-progress.json").read_text())["target_generation"], 3)
+        self.assertEqual(json.loads((self.state_root / "parcel/in-progress.json").read_text())["target"], 3)
         self.log.unlink()
         # The next run finds generation 3 in the bucket and its own record of it: it resumes 3,
         # and its exports do not demand empty key ranges.
@@ -295,7 +361,8 @@ class ByPnuServingBake(unittest.TestCase):
 
     def test_objects_are_create_only_whatever_the_environment_says(self):
         planted = {f"FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_{name}": "true"
-                   for name in ("ALLOW_OVERWRITE", "ALLOW_REPOINT", "FIRST_PUBLICATION")}
+                   for name in ("ALLOW_OVERWRITE", "ALLOW_REPOINT", "FIRST_PUBLICATION",
+                                "ROLLBACK_TO_MANIFEST_KEY", "PUBLISH_PATCH")}
         result, calls = self.bake("building", **planted)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         for call in calls:
@@ -369,6 +436,154 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertIn("ProtectSystem=strict\n", unit)
         script = (OPS / "by-pnu-serving-bake.sh").read_text(encoding="utf-8")
         self.assertIn('STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}', script)
+
+    # The patch, reflect and choice paths (root ADR-0141 §5, §8). The base holds the document schema
+    # the export bakes now, so the change set decides.
+    def patch_bake(self, unit="parcel", **env):
+        return self.bake(unit, FAKE_SERVED_SCHEMA="doc.v2", **env)
+
+    def run_summary(self, mode, unit="parcel"):
+        summaries = [json.loads(path.read_text())
+                     for path in (self.state_root / unit).glob("runs/202-*/run-summary.json")]
+        [summary] = [summary for summary in summaries if summary["mode"] == mode]
+        return summary
+
+    def test_a_small_change_set_is_published_as_the_next_patch(self):
+        result, calls = self.patch_bake(FAKE_DELTA_UPSERTS=json.dumps(PNUS[:2]), FAKE_DELTA_NEW="1",
+                                        FAKE_DELTA_DELETES=json.dumps(["9999920000000000001"]),
+                                        FAKE_NEWEST_PATCH="2", FAKE_PATCH_COUNT="2", FAKE_PATCHES_LISTED="[1, 2, 4]")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [delta] = [call for call in calls if call["command"] == "delta"]
+        self.assertEqual(delta["options"]["--baseline-snapshot-id"], "101")
+        self.assertEqual(delta["options"]["--current-snapshot-id"], "202")
+        self.assertEqual(delta["options"]["--max-delta-fraction"], "0.5")
+        self.assertEqual((delta["service"], delta["driver_memory"]), ("spark-small", "1500m"))
+        prefix = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_"
+        # One shard over the whole table: the scan keeps only the change set's rows.
+        [export] = self.exports(calls)
+        self.assertNotIn(prefix + "PNU_PREFIX", export["env"])
+        # Above the newest served patch and every patch directory holding objects.
+        self.assertEqual(export["env"][prefix + "TARGET_PATCH"], "5")
+        self.assertEqual(export["env"][prefix + "TARGET_GENERATION"], "2")
+        self.assertEqual(export["env"][prefix + "FRESH_GENERATION"], "true")
+        [publish] = self.published(calls)
+        env = publish["env"]
+        self.assertEqual(env[prefix + "PUBLISH_PATCH"], "true")
+        self.assertEqual((env[prefix + "TARGET_GENERATION"], env[prefix + "TARGET_PATCH"]), ("2", "5"))
+        self.assertNotIn(prefix + "PUBLISH_FROM_LISTING", env)
+        self.assertEqual(open(env[prefix + "UPSERT_LIST_PATH"]).read().split(), PNUS[:2])
+        summary = self.run_summary("patch")
+        self.assertEqual((summary["mode"], summary["upserts"], summary["deletes"], summary["target_patch"]),
+                         ("patch", 2, 1, 5))
+        self.assertEqual((summary["documents"], summary["tombstones"], summary["published"]), (2, 1, "patch"))
+
+    def test_an_empty_change_set_only_advances_the_reflected_snapshot(self):
+        result, calls = self.patch_bake()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(self.exports(calls), [])
+        [publish] = self.published(calls)
+        prefix = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_"
+        self.assertEqual(publish["env"][prefix + "PUBLISH_PATCH"], "true")
+        self.assertNotIn(prefix + "TARGET_PATCH", publish["env"])
+        self.assertEqual(self.run_summary("reflect")["mode"], "reflect")
+
+    def test_the_patch_limit_sends_the_bake_to_a_full_compaction(self):
+        result, calls = self.patch_bake(FAKE_PATCH_COUNT="7", FAKE_NEWEST_PATCH="7")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PUBLISH_FROM_LISTING"], "true")
+        summary = self.run_summary("full")
+        self.assertIn("max_patches", summary["reason"])
+        self.assertEqual(summary["target_generation"], 3)
+
+    def test_a_lowered_patch_limit_still_sends_the_bake_to_a_full_compaction(self):
+        # The base carries more patches than the contract now allows.
+        result, calls = self.patch_bake(FAKE_PATCH_COUNT="9", FAKE_NEWEST_PATCH="9")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        self.assertIn("max_patches", self.run_summary("full")["reason"])
+
+    def test_a_changed_prefix_length_sends_a_patched_base_to_a_full_compaction(self):
+        result, calls = self.patch_bake(FAKE_PATCH_COUNT="1", FAKE_NEWEST_PATCH="1",
+                                        FAKE_SERVED_PREFIX_LENGTH="4")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PUBLISH_FROM_LISTING"], "true")
+        self.assertIn("pnu_prefix_length", self.run_summary("full")["reason"])
+        # With no patch to carry forward, the next patch is simply listed by the new length.
+        for path in self.state_root.glob("parcel/*.json"):
+            path.unlink()
+        self.log.unlink()
+        result, calls = self.patch_bake(FAKE_SERVED_PREFIX_LENGTH="4", FAKE_DELTA_UPSERTS=json.dumps(PNUS[:1]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(self.run_summary("patch")["mode"], "patch")
+
+    def test_a_change_set_over_the_cumulative_ratio_goes_to_the_full_path(self):
+        # 4 earlier changes + 2 now = 6 of 100 base objects, over the contract's 5%.
+        result, calls = self.patch_bake(FAKE_CUMULATIVE="4", FAKE_PATCH_COUNT="1", FAKE_NEWEST_PATCH="1",
+                                        FAKE_DELTA_UPSERTS=json.dumps(PNUS[:2]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PUBLISH_FROM_LISTING"], "true")
+        self.assertNotIn("FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_PATCH", publish["env"])
+        summary = self.run_summary("full")
+        self.assertIn("max_cumulative_change_ratio", summary["reason"])
+        self.assertEqual((summary["upserts"], summary["deletes"]), (2, 0))
+        # At the bound it is still a patch: 3 + 2 = 5 of 100.
+        for path in self.state_root.glob("parcel/*.json"):
+            path.unlink()
+        self.log.unlink()
+        result, calls = self.patch_bake(FAKE_CUMULATIVE="3", FAKE_PATCH_COUNT="1", FAKE_NEWEST_PATCH="1",
+                                        FAKE_DELTA_UPSERTS=json.dumps(PNUS[:2]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(self.run_summary("patch")["mode"], "patch")
+
+    def test_a_change_set_over_half_the_table_is_refused_not_baked(self):
+        result, calls = self.patch_bake(FAKE_DELTA_EXIT="4")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a delta; nothing was published", result.stdout)
+        self.assertEqual(self.published(calls), [])
+        self.assertEqual(self.exports(calls), [])
+
+    def test_no_comparison_snapshot_is_a_refusal_not_no_change(self):
+        result, calls = self.patch_bake(FAKE_DELTA_EXIT="3")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no comparison snapshot", result.stdout)
+        self.assertEqual(self.published(calls), [])
+
+    def test_a_patch_missing_a_tombstone_is_not_published(self):
+        result, calls = self.patch_bake(FAKE_DELTA_UPSERTS=json.dumps(PNUS[:1]),
+                                        FAKE_DELTA_DELETES=json.dumps(["9999920000000000001"]),
+                                        FAKE_LOSE_TOMBSTONE="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomplete patch: shards wrote 1 of 1 upserts and 0 of 1 tombstones", result.stderr)
+        self.assertEqual(self.published(calls), [])
+
+    def test_a_forced_full_bake_needs_a_reason_and_records_it(self):
+        result, calls = self.patch_bake(FOUNDATION_BY_PNU_BAKE_FORCE_FULL="true")
+        self.assertEqual(result.returncode, 64)
+        self.assertIn("needs FOUNDATION_BY_PNU_BAKE_FORCE_FULL_REASON", result.stdout)
+        self.assertEqual(calls, [])
+        result, calls = self.patch_bake(FOUNDATION_BY_PNU_BAKE_FORCE_FULL="true",
+                                        FOUNDATION_BY_PNU_BAKE_FORCE_FULL_REASON="re-base after a fingerprint fix")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        self.assertEqual(self.run_summary("full")["forced_full_reason"], "re-base after a fingerprint fix")
+
+    def test_a_half_written_patch_of_the_same_snapshot_is_resumed(self):
+        changes = dict(FAKE_DELTA_UPSERTS=json.dumps(PNUS[:2]), FAKE_NEWEST_PATCH="1", FAKE_PATCH_COUNT="1")
+        result, _ = self.patch_bake(FAKE_CRASH_ONCE_PREFIX="", FOUNDATION_BY_PNU_BAKE_ATTEMPTS="1", **changes)
+        self.assertNotEqual(result.returncode, 0)
+        record = json.loads((self.state_root / "parcel/in-progress.json").read_text())
+        self.assertEqual((record["mode"], record["target"]), ("patch", 2))
+        self.log.unlink()
+        result, calls = self.patch_bake(FAKE_PATCHES_LISTED="[1, 2]", **changes)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [export] = self.exports(calls)
+        self.assertEqual(export["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_PATCH"], "2")
+        self.assertEqual(export["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FRESH_GENERATION"], "false")
 
 
 if __name__ == "__main__":

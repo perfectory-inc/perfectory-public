@@ -15,10 +15,8 @@
     clippy::print_stdout
 )]
 
-#[path = "../src/building_by_pnu_gateway_contract.rs"]
-mod building_by_pnu_gateway_contract;
-#[path = "../src/parcel_by_pnu_gateway_contract.rs"]
-mod parcel_by_pnu_gateway_contract;
+#[path = "../src/by_pnu_gateway_contract.rs"]
+mod by_pnu_gateway_contract;
 #[path = "../src/profile_gateway_contract.rs"]
 mod profile_gateway_contract;
 #[path = "../src/public_data_control_support.rs"]

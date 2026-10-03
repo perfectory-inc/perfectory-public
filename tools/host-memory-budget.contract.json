@@ -94,7 +94,10 @@
         {"project": "foundation-platform-compute", "service": "spark-small"},
         {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}
       ],
-      "by_pnu_serving_bake": [{"unit": "MemoryMax"}]
+      "by_pnu_serving_bake": [
+        {"unit": "MemoryMax"},
+        {"project": "foundation-platform-compute", "service": "spark-small"}
+      ]
     },
     "why": "What each job in a declared Airflow pool runs, one at a time: compose services by host project, containers a contract caps, or its systemd unit's MemoryMax. The guard sums every set of a pool's jobs whose pool_slots fit its slots and counts the largest instead of the largest one-shot job when it is larger. The release build refuses to start while a registered job runs (ADR-0137) and manual Spark loads run with the DAGs paused, so neither adds to it."
   },

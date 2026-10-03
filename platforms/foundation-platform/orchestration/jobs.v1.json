@@ -148,7 +148,7 @@
     },
     {
       "id": "by_pnu_serving_bake",
-      "description": "Bake gold.parcel_panel, then gold.building_panel, into one R2 serving object per PNU and publish each lane's manifest (root ADR-0096, ADR-0100): a lane bakes only when Gold has a snapshot its published generation does not serve, objects create-only, a manifest moved only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138).",
+      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138).",
       "systemd_service": "foundation-by-pnu-serving-bake.service",
       "systemd_timer": null,
       "schedule": "15 10 * * *",

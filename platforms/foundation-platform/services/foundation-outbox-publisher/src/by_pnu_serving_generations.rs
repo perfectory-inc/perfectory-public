@@ -20,11 +20,18 @@ use foundation_outbox::{
     R2ObjectStorage,
 };
 
-/// A lane's `generation -> "<root>/v<generation>/"` builder from `r2_layout`.
-pub(crate) type GenerationPrefix = fn(u64) -> anyhow::Result<String>;
+use crate::by_pnu_gateway_contract::ByPnuLane;
+use crate::r2_layout::by_pnu;
+
+/// The lane's `generation -> "<root>/v<generation>/"` builder.
+type GenerationPrefix = Box<dyn Fn(u64) -> anyhow::Result<String> + Send + Sync>;
+
+fn generation_prefix(lane: ByPnuLane) -> GenerationPrefix {
+    Box::new(move |generation| by_pnu::generation_prefix(lane, generation))
+}
 
 /// The directory every generation of the lane sits in, trailing slash included.
-fn lane_root(generation_prefix: GenerationPrefix) -> anyhow::Result<String> {
+fn lane_root(generation_prefix: &GenerationPrefix) -> anyhow::Result<String> {
     let first = generation_prefix(1)?;
     first
         .strip_suffix("v1/")
@@ -33,7 +40,7 @@ fn lane_root(generation_prefix: GenerationPrefix) -> anyhow::Result<String> {
 }
 
 /// The generation `prefix` names, when it is exactly the prefix the lane builds for it.
-fn generation_of(prefix: &str, root: &str, generation_prefix: GenerationPrefix) -> Option<u64> {
+fn generation_of(prefix: &str, root: &str, generation_prefix: &GenerationPrefix) -> Option<u64> {
     prefix
         .strip_prefix(root)?
         .strip_prefix('v')?
@@ -53,7 +60,7 @@ fn generations_from_listing(
     common_prefixes: &[String],
     truncated: bool,
     root: &str,
-    generation_prefix: GenerationPrefix,
+    generation_prefix: &GenerationPrefix,
 ) -> anyhow::Result<BTreeSet<u64>> {
     if truncated {
         bail!(
@@ -73,8 +80,9 @@ fn generations_from_listing(
 /// Returns an error when the provider rejects the listing or the listing is truncated.
 pub(crate) async fn in_bucket(
     storage: &R2ObjectStorage,
-    generation_prefix: GenerationPrefix,
+    lane: ByPnuLane,
 ) -> anyhow::Result<BTreeSet<u64>> {
+    let generation_prefix = &generation_prefix(lane);
     let root = lane_root(generation_prefix)?;
     let request = R2InventoryRequest::new(Some(&root), Some(MAX_R2_INVENTORY_MAX_KEYS))
         .context("failed to build the serving generation listing request")?;
@@ -94,10 +102,8 @@ pub(crate) async fn in_bucket(
 ///
 /// # Errors
 /// Returns an error when the directory exists but cannot be read.
-pub(crate) fn in_directory(
-    local_root: &Path,
-    generation_prefix: GenerationPrefix,
-) -> anyhow::Result<BTreeSet<u64>> {
+pub(crate) fn in_directory(local_root: &Path, lane: ByPnuLane) -> anyhow::Result<BTreeSet<u64>> {
+    let generation_prefix = &generation_prefix(lane);
     let root = lane_root(generation_prefix)?;
     let directory = local_root.join(&root);
     let entries = match std::fs::read_dir(&directory) {
@@ -131,9 +137,6 @@ pub(crate) fn in_directory(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::r2_layout::{
-        building_by_pnu_serving_generation_prefix, parcel_by_pnu_serving_generation_prefix,
-    };
 
     fn temporary_root(label: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
@@ -144,7 +147,8 @@ mod tests {
 
     #[test]
     fn a_listing_names_only_the_generations_the_lane_would_build() -> anyhow::Result<()> {
-        let root = lane_root(parcel_by_pnu_serving_generation_prefix)?;
+        let parcel = &generation_prefix(ByPnuLane::Parcel);
+        let root = lane_root(parcel)?;
         let prefixes = [
             format!("{root}v3/"),
             format!("{root}v12/"),
@@ -153,25 +157,16 @@ mod tests {
             format!("{root}vx/"),
             "serving/other/v9/".to_owned(),
         ];
-        let generations = generations_from_listing(
-            &prefixes,
-            false,
-            &root,
-            parcel_by_pnu_serving_generation_prefix,
-        )?;
+        let generations = generations_from_listing(&prefixes, false, &root, parcel)?;
         assert_eq!(generations, BTreeSet::from([3, 12]));
         Ok(())
     }
 
     #[test]
     fn a_truncated_listing_is_refused() -> anyhow::Result<()> {
-        let root = lane_root(building_by_pnu_serving_generation_prefix)?;
-        let refused = generations_from_listing(
-            &[format!("{root}v3/")],
-            true,
-            &root,
-            building_by_pnu_serving_generation_prefix,
-        );
+        let building = &generation_prefix(ByPnuLane::Building);
+        let root = lane_root(building)?;
+        let refused = generations_from_listing(&[format!("{root}v3/")], true, &root, building);
         assert!(
             refused.is_err(),
             "a cut-short listing must not pass as complete"
@@ -182,7 +177,8 @@ mod tests {
     #[test]
     fn a_half_written_generation_on_disk_is_named_and_an_empty_one_is_not() -> anyhow::Result<()> {
         let local = temporary_root("local");
-        let root = lane_root(parcel_by_pnu_serving_generation_prefix)?;
+        let parcel = &generation_prefix(ByPnuLane::Parcel);
+        let root = lane_root(parcel)?;
         std::fs::create_dir_all(local.join(format!("{root}v2")))?;
         std::fs::write(local.join(format!("{root}v2/object.json")), b"{}")?;
         std::fs::create_dir_all(local.join(format!("{root}v5")))?;
@@ -192,11 +188,8 @@ mod tests {
         std::fs::write(local.join(format!("{root}v05/object.json")), b"{}")?;
         std::fs::write(local.join(format!("{root}manifest.json")), b"{}")?;
 
-        let generations = in_directory(&local, parcel_by_pnu_serving_generation_prefix)?;
-        let nothing = in_directory(
-            &temporary_root("absent"),
-            parcel_by_pnu_serving_generation_prefix,
-        )?;
+        let generations = in_directory(&local, ByPnuLane::Parcel)?;
+        let nothing = in_directory(&temporary_root("absent"), ByPnuLane::Parcel)?;
 
         std::fs::remove_dir_all(&local)?;
         assert_eq!(generations, BTreeSet::from([2, 5]));
