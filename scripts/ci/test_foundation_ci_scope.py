@@ -37,6 +37,13 @@ class FoundationCiScopeTest(unittest.TestCase):
                 "platforms/foundation-platform/migrations/20260719000001_foundation_platform_schema.sql",
                 "platforms/foundation-platform/services/foundation-api/Dockerfile",
             ),
+            "spark-runtime": (
+                "scripts/verify/foundation-spark-runtime.sh",
+                "platforms/foundation-platform/compose.lakehouse.yml",
+                "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
+                "platforms/foundation-platform/infra/lakehouse/spark/tests/test_gold_rebuild_iceberg.py",
+                "platforms/foundation-platform/infra/lakehouse/spark/jobs/gold_rebuild.py",
+            ),
             "static-release-toolchain-windows": (
                 "platforms/foundation-platform/config/static-release-toolchain.contract.json",
                 "scripts/tiles/static_release_toolchain_contract.py",
@@ -100,6 +107,16 @@ class FoundationCiScopeTest(unittest.TestCase):
                 "platforms/foundation-platform/.dockerignore",
             ),
             (
+                "spark-runtime",
+                "exact",
+                "platforms/foundation-platform/compose.lakehouse.yml",
+            ),
+            (
+                "spark-runtime",
+                "exact",
+                "scripts/verify/foundation-spark-runtime.sh",
+            ),
+            (
                 "static-release-toolchain-windows",
                 "exact",
                 "platforms/foundation-platform/config/static-release-toolchain.contract.json",
@@ -158,13 +175,13 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = FOUNDATION_WORKFLOW.read_text(encoding="utf-8")
 
-    def test_required_foundation_still_aggregates_exactly_seven_jobs(self) -> None:
+    def test_required_foundation_still_aggregates_exactly_eight_jobs(self) -> None:
         self.assertIn(
             "needs: [rust-quality, static-release-toolchain-windows, supply-chain, "
-            "postgres-integration, kafka-integration, compose-smoke, boundary-slice]",
+            "postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]",
             self.workflow,
         )
-        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 7)
+        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 8)
 
     def test_each_heavy_job_uses_the_scope_selector_and_success_guard(self) -> None:
         for gate in scope.GATES:

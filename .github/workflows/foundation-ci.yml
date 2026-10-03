@@ -18,6 +18,7 @@ on:
       - "scripts/verify/integration.sh"
       - "scripts/verify/foundation-kafka-live.sh"
       - "scripts/verify/foundation-r2-lakehouse-live.sh"
+      - "scripts/verify/foundation-spark-runtime.sh"
       - "scripts/guard/foundation-r2-lakehouse-live-self-test.sh"
       - "scripts/guard/foundation-kafka-contract.sh"
       - "scripts/ci/osv-vulnerability-gate.sh"
@@ -619,10 +620,48 @@ jobs:
           fi
           bash scripts/tiles/boundary-slice-proof.sh
 
+  spark-runtime:
+    name: Spark and Iceberg runtime tests
+    runs-on: ubuntu-24.04
+    # Pulls the pinned Spark image and the Iceberg runtime jars, then starts a JVM per test file.
+    # Measured on a Linux host: about 90 seconds once the image is present.
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Select Spark runtime gate
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          FOUNDATION_CI_EVENT_NAME: ${{ github.event_name }}
+          FOUNDATION_CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FOUNDATION_CI_HEAD: ${{ github.event.pull_request.head.sha || github.event.after || github.sha }}
+          FOUNDATION_CI_REPOSITORY: ${{ github.workspace }}
+        run: |
+          python3 scripts/ci/foundation_ci_scope.py             --gate spark-runtime             --event-name "$FOUNDATION_CI_EVENT_NAME"             --base "$FOUNDATION_CI_BASE"             --head "$FOUNDATION_CI_HEAD"             --repository "$FOUNDATION_CI_REPOSITORY"             --github-env "$GITHUB_ENV"
+
+      # The Spark tests in infra/lakehouse/spark/tests skip on the default runner, which has no
+      # PySpark: the Iceberg commit and snapshot-pin tests among them (root ADR-0139). Here they run
+      # in the compose `spark` image with the engine contract's Iceberg runtime, and a test that
+      # still skips for want of it fails the job.
+      - name: Run the Spark and Iceberg tests in the pinned runtime
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "Spark job inputs are unaffected; the Spark runtime tests succeed without containers."
+            exit 0
+          fi
+          bash scripts/verify/foundation-spark-runtime.sh
+
   required:
     name: required/foundation
     if: ${{ always() }}
-    needs: [rust-quality, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice]
+    needs: [rust-quality, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -638,5 +677,6 @@ jobs:
           REQUIRED_RESULT_KAFKA_INTEGRATION: ${{ needs.kafka-integration.result }}
           REQUIRED_RESULT_COMPOSE_SMOKE: ${{ needs.compose-smoke.result }}
           REQUIRED_RESULT_BOUNDARY_SLICE: ${{ needs.boundary-slice.result }}
+          REQUIRED_RESULT_SPARK_RUNTIME: ${{ needs.spark-runtime.result }}
         working-directory: .
         run: bash scripts/ci/require-successful-needs.sh
