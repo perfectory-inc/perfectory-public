@@ -628,7 +628,7 @@ sudo stat -c '%U:%G %a %n' /opt/perfectory-control /opt/perfectory-control/curre
 
 결과: 디렉터리 `root:root 0755`, 파일 `root:root 0644`(실행 파일 `0755`), 쓰기는 root 만. 갱신은 같은 명령을 새
 `sha` 로 다시 실행한다. 새 릴리스를 설치하기 **전에** 제어 체크아웃을 그 릴리스와 같거나 이전의 main 커밋으로
-맞춘다. 옛 `releases/<sha>` 는 `activate` 끝의 `prune` 이 지운다(아래 "릴리스 보존").
+맞춘다. 옛 `releases/<sha>` 는 `activate`·`install` 끝의 `prune` 이 지운다(아래 "릴리스 보존").
 
 ### 3. sudo 규칙 — 새 규칙을 먼저, 옛 줄은 마지막에
 
@@ -727,7 +727,7 @@ systemctl cat foundation-map-edit-fold@complex.service | grep 'admission.py veri
 그 파일은 지우지 않는다. 수동 적재 스크립트(`scripts/load/*-handoff-export.sh`)는 새 release 안에 `bin/` 이 없으므로
 `FOUNDATION_PLATFORM_PUBLISHER_BIN=/opt/foundation-platform/artifacts/<sha>/foundation-outbox-publisher` 를 명시해 돌린다.
 
-`activate` 는 전환이 끝난 뒤 `prune` 을 돌린다(아래 "릴리스 보존"). 출력 마지막 줄이 `prune-ok` 이 아니면
+`activate`·`install` 은 전환이 끝난 뒤 `prune` 을 돌린다(아래 "릴리스 보존"). 출력 마지막 줄이 `prune-ok`·`prune-skipped` 가 아니면
 `RELEASE PRUNE FAILED` 가 함께 나오고 journal 에도 남는다 — 활성화는 그대로 유효하다. 원인을 고친 뒤 `prune` 만 다시 돌린다.
 
 ### 8. 옛 sudo 줄 삭제 (마지막)
@@ -802,16 +802,29 @@ FLOOR(`foundation-building-register-floor.service`)는 최대 4시간 걸리므�
 | 실행 중인 프로세스·컨테이너가 참조하는 릴리스 | 지우지 않고 `prune refused <sha>: still referenced by …` 로 이름을 댄다(종료 코드 75) |
 
 나머지 릴리스마다 `releases/<sha>`·`artifacts/<sha>`·`config/<sha>` 를 지우고 두 이미지 태그를 지운다. 이미지는
-다른 태그나 컨테이너가 쓰지 않을 때만 Docker 가 함께 지운다. 제어 체크아웃(`/opt/perfectory-control/releases`)도
+다른 태그나 컨테이너가 쓰지 않을 때만 Docker 가 함께 지운다. 캐시된 빌드로 옛 릴리스와 남는 릴리스가 같은 image ID 를
+가지면(tippecanoe 가 흔하다) 그 ID 는 남는 릴리스의 것이다: 그 이미지로 도는 컨테이너가 옛 릴리스를 붙잡지 않고, 남는
+릴리스의 `build.json` 이 적은 ID 는 지우지 않는다(그 ID 의 마지막 태그면 옛 태그도 남기고 `prune kept image` 로 알린다).
+Docker 가 `image inspect` 에 엉뚱한 답을 주면 그 릴리스만 `prune refused` 로 남긴다. 제어 체크아웃(`/opt/perfectory-control/releases`)도
 `current` 와 최신 `keep_newest` 개만 남긴다 — 지운 제어 커밋이 다시 필요하면 위 2절 명령이 미러에서 다시 푼다.
 지운 것과 확보한 바이트를 줄마다 찍고 `prune-ok removed=… freed_bytes=…` 로 끝난다. 계약을 못 읽거나
 `current` 가 릴리스 링크가 아니거나 Docker 가 컨테이너 목록을 못 주면 아무것도 지우지 않는다.
 
-`activate` 가 성공한 뒤 자동으로 돈다(별도 단계로 두지 않은 이유: 지우는 단계를 사람이 기억해야 하는 구조가
-49개를 쌓았다). 손으로 돌릴 때:
+`activate`·`install` 이 전환한 뒤 자동으로 돈다(별도 단계로 두지 않은 이유: 지우는 단계를 사람이 기억해야 하는 구조가
+49개를 쌓았다). 릴리스 빌드가 쓰는 잠금(`foundation-release-admission.py` 의 `BUILD_LOCK`)을 끝까지 잡고 돈다. 다른
+`prepare` 가 빌드 중이라 잠금을 못 잡으면 아무것도 지우지 않고 `prune-skipped: …` 를 찍고 0 으로 끝난다 — 실패 경보가
+아니다. 빌드가 끝난 뒤 다음 활성화가, 또는 아래 명령이 이어서 지운다. 손으로 돌릴 때:
 
 ```bash
 sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh prune
+```
+
+`prune failed <sha>: …` 가 `artifacts/<sha>` 를 지우다 멈춘 것이면 그 디렉터리가 반쯤 남는다. 그 상태로 같은 sha 를 다시
+`install`/`prepare` 하면 `verify_artifacts` 가 거부한다(디렉터리가 있으면 다시 빌드하지 않고 검사만 한다). 남은 것을
+손으로 지운 뒤 다시 설치한다. 읽기 전용이므로 쓰기 권한부터 돌린다:
+
+```bash
+sudo chmod -R u+w "/opt/foundation-platform/artifacts/${sha:?}" && sudo rm -rf "/opt/foundation-platform/artifacts/${sha:?}"
 ```
 
 비상 릴리스를 바꾸거나 없애려면 계약의 `emergency_release` 와 위 "비상 복귀" 절을 같은 PR 에서 바꾼다. id 는 계약

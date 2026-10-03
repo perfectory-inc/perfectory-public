@@ -17,7 +17,8 @@ test_root="$(mktemp -d)"
 # Git must not read the invoking account's configuration (CI runs this as nobody under root's HOME).
 export HOME="${test_root}"
 # Admitted releases and artifacts are read-only; the owner can still lift that to clean up.
-trap 'chmod -R u+w "${test_root}"; rm -rf "${test_root}"' EXIT
+# A stand-in build still holding the release build lock is stopped with it.
+trap '[[ -z "${locker:-}" ]] || kill "${locker}" 2>/dev/null; chmod -R u+w "${test_root}"; rm -rf "${test_root}"' EXIT
 
 release_root="${test_root}/opt/foundation-platform"
 state_root="${test_root}/var/lib/foundation-platform"
@@ -47,22 +48,27 @@ write_retention_contract() {
 }
 write_retention_contract "$(printf 'e%039d' 0)" 20
 chmod +x "${release_script}"
+# `prune` imports this file for admission's release build lock, so it is a module as well as a
+# command: the lock code is admission's own, only its path is moved to where the rehearsal can write.
 cat >"${test_root}/admission" <<'ADMISSION'
-#!/usr/bin/env bash
-exec python3 - "$@" <<'PY'
+#!/usr/bin/env python3
 import importlib.util, os, pathlib, subprocess, sys
 spec = importlib.util.spec_from_file_location("admission", os.environ["REHEARSAL_ADMISSION_SOURCE"])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+module.BUILD_LOCK = pathlib.Path(os.environ["REHEARSAL_BUILD_LOCK"])
+release_build_lock = module.release_build_lock
 def git(*args):
     return subprocess.check_output(["git", "-C", os.environ["REHEARSAL_CANONICAL"], *args])
-try:
+def main():
     if sys.argv[1] == "prepare":
         sha, archive, target = sys.argv[2:]
         module.check_control_commit(git, sha, pathlib.Path(os.environ["REHEARSAL_CONTROL_ROOT"]))
         module.prepare_release(module.release_files(git, sha), sha, pathlib.Path(archive), pathlib.Path(target))
-    elif sys.argv[1] in ("verify", "build"):
-        target = pathlib.Path(sys.argv[2])
+    elif sys.argv[1] in ("verify", "build", "verify-current"):
+        # verify-current resolves `current` under the rehearsal's release root; the checks are real.
+        target = (pathlib.Path(os.path.realpath(pathlib.Path(os.environ["FOUNDATION_PLATFORM_RELEASE_ROOT"]) / "current"))
+                  if sys.argv[1] == "verify-current" else pathlib.Path(sys.argv[2]))
         module.verify_release(module.release_files(git, target.name), target.name, target, os.getuid())
         artifacts = target.parent.parent / "artifacts" / target.name
         if sys.argv[1] == "build" and not artifacts.exists():
@@ -75,13 +81,16 @@ try:
         module.verify_artifacts(target.name, artifacts, os.getuid())
     else:
         raise ValueError("unknown rehearsal admission command")
-except (ValueError, OSError, subprocess.CalledProcessError) as error:
-    print("admission refused: " + str(error), file=sys.stderr)
-    sys.exit(65)
-PY
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        print("admission refused: " + str(error), file=sys.stderr)
+        sys.exit(65)
 ADMISSION
 chmod +x "${test_root}/admission"
 export REHEARSAL_ADMISSION_SOURCE="${repo_root}/../../scripts/deploy/foundation-release-admission.py"
+export REHEARSAL_BUILD_LOCK="${test_root}/release-build.lock"
 export REHEARSAL_CANONICAL="${canonical}"
 # The control checkout records the canonical commit it was installed from; the first commit on
 # main is an ancestor of every rehearsal release.
@@ -171,7 +180,8 @@ case "$*" in
     if [[ -f "${REHEARSAL_IMAGES}/$5" ]]; then
       cat "${REHEARSAL_IMAGES}/$5"
     else
-      grep -hs "^$5 " "${REHEARSAL_IMAGES}"/* || exit 1
+      # By ID: one answer however many tags share it, as Docker gives.
+      awk -v id="$5" '$1 == id { print; found = 1; exit } END { exit !found }' "${REHEARSAL_IMAGES}"/*
     fi ;;
   "image rm "*) rm "${REHEARSAL_IMAGES}/$3" 2>/dev/null || { echo "No such image: $3" >&2; exit 1; } ;;
   *) exit 1 ;;
@@ -922,10 +932,129 @@ prune_rehearsal() {
     return 1
   fi
   expect present "$(prune_id 11)" || return 1
+
+  # A release build holds the lock: prune skips, removes nothing, and says so without failing.
+  hold_build_lock || return 1
+  status=0
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >"${test_root}/prune.log" 2>&1 || status=$?
+  release_build_lock_holder
+  expect [ "${status}" = 0 ] || return 1
+  expect grep -q '^prune-skipped: another release build is running' "${test_root}/prune.log" || return 1
+  expect present "$(prune_id 11)" || return 1
+
+  # Docker answering an image inspect with something else refuses that release, not the run.
+  printf 'unexpected\n' >"${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 11)"
+  status=0
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >"${test_root}/prune.log" 2>&1 || status=$?
+  expect [ "${status}" = 75 ] || return 1
+  expect grep -q "^prune refused $(prune_id 11): docker image inspect foundation-tippecanoe:$(prune_id 11) answered 'unexpected'" \
+    "${test_root}/prune.log" || return 1
+  expect test -z "$(grep -l Traceback "${test_root}/prune.log")" || return 1
+  expect present "$(prune_id 11)" || return 1
+  printf 'sha256:t%s 2000\n' "$(prune_id 11)" >"${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 11)"
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >"${test_root}/prune.log" 2>&1 || return 1
+  expect gone "$(prune_id 11)" || return 1
   return 0
 }
+
+# Holds admission's release build lock from another process, as a running build does.
+locker=""
+hold_build_lock() {
+  rm -f "${test_root}/lock-held"
+  python3 -c 'import fcntl, sys, time
+handle = open(sys.argv[1], "a")
+fcntl.flock(handle, fcntl.LOCK_EX)
+open(sys.argv[2], "w").close()
+time.sleep(600)' "${REHEARSAL_BUILD_LOCK}" "${test_root}/lock-held" &
+  locker=$!
+  local _
+  for _ in $(seq 100); do
+    [[ ! -e "${test_root}/lock-held" ]] || return 0
+    sleep 0.1
+  done
+  printf 'prune rehearsal: the build lock was never taken\n' >&2
+  return 1
+}
+release_build_lock_holder() {
+  [[ -n "${locker}" ]] || return 0
+  kill "${locker}" 2>/dev/null || true
+  wait "${locker}" 2>/dev/null || true
+  locker=""
+}
+
 prune_rehearsal "${release_script}" || { cat "${test_root}/prune.log" >&2; exit 1; }
 printf 'prune-retention=pass\n'
+
+# A cached build gives an old release the same image ID as a kept one. That ID belongs to the kept
+# release: a running container of the kept release does not hold the old one, and the old release's
+# tag is not the last thing keeping the kept release's image.
+share_tippecanoe() {
+  local old kept file
+  old="$(prune_id "$1")" kept="$(prune_id "$2")"
+  file="${prune_root}/artifacts/${old}/build.json"
+  chmod u+w "${prune_root}/artifacts/${old}" "${file}"
+  printf '{"publisher_image":"sha256:p%s","tippecanoe_image":"sha256:t%s"}\n' "${old}" "${kept}" >"${file}"
+  chmod a-w "${prune_root}/artifacts/${old}" "${file}"
+  printf 'sha256:t%s 2000\n' "${kept}" >"${REHEARSAL_IMAGES}/foundation-tippecanoe:${old}"
+}
+prune_shared_image_rehearsal() {
+  local script="$1" status n
+  [[ ! -e "${prune_root}" ]] || { chmod -R u+w "${prune_root}"; rm -rf "${prune_root}"; }
+  rm -rf "${control_releases%/releases}" "${REHEARSAL_IMAGES}"
+  mkdir -p "${REHEARSAL_IMAGES}"
+  # current=1 (also the newest one kept), emergency=3; 2 and 4 are old.
+  for n in 1 2 3 4; do plant_release "${n}"; done
+  ln -s "releases/$(prune_id 1)" "${prune_root}/current"
+  write_retention_contract "$(prune_id 3)" 1
+  share_tippecanoe 2 1
+  # 4 shares 3's image, and 3's own tag is gone: 4's tag is the last one on the kept image.
+  share_tippecanoe 4 3
+  rm "${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 3)"
+  printf 'c1 /fixture-tiles sha256:t%s foundation-tippecanoe:%s\n' "$(prune_id 1)" "$(prune_id 1)" \
+    >"${REHEARSAL_CONTAINERS}"
+  status=0
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >"${test_root}/prune.log" 2>&1 || status=$?
+  : >"${REHEARSAL_CONTAINERS}"
+  expect [ "${status}" = 0 ] || return 1
+  expect grep -q '^prune-ok removed=2 refused=0 failed=0' "${test_root}/prune.log" || return 1
+  expect test ! -e "${prune_root}/releases/$(prune_id 2)" || return 1
+  expect test ! -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 2)" || return 1
+  expect test -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 1)" || return 1
+  expect test ! -e "${prune_root}/releases/$(prune_id 4)" || return 1
+  expect test -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 4)" || return 1
+  expect grep -q "^prune kept image foundation-tippecanoe:$(prune_id 4): sha256:t$(prune_id 3) is a kept release's build" \
+    "${test_root}/prune.log" || return 1
+  return 0
+}
+prune_shared_image_rehearsal "${release_script}" || { cat "${test_root}/prune.log" >&2; exit 1; }
+printf 'prune-shared-image=pass\n'
+
+# Each rule above is what makes its case pass: with it taken out, the rehearsal must fail.
+mutate() {
+  local name="$1" expression="$2"
+  sed "${expression}" "${release_script}" >"${test_root}/${name}.sh"
+  chmod +x "${test_root}/${name}.sh"
+  if cmp -s "${release_script}" "${test_root}/${name}.sh"; then
+    printf 'mutation %s changed nothing; its expression no longer matches the script\n' "${name}" >&2
+    exit 1
+  fi
+}
+mutate shared-image-holds 's/(own - kept_images) | set(tags)/own | set(tags)/'
+mutate shared-image-removed 's/found\[0\] in kept_images and found\[0\] not in kept_tagged/False/'
+for name in shared-image-holds shared-image-removed; do
+  if prune_shared_image_rehearsal "${test_root}/${name}.sh" 2>/dev/null; then
+    printf 'prune shared-image rehearsal passed with mutation %s\n' "${name}" >&2
+    exit 1
+  fi
+  printf 'prune-%s-mutation=refused\n' "${name}"
+done
+mutate without-build-lock 's/build_lock.enter_context(admission.release_build_lock())/pass/'
+if prune_rehearsal "${test_root}/without-build-lock.sh" 2>/dev/null; then
+  printf 'prune rehearsal passed without taking the release build lock\n' >&2
+  exit 1
+fi
+grep -q '^prune-ok ' "${test_root}/prune.log"
+printf 'prune-without-build-lock-mutation=refused\n'
 
 # The emergency rule is what keeps the oldest release here: without it this rehearsal must fail.
 sed '/retention rule: the emergency return/d' "${release_script}" >"${test_root}/without-emergency.sh"
@@ -970,6 +1099,62 @@ assert_link "${release_root}/current" "releases/${candidate}"
 grep -q 'RELEASE PRUNE FAILED' "${test_root}/activate-prune.log"
 write_retention_contract "$(prune_id 0)" 20
 printf 'activate-survives-prune-failure=pass\n'
+
+# A release build in progress holds the lock: activation still succeeds, and the skipped prune is
+# not a failure alarm.
+hold_build_lock
+run_release activate "${candidate}" >"${test_root}/activate-prune.log" 2>&1
+release_build_lock_holder
+assert_link "${release_root}/current" "releases/${candidate}"
+grep -q '^prune-skipped: ' "${test_root}/activate-prune.log"
+if grep -q 'RELEASE PRUNE FAILED' "${test_root}/activate-prune.log"; then
+  printf 'a prune skipped for a running release build raised the failure alarm\n' >&2
+  exit 1
+fi
+printf 'activate-skips-prune-during-build=pass\n'
+
+# `install` activates too, so it prunes too; and `rollback` still works on what prune left. A host
+# of its own, installed release by release with only the newest one kept beyond current/previous.
+install_root="${test_root}/install-prune/opt/foundation-platform"
+run_install_root() {
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${install_root}" \
+  FOUNDATION_PLATFORM_STATE_ROOT="${test_root}/install-prune/var/lib/foundation-platform" \
+  FOUNDATION_PLATFORM_ENV_FILE="${install_root}/current/rehearsal.env" "$@"
+}
+install_prune_rehearsal() {
+  local script="$1" pair id
+  [[ ! -e "${test_root}/install-prune" ]] || { chmod -R u+w "${test_root}/install-prune"; rm -rf "${test_root}/install-prune"; }
+  write_retention_contract "$(prune_id 0)" 1
+  for pair in "${release_a}:a" "${release_b}:b" "${prepared}:prepared" "${release_large}:large"; do
+    run_install_root "${script}" install "${pair%%:*}" "${test_root}/release-${pair#*:}.tar.gz" \
+      >"${test_root}/install-prune.log" 2>&1 || return 1
+  done
+  # current=large, previous=prepared; a and b are gone, with their artifacts.
+  for id in "${release_a}" "${release_b}"; do
+    expect test ! -e "${install_root}/releases/${id}" || return 1
+    expect test ! -e "${install_root}/artifacts/${id}" || return 1
+  done
+  expect grep -q "^prune removed ${release_b} " "${test_root}/install-prune.log" || return 1
+  expect grep -q '^prune-ok removed=1 ' "${test_root}/install-prune.log" || return 1
+  run_install_root "${script}" rollback || return 1
+  expect test "$(readlink "${install_root}/current")" = "releases/${prepared}" || return 1
+  expect test "$(readlink "${install_root}/previous")" = "releases/${release_large}" || return 1
+  run_install_root "${test_root}/admission" verify-current >"${test_root}/install-prune.log" 2>&1 || return 1
+  run_install_root "${script}" verify >>"${test_root}/install-prune.log" 2>&1 || return 1
+}
+# These releases ship the first two migrations; the database answers with exactly those here.
+cp "${test_root}/applied.txt" "${test_root}/applied.saved"
+printf '20260719000001\n20260719000002\n' >"${test_root}/applied.txt"
+install_prune_rehearsal "${release_script}" || { cat "${test_root}/install-prune.log" >&2; exit 1; }
+printf 'install-prunes-and-rollback-after-prune=pass\n'
+mutate install-without-prune 's/then activate_and_prune "${release_id}"; fi/then activate_release "${release_id}"; fi/'
+if install_prune_rehearsal "${test_root}/install-without-prune.sh" 2>/dev/null; then
+  printf 'install prune rehearsal passed with install not pruning\n' >&2
+  exit 1
+fi
+printf 'prune-install-without-prune-mutation=refused\n'
+cp "${test_root}/applied.saved" "${test_root}/applied.txt"
+write_retention_contract "$(prune_id 0)" 20
 
 # A modified active tree cannot install host units. The stand-in records any attempted host
 # mutation, so "failed later because the test user cannot write /etc" cannot masquerade as a gate.

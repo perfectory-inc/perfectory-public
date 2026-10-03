@@ -368,7 +368,7 @@ install_release() {
       printf 'release id already exists with a different archive: %s\n' "${release_id}" >&2
       exit 65
     }
-    if [[ "${activate}" == yes ]]; then activate_release "${release_id}"; fi
+    if [[ "${activate}" == yes ]]; then activate_and_prune "${release_id}"; fi
     return
   fi
 
@@ -383,7 +383,7 @@ install_release() {
   # The publisher and Spark jars are built from the admitted tree into artifacts/<sha>/, never
   # accepted from the caller and never written inside the release.
   "${admission}" build "${target}"
-  if [[ "${activate}" == yes ]]; then activate_release "${release_id}"; fi
+  if [[ "${activate}" == yes ]]; then activate_and_prune "${release_id}"; fi
 }
 
 # FLOOR's non-secret configuration is per release but outside it: the release is read-only and
@@ -663,19 +663,37 @@ rollback_release() {
 # Fail closed: an unreadable contract, a `current` that is not a release link, or a Docker that
 # cannot list its containers removes nothing. A release a running process or container still
 # references is refused by name, not removed. Exit 75 when anything was refused.
+#
+# It holds admission's release build lock for its whole run, taken with admission's own code: a
+# build writes artifacts/<sha> and image tags while it runs. A held lock skips the prune (exit 0,
+# nothing removed) rather than raising the failure alarm; the next activation, or `prune` by hand,
+# catches up.
 prune_releases() {
-  python3 - "${retention_contract}" "${release_root}" "${control_releases_dir}" <<'PY'
-import json, os, re, shutil, stat, subprocess, sys
+  python3 - "${retention_contract}" "${release_root}" "${control_releases_dir}" "${admission}" <<'PY'
+import contextlib, importlib.machinery, importlib.util, json, os, re, shutil, stat, subprocess, sys
 from pathlib import Path
 
 SHA = re.compile(r"[0-9a-f]{40}")
-contract_path, release_root, control_releases = map(Path, sys.argv[1:4])
+contract_path, release_root, control_releases, admission_path = map(Path, sys.argv[1:5])
 IMAGES = ("foundation-outbox-publisher", "foundation-tippecanoe")
 
 
 def refuse(message):
     print(f"prune refused: {message}; nothing was removed", file=sys.stderr)
     sys.exit(65)
+
+
+build_lock = contextlib.ExitStack()
+try:
+    loader = importlib.machinery.SourceFileLoader("foundation_release_admission", str(admission_path))
+    admission = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(admission)
+    build_lock.enter_context(admission.release_build_lock())
+except ValueError as error:
+    print(f"prune-skipped: {error}; nothing was removed. Run prune after the build finishes.")
+    sys.exit(0)
+except (OSError, ImportError, SyntaxError, AttributeError) as error:
+    refuse(f"cannot take the release build lock through {admission_path}: {error!r}")
 
 
 try:
@@ -737,13 +755,26 @@ def docker(*args):
         return subprocess.CompletedProcess(args, 127, "", str(error))
 
 
+class Unanswered(Exception):
+    """Docker answered, but not with what was asked: nothing may be decided from it."""
+
+
 def image(reference):
     """(id, size) of a local image, or None when Docker does not have it."""
     found = docker("image", "inspect", "--format", "{{.Id}} {{.Size}}", reference)
     if found.returncode != 0:
         return None
-    image_id, size = found.stdout.split()
-    return image_id, int(size)
+    fields = found.stdout.split()
+    if len(fields) != 2 or not fields[1].isdigit():
+        raise Unanswered(f"docker image inspect {reference} answered {found.stdout.strip()[:200]!r}")
+    return fields[0], int(fields[1])
+
+
+def image_or_none(reference):
+    try:
+        return image(reference)
+    except Unanswered:
+        return None
 
 
 def newest(ids, *roots):
@@ -817,19 +848,13 @@ def holder(paths, images, held):
     return None
 
 
-def release_images(release_id):
-    """Image IDs this release built: build.json's record, and whatever its tags point at now."""
-    ids = set()
+def recorded_images(release_id):
+    """Image IDs this release's build.json names."""
     try:
         build = json.loads((release_root / "artifacts" / release_id / "build.json").read_text(encoding="utf-8"))
-        ids |= {value for key, value in build.items() if key.endswith("_image") and isinstance(value, str)}
-    except (OSError, ValueError):
-        pass
-    for name in IMAGES:
-        found = image(f"{name}:{release_id}")
-        if found:
-            ids.add(found[0])
-    return ids
+        return {value for key, value in build.items() if key.endswith("_image") and isinstance(value, str)}
+    except (OSError, ValueError, AttributeError):
+        return set()
 
 
 releases = release_root / "releases"
@@ -854,6 +879,13 @@ if control_current:
 for release_id in newest(control_present, control_releases):
     control_keep.setdefault(release_id, "newest")
 
+# A cached build gives two releases the same image ID (tippecanoe rarely changes). An image a kept
+# release's build.json names belongs to that release: it neither ties an old release to a running
+# container nor goes when the old release's last tag on it does.
+kept_images = set().union(*(recorded_images(release_id) for release_id in keep))
+kept_tagged = {found[0] for release_id in keep for name in IMAGES
+               if (found := image_or_none(f"{name}:{release_id}"))}
+
 held = process_references() + container_references()
 removed = refused = failed = 0
 freed = 0
@@ -862,8 +894,14 @@ for release_id in sorted(present):
         print(f"prune kept {release_id} ({keep[release_id]})")
         continue
     paths = [str(root / release_id) for root in (releases, release_root / "artifacts", release_root / "config")]
-    images = release_images(release_id) | {f"{name}:{release_id}" for name in IMAGES}
-    who = holder(paths, images, held)
+    try:
+        tags = {f"{name}:{release_id}": image(f"{name}:{release_id}") for name in IMAGES}
+    except Unanswered as error:
+        print(f"prune refused {release_id}: {error}", file=sys.stderr)
+        refused += 1
+        continue
+    own = recorded_images(release_id) | {found[0] for found in tags.values() if found}
+    who = holder(paths, (own - kept_images) | set(tags), held)
     if who:
         print(f"prune refused {release_id}: still referenced by {who}", file=sys.stderr)
         refused += 1
@@ -878,16 +916,18 @@ for release_id in sorted(present):
         failed += 1
         continue
     # The tag goes; the image goes with it unless another tag or any container still uses it,
-    # which Docker decides and reports.
-    for name in IMAGES:
-        tag = f"{name}:{release_id}"
-        found = image(tag)
+    # which Docker decides and reports. The last tag on an image a kept release built stays:
+    # removing it would delete that release's image.
+    for tag, found in tags.items():
         if not found:
+            continue
+        if found[0] in kept_images and found[0] not in kept_tagged:
+            print(f"prune kept image {tag}: {found[0]} is a kept release's build and no kept tag holds it")
             continue
         gone = docker("image", "rm", tag)
         if gone.returncode != 0:
             print(f"prune kept image {tag}: {gone.stderr.strip()}", file=sys.stderr)
-        elif image(found[0]) is None:
+        elif image_or_none(found[0]) is None:
             sizes["images"] += found[1]
     freed += sum(sizes.values())
     removed += 1
@@ -934,6 +974,13 @@ prune_after_activation() {
     logger -p user.err -t foundation-release "release prune failed (exit ${status}) after activating $1" || true
   fi
   return 0
+}
+
+# Every path that switches `current` to a new release prunes after it, the same way: `install`
+# once activated without pruning, so a host deployed by `install` alone kept every release.
+activate_and_prune() {
+  activate_release "$1"
+  prune_after_activation "$1"
 }
 
 verify_runtime_schema() {
@@ -1054,8 +1101,7 @@ case "${command}" in
     require_release_id "$2"
     mkdir -p "${releases_dir}" "${state_root}/recovery"
     prepare_mutable_state
-    activate_release "$2"
-    prune_after_activation "$2"
+    activate_and_prune "$2"
     ;;
   migrate)
     [[ "$#" == 1 ]] || usage
