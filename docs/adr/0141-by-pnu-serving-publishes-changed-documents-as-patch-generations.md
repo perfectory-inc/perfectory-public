@@ -1,0 +1,88 @@
+# ADR 0141: by-PNU 서빙은 바뀐 문서만 패치 세대로 쌓는다
+
+- Status: Accepted
+- Date: 2026-10-03
+- Supersedes: [ADR-0099](./0099-daily-serving-updates-bake-only-changed-parcels.md) §3 (같은 세대 제자리 덮어쓰기)
+- Related: [ADR-0096](./0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md), [ADR-0100](./0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md), [ADR-0111](./0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md), [ADR-0138](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md)
+
+## Context
+
+필지 패널(39,861,511 객체)과 건물 패널(5,939,794 객체)은 R2 의 `{root}/v{generation}/{pnu}.json` 에서 서빙된다.
+manifest 하나가 현재 세대를 가리키고, Worker 는 manifest 를 60초 캐시한 뒤 그 세대의 객체를 읽는다. 객체가 없으면
+404 다.
+
+ADR-0099는 "매일은 바뀐 필지만 굽는다"고 정했다. 방법(§3)은 바뀐 PNU 를 **같은 세대에 덮어쓰고** manifest 를 다시
+가리키는 것이었다. 2026-10-03 확인 결과는 다음과 같다.
+
+| 사실 | 근거 |
+|---|---|
+| 지문 비교 잡 `parcel_panel_delta.py` 는 있지만 부르는 곳이 없다. 건물 쪽 델타 잡은 없다 | orchestration·scripts 전수 검색 |
+| 등록된 굽기 작업(#318)은 Gold 스냅숏이 바뀔 때마다 **새 세대를 전량** 쓴다. 전국 필지는 추산 약 81시간이다 | ADR-0138, `by-pnu-serving-bake.sh` |
+| 객체 본문에 `source.iceberg_snapshot_id` 가 들어 있다. 행 내용이 같아도 스냅숏이 바뀌면 바이트가 다르다 | `parcel_document.rs`, `building_document.rs` |
+| 제자리 덮어쓰기(§3)를 하면 한 세대에 여러 스냅숏의 객체가 섞인다. 목록 기반 발행 검사(표본 객체의 스냅숏 = 기대 스냅숏)와 맞지 않는다 | `publish_from_listing` |
+| 덮어쓰기는 되돌릴 수 없다. 삭제된 PNU 는 목록에만 적히고 소비자가 없어 200 을 계속 낸다 | ADR-0099 §2, 코드 검색 |
+| 개별 PNU 응답 캐시 키에 세대가 없다. 세대가 바뀌어도 최대 1시간 옛 응답이 나간다 | gateway `index.ts` |
+| 모든 데이터는 덮어쓰지 않고 쌓는다(소유자 원칙). 지도 타일은 이미 "기본판 + 패치 세대 + 타일 툼스톤"으로 이 원칙을 지킨다 | ADR-0111 |
+
+전량 재생성은 비용(R2 쓰기 4천만 회, 수십 시간)과 반영 지연 모두에서 매일 낼 수 없다. 제자리 덮어쓰기는 append-only
+원칙, 되돌리기, 발행 검사를 함께 깬다.
+
+## Decision
+
+1. **서빙 상태 = 기본 세대 1개 + 패치 세대 목록(최신이 앞).**
+   - 기본 세대는 지금의 전량 세대 `v{n}` 이다.
+   - 패치 세대는 그 뒤에 바뀐 PNU 의 문서만 담는다. 키는 `{root}/v{n}/p{m}/{pnu}.json` 이고 create-only 다.
+   - 한 PNU 의 응답은 가장 최신 패치부터 기본 세대까지 처음 찾은 것이다.
+   - 덮어쓰기와 삭제 경로는 없다. ADR-0099 §3 의 `ALLOW_OVERWRITE` 델타는 이 결정으로 대체된다.
+2. **삭제는 툼스톤 객체로 쓴다.**
+   - Gold 에서 사라진 PNU 는 그 패치 세대에 `{"deleted": true, ...}` 형태의 작은 객체로 쓴다(create-only).
+   - Worker 는 이것을 만나면 더 아래를 보지 않고 typed 404 를 낸다.
+   - ADR-0111 의 타일 툼스톤과 같은 원리다.
+3. **변경 집합은 지문으로 정한다.**
+   - 새 Gold 스냅숏과 마지막으로 서빙에 반영된 스냅숏을 `row_digest` 로 비교해 신규·변경·삭제 PNU 를 낸다.
+   - 필지는 기존 `parcel_panel_delta` 를 쓰고, 건물도 같은 모양의 잡을 둔다.
+   - 변경이 전체의 절반을 넘으면 거부한다(ADR-0099 §5 유지).
+   - 지문은 내용 칼럼만 덮는다. 그래서 바뀌지 않은 PNU 의 기본 세대 객체는 옛 스냅숏의 `source` 를 그대로 가진다.
+     이것은 "이 문서는 스냅숏 X 에서 만들어졌고 그 뒤 내용이 바뀌지 않았다"는 참인 계보다.
+4. **manifest v2 가 패치 목록을 싣는다.**
+   - 새 필드:
+     - `base_generation`;
+     - `patches: [{generation, gold_iceberg_snapshot_id, upserted, deleted}]` (최신이 앞);
+     - `object_count`: 응답 가능한 PNU 수 = 기본 세대 + 신규 − 삭제.
+   - manifest 는 여전히 유일한 가변 객체다. 패치 발행은 manifest 를 새 목록으로 바꾸는 한 번의 쓰기다.
+   - 되돌리기는 이전 manifest 로 돌아가는 것이다. 이전 패치 객체가 그대로 남아 있으므로 가능하다.
+   - v1 manifest 는 `patches: []` 인 v2 로 읽는다.
+5. **패치 길이 상한과 압축.**
+   - 패치 목록은 최대 `K` 개(초기 7)다.
+   - 상한에 닿거나, 누적 변경이 기본 세대의 일정 비율(초기 5%)을 넘거나, 문서 스키마가 바뀌면 새 기본 세대를 전량
+     굽는다. 압축은 ADR-0138 의 굽기 작업이 이미 하는 일이다.
+   - `K` 와 비율은 계약 파일 하나가 정본이다. 첫 운영 측정 뒤 조정한다.
+6. **읽기 비용과 캐시.**
+   - 없는 PNU 나 기본 세대에만 있는 PNU 는 패치 수만큼 R2 GET 을 더 쓴다(최대 `K`).
+   - Worker 는 패치 세대마다 "이 패치가 담은 PNU 앞자리 목록"을 manifest 에서 읽어 해당 없는 패치를 건너뛴다.
+     manifest 에 시군구(앞 5자리) 단위의 작은 목록을 둔다.
+   - 개별 PNU 응답의 엣지 캐시 키에 manifest 의 세대·패치 지문을 넣는다. 새 패치가 발행되면 옛 응답 캐시가 저절로
+     무효가 된다(지금은 최대 1시간 남는다).
+7. **발행 게이트.**
+   - 패치 세대 발행 전에 다음을 확인한다.
+     - (가) 변경 목록의 모든 PNU 가 그 패치에 객체 또는 툼스톤으로 있다.
+     - (나) 표본 객체의 `source.iceberg_snapshot_id` 가 그 패치의 스냅숏과 같다.
+     - (다) 변경 목록 밖의 PNU 는 그 패치에 없다.
+   - 하나라도 어기면 manifest 를 바꾸지 않는다.
+   - 기본 세대 전량 굽기의 게이트(행 수 = Gold 행 수)는 그대로다.
+8. **실행.**
+   - 굽기 작업(ADR-0138)이 Gold 에 새 스냅숏이 있을 때 다음을 고른다.
+     - 패치 경로: 패치가 `K` 미만이고, 변경 비율이 상한 이하이고, 스키마가 같을 때.
+     - 전량 경로: 그 밖의 경우.
+   - 패치 경로는 바뀐 PNU 만 쓰므로 메모리와 시간이 변경 수에 비례한다.
+   - 선택과 수치는 실행 요약에 남긴다.
+
+## Consequences
+
+- 매일의 반영 비용이 변경 수에 비례한다. 전국 4천만 쓰기는 압축 때만 낸다.
+- 모든 R2 쓰기가 create-only 다. 되돌리기는 manifest 를 이전 것으로 돌리는 것이다. 삭제 PNU 는 다음 패치에서 바로
+  404 가 된다.
+- Worker 의 읽기가 최악일 때 GET `1+K` 회로 늘어난다. 시군구 목록으로 대부분 건너뛰지만, 첫 운영에서 요청당 평균
+  GET 수를 재서 `K` 를 다시 정한다.
+- 두 gateway Worker, manifest 발행, 굽기 스크립트, 건물 델타 잡을 바꿔야 한다. 이 ADR 이 그 구현의 기준이다.
+- 첫 측정으로 정할 것: 실제 일일 변경 수(필지·건물), 요청당 GET 수, 압축 주기.
