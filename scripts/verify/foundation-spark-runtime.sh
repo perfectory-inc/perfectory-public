@@ -3,7 +3,7 @@
 # pinned Spark image with the pinned Iceberg runtime, so the tests that skip without them run.
 #
 # The default CI runner has no PySpark, so those tests skip there. This is where they run:
-#   - the image is the compose `spark` service's (compose.lakehouse.yml), the one production runs;
+#   - the container is the compose `spark` service (compose.lakehouse.yml), the image production runs;
 #   - the Iceberg artifacts and version are lakehouse-engine.contract.json's, the ones production
 #     submits with. Neither is restated here.
 # The tests here are the files that skip without that runtime: their skip reason says what they
@@ -22,26 +22,36 @@ if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-image="$(docker compose --project-directory "$AREA" -f "$AREA/compose.lakehouse.yml" \
-  --profile lakehouse-batch config --format json --no-interpolate \
-  | python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["spark"]["image"])')"
 packages="$(python3 - "$AREA/infra/lakehouse/contracts/lakehouse-engine.contract.json" <<'PY'
 import json, sys
 iceberg = json.load(open(sys.argv[1], encoding="utf-8"))["iceberg"]
 print(",".join(f"{artifact}:{iceberg['version']}" for artifact in iceberg["artifacts"]))
 PY
 )"
-[[ "$image" == *@sha256:* ]] || { echo "foundation-spark-runtime: compose spark image is not digest-pinned: $image" >&2; exit 1; }
-echo "foundation-spark-runtime: $image with $packages"
+echo "foundation-spark-runtime: compose service spark with $packages"
 
-log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
+work="$(mktemp -d)"
+log="$work/tests.log"
+project="foundation-spark-runtime-$$"
+compose() {
+  # The service's state and Ivy mounts point into this run's temporary directory, not the tree.
+  FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="$work/state" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="$work/ivy" \
+    docker compose -p "$project" --project-directory "$AREA" -f "$AREA/compose.lakehouse.yml" \
+    --profile lakehouse-batch "$@"
+}
+cleanup() {
+  compose down --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$work" 2>/dev/null || true
+}
+trap cleanup EXIT
+mkdir -p "$work/state" "$work/ivy"
+chmod 0777 "$work/state" "$work/ivy"
 # Read-only source; Ivy, Spark's scratch and the tests' temporary tables live in the container's /tmp.
 status=0
-docker run --rm --network bridge -v "$ROOT:/repo:ro" -w "/repo/platforms/foundation-platform" \
+compose run --rm --no-deps -v "$ROOT:/repo:ro" -w "/repo/platforms/foundation-platform" \
   -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 -e RUN_SPARK_TESTS=1 -e RUN_ICEBERG_TESTS=1 \
   -e "PYSPARK_SUBMIT_ARGS=--packages $packages --conf spark.jars.ivy=/tmp/ivy --conf spark.ui.enabled=false pyspark-shell" \
-  --entrypoint /bin/bash "$image" -c '
+  --entrypoint /bin/bash spark -c '
     set -euo pipefail
     py4j=(/opt/spark/python/lib/py4j-*-src.zip)
     export PYTHONPATH="/opt/spark/python:${py4j[0]}"
