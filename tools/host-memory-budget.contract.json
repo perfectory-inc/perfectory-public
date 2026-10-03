@@ -85,6 +85,7 @@
         {"project": "foundation-platform-compute", "service": "lakehouse-control"}
       ],
       "lineage_stewardship": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "map_edit_fold_admin": [
         {"project": "foundation-platform-compute", "service": "spark-small"},
         {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}

@@ -1,0 +1,38 @@
+[Unit]
+Description=Foundation Platform panel Gold rebuild: rebuild gold.parcel_panel, then gold.building_panel, when a Silver input changed rows (ADR-0122, ADR-0138, ADR-0139)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# The lakehouse catalog the producers read and commit through: the file the folds and the
+# lakehouse migration read.
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+# One table after the other; each runs in the compose `spark` service under its 20g cap, which the
+# host memory guard counts for this job (tools/host-memory-budget.contract.json). Sized from the
+# measured national building rebuild (root ADR-0139). A failed table does not stop the other.
+ExecStart=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh all
+# The timeout below kills the script and the compose client, not the Spark container the Docker
+# daemon owns: left alone it would keep its 20g after Airflow freed the pool. Spark runs in the
+# Compose project named after this INVOCATION_ID; this removes that project's one-off containers and
+# networks and nothing else, with the publisher FLOOR cleans up with (root ADR-0128). It runs after
+# every exit, a success included. The release build refuses to start while this unit is active
+# (ADR-0137), so `current` here is the release that started.
+ExecStopPost=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh cleanup
+# Under Airflow's 165 minutes (jobs.v1.json), which the hourly folds' starvation bound allows and
+# no more; the measured national building rebuild took 32 minutes (root ADR-0139).
+TimeoutStartSec=160m
+# The cleanup's own bound (FLOOR's): `docker stop --time 30`, then removal and its check.
+TimeoutStopSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Plans, summaries and Spark logs, created by systemd for this unit; the Spark container writes
+# them as uid 185, so the script opens each run's directory to it. Spark's spill goes to the data
+# disk (/data/foundation-platform/lakehouse/spark-scratch, written by the container), never here.
+StateDirectory=foundation-gold-panel-rebuild

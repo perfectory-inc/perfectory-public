@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md",
+  "purpose": "The by-PNU panel Gold tables the scheduled job foundation-gold-panel-rebuild.service rebuilds (orchestration/jobs.v1.json gold_panel_rebuild), in the order it rebuilds them, with each table's producer, the producer flags the job passes, the Spark size it runs at, and how many rows a rebuild may lose against the current snapshot before it is refused. The Silver inputs are the producer's own constants (root ADR-0130), not listed here. infra/lakehouse/spark/jobs/gold_rebuild.py reads this file; scripts/ops/gold-panel-rebuild.sh reads the spark sizes.",
+  "tables": {
+    "gold.parcel_panel": {
+      "unit": "parcel",
+      "producer": "parcel_panel_silver_to_gold",
+      "producer_arguments": [],
+      "max_row_loss_fraction": 0.01,
+      "max_row_loss_reason": "One row per current parcel. A monthly national parcel refresh moves the count by far less than 1% (parcels split, merge or retire a few thousand at a time out of about 40 million); losing more means an input lost a region or a join broke, which must not reach the bake.",
+      "unmeasured_inputs": {
+        "silver.parcel_lineage": "Absent from the catalog when the parcel rebuild was measured (2026-10-03) and still absent on 2026-10-04, so the 20g cap was shown only with --no-carry-lineage, where the run already peaked at 18.0GiB anon. Carrying the lineage adds a join; measure it before a run may read it (root ADR-0139)."
+      },
+      "spark": {"master": "local[8,8]", "driver_memory": "16g"}
+    },
+    "gold.building_panel": {
+      "unit": "building",
+      "producer": "building_panel_silver_to_gold",
+      "producer_arguments": [],
+      "max_row_loss_fraction": 0.01,
+      "max_row_loss_reason": "One row per PNU that has a building title or unit. Building registers grow; a monthly refresh moves the count by far less than 1% of about 6 million. Losing more means an input lost a region or a join broke, which must not reach the bake.",
+      "spark": {"master": "local[8,8]", "driver_memory": "16g"}
+    }
+  }
+}

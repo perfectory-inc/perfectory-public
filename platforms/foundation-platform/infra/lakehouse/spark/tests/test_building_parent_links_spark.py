@@ -1,5 +1,9 @@
 """실제 Spark에서 원천 부모 연결과 근거 없는 과거 연결의 차이를 확인한다."""
+import sys
 import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 
 try:
     from pyspark.sql import SparkSession, functions as F

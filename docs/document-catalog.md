@@ -8,25 +8,25 @@
 
 ## 문서 규모
 
-- 문서 파일: **486개**
+- 문서 파일: **488개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 120 |
+| Foundation Platform | 121 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 165 |
+| Monorepo | 166 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 223 |
+| ADR | 224 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -38,7 +38,7 @@
 | guide | 2 |
 | reference | 18 |
 | roadmap | 3 |
-| runbook | 35 |
+| runbook | 36 |
 
 ## 책임별 문서 트리
 
@@ -129,6 +129,7 @@ platforms/foundation-platform/docs/runbooks/canonical-release-proof.md
 platforms/foundation-platform/docs/runbooks/data-catalog.md
 platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md
 platforms/foundation-platform/docs/runbooks/foundation-platform-low-cost-production-hardening.md
+platforms/foundation-platform/docs/runbooks/gold-panel-rebuild.md
 platforms/foundation-platform/docs/runbooks/host-memory-budget.md
 platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md
 platforms/foundation-platform/docs/runbooks/lakehouse-backfill-and-schema-rebuild.md
@@ -525,6 +526,7 @@ docs/adr/0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md
 docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md
 docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md
 docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md
+docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md
 docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
@@ -702,6 +704,7 @@ tools/github/README.md
 | `docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md` | Monorepo | ADR | accepted |
 | `docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
@@ -808,6 +811,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/runbooks/data-catalog.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/foundation-platform-low-cost-production-hardening.md` | Foundation Platform | runbook | current |
+| `platforms/foundation-platform/docs/runbooks/gold-panel-rebuild.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/host-memory-budget.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-backfill-and-schema-rebuild.md` | Foundation Platform | runbook | current |

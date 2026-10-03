@@ -21,6 +21,7 @@ GATES = (
     "boundary-slice",
     "kafka-integration",
     "compose-smoke",
+    "spark-runtime",
     "static-release-toolchain-windows",
 )
 
@@ -97,6 +98,16 @@ RULES = {
             "platforms/foundation-platform/services/foundation-api/",
         ],
     },
+    "spark-runtime": {
+        "exact": [
+            "platforms/foundation-platform/compose.lakehouse.yml",
+            "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
+            "scripts/verify/foundation-spark-runtime.sh",
+        ],
+        "prefixes": [
+            "platforms/foundation-platform/infra/lakehouse/spark/",
+        ],
+    },
     "static-release-toolchain-windows": {
         "exact": [
             "platforms/foundation-platform/config/static-release-toolchain.contract.json",
@@ -134,6 +145,13 @@ REQUIRED_WITNESSES = {
         "bootstrap contract": "platforms/foundation-platform/infra/compose/bootstrap-foundation.sql",
         "migration": "platforms/foundation-platform/migrations/20260719000001_foundation_platform_schema.sql",
         "service image": "platforms/foundation-platform/services/foundation-api/Dockerfile",
+    },
+    "spark-runtime": {
+        "runner": "scripts/verify/foundation-spark-runtime.sh",
+        "image": "platforms/foundation-platform/compose.lakehouse.yml",
+        "engine versions": "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
+        "Iceberg commit test": "platforms/foundation-platform/infra/lakehouse/spark/tests/test_gold_rebuild_iceberg.py",
+        "job": "platforms/foundation-platform/infra/lakehouse/spark/jobs/gold_rebuild.py",
     },
     "static-release-toolchain-windows": {
         "tool contract": "platforms/foundation-platform/config/static-release-toolchain.contract.json",

@@ -163,4 +163,6 @@ last_reviewed: 2026-07-28
 
 - [ADR-0138 — 예약 작업은 한 풀을 슬롯으로 나눠 쓰고, 메모리 예산은 슬롯이 허락하는 모든 조합을 센다](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md)
 
+- [ADR-0139 — 필지·건물 패널 Gold 는 Silver 입력이 바뀌면 등록 작업이 다시 만든다](./0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md)
+
 - [ADR-0141 — by-PNU 서빙은 바뀐 문서만 패치 세대로 쌓는다](./0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md)

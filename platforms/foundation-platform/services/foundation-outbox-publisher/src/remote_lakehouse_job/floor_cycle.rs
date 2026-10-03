@@ -14,8 +14,9 @@ use foundation_outbox_publisher::building_register_floor_silver_export::{
 
 use super::{floor_source::FloorSource, RemoteLakehouseJob, RemoteLakehouseJobConfig};
 
-mod cleanup;
 mod native_runtime;
+
+use super::invocation_cleanup::{self, Job};
 
 const MAX_OUTCOME_BYTES: u64 = 256 * 1024;
 
@@ -54,7 +55,7 @@ impl LocalExecution {
             image,
             database_network,
             database_endpoint,
-            project: cleanup::project_id(lookup)?,
+            project: invocation_cleanup::project_id(Job::Floor, lookup)?,
             outcome: PathBuf::new(),
         })
     }
@@ -119,11 +120,11 @@ fn source(
 }
 
 pub(super) fn stop() -> anyhow::Result<()> {
-    cleanup::run()
+    invocation_cleanup::run(Job::Floor)
 }
 
 pub(super) async fn run() -> anyhow::Result<()> {
-    cleanup::project_id(&mut |key| std::env::var(key).ok())?;
+    invocation_cleanup::project_id(Job::Floor, &mut |key| std::env::var(key).ok())?;
     let result = run_inner().await;
     let stopped = stop();
     match (result, stopped) {

@@ -244,8 +244,11 @@ done
 # Host 6g: 1g standing + 1g reserved leaves 4g. One-shots: migrate 3g, seed 3g, small 2g.
 # Pool "heavy" (3 slots): floor takes 3 (migrate 3g), each fold 2 (small 2g), the bake 1
 # (its unit's MemoryMax 2G). The worst sets are fold + bake = 4g and floor alone = 3g: they fit.
+# With a fifth argument a Gold rebuild joins the pool on the big Spark (migrate 3g) with that many
+# slots (root ADR-0139).
 write_scheduled_fixture() {
   local bake_memory="${1-MemoryMax=2G}" fold_slots="${2:-2}" small_cap="${3:-2g}" extra_memory="${4:-}"
+  local gold_slots="${5:-0}"
   rm -f "$fixture/stack/compose.native.yml" "$fixture/tools/engine.json"
   write_contract 6g
   write_stack "    mem_limit: 1g"
@@ -258,18 +261,18 @@ write_scheduled_fixture() {
 YAML
   mkdir -p "$fixture/units"
   printf '[Service]\nExecStart=/bin/true\n%s\n' "$bake_memory" > "$fixture/units/fixture-bake.service"
-  for unit in fixture-floor fixture-fold-a fixture-fold-b; do
+  for unit in fixture-floor fixture-fold-a fixture-fold-b fixture-gold; do
     printf '[Service]\nExecStart=/bin/true\n' > "$fixture/units/$unit.service"
   done
-  python3 - "$fixture" "$fold_slots" "$extra_memory" <<'PY'
+  python3 - "$fixture" "$fold_slots" "$extra_memory" "$gold_slots" <<'PY'
 import json, pathlib, sys
-root, fold_slots, extra = pathlib.Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+root, fold_slots, extra, gold_slots = pathlib.Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3], int(sys.argv[4])
 def job(job_id, slots, pool="heavy"):
     return {"id": job_id, "pool": pool, "pool_slots": slots, "systemd_service": f"fixture-{job_id.replace('_', '-')}.service"}
 (root / "tools/jobs.json").write_text(json.dumps({
     "pools": {"heavy": {"slots": 3, "description": "fixture"}},
     "jobs": [job("floor", 3), job("fold_a", fold_slots), job("fold_b", fold_slots), job("bake", 1),
-             job("sweep", 1, "default_pool")],
+             job("sweep", 1, "default_pool")] + ([job("gold", gold_slots)] if gold_slots else []),
 }))
 memory = {
     "floor": [{"project": "stack", "service": "migrate"}],
@@ -277,6 +280,8 @@ memory = {
     "fold_b": [{"project": "stack", "service": "small"}],
     "bake": [{"unit": "MemoryMax"}],
 }
+if gold_slots:
+    memory["gold"] = [{"project": "stack", "service": "migrate"}]
 if extra:
     memory.update(json.loads(extra))
 path = root / "tools/host-memory-budget.contract.json"
@@ -304,5 +309,9 @@ write_scheduled_fixture "MemoryMax=2G" 2 2g '{"fold_a": [{"project": "stack", "s
 expect_fail "a memory source naming a service the host does not run"
 write_scheduled_fixture "MemoryMax=infinity"
 expect_fail "a MemoryMax that is not a size"
+write_scheduled_fixture "MemoryMax=2G" 2 2g "" 3
+expect_pass "a Gold rebuild on the big Spark that takes every slot and runs alone"
+write_scheduled_fixture "MemoryMax=2G" 2 2g "" 1
+expect_fail "a Gold rebuild on the big Spark that takes one slot, so a fold runs beside it over the host"
 
 echo "OK $name"

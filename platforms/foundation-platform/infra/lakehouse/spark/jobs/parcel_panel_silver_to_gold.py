@@ -66,6 +66,7 @@ from pyspark.storagelevel import StorageLevel
 
 from lineage_review_queue import steward_resolved
 from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
+from gold_rebuild import assert_minimum_row_count, write_gold_snapshot
 from parcel_attribute_carry import carry_candidates
 from parcel_lineage import Link
 from lakehouse_engine import (
@@ -251,6 +252,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional row-count assertion for smoke and proof runs.",
     )
     parser.add_argument(
+        "--minimum-count",
+        type=int,
+        default=None,
+        help="Refuse, before writing, a Gold with fewer rows (root ADR-0139).",
+    )
+    parser.add_argument(
         "--summary-output",
         help="Optional path for a machine-readable Spark run summary JSON file.",
     )
@@ -291,6 +298,8 @@ def validate_args(args: argparse.Namespace) -> dict[str, str]:
         raise ValueError("--output is required when --write-mode=parquet")
     if args.region_prefix is not None and re.fullmatch(r"[0-9]{1,10}", args.region_prefix) is None:
         raise ValueError("--region-prefix must be 1 to 10 digits")
+    if args.minimum_count is not None and args.minimum_count < 0:
+        raise ValueError("--minimum-count must be non-negative")
 
     validate_identifier("iceberg catalog name", args.iceberg_catalog_name)
     validate_identifier("source iceberg namespace", args.source_iceberg_namespace)
@@ -1190,11 +1199,10 @@ def qualified_target_table(args: argparse.Namespace) -> str:
 
 
 def write_gold_iceberg(
-    spark: SparkSession, gold: DataFrame, args: argparse.Namespace
+    spark: SparkSession, gold: DataFrame, args: argparse.Namespace, pins: dict[str, str]
 ) -> tuple[str, ...]:
     table = qualified_target_table(args)
     namespace = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`"
-    temp_view = "gold_parcel_panel_candidate"
 
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {namespace}")
     spark.sql(
@@ -1212,9 +1220,8 @@ def write_gold_iceberg(
         """
     )
     added_columns = evolve_iceberg_table_to_contract(spark, table, GOLD_CONTRACT)
-    gold.select(*GOLD_COLUMNS).createOrReplaceTempView(temp_view)
-    statement = "INSERT OVERWRITE" if args.iceberg_write_mode == "overwrite" else "INSERT INTO"
-    spark.sql(f"{statement} {table} SELECT {', '.join(GOLD_COLUMNS)} FROM {temp_view}")
+    # The snapshot records the Silver pins it was built from (root ADR-0139).
+    write_gold_snapshot(gold.select(*GOLD_COLUMNS), table, args.iceberg_write_mode, pins, F.lit(True))
     return added_columns
 
 
@@ -1294,6 +1301,7 @@ def main() -> int:
             published_at_utc=args.published_at_utc,
         ).persist(StorageLevel.MEMORY_AND_DISK)
         row_count, quality_metrics = validate_gold_frame(gold, args.expected_count)
+        assert_minimum_row_count(row_count, args.minimum_count)
 
         if args.validate_only:
             emit_run_summary(
@@ -1317,7 +1325,7 @@ def main() -> int:
             persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
             success_target = f"output={args.output}"
         else:
-            added_columns = write_gold_iceberg(spark, gold, args)
+            added_columns = write_gold_iceberg(spark, gold, args, pins)
             persisted = (
                 spark.table(qualified_target_table(args))
                 .where(F.col("source_snapshot_id") == source_snapshots[PARCEL_SOURCE])

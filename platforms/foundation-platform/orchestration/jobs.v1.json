@@ -4,10 +4,10 @@
   "pools": {
     "spark": {
       "slots": 3,
-      "description": "The host's scheduled heavy work (root ADR-0138): FLOOR and lineage take all three slots (20g Spark) and run alone; a map-edit fold takes two, so the folds never overlap (their Spark runs share one init container name); the by-PNU bake takes one, so one fold can run beside it. The host memory guard checks every combination these slots allow."
+      "description": "The host's scheduled heavy work (root ADR-0138): FLOOR and lineage take all three slots (20g Spark) and run alone; a map-edit fold takes two, so the folds never overlap (their Spark runs share one init container name); the by-PNU bake takes one, so one fold can run beside it; the panel Gold rebuild takes all three (20g Spark) and runs alone. The host memory guard checks every combination these slots allow."
     }
   },
-  "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
+  "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the Gold rebuild, the Gold rebuild above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
   "jobs": [
     {
@@ -115,6 +115,36 @@
       "pipeline_graph_edges": [],
       "reads_data_contracts": true,
       "enabled": true
+    },
+    {
+      "id": "gold_panel_rebuild",
+      "description": "Rebuild gold.parcel_panel, then gold.building_panel, with their existing Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. It runs before the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
+      "systemd_service": "foundation-gold-panel-rebuild.service",
+      "systemd_timer": null,
+      "schedule": "45 8 * * *",
+      "timeout_minutes": 165,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 3,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-register-titles-to-gold-building-panel",
+        "silver-building-register-floors-to-gold-building-panel",
+        "silver-building-register-units-to-gold-building-panel",
+        "silver-building-register-unit-areas-to-gold-building-panel",
+        "silver-unit-official-price-to-gold-building-panel",
+        "silver-parcel-boundaries-to-gold-parcel-panel",
+        "silver-land-use-plan-to-gold-parcel-panel",
+        "silver-land-use-zone-code-to-gold-parcel-panel",
+        "silver-land-individual-price-to-gold-parcel-panel",
+        "silver-land-characteristic-to-gold-parcel-panel",
+        "silver-land-forest-ledger-to-gold-parcel-panel",
+        "silver-land-transfer-history-to-gold-parcel-panel",
+        "silver-land-right-registration-to-gold-parcel-panel",
+        "silver-parcel-lineage-to-gold-parcel-panel"
+      ],
+      "enabled": false,
+      "disabled_reason": "New. Off until one supervised run on the data host has rebuilt gold.building_panel (whose current snapshot predates unit_pnu, root ADR-0125) and the by-PNU bake has baked it; switching it on is a separate deploy step (runbook docs/runbooks/gold-panel-rebuild.md, 'Turning it on')."
     },
     {
       "id": "by_pnu_serving_bake",
