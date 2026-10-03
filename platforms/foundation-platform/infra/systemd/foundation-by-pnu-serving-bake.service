@@ -28,6 +28,9 @@ TimeoutStartSec=20h
 # reads this line; without it the guard fails.
 MemoryMax=14G
 MemorySwapMax=0
+# A lane killed at MemoryMax must not stop the other: by default systemd stops the whole unit when
+# one of its processes is OOM-killed. The killed lane still fails the unit, and resumes next run.
+OOMPolicy=continue
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

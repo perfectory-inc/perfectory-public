@@ -56,6 +56,8 @@ const PNU_PREFIX_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PNU_PREF
 const EXPECTED_GOLD_SNAPSHOT_ENV: &str =
     "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID";
 const FRESH_GENERATION_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FRESH_GENERATION";
+const FRESH_CHECK_MARKER_ENV: &str =
+    "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FRESH_CHECK_MARKER_PATH";
 const DEFAULT_MAX_CONCURRENCY: usize = 8;
 /// Measured 2026-09-09 on the Seoul bake: one R2 put costs ~0.29s from the batch host, so the
 /// old cap of 32 topped out near 110 objects/s and a national bake would take days. The client
@@ -136,6 +138,10 @@ struct ServingExportConfig {
     /// empty before the first write. Objects there were left by a bake that did not record this
     /// generation as its own, and a resume would count them without reading them back.
     fresh_generation: bool,
+    /// Written once the fresh shard's key range was listed empty, before the first write. The
+    /// bake keeps demanding an empty range until this exists: a retry after a crash during the
+    /// scan never ran the check, and must not resume over another writer's keys.
+    fresh_check_marker: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize)]
@@ -234,6 +240,7 @@ impl ServingExportConfig {
             expected_gold_snapshot: optional_env(EXPECTED_GOLD_SNAPSHOT_ENV)?,
             fresh_generation: optional_env(FRESH_GENERATION_ENV)?
                 .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+            fresh_check_marker: optional_env(FRESH_CHECK_MARKER_ENV)?.map(PathBuf::from),
         })
     }
 }
@@ -326,7 +333,7 @@ async fn export(
     } else {
         HashSet::new()
     };
-    refuse_a_claimed_shard(config, listed.len())?;
+    claim_a_fresh_shard(config, listed.len())?;
     let existing_keys = if config.resume_from_listing && !config.allow_overwrite {
         listed
     } else {
@@ -373,17 +380,35 @@ fn refuse_a_moved_table(expected: Option<&str>, table: &str, current: &str) -> a
     Ok(())
 }
 
-/// Refuses to write into a generation this run started when the shard's range already holds keys.
-fn refuse_a_claimed_shard(config: &ServingExportConfig, listed: usize) -> anyhow::Result<()> {
+/// Refuses to write into a generation this run started when the shard's range already holds
+/// keys; when the range is empty, records that before any write (`fresh_check_marker`).
+fn claim_a_fresh_shard(config: &ServingExportConfig, listed: usize) -> anyhow::Result<()> {
+    if !config.fresh_generation {
+        return Ok(());
+    }
+    let shard = config.pnu_prefix.as_deref().unwrap_or("(all)");
     ensure!(
-        !config.fresh_generation || listed == 0,
-        "generation {} already holds {listed} objects under shard {}, and this run did not start \
-         them: a bake that never recorded this generation wrote there; choose a generation above \
-         every one in the bucket",
+        listed == 0,
+        "generation {} already holds {listed} objects under shard {shard}, and this run did not \
+         start them: a bake that never recorded this generation wrote there; choose a generation \
+         above every one in the bucket",
         config.target_generation,
-        config.pnu_prefix.as_deref().unwrap_or("(all)")
     );
-    Ok(())
+    let marker = config
+        .fresh_check_marker
+        .as_deref()
+        .with_context(|| format!("{FRESH_GENERATION_ENV} needs {FRESH_CHECK_MARKER_ENV}"))?;
+    let body = serde_json::json!({
+        "target_generation": config.target_generation,
+        "pnu_prefix": config.pnu_prefix,
+        "listed_object_count": 0,
+    });
+    std::fs::write(marker, serde_json::to_vec(&body)?).with_context(|| {
+        format!(
+            "failed to write the fresh-check marker {}",
+            marker.display()
+        )
+    })
 }
 
 /// Reorders writes so concurrent puts land across the keyspace instead of on one shelf.

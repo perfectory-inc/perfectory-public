@@ -25,11 +25,14 @@ RELEASE_PREFIX = "/opt/foundation-platform/current/"
 JOBS_SCHEMA = "foundation-platform.orchestration_jobs.v1"
 # Airflow's own pool; every other pool a job may name is declared in jobs.v1.json `pools`.
 DEFAULT_POOL = "default_pool"
-# A job may wait for a shared pool's slots at most this many of its own schedule cycles. An hourly
-# fold delayed by five cycles still lands staff edits the same working day; a 21-hour bake holding
-# the slot it needs would hold it back for twenty. Waits are measured against the declared
-# timeouts, which is how long the scheduler lets a run hold its slots.
-STARVATION_CYCLES = 5
+# A job may wait for a shared pool's slots at most this many of its own schedule cycles (root
+# ADR-0138). The bound is the worst case, not the usual one: an hourly fold behind FLOOR and lineage
+# that both time out and are retried waits about 17 hours, which still lands staff edits within
+# the day; a 21-hour bake holding a slot a fold needs would add a day more and is refused.
+STARVATION_CYCLES = 20
+# Every DAG task retries this long after a failure (foundation_jobs.py). A retry holds the slots
+# again, so a run can hold them for (retries + 1) x its timeout plus the delays.
+RETRY_DELAY_MINUTES = 5
 SERVICE_NAME = re.compile(r"foundation-[a-z0-9-]+(?:@([a-z0-9-]+))?\.service")
 TIMER_NAME = re.compile(r"foundation-[a-z0-9-]+\.timer")
 
@@ -46,6 +49,8 @@ class JobSpec:
     timeout_minutes: int
     pool: str
     pool_slots: int
+    retries: int
+    priority_weight: int
     systemd_service: str
     systemd_timer: str | None  # the timer the job replaced; None for a job that never had one
     enabled: bool
@@ -152,26 +157,56 @@ def pool_slots(job):
     return slots
 
 
-def longest_wait_minutes(starved, others, slots):
-    """The longest a job waits for its slots behind any set of jobs that can hold the pool together.
+def retries(job):
+    """How often Airflow retries a failed run of the job (`retries`, 1 when absent)."""
+    value = job.get("retries", 1)
+    if type(value) is not int or not 0 <= value <= 3:
+        raise JobListError(f"{job['id']}: retries must be an integer from 0 to 3")
+    return value
 
-    A set blocks it when what the set occupies leaves fewer free slots than it needs; it then waits
-    until enough of the set has finished, each member at worst at its timeout.
+
+def priority_weight(job):
+    """Which waiting job Airflow starts first when slots free (`priority_weight`, 1 when absent)."""
+    value = job.get("priority_weight", 1)
+    if type(value) is not int or value < 1:
+        raise JobListError(f"{job['id']}: priority_weight must be a positive integer")
+    return value
+
+
+def hold_minutes(job):
+    """The longest one scheduled run holds its slots: every try at its timeout, plus the delays."""
+    return (retries(job) + 1) * int(job["timeout_minutes"]) + retries(job) * RETRY_DELAY_MINUTES
+
+
+def longest_wait_minutes(starved, others, slots):
+    """An upper bound on how long a job waits for its slots, and which jobs make it up.
+
+    A job that cannot run beside it holds it back: one with an equal or higher priority_weight may
+    start ahead of it once each, and one with a lower weight may already be running when its turn
+    comes (Airflow starts the heaviest waiting job that fits, so a lighter one never starts ahead
+    of it again while it fits). Each counts at its hold_minutes. Jobs that block it only together
+    (none of them alone) hold it until enough of them have finished. A `takes_turns` job starts at
+    most once between runs of the jobs it cannot run beside (start-scheduled-job.sh), so it counts
+    once like the others.
     """
-    need, longest, blockers = pool_slots(starved), 0, []
-    for size in range(1, len(others) + 1):
-        for group in itertools.combinations(others, size):
+    need = pool_slots(starved)
+    blockers = [job for job in others if pool_slots(job) + need > slots]
+    total = sum(hold_minutes(job) for job in blockers)
+    combined, combined_ids = 0, []
+    beside = [job for job in others if job not in blockers]
+    for size in range(2, len(beside) + 1):
+        for group in itertools.combinations(beside, size):
             held = sum(pool_slots(job) for job in group)
             if held > slots or slots - held >= need:
                 continue  # cannot hold the pool together, or leaves room anyway
             freed, missing = 0, need - (slots - held)
-            for job in sorted(group, key=lambda job: int(job["timeout_minutes"])):
+            for job in sorted(group, key=hold_minutes):
                 freed += pool_slots(job)
                 if freed >= missing:
-                    if int(job["timeout_minutes"]) > longest:
-                        longest, blockers = int(job["timeout_minutes"]), [member["id"] for member in group]
+                    if hold_minutes(job) > combined:
+                        combined, combined_ids = hold_minutes(job), [member["id"] for member in group]
                     break
-    return longest, blockers
+    return total + combined, [job["id"] for job in blockers] + combined_ids
 
 
 def pool_starvation(jobs):
@@ -216,6 +251,10 @@ def load_specs(jobs=None, graph=None):
         seen_ids.add(job_id)
         if job["pool"] not in pools:
             raise JobListError(f"{job_id}: pool {job['pool']!r} is not one of {sorted(pools)}")
+        if not isinstance(job.get("takes_turns", False), bool):
+            raise JobListError(f"{job_id}: takes_turns must be true or false")
+        retries(job)
+        priority_weight(job)
         if not isinstance(job.get("enabled"), bool):
             raise JobListError(f"{job_id}: enabled must be true or false")
         reason = job.get("disabled_reason")
@@ -265,6 +304,8 @@ def load_specs(jobs=None, graph=None):
                 timeout_minutes=int(job["timeout_minutes"]),
                 pool=job["pool"],
                 pool_slots=pool_slots(job),
+                retries=retries(job),
+                priority_weight=priority_weight(job),
                 systemd_service=service,
                 systemd_timer=timer,
                 enabled=job["enabled"],

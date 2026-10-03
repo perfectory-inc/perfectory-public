@@ -50,19 +50,28 @@ elif command.startswith("export-"):
     expected = os.environ.get(prefix_env + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID")
     if moved and expected and expected != moved and not os.environ.get("FAKE_UNCHECKED_SNAPSHOT"):
         sys.exit(f"Error: gold.panel moved during the bake: this bake is of snapshot {expected} but the table is now at {moved}")
-    # Objects an unrecorded bake left in this generation (what the real export lists).
-    if os.environ.get(prefix_env + "FRESH_GENERATION") == "true" and os.environ.get("FAKE_CLAIMED_GENERATION") == str(target):
-        sys.exit(f"Error: generation {target} already holds 3 objects under shard {prefix}, and this run did not start them")
     pnus = json.loads(os.environ["FAKE_PNUS"])
     kept = [pnu for pnu in pnus if pnu.startswith(prefix)]
+    if len(kept) > int(os.environ["FAKE_CAP"]):
+        sys.exit(f"Error: snapshot keeps {len(kept)} rows in memory; this export refuses more than "
+                 f"{os.environ['FAKE_CAP']} — shard the run with {prefix_env}PNU_PREFIX, not a bigger heap")
+    # A crash during the scan: the empty-range check never ran.
+    before = os.environ["FAKE_LOG"] + ".crashed-before-check"
+    if os.environ.get("FAKE_CRASH_BEFORE_CHECK_ONCE_PREFIX") == prefix and not os.path.exists(before):
+        open(before, "w").close()
+        sys.exit("Error: connection reset while reading a Gold data file")
+    # Objects an unrecorded bake left in this generation (what the real export lists).
+    if os.environ.get(prefix_env + "FRESH_GENERATION") == "true":
+        if os.environ.get("FAKE_CLAIMED_GENERATION") == str(target) and prefix.startswith(os.environ.get("FAKE_CLAIMED_PREFIX", "")):
+            sys.exit(f"Error: generation {target} already holds 3 objects under shard {prefix}, and this run did not start them")
+        with open(os.environ[prefix_env + "FRESH_CHECK_MARKER_PATH"], "w") as checked:
+            json.dump({"target_generation": target, "pnu_prefix": prefix, "listed_object_count": 0}, checked)
+    # A crash while writing, after the check passed.
     crash = os.environ.get("FAKE_CRASH_ONCE_PREFIX")
     marker = os.environ["FAKE_LOG"] + ".crashed"
     if crash == prefix and not os.path.exists(marker):
         open(marker, "w").close()
         sys.exit("Error: R2 answered 429 Reduce your concurrent request rate")
-    if len(kept) > int(os.environ["FAKE_CAP"]):
-        sys.exit(f"Error: snapshot keeps {len(kept)} rows in memory; this export refuses more than "
-                 f"{os.environ['FAKE_CAP']} — shard the run with {prefix_env}PNU_PREFIX, not a bigger heap")
     short = os.environ.get("FAKE_SHORT_PREFIX") == prefix and os.environ.get("FAKE_SHORT_LANE", lane) == lane
     exported = len(kept) - (1 if short else 0)
     snapshot = moved
@@ -171,6 +180,8 @@ class ByPnuServingBake(unittest.TestCase):
         result, calls = self.bake(FAKE_MOVED_PREFIX="9999915", FAKE_MOVED_SNAPSHOT="303")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("the Gold table moved off snapshot 202 during the bake", result.stdout)
+        # The half-written generation is named, so its manual cleanup can find it.
+        self.assertIn("abandoned: generation 3 holds the objects this bake wrote for Gold snapshot 202", result.stdout)
         self.assertEqual(self.published(calls), [])
         exports = self.exports(calls)
         for call in exports:
@@ -198,6 +209,65 @@ class ByPnuServingBake(unittest.TestCase):
             self.assertEqual(call["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_GENERATION"], "6")
             self.assertEqual(call["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FRESH_GENERATION"], "true")
 
+    def test_a_retry_after_a_crash_before_the_check_still_refuses_foreign_keys(self):
+        # Attempt 1 crashes during the scan, before the empty-range check; another writer's keys
+        # sit in the range. Attempt 2 must still demand an empty range, and refuse.
+        result, calls = self.bake(FAKE_CRASH_BEFORE_CHECK_ONCE_PREFIX="1", FAKE_CLAIMED_GENERATION="3")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("generation 3 already holds objects this run did not write", result.stdout)
+        exports = self.exports(calls)
+        self.assertEqual(len(exports), 2)
+        for call in exports:
+            self.assertEqual(call["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FRESH_GENERATION"], "true")
+        self.assertEqual(self.published(calls), [])
+
+    def test_a_retry_after_the_check_passed_resumes_its_own_writes(self):
+        result, calls = self.bake(FAKE_CRASH_ONCE_PREFIX="9999917")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        flags = [call["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FRESH_GENERATION"]
+                 for call in self.exports(calls)
+                 if call["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PNU_PREFIX"] == "9999917"]
+        self.assertEqual(flags, ["true", "false"])
+
+    def test_a_refused_generation_is_never_resumed_the_next_day(self):
+        # Another writer holds generation 3: the run is refused and must leave no record of it.
+        result, _ = self.bake(FAKE_CLAIMED_GENERATION="3")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.state_root / "parcel/in-progress.json").exists())
+        self.log.unlink()
+        # The next day the bucket lists generation 3; the bake goes above it, fresh.
+        result, calls = self.bake(FAKE_LISTED="[2, 3]")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_GENERATION"], "4")
+        self.assertIn("new generation: true", result.stdout)
+
+    def test_a_refusal_after_other_shards_passed_removes_the_record(self):
+        # Shards 1..8 pass their checks (the generation is recorded); a later shard finds another
+        # writer's keys. The record must go, or the next run would resume generation 3 as its own.
+        result, _ = self.bake(FAKE_CLAIMED_GENERATION="3", FAKE_CLAIMED_PREFIX="9999915")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("generation 3 already holds objects this run did not write", result.stdout)
+        self.assertFalse((self.state_root / "parcel/in-progress.json").exists())
+        self.log.unlink()
+        result, calls = self.bake(FAKE_LISTED="[2, 3]")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_GENERATION"], "4")
+
+    def test_a_generation_is_recorded_only_after_a_shard_passed_its_check(self):
+        # The first shard is refused before its check (Gold moved): nothing is recorded to resume.
+        result, calls = self.bake(FAKE_MOVED_PREFIX="1", FAKE_MOVED_SNAPSHOT="303")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.exports(calls)), 1)
+        self.assertFalse((self.state_root / "parcel/in-progress.json").exists())
+        # Once a shard has passed its check, the generation is this lane's.
+        self.log.unlink()
+        result, _ = self.bake(FAKE_MOVED_PREFIX="2", FAKE_MOVED_SNAPSHOT="303", FAKE_GOLD="404")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(json.loads((self.state_root / "parcel/in-progress.json").read_text()),
+                         {"gold_iceberg_snapshot_id": "404", "target_generation": 3})
+
     def test_a_new_generation_that_already_holds_objects_is_refused(self):
         # The state listing missed them (another writer after it was read): the export refuses
         # the first shard, and the bake stops without retrying or publishing.
@@ -208,9 +278,11 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(len(self.exports(calls)), 1)
 
     def test_the_run_that_recorded_a_generation_resumes_it(self):
-        # A first run of snapshot 202 starts generation 3 and fails on one shard.
-        result, _ = self.bake(FAKE_CAP="0", FOUNDATION_BY_PNU_BAKE_ATTEMPTS="1")
+        # A first run of snapshot 202 starts generation 3, checks shards empty and writes, then
+        # fails on one shard after its check passed.
+        result, _ = self.bake(FAKE_CRASH_ONCE_PREFIX="9999917", FOUNDATION_BY_PNU_BAKE_ATTEMPTS="1")
         self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(json.loads((self.state_root / "parcel/in-progress.json").read_text())["target_generation"], 3)
         self.log.unlink()
         # The next run finds generation 3 in the bucket and its own record of it: it resumes 3,
         # and its exports do not demand empty key ranges.

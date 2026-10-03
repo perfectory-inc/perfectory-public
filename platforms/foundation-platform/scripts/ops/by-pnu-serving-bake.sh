@@ -19,7 +19,11 @@
 #    this lane did not record as its own (the hand-kept script's, or one from before the state
 #    root was wiped) is never resumed: the export would count its objects, baked from another
 #    snapshot, as done without reading them back. A new generation's shards are exported with
-#    FRESH_GENERATION, so the export itself refuses a key range that already holds objects.
+#    FRESH_GENERATION, so the export itself refuses a key range that already holds objects. A
+#    shard stops being "fresh" only once the export has recorded that its range was listed empty
+#    (the shard's .fresh-checked marker), not after its first attempt: a crash during the scan
+#    never reached the check. The generation is recorded as this lane's (in-progress.json) only
+#    after a shard has passed that check, and the record is removed when a shard is refused.
 # 3. bakes PNU-prefix shards. The export refuses a shard that keeps more than its row cap in
 #    memory; that shard is split into ten longer prefixes and the split is remembered for the next
 #    run. A crash (an R2 429 storm, a dropped connection) is retried; the retry resumes. Each shard
@@ -116,9 +120,15 @@ else:
 PY
 )
 [[ -n "${fresh:-}" ]] || { log "refused: cannot choose a target generation"; exit 65; }
-printf '{"gold_iceberg_snapshot_id": "%s", "target_generation": %s}\n' "${gold}" "${target}" >"${progress}"
 run="${STATE_ROOT}/runs/${gold}-g${target}"
 mkdir -p "${run}"
+# The generation becomes this lane's own (a later run resumes it) only once one of its shards has
+# been checked empty; before that, a refused or crashed run leaves no record to adopt it by.
+record_generation() {
+  printf '{"gold_iceberg_snapshot_id": "%s", "target_generation": %s}\n' "${gold}" "${target}" >"${progress}.next"
+  mv "${progress}.next" "${progress}"
+}
+[[ "${fresh}" == true ]] || record_generation
 log "baking Gold snapshot ${gold} into generation ${target} (published: generation ${published_generation} of ${published_snapshot}; highest generation holding objects: ${highest_listed}; new generation: ${fresh})"
 
 # 3. Bake every shard.
@@ -133,30 +143,38 @@ while ((${#queue[@]})); do
   baked=""
   for attempt in $(seq 1 "${ATTEMPTS}"); do
     attempt_log="${run}/shard-${prefix}.attempt-${attempt}.log"
-    # Only a shard's first attempt in a generation this run started demands an empty key range:
-    # a retry resumes over what the failed attempt wrote.
+    # In a generation this run started, a shard demands an empty key range until the export has
+    # recorded the check passing (before its first write); only then may a retry resume over
+    # what an earlier attempt wrote.
+    checked="${run}/shard-${prefix}.fresh-checked"
     shard_fresh=false
-    [[ "${fresh}" == true && "${attempt}" == 1 ]] && shard_fresh=true
+    [[ "${fresh}" == true && ! -s "${checked}" ]] && shard_fresh=true
     if env "${ENV_PREFIX}_CONFIRM_EXPORT=true" "${ENV_PREFIX}_TARGET_GENERATION=${target}" \
         "${ENV_PREFIX}_PNU_PREFIX=${prefix}" "${ENV_PREFIX}_MAX_CONCURRENCY=${MAX_CONCURRENCY}" \
         "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}" \
         "${ENV_PREFIX}_FRESH_GENERATION=${shard_fresh}" \
+        "${ENV_PREFIX}_FRESH_CHECK_MARKER_PATH=${checked}" \
         "${ENV_PREFIX}_SUMMARY_PATH=${summary}.partial" \
         "${PUBLISHER_BIN}" "export-${UNIT}-by-pnu-serving" >"${attempt_log}" 2>&1; then
       mv "${summary}.partial" "${summary}"
+      [[ "${fresh}" == true && -s "${checked}" ]] && record_generation
       baked=yes
       break
     fi
     rm -f "${summary}.partial"
+    [[ "${fresh}" == true && -s "${checked}" ]] && record_generation
     # Refusals a retry cannot change end the run now, not after every other shard.
     if grep -q 'moved during the bake' "${attempt_log}"; then
       tail -n 5 "${attempt_log}" >&2
       log "FAILED: the Gold table moved off snapshot ${gold} during the bake; nothing was published, the next run starts a new generation"
+      log "abandoned: generation ${target} holds the objects this bake wrote for Gold snapshot ${gold}; it is never served or resumed, and removing it is a manual step (runbook 8절)"
       exit 1
     fi
     if grep -q 'this run did not start' "${attempt_log}"; then
       tail -n 5 "${attempt_log}" >&2
-      log "FAILED: generation ${target} already holds objects this run did not write; nothing was published"
+      # Another writer holds this generation: never let a later run resume it as this lane's own.
+      rm -f "${progress}"
+      log "FAILED: generation ${target} already holds objects this run did not write; nothing was published, the next run starts above it"
       exit 1
     fi
     if grep -q 'shard the run with' "${attempt_log}"; then

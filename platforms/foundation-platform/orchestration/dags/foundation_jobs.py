@@ -11,7 +11,7 @@ from airflow.providers.ssh.operators.ssh import SSHOperator
 from airflow.sdk import DAG
 from openlineage.client.event_v2 import Dataset
 
-from job_specs import load_specs
+from job_specs import RETRY_DELAY_MINUTES, load_specs
 
 START = pendulum.datetime(2026, 10, 1, tz="UTC")
 # Defined by airflow-runtime.sh as AIRFLOW_CONN_FOUNDATION_HOST: the host, the scheduler account,
@@ -38,8 +38,12 @@ for spec in load_specs():
             cmd_timeout=spec.timeout_minutes * 60,
             pool=spec.pool,
             pool_slots=spec.pool_slots,
-            retries=1,
-            retry_delay=pendulum.duration(minutes=5),
+            # Airflow starts the heaviest waiting task that fits when slots free; absolute, so the
+            # weight is the job's own (root ADR-0138).
+            priority_weight=spec.priority_weight,
+            weight_rule="absolute",
+            retries=spec.retries,
+            retry_delay=pendulum.duration(minutes=RETRY_DELAY_MINUTES),
             execution_timeout=pendulum.duration(minutes=spec.timeout_minutes),
             inlets=[Dataset(namespace=namespace, name=name) for namespace, name in spec.inputs],
             outlets=[Dataset(namespace=namespace, name=name) for namespace, name in spec.outputs],

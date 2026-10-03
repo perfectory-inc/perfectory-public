@@ -5,7 +5,7 @@ use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 use super::parcel_document::{self, GoldSnapshotProvenance};
 use super::{
-    refuse_a_claimed_shard, refuse_a_moved_table, select_rows, spread_write_order, write_artifacts,
+    claim_a_fresh_shard, refuse_a_moved_table, select_rows, spread_write_order, write_artifacts,
     write_with_policy, ServingExportConfig,
 };
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
@@ -64,6 +64,7 @@ fn config(root: PathBuf, allow_overwrite: bool) -> ServingExportConfig {
         pnu_prefix: None,
         expected_gold_snapshot: None,
         fresh_generation: false,
+        fresh_check_marker: None,
     }
 }
 
@@ -89,16 +90,22 @@ fn a_shard_refuses_when_gold_moved_after_the_bake_began() -> anyhow::Result<()> 
 }
 
 #[tokio::test]
-async fn a_fresh_generation_holding_objects_is_refused() -> anyhow::Result<()> {
+async fn a_fresh_generation_holding_objects_is_refused_and_only_an_empty_one_is_marked(
+) -> anyhow::Result<()> {
     let root = temporary_root("fresh-claimed");
     let store = ParcelServingObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+    let marker = root.join("shard.fresh-checked");
     let mut fresh = config(root.clone(), false);
     fresh.fresh_generation = true;
-    // Empty: a fresh generation starts.
-    refuse_a_claimed_shard(
+    fresh.fresh_check_marker = Some(marker.clone());
+    // Empty: a fresh generation starts, and says so before its first write.
+    std::fs::create_dir_all(&root)?;
+    claim_a_fresh_shard(
         &fresh,
         store.list_existing_generation_keys(1, None).await?.len(),
     )?;
+    let marked = marker.exists();
+    std::fs::remove_file(&marker)?;
 
     // An older bake left an object in generation 1 and recorded nothing.
     let artifact = parcel_document::build(&provenance(), &row(PNU_A))?;
@@ -110,15 +117,28 @@ async fn a_fresh_generation_holding_objects_is_refused() -> anyhow::Result<()> {
         )
         .await?;
     let listed = store.list_existing_generation_keys(1, None).await?.len();
+    let refused = claim_a_fresh_shard(&fresh, listed);
+    let marked_on_refusal = marker.exists();
 
     std::fs::remove_dir_all(&root)?;
     assert!(
-        refuse_a_claimed_shard(&fresh, listed)
-            .is_err_and(|error| error.to_string().contains("this run did not start")),
+        marked,
+        "an empty fresh range must be recorded before the first write"
+    );
+    assert!(
+        refused.is_err_and(|error| error.to_string().contains("this run did not start")),
         "a fresh generation must not adopt another bake's objects"
     );
+    assert!(
+        !marked_on_refusal,
+        "a refused range must not be recorded as checked"
+    );
     // The run that did start it resumes over its own objects.
-    refuse_a_claimed_shard(&config(PathBuf::new(), false), listed)?;
+    claim_a_fresh_shard(&config(PathBuf::new(), false), listed)?;
+    // A fresh run that cannot record its check is refused rather than left unrecorded.
+    let mut unmarked = config(PathBuf::new(), false);
+    unmarked.fresh_generation = true;
+    assert!(claim_a_fresh_shard(&unmarked, 0).is_err());
     Ok(())
 }
 

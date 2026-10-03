@@ -178,8 +178,11 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
    아니면 새 세대 = (발행 세대, 버킷에 객체가 있는 가장 높은 세대, 기록된 세대) 중 최댓값 + 1. 기록 없이
    객체만 있는 세대 — 손 스크립트가 반쯤 쓴 세대, 상태 루트를 지우기 전의 세대 — 는 이어 굽지 않는다:
    익스포터가 목록에 있는 키를 다시 읽지 않고 완료로 세므로, 다른 스냅숏의 객체가 섞여도 행 수 합과 목록
-   개수가 모두 맞는다. 새 세대의 샤드 첫 시도는 `FRESH_GENERATION=true` 로 돌며, 익스포터가 그 샤드 범위에
-   이미 객체가 있으면 거부하고 작업은 재시도 없이 실패한다.
+   개수가 모두 맞는다. 새 세대의 샤드는 `FRESH_GENERATION=true` 로 돌며, 익스포터가 그 샤드 범위에 이미 객체가
+   있으면 거부하고 작업은 재시도 없이 실패한다. 범위가 비었음을 확인하면 익스포터가 첫 쓰기 전에
+   `shard-<접두사>.fresh-checked` 를 남기고, 그 표시가 생긴 뒤에만 재시도가 이어 굽기로 바뀐다 — 스캔 중 끊긴
+   시도는 확인에 닿지 않았으므로 다음 시도도 빈 범위를 요구한다. 세대는 샤드 하나가 이 확인을 통과한 뒤에야
+   `in-progress.json` 에 기록되고, 거부되면 기록을 지운다: 다음 실행은 거부된 세대를 이어 굽지 않고 그 위로 간다.
 3. PNU 앞자리 샤드로 굽는다. 시작은 `1`…`9`, 익스포터가 행 상한(실행당 90만)을 넘는다며 거부한 샤드는
    10개로 쪼개고(스캔은 상한을 넘는 첫 행에서 멈추므로 거부되는 샤드도 상한만큼만 쥔다), 다음 실행을 위해 잎 샤드 목록(`shard-plan.txt`)을 기억한다. 충돌(429 등)은 같은 샤드를
    재시도하며, 재시도는 목록에 이미 있는 객체를 건너뛴다. 객체는 create-only 다 — 스크립트가
@@ -206,10 +209,27 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 ### 풀과 메모리 ([루트 ADR-0138](../../../../docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md))
 
 굽기는 3슬롯 `spark` 풀의 1슬롯을 쓴다. FLOOR·계보 검토는 3슬롯(혼자), 접기는 2슬롯이라 매시 접기 하나가 굽기
-옆에서 돈다. 대신 **FLOOR 와 계보 검토는 굽기가 도는 날 최대 한 번(약 21시간) 밀린다** — 굽기가 끝난 뒤 돈다.
-굽기는 Gold 에 새 스냅숏이 있을 때만 돈다. 이 대기는 `job_specs.pool_starvation` 이 슬롯을 세어 검사한다.
+옆에서 돈다. 그 대가로 FLOOR 와 계보 검토가 밀린다. 얼마나 밀리는지는 다음 셋이 정한다.
 
-단위의 `MemoryMax=14G` 와 행 상한 90만은 2026-10-03 ai-server scratch 측정에서 정했다(로컬 출력, R2 쓰기 없음).
+- 무게(`priority_weight`): FLOOR·계보 10 > 접기 5 > 굽기 1. 슬롯이 비면 Airflow 는 들어가는 작업 중 무거운 것부터 시작한다.
+- 굽기는 재시도하지 않는다(`retries: 0`). 시간 상한에 걸리면 다음 차례에 이어 굽는다.
+- 차례(`takes_turns`): 굽기는 FLOOR 와 계보가 자기 마지막 시작 뒤에 한 번씩 시작하기 전에는 다시 시작하지 않는다.
+  `start-scheduled-job.sh` 가 시작을 `/var/lib/foundation-scheduler/starts/` 에 적고, 차례가 아니면
+  `deferred: ...` 를 남기고 아무것도 시작하지 않는다(Airflow 에는 성공).
+
+그래서 최악의 대기는(재시도까지 시간 상한을 다 쓴 경우) **FLOOR 약 34시간, 계보 검토 약 38시간, 매시 접기 약 17시간**
+이다(굽기 한 실행 + 차례가 올 때 이미 돌던 접기 + 같은 무게의 상대). `job_specs.pool_starvation` 이 이 상한을 계산해
+자기 일정 주기 20번과 비교한다. 굽기는 Gold 에 새 스냅숏이 있을 때만 돈다.
+
+Gold 가 전국 굽기 한 번(실행 여러 번에 걸침)보다 자주 바뀌면 굽기마다 "moved during the bake" 로 멈춘다. 그때는:
+발행하지 않는다(서빙은 이전 세대 그대로), 반쯤 쓴 세대는 서빙되지도 이어 굽지도 않은 채 남는다(로그에
+`abandoned: generation N holds the objects ...`), 다음 실행은 그 위 세대로 처음부터 굽는다. 남은 세대를 지우는 것은
+수동이며(append-only 원칙상 예약 작업은 지우지 않는다), Gold 를 만드는 쪽이 굽기 주기에 맞춰야 끝까지 굽힌다.
+
+단위의 `MemoryMax=14G` 와 행 상한 90만은 2026-10-03 ai-server scratch 측정에서 정했다. **로컬 출력으로 잰 값이다**:
+R2 경로는 동시 쓰기 128개와 최대 90만 개의 목록 키를 더 쥐므로 감독 실행(아래 1)에서 `systemctl show -p MemoryPeak
+foundation-by-pnu-serving-bake.service` 로 다시 재고, 14G 의 1.3배 여유를 넘으면 행 상한을 낮춘다. 한 레인이 상한에
+걸려 OOM 으로 죽어도(`OOMPolicy=continue`) 다른 레인은 돈다.
 
 | 실행 | 행 | 익명 메모리 최대 | 걸린 시간 | 스캔한 파일 |
 |---|---:|---:|---:|---:|
@@ -230,11 +250,19 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 `verify-current` 를 통과하지 못한다. 감독 실행 전에 새 릴리스로 전환되어 있어야 한다
 ([lakehouse-compute-engines.md](lakehouse-compute-engines.md) 4절, 롤백 영향 포함).
 
-1. 배포(`timers` 포함) 뒤 데이터 호스트에서 root 가 DAG 를 멈춘 채 한 번 직접 시작하고 저널을 지켜본다:
-   `sudo systemctl start --no-block foundation-by-pnu-serving-bake.service` 뒤
-   `journalctl -u foundation-by-pnu-serving-bake.service -f`.
-   레인마다 `nothing to do` 이거나 `published generation N: <개수> objects` 로 끝나야 한다. 엣지에서 5·6절 검증을
-   한다. 첫 전국 필지 굽기는 며칠에 걸치며, 시간 상한에 걸려도 다음 시작이 이어 굽는다.
+1. 감독 실행은 메모리 예산 밖이므로(직접 시작은 Airflow 풀을 거치지 않는다) **여러 날 걸리는 실행 내내** 같은 풀의
+   작업을 멈춘다:
+   - Airflow 에서 `foundation_building_register_floor`, `foundation_lineage_stewardship`,
+     `foundation_map_edit_fold_admin`, `foundation_map_edit_fold_complex` 를 일시정지한다.
+   - 시작 전에 하나도 돌고 있지 않은지 확인한다:
+     `systemctl is-active foundation-building-register-floor.service foundation-lineage-stewardship.service
+     foundation-map-edit-fold@admin.service foundation-map-edit-fold@complex.service` 가 모두 `inactive`
+     (또는 `failed`)여야 한다.
+   - 데이터 호스트에서 root 가 `sudo systemctl start --no-block foundation-by-pnu-serving-bake.service` 로 시작하고
+     `journalctl -u foundation-by-pnu-serving-bake.service -f` 로 지켜본다. 시간 상한(20시간)에 걸리면 같은 확인 뒤
+     다시 시작한다(이어 굽는다). 직접 시작은 차례 기록(`starts/`)에 남지 않는다.
+   - 레인마다 `nothing to do` 이거나 `published generation N: <개수> objects` 로 끝나야 한다. 엣지에서 5·6절 검증을
+     하고, 위의 `MemoryPeak` 를 기록한다. 끝나면 네 DAG 를 다시 켠다.
 2. 두 레인이 확인되면 `jobs.v1.json` 에서 `enabled: true` 로 바꾸고 `disabled_reason` 을 지운 변경을 병합·배포한 뒤
    `airflow-runtime.sh up -d` 로 DAG 를 켠다.
 

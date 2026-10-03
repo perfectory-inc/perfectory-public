@@ -7,7 +7,7 @@
       "description": "The host's scheduled heavy work (root ADR-0138): FLOOR and lineage take all three slots (20g Spark) and run alone; a map-edit fold takes two, so the folds never overlap (their Spark runs share one init container name); the by-PNU bake takes one, so one fold can run beside it. The host memory guard checks every combination these slots allow."
     }
   },
-  "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py).",
+  "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
   "jobs": [
     {
@@ -19,6 +19,7 @@
       "timeout_minutes": 250,
       "pool": "spark",
       "pool_slots": 3,
+      "priority_weight": 10,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-floors"
       ],
@@ -61,6 +62,7 @@
       "timeout_minutes": 130,
       "pool": "spark",
       "pool_slots": 2,
+      "priority_weight": 5,
       "pipeline_graph_edges": [
         "map-edit-store-to-silver-map-edit-ledger",
         "silver-map-edit-ledger-to-gold-administrative-boundary-served",
@@ -77,6 +79,7 @@
       "timeout_minutes": 130,
       "pool": "spark",
       "pool_slots": 2,
+      "priority_weight": 5,
       "pipeline_graph_edges": [
         "map-edit-store-to-silver-map-edit-ledger",
         "silver-map-edit-ledger-to-gold-industrial-complex-boundary-served",
@@ -93,6 +96,7 @@
       "timeout_minutes": 130,
       "pool": "spark",
       "pool_slots": 3,
+      "priority_weight": 10,
       "pipeline_graph_edges": [
         "serving-lineage-stewardship-to-silver-parcel-lineage",
         "silver-parcel-lineage-to-gold-lineage-review-queue",
@@ -121,6 +125,9 @@
       "timeout_minutes": 1260,
       "pool": "spark",
       "pool_slots": 1,
+      "priority_weight": 1,
+      "retries": 0,
+      "takes_turns": true,
       "pipeline_graph_edges": [
         "gold-parcel-panel-to-parcel-by-pnu-serving",
         "gold-building-panel-to-building-by-pnu-serving"

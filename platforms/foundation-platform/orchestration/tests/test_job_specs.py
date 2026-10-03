@@ -161,29 +161,62 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
     def test_a_long_bake_cannot_hold_every_slot_the_hourly_folds_need(self):
         # The bake runs up to 21 hours. Taking two of the three slots, the hourly folds (two each)
-        # would wait behind it all day; with one, a fold always fits beside it (root ADR-0138).
+        # would wait behind it as well; with one, a fold always fits beside it (root ADR-0138).
         def both_slots(jobs):
             bake(jobs)["pool_slots"] = 2
         jobs = copy.deepcopy(real_inputs()[0])
         both_slots(jobs)
         problems = job_specs.pool_starvation(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1260 minutes for pool 'spark' "
-                                               "behind by_pnu_serving_bake") for problem in problems), problems)
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2295 minutes for pool 'spark'")
+                            and "by_pnu_serving_bake" in problem for problem in problems), problems)
         self.refused(both_slots)
 
-    def test_the_starvation_check_counts_slots(self):
-        # The real pool has three slots: a fold (two) waits only for FLOOR, never for the bake (one).
-        # With two slots the bake would leave a fold no room, and the fold would wait for all of it.
+    def test_the_starvation_bound_counts_every_job_that_can_hold_it_back(self):
+        # FLOOR (3 slots, weight 10) can be held back once by lineage (same weight) and by each
+        # lower-weight job already running when its turn comes: both folds and one bake run.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
-        fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
-        others = [job for job in spark if job is not fold]
-        wait, blockers = job_specs.longest_wait_minutes(fold, others, 3)
-        self.assertEqual((wait, blockers), (250, ["building_register_floor"]))
-        self.assertEqual(job_specs.longest_wait_minutes(fold, others, 2)[0], 1260)
         floor = next(job for job in spark if job["id"] == "building_register_floor")
-        self.assertEqual(job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3),
-                         (1260, ["by_pnu_serving_bake"]))
+        wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260)
+        self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
+                                         "by_pnu_serving_bake"})
+        # A fold (2 slots) never waits for the bake (1): they fit together.
+        fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
+        wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
+        self.assertNotIn("by_pnu_serving_bake", blockers)
+        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5))
+
+    def test_a_retry_holds_the_slots_again(self):
+        # Airflow retries a failed run: one run can hold its slots for (retries + 1) x its timeout.
+        floor = {"id": "f", "timeout_minutes": 250, "retries": 1}
+        self.assertEqual(job_specs.hold_minutes(floor), 505)
+        self.assertEqual(job_specs.hold_minutes({**floor, "retries": 0}), 250)
+        # Planted: FLOOR retried three times would keep the hourly folds waiting past the limit,
+        # although its timeout alone would not.
+        def retried(jobs):
+            next(job for job in jobs["jobs"] if job["id"] == "building_register_floor")["retries"] = 3
+        jobs = copy.deepcopy(real_inputs()[0])
+        retried(jobs)
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1545 minutes")
+                            for problem in job_specs.pool_starvation(jobs)))
+        self.refused(retried)
+
+    def test_the_bake_is_not_retried_and_takes_turns(self):
+        # A retried bake would hold its slot for another 21 hours; a turn-taking one defers to
+        # FLOOR and lineage between runs (start-scheduled-job.sh).
+        spec = next(spec for spec in job_specs.load_specs() if spec.job_id == "by_pnu_serving_bake")
+        self.assertEqual(spec.retries, 0)
+        self.assertTrue(bake(real_inputs()[0])["takes_turns"])
+        weights = {spec.job_id: spec.priority_weight for spec in job_specs.load_specs() if spec.pool == "spark"}
+        self.assertGreater(min(weights["building_register_floor"], weights["lineage_stewardship"]),
+                           max(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"]))
+        self.assertGreater(weights["map_edit_fold_admin"], weights["by_pnu_serving_bake"])
+
+    def test_invalid_retries_weight_or_turn_taking(self):
+        self.refused(lambda jobs: bake(jobs).update(retries=4))
+        self.refused(lambda jobs: bake(jobs).update(priority_weight=0))
+        self.refused(lambda jobs: bake(jobs).update(takes_turns="yes"))
 
     def test_a_job_taking_more_slots_than_its_pool_has(self):
         self.refused(lambda jobs: bake(jobs).update(pool_slots=4))
