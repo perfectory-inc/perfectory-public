@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-02
+last_reviewed: 2026-10-03
 ---
 
 # ai-server 메모리 예산
@@ -16,6 +16,7 @@ last_reviewed: 2026-10-02
 |---|---|
 | 서비스마다의 상한 | 각 compose 파일의 `mem_limit`. native 값은 engine contract의 `execution_profile.memory_mib`를 참조한다 |
 | compose 가 아니라 코드가 직접 띄우는 한 번짜리 컨테이너의 상한 | 그 코드가 읽는 계약. 계약의 `one_shot_contracts` 가 가리킨다. 지금은 타일 굽기의 [`tile-bake-containers.contract.json`](../../config/tile-bake-containers.contract.json) 하나다 |
+| 풀에 든 예약 작업마다 무엇을 돌리는지(compose 서비스, 계약 컨테이너, systemd `MemoryMax`) | 계약의 `scheduled_jobs` ([ADR-0138](../../../../docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md)). 풀과 슬롯은 [`orchestration/jobs.v1.json`](../../orchestration/jobs.v1.json) |
 | 어떤 compose 묶음이 ai-server 에서 도는지, 어떤 profile 로, 호스트 몫과 상한 밖에 있는 것 | [`tools/host-memory-budget.contract.json`](../../../../tools/host-memory-budget.contract.json) |
 | 합계 검사 | [`scripts/guard/every-container-has-a-memory-cap.sh`](../../../../scripts/guard/every-container-has-a-memory-cap.sh) |
 
@@ -29,8 +30,10 @@ PERFECTORY_MEMORY_BUDGET_VERBOSE=1 bash scripts/guard/every-container-has-a-memo
 
 - 계속 떠 있는 서비스는 상한 그대로 더한다.
 - 한 번 돌고 끝나는 작업(`restart: "no"`, 또는 다른 서비스가 `service_completed_successfully` 로 기다리는 것)은
-  가장 큰 하나만 더한다. 예약 데이터 작업은 Airflow의 `spark` pool 한 슬롯을 사용하며,
-  직접 실행한 작업의 동시 실행까지 이 가드가 막지는 않는다.
+  가장 큰 하나만 센다.
+- 풀에 든 예약 작업은 슬롯이 허락하는 모든 작업 조합을 세어 가장 큰 합을 낸다(작업 하나는 자기 출처 중 가장 큰 것).
+  이 값과 가장 큰 일회성 작업 중 큰 쪽 하나만 더한다: 릴리스 빌드는 등록 작업이 돌면 시작을 거부하고(ADR-0137),
+  수동 Spark 적재는 DAG 를 멈춘 뒤 돌린다. 직접 실행한 작업의 동시 실행까지 이 가드가 막지는 않는다.
 - 호스트가 켜지 않는 profile 의 서비스는 더하지 않는다.
 - 여기에 `host_reserved`(OS, Docker, 컨테이너 밖에서 도는 발행기·타이머 실행 파일, Open WebUI·LiteLLM)를 더한다.
 - compose 파일이 새로 생기면 계약이 그 파일을 어디에 둘지(ai-server 묶음, 호스트 밖, 범위 밖) 정하기 전까지 가드가 막는다.

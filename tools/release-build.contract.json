@@ -12,8 +12,8 @@
     "tippecanoe": {
       "cpus": 2,
       "make_jobs": 2,
-      "memory_limit": "4g",
-      "memory_reason": "MEASUREMENT PENDING"
+      "memory_limit": "1200m",
+      "memory_reason": "Measured on ai-server on 2026-10-03 with infra/tiles/tippecanoe/Dockerfile, the same buildkit image, 2 CPUs and MAKE_JOBS=2: anonymous memory peaked at 838,496,256 bytes (1.87GB with page cache) and the build took 114 s. 1200m is the anonymous peak x1.3 (root ADR-0138). make -j\"$(nproc)\" saw every host core inside the CPU-quota builder, so the job count is fixed here."
     },
     "dependency_resolver": {
       "cpus": 2,

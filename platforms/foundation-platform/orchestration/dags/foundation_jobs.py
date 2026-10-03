@@ -37,6 +37,7 @@ for spec in load_specs():
             # Seconds without output before the run counts as hung; the journal prints as it goes.
             cmd_timeout=spec.timeout_minutes * 60,
             pool=spec.pool,
+            pool_slots=spec.pool_slots,
             retries=1,
             retry_delay=pendulum.duration(minutes=5),
             execution_timeout=pendulum.duration(minutes=spec.timeout_minutes),

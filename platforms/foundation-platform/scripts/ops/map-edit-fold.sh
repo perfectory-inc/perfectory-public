@@ -132,7 +132,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   -p foundation-platform-compute --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark spark-submit --master 'local[4]' --driver-memory 4g \
+  spark-small spark-submit --master 'local[4]' --driver-memory 4g \
   --jars "${SPARK_RELEASE_JARS}" \
   "/workspace/infra/lakehouse/spark/jobs/${SERVED_JOB}" \
   --edits-input "${container_work}/edits.jsonl" \

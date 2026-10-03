@@ -73,6 +73,9 @@ pub(crate) struct ScannedRows {
     /// This is what must equal `manifest_record_count` — the retained rows never can when a
     /// filter is in play.
     pub(crate) decoded_row_count: u64,
+    /// The scan stopped because more rows passed the keep-filter than the caller's limit. The
+    /// counts above then cover only the files read so far, and `rows` holds exactly the limit.
+    pub(crate) keep_limit_exceeded: bool,
 }
 
 /// Snapshot-level statistics read only from Iceberg manifests.
@@ -115,7 +118,7 @@ pub(crate) async fn scan_snapshot_rows(
     lakehouse: &impl LakehouseByteReader,
     snapshot: &IcebergSnapshotManifestList,
 ) -> anyhow::Result<ScannedRows> {
-    scan_snapshot_rows_kept(contract, lakehouse, snapshot, |_| true).await
+    scan_snapshot_rows_kept(contract, lakehouse, snapshot, |_| true, None).await
 }
 
 /// Decodes every live row of one Iceberg snapshot, retaining only rows `keep` accepts.
@@ -123,11 +126,17 @@ pub(crate) async fn scan_snapshot_rows(
 /// The filter runs per data file, as rows decode — what a shard run keeps is what it holds in
 /// memory. Every row is still decoded and counted, so the scan keeps proving it reached every
 /// data file even when it retains a fraction of them.
+///
+/// With `max_kept`, the scan stops at the first row past the limit instead of after the last
+/// file: a by-PNU shard over its row cap is refused holding the cap, not the whole shard. The
+/// bake's memory cap is sized to the row cap (root ADR-0138), so a first run's unsplit shard of
+/// several million parcels would otherwise be killed by it before it could refuse and split.
 pub(crate) async fn scan_snapshot_rows_kept(
     contract: &LakehouseTableContract,
     lakehouse: &impl LakehouseByteReader,
     snapshot: &IcebergSnapshotManifestList,
     keep: impl Fn(&JsonMap<String, JsonValue>) -> bool,
+    max_kept: Option<usize>,
 ) -> anyhow::Result<ScannedRows> {
     let data_files = snapshot_data_files(lakehouse, snapshot).await?;
 
@@ -142,7 +151,16 @@ pub(crate) async fn scan_snapshot_rows_kept(
         decoded_row_count = decoded_row_count
             .checked_add(u64::try_from(decoded.len()).context("decoded row count overflow")?)
             .context("decoded row count overflow")?;
-        rows.extend(decoded.into_iter().filter(&keep));
+        if keep_within(&mut rows, decoded, &keep, max_kept) {
+            return Ok(ScannedRows {
+                rows,
+                data_file_count: u64::try_from(data_files.len())
+                    .context("data file count overflow")?,
+                manifest_record_count,
+                decoded_row_count,
+                keep_limit_exceeded: true,
+            });
+        }
     }
 
     Ok(ScannedRows {
@@ -150,7 +168,25 @@ pub(crate) async fn scan_snapshot_rows_kept(
         data_file_count: u64::try_from(data_files.len()).context("data file count overflow")?,
         manifest_record_count,
         decoded_row_count,
+        keep_limit_exceeded: false,
     })
+}
+
+/// Appends the rows `keep` accepts, up to `max_kept` in total. Returns whether a row past the
+/// limit was found; that row and every one after it is dropped, never held.
+fn keep_within(
+    rows: &mut Vec<JsonMap<String, JsonValue>>,
+    decoded: Vec<JsonMap<String, JsonValue>>,
+    keep: impl Fn(&JsonMap<String, JsonValue>) -> bool,
+    max_kept: Option<usize>,
+) -> bool {
+    for row in decoded.into_iter().filter(|row| keep(row)) {
+        if max_kept.is_some_and(|max| rows.len() >= max) {
+            return true;
+        }
+        rows.push(row);
+    }
+    false
 }
 
 async fn bytes_of(
@@ -202,6 +238,31 @@ fn lakehouse_object_key(location: &str, bucket_name: &str) -> anyhow::Result<Str
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_scan_over_its_keep_limit_stops_holding_the_limit() {
+        let row =
+            |pnu: &str| serde_json::Map::from_iter([("pnu".to_owned(), serde_json::json!(pnu))]);
+        let mut rows = Vec::new();
+        let first = vec![row("1"), row("2")];
+        assert!(!super::keep_within(&mut rows, first, |_| true, Some(3)));
+        // The next file pushes the shard past its cap: the fourth row is never held.
+        let second = vec![row("3"), row("4"), row("5")];
+        assert!(super::keep_within(&mut rows, second, |_| true, Some(3)));
+        assert_eq!(rows.len(), 3);
+        // Rows the filter drops do not count toward the limit; no limit keeps everything.
+        let mut kept = Vec::new();
+        let third = vec![row("1"), row("2"), row("3")];
+        assert!(!super::keep_within(
+            &mut kept,
+            third.clone(),
+            |r| r["pnu"] != "2",
+            Some(2)
+        ));
+        assert_eq!(kept.len(), 2);
+        assert!(!super::keep_within(&mut kept, third, |_| true, None));
+        assert_eq!(kept.len(), 5);
+    }
+
     use std::collections::BTreeMap;
 
     use apache_avro::{types::Value as AvroValue, Schema, Writer};

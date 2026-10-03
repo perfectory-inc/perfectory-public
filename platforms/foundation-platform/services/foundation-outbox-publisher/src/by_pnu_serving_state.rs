@@ -5,11 +5,16 @@
 //! The manifest in the bucket is the record (root ADR-0062), so the answer is read from there and
 //! from the Iceberg catalog, never from a file the job keeps beside them.
 //!
+//! It also names every generation that holds any object in the bucket, published or not
+//! (`by_pnu_serving_generations`): the bake starts a new generation above all of them, so a
+//! directory an earlier bake left half written is never resumed by a run that did not start it.
+//!
 //! Read-only: it writes nothing to the bucket or the catalog. It writes one small JSON file at
 //! `FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH`. A manifest that cannot be read is an error,
 //! not "nothing published": the very first publication of a lane stays an explicit operator step
 //! (`..._FIRST_PUBLICATION=true` on the publish command), never something a schedule infers.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use anyhow::{bail, Context};
@@ -37,6 +42,8 @@ pub(crate) struct LaneState {
     /// `None` when the Gold table has no snapshot yet; the bake then has nothing to do.
     gold_iceberg_snapshot_id: Option<String>,
     published: PublishedGeneration,
+    /// Every generation with at least one object, ascending; includes the published one.
+    generations_with_objects: Vec<u64>,
 }
 
 /// The served generation, as the manifest states it.
@@ -75,6 +82,7 @@ pub async fn run_parcel() -> anyhow::Result<()> {
         GOLD_PARCEL_PANEL.table_name,
         current_snapshot(GOLD_PARCEL_PANEL.table_name).await?,
         published,
+        store.list_generations_with_objects().await?,
     ))
 }
 
@@ -106,6 +114,7 @@ pub async fn run_building() -> anyhow::Result<()> {
         GOLD_BUILDING_PANEL.table_name,
         current_snapshot(GOLD_BUILDING_PANEL.table_name).await?,
         published,
+        store.list_generations_with_objects().await?,
     ))
 }
 
@@ -131,6 +140,7 @@ pub(crate) fn lane_state(
     gold_table: &'static str,
     gold_iceberg_snapshot_id: Option<String>,
     published: PublishedGeneration,
+    generations_with_objects: BTreeSet<u64>,
 ) -> LaneState {
     LaneState {
         schema_version: STATE_SCHEMA_VERSION,
@@ -138,6 +148,7 @@ pub(crate) fn lane_state(
         gold_table,
         gold_iceberg_snapshot_id,
         published,
+        generations_with_objects: generations_with_objects.into_iter().collect(),
     }
 }
 
@@ -153,6 +164,7 @@ fn write_state(state: &LaneState) -> anyhow::Result<()> {
         gold_iceberg_snapshot_id = state.gold_iceberg_snapshot_id.as_deref().unwrap_or("(none)"),
         published_generation = state.published.current_generation,
         published_gold_iceberg_snapshot_id = %state.published.gold_iceberg_snapshot_id,
+        highest_generation_with_objects = state.generations_with_objects.last().copied().unwrap_or(0),
         "by-PNU serving lane state"
     );
     Ok(())
@@ -173,6 +185,7 @@ mod tests {
                 gold_iceberg_snapshot_id: "1".to_owned(),
                 object_count: 7,
             },
+            BTreeSet::from([5, 3, 4]),
         );
         let value = serde_json::to_value(&state)?;
         assert_eq!(value["schema_version"], STATE_SCHEMA_VERSION);
@@ -180,6 +193,11 @@ mod tests {
         assert_eq!(value["published"]["current_generation"], 3);
         assert_eq!(value["published"]["gold_iceberg_snapshot_id"], "1");
         assert_eq!(value["published"]["object_count"], 7);
+        // The bake reads the highest as the last entry.
+        assert_eq!(
+            value["generations_with_objects"],
+            serde_json::json!([3, 4, 5])
+        );
         Ok(())
     }
 }

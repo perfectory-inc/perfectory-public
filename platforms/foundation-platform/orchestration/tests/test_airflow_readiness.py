@@ -70,8 +70,11 @@ else:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertGreaterEqual(count, 2)
         actions = [json.loads(line) for line in mutations.splitlines()]
-        self.assertEqual(actions[0][:4], ["pools", "set", "spark", "1"])
-        self.assertEqual({action[2] for action in actions[1:]}, set(expected))
+        # Every pool jobs.v1.json declares, with its slots and description, before any DAG changes.
+        pools = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))["pools"]
+        self.assertEqual(actions[:len(pools)], [
+            ["pools", "set", name, str(pool["slots"]), pool["description"]] for name, pool in pools.items()])
+        self.assertEqual({action[2] for action in actions[len(pools):]}, set(expected))
 
     def test_invalid_cli_results_never_mutate_scheduler_state(self):
         for scenario in ["cli_error", "malformed", "wrong_shape"]:

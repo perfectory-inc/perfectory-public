@@ -22,6 +22,15 @@
 # reads; `one_shot_contracts` names that contract and where its containers are, and this guard
 # counts each as a one-shot job. A container there without a `memory_limit` is a failure.
 #
+# Scheduled jobs that share an Airflow pool can run together as far as its slots allow (root
+# ADR-0138). `scheduled_jobs` names the job list, the systemd units and, for every job in a declared
+# pool, what it runs: compose services, contract containers, or its unit's MemoryMax (a unit that
+# should have one and does not is a failure). A job holds the largest of its sources at a time; a
+# pool holds the sum over every set of its jobs whose slots fit; the pools together are the
+# scheduled load, which counts instead of the largest one-shot job when it is larger. The release
+# build refuses to start while a registered job runs, and manual loads run with the DAGs paused,
+# so neither ever adds to it.
+#
 # Two more limits share this inventory. Every service names the file's log cap (`logging: *log-cap`,
 # anchored once per file): on 2026-10-02 one uncapped json-file log reached 32GB and filled the
 # root disk under the production database twice. And every service that stays up on the host
@@ -39,6 +48,7 @@ command -v python3 >/dev/null 2>&1 || {
 python3 - "$root" "$name" <<'PY'
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import pathlib
@@ -280,12 +290,20 @@ for cap, label in contract_one_shots(contract):
     if cap > largest_job[0]:
         largest_job = (cap, label)
 
+project_caps: dict[str, dict[str, int]] = {}
+
 groups = [(project, True) for project in contract["projects"]]
 groups += [({"name": "not on " + host["name"], "files": entry["files"], "profiles": None}, False)
            for entry in contract.get("not_on_host", [])]
 
 for project, on_host in groups:
     services = project_services(project["files"], placed)
+    if on_host:
+        project_caps[project["name"]] = {
+            service_name: cap
+            for service_name, service in services.items()
+            if (cap := memory_cap(service.get("mem_limit", ""), parameters)) is not None
+        }
     jobs = {dependency for service in services.values() for dependency in service["waits_on_completion_of"]}
     for service_name, service in sorted(services.items()):
         where = service.get("file", project["files"][0])
@@ -323,10 +341,111 @@ for relative in compose_files():
         "to not_on_host, or to outside_scope with the reason"
     )
 
-total = standing_total + largest_job[0] + reserved
+UNIT_MEMORY = re.compile(r"^MemoryMax=([0-9]+)([KMG])$", re.M)
+
+
+def repository_file(relative: str, what: str) -> pathlib.Path:
+    if not isinstance(relative, str) or not relative or "\\" in relative:
+        raise ValueError(f"{what} must be a repository-relative POSIX path")
+    path = pathlib.PurePosixPath(relative)
+    if path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"{what} must not escape the repository")
+    return ROOT / path
+
+
+def unit_memory_max(units: pathlib.Path, service: str) -> int:
+    """MemoryMax of the unit file a job's service is installed from (a template for name@x)."""
+    match = re.fullmatch(r"([a-z0-9-]+)(@[a-z0-9-]+)?\.service", service)
+    if not match:
+        raise ValueError(f"{service!r} is not a service name")
+    unit = units / (match.group(1) + ("@" if match.group(2) else "") + ".service")
+    found = UNIT_MEMORY.findall(unit.read_text(encoding="utf-8")) if unit.is_file() else None
+    if not found:
+        raise ValueError(f"{unit.relative_to(ROOT).as_posix()} states no MemoryMax=<n>K|M|G")
+    if len(found) > 1:
+        raise ValueError(f"{unit.relative_to(ROOT).as_posix()} states MemoryMax more than once")
+    number, suffix = found[0]
+    return int(number) * UNIT[suffix.lower()]
+
+
+def contract_containers_cap(entry: dict) -> int:
+    containers = json.loads(repository_file(entry["contract"], "contract").read_text(encoding="utf-8"))
+    for key in entry["containers"]:
+        containers = containers[key]
+    caps = [size_of(container.get("memory_limit", "")) for container in containers.values()]
+    if not caps or None in caps:
+        raise ValueError(f"{entry['contract']}: every container needs a memory_limit")
+    return max(caps)
+
+
+def scheduled_load(section: dict) -> tuple[int, str]:
+    """The most memory the pooled scheduled jobs can hold at once, and which jobs that is."""
+    jobs_list = json.loads(repository_file(section["jobs"], "jobs").read_text(encoding="utf-8"))
+    units = repository_file(section["units"], "units")
+    memory = section["memory"]
+    if not isinstance(memory, dict):
+        raise ValueError("memory must map job ids to their memory sources")
+    pools = jobs_list.get("pools", {})
+    jobs = {job["id"]: job for job in jobs_list["jobs"]}
+    for job_id in memory:
+        if job_id not in jobs or jobs[job_id]["pool"] not in pools:
+            errors.append(f"{CONTRACT}: scheduled_jobs.memory names {job_id!r}, which is not a job in a declared pool")
+    peaks: dict[str, int] = {}
+    for job_id, job in jobs.items():
+        if job["pool"] not in pools:
+            continue  # default_pool jobs run the publisher natively: host_reserved covers them
+        sources = memory.get(job_id)
+        if not isinstance(sources, list) or not sources:
+            errors.append(f"{CONTRACT}: scheduled job {job_id!r} in pool {job['pool']!r} names no memory sources")
+            continue
+        caps = []
+        for source in sources:
+            try:
+                if source == {"unit": "MemoryMax"}:
+                    caps.append(unit_memory_max(units, job["systemd_service"]))
+                elif isinstance(source, dict) and set(source) == {"project", "service"}:
+                    cap = project_caps.get(source["project"], {}).get(source["service"])
+                    if cap is None:
+                        raise ValueError(f"no capped service {source['service']!r} in host project {source['project']!r}")
+                    caps.append(cap)
+                elif isinstance(source, dict) and set(source) == {"contract", "containers"}:
+                    caps.append(contract_containers_cap(source))
+                else:
+                    raise ValueError(f"unknown memory source {source!r}")
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+                errors.append(f"{CONTRACT}: scheduled job {job_id!r}: {error}")
+        if caps:
+            peaks[job_id] = max(caps)
+    worst_total, worst_label = 0, []
+    for pool, spec in pools.items():
+        members = [job for job in jobs.values() if job["pool"] == pool and job["id"] in peaks]
+        worst, worst_set = 0, ()
+        for size in range(1, len(members) + 1):
+            for group in itertools.combinations(members, size):
+                if sum(job.get("pool_slots", 1) for job in group) > spec["slots"]:
+                    continue
+                held = sum(peaks[job["id"]] for job in group)
+                if held > worst:
+                    worst, worst_set = held, group
+        worst_total += worst
+        if worst_set:
+            worst_label.append(f"{pool}: " + " + ".join(f"{job['id']} {gib(peaks[job['id']])}" for job in worst_set))
+    return worst_total, "; ".join(worst_label)
+
+
+scheduled = (0, "")
+if "scheduled_jobs" in contract:
+    try:
+        scheduled = scheduled_load(contract["scheduled_jobs"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        errors.append(f"{CONTRACT}: scheduled_jobs: {error}")
+
+heaviest = max(largest_job[0], scheduled[0])
+total = standing_total + heaviest + reserved
 summary = [
     f"  {gib(standing_total):>8}  services that stay up",
     f"  {gib(largest_job[0]):>8}  largest one-shot job ({largest_job[1] or 'none'})",
+    f"  {gib(scheduled[0]):>8}  scheduled jobs at once ({scheduled[1] or 'none'}); the larger of these two counts",
     f"  {gib(reserved):>8}  host_reserved",
     f"  {gib(total):>8}  of {gib(physical)} on {host['name']}",
 ]

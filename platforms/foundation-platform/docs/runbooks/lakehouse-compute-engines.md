@@ -659,6 +659,19 @@ DAG 를 먼저 멈추고 돌던 작업이 끝난 뒤 실행한다. 실행 중인
 않는다. 그래도 이미지가 없어지면 `verify-current` 가 거부하므로 등록 작업이 시작되지 않는다. 복구는
 `sudo mv /opt/foundation-platform/artifacts/$sha /opt/foundation-platform/artifacts/.pruned-$sha` 뒤 같은 `prepare`.
 
+**tippecanoe 이미지를 기록하지 않은 옛 빌드.** 릴리스 빌드가 `foundation-tippecanoe:$sha` 를 함께 만들고
+`tippecanoe_image`·`tippecanoe_tag` 를 기록하기 시작한 것은 PR #318 부터다. 그 전에 `prepare` 한 릴리스의
+`build.json` 에는 두 칸이 없다. 그래서 제어 체크아웃을 #318 이후 커밋으로 올리면:
+
+- 현재 릴리스가 #318 이전 빌드면 `verify-current` 가 `build output does not record this release's tippecanoe
+  image tag` 로 거부하고, 등록 작업(`ExecStartPre`)이 하나도 시작하지 않는다. 새 릴리스를 `prepare` 해서
+  전환하거나, 같은 릴리스를 다시 빌드한다(위 복구와 같이 artifacts 를 옆으로 옮긴 뒤 `prepare` — 단 제어
+  체크아웃이 그 릴리스와 같거나 이전이어야 하므로, 옛 릴리스는 새 제어 체크아웃으로 다시 빌드할 수 없다).
+  `admitted-writer-runtime.sh` 도 같은 칸이 없으면 `build manifest records no tippecanoe image` 로 거부한다.
+- `rollback` 명령 자체는 영향이 없다: 링크만 바꾸고 승인 검사를 거치지 않는다. 다만 #318 이전 빌드로
+  되돌린 뒤 등록 작업을 돌리려면 `verify-current` 가 그 빌드를 받아들여야 하므로, 제어 체크아웃도 그 릴리스와
+  같거나 이전의 main 커밋으로 되돌린다(2절 명령, 그 커밋의 검증기는 tippecanoe 칸을 요구하지 않는다).
+
 ### 5. FLOOR 설정 이전
 
 ```bash

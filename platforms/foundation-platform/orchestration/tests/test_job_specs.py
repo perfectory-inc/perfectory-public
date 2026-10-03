@@ -17,6 +17,10 @@ sys.path.insert(0, str(ORCHESTRATION / "dags"))
 import job_specs  # noqa: E402
 
 
+def bake(jobs):
+    return next(job for job in jobs["jobs"] if job["id"] == "by_pnu_serving_bake")
+
+
 def real_inputs():
     return (
         json.loads(job_specs.JOBS.read_text(encoding="utf-8")),
@@ -150,6 +154,52 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
     def test_a_pool_the_scheduler_does_not_have(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(pool="big"))
 
+    def test_a_pool_without_slots_or_a_reason(self):
+        self.refused(lambda jobs: jobs["pools"]["spark"].update(slots=0))
+        self.refused(lambda jobs: jobs["pools"]["spark"].update(description=" "))
+        self.refused(lambda jobs: jobs["pools"].update(default_pool={"slots": 1, "description": "x"}))
+
+    def test_a_long_bake_cannot_hold_every_slot_the_hourly_folds_need(self):
+        # The bake runs up to 21 hours. Taking two of the three slots, the hourly folds (two each)
+        # would wait behind it all day; with one, a fold always fits beside it (root ADR-0138).
+        def both_slots(jobs):
+            bake(jobs)["pool_slots"] = 2
+        jobs = copy.deepcopy(real_inputs()[0])
+        both_slots(jobs)
+        problems = job_specs.pool_starvation(jobs)
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1260 minutes for pool 'spark' "
+                                               "behind by_pnu_serving_bake") for problem in problems), problems)
+        self.refused(both_slots)
+
+    def test_the_starvation_check_counts_slots(self):
+        # The real pool has three slots: a fold (two) waits only for FLOOR, never for the bake (one).
+        # With two slots the bake would leave a fold no room, and the fold would wait for all of it.
+        jobs = copy.deepcopy(real_inputs()[0])
+        spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
+        fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
+        others = [job for job in spark if job is not fold]
+        wait, blockers = job_specs.longest_wait_minutes(fold, others, 3)
+        self.assertEqual((wait, blockers), (250, ["building_register_floor"]))
+        self.assertEqual(job_specs.longest_wait_minutes(fold, others, 2)[0], 1260)
+        floor = next(job for job in spark if job["id"] == "building_register_floor")
+        self.assertEqual(job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3),
+                         (1260, ["by_pnu_serving_bake"]))
+
+    def test_a_job_taking_more_slots_than_its_pool_has(self):
+        self.refused(lambda jobs: bake(jobs).update(pool_slots=4))
+        self.refused(lambda jobs: bake(jobs).update(pool_slots=0))
+
+    def test_the_real_pools_starve_nothing(self):
+        self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])
+
+    def test_a_schedule_the_starvation_check_cannot_read(self):
+        with self.assertRaises(job_specs.JobListError):
+            job_specs.shortest_interval_minutes("*/5 * * * *")
+        self.assertEqual(job_specs.shortest_interval_minutes("0,30 * * * *"), 30)
+        self.assertEqual(job_specs.shortest_interval_minutes("15 10 * * *"), 1440)
+        self.assertEqual(job_specs.shortest_interval_minutes("0 1,23 * * *"), 120)
+
+
     def test_a_service_the_release_does_not_ship(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(systemd_service="foundation-no-such-job.service"))
 
@@ -169,15 +219,40 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(lambda jobs: jobs["jobs"].append(copy.deepcopy(jobs["jobs"][0])))
 
     def test_a_disabled_job_without_a_timer_that_does_not_say_why(self):
-        def silent(jobs):
-            bake = next(job for job in jobs["jobs"] if job["id"] == "parcel_by_pnu_serving_bake")
-            bake["disabled_reason"] = "  "
-        self.refused(silent)
-        self.refused(lambda jobs: next(job for job in jobs["jobs"] if job["id"] == "parcel_by_pnu_serving_bake")
-                     .pop("disabled_reason"))
+        self.refused(lambda jobs: bake(jobs).update(disabled_reason="  "))
+        self.refused(lambda jobs: bake(jobs).pop("disabled_reason"))
 
     def test_an_enabled_job_that_still_carries_a_disabled_reason(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(disabled_reason="stale"))
+
+
+class ThePoolsTheSchedulerHas(unittest.TestCase):
+    """jobs.v1.json `pools` is the one list: the runtime creates them, compose leaves room for them."""
+
+    def test_parallelism_leaves_a_slot_for_default_pool_jobs(self):
+        compose = (job_specs.PLATFORM_ROOT / "compose.orchestration.yml").read_text(encoding="utf-8")
+        [parallelism] = re.findall(r'AIRFLOW__CORE__PARALLELISM: "(\d+)"', compose)
+        slots = sum(job_specs.declared_pools(real_inputs()[0]).values())
+        # Every declared pool full at once, and outbox_publish (default_pool) still starts.
+        self.assertGreaterEqual(int(parallelism), slots + 1)
+
+    def test_the_small_spark_differs_from_spark_only_in_its_cap_and_name(self):
+        # compose.lakehouse.yml cannot share a service through extends or anchors
+        # (check-container-runtime-policy.sh), so the fold's Spark is written out in full. It must
+        # stay the same Spark: only the memory cap the host budget counts and the name may differ.
+        compose = (job_specs.PLATFORM_ROOT / "compose.lakehouse.yml").read_text(encoding="utf-8")
+        def block(name):
+            body = re.search(rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^\S|^  \S)", compose).group(1)
+            return [line for line in body.splitlines()
+                    if line.strip() and not line.lstrip().startswith("#")
+                    and not line.startswith(("    mem_limit:", "    container_name:"))]
+        self.assertEqual(block("spark-small"), block("spark"))
+        self.assertRegex(compose, r"(?m)^  spark-small:\n(?:    .*\n)*?    mem_limit: \d+[mg]$")
+
+    def test_the_runtime_creates_the_declared_pools_and_no_others(self):
+        runtime = (job_specs.PLATFORM_ROOT / "scripts/deploy/airflow-runtime.sh").read_text(encoding="utf-8")
+        self.assertNotRegex(runtime, r"pools set [a-z]", "a pool named in the script is a second list")
+        self.assertIn('json.load(open(sys.argv[1]))["pools"]', runtime)
 
 
 class EveryBakedSurfaceHasAJob(unittest.TestCase):
@@ -190,8 +265,8 @@ class EveryBakedSurfaceHasAJob(unittest.TestCase):
         jobs, graph = real_inputs()
         edges = {edge["id"]: edge["to"] for edge in graph["edges"]}
         produced = {edges[edge]: job["id"] for job in jobs["jobs"] for edge in job["pipeline_graph_edges"]}
-        self.assertEqual(produced["parcel-by-pnu-serving"], "parcel_by_pnu_serving_bake")
-        self.assertEqual(produced["building-by-pnu-serving"], "building_by_pnu_serving_bake")
+        self.assertEqual(produced["parcel-by-pnu-serving"], "by_pnu_serving_bake")
+        self.assertEqual(produced["building-by-pnu-serving"], "by_pnu_serving_bake")
 
     def problems(self, mutate_jobs=lambda jobs: None, mutate_graph=lambda graph: None):
         jobs, graph = (copy.deepcopy(value) for value in real_inputs())
@@ -215,7 +290,7 @@ class EveryBakedSurfaceHasAJob(unittest.TestCase):
 
     def test_removing_a_bake_job_exposes_its_surface(self):
         def drop(jobs):
-            jobs["jobs"] = [job for job in jobs["jobs"] if job["id"] != "building_by_pnu_serving_bake"]
+            bake(jobs)["pipeline_graph_edges"].remove("gold-building-panel-to-building-by-pnu-serving")
         self.assertEqual(self.problems(mutate_jobs=drop), [
             "baked serving surface 'building-by-pnu-serving' has no producing job in jobs.v1.json and no exemption"])
 

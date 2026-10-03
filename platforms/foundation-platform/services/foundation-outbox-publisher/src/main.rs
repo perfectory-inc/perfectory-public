@@ -123,6 +123,7 @@ mod building_by_pnu_serving_store;
 mod building_catalog_projection_load;
 mod building_unit_building_link_load;
 mod building_unit_catalog_projection_load;
+mod by_pnu_serving_generations;
 mod by_pnu_serving_state;
 mod handoff_manifest_support;
 mod handoff_object_support;

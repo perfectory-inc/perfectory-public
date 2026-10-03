@@ -12,7 +12,7 @@
     "name": "ai-server",
     "physical_memory": "62g",
     "host_reserved": "5g",
-    "host_reserved_covers": "The OS, the Docker daemon and containerd, the publisher and fold binaries the systemd timers run outside containers, and the non-Docker AI services (Open WebUI, LiteLLM) at their measured size. Ollama is not covered: see uncapped.",
+    "host_reserved_covers": "The OS, the Docker daemon and containerd, the publisher commands the default_pool jobs and the fold and lineage cycles run outside containers (the by-PNU bake, which holds gigabytes, is counted by its MemoryMax under scheduled_jobs instead), and the non-Docker AI services (Open WebUI, LiteLLM) at their measured size. Ollama is not covered: see uncapped.",
     "uncapped": [
       {
         "what": "ollama.service",
@@ -75,6 +75,28 @@
       "why": "The release admission starts the publisher builder, then the tippecanoe builder, then the dependency resolver, one at a time, under the caps this contract states (root ADR-0137). It refuses to start while any registered job's unit is active, so it is the host's one-shot job while it runs."
     }
   ],
+  "scheduled_jobs": {
+    "decision": "docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md",
+    "jobs": "platforms/foundation-platform/orchestration/jobs.v1.json",
+    "units": "platforms/foundation-platform/infra/systemd",
+    "memory": {
+      "building_register_floor": [
+        {"project": "foundation-platform-compute", "service": "spark"},
+        {"project": "foundation-platform-compute", "service": "lakehouse-control"}
+      ],
+      "lineage_stewardship": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "map_edit_fold_admin": [
+        {"project": "foundation-platform-compute", "service": "spark-small"},
+        {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}
+      ],
+      "map_edit_fold_complex": [
+        {"project": "foundation-platform-compute", "service": "spark-small"},
+        {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}
+      ],
+      "by_pnu_serving_bake": [{"unit": "MemoryMax"}]
+    },
+    "why": "What each job in a declared Airflow pool runs, one at a time: compose services by host project, containers a contract caps, or its systemd unit's MemoryMax. The guard sums every set of a pool's jobs whose pool_slots fit its slots and counts the largest instead of the largest one-shot job when it is larger. The release build refuses to start while a registered job runs (ADR-0137) and manual Spark loads run with the DAGs paused, so neither adds to it."
+  },
   "not_on_host": [
     {
       "files": ["scripts/tiles/compose.yaml"],

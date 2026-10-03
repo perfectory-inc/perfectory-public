@@ -97,8 +97,18 @@ airflow_cli() {
   compose exec -T airflow-scheduler airflow "$@"
 }
 
+# The pools are declared once, in orchestration/jobs.v1.json `pools`; job_specs.py refuses a job
+# naming any other.
 ensure_pools() {
-  airflow_cli pools set spark 1 "Spark runs one at a time: the host memory budget assumes one (root ADR-0122)" >/dev/null
+  local name slots description
+  while IFS=$'\t' read -r name slots description; do
+    # `compose exec` reads stdin; see sync_enabled.
+    airflow_cli pools set "${name}" "${slots}" "${description}" </dev/null >/dev/null
+  done < <(python3 -c '
+import json, sys
+for name, pool in json.load(open(sys.argv[1]))["pools"].items():
+    print(name, pool["slots"], pool["description"], sep="\t")
+' "${jobs_file}")
 }
 
 # Paused or not is decided by orchestration/jobs.v1.json `enabled`, never by a click in the UI: the
