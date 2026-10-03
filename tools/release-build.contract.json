@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md",
+  "purpose": "Single source of truth for the CPU and memory the release admission gives each container it starts while it builds a release on the production host (root ADR-0134 §3, ADR-0137). scripts/deploy/foundation-release-admission.py reads it from the control checkout; tools/host-memory-budget.contract.json counts it as a one-shot job.",
+  "builders": {
+    "publisher": {
+      "cpus": 2,
+      "cargo_build_jobs": 2,
+      "memory_limit": "22g",
+      "memory_reason": "Measured on ai-server on 2026-10-03 for release 451ee512, same image, CPU quota and job count: anonymous memory peaked at 17,914,359,808 bytes (16.7GiB), 19.9GiB with page cache, and the build took 2,590 s. Most of it is the bundled DuckDB C++ build (libduckdb-sys). 22g is the anonymous peak x1.3. The 4g that ADR-0134 set thrashed for an hour without finishing."
+    },
+    "dependency_resolver": {
+      "cpus": 2,
+      "memory_limit": "4g",
+      "memory_reason": "spark-submit only resolves the engine's Ivy packages into an empty cache; no Spark work runs. Unchanged from ADR-0134."
+    }
+  }
+}

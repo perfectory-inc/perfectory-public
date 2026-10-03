@@ -68,6 +68,11 @@
       "contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json",
       "containers": ["images"],
       "why": "The lakehouse tile bake starts GDAL then tippecanoe itself, one at a time, under the caps this contract states (root ADR-0133 §3). They run after the served-Gold Spark job of the same timer finishes, so they count as one-shot jobs."
+    },
+    {
+      "contract": "tools/release-build.contract.json",
+      "containers": ["builders"],
+      "why": "The release admission starts the publisher builder, then the dependency resolver, one at a time, under the caps this contract states (root ADR-0137). It refuses to start while any registered job's unit is active, so it is the host's one-shot job while it runs."
     }
   ],
   "not_on_host": [

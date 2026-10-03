@@ -32,8 +32,8 @@ CONTROL_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_CACHE = Path("/var/lib/perfectory/foundation-release-source.git")
 RELEASE_ROOT = Path("/opt/foundation-platform")
 ARTIFACT_ROOT = RELEASE_ROOT / "artifacts"
-BUILD_CPUS = 2
-BUILD_MEMORY = "4g"
+BUILD_CONTRACT = CONTROL_ROOT / "tools/release-build.contract.json"
+JOB_SPECS = CONTROL_ROOT / "platforms/foundation-platform/orchestration/jobs.v1.json"
 BUILDKIT_IMAGE = "moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3"
 SUBTREE = "platforms/foundation-platform"
 ID_FILE = ".foundation-release-id"
@@ -294,6 +294,41 @@ def require_buildx() -> None:
         raise ValueError("host precondition: Docker Buildx is not installed for root (ADR-0134 §5)") from error
 
 
+def build_limits() -> dict[str, dict[str, object]]:
+    """CPU and memory per build container, from the control checkout's contract (ADR-0137)."""
+    try:
+        builders = json.loads(BUILD_CONTRACT.read_text(encoding="utf-8"))["builders"]
+        limits = {}
+        for name, keys in (("publisher", ("cpus", "cargo_build_jobs")), ("dependency_resolver", ("cpus",))):
+            entry = builders[name]
+            for key in keys:
+                if not isinstance(entry[key], int) or isinstance(entry[key], bool) or not 1 <= entry[key] <= 64:
+                    raise ValueError(f"{name}.{key} must be an integer from 1 to 64")
+            if not isinstance(entry["memory_limit"], str) or not re.fullmatch(r"[1-9][0-9]*[mg]", entry["memory_limit"]):
+                raise ValueError(f"{name}.memory_limit must look like 512m or 22g")
+            limits[name] = entry
+        return limits
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"release build contract {BUILD_CONTRACT} is unreadable: {error}") from error
+
+
+def require_no_registered_job_running() -> None:
+    """The build is sized as the host's one-shot job; it does not start beside another (ADR-0137)."""
+    try:
+        units = sorted({job["systemd_service"] for job in json.loads(JOB_SPECS.read_text(encoding="utf-8"))["jobs"]})
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"job specs {JOB_SPECS} are unreadable: {error}") from error
+    try:
+        running = [unit for unit in units
+                   if subprocess.run(["/usr/bin/systemctl", "is-active", "--quiet", unit], env=control_environment(),
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0]
+    except OSError as error:
+        raise ValueError("host precondition: systemctl cannot report the registered jobs (ADR-0137)") from error
+    if running:
+        raise ValueError("a registered job is running (" + ", ".join(running) + "); the release build is the host's "
+                         "one-shot job, so pause the DAGs, wait for it to finish and run prepare again (ADR-0137)")
+
+
 def build_artifacts(target: Path) -> None:
     """Build admitted source without runtime env/credentials; never accept caller binaries."""
     # Older merged releases ran an external publisher and honored source/cache overrides.
@@ -301,6 +336,8 @@ def build_artifacts(target: Path) -> None:
     if not (target / "scripts/ops/admitted-writer-runtime.sh").is_file():
         raise ValueError("release predates the admitted writer runtime; install a supported merged release")
     release_id = target.name
+    limits = build_limits()
+    publisher, resolution = limits["publisher"], limits["dependency_resolver"]
     require_buildx()
     ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
     protected_path(ARTIFACT_ROOT)
@@ -308,6 +345,7 @@ def build_artifacts(target: Path) -> None:
     if destination.exists():
         verify_artifacts(release_id, destination)
         return
+    require_no_registered_job_running()
     build_environment = control_environment()
     def run(*args):
         return subprocess.check_output(list(args), cwd=target, env=build_environment, stderr=subprocess.PIPE)
@@ -325,12 +363,13 @@ def build_artifacts(target: Path) -> None:
         configuration = work / "buildkitd.toml"
         configuration.write_text("")
         run("/usr/bin/docker", "buildx", "create", "--name", builder, "--driver", "docker-container",
-            "--driver-opt", f"image={BUILDKIT_IMAGE},memory={BUILD_MEMORY},memory-swap={BUILD_MEMORY},cpu-period=100000,cpu-quota={BUILD_CPUS * 100000},restart-policy=no",
+            "--driver-opt", f"image={BUILDKIT_IMAGE},memory={publisher['memory_limit']},memory-swap={publisher['memory_limit']},"
+            f"cpu-period=100000,cpu-quota={publisher['cpus'] * 100000},restart-policy=no",
             "--buildkitd-config", str(configuration))
         try:
             run("/usr/bin/docker", "buildx", "build", "--builder", builder, "--load", "--pull",
                 "--no-cache", "--iidfile", str(iid), "--tag", publisher_tag(release_id),
-                "--build-arg", f"CARGO_BUILD_JOBS={BUILD_CPUS}",
+                "--build-arg", f"CARGO_BUILD_JOBS={publisher['cargo_build_jobs']}",
                 "-f", "services/foundation-outbox-publisher/Dockerfile.lakehouse-control", ".")
         finally:
             try:
@@ -360,8 +399,8 @@ def build_artifacts(target: Path) -> None:
         cache = work / "ivy"
         cache.mkdir(mode=0o777)
         cache.chmod(0o777)  # Only the disposable credential-free Spark container can reach it.
-        run("/usr/bin/docker", "run", "--rm", "--cpus", str(BUILD_CPUS), "--memory", BUILD_MEMORY,
-            "--memory-swap", BUILD_MEMORY,
+        run("/usr/bin/docker", "run", "--rm", "--cpus", str(resolution["cpus"]), "--memory", resolution["memory_limit"],
+            "--memory-swap", resolution["memory_limit"],
             "--mount", f"type=bind,src={cache},dst=/resolve",
             "--mount", f"type=bind,src={resolver},dst=/resolve.py,readonly",
             "--entrypoint", "/opt/spark/bin/spark-submit", spark_image,
