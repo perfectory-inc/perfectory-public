@@ -27,8 +27,9 @@ trap cleanup EXIT
 # -q (first) ignores ~/.curlrc. No --netrc/--user/Authorization: the read is anonymous.
 # Proxy and CA variables are dropped so the caller's shell cannot redirect or re-root the read.
 set +e
-status="$(env -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy \
-  -u CURL_CA_BUNDLE -u SSL_CERT_FILE -u SSL_CERT_DIR -u CURL_HOME \
+# The command substitution is a subshell, so the unset stays inside it (and needs no `env` on PATH).
+status="$(unset HTTPS_PROXY https_proxy ALL_PROXY all_proxy HTTP_PROXY http_proxy \
+  CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_HOME
   curl -q --proto '=https' --tlsv1.2 --silent --show-error \
   --connect-timeout 10 --max-time 30 --max-redirs 0 \
   --header 'Accept: application/vnd.github+json' \
