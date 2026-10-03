@@ -24,6 +24,7 @@ import job_specs  # noqa: E402
 
 PLATFORM = job_specs.PLATFORM_ROOT
 RELEASE_ID = "e" * 40
+INVOCATION = "c" * 32
 
 FAKE_DOCKER = r'''#!/usr/bin/env python3
 import json, os, pathlib, sys
@@ -45,13 +46,19 @@ def flag(name):
 catalog_path = pathlib.Path(os.environ["FAKE_CATALOG"])
 catalog = json.loads(catalog_path.read_text())
 with open(os.environ["FAKE_LOG"], "a") as log:
-    log.write(json.dumps({"job": job, "args": job_args, "submit": submit}) + "\n")
+    log.write(json.dumps({"job": job, "args": job_args, "submit": submit, "project": args[args.index("-p") + 1]}) + "\n")
 if job == "gold_rebuild.py":
-    name = flag("--gold-table")
+    parsed = gold_rebuild.parse_args(job_args)
+    name = parsed.gold_table
     entry = gold_rebuild.load_contract(jobs_dir.parent.parent / "contracts/gold-panel-rebuild.contract.json")["tables"][name]
     fixture = catalog[name]
     inputs = (tuple(fixture["required"]), fixture.get("optional", {}), fixture["required"][0])
-    decision = gold_rebuild.plan(name, entry, inputs, fixture["gold"], fixture["silver"])
+    try:
+        decision = gold_rebuild.plan(name, entry, inputs, fixture["gold"], fixture["silver"],
+                                     unconditional=parsed.unconditional_reason, time_fallback=parsed.time_fallback,
+                                     measuring=parsed.measuring)
+    except gold_rebuild.PlanError as error:
+        sys.exit(f"gold_rebuild.PlanError: {error}")
     for path, value in ((flag("--pins-output"), decision["source_snapshots"]), (flag("--plan-output"), decision)):
         host(path).parent.mkdir(parents=True, exist_ok=True)
         host(path).write_text(json.dumps(value))
@@ -77,17 +84,20 @@ def snap(snapshot_id, parent, at, added=1):
 
 
 def gold(pins, rows):
+    summary = {"total-records": str(rows)}
+    if pins is not None:
+        summary["foundation.source-iceberg-snapshots"] = json.dumps(pins)
     return {"head": "90", "row_count": rows, "published_at_utc": "2026-01-10T00:00:00Z", "snapshots": [{
         "snapshot_id": "90", "parent_id": None, "committed_at": "2026-01-10T01:00:00Z", "operation": "overwrite",
-        "summary": {"total-records": str(rows), "foundation.source-iceberg-snapshots": json.dumps(pins)}}]}
+        "summary": summary}]}
 
 
-def table_fixture(changed, new_rows=1000, rows=1000):
+def table_fixture(changed, new_rows=1000, rows=1000, pinned=True):
     snapshots = [snap("11", None, "2026-01-01T00:00:00Z")]
     if changed:
         snapshots.append(snap("12", "11", "2026-01-20T00:00:00Z"))
     return {"required": ["silver.a", "silver.b"],
-            "gold": gold({"silver.a": "11", "silver.b": "21"}, rows),
+            "gold": gold({"silver.a": "11", "silver.b": "21"} if pinned else None, rows),
             "silver": {"silver.a": {"head": snapshots[-1]["snapshot_id"], "snapshots": snapshots},
                        "silver.b": {"head": "21", "snapshots": [snap("21", None, "2026-01-01T00:00:00Z")]}},
             "new_rows": new_rows}
@@ -107,11 +117,14 @@ class GoldPanelRebuild(unittest.TestCase):
         (release / "infra/lakehouse/contracts").mkdir(parents=True)
         contract = "infra/lakehouse/contracts/gold-panel-rebuild.contract.json"
         (release / contract).write_bytes((PLATFORM / contract).read_bytes())
+        (release / "orchestration").mkdir()
+        self.jobs = release / "orchestration/jobs.v1.json"
+        self.jobs.write_bytes(job_specs.JOBS.read_bytes())
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
         publisher = artifacts / "foundation-outbox-publisher"
-        publisher.write_text("#!/bin/sh\nexit 0\n")
+        publisher.write_text('#!/bin/sh\nprintf "publisher %s\\n" "$*"\n')
         publisher.chmod(0o555)
         (artifacts / "build.json").write_text(json.dumps({
             "source": RELEASE_ID, "publisher_image": "sha256:" + "a" * 64, "tippecanoe_image": "sha256:" + "d" * 64,
@@ -125,6 +138,7 @@ class GoldPanelRebuild(unittest.TestCase):
         self.catalog = self.root / "catalog.json"
         self.log = self.root / "calls.jsonl"
         self.env = {
+            "INVOCATION_ID": INVOCATION,
             "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(self.log), "FAKE_CATALOG": str(self.catalog),
             "FAKE_JOBS_DIR": str(PLATFORM / "infra/lakehouse/spark/jobs"),
             "FOUNDATION_GOLD_REBUILD_STATE_ROOT": str(self.root / "state"),
@@ -157,6 +171,7 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertEqual(args[args.index("--iceberg-snapshot-id") + 1], "12")
         self.assertEqual(args[args.index("--minimum-count") + 1], "990")
         self.assertIn("--allow-non-smoke-overwrite", args)
+        self.assertFalse(any("--measuring" in call["args"] for call in calls))
         self.assertNotIn("--validate-only", args)
         # Sized by the contract, in the compose `spark` service the memory guard counts.
         submit = producer["submit"]
@@ -178,6 +193,8 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         [producer] = self.producer_calls(calls)
         self.assertIn("--validate-only", producer["args"])
+        # Only a dry run may read an input the contract lists as unmeasured.
+        self.assertIn("--measuring", calls[0]["args"])
         self.assertIn("dry run passed: 1000 rows (floor 990)", result.stdout)
         self.assertNotIn("commits", catalog["gold.parcel_panel"])
 
@@ -188,6 +205,83 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertEqual([call["job"] for call in self.producer_calls(calls)],
                          ["parcel_panel_silver_to_gold.py", "building_panel_silver_to_gold.py"])
         self.assertEqual(len(catalog["gold.building_panel"]["commits"]), 1)
+
+    def set_enabled(self, enabled):
+        listing = json.loads(self.jobs.read_text(encoding="utf-8"))
+        next(job for job in listing["jobs"] if job["id"] == "gold_panel_rebuild")["enabled"] = enabled
+        self.jobs.write_text(json.dumps(listing), encoding="utf-8")
+
+    def test_spark_runs_in_this_invocations_own_compose_project(self):
+        result, calls, _ = self.rebuild(table_fixture(True), table_fixture(True), "all")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len(calls), 4)
+        self.assertEqual({call["project"] for call in calls}, {"foundation-gold-rebuild-" + INVOCATION})
+        # Outside systemd the run names a fresh project and says how to clean it up.
+        del self.env["INVOCATION_ID"]
+        self.log.unlink()
+        result, calls, _ = self.rebuild(table_fixture(False), table_fixture(False), "all")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [project] = {call["project"] for call in calls}
+        self.assertRegex(project, r"^foundation-gold-rebuild-[0-9a-f]{32}$")
+        self.assertIn("INVOCATION_ID=" + project.removeprefix("foundation-gold-rebuild-") + " ", result.stderr)
+        self.env["INVOCATION_ID"] = "../other"
+        result, calls, _ = self.rebuild(table_fixture(True), table_fixture(True), "parcel")
+        self.assertEqual(result.returncode, 64)
+
+    def test_cleanup_has_the_release_publisher_stop_this_invocations_containers(self):
+        result = subprocess.run(["bash", str(self.script), "cleanup"], env=self.env,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "publisher stop-gold-panel-rebuild\n")
+        for args, env in ((["cleanup", "extra"], self.env),
+                          (["cleanup"], {k: v for k, v in self.env.items() if k != "INVOCATION_ID"})):
+            refused = subprocess.run(["bash", str(self.script), *args], env=env,
+                                     capture_output=True, text=True, timeout=60)
+            self.assertEqual(refused.returncode, 64, refused.stderr)
+            self.assertEqual(refused.stdout, "")
+
+    def test_an_enabled_job_refuses_a_gold_without_pins_and_the_first_run_may_use_its_publish_time(self):
+        unpinned = table_fixture(True, pinned=False)
+        self.set_enabled(True)
+        result, calls, catalog = self.rebuild(unpinned, table_fixture(False), "parcel")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("records no source pins", result.stderr)
+        self.assertIn("could not plan", result.stdout)
+        self.assertIn("--no-time-fallback", calls[0]["args"])
+        self.assertEqual(self.producer_calls(calls), [])
+        self.assertNotIn("commits", catalog["gold.parcel_panel"])
+        # A job list that cannot be read counts as enabled.
+        self.jobs.unlink()
+        self.log.unlink()
+        result, calls, _ = self.rebuild(unpinned, table_fixture(False), "parcel")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--no-time-fallback", calls[0]["args"])
+        # Before the job is on (the supervised first run), the publish time decides.
+        self.jobs.write_bytes(job_specs.JOBS.read_bytes())
+        self.set_enabled(False)
+        self.log.unlink()
+        result, calls, catalog = self.rebuild(unpinned, table_fixture(False), "parcel")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("--no-time-fallback", calls[0]["args"])
+        self.assertEqual(len(catalog["gold.parcel_panel"]["commits"]), 1)
+
+    def test_an_unconditional_run_rebuilds_both_with_its_reason_and_the_row_floor(self):
+        self.set_enabled(True)
+        result, calls, catalog = self.rebuild(table_fixture(False, pinned=False), table_fixture(False, new_rows=989),
+                                              "all", "--unconditional", "first supervised run")
+        self.assertNotEqual(result.returncode, 0, "the building row floor still refuses")
+        self.assertIn("rebuilding gold.parcel_panel: unconditional rebuild: first supervised run", result.stdout)
+        self.assertEqual([call["job"] for call in self.producer_calls(calls)],
+                         ["parcel_panel_silver_to_gold.py", "building_panel_silver_to_gold.py"])
+        self.assertEqual(catalog["gold.parcel_panel"]["commits"],
+                         [{"rows": 1000, "pins": {"silver.a": "11", "silver.b": "21"}}])
+        self.assertNotIn("commits", catalog["gold.building_panel"])
+        for args in (("parcel", "--unconditional"), ("parcel", "--unconditional", "--dry-run")):
+            with self.subTest(args=args):
+                self.log.unlink(missing_ok=True)
+                result, calls, _ = self.rebuild(table_fixture(True), table_fixture(True), *args)
+                self.assertEqual(result.returncode, 64)
+                self.assertEqual(calls, [])
 
     def test_an_unknown_unit_or_option_is_refused(self):
         for args in (("everything",), ("parcel", "--force")):
@@ -211,6 +305,8 @@ class Registration(unittest.TestCase):
         self.assertLess(int(job["schedule"].split()[1]), int(bake["schedule"].split()[1]))
         unit = (job_specs.SYSTEMD / job["systemd_service"]).read_text(encoding="utf-8")
         self.assertIn("gold-panel-rebuild.sh all", unit)
+        # A timeout kills the client, not the daemon's Spark container: ExecStopPost removes it.
+        self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh cleanup$")
         # systemd stops it before Airflow would (test_job_specs checks every job); a longer
         # timeout pushes the hourly folds past their starvation bound.
         self.assertIn("TimeoutStartSec=160m", unit)

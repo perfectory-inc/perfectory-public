@@ -13,7 +13,14 @@ SOURCE_SNAPSHOTS_PROPERTY. That record is what this module plans from:
 - A Gold snapshot without the record (a schema backfill rewrote it, or it was built by hand
   before this record existed) is read through its ancestry back to the newest snapshot that has
   one. A table that has none at all falls back to the rows' own `published_at_utc`, the time the
-  producer ran: a Silver change committed after it cannot be in that Gold.
+  producer started: a Silver change committed after it cannot be in that Gold. A change committed
+  between the producer's pin and that stamp can be missed, so the fallback is for the supervised
+  first run only: an enabled job plans with `time_fallback=False`, which refuses such a Gold.
+- An unconditional rebuild (`unconditional=<reason>`) rebuilds whatever the history says, under the
+  same row floor; the supervised first run is one, so every Gold carries pins before the job is on.
+- An input the contract lists under `unmeasured_inputs` has not been part of a measured run: the
+  Spark size was not shown to hold with it. Once it exists the plan refuses, except for a dry run
+  (`measuring=True`), which is how it gets measured.
 - Nothing changed: nothing to do. Otherwise the plan pins every input to its current snapshot and
   states the fewest rows the new Gold may have: the current Gold's row count less the table's
   `max_row_loss_fraction` (contracts/gold-panel-rebuild.contract.json). The producer refuses
@@ -63,6 +70,10 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
         args = table.get("producer_arguments", [])
         if not (isinstance(args, list) and all(isinstance(a, str) and a.startswith("--") for a in args)):
             raise PlanError(f"{name}: producer_arguments must be a list of flags")
+        unmeasured = table.get("unmeasured_inputs", {})
+        if not (isinstance(unmeasured, dict)
+                and all(isinstance(why, str) and why.strip() for why in unmeasured.values())):
+            raise PlanError(f"{name}: unmeasured_inputs must map each input to why it is unmeasured")
     return contract
 
 
@@ -140,20 +151,33 @@ def recorded_pins(gold_snapshots: list[dict[str, Any]], gold_head: str) -> dict[
 
 
 def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] | None,
-         silver: dict[str, dict[str, Any] | None]) -> dict[str, Any]:
+         silver: dict[str, dict[str, Any] | None], *, unconditional: str | None = None,
+         time_fallback: bool = True, measuring: bool = False) -> dict[str, Any]:
     """Decide one Gold table's rebuild.
 
     `gold`: {"head", "snapshots", "row_count", "published_at_utc"} or None when the table does
     not exist. `silver`: input -> {"head", "snapshots"}, or None for a table that does not exist.
+    `unconditional`: the reason to rebuild regardless of the history. `time_fallback`: whether a
+    Gold without recorded pins may be judged by its publish time (the job is not enabled yet).
+    `measuring`: a dry run, which may read an input the contract lists as unmeasured.
     """
+    if unconditional is not None and not unconditional.strip():
+        raise PlanError(f"{table}: an unconditional rebuild needs its reason")
     required, optional, anchor = inputs
     missing = [name for name in required if silver.get(name) is None]
     if missing:
         raise PlanError(f"{table}: required Silver inputs do not exist: {missing}")
     present = [*required, *(name for name in optional if silver.get(name) is not None)]
+    unmeasured = {name: why for name, why in entry.get("unmeasured_inputs", {}).items() if name in present}
+    if unmeasured and not measuring:
+        raise PlanError(
+            f"{table}: {sorted(unmeasured)} now exist but no run was measured with them "
+            f"({'; '.join(unmeasured.values())}); measure a dry run (gold-panel-rebuild.sh --dry-run) "
+            "within the Spark cap, then remove them from unmeasured_inputs "
+            "(contracts/gold-panel-rebuild.contract.json)")
     pins = {name: silver[name]["head"] for name in present}
     flags = [flag for name, flag in optional.items() if silver.get(name) is None]
-    reasons: list[str] = []
+    reasons: list[str] = [f"unconditional rebuild: {unconditional.strip()}"] if unconditional else []
     previous = None
     if gold is None or gold.get("head") is None:
         reasons.append("the Gold table has no snapshot")
@@ -171,6 +195,13 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
                 why = input_change_since_pin(silver[name]["snapshots"], silver[name]["head"], recorded[name])
                 if why:
                     reasons.append(f"{name}: {why}")
+        elif unconditional:
+            pass
+        elif not time_fallback:
+            raise PlanError(
+                f"{table}: the current Gold records no source pins, and an enabled job does not plan "
+                "from its published_at_utc (stamped when the producer started, so it can miss a "
+                "change); rebuild it once with gold-panel-rebuild.sh --unconditional <reason>")
         else:
             built_at = gold.get("published_at_utc")
             if not built_at:
@@ -259,6 +290,12 @@ def parse_args(argv=None) -> argparse.Namespace:
                         default=os.getenv("FOUNDATION_PLATFORM_SPARK_ICEBERG_CATALOG_NAME", "r2"))
     parser.add_argument("--plan-output", required=True)
     parser.add_argument("--pins-output", required=True)
+    parser.add_argument("--unconditional-reason", default=None,
+                        help="rebuild regardless of the Silver history, for this logged reason")
+    parser.add_argument("--no-time-fallback", dest="time_fallback", action="store_false",
+                        help="refuse a Gold without recorded pins instead of judging it by publish time")
+    parser.add_argument("--measuring", action="store_true",
+                        help="a dry run: an input the contract lists as unmeasured may be read")
     return parser.parse_args(argv)
 
 
@@ -283,12 +320,14 @@ def main(argv=None) -> int:
         if gold is not None and gold["head"] is not None:
             head = next(s for s in gold["snapshots"] if s["snapshot_id"] == gold["head"])
             gold["row_count"] = int(head["summary"]["total-records"])
-            if recorded_pins(gold["snapshots"], gold["head"]) is None:
+            if recorded_pins(gold["snapshots"], gold["head"]) is None and args.time_fallback:
                 built = spark.table(gold["qualified"]).agg(F.max("published_at_utc").alias("at")).first().at
                 if built is not None and not isinstance(built, str):
                     built = built.replace(tzinfo=timezone.utc).isoformat()  # session time zone is UTC
                 gold["published_at_utc"] = built
-        decision = plan(args.gold_table, entry, inputs, gold, silver)
+        decision = plan(args.gold_table, entry, inputs, gold, silver,
+                        unconditional=args.unconditional_reason, time_fallback=args.time_fallback,
+                        measuring=args.measuring)
     finally:
         spark.stop()
     for path, value in ((args.pins_output, decision["source_snapshots"]), (args.plan_output, decision)):

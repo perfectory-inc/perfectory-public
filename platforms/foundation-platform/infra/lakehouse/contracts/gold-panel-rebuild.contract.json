@@ -9,6 +9,9 @@
       "producer_arguments": [],
       "max_row_loss_fraction": 0.01,
       "max_row_loss_reason": "One row per current parcel. A monthly national parcel refresh moves the count by far less than 1% (parcels split, merge or retire a few thousand at a time out of about 40 million); losing more means an input lost a region or a join broke, which must not reach the bake.",
+      "unmeasured_inputs": {
+        "silver.parcel_lineage": "Absent from the catalog when the parcel rebuild was measured (2026-10-03) and still absent on 2026-10-04, so the 20g cap was shown only with --no-carry-lineage, where the run already peaked at 18.0GiB anon. Carrying the lineage adds a join; measure it before a run may read it (root ADR-0139)."
+      },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     },
     "gold.building_panel": {

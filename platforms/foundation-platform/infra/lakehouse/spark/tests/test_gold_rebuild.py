@@ -94,6 +94,54 @@ class Plan(unittest.TestCase):
                                     "silver.b": table(B1)})
         self.assertEqual(same_second["action"], "rebuild")
 
+    def test_an_enabled_job_refuses_to_plan_from_publish_time(self):
+        # published_at_utc is stamped when the producer started, so it can miss a change. The
+        # fallback serves the supervised first run only; once the job is on, a Gold without pins
+        # needs an unconditional rebuild.
+        silver = {"silver.a": table(A1), "silver.b": table(B1)}
+        first_run = rebuild.plan("gold.x", ENTRY, INPUTS, gold(), silver)
+        self.assertEqual(first_run["action"], "nothing_to_do", first_run["reasons"])
+        with self.assertRaisesRegex(rebuild.PlanError, "records no source pins.*--unconditional"):
+            rebuild.plan("gold.x", ENTRY, INPUTS, gold(), silver, time_fallback=False)
+        # A Gold that records its pins plans the same way either way.
+        pinned = rebuild.plan("gold.x", ENTRY, INPUTS, gold({"silver.a": "11", "silver.b": "21"}), silver,
+                              time_fallback=False)
+        self.assertEqual(pinned["action"], "nothing_to_do")
+
+    def test_an_unconditional_rebuild_states_its_reason_and_keeps_the_row_floor(self):
+        silver = {"silver.a": table(A1), "silver.b": table(B1)}
+        for current in (gold(), gold({"silver.a": "11", "silver.b": "21"})):
+            decision = rebuild.plan("gold.x", ENTRY, INPUTS, current, silver,
+                                    unconditional="first supervised run", time_fallback=False)
+            self.assertEqual(decision["action"], "rebuild")
+            self.assertEqual(decision["reasons"], ["unconditional rebuild: first supervised run"])
+            self.assertEqual(decision["source_snapshots"], {"silver.a": "11", "silver.b": "21"})
+            self.assertEqual(decision["minimum_row_count"], 990)
+        with self.assertRaisesRegex(rebuild.PlanError, "needs its reason"):
+            rebuild.plan("gold.x", ENTRY, INPUTS, gold(), silver, unconditional="  ")
+        args = rebuild.parse_args(["--gold-table", "gold.x", "--plan-output", "p", "--pins-output", "q",
+                                   "--unconditional-reason", "why", "--no-time-fallback"])
+        self.assertEqual((args.unconditional_reason, args.time_fallback), ("why", False))
+        defaults = rebuild.parse_args(["--gold-table", "gold.x", "--plan-output", "p", "--pins-output", "q"])
+        self.assertEqual((defaults.unconditional_reason, defaults.time_fallback), (None, True))
+
+    def test_an_unmeasured_input_is_refused_once_it_exists_except_by_a_dry_run(self):
+        entry = {**ENTRY, "unmeasured_inputs": {"silver.lineage": "never measured"}}
+        inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
+        absent = rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}),
+                              {"silver.a": table(A1), "silver.lineage": None})
+        self.assertEqual(absent["action"], "nothing_to_do")
+        present = {"silver.a": table(A1), "silver.lineage": table(snap("31", None, "2026-01-02T00:00:00Z"))}
+        for unconditional in (None, "first supervised run"):
+            with self.subTest(unconditional=unconditional), \
+                    self.assertRaisesRegex(rebuild.PlanError, "silver.lineage.*never measured.*unmeasured_inputs"):
+                rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}), present, unconditional=unconditional)
+        measured = rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}), present, measuring=True)
+        self.assertEqual(measured["action"], "rebuild")
+        self.assertEqual(measured["producer_arguments"], [])
+        self.assertTrue(rebuild.parse_args(["--gold-table", "g", "--plan-output", "p", "--pins-output", "q",
+                                            "--measuring"]).measuring)
+
     def test_an_optional_input_is_pinned_when_it_exists_and_flagged_off_when_it_does_not(self):
         inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
         absent = rebuild.plan("gold.x", ENTRY, inputs, gold({"silver.a": "11"}),
@@ -161,12 +209,18 @@ class Contract(unittest.TestCase):
         self.assertEqual(optional, {parcel.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(anchor, parcel.PARCEL_SOURCE)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
+        # Every unmeasured input is one the producer actually reads.
+        for name, entry in contract["tables"].items():
+            producer = parcel if name == "gold.parcel_panel" else building
+            required, optional, _ = rebuild.producer_inputs(producer)
+            self.assertLessEqual(set(entry.get("unmeasured_inputs", {})), {*required, *optional})
 
     def test_a_contract_without_a_tolerance_or_its_reason_is_refused(self):
         import tempfile
         good = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))
         for field, value in (("max_row_loss_fraction", 1), ("max_row_loss_fraction", "0.01"),
-                             ("max_row_loss_reason", ""), ("producer_arguments", ["x"])):
+                             ("max_row_loss_reason", ""), ("producer_arguments", ["x"]),
+                             ("unmeasured_inputs", {"silver.x": ""}), ("unmeasured_inputs", ["silver.x"])):
             bad = json.loads(json.dumps(good))
             bad["tables"]["gold.parcel_panel"][field] = value
             with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as directory:

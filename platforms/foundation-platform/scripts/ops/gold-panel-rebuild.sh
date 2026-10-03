@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The scheduled panel Gold rebuild (root ADR-0139, ADR-0122).
 #
-#   gold-panel-rebuild.sh parcel|building|all [--dry-run]
+#   gold-panel-rebuild.sh parcel|building|all [--dry-run] [--unconditional <reason>]
+#   gold-panel-rebuild.sh cleanup        (the unit's ExecStopPost)
 #
 # `all` (the registered job) rebuilds gold.parcel_panel, then gold.building_panel, in the order of
 # infra/lakehouse/contracts/gold-panel-rebuild.contract.json. One Spark run at a time: each takes
@@ -20,29 +21,65 @@
 # --dry-run runs the producer with --validate-only: the whole transform and every check, no
 # commit. The by-PNU bake (by-pnu-serving-bake.sh) bakes a Gold snapshot its published generation
 # does not serve, so a committed rebuild is baked on the bake's next turn.
+#
+# --unconditional <reason> rebuilds whatever the Silver history says, still under the row floor and
+# every check; the plan logs the reason. It is the supervised first run's (runbook 4): a Gold made
+# before root ADR-0139 records no pins, and the planner's only other evidence for it, the rows'
+# published_at_utc, is stamped when the producer started. Once the job is enabled
+# (orchestration/jobs.v1.json) the planner refuses to plan from that time; a Gold without pins then
+# needs an unconditional run.
+#
+# Spark runs in the Compose project foundation-gold-rebuild-<INVOCATION_ID>. A timeout kills this
+# script and the compose client but not the daemon-owned container, which would keep its 20g while
+# Airflow frees the pool. The unit's ExecStopPost (`cleanup`) has the release's publisher remove
+# that project's one-off containers and networks, as FLOOR does (root ADR-0128), and nothing else.
 set -euo pipefail
 
 UNIT="${1:-}"
-MODE="${2:-}"
-case "${MODE}" in
-  "") VALIDATE=() ;;
-  --dry-run) VALIDATE=(--validate-only) ;;
-  *) echo "gold-panel-rebuild: expected no option or --dry-run, got '${MODE}'" >&2; exit 64 ;;
-esac
+if [[ "${UNIT}" == cleanup ]]; then
+  [[ "$#" == 1 ]] || { echo "gold-panel-rebuild: cleanup takes no arguments" >&2; exit 64; }
+  [[ "${INVOCATION_ID:-}" =~ ^[0-9a-f]{32}$ ]] || { echo "gold-panel-rebuild: cleanup needs the systemd INVOCATION_ID" >&2; exit 64; }
+  # Any installed release: `current` may have moved since this invocation started.
+  source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --installed
+  exec "${PUBLISHER_BIN}" stop-gold-panel-rebuild
+fi
+shift || true
+OPTIONS=("$@")
+VALIDATE=()
+UNCONDITIONAL=""
+while (($#)); do
+  case "$1" in
+    --dry-run) VALIDATE=(--validate-only); shift ;;
+    --unconditional)
+      [[ -n "${2:-}" && "${2}" != --* ]] || { echo "gold-panel-rebuild: --unconditional needs a reason" >&2; exit 64; }
+      UNCONDITIONAL="$2"; shift 2 ;;
+    *) echo "gold-panel-rebuild: expected --dry-run or --unconditional <reason>, got '$1'" >&2; exit 64 ;;
+  esac
+done
 case "${UNIT}" in
   parcel | building) ;;
-  all)
-    status=0
-    "${BASH_SOURCE[0]}" parcel ${MODE:+"${MODE}"} || status=$?
-    "${BASH_SOURCE[0]}" building ${MODE:+"${MODE}"} || { table_status=$?; ((status)) || status=${table_status}; }
-    exit "${status}"
-    ;;
-  *) echo "gold-panel-rebuild: expected parcel, building or all, got '${UNIT}'" >&2; exit 64 ;;
+  all) ;;
+  *) echo "gold-panel-rebuild: expected parcel, building, all or cleanup, got '${UNIT}'" >&2; exit 64 ;;
 esac
+# A run outside systemd (a supervised manual run) names its own project; ExecStopPost is not there
+# to clean it, so the operator is told how.
+if [[ -z "${INVOCATION_ID:-}" ]]; then
+  INVOCATION_ID="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+  echo "gold-panel-rebuild: no systemd invocation; this run's Compose project is foundation-gold-rebuild-${INVOCATION_ID} (if interrupted: INVOCATION_ID=${INVOCATION_ID} $0 cleanup)" >&2
+fi
+[[ "${INVOCATION_ID}" =~ ^[0-9a-f]{32}$ ]] || { echo "gold-panel-rebuild: INVOCATION_ID is not a systemd invocation id" >&2; exit 64; }
+export INVOCATION_ID
+if [[ "${UNIT}" == all ]]; then
+  status=0
+  "${BASH_SOURCE[0]}" parcel ${OPTIONS[@]+"${OPTIONS[@]}"} || status=$?
+  "${BASH_SOURCE[0]}" building ${OPTIONS[@]+"${OPTIONS[@]}"} || { table_status=$?; ((status)) || status=${table_status}; }
+  exit "${status}"
+fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 STATE_ROOT="${FOUNDATION_GOLD_REBUILD_STATE_ROOT:-/var/lib/foundation-gold-panel-rebuild}/${UNIT}"
 SCRATCH="${FOUNDATION_GOLD_REBUILD_SCRATCH:-/data/foundation-platform/lakehouse/spark-scratch}"
 CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/gold-panel-rebuild.contract.json"
+JOBS="${RELEASE_ROOT}/orchestration/jobs.v1.json"
 log() { printf 'gold-panel-rebuild %s: %s\n' "${UNIT}" "$*"; }
 
 read -r gold_table producer master driver_memory < <(python3 -I - "${CONTRACT}" "${UNIT}" <<'PY'
@@ -66,7 +103,7 @@ spark() {
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${STATE_ROOT}" \
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
   docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
-    -p foundation-platform-compute --profile lakehouse-batch run --rm -v "${SCRATCH}:/scratch" \
+    -p "foundation-gold-rebuild-${INVOCATION_ID}" --profile lakehouse-batch run --rm -v "${SCRATCH}:/scratch" \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
     spark spark-submit --master "${master}" --driver-memory "${driver_memory}" \
@@ -74,8 +111,29 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >>"${work}/$1.log" 2>&1
 }
 
-# 1. Plan.
-if ! spark gold_rebuild.py --gold-table "${gold_table}" \
+# 1. Plan. An enabled job may not plan from a Gold's publish time (see --unconditional above); a
+# missing or unreadable job list counts as enabled.
+plan_options=()
+if python3 -I - "${JOBS}" <<'PY'
+import json, sys
+try:
+    jobs = json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]
+    enabled = next(job for job in jobs if job["id"] == "gold_panel_rebuild")["enabled"] is not False
+except (OSError, ValueError, KeyError, StopIteration):
+    enabled = True
+sys.exit(0 if enabled else 1)
+PY
+then
+  plan_options+=(--no-time-fallback)
+fi
+if [[ -n "${UNCONDITIONAL}" ]]; then
+  plan_options+=(--unconditional-reason "${UNCONDITIONAL}")
+fi
+# A dry run may read an input the contract lists as unmeasured: it is how that input gets measured.
+if ((${#VALIDATE[@]})); then
+  plan_options+=(--measuring)
+fi
+if ! spark gold_rebuild.py --gold-table "${gold_table}" "${plan_options[@]}" \
     --plan-output "${container_work}/plan.json" --pins-output "${container_work}/pins.json"; then
   grep -a -E 'Error|Exception' "${work}/gold_rebuild.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
   log "FAILED: could not plan ${gold_table} (log ${work}/gold_rebuild.py.log)"
