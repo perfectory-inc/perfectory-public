@@ -162,3 +162,5 @@ last_reviewed: 2026-07-28
 - [ADR-0137 — 릴리스 빌드의 상한은 측정에서 정하고, 빌드는 혼자 돈다](./0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md)
 
 - [ADR-0138 — 예약 작업은 한 풀을 슬롯으로 나눠 쓰고, 메모리 예산은 슬롯이 허락하는 모든 조합을 센다](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md)
+
+- [ADR-0141 — by-PNU 서빙은 바뀐 문서만 패치 세대로 쌓는다](./0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md)
