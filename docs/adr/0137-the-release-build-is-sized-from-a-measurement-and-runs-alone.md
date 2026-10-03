@@ -62,3 +62,11 @@ ai-server의 메모리 예산(`tools/host-memory-budget.contract.json`)은 다�
 - 배포하는 동안 등록 작업은 멈춰 있어야 한다. 전환 스크립트와 런북은 이미 DAG를 먼저 멈춘다.
 - 운영 호스트에서 빌드하는 비용이 측정으로 드러났다. CI에서 한 번 빌드하고 서명한 이미지를 호스트가 검증만 하는
   방식은 별도 결정으로 다룬다. 그 결정이 나오면 이 계약의 publisher 항목은 사라진다.
+
+## 개정 기록
+
+- 2026-10-03: §4의 "active면 거부"는 구현 결함이었다. 등록 작업은 `oneshot` 이라 실행 내내 `activating` 이고
+  `active` 가 되지 않으므로, `is-active` 검사는 돌고 있는 FLOOR 를 통과시켰다(외부 검토가 찾음). 이제 `ActiveState` 가
+  `inactive`·`failed` 가 아니면 실행 중으로 본다. 또 검사 직후 작업이 시작되는 틈을 막으려고, 빌드는 검사 전에
+  `/run/foundation-platform-release-build.lock` 을 배타로 잡고, 모든 등록 작업의 `ExecStartPre`(`verify-current`)는 그
+  잠금이 잡혀 있으면 거부한다(Airflow 가 재시도한다). 위 결정 본문은 고치지 않았다.

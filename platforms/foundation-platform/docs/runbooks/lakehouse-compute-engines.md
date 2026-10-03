@@ -650,7 +650,8 @@ sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deplo
 
 `prepare` 는 등록 작업(`orchestration/jobs.v1.json`)의 유닛이 하나라도 돌고 있으면 그 이름을 대며 거부한다. 빌드가
 호스트의 일회성 작업으로 예산에 들어가 있기 때문이다([ADR-0137](../../../../docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md)).
-DAG 를 먼저 멈추고 돌던 작업이 끝난 뒤 실행한다. 빌드는 2 CPU·`22g`(정본 `tools/release-build.contract.json`)로 약
+DAG 를 먼저 멈추고 돌던 작업이 끝난 뒤 실행한다. 실행 중인 작업은 `activating` 으로 보인다(`systemctl show -p ActiveState`). 빌드하는
+동안에는 잠금 때문에 등록 작업이 시작하자마자 거부되고 Airflow 가 재시도한다. 빌드는 2 CPU·`22g`(정본 `tools/release-build.contract.json`)로 약
 43분 걸린다(2026-10-03 측정).
 
 `/opt/foundation-platform/artifacts/$sha/build.json` 에 `publisher_image`(image ID)와
