@@ -820,6 +820,64 @@ fn optional_env_path(name: &str) -> anyhow::Result<Option<PathBuf>> {
     optional_env(name).map(|value| value.map(PathBuf::from))
 }
 
+/// The keys of both by-PNU serving lanes (root ADR-0096, ADR-0100, ADR-0141): the manifest, the
+/// base objects, the patch objects and tombstones, and the replaced manifests kept for rollback.
+fn by_pnu_serving_classification(key: &str) -> Option<Classification> {
+    use crate::by_pnu_gateway_contract::ByPnuLane;
+    use crate::r2_layout::by_pnu;
+
+    type Recogniser = fn(ByPnuLane, &str) -> bool;
+    const KINDS: [(Recogniser, [&str; 2], &str); 4] = [
+        (
+            by_pnu::is_manifest_key,
+            [
+                "parcel_by_pnu_serving_manifest_pointer",
+                "building_by_pnu_serving_manifest_pointer",
+            ],
+            "Canonical by-PNU serving manifest pointer (root ADR-0096, ADR-0100).",
+        ),
+        (
+            by_pnu::is_object_key,
+            [
+                "parcel_by_pnu_serving_object",
+                "building_by_pnu_serving_object",
+            ],
+            "Pre-baked by-PNU serving object of a base generation (root ADR-0096, ADR-0100).",
+        ),
+        (
+            by_pnu::is_patch_object_key,
+            [
+                "parcel_by_pnu_serving_patch_object",
+                "building_by_pnu_serving_patch_object",
+            ],
+            "Create-only document or tombstone of a by-PNU patch generation (root ADR-0141).",
+        ),
+        (
+            by_pnu::is_manifest_history_key,
+            [
+                "parcel_by_pnu_serving_manifest_history",
+                "building_by_pnu_serving_manifest_history",
+            ],
+            "A replaced by-PNU manifest, kept so a rollback can name it (root ADR-0141).",
+        ),
+    ];
+    for (index, lane) in [ByPnuLane::Parcel, ByPnuLane::Building]
+        .into_iter()
+        .enumerate()
+    {
+        for (recognises, names, reason) in KINDS {
+            if recognises(lane, key) {
+                return Some(Classification {
+                    name: names[index],
+                    action: "keep",
+                    reason,
+                });
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1202,62 +1260,4 @@ mod tests {
 
         assert!(error.to_string().contains("requires DATABASE_URL"));
     }
-}
-
-/// The keys of both by-PNU serving lanes (root ADR-0096, ADR-0100, ADR-0141): the manifest, the
-/// base objects, the patch objects and tombstones, and the replaced manifests kept for rollback.
-fn by_pnu_serving_classification(key: &str) -> Option<Classification> {
-    use crate::by_pnu_gateway_contract::ByPnuLane;
-    use crate::r2_layout::by_pnu;
-
-    type Recogniser = fn(ByPnuLane, &str) -> bool;
-    const KINDS: [(Recogniser, [&str; 2], &str); 4] = [
-        (
-            by_pnu::is_manifest_key,
-            [
-                "parcel_by_pnu_serving_manifest_pointer",
-                "building_by_pnu_serving_manifest_pointer",
-            ],
-            "Canonical by-PNU serving manifest pointer (root ADR-0096, ADR-0100).",
-        ),
-        (
-            by_pnu::is_object_key,
-            [
-                "parcel_by_pnu_serving_object",
-                "building_by_pnu_serving_object",
-            ],
-            "Pre-baked by-PNU serving object of a base generation (root ADR-0096, ADR-0100).",
-        ),
-        (
-            by_pnu::is_patch_object_key,
-            [
-                "parcel_by_pnu_serving_patch_object",
-                "building_by_pnu_serving_patch_object",
-            ],
-            "Create-only document or tombstone of a by-PNU patch generation (root ADR-0141).",
-        ),
-        (
-            by_pnu::is_manifest_history_key,
-            [
-                "parcel_by_pnu_serving_manifest_history",
-                "building_by_pnu_serving_manifest_history",
-            ],
-            "A replaced by-PNU manifest, kept so a rollback can name it (root ADR-0141).",
-        ),
-    ];
-    for (index, lane) in [ByPnuLane::Parcel, ByPnuLane::Building]
-        .into_iter()
-        .enumerate()
-    {
-        for (recognises, names, reason) in KINDS {
-            if recognises(lane, key) {
-                return Some(Classification {
-                    name: names[index],
-                    action: "keep",
-                    reason,
-                });
-            }
-        }
-    }
-    None
 }

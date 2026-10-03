@@ -221,11 +221,9 @@ mod tests {
         let root = temporary_root("v1");
         let store =
             ByPnuServingStore::open(lane, &ProfileStoreConfig::Local { root: root.clone() })?;
-        let manifest = format!(
-            "{{\"schema_version\":1,\"unit\":\"building-by-pnu\",\"current_generation\":3,\
+        let manifest = "{\"schema_version\":1,\"unit\":\"building-by-pnu\",\"current_generation\":3,\
              \"gold_table\":\"gold.building_panel\",\"gold_iceberg_snapshot_id\":\"999990000000000001\",\
-             \"object_count\":1,\"published_at_utc\":\"2026-01-01T00:00:00Z\"}}"
-        );
+             \"object_count\":1,\"published_at_utc\":\"2026-01-01T00:00:00Z\"}";
         let checksum = "a".repeat(64);
         store
             .write_manifest(by_pnu::manifest_key(lane)?, manifest.as_bytes(), &checksum)
