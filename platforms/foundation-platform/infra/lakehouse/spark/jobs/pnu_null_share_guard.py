@@ -10,9 +10,14 @@ Every row-level gate passed, because `pnu` is nullable for block parcels, and th
 a table whose ordinary-land NULL share was one in a million with one at 11.6 percent. A share
 that rises is the signal no row-level gate can see.
 
-The tolerance is declared in the table contract as the quality gate
-`ordinary_land_pnu_null_share_increase <= <fraction>` (see `platform_contracts`), so the number
-lives where the table is defined and this module only reads it.
+A rise alone is not enough. The table's current snapshot can itself be the bad one: the 09-27
+snapshot is still current, so a reload that loses the same 시도 again rises by about zero and
+would pass a rise-only check, ratcheting the damage in. The share therefore also has an absolute
+ceiling, and a load is refused when either bound is exceeded.
+
+Both bounds are declared in the table contract as one quality gate,
+`ordinary_land_pnu_null_share <= <ceiling> and increase <= <rise>` (see `platform_contracts`),
+so the numbers live where the table is defined and this module only reads them.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lakehouse_ingest import unquoted_table_name
+from platform_contracts import OrdinaryLandPnuNullShareBounds
 
 PARCEL_KEY_COLUMN = "register_parcel_key"
 PNU_COLUMN = "pnu"
@@ -60,22 +66,31 @@ def measure(frame: Any, F: Any) -> OrdinaryLandPnuNulls:
 def decide(
     candidate: OrdinaryLandPnuNulls,
     baseline: OrdinaryLandPnuNulls | None,
-    tolerance: float,
+    bounds: OrdinaryLandPnuNullShareBounds,
     table: str,
 ) -> dict[str, Any]:
-    """Returns the named outcome, or raises when the candidate regresses past the tolerance.
+    """Returns the named outcome, or raises when the candidate breaks either bound.
 
-    No baseline (a new table, or one with no ordinary-land rows) is an outcome of its own,
-    `no_baseline`, rather than a silent pass, so a summary reader can tell the two apart.
+    The ceiling is judged on the candidate alone, so it holds even with no baseline. No baseline
+    (a new table, or one with no ordinary-land rows) is an outcome of its own, `no_baseline`,
+    rather than a silent pass, so a summary reader can tell the two apart.
     """
 
     outcome: dict[str, Any] = {
         "table": table,
-        "tolerance": tolerance,
+        "ceiling": bounds.ceiling,
+        "tolerance": bounds.increase,
         "candidate_rows": candidate.rows,
         "candidate_nulls": candidate.nulls,
         "candidate_share": candidate.share,
     }
+    if candidate.share > bounds.ceiling:
+        raise ValueError(
+            "Refusing the Silver load: the ordinary-land (대지구분 0) PNU NULL share of the "
+            f"candidate for {table} is {candidate.share:.6f} ({candidate.nulls}/{candidate.rows}), "
+            f"above the contract ceiling {bounds.ceiling}. A derivation lost parcels; find which "
+            "시군구 before loading, whatever the table holds now."
+        )
     if baseline is None or baseline.rows == 0:
         return {**outcome, "outcome": "no_baseline"}
     outcome.update(
@@ -84,14 +99,14 @@ def decide(
         baseline_share=baseline.share,
         increase=candidate.share - baseline.share,
     )
-    if candidate.share - baseline.share > tolerance:
+    if candidate.share - baseline.share > bounds.increase:
         raise ValueError(
             "Refusing the Silver load: the ordinary-land (대지구분 0) PNU NULL share rises from "
             f"{baseline.share:.6f} ({baseline.nulls}/{baseline.rows}) in {table} to "
             f"{candidate.share:.6f} ({candidate.nulls}/{candidate.rows}), more than the contract "
-            f"tolerance {tolerance}. A derivation lost parcels; find which 시군구 before loading."
+            f"tolerance {bounds.increase}. A derivation lost parcels; find which 시군구 before loading."
         )
-    return {**outcome, "outcome": "within_tolerance"}
+    return {**outcome, "outcome": "within_bounds"}
 
 
 def table_baseline(spark: Any, table: str, F: Any) -> OrdinaryLandPnuNulls | None:

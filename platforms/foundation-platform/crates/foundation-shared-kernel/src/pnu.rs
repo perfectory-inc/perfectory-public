@@ -130,7 +130,8 @@ pub fn standard_pnu_from_hub_register_codes(
     ))
 }
 
-/// Hub 시군구 crosswalk (current → superseded) and the merged 시도 it governs.
+/// Hub 시군구 crosswalk (current → superseded), the merged 시도 it governs, and
+/// the hub's placeholder codes.
 ///
 /// Geography identity Wave 1 (ADR-0103): the hub register feed carries the
 /// authority-current merged 시군구 code (12xxx, 전남광주통합특별시) while the
@@ -138,15 +139,20 @@ pub fn standard_pnu_from_hub_register_codes(
 /// 46xxx 전남). The kernel stays pure — the mapping is passed in — and any
 /// code outside a governed 시도 passes through unchanged (identity).
 ///
-/// A code *inside* a governed 시도 with no mapping is refused, never passed
-/// through or dropped: the merged code has no cadastral parcel, so either
-/// outcome would silently orphan every building of that 시군구. The 2026-09-27
-/// title snapshot lost the PNU of all 916,461 ordinary-land rows of 시도 12
-/// because a changed resolver withheld the mapping without saying so.
+/// A code *inside* a governed 시도 with no mapping, or one that starts with a
+/// governed 시도 but is not 5 digits, is refused, never passed through or
+/// dropped: the merged code has no cadastral parcel, so either outcome would
+/// silently orphan every building of that 시군구. The 2026-09-27 title snapshot
+/// lost the PNU of all 916,461 ordinary-land rows of 시도 12 because a changed
+/// resolver withheld the mapping without saying so.
+///
+/// A placeholder is a code the hub uses for "no 시군구" (ADR-0142). It names no
+/// parcel, so it composes no PNU: `None`, never a fabricated orphan.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SigunguCrosswalk {
     superseded_by_current: HashMap<String, String>,
     governed_sido: BTreeSet<String>,
+    placeholders: BTreeSet<String>,
 }
 
 /// Errors raised while building or applying a [`SigunguCrosswalk`].
@@ -158,9 +164,21 @@ pub enum SigunguCrosswalkError {
     /// A mapping's current code lies outside every governed 시도, so nothing declares why it exists.
     #[error("crosswalk maps {0} but no governed 시도 covers it")]
     UngovernedMapping(String),
+    /// A code is declared both a placeholder and a mapped 시군구.
+    #[error("hub 시군구 {0} is declared both a placeholder and a mapped code")]
+    PlaceholderIsMapped(String),
     /// A hub 시군구 code inside a governed 시도 has no mapping.
-    #[error("hub 시군구 {0} belongs to a merged 시도 but the crosswalk has no mapping for it")]
+    #[error(
+        "hub 시군구 {0} belongs to a merged 시도 but the crosswalk has no mapping for it; \
+         add the pair to sigungu-canonical-crosswalk.contract.json"
+    )]
     UnmappedGovernedSigungu(String),
+    /// A hub 시군구 code starts with a governed 시도 but is not 5 digits, so no mapping matches it.
+    #[error(
+        "hub 시군구 {0:?} starts with a merged 시도 but is not 5 digits; fix the source row, or \
+         declare it in sigungu-canonical-crosswalk.contract.json"
+    )]
+    MalformedGovernedSigungu(String),
 }
 
 impl SigunguCrosswalk {
@@ -195,6 +213,31 @@ impl SigunguCrosswalk {
         Ok(Self {
             superseded_by_current,
             governed_sido,
+            placeholders: BTreeSet::new(),
+        })
+    }
+
+    /// Declares the hub's placeholder 시군구 codes, which compose no PNU.
+    ///
+    /// # Errors
+    /// Fails when a placeholder is also a mapped code.
+    pub fn with_placeholders(
+        self,
+        placeholders: impl IntoIterator<Item = String>,
+    ) -> Result<Self, SigunguCrosswalkError> {
+        let placeholders = placeholders
+            .into_iter()
+            .map(|code| code.trim().to_owned())
+            .collect::<BTreeSet<_>>();
+        if let Some(code) = placeholders
+            .iter()
+            .find(|code| self.superseded_by_current.contains_key(code.as_str()))
+        {
+            return Err(SigunguCrosswalkError::PlaceholderIsMapped(code.clone()));
+        }
+        Ok(Self {
+            placeholders,
+            ..self
         })
     }
 
@@ -204,6 +247,18 @@ impl SigunguCrosswalk {
         self.superseded_by_current
             .get(current_code.trim())
             .map(String::as_str)
+    }
+
+    /// Whether `sigungu` is a declared placeholder, which composes no PNU.
+    #[must_use]
+    pub fn is_placeholder(&self, sigungu: &str) -> bool {
+        self.placeholders.contains(sigungu.trim())
+    }
+
+    /// Whether `sido` (2 digits) is a merged 시도 this crosswalk governs.
+    #[must_use]
+    pub fn governs_sido(&self, sido: &str) -> bool {
+        self.governed_sido.contains(sido)
     }
 
     /// Number of mapped current codes.
@@ -221,19 +276,22 @@ impl SigunguCrosswalk {
     /// Resolves a hub 시군구 code to the code the cadastral map keys parcels by.
     ///
     /// # Errors
-    /// Fails when the code lies inside a governed 시도 and has no mapping.
+    /// Fails when the code starts with a governed 시도 and has no mapping or is not 5 digits.
     pub fn resolve<'a>(&'a self, sigungu: &'a str) -> Result<&'a str, SigunguCrosswalkError> {
         let trimmed = sigungu.trim();
         if let Some(superseded) = self.superseded_by_current.get(trimmed) {
             return Ok(superseded);
         }
-        let governed = trimmed.len() == 5
-            && trimmed.bytes().all(|b| b.is_ascii_digit())
-            && self.governed_sido.contains(&trimmed[..2]);
-        if governed {
-            return Err(SigunguCrosswalkError::UnmappedGovernedSigungu(
-                trimmed.to_owned(),
-            ));
+        if trimmed
+            .get(..2)
+            .is_some_and(|sido| self.governed_sido.contains(sido))
+        {
+            let five_digits = trimmed.len() == 5 && trimmed.bytes().all(|b| b.is_ascii_digit());
+            return Err(if five_digits {
+                SigunguCrosswalkError::UnmappedGovernedSigungu(trimmed.to_owned())
+            } else {
+                SigunguCrosswalkError::MalformedGovernedSigungu(trimmed.to_owned())
+            });
         }
         Ok(trimmed)
     }
@@ -243,11 +301,12 @@ impl SigunguCrosswalk {
 /// code through `crosswalk` first (see [`SigunguCrosswalk::resolve`]).
 ///
 /// Behaves exactly like [`standard_pnu_from_hub_register_codes`] for every
-/// 시군구 code outside a governed 시도. Never fabricates a PNU: block (`2`)
-/// and unknown 대지구분 codes still yield `None` (ADR 0023).
+/// 시군구 code outside a governed 시도 that is not a placeholder. Never
+/// fabricates a PNU: placeholders, block (`2`) and unknown 대지구분 codes yield
+/// `None` (ADR 0023, ADR-0142).
 ///
 /// # Errors
-/// Fails when the 시군구 code lies inside a governed 시도 and has no mapping.
+/// Fails when the 시군구 code starts with a governed 시도 and has no mapping or is not 5 digits.
 pub fn standard_pnu_from_hub_register_codes_via(
     crosswalk: &SigunguCrosswalk,
     sigungu: &str,
@@ -256,6 +315,9 @@ pub fn standard_pnu_from_hub_register_codes_via(
     bon: &str,
     bu: &str,
 ) -> Result<Option<String>, SigunguCrosswalkError> {
+    if crosswalk.is_placeholder(sigungu) {
+        return Ok(None);
+    }
     Ok(standard_pnu_from_hub_register_codes(
         crosswalk.resolve(sigungu)?,
         bjdong,
@@ -297,15 +359,16 @@ mod tests {
     };
     use std::collections::HashMap;
 
-    fn seed_crosswalk() -> SigunguCrosswalk {
+    /// Synthetic merged 시도 99: 99240 → 99999 and the non-arithmetic 99190 → 99991.
+    /// 시도 98 stands for an ordinary, ungoverned 시도. A broken crosswalk fails the test.
+    fn seed_crosswalk() -> Result<SigunguCrosswalk, SigunguCrosswalkError> {
         SigunguCrosswalk::new(
             HashMap::from([
-                ("12240".to_owned(), "29140".to_owned()),
-                ("12190".to_owned(), "46230".to_owned()),
+                ("99240".to_owned(), "99999".to_owned()),
+                ("99190".to_owned(), "99991".to_owned()),
             ]),
-            ["12".to_owned()],
+            ["99".to_owned()],
         )
-        .unwrap_or_default()
     }
 
     #[test]
@@ -331,8 +394,8 @@ mod tests {
     fn composes_standard_pnu_from_hub_register_codes() {
         // 허브 대지구분 0(대지) → 표준 1(일반)
         assert_eq!(
-            standard_pnu_from_hub_register_codes("99999", "01101", "0", "0734", "0000").as_deref(),
-            Some("9999901101107340000")
+            standard_pnu_from_hub_register_codes("99999", "01101", "0", "0001", "0000").as_deref(),
+            Some("9999901101100010000")
         );
         // 허브 1(산) → 표준 2(산)
         assert_eq!(
@@ -363,40 +426,43 @@ mod tests {
     }
 
     #[test]
-    fn crosswalk_maps_merged_sigungu_to_superseded_cadastral_code() {
-        let crosswalk = seed_crosswalk();
+    fn crosswalk_maps_merged_sigungu_to_superseded_cadastral_code(
+    ) -> Result<(), SigunguCrosswalkError> {
+        let crosswalk = seed_crosswalk()?;
         assert_eq!(crosswalk.len(), 2);
-        // 통합 현행 12240 → 지적도 29140: 크로스워크 경유가 29140 직접 조립과 동일
+        // 통합 현행 99240 → 지적도 99999: 크로스워크 경유가 99999 직접 조립과 동일
         assert_eq!(
             standard_pnu_from_hub_register_codes_via(
-                &crosswalk, "12240", "01101", "0", "0734", "0000"
+                &crosswalk, "99240", "01101", "0", "0001", "0000"
             ),
             Ok(standard_pnu_from_hub_register_codes(
-                "29140", "01101", "0", "0734", "0000"
+                "99999", "01101", "0", "0001", "0000"
             )),
         );
-        // 비산술 사례: 12190 → 46230
+        // 비산술 사례: 99190 → 99991
         assert_eq!(
             standard_pnu_from_hub_register_codes_via(
-                &crosswalk, "12190", "01201", "1", "0508", "0123"
+                &crosswalk, "99190", "01201", "1", "0002", "0003"
             ),
             Ok(standard_pnu_from_hub_register_codes(
-                "46230", "01201", "1", "0508", "0123"
+                "99991", "01201", "1", "0002", "0003"
             )),
         );
+        Ok(())
     }
 
     #[test]
-    fn crosswalk_leaves_ungoverned_sigungu_byte_identical() {
-        let crosswalk = seed_crosswalk();
-        // 통합되지 않은 시도의 코드는 그대로 통과 (identity)
-        assert_eq!(crosswalk.resolve("26110"), Ok("26110"));
+    fn crosswalk_leaves_ungoverned_sigungu_byte_identical() -> Result<(), SigunguCrosswalkError> {
+        let crosswalk = seed_crosswalk()?;
+        // 통합되지 않은 시도(98)의 코드는 그대로 통과 (identity)
+        assert_eq!(crosswalk.resolve("98110"), Ok("98110"));
         assert_eq!(
-            standard_pnu_from_hub_register_codes_via(&crosswalk, "26110", "00101", "0", "8", "16"),
+            standard_pnu_from_hub_register_codes_via(&crosswalk, "98110", "00101", "0", "8", "16"),
             Ok(standard_pnu_from_hub_register_codes(
-                "26110", "00101", "0", "8", "16"
+                "98110", "00101", "0", "8", "16"
             )),
         );
+        Ok(())
     }
 
     #[test]
@@ -425,6 +491,75 @@ mod tests {
                 "daeji={daeji}"
             );
         }
+        let refusal = crosswalk
+            .resolve("99990")
+            .err()
+            .map(|error| error.to_string());
+        assert!(
+            refusal.as_deref().is_some_and(
+                |message| message.contains("sigungu-canonical-crosswalk.contract.json")
+            ),
+            "the refusal must name the file to fix: {refusal:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_odd_width_code_inside_a_merged_sido_is_refused_not_nulled(
+    ) -> Result<(), SigunguCrosswalkError> {
+        // 심은 위반: 시도 99 로 시작하지만 5자리 숫자가 아닌 코드. 어느 짝과도 맞지 않으니
+        // 0 채움 조립(고아 PNU)이나 NULL 로 흘려보내지 않고 이름으로 거부한다.
+        let crosswalk = seed_crosswalk()?;
+        for code in ["9924", "992400", "99X40"] {
+            assert_eq!(
+                standard_pnu_from_hub_register_codes_via(
+                    &crosswalk, code, "00101", "0", "0001", "0000"
+                ),
+                Err(SigunguCrosswalkError::MalformedGovernedSigungu(
+                    code.to_owned()
+                )),
+                "code={code}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_placeholder_composes_no_pnu_rather_than_an_orphan() -> Result<(), SigunguCrosswalkError> {
+        // 허브가 "시군구 없음"으로 쓰는 코드는 어느 필지도 가리키지 않는다: 고아 PNU 대신 None.
+        // 통합 시도 99 안의 자리표시자도 거부가 아니라 None 이다.
+        let crosswalk =
+            seed_crosswalk()?.with_placeholders(["98999".to_owned(), "99990".to_owned()])?;
+        for (code, daeji) in [
+            ("98999", "0"),
+            ("98999", "1"),
+            ("99990", "0"),
+            (" 98999 ", "0"),
+        ] {
+            assert_eq!(
+                standard_pnu_from_hub_register_codes_via(
+                    &crosswalk, code, "00101", daeji, "0001", "0000"
+                ),
+                Ok(None),
+                "code={code:?} daeji={daeji}"
+            );
+        }
+        // 자리표시자가 아닌 코드는 그대로 조립된다.
+        assert_eq!(
+            standard_pnu_from_hub_register_codes_via(
+                &crosswalk, "98110", "00101", "0", "0001", "0000"
+            ),
+            Ok(standard_pnu_from_hub_register_codes(
+                "98110", "00101", "0", "0001", "0000"
+            ))
+        );
+        // 매핑된 코드를 자리표시자로 함께 선언하면 만들 때 거부한다.
+        assert_eq!(
+            seed_crosswalk()?.with_placeholders(["99240".to_owned()]),
+            Err(SigunguCrosswalkError::PlaceholderIsMapped(
+                "99240".to_owned()
+            ))
+        );
         Ok(())
     }
 
@@ -444,18 +579,20 @@ mod tests {
     }
 
     #[test]
-    fn crosswalk_never_fabricates_pnu_for_block_or_unknown_daeji() {
-        let crosswalk = seed_crosswalk();
+    fn crosswalk_never_fabricates_pnu_for_block_or_unknown_daeji(
+    ) -> Result<(), SigunguCrosswalkError> {
+        let crosswalk = seed_crosswalk()?;
         // 매핑 대상 시군구여도 블록(2)·미지 대지구분은 여전히 None (ADR 0023)
         for daeji in ["2", "", "3", "9", "-"] {
             assert_eq!(
                 standard_pnu_from_hub_register_codes_via(
-                    &crosswalk, "12240", "00901", daeji, "0529", "0000"
+                    &crosswalk, "99240", "00901", daeji, "0529", "0000"
                 ),
                 Ok(None),
                 "daeji={daeji}"
             );
         }
+        Ok(())
     }
 
     #[test]
@@ -463,9 +600,9 @@ mod tests {
         let identity = SigunguCrosswalk::identity();
         assert!(identity.is_empty());
         for (sigungu, bjdong, daeji, bon, bu) in [
-            ("99999", "01101", "0", "0734", "0000"),
-            ("12240", "01101", "0", "0734", "0000"),
-            ("26110", "00101", "0", "8", "16"),
+            ("99999", "01101", "0", "0001", "0000"),
+            ("99240", "01101", "0", "0001", "0000"),
+            ("98110", "00101", "0", "8", "16"),
             ("99999", "00901", "2", "0529", "0000"),
         ] {
             assert_eq!(
@@ -484,8 +621,8 @@ mod tests {
     fn hub_register_parcel_key_keeps_raw_hub_composition() {
         // 내부 조인 전용 키: 허브 코드 그대로 (PNU 아님)
         assert_eq!(
-            hub_register_parcel_key("99999", "01101", "0", "0734", "0000"),
-            "9999901101007340000"
+            hub_register_parcel_key("99999", "01101", "0", "0001", "0000"),
+            "9999901101000010000"
         );
         assert_eq!(
             hub_register_parcel_key("99999", "00901", "2", "0529", "0000"),

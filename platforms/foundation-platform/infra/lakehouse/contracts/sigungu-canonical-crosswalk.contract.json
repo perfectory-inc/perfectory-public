@@ -3,6 +3,19 @@
   "version": 1,
   "canonical_authority": "mois:getStanReginCdList",
   "as_of": "20260912",
+  "placeholder_sigungu": {
+    "$comment": "Codes the HUB register feed writes where a row has no real 시군구 (ADR-0142). They name no parcel, so composition yields a NULL pnu for them instead of an orphan PNU, and every export counts them in its summary. Measured by scanning the 2026-09 title and unit Bronze for 시군구 codes outside the cadastral parcel set's 시도.",
+    "codes": [
+      "99999",
+      "99990",
+      "0"
+    ],
+    "provenance": "measured:hub-bronze-scan:2026-10"
+  },
+  "absent_sido_row_bound": {
+    "$comment": "An export refuses when the rows of one 시도 prefix that is neither in the cadastral parcel set (vworld-parcel-source-objects.json) nor governed above exceed this bound (ADR-0142). Such rows compose PNUs no parcel carries, which no NULL-share check sees. The 2026-09 Bronze held one stray row of that kind; the smallest real 시도 has 39,178 title rows and the 2026-07 merged 시도 brought 928,891.",
+    "rows": 10000
+  },
   "sido": [
     {
       "current_code": "12",

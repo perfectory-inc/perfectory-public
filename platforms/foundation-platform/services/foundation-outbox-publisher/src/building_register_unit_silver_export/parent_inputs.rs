@@ -1,7 +1,9 @@
 use super::*;
 use crate::building_register_snapshot::validate_object_name;
+use foundation_outbox_publisher::sigungu_crosswalk::hub_sido_tally;
+use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::{
-    parse_building_register_unit_source_row_from_hub_bulk_text_line, BuildingRegisterBasisIndex,
+    parse_building_register_unit_source_row_from_hub_bulk_text_line_via, BuildingRegisterBasisIndex,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -20,11 +22,17 @@ pub(super) struct ParentInputs {
     pub titles: BuildingTitleKeyIndex,
     pub basis: BuildingRegisterBasisIndex,
     pub evidence: Vec<SourceEvidence>,
+    /// Rows by 시도 against the cadastral parcel set, judged in the pre-pass (ADR-0142).
+    pub sigungu_sido: serde_json::Value,
     paths: Vec<PathBuf>,
 }
 
 impl ParentInputs {
-    pub fn load(config: &UnitExportConfig) -> anyhow::Result<Self> {
+    /// Pins and hashes the three Bronze inputs, indexes the parents, and parses every unit line
+    /// with the export's own `crosswalk`, so a refusal (an unmapped merged 시군구, or too many rows
+    /// under a 시도 the cadastre does not carry) stops the export before any writer can create or
+    /// truncate output.
+    pub fn load(config: &UnitExportConfig, crosswalk: &SigunguCrosswalk) -> anyhow::Result<Self> {
         let specs = [
             (
                 "unit",
@@ -91,21 +99,29 @@ impl ParentInputs {
             Ok(())
         })?;
         // Validate the complete source before any writer can create/truncate output.
-        // Reuse the source parser; this pass retains no unit rows in memory.
+        // Reuse the export's parser and crosswalk; this pass retains no unit rows in memory.
+        let mut sido_tally = hub_sido_tally()?;
         decode_zip_lines(&paths[0], None, |line, line_number| {
-            parse_building_register_unit_source_row_from_hub_bulk_text_line(
+            let record = parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
+                crosswalk,
                 line,
                 &evidence[0].bronze_object_key,
                 line_number,
-            )?;
+            )
+            .with_context(|| {
+                format!("failed to parse building-register unit line {line_number}")
+            })?;
+            sido_tally.observe(&record.register_parcel_key);
             Ok(())
         })?;
+        let sigungu_sido = sido_tally.finish()?;
         Ok(Self {
             unit_path: paths[0].clone(),
             unit_key: evidence[0].bronze_object_key.clone(),
             titles,
             basis,
             evidence,
+            sigungu_sido,
             paths,
         })
     }

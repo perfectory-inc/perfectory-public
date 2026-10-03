@@ -12,7 +12,8 @@ mod parquet_row_writer;
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
-use foundation_outbox_publisher::sigungu_crosswalk::hub_sigungu_crosswalk;
+use foundation_outbox_publisher::sigungu_crosswalk::{hub_sido_tally, hub_sigungu_crosswalk};
+use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::{
     building_register_unit_area_silver_row_to_jsonl,
     normalize_building_register_unit_area_silver_rows,
@@ -72,9 +73,16 @@ pub fn run() -> anyhow::Result<()> {
 }
 
 fn export_handoff(config: &UnitAreaExportConfig) -> anyhow::Result<UnitAreaExportReport> {
+    export_handoff_via(config, &hub_sigungu_crosswalk()?)
+}
+
+fn export_handoff_via(
+    config: &UnitAreaExportConfig,
+    sigungu_crosswalk: &SigunguCrosswalk,
+) -> anyhow::Result<UnitAreaExportReport> {
     let object_path = locate_source_object(config)?;
     let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
-    let sigungu_crosswalk = hub_sigungu_crosswalk()?;
+    let mut sido_tally = hub_sido_tally()?;
 
     let mut output_writer =
         SilverRowWriter::new(&config.output_path, config.chunk_rows, config.output_format)?;
@@ -86,12 +94,13 @@ fn export_handoff(config: &UnitAreaExportConfig) -> anyhow::Result<UnitAreaExpor
 
     decode_zip_lines(&object_path, config.max_rows, |line, line_number| {
         let record = parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via(
-            &sigungu_crosswalk,
+            sigungu_crosswalk,
             line,
             &bronze_object_key,
             line_number,
         )
         .with_context(|| format!("failed to parse 전유공용면적 line {line_number}"))?;
+        sido_tally.observe(&record.register_parcel_key);
         let rows = normalize_building_register_unit_area_silver_rows(
             &BuildingRegisterUnitAreaSilverRowsInput {
                 records: std::slice::from_ref(&record),
@@ -120,6 +129,7 @@ fn export_handoff(config: &UnitAreaExportConfig) -> anyhow::Result<UnitAreaExpor
     output_writer
         .flush()
         .context("failed to flush 전유공용면적 Silver handoff")?;
+    let sido = sido_tally.finish()?;
 
     if let Some(summary_path) = &config.summary_path {
         write_summary(
@@ -129,6 +139,7 @@ fn export_handoff(config: &UnitAreaExportConfig) -> anyhow::Result<UnitAreaExpor
             accepted_count,
             &reason_counts,
             &area_kind_counts,
+            &sido,
             summary_path,
         )?;
     }
@@ -315,6 +326,7 @@ fn write_summary(
     accepted_count: u64,
     reason_counts: &BTreeMap<String, u64>,
     area_kind_counts: &BTreeMap<String, u64>,
+    sido: &serde_json::Value,
     summary_path: &Path,
 ) -> anyhow::Result<()> {
     let proposal_count = row_count as u64 - accepted_count;
@@ -339,6 +351,7 @@ fn write_summary(
             "proposal_required_count": proposal_count,
             "reason_counts": reason_counts,
             "area_kind_counts": area_kind_counts,
+            "sigungu_sido": sido,
         },
         "evidence_limitations": [
             "local_bronze_to_silver_handoff_only",
@@ -703,18 +716,21 @@ mod tests {
             .join("building_register_unit_areas_parquet");
         let summary_path = root.join("summary").join("unit-area-summary.json");
 
-        let report = export_handoff(&UnitAreaExportConfig {
-            bronze_local_object_root: root.clone(),
-            source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
-            source_object: None,
-            output_path: output_dir.clone(),
-            summary_path: Some(summary_path.clone()),
-            source_snapshot_id: "synthetic-building-register-unit-area-20991231".to_owned(),
-            valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
-            max_rows: None,
-            output_format: OutputFormat::Parquet,
-            chunk_rows: Some(2),
-        })?;
+        let report = export_handoff_via(
+            &UnitAreaExportConfig {
+                bronze_local_object_root: root.clone(),
+                source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
+                source_object: None,
+                output_path: output_dir.clone(),
+                summary_path: Some(summary_path.clone()),
+                source_snapshot_id: "synthetic-building-register-unit-area-20991231".to_owned(),
+                valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
+                max_rows: None,
+                output_format: OutputFormat::Parquet,
+                chunk_rows: Some(2),
+            },
+            &SigunguCrosswalk::identity(),
+        )?;
 
         assert_eq!(report.row_count, 3);
         assert_eq!(report.accepted_count, 2);

@@ -1147,7 +1147,7 @@
         "normalization_status_in_allowed_values",
         "main_or_annex_kind_in_allowed_values",
         "row_checksum_sha256_valid",
-        "ordinary_land_pnu_null_share_increase <= 0.001"
+        "ordinary_land_pnu_null_share <= 0.0005 and increase <= 0.001"
       ],
       "load": {
         "unit": "run",
@@ -1504,7 +1504,7 @@
         "proposal_required_rows_preserved",
         "building_link_method_in_allowed_values",
         "row_checksum_sha256_valid",
-        "ordinary_land_pnu_null_share_increase <= 0.001"
+        "ordinary_land_pnu_null_share <= 0.0005 and increase <= 0.001"
       ],
       "load": {
         "unit": "run",
@@ -1694,7 +1694,7 @@
         "normalization_status_in_allowed_values",
         "proposal_required_rows_preserved",
         "row_checksum_sha256_valid",
-        "ordinary_land_pnu_null_share_increase <= 0.001"
+        "ordinary_land_pnu_null_share <= 0.0005 and increase <= 0.001"
       ],
       "load": {
         "unit": "run",

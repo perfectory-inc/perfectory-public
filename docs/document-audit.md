@@ -160,7 +160,7 @@
 | `docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md` | Monorepo | ADR | accepted | korean | ok | 3 |
 | `docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
-| `docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |

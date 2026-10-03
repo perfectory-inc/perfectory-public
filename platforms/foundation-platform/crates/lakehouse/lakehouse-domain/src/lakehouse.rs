@@ -1953,12 +1953,16 @@ pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTab
 /// Quality gate shared by the hub-register Silver tables keyed by `register_parcel_key`.
 ///
 /// A load is refused when the PNU NULL share among ordinary-land rows (대지구분 `0`, which always
-/// has a standard PNU) rises more than this above the table's current snapshot; the Spark loader
-/// reads the number from here (`pnu_null_share_guard.py`). The 2026-09-27 title snapshot lost all
-/// of 시도 12 and jumped from one in a million to 0.116. 0.001 still catches the smallest 12xxx
-/// 시군구 on its own (about 0.2% of the title table's ordinary-land rows).
+/// has a standard PNU) exceeds the ceiling, or rises more than the increase bound above the
+/// table's current snapshot; the Spark loader reads both numbers from here
+/// (`pnu_null_share_guard.py`). The 2026-09-27 title snapshot lost all of 시도 12 and jumped from
+/// one in a million to 0.116. The rise alone would ratchet onto that snapshot while it is current,
+/// so the ceiling holds on its own. The corrected title reload, with the hub placeholder codes
+/// composing NULL, measures 967 of 7,939,750 (1.2e-4), four times under 0.0005; the smallest
+/// 12xxx 시군구 alone is about 0.2% of the title table's ordinary-land rows, four times over it
+/// (ADR-0142).
 pub const ORDINARY_LAND_PNU_NULL_SHARE_GATE: &str =
-    "ordinary_land_pnu_null_share_increase <= 0.001";
+    "ordinary_land_pnu_null_share <= 0.0005 and increase <= 0.001";
 
 /// Canonical Silver table for official building-register title (표제부) rows.
 ///

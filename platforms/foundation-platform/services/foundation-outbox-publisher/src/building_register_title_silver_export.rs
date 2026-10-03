@@ -26,7 +26,8 @@ use std::{
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
-use foundation_outbox_publisher::sigungu_crosswalk::hub_sigungu_crosswalk;
+use foundation_outbox_publisher::sigungu_crosswalk::{hub_sido_tally, hub_sigungu_crosswalk};
+use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::building_register_title_silver_plan::{
     building_register_title_silver_row_to_jsonl, normalize_building_register_title_silver_rows,
     parse_building_register_title_source_row_from_hub_bulk_text_line_via,
@@ -89,6 +90,13 @@ struct TitleExportReport {
 }
 
 fn export_handoff(config: &TitleExportConfig) -> anyhow::Result<TitleExportReport> {
+    export_handoff_via(config, &hub_sigungu_crosswalk()?)
+}
+
+fn export_handoff_via(
+    config: &TitleExportConfig,
+    sigungu_crosswalk: &SigunguCrosswalk,
+) -> anyhow::Result<TitleExportReport> {
     let object_path = locate_zip_object(
         &config.bronze_local_object_root,
         &config.source_slug,
@@ -113,15 +121,16 @@ fn export_handoff(config: &TitleExportConfig) -> anyhow::Result<TitleExportRepor
     let mut approval_year_present = 0u64;
     let mut pnu_present = 0u64;
 
-    let sigungu_crosswalk = hub_sigungu_crosswalk()?;
+    let mut sido_tally = hub_sido_tally()?;
     decode_zip_lines(&object_path, config.max_rows, |line, line_number| {
         let record = parse_building_register_title_source_row_from_hub_bulk_text_line_via(
-            &sigungu_crosswalk,
+            sigungu_crosswalk,
             line,
             &bronze_object_key,
             line_number,
         )
         .with_context(|| format!("failed to parse building-register title line {line_number}"))?;
+        sido_tally.observe(&record.register_parcel_key);
         let rows =
             normalize_building_register_title_silver_rows(&BuildingRegisterTitleSilverRowsInput {
                 records: std::slice::from_ref(&record),
@@ -163,6 +172,7 @@ fn export_handoff(config: &TitleExportConfig) -> anyhow::Result<TitleExportRepor
     if row_count == 0 {
         bail!("the title snapshot yielded no rows, which is not a state this dataset has");
     }
+    let sido = sido_tally.finish()?;
 
     if let Some(summary_path) = &config.summary_path {
         write_summary(
@@ -174,6 +184,7 @@ fn export_handoff(config: &TitleExportConfig) -> anyhow::Result<TitleExportRepor
             floor_area_present,
             approval_year_present,
             pnu_present,
+            &sido,
             summary_path,
         )?;
     }
@@ -193,6 +204,7 @@ fn write_summary(
     floor_area_present: u64,
     approval_year_present: u64,
     pnu_present: u64,
+    sido: &serde_json::Value,
     summary_path: &Path,
 ) -> anyhow::Result<()> {
     // Reported whether or not they fired: `unknown: 0` and `unknown` absent are different claims.
@@ -215,6 +227,7 @@ fn write_summary(
         "floor_area_present_count": floor_area_present,
         "approval_year_present_count": approval_year_present,
         "pnu_present_count": pnu_present,
+        "sigungu_sido": sido,
     });
     let bytes = serde_json::to_vec(&summary).context("failed to serialize the title summary")?;
     if let Some(parent) = summary_path.parent() {
@@ -356,6 +369,21 @@ mod tests {
         assert_eq!(summary["main_or_annex_kind_counts"]["main"], 2);
         // Reported even at zero: absent and zero are different claims.
         assert_eq!(summary["main_or_annex_kind_counts"]["unknown"], 0);
+        // The real seed declares the reserved 99999 a hub placeholder (ADR-0142): no PNU, counted.
+        assert_eq!(summary["pnu_present_count"], 0);
+        assert_eq!(summary["sigungu_sido"]["placeholder_rows"]["99999"], 2);
+
+        // Composition itself, apart from the placeholder: the identity crosswalk composes both.
+        export_handoff_via(
+            &config(&temp.0, out.as_path(), summary_path.as_path()),
+            &SigunguCrosswalk::identity(),
+        )
+        .unwrap_or_else(|error| panic!("export: {error:#}"));
+        let summary: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(summary_path.as_path())
+                .unwrap_or_else(|error| panic!("read summary: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("summary json: {error}"));
         assert_eq!(summary["pnu_present_count"], 2);
     }
 

@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import time
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,7 +44,7 @@ from platform_contracts import (
     column_names,
     columns,
     create_table_columns_sql,
-    declared_ordinary_land_pnu_null_share_tolerance,
+    declared_ordinary_land_pnu_null_share_bounds,
     load_lakehouse_contract,
     load_unit,
     partition_clause_sql,
@@ -961,22 +962,25 @@ def enforce_ordinary_land_pnu_null_share(
     contract: dict[str, Any],
     F: Any,
 ) -> dict[str, Any] | None:
-    """Refuses the load before any write when the contract's PNU NULL-share tolerance is exceeded.
+    """Refuses the load before any write when the contract's PNU NULL-share bounds are broken.
 
     The baseline is the target table as readers see it now. Runs under `--validate-only` too,
-    so a dry run reports the same verdict the real load would reach.
+    so a dry run reports the same verdict the real load would reach. The printed outcome carries
+    the guard's own wall time, since in a batched load it is an extra full read of the input.
     """
-    tolerance = declared_ordinary_land_pnu_null_share_tolerance(contract)
-    if tolerance is None:
+    bounds = declared_ordinary_land_pnu_null_share_bounds(contract)
+    if bounds is None:
         return None
+    started = time.monotonic()
     table = qualified_iceberg_table(args) if args.write_mode == "iceberg" else str(args.output)
     baseline = (
         pnu_null_share_guard.table_baseline(spark, table, F)
         if args.write_mode == "iceberg" else None
     )
     outcome = pnu_null_share_guard.decide(
-        pnu_null_share_guard.measure(candidate, F), baseline, tolerance, table
+        pnu_null_share_guard.measure(candidate, F), baseline, bounds, table
     )
+    outcome["elapsed_seconds"] = round(time.monotonic() - started, 1)
     print(f"silver-scalar-handoff-pnu-null-share {json.dumps(outcome, sort_keys=True)}")
     return outcome
 
@@ -990,7 +994,7 @@ def run_batched_input(
     StorageLevel: Any,
 ) -> int:
     batches = collect_input_batches(args.input, args.input_file_batch_size, args.input_format)
-    if declared_ordinary_land_pnu_null_share_tolerance(contract) is not None:
+    if declared_ordinary_land_pnu_null_share_bounds(contract) is not None:
         # The guard judges the whole load, so it reads every batch before the first one writes.
         whole = read_handoff(
             spark, [path for batch in batches for path in batch], contract, args.input_format, T

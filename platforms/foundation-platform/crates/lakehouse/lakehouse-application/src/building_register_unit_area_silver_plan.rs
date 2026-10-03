@@ -59,8 +59,11 @@ pub struct BuildingRegisterUnitAreaSourceRow {
     pub register_kind_name_raw: String,
     /// Raw 대장종류명 (`전유부` / `표제부`).
     pub register_type_name_raw: String,
-    /// Standard 19-digit PNU (대지구분 1/2); `None` for block parcels (ADR 0023).
+    /// Standard 19-digit PNU (대지구분 1/2); `None` for block parcels (ADR 0023) and for rows
+    /// whose 시군구 is a declared hub placeholder (ADR-0142).
     pub pnu: Option<String>,
+    /// Whether the raw 시군구 code is a declared hub placeholder, which composes no PNU.
+    pub sigungu_is_placeholder: bool,
     /// Register-internal parcel key (hub-native composition; not a PNU).
     pub register_parcel_key: String,
     /// Raw 동명칭.
@@ -260,6 +263,7 @@ pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via(
                 "line {one_based_line_number}: {error}"
             ))
         })?,
+        sigungu_is_placeholder: sigungu_crosswalk.is_placeholder(fields[SIGUNGU_CODE_INDEX]),
         register_parcel_key: hub_register_parcel_key(
             fields[SIGUNGU_CODE_INDEX],
             fields[BEOPJEONGDONG_CODE_INDEX],
@@ -409,7 +413,11 @@ fn build_area_silver_row(
         ingested_at_utc: input.ingested_at_utc,
         row_checksum_sha256: String::new(),
     };
-    validate_pnu_block_invariant(row.pnu.as_deref(), &row.register_parcel_key)?;
+    validate_pnu_block_invariant(
+        row.pnu.as_deref(),
+        &row.register_parcel_key,
+        record.sigungu_is_placeholder,
+    )?;
     row.row_checksum_sha256 = row_checksum(&row)?;
     Ok(row)
 }
