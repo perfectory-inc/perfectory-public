@@ -25,8 +25,11 @@ cleanup() {
 trap cleanup EXIT
 
 # -q (first) ignores ~/.curlrc. No --netrc/--user/Authorization: the read is anonymous.
+# Proxy and CA variables are dropped so the caller's shell cannot redirect or re-root the read.
 set +e
-status="$(curl -q --proto '=https' --tlsv1.2 --silent --show-error \
+status="$(env -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy \
+  -u CURL_CA_BUNDLE -u SSL_CERT_FILE -u SSL_CERT_DIR -u CURL_HOME \
+  curl -q --proto '=https' --tlsv1.2 --silent --show-error \
   --connect-timeout 10 --max-time 30 --max-redirs 0 \
   --header 'Accept: application/vnd.github+json' \
   --header 'X-GitHub-Api-Version: 2022-11-28' \

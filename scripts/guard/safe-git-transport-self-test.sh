@@ -168,30 +168,43 @@ helper_bin="$test_root/helper-bin"
 mkdir -p "$helper_bin"
 cat >"$helper_bin/gh" <<'SH'
 #!/usr/bin/env bash
-printf '%s
-' "$*" >>"$FAKE_GH_CALLS"
+printf '%s\n' "$*" >>"$FAKE_GH_CALLS"
 SH
 chmod +x "$helper_bin/gh"
-credential_request=$'protocol=https
-host=github.com
-path=perfectory-inc/perfectory-public.git
-
-'
+credential_request=$'protocol=https\nhost=github.com\npath=perfectory-inc/perfectory-public.git\n\n'
 gh_calls="$test_root/gh.calls"
-printf '%s' "$credential_request" | PATH="$helper_bin:$PATH" FAKE_GH_CALLS="$gh_calls"   "$transport" --no-repository credential fill >/dev/null 2>&1 || true
+printf '%s' "$credential_request" | PATH="$helper_bin:$PATH" FAKE_GH_CALLS="$gh_calls" \
+  "$transport" --no-repository credential fill >/dev/null 2>&1 || true
 if ! grep -Fq 'auth git-credential get' "$gh_calls" 2>/dev/null; then
   echo "FAIL safe-git-transport-self-test: default mode no longer reaches the gh credential helper" >&2
   exit 1
 fi
 rm -f -- "$gh_calls"
-printf '%s' "$credential_request" | PATH="$helper_bin:$PATH" FAKE_GH_CALLS="$gh_calls"   "$transport" --anonymous --no-repository credential fill >/dev/null 2>&1 || true
+printf '%s' "$credential_request" | PATH="$helper_bin:$PATH" FAKE_GH_CALLS="$gh_calls" \
+  "$transport" --anonymous --no-repository credential fill >/dev/null 2>&1 || true
 if [ -e "$gh_calls" ]; then
   echo "FAIL safe-git-transport-self-test: anonymous mode invoked a credential helper" >&2
   exit 1
 fi
-anonymous_helpers="$(PATH="$helper_bin:$PATH"   "$transport" --anonymous --no-repository config --get-all credential.helper || true)"
+anonymous_helpers="$(PATH="$helper_bin:$PATH" \
+  "$transport" --anonymous --no-repository config --get-all credential.helper || true)"
 if [ -n "$anonymous_helpers" ]; then
   echo "FAIL safe-git-transport-self-test: anonymous mode configured a credential helper" >&2
+  exit 1
+fi
+
+# Git reads $HOME/.netrc even with no helper; anonymous mode must not hand it the caller's HOME.
+home_bin="$test_root/home-bin"
+mkdir -p "$home_bin"
+cat >"$home_bin/git" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$HOME"
+SH
+chmod +x "$home_bin/git"
+anonymous_home="$(PATH="$home_bin:$PATH" HOME="$test_root" \
+  "$transport" --anonymous --no-repository version 2>/dev/null || true)"
+if [ "$anonymous_home" != /dev/null ]; then
+  echo "FAIL safe-git-transport-self-test: anonymous mode kept a HOME that can hold a .netrc" >&2
   exit 1
 fi
 

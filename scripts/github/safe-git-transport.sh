@@ -82,6 +82,11 @@ clean_environment+=(
   GIT_NO_REPLACE_OBJECTS=1
   GIT_TERMINAL_PROMPT=0
 )
+# Git's HTTP client reads $HOME/.netrc whatever the helper list says, so an
+# anonymous read gets a HOME that cannot hold one (ADR-0136 invariant 1).
+if [ "$anonymous" -eq 1 ]; then
+  clean_environment+=(XDG_CONFIG_HOME= HOME=/dev/null)
+fi
 if [ -n "$trusted_index_file" ]; then
   if [ "$repository_mode" != repository ]; then
     echo "FAIL safe-git-transport: a trusted index requires repository mode" >&2
