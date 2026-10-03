@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **482개**
-- 언어 분류: **{'english': 37, 'korean': 288, 'mixed': 157}**
+- 감사 문서: **483개**
+- 언어 분류: **{'english': 37, 'korean': 289, 'mixed': 157}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 81개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **226개 정상 / 0개 누락 / 256개 해당 없음**
+- 메타데이터: **227개 정상 / 0개 누락 / 256개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -155,8 +155,9 @@
 | `docs/adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md` | Monorepo | ADR | accepted | korean | ok | 2 |
 | `docs/adr/0132-release-activation-preserves-enabled-job-identities.md` | Monorepo | ADR | accepted | korean | ok | 2 |
 | `docs/adr/0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md` | Monorepo | ADR | accepted | korean | ok | 7 |
+| `docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md` | Monorepo | ADR | accepted | korean | ok | 8 |
 | `docs/adr/0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md` | Monorepo | ADR | accepted | korean | ok | 3 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

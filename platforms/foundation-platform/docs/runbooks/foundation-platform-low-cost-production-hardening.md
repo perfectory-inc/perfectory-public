@@ -129,7 +129,7 @@ publisher와 Spark JAR을 Buildx로 빌드해 `/opt/foundation-platform/artifact
 파일별 sha256을 봉인). 운영자 설정은 `/opt/foundation-platform/config/<sha>/`에 둔다. 릴리스 안에는 어떤
 파일도 추가하지 않는다 — 추가 파일·쓰기 가능·변조된 릴리스는 활성화·롤백·실행 전 검사에서 거부된다.
 
-선행 조건(root의 `gh auth`, root의 HTTPS fetch, Docker Buildx), 기존 배치에서의 1회 전환, 비상 절차는
+선행 조건(root의 자격증명 없는 공개 identity 조회와 HTTPS fetch — `gh` 불필요, ADR-0136 — 그리고 Docker Buildx), 기존 배치에서의 1회 전환, 비상 절차는
 [lakehouse-compute-engines 런북의 "릴리스 인증 전환"](./lakehouse-compute-engines.md#릴리스-인증-전환-1회)이
 정본이다. sudo는 아래 제어 경로 하나만 허용한다(`foundation-release.sh deployer-access <계정>`).
 

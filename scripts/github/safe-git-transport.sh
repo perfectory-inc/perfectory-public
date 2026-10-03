@@ -2,14 +2,23 @@
 # Run a Git transport with no system/global/injected Git configuration. This
 # prevents url.* rewrites (and object/config environment injection) from sending
 # an audited tree to a target other than the literal URL/path in the command.
+#
+# --anonymous runs with no credential helper at all: a public HTTPS read (the
+# release admission fetch, ADR-0136) must neither need nor consult `gh`.
+# Without it, GitHub publication commands use `gh auth git-credential`.
 set -euo pipefail
 
 repository=""
 repository_mode=""
 trusted_commit_identity=0
 trusted_index_file=""
+anonymous=0
 while :; do
   case "${1:-}" in
+    --anonymous)
+      anonymous=1
+      shift
+      ;;
     --trusted-commit-identity)
       trusted_commit_identity=1
       shift
@@ -73,6 +82,11 @@ clean_environment+=(
   GIT_NO_REPLACE_OBJECTS=1
   GIT_TERMINAL_PROMPT=0
 )
+# Git's HTTP client reads $HOME/.netrc whatever the helper list says, so an
+# anonymous read gets a HOME that cannot hold one (ADR-0136 invariant 1).
+if [ "$anonymous" -eq 1 ]; then
+  clean_environment+=(XDG_CONFIG_HOME= HOME=/dev/null)
+fi
 if [ -n "$trusted_index_file" ]; then
   if [ "$repository_mode" != repository ]; then
     echo "FAIL safe-git-transport: a trusted index requires repository mode" >&2
@@ -122,12 +136,16 @@ if [ "$trusted_commit_identity" -eq 1 ]; then
     exit 2
   fi
 fi
+# An empty credential.helper resets the list; anonymous mode adds nothing after it.
+credential_helpers=(-c credential.helper=)
+if [ "$anonymous" -eq 0 ]; then
+  credential_helpers+=(-c 'credential.helper=!gh auth git-credential')
+fi
 safe_git=(
   "${clean_environment[@]}"
   git
   --no-pager
-  -c credential.helper=
-  -c 'credential.helper=!gh auth git-credential'
+  "${credential_helpers[@]}"
   -c core.hooksPath=/dev/null
   -c core.fsmonitor=false
   -c core.untrackedCache=false

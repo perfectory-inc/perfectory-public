@@ -5,9 +5,10 @@ Installed in the independently administered, root-owned monorepo control checkou
 /opt/perfectory-control/current. Never run a candidate archive's verifier with production
 authority. Repository identity and Git transport remain the root publication SSOT (ADR-0134).
 
-Host preconditions (root ADR-0134 §5) fail here with their names, not as a generic error:
-root's `gh` must answer the public repository identity, root's Git must fetch canonical main
-over HTTPS, and Docker must provide Buildx's docker-container driver.
+Host preconditions (root ADR-0134 §5, ADR-0136) fail here with their names, not as a generic
+error: root must read the public repository identity from api.github.com without credentials,
+root's Git must fetch canonical main over HTTPS without a credential helper, and Docker must
+provide Buildx's docker-container driver.
 """
 
 from __future__ import annotations
@@ -154,8 +155,8 @@ def verify_release(expected, release_id: str, target: Path, owner: int = 0) -> N
 
 
 def control_environment() -> dict[str, str]:
-    # The host administrator supplies GitHub's ordinary read credentials if needed. No runtime
-    # token, caller PATH, Python import path, Git override or dynamic-loader injection survives.
+    # The canonical repository is public: identity and main are read anonymously (ADR-0136).
+    # No token, caller PATH, Python import path, Git override or dynamic-loader injection survives.
     result = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": "/root"}
     return result
 
@@ -386,7 +387,8 @@ class CanonicalSource:
 
     def git(self, *args: str) -> bytes:
         return subprocess.check_output(
-            ["/bin/bash", str(self.transport), "--repository", str(SOURCE_CACHE), *args],
+            # --anonymous: no credential helper; a public HTTPS fetch must not depend on gh.
+            ["/bin/bash", str(self.transport), "--anonymous", "--repository", str(SOURCE_CACHE), *args],
             env=control_environment(), stderr=subprocess.PIPE,
         )
 
@@ -397,15 +399,16 @@ class CanonicalSource:
                 ["/bin/bash", str(self.identity_reader)], env=control_environment(), stderr=subprocess.PIPE,
             ))
         except subprocess.CalledProcessError as error:
-            raise ValueError("host precondition: root's gh cannot read the public repository identity "
-                             "(gh auth login as root, ADR-0134 §5)") from error
+            raise ValueError("host precondition: root cannot read the public repository identity from "
+                             "https://api.github.com without credentials (ADR-0136)") from error
         if actual != expected:
             raise ValueError("live canonical repository identity differs from the root identity policy")
         SOURCE_CACHE.parent.mkdir(parents=True, exist_ok=True)
         protected_path(SOURCE_CACHE.parent)
         if not SOURCE_CACHE.exists():
             subprocess.run(
-                ["/bin/bash", str(self.transport), "--no-repository", "init", "--bare", str(SOURCE_CACHE)],
+                ["/bin/bash", str(self.transport), "--anonymous", "--no-repository", "init", "--bare",
+                 str(SOURCE_CACHE)],
                 check=True, env=control_environment(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
         self.check_cache()
@@ -414,7 +417,8 @@ class CanonicalSource:
             self.git("fetch", "--no-tags", "https://" + expected["hostname"] + "/" + expected["full_name"] + ".git",
                      "+refs/heads/main:refs/heads/main")
         except subprocess.CalledProcessError as error:
-            raise ValueError("host precondition: root cannot fetch canonical main over HTTPS (ADR-0134 §5)") from error
+            raise ValueError("host precondition: root cannot fetch canonical main over HTTPS without "
+                             "credentials (ADR-0134 §5, ADR-0136)") from error
 
     def check_cache(self) -> None:
         protected_path(SOURCE_CACHE)

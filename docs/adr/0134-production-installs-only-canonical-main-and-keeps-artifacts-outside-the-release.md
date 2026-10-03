@@ -228,3 +228,10 @@ compose 프로젝트로 재기동 → `activate` → `migrate` → `timers` → 
 - [systemd.unit drop-ins for template units](https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html)
 - [sudoers command matching](https://www.sudo.ws/docs/man/sudoers.man/)
 - [Docker container build driver resource limits](https://docs.docker.com/build/builders/drivers/docker-container/)
+
+## 개정 기록
+
+- 2026-10-03: §5 표의 "root의 `gh` 인증" 조건은
+  [ADR-0136](./0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md)이
+  대체했다. identity는 공개 REST API에서 자격증명 없이 읽고, 인증 fetch는 credential helper 없이 돈다.
+  위 결정 본문은 고치지 않았다.
