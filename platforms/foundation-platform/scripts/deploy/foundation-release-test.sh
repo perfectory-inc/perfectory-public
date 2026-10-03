@@ -171,7 +171,7 @@ case "$*" in
     if [[ -f "${REHEARSAL_IMAGES}/$5" ]]; then
       cat "${REHEARSAL_IMAGES}/$5"
     else
-      cat "${REHEARSAL_IMAGES}"/* 2>/dev/null | grep -m1 "^$5 " || exit 1
+      grep -hs "^$5 " "${REHEARSAL_IMAGES}"/* || exit 1
     fi ;;
   "image rm "*) rm "${REHEARSAL_IMAGES}/$3" 2>/dev/null || { echo "No such image: $3" >&2; exit 1; } ;;
   *) exit 1 ;;
