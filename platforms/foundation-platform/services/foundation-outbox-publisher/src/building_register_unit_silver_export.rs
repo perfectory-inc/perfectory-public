@@ -19,6 +19,7 @@ use chrono::{DateTime, Utc};
 use foundation_normalization_application::ActiveBuildingRegisterUnitOverrideReader;
 use foundation_normalization_infrastructure::PgActiveBuildingRegisterUnitOverrideReader;
 use foundation_outbox_publisher::sigungu_crosswalk::hub_sigungu_crosswalk;
+use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::{
     building_register_unit_silver_override_from_application_snapshot,
     building_register_unit_silver_row_to_jsonl,
@@ -134,13 +135,19 @@ async fn load_active_unit_overrides(
 }
 
 fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport> {
+    export_handoff_via(config, &hub_sigungu_crosswalk()?)
+}
+
+fn export_handoff_via(
+    config: &UnitExportConfig,
+    sigungu_crosswalk: &SigunguCrosswalk,
+) -> anyhow::Result<UnitExportReport> {
     if config.source_snapshot_id.trim().is_empty() {
         bail!("source_snapshot_id must not be empty");
     }
-    let inputs = ParentInputs::load(config)?;
+    let inputs = ParentInputs::load(config, sigungu_crosswalk)?;
     let object_path = &inputs.unit_path;
     let bronze_object_key = &inputs.unit_key;
-    let sigungu_crosswalk = hub_sigungu_crosswalk()?;
     let building_keys = &inputs.titles;
     let active_overrides =
         BuildingRegisterUnitSilverOverrideIndex::new(&config.active_overrides)
@@ -158,7 +165,7 @@ fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport>
 
     decode_zip_lines(object_path, config.max_rows, |line, line_number| {
         let record = parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
-            &sigungu_crosswalk,
+            sigungu_crosswalk,
             line,
             bronze_object_key,
             line_number,
@@ -472,6 +479,7 @@ fn write_summary(
             "building_link_method_counts": link_counts.methods,
             "building_link_reason_counts": link_counts.reasons,
             "null_pnu_row_count": link_counts.null_pnu_rows,
+            "sigungu_sido": inputs.sigungu_sido,
         },
         "evidence_limitations": [
             "local_bronze_to_silver_handoff_only",
@@ -830,23 +838,26 @@ mod tests {
             .join("building_register_units_parquet");
 
         parent_key_tests::stage_empty_references(&root)?;
-        let report = export_handoff(&UnitExportConfig {
-            bronze_local_object_root: root.clone(),
-            source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
-            source_object: None,
-            title_source_slug: Some(DEFAULT_TITLE_SOURCE_SLUG.to_owned()),
-            title_source_object: None,
-            basis_source_slug: DEFAULT_BASIS_SOURCE_SLUG.to_owned(),
-            basis_source_object: None,
-            output_path: output_dir.clone(),
-            summary_path: None,
-            source_snapshot_id: "hubgokr-building-register-unit-20260420".to_owned(),
-            valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
-            max_rows: None,
-            output_format: OutputFormat::Parquet,
-            chunk_rows: Some(1),
-            active_overrides: Vec::new(),
-        })?;
+        let report = export_handoff_via(
+            &UnitExportConfig {
+                bronze_local_object_root: root.clone(),
+                source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
+                source_object: None,
+                title_source_slug: Some(DEFAULT_TITLE_SOURCE_SLUG.to_owned()),
+                title_source_object: None,
+                basis_source_slug: DEFAULT_BASIS_SOURCE_SLUG.to_owned(),
+                basis_source_object: None,
+                output_path: output_dir.clone(),
+                summary_path: None,
+                source_snapshot_id: "hubgokr-building-register-unit-20260420".to_owned(),
+                valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
+                max_rows: None,
+                output_format: OutputFormat::Parquet,
+                chunk_rows: Some(1),
+                active_overrides: Vec::new(),
+            },
+            &SigunguCrosswalk::identity(),
+        )?;
 
         assert_eq!(report.row_count, 2);
         assert_eq!(report.accepted_count, 1);

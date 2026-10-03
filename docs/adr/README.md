@@ -166,3 +166,5 @@ last_reviewed: 2026-07-28
 - [ADR-0139 — 필지·건물 패널 Gold 는 Silver 입력이 바뀌면 등록 작업이 다시 만든다](./0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md)
 
 - [ADR-0141 — by-PNU 서빙은 바뀐 문서만 패치 세대로 쌓는다](./0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md)
+
+- [ADR-0142 — 허브 대장의 PNU 손실은 조립에서 이름으로 거부하고, 적재에서 비율로 거부한다](./0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md)

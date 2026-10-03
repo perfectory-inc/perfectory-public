@@ -1,7 +1,7 @@
 //! Silver normalization helpers for official building-register unit (전유부 호) rows.
 
 use crate::building_register_row_identity::row_identity;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use foundation_normalization_domain::{
     building_register_unit_parent_binding, normalize_building_register_unit,
@@ -12,7 +12,7 @@ use crate::building_register_basis::{BuildingRegisterBasisIndex, BuildingRegiste
 use crate::building_register_title::BuildingTitleKeyIndex;
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::pnu::{
-    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via,
+    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via, SigunguCrosswalk,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
@@ -39,8 +39,11 @@ pub struct BuildingRegisterUnitSourceRow {
     pub source_record_id: String,
     /// Provider unit management primary key (호 레벨, 표제부와 별도 체계).
     pub mgm_bldrgst_pk: String,
-    /// Standard 19-digit PNU (대지구분 1/2); `None` for block parcels (ADR 0023).
+    /// Standard 19-digit PNU (대지구분 1/2); `None` for block parcels (ADR 0023) and for rows
+    /// whose 시군구 is a declared hub placeholder (ADR-0142).
     pub pnu: Option<String>,
+    /// Whether the raw 시군구 code is a declared hub placeholder, which composes no PNU.
+    pub sigungu_is_placeholder: bool,
     /// Register-internal parcel key (hub-native composition; not a PNU).
     pub register_parcel_key: String,
     /// Raw 동명칭.
@@ -251,7 +254,7 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line(
     one_based_line_number: u64,
 ) -> Result<BuildingRegisterUnitSourceRow, BuildingRegisterUnitSilverPlanError> {
     parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
-        &HashMap::new(),
+        &SigunguCrosswalk::identity(),
         line,
         bronze_object_key,
         one_based_line_number,
@@ -267,10 +270,8 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line(
 /// # Errors
 /// Returns `BuildingRegisterUnitSilverPlanError` when lineage is invalid, the line has fewer
 /// fields than the official 전유부 columns require, or the management key is empty.
-pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via<
-    S: std::hash::BuildHasher,
->(
-    sigungu_crosswalk: &HashMap<String, String, S>,
+pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
+    sigungu_crosswalk: &SigunguCrosswalk,
     line: &str,
     bronze_object_key: &str,
     one_based_line_number: u64,
@@ -311,7 +312,13 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via<
             fields[DAEJI_KIND_INDEX],
             fields[BONBEON_INDEX],
             fields[BUBEON_INDEX],
-        ),
+        )
+        .map_err(|error| {
+            BuildingRegisterUnitSilverPlanError::InvalidInput(format!(
+                "line {one_based_line_number}: {error}"
+            ))
+        })?,
+        sigungu_is_placeholder: sigungu_crosswalk.is_placeholder(fields[SIGUNGU_CODE_INDEX]),
         register_parcel_key: hub_register_parcel_key(
             fields[SIGUNGU_CODE_INDEX],
             fields[BEOPJEONGDONG_CODE_INDEX],
@@ -593,20 +600,27 @@ fn build_silver_row(
         ingested_at_utc: input.ingested_at_utc,
         row_checksum_sha256: String::new(),
     };
-    validate_pnu_block_invariant(row.pnu.as_deref(), &row.register_parcel_key)?;
+    validate_pnu_block_invariant(
+        row.pnu.as_deref(),
+        &row.register_parcel_key,
+        record.sigungu_is_placeholder,
+    )?;
     row.row_checksum_sha256 = row_checksum(&row)?;
     Ok(row)
 }
 
 /// ADR 0023 재유입 차단 불변식: 표준 `pnu`가 없는 행은 블록 필지(내부 키의
 /// 대지구분 자리가 `2`)뿐이어야 하고, 블록 필지는 표준 `pnu`를 가질 수 없다.
-/// 조립 함수 드리프트를 소스에서 시끄럽게 잡는다. 전유부·전유공용면적 plan 공용.
+/// 예외는 하나다: 시군구가 선언된 허브 자리표시자인 행은 대지구분과 무관하게 `pnu` 가
+/// 없어야 한다(ADR-0142). 조립 함수 드리프트를 소스에서 시끄럽게 잡는다.
+/// 전유부·전유공용면적 plan 공용.
 pub(crate) fn validate_pnu_block_invariant(
     pnu: Option<&str>,
     register_parcel_key: &str,
+    sigungu_is_placeholder: bool,
 ) -> Result<(), BuildingRegisterUnitSilverPlanError> {
     let is_block = register_parcel_key.as_bytes().get(10) == Some(&b'2');
-    if pnu.is_none() == is_block {
+    if pnu.is_none() == (is_block || sigungu_is_placeholder) {
         return Ok(());
     }
     Err(BuildingRegisterUnitSilverPlanError::InvalidInput(format!(
@@ -859,17 +873,29 @@ mod tests {
     fn pnu_block_invariant_rejects_drift() {
         // 불변식: pnu 빈값 ⟺ 내부 키 대지구분 '2'(블록). 조립이 한쪽만 바뀌는
         // 미래 드리프트를 소스에서 시끄럽게 잡는다 (ADR 0023 재유입 차단).
-        assert!(
-            validate_pnu_block_invariant(Some("9999900401100890004"), "9999900401000890004")
-                .is_ok()
-        );
-        assert!(validate_pnu_block_invariant(None, "9999900901205290000").is_ok());
+        assert!(validate_pnu_block_invariant(
+            Some("9999900401100890004"),
+            "9999900401000890004",
+            false
+        )
+        .is_ok());
+        assert!(validate_pnu_block_invariant(None, "9999900901205290000", false).is_ok());
         // 블록인데 pnu가 있음 / 블록이 아닌데 pnu가 없음 — 둘 다 거부.
-        assert!(
-            validate_pnu_block_invariant(Some("9999900901205290000"), "9999900901205290000")
-                .is_err()
-        );
-        assert!(validate_pnu_block_invariant(None, "9999900401000890004").is_err());
+        assert!(validate_pnu_block_invariant(
+            Some("9999900901205290000"),
+            "9999900901205290000",
+            false
+        )
+        .is_err());
+        assert!(validate_pnu_block_invariant(None, "9999900401000890004", false).is_err());
+        // 자리표시자 시군구(ADR-0142): 대지여도 pnu 가 없어야 하고, 있으면 거부.
+        assert!(validate_pnu_block_invariant(None, "9999900401000890004", true).is_ok());
+        assert!(validate_pnu_block_invariant(
+            Some("9999900401100890004"),
+            "9999900401000890004",
+            true
+        )
+        .is_err());
     }
 
     #[test]

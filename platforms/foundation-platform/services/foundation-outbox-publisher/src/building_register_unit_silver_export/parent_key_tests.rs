@@ -372,7 +372,10 @@ fn required_reference_inputs_fail_before_output_is_created() -> anyhow::Result<(
 #[test]
 fn input_mutation_is_detected_and_next_run_gets_a_different_digest() -> anyhow::Result<()> {
     let config = fixture("foundation-parent-key-input-mutation", valid_basis())?;
-    let inputs = ParentInputs::load(&config)?;
+    let inputs = ParentInputs::load(
+        &config,
+        &foundation_shared_kernel::pnu::SigunguCrosswalk::identity(),
+    )?;
     let original_digest = inputs.basis.input_sha256().to_owned();
     let path = config.bronze_local_object_root.join(format!(
         "bronze/source={DEFAULT_BASIS_SOURCE_SLUG}/OPN209912310000000003.zip"
@@ -381,7 +384,10 @@ fn input_mutation_is_detected_and_next_run_gets_a_different_digest() -> anyhow::
     changed.push(basis_line("another-unit", "building-a", "4"));
     write_zip_file(&path, "mart_djy_01.txt", changed.join("\n").as_bytes())?;
     assert!(inputs.verify_unchanged().is_err());
-    let reloaded = ParentInputs::load(&config)?;
+    let reloaded = ParentInputs::load(
+        &config,
+        &foundation_shared_kernel::pnu::SigunguCrosswalk::identity(),
+    )?;
     assert_ne!(original_digest, reloaded.basis.input_sha256());
     reloaded.verify_unchanged()?;
     fs::remove_dir_all(config.bronze_local_object_root)?;
@@ -566,6 +572,28 @@ fn missing_child_basis_cannot_link_a_unit_to_itself_by_name() -> anyhow::Result<
     let row = exported_row(&config)?;
     assert!(row["building_mgm_bldrgst_pk"].is_null());
     assert_eq!(row["building_link_reason"], "basis_unit_missing");
+    fs::remove_dir_all(config.bronze_local_object_root)?;
+    Ok(())
+}
+
+#[test]
+fn an_unmapped_merged_code_is_refused_before_any_output_exists() -> anyhow::Result<()> {
+    // 심은 위반: 통합 시도 99 를 다스리는 크로스워크에 99999 의 짝이 없다. 사전 검증이 실물
+    // 크로스워크로 돌므로, 거부는 출력 파일이 생기거나 비워지기 전에 난다.
+    let config = fixture("foundation-unit-unmapped-merged", valid_basis())?;
+    let crosswalk = foundation_shared_kernel::pnu::SigunguCrosswalk::new(
+        std::collections::HashMap::new(),
+        ["99".to_owned()],
+    )?;
+    let error = export_handoff_via(&config, &crosswalk)
+        .err()
+        .context("an unmapped merged code must stop the export")?;
+    assert!(format!("{error:#}").contains("99999"), "{error:#}");
+    assert!(!config.output_path.exists(), "the refusal left a handoff");
+    assert!(
+        !config.summary_path.as_ref().context("summary")?.exists(),
+        "the refusal left a summary"
+    );
     fs::remove_dir_all(config.bronze_local_object_root)?;
     Ok(())
 }

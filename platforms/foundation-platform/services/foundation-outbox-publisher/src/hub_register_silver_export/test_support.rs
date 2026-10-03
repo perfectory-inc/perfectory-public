@@ -16,10 +16,21 @@ impl Seek for Fragmented {
     }
 }
 
+/// Converts with the identity crosswalk: fixtures use the reserved synthetic 시군구 99999, which
+/// the real seed declares a hub placeholder (ADR-0142), so composition is tested apart from it.
 pub(super) fn convert_fixture(
+    zip: Vec<u8>,
+    layout: Layout,
+    rows_per_part: u64,
+) -> anyhow::Result<Value> {
+    convert_fixture_via(zip, layout, rows_per_part, &SigunguCrosswalk::identity())
+}
+
+pub(super) fn convert_fixture_via(
     zip: Vec<u8>,
     mut layout: Layout,
     rows_per_part: u64,
+    sigungu_crosswalk: &SigunguCrosswalk,
 ) -> anyhow::Result<Value> {
     let temp = std::env::temp_dir().join(format!("hub-price-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&temp)?;
@@ -34,13 +45,12 @@ pub(super) fn convert_fixture(
             source_snapshot_id: "SYNTHETIC-test".into(),
             summary_path: Some(temp.join("summary.json")),
         };
-        let sigungu_crosswalk = crate::sigungu_crosswalk::hub_sigungu_crosswalk()?;
         let runtime = tokio::runtime::Builder::new_current_thread().build()?;
         let result = convert(
             Fragmented(Cursor::new(zip)),
             &config,
             &layout,
-            &sigungu_crosswalk,
+            sigungu_crosswalk,
             |output| {
                 runtime.block_on(open_sink(
                     &OutputSink::LocalPath(temp.join(output_name(output))),

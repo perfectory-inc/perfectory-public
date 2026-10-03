@@ -215,7 +215,10 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # the sample a bake compared is part of the binary that compared it.
 # 111 -> 110: root ADR-0141 reads both by-PNU gateway blocks through one module
 # (by_pnu_gateway_contract.rs) instead of one embedding of the R2 contract per lane.
-COMPILE_TIME_READ_BASELINE="${3:-110}"
+# 110 -> 111: root ADR-0142's 시도 tally embeds vworld-parcel-source-objects.json beside the
+# 시군구 crosswalk seed: the cadastral 시도 set a hub export was judged against is part of the
+# binary that judged it, and the parcel source contract is that set's only record.
+COMPILE_TIME_READ_BASELINE="${3:-111}"
 
 cd "$repo_root"
 

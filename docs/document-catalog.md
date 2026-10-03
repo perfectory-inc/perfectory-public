@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **488개**
+- 문서 파일: **489개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 166 |
+| Monorepo | 167 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 224 |
+| ADR | 225 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -528,6 +528,7 @@ docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md
 docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md
 docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md
 docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md
+docs/adr/0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -706,6 +707,7 @@ tools/github/README.md
 | `docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

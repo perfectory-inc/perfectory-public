@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,49 @@ def declared_geometry_srid(contract: dict[str, Any]) -> int:
             f"'geometry_srid = <n>' quality gate; found {len(matches)}"
         )
     return matches[0]
+
+
+_FRACTION = r"(0(?:\.\d+)?|1(?:\.0+)?)"
+ORDINARY_LAND_PNU_NULL_SHARE_GATE = re.compile(
+    rf"^ordinary_land_pnu_null_share\s*<=\s*{_FRACTION}\s+and\s+increase\s*<=\s*{_FRACTION}$"
+)
+
+
+@dataclass(frozen=True)
+class OrdinaryLandPnuNullShareBounds:
+    """The two bounds a hub-register load must meet: the share itself, and its rise."""
+
+    ceiling: float
+    increase: float
+
+
+def declared_ordinary_land_pnu_null_share_bounds(
+    contract: dict[str, Any],
+) -> OrdinaryLandPnuNullShareBounds | None:
+    """The ordinary-land PNU NULL-share bounds a load must meet, or None if undeclared.
+
+    Declared on hub-register tables as one gate,
+    `ordinary_land_pnu_null_share <= <ceiling> and increase <= <rise>`;
+    `pnu_null_share_guard` enforces both against the candidate and the table's current snapshot.
+    """
+
+    gates = contract.get("quality_gates")
+    if not isinstance(gates, list):
+        raise ValueError(f"lakehouse contract {contract.get('table_name')} has no quality_gates")
+    declared = [gate for gate in gates if isinstance(gate, str)
+                and gate.strip().startswith("ordinary_land_pnu_null_share")]
+    if not declared:
+        return None
+    matches = [ORDINARY_LAND_PNU_NULL_SHARE_GATE.fullmatch(gate.strip()) for gate in declared]
+    if len(declared) != 1 or matches[0] is None:
+        raise ValueError(
+            f"lakehouse contract {contract.get('table_name')} must declare at most one "
+            "'ordinary_land_pnu_null_share <= <fraction> and increase <= <fraction>' gate "
+            f"(fractions in [0, 1]); got {declared}"
+        )
+    return OrdinaryLandPnuNullShareBounds(
+        ceiling=float(matches[0].group(1)), increase=float(matches[0].group(2))
+    )
 
 
 def column_names(contract: dict[str, Any]) -> tuple[str, ...]:

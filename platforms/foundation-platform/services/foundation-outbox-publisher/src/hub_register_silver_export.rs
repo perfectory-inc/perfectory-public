@@ -10,7 +10,6 @@ mod test_support;
 mod zip_stream;
 
 use std::{
-    collections::HashMap,
     io::{BufRead, BufReader, Read, Seek, Write},
     path::PathBuf,
 };
@@ -19,7 +18,10 @@ use anyhow::{ensure, Context};
 use chrono::Utc;
 use flate2::{write::GzEncoder, Compression, Crc};
 use foundation_outbox::R2ObjectStorage;
-use foundation_shared_kernel::{pnu::standard_pnu_from_hub_register_codes_via, Pnu};
+use foundation_shared_kernel::{
+    pnu::{standard_pnu_from_hub_register_codes_via, SigunguCrosswalk},
+    Pnu,
+};
 use serde::Serialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -227,7 +229,7 @@ fn convert<R: Read + Seek>(
     source: R,
     config: &Config,
     layout: &Layout,
-    sigungu_crosswalk: &HashMap<String, String>,
+    sigungu_crosswalk: &SigunguCrosswalk,
     mut open: impl FnMut(&OutputSink) -> anyhow::Result<HandoffSink>,
 ) -> anyhow::Result<Report> {
     layout.validate()?;
@@ -348,7 +350,7 @@ fn valid_width(
 fn make_row(
     layout: &Layout,
     config: &Config,
-    sigungu_crosswalk: &HashMap<String, String>,
+    sigungu_crosswalk: &SigunguCrosswalk,
     fields: &[&str],
     line_number: u64,
     part_key: &str,
@@ -375,7 +377,7 @@ fn make_row(
 
 fn compose_pnu(
     layout: &Layout,
-    sigungu_crosswalk: &HashMap<String, String>,
+    sigungu_crosswalk: &SigunguCrosswalk,
     fields: &[&str],
 ) -> anyhow::Result<Option<String>> {
     let sigungu = layout.value(fields, "sigungu_cd")?.trim();
@@ -397,7 +399,7 @@ fn compose_pnu(
         layout.value(fields, "san_gubun")?,
         bon,
         bu,
-    )
+    )?
     .and_then(|value| Pnu::parse(value).ok())
     .map(String::from))
 }

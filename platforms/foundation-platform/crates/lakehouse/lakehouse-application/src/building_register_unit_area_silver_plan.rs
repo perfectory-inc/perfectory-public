@@ -13,11 +13,10 @@ use foundation_normalization_domain::{
     building_register_unit_designation, normalize_building_register_floor, RawBuildingRegisterFloor,
 };
 use foundation_shared_kernel::pnu::{
-    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via,
+    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via, SigunguCrosswalk,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 
 use crate::building_register_unit_silver_plan::{
     validate_pnu_block_invariant, BuildingRegisterUnitSilverPlanError,
@@ -60,8 +59,11 @@ pub struct BuildingRegisterUnitAreaSourceRow {
     pub register_kind_name_raw: String,
     /// Raw 대장종류명 (`전유부` / `표제부`).
     pub register_type_name_raw: String,
-    /// Standard 19-digit PNU (대지구분 1/2); `None` for block parcels (ADR 0023).
+    /// Standard 19-digit PNU (대지구분 1/2); `None` for block parcels (ADR 0023) and for rows
+    /// whose 시군구 is a declared hub placeholder (ADR-0142).
     pub pnu: Option<String>,
+    /// Whether the raw 시군구 code is a declared hub placeholder, which composes no PNU.
+    pub sigungu_is_placeholder: bool,
     /// Register-internal parcel key (hub-native composition; not a PNU).
     pub register_parcel_key: String,
     /// Raw 동명칭.
@@ -194,7 +196,7 @@ pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line(
     one_based_line_number: u64,
 ) -> Result<BuildingRegisterUnitAreaSourceRow, BuildingRegisterUnitSilverPlanError> {
     parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via(
-        &HashMap::new(),
+        &SigunguCrosswalk::identity(),
         line,
         bronze_object_key,
         one_based_line_number,
@@ -211,10 +213,8 @@ pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line(
 /// Returns `BuildingRegisterUnitSilverPlanError` when lineage is invalid, the
 /// line has fewer fields than the official 39 columns, or the management key is
 /// empty.
-pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via<
-    S: std::hash::BuildHasher,
->(
-    sigungu_crosswalk: &HashMap<String, String, S>,
+pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via(
+    sigungu_crosswalk: &SigunguCrosswalk,
     line: &str,
     bronze_object_key: &str,
     one_based_line_number: u64,
@@ -257,7 +257,13 @@ pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via<
             fields[DAEJI_KIND_INDEX],
             fields[BONBEON_INDEX],
             fields[BUBEON_INDEX],
-        ),
+        )
+        .map_err(|error| {
+            BuildingRegisterUnitSilverPlanError::InvalidInput(format!(
+                "line {one_based_line_number}: {error}"
+            ))
+        })?,
+        sigungu_is_placeholder: sigungu_crosswalk.is_placeholder(fields[SIGUNGU_CODE_INDEX]),
         register_parcel_key: hub_register_parcel_key(
             fields[SIGUNGU_CODE_INDEX],
             fields[BEOPJEONGDONG_CODE_INDEX],
@@ -407,7 +413,11 @@ fn build_area_silver_row(
         ingested_at_utc: input.ingested_at_utc,
         row_checksum_sha256: String::new(),
     };
-    validate_pnu_block_invariant(row.pnu.as_deref(), &row.register_parcel_key)?;
+    validate_pnu_block_invariant(
+        row.pnu.as_deref(),
+        &row.register_parcel_key,
+        record.sigungu_is_placeholder,
+    )?;
     row.row_checksum_sha256 = row_checksum(&row)?;
     Ok(row)
 }

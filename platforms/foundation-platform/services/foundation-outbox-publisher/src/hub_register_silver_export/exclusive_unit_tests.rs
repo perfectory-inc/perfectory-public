@@ -11,6 +11,19 @@ fn convert_text(text: &str, rows_per_part: u64) -> anyhow::Result<Value> {
 }
 
 #[test]
+fn the_seed_placeholder_composes_no_pnu() -> anyhow::Result<()> {
+    // 실물 씨앗은 99999 를 허브 자리표시자로 선언한다: 고아 PNU 대신 NULL, pnu_bad 로 센다.
+    let layout = crate::building_register_exclusive_unit_silver_export::layout()?;
+    let zip = test_support::fixture_named(&row("0"), &layout.inner_file)?;
+    let crosswalk = crate::sigungu_crosswalk::hub_sigungu_crosswalk()?;
+    let report = test_support::convert_fixture_via(zip, layout, 2, &crosswalk)?;
+    assert_eq!(report["pnu_ok"], 0);
+    assert_eq!(report["pnu_bad"], 1);
+    assert!(report["decoded_rows"][0]["pnu"].is_null());
+    Ok(())
+}
+
+#[test]
 fn exclusive_unit_stream_preserves_labels_raw_fields_and_invalid_pnus() -> anyhow::Result<()> {
     let text = format!(
         "{}\r\n{}\n{}\n{}",

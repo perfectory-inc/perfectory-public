@@ -162,6 +162,8 @@ schema:
         description: "proposal_required_rows_preserved"
       - type: "text"
         description: "row_checksum_sha256_valid"
+      - type: "text"
+        description: "ordinary_land_pnu_null_share <= 0.0005 and increase <= 0.001"
 customProperties:
   - property: "pipelineGraphNode"
     value: "silver-building-register-unit-areas"

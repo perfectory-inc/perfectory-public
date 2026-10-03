@@ -12,11 +12,10 @@
 
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::pnu::{
-    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via,
+    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via, SigunguCrosswalk,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::building_register_row_identity::row_identity;
@@ -207,7 +206,7 @@ pub fn parse_building_register_title_source_row_from_hub_bulk_text_line(
     one_based_line_number: u64,
 ) -> Result<BuildingRegisterTitleSourceRow, BuildingRegisterTitleSilverPlanError> {
     parse_building_register_title_source_row_from_hub_bulk_text_line_via(
-        &HashMap::new(),
+        &SigunguCrosswalk::identity(),
         line,
         bronze_object_key,
         one_based_line_number,
@@ -223,10 +222,8 @@ pub fn parse_building_register_title_source_row_from_hub_bulk_text_line(
 /// # Errors
 /// Returns an error when lineage is invalid, the line has fewer fields than the approval-date
 /// column requires, or the management key is empty.
-pub fn parse_building_register_title_source_row_from_hub_bulk_text_line_via<
-    S: std::hash::BuildHasher,
->(
-    sigungu_crosswalk: &HashMap<String, String, S>,
+pub fn parse_building_register_title_source_row_from_hub_bulk_text_line_via(
+    sigungu_crosswalk: &SigunguCrosswalk,
     line: &str,
     bronze_object_key: &str,
     one_based_line_number: u64,
@@ -267,7 +264,12 @@ pub fn parse_building_register_title_source_row_from_hub_bulk_text_line_via<
             fields[PNU_DAEJI_KIND_INDEX],
             fields[PNU_BONBEON_INDEX],
             fields[PNU_BUBEON_INDEX],
-        ),
+        )
+        .map_err(|error| {
+            BuildingRegisterTitleSilverPlanError::InvalidInput(format!(
+                "line {one_based_line_number}: {error}"
+            ))
+        })?,
         register_parcel_key: hub_register_parcel_key(
             fields[PNU_SIGUNGU_INDEX],
             fields[PNU_BEOPJEONGDONG_INDEX],
