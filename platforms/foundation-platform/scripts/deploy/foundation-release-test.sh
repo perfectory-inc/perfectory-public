@@ -34,8 +34,18 @@ git -C "${canonical}" config user.email 'release-rehearsal@example.invalid'
 # Production has no verifier-path or repository override. The real admission implementation
 # still compares real Git ancestry and every file; this is not a marker-accepting stub.
 release_script="${test_root}/foundation-release.sh"
-sed "s|^admission=.*|admission=\"${test_root}/admission\"|" \
+retention_contract="${test_root}/release-retention.contract.json"
+control_releases="${test_root}/opt/perfectory-control/releases"
+sed -e "s|^admission=.*|admission=\"${test_root}/admission\"|" \
+  -e "s|^retention_contract=.*|retention_contract=\"${retention_contract}\"|" \
+  -e "s|^control_releases_dir=.*|control_releases_dir=\"${control_releases}\"|" \
   "${repo_root}/scripts/deploy/foundation-release.sh" >"${release_script}"
+# Every activation ends with `prune`. The release flows below install fewer releases than this
+# keeps, so prune removes nothing there; its own section further down plants what it must remove.
+write_retention_contract() {
+  printf '{"emergency_release":"%s","keep_newest":%s}\n' "$1" "$2" >"${retention_contract}"
+}
+write_retention_contract "$(printf 'e%039d' 0)" 20
 chmod +x "${release_script}"
 cat >"${test_root}/admission" <<'ADMISSION'
 #!/usr/bin/env bash
@@ -146,15 +156,31 @@ build_source() {
 
 # A `docker` that reports what the rehearsal decided the database holds.
 mkdir -p "${test_root}/bin"
+# It also answers the few calls `prune` makes. Running containers are lines
+# `<id> /<name> <image id> <image ref> <mount source>...` in REHEARSAL_CONTAINERS; images are files
+# named `<repository>:<tag>` holding `<id> <size>` in REHEARSAL_IMAGES.
 cat >"${test_root}/bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "exec" ]]; then
-  cat "${REHEARSAL_APPLIED_FILE}"
-  exit 0
-fi
-exit 1
+case "$*" in
+  exec*) cat "${REHEARSAL_APPLIED_FILE}" ;;
+  "ps -q --no-trunc") cut -d' ' -f1 "${REHEARSAL_CONTAINERS}" ;;
+  "inspect --format "*)
+    shift 3
+    for id in "$@"; do grep "^${id} " "${REHEARSAL_CONTAINERS}" | cut -d' ' -f2-; done ;;
+  "image inspect --format "*)
+    if [[ -f "${REHEARSAL_IMAGES}/$5" ]]; then
+      cat "${REHEARSAL_IMAGES}/$5"
+    else
+      cat "${REHEARSAL_IMAGES}"/* 2>/dev/null | grep -m1 "^$5 " || exit 1
+    fi ;;
+  "image rm "*) rm "${REHEARSAL_IMAGES}/$3" 2>/dev/null || { echo "No such image: $3" >&2; exit 1; } ;;
+  *) exit 1 ;;
+esac
 DOCKER
 chmod +x "${test_root}/bin/docker"
+export REHEARSAL_CONTAINERS="${test_root}/containers.txt" REHEARSAL_IMAGES="${test_root}/images"
+: >"${REHEARSAL_CONTAINERS}"
+mkdir -p "${REHEARSAL_IMAGES}"
 printf '20260719000001\n20260719000002\n' >"${test_root}/applied.txt"
 export REHEARSAL_APPLIED_FILE="${test_root}/applied.txt"
 export PATH="${test_root}/bin:${PATH}"
@@ -803,6 +829,147 @@ if release_functions find_other_release_grants "${test_root}/sudoers.d/"* >/dev/
   exit 1
 fi
 printf 'sudoers-control-path-only=pass\n'
+
+# --- Retention: prune keeps what rollback and the emergency return need -------------------------
+# A host of its own, planted the way production looks: read-only releases, artifacts and config
+# per release, two image tags each. Ids are synthetic; `n` days old, so newest is smallest n.
+prune_root="${test_root}/prune/opt/foundation-platform"
+prune_id() { printf 'e%039d' "$1"; }
+plant_release() {
+  local id; id="$(prune_id "$1")"
+  mkdir -p "${prune_root}/releases/${id}/scripts" "${prune_root}/artifacts/${id}" "${prune_root}/config/${id}"
+  printf '%s\n' "${id}" >"${prune_root}/releases/${id}/.foundation-release-id"
+  head -c 65536 /dev/zero >"${prune_root}/artifacts/${id}/foundation-outbox-publisher"
+  printf '{"publisher_image":"sha256:p%s","tippecanoe_image":"sha256:t%s"}\n' "${id}" "${id}" \
+    >"${prune_root}/artifacts/${id}/build.json"
+  printf 'K=v\n' >"${prune_root}/config/${id}/building-register-floor.env"
+  printf 'sha256:p%s 1000\n' "${id}" >"${REHEARSAL_IMAGES}/foundation-outbox-publisher:${id}"
+  printf 'sha256:t%s 2000\n' "${id}" >"${REHEARSAL_IMAGES}/foundation-tippecanoe:${id}"
+  chmod -R a-w "${prune_root}/releases/${id}" "${prune_root}/artifacts/${id}"
+  touch -d "@$(( $(date +%s) - $1 * 86400 ))" \
+    "${prune_root}/releases/${id}" "${prune_root}/artifacts/${id}" "${prune_root}/config/${id}"
+}
+plant_control() {
+  local id; id="$(prune_id "$1")"
+  mkdir -p "${control_releases}/${id}/tools"
+  touch -d "@$(( $(date +%s) - $1 * 86400 ))" "${control_releases}/${id}"
+}
+gone() { [[ ! -e "${prune_root}/releases/$1" && ! -e "${prune_root}/artifacts/$1" &&
+            ! -e "${prune_root}/config/$1" && ! -e "${REHEARSAL_IMAGES}/foundation-outbox-publisher:$1" &&
+            ! -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" ]]; }
+present() { [[ -d "${prune_root}/releases/$1" && -d "${prune_root}/artifacts/$1" &&
+               -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" ]]; }
+expect() { "$@" || { printf 'prune rehearsal: expected: %s\n' "$*" >&2; return 1; }; }
+
+# Runs every retention case against one script; returns non-zero on the first broken expectation.
+prune_rehearsal() {
+  local script="$1" status sleeper n
+  [[ ! -e "${prune_root}" ]] || { chmod -R u+w "${prune_root}"; rm -rf "${prune_root}"; }
+  rm -rf "${control_releases%/releases}" "${REHEARSAL_IMAGES}"
+  mkdir -p "${REHEARSAL_IMAGES}"
+  : >"${REHEARSAL_CONTAINERS}"
+  # 1 newest .. 10 oldest. current=5, previous=8, emergency=10 (the oldest), newest three 1 2 3.
+  for n in 1 2 3 4 5 6 7 8 9 10; do plant_release "${n}"; done
+  # An artifacts directory whose release directory is already gone is still a release to remove.
+  chmod -R u+w "${prune_root}/releases/$(prune_id 9)"; rm -rf "${prune_root}/releases/$(prune_id 9)"
+  ln -s "releases/$(prune_id 5)" "${prune_root}/current"
+  ln -s "releases/$(prune_id 8)" "${prune_root}/previous"
+  write_retention_contract "$(prune_id 10)" 3
+  for n in 1 2 3 4 5; do plant_control "${n}"; done
+  ln -s "releases/$(prune_id 4)" "${control_releases%/releases}/current"
+  # Release 6 is held by a running process (a unit started from an older current), release 7 by a
+  # running container through the image ID its build recorded.
+  ( cd "${prune_root}/releases/$(prune_id 6)/scripts" && exec sleep 600 ) &
+  sleeper=$!
+  printf 'c7 /fixture-floor sha256:p%s sha256:p%s /srv/unrelated\n' "$(prune_id 7)" "$(prune_id 7)" \
+    >"${REHEARSAL_CONTAINERS}"
+  status=0
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune \
+    >"${test_root}/prune.log" 2>&1 || status=$?
+  kill "${sleeper}"; wait "${sleeper}" 2>/dev/null || true
+  expect [ "${status}" = 75 ] || return 1
+  for n in 1 2 3 5 8 10; do expect present "$(prune_id "${n}")" || return 1; done
+  expect gone "$(prune_id 4)" || return 1
+  expect gone "$(prune_id 9)" || return 1
+  expect present "$(prune_id 6)" || return 1
+  expect present "$(prune_id 7)" || return 1
+  expect grep -q "^prune refused $(prune_id 6): still referenced by process [0-9]* (sleep)" "${test_root}/prune.log" || return 1
+  expect grep -q "^prune refused $(prune_id 7): still referenced by container fixture-floor" "${test_root}/prune.log" || return 1
+  expect grep -qE '^prune-incomplete removed=3 refused=2 failed=0 freed_bytes=[1-9][0-9]* ' "${test_root}/prune.log" || return 1
+  # Control checkout: current (4) and the newest three (1 2 3) stay; 5 goes.
+  for n in 1 2 3 4; do expect test -d "${control_releases}/$(prune_id "${n}")" || return 1; done
+  expect test ! -e "${control_releases}/$(prune_id 5)" || return 1
+
+  # Once nothing holds them they go; and a host with no `previous` still prunes.
+  : >"${REHEARSAL_CONTAINERS}"
+  rm "${prune_root}/previous"
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >"${test_root}/prune.log" 2>&1 ||
+    { cat "${test_root}/prune.log" >&2; return 1; }
+  for n in 6 7 8; do expect gone "$(prune_id "${n}")" || return 1; done
+  for n in 1 2 3 5 10; do expect present "$(prune_id "${n}")" || return 1; done
+  expect grep -q '^prune-ok removed=3 refused=0 failed=0' "${test_root}/prune.log" || return 1
+
+  # Fail closed: no readable contract, or no Docker answer, removes nothing.
+  plant_release 11
+  printf '{"keep_newest":3}\n' >"${retention_contract}"
+  if FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >/dev/null 2>&1; then return 1; fi
+  write_retention_contract "$(prune_id 10)" 3
+  mkdir -p "${test_root}/broken-docker"
+  printf '#!/usr/bin/env bash\nexit 1\n' >"${test_root}/broken-docker/docker"
+  chmod +x "${test_root}/broken-docker/docker"
+  if PATH="${test_root}/broken-docker:${PATH}" FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" \
+    "${script}" prune >/dev/null 2>&1; then
+    return 1
+  fi
+  expect present "$(prune_id 11)" || return 1
+  return 0
+}
+prune_rehearsal "${release_script}" || { cat "${test_root}/prune.log" >&2; exit 1; }
+printf 'prune-retention=pass\n'
+
+# The emergency rule is what keeps the oldest release here: without it this rehearsal must fail.
+sed '/retention rule: the emergency return/d' "${release_script}" >"${test_root}/without-emergency.sh"
+chmod +x "${test_root}/without-emergency.sh"
+! cmp -s "${release_script}" "${test_root}/without-emergency.sh"
+if prune_rehearsal "${test_root}/without-emergency.sh" 2>/dev/null; then
+  printf 'prune rehearsal passed with the emergency-keep rule removed\n' >&2
+  exit 1
+fi
+printf 'prune-emergency-rule-mutation=refused\n'
+
+# The emergency release is named in the contract and nowhere else: a copy would be a second list
+# that the next change to the contract leaves behind.
+named_twice() {
+  grep -rlF --exclude-dir=.git --exclude-dir=target --exclude-dir=node_modules \
+    --exclude=release-retention.contract.json "$1" "$2"
+}
+real_contract="${repo_root}/../../tools/release-retention.contract.json"
+real_emergency="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["emergency_release"])' "${real_contract}")"
+if named_twice "${real_emergency}" "${repo_root}/../.."; then
+  printf 'the emergency release id is written outside %s (files above)\n' "${real_contract}" >&2
+  exit 1
+fi
+mkdir -p "${test_root}/copy-check/docs"
+printf 'old=%s\n' "${real_emergency}" >"${test_root}/copy-check/docs/runbook.md"
+if ! named_twice "${real_emergency}" "${test_root}/copy-check" >/dev/null; then
+  printf 'a planted copy of the emergency release id was not found\n' >&2
+  exit 1
+fi
+printf 'emergency-release-named-once=pass\n'
+
+# Activation prunes afterwards; a prune that fails does not fail or undo the activation.
+chmod -R u+w "${prune_root}"; rm -rf "${prune_root}" "${control_releases%/releases}"
+write_retention_contract "$(prune_id 0)" 20
+run_release activate "${candidate}" >"${test_root}/activate-prune.log" 2>&1
+grep -q '^prune-ok ' "${test_root}/activate-prune.log"
+run_release rollback
+assert_link "${release_root}/current" "releases/${guard_current}"
+printf 'not json\n' >"${retention_contract}"
+run_release activate "${candidate}" >"${test_root}/activate-prune.log" 2>&1
+assert_link "${release_root}/current" "releases/${candidate}"
+grep -q 'RELEASE PRUNE FAILED' "${test_root}/activate-prune.log"
+write_retention_contract "$(prune_id 0)" 20
+printf 'activate-survives-prune-failure=pass\n'
 
 # A modified active tree cannot install host units. The stand-in records any attempted host
 # mutation, so "failed later because the test user cannot write /etc" cannot masquerade as a gate.

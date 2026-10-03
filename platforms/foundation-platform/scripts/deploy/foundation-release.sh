@@ -8,6 +8,10 @@ admission="/opt/perfectory-control/current/scripts/deploy/foundation-release-adm
 # The one path sudo may run this script from (root ADR-0134 §2). A wildcard over release
 # directories also matches a release that was never admitted.
 control_release_script="/opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh"
+# What survives `prune` is read from the control checkout too, for the same reason: a release
+# cannot choose what survives it. The emergency release is named there and nowhere else.
+retention_contract="/opt/perfectory-control/current/tools/release-retention.contract.json"
+control_releases_dir="/opt/perfectory-control/releases"
 
 release_root="${FOUNDATION_PLATFORM_RELEASE_ROOT:-/opt/foundation-platform}"
 state_root="${FOUNDATION_PLATFORM_STATE_ROOT:-/var/lib/foundation-platform}"
@@ -29,6 +33,7 @@ usage:
   foundation-release.sh verify
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh rollback
+  foundation-release.sh prune
   foundation-release.sh deployer-access <account> [--exclusive]
   foundation-release.sh status
 USAGE
@@ -650,6 +655,287 @@ rollback_release() {
   atomic_link "${current_target}" "${release_root}/previous"
 }
 
+# Every deploy left about 0.9GB on the root disk — releases/<sha>, artifacts/<sha>, config/<sha>
+# and two image tags — and nothing ever took it back: 49 releases were kept, and on 2026-10-02 the
+# root disk filled to zero twice. This keeps what rollback and the emergency return need, the
+# newest few, and removes the rest. The control checkout's releases are pruned the same way.
+#
+# Fail closed: an unreadable contract, a `current` that is not a release link, or a Docker that
+# cannot list its containers removes nothing. A release a running process or container still
+# references is refused by name, not removed. Exit 75 when anything was refused.
+prune_releases() {
+  python3 - "${retention_contract}" "${release_root}" "${control_releases_dir}" <<'PY'
+import json, os, re, shutil, stat, subprocess, sys
+from pathlib import Path
+
+SHA = re.compile(r"[0-9a-f]{40}")
+contract_path, release_root, control_releases = map(Path, sys.argv[1:4])
+IMAGES = ("foundation-outbox-publisher", "foundation-tippecanoe")
+
+
+def refuse(message):
+    print(f"prune refused: {message}; nothing was removed", file=sys.stderr)
+    sys.exit(65)
+
+
+try:
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    emergency, keep_newest = contract["emergency_release"], contract["keep_newest"]
+except (OSError, ValueError, KeyError, TypeError) as error:
+    refuse(f"retention contract {contract_path} is unreadable: {error!r}")
+if not isinstance(emergency, str) or not SHA.fullmatch(emergency):
+    refuse(f"{contract_path}: emergency_release must be a 40-character Git SHA")
+if type(keep_newest) is not int or not 1 <= keep_newest <= 20:
+    refuse(f"{contract_path}: keep_newest must be an integer from 1 to 20")
+
+
+def link_release(link, required):
+    if not link.is_symlink():
+        if required or link.exists():
+            refuse(f"{link} is not a release link")
+        return None
+    match = re.fullmatch(r"releases/([0-9a-f]{40})", os.readlink(link))
+    if not match:
+        refuse(f"{link} does not point at releases/<sha>: {os.readlink(link)}")
+    return match[1]
+
+
+def ids_in(directory):
+    if not directory.is_dir():
+        return set()
+    return {entry.name for entry in directory.iterdir() if SHA.fullmatch(entry.name)}
+
+
+def disk_bytes(path):
+    total, seen = 0, set()
+    for root, _, files in os.walk(path):
+        for name in [root, *(os.path.join(root, file) for file in files)]:
+            info = os.lstat(name)
+            if (info.st_dev, info.st_ino) not in seen:
+                seen.add((info.st_dev, info.st_ino))
+                total += info.st_blocks * 512
+    return total
+
+
+def remove_tree(path):
+    """Admitted releases and artifacts are read-only; lift that only on what is being removed."""
+    if not path.exists() and not path.is_symlink():
+        return 0
+    if path.is_symlink() or not path.is_dir():
+        raise OSError(f"{path} is not a plain directory")
+    size = disk_bytes(path)
+    for root, _, _ in os.walk(path):
+        os.chmod(root, stat.S_IRWXU)
+    shutil.rmtree(path)
+    return size
+
+
+def docker(*args):
+    try:
+        return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as error:
+        return subprocess.CompletedProcess(args, 127, "", str(error))
+
+
+def image(reference):
+    """(id, size) of a local image, or None when Docker does not have it."""
+    found = docker("image", "inspect", "--format", "{{.Id}} {{.Size}}", reference)
+    if found.returncode != 0:
+        return None
+    image_id, size = found.stdout.split()
+    return image_id, int(size)
+
+
+def newest(ids, *roots):
+    def installed(release_id):
+        for root in roots:
+            path = root / release_id
+            if path.exists():
+                return path.lstat().st_mtime
+        return 0
+    return sorted(ids, key=lambda release_id: (installed(release_id), release_id), reverse=True)[:keep_newest]
+
+
+# What every running process holds: working directory, executable, root, open files, arguments and
+# environment. A unit started from an older `current` still runs out of that release's directory.
+def process_references():
+    held = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit() or int(pid) == os.getpid():
+            continue
+        base, strings = Path("/proc", pid), []
+        for name in ("cwd", "exe", "root"):
+            try:
+                strings.append(os.readlink(base / name))
+            except OSError:
+                pass
+        try:
+            for fd in os.listdir(base / "fd"):
+                try:
+                    strings.append(os.readlink(base / "fd" / fd))
+                except OSError:
+                    pass
+        except OSError:
+            pass
+        for name in ("cmdline", "environ"):
+            try:
+                strings.extend((base / name).read_bytes().decode("utf-8", "replace").split("\0"))
+            except OSError:
+                pass
+        try:
+            command = (base / "comm").read_text(encoding="utf-8").strip()
+        except OSError:
+            command = "?"
+        held.append((f"process {pid} ({command})", [value for value in strings if value]))
+    return held
+
+
+def container_references():
+    running = docker("ps", "-q", "--no-trunc")
+    if running.returncode != 0:
+        refuse(f"docker cannot list running containers: {running.stderr.strip()}")
+    ids = running.stdout.split()
+    if not ids:
+        return []
+    found = docker("inspect", "--format",
+                   "{{.Name}} {{.Image}} {{.Config.Image}}{{range .Mounts}} {{.Source}}{{end}}", *ids)
+    if found.returncode != 0:
+        refuse(f"docker cannot inspect running containers: {found.stderr.strip()}")
+    held = []
+    for line in found.stdout.splitlines():
+        fields = line.split()
+        if fields:
+            held.append((f"container {fields[0].lstrip('/')}", fields[1:]))
+    return held
+
+
+def holder(paths, images, held):
+    for who, strings in held:
+        for value in strings:
+            if value in images or any(path in value for path in paths):
+                return who
+    return None
+
+
+def release_images(release_id):
+    """Image IDs this release built: build.json's record, and whatever its tags point at now."""
+    ids = set()
+    try:
+        build = json.loads((release_root / "artifacts" / release_id / "build.json").read_text(encoding="utf-8"))
+        ids |= {value for key, value in build.items() if key.endswith("_image") and isinstance(value, str)}
+    except (OSError, ValueError):
+        pass
+    for name in IMAGES:
+        found = image(f"{name}:{release_id}")
+        if found:
+            ids.add(found[0])
+    return ids
+
+
+releases = release_root / "releases"
+current = link_release(release_root / "current", required=True)
+previous = link_release(release_root / "previous", required=False)
+present = ids_in(releases) | ids_in(release_root / "artifacts") | ids_in(release_root / "config")
+keep = {}
+keep[current] = "current"
+if previous:
+    keep.setdefault(previous, "previous")
+keep.setdefault(emergency, "emergency")  # retention rule: the emergency return's release
+for release_id in newest(present, releases, release_root / "artifacts", release_root / "config"):
+    keep.setdefault(release_id, "newest")
+
+control_current = None
+if control_releases.is_dir():
+    control_current = link_release(control_releases.parent / "current", required=True)
+control_present = ids_in(control_releases)
+control_keep = {}
+if control_current:
+    control_keep[control_current] = "current"
+for release_id in newest(control_present, control_releases):
+    control_keep.setdefault(release_id, "newest")
+
+held = process_references() + container_references()
+removed = refused = failed = 0
+freed = 0
+for release_id in sorted(present):
+    if release_id in keep:
+        print(f"prune kept {release_id} ({keep[release_id]})")
+        continue
+    paths = [str(root / release_id) for root in (releases, release_root / "artifacts", release_root / "config")]
+    images = release_images(release_id) | {f"{name}:{release_id}" for name in IMAGES}
+    who = holder(paths, images, held)
+    if who:
+        print(f"prune refused {release_id}: still referenced by {who}", file=sys.stderr)
+        refused += 1
+        continue
+    try:
+        sizes = {"release": remove_tree(releases / release_id),
+                 "artifacts": remove_tree(release_root / "artifacts" / release_id),
+                 "config": remove_tree(release_root / "config" / release_id),
+                 "images": 0}
+    except OSError as error:
+        print(f"prune failed {release_id}: {error}", file=sys.stderr)
+        failed += 1
+        continue
+    # The tag goes; the image goes with it unless another tag or any container still uses it,
+    # which Docker decides and reports.
+    for name in IMAGES:
+        tag = f"{name}:{release_id}"
+        found = image(tag)
+        if not found:
+            continue
+        gone = docker("image", "rm", tag)
+        if gone.returncode != 0:
+            print(f"prune kept image {tag}: {gone.stderr.strip()}", file=sys.stderr)
+        elif image(found[0]) is None:
+            sizes["images"] += found[1]
+    freed += sum(sizes.values())
+    removed += 1
+    print(f"prune removed {release_id} " + " ".join(f"{key}={value}" for key, value in sizes.items()))
+
+for release_id in sorted(control_present):
+    if release_id in control_keep:
+        print(f"prune kept control {release_id} ({control_keep[release_id]})")
+        continue
+    path = control_releases / release_id
+    who = holder([str(path)], set(), held)
+    if who:
+        print(f"prune refused control {release_id}: still referenced by {who}", file=sys.stderr)
+        refused += 1
+        continue
+    try:
+        size = remove_tree(path)
+    except OSError as error:
+        print(f"prune failed control {release_id}: {error}", file=sys.stderr)
+        failed += 1
+        continue
+    freed += size
+    removed += 1
+    print(f"prune removed control {release_id} release={size}")
+
+verdict = "prune-ok" if not refused and not failed else "prune-incomplete"
+print(f"{verdict} removed={removed} refused={refused} failed={failed} freed_bytes={freed} "
+      f"freed_gib={freed / 2**30:.2f}")
+sys.exit(0 if verdict == "prune-ok" else 75)
+PY
+}
+
+# Retention runs after the switch, never instead of it: a failed prune leaves the new release
+# active and the deploy succeeded, but it must not pass quietly, since the next deploys fill the
+# disk again (runbook: 릴리스 보존).
+prune_after_activation() {
+  local status=0
+  prune_releases || status=$?
+  [[ "${status}" == 0 ]] && return 0
+  printf '\n!!! RELEASE PRUNE FAILED (exit %s) after activating %s; the activation stands.\n' \
+    "${status}" "$1" >&2
+  printf '!!! Old releases are still on the root disk. Fix the cause above, then run: foundation-release.sh prune\n\n' >&2
+  if command -v logger >/dev/null 2>&1; then
+    logger -p user.err -t foundation-release "release prune failed (exit ${status}) after activating $1" || true
+  fi
+  return 0
+}
+
 verify_runtime_schema() {
   assert_current_release
   # Deploying source cannot move the schema: the migrations are compiled into the runtime image
@@ -769,6 +1055,7 @@ case "${command}" in
     mkdir -p "${releases_dir}" "${state_root}/recovery"
     prepare_mutable_state
     activate_release "$2"
+    prune_after_activation "$2"
     ;;
   migrate)
     [[ "$#" == 1 ]] || usage
@@ -861,6 +1148,10 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
   rollback)
     [[ "$#" == 1 ]] || usage
     rollback_release
+    ;;
+  prune)
+    [[ "$#" == 1 ]] || usage
+    prune_releases
     ;;
   deployer-access)
     [[ "$#" == 2 || "$#" == 3 ]] || usage
