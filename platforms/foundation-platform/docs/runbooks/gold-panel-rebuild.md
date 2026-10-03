@@ -89,6 +89,7 @@ Silver 적재(FLOOR·수동 적재·백필)        행을 바꾼 새 Silver 스�
 
 `building_panel_silver_to_gold.py --validate-only`, 현재 Silver 판, 20g 컨테이너, `local[8,8]`·driver 16g:
 1,946초(32분), 익명 메모리 최대 19,333,795,840 B, `memory.peak` 20GiB(상한, OOM 없음), 5,268,380행.
+같은 조건의 필지(`--no-carry-lineage`): 1,394초(23분), 익명 메모리 최대 19,367,006,208 B, 39,861,511행.
 행 손실 게이트는 이 판을 거부한다(현재 Gold 5,939,794행의 99% 미만): 표제부 09-27 판의 PNU 빈 행이
 965,150개로 늘어난 Silver 회귀 때문이다(ADR-0139 측정 절). 그 회귀를 고치기 전에는 4절 3단계가 `fewer than`
 으로 끝나는 것이 맞는 결과다.
