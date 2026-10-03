@@ -14,6 +14,8 @@ provide Buildx's docker-container driver.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import io
 import json
@@ -34,6 +36,11 @@ RELEASE_ROOT = Path("/opt/foundation-platform")
 ARTIFACT_ROOT = RELEASE_ROOT / "artifacts"
 BUILD_CONTRACT = CONTROL_ROOT / "tools/release-build.contract.json"
 JOB_SPECS = CONTROL_ROOT / "platforms/foundation-platform/orchestration/jobs.v1.json"
+# Held exclusively for the whole build; every registered job's ExecStartPre (verify-current) refuses
+# while it is held (ADR-0137). /run is root-owned tmpfs, so a reboot cannot leave it stale.
+BUILD_LOCK = Path("/run/foundation-platform-release-build.lock")
+# A oneshot job is "activating" for its whole run and never "active"; any state but these is running.
+STOPPED_STATES = {"inactive", "failed"}
 BUILDKIT_IMAGE = "moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3"
 SUBTREE = "platforms/foundation-platform"
 ID_FILE = ".foundation-release-id"
@@ -319,14 +326,37 @@ def require_no_registered_job_running() -> None:
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise ValueError(f"job specs {JOB_SPECS} are unreadable: {error}") from error
     try:
-        running = [unit for unit in units
-                   if subprocess.run(["/usr/bin/systemctl", "is-active", "--quiet", unit], env=control_environment(),
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0]
-    except OSError as error:
+        states = {unit: subprocess.run(["/usr/bin/systemctl", "show", "--property=ActiveState", "--value", unit],
+                                       env=control_environment(), check=True, capture_output=True,
+                                       text=True).stdout.strip() for unit in units}
+    except (OSError, subprocess.CalledProcessError) as error:
         raise ValueError("host precondition: systemctl cannot report the registered jobs (ADR-0137)") from error
+    running = [f"{unit} ({state or 'unknown'})" for unit, state in states.items() if state not in STOPPED_STATES]
     if running:
         raise ValueError("a registered job is running (" + ", ".join(running) + "); the release build is the host's "
                          "one-shot job, so pause the DAGs, wait for it to finish and run prepare again (ADR-0137)")
+
+
+@contextlib.contextmanager
+def release_build_lock():
+    """Exclusive while a release builds; taken before the job check, so no job can slip in after it."""
+    with open(BUILD_LOCK, "a", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ValueError("another release build is running (ADR-0137)") from error
+        yield
+
+
+def require_no_release_build() -> None:
+    """A registered job does not start while a release builds (ADR-0137); Airflow retries it later."""
+    if not BUILD_LOCK.exists():
+        return
+    with open(BUILD_LOCK, encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ValueError("a release build is running; this job starts after it finishes (ADR-0137)") from error
 
 
 def build_artifacts(target: Path) -> None:
@@ -337,7 +367,6 @@ def build_artifacts(target: Path) -> None:
         raise ValueError("release predates the admitted writer runtime; install a supported merged release")
     release_id = target.name
     limits = build_limits()
-    publisher, resolution = limits["publisher"], limits["dependency_resolver"]
     require_buildx()
     ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
     protected_path(ARTIFACT_ROOT)
@@ -345,7 +374,13 @@ def build_artifacts(target: Path) -> None:
     if destination.exists():
         verify_artifacts(release_id, destination)
         return
-    require_no_registered_job_running()
+    with release_build_lock():
+        require_no_registered_job_running()
+        build_locked(target, release_id, destination, limits)
+
+
+def build_locked(target: Path, release_id: str, destination: Path, limits) -> None:
+    publisher, resolution = limits["publisher"], limits["dependency_resolver"]
     build_environment = control_environment()
     def run(*args):
         return subprocess.check_output(list(args), cwd=target, env=build_environment, stderr=subprocess.PIPE)
@@ -505,6 +540,8 @@ def main() -> int:
             prepare_release(release_files(source.git, args.release_id), args.release_id, args.archive, args.target)
         else:
             source.check_cache()
+            if args.command == "verify-current":
+                require_no_release_build()
             target = current_release() if args.command == "verify-current" else args.target
             verify_release(release_files(source.git, target.name), target.name, target)
             if args.command == "build":

@@ -312,6 +312,7 @@ class ReleaseAdmissionTests(unittest.TestCase):
         with mock.patch.object(self.module, "ARTIFACT_ROOT", artifact_root), \
                 mock.patch.object(self.module, "require_buildx"), \
                 mock.patch.object(self.module, "require_no_registered_job_running"), \
+                mock.patch.object(self.module, "BUILD_LOCK", self.root / "release-build.lock"), \
                 mock.patch.object(self.module, "protected_path"), \
                 mock.patch.object(Path, "rename", autospec=True, side_effect=privileged_rename), \
                 mock.patch.object(self.module, "verify_artifacts", side_effect=lambda sha, path: real_verify(sha, path, os.getuid())), \
@@ -349,19 +350,38 @@ class ReleaseAdmissionTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "release build contract|must"):
                         self.module.build_limits()
 
+    def systemctl_fixture(self, states):
+        """Answers like systemd: a oneshot is `activating` for its whole run, and `is-active` is 0 only for `active`."""
+        def run(args, **kwargs):
+            unit = args[-1]
+            state = states.get(unit, "inactive")
+            if args[1] == "show":
+                self.assertEqual(args[2:4], ["--property=ActiveState", "--value"])
+                return subprocess.CompletedProcess(args, 0, stdout=state + "\n", stderr="")
+            if args[1:3] == ["is-active", "--quiet"]:
+                return subprocess.CompletedProcess(args, 0 if state == "active" else 3)
+            raise AssertionError(f"unexpected systemctl call {args}")
+        return run
+
     def test_the_build_does_not_start_beside_a_running_registered_job(self):
         specs = self.root / "jobs.v1.json"
         specs.write_text(json.dumps({"jobs": [{"systemd_service": "fixture-spark.service"},
                                               {"systemd_service": "fixture-fold@a.service"}]}))
-        active = {"fixture-spark.service"}
-        def is_active(args, **kwargs):
-            return subprocess.CompletedProcess(args, 0 if args[-1] in active else 3)
-        with mock.patch.object(self.module, "JOB_SPECS", specs), \
-                mock.patch.object(self.module.subprocess, "run", side_effect=is_active):
-            with self.assertRaisesRegex(ValueError, "fixture-spark.service"):
-                self.module.require_no_registered_job_running()
-            active.clear()
-            self.module.require_no_registered_job_running()
+        # A running oneshot job is `activating`, never `active`: the 2026-10-03 review found the
+        # first version of this check asked `is-active` and let a running FLOOR through.
+        for state in ("activating", "deactivating", "active", "reloading"):
+            with self.subTest(state=state):
+                with mock.patch.object(self.module, "JOB_SPECS", specs), \
+                        mock.patch.object(self.module.subprocess, "run",
+                                          side_effect=self.systemctl_fixture({"fixture-spark.service": state})):
+                    with self.assertRaisesRegex(ValueError, "fixture-spark.service"):
+                        self.module.require_no_registered_job_running()
+        for state in ("inactive", "failed"):
+            with self.subTest(state=state):
+                with mock.patch.object(self.module, "JOB_SPECS", specs), \
+                        mock.patch.object(self.module.subprocess, "run",
+                                          side_effect=self.systemctl_fixture({"fixture-spark.service": state})):
+                    self.module.require_no_registered_job_running()
 
     def test_prepare_refuses_to_build_while_a_registered_job_runs(self):
         self.install()
@@ -371,13 +391,45 @@ class ReleaseAdmissionTests(unittest.TestCase):
             raise AssertionError(f"started {args} beside a running job")
         with mock.patch.object(self.module, "ARTIFACT_ROOT", self.root / "artifacts"), \
                 mock.patch.object(self.module, "JOB_SPECS", specs), \
+                mock.patch.object(self.module, "BUILD_LOCK", self.root / "release-build.lock"), \
                 mock.patch.object(self.module, "require_buildx"), \
                 mock.patch.object(self.module, "protected_path"), \
                 mock.patch.object(self.module.subprocess, "run",
-                                  side_effect=lambda args, **kwargs: subprocess.CompletedProcess(args, 0)), \
+                                  side_effect=self.systemctl_fixture({"fixture-spark.service": "activating"})), \
                 mock.patch.object(self.module.subprocess, "check_output", side_effect=nothing_may_start):
             with self.assertRaisesRegex(ValueError, "fixture-spark.service"):
                 self.module.build_artifacts(self.target)
+
+    def test_a_job_cannot_start_while_a_release_builds(self):
+        lock = self.root / "release-build.lock"
+        with mock.patch.object(self.module, "BUILD_LOCK", lock):
+            self.module.require_no_release_build()  # no build has ever run
+            with self.module.release_build_lock():
+                with self.assertRaisesRegex(ValueError, "release build is running"):
+                    self.module.require_no_release_build()
+                with self.assertRaisesRegex(ValueError, "another release build"):
+                    with self.module.release_build_lock():
+                        pass
+            self.module.require_no_release_build()  # released when the build ends
+
+    def test_the_build_holds_its_lock_before_it_looks_for_running_jobs(self):
+        # Check-then-start would leave a gap; the lock is taken first, so a job that starts after the
+        # check is refused by its own ExecStartPre.
+        self.install()
+        seen = []
+        def look_for_jobs():
+            with self.assertRaisesRegex(ValueError, "release build is running"):
+                self.module.require_no_release_build()
+            seen.append("checked under the lock")
+            raise ValueError("stop after the check")
+        with mock.patch.object(self.module, "ARTIFACT_ROOT", self.root / "artifacts"), \
+                mock.patch.object(self.module, "BUILD_LOCK", self.root / "release-build.lock"), \
+                mock.patch.object(self.module, "require_buildx"), \
+                mock.patch.object(self.module, "protected_path"), \
+                mock.patch.object(self.module, "require_no_registered_job_running", side_effect=look_for_jobs):
+            with self.assertRaisesRegex(ValueError, "stop after the check"):
+                self.module.build_artifacts(self.target)
+        self.assertEqual(seen, ["checked under the lock"])
 
     def test_compose_config_without_the_spark_service_is_a_refusal_not_a_crash(self):
         for raw in (b'{"services": {}}', b"not json", b'{"services": {"spark": {}}}'):
