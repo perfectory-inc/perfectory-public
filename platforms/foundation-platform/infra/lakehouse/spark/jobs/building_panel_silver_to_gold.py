@@ -29,6 +29,7 @@ from platform_contracts import (column_names, create_table_columns_sql, current_
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
 from building_link_evidence import verified_building_links
+from gold_rebuild import assert_minimum_row_count, write_gold_snapshot
 
 JOB_NAME = "building_panel_silver_to_gold"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
@@ -71,6 +72,8 @@ def parse_args(argv=None):
     parser.add_argument("--allow-non-smoke-overwrite", action="store_true")
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--expected-count", type=int)
+    parser.add_argument("--minimum-count", type=int,
+                        help="Refuse, before writing, a Gold with fewer rows (root ADR-0139).")
     parser.add_argument("--summary-output")
     parser.add_argument("--lineage-output")
     return parser.parse_args(argv)
@@ -89,8 +92,9 @@ def validate_args(args):
         raise ValueError("--pnu-prefix must be inside --region-prefix")
     for name in ("iceberg_catalog_name", "source_iceberg_namespace", "target_iceberg_namespace", "target_iceberg_table"):
         validate_identifier(name, getattr(args, name))
-    if args.expected_count is not None and args.expected_count < 0:
-        raise ValueError("--expected-count must be non-negative")
+    for name in ("expected_count", "minimum_count"):
+        if getattr(args, name) is not None and getattr(args, name) < 0:
+            raise ValueError(f"--{name.replace('_', '-')} must be non-negative")
     if args.price_source_snapshot_id is not None and not args.price_source_snapshot_id.strip():
         raise ValueError("--price-source-snapshot-id must be non-empty")
     if (args.write_mode == "iceberg" and args.iceberg_write_mode == "overwrite" and
@@ -385,6 +389,7 @@ def main():
         source_id = hashlib.sha256(json.dumps(snapshots, sort_keys=True).encode()).hexdigest()
         gold = build_gold_panel_frame(frames, source_id, args.published_at_utc, counters).persist(StorageLevel.MEMORY_AND_DISK)
         count, metrics = validate_gold_frame(gold, args.expected_count)
+        assert_minimum_row_count(count, args.minimum_count)
         persisted_count, added = None, ()
         target_table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{args.target_iceberg_table}`"
         if not args.validate_only:
@@ -396,9 +401,8 @@ def main():
                 spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
                 spark.sql(f"CREATE TABLE IF NOT EXISTS {target_table} ({create_table_columns_sql(GOLD_CONTRACT)}) USING iceberg {partition_clause_sql(GOLD_CONTRACT)} TBLPROPERTIES ('format-version'='2','write.parquet.compression-codec'='zstd','write.distribution-mode'='hash')")
                 added = evolve_iceberg_table_to_contract(spark, target_table, GOLD_CONTRACT)
-                gold.createOrReplaceTempView("gold_building_panel_candidate")
-                statement = "INSERT OVERWRITE" if args.iceberg_write_mode == "overwrite" else "INSERT INTO"
-                spark.sql(f"{statement} {target_table} SELECT {', '.join(GOLD_COLUMNS)} FROM gold_building_panel_candidate")
+                # The snapshot records the Silver pins it was built from (root ADR-0139).
+                write_gold_snapshot(gold.select(*GOLD_COLUMNS), target_table, args.iceberg_write_mode, pins, F.lit(True))
                 persisted = spark.table(target_table).select(*GOLD_COLUMNS)
             persisted_count, metrics = validate_gold_frame(persisted, count)
         summary = {

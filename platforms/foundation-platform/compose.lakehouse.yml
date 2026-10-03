@@ -76,6 +76,9 @@ services:
     volumes:
       - ./infra/lakehouse/spark:/workspace/infra/lakehouse/spark:ro
       - ./infra/lakehouse/contracts:/workspace/infra/lakehouse/contracts:ro
+      # The building panel producer reads the serving PNU pattern from config/r2-connections.contract.json
+      # at import (root ADR-0139 runs it here); without this it cannot start in this container.
+      - ./config:/workspace/config:ro
       # 검사가 스크립트를 읽는다. CI 는 저장소 뿌리에서 돌아 이것이 보이므로,
       # 여기서 안 보이면 로컬 초록과 CI 초록이 서로 다른 것을 말한다.
       - ./scripts:/workspace/scripts:ro
@@ -116,6 +119,9 @@ services:
     volumes:
       - ./infra/lakehouse/spark:/workspace/infra/lakehouse/spark:ro
       - ./infra/lakehouse/contracts:/workspace/infra/lakehouse/contracts:ro
+      # The building panel producer reads the serving PNU pattern from config/r2-connections.contract.json
+      # at import (root ADR-0139 runs it here); without this it cannot start in this container.
+      - ./config:/workspace/config:ro
       # 검사가 스크립트를 읽는다. CI 는 저장소 뿌리에서 돌아 이것이 보이므로,
       # 여기서 안 보이면 로컬 초록과 CI 초록이 서로 다른 것을 말한다.
       - ./scripts:/workspace/scripts:ro

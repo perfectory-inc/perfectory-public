@@ -167,25 +167,29 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         jobs = copy.deepcopy(real_inputs()[0])
         both_slots(jobs)
         problems = job_specs.pool_starvation(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2295 minutes for pool 'spark'")
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2460 minutes for pool 'spark'")
                             and "by_pnu_serving_bake" in problem for problem in problems), problems)
         self.refused(both_slots)
 
     def test_the_starvation_bound_counts_every_job_that_can_hold_it_back(self):
         # FLOOR (3 slots, weight 10) can be held back once by lineage (same weight) and by each
-        # lower-weight job already running when its turn comes: both folds and one bake run.
+        # lower-weight job already running when its turn comes: both folds, one panel Gold rebuild
+        # (not retried, root ADR-0139) and one bake run.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260)
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260)
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "by_pnu_serving_bake"})
+                                         "gold_panel_rebuild", "by_pnu_serving_bake"})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
         self.assertNotIn("by_pnu_serving_bake", blockers)
-        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5))
+        # The panel Gold rebuild takes all three slots: a fold waits for one run of it, which fills
+        # the fold's bound to its limit (20 x 60 minutes).
+        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5) + 165)
+        self.assertEqual(wait, job_specs.STARVATION_CYCLES * 60)
 
     def test_a_retry_holds_the_slots_again(self):
         # Airflow retries a failed run: one run can hold its slots for (retries + 1) x its timeout.
@@ -198,7 +202,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
             next(job for job in jobs["jobs"] if job["id"] == "building_register_floor")["retries"] = 3
         jobs = copy.deepcopy(real_inputs()[0])
         retried(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1545 minutes")
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1710 minutes")
                             for problem in job_specs.pool_starvation(jobs)))
         self.refused(retried)
 
