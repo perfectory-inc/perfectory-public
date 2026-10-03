@@ -160,3 +160,5 @@ last_reviewed: 2026-07-28
 - [ADR-0136 — 릴리스 인증은 GitHub 로그인 없이 공개 저장소 identity를 읽는다](./0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md)
 
 - [ADR-0137 — 릴리스 빌드의 상한은 측정에서 정하고, 빌드는 혼자 돈다](./0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md)
+
+- [ADR-0138 — 예약 작업은 한 풀을 슬롯으로 나눠 쓰고, 메모리 예산은 슬롯이 허락하는 모든 조합을 센다](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md)

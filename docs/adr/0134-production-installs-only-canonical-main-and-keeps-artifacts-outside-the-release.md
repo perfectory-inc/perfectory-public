@@ -100,6 +100,10 @@ SHA는 비슷한 변경이 나중에 main에 들어가도 병합 SHA가 아니�
 - publisher image는 `foundation-outbox-publisher:<sha>`로 태그해 `build.json`의 `publisher_tag`에
   기록한다. 태그 없는 `--load` 결과는 `docker image prune`이 지운다. `verify`·`verify-current`는 그 태그가
   `publisher_image`와 같은 image ID로 남아 있는지 확인하고, 없으면 거부한다.
+- 지도 타일 굽기의 tippecanoe image도 같은 빌드가 저장소 `infra/tiles/tippecanoe/Dockerfile`로 만들어
+  `foundation-tippecanoe:<sha>`로 태그하고 `tippecanoe_image`·`tippecanoe_tag`로 기록한다(손으로 빌드한
+  `foundation-tippecanoe:2.79.0-local`을 대체). 같은 방식으로 검증하며, `admitted-writer-runtime.sh`가 그 ID를
+  `FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_TIPPECANOE_IMAGE`로 넘겨 타일 굽기가 그 image를 실행한다.
 - 호출자의 바이너리를 받는 명령은 없다. `publisher <sha> <binary> <sha256>` 명령은 삭제했다.
   sha256을 같이 받아도 그 값은 호출자가 고른 것이라 인증이 아니다.
 - `floor-config <sha> <file>`은 `config/<sha>/building-register-floor.env`에 create-only로 쓴다.

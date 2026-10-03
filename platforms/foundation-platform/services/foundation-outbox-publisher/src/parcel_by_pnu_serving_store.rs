@@ -15,7 +15,7 @@
 //! (`OverwriteAllowed`), exactly like the tile pipeline's `gold/manifest.json` pointer; and a
 //! delta re-bake inside the current generation overwrites objects only when the caller says so.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use anyhow::{ensure, Context};
@@ -27,6 +27,7 @@ use foundation_outbox::{
     EvidenceByteReader, FileObjectStorage, ObjectStorageService, PublishError, R2ObjectStorage,
 };
 
+use crate::by_pnu_serving_generations;
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::parcel_by_pnu_gateway_contract::parcel_by_pnu_gateway_policy;
 use crate::r2_layout::{
@@ -162,6 +163,27 @@ impl ParcelServingObjectStore {
             .into_iter()
             .filter(|key| is_parcel_by_pnu_serving_object_key(key))
             .collect())
+    }
+
+    /// Every generation that holds at least one object, published or not (see
+    /// `by_pnu_serving_generations`). Read-only.
+    ///
+    /// # Errors
+    /// Returns an error when the listing fails or is cut short.
+    pub(crate) async fn list_generations_with_objects(&self) -> anyhow::Result<BTreeSet<u64>> {
+        match self {
+            Self::Local(_, root) => by_pnu_serving_generations::in_directory(
+                root,
+                parcel_by_pnu_serving_generation_prefix,
+            ),
+            Self::R2(storage, _) => {
+                by_pnu_serving_generations::in_bucket(
+                    storage,
+                    parcel_by_pnu_serving_generation_prefix,
+                )
+                .await
+            }
+        }
     }
 
     /// Writes one serving object create-only, reusing an existing object only when the bytes

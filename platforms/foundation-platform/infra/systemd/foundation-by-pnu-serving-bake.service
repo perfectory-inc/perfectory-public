@@ -1,0 +1,39 @@
+[Unit]
+Description=Foundation Platform by-PNU serving bake: Gold parcel then building panel to one R2 object per PNU (ADR-0122, ADR-0138; parcels ADR-0096, buildings ADR-0100)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# The same files the FLOOR cycle reads: the lakehouse catalog and the R2 lakehouse writer. The
+# optional last file holds only non-secret tuning (FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY).
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=-/etc/foundation-platform/by-pnu-bake.env
+# The lanes run one after the other in this one unit: side by side they would not fit the host
+# memory budget (root ADR-0138). A failed lane does not stop the other; the unit fails if either did.
+ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-bake.sh all
+# A national first bake runs for days of R2 writes; the next start resumes where this one stopped.
+TimeoutStartSec=20h
+# Measured on ai-server on 2026-10-03 (root ADR-0138): the export of one real parcel shard of
+# 898,741 rows peaked at 11,108,622,336 bytes of anonymous memory, about 7.8GB of it the one data
+# file the scan decodes whole; 1,970,539 rows peaked at 15,025,704,960. The export refuses a shard
+# over 900,000 rows before it holds more, so 14G is that measured peak x1.3. The building lane's
+# shards peak lower (6.1GB measured at 867,696 rows). scripts/guard/every-container-has-a-memory-cap.sh
+# reads this line; without it the guard fails.
+MemoryMax=14G
+MemorySwapMax=0
+# A lane killed at MemoryMax must not stop the other: by default systemd stops the whole unit when
+# one of its processes is OOM-killed. The killed lane still fails the unit, and resumes next run.
+OOMPolicy=continue
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Work files only on the data disk, never the root disk.
+ReadWritePaths=/data/foundation-platform/by-pnu-bake

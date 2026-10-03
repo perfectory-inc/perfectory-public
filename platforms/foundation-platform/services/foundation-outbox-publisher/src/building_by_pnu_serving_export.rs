@@ -57,16 +57,29 @@ const PNU_ALLOWLIST_PATH_ENV: &str =
 const RESUME_FROM_LISTING_ENV: &str =
     "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_RESUME_FROM_LISTING";
 const PNU_PREFIX_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PNU_PREFIX";
+const EXPECTED_GOLD_SNAPSHOT_ENV: &str =
+    "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID";
+const FRESH_GENERATION_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_FRESH_GENERATION";
+const FRESH_CHECK_MARKER_ENV: &str =
+    "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_FRESH_CHECK_MARKER_PATH";
 const DEFAULT_MAX_CONCURRENCY: usize = 8;
 /// Measured 2026-09-09 on the Seoul bake: one R2 put costs ~0.29s from the batch host, so the
 /// old cap of 32 topped out near 110 objects/s and a national bake would take days. The client
 /// now retries adaptively when R2 pushes back with 429, which is what makes a higher ceiling
 /// safe to offer; the default stays low and the operator raises it deliberately.
 const MAX_CONCURRENCY: usize = 256;
-/// The export holds every KEPT row in memory. This cap makes that boundary an explicit refusal
-/// instead of an OOM; national runs must shard by the PNU-prefix
-/// filter, which drops out-of-shard rows during the scan itself.
-const MAX_ROWS_PER_RUN: usize = 2_000_000;
+/// The export holds every KEPT row in memory, plus the one data file the scan is decoding. This cap
+/// makes that boundary an explicit refusal instead of an OOM; national runs shard by the
+/// PNU-prefix filter, which drops out-of-shard rows during the scan itself, and the scan stops at
+/// the first kept row past the cap.
+///
+/// Sized from a measurement (root ADR-0138; ai-server, 2026-10-03, local output): a real parcel
+/// shard of 898,741 rows peaked at 11,108,622,336 bytes of anonymous memory, 1,970,539 rows at
+/// 15,025,704,960 — about 3.66KB per kept row over a 7.8GB floor, the floor being one whole data
+/// file (~1.66M rows) decoded before the filter runs. The bake's systemd unit allows 14G, the
+/// 900,000-row peak x1.3; the old 2,000,000 would need 18.2GiB, which the host budget does not
+/// have beside a fold. The building lane shares the cap and the unit.
+const MAX_ROWS_PER_RUN: usize = 900_000;
 
 /// Runs the building by-PNU serving export.
 pub async fn run() -> anyhow::Result<()> {
@@ -123,6 +136,17 @@ struct ServingExportConfig {
     pnu_allowlist: Option<BTreeSet<String>>,
     resume_from_listing: bool,
     pnu_prefix: Option<String>,
+    /// The Gold snapshot the whole bake is of. A shard of a multi-shard bake that finds the table
+    /// moved on refuses before it scans, instead of the bake learning it after the last shard.
+    expected_gold_snapshot: Option<String>,
+    /// The caller started the target generation in this run, so the shard's key range must be
+    /// empty before the first write. Objects there were left by a bake that did not record this
+    /// generation as its own, and a resume would count them without reading them back.
+    fresh_generation: bool,
+    /// Written once the fresh shard's key range was listed empty, before the first write. The
+    /// bake keeps demanding an empty range until this exists: a retry after a crash during the
+    /// scan never ran the check, and must not resume over another writer's keys.
+    fresh_check_marker: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize)]
@@ -218,6 +242,10 @@ impl ServingExportConfig {
                     Ok(raw)
                 })
                 .transpose()?,
+            expected_gold_snapshot: optional_env(EXPECTED_GOLD_SNAPSHOT_ENV)?,
+            fresh_generation: optional_env(FRESH_GENERATION_ENV)?
+                .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+            fresh_check_marker: optional_env(FRESH_CHECK_MARKER_ENV)?.map(PathBuf::from),
         })
     }
 }
@@ -247,6 +275,11 @@ async fn export(
     snapshot: &IcebergSnapshotManifestList,
     approvals: &ApprovedBuildingLinks,
 ) -> anyhow::Result<ServingExportSummary> {
+    refuse_a_moved_table(
+        config.expected_gold_snapshot.as_deref(),
+        &snapshot.table_name,
+        &snapshot.snapshot_id.to_string(),
+    )?;
     let provenance = GoldSnapshotProvenance {
         table: snapshot.table_name.clone(),
         iceberg_snapshot_id: snapshot.snapshot_id.to_string(),
@@ -254,26 +287,32 @@ async fn export(
         manifest_list_location: snapshot.manifest_list_location.clone(),
     };
 
-    let rows = scan_snapshot_rows_kept(&GOLD_BUILDING_PANEL, lakehouse, snapshot, |row| {
-        match (
-            &config.pnu_prefix,
-            row.get("pnu").and_then(JsonValue::as_str),
-        ) {
-            (Some(prefix), Some(pnu)) => pnu.starts_with(prefix.as_str()),
-            (Some(_), None) => true, // 식별자 없는 행은 남겨서 문서 조립이 사유를 말하며 거부하게 한다
-            (None, _) => true,
-        }
-    })
+    let rows = scan_snapshot_rows_kept(
+        &GOLD_BUILDING_PANEL,
+        lakehouse,
+        snapshot,
+        |row| {
+            match (
+                &config.pnu_prefix,
+                row.get("pnu").and_then(JsonValue::as_str),
+            ) {
+                (Some(prefix), Some(pnu)) => pnu.starts_with(prefix.as_str()),
+                (Some(_), None) => true, // 식별자 없는 행은 남겨서 문서 조립이 사유를 말하며 거부하게 한다
+                (None, _) => true,
+            }
+        },
+        Some(MAX_ROWS_PER_RUN),
+    )
     .await?;
     let data_file_count = rows.data_file_count;
     let scanned_row_count = rows.decoded_row_count;
+    // The scan stopped at the first kept row past the cap, holding the cap and no more.
     ensure!(
-        rows.rows.len() <= MAX_ROWS_PER_RUN,
-        "{} snapshot {} keeps {} rows in memory; this export refuses more than {MAX_ROWS_PER_RUN} \
-         — shard the run with {PNU_PREFIX_ENV}, not a bigger heap",
+        !rows.keep_limit_exceeded,
+        "{} snapshot {} keeps more than {MAX_ROWS_PER_RUN} rows for this run; this export refuses \
+         more than {MAX_ROWS_PER_RUN} — shard the run with {PNU_PREFIX_ENV}, not a bigger heap",
         snapshot.table_name,
         snapshot.snapshot_id,
-        rows.rows.len()
     );
     if let Some(expected_row_count) = config.expected_row_count {
         ensure!(
@@ -291,10 +330,18 @@ async fn export(
 
     let mut selected = select_rows(&rows.rows, config.pnu_allowlist.as_ref())?;
     spread_write_order(&mut selected);
-    let existing_keys = if config.resume_from_listing && !config.allow_overwrite {
+    let listed = if config.fresh_generation
+        || (config.resume_from_listing && !config.allow_overwrite)
+    {
         output
             .list_existing_generation_keys(config.target_generation, config.pnu_prefix.as_deref())
             .await?
+    } else {
+        HashSet::new()
+    };
+    claim_a_fresh_shard(config, listed.len())?;
+    let existing_keys = if config.resume_from_listing && !config.allow_overwrite {
+        listed
     } else {
         HashSet::new()
     };
@@ -331,6 +378,50 @@ async fn export(
         listed_object_count,
         overwritten_object_count,
         artifacts: entries,
+    })
+}
+
+/// Refuses a shard whose Gold table is no longer at the snapshot the bake is of.
+fn refuse_a_moved_table(expected: Option<&str>, table: &str, current: &str) -> anyhow::Result<()> {
+    if let Some(expected) = expected {
+        ensure!(
+            expected == current,
+            "{table} moved during the bake: this bake is of snapshot {expected} but the table is \
+             now at {current}; nothing more is baked into this generation, the next run starts a \
+             new one"
+        );
+    }
+    Ok(())
+}
+
+/// Refuses to write into a generation this run started when the shard's range already holds
+/// keys; when the range is empty, records that before any write (`fresh_check_marker`).
+fn claim_a_fresh_shard(config: &ServingExportConfig, listed: usize) -> anyhow::Result<()> {
+    if !config.fresh_generation {
+        return Ok(());
+    }
+    let shard = config.pnu_prefix.as_deref().unwrap_or("(all)");
+    ensure!(
+        listed == 0,
+        "generation {} already holds {listed} objects under shard {shard}, and this run did not \
+         start them: a bake that never recorded this generation wrote there; choose a generation \
+         above every one in the bucket",
+        config.target_generation,
+    );
+    let marker = config
+        .fresh_check_marker
+        .as_deref()
+        .with_context(|| format!("{FRESH_GENERATION_ENV} needs {FRESH_CHECK_MARKER_ENV}"))?;
+    let body = serde_json::json!({
+        "target_generation": config.target_generation,
+        "pnu_prefix": config.pnu_prefix,
+        "listed_object_count": 0,
+    });
+    std::fs::write(marker, serde_json::to_vec(&body)?).with_context(|| {
+        format!(
+            "failed to write the fresh-check marker {}",
+            marker.display()
+        )
     })
 }
 

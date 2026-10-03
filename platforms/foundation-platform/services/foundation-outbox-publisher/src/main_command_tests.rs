@@ -984,6 +984,26 @@ fn export_parcel_by_pnu_serving_command_is_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The scheduled by-PNU bakes ask these before scanning anything (root ADR-0122).
+#[test]
+fn show_by_pnu_serving_state_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "show-parcel-by-pnu-serving-state",
+        ])?,
+        Command::ShowParcelByPnuServingState
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "show-building-by-pnu-serving-state",
+        ])?,
+        Command::ShowBuildingByPnuServingState
+    );
+    Ok(())
+}
+
 /// The pointer that pins the served generation (root ADR-0096); publishing it is a separate
 /// command so a half-run export cannot leave the gateway aimed at a partial bake.
 #[test]

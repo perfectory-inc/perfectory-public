@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **484개**
+- 문서 파일: **485개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 163 |
+| Monorepo | 164 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 221 |
+| ADR | 222 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -524,6 +524,7 @@ docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outsid
 docs/adr/0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md
 docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md
 docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md
+docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -699,6 +700,7 @@ tools/github/README.md
 | `docs/adr/0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md` | Monorepo | ADR | accepted |
 | `docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

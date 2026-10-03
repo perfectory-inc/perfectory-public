@@ -240,4 +240,69 @@ PY
   expect_fail "invalid memory parameter binding: $defect"
 done
 
+# Scheduled jobs in a shared pool count at every combination its slots allow (root ADR-0138).
+# Host 6g: 1g standing + 1g reserved leaves 4g. One-shots: migrate 3g, seed 3g, small 2g.
+# Pool "heavy" (3 slots): floor takes 3 (migrate 3g), each fold 2 (small 2g), the bake 1
+# (its unit's MemoryMax 2G). The worst sets are fold + bake = 4g and floor alone = 3g: they fit.
+write_scheduled_fixture() {
+  local bake_memory="${1-MemoryMax=2G}" fold_slots="${2:-2}" small_cap="${3:-2g}" extra_memory="${4:-}"
+  rm -f "$fixture/stack/compose.native.yml" "$fixture/tools/engine.json"
+  write_contract 6g
+  write_stack "    mem_limit: 1g"
+  cat >> "$fixture/stack/docker-compose.yml" <<YAML
+  small:
+    image: fixture/small:1
+    logging: *log-cap
+    mem_limit: ${small_cap}
+    restart: "no"
+YAML
+  mkdir -p "$fixture/units"
+  printf '[Service]\nExecStart=/bin/true\n%s\n' "$bake_memory" > "$fixture/units/fixture-bake.service"
+  for unit in fixture-floor fixture-fold-a fixture-fold-b; do
+    printf '[Service]\nExecStart=/bin/true\n' > "$fixture/units/$unit.service"
+  done
+  python3 - "$fixture" "$fold_slots" "$extra_memory" <<'PY'
+import json, pathlib, sys
+root, fold_slots, extra = pathlib.Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+def job(job_id, slots, pool="heavy"):
+    return {"id": job_id, "pool": pool, "pool_slots": slots, "systemd_service": f"fixture-{job_id.replace('_', '-')}.service"}
+(root / "tools/jobs.json").write_text(json.dumps({
+    "pools": {"heavy": {"slots": 3, "description": "fixture"}},
+    "jobs": [job("floor", 3), job("fold_a", fold_slots), job("fold_b", fold_slots), job("bake", 1),
+             job("sweep", 1, "default_pool")],
+}))
+memory = {
+    "floor": [{"project": "stack", "service": "migrate"}],
+    "fold_a": [{"project": "stack", "service": "small"}],
+    "fold_b": [{"project": "stack", "service": "small"}],
+    "bake": [{"unit": "MemoryMax"}],
+}
+if extra:
+    memory.update(json.loads(extra))
+path = root / "tools/host-memory-budget.contract.json"
+contract = json.loads(path.read_text())
+contract["scheduled_jobs"] = {"jobs": "tools/jobs.json", "units": "units", "memory": memory, "why": "fixture"}
+path.write_text(json.dumps(contract))
+PY
+}
+
+write_scheduled_fixture
+expect_pass "scheduled jobs whose every slot combination fits"
+write_scheduled_fixture ""
+expect_fail "a bake unit without MemoryMax"
+write_scheduled_fixture "MemoryMax=3G"
+expect_fail "a bake MemoryMax that pushes a fold and the bake over the host"
+write_scheduled_fixture "MemoryMax=2G" 1
+expect_fail "two one-slot folds and the bake whose sum the slots allow but the host does not"
+write_scheduled_fixture "MemoryMax=2G" 2 3g
+expect_fail "a small Spark cap that pushes a fold and the bake over the host"
+write_scheduled_fixture "MemoryMax=2G" 2 2g '{"fold_b": []}'
+expect_fail "a pooled job that names no memory source"
+write_scheduled_fixture "MemoryMax=2G" 2 2g '{"gone": [{"unit": "MemoryMax"}]}'
+expect_fail "a memory entry for a job the list does not have"
+write_scheduled_fixture "MemoryMax=2G" 2 2g '{"fold_a": [{"project": "stack", "service": "absent"}]}'
+expect_fail "a memory source naming a service the host does not run"
+write_scheduled_fixture "MemoryMax=infinity"
+expect_fail "a MemoryMax that is not a size"
+
 echo "OK $name"

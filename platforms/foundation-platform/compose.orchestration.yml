@@ -17,8 +17,10 @@ x-log-cap: &log-cap
 
 x-airflow-environment: &airflow-environment
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
-  # Two jobs at a time; the `spark` pool (one slot) keeps Spark to one of them (ADR-0122 §5).
-  AIRFLOW__CORE__PARALLELISM: "2"
+  # One run per slot of the pools in orchestration/jobs.v1.json (`spark`: FLOOR alone, or one fold
+  # beside the by-PNU bake, root ADR-0138), plus one so a default_pool job such as outbox_publish
+  # starts while every slot is held (test_job_specs.py).
+  AIRFLOW__CORE__PARALLELISM: "4"
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   # A job's DAG starts paused: it is switched on in the change that removes its systemd timer.
   AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"

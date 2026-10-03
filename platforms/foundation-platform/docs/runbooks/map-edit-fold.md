@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-02
+last_reviewed: 2026-10-03
 ---
 
 # 지도 편집 접기 — 설치·운영·확인 런북
@@ -38,7 +38,7 @@ last_reviewed: 2026-10-02
 | `/etc/foundation-platform/map-edit-fold.env` | 레이크하우스 카탈로그 3개(`..._CATALOG_URI`, `..._WAREHOUSE`, `..._CATALOG_TOKEN`)와 `..._CATALOG_PROVIDER`, R2 타일 파생물 9개(`r2-connections.contract.json` 의 `tile_derivatives.required_env`), `FOUNDATION_PLATFORM_RUNTIME_ENV=production`, `FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE`, `FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT`, `FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_{PUBLIC_TILES_BASE_URL,TOOL_TIMEOUT_SECONDS,OPERATOR_STAFF_ID}` | root:foundation-platform 0640 |
 | `/opt/foundation-platform/artifacts/<현재 릴리스 SHA>/` | 같은 SHA 에서 설치가 빌드한 퍼블리셔와 동결 Spark JAR(`build.json` 이 sha256 을 봉인). 접기는 이것만 실행하고, 다르면 시작하지 않는다 ([ADR-0134](../../../../docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md)) | root 0555/0444 |
 | `/var/lib/foundation-platform/map-edit-fold/lakehouse` | 접기 전용 Spark 작업 폴더 (`foundation-release.sh timers` 가 만든다) | 0777 |
-| 도커 이미지 `foundation-tippecanoe:2.79.0-local` | `infra/tiles/tippecanoe/Dockerfile` 로 빌드 | — |
+| 도커 이미지 `foundation-tippecanoe:<릴리스 SHA>` | 설치(`prepare`)가 `infra/tiles/tippecanoe/Dockerfile` 로 빌드하고 image ID 를 `artifacts/<SHA>/build.json` 의 `tippecanoe_image` 에 기록한다. 접기는 그 ID 로 굽는다(`FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_TIPPECANOE_IMAGE`, `admitted-writer-runtime.sh` 가 설정). 손으로 빌드하지 않는다 | — |
 
 두 env 파일이 없으면 Airflow 가 시작시킨 서비스가 실패하고 그 실행이 Airflow 와 저널에 실패로 남는다.
 운영 compose 는 `map-edit.env` 를 `FOUNDATION_PLATFORM_MAP_EDIT_ENV_FILE` 로 읽어 foundation-api 에

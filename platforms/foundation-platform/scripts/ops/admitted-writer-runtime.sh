@@ -16,7 +16,8 @@
 # The mode is required: `source` without arguments hands this file the caller's own arguments.
 #
 # Sets RELEASE_ROOT, RELEASE_ID, ARTIFACT_ROOT, PUBLISHER_BIN, RELEASE_JARS_DIR and
-# SPARK_RELEASE_JARS (the frozen jars, as paths inside the Spark container's Ivy mount).
+# SPARK_RELEASE_JARS (the frozen jars, as paths inside the Spark container's Ivy mount), and exports
+# FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_TIPPECANOE_IMAGE (the release build's tippecanoe image ID).
 admitted_writer_refuse() {
   printf 'admitted-writer-runtime: refused: %s\n' "$1" >&2
   exit 65
@@ -45,7 +46,7 @@ unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG
 # The trusted build wrote build.json; admission re-verifies every byte as root before start.
 # This repeats the one check a job can make for itself: the binary it is about to run is the
 # one that manifest names for this release, and the frozen jar list comes from the same file.
-SPARK_RELEASE_JARS="$(python3 -I - "${ARTIFACT_ROOT}" "${RELEASE_ID}" <<'PY'
+admitted_writer_manifest="$(python3 -I - "${ARTIFACT_ROOT}" "${RELEASE_ID}" <<'PY'
 import hashlib, json, os, pathlib, stat, sys
 root, release = pathlib.Path(sys.argv[1]), sys.argv[2]
 def refuse(reason):
@@ -72,8 +73,15 @@ if image is not None and image != manifest.get("publisher_image"):
 jars = sorted(name for name in files if name.startswith("jars/"))
 if not jars:
     refuse("build manifest lists no frozen jars")
+tippecanoe = manifest.get("tippecanoe_image")
+if not isinstance(tippecanoe, str) or not tippecanoe.startswith("sha256:"):
+    refuse("build manifest records no tippecanoe image")
 print(",".join("/home/spark/.ivy2/" + name.removeprefix("jars/") for name in jars))
+print(tippecanoe)
 PY
 )" || exit 65
+SPARK_RELEASE_JARS="${admitted_writer_manifest%%$'\n'*}"
+# The tile bake runs the tippecanoe image this release built, not a tag built by hand.
+export FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_TIPPECANOE_IMAGE="${admitted_writer_manifest##*$'\n'}"
 readonly RELEASE_ROOT RELEASE_ID ARTIFACT_ROOT PUBLISHER_BIN RELEASE_JARS_DIR SPARK_RELEASE_JARS
-unset admitted_writer_base admitted_writer_require_current
+unset admitted_writer_base admitted_writer_require_current admitted_writer_manifest

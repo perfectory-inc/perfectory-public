@@ -133,6 +133,21 @@ impl BakeContract {
         );
         Ok(contract)
     }
+
+    /// Runs the tippecanoe image the admitted release built (root ADR-0134 §3): the release
+    /// build records its image ID in `build.json` and the job passes it here, in place of the
+    /// contract's hand-built tag. The version banner check still runs against it.
+    pub(crate) fn with_release_tippecanoe(mut self, image: Option<String>) -> anyhow::Result<Self> {
+        if let Some(image) = image {
+            ensure!(
+                image.strip_prefix("sha256:").is_some_and(|digest| digest.len() == 64
+                    && digest.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))),
+                "the release tippecanoe image must be an image ID like sha256:<64 hex>, got {image:?}"
+            );
+            self.images.tippecanoe.image = image;
+        }
+        Ok(self)
+    }
 }
 
 fn memory_limit_is_a_size(limit: &str) -> bool {
@@ -969,7 +984,8 @@ async fn record_fold(
 /// after promotion (the tiles are already correct, and re-running the fold call is safe).
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
-    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    let contract = BakeContract::parse(CONTRACT_JSON)?
+        .with_release_tippecanoe(optional_env_value(&format!("{PREFIX}_TIPPECANOE_IMAGE"))?)?;
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)

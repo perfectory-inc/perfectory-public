@@ -123,6 +123,8 @@ mod building_by_pnu_serving_store;
 mod building_catalog_projection_load;
 mod building_unit_building_link_load;
 mod building_unit_catalog_projection_load;
+mod by_pnu_serving_generations;
+mod by_pnu_serving_state;
 mod handoff_manifest_support;
 mod handoff_object_support;
 mod lakehouse_bake_verdict;
@@ -357,6 +359,8 @@ enum Command {
     PublishLakehouseLineageEvent,
     PublishParcelByPnuServingManifest,
     PublishBuildingByPnuServingManifest,
+    ShowParcelByPnuServingState,
+    ShowBuildingByPnuServingState,
     PublishOutboxOnce,
     R2BillingUsageMetrics,
     PromoteParcelMarkerAnchorRuntimeManifest,
@@ -484,6 +488,8 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportBuildingByPnuServing => Box::pin(building_by_pnu_serving_export::run()),
         Command::ExportParcelByPnuServing => Box::pin(parcel_by_pnu_serving_export::run()),
+        Command::ShowParcelByPnuServingState => Box::pin(by_pnu_serving_state::run_parcel()),
+        Command::ShowBuildingByPnuServingState => Box::pin(by_pnu_serving_state::run_building()),
         Command::ExportParcelMarkerAnchorArtifacts => {
             Box::pin(parcel_marker_anchor_artifact_export::run())
         }
@@ -1345,6 +1351,8 @@ where
             Ok(Command::PublishBuildingByPnuServingManifest)
         }
         Some("export-parcel-by-pnu-serving") => Ok(Command::ExportParcelByPnuServing),
+        Some("show-parcel-by-pnu-serving-state") => Ok(Command::ShowParcelByPnuServingState),
+        Some("show-building-by-pnu-serving-state") => Ok(Command::ShowBuildingByPnuServingState),
         Some("export-parcel-marker-anchor-artifacts") => {
             Ok(Command::ExportParcelMarkerAnchorArtifacts)
         }

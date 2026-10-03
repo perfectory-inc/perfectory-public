@@ -9,6 +9,12 @@
       "memory_limit": "22g",
       "memory_reason": "Measured on ai-server on 2026-10-03 for release 451ee512, same image, CPU quota and job count: anonymous memory peaked at 17,914,359,808 bytes (16.7GiB), 19.9GiB with page cache, and the build took 2,590 s. Most of it is the bundled DuckDB C++ build (libduckdb-sys). 22g is the anonymous peak x1.3. The 4g that ADR-0134 set thrashed for an hour without finishing."
     },
+    "tippecanoe": {
+      "cpus": 2,
+      "make_jobs": 2,
+      "memory_limit": "1200m",
+      "memory_reason": "Measured on ai-server on 2026-10-03 with infra/tiles/tippecanoe/Dockerfile, the same buildkit image, 2 CPUs and MAKE_JOBS=2: anonymous memory peaked at 838,496,256 bytes (1.87GB with page cache) and the build took 114 s. 1200m is the anonymous peak x1.3 (root ADR-0138). make -j\"$(nproc)\" saw every host core inside the CPU-quota builder, so the job count is fixed here."
+    },
     "dependency_resolver": {
       "cpus": 2,
       "memory_limit": "4g",

@@ -61,7 +61,7 @@ try:
             (artifacts / "jars").mkdir()
             (artifacts / "jars/fixture.jar").write_bytes(b"credential-free fixture dependency")
             (artifacts / "foundation-outbox-publisher").write_bytes(b"credential-free fixture binary")
-            module.seal_artifacts(target.name, artifacts, "sha256:" + "a" * 64)
+            module.seal_artifacts(target.name, artifacts, {"publisher": "sha256:" + "a" * 64, "tippecanoe": "sha256:" + "d" * 64})
         module.verify_artifacts(target.name, artifacts, os.getuid())
     else:
         raise ValueError("unknown rehearsal admission command")
