@@ -648,6 +648,11 @@ git archive --format=tar.gz -o /tmp/foundation-$sha.tar.gz "$sha:platforms/found
 sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh prepare $sha /tmp/foundation-$sha.tar.gz
 ```
 
+`prepare` 는 등록 작업(`orchestration/jobs.v1.json`)의 유닛이 하나라도 돌고 있으면 그 이름을 대며 거부한다. 빌드가
+호스트의 일회성 작업으로 예산에 들어가 있기 때문이다([ADR-0137](../../../../docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md)).
+DAG 를 먼저 멈추고 돌던 작업이 끝난 뒤 실행한다. 빌드는 2 CPU·`22g`(정본 `tools/release-build.contract.json`)로 약
+43분 걸린다(2026-10-03 측정).
+
 `/opt/foundation-platform/artifacts/$sha/build.json` 에 `publisher_image`(image ID)와
 `publisher_tag`(`foundation-outbox-publisher:$sha`)가 기록된다. 태그가 있으므로 `docker image prune` 이 지우지
 않는다. 그래도 이미지가 없어지면 `verify-current` 가 거부하므로 등록 작업이 시작되지 않는다. 복구는

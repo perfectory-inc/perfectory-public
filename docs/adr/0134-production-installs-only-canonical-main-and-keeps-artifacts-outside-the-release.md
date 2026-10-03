@@ -235,3 +235,7 @@ compose 프로젝트로 재기동 → `activate` → `migrate` → `timers` → 
   [ADR-0136](./0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md)이
   대체했다. identity는 공개 REST API에서 자격증명 없이 읽고, 인증 fetch는 credential helper 없이 돈다.
   위 결정 본문은 고치지 않았다.
+- 2026-10-03: §3의 빌드 상한 "2 CPU·`4g`"는
+  [ADR-0137](./0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md)이 대체했다. 4g에서 빌드가
+  한 시간 동안 끝나지 않았고, 측정값(익명 메모리 최대 16.7GiB)으로 다시 정했다. 상한의 정본은
+  `tools/release-build.contract.json`이고, 빌드는 등록 작업이 돌고 있으면 시작하지 않는다. 위 결정 본문은 고치지 않았다.

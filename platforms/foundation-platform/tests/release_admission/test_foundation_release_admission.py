@@ -264,10 +264,13 @@ class ReleaseAdmissionTests(unittest.TestCase):
             if args[1:3] == ["buildx", "create"]:
                 self.assertIn("docker-container", args)
                 self.assertRegex(self.module.BUILDKIT_IMAGE, r"@sha256:[0-9a-f]{64}$")
-                self.assertIn("image=" + self.module.BUILDKIT_IMAGE + ",memory=4g,memory-swap=4g,cpu-period=100000,cpu-quota=200000,restart-policy=no", args)
+                limits = self.module.build_limits()["publisher"]
+                memory = limits["memory_limit"]
+                self.assertIn(f"image={self.module.BUILDKIT_IMAGE},memory={memory},memory-swap={memory},"
+                              f"cpu-period=100000,cpu-quota={limits['cpus'] * 100000},restart-policy=no", args)
             elif args[1:3] == ["buildx", "build"]:
                 self.assertIn("--no-cache", args)
-                self.assertIn("CARGO_BUILD_JOBS=2", args)
+                self.assertIn(f"CARGO_BUILD_JOBS={self.module.build_limits()['publisher']['cargo_build_jobs']}", args)
                 # A tag keeps the image through `docker image prune`.
                 self.assertEqual(args[args.index("--tag") + 1], "foundation-outbox-publisher:" + self.merged)
                 if getattr(self, "fail_build", False):
@@ -308,6 +311,7 @@ class ReleaseAdmissionTests(unittest.TestCase):
             return result
         with mock.patch.object(self.module, "ARTIFACT_ROOT", artifact_root), \
                 mock.patch.object(self.module, "require_buildx"), \
+                mock.patch.object(self.module, "require_no_registered_job_running"), \
                 mock.patch.object(self.module, "protected_path"), \
                 mock.patch.object(Path, "rename", autospec=True, side_effect=privileged_rename), \
                 mock.patch.object(self.module, "verify_artifacts", side_effect=lambda sha, path: real_verify(sha, path, os.getuid())), \
@@ -322,6 +326,58 @@ class ReleaseAdmissionTests(unittest.TestCase):
 
     def test_builder_uses_admitted_context_and_clean_process_environment(self):
         self.exercise_builder()
+
+    def test_build_limits_come_from_the_control_contract_and_cover_the_measured_build(self):
+        contract = json.loads(self.module.BUILD_CONTRACT.read_text(encoding="utf-8"))
+        self.assertEqual(self.module.build_limits(), contract["builders"])
+        # The cap must hold the measured anonymous peak it cites; 4g did not (ADR-0137).
+        publisher = contract["builders"]["publisher"]
+        measured = int(re.search(r"peaked at ([0-9,]+) bytes", publisher["memory_reason"]).group(1).replace(",", ""))
+        unit = {"m": 2**20, "g": 2**30}[publisher["memory_limit"][-1]]
+        self.assertGreater(int(publisher["memory_limit"][:-1]) * unit, measured)
+
+    def test_a_malformed_build_contract_is_refused(self):
+        for builders in ({"publisher": {"cpus": 2, "cargo_build_jobs": 2, "memory_limit": "plenty"},
+                          "dependency_resolver": {"cpus": 2, "memory_limit": "4g"}},
+                         {"publisher": {"cpus": 0, "cargo_build_jobs": 2, "memory_limit": "22g"},
+                          "dependency_resolver": {"cpus": 2, "memory_limit": "4g"}},
+                         {"publisher": {"cpus": 2, "cargo_build_jobs": 2, "memory_limit": "22g"}}):
+            with self.subTest(builders=builders):
+                contract = self.root / "release-build.contract.json"
+                contract.write_text(json.dumps({"builders": builders}))
+                with mock.patch.object(self.module, "BUILD_CONTRACT", contract):
+                    with self.assertRaisesRegex(ValueError, "release build contract|must"):
+                        self.module.build_limits()
+
+    def test_the_build_does_not_start_beside_a_running_registered_job(self):
+        specs = self.root / "jobs.v1.json"
+        specs.write_text(json.dumps({"jobs": [{"systemd_service": "fixture-spark.service"},
+                                              {"systemd_service": "fixture-fold@a.service"}]}))
+        active = {"fixture-spark.service"}
+        def is_active(args, **kwargs):
+            return subprocess.CompletedProcess(args, 0 if args[-1] in active else 3)
+        with mock.patch.object(self.module, "JOB_SPECS", specs), \
+                mock.patch.object(self.module.subprocess, "run", side_effect=is_active):
+            with self.assertRaisesRegex(ValueError, "fixture-spark.service"):
+                self.module.require_no_registered_job_running()
+            active.clear()
+            self.module.require_no_registered_job_running()
+
+    def test_prepare_refuses_to_build_while_a_registered_job_runs(self):
+        self.install()
+        specs = self.root / "jobs.v1.json"
+        specs.write_text(json.dumps({"jobs": [{"systemd_service": "fixture-spark.service"}]}))
+        def nothing_may_start(args, **kwargs):
+            raise AssertionError(f"started {args} beside a running job")
+        with mock.patch.object(self.module, "ARTIFACT_ROOT", self.root / "artifacts"), \
+                mock.patch.object(self.module, "JOB_SPECS", specs), \
+                mock.patch.object(self.module, "require_buildx"), \
+                mock.patch.object(self.module, "protected_path"), \
+                mock.patch.object(self.module.subprocess, "run",
+                                  side_effect=lambda args, **kwargs: subprocess.CompletedProcess(args, 0)), \
+                mock.patch.object(self.module.subprocess, "check_output", side_effect=nothing_may_start):
+            with self.assertRaisesRegex(ValueError, "fixture-spark.service"):
+                self.module.build_artifacts(self.target)
 
     def test_compose_config_without_the_spark_service_is_a_refusal_not_a_crash(self):
         for raw in (b'{"services": {}}', b"not json", b'{"services": {"spark": {}}}'):
