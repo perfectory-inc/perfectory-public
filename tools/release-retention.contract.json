@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md",
+  "purpose": "Single source of truth for which Foundation releases survive on the production host. platforms/foundation-platform/scripts/deploy/foundation-release.sh prune reads it from the control checkout, as the release admission reads its build contract, so a release cannot choose what survives it. The runbook (lakehouse-compute-engines.md, release retention and emergency return) reads emergency_release from this file instead of writing the id down.",
+  "emergency_release": "a70e832dca9e5dd9fb749cd8e1750619611745b7",
+  "emergency_reason": "The last release installed before admission (ADR-0134 §6). It cannot be admitted, so rollback cannot reach it; the runbook's emergency return switches current to it by hand. Removing it removes that return.",
+  "keep_newest": 3,
+  "keep_newest_reason": "Besides current, previous and the emergency release, the newest installs by install time. Each admitted release costs about 0.9GB on the root disk (release, artifacts, two images); on 2026-10-02 the root disk filled twice with 49 releases kept."
+}
