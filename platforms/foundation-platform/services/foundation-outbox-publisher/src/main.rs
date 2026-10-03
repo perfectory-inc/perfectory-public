@@ -241,6 +241,7 @@ enum Command {
     SelectBuildingRegisterFloorInputs,
     RunBuildingRegisterFloorCycle,
     StopBuildingRegisterFloorCycle,
+    StopGoldPanelRebuild,
     ExportBuildingRegisterApartmentPriceSilverHandoff,
     ExportBuildingRegisterExclusiveUnitSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
@@ -572,6 +573,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::StopBuildingRegisterFloorCycle => {
             Box::pin(async { remote_lakehouse_job::stop_floor_cycle() })
+        }
+        Command::StopGoldPanelRebuild => {
+            Box::pin(async { remote_lakehouse_job::stop_gold_panel_rebuild() })
         }
         Command::RunBuildingRegisterFloorCycle => Box::pin(remote_lakehouse_job::run_floor_cycle()),
         Command::RunRemoteLakehouseJob => Box::pin(remote_lakehouse_job::run()),
@@ -1163,6 +1167,7 @@ where
         }
         Some("run-national-data-collection") => Ok(Command::RunNationalDataCollection),
         Some("stop-building-register-floor-cycle") => Ok(Command::StopBuildingRegisterFloorCycle),
+        Some("stop-gold-panel-rebuild") => Ok(Command::StopGoldPanelRebuild),
         Some("run-building-register-floor-cycle") => Ok(Command::RunBuildingRegisterFloorCycle),
         Some("run-remote-lakehouse-job") => Ok(Command::RunRemoteLakehouseJob),
         Some("collect-building-hub-bronze-catalog-recovery-inventory") => {

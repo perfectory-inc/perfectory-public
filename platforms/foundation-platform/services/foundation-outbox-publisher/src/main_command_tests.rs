@@ -8,6 +8,11 @@ fn floor_cycle_command_accepts_no_manual_selection_arguments() -> anyhow::Result
     );
     assert!(parse_command(["publisher", "stop-building-register-floor-cycle", "all"]).is_err());
     assert_eq!(
+        parse_command(["publisher", "stop-gold-panel-rebuild"])?,
+        Command::StopGoldPanelRebuild
+    );
+    assert!(parse_command(["publisher", "stop-gold-panel-rebuild", "parcel"]).is_err());
+    assert_eq!(
         parse_command(["publisher", "run-building-register-floor-cycle"])?,
         Command::RunBuildingRegisterFloorCycle
     );

@@ -13,6 +13,7 @@ use uuid::Uuid;
 mod floor_cycle;
 mod floor_history;
 mod floor_source;
+mod invocation_cleanup;
 mod scalar;
 use scalar::build_silver_scalar_remote_script;
 
@@ -423,6 +424,12 @@ async fn finish_job(config: &RemoteLakehouseJobConfig, summary_json: String) -> 
 
 pub fn stop_floor_cycle() -> anyhow::Result<()> {
     floor_cycle::stop()
+}
+
+/// `ExecStopPost` of foundation-gold-panel-rebuild.service: remove the Spark container a
+/// timed-out or killed run left behind (root ADR-0139).
+pub fn stop_gold_panel_rebuild() -> anyhow::Result<()> {
+    invocation_cleanup::run(invocation_cleanup::Job::GoldPanelRebuild)
 }
 
 pub async fn run_floor_cycle() -> anyhow::Result<()> {
