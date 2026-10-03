@@ -240,6 +240,8 @@ class SilverScalarHandoffToLakehouseTest(unittest.TestCase):
                 "collect_source_snapshot_summary": source_snapshot_summary_from_ids(["snapshot-a"]),
                 "collect_readback_pairs": pairs,
                 "validate_batch_ingestion_time": None,
+                # Its own suite (test_pnu_null_share_guard) proves the verdict; here it must run.
+                "enforce_ordinary_land_pnu_null_share": None,
                 "write_silver_iceberg": {
                     "appended": False, "token": "token", "existing_snapshot": 42,
                     "record_ids": ["source-a"],
@@ -263,6 +265,7 @@ class SilverScalarHandoffToLakehouseTest(unittest.TestCase):
             ))
             self.assertEqual(main(), 0)
         mocks["read_iceberg_snapshot_for_pairs"].assert_called_once()
+        mocks["enforce_ordinary_land_pnu_null_share"].assert_called_once()
         self.assertEqual(emit.call_args.args[0]["persisted_row_count"], 2)
         self.assertEqual(emit.call_args.args[1], "/tmp/summary.json")
     def test_default_iceberg_target_uses_contract_namespace_and_table(self) -> None:

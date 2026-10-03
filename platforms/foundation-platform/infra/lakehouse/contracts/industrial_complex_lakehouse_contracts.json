@@ -1146,7 +1146,8 @@
         "register_parcel_key_not_null",
         "normalization_status_in_allowed_values",
         "main_or_annex_kind_in_allowed_values",
-        "row_checksum_sha256_valid"
+        "row_checksum_sha256_valid",
+        "ordinary_land_pnu_null_share_increase <= 0.001"
       ],
       "load": {
         "unit": "run",
@@ -1502,7 +1503,8 @@
         "normalization_status_in_allowed_values",
         "proposal_required_rows_preserved",
         "building_link_method_in_allowed_values",
-        "row_checksum_sha256_valid"
+        "row_checksum_sha256_valid",
+        "ordinary_land_pnu_null_share_increase <= 0.001"
       ],
       "load": {
         "unit": "run",
@@ -1691,7 +1693,8 @@
         "area_kind_in_allowed_values",
         "normalization_status_in_allowed_values",
         "proposal_required_rows_preserved",
-        "row_checksum_sha256_valid"
+        "row_checksum_sha256_valid",
+        "ordinary_land_pnu_null_share_increase <= 0.001"
       ],
       "load": {
         "unit": "run",

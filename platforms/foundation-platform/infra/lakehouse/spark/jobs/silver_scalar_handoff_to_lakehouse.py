@@ -29,6 +29,7 @@ from lakehouse_engine import (
     iceberg_packages,
 )
 import lakehouse_object_store
+import pnu_null_share_guard
 from lakehouse_ingest import (
     MAX_BATCH_SOURCE_RECORDS,
     append_batch_once,
@@ -42,6 +43,7 @@ from platform_contracts import (
     column_names,
     columns,
     create_table_columns_sql,
+    declared_ordinary_land_pnu_null_share_tolerance,
     load_lakehouse_contract,
     load_unit,
     partition_clause_sql,
@@ -952,6 +954,33 @@ def preflight_file_batches(
     return pairs
 
 
+def enforce_ordinary_land_pnu_null_share(
+    spark: Any,
+    candidate: Any,
+    args: argparse.Namespace,
+    contract: dict[str, Any],
+    F: Any,
+) -> dict[str, Any] | None:
+    """Refuses the load before any write when the contract's PNU NULL-share tolerance is exceeded.
+
+    The baseline is the target table as readers see it now. Runs under `--validate-only` too,
+    so a dry run reports the same verdict the real load would reach.
+    """
+    tolerance = declared_ordinary_land_pnu_null_share_tolerance(contract)
+    if tolerance is None:
+        return None
+    table = qualified_iceberg_table(args) if args.write_mode == "iceberg" else str(args.output)
+    baseline = (
+        pnu_null_share_guard.table_baseline(spark, table, F)
+        if args.write_mode == "iceberg" else None
+    )
+    outcome = pnu_null_share_guard.decide(
+        pnu_null_share_guard.measure(candidate, F), baseline, tolerance, table
+    )
+    print(f"silver-scalar-handoff-pnu-null-share {json.dumps(outcome, sort_keys=True)}")
+    return outcome
+
+
 def run_batched_input(
     spark: Any,
     args: argparse.Namespace,
@@ -961,6 +990,18 @@ def run_batched_input(
     StorageLevel: Any,
 ) -> int:
     batches = collect_input_batches(args.input, args.input_file_batch_size, args.input_format)
+    if declared_ordinary_land_pnu_null_share_tolerance(contract) is not None:
+        # The guard judges the whole load, so it reads every batch before the first one writes.
+        whole = read_handoff(
+            spark, [path for batch in batches for path in batch], contract, args.input_format, T
+        )
+        enforce_ordinary_land_pnu_null_share(
+            spark,
+            cast_handoff_frame(whole, contract, F) if args.input_format == "jsonl" else whole,
+            args,
+            contract,
+            F,
+        )
     readback_pairs = (
         preflight_file_batches(spark, batches, args, contract, F, T)
         if not args.validate_only else []
@@ -1091,6 +1132,7 @@ def main() -> int:
         )
         row_count, quality_metrics = validate_frame(frame, contract, args.expected_count, F)
         source_snapshot_summary = collect_source_snapshot_summary(frame)
+        enforce_ordinary_land_pnu_null_share(spark, frame, args, contract, F)
         if args.validate_only:
             emit_run_summary(
                 build_run_summary(

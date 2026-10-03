@@ -168,6 +168,8 @@ schema:
         description: "main_or_annex_kind_in_allowed_values"
       - type: "text"
         description: "row_checksum_sha256_valid"
+      - type: "text"
+        description: "ordinary_land_pnu_null_share_increase <= 0.001"
 customProperties:
   - property: "pipelineGraphNode"
     value: "silver-building-register-titles"

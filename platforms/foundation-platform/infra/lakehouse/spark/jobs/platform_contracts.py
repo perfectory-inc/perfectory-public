@@ -173,6 +173,34 @@ def declared_geometry_srid(contract: dict[str, Any]) -> int:
     return matches[0]
 
 
+ORDINARY_LAND_PNU_NULL_SHARE_GATE = re.compile(
+    r"^ordinary_land_pnu_null_share_increase\s*<=\s*(0(?:\.\d+)?|1(?:\.0+)?)$"
+)
+
+
+def declared_ordinary_land_pnu_null_share_tolerance(contract: dict[str, Any]) -> float | None:
+    """The largest rise in ordinary-land PNU NULL share a load may bring, or None if undeclared.
+
+    Declared on hub-register tables as `ordinary_land_pnu_null_share_increase <= <fraction>`;
+    `pnu_null_share_guard` enforces it against the table's current snapshot.
+    """
+
+    gates = contract.get("quality_gates")
+    if not isinstance(gates, list):
+        raise ValueError(f"lakehouse contract {contract.get('table_name')} has no quality_gates")
+    declared = [gate for gate in gates if isinstance(gate, str)
+                and gate.strip().startswith("ordinary_land_pnu_null_share_increase")]
+    if not declared:
+        return None
+    matches = [ORDINARY_LAND_PNU_NULL_SHARE_GATE.fullmatch(gate.strip()) for gate in declared]
+    if len(declared) != 1 or matches[0] is None:
+        raise ValueError(
+            f"lakehouse contract {contract.get('table_name')} must declare at most one "
+            f"'ordinary_land_pnu_null_share_increase <= <fraction in [0, 1]>' gate; got {declared}"
+        )
+    return float(matches[0].group(1))
+
+
 def column_names(contract: dict[str, Any]) -> tuple[str, ...]:
     return tuple(column["name"] for column in columns(contract))
 

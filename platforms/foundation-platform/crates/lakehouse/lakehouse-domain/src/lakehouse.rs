@@ -1950,6 +1950,16 @@ pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTab
     },
 };
 
+/// Quality gate shared by the hub-register Silver tables keyed by `register_parcel_key`.
+///
+/// A load is refused when the PNU NULL share among ordinary-land rows (대지구분 `0`, which always
+/// has a standard PNU) rises more than this above the table's current snapshot; the Spark loader
+/// reads the number from here (`pnu_null_share_guard.py`). The 2026-09-27 title snapshot lost all
+/// of 시도 12 and jumped from one in a million to 0.116. 0.001 still catches the smallest 12xxx
+/// 시군구 on its own (about 0.2% of the title table's ordinary-land rows).
+pub const ORDINARY_LAND_PNU_NULL_SHARE_GATE: &str =
+    "ordinary_land_pnu_null_share_increase <= 0.001";
+
 /// Canonical Silver table for official building-register title (표제부) rows.
 ///
 /// One row per building (동), main and annex alike: the annex rows are real buildings with
@@ -1972,6 +1982,7 @@ pub const SILVER_BUILDING_REGISTER_TITLES: LakehouseTableContract = LakehouseTab
         "normalization_status_in_allowed_values",
         "main_or_annex_kind_in_allowed_values",
         "row_checksum_sha256_valid",
+        ORDINARY_LAND_PNU_NULL_SHARE_GATE,
     ],
     // 표제부도 한 실행이 전국 스냅숏 하나를 통째로 낳는다 — 층·호·면적과 같은 단위다.
     load: LakehouseLoadUnit::Run {
@@ -2008,6 +2019,7 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
         "proposal_required_rows_preserved",
         "building_link_method_in_allowed_values",
         "row_checksum_sha256_valid",
+        ORDINARY_LAND_PNU_NULL_SHARE_GATE,
     ],
     // 2026-09-01 실측: 값 1개, 파이프라인 실행 이름. 19,765,555 행이 한 실행에서 나왔다.
     load: LakehouseLoadUnit::Run {
@@ -2035,6 +2047,7 @@ pub const SILVER_BUILDING_REGISTER_UNIT_AREAS: LakehouseTableContract = Lakehous
         "normalization_status_in_allowed_values",
         "proposal_required_rows_preserved",
         "row_checksum_sha256_valid",
+        ORDINARY_LAND_PNU_NULL_SHARE_GATE,
     ],
     // 2026-09-01 실측: 값 1개, 파이프라인 실행 이름. 113,813,264 행이 한 실행에서 나왔다.
     load: LakehouseLoadUnit::Run {

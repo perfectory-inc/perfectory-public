@@ -1,7 +1,7 @@
 //! Silver normalization helpers for official building-register unit (전유부 호) rows.
 
 use crate::building_register_row_identity::row_identity;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use foundation_normalization_domain::{
     building_register_unit_parent_binding, normalize_building_register_unit,
@@ -12,7 +12,7 @@ use crate::building_register_basis::{BuildingRegisterBasisIndex, BuildingRegiste
 use crate::building_register_title::BuildingTitleKeyIndex;
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::pnu::{
-    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via,
+    hub_register_parcel_key, standard_pnu_from_hub_register_codes_via, SigunguCrosswalk,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
@@ -251,7 +251,7 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line(
     one_based_line_number: u64,
 ) -> Result<BuildingRegisterUnitSourceRow, BuildingRegisterUnitSilverPlanError> {
     parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
-        &HashMap::new(),
+        &SigunguCrosswalk::identity(),
         line,
         bronze_object_key,
         one_based_line_number,
@@ -267,10 +267,8 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line(
 /// # Errors
 /// Returns `BuildingRegisterUnitSilverPlanError` when lineage is invalid, the line has fewer
 /// fields than the official 전유부 columns require, or the management key is empty.
-pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via<
-    S: std::hash::BuildHasher,
->(
-    sigungu_crosswalk: &HashMap<String, String, S>,
+pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
+    sigungu_crosswalk: &SigunguCrosswalk,
     line: &str,
     bronze_object_key: &str,
     one_based_line_number: u64,
@@ -311,7 +309,12 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via<
             fields[DAEJI_KIND_INDEX],
             fields[BONBEON_INDEX],
             fields[BUBEON_INDEX],
-        ),
+        )
+        .map_err(|error| {
+            BuildingRegisterUnitSilverPlanError::InvalidInput(format!(
+                "line {one_based_line_number}: {error}"
+            ))
+        })?,
         register_parcel_key: hub_register_parcel_key(
             fields[SIGUNGU_CODE_INDEX],
             fields[BEOPJEONGDONG_CODE_INDEX],
