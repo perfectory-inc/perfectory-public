@@ -164,7 +164,7 @@
 | `docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0143-legal-dong-code-changes-come-from-code-go-kr.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
-| `docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

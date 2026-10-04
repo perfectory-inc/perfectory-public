@@ -2819,7 +2819,7 @@ const REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS: &[LakehouseColumn] = &[
 
 /// Every 법정동 code change the data implies, old code → new code.
 ///
-/// Root ADR-0143 §3–4, ADR-0144 (pending): from downloaded data only. `source` names the evidence:
+/// Root ADR-0143 §3–4, ADR-0144: from downloaded data only. `source` names the evidence:
 /// `derived:code-go-kr:date+name:<day>` (the date + name rule over the full table),
 /// `derived:parcel-jibun:<snapshots>` (the 지번 sets of two parcel snapshots, ADR-0113 §5),
 /// `official:parcel-history` (the parcel lineage's official links), `derived:children` (a 시군구 or

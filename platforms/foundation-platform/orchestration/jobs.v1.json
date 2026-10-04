@@ -111,7 +111,7 @@
     },
     {
       "id": "legal_dong_code_changes",
-      "description": "Legal-dong code changes from code.go.kr (root ADR-0143, ADR-0144 (pending)), the collection half: land the full table (codes, parents, created and abolished dates) in Bronze (requests at least 15 seconds apart; the change-notice board is not a source), refuse a response whose shape changed or a table that shrank past the contract's bounds, record when the table was last confirmed, and, only when the table's rows changed, write a pending-load handoff. No Spark: lineage_stewardship loads and pairs the handoff under its spark slots before its own steps.",
+      "description": "Legal-dong code changes from code.go.kr (root ADR-0143, ADR-0144), the collection half: land the full table (codes, parents, created and abolished dates) in Bronze (requests at least 15 seconds apart; the change-notice board is not a source), refuse a response whose shape changed or a table that shrank past the contract's bounds, record when the table was last confirmed, and, only when the table's rows changed, write a pending-load handoff. No Spark: lineage_stewardship loads and pairs the handoff under its spark slots before its own steps.",
       "systemd_service": "foundation-legal-dong-code.service",
       "systemd_timer": null,
       "schedule": "15 5 * * *",

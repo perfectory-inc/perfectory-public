@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 법정동 코드 변경의 적재·짝 맞추기 절반 (root ADR-0143, ADR-0144 (pending)). lineage-stewardship-cycle.sh 가 source 하고, 자기
+# 법정동 코드 변경의 적재·짝 맞추기 절반 (root ADR-0143, ADR-0144). lineage-stewardship-cycle.sh 가 source 하고, 자기
 # 단계 앞에서 load_legal_dong_code_handoffs 를 부른다. 그 단위의 spark 자리(3)와 spark 함수, 작업 폴더를
 # 그대로 쓴다. 계보는 법정동 코드 변경의 소비자이므로 바로 앞에서 적재한다.
 #
@@ -12,7 +12,7 @@
 #               투영이 표지보다 낡아 내보내기가 거부한다.
 #               지번 겹침은 개편 전후 필지 스냅숏 쌍(LEGAL_DONG_PARCELS_BEFORE/AFTER)이, 필지 번호 공식 이력은
 #               LEGAL_DONG_PARCEL_LINEAGE_TABLE 이 주어질 때만 돈다. 지금은 둘 다 비어 있어 꺼진 채 출시한다
-#               (ADR-0144 (pending)); 그 동안 그런 동은 스튜어드 목록으로 간다.
+#               (ADR-0144); 그 동안 그런 동은 스튜어드 목록으로 간다.
 #   3. 넘김을 loaded/ 로 옮긴다.
 # 대기 넘김이 없어도 대기 중인 스튜어드 결정이 있으면 최신 스냅숏으로 짝 맞추기만 돈다. 둘 다 없으면 그렇게
 # 남기고 지나간다. 어느 단계든 실패하면 함수가 0 이 아닌 값을 돌려주고, 호출한 단위가 계보로 넘어가지 않는다.

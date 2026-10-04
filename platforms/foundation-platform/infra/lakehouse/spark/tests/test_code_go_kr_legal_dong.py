@@ -1,4 +1,4 @@
-"""The code.go.kr parser, the pairing and the crosswalk derivation (root ADR-0143, ADR-0144 (pending)),
+"""The code.go.kr parser, the pairing and the crosswalk derivation (root ADR-0143, ADR-0144),
 on synthetic data.
 
 Every gate here is proven by planting what it must refuse: a reordered table, a shrunken table, a
@@ -184,6 +184,11 @@ def renamed_table():
     return as_rows(table_html(rows))
 
 
+# 갑동's 지번 all left (renumbered), and the parcel-number history is loaded but has no link yet:
+# every step had its data and none decided, so a person does (ADR-0144 §3.4).
+RENUMBERED = cg.JibunEvidence({"9811010100": lots(1, 2)}, {"9911010100": lots(901, 902)}, "b->a")
+
+
 class PairingTest(unittest.TestCase):
     def test_the_rule_pairs_a_merger_top_down(self):
         result = cg.pair_changes(as_rows(table_html(merged_table())), FLOOR)
@@ -218,14 +223,25 @@ class PairingTest(unittest.TestCase):
         self.assertEqual(crosswalk["sigungu"], [])
         self.assertEqual({item["reason"] for item in review}, {"not_one_to_one"})
 
-    def test_no_candidate_goes_to_the_steward_and_says_what_it_saw(self):
-        result = cg.pair_changes(renamed_table(), FLOOR)
-        [item] = result.review
-        self.assertEqual((item["old_code"], item["reason"], item["jibun"]), ("9811010100", "no_candidate", "jibun evidence off"))
+    def test_without_the_data_a_code_awaits_it_and_no_steward_may_decide_it(self):
+        # ADR-0144 §4: 연속지적 두 판이 없으면 2단계는 돌지 않고, 이름 규칙으로 추정하지도 않는다.
+        parsed = renamed_table()
+        [item] = cg.pair_changes(parsed, FLOOR).review
+        self.assertEqual((item["old_code"], item["status"], item["jibun"]), ("9811010100", "awaiting_data", "jibun evidence off"))
+        # 지번이 모두 떠났는데 변동연혁이 적재되지 않았다: 역시 데이터를 기다린다.
+        [item] = cg.pair_changes(parsed, FLOOR, jibun=RENUMBERED).review
+        self.assertEqual(item["status"], "awaiting_data")
+        [item] = cg.pair_changes(parsed, FLOOR, jibun=RENUMBERED, official_links=[]).review
+        self.assertEqual(item["status"], "steward")
+        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW)
+        self.assertEqual(plan["counts"]["review_by_status"], {"awaiting_data": 1})
+        with self.assertRaisesRegex(ValueError, "awaiting_data"):
+            pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", "추정",
+                                   {r["region_cd"] for r in parsed}, "s", NOW)
 
     def test_steward_approvals_are_accepted_only_for_listed_items(self):
         parsed = renamed_table()
-        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW)
+        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW, RENUMBERED, [])
         codes = {r["region_cd"] for r in parsed}
         approved = pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", "현장 확인", codes, "s", NOW)
         self.assertEqual((approved[0]["source"], approved[0]["kind"]), ("steward:steward-a", "pair"))
@@ -236,13 +252,13 @@ class PairingTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reason"):
             pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", " ", codes, "s", NOW)
         # 승인 행을 기록한 다음 날의 도출은 그 짝을 쓰고 목록에서 뺀다.
-        next_day = pairs_job.plan_derivation(parsed, approved, CONTRACT, CADASTRAL, "run2", NOW)
+        next_day = pairs_job.plan_derivation(parsed, approved, CONTRACT, CADASTRAL, "run2", NOW, RENUMBERED, [])
         self.assertEqual(next_day["review"], [])
         self.assertIn("steward", next_day["counts"]["pairs_by_evidence"])
 
 
 class JibunEvidenceTest(unittest.TestCase):
-    """ADR-0113 §5's 지번 overlap, the second step (ADR-0144 (pending)). Polygons are never read."""
+    """ADR-0113 §5's 지번 overlap, the second step (ADR-0144). Polygons are never read."""
 
     def evidence(self, before, after):
         return cg.JibunEvidence(before, after, "before->after")
@@ -258,7 +274,7 @@ class JibunEvidenceTest(unittest.TestCase):
         self.assertEqual(pair["detail"], "jibun_share:1.0000")
         self.assertEqual(result.review, [])
 
-    def test_a_share_below_the_contract_line_is_a_split_for_the_steward(self):
+    def test_a_share_below_the_contract_line_is_not_a_pair(self):
         # 심은 분리: 옛 갑동 지번 20개 중 18개(90%)만 새갑동에 있다. 계약의 하한(95%) 아래는 짝이 아니다.
         jibun = self.evidence({"9811010100": lots(*range(1, 21))}, {"9911010100": lots(*range(1, 19))})
         result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, min_share=MIN_SHARE)
@@ -267,6 +283,20 @@ class JibunEvidenceTest(unittest.TestCase):
         self.assertEqual((item["old_code"], item["jibun"], item["candidates"]),
                          ("9811010100", "best 9911010100 share 0.9000", ["9911010100"]))
         self.assertGreater(MIN_SHARE, 0.9, "the planted share must sit below the contract's line")
+
+    def test_a_dong_split_into_two_is_recorded_as_a_split(self):
+        # ADR-0144 §3.2: 여러 동으로 나뉘면 분할이다. 어디로 몇 개 갔는지 남기고, 짝으로 쓰지 않는다.
+        rows = merged_table()
+        rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
+        rows.append(row("9911010300", "합성특별시 가구 다른동", parent="9911000000", created=DAY))
+        jibun = self.evidence({"9811010100": lots(*range(1, 11))},
+                              {"9911010100": lots(*range(1, 7)), "9911010300": lots(*range(7, 11))})
+        result = cg.pair_changes(as_rows(table_html(rows)), FLOOR, jibun=jibun, min_share=MIN_SHARE)
+        [item] = result.review
+        self.assertEqual((item["status"], item["split_into"]), ("split", {"9911010100": 6, "9911010300": 4}))
+        plan = pairs_job.plan_derivation(as_rows(table_html(rows)), [], CONTRACT, CADASTRAL, "run", NOW, jibun)
+        with self.assertRaisesRegex(ValueError, "split"):
+            pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", "추정", None, "s", NOW)
 
     def test_two_dongs_holding_as_many_jibun_are_not_guessed_between(self):
         rows = merged_table()
@@ -417,6 +447,9 @@ class StewardOnlyRerunTest(unittest.TestCase):
         table = as_rows(table_html(rows))
         codes = {r["region_cd"] for r in table}
         registry, held = set(), []
+        # Both data steps ran and found nothing (no parcels under these codes, no history links), so
+        # what is left is a steward's (ADR-0144 §3.4).
+        data = (cg.JibunEvidence({}, {}, "b->a"), [])
 
         def append(batch):
             units = sorted({r["derivation_run_id"] for r in batch})
@@ -427,23 +460,23 @@ class StewardOnlyRerunTest(unittest.TestCase):
             return True
 
         day1 = NOW
-        plan = pairs_job.plan_derivation(table, [], CONTRACT, CADASTRAL, pairs_job.pairing_run_id(self.KEY, day1), day1)
+        plan = pairs_job.plan_derivation(table, [], CONTRACT, CADASTRAL, pairs_job.pairing_run_id(self.KEY, day1), day1, *data)
         pairs_job.append_new_rows(append, plan["fresh_changes"], "change")
         self.assertEqual({i["old_code"] for i in plan["review"]}, {"9811000000", "9811010100", "9811010200"})
 
         day2 = NOW.replace(day=3)
         decision = [("20990103T000000Z-steward-a.json", {"steward": "steward-a", "reason": "현장 확인",
                                                          "approve": ["9811000000=9911000000"]})]
-        before = pairs_job.plan_derivation(table, list(held), CONTRACT, CADASTRAL, pairs_job.pairing_run_id(self.KEY, day2), day2)
+        before = pairs_job.plan_derivation(table, list(held), CONTRACT, CADASTRAL, pairs_job.pairing_run_id(self.KEY, day2), day2, *data)
         steward, verdicts = pairs_job.fold_steward_decisions(decision, before["review"], codes, day2)
         self.assertEqual(list(verdicts.values()), ["recorded"])
         pairs_job.append_new_rows(append, steward, "steward")
-        after = pairs_job.plan_derivation(table, list(held), CONTRACT, CADASTRAL, pairs_job.pairing_run_id(self.KEY, day2), day2)
+        after = pairs_job.plan_derivation(table, list(held), CONTRACT, CADASTRAL, pairs_job.pairing_run_id(self.KEY, day2), day2, *data)
         unlocked = {(r["old_code"], r["new_code"]) for r in after["fresh_changes"]}
         self.assertEqual(unlocked, {("9811010100", "9911010100"), ("9811010200", "9911010200")})
         self.assertTrue(pairs_job.append_new_rows(append, after["fresh_changes"], "change"))
         self.assertTrue(unlocked <= {(r["old_code"], r["new_code"]) for r in held})
-        self.assertEqual(pairs_job.plan_derivation(table, list(held), CONTRACT, CADASTRAL, "run3", day2)["review"], [])
+        self.assertEqual(pairs_job.plan_derivation(table, list(held), CONTRACT, CADASTRAL, "run3", day2, *data)["review"], [])
 
     def test_rows_the_registry_claims_are_refused_not_dropped(self):
         # 심은 위반: 적재 단위가 이미 등록된 행을 새 행이라며 넘긴다(예전의 표 키 하나짜리 실행 id).
@@ -456,7 +489,7 @@ class StewardOnlyRerunTest(unittest.TestCase):
 class StewardDecisionTest(unittest.TestCase):
     def test_a_staged_decision_is_checked_now_and_again_when_folded(self):
         parsed = renamed_table()
-        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW)
+        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW, RENUMBERED, [])
         with tempfile.TemporaryDirectory() as tmp:
             review = Path(tmp) / "steward-review.json"
             review.write_text(json.dumps({"review": plan["review"]}), encoding="utf-8")
@@ -503,7 +536,7 @@ class SeedReproductionTest(unittest.TestCase):
 
 class TheNoticeBoardIsNotASourceTest(unittest.TestCase):
     def test_no_board_endpoint_or_parser_remains(self):
-        # ADR-0144 (pending): 원천은 내려받은 데이터뿐이다. 게시판 주소가 계약으로 돌아오면 거부한다.
+        # ADR-0144: 원천은 내려받은 데이터뿐이다. 게시판 주소가 계약으로 돌아오면 거부한다.
         self.assertFalse({"notice_list", "notice_detail", "attachment"} & set(CONTRACT))
         self.assertNotIn("bbsmng", json.dumps(CONTRACT))
         for name in ("parse_notice_list_html", "notices_to_fetch", "parse_notice_spreadsheet", "notice_official_pairs"):

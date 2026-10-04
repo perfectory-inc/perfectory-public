@@ -7,7 +7,7 @@ last_reviewed: 2026-10-04
 
 # 법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드 런북
 
-[루트 ADR-0143](../../../../docs/adr/0143-legal-dong-code-changes-come-from-code-go-kr.md) 과 ADR-0144 (pending) 의
+[루트 ADR-0143](../../../../docs/adr/0143-legal-dong-code-changes-come-from-code-go-kr.md) 과 [ADR-0144](../../../../docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md) 의
 운영 절차다. 법정동 코드 변경은 내려받은 데이터로만 정한다. 날짜와 상위 코드는 code.go.kr 전체 표에서, 이름이 바뀐
 동·나뉜 동은 개편 전후 필지 스냅숏의 지번에서, 지번까지 새로 매겨진 동은 필지 번호 공식 이력에서 온다. code.go.kr 의
 코드변경안내 게시판은 원천이 아니다. 허브 대장 내보내기(표제부·전유부·면적·허브 공통)는 이 절차가 만든 시군구 대응표
@@ -54,8 +54,8 @@ lineage_stewardship (06:50, spark 3자리)
 | 3 | 필지 번호 공식 이력 (`official:parcel-history`) | 필지 계보의 필지고유번호변동연혁 짝이 옛 동의 필지를 모두 한 새 동으로 잇는다 |
 | 4 | 상위 단위 묶기 (`derived:children`) | 2·3 으로 짝지어진 동들의 지번이 하한 이상 한 시군구(시도)로 갔다 |
 
-1–4 는 아무것도 바뀌지 않을 때까지 되풀이한다. 남은 코드는 스튜어드 목록으로 간다. 폴리곤은 어느 단계의 근거도
-아니다(ADR-0113 §4).
+1–4 는 아무것도 바뀌지 않을 때까지 되풀이한다. 남은 코드는 목록에 상태(판단 대기·분할·스튜어드)와 함께
+남는다(5 절). 폴리곤은 어느 단계의 근거도 아니다(ADR-0113 §4).
 
 ## 2. Before a hub export
 
@@ -121,7 +121,8 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 ### 지번 근거 켜기 (2·3 단계)
 
 2·3 단계는 꺼진 채 출시된다. 그 동안 날짜·이름 규칙이 못 정한 동(이름이 바뀐 동, 나뉜 동, 지번이 새로 매겨진 동)은
-스튜어드 목록으로 가고, 목록의 `jibun` 칸이 `jibun evidence off` 라고 말한다.
+`status = awaiting_data`(판단 대기)로 목록에 남는다. 목록의 `jibun` 칸이 `jibun evidence off` 라고 말한다. ADR-0144 §4
+대로 이름 규칙으로 추정하지 않고, 스튜어드도 이 항목은 승인할 수 없다. 데이터가 들어오면 다음 실행이 정한다.
 
 - **2 단계**는 `silver.parcel_boundaries` 에 개편 전 스냅숏과 개편 뒤(새 코드) 스냅숏이 둘 다 있어야 한다. 둘을
   정했으면 계보 단위 환경에 `LEGAL_DONG_PARCELS_BEFORE=<source_snapshot_id>` 와 `LEGAL_DONG_PARCELS_AFTER=<…>` 를
@@ -152,12 +153,21 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 
 목록은 짝 맞추기마다 `steward-review.json` 으로 바뀐다. 항목은 두 종류다.
 
-- `pair`: 1–4 단계가 짝을 정하지 못한 폐지 코드. `candidates` 가 비면 후보 없음, 둘 이상이면 분리·재번호다.
+- `pair`: 1–4 단계가 짝을 정하지 못한 폐지 코드. `status` 가 누구 몫인지 말한다(ADR-0144 §3–4).
+
+  | `status` | 뜻 | 누가 정하나 |
+  | --- | --- | --- |
+  | `awaiting_data` | 정할 수 있는 단계의 데이터가 없다(필지 스냅숏 쌍, 또는 지번이 모두 떠났는데 변동연혁이 없다) | 데이터. 스튜어드 승인은 거부된다 |
+  | `split` | 지번이 여러 새 동으로 나뉘었고 어느 것도 하한에 못 미친다. `split_into` 가 어디로 몇 개 갔는지 적는다 | 짝이 아니다. 지번별 연결은 필지 계보(ADR-0113)가 한다. 승인은 거부된다 |
+  | `steward` | 모든 단계가 데이터를 갖고도 정하지 못했다 | 스튜어드 |
+
   `jibun` 칸은 2 단계가 본 것이다: `jibun evidence off`, `no parcels before`, `no 지번 in any new code`, 또는
-  `best <코드> share <비율>`(하한 아래면 나뉜 동이다; `(tied)` 는 같은 수의 지번을 가진 동이 둘 이상).
+  `best <코드> share <비율>`(`(tied)` 는 같은 수의 지번을 가진 동이 둘 이상). `candidates` 가 비면 후보 없음이다.
+  요약(`pairs-summary.json`)의 `review_by_status` 가 상태별 개수다.
 - `crosswalk`: 시군구 하나가 둘로 나뉘거나 둘이 하나로 합쳐져 대응표 한 칸이 될 수 없는 경우.
 
-승인은 파일 한 건이다. 쓰기 전에 지금 목록과 대조한다. 목록에 없는 코드나 후보 밖의 코드는 그 자리에서 거부된다.
+승인은 파일 한 건이다. 쓰기 전에 지금 목록과 대조한다. 목록에 없는 코드, `steward` 상태가 아닌 항목, 후보 밖의
+코드는 그 자리에서 거부된다.
 
 ```bash
 sudo -u foundation-platform /opt/foundation-platform/current/scripts/ops/legal-dong-code-collect.sh steward \

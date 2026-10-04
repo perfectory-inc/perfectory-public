@@ -1,5 +1,5 @@
 //! code.go.kr 법정동 전체 표, Bronze collection (root ADR-0143; the notice board is dropped by
-//! ADR-0144 (pending)).
+//! ADR-0144).
 //!
 //! `code.go.kr` (행정표준코드관리시스템) is an approved provider (`APPROVED_PROVIDER_DOMAINS`, root
 //! ADR-0032), so the response lands as a Bronze object with a canonical `source_slug`, a `sha256`,
@@ -11,7 +11,7 @@
 //! One run sends two requests: the table's form page (for the session cookie) and the table itself
 //! (`legal_dong_code_table`): every code, current and abolished, with its parent, 생성일 and 폐지일.
 //! Only downloaded data is a source. The site's 코드변경안내 notice board is not read at all: change
-//! pairs come from the table's dates and the parcel snapshots (ADR-0144 (pending)). The endpoint,
+//! pairs come from the table's dates and the parcel snapshots (ADR-0144). The endpoint,
 //! the form fields and the request spacing come from `code-go-kr-legal-dong.contract.json`, the same
 //! file the parser reads. The spacing is a floor: a configured value may only make a run slower.
 //!

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Pair 법정동 code changes and derive the 시군구 crosswalk the hub loaders read (root ADR-0143 §3–5,
-ADR-0144 (pending)).
+ADR-0144).
 
 One run reads one code.go.kr full-table snapshot (`reference.legal_dong_code_snapshot`, loaded by
 `legal_dong_code_snapshot_to_reference.py`) and the changes already recorded
@@ -18,7 +18,7 @@ One run reads one code.go.kr full-table snapshot (`reference.legal_dong_code_sna
    it was built from and the crosswalk table snapshot that holds its entries, and the steward list
    (`--review-output`).
 
-The 코드변경안내 notice board is not a source (ADR-0144 (pending)).
+The 코드변경안내 notice board is not a source (ADR-0144).
 
 `--validate-only` does all of it from a local full-table file (`--table-html`) and writes nothing to
 the lakehouse: the real-data check runs this way.
@@ -124,7 +124,7 @@ def plan_derivation(
     derivation_run_id: str,
     now: datetime,
     jibun: cg.JibunEvidence | None = None,
-    official_links: Iterable[tuple[str, str]] = (),
+    official_links: Iterable[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Everything one run decides, without touching the lakehouse.
 
@@ -133,7 +133,8 @@ def plan_derivation(
     """
 
     pairing = contract["pairing"]
-    result = cg.pair_changes(rows, pairing["floor_date"], decided_pairs(recorded), jibun, list(official_links),
+    result = cg.pair_changes(rows, pairing["floor_date"], decided_pairs(recorded), jibun,
+                             None if official_links is None else list(official_links),
                              float(pairing["jibun_overlap_min_share"]))
     known = {row["change_key"] for row in recorded}
     fresh: list[dict[str, Any]] = []
@@ -170,6 +171,10 @@ def plan_derivation(
             "crosswalk_entries": len(crosswalk["sigungu"]),
             "governed_sido": [sido["current_code"] for sido in crosswalk["sido"]],
             "review_items": len(review),
+            "review_by_status": {
+                status: sum(1 for item in review if item.get("status", "steward") == status)
+                for status in sorted({item.get("status", "steward") for item in review})
+            },
         },
     }
 
@@ -202,9 +207,10 @@ def steward_rows(
 ) -> list[dict[str, Any]]:
     """Steward rows for approvals of items on the current steward list; anything else is refused.
 
-    `approvals` are `OLD=NEW`. OLD must be an open pair item; NEW must be one of its candidates
-    when it has any, and a code the full table holds in every case (`table_codes`; None when staging
-    a decision without the table, the pairing run checks it again).
+    `approvals` are `OLD=NEW`. OLD must be an open pair item whose status is `steward`: an item
+    awaiting data, or a split, is the data's to decide (ADR-0144 §4). NEW must be one of its
+    candidates when it has any, and a code the full table holds in every case (`table_codes`; None
+    when staging a decision without the table, the pairing run checks it again).
     """
 
     if not STEWARD_ID.fullmatch(steward):
@@ -221,6 +227,8 @@ def steward_rows(
         item = open_pairs.get(old)
         if item is None:
             raise ValueError(f"{old} is not on the steward list; only listed changes can be approved")
+        if item.get("status", "steward") != "steward":
+            raise ValueError(f"{old} is {item['status']} ({item.get('jibun', '')}); the data decides it, not a steward (ADR-0144 §4)")
         if (table_codes is not None and new not in table_codes) or (item["candidates"] and new not in item["candidates"]):
             raise ValueError(f"{new} is not a candidate for {old} ({item['candidates'] or 'a code in the full table'})")
         rows.append(change_row("pair", source, old, new, derivation_run_id, now, level=cg.code_level(old),
@@ -409,15 +417,14 @@ def _snapshot_pnus(spark, F, table: str, snapshot_id: str, codes: set[str]) -> l
 
 
 def _official_links(spark, F, table: str, codes: set[str]) -> list[tuple[str, str]]:
-    """The parcel lineage's 필지고유번호변동연혁 links out of `codes` (ADR-0113 §4). Its history-text links
-    are left out: the lineage writes them through its own dong pairing, so they would only echo it."""
+    """The parcel lineage's 필지고유번호변동연혁 links out of `codes` (ADR-0144 §3.3; graded
+    `evidence_strong` there). Its history-text links are left out: the lineage writes them through its
+    own dong pairing, so they would only echo it."""
 
     if not codes:
         return []
     frame = spark.table(table).filter(
-        (F.col("grade") == F.lit("official"))
-        & (F.col("evidence_kind") == F.lit(cg.pl.PARCEL_NUMBER_HISTORY))
-        & F.col("predecessor_pnu").isNotNull()
+        (F.col("evidence_kind") == F.lit(cg.pl.PARCEL_NUMBER_HISTORY)) & F.col("predecessor_pnu").isNotNull()
     )
     frame = frame.filter(F.substring(F.col("predecessor_pnu"), 1, 10).isin(sorted(codes)))
     return [(row["predecessor_pnu"], row["successor_pnu"]) for row in frame.select("predecessor_pnu", "successor_pnu").collect()]
@@ -491,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
                 cg.jibun_sets(_snapshot_pnus(spark, F, parcels, args.parcels_after_snapshot_id, after_codes)),
                 f"{args.parcels_before_snapshot_id}->{args.parcels_after_snapshot_id}",
             )
-        links: list[tuple[str, str]] = []
+        links: list[tuple[str, str]] | None = None
         if args.parcel_lineage_table:
             links = _official_links(spark, F, _qualified(args.iceberg_catalog_name, args.parcel_lineage_table), before_codes)
         recorded = [row.asDict() for row in spark.table(change_table).collect()]
@@ -525,7 +532,8 @@ def main(argv: list[str] | None = None) -> int:
             "job": JOB_NAME, "status": "ready", "changes_appended": changes_appended,
             "steward_decisions": verdicts, "steward_rows_appended": steward_appended,
             "crosswalk_entries_appended": len(fresh_crosswalk) if crosswalk_appended else 0,
-            "crosswalk_table_snapshot_id": crosswalk_snapshot, "official_parcel_links": len(links), **plan["counts"],
+            "crosswalk_table_snapshot_id": crosswalk_snapshot,
+            "official_parcel_links": "off" if links is None else len(links), **plan["counts"],
         })
         return 0
     finally:

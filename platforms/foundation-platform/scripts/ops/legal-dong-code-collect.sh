@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 법정동 코드 변경을 code.go.kr 에서 받는다 — 수집 절반 (root ADR-0143, ADR-0144 (pending)). 등록된
+# 법정동 코드 변경을 code.go.kr 에서 받는다 — 수집 절반 (root ADR-0143, ADR-0144). 등록된
 # 작업(ADR-0122, default_pool)이 하루 한 번 돌린다. Spark 는 쓰지 않는다.
 #
 #   legal-dong-code-collect.sh               매일 수집
@@ -8,7 +8,7 @@
 #
 # 매일 수집:
 #   1. 표 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 받아 Bronze 에 남긴다(collect-code-go-kr-legal-dong).
-#           원천은 내려받은 데이터뿐이다. 코드변경안내 게시판은 읽지 않는다(ADR-0144 (pending)).
+#           원천은 내려받은 데이터뿐이다. 코드변경안내 게시판은 읽지 않는다(ADR-0144).
 #   2. 검사 — 표의 형식이 계약과 같은지, 직전에 넘긴 표보다 계약의 한계 넘게 줄지 않았는지 본다
 #             (code_go_kr_legal_dong.py stage-handoff). 표의 행이 바뀌었을 때만 적재 대기 넘김
 #             (pending/<표 객체>/)을 쓴다. 검사를 통과하면 바뀐 것이 없어도 확인 시각(accepted.json

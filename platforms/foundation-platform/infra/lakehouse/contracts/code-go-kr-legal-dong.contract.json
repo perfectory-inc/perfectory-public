@@ -1,5 +1,5 @@
 {
-  "$comment": "Root ADR-0143, ADR-0144 (pending). How the 법정동 전체 표 of 행정표준코드관리시스템 (code.go.kr) is fetched, what its response must look like, the bounds a fetched table must stay within before anything is loaded, and how changes are paired. Only downloaded data is a source: the site's 코드변경안내 notice board is not read (ADR-0144 (pending)). The collector (`collect-code-go-kr-legal-dong` in services/foundation-outbox-publisher/src/code_go_kr_legal_dong_collect.rs), the parser and pairing (infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py), the parcel lineage (parcel_lineage.py), the hub exports' crosswalk check (services/foundation-outbox-publisher/src/sigungu_crosswalk.rs) and the tests read this file; nothing else restates these values.",
+  "$comment": "Root ADR-0143, ADR-0144. How the 법정동 전체 표 of 행정표준코드관리시스템 (code.go.kr) is fetched, what its response must look like, the bounds a fetched table must stay within before anything is loaded, and how changes are paired. Only downloaded data is a source: the site's 코드변경안내 notice board is not read (ADR-0144). The collector (`collect-code-go-kr-legal-dong` in services/foundation-outbox-publisher/src/code_go_kr_legal_dong_collect.rs), the parser and pairing (infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py), the parcel lineage (parcel_lineage.py), the hub exports' crosswalk check (services/foundation-outbox-publisher/src/sigungu_crosswalk.rs) and the tests read this file; nothing else restates these values.",
   "version": 1,
   "base_url": "https://www.code.go.kr",
   "request_spacing_seconds": 15,
@@ -53,7 +53,7 @@
     }
   },
   "pairing": {
-    "$comment": "Changes dated on or after floor_date are paired (root ADR-0143 §3–4, ADR-0144 (pending)). Earlier changes are already in every source the loaders read; 2026-01-01 covers the 2026-02-01 and 2026-07-01 reorganizations. jibun_overlap_min_share is ADR-0113 §5's line: an abolished 동 pairs by its 지번 set only with the new 동 that holds at least this share of it, and a lower share is a split signal. The parcel lineage reads the same value.",
+    "$comment": "Changes dated on or after floor_date are paired (root ADR-0143 §3–4, ADR-0144). Earlier changes are already in every source the loaders read; 2026-01-01 covers the 2026-02-01 and 2026-07-01 reorganizations. jibun_overlap_min_share is ADR-0113 §5's line: an abolished 동 pairs by its 지번 set only with the new 동 that holds at least this share of it, and a lower share is a split signal. The parcel lineage reads the same value.",
     "floor_date": "20260101",
     "jibun_overlap_min_share": 0.95
   },

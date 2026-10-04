@@ -1,4 +1,4 @@
-"""Parser and pairing kernels for the 법정동 code change source (root ADR-0143, ADR-0144 (pending)).
+"""Parser and pairing kernels for the 법정동 code change source (root ADR-0143, ADR-0144).
 
 The collector (`collect-code-go-kr-legal-dong` in the outbox publisher) lands the code.go.kr 법정동
 전체 표 in Bronze unchanged: one HTML table, every code current and abolished, with its parent and
@@ -7,7 +7,7 @@ the test lane that runs `infra/lakehouse/spark/tests` (no PySpark, standard libr
 every rule:
 
 - the full table, refused whole when its shape changed;
-- pairing, from downloaded data only (ADR-0144 (pending); the site's 코드변경안내 notice board is
+- pairing, from downloaded data only (ADR-0144; the site's 코드변경안내 notice board is
   not a source): the date + name rule, then the 지번 sets of two parcel snapshots (ADR-0113 §5),
   then the official parcel-number history, and everything else to the steward;
 - the 시군구 crosswalk the hub loaders read, and which merged 시도 it governs.
@@ -335,12 +335,12 @@ def pair_changes(
     floor_date: str,
     decided: Sequence[Mapping[str, str]] = (),
     jibun: JibunEvidence | None = None,
-    official_links: Iterable[tuple[str, str]] = (),
+    official_links: Iterable[tuple[str, str]] | None = None,
     min_share: float = pl.SPLIT_SIGNAL_OVERLAP,
 ) -> PairingResult:
     """Old code → new code for every code abolished on or after `floor_date`, from data only.
 
-    The order is the evidence's strength for what it can see (ADR-0144 (pending)):
+    The order is the evidence's strength for what it can see (ADR-0144):
 
     0. A pair the change table already records (`decided`: a steward's `steward:<who>`, or an
        earlier run's) stands: the ledger is append-only, so what one run recorded is not undone by
@@ -355,15 +355,23 @@ def pair_changes(
        holding the largest share of the old code's 지번, when that share is at least `min_share`
        (the contract's `pairing.jibun_overlap_min_share`, ADR-0113 §5) and no other code holds as
        many. Off when `jibun` is None.
-    3. **Official parcel-number history** (`official:parcel-history`): where the parcel lineage's
-       official links (`official_links`, (old PNU, new PNU)) carry every linked parcel of the old
-       code into one new code. This is how a code whose 지번 were renumbered is settled.
+    3. **Official parcel-number history** (`official:parcel-history`): where the
+       필지고유번호변동연혁 links (`official_links`, (old PNU, new PNU)) carry every linked parcel of
+       the old code into one new code. This is how a code whose 지번 were renumbered is settled.
+       Off when `official_links` is None.
     4. **Roll-up** (`derived:children`): a 시군구 or 시도 none of the above settles, whose leaf codes
        were paired by 2 or 3, pairs with the parent that received at least `min_share` of them
        (weighted by their 지번 where the snapshots are given).
 
     Steps 1–4 repeat until nothing changes, since each one's pairs relate the next. Whatever is
-    left goes to the steward list with what each step saw.
+    left goes on the review list with what each step saw and a `status` (ADR-0144 §3–4):
+
+    - `awaiting_data` — a step that could decide it lacks its data (no parcel snapshot pair, or no
+      parcel-number history). Data decides it when it arrives; the name rule does not guess, and a
+      steward may not either.
+    - `split` — its 지번 went to several new codes, none holding the contract's share. Not one
+      pair; `split_into` records how many went where (the parcel lineage links each 지번).
+    - `steward` — every step had its data and none settled it: a person decides.
     """
 
     by_code = {row["region_cd"]: row for row in rows}
@@ -376,7 +384,7 @@ def pair_changes(
     for pair in decided:
         decided_by_old.setdefault(pair["old_code"], []).append(pair)
     links_by_old: dict[str, set[str]] = {}
-    for old_pnu, new_pnu in official_links:
+    for old_pnu, new_pnu in official_links or ():
         if old_pnu[:10] != new_pnu[:10]:
             links_by_old.setdefault(old_pnu[:10], set()).add(new_pnu[:10])
 
@@ -480,22 +488,33 @@ def pair_changes(
         row = by_code.get(old)
         candidates = rule_candidates(old)
         best, share, unique = jibun_best(old)
+        before = jibun.before.get(old, set()) if jibun is not None else set()
+        split_into = {
+            new: len(before & jibun.after.get(new, set()))
+            for new in sorted(newly_held)
+            if code_level(new) == code_level(old) and before & jibun.after.get(new, set())
+        }
         if jibun is None:
-            seen = "jibun evidence off"
-        elif not jibun.before.get(old):
-            seen = "no parcels before"
+            seen, status = "jibun evidence off", "awaiting_data"
+        elif not before:
+            seen, status = "no parcels before", "steward"
         elif not best:
+            # Every 지번 left: renumbered. Only the parcel-number history can say where.
             seen = "no 지번 in any new code"
+            status = "awaiting_data" if official_links is None else "steward"
         else:
             seen = f"best {best} share {share:.4f}" + ("" if unique else " (tied)")
+            status = "split" if len(split_into) > 1 and unique else "steward"
         result.review.append(
             {
                 "kind": "pair",
                 "old_code": old,
                 "level": code_level(old),
+                "status": status,
                 "reason": "ambiguous_name_match" if candidates else "no_candidate",
                 "candidates": sorted(set(candidates) | ({best} if best else set())),
                 "jibun": seen,
+                "split_into": split_into,
                 "as_of": row.get("abolished_date", "") if row else "",
                 "name": row.get("full_name", "") if row else "",
             }

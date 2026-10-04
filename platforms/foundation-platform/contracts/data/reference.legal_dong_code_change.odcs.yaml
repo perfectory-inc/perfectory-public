@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "옛 법정동 코드 → 새 코드 짝을 근거(날짜·이름 규칙, 지번 겹침, 필지 번호 공식 이력, 스튜어드)와 함께 쌓는다(루트 ADR-0143, ADR-0144 (pending)). 어느 근거로도 정해지지 않은 코드는 스튜어드 목록에 남는다."
+  purpose: "옛 법정동 코드 → 새 코드 짝을 근거(날짜·이름 규칙, 지번 겹침, 필지 번호 공식 이력, 스튜어드)와 함께 쌓는다(루트 ADR-0143, ADR-0144). 어느 근거로도 정해지지 않은 코드는 스튜어드 목록에 남는다."
 team:
   name: "foundation-platform"
 servers:

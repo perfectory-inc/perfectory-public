@@ -87,7 +87,7 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // Guardrail: the in-scope / out-of-scope split must stay as authored (125 in-scope, 10 mixed).
     // The three ILIS entries joined when the industrial-complex address source got a collector;
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
-    // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 (pending) dropped the notice board).
+    // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board).
     assert_eq!(checked, 125, "expected 125 in-scope catalog entries");
     assert_eq!(
         skipped, 10,
