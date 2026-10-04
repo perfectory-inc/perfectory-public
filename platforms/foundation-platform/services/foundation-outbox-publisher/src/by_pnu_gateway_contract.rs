@@ -27,6 +27,13 @@ impl ByPnuLane {
         }
     }
 
+    /// The lane a manifest `unit` names.
+    pub(crate) fn from_unit(unit: &str) -> Option<Self> {
+        [Self::Parcel, Self::Building]
+            .into_iter()
+            .find(|lane| lane.unit() == unit)
+    }
+
     /// The word error messages use for one object of the lane.
     pub(crate) const fn noun(self) -> &'static str {
         match self {
@@ -56,6 +63,15 @@ impl ByPnuLane {
             Self::Building => &contract.building_by_pnu_gateway,
         })
     }
+
+    /// The lane's section packs block (root ADR-0147).
+    pub(crate) fn section_packs(self) -> anyhow::Result<&'static LaneSectionPacks> {
+        use anyhow::Context as _;
+        self.policy()?
+            .section_packs
+            .as_ref()
+            .with_context(|| format!("the {} lane serves no section packs", self.noun()))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,6 +80,7 @@ struct R2ConnectionContract {
     parcel_by_pnu_gateway: ByPnuGatewayPolicy,
     building_by_pnu_gateway: ByPnuGatewayPolicy,
     by_pnu_serving_patches: ByPnuServingPatchPolicy,
+    by_pnu_section_packs: SectionPackPolicy,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +91,60 @@ pub(crate) struct ByPnuGatewayPolicy {
     pub(crate) content_type: String,
     pub(crate) cache_control: String,
     pub(crate) manifest_cache_control: String,
+    /// The lane's section packs (root ADR-0147); only the lanes that serve from packs name one.
+    #[serde(default)]
+    pub(crate) section_packs: Option<LaneSectionPacks>,
+}
+
+/// One lane's section packs: where they live and which sections a document is split into.
+#[derive(Debug, Deserialize)]
+pub(crate) struct LaneSectionPacks {
+    pub(crate) root: String,
+    /// Every section a document is split into, in the order the manifest lists them.
+    pub(crate) sections: Vec<String>,
+    /// The section whose entry decides whether a PNU answers at all (document, tombstone, absent).
+    pub(crate) anchor_section: String,
+}
+
+/// The pack format and the cut-over gate shared by every lane (root ADR-0147 §2, §6).
+#[derive(Debug, Deserialize)]
+pub(crate) struct SectionPackPolicy {
+    pub(crate) magic: String,
+    pub(crate) format_version: u16,
+    /// The `schema_version` of the manifest's `section_packs` block.
+    pub(crate) manifest_section_packs_schema_version: u32,
+    /// Digits of the PNU one pack covers: the legal dong.
+    pub(crate) unit_prefix_length: usize,
+    pub(crate) compression: String,
+    pub(crate) suffix: String,
+    pub(crate) generation_dir_pattern: String,
+    pub(crate) patch_dir_pattern: String,
+    pub(crate) content_type: String,
+    pub(crate) cache_control: String,
+    /// The first range read of a pack: enough to cover the head of almost every pack.
+    pub(crate) head_read_bytes: usize,
+    pub(crate) max_index_entries: usize,
+    pub(crate) preview_query_parameter: String,
+    pub(crate) cutover_gate: CutoverGatePolicy,
+}
+
+/// What the first publish of section packs must be shown (root ADR-0147 §6).
+#[derive(Debug, Deserialize)]
+pub(crate) struct CutoverGatePolicy {
+    pub(crate) evidence_schema_version: String,
+    pub(crate) latency_max_increase_ms: LatencyBound,
+    pub(crate) latency_sample_size: usize,
+    /// Seeds the sample the live check and the latency probe share, so it is the same every run.
+    pub(crate) sample_seed: String,
+    /// How many PNUs per million a bake records as sample candidates; above the sample size.
+    pub(crate) sample_candidates_per_million: u64,
+}
+
+/// The most the cold first read may slow down, per percentile.
+#[derive(Debug, Deserialize)]
+pub(crate) struct LatencyBound {
+    pub(crate) p50: f64,
+    pub(crate) p95: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +160,7 @@ pub(crate) struct ByPnuObjectKeyPolicy {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ByPnuRequestPath {
+    pub(crate) prefix: String,
     pub(crate) capabilities: String,
 }
 
@@ -112,6 +184,10 @@ pub(crate) struct ByPnuServingPatchPolicy {
     pub(crate) tombstone_schema_version: String,
     pub(crate) tombstone_max_bytes: usize,
 }
+
+/// Bytes of a section pack before its header (root ADR-0147 §2): magic, format version, reserved,
+/// header length, index length. The pack module lays them out; the contract check needs the size.
+pub(crate) const PACK_PREFIX_BYTES: usize = 20;
 
 /// The prefix lengths a PNU (19 digits) can have.
 pub(crate) const PNU_PREFIX_LENGTHS: std::ops::RangeInclusive<usize> = 1..=19;
@@ -138,10 +214,59 @@ fn contract() -> anyhow::Result<&'static R2ConnectionContract> {
             {
                 return Err("by_pnu_serving_patches holds bounds that cannot all hold".to_owned());
             }
+            check_section_packs(&contract)?;
             Ok(contract)
         })
         .as_ref()
         .map_err(|message| anyhow::anyhow!(message.clone()))
+}
+
+/// Refuses a pack block whose parts cannot all hold: the format is read by two languages, so a
+/// value either side cannot honour is a contract error, not a runtime surprise.
+fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
+    let packs = &contract.by_pnu_section_packs;
+    let gate = &packs.cutover_gate;
+    if packs.magic.len() != 8
+        || packs.format_version == 0
+        || packs.compression != "gzip"
+        || !(1..=19).contains(&packs.unit_prefix_length)
+        || packs.max_index_entries == 0
+        || packs.head_read_bytes < PACK_PREFIX_BYTES
+        || gate.latency_sample_size == 0
+        || gate.sample_seed.is_empty()
+        || !(1..=1_000_000).contains(&gate.sample_candidates_per_million)
+        || !(gate.latency_max_increase_ms.p50 >= 0.0 && gate.latency_max_increase_ms.p95 >= 0.0)
+    {
+        return Err("by_pnu_section_packs holds values the pack format cannot honour".to_owned());
+    }
+    for lane in [
+        &contract.parcel_by_pnu_gateway,
+        &contract.building_by_pnu_gateway,
+    ] {
+        let Some(lane) = &lane.section_packs else {
+            continue;
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        let named = lane.sections.iter().all(|section| {
+            !section.is_empty()
+                && section
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+                && seen.insert(section.as_str())
+        });
+        if !named || !seen.contains(lane.anchor_section.as_str()) || lane.root.ends_with('/') {
+            return Err(format!(
+                "section_packs under {} must name distinct lowercase sections including its anchor",
+                lane.root
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The pack format and cut-over gate.
+pub(crate) fn section_pack_policy() -> anyhow::Result<&'static SectionPackPolicy> {
+    Ok(&contract()?.by_pnu_section_packs)
 }
 
 /// The patch bounds shared by both lanes.

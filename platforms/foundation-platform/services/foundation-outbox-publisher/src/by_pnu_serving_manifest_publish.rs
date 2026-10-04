@@ -332,14 +332,14 @@ async fn settle_failed_write(
 
 /// Releases the lane's pins older than the one the live manifest names, read now: when another
 /// publish moved the manifest since this one wrote it, its pin is the one kept.
-async fn release_behind_live(store: &ByPnuServingStore, snapshot_pins: &SnapshotPins) {
+pub(crate) async fn release_behind_live(store: &ByPnuServingStore, snapshot_pins: &SnapshotPins) {
     let lane = store.lane();
     let live = match store.read_manifest().await {
         Ok((bytes, _)) => ServedManifest::parse(lane, &bytes),
         Err(error) => Err(error),
     };
     let live_tag = match live {
-        Ok(live) => live.reflected_gold_snapshot_tag,
+        Ok(live) => oldest_live_tag(lane, &live),
         Err(error) => {
             tracing::warn!(error = %format!("{error:#}"), "the live manifest cannot be read; older pins stay until the next publish");
             return;
@@ -351,6 +351,21 @@ async fn release_behind_live(store: &ByPnuServingStore, snapshot_pins: &Snapshot
     };
     let released = pins::release_older(snapshot_pins, lane, gold_table(lane), &live_tag).await;
     tracing::info!(tag = %live_tag, released = ?released, "the live manifest's Gold snapshot is pinned");
+}
+
+/// The oldest pin the live manifest names: the object lane's and the pack lane's reflected
+/// snapshots are both pinned while both are named, so release stops below the older of them.
+pub(crate) fn oldest_live_tag(lane: ByPnuLane, live: &ServedManifest) -> Option<String> {
+    [
+        live.reflected_gold_snapshot_tag.as_ref(),
+        live.section_packs
+            .as_ref()
+            .and_then(|packs| packs.reflected_gold_snapshot_tag.as_ref()),
+    ]
+    .into_iter()
+    .flatten()
+    .min_by_key(|tag| pins::tag_order(lane, tag))
+    .cloned()
 }
 
 async fn read_existing(
@@ -387,7 +402,7 @@ async fn read_existing(
 
 /// Stores the replaced manifest in the history, then writes the new one over exactly the version
 /// read at the start (or, on a first publication, only where none exists).
-async fn commit(
+pub(crate) async fn commit(
     store: &ByPnuServingStore,
     existing: Option<&StoredManifest>,
     body: &[u8],
@@ -455,6 +470,8 @@ fn new_base(
         published_at_utc: now(),
         verified_rebase: None,
         reflected_gold_snapshot_tag: None,
+        // An object bake never drops the packs the lane serves from (root ADR-0147).
+        section_packs: existing.and_then(|stored| stored.manifest.section_packs.clone()),
     })
 }
 
@@ -877,6 +894,7 @@ pub(crate) async fn patch(
         published_at_utc: now(),
         verified_rebase: verified_rebase(&change, served)?,
         reflected_gold_snapshot_tag: None,
+        section_packs: served.section_packs.clone(),
     };
     if upserts.is_empty() && deletes.is_empty() {
         ensure!(
@@ -1052,9 +1070,25 @@ pub(crate) async fn rollback(
         target.base_generation,
         served.base_generation
     );
+    // A rollback undoes the newest object patches or the newest pack state, one at a time; the
+    // other part must be what the live manifest serves.
+    let objects_rolled_back = target.patches.len() < served.patches.len()
+        && served.patches.ends_with(&target.patches)
+        && target.section_packs == served.section_packs;
+    let packs_rolled_back = target.patches == served.patches
+        && match (&target.section_packs, &served.section_packs) {
+            (None, Some(_)) => true,
+            (Some(back), Some(live)) => {
+                back.sections == live.sections
+                    && back.patches.len() < live.patches.len()
+                    && live.patches.ends_with(&back.patches)
+            }
+            _ => false,
+        };
     ensure!(
-        target.patches.len() < served.patches.len() && served.patches.ends_with(&target.patches),
-        "{history_key}'s patches are not the live patch list minus its newest entries"
+        objects_rolled_back || packs_rolled_back,
+        "{history_key}'s patches are not the live patch list minus its newest entries, and its \
+         section packs are not the live packs minus their newest patches or none"
     );
     let schema = match target.document_schema_version {
         Some(schema) => schema,
@@ -1085,6 +1119,7 @@ pub(crate) async fn rollback(
         published_at_utc: now(),
         verified_rebase: None,
         reflected_gold_snapshot_tag: None,
+        section_packs: target.section_packs,
     })
 }
 
@@ -1095,7 +1130,7 @@ struct GatewayCapabilities {
 }
 
 /// Refuses unless the lane's public gateway says it reads manifest `schema_version`.
-async fn require_gateway_reads(
+pub(crate) async fn require_gateway_reads(
     lane: ByPnuLane,
     gateway_base_url: &str,
     schema_version: u32,
@@ -1142,7 +1177,7 @@ async fn require_gateway_reads(
     Ok(())
 }
 
-fn now() -> String {
+pub(crate) fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 

@@ -10,7 +10,7 @@ use catalog_domain::{
 use foundation_contracts::building_panel::BuildingPanelBuilding;
 use foundation_contracts::catalog::UnitResponse;
 use foundation_shared_kernel::pnu::Pnu;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
@@ -31,19 +31,33 @@ pub(super) struct GoldSnapshotProvenance {
     pub(super) manifest_list_location: String,
 }
 
-#[derive(Serialize)]
-struct ServingSource<'a> {
-    table: &'a str,
-    iceberg_snapshot_id: &'a str,
+/// The `source` block: the Gold snapshot a document was baked from.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ServingSource {
+    pub(crate) table: String,
+    pub(crate) iceberg_snapshot_id: String,
 }
 
-#[derive(Serialize)]
-struct BuildingByPnuDocument<'a> {
-    schema_version: &'static str,
-    pnu: &'a str,
-    source: ServingSource<'a>,
-    buildings: Vec<BuildingPanelBuilding>,
-    unlinked_units: Vec<UnitResponse>,
+/// One PNU's served building document, typed. Its field order is the served JSON's key order.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BuildingByPnuDocument {
+    pub(crate) schema_version: String,
+    pub(crate) pnu: String,
+    pub(crate) source: ServingSource,
+    pub(crate) buildings: Vec<BuildingPanelBuilding>,
+    pub(crate) unlinked_units: Vec<UnitResponse>,
+}
+
+impl BuildingByPnuDocument {
+    /// The served bytes: pretty JSON, newline-terminated, exactly what the object lane wrote.
+    pub(crate) fn to_bytes(&self) -> anyhow::Result<Vec<u8>> {
+        let mut body = serde_json::to_vec_pretty(self)
+            .context("failed to serialize building serving document")?;
+        body.push(b'\n');
+        Ok(body)
+    }
 }
 
 #[cfg(test)]
@@ -59,6 +73,21 @@ pub(super) fn build_with_approvals(
     row: &JsonMap<String, JsonValue>,
     approvals: &ApprovedBuildingLinks,
 ) -> anyhow::Result<BuildingServingArtifact> {
+    let document = document_with_approvals(provenance, row, approvals)?;
+    let body = document.to_bytes()?;
+    Ok(BuildingServingArtifact {
+        pnu: document.pnu,
+        checksum_sha256: format!("{:x}", Sha256::digest(&body)),
+        body,
+    })
+}
+
+/// The typed document of one Gold row, after every identity check the served bytes rely on.
+pub(super) fn document_with_approvals(
+    provenance: &GoldSnapshotProvenance,
+    row: &JsonMap<String, JsonValue>,
+    approvals: &ApprovedBuildingLinks,
+) -> anyhow::Result<BuildingByPnuDocument> {
     let pnu = row
         .get("pnu")
         .and_then(JsonValue::as_str)
@@ -144,23 +173,15 @@ pub(super) fn build_with_approvals(
         )?;
         unlinked_units.push(unit);
     }
-    let document = BuildingByPnuDocument {
-        schema_version: BUILDING_DOCUMENT_SCHEMA_VERSION,
-        pnu,
+    Ok(BuildingByPnuDocument {
+        schema_version: BUILDING_DOCUMENT_SCHEMA_VERSION.to_owned(),
+        pnu: pnu.to_owned(),
         source: ServingSource {
-            table: &provenance.table,
-            iceberg_snapshot_id: &provenance.iceberg_snapshot_id,
+            table: provenance.table.clone(),
+            iceberg_snapshot_id: provenance.iceberg_snapshot_id.clone(),
         },
         buildings,
         unlinked_units,
-    };
-    let mut body = serde_json::to_vec_pretty(&document)
-        .context("failed to serialize building serving document")?;
-    body.push(b'\n');
-    Ok(BuildingServingArtifact {
-        pnu: pnu.to_owned(),
-        checksum_sha256: format!("{:x}", Sha256::digest(&body)),
-        body,
     })
 }
 

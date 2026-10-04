@@ -25,10 +25,10 @@ use foundation_outbox::{
     EvidenceByteReader, FileObjectStorage, ObjectStorageService, PublishError, R2ObjectStorage,
 };
 
-use crate::by_pnu_gateway_contract::ByPnuLane;
+use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
 use crate::by_pnu_serving_generations;
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
-use crate::r2_layout::by_pnu;
+use crate::r2_layout::{by_pnu, by_pnu_packs};
 
 /// An opened by-PNU serving object store of one lane.
 #[derive(Clone)]
@@ -325,8 +325,102 @@ impl ByPnuServingStore {
             self.lane.noun()
         );
         let policy = self.lane.policy()?;
-        self.create_only(key, body, sha256, &policy.cache_control)
-            .await
+        self.create_only(
+            key,
+            body,
+            sha256,
+            &policy.content_type,
+            &policy.cache_control,
+        )
+        .await
+    }
+
+    /// Writes one section pack create-only (root ADR-0147), reusing an existing pack only when
+    /// the bytes match. Returns whether the pack was newly created.
+    ///
+    /// # Errors
+    /// Returns an error when the key is not a canonical pack key of the lane, the provider rejects
+    /// the write, or the key already holds different bytes.
+    pub(crate) async fn write_pack_create_only(
+        &self,
+        key: &str,
+        body: &[u8],
+        sha256: &str,
+    ) -> anyhow::Result<bool> {
+        ensure!(
+            by_pnu_packs::parse_pack_key(self.lane, key).is_some(),
+            "refusing to write {key} : it is not a canonical {} section pack key",
+            self.lane.noun()
+        );
+        let policy = section_pack_policy()?;
+        self.create_only(
+            key,
+            body,
+            sha256,
+            &policy.content_type,
+            &policy.cache_control,
+        )
+        .await
+    }
+
+    /// Every pack key of one section's base generation (`patch` `None`) or of one patch of it.
+    ///
+    /// # Errors
+    /// Returns an error when the numbers violate the grammar or the listing fails.
+    pub(crate) async fn list_pack_keys(
+        &self,
+        section: &str,
+        generation: u64,
+        patch: Option<u64>,
+    ) -> anyhow::Result<BTreeSet<String>> {
+        let directory = by_pnu_packs::directory(self.lane, section, generation, patch)?;
+        let keys = self.list_directory(&directory, None).await?;
+        Ok(keys
+            .into_iter()
+            .filter(|key| {
+                by_pnu_packs::parse_pack_key(self.lane, key).is_some_and(|parsed| {
+                    parsed.section == section
+                        && parsed.generation == generation
+                        && parsed.patch == patch
+                })
+            })
+            .collect())
+    }
+
+    /// Every generation of `section` holding at least one pack, and every patch number used
+    /// under any of them, published or not: a new generation or patch is numbered above them, so
+    /// a half-written directory is never reused.
+    ///
+    /// # Errors
+    /// Returns an error when the listing fails.
+    pub(crate) async fn list_pack_numbers(
+        &self,
+        section: &str,
+    ) -> anyhow::Result<(BTreeSet<u64>, BTreeSet<u64>)> {
+        let root = format!("{}/{section}/", self.lane.section_packs()?.root);
+        let keys = match &self.backend {
+            Backend::Local(_, local) => walk_files(&local.join(&root), &root)?,
+            Backend::R2(storage, _) => {
+                let request = R2InventoryRequest::new(Some(&root), Some(MAX_R2_INVENTORY_MAX_KEYS))
+                    .context("failed to build the pack listing request")?;
+                storage
+                    .inventory_audit(request)
+                    .await
+                    .with_context(|| format!("failed to list section packs under {root}"))?
+                    .objects()
+                    .iter()
+                    .map(|object| object.key.clone())
+                    .collect()
+            }
+        };
+        let (mut generations, mut patches) = (BTreeSet::new(), BTreeSet::new());
+        for key in keys {
+            if let Some(parsed) = by_pnu_packs::parse_pack_key(self.lane, &key) {
+                generations.insert(parsed.generation);
+                patches.extend(parsed.patch);
+            }
+        }
+        Ok((generations, patches))
     }
 
     /// Stores the exact bytes of a manifest about to be replaced under its content-addressed
@@ -346,9 +440,15 @@ impl ByPnuServingStore {
             self.lane.noun()
         );
         let policy = self.lane.policy()?;
-        self.create_only(key, body, sha256, &policy.manifest_cache_control)
-            .await
-            .map(|_| ())
+        self.create_only(
+            key,
+            body,
+            sha256,
+            &policy.content_type,
+            &policy.manifest_cache_control,
+        )
+        .await
+        .map(|_| ())
     }
 
     async fn create_only(
@@ -356,12 +456,13 @@ impl ByPnuServingStore {
         key: &str,
         body: &[u8],
         sha256: &str,
+        content_type: &str,
         cache_control: &str,
     ) -> anyhow::Result<bool> {
         let request = PutObjectRequest {
             key: key.to_owned(),
             body: body.to_vec(),
-            content_type: self.lane.policy()?.content_type.clone(),
+            content_type: content_type.to_owned(),
             cache_control: cache_control.to_owned(),
             write_mode: ObjectWriteMode::CreateOnly,
             sha256: Some(sha256.to_owned()),
@@ -536,6 +637,22 @@ fn read_directory(directory: &Path) -> anyhow::Result<Vec<(String, bool)>> {
         ));
     }
     Ok(names)
+}
+
+/// Every file key under a local directory, recursively, named relative to the store root.
+fn walk_files(directory: &Path, key_prefix: &str) -> anyhow::Result<Vec<String>> {
+    let mut keys = Vec::new();
+    for (name, is_dir) in read_directory(directory)? {
+        if is_dir {
+            keys.extend(walk_files(
+                &directory.join(&name),
+                &format!("{key_prefix}{name}/"),
+            )?);
+        } else {
+            keys.push(format!("{key_prefix}{name}"));
+        }
+    }
+    Ok(keys)
 }
 
 /// Reads a local root out of an optional raw value.

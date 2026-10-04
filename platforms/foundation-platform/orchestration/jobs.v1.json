@@ -189,6 +189,10 @@
     {
       "surface": "parcel-tiles",
       "reason": "The national parcel tiles are rebaked from the lakehouse (root ADR-0133); that bake's job is registered with the ADR-0133 work, not here. Until then they are baked by hand per docs/runbooks/tiles-object-storage-first-slice.md."
+    },
+    {
+      "surface": "building-by-pnu-section-packs",
+      "reason": "The building section packs (root ADR-0147) are baked by hand for the cut-over gate (docs/runbooks/building-section-pack-cutover.md). The scheduled bake (by_pnu_serving_bake) starts producing them in the follow-up that bakes daily patches as packs, which must land before the first pack publish."
     }
   ]
 }

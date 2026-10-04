@@ -305,3 +305,6 @@ mod tests {
 
 #[path = "r2_layout/by_pnu.rs"]
 pub(crate) mod by_pnu;
+
+#[path = "r2_layout/by_pnu_packs.rs"]
+pub(crate) mod by_pnu_packs;

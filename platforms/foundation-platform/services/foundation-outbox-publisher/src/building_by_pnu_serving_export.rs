@@ -15,6 +15,7 @@
 //! root ADR-0141): only the change set's rows are kept, and deleted PNUs get tombstones.
 
 pub(crate) mod building_document;
+pub(crate) mod section_packs;
 
 use std::{
     collections::{hash_map::DefaultHasher, BTreeSet, HashSet},
@@ -636,7 +637,7 @@ fn count_outcome(entries: &[ServingExportEntry], outcome: &str) -> anyhow::Resul
     .context("write outcome tally overflow")
 }
 
-fn write_summary(path: &Path, summary: &ServingExportSummary) -> anyhow::Result<()> {
+fn write_summary(path: &Path, summary: &impl Serialize) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create summary directory {}", parent.display()))?;

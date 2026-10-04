@@ -27,6 +27,15 @@ last_reviewed: 2026-09-10
   조정값 `max_patches`·`pnu_prefix_length` 는 발행 명령이 새 manifest 를 쓸 때만 본다.
 - `GET /buildings/by-pnu/_capabilities` 는 이 Worker 가 읽는 manifest 스키마 목록을 낸다. 발행 명령은 첫 v2
   manifest 를 쓰기 전에 이것을 확인한다 — 게이트웨이를 먼저 배포한다.
+- 항목별 묶음 파일(루트 ADR-0147, `src/packs.ts`): v2 manifest 에 `section_packs` 블록(자체 schema 3)이
+  있으면 객체 대신 묶음으로 서빙한다. 항목(`buildings`·`floors`·`units`·`unit_prices`, 계약의
+  `section_packs.sections`)마다 법정동 묶음의 머리를 범위 읽기로 읽어 이분 탐색하고(머리는 isolate 메모리와
+  엣지 캐시에 둔다), 문서 조각 하나를 범위 읽기로 꺼내 gzip 을 풀고, 기준 항목 순서대로 합쳐 객체와 같은
+  JSON 을 낸다. 패치는 `patch_floor` 위의 것 중 법정동이 목록에 있는 것만 읽는다. 툼스톤은 typed 404,
+  기준 항목에 없으면 404, 항목끼리 어긋나거나 목록의 묶음이 없으면 503 이다. `_capabilities` 는 `[1, 2, 3]`.
+  `?packs=g{n}` 은 미리보기 버전(바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true`)에서만 미발행 세대를
+  서빙하고, 운영 경로에서는 manifest 가 그 세대를 가리킬 때만 답한다(전환 관문, 런북
+  `docs/runbooks/building-section-pack-cutover.md`).
 - **manifest 를 신뢰할 수 없으면 503** (부재·비파싱·다른 unit/schema/세대 0): 포인터 장애는
   레인 전체의 장애다. R2 읽기 실패도 503이며 `no-store`로 캐시되지 않는다.
 - 객체 부재는 CORS 헤더를 포함한 404 `no-store`다. 웹은 이를 `BuildingNotServedError`로 구분한다.
