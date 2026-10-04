@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **494개**
+- 문서 파일: **495개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 171 |
+| Monorepo | 172 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 229 |
+| ADR | 230 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -534,6 +534,7 @@ docs/adr/0143-legal-dong-code-changes-come-from-code-go-kr.md
 docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md
 docs/adr/0145-one-source-of-truth-for-region-code-changes.md
 docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md
+docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -717,6 +718,7 @@ tools/github/README.md
 | `docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0145-one-source-of-truth-for-region-code-changes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
