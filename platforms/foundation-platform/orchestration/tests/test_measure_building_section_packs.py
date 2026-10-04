@@ -26,6 +26,12 @@ PREFIX = "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_"
 
 FAKE_PUBLISHER = r'''#!/usr/bin/env python3
 import json, os, sys
+# The real export reads Gold with the R2 key pair before it bakes anything (there is no
+# read-only pair); a measurement that drops the pair fails here as it fails on the host.
+for key in ("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY"):
+    if not os.environ.get(key):
+        sys.exit("failed to configure lakehouse R2 reads: " + key + " environment variable is required")
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"command": sys.argv[1], "env": dict(os.environ)}) + "\n")
 prefix = os.environ["FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PNU_PREFIX"]
@@ -86,7 +92,8 @@ class MeasureBuildingSectionPacks(unittest.TestCase):
             "FOUNDATION_PACK_MEASURE_TIME_BIN": str(time_tool),
             "FOUNDATION_BY_PNU_BAKE_STATE_ROOT": str(self.data / "by-pnu-bake"),
             "DATABASE_URL": "postgresql://fixture@127.0.0.1:1/fixture",
-            # What the bake's environment files carry; the measurement must not pass them on.
+            # What the bake's environment files carry: the key pair the Gold read needs, and an R2
+            # output the measurement must not pass on.
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID": "planted-writer-id",
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY": "planted-writer-secret",
             PREFIX + "OUTPUT_STORAGE_DRIVER": "r2",
@@ -108,8 +115,7 @@ class MeasureBuildingSectionPacks(unittest.TestCase):
             self.assertEqual(call["command"], "export-building-by-pnu-section-packs")
             self.assertEqual(env[PREFIX + "OUTPUT_STORAGE_DRIVER"], "local")
             self.assertEqual(env[PREFIX + "OUTPUT_ROOT"], f"{out}/packs")
-            self.assertNotIn("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID", env)
-            self.assertNotIn("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY", env)
+            self.assertEqual(env["FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID"], "planted-writer-id")
         # Every shard after the first is held to the first shard's Gold snapshot.
         self.assertNotIn(PREFIX + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID", calls[0]["env"])
         self.assertEqual(calls[1]["env"][PREFIX + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"], "999990000000000001")
@@ -134,6 +140,17 @@ class MeasureBuildingSectionPacks(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("data disk", result.stdout)
         self.assertEqual(calls, [])
+
+    def test_a_measurement_without_the_gold_read_keys_fails_before_any_shard(self):
+        # Planted: the environment files without the key pair. The Gold read is refused and no
+        # measurement is written, as on the host (2026-10-04, the first released script).
+        env = {k: v for k, v in self.env.items() if "R2_LAKEHOUSE_WRITER" not in k}
+        out = self.data / "measure"
+        result = subprocess.run(["bash", str(self.script), str(out)], env=env,
+                                capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("shard 1 failed", result.stdout)
+        self.assertFalse((out / "measurement.json").exists())
 
     def test_shards_of_two_snapshots_are_not_one_measurement(self):
         result, _ = self.measure(self.data / "measure", FAKE_SNAPSHOT_2="999990000000000002")
