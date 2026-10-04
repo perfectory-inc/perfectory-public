@@ -3,12 +3,13 @@
 
 Reads, all from the lakehouse:
   - the parcels of both snapshots (`silver.parcel_boundaries`, by `source_snapshot_id`),
-  - the official code list at the later snapshot (`reference.legal_dong_code_snapshot`),
+  - the 동·리 code pairs of the code change table (`reference.legal_dong_code_change`, root ADR-0145:
+    the lineage reads them, it does not pair codes itself),
   - the land movement history (`silver.land_transfer_history`),
   - optionally the building register titles of both snapshots (`silver.building_register_titles`),
   - optionally ownership facts (JSONL, old and new side) that lift attribute evidence to strong.
 Every rule lives in `parcel_lineage.py`; this job only feeds it and appends what it returns, once
-per (snapshots, regions, code snapshot, rules version).
+per (snapshots, regions, code change table snapshot, rules version).
 
 Scope is the regions named: the sido prefixes of the earlier snapshot and of the later one, which
 differ when a sido was renumbered (29,46 -> 12). The summary carries the count reconciliation and
@@ -57,7 +58,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--to-date", required=True, help="YYYY-MM-DD the later snapshot reflects")
     parser.add_argument("--from-sido", required=True, help="Comma-separated sido prefixes of the earlier snapshot, e.g. 29,46")
     parser.add_argument("--to-sido", required=True, help="Comma-separated sido prefixes of the later snapshot, e.g. 12")
-    parser.add_argument("--code-snapshot-date", help="reference.legal_dong_code_snapshot date; default: latest on or before --to-date")
     parser.add_argument("--building-from-snapshot-id", help="silver.building_register_titles source_snapshot_id, earlier")
     parser.add_argument("--building-to-snapshot-id", help="silver.building_register_titles source_snapshot_id, later")
     parser.add_argument("--ownership-old-jsonl", help="{pnu, owner_kind, co_owner_count} for the earlier side")
@@ -86,7 +86,7 @@ def validate_args(args: argparse.Namespace) -> LineageInputs:
         value = getattr(args, label)
         if value is not None and not SNAPSHOT_ID.fullmatch(value):
             raise ValueError(f"--{label.replace('_', '-')} has characters a snapshot id does not use")
-    for label in ("from_date", "to_date", "code_snapshot_date"):
+    for label in ("from_date", "to_date"):
         value = getattr(args, label)
         if value is not None and not DATE.fullmatch(value):
             raise ValueError(f"--{label.replace('_', '-')} must be YYYY-MM-DD")
@@ -106,7 +106,7 @@ def validate_args(args: argparse.Namespace) -> LineageInputs:
     return inputs
 
 
-def input_provenance(args: argparse.Namespace, inputs: LineageInputs, code_snapshot_date: str) -> dict[str, Any]:
+def input_provenance(args: argparse.Namespace, inputs: LineageInputs) -> dict[str, Any]:
     """One document names the consumed inputs for both the summary and append identity."""
     return {
         "iceberg_inputs": physical_inputs(args.iceberg_catalog_name, inputs),
@@ -116,7 +116,6 @@ def input_provenance(args: argparse.Namespace, inputs: LineageInputs, code_snaps
         "to_date": args.to_date,
         "from_sido": sorted(set(args.from_sido.split(","))),
         "to_sido": sorted(set(args.to_sido.split(","))),
-        "code_snapshot_date": code_snapshot_date,
         "building_source_snapshot_ids": {"from": args.building_from_snapshot_id, "to": args.building_to_snapshot_id},
         "ownership_sha256": {"old": inputs.ownership_old.sha256, "new": inputs.ownership_new.sha256},
         "rules_version": pl.RULES_VERSION,
@@ -131,7 +130,7 @@ def derivation_run_id(provenance: dict[str, Any]) -> str:
 def derive(
     before_raw: set[str],
     after_raw: set[str],
-    codes: dict[str, tuple[str, str]],
+    changes: list[dict[str, Any]],
     events: set[pl.MovementEvent],
     from_date: str,
     to_date: str,
@@ -151,7 +150,14 @@ def derive(
     before, bad_before = pl.partition_valid(before_raw)
     after, bad_after = pl.partition_valid(after_raw)
     lots_before, lots_after = pl.lots_by_dong(before), pl.lots_by_dong(after)
-    pairing = pl.pair_legal_dongs(codes, lots_before, lots_before, lots_after)
+    pairing = pl.dong_pairing_from_changes(changes, lots_before, lots_after, from_date, to_date)
+    if pairing.unrecorded:
+        # Writing on would carry none of their lots by code and still report a run (ADR-0145 §2).
+        raise ValueError(
+            f"{len(pairing.unrecorded)} legal dong codes held parcels at {from_date} and none at {to_date}, and the "
+            f"code change table records no pair for them effective in that window: {pairing.unrecorded[:10]}. "
+            "Record the change (legal_dong_code_change_pairs.py) before deriving the lineage."
+        )
     code_links, vanished, appeared = pl.carry_over(before, after, pairing)
     history = pl.history_links(events, from_date, to_date, pairing)
     moved_in = pl.transferred_in(events, from_date, to_date) & appeared
@@ -255,21 +261,17 @@ def read_pnus(spark: Any, cat: str, snapshot: str, sidos: str, *, table: str | N
     }
 
 
-def latest_code_snapshot(spark: Any, table: str, to_date: str) -> str | None:
-    return spark.sql(
-        f"SELECT CAST(max(snapshot_date) AS STRING) AS d FROM {table} "
-        f"WHERE snapshot_date <= DATE '{to_date}'"
-    ).collect()[0]["d"]
+def read_code_changes(spark: Any, table: str) -> list[dict[str, Any]]:
+    """The 동·리 pairs of the pinned code change table; the view in `parcel_lineage` reads them."""
 
-
-def read_codes(spark: Any, table: str, snapshot_date: str) -> dict[str, tuple[str, str]]:
-    return {
-        row["region_cd"]: (row["full_name"], row["status"])
+    levels = ", ".join(f"'{level}'" for level in pl.views.LEAF_LEVELS)
+    return [
+        row.asDict()
         for row in spark.sql(
-            f"SELECT region_cd, full_name, status FROM {table} "
-            f"WHERE snapshot_date = DATE '{snapshot_date}'"
+            f"SELECT kind, old_code, new_code, level, effective_date, source, rule_verdict, detail FROM {table} "
+            f"WHERE kind = 'pair' AND level IN ({levels})"
         ).collect()
-    }
+    ]
 
 
 def read_window_events(spark: Any, table: str, sidos: str, from_date: str, to_date: str) -> set[pl.MovementEvent]:
@@ -330,13 +332,10 @@ def main(argv: list[str] | None = None) -> int:
         after = read_pnus(spark, cat, args.to_snapshot_id, args.to_sido, table=views["boundaries_to"])
         if not before or not after:
             raise ValueError(f"no parcels for one side: before={len(before)} after={len(after)}")
-        code_date = args.code_snapshot_date or latest_code_snapshot(spark, views["codes"], args.to_date)
-        if not code_date:
-            raise ValueError("no legal dong code snapshot on or before --to-date")
-        codes = read_codes(spark, views["codes"], code_date)
-        if not codes:
-            raise ValueError(f"no legal dong codes at selected capture date {code_date}")
-        provenance = input_provenance(args, inputs, code_date)
+        # An empty change table is accepted only while no code vanished between the snapshots;
+        # `derive` refuses a vanished code the table does not pair in the window.
+        changes = read_code_changes(spark, views["code_changes"])
+        provenance = input_provenance(args, inputs)
         run_id = derivation_run_id(provenance)
         all_sido = ",".join(sorted(set(args.from_sido.split(",")) | set(args.to_sido.split(","))))
         events = read_window_events(spark, views["history"], all_sido, args.from_date, args.to_date)
@@ -346,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
             buildings_before = read_buildings(spark, views["buildings_from"], args.building_from_snapshot_id, args.from_sido)
             buildings_after = read_buildings(spark, views["buildings_to"], args.building_to_snapshot_id, args.to_sido)
         links, summary = derive(
-            before, after, codes, events, args.from_date, args.to_date,
+            before, after, changes, events, args.from_date, args.to_date,
             functools.partial(read_facts_before, spark, views["history"], args.from_date),
             buildings_before, buildings_after,
             inputs.ownership_old.rows, inputs.ownership_new.rows,
@@ -390,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
             "job": JOB_NAME,
             "derivation_run_id": run_id,
             "input_provenance": provenance,
-            "code_snapshot_date": code_date,
+            "code_change_pairs": len(changes),
             "rows": len(rows),
             "appended": outcome["appended"],
             "from_snapshot_id": args.from_snapshot_id,

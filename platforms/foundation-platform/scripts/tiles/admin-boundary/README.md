@@ -22,11 +22,11 @@ SSOT 정비가 명명한 "수동 구간"의 종결. 순서와 소유가 전부 �
    시군구명은 공식 코드목록에서 가져온다(개편된 시도는 옛 지형도 시군구 파일에 이름이 없다).
    공식 목록의 시도 중 하나라도 회차 파일이 없으면 멈춘다. 제외한 행은 사유별로
    `merge-report.json` 에 남는다(코드 형식이 아닌 필지 파편 행이 매 회차 약 300개).
-3. `infra/lakehouse/spark/jobs/legal_dong_predecessor_map.py` — 두 지적 스냅숏의 PNU 와 공식
-   코드목록으로 "새 법정동코드 ← 옛 법정동코드"를 만든다(필지 계보의 동 대응, 리→읍면 올림 포함).
-4. `infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py --predecessor-map ...`
+3. `infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py --legal-dong-change-table reference.legal_dong_code_change [--predecessor-parcel-snapshot-id <개편 전 필지 스냅숏>]`
    — `silver.administrative_boundaries` 에 회차 스냅숏을 덧붙인다. 코드가 바뀐 동은 옛 동의 id 를 잇는다.
-5. `scripts/ops/map-edit-fold.sh admin` 을 `FOUNDATION_MAP_EDIT_FOLD_FORCE=1` 로 — Gold 서빙본과 타일을 새로 굽는다.
+   "새 법정동코드 ← 옛 법정동코드"는 코드 변경표의 view 로 읽는다(루트 ADR-0145, 리→읍면 올림 포함).
+   손으로 만드는 선행 코드 파일은 없다. 동 둘이 하나로 합쳐졌으면 필지 스냅숏에서 필지를 더 많이 가진 쪽이 id 를 잇는다.
+4. `scripts/ops/map-edit-fold.sh admin` 을 `FOUNDATION_MAP_EDIT_FOLD_FORCE=1` 로 — Gold 서빙본과 타일을 새로 굽는다.
 
 2026-09 회차 실측: 5,067개 동(7월과 같은 수), 16개 시도 파일(29·46 대신 12), 개편 동 703개 전부 옛 id 상속.
 

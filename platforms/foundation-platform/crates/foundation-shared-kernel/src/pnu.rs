@@ -171,14 +171,14 @@ pub enum SigunguCrosswalkError {
     /// A hub 시군구 code inside a governed 시도 has no mapping.
     #[error(
         "hub 시군구 {0} belongs to a merged 시도 but the crosswalk has no mapping for it; the \
-         code.go.kr pairing (root ADR-0143) must derive the pair, and \
-         sigungu-canonical-crosswalk.contract.json must agree with it"
+         code.go.kr pairing (root ADR-0143) must record the pair in \
+         reference.legal_dong_code_change, whose view the crosswalk is (root ADR-0145)"
     )]
     UnmappedGovernedSigungu(String),
     /// A hub 시군구 code starts with a governed 시도 but is not 5 digits, so no mapping matches it.
     #[error(
         "hub 시군구 {0:?} starts with a merged 시도 but is not 5 digits; fix the source row, or \
-         declare it in sigungu-canonical-crosswalk.contract.json"
+         declare it a placeholder in hub-register-feed.contract.json"
     )]
     MalformedGovernedSigungu(String),
 }
@@ -521,9 +521,9 @@ mod tests {
             .err()
             .map(|error| error.to_string());
         assert!(
-            refusal.as_deref().is_some_and(
-                |message| message.contains("sigungu-canonical-crosswalk.contract.json")
-            ),
+            refusal
+                .as_deref()
+                .is_some_and(|message| message.contains("reference.legal_dong_code_change")),
             "the refusal must name the file to fix: {refusal:?}"
         );
         Ok(())

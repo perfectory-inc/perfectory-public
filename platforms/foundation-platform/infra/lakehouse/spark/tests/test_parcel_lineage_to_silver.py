@@ -18,18 +18,14 @@ from parcel_lineage_to_silver import derive, parse_args  # noqa: E402
 
 # Synthetic codes in the reserved 99999 range. Old dongs 99999-1xx were renumbered to 99999-2xx on 2099-07-01; in the same
 # change one dong's land was partly transferred into another dong and re-lotted.
-CODES = pl.parse_code_list(
-    "\n".join(
-        [
-            "법정동코드\t법정동명\t폐지여부",
-            "9999910100\t합성도 가구 갑동\t폐지",
-            "9999910200\t합성도 가구 을동\t폐지",
-            "9999920100\t합성시 가구 갑동\t존재",
-            "9999920200\t합성시 나구 을동\t존재",
-        ]
-    )
-)
 OLD_A, OLD_B, NEW_A, NEW_B = "9999910100", "9999910200", "9999920100", "9999920200"
+# The code change table's rows for that change: the lineage reads its 동 pairs, it does not pair codes.
+CHANGES = [
+    {"kind": "pair", "old_code": OLD_A, "new_code": NEW_A, "level": "eupmyeondong", "effective_date": "20990701",
+     "source": "derived:code-go-kr:date+name:20990630"},
+    {"kind": "pair", "old_code": OLD_B, "new_code": NEW_B, "level": "eupmyeondong", "effective_date": "20990701",
+     "source": "derived:parcel-jibun:june->september"},
+]
 
 
 def pnu(dong, main, sub=0):
@@ -41,9 +37,9 @@ def event(p, reason, when, code="10", area="", category=""):
 
 
 class DeriveTest(unittest.TestCase):
-    def run_derive(self):
-        before = {pnu(OLD_A, n) for n in range(1, 6)} | {pnu(OLD_B, 1), pnu(OLD_B, 150), pnu(OLD_B, 151)}
-        after = {pnu(NEW_A, n) for n in (1, 2, 3, 5, 6)} | {pnu(NEW_B, 1), pnu(NEW_B, 803), pnu(NEW_B, 804)}
+    def run_derive(self, changes=CHANGES, also=frozenset()):
+        before = {pnu(OLD_A, n) for n in range(1, 6)} | {pnu(OLD_B, 1), pnu(OLD_B, 150), pnu(OLD_B, 151)} | also
+        after = {pnu(NEW_A, n) for n in (1, 2, 3, 5, 6)} | {pnu(NEW_B, 1), pnu(NEW_B, 803), pnu(NEW_B, 804)} | also
         window = {
             event(pnu(NEW_A, 4), "5번과 합병되어 말소", "2099-08-01"),
             event(pnu(NEW_A, 6), "3번에서 분할", "2099-08-02"),
@@ -55,7 +51,7 @@ class DeriveTest(unittest.TestCase):
             event(pnu(OLD_B, 151), "지목변경", "2090-01-01", area="61.0", category="08"),
         ]
         return derive(
-            before, after, CODES, window, "2099-06-01", "2099-10-01",
+            before, after, changes, window, "2099-06-01", "2099-10-01",
             lambda pool: [e for e in history_before if e.pnu in pool],
             {"k1": pnu(OLD_B, 150)}, {"k1": pnu(NEW_B, 803)},
             {pnu(OLD_B, 151): {"owner_kind": "01", "co_owner_count": "0"}},
@@ -76,6 +72,32 @@ class DeriveTest(unittest.TestCase):
         self.assertEqual((rec["vanished_explained"], rec["appeared_explained"]), (3, 3))
         self.assertEqual(summary["identity_conflict_count"], 0)
         self.assertEqual(summary["transferred_in"], 2)
+
+    def test_the_dong_pairs_come_from_the_code_change_table_only(self):
+        links, summary = self.run_derive()
+        self.assertEqual(summary["dongs"]["how"], {CHANGES[0]["source"]: 1, CHANGES[1]["source"]: 1})
+
+    def test_a_vanished_dong_the_table_does_not_pair_is_refused(self):
+        # The same parcels with an empty change table, or one missing a pair: the lineage does not pair
+        # codes on its own (root ADR-0145 §2), and writing on would record no code_change link for
+        # the dongs that vanished, silently.
+        for changes, missing in (([], [OLD_A, OLD_B]), (CHANGES[:1], [OLD_B])):
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, rf"2099-06-01.*{missing}"):
+                self.run_derive(changes=changes)
+
+    def test_a_pair_outside_the_window_is_not_applied(self):
+        # 99999-103 still holds its lots at the later snapshot: it was renumbered after --to-date, and
+        # its pair is recorded already. Applied anyway, its lots would be sent to a dong that holds
+        # none of them yet.
+        later = {"kind": "pair", "old_code": "9999910300", "new_code": "9999920300", "level": "eupmyeondong",
+                 "effective_date": "20991002", "source": "derived:code-go-kr:date+name:20991001"}
+        links, summary = self.run_derive(changes=[*CHANGES, later], also=frozenset({pnu("9999910300", 1)}))
+        self.assertEqual(summary["dongs"]["paired"], 2)
+        self.assertFalse([link for link in links if "9999910300" in (link.predecessor_pnu or "")])
+        self.assertTrue(summary["reconciliation"]["balanced"])
+        on_the_last_day = {**later, "effective_date": "20991001"}
+        _, summary = self.run_derive(changes=[*CHANGES, on_the_last_day], also=frozenset({pnu("9999910300", 1)}))
+        self.assertEqual(summary["dongs"]["paired"], 3, "the last day of the window counts")
 
     def test_the_real_tables_need_the_explicit_flag(self):
         args = parse_args([
@@ -98,7 +120,7 @@ class DerivationIdentityTest(unittest.TestCase):
             for index, (role, table) in enumerate([
                 ("boundaries_from", "silver.parcel_boundaries"),
                 ("boundaries_to", "staging.parcel_boundaries"),
-                ("codes", "reference.legal_dong_code_snapshot"),
+                ("code_changes", "reference.legal_dong_code_change"),
                 ("history", "silver.land_transfer_history"),
             ], 1)
         }), encoding="utf-8")
@@ -116,7 +138,7 @@ class DerivationIdentityTest(unittest.TestCase):
 
         with mock.patch("parcel_lineage_to_silver.assert_catalog_env"):
             inputs = validate_args(args)
-        return derivation_run_id(input_provenance(args, inputs, "2099-09-01"))
+        return derivation_run_id(input_provenance(args, inputs))
 
     def test_different_history_window_cannot_reuse_the_recorded_append(self):
         args = self.args()

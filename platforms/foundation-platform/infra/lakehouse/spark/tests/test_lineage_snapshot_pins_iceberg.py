@@ -37,10 +37,12 @@ class LineageSnapshotIcebergTest(unittest.TestCase):
              f"('{cls.before}', 'june')", "('9999999999100010000', 'june')"),
             ("boundaries_to", "staging.parcel_boundaries", "pnu STRING, source_snapshot_id STRING",
              f"('{cls.after}', 'september')", "('9999999999100020000', 'september')"),
-            ("codes", "reference.legal_dong_code_snapshot", "region_cd STRING, full_name STRING, status STRING, snapshot_date DATE",
-             "('9999910100', '합성도 가구 갑동', '폐지', DATE '2099-09-29'), "
-             "('9999920100', '합성시 가구 갑동', '존재', DATE '2099-09-29')",
-             "('9999999999', 'changed head', '존재', DATE '2099-09-30')"),
+            ("code_changes", "reference.legal_dong_code_change",
+             "kind STRING, old_code STRING, new_code STRING, level STRING, effective_date STRING, source STRING, "
+             "rule_verdict STRING, detail STRING",
+             "('pair', '9999910100', '9999920100', 'eupmyeondong', '20990701', 'derived:code-go-kr:date+name:20990630', 'rule', NULL), "
+             "('pair', '9999900000', '9999800000', 'sigungu', '20990701', 'derived:children', 'rollup', NULL)",
+             "('pair', '9999910100', '9999999900', 'eupmyeondong', '20990930', 'changed head', 'rule', NULL)"),
             ("history", "silver.land_transfer_history",
              "pnu STRING, reason_code STRING, reason STRING, moved_at STRING, erased_at STRING, land_category_code STRING, area_m2 DOUBLE",
              f"('{cls.before}', '10', '지목변경', '2099-05-15', '', '17', 42.0), "
@@ -93,8 +95,9 @@ class LineageSnapshotIcebergTest(unittest.TestCase):
         views = bind_input_views(self.spark, "lineageproof", inputs)
         self.assertEqual(job.read_pnus(self.spark, "unused", "june", "99", table=views["boundaries_from"]), {self.before})
         self.assertEqual(job.read_pnus(self.spark, "unused", "september", "99", table=views["boundaries_to"]), {self.after})
-        self.assertEqual(job.latest_code_snapshot(self.spark, views["codes"], "2099-10-01"), "2099-09-29")
-        self.assertEqual(len(job.read_codes(self.spark, views["codes"], "2099-09-29")), 2)
+        # The pinned change table, 동·리 rows only: the moved head and the 시군구 row are not read.
+        self.assertEqual([(row["old_code"], row["new_code"]) for row in job.read_code_changes(self.spark, views["code_changes"])],
+                         [("9999910100", "9999920100")])
         window = job.read_window_events(self.spark, views["history"], "99", "2099-06-01", "2099-10-01")
         self.assertEqual({event.pnu for event in window}, {self.after})
         facts = job.read_facts_before(self.spark, views["history"], "2099-06-01", {self.before})
@@ -107,8 +110,8 @@ class LineageSnapshotIcebergTest(unittest.TestCase):
         self.assertTrue(first["appended"])
         self.assertFalse(retry["appended"])
         self.assertEqual(first["derivation_run_id"], retry["derivation_run_id"])
-        self.assertEqual(first["code_snapshot_date"], "2099-09-29")
-        self.assertEqual(first["input_provenance"], job.input_provenance(args, inputs, "2099-09-29"))
+        self.assertEqual(first["code_change_pairs"], 1)
+        self.assertEqual(first["input_provenance"], job.input_provenance(args, inputs))
         rows = self.spark.table("lineageproof.silver.lineage_smoke").collect()
         self.assertEqual([(row.predecessor_pnu, row.successor_pnu, row.grade) for row in rows], [(self.before, self.after, "code_derived")])
         changed = self.run_job("--from-date", "2099-05-01")

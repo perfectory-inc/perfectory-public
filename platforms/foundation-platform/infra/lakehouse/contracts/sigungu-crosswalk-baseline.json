@@ -1,0 +1,159 @@
+{
+  "$comment": "The 27 시군구 pairs, old → new like the change table and its projection (root ADR-0145), of the 2026-07-01 merger, kept by hand before code.go.kr pairing existed (ADR-0103 Wave 1). Root ADR-0145 §3: a test fixture only, and the comparison baseline the hub exports hold the derived crosswalk to until a live pairing run reproduces these pairs; code-go-kr-legal-dong.contract.json projection.baseline_comparison records that run and turns the comparison off. Original note: pairing derived by joining HUB pnu tail (읍면동+본+부) to cadastral parcels (verified, monotonic, incl. the non-arithmetic 광양 case); 12 (전남광주통합특별시) is confirmed current by the authority (getStanReginCdList).",
+  "version": 2,
+  "canonical_authority": "mois:getStanReginCdList",
+  "as_of": "20260912",
+  "sido": [
+    {
+      "old_codes": [
+        "29",
+        "46"
+      ],
+      "old_names": [
+        "광주광역시",
+        "전라남도"
+      ],
+      "new_code": "12",
+      "new_name": "전남광주통합특별시",
+      "effective_date": "20260701",
+      "source": "authority:getStanReginCdList:2026-09"
+    }
+  ],
+  "sigungu": [
+    {
+      "old_code": "29110",
+      "new_code": "12210",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "29140",
+      "new_code": "12240",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "29155",
+      "new_code": "12270",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "29170",
+      "new_code": "12300",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "29200",
+      "new_code": "12330",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46110",
+      "new_code": "12110",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46130",
+      "new_code": "12130",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46150",
+      "new_code": "12150",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46170",
+      "new_code": "12170",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46230",
+      "new_code": "12190",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46710",
+      "new_code": "12710",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46720",
+      "new_code": "12720",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46730",
+      "new_code": "12730",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46770",
+      "new_code": "12740",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46780",
+      "new_code": "12750",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46790",
+      "new_code": "12760",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46800",
+      "new_code": "12770",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46810",
+      "new_code": "12780",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46820",
+      "new_code": "12790",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46830",
+      "new_code": "12800",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46840",
+      "new_code": "12810",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46860",
+      "new_code": "12820",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46870",
+      "new_code": "12830",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46880",
+      "new_code": "12840",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46890",
+      "new_code": "12850",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46900",
+      "new_code": "12860",
+      "source": "derived:pnu-tail-join:2026-09"
+    },
+    {
+      "old_code": "46910",
+      "new_code": "12870",
+      "source": "derived:pnu-tail-join:2026-09"
+    }
+  ]
+}

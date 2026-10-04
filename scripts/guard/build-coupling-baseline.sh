@@ -222,7 +222,10 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # one record of the endpoints, form fields and request spacing that the Python parsers read too;
 # and its test reads the endpoint catalog from CARGO_MANIFEST_DIR to prove every dataset it lands
 # is registered there, as the ILIS collector's test does.
-COMPILE_TIME_READ_BASELINE="${3:-113}"
+# 113 -> 114: root ADR-0145 splits the 시군구 crosswalk seed in two: the 27 hand pairs stay as the
+# comparison baseline (sigungu-crosswalk-baseline.json) and the hub feed's placeholder codes and
+# absent-시도 bound move to hub-register-feed.contract.json, each embedded where it is judged.
+COMPILE_TIME_READ_BASELINE="${3:-114}"
 
 cd "$repo_root"
 

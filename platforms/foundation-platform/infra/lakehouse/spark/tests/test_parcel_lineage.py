@@ -38,44 +38,63 @@ class CodeListTest(unittest.TestCase):
             pl.parse_code_list("9999910100\t이름\t존재")
 
 
-class DongPairingTest(unittest.TestCase):
-    def setUp(self):
-        self.codes = pl.parse_code_list(CODE_LIST)
+def change(old, new, level="eupmyeondong", source="derived:code-go-kr:date+name:20990630"):
+    """One `reference.legal_dong_code_change` pair row."""
 
-    def test_a_renamed_dong_pairs_with_the_new_dong_of_the_same_leaf_name_only(self):
+    return {"kind": "pair", "old_code": old, "new_code": new, "level": level, "effective_date": "20990701", "source": source}
+
+
+# The change table's view of the CODE_LIST change: 갑동 and 을동 moved from 99999-1xx to 99999-2xx.
+CHANGES = [change("9999910100", "9999920100"), change("9999910200", "9999920200")]
+
+
+class DongPairingTest(unittest.TestCase):
+    """The lineage reads its 동 pairs from the code change table (root ADR-0145 §2)."""
+
+    def test_the_dong_pairs_are_the_change_tables(self):
         before = {pnu("9999910100", 1), pnu("9999910200", 1), pnu("9999910300", 5)}
         after = {pnu("9999920100", 1), pnu("9999920200", 1), pnu("9999910300", 5), pnu("9999930100", 1)}
-        pairing = pl.pair_legal_dongs(self.codes, pl.lots_by_dong(before), pl.lots_by_dong(before), pl.lots_by_dong(after))
-        self.assertEqual(pairing.pairs["9999910100"], "9999920100")
-        self.assertEqual(pairing.pairs["9999910300"], "9999910300")
-        self.assertEqual(pairing.how["9999910300"], "unchanged")
+        pairing = pl.dong_pairing_from_changes(CHANGES, pl.lots_by_dong(before), pl.lots_by_dong(after))
+        self.assertEqual(pairing.pairs, {"9999910100": "9999920100", "9999910200": "9999920200"})
+        self.assertEqual(pairing.how["9999910100"], CHANGES[0]["source"])
+        self.assertEqual(pairing.to_new(pnu("9999910300", 5)), pnu("9999910300", 5), "a code the table does not move keeps its number")
         self.assertEqual(pairing.unpaired, [])
 
-    def test_a_same_named_dong_elsewhere_is_never_a_candidate(self):
-        # 다른도 나구 갑동 exists and holds parcels, but it held them before too: not new, not a candidate.
-        before = {pnu("9999910100", 1), pnu("9999930100", 1)}
-        after = {pnu("9999920100", 1), pnu("9999930100", 1)}
-        pairing = pl.pair_legal_dongs(self.codes, pl.lots_by_dong(before), pl.lots_by_dong(before), pl.lots_by_dong(after))
-        self.assertEqual(pairing.pairs["9999910100"], "9999920100")
+    def test_no_pair_is_made_up_without_the_table(self):
+        # Same names and lots as above, but the table records nothing: the lineage pairs nothing itself.
+        before = {pnu("9999910100", 1)}
+        after = {pnu("9999920100", 1)}
+        pairing = pl.dong_pairing_from_changes([], pl.lots_by_dong(before), pl.lots_by_dong(after))
+        self.assertEqual(pairing.pairs, {})
+        self.assertEqual(pairing.unpaired, ["9999910100"])
+
+    def test_a_split_and_other_levels_and_kinds_are_not_one_pair(self):
+        rows = [
+            change("9999910100", "9999920100"), change("9999910100", "9999920200", source="steward:someone"),
+            change("9999900000", "9999800000", level="sigungu"),
+            {**change("9999910200", "9999920200"), "kind": "note"},
+        ]
+        pairing = pl.dong_pairing_from_changes(rows, {}, {})
+        self.assertEqual(pairing.pairs, {})
+        self.assertEqual(pairing.unpaired, ["9999910100"])
 
     def test_a_low_lot_overlap_is_a_split_signal(self):
         before = {pnu("9999910100", n) for n in range(1, 11)}
         after = {pnu("9999920100", n) for n in range(1, 4)} | {pnu("9999920200", n) for n in range(50, 57)}
-        pairing = pl.pair_legal_dongs(self.codes, pl.lots_by_dong(before), pl.lots_by_dong(before), pl.lots_by_dong(after))
+        pairing = pl.dong_pairing_from_changes(CHANGES, pl.lots_by_dong(before), pl.lots_by_dong(after))
         self.assertAlmostEqual(pairing.lot_overlap["9999910100"], 0.3)
         self.assertEqual(pairing.split_signals(), ["9999910100"])
 
 
 class CarryOverTest(unittest.TestCase):
     def test_lots_that_survive_the_rename_are_code_derived_and_the_counts_balance(self):
-        codes = pl.parse_code_list(CODE_LIST)
         before = {pnu("9999910100", 1), pnu("9999910100", 2), pnu("9999910300", 7)}
         after = {pnu("9999920100", 1), pnu("9999920100", 3), pnu("9999910300", 7)}
-        pairing = pl.pair_legal_dongs(codes, pl.lots_by_dong(before), pl.lots_by_dong(before), pl.lots_by_dong(after))
+        pairing = pl.dong_pairing_from_changes(CHANGES, pl.lots_by_dong(before), pl.lots_by_dong(after))
         links, vanished, appeared = pl.carry_over(before, after, pairing)
         self.assertEqual(
             links,
-            [pl.Link(pnu("9999910100", 1), pnu("9999920100", 1), "code_change", "code_derived", "same_lot_paired_dong", "sigungu+dong name")],
+            [pl.Link(pnu("9999910100", 1), pnu("9999920100", 1), "code_change", "code_derived", "same_lot_paired_dong", CHANGES[0]["source"])],
         )
         self.assertEqual(vanished, {pnu("9999910100", 2)})
         self.assertEqual(appeared, {pnu("9999920100", 3)})
@@ -106,10 +125,9 @@ class HistoryTextTest(unittest.TestCase):
         self.assertEqual(pl.history_links(events, "2099-01-01", "2099-12-31"), [])
 
     def test_the_same_event_under_old_and_new_codes_is_one_link(self):
-        codes = pl.parse_code_list(CODE_LIST)
         before = {pnu("9999910100", 62), pnu("9999910100", 88)}
         after = {pnu("9999920100", 88)}
-        pairing = pl.pair_legal_dongs(codes, pl.lots_by_dong(before), pl.lots_by_dong(before), pl.lots_by_dong(after))
+        pairing = pl.dong_pairing_from_changes(CHANGES, pl.lots_by_dong(before), pl.lots_by_dong(after))
         events = [
             self.event(pnu("9999910100", 62), "88번과 합병되어 말소"),
             self.event(pnu("9999920100", 62), "88번과 합병되어 말소"),

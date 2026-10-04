@@ -99,7 +99,7 @@ customProperties:
       - "successor_pnu"
   - property: "upstreamDatasets"
     value:
-      - "reference.legal_dong_code_snapshot"
+      - "reference.legal_dong_code_change"
       - "serving-lineage-stewardship"
       - "silver.building_register_titles"
       - "silver.land_transfer_history"

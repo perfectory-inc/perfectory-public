@@ -24,7 +24,7 @@ class LineageInputTest(unittest.TestCase):
         self.sources = {
             "boundaries_from": {"table": "silver.parcel_boundaries", "snapshot_id": "11"},
             "boundaries_to": {"table": "staging.parcel_boundaries_september", "snapshot_id": "22"},
-            "codes": {"table": "reference.legal_dong_code_snapshot", "snapshot_id": "33"},
+            "code_changes": {"table": "reference.legal_dong_code_change", "snapshot_id": "33"},
             "history": {"table": "silver.land_transfer_history", "snapshot_id": "44"},
         }
         self.save()
@@ -45,20 +45,20 @@ class LineageInputTest(unittest.TestCase):
             args = job.parse_args(self.argv(*extra))
             return args, job.validate_args(args)
 
-    def identity(self, args, inputs, code_date="2099-09-29"):
-        return job.derivation_run_id(job.input_provenance(args, inputs, code_date))
+    def identity(self, args, inputs):
+        return job.derivation_run_id(job.input_provenance(args, inputs))
 
     def test_every_source_has_an_exact_physical_table_and_snapshot(self):
         args, inputs = self.load()
-        document = job.input_provenance(args, inputs, "2099-09-29")
+        document = job.input_provenance(args, inputs)
         self.assertEqual(document["iceberg_inputs"], {
             role: {"table": "lakehouse." + binding["table"], "snapshot_id": binding["snapshot_id"]}
             for role, binding in self.sources.items()
         })
-        self.assertEqual(document["code_snapshot_date"], "2099-09-29")
+        self.assertNotIn("code_snapshot_date", document, "the code change table snapshot is pinned like every input")
 
     def test_missing_extra_or_ambiguous_bindings_are_rejected(self):
-        malformed = [[], {}, {**self.sources, "unused": self.sources["codes"]}]
+        malformed = [[], {}, {**self.sources, "unused": self.sources["code_changes"]}]
         for role in self.sources:
             incomplete = copy.deepcopy(self.sources)
             del incomplete[role]
@@ -86,14 +86,14 @@ class LineageInputTest(unittest.TestCase):
     def test_invalid_snapshot_ids_and_physical_identifiers_are_rejected(self):
         for value in [None, True, 1.0, "0", "01", "-1", str(2**63), "1 OR true"]:
             with self.subTest(snapshot=value):
-                self.sources["codes"]["snapshot_id"] = value
+                self.sources["code_changes"]["snapshot_id"] = value
                 self.save()
                 with self.assertRaises(ValueError):
                     self.load()
-        self.sources["codes"]["snapshot_id"] = "33"
+        self.sources["code_changes"]["snapshot_id"] = "33"
         for table in [None, "t", "other.silver.t", "silver.t where true", "silver.t;DROP", "silver.`t`"]:
             with self.subTest(table=table):
-                self.sources["codes"]["table"] = table
+                self.sources["code_changes"]["table"] = table
                 self.save()
                 with self.assertRaises(ValueError):
                     self.load()
@@ -101,7 +101,7 @@ class LineageInputTest(unittest.TestCase):
     def test_impossible_dates_and_aliases_of_one_vintage_fail_before_spark(self):
         cases = [
             ("--from-date", "2099-02-29"), ("--to-date", "2099-13-01"),
-            ("--code-snapshot-date", "2099-04-31"), ("--to-date", "2099-06-01"),
+            ("--to-date", "2099-06-01"),
             ("--to-snapshot-id", "vworldkr__parcel-209906"),
             ("--to-snapshot-id", "vworldkr__parcel:209906"),
         ]
@@ -138,7 +138,6 @@ class LineageInputTest(unittest.TestCase):
                 changed = copy.copy(args)
                 setattr(changed, attribute, value)
                 self.assertNotEqual(original, self.identity(changed, inputs))
-        self.assertNotEqual(original, self.identity(args, inputs, "2099-09-28"))
         with mock.patch.object(job.pl, "RULES_VERSION", "future-rules"):
             self.assertNotEqual(original, self.identity(args, inputs))
         for role in self.sources:
@@ -165,7 +164,7 @@ class LineageInputTest(unittest.TestCase):
         path.write_bytes(raw)
         args, inputs = self.load("--ownership-old-jsonl", str(path))
         original = self.identity(args, inputs)
-        self.assertEqual(job.input_provenance(args, inputs, "2099-09-29")["ownership_sha256"]["old"], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(job.input_provenance(args, inputs)["ownership_sha256"]["old"], hashlib.sha256(raw).hexdigest())
         path.write_bytes(raw.replace(b'"01"', b'"02"'))
         self.path.write_text("not JSON", encoding="utf-8")
         self.assertEqual(inputs.ownership_old.rows["9999910100100010000"]["owner_kind"], "01")
@@ -189,14 +188,12 @@ class LineageInputTest(unittest.TestCase):
         spark = mock.Mock()
         spark.sql.return_value.collect.return_value = []
         job.read_pnus(spark, "unused", "old", "99", table="`pinned_before`")
-        job.read_codes(spark, "`pinned_codes`", "2099-09-29")
+        job.read_code_changes(spark, "`pinned_codes`")
         job.read_window_events(spark, "`pinned_history`", "99", "2099-06-01", "2099-09-01")
         job.read_facts_before(spark, "`pinned_history`", "2099-06-01", {"9999910100100010000"})
         job.read_buildings(spark, "`pinned_buildings`", "old", "99")
-        spark.sql.return_value.collect.return_value = [{"d": "2099-09-29"}]
-        job.latest_code_snapshot(spark, "`pinned_codes`", "2099-10-01")
         for call, relation in zip(spark.sql.call_args_list, [
-            "pinned_before", "pinned_codes", "pinned_history", "pinned_history", "pinned_buildings", "pinned_codes",
+            "pinned_before", "pinned_codes", "pinned_history", "pinned_history", "pinned_buildings",
         ]):
             self.assertIn(f"FROM `{relation}`", call.args[0])
             self.assertNotIn(".silver.", call.args[0])
@@ -217,7 +214,7 @@ class LineageInputTest(unittest.TestCase):
                 ownership.write_text('{"pnu":"9999910100100010000","owner_kind":"01"}\n', encoding="utf-8")
                 flags += ["--ownership-old-jsonl", str(ownership)]
                 args, inputs = self.load(*flags)
-                expected = job.input_provenance(args, inputs, "2099-09-29")
+                expected = job.input_provenance(args, inputs)
                 spark, builder = mock.Mock(), mock.Mock()
                 builder.appName.return_value = builder
                 builder.config.return_value = builder
@@ -241,8 +238,7 @@ class LineageInputTest(unittest.TestCase):
                     stack.enter_context(mock.patch.object(job, "assert_catalog_env"))
                     stack.enter_context(mock.patch.object(job, "apply_catalog_settings", return_value=builder))
                     pnus = stack.enter_context(mock.patch.object(job, "read_pnus", return_value={"9999910100100010000"}))
-                    latest = stack.enter_context(mock.patch.object(job, "latest_code_snapshot", return_value="2099-09-29"))
-                    codes = stack.enter_context(mock.patch.object(job, "read_codes", return_value={"9999910100": ("synthetic", "존재")}))
+                    codes = stack.enter_context(mock.patch.object(job, "read_code_changes", return_value=[]))
                     events = stack.enter_context(mock.patch.object(job, "read_window_events", return_value=set()))
                     titles = stack.enter_context(mock.patch.object(job, "read_buildings", return_value={}))
                     stack.enter_context(mock.patch.object(job, "derive", side_effect=derive))
@@ -257,8 +253,7 @@ class LineageInputTest(unittest.TestCase):
                 self.assertEqual([c.kwargs["table"] for c in pnus.call_args_list], [
                     "`_parcel_lineage_boundaries_from`", "`_parcel_lineage_boundaries_to`",
                 ])
-                self.assertEqual(latest.call_args.args[1], "`_parcel_lineage_codes`")
-                self.assertEqual(codes.call_args.args[1], "`_parcel_lineage_codes`")
+                self.assertEqual(codes.call_args.args[1], "`_parcel_lineage_code_changes`")
                 self.assertEqual(events.call_args.args[1], "`_parcel_lineage_history`")
                 self.assertIn("FROM `_parcel_lineage_history` h", spark.sql.call_args_list[0].args[0])
                 self.assertEqual(titles.call_count, 2 if buildings else 0)

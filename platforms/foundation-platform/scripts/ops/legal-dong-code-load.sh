@@ -6,13 +6,13 @@
 # 대기 넘김(수집 작업이 쓴 pending/<표 객체>/)마다, 오래된 것부터:
 #   1. 스냅숏 — 전체 표를 reference.legal_dong_code_snapshot 에 쌓는다. 형식이 바뀌었거나 표가 그 표의 직전
 #               code.go.kr 스냅숏보다 줄었으면 아무것도 쌓지 않고 실패한다. 성공하면 최신 스냅숏 표지를 바꾼다.
-#   2. 짝     — 기록된 짝·스튜어드 짝 → 날짜·이름 규칙 → (켜졌으면) 지번 겹침 → (켜졌으면) 필지 번호 공식 이력
-#               → 상위 단위 묶기로 짝을 맞춰 reference.legal_dong_code_change 와 reference.sigungu_canonical_crosswalk
-#               에 쌓고, 허브 내보내기가 읽는 투영 파일과 스튜어드 목록을 바꾼다. 1 이 성공하고 2 가 실패하면
-#               투영이 표지보다 낡아 내보내기가 거부한다.
-#               지번 겹침은 개편 전후 필지 스냅숏 쌍(LEGAL_DONG_PARCELS_BEFORE/AFTER)이, 필지 번호 공식 이력은
-#               LEGAL_DONG_PARCEL_LINEAGE_TABLE 이 주어질 때만 돈다. 지금은 둘 다 비어 있어 꺼진 채 출시한다
-#               (ADR-0144); 그 동안 그런 동은 스튜어드 목록으로 간다.
+#   2. 짝     — 기록된 짝·스튜어드 짝 → 날짜·이름 규칙 → (켜졌으면) 지번 겹침 → 상위 단위 묶기로 짝을 맞춰
+#               reference.legal_dong_code_change 하나에만 쌓고(ADR-0145), 그 표의 시군구 view 인 투영 파일과
+#               스튜어드 목록을 바꾼다. 1 이 성공하고 2 가 실패하면 투영이 표지보다 낡아 내보내기가 거부한다.
+#               지번 겹침은 개편 전후 필지 스냅숏 쌍(LEGAL_DONG_PARCELS_BEFORE/AFTER)이 주어질 때만 돈다.
+#               필지 번호 공식 이력(필지고유번호변동연혁)은 아직 수집하지 않아 그 단계는 꺼져 있고, 그것만 정할
+#               수 있는 동은 판단 대기(awaiting_data)로 남는다(ADR-0144 §4). 필지 계보는 증거가 아니다: 계보가
+#               이 표의 동 짝을 읽으므로, 거꾸로 읽으면 서로가 서로를 읽는다(ADR-0145 §2).
 #   3. 넘김을 loaded/ 로 옮긴다.
 # 대기 넘김이 없어도 대기 중인 스튜어드 결정이 있으면 최신 스냅숏으로 짝 맞추기만 돈다. 둘 다 없으면 그렇게
 # 남기고 지나간다. 어느 단계든 실패하면 함수가 0 이 아닌 값을 돌려주고, 호출한 단위가 계보로 넘어가지 않는다.
@@ -35,9 +35,6 @@ legal_dong_pair() {
   fi
   if [ -n "${LEGAL_DONG_PARCELS_BEFORE:-}" ] && [ -n "${LEGAL_DONG_PARCELS_AFTER:-}" ]; then
     evidence+=(--parcels-before-snapshot-id "${LEGAL_DONG_PARCELS_BEFORE}" --parcels-after-snapshot-id "${LEGAL_DONG_PARCELS_AFTER}")
-  fi
-  if [ -n "${LEGAL_DONG_PARCEL_LINEAGE_TABLE:-}" ]; then
-    evidence+=(--parcel-lineage-table "${LEGAL_DONG_PARCEL_LINEAGE_TABLE}")
   fi
   spark legal_dong_code_change_pairs.py --allow-non-smoke-write --snapshot-date "${snapshot_date}" \
     --table-source-record-id "${table_key}" ${evidence[@]+"${evidence[@]}"} ${decisions[@]+"${decisions[@]}"} \

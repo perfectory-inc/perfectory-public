@@ -96,4 +96,5 @@ customProperties:
       - "canonical_code"
   - property: "upstreamDatasets"
     value:
+      - "reference.legal_dong_code_change"
       - "source-vworld-dataset"

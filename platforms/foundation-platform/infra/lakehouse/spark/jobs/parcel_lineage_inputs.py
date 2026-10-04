@@ -27,7 +27,7 @@ class LineageInputs:
 
 
 def input_roles(args: Any) -> tuple[str, ...]:
-    roles = ("boundaries_from", "boundaries_to", "codes", "history")
+    roles = ("boundaries_from", "boundaries_to", "code_changes", "history")
     if bool(args.building_from_snapshot_id) != bool(args.building_to_snapshot_id):
         raise ValueError("--building-from-snapshot-id and --building-to-snapshot-id go together")
     if args.building_from_snapshot_id:

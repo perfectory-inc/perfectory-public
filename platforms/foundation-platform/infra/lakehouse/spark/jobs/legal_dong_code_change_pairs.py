@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Pair 법정동 code changes and derive the 시군구 crosswalk the hub loaders read (root ADR-0143 §3–5,
-ADR-0144).
+"""Pair 법정동 code changes into the one record of them, and project the 시군구 crosswalk the hub
+loaders read (root ADR-0143, ADR-0144, ADR-0145).
 
 One run reads one code.go.kr full-table snapshot (`reference.legal_dong_code_snapshot`, loaded by
 `legal_dong_code_snapshot_to_reference.py`) and the changes already recorded
-(`reference.legal_dong_code_change`), optionally two parcel snapshots and the parcel lineage, then:
+(`reference.legal_dong_code_change`), optionally two parcel snapshots, then:
 
 1. pairs every change on or after the contract's floor from data only
    (`code_go_kr_legal_dong.pair_changes`): what the change table already records, the date + name
    rule, the 지번 sets of the two parcel snapshots (`--parcels-before-snapshot-id`,
-   `--parcels-after-snapshot-id`; off without them), the official parcel-number history in the
-   parcel lineage (`--parcel-lineage-table`; off without it), and a roll-up of 동 pairs to the
-   시군구 and 시도 above them;
-2. appends the changes not yet recorded to `reference.legal_dong_code_change`, and the 시군구
-   crosswalk entries not yet recorded to `reference.sigungu_canonical_crosswalk`;
-3. writes the crosswalk projection (`--projection-output`) the hub exports read, naming the snapshot
-   it was built from and the crosswalk table snapshot that holds its entries, and the steward list
-   (`--review-output`).
+   `--parcels-after-snapshot-id`; off without them), and a roll-up of 동 pairs to the 시군구 and
+   시도 above them. The official parcel-number history (필지고유번호변동연혁) is not collected yet,
+   so that step stays off and what only it could settle is reported `awaiting_data` (ADR-0144 §4).
+   The parcel lineage is not evidence here: it reads its 동 pairs from this table (ADR-0145 §2);
+2. appends the changes not yet recorded to `reference.legal_dong_code_change`, the only table it
+   writes;
+3. writes the crosswalk projection (`--projection-output`) the hub exports read: a view of the
+   change table (`legal_dong_code_change_views.sigungu_crosswalk_view`) naming the change table
+   snapshot it was read at, and the steward list (`--review-output`).
 
 The 코드변경안내 notice board is not a source (ADR-0144).
 
@@ -38,15 +39,15 @@ import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import code_go_kr_legal_dong as cg
+import legal_dong_code_change_views as views
 
 JOB_NAME = "legal_dong_code_change_pairs"
 CHANGE_CONTRACT = "reference.legal_dong_code_change"
-CROSSWALK_CONTRACT = "reference.sigungu_canonical_crosswalk"
 SNAPSHOT_CONTRACT = "reference.legal_dong_code_snapshot"
-PROJECTION_SCHEMA = "foundation-platform.sigungu_crosswalk_projection.v1"
+PROJECTION_SCHEMA = "foundation-platform.sigungu_crosswalk_projection.v2"
 PARCEL_SOURCE_PATH = Path(__file__).resolve().parents[2] / "contracts" / "vworld-parcel-source-objects.json"
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SNAPSHOT_ID = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
@@ -124,17 +125,17 @@ def plan_derivation(
     derivation_run_id: str,
     now: datetime,
     jibun: cg.JibunEvidence | None = None,
-    official_links: Iterable[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Everything one run decides, without touching the lakehouse.
 
-    Returns the change rows not yet recorded, the crosswalk (projection body and table rows), the
-    steward list and the counts. Pure, so the planted-failure tests drive it directly.
+    Returns the change rows not yet recorded, the crosswalk the change table will hold once they
+    are appended (its view over the recorded rows and these), the steward list and the counts.
+    Pure, so the planted-failure tests drive it directly. The official parcel-number history is
+    not collected (ADR-0144 §4), so its step is off: `pair_changes` gets no links.
     """
 
     pairing = contract["pairing"]
-    result = cg.pair_changes(rows, pairing["floor_date"], decided_pairs(recorded), jibun,
-                             None if official_links is None else list(official_links),
+    result = cg.pair_changes(rows, pairing["floor_date"], decided_pairs(recorded), jibun, None,
                              float(pairing["jibun_overlap_min_share"]))
     known = {row["change_key"] for row in recorded}
     fresh: list[dict[str, Any]] = []
@@ -146,13 +147,7 @@ def plan_derivation(
             known.add(row["change_key"])
             fresh.append(row)
 
-    crosswalk, crosswalk_review = cg.sigungu_crosswalk(result.pairs, cadastral)
-    crosswalk_rows = [
-        {"source_code": entry["current_code"], "canonical_code": entry["superseded_code"],
-         "valid_from": entry["valid_from"], "valid_to": "",
-         "provenance": f"{entry['provenance']}:{entry['current_code']}->{entry['superseded_code']}"}
-        for entry in crosswalk["sigungu"]
-    ]
+    crosswalk, crosswalk_review = views.sigungu_crosswalk_view([*recorded, *fresh], cadastral)
     review = result.review + crosswalk_review
     by_source: dict[str, int] = {}
     for pair in result.pairs:
@@ -160,7 +155,6 @@ def plan_derivation(
     return {
         "fresh_changes": fresh,
         "crosswalk": crosswalk,
-        "crosswalk_rows": crosswalk_rows,
         "review": review,
         "counts": {
             "table_rows": len(rows),
@@ -169,7 +163,7 @@ def plan_derivation(
             "jibun_evidence": jibun.label if jibun is not None else "off",
             "fresh_changes": len(fresh),
             "crosswalk_entries": len(crosswalk["sigungu"]),
-            "governed_sido": [sido["current_code"] for sido in crosswalk["sido"]],
+            "governed_sido": [sido["new_code"] for sido in crosswalk["sido"]],
             "review_items": len(review),
             "review_by_status": {
                 status: sum(1 for item in review if item.get("status", "steward") == status)
@@ -180,17 +174,18 @@ def plan_derivation(
 
 
 def projection_document(
-    plan: Mapping[str, Any], snapshot_date: str, snapshot_record: str, crosswalk_snapshot_id: str, now: datetime
+    plan: Mapping[str, Any], snapshot_date: str, snapshot_record: str, change_snapshot_id: str, now: datetime
 ) -> dict[str, Any]:
-    """The file the hub exports read in place of the hand seed (root ADR-0143 §5)."""
+    """The file the hub exports read (root ADR-0143 §5): the crosswalk view of the change table at
+    `change_snapshot_id`, old → new (ADR-0145)."""
 
     return {
         "schema_version": PROJECTION_SCHEMA,
         "built_at_utc": now.isoformat(),
         "legal_dong_snapshot_date": snapshot_date,
         "legal_dong_snapshot_record": snapshot_record,
-        "crosswalk_table": CROSSWALK_CONTRACT,
-        "crosswalk_table_snapshot_id": crosswalk_snapshot_id,
+        "change_table": CHANGE_CONTRACT,
+        "change_table_snapshot_id": change_snapshot_id,
         "sido": plan["crosswalk"]["sido"],
         "sigungu": plan["crosswalk"]["sigungu"],
     }
@@ -328,7 +323,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--parcels-after-snapshot-id", help="silver.parcel_boundaries source_snapshot_id taken after it.")
     parser.add_argument("--parcels-before-pnus", help="With --validate-only: one PNU per line, before the change.")
     parser.add_argument("--parcels-after-pnus", help="With --validate-only: one PNU per line, after it.")
-    parser.add_argument("--parcel-lineage-table", help="The parcel lineage table whose official links settle renumbered 지번.")
     parser.add_argument("--steward-decisions", help="A directory of staged steward decision files to fold in.")
     parser.add_argument("--projection-output")
     parser.add_argument("--review-output")
@@ -337,18 +331,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iceberg-namespace", default="reference")
     parser.add_argument("--snapshot-table", default="legal_dong_code_snapshot")
     parser.add_argument("--change-table", default="legal_dong_code_change")
-    parser.add_argument("--crosswalk-table", default="sigungu_canonical_crosswalk")
     parser.add_argument("--parcel-table", default="silver.parcel_boundaries")
     parser.add_argument("--allow-non-smoke-write", action="store_true")
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args(argv)
-    for label in ("iceberg_catalog_name", "iceberg_namespace", "snapshot_table", "change_table", "crosswalk_table"):
+    for label in ("iceberg_catalog_name", "iceberg_namespace", "snapshot_table", "change_table"):
         if not IDENTIFIER.fullmatch(getattr(args, label)):
             parser.error(f"{label} must be a plain SQL identifier")
-    for label in ("parcel_table", "parcel_lineage_table"):
-        value = getattr(args, label)
-        if value is not None and not all(IDENTIFIER.fullmatch(part) for part in value.split(".")):
-            parser.error(f"{label} must be namespace.table")
+    if not all(IDENTIFIER.fullmatch(part) for part in args.parcel_table.split(".")):
+        parser.error("parcel_table must be namespace.table")
     for label in ("parcels_before_snapshot_id", "parcels_after_snapshot_id"):
         value = getattr(args, label)
         if value is not None and not SNAPSHOT_ID.fullmatch(value):
@@ -360,10 +351,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     date.fromisoformat(args.snapshot_date)
     if args.validate_only and not args.table_html:
         parser.error("--validate-only reads --table-html")
-    if not args.validate_only:
-        for label in ("change_table", "crosswalk_table"):
-            if not getattr(args, label).endswith("_smoke") and not args.allow_non_smoke_write:
-                parser.error(f"writing {getattr(args, label)} needs --allow-non-smoke-write")
+    if not args.validate_only and not args.change_table.endswith("_smoke") and not args.allow_non_smoke_write:
+        parser.error(f"writing {args.change_table} needs --allow-non-smoke-write")
     return args
 
 
@@ -416,20 +405,6 @@ def _snapshot_pnus(spark, F, table: str, snapshot_id: str, codes: set[str]) -> l
     return [row["pnu"] for row in frame.select("pnu").collect()]
 
 
-def _official_links(spark, F, table: str, codes: set[str]) -> list[tuple[str, str]]:
-    """The parcel lineage's 필지고유번호변동연혁 links out of `codes` (ADR-0144 §3.3; graded
-    `evidence_strong` there). Its history-text links are left out: the lineage writes them through its
-    own dong pairing, so they would only echo it."""
-
-    if not codes:
-        return []
-    frame = spark.table(table).filter(
-        (F.col("evidence_kind") == F.lit(cg.pl.PARCEL_NUMBER_HISTORY)) & F.col("predecessor_pnu").isNotNull()
-    )
-    frame = frame.filter(F.substring(F.col("predecessor_pnu"), 1, 10).isin(sorted(codes)))
-    return [(row["predecessor_pnu"], row["successor_pnu"]) for row in frame.select("predecessor_pnu", "successor_pnu").collect()]
-
-
 def _emit(args: argparse.Namespace, plan: Mapping[str, Any], snapshot_id: str, now: datetime, summary: dict[str, Any]) -> None:
     _write_json(args.projection_output, projection_document(plan, args.snapshot_date, args.table_source_record_id, snapshot_id, now))
     _write_json(args.review_output, {"review": plan["review"]})
@@ -475,9 +450,7 @@ def main(argv: list[str] | None = None) -> int:
         prefix = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`"
         snapshot_table = f"{prefix}.`{args.snapshot_table}`"
         change_table = f"{prefix}.`{args.change_table}`"
-        crosswalk_table = f"{prefix}.`{args.crosswalk_table}`"
         _ensure_table(spark, change_table, load_lakehouse_contract(CHANGE_CONTRACT))
-        _ensure_table(spark, crosswalk_table, load_lakehouse_contract(CROSSWALK_CONTRACT))
         snapshot = spark.table(snapshot_table).filter(
             (F.col("snapshot_date") == F.lit(date.fromisoformat(args.snapshot_date)))
             & (F.col("source_record_id") == F.lit(args.table_source_record_id))
@@ -498,11 +471,8 @@ def main(argv: list[str] | None = None) -> int:
                 cg.jibun_sets(_snapshot_pnus(spark, F, parcels, args.parcels_after_snapshot_id, after_codes)),
                 f"{args.parcels_before_snapshot_id}->{args.parcels_after_snapshot_id}",
             )
-        links: list[tuple[str, str]] | None = None
-        if args.parcel_lineage_table:
-            links = _official_links(spark, F, _qualified(args.iceberg_catalog_name, args.parcel_lineage_table), before_codes)
         recorded = [row.asDict() for row in spark.table(change_table).collect()]
-        plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun, links)
+        plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun)
         # Steward decisions are judged against the list as it stands before them, then recorded,
         # then the pairing runs again so today's projection already carries them.
         steward, verdicts = fold_steward_decisions(decisions, plan["review"], {row["region_cd"] for row in rows}, now)
@@ -513,27 +483,24 @@ def main(argv: list[str] | None = None) -> int:
         for _, rows_of_one in _group_by_run(steward):
             steward_appended |= append_new_rows(append_changes, rows_of_one, "steward")
         if steward:
-            plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun, links)
+            plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun)
 
         changes_appended = append_new_rows(append_changes, plan["fresh_changes"], "change")
-        recorded_provenance = {row["provenance"] for row in spark.table(crosswalk_table).select("provenance").collect()}
-        fresh_crosswalk = [row for row in plan["crosswalk_rows"] if row["provenance"] not in recorded_provenance]
-        crosswalk_appended = append_new_rows(
-            functools.partial(_append, spark, T, crosswalk_table, CROSSWALK_CONTRACT), fresh_crosswalk, "crosswalk")
-        # Every projected entry must now be a row of the crosswalk table at the snapshot it names.
-        held = {row["provenance"] for row in spark.table(crosswalk_table).select("provenance").collect()}
-        missing = [row["provenance"] for row in plan["crosswalk_rows"] if row["provenance"] not in held]
-        if missing:
-            raise ValueError(f"{crosswalk_table} does not hold the projected entries {missing}")
+        # The projection is the crosswalk view of the table as it now stands, read back, not the
+        # plan held in memory: the file can then only say what the table says.
+        held = [row.asDict() for row in spark.table(change_table).collect()]
+        crosswalk, crosswalk_review = views.sigungu_crosswalk_view(held, cadastral)
+        if crosswalk != plan["crosswalk"]:
+            raise ValueError(f"{change_table} read back a crosswalk other than the one this run planned; "
+                             "another writer appended to it meanwhile. Run the pairing again.")
         # Always the table's current snapshot ("" while it has none): the hub exports compare it
         # with the catalog's, so a projection the table has moved past is refused there.
-        crosswalk_snapshot = _main_snapshot(spark, crosswalk_table)
-        _emit(args, plan, crosswalk_snapshot, now, {
+        change_snapshot = _main_snapshot(spark, change_table)
+        _emit(args, plan, change_snapshot, now, {
             "job": JOB_NAME, "status": "ready", "changes_appended": changes_appended,
             "steward_decisions": verdicts, "steward_rows_appended": steward_appended,
-            "crosswalk_entries_appended": len(fresh_crosswalk) if crosswalk_appended else 0,
-            "crosswalk_table_snapshot_id": crosswalk_snapshot,
-            "official_parcel_links": "off" if links is None else len(links), **plan["counts"],
+            "change_table_snapshot_id": change_snapshot, "crosswalk_review_items": len(crosswalk_review),
+            "official_parcel_links": "awaiting_data", **plan["counts"],
         })
         return 0
     finally:

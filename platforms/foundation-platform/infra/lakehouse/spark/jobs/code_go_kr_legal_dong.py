@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 import parcel_lineage as pl
+from legal_dong_code_change_views import LEAF_LEVELS
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "code-go-kr-legal-dong.contract.json"
 EXISTS, ABOLISHED = "존재", "폐지"
@@ -272,8 +273,6 @@ def code_level(code: str) -> str:
 
 
 LEVELS = ("sido", "sigungu", "eupmyeondong", "ri")
-# Parcels are numbered under the lowest level: the 읍면동 in a city, the 리 in the country.
-LEAF_LEVELS = ("eupmyeondong", "ri")
 
 
 def name_below_sido(full_name: str) -> tuple[str, ...]:
@@ -537,7 +536,7 @@ def jibun_sets(pnus: Iterable[str], codes: Iterable[str] | None = None) -> dict[
 def sigungu_crosswalk(
     pairs: Sequence[Mapping[str, str]], cadastral_sido: Iterable[str]
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """The 시군구 crosswalk (current → superseded) and the merged 시도 it governs, from the pairs.
+    """The 시군구 crosswalk and the merged 시도 it governs, from the pairs, old → new like them.
 
     A 시도 is governed when a 시도-level pair moves a 시도 the cadastral parcel set still carries
     (`vworld-parcel-source-objects.json`) onto a 시도 it does not: the map keeps the old codes, so
@@ -570,16 +569,15 @@ def sigungu_crosswalk(
     for current, found in sorted(by_current.items()):
         olds = sorted({pair["old_code"][:5] for pair in found})
         if len(olds) != 1 or len(by_old[olds[0]]) != 1:
-            review.append({"kind": "crosswalk", "current_code": current, "reason": "not_one_to_one",
-                           "superseded_codes": olds, "split_into": sorted(by_old[olds[0]]) if len(olds) == 1 else []})
+            review.append({"kind": "crosswalk", "new_code": current, "reason": "not_one_to_one",
+                           "old_codes": olds, "split_into": sorted(by_old[olds[0]]) if len(olds) == 1 else []})
             continue
         pair = sorted(found, key=lambda p: (not p["source"].startswith("official"), p["source"]))[0]
         entries.append(
-            {"current_code": current, "superseded_code": olds[0], "valid_from": pair["effective_date"],
-             "provenance": pair["source"]}
+            {"old_code": olds[0], "new_code": current, "effective_date": pair["effective_date"], "source": pair["source"]}
         )
     governed = [
-        {"current_code": sido, "supersedes": sorted(olds), "effective_from": effective.get(sido, "")}
+        {"new_code": sido, "old_codes": sorted(olds), "effective_date": effective.get(sido, "")}
         for sido, olds in sorted(supersedes.items())
     ]
     return {"sido": governed, "sigungu": entries}, review

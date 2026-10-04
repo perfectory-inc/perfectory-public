@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: reference
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-04
 ---
 
 # 지리 정체성 Wave 1 — 기술 설계 (ADR-0103 구현 사양)
@@ -35,6 +35,11 @@ UUIDv5의 멱등성 이점은 민팅을 **단일 관문**(ADR-0069 "적재 정�
 - **M6** `stable_id`는 `gen_random_uuid()`(v4). 내부 행 대리키는 PG18 `uuidv7()` 허용(인덱스 지역성; 둘 다 민팅-불투명이므로 스킴 결정과 무관).
 
 ## §2 레지스트리 + 양시간 크로스워크 (기둥 ①②⑥)
+
+> **2026-10-04 이후의 정본**: 코드 변경(옛 코드 → 새 코드)이 어디에 기록되고 무엇이 그 view 인지는
+> [루트 ADR-0145](../adr/0145-one-source-of-truth-for-region-code-changes.md)가 정한다. 이 절의 코드
+> 대응 표 설계는 그 결정 이전의 사양이며, 코드 쌍을 따로 저장하는 표는 만들지 않는다. 폐기된 보관처의
+> 목록은 `platforms/foundation-platform/infra/lakehouse/contracts/region-code-holders.json` 에 있다.
 
 ONS **RGC/CHD 2분할**을 그대로: 기반 표는 추가전용 전체 이력(CHD), "살아있는 등록부"(RGC)는 뷰.
 양시간 축 2개 — 유효시간 `valid_from/valid_to`(실세계, SQL:2011 application-time) +
@@ -95,9 +100,8 @@ WHERE valid_to IS NULL AND retracted_at IS NULL;
   **같은 `stable_id`가 아니라 각자의 장소 엔티티**에 붙고, 장소 간 승계는 §4 계보 엣지가 나른다.
   같은 필지의 옛 PNU(29140…)·새 PNU(12240…)는 `kr_pnu` 행 두 개가 **같은 `stable_id`** 를 가리킨다
   (재코딩 = 정체성 불변, M4).
-- Wave 1의 `reference.sigungu_canonical_crosswalk`(계획 Task 2)는 이 일반 표에서
-  `code_system='kr_legal_dong_sigungu'` 를 물질화한 투영이다. 시드 27쌍의 provenance 는
-  `derived:pnu-tail-join:2026-09`, 권위 수집(Task 1) 후 `mois:*` 행으로 대체된다.
+- 시군구 대응표는 저장된 표가 아니라 코드 변경 표의 view 다([루트 ADR-0145](../adr/0145-one-source-of-truth-for-region-code-changes.md)).
+  시드 27쌍(`derived:pnu-tail-join:2026-09`)은 시험 자료이자 비교 기준일 뿐이다.
 
 ## §3 해석기 API (기둥 ③)
 

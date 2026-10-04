@@ -17,6 +17,7 @@ from administrative_boundaries_handoff_to_silver import (  # noqa: E402
     resolve_unit_ids,
     multipolygon_wkb,
     parse_args,
+    read_predecessors,
     silver_rows,
     validate_args,
 )
@@ -128,6 +129,72 @@ class ArgsTest(unittest.TestCase):
     def test_validate_only_needs_no_catalog(self):
         args = parse_args(["--input", "a.geojson", "--source-snapshot-id", "s1", "--source-record-id", "r", "--validate-only"])
         validate_args(args)
+
+    def test_the_predecessor_flags_are_checked_and_the_file_input_is_gone(self):
+        base = ["--input", "a.geojson", "--source-snapshot-id", "s1", "--source-record-id", "r", "--validate-only"]
+        validate_args(parse_args(base + ["--legal-dong-change-table", "reference.legal_dong_code_change",
+                                         "--predecessor-parcel-snapshot-id", "vworldkr__parcel:209906"]))
+        table, snapshot = ["--legal-dong-change-table", "reference.legal_dong_code_change"], ["--predecessor-parcel-snapshot-id", "p"]
+        for extra in (["--legal-dong-change-table", "reference.x;DROP", *snapshot], table, snapshot,
+                      [*table, "--predecessor-parcel-snapshot-id", "p;DROP"]):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                validate_args(parse_args(base + extra))
+        with self.assertRaises(SystemExit):
+            parse_args(base + ["--predecessor-map", "map.json"])
+
+
+class _Row(dict):
+    def asDict(self):
+        return dict(self)
+
+
+class _Spark:
+    """Answers the three reads `read_predecessors` makes: the change table, its ref, the parcels."""
+
+    def __init__(self, changes, pnus):
+        self.changes, self.pnus, self.queries = changes, pnus, []
+
+    def sql(self, query):
+        self.queries.append(query)
+        if ".refs" in query:
+            rows = [_Row(snapshot_id=7)]
+        elif "parcel_boundaries" in query:
+            rows = [_Row(pnu=value) for value in self.pnus]
+        else:
+            rows = [_Row(row) for row in self.changes]
+        return type("Result", (), {"collect": lambda _self: rows})()
+
+    def createDataFrame(self, rows, schema):
+        return type("Frame", (), {"createOrReplaceTempView": lambda _self, name: None})()
+
+
+class PredecessorsFromTheChangeTableTest(unittest.TestCase):
+    """The id's predecessors are a view of the code change table (root ADR-0145), not a CLI file."""
+
+    def change(self, old, new, level="eupmyeondong"):
+        return {"kind": "pair", "old_code": old, "new_code": new, "level": level, "effective_date": "20990701", "source": "s"}
+
+    def test_merged_dongs_are_weighed_by_the_named_parcel_snapshot(self):
+        changes = [self.change("9999910100", "9999930100"), self.change("9999910200", "9999930100")]
+        pnus = ["9999910100100010000", "9999910200100010000", "9999910200100020000"]
+        args = parse_args(["--input", "a", "--source-snapshot-id", "s1", "--source-record-id", "r",
+                           "--legal-dong-change-table", "reference.legal_dong_code_change",
+                           "--predecessor-parcel-snapshot-id", "june"])
+        spark = _Spark(changes, pnus)
+        predecessors, summary = read_predecessors(spark, args)
+        self.assertEqual(predecessors, {"9999930100": "9999910200"})
+        self.assertEqual(summary["change_table_snapshot_id"], "7")
+        self.assertIn("FROM `lakehouse`.`reference`.`legal_dong_code_change`", spark.queries[0])
+        self.assertIn("level IN ('eupmyeondong', 'ri')", spark.queries[0])
+
+    def test_a_parcel_snapshot_holding_none_of_the_old_codes_is_refused(self):
+        # Every weight would be zero and the merger's id would go to whichever code sorts first.
+        changes = [self.change("9999910100", "9999930100"), self.change("9999910200", "9999930100")]
+        args = parse_args(["--input", "a", "--source-snapshot-id", "s1", "--source-record-id", "r",
+                           "--legal-dong-change-table", "reference.legal_dong_code_change",
+                           "--predecessor-parcel-snapshot-id", "september"])
+        with self.assertRaisesRegex(ValueError, "holds no parcel under any of the 2 old codes"):
+            read_predecessors(_Spark(changes, ["9999930100100010000"]), args)
 
 
 if __name__ == "__main__":
