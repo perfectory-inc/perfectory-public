@@ -61,7 +61,7 @@
     "$comment": "Root ADR-0143 §5. The hub exports refuse the crosswalk projection when no collection run has confirmed its table within max_age_days (accepted.json checked_at_utc, written by every collection that passes its checks, changed or not). The collection runs daily; three days allows two missed runs, the point at which the runbook says to look at the site.",
     "max_age_days": 3,
     "baseline_comparison": {
-      "$comment": "Root ADR-0145 §3. While required is true the hub exports refuse a projection that disagrees with sigungu-crosswalk-baseline.fixture.json in a 시도 the baseline governs. A live pairing run that reproduces those pairs ends that: set required to false and retired_by to that run's evidence, copied from its projection file and summary (change_table_snapshot_id, legal_dong_snapshot_record, projection_sha256 = sha256 of the projection file). The exports refuse required=false without that evidence, and evidence while the comparison is still required.",
+      "$comment": "Root ADR-0145 §3. While required is true the hub exports refuse a projection that disagrees with sigungu-crosswalk-baseline.json in a 시도 the baseline governs. A live pairing run that reproduces those pairs ends that: set required to false and retired_by to that run's evidence, copied from its projection file and summary (change_table_snapshot_id, legal_dong_snapshot_record, projection_sha256 = sha256 of the projection file). The exports refuse required=false without that evidence, and evidence while the comparison is still required.",
       "required": true,
       "retired_by": null
     }

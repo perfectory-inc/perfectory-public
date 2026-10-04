@@ -22,7 +22,7 @@
 //! - a projection the change table has moved past: the [`CHANGE_TABLE`] snapshot it names is not
 //!   the table's current snapshot in the Iceberg catalog;
 //! - while `projection.baseline_comparison.required` holds, a projection that disagrees with the 27
-//!   hand pairs of `sigungu-crosswalk-baseline.fixture.json` in a 시도 they govern. Those pairs are
+//!   hand pairs of `sigungu-crosswalk-baseline.json` in a 시도 they govern. Those pairs are
 //!   a test fixture; the comparison stays until a live pairing run reproduces them, and that run's
 //!   evidence in the contract turns it off ([`BaselineComparison`]).
 //!
@@ -51,12 +51,12 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 const BASELINE_JSON: &str =
-    include_str!("../../../infra/lakehouse/contracts/sigungu-crosswalk-baseline.fixture.json");
+    include_str!("../../../infra/lakehouse/contracts/sigungu-crosswalk-baseline.json");
 const HUB_FEED_JSON: &str =
     include_str!("../../../infra/lakehouse/contracts/hub-register-feed.contract.json");
 const PARCEL_SOURCE_JSON: &str =
     include_str!("../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
-const BASELINE_FILE: &str = "sigungu-crosswalk-baseline.fixture.json";
+const BASELINE_FILE: &str = "sigungu-crosswalk-baseline.json";
 const HUB_FEED_FILE: &str = "hub-register-feed.contract.json";
 
 use crate::code_go_kr_legal_dong_contract::CONTRACT_JSON;
@@ -1119,7 +1119,7 @@ mod tests {
             assert!(
                 refused.as_ref().is_err_and(|error| {
                     let message = format!("{error:#}");
-                    message.contains("sigungu-crosswalk-baseline.fixture.json")
+                    message.contains("sigungu-crosswalk-baseline.json")
                         && (message.contains("disagrees") || message.contains("old codes"))
                 }),
                 "{label}: got {refused:?}"

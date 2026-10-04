@@ -15,7 +15,7 @@ last_reviewed: 2026-10-04
 지역 코드 변경의 정본은 `reference.legal_dong_code_change` 하나다(루트 ADR-0145). 허브 대장 내보내기(표제부·전유부·
 면적·허브 공통)가 읽는 시군구 대응표 투영, 행정경계 id 의 선행 코드, 필지 계보의 동 짝은 모두 그 표의 view 다
 (`infra/lakehouse/spark/jobs/legal_dong_code_change_views.py`). 손으로 만든 27쌍
-(`infra/lakehouse/contracts/sigungu-crosswalk-baseline.fixture.json`)은 시험 자료이고, 첫 실운영이 재현할 때까지만
+(`infra/lakehouse/contracts/sigungu-crosswalk-baseline.json`)은 시험 자료이고, 첫 실운영이 재현할 때까지만
 비교 기준이다(6 절). 허브 임시값 코드와 부재 시도 상한은 `hub-register-feed.contract.json` 에 있다.
 
 | 무엇 | 정본 |
@@ -118,7 +118,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
    python3 - <<'PY'
    import json
    p = json.load(open("/var/lib/foundation-platform/legal-dong-code/sigungu-crosswalk.projection.json"))
-   s = json.load(open("/opt/foundation-platform/current/infra/lakehouse/contracts/sigungu-crosswalk-baseline.fixture.json"))
+   s = json.load(open("/opt/foundation-platform/current/infra/lakehouse/contracts/sigungu-crosswalk-baseline.json"))
    a = {(e["new_code"], e["old_code"]) for e in p["sigungu"]}
    b = {(e["current_code"], e["superseded_code"]) for e in s["sigungu"]}
    print(sorted(a ^ b))
@@ -191,7 +191,7 @@ sudo -u foundation-platform /opt/foundation-platform/current/scripts/ops/legal-d
 ## 6. When the crosswalk disagrees with the baseline
 
 `code-go-kr-legal-dong.contract.json` 의 `projection.baseline_comparison.required` 가 `true` 인 동안, 투영이 기준
-(`sigungu-crosswalk-baseline.fixture.json`)이 다스리는 시도(지금은 12)에서 27쌍과 다르면 내보내기가 거부한다. 차이는
+(`sigungu-crosswalk-baseline.json`)이 다스리는 시도(지금은 12)에서 27쌍과 다르면 내보내기가 거부한다. 차이는
 거부 문구에 짝 단위로 나온다.
 
 1. `reference.legal_dong_code_change` 에서 그 시군구 짝의 `source` 와 `rule_verdict` 를 본다. 데이터가 바꾼 것이면

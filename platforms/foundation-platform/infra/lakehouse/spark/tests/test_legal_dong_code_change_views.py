@@ -17,7 +17,7 @@ sys.path.insert(0, str(SPARK_DIR / "jobs"))
 import legal_dong_code_change_pairs as pairs_job  # noqa: E402
 import legal_dong_code_change_views as views  # noqa: E402
 
-BASELINE = json.loads((SPARK_DIR.parent / "contracts" / "sigungu-crosswalk-baseline.fixture.json").read_text(encoding="utf-8"))
+BASELINE = json.loads((SPARK_DIR.parent / "contracts" / "sigungu-crosswalk-baseline.json").read_text(encoding="utf-8"))
 CADASTRAL = pairs_job.cadastral_sido(json.loads(pairs_job.PARCEL_SOURCE_PATH.read_text(encoding="utf-8")))
 
 
