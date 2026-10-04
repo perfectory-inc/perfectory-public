@@ -172,3 +172,5 @@ last_reviewed: 2026-07-28
 - [ADR-0143 — 법정동 코드 변경은 code.go.kr 에서 받는다 — 공식 짝은 변경안내 첨부, 날짜는 전체 표](./0143-legal-dong-code-changes-come-from-code-go-kr.md) (§3 은 ADR-0144 로 대체됨)
 
 - [ADR-0144 — 지역 코드 변경은 내려받은 데이터만으로 판단한다 — 게시판은 쓰지 않는다](./0144-region-code-changes-are-derived-from-downloaded-data-only.md)
+
+- [ADR-0145 — 지역 코드 변경의 정본은 하나다 — 코드 변경표와 필지 계보, 나머지는 거기서 파생한다](./0145-one-source-of-truth-for-region-code-changes.md)

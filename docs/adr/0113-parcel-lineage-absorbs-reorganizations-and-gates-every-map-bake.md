@@ -151,3 +151,5 @@
 
 - 2026-10-04: §5 의 입력은 [ADR-0143](./0143-legal-dong-code-changes-come-from-code-go-kr.md)이 바꿨다. 짝은 code.go.kr
   코드변경안내 첨부가 1순위이고, 이 절의 이름 규칙은 생성일·폐지일을 더해 2순위로 쓴다. 위 결정 본문은 고치지 않았다.
+
+- 2026-10-04: §5·§9(계보 안의 동 짝 계산, 선행 코드 지도 CLI 파일)는 코드 변경 정본에서 읽는 것으로 바뀌었다: [ADR-0145](./0145-one-source-of-truth-for-region-code-changes.md) 위 결정 본문은 고치지 않았다.

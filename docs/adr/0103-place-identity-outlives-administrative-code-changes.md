@@ -114,3 +114,7 @@ Registry/Changelog/Bridge), **Who's on First**(`supersedes`/`superseded_by`, 레
 `getStanReginCdList` 에는 성립하지 않는다(현행 코드 + 생성일만, 말소일 필드 없음, 폐지 코드는
 목록에서 빠짐). 크로스워크 도출은 **연속 스냅숏의 차이**로 한다(ADR-0104). 6기둥은 불변이며,
 2항의 레지스트리 스키마·정본 목표는 그대로다.
+
+## 개정 기록
+
+- 2026-10-04: ②③(시간 사전 `reference.legal_dong_code` 와 seed 부트스트랩)은 폐기되고, 코드 변경의 정본은 `reference.legal_dong_code_change` 다: [ADR-0145](./0145-one-source-of-truth-for-region-code-changes.md) 위 결정 본문은 고치지 않았다.
