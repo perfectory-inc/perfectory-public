@@ -20,8 +20,11 @@ use serde_json::Value as JsonValue;
 use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane, PNU_PREFIX_LENGTHS};
 
 /// The manifest every publish writes.
+///
+/// Readers tolerate fields they do not know: a release rolled back to an older publisher must
+/// still read the manifest a newer one wrote. Writers stay strict, because a manifest is only ever
+/// serialized from this struct, which has no place for an unknown field.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct ServingManifest {
     pub(crate) schema_version: u32,
     pub(crate) unit: String,
@@ -44,11 +47,35 @@ pub(crate) struct ServingManifest {
     /// PNUs that answer: base + new − deleted over every patch.
     pub(crate) object_count: u64,
     pub(crate) published_at_utc: String,
+    /// The verified re-base whose result this manifest published (root ADR-0146 §1). Only that
+    /// manifest carries it; the next publish moves it into the manifest history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) verified_rebase: Option<VerifiedRebase>,
+    /// The Iceberg tag that pins `reflected_gold_iceberg_snapshot_id` for this manifest (root
+    /// ADR-0146 §2). A publish releases only the lane's tags older than the one the live manifest
+    /// names. Absent on a manifest written before pinning, or on a rollback whose snapshot had
+    /// already expired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) reflected_gold_snapshot_tag: Option<String>,
+}
+
+/// What a verified re-base compared and found (`verify-parcel-by-pnu-serving-rebase`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct VerifiedRebase {
+    pub(crate) run_id: String,
+    pub(crate) reason: String,
+    pub(crate) method: String,
+    /// The reflected snapshot the change set could not be computed against.
+    pub(crate) baseline_gold_iceberg_snapshot_id: String,
+    pub(crate) served_objects_read: u64,
+    pub(crate) equal: u64,
+    pub(crate) changed: u64,
+    pub(crate) only_served: u64,
+    pub(crate) only_gold: u64,
 }
 
 /// One patch generation of the base.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct PatchEntry {
     pub(crate) generation: u64,
     pub(crate) gold_iceberg_snapshot_id: String,
@@ -84,6 +111,8 @@ pub(crate) struct ServedManifest {
     pub(crate) patches: Vec<PatchEntry>,
     pub(crate) object_count: u64,
     pub(crate) published_at_utc: String,
+    /// The tag pinning the reflected snapshot; `None` for a v1 manifest or an unpinned one.
+    pub(crate) reflected_gold_snapshot_tag: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -127,6 +156,7 @@ impl ServedManifest {
                     patches: Vec::new(),
                     object_count: v1.object_count,
                     published_at_utc: v1.published_at_utc,
+                    reflected_gold_snapshot_tag: None,
                 }
             }
             2 => {
@@ -146,6 +176,7 @@ impl ServedManifest {
                     patches: v2.patches,
                     object_count: v2.object_count,
                     published_at_utc: v2.published_at_utc,
+                    reflected_gold_snapshot_tag: v2.reflected_gold_snapshot_tag,
                 }
             }
             other => {
@@ -370,6 +401,8 @@ mod tests {
             patches,
             object_count: 10,
             published_at_utc: "2026-01-01T00:00:00Z".to_owned(),
+            verified_rebase: None,
+            reflected_gold_snapshot_tag: None,
         }
     }
 
@@ -407,6 +440,28 @@ mod tests {
         assert_eq!(read.patches, manifest.patches);
         assert_eq!(read.newest_patch(), 2);
         assert_eq!(read.cumulative_changes(), 2);
+        let mut pinned = manifest;
+        pinned.reflected_gold_snapshot_tag = Some("served-parcel-by-pnu-tag".to_owned());
+        let read = ServedManifest::parse(ByPnuLane::Parcel, &pinned.to_bytes()?)?;
+        assert_eq!(
+            read.reflected_gold_snapshot_tag.as_deref(),
+            Some("served-parcel-by-pnu-tag")
+        );
+        Ok(())
+    }
+
+    /// A release rolled back to an older publisher still reads what a newer one wrote: fields it
+    /// does not know, at the top and inside a patch, are not a reason to refuse the live manifest.
+    #[test]
+    fn a_manifest_with_fields_this_reader_does_not_know_is_read() -> anyhow::Result<()> {
+        let mut raw = serde_json::to_value(v2(vec![patch(1, &["99999"])]))?;
+        raw["a_field_from_a_newer_publisher"] = serde_json::json!({"any": "shape"});
+        raw["patches"][0]["another_new_field"] = serde_json::json!(1);
+        let read = ServedManifest::parse(ByPnuLane::Parcel, &serde_json::to_vec(&raw)?)?;
+        assert_eq!(read.newest_patch(), 1);
+        // What this publisher writes holds only the fields it knows.
+        let rewritten: JsonValue = serde_json::from_slice(&v2(Vec::new()).to_bytes()?)?;
+        assert!(rewritten.get("a_field_from_a_newer_publisher").is_none());
         Ok(())
     }
 

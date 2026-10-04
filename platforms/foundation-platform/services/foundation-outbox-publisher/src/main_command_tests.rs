@@ -1009,6 +1009,19 @@ fn show_by_pnu_serving_state_commands_are_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The operator's verified re-base of the parcel lane (root ADR-0146 §1).
+#[test]
+fn verify_parcel_by_pnu_serving_rebase_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "verify-parcel-by-pnu-serving-rebase",
+        ])?,
+        Command::VerifyParcelByPnuServingRebase
+    );
+    Ok(())
+}
+
 /// The pointer that pins the served generation (root ADR-0096); publishing it is a separate
 /// command so a half-run export cannot leave the gateway aimed at a partial bake.
 #[test]

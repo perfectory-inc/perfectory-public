@@ -100,6 +100,20 @@ def timestamp_before(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S.000")
 
 
+def expire_snapshots_sql(catalog: str, table: str, cutoff: str, retain_last: int) -> str:
+    """The one expiry call this lakehouse makes.
+
+    Iceberg's `expire_snapshots` never removes a snapshot a live reference names: a branch, or a
+    tag without `max-ref-age-ms`. The by-PNU publish tags the Gold snapshot each serving manifest
+    reflects (`served-<lane>-...`, root ADR-0146 §2), so that snapshot outlives this call for as
+    long as the manifest serves it. Nothing here may pass options that drop references.
+    """
+    return (
+        f"CALL {catalog}.system.expire_snapshots(table => '{table}', "
+        f"older_than => TIMESTAMP '{cutoff}', retain_last => {retain_last})"
+    )
+
+
 def file_shape(spark: Any, qualified: str) -> tuple[int, int]:
     row = spark.sql(f"SELECT count(*) c, coalesce(sum(file_size_in_bytes), 0) b FROM {qualified}.files").collect()[0]
     return int(row.c), int(row.b)
@@ -179,8 +193,7 @@ def main() -> int:
             print(f"maintenance-would step=snapshot_expiry older_than={cutoff}", flush=True)
         else:
             result = spark.sql(
-                f"CALL {args.catalog}.system.expire_snapshots(table => '{args.table}', "
-                f"older_than => TIMESTAMP '{cutoff}', retain_last => {expiry['retain_last']})"
+                expire_snapshots_sql(args.catalog, args.table, cutoff, expiry["retain_last"])
             ).collect()[0]
             print(
                 f"maintenance-done step=snapshot_expiry data_files={result[0]} "

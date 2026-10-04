@@ -43,6 +43,15 @@ class SnapshotIds(unittest.TestCase):
             self.assertFalse(Path(work, "s.json").exists())
 
 
+class RefusalCodes(unittest.TestCase):
+    def test_the_two_cannot_compare_refusals_have_their_own_exit_codes(self):
+        # The bake tells an expired snapshot (3) from a digest-less one (5) by these codes.
+        self.assertEqual(
+            sorted({delta.EXIT_NO_COMPARISON, delta.EXIT_NOT_A_DELTA, delta.EXIT_NO_DIGEST}),
+            [3, 4, 5],
+        )
+
+
 class Judge(unittest.TestCase):
     def test_counts_name_upserts_and_tombstones(self):
         metrics = delta.judge({"changed": 2, "new": 1, "deleted": 1, "same": 96}, 0.5)
@@ -98,6 +107,62 @@ class ClassifySpark(unittest.TestCase):
         self.assertEqual(verdicts, {
             "9999900000100000001": "same", "9999900000100000002": "changed",
             "9999900000100000003": "deleted", "9999900000100000004": "new"})
+
+
+@unittest.skipUnless(os.getenv("RUN_ICEBERG_TESTS") == "1", "requires the pinned Iceberg runtime")
+class ComparisonSnapshotIceberg(unittest.TestCase):
+    """The two "cannot compare" refusals are told apart (root ADR-0146): a snapshot Iceberg no
+    longer holds is exit 3, a snapshot written before `row_digest` existed is exit 5."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pyspark.sql import SparkSession
+
+        cls.directory = tempfile.TemporaryDirectory()
+        cls.spark = (SparkSession.builder.master("local[2]").appName("by-pnu-delta-iceberg")
+            .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+            .config("spark.sql.catalog.proof", "org.apache.iceberg.spark.SparkCatalog")
+            .config("spark.sql.catalog.proof.type", "hadoop")
+            .config("spark.sql.catalog.proof.warehouse", cls.directory.name)
+            .config("spark.sql.shuffle.partitions", "2")
+            .getOrCreate())
+        cls.spark.sparkContext.setLogLevel("ERROR")
+        cls.spark.sql("CREATE NAMESPACE proof.gold")
+        cls.spark.sql("CREATE TABLE proof.gold.parcel_panel (pnu STRING) USING iceberg")
+        cls.spark.sql("INSERT INTO proof.gold.parcel_panel VALUES ('9999900000100000001')")
+        cls.digestless = cls.head()
+        cls.spark.sql("ALTER TABLE proof.gold.parcel_panel ADD COLUMN row_digest STRING")
+        cls.spark.sql("INSERT OVERWRITE proof.gold.parcel_panel VALUES ('9999900000100000001', 'a')")
+        cls.digested = cls.head()
+
+    @classmethod
+    def head(cls):
+        return str(cls.spark.sql(
+            "SELECT snapshot_id FROM proof.gold.parcel_panel.refs WHERE name = 'main'").first()[0])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+        cls.directory.cleanup()
+
+    def refusal(self, snapshot_id):
+        with self.assertRaises(delta.Refusal) as refused:
+            delta.snapshot_frame(self.spark, "proof", "gold.parcel_panel", snapshot_id)
+        return refused.exception
+
+    def test_a_snapshot_without_row_digest_is_exit_5(self):
+        refusal = self.refusal(self.digestless)
+        self.assertEqual(refusal.exit_code, delta.EXIT_NO_DIGEST)
+        self.assertIn("carries no row_digest", str(refusal))
+
+    def test_a_snapshot_iceberg_no_longer_holds_is_exit_3(self):
+        refusal = self.refusal("999990000000000009")
+        self.assertEqual(refusal.exit_code, delta.EXIT_NO_COMPARISON)
+        self.assertIn("no longer has snapshot", str(refusal))
+
+    def test_a_snapshot_with_row_digest_is_compared(self):
+        frame = delta.snapshot_frame(self.spark, "proof", "gold.parcel_panel", self.digested)
+        self.assertEqual([row.row_digest for row in frame.collect()], ["a"])
 
 
 if __name__ == "__main__":

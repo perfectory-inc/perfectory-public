@@ -34,9 +34,14 @@ use crate::building_by_pnu_serving_export::building_document::BUILDING_DOCUMENT_
 use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane};
 use crate::by_pnu_serving_manifest::{
     pnu_prefixes, read_tombstone, PatchEntry, ServedManifest, ServingManifest, StoredManifest,
+    VerifiedRebase,
 };
 use crate::by_pnu_serving_patch_export::read_pnu_list;
-use crate::by_pnu_serving_store::{local_root, refuse_removed_switches, ByPnuServingStore};
+use crate::by_pnu_serving_pins::{self as pins, SnapshotPins};
+use crate::by_pnu_serving_rebase as rebase;
+use crate::by_pnu_serving_store::{
+    local_root, refuse_removed_switches, ByPnuServingStore, ManifestMoved,
+};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::parcel_by_pnu_serving_export::parcel_document::PARCEL_DOCUMENT_SCHEMA_VERSION;
 use crate::r2_layout::by_pnu;
@@ -244,8 +249,108 @@ pub(crate) async fn publish(
     {
         require_gateway_reads(lane, gateway_base_url, manifest.schema_version).await?;
     }
-    commit(store, existing.as_ref(), &manifest).await?;
+    // Pin the snapshot the next change set is computed against before anyone relies on it, and
+    // release the older pins only once this manifest is live (root ADR-0146 §2).
+    let snapshot_pins = SnapshotPins::for_output(&config.output)?;
+    let table = gold_table(lane);
+    let pinned = pins::pin(
+        &snapshot_pins,
+        lane,
+        table,
+        &manifest.reflected_gold_iceberg_snapshot_id,
+        &manifest.published_at_utc,
+    )
+    .await;
+    // A rollback is the way back from a bad publish; an unpinnable snapshot (already expired)
+    // must not block it. The older pins then stay, and the next bake re-bases if it must.
+    let mut manifest = manifest;
+    manifest.reflected_gold_snapshot_tag = match pinned {
+        Ok(tag) => Some(tag),
+        Err(error) if matches!(config.input, PublishInput::Rollback(_)) => {
+            tracing::warn!(error = %format!("{error:#}"), "rolling back without pinning its reflected snapshot");
+            None
+        }
+        Err(error) => return Err(error),
+    };
+    let body = manifest.to_bytes()?;
+    if let Err(error) = commit(store, existing.as_ref(), &body).await {
+        if !settle_failed_write(store, &snapshot_pins, &manifest, &body, &error).await {
+            return Err(error);
+        }
+        tracing::warn!(error = %format!("{error:#}"), "the manifest write reported a failure but the manifest it wrote is live");
+    }
+    if manifest.reflected_gold_snapshot_tag.is_some() {
+        release_behind_live(store, &snapshot_pins).await;
+    }
     Ok(manifest)
+}
+
+/// After a failed manifest write: whether the manifest it wrote is live after all (its answer was
+/// lost after the store accepted it). The new pin is released only when the write lost its
+/// compare-and-swap and the live manifest does not reflect the pinned snapshot; anything less
+/// certain keeps it, which only keeps a snapshot alive until the next publish.
+async fn settle_failed_write(
+    store: &ByPnuServingStore,
+    snapshot_pins: &SnapshotPins,
+    manifest: &ServingManifest,
+    body: &[u8],
+    error: &anyhow::Error,
+) -> bool {
+    let live = match store.read_manifest().await {
+        Ok((bytes, _)) => bytes,
+        Err(read) => {
+            tracing::warn!(error = %format!("{read:#}"), "the manifest cannot be read after a failed write; the new pin stays until the next publish");
+            return false;
+        }
+    };
+    if live == body {
+        return true;
+    }
+    let Some(tag) = &manifest.reflected_gold_snapshot_tag else {
+        return false;
+    };
+    let reflects_this_snapshot = ServedManifest::parse(store.lane(), &live).is_ok_and(|live| {
+        live.reflected_gold_iceberg_snapshot_id == manifest.reflected_gold_iceberg_snapshot_id
+    });
+    if error.downcast_ref::<ManifestMoved>().is_none() || reflects_this_snapshot {
+        tracing::warn!(tag = %tag, "the manifest write failed without a confirmed lost compare-and-swap, or the live manifest reflects the same snapshot; the new pin stays until the next publish");
+        return false;
+    }
+    let released = match pins::parse_snapshot(&manifest.reflected_gold_iceberg_snapshot_id) {
+        Ok(snapshot) => {
+            snapshot_pins
+                .remove(gold_table(store.lane()), tag, snapshot)
+                .await
+        }
+        Err(parse) => Err(parse),
+    };
+    if let Err(release) = released {
+        tracing::warn!(tag = %tag, error = %format!("{release:#}"), "the unused pin stays until the next publish");
+    }
+    false
+}
+
+/// Releases the lane's pins older than the one the live manifest names, read now: when another
+/// publish moved the manifest since this one wrote it, its pin is the one kept.
+async fn release_behind_live(store: &ByPnuServingStore, snapshot_pins: &SnapshotPins) {
+    let lane = store.lane();
+    let live = match store.read_manifest().await {
+        Ok((bytes, _)) => ServedManifest::parse(lane, &bytes),
+        Err(error) => Err(error),
+    };
+    let live_tag = match live {
+        Ok(live) => live.reflected_gold_snapshot_tag,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "the live manifest cannot be read; older pins stay until the next publish");
+            return;
+        }
+    };
+    let Some(live_tag) = live_tag else {
+        tracing::warn!("the live manifest names no pin; older pins stay until the next publish");
+        return;
+    };
+    let released = pins::release_older(snapshot_pins, lane, gold_table(lane), &live_tag).await;
+    tracing::info!(tag = %live_tag, released = ?released, "the live manifest's Gold snapshot is pinned");
 }
 
 async fn read_existing(
@@ -285,7 +390,7 @@ async fn read_existing(
 async fn commit(
     store: &ByPnuServingStore,
     existing: Option<&StoredManifest>,
-    manifest: &ServingManifest,
+    body: &[u8],
 ) -> anyhow::Result<()> {
     let lane = store.lane();
     if let Some(existing) = existing {
@@ -307,12 +412,11 @@ async fn commit(
             .await?;
         tracing::info!(history_key = %key, "replaced manifest stored in the history");
     }
-    let body = manifest.to_bytes()?;
-    let checksum = format!("{:x}", Sha256::digest(&body));
+    let checksum = format!("{:x}", Sha256::digest(body));
     store
         .write_manifest(
             by_pnu::manifest_key(lane)?,
-            &body,
+            body,
             &checksum,
             existing.map(|stored| stored.version.as_str()),
         )
@@ -349,6 +453,8 @@ fn new_base(
         patches: Vec::new(),
         object_count,
         published_at_utc: now(),
+        verified_rebase: None,
+        reflected_gold_snapshot_tag: None,
     })
 }
 
@@ -545,13 +651,81 @@ async fn verify_document(
     Ok(())
 }
 
-/// The change set the delta job summarised (`by_pnu_panel_delta.py`).
+/// The change set the delta job summarised (`by_pnu_panel_delta.py`), or the verified re-base
+/// (`verify-parcel-by-pnu-serving-rebase`, root ADR-0146 §1) found.
 #[derive(Debug, Deserialize)]
 struct ChangeSetSummary {
     job_name: String,
     contract: String,
     quality_metrics: ChangeSetCounts,
     input: ChangeSetInput,
+    /// Present exactly in a verified re-base's change set.
+    #[serde(default)]
+    verification: Option<RebaseVerification>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RebaseVerification {
+    run_id: String,
+    reason: String,
+    method: String,
+    served_objects_read: u64,
+    equal: u64,
+    changed: u64,
+    only_served: u64,
+    only_gold: u64,
+}
+
+/// The record a verified re-base leaves in the manifest it publishes; `None` for a delta.
+fn verified_rebase(
+    change: &ChangeSetSummary,
+    served: &ServedManifest,
+) -> anyhow::Result<Option<VerifiedRebase>> {
+    match (change.job_name.as_str(), &change.verification) {
+        (DELTA_SUMMARY_JOB, None) => Ok(None),
+        (rebase::JOB_NAME, Some(found)) => {
+            ensure!(
+                found.served_objects_read >= found.equal + found.changed + found.only_served
+                    && found.equal + found.changed + found.only_served == served.object_count,
+                "the re-base read {} objects with {} equal, {} changed and {} only served, which \
+                 does not account for the {} PNUs the lane serves; it is incomplete",
+                found.served_objects_read,
+                found.equal,
+                found.changed,
+                found.only_served,
+                served.object_count
+            );
+            ensure!(
+                found.changed + found.only_gold == change.quality_metrics.upsert_count
+                    && found.only_served == change.quality_metrics.delete_count,
+                "the re-base's verdicts disagree with its own change set"
+            );
+            ensure!(
+                !found.reason.trim().is_empty() && !found.run_id.trim().is_empty(),
+                "a verified re-base names its run and its reason"
+            );
+            Ok(Some(VerifiedRebase {
+                run_id: found.run_id.clone(),
+                reason: found.reason.clone(),
+                method: found.method.clone(),
+                baseline_gold_iceberg_snapshot_id: change.input.baseline_snapshot_id.clone(),
+                served_objects_read: found.served_objects_read,
+                equal: found.equal,
+                changed: found.changed,
+                only_served: found.only_served,
+                only_gold: found.only_gold,
+            }))
+        }
+        (job, _) => bail!(
+            "the change set is a {job} summary {} a verification block; neither the delta nor \
+             the verified re-base",
+            if change.verification.is_some() {
+                "with"
+            } else {
+                "without"
+            }
+        ),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -565,6 +739,13 @@ struct ChangeSetCounts {
 struct ChangeSetInput {
     baseline_snapshot_id: String,
     current_snapshot_id: String,
+    /// The served base the change set was compared against; the verified re-base names it.
+    #[serde(default)]
+    base_generation: Option<u64>,
+    /// The served patches, newest first, the change set was compared against; the verified
+    /// re-base names them.
+    #[serde(default)]
+    patches: Option<Vec<u64>>,
 }
 
 /// One patch generation over the served base, or an empty change set.
@@ -613,10 +794,12 @@ pub(crate) async fn patch(
     let change: ChangeSetSummary =
         serde_json::from_str(&raw).context("the change set summary does not parse")?;
     ensure!(
-        change.job_name == DELTA_SUMMARY_JOB && change.contract == gold_table(lane),
-        "the change set is a {} summary of {}, not {DELTA_SUMMARY_JOB} of {}",
+        [DELTA_SUMMARY_JOB, rebase::JOB_NAME].contains(&change.job_name.as_str())
+            && change.contract == gold_table(lane),
+        "the change set is a {} summary of {}, not {DELTA_SUMMARY_JOB} or {} of {}",
         change.job_name,
         change.contract,
+        rebase::JOB_NAME,
         gold_table(lane)
     );
     ensure!(
@@ -631,6 +814,33 @@ pub(crate) async fn patch(
         "the change set reaches Gold snapshot {}, not the stated {}",
         change.input.current_snapshot_id,
         input.expected_gold_iceberg_snapshot_id
+    );
+    // A re-base compared what was served: the base and the patches it read must still be served.
+    let served_patches = served
+        .patches
+        .iter()
+        .map(|patch| patch.generation)
+        .collect::<Vec<_>>();
+    ensure!(
+        change.job_name != rebase::JOB_NAME
+            || (change.input.base_generation.is_some() && change.input.patches.is_some()),
+        "the verified re-base's change set names no served base or patch list"
+    );
+    ensure!(
+        change
+            .input
+            .base_generation
+            .is_none_or(|base| base == served.base_generation)
+            && change
+                .input
+                .patches
+                .as_ref()
+                .is_none_or(|patches| *patches == served_patches),
+        "the change set was compared against generation {:?} with patches {:?}, but the manifest \
+         serves generation {} with patches {served_patches:?}; it would miss or repeat changes",
+        change.input.base_generation,
+        change.input.patches,
+        served.base_generation
     );
     let upserts = read_pnu_list(lane, &input.upserts)?;
     let deletes = read_pnu_list(lane, &input.deletes)?;
@@ -665,6 +875,8 @@ pub(crate) async fn patch(
         patches: served.patches.clone(),
         object_count,
         published_at_utc: now(),
+        verified_rebase: verified_rebase(&change, served)?,
+        reflected_gold_snapshot_tag: None,
     };
     if upserts.is_empty() && deletes.is_empty() {
         ensure!(
@@ -871,6 +1083,8 @@ pub(crate) async fn rollback(
         patches: target.patches,
         object_count: target.object_count,
         published_at_utc: now(),
+        verified_rebase: None,
+        reflected_gold_snapshot_tag: None,
     })
 }
 

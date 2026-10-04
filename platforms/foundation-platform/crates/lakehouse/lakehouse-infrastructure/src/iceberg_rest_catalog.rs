@@ -47,6 +47,26 @@ pub struct IcebergSnapshotManifestList {
     pub metadata_location: String,
 }
 
+/// One table's named references and the snapshots its metadata still holds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IcebergSnapshotRefs {
+    /// Fully qualified `namespace.table` that was loaded.
+    pub table_name: String,
+    /// Every snapshot the table metadata holds; an expired snapshot is not among them.
+    pub snapshot_ids: Vec<i64>,
+    /// Reference name to the snapshot it names (`main` included).
+    pub refs: BTreeMap<String, IcebergSnapshotRef>,
+}
+
+/// One named reference of an Iceberg table.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IcebergSnapshotRef {
+    /// Snapshot the reference names.
+    pub snapshot_id: i64,
+    /// `branch` or `tag`.
+    pub kind: String,
+}
+
 /// Provider-neutral Iceberg REST catalog client.
 #[derive(Clone, Debug)]
 pub struct IcebergRestCatalog {
@@ -327,6 +347,192 @@ impl IcebergRestCatalog {
         }))
     }
 
+    /// The table's named references (`main` and every branch and tag) and the snapshots its
+    /// metadata still holds.
+    ///
+    /// Returns `Ok(None)` when the table does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached.
+    pub async fn load_snapshot_refs(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<IcebergSnapshotRefs>, LakehouseError> {
+        Ok(self
+            .load_table_response(table_name)
+            .await?
+            .map(|payload| IcebergSnapshotRefs {
+                table_name: table_name.to_owned(),
+                snapshot_ids: payload
+                    .metadata
+                    .snapshots
+                    .iter()
+                    .map(|snapshot| snapshot.snapshot_id)
+                    .collect(),
+                refs: payload
+                    .metadata
+                    .refs
+                    .into_iter()
+                    .map(|(name, reference)| {
+                        (
+                            name,
+                            IcebergSnapshotRef {
+                                snapshot_id: reference.snapshot_id,
+                                kind: reference.kind,
+                            },
+                        )
+                    })
+                    .collect(),
+            }))
+    }
+
+    /// Commits one tag `tag_name` on `snapshot_id` of `table_name`, only where no reference of
+    /// that name exists yet (requirement `assert-ref-snapshot-id` with a null snapshot).
+    ///
+    /// A tag without `max-ref-age-ms` never expires: Iceberg's snapshot expiry keeps every
+    /// snapshot a live reference names. A tag already on the same snapshot is left as it is (a
+    /// re-run); one on another snapshot is refused, never moved.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the table or the snapshot is gone, the name is taken by
+    /// another snapshot or by a branch, or the catalog refuses the commit.
+    pub async fn create_tag(
+        &self,
+        table_name: &str,
+        tag_name: &str,
+        snapshot_id: i64,
+    ) -> Result<(), LakehouseError> {
+        let refs = self.require_refs(table_name).await?;
+        if let Some(existing) = refs.refs.get(tag_name) {
+            return if existing.kind == "tag" && existing.snapshot_id == snapshot_id {
+                Ok(())
+            } else {
+                Err(LakehouseError::Upstream(format!(
+                    "{table_name} already has a {} named {tag_name} on snapshot {}; a pin is \
+                     never moved",
+                    existing.kind, existing.snapshot_id
+                )))
+            };
+        }
+        if !refs.snapshot_ids.contains(&snapshot_id) {
+            return Err(LakehouseError::Upstream(format!(
+                "{table_name} no longer holds snapshot {snapshot_id}; it cannot be tagged"
+            )));
+        }
+        let outcome = self
+            .commit_table(
+                table_name,
+                serde_json::json!({
+                    "requirements": [
+                        {"type": "assert-ref-snapshot-id", "ref": tag_name, "snapshot-id": null}
+                    ],
+                    "updates": [
+                        {
+                            "action": "set-snapshot-ref",
+                            "ref-name": tag_name,
+                            "type": "tag",
+                            "snapshot-id": snapshot_id
+                        }
+                    ]
+                }),
+            )
+            .await;
+        // A commit whose answer was lost may still have landed: the table is the record.
+        if outcome.is_err() {
+            let after = self.require_refs(table_name).await?;
+            if after
+                .refs
+                .get(tag_name)
+                .is_some_and(|tag| tag.kind == "tag" && tag.snapshot_id == snapshot_id)
+            {
+                return Ok(());
+            }
+        }
+        outcome
+    }
+
+    /// Removes tag `tag_name` of `table_name`, only while it still names `snapshot_id`
+    /// (requirement `assert-ref-snapshot-id`). An absent tag is already removed. Never removes a
+    /// branch.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the name is a branch or another snapshot's tag, or the
+    /// catalog refuses the commit.
+    pub async fn remove_tag(
+        &self,
+        table_name: &str,
+        tag_name: &str,
+        snapshot_id: i64,
+    ) -> Result<(), LakehouseError> {
+        let refs = self.require_refs(table_name).await?;
+        let Some(existing) = refs.refs.get(tag_name) else {
+            return Ok(());
+        };
+        if existing.kind != "tag" || existing.snapshot_id != snapshot_id {
+            return Err(LakehouseError::Upstream(format!(
+                "{table_name}'s {} {tag_name} names snapshot {}, not the tag on {snapshot_id} \
+                 this release expected; it is left in place",
+                existing.kind, existing.snapshot_id
+            )));
+        }
+        self.commit_table(
+            table_name,
+            serde_json::json!({
+                "requirements": [
+                    {"type": "assert-ref-snapshot-id", "ref": tag_name, "snapshot-id": snapshot_id}
+                ],
+                "updates": [{"action": "remove-snapshot-ref", "ref-name": tag_name}]
+            }),
+        )
+        .await
+    }
+
+    async fn require_refs(&self, table_name: &str) -> Result<IcebergSnapshotRefs, LakehouseError> {
+        self.load_snapshot_refs(table_name).await?.ok_or_else(|| {
+            LakehouseError::Upstream(format!("lakehouse table not found: {table_name}"))
+        })
+    }
+
+    /// One `POST .../tables/{table}` commit. Not retried: its requirements make a lost answer
+    /// detectable by reading the table again, which the callers do.
+    async fn commit_table(
+        &self,
+        table_name: &str,
+        body: serde_json::Value,
+    ) -> Result<(), LakehouseError> {
+        let catalog_prefix = self.catalog_prefix().await?;
+        let url = self.load_table_url(&catalog_prefix, table_name)?;
+        let response = self
+            .with_catalog_headers(self.client.post(url))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| {
+                LakehouseError::Upstream(format!(
+                    "Iceberg REST commit to {table_name} failed: {}",
+                    redact_transport_error(&error)
+                ))
+            })?;
+        let status = response.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        Err(LakehouseError::Upstream(match status {
+            StatusCode::CONFLICT => format!(
+                "Iceberg REST commit to {table_name} conflicted: a requirement no longer holds"
+            ),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => format!(
+                "Iceberg REST commit to {table_name} was refused with status {status}: the catalog \
+                 token may read the catalog but not commit to it. Pinning a snapshot with a tag \
+                 is a table commit and needs a token with catalog write permission"
+            ),
+            _ => format!("Iceberg REST commit to {table_name} failed with status {status}"),
+        }))
+    }
+
     async fn load_table_response(
         &self,
         table_name: &str,
@@ -470,6 +676,16 @@ struct IcebergTableMetadata {
     current_snapshot_id: serde_json::Value,
     #[serde(default)]
     snapshots: Vec<IcebergSnapshotMetadata>,
+    #[serde(default)]
+    refs: BTreeMap<String, IcebergRefMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IcebergRefMetadata {
+    #[serde(rename = "snapshot-id")]
+    snapshot_id: i64,
+    #[serde(rename = "type")]
+    kind: String,
 }
 
 #[derive(Debug, Deserialize)]

@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-03
+last_reviewed: 2026-10-04
 ---
 
 # 필지 by-PNU R2 서빙 — 굽기·발행·검증 런북
@@ -272,6 +272,94 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
   굽기로 끝난다.
 - 툼스톤은 약 195바이트로 계약의 `tombstone_max_bytes` 안이다. 패치 항목 하나는 manifest 에 약 150바이트 + 앞자리 하나당 약 13바이트를
   더한다(시군구 250개 전부여도 약 3.4KB). 실제 일일 변경 수는 첫 운영에서 잰다(ADR-0141 Consequences).
+
+### 검증 재기준과 반영 스냅숏 고정 ([루트 ADR-0146](../../../../docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md))
+
+변경 집합 잡의 두 거부는 문장과 실행 요약의 `refused` 로 구별된다.
+
+| 종료 코드 | 실행 요약 `refused` | 뜻 |
+|---:|---|---|
+| 3 | `no_comparison_snapshot` | Gold 에 반영 스냅숏이 없다(만료, 또는 처음부터 없음) |
+| 5 | `comparison_snapshot_has_no_row_digest` | 반영 스냅숏은 있지만 `row_digest` 가 없다(지문 이전 판) |
+| 4 | `not_a_delta` | 변경이 `max_delta_fraction` 초과 |
+
+둘 다(3·5) "변경 없음"이 아니다. 재기준 방법은 둘이다: 전량 굽기(`FORCE_FULL`, 약 81시간·쓰기 4천만), 또는 **검증
+재기준**(필지 레인만). 검증 재기준은 서빙 객체를 전부 읽어 지금 Gold 의 렌더와 `source` 를 뺀 내용으로 비교하고, 그
+결과(같음·바뀜·서빙에만·Gold 에만)를 변경 집합으로 내놓는다. 이후는 위 표 그대로다(전부 같으면 반영만, 다르면 패치).
+
+1. 이 절의 "켜는 순서"와 같이 같은 풀의 작업을 멈춘다(재기준은 Gold 를 10번 스캔하고 R2 를 수천만 번 읽는다).
+2. 데이터 호스트에서 root 가 단위의 선택 환경 파일 `/etc/foundation-platform/by-pnu-bake.env` 에 두 줄을 더하고,
+   단위를 시작한다(같은 환경·`MemoryMax`·쓰기 경로로 돈다). `all` 은 이 두 값을 필지 레인에만 넘긴다.
+
+   ```bash
+   FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE=true
+   FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON=<왜 재기준하는가>
+   ```
+
+   `sudo systemctl start --no-block foundation-by-pnu-serving-bake.service` 후
+   `journalctl -u foundation-by-pnu-serving-bake.service -f` 로 지켜본다. 시간 상한에 걸리면 다시 시작한다(이어 한다).
+   **발행된 뒤에는 두 줄을 지운다.** 남겨 두면 다음 Gold 스냅숏도 변경 집합 대신 재기준으로 비교한다.
+
+   - 이유가 없거나, `FORCE_FULL` 과 함께 쓰거나, 건물 레인이면 64 로 거부된다. 레인이 어차피 전량 굽기가 필요하면
+     (문서 스키마 변경, 패치 한도) 재기준은 거부된다.
+   - 작업 디렉터리는 `runs/<Gold 스냅숏>-rebase/` 다. `run-id` 가 첫 실행에 생기고, 다시 실행하면 같은 run id 로
+     끝난 샤드·묶음을 건너뛴다. 다른 run id 의 작업 디렉터리는 거부된다.
+   - 작업 디렉터리가 지금과 다른 서빙 상태(반영 스냅숏·기본 세대·패치 목록)를 비교한 것이면(그 사이 패치가 발행됐거나
+     되돌리기가 있었다) 이어 할 수 없다. 굽기가 그 디렉터리를 `superseded/<이름>-<시각>/` 로 옮겨 두고(지우지 않는다)
+     로그에 `compared another served state` 를 남긴 뒤 새 run id 로 시작한다.
+   - 읽기 실패 하나, 목록 개수 ≠ manifest, 응답 PNU 수 ≠ `object_count`, 판정 합 ≠ Gold 행 수 가운데 하나라도 있으면
+     변경 집합을 쓰지 않고 `refused: verified_rebase_incomplete` 로 끝난다.
+3. 발행된 manifest 의 `verified_rebase` 에 run id·이유·읽은 수·판정 수가 남는다. 다음 발행이 그 manifest 를
+   `manifest-history/` 로 옮긴다.
+
+모든 발행은 manifest 가 반영하는 Gold 스냅숏에 Iceberg 태그 `served-<unit>-<발행시각>-<스냅숏>-<발행 id>` 를 단다.
+발행 id 는 발행마다 새로 만드는 UUID v7 이라, 같은 스냅숏을 같은 초에 두 번 발행해도 이름이 겹치지 않는다. manifest
+는 자기 태그를 `reflected_gold_snapshot_tag` 에 적는다.
+
+- 새 manifest 가 살아난 뒤, **지금 살아 있는 manifest 가 적은 태그보다 오래된** 같은 레인의 태그만 푼다. 더 새 태그는
+  아직 manifest 를 쓰지 않은 다른 발행의 것이라 남긴다.
+- manifest 쓰기가 실패하면 manifest 를 다시 읽는다. 실제로는 써졌으면(응답만 잃음) 태그를 남기고 발행을 성공으로
+  끝낸다. 비교 교환에서 졌다고 확인됐고 살아 있는 manifest 가 이 스냅숏을 반영하지 않을 때만 새 태그를 푼다. 그 밖의
+  애매한 경우는 태그를 남긴다(스냅숏을 다음 발행까지 더 살려 둘 뿐이다).
+- 태그를 달 수 없으면 발행은 거부된다(되돌리기만 경고 후 진행).
+- 레인 실행은 한 번에 하나다. 굽기는 `/data/foundation-platform/by-pnu-bake/<레인>/lane.lock` 을 기다리지 않고
+  잡으며(`flock -n`), 이미 잡혀 있으면 75 로 끝난다. 손으로 발행하거나 되돌릴 때도 같은 잠금 아래에서 돌린다:
+  `flock -n /data/foundation-platform/by-pnu-bake/parcel/lane.lock <발행 명령>`.
+
+태그 확인(읽기 전용): 카탈로그 `loadTable` 응답의 `metadata.refs` 에 `served-parcel-by-pnu-…` 가 살아 있는 manifest 의
+`reflected_gold_snapshot_tag` 와 같은 이름으로 있어야 한다.
+
+**토큰.** 태그를 다는 것은 Iceberg 표 커밋이라 `FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN` 에 카탈로그 **쓰기** 권한이
+있어야 한다. 굽기 단위는 이 값을 `map-edit-fold.env`(카탈로그와 R2 lakehouse writer)에서 받는다. 2026-10-04 기준 선언된
+범위는 어드민 범위(읽기·쓰기) 카탈로그 토큰이다([운영 준비 문서](../../../../docs/roadmap/production-readiness.md)의
+"운영 레이크하우스 자격증명" 절; 같은 변수로 Gold 재생성이 스냅숏을 커밋한다). 쓰기와 읽기 토큰을 나누게 되면 이 발행에는
+쓰기 토큰을 준다. 읽기 전용 토큰이면 발행은 manifest 를 움직이기 전에 `needs a token with catalog write permission` 으로
+거부된다.
+
+- 2026-10-04 기준 Gold 에는 스냅숏 만료가 걸려 있지 않다. 이 저장소의 만료(`lakehouse_maintenance.py`)는 Silver 적재
+  뒤에만 돈다. Gold 로 넓히거나 R2 관리형 만료를 켜기 전에, 관리형 만료가 태그를 존중하는지 먼저 확인한다(문서에
+  없다). Spark 의 `expire_snapshots` 는 존중한다(시험 `test_served_snapshot_pins_iceberg.py`).
+
+검증 재기준 측정(2026-10-04, ai-server scratch, 운영 R2·Gold 읽기 전용, 릴리스 빌드, 건물 전량 굽기가 같은 호스트에서
+돌던 중). 표본은 `..._REBASE_SAMPLE_PREFIXES` 로 시군구 하나씩이며, 표본은 변경 집합을 쓰지 않는다.
+
+| 표본 | 동시성 | 서빙 객체 | 같음 / 바뀜 / 서빙에만 / Gold 에만 | Gold 스캔 | 목록 | 읽기 | 메모리 최대 |
+|---|---:|---:|---|---:|---:|---:|---:|
+| 서울 시군구 A | 128 | 49,080 | 49,080 / 0 / 0 / 0 | 약 6분 30초(3,986만 행 전부 디코드) | 26초 | 111초(약 440개/초) | 4,960,493,568 B |
+| 서울 시군구 B | 256 | 34,564 | 34,564 / 0 / 0 / 0 | 약 6분 20초 | 17초 | 36초(약 965개/초) | 4,959,653,888 B |
+
+전국(39,861,511 객체) 추정, 동시성 256(`FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY=256` 을 같은 환경 파일에):
+
+- Gold 스캔: 첫 자리 샤드 10개 × 약 6분 ≈ 1시간(굽기가 없을 때의 측정 155초면 약 26분).
+  **알려진 비용(고치지 않았다):** 샤드마다 Gold 표 전체를 읽어 디코드한 뒤 그 샤드의 PNU 만 남긴다. 그래서 전국
+  재기준은 Gold 를 10번(첫 자리 샤드 수만큼) 통째로 디코드한다. 줄이려면 파일 단위 PNU 범위로 데이터 파일을 거르는
+  스캔이 필요하다.
+- 목록: 키 약 3,986만 개 = List 요청(Class A) 약 4만 회. 하위 접두사 4개씩 나란히 나열해 약 1.5시간, 직렬 속도로 잡으면
+  약 5.5시간.
+- 읽기: GET(Class B) 39,861,511 회. 약 965개/초로 약 11.5시간(동시성 128 이면 약 25시간).
+- 합계 약 14–18시간. 단위의 시간 상한(20시간)에 걸려도 다시 시작하면 끝난 샤드·묶음을 건너뛴다.
+- 메모리: 표본 최대 4.96GB 는 대부분 데이터 파일 하나를 디코드하는 바닥이다. 가장 큰 샤드(첫 자리 `4`, 약 2,500만)는 내용
+  지문 지도 약 1.2GB + 서빙 목록 약 0.8GB + 나란한 하위 목록 약 2GB 로, 스캔과 목록이 겹치지 않으므로 단위의 14G 안이다.
 
 건물 레인은 승인된 건물 연결을 운영 DB 에서 읽는다. `DATABASE_URL` 은 FLOOR 와 같이 compose 의 API 연결을
 루프백 포트로 옮겨 얻으며(`runtime-database-url.py`), 얻지 못하면 굽기 전에 78 로 끝난다.
