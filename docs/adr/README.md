@@ -169,4 +169,6 @@ last_reviewed: 2026-07-28
 
 - [ADR-0142 — 허브 대장의 PNU 손실은 조립에서 이름으로 거부하고, 적재에서 비율로 거부한다](./0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md)
 
-- [ADR-0143 — 법정동 코드 변경은 code.go.kr 에서 받는다 — 공식 짝은 변경안내 첨부, 날짜는 전체 표](./0143-legal-dong-code-changes-come-from-code-go-kr.md)
+- [ADR-0143 — 법정동 코드 변경은 code.go.kr 에서 받는다 — 공식 짝은 변경안내 첨부, 날짜는 전체 표](./0143-legal-dong-code-changes-come-from-code-go-kr.md) (§3 은 ADR-0144 로 대체됨)
+
+- [ADR-0144 — 지역 코드 변경은 내려받은 데이터만으로 판단한다 — 게시판은 쓰지 않는다](./0144-region-code-changes-are-derived-from-downloaded-data-only.md)
