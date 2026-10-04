@@ -653,6 +653,7 @@ fn reflected(config: &PublishConfig, live: &ServedManifest) -> anyhow::Result<Se
     let mut next = current.clone();
     next.reflected_gold_iceberg_snapshot_id = config.expected_gold_snapshot.clone();
     next.reflected_gold_snapshot_tag = None;
+    answers_for_every_gold_row(config, &next)?;
     Ok(next)
 }
 
@@ -745,5 +746,24 @@ async fn patched(
         .checked_sub(u64::try_from(deletes.len())?)
         .context("the change set deletes more PNUs than the packs answer for")?;
     next.reflected_gold_snapshot_tag = None;
+    answers_for_every_gold_row(config, &next)?;
     Ok(next)
+}
+
+/// The packs answer for exactly the rows the catalog records for the snapshot they reflect: a
+/// patch or a reflect that drifted from Gold is refused now, not at the next re-bake.
+fn answers_for_every_gold_row(
+    config: &PublishConfig,
+    next: &SectionPacksState,
+) -> anyhow::Result<()> {
+    let expected = config
+        .gold_record_count
+        .context("a pack publish holds the packs to the Gold row count the catalog records")?;
+    ensure!(
+        next.document_count == expected,
+        "the packs would answer for {} PNUs, but Gold snapshot {} holds {expected} rows",
+        next.document_count,
+        config.expected_gold_snapshot
+    );
+    Ok(())
 }

@@ -575,8 +575,32 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
         &[PNU_B],
     )?;
     let patch_dir = lane.summaries("patch", &[&patch])?;
+    // Planted: the catalog records 2 rows for the next snapshot, but the packs would answer for
+    // 1 after the delete. The patch is refused before the manifest moves.
+    let drifted = lane
+        .publish_with(
+            Some(patch_dir.clone()),
+            NEXT_SNAPSHOT,
+            2,
+            None,
+            Some(change_set.clone()),
+        )
+        .await
+        .err()
+        .context("a patch that drifted from the Gold row count was published")?;
+    assert!(
+        format!("{drifted:#}").contains("holds 2 rows"),
+        "{drifted:#}"
+    );
+    assert!(lane
+        .live()
+        .await?
+        .section_packs
+        .context("packs")?
+        .patches
+        .is_empty());
     let state = lane
-        .publish(patch_dir, NEXT_SNAPSHOT, None, Some(change_set))
+        .publish_with(Some(patch_dir), NEXT_SNAPSHOT, 1, None, Some(change_set))
         .await?;
     assert_eq!(state.patches.len(), 1);
     assert_eq!(state.patches[0].units, vec![UNIT.to_owned()]);
@@ -960,9 +984,10 @@ async fn a_section_re_baked_alone_joins_the_served_sections_and_patches_follow_i
         &[PNU_A],
         &[PNU_B],
     )?;
-    lane.publish(
-        lane.summaries("patch", &[&patch])?,
+    lane.publish_with(
+        Some(lane.summaries("patch", &[&patch])?),
         NEXT_SNAPSHOT,
+        1,
         None,
         Some(change_set),
     )

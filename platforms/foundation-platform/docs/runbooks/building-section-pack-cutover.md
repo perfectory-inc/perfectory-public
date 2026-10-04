@@ -60,6 +60,20 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform -p MemoryMa
 출력 `measurement.json` 의 `bake_seconds`, `peak_resident_bytes`, `packs`, `pack_bytes`,
 `projected_r2_class_a_writes` 를 PR 과 이 런북의 측정 기록에 남긴다.
 
+측정 기록 (2026-10-04, ai-server, 릴리스 eebf1ff6, Gold 스냅숏 하나, 샤드 27):
+
+| 무엇 | 값 |
+|---|---:|
+| 문서 | 5,945,767 (항목 넷 모두 같은 수, 툼스톤 0) |
+| 묶음 | 76,040 (항목마다 19,010 법정동) |
+| 묶음 바이트 | 6.96GB (머리·색인 0.70GB) |
+| 가장 큰 묶음 / 머리 | 6.56MB / 472KB |
+| 굽기 시간 | 2,329초 (약 39분, 가장 느린 샤드 236초) |
+| 최대 상주 메모리 | 10.5GiB |
+| 예상 R2 Class A 쓰기 | 76,042 (객체 방식 약 5,945,767) |
+
+굽기 안의 전수 비교(3절)도 이 측정에서 모든 문서가 같았다(다르면 그 샤드가 실패한다).
+
 ## 2. 운영 버킷에 첫 세대 굽기 (manifest 는 그대로)
 
 건물 레인 잠금(`/data/foundation-platform/by-pnu-bake/building/lane.lock`)을 잡고, 예약 굽기와 겹치지 않게 한다.
@@ -158,6 +172,12 @@ done
 
 항목마다 어느 묶음(`g1`, `g1/p3`)이 답했는지, 상태, 조각, 합친 문서를 낸다. 객체 서빙으로 돌아가려면
 `section_packs` 가 없는 이력 manifest 로 되돌린다(`publish-building-by-pnu-serving-manifest` 의 되돌리기).
+
+**전환 뒤에는 릴리스를 묶음 패치 이전(#337 이전)으로 되돌리지 않는다.** 그 릴리스의 예약 굽기는 객체만
+굽고, 객체 발행은 `section_packs` 블록을 그대로 옮긴다. Worker 는 계속 묶음을 읽으므로 묶음은 낡은 채
+서빙되고, 새 변경은 아무도 읽지 않는 객체에만 쌓인다. 릴리스를 그 이전으로 내려야 하면 먼저 위의
+manifest 되돌리기로 객체 서빙으로 돌아간다. (#336 보다 오래된 발행기는 모르는 칸이 있는 manifest 를 거부하므로
+안전하다.)
 
 ## 7. 예약 굽기와 묶음 (완료)
 
