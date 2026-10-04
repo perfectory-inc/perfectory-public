@@ -37,9 +37,9 @@ def event(p, reason, when, code="10", area="", category=""):
 
 
 class DeriveTest(unittest.TestCase):
-    def run_derive(self, changes=CHANGES):
-        before = {pnu(OLD_A, n) for n in range(1, 6)} | {pnu(OLD_B, 1), pnu(OLD_B, 150), pnu(OLD_B, 151)}
-        after = {pnu(NEW_A, n) for n in (1, 2, 3, 5, 6)} | {pnu(NEW_B, 1), pnu(NEW_B, 803), pnu(NEW_B, 804)}
+    def run_derive(self, changes=CHANGES, also=frozenset()):
+        before = {pnu(OLD_A, n) for n in range(1, 6)} | {pnu(OLD_B, 1), pnu(OLD_B, 150), pnu(OLD_B, 151)} | also
+        after = {pnu(NEW_A, n) for n in (1, 2, 3, 5, 6)} | {pnu(NEW_B, 1), pnu(NEW_B, 803), pnu(NEW_B, 804)} | also
         window = {
             event(pnu(NEW_A, 4), "5번과 합병되어 말소", "2099-08-01"),
             event(pnu(NEW_A, 6), "3번에서 분할", "2099-08-02"),
@@ -74,14 +74,30 @@ class DeriveTest(unittest.TestCase):
         self.assertEqual(summary["transferred_in"], 2)
 
     def test_the_dong_pairs_come_from_the_code_change_table_only(self):
-        # The same parcels with an empty change table: no lot is carried across a renamed dong, because
-        # the lineage no longer pairs codes on its own (root ADR-0145 §2).
-        links, summary = self.run_derive(changes=[])
-        self.assertFalse([link for link in links if link.relation == "code_change"])
-        self.assertEqual(summary["dongs"]["paired"], 0)
-        self.assertEqual(summary["dongs"]["unpaired"], [OLD_A, OLD_B])
         links, summary = self.run_derive()
         self.assertEqual(summary["dongs"]["how"], {CHANGES[0]["source"]: 1, CHANGES[1]["source"]: 1})
+
+    def test_a_vanished_dong_the_table_does_not_pair_is_refused(self):
+        # The same parcels with an empty change table, or one missing a pair: the lineage does not pair
+        # codes on its own (root ADR-0145 §2), and writing on would record no code_change link for
+        # the dongs that vanished, silently.
+        for changes, missing in (([], [OLD_A, OLD_B]), (CHANGES[:1], [OLD_B])):
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, rf"2099-06-01.*{missing}"):
+                self.run_derive(changes=changes)
+
+    def test_a_pair_outside_the_window_is_not_applied(self):
+        # 99999-103 still holds its lots at the later snapshot: it was renumbered after --to-date, and
+        # its pair is recorded already. Applied anyway, its lots would be sent to a dong that holds
+        # none of them yet.
+        later = {"kind": "pair", "old_code": "9999910300", "new_code": "9999920300", "level": "eupmyeondong",
+                 "effective_date": "20991002", "source": "derived:code-go-kr:date+name:20991001"}
+        links, summary = self.run_derive(changes=[*CHANGES, later], also=frozenset({pnu("9999910300", 1)}))
+        self.assertEqual(summary["dongs"]["paired"], 2)
+        self.assertFalse([link for link in links if "9999910300" in (link.predecessor_pnu or "")])
+        self.assertTrue(summary["reconciliation"]["balanced"])
+        on_the_last_day = {**later, "effective_date": "20991001"}
+        _, summary = self.run_derive(changes=[*CHANGES, on_the_last_day], also=frozenset({pnu("9999910300", 1)}))
+        self.assertEqual(summary["dongs"]["paired"], 3, "the last day of the window counts")
 
     def test_the_real_tables_need_the_explicit_flag(self):
         args = parse_args([

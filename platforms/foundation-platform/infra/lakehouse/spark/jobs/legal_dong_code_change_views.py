@@ -48,17 +48,34 @@ def pair_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, str]]:
     return sorted(out, key=lambda pair: (pair["old_code"], pair["new_code"], pair["source"]))
 
 
-def leaf_pairs(rows: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, str]]:
+def leaf_pairs(
+    rows: Iterable[Mapping[str, Any]], from_date: str | None = None, to_date: str | None = None
+) -> dict[str, dict[str, str]]:
     """{old 동·리: {new 동·리: source}} for every changed leaf code.
 
-    An old code with more than one new code was split; the caller decides what that means for it.
+    With a window, only the pairs whose `effective_date` falls in it, both ends included
+    (`YYYY-MM-DD` or `YYYYMMDD`): a change after the later snapshot has not happened to it yet,
+    and an undated pair cannot be placed in any window. An old code with more than one new code
+    was split; the caller decides what that means for it.
     """
 
+    low, high = (_day(from_date), _day(to_date)) if from_date or to_date else (None, None)
     out: dict[str, dict[str, str]] = {}
     for pair in pair_rows(rows):
-        if pair["level"] in LEAF_LEVELS and pair["old_code"] != pair["new_code"]:
-            out.setdefault(pair["old_code"], {}).setdefault(pair["new_code"], pair["source"])
+        if pair["level"] not in LEAF_LEVELS or pair["old_code"] == pair["new_code"]:
+            continue
+        if low is not None or high is not None:
+            day = _day(pair["effective_date"])
+            if not day or (low and day < low) or (high and day > high):
+                continue
+        out.setdefault(pair["old_code"], {}).setdefault(pair["new_code"], pair["source"])
     return out
+
+
+def _day(value: str | None) -> str:
+    """`YYYYMMDD` from either form the dates come in; blank stays blank."""
+
+    return (value or "").replace("-", "")
 
 
 def sigungu_crosswalk_view(
@@ -89,35 +106,38 @@ def sigungu_crosswalk_view(
     }, review
 
 
-def dong_predecessors(
-    rows: Iterable[Mapping[str, Any]], lots_before: Mapping[str, Sequence[str] | set[str]] | None = None
-) -> dict[str, str]:
+def dong_predecessors(rows: Iterable[Mapping[str, Any]], lots_before: Mapping[str, Sequence[str] | set[str]]) -> dict[str, str]:
     """{new code: old code} for every renumbered 읍면동, and the 리 under it (ADR-0113 §9).
 
-    The boundary layer draws the 읍면동 (`xxxxxxxx00`) while rural parcels are numbered under the
-    리, so a 리 pair rolls up to its 읍면동 unless the 읍면동 itself was paired. When several old
-    codes land on one new code (dongs merged), the id stays with the one that brought the most lots
-    (`lots_before`, the 지번 each old code held; the change table records no lot counts). Without
-    lots every leaf counts one, and a tie goes to the smaller old code for a direct pair and to the
-    larger for a roll-up, as the pairing this view replaced decided.
+    The same answer the predecessor map this view replaced gave from the dong pairing of two
+    cadastral snapshots:
+
+    - an old code the table sends to two new codes was split and is no one's predecessor (the
+      pairing left it unpaired);
+    - several old codes landing on one new code (dongs merged) leave the id with the one that held
+      the most lots in `lots_before` (the 지번 each old code held before the change; the table
+      records no lot counts, so they are required), a tie going to the smaller old code;
+    - rural parcels are numbered under the 리 while the boundary layer draws the 읍면동
+      (`xxxxxxxx00`), so 리 pairs roll up: the old 읍면동 that brought the most lots into a new one
+      is its predecessor unless that 읍면동 was paired directly, a tie going to the larger code.
     """
 
     def weight(code: str) -> int:
-        return len(lots_before.get(code, ())) if lots_before is not None else 1
+        return len(lots_before.get(code, ()))
 
-    pairs = leaf_pairs(rows)
+    pairs = {old: next(iter(news)) for old, news in leaf_pairs(rows).items() if len(news) == 1}
     best: dict[str, tuple[int, str]] = {}
     for old in sorted(pairs):
-        for new in sorted(pairs[old]):
-            if new not in best or weight(old) > best[new][0]:
-                best[new] = (weight(old), old)
+        new = pairs[old]
+        if new not in best or weight(old) > best[new][0]:
+            best[new] = (weight(old), old)
     rolled: dict[str, dict[str, int]] = {}
     for old in sorted(pairs):
-        for new in sorted(pairs[old]):
-            if old[:8] == new[:8]:
-                continue
-            into = rolled.setdefault(new[:8] + "00", {})
-            into[old[:8] + "00"] = into.get(old[:8] + "00", 0) + weight(old)
+        new = pairs[old]
+        if old[:8] == new[:8]:
+            continue
+        into = rolled.setdefault(new[:8] + "00", {})
+        into[old[:8] + "00"] = into.get(old[:8] + "00", 0) + weight(old)
     for new_emd, olds in rolled.items():
         if new_emd not in best:
             old_emd, carried = max(olds.items(), key=lambda item: (item[1], item[0]))

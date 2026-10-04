@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 import parcel_lineage as pl
+from legal_dong_code_change_views import LEAF_LEVELS
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "code-go-kr-legal-dong.contract.json"
 EXISTS, ABOLISHED = "존재", "폐지"
@@ -272,8 +273,6 @@ def code_level(code: str) -> str:
 
 
 LEVELS = ("sido", "sigungu", "eupmyeondong", "ri")
-# Parcels are numbered under the lowest level: the 읍면동 in a city, the 리 in the country.
-LEAF_LEVELS = ("eupmyeondong", "ri")
 
 
 def name_below_sido(full_name: str) -> tuple[str, ...]:

@@ -134,7 +134,9 @@ class ArgsTest(unittest.TestCase):
         base = ["--input", "a.geojson", "--source-snapshot-id", "s1", "--source-record-id", "r", "--validate-only"]
         validate_args(parse_args(base + ["--legal-dong-change-table", "reference.legal_dong_code_change",
                                          "--predecessor-parcel-snapshot-id", "vworldkr__parcel:209906"]))
-        for extra in (["--legal-dong-change-table", "reference.x;DROP"], ["--predecessor-parcel-snapshot-id", "p"]):
+        table, snapshot = ["--legal-dong-change-table", "reference.legal_dong_code_change"], ["--predecessor-parcel-snapshot-id", "p"]
+        for extra in (["--legal-dong-change-table", "reference.x;DROP", *snapshot], table, snapshot,
+                      [*table, "--predecessor-parcel-snapshot-id", "p;DROP"]):
             with self.subTest(extra=extra), self.assertRaises(ValueError):
                 validate_args(parse_args(base + extra))
         with self.assertRaises(SystemExit):
@@ -184,8 +186,15 @@ class PredecessorsFromTheChangeTableTest(unittest.TestCase):
         self.assertEqual(summary["change_table_snapshot_id"], "7")
         self.assertIn("FROM `lakehouse`.`reference`.`legal_dong_code_change`", spark.queries[0])
         self.assertIn("level IN ('eupmyeondong', 'ri')", spark.queries[0])
-        args.predecessor_parcel_snapshot_id = None
-        self.assertEqual(read_predecessors(_Spark(changes, pnus), args)[0], {"9999930100": "9999910100"})
+
+    def test_a_parcel_snapshot_holding_none_of_the_old_codes_is_refused(self):
+        # Every weight would be zero and the merger's id would go to whichever code sorts first.
+        changes = [self.change("9999910100", "9999930100"), self.change("9999910200", "9999930100")]
+        args = parse_args(["--input", "a", "--source-snapshot-id", "s1", "--source-record-id", "r",
+                           "--legal-dong-change-table", "reference.legal_dong_code_change",
+                           "--predecessor-parcel-snapshot-id", "september"])
+        with self.assertRaisesRegex(ValueError, "holds no parcel under any of the 2 old codes"):
+            read_predecessors(_Spark(changes, ["9999930100100010000"]), args)
 
 
 if __name__ == "__main__":

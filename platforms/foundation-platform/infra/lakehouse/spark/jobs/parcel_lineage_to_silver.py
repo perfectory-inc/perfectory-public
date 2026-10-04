@@ -150,7 +150,14 @@ def derive(
     before, bad_before = pl.partition_valid(before_raw)
     after, bad_after = pl.partition_valid(after_raw)
     lots_before, lots_after = pl.lots_by_dong(before), pl.lots_by_dong(after)
-    pairing = pl.dong_pairing_from_changes(changes, lots_before, lots_after)
+    pairing = pl.dong_pairing_from_changes(changes, lots_before, lots_after, from_date, to_date)
+    if pairing.unrecorded:
+        # Writing on would carry none of their lots by code and still report a run (ADR-0145 §2).
+        raise ValueError(
+            f"{len(pairing.unrecorded)} legal dong codes held parcels at {from_date} and none at {to_date}, and the "
+            f"code change table records no pair for them effective in that window: {pairing.unrecorded[:10]}. "
+            "Record the change (legal_dong_code_change_pairs.py) before deriving the lineage."
+        )
     code_links, vanished, appeared = pl.carry_over(before, after, pairing)
     history = pl.history_links(events, from_date, to_date, pairing)
     moved_in = pl.transferred_in(events, from_date, to_date) & appeared
@@ -325,8 +332,8 @@ def main(argv: list[str] | None = None) -> int:
         after = read_pnus(spark, cat, args.to_snapshot_id, args.to_sido, table=views["boundaries_to"])
         if not before or not after:
             raise ValueError(f"no parcels for one side: before={len(before)} after={len(after)}")
-        # An empty change table is a real answer (no code moved), not a missing input: every lot
-        # then keeps its number and only the evidence rules link anything.
+        # An empty change table is accepted only while no code vanished between the snapshots;
+        # `derive` refuses a vanished code the table does not pair in the window.
         changes = read_code_changes(spark, views["code_changes"])
         provenance = input_provenance(args, inputs)
         run_id = derivation_run_id(provenance)

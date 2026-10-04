@@ -74,7 +74,11 @@ class SigunguCrosswalkViewTest(unittest.TestCase):
 
 
 class DongPredecessorViewTest(unittest.TestCase):
-    """The administrative-boundary id's predecessor map, read from the table instead of a CLI file."""
+    """The administrative-boundary id's predecessor map, read from the table instead of a CLI file.
+
+    Each case is one the retired predecessor map decided from the dong pairing of two snapshots;
+    the view must decide it the same way from the table and the earlier snapshot's lots.
+    """
 
     def test_the_view_matches_the_map_the_retired_command_wrote(self):
         # The fixture the retired command was tested on: a 면 (99999-101) with two 리, renumbered to
@@ -83,23 +87,50 @@ class DongPredecessorViewTest(unittest.TestCase):
         before = lots(*(pnu("9999910121", n) for n in range(1, 4)), *(pnu("9999910122", n) for n in range(1, 3)))
         retired_output = {"9999920100": "9999910100", "9999920121": "9999910121", "9999920122": "9999910122"}
         self.assertEqual(views.dong_predecessors(rows, before), retired_output)
-        self.assertEqual(views.dong_predecessors(rows), retired_output, "lot counts only break ties")
 
     def test_a_directly_paired_myeon_is_not_overridden_by_its_ri(self):
         rows = [change("9999910121", "9999920121", "ri"), change("9999910100", "9999930100", "eupmyeondong")]
-        self.assertEqual(views.dong_predecessors(rows)["9999930100"], "9999910100")
-        self.assertEqual(views.dong_predecessors(rows)["9999920100"], "9999910100")
+        before = lots(pnu("9999910121", 1), pnu("9999910100", 1))
+        self.assertEqual(views.dong_predecessors(rows, before)["9999930100"], "9999910100")
+        self.assertEqual(views.dong_predecessors(rows, before)["9999920100"], "9999910100")
 
     def test_merged_dongs_leave_the_id_with_the_one_that_brought_the_most_lots(self):
+        # The larger code brought more lots and keeps the id; on equal lots the smaller code does.
         rows = [change("9999910100", "9999930100", "eupmyeondong"), change("9999910200", "9999930100", "eupmyeondong")]
         before = lots(pnu("9999910100", 1), *(pnu("9999910200", n) for n in range(1, 4)))
         self.assertEqual(views.dong_predecessors(rows, before), {"9999930100": "9999910200"})
-        self.assertEqual(views.dong_predecessors(rows), {"9999930100": "9999910100"}, "without lots the smaller code keeps it")
+        even = lots(pnu("9999910100", 1), pnu("9999910200", 1))
+        self.assertEqual(views.dong_predecessors(rows, even), {"9999930100": "9999910100"})
+
+    def test_merged_ri_roll_up_to_the_myeon_that_brought_the_most_lots(self):
+        # Two 면 each send a 리 into one new 면: the 면 whose 리 carried more lots is its predecessor.
+        rows = [change("9999910121", "9999930121", "ri"), change("9999910221", "9999930122", "ri")]
+        before = lots(pnu("9999910121", 1), *(pnu("9999910221", n) for n in range(1, 3)))
+        self.assertEqual(views.dong_predecessors(rows, before)["9999930100"], "9999910200")
+
+    def test_a_split_dong_is_no_ones_predecessor(self):
+        # 99999-101 went to two new dongs: the pairing left it unpaired, so neither inherits its id,
+        # while the merger beside it is still decided.
+        rows = [change("9999910100", "9999930100", "eupmyeondong"), change("9999910100", "9999940100", "eupmyeondong"),
+                change("9999910200", "9999950100", "eupmyeondong")]
+        before = lots(*(pnu("9999910100", n) for n in range(1, 5)), pnu("9999910200", 1))
+        self.assertEqual(views.dong_predecessors(rows, before), {"9999950100": "9999910200"})
 
     def test_unchanged_codes_and_other_levels_are_not_listed(self):
         rows = [change("9999910121", "9999910121", "ri"), change("9999900000", "9999800000", "sigungu"),
                 change("9900000000", "9800000000", "sido")]
-        self.assertEqual(views.dong_predecessors(rows), {})
+        self.assertEqual(views.dong_predecessors(rows, {}), {})
+
+
+class LeafPairWindowTest(unittest.TestCase):
+    def test_only_pairs_effective_inside_the_window_both_ends_included(self):
+        rows = [{**change("9999910100", "9999920100", "eupmyeondong"), "effective_date": "20990601"},
+                {**change("9999910200", "9999920200", "eupmyeondong"), "effective_date": "20991001"},
+                {**change("9999910300", "9999920300", "eupmyeondong"), "effective_date": "20991002"},
+                {**change("9999910400", "9999920400", "eupmyeondong"), "effective_date": "20990531"},
+                {**change("9999910500", "9999920500", "eupmyeondong"), "effective_date": None}]
+        self.assertEqual(sorted(views.leaf_pairs(rows, "2099-06-01", "2099-10-01")), ["9999910100", "9999910200"])
+        self.assertEqual(len(views.leaf_pairs(rows)), 5, "without a window every pair is a pair")
 
 
 if __name__ == "__main__":

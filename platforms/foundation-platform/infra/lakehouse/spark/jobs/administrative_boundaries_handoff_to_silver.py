@@ -12,8 +12,8 @@ Which new code came from which old code is read from the code change table, the 
 region code changes (root ADR-0145): `--legal-dong-change-table` names it and
 `legal_dong_code_change_views.dong_predecessors` turns its 읍면동·리 pairs into {new: old}. When dongs
 merged, the id stays with the one that held the most parcels in `--predecessor-parcel-snapshot-id`
-(a `silver.parcel_boundaries` snapshot from before the change); without it every paired code
-weighs the same.
+(a `silver.parcel_boundaries` snapshot from before the change), which the change table needs: the
+table records no lot counts. A split 읍면동 is no one's predecessor.
 
 The input is what `scripts/tiles/admin-boundary/convert.sh` + `merge.py` produce: EPSG:4326,
 `-makevalid`, properties EMD_CD (8 digits), EMD_NM, SIGUNGU_CD (5 digits), SIGUNGU_NM. Each run
@@ -190,7 +190,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--source-snapshot-id", required=True, help="e.g. vworldkr__boundary_emd-30603-202606")
     parser.add_argument("--source-record-id", required=True, help="The Bronze object key(s) this snapshot came from.")
     parser.add_argument("--legal-dong-change-table", help="namespace.table of the code change table; off for a first snapshot")
-    parser.add_argument("--predecessor-parcel-snapshot-id", help="silver.parcel_boundaries snapshot that weighs merged dongs")
+    parser.add_argument(
+        "--predecessor-parcel-snapshot-id",
+        help="silver.parcel_boundaries snapshot from before the change that weighs merged dongs; required with the table",
+    )
     parser.add_argument("--summary-output")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-namespace", default="silver")
@@ -213,10 +216,13 @@ def validate_args(args: argparse.Namespace) -> None:
         IDENTIFIER_PATTERN.fullmatch(part) for part in args.legal_dong_change_table.split(".")
     ):
         raise ValueError("--legal-dong-change-table must be namespace.table")
-    if args.predecessor_parcel_snapshot_id is not None and (
-        args.legal_dong_change_table is None or not SNAPSHOT_PATTERN.fullmatch(args.predecessor_parcel_snapshot_id)
-    ):
-        raise ValueError("--predecessor-parcel-snapshot-id is a snapshot id and needs --legal-dong-change-table")
+    if (args.legal_dong_change_table is None) != (args.predecessor_parcel_snapshot_id is None):
+        raise ValueError(
+            "--legal-dong-change-table and --predecessor-parcel-snapshot-id go together: merged dongs are "
+            "weighed by the parcels each held, which the change table does not record"
+        )
+    if args.predecessor_parcel_snapshot_id is not None and not SNAPSHOT_PATTERN.fullmatch(args.predecessor_parcel_snapshot_id):
+        raise ValueError("--predecessor-parcel-snapshot-id has characters a snapshot id does not use")
     if args.validate_only:
         return
     if not args.iceberg_table.endswith("_smoke") and not args.allow_non_smoke_write:
@@ -243,17 +249,22 @@ def read_predecessors(spark: Any, args: argparse.Namespace) -> tuple[dict[str, s
             f"WHERE kind = 'pair' AND level IN ({levels})"
         ).collect()
     ]
-    lots_before = None
-    if args.predecessor_parcel_snapshot_id:
-        olds = sorted(views.leaf_pairs(rows))
-        lots_before = {}
-        if olds:
-            spark.createDataFrame([(code,) for code in olds], "code STRING").createOrReplaceTempView("predecessor_olds")
-            for row in spark.sql(
-                f"SELECT p.pnu FROM {catalog}.`silver`.`parcel_boundaries` p JOIN predecessor_olds o "
-                f"ON substr(p.pnu, 1, 10) = o.code WHERE p.source_snapshot_id = '{args.predecessor_parcel_snapshot_id}'"
-            ).collect():
+    olds = set(views.leaf_pairs(rows))
+    lots_before: dict[str, set[str]] = {}
+    if olds:
+        spark.createDataFrame([(code,) for code in sorted(olds)], "code STRING").createOrReplaceTempView("predecessor_olds")
+        for row in spark.sql(
+            f"SELECT p.pnu FROM {catalog}.`silver`.`parcel_boundaries` p JOIN predecessor_olds o "
+            f"ON substr(p.pnu, 1, 10) = o.code WHERE p.source_snapshot_id = '{args.predecessor_parcel_snapshot_id}'"
+        ).collect():
+            if row["pnu"][:10] in olds:
                 lots_before.setdefault(row["pnu"][:10], set()).add(row["pnu"][10:])
+        if not lots_before:
+            # Every weight would be zero and a merger's id would go to whichever code sorts first.
+            raise ValueError(
+                f"--predecessor-parcel-snapshot-id {args.predecessor_parcel_snapshot_id} holds no parcel under "
+                f"any of the {len(olds)} old codes the change table pairs; it is not a snapshot from before the change"
+            )
     snapshot = spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").collect()
     predecessors = views.dong_predecessors(rows, lots_before)
     return predecessors, {
@@ -261,7 +272,7 @@ def read_predecessors(spark: Any, args: argparse.Namespace) -> tuple[dict[str, s
         "change_table_snapshot_id": str(snapshot[0]["snapshot_id"]) if snapshot else "",
         "pairs_read": len(rows),
         "renumbered": len(predecessors),
-        "weighed_by": args.predecessor_parcel_snapshot_id or "paired codes",
+        "weighed_by": args.predecessor_parcel_snapshot_id,
     }
 
 

@@ -65,6 +65,9 @@ class DongPairing:
     how: dict[str, str] = field(default_factory=dict)
     lot_overlap: dict[str, float] = field(default_factory=dict)
     unpaired: list[str] = field(default_factory=list)
+    # Codes that held lots before and none after while the table records no pair for them in the
+    # window: the change table is behind, and carrying on would link none of their lots by code.
+    unrecorded: list[str] = field(default_factory=list)
 
     def to_new(self, pnu: str) -> str:
         return self.pairs.get(pnu[:10], pnu[:10]) + pnu[10:]
@@ -115,28 +118,32 @@ def dong_pairing_from_changes(
     changes: Iterable[Mapping[str, object]],
     lots_before: Mapping[str, set[str]],
     lots_after: Mapping[str, set[str]],
+    from_date: str | None = None,
+    to_date: str | None = None,
 ) -> DongPairing:
     """Old 동·리 -> new 동·리, read from the code change table (root ADR-0145 §2).
 
     The lineage does not pair codes itself: `changes` are rows of `reference.legal_dong_code_change`
-    (`legal_dong_code_change_views.leaf_pairs`). A code the table does not move keeps its number,
-    so it is not listed. An old code the table sends to two new codes was split and is `unpaired`:
-    its lots go on to the evidence rules one by one. So is a code that held lots before and none
-    after while the table records no pair for it. Lot overlap is recorded for every pair so a split
-    the table missed shows up as a low share.
+    (`legal_dong_code_change_views.leaf_pairs`), only those effective from `from_date` to `to_date`
+    with both days included: a code renumbered after the later snapshot still holds its lots there.
+    A code the table does not move keeps its number, so it is not listed. An old code the table
+    sends to two new codes was split and is `unpaired`: its lots go on to the evidence rules one by
+    one. A code that held lots before and none after while the table records no pair for it is
+    `unpaired` and `unrecorded`, which the caller refuses. Lot overlap is recorded for every pair so
+    a split the table missed shows up as a low share.
     """
 
     pairing = DongPairing()
-    for old, news in sorted(views.leaf_pairs(changes).items()):
+    for old, news in sorted(views.leaf_pairs(changes, from_date, to_date).items()):
         if len(news) != 1:
             pairing.unpaired.append(old)
             continue
         (new, source), = news.items()
         pairing.pairs[old], pairing.how[old] = new, source
-    pairing.unpaired.extend(
-        sorted(code for code in lots_before if code not in lots_after and code not in pairing.pairs and code not in pairing.unpaired)
+    pairing.unrecorded = sorted(
+        code for code in lots_before if code not in lots_after and code not in pairing.pairs and code not in pairing.unpaired
     )
-    pairing.unpaired.sort()
+    pairing.unpaired = sorted(pairing.unpaired + pairing.unrecorded)
     for c, n in pairing.pairs.items():
         before = lots_before.get(c, set())
         if before:
