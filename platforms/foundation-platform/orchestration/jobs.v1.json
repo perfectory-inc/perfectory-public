@@ -118,8 +118,7 @@
       "pipeline_graph_edges": [
         "source-code-go-kr-to-reference-legal-dong-code-snapshot"
       ],
-      "enabled": false,
-      "disabled_reason": "New. Off until one supervised run on the data host has collected and staged a handoff and the next lineage_stewardship run has loaded and paired it, with a projection that reproduced the baseline fixture's 27 pairs; switching it on is a separate deploy step (runbook docs/runbooks/legal-dong-code-changes.md, 'Turning it on')."
+      "enabled": true
     },
     {
       "id": "data_quality",

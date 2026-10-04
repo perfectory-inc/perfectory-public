@@ -62,8 +62,12 @@
     "max_age_days": 3,
     "baseline_comparison": {
       "$comment": "Root ADR-0145 §3. While required is true the hub exports refuse a projection that disagrees with sigungu-crosswalk-baseline.json in a 시도 the baseline governs. A live pairing run that reproduces those pairs ends that: set required to false and retired_by to that run's evidence, copied from its projection file and summary (change_table_snapshot_id, legal_dong_snapshot_record, projection_sha256 = sha256 of the projection file). The exports refuse required=false without that evidence, and evidence while the comparison is still required.",
-      "required": true,
-      "retired_by": null
+      "required": false,
+      "retired_by": {
+        "change_table_snapshot_id": "7063332758209805105",
+        "legal_dong_snapshot_record": "bronze/source=codegokr__legal_dong_code_table/operation=regCodeL/regcode-20261004T173129Z.html",
+        "projection_sha256": "f5b1b34ed4c451343ec595f648eafb13b73634d8b366f480f75c6ab4721c0361"
+      }
     }
   }
 }
