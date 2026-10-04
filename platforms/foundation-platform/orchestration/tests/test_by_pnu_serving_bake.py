@@ -119,6 +119,12 @@ import json, os, sys
 args = sys.argv[1:]
 if args[:1] == ["rm"]:
     sys.exit(0)
+# Like compose's lakehouse-target-init: the container runs as uid 185, so the state root it mounts
+# must be writable by anyone, not just by the job's own user.
+state_root = os.environ.get("FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT", "")
+if not state_root or not os.stat(state_root).st_mode & 0o002:
+    print('service "lakehouse-target-init" didn\'t complete successfully: exit 1', file=sys.stderr)
+    sys.exit(1)
 job = next(i for i, arg in enumerate(args) if arg.endswith("by_pnu_panel_delta.py"))
 options = dict(zip(args[job + 1::2], args[job + 2::2]))
 service = args[args.index("spark-submit") - 1]

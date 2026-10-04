@@ -177,7 +177,9 @@ fi
 run_delta() {
   local work="$1" container="/workspace/target/lakehouse/${1#"${STATE_ROOT}/"}" rc=0
   mkdir -p "${work}"
-  chmod 0777 "${work}" # Spark 컨테이너는 uid 185 로 쓴다.
+  # Spark 컨테이너는 uid 185 로 쓴다. 그 init 단계는 마운트한 상태 루트 자체가 쓰기 가능한지 본다
+  # (compose.lakehouse.yml lakehouse-target-init) — 실행 디렉터리만 열면 첫 운영 실행처럼 거부된다.
+  chmod 0777 "${STATE_ROOT}" "${work}"
   docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${STATE_ROOT}" \
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
