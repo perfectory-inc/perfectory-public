@@ -52,7 +52,7 @@ impl PackCommand {
     pub(crate) async fn run(self) -> anyhow::Result<()> {
         match self {
             Self::Export => bake::run().await,
-            Self::VerifyEquality => equality::run().await,
+            Self::VerifyEquality => equality::run(),
             Self::ProbeLatency => latency::run().await,
             Self::Publish => publish::run().await,
             Self::Inspect => inspect::run().await,

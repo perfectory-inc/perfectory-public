@@ -238,23 +238,3 @@ pub(crate) fn joined_bytes(fragments: &[(String, Found)]) -> anyhow::Result<Vec<
     }
     sections::join(&parts)?.to_bytes()
 }
-
-/// Every PNU the anchor section's packs of a unit name, documents and tombstones alike.
-pub(crate) fn anchor_pnus(packs: &UnitPacks) -> anyhow::Result<Vec<String>> {
-    let anchor = &LANE.section_packs()?.anchor_section;
-    let section = packs
-        .sections
-        .iter()
-        .find(|section| &section.name == anchor)
-        .context("the pack view has no anchor section")?;
-    let mut pnus = section
-        .patches
-        .iter()
-        .map(|(_, pack)| pack)
-        .chain(section.base.iter())
-        .flat_map(|pack| pack.entries.iter().map(|entry| entry.pnu.clone()))
-        .collect::<Vec<_>>();
-    pnus.sort_unstable();
-    pnus.dedup();
-    Ok(pnus)
-}

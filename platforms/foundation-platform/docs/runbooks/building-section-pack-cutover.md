@@ -22,8 +22,8 @@ last_reviewed: 2026-10-04
 | 명령 | 하는 일 | 쓰기 |
 |---|---|---|
 | `export-building-by-pnu-section-packs` | Gold → 묶음(기본 세대 또는 패치) | 묶음, create-only |
-| `verify-building-by-pnu-section-pack-equality` | 관문 (가): 모든 PNU 의 묶음 응답 = 객체 | 증거 파일만 |
-| `probe-building-by-pnu-section-pack-latency` | 관문 (나): 첫 조회 p50·p95, 운영 경로 대 미리보기 | 증거 파일만 |
+| `verify-building-by-pnu-section-pack-equality` | 관문 (가): 굽기가 비교한 수를 모두 더하고(Gold 행 수 전부), 표본을 뽑는다 | 증거 파일만(R2 읽기 없음) |
+| `probe-building-by-pnu-section-pack-latency` | 관문 (나): 표본 10,000건을 운영 경로와 미리보기로 한 번씩 읽어 내용·첫 조회 p50·p95 비교 | 증거 파일만 |
 | `publish-building-by-pnu-section-packs` | manifest 의 `section_packs` 블록 | manifest(비교 후 교체)·이력·고정 태그 |
 | `inspect-building-by-pnu-section-packs` | PNU 하나의 항목별 조각과 응답 | 없음 |
 
@@ -36,7 +36,7 @@ last_reviewed: 2026-10-04
 | `…_PACK_SUMMARY_PATH` | 굽기 | 이 실행의 요약 |
 | `…_TARGET_PATCH`, `…_PNU_ALLOWLIST_PATH`, `…_DELETE_LIST_PATH` | 굽기(패치) | 변경 집합 |
 | `…_PACK_SUMMARY_DIR`, `…_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID`, `…_PACK_EXPECTED_DOCUMENT_COUNT` | 발행 | 굽기 요약 모음, 스냅숏, Gold 행 수 |
-| `…_PACK_EQUALITY_EVIDENCE_PATH`, `…_PACK_LATENCY_EVIDENCE_PATH` | 관문·첫 발행 | 증거 파일 |
+| `…_PACK_EQUALITY_EVIDENCE_PATH`, `…_PACK_LATENCY_EVIDENCE_PATH` | 관문·첫 발행 | 증거 파일. 관문 (나)는 (가)의 증거에서 표본을 읽는다 |
 | `…_PACK_PREVIEW_BASE_URL`, `…_PACK_LIVE_BASE_URL` | 관문 (나) | 미리보기와 운영 경로 |
 | `…_CHANGE_SET_SUMMARY_PATH`, `…_UPSERT_LIST_PATH` | 발행(패치) | 변경 집합 잡의 결과 |
 | `…_INSPECT_PNU` | 확인 | PNU |
@@ -74,20 +74,23 @@ done
 묶음은 `serving/buildings/packs/{section}/g1/{법정동}.pack` 에 create-only 로 쓰인다. 같은 스냅숏으로
 다시 돌리면 같은 바이트라 재사용되고, 다른 스냅숏을 같은 세대에 섞으려 하면 첫 쓰기 전에 거부된다.
 
-## 3. 관문 (가): 전수 비교
+## 3. 관문 (가): 전수 비교 (R2 비용 없음)
+
+비교는 2절의 굽기 안에서, 쓰기 전에 이미 끝났다. 굽기는 법정동마다 항목 묶음을 메모리에 만들고, 그
+바이트에서 문서를 다시 읽어 게이트웨이와 같은 방법으로 합친 뒤, 같은 Gold 행이 그리는 객체 문서와 바이트
+단위로 비교한다. 하나라도 다르면 그 샤드는 아무것도 쓰지 않고 실패한다. 요약에는 비교한 수와 표본
+후보(계약의 `sample_seed` 로 정한 PNU 해시)가 남는다.
 
 ```bash
-…_PACK_GENERATION=1 …_PACK_EQUALITY_EVIDENCE_PATH=$WORK/equality.json \
-  "$PUBLISHER_BIN" verify-building-by-pnu-section-pack-equality
+…_PACK_SUMMARY_DIR=$WORK/summaries …_PACK_GENERATION=1 …_PACK_EXPECTED_DOCUMENT_COUNT=<Gold 행 수> …_PACK_EQUALITY_EVIDENCE_PATH=$WORK/equality.json   "$PUBLISHER_BIN" verify-building-by-pnu-section-pack-equality
 ```
 
-- 지금 manifest 가 서빙하는 객체(최신 패치, 없으면 기본 세대)를 PNU 마다 모두 읽고, 묶음 응답과 `source`
-  를 뺀 내용으로 비교한다. 읽기 전용이다.
-- `passed` 는 `different`·`only_served`·`only_packs`·`unreadable` 이 모두 0 이고 비교 수가 manifest 의
-  `object_count` 와 같을 때만 참이다. 증거는 비교한 객체 상태(기본 세대·최신 패치·반영 스냅숏·객체 수)를
-  적는다. 그 뒤 객체 패치가 발행되면 다시 비교해야 한다.
+- 요약 파일만 읽는다. R2 를 읽지 않는다.
+- `passed` 는 모든 요약이 한 Gold 스냅숏, 1세대, 모든 항목의 기본 굽기이고, 비교한 수의 합이 말한 Gold 행
+  수와 같을 때만 참이다.
+- 증거에는 관문 (나)의 표본이 들어 있다. 후보 중 순위가 낮은 `latency_sample_size`(10,000)건과 그 sha256 이다.
 
-## 4. 관문 (나): 미리보기 Worker 로 첫 조회 시간 재기
+## 4. 관문 (나): 업로드 뒤 실서빙 표본 비교와 첫 조회 시간
 
 1. 이 PR 의 Worker 를 **운영 경로가 아닌** 버전으로 올린다(버전 업로드의 미리보기 주소 또는 별도 경로).
    그 버전에만 바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true` 를 준다.
@@ -95,15 +98,24 @@ done
 3. 잰다.
 
 ```bash
-…_PACK_GENERATION=1 …_PACK_PREVIEW_BASE_URL=https://<미리보기 주소> \
-…_PACK_LATENCY_EVIDENCE_PATH=$WORK/latency.json …_OUTPUT_STORAGE_DRIVER=r2 \
-  "$PUBLISHER_BIN" probe-building-by-pnu-section-pack-latency
+…_PACK_GENERATION=1 …_PACK_PREVIEW_BASE_URL=https://<미리보기 주소> …_PACK_EQUALITY_EVIDENCE_PATH=$WORK/equality.json …_PACK_LATENCY_EVIDENCE_PATH=$WORK/latency.json   "$PUBLISHER_BIN" probe-building-by-pnu-section-pack-latency
 ```
 
-- 표본은 1세대의 기준 항목 묶음에서 고르게 고른다(크기는 계약의 `latency_sample_size`).
-- PNU 마다 운영 경로와 미리보기를 한 번씩, 번갈아 먼저 읽는다. 둘 다 200 이고 내용이 같아야 한다.
+- 표본은 관문 (가)의 증거에 든 10,000건이다. 증거에 적힌 sha256 과 맞지 않으면 거부한다.
+- PNU 마다 운영 경로와 미리보기를 한 번씩, 번갈아 먼저 읽는다. 둘 다 200 이어야 하고, 내용은 `source`
+  를 빼고 같아야 한다.
 - 묶음의 p50·p95 가 객체보다 계약의 `latency_max_increase_ms` 이상 늘지 않아야 통과다.
 - 주소가 로컬·사설이면 증거에 `local-simulation` 이 적히고, 그 증거로는 발행이 거부된다.
+
+### 비용
+
+| 단계 | R2 요청 |
+|---|---:|
+| 2절 굽기 (묶음 쓰기) | Class A 약 76,040 |
+| 3절 관문 (가) | 0 |
+| 4절 관문 (나): 운영 경로 10,000건 | Class B 약 10,000 (객체 하나씩) |
+| 4절 관문 (나): 미리보기 10,000건 | Class B 약 10,000 요청분. 차가운 묶음은 요청 하나에 머리·문서 범위 읽기가 항목마다 붙어, R2 GET 으로는 최대 약 80,000 |
+| 5절 첫 발행 | Class A 2 (manifest·이력) + 표본 묶음 다시 읽기(항목마다 16) |
 
 ## 5. 첫 발행 (전환)
 
@@ -121,7 +133,7 @@ done
 - 항목마다 목록 = 요약의 묶음, 문서 수 = Gold 행 수, 표본 묶음의 sha256·머리가 요약과 같음.
 - 세대가 그 항목에 묶음이 있는 모든 세대 중 가장 큼.
 - 게이트웨이가 `section_packs` 를 읽는다고 답함.
-- 두 증거가 이 세대의 것이고 통과(수치로 다시 판정), 전수 비교가 지금 객체 상태의 것.
+- 두 증거가 이 세대·이 Gold 스냅숏·말한 Gold 행 수의 것이고 통과(수치로 다시 판정), 두 증거의 표본 sha256 이 같음.
 
 발행은 v2 필드를 그대로 두고 `section_packs` 만 더한다. 이전 manifest 는 이력에 남는다.
 

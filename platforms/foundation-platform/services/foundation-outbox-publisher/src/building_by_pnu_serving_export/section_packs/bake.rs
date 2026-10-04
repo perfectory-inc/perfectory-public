@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::{ensure, Context};
+use anyhow::{bail, ensure, Context};
 use futures_util::{stream, StreamExt as _, TryStreamExt as _};
 use lakehouse_domain::GOLD_BUILDING_PANEL;
 use lakehouse_infrastructure::{
@@ -35,9 +35,9 @@ use super::super::{
     optional_env, parse_max_concurrency, read_pnu_allowlist, refuse_a_moved_table, select_rows,
     write_summary, LANE, MAX_ROWS_PER_RUN,
 };
-use super::sections;
+use super::{gate, read, sections};
 use crate::building_link_evidence::ApprovedBuildingLinks;
-use crate::by_pnu_pack::{self, PackIdentity, PackWriter};
+use crate::by_pnu_pack::{self, Pack, PackIdentity, PackWriter};
 use crate::by_pnu_serving_patch_export::{self as patch_export, PatchTarget};
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
@@ -156,7 +156,19 @@ pub(crate) struct PackExportSummary {
     pub(crate) tombstone_count: u64,
     pub(crate) totals: BTreeMap<String, SectionTotals>,
     pub(crate) packs: Vec<PackEntry>,
+    /// Gate (가) of this run: documents read back from their packs and compared, before writing.
+    pub(crate) equality: Equality,
     pub(crate) elapsed_seconds: f64,
+}
+
+/// What a run compared before writing, and the sample candidates it drew (base runs only).
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct Equality {
+    /// Documents whose joined pack answer was compared with their object document; zero when the
+    /// run bakes only some sections (each fragment is still checked).
+    pub(crate) compared: u64,
+    pub(crate) equal: u64,
+    pub(crate) sample_candidates: Vec<String>,
 }
 
 /// Per section: what the run's packs hold together.
@@ -347,8 +359,16 @@ pub(crate) async fn bake(
         .buffer_unordered(config.max_concurrency)
         .try_collect::<Vec<_>>()
         .await?;
-    let mut packs = written.into_iter().flatten().collect::<Vec<_>>();
+    let mut packs = Vec::new();
+    let mut equality = Equality::default();
+    for (unit_packs, check) in written {
+        packs.extend(unit_packs);
+        equality.compared += check.compared;
+        equality.equal += check.compared;
+        equality.sample_candidates.extend(check.candidates);
+    }
     packs.sort_by(|a, b| (&a.section, &a.unit).cmp(&(&b.section, &b.unit)));
+    equality.sample_candidates.sort_unstable();
 
     let exported = u64::try_from(selected.len())?;
     let deleted = u64::try_from(tombstones.values().map(Vec::len).sum::<usize>())?;
@@ -388,6 +408,7 @@ pub(crate) async fn bake(
         tombstone_count: deleted,
         totals,
         packs,
+        equality,
         elapsed_seconds: started.elapsed().as_secs_f64(),
     })
 }
@@ -418,7 +439,15 @@ async fn refuse_a_foreign_generation(
     Ok(())
 }
 
-/// One dong: its documents, then one pack per section.
+/// What one dong's packs were checked against before they were written.
+#[derive(Default)]
+pub(super) struct UnitCheck {
+    pub(super) compared: u64,
+    pub(super) candidates: Vec<String>,
+}
+
+/// One dong: its documents, every section's pack laid out and read back in memory, the read-back
+/// compared with the object documents (gate 가, no R2 read), then the packs written.
 async fn write_unit(
     config: &BakeConfig,
     store: &ByPnuServingStore,
@@ -427,75 +456,152 @@ async fn write_unit(
     unit: &str,
     rows: &[&JsonMap<String, JsonValue>],
     deleted: &[String],
-) -> anyhow::Result<Vec<PackEntry>> {
+) -> anyhow::Result<(Vec<PackEntry>, UnitCheck)> {
     let documents = rows
         .iter()
         .map(|row| building_document::document_with_approvals(provenance, row, approvals))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let mut packs = Vec::with_capacity(config.sections.len());
+    let patch = config.patch.as_ref().map(|patch| patch.patch);
+    let mut laid_out = Vec::with_capacity(config.sections.len());
     for section in &config.sections {
-        packs.push(
-            write_pack(
-                config,
-                store,
-                provenance,
-                section.clone(),
-                unit.to_owned(),
-                &documents,
-                deleted,
-            )
-            .await?,
-        );
+        laid_out.push((
+            section.clone(),
+            lay_out_pack(config, provenance, section, unit, &documents, deleted)?,
+        ));
     }
-    Ok(packs)
+    let check = check_round_trip(config, &laid_out, &documents, deleted, patch)?;
+    let mut packs = Vec::with_capacity(laid_out.len());
+    for (section, bytes) in laid_out {
+        packs.push(write_pack(config, store, section, unit, bytes, &documents, deleted).await?);
+    }
+    Ok((packs, check))
 }
 
-async fn write_pack(
+pub(super) fn lay_out_pack(
     config: &BakeConfig,
-    store: &ByPnuServingStore,
     provenance: &GoldSnapshotProvenance,
-    section: String,
-    unit: String,
+    section: &str,
+    unit: &str,
     documents: &[BuildingByPnuDocument],
     deleted: &[String],
-) -> anyhow::Result<PackEntry> {
-    let patch = config.patch.as_ref().map(|patch| patch.patch);
+) -> anyhow::Result<Vec<u8>> {
     let mut writer = PackWriter::new(PackIdentity {
         lane: LANE.unit().to_owned(),
-        section: section.clone(),
+        section: section.to_owned(),
         generation: config.generation,
-        patch,
-        unit: unit.clone(),
+        patch: config.patch.as_ref().map(|patch| patch.patch),
+        unit: unit.to_owned(),
         gold_table: provenance.table.clone(),
         gold_iceberg_snapshot_id: provenance.iceberg_snapshot_id.clone(),
     })?;
+    for (pnu, document) in entries(documents, deleted) {
+        match document {
+            Some(document) => writer.push_document(pnu, &sections::fragment(document, section)?)?,
+            None => writer.push_tombstone(pnu)?,
+        }
+    }
+    writer.finish()
+}
+
+fn entries<'a>(
+    documents: &'a [BuildingByPnuDocument],
+    deleted: &'a [String],
+) -> Vec<(&'a str, Option<&'a BuildingByPnuDocument>)> {
     let mut entries: Vec<(&str, Option<&BuildingByPnuDocument>)> = documents
         .iter()
         .map(|document| (document.pnu.as_str(), Some(document)))
         .chain(deleted.iter().map(|pnu| (pnu.as_str(), None)))
         .collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
-    for (pnu, document) in &entries {
-        match document {
-            Some(document) => {
-                writer.push_document(pnu, &sections::fragment(document, &section)?)?
+    entries
+}
+
+/// Gate (가) on one dong, before anything is written: every section's pack, read back from its
+/// bytes, holds exactly the fragment the document cuts; when the run bakes every section, the
+/// gateway's answer joined from them is byte for byte the object document the same row renders,
+/// and every delete answers as a tombstone. A difference is a defect, so the run stops.
+pub(super) fn check_round_trip(
+    config: &BakeConfig,
+    laid_out: &[(String, Vec<u8>)],
+    documents: &[BuildingByPnuDocument],
+    deleted: &[String],
+    patch: Option<u64>,
+) -> anyhow::Result<UnitCheck> {
+    let mut of_unit = Vec::with_capacity(laid_out.len());
+    for (section, bytes) in laid_out {
+        let pack = Pack::read(bytes)?;
+        for document in documents {
+            let entry = pack
+                .find(&document.pnu)
+                .with_context(|| format!("the {section} pack lost {}", document.pnu))?;
+            ensure!(
+                pack.document(entry)?.as_deref()
+                    == Some(sections::fragment(document, section)?.as_slice()),
+                "the {section} pack does not read back the fragment of {}",
+                document.pnu
+            );
+        }
+        of_unit.push(read::SectionPacksOfUnit {
+            name: section.clone(),
+            patches: patch
+                .map(|number| (number, pack.clone()))
+                .into_iter()
+                .collect(),
+            base: patch.is_none().then_some(pack),
+        });
+    }
+    let mut check = UnitCheck::default();
+    if config.sections == LANE.section_packs()?.sections {
+        let packs = read::UnitPacks { sections: of_unit };
+        for document in documents {
+            let read::Resolved::Document(fragments) = read::resolve(&packs, &document.pnu)? else {
+                bail!("{} does not answer from its packs", document.pnu);
+            };
+            ensure!(
+                read::joined_bytes(&fragments)? == document.to_bytes()?,
+                "the packs of {} do not join into its object document",
+                document.pnu
+            );
+            check.compared += 1;
+            if patch.is_none() && gate::is_sample_candidate(&document.pnu)? {
+                check.candidates.push(document.pnu.clone());
             }
-            None => writer.push_tombstone(pnu)?,
+        }
+        for pnu in deleted {
+            ensure!(
+                matches!(read::resolve(&packs, pnu)?, read::Resolved::Tombstone),
+                "the packs do not answer {pnu} as deleted"
+            );
         }
     }
+    Ok(check)
+}
+
+async fn write_pack(
+    config: &BakeConfig,
+    store: &ByPnuServingStore,
+    section: String,
+    unit: &str,
+    bytes: Vec<u8>,
+    documents: &[BuildingByPnuDocument],
+    deleted: &[String],
+) -> anyhow::Result<PackEntry> {
+    let patch = config.patch.as_ref().map(|patch| patch.patch);
     let pnus = if patch.is_some() {
-        entries.iter().map(|(pnu, _)| (*pnu).to_owned()).collect()
+        entries(documents, deleted)
+            .iter()
+            .map(|(pnu, _)| (*pnu).to_owned())
+            .collect()
     } else {
         Vec::new()
     };
-    let bytes = writer.finish()?;
     let head = by_pnu_pack::read_prefix(&bytes)?.head_length();
-    let key = by_pnu_packs::pack_key(LANE, &section, config.generation, patch, &unit)?;
+    let key = by_pnu_packs::pack_key(LANE, &section, config.generation, patch, unit)?;
     let sha256 = format!("{:x}", Sha256::digest(&bytes));
     let created = store.write_pack_create_only(&key, &bytes, &sha256).await?;
     Ok(PackEntry {
         section,
-        unit,
+        unit: unit.to_owned(),
         key,
         sha256,
         bytes: u64::try_from(bytes.len())?,

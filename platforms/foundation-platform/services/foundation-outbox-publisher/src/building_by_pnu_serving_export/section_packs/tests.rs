@@ -22,7 +22,7 @@ use super::super::building_document::{
 use super::bake::{self, BakeConfig, PackExportSummary};
 use super::equality::{self, EqualityConfig};
 use super::gate::{self, LatencyEvidence, Timings};
-use super::latency::{self, LatencyConfig, Sample};
+use super::latency::{self, LatencyConfig};
 use super::publish::{self, ChangeSetPaths, PublishConfig};
 use super::read::{self, PackView, Resolved};
 use super::sections::KNOWN_SECTIONS;
@@ -210,20 +210,27 @@ impl Lane {
         Ok(dir)
     }
 
-    async fn equality(&self) -> anyhow::Result<PathBuf> {
+    /// Gate (가) over the bake summaries in `summaries`, with the Gold row count stated.
+    fn equality(&self, summaries: &Path, expected: u64) -> anyhow::Result<PathBuf> {
         let config = EqualityConfig {
-            output: self.output(),
+            summary_dir: summaries.to_path_buf(),
             generation: 1,
+            expected_documents: expected,
             evidence_path: self.work.join("equality.json"),
-            prefixes: None,
-            max_concurrency: 8,
         };
-        let evidence = equality::verify(&config, &self.store).await?;
+        let evidence = equality::verify(&config)?;
         equality::write_evidence(&config.evidence_path, &evidence)?;
         Ok(config.evidence_path)
     }
 
-    fn latency(&self, environment: &str, increase_ms: f64) -> anyhow::Result<PathBuf> {
+    /// Live evidence as a probe of the equality evidence's sample would write it.
+    fn latency(
+        &self,
+        equality: &Path,
+        environment: &str,
+        increase_ms: f64,
+    ) -> anyhow::Result<PathBuf> {
+        let (drawn, _) = gate::read::<gate::EqualityEvidence>(equality)?;
         let policy = section_pack_policy()?;
         let live = Timings {
             p50: 40.0,
@@ -247,6 +254,7 @@ impl Lane {
             preview_base_url: "https://preview.example.test".to_owned(),
             environment: environment.to_owned(),
             sample_size: size,
+            sample_sha256: drawn.sample_sha256,
             answered: size,
             mismatched: 0,
             failed: 0,
@@ -367,13 +375,23 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
         "a second snapshot mixed in"
     );
 
-    // Gate (가) passes over the objects the lane serves.
-    let equality = lane.equality().await?;
+    // Gate (가): the bake compared every document with its object rendering before writing.
+    assert_eq!((base.equality.compared, base.equality.equal), (2, 2));
+    let summaries = lane.summaries("base", &[&base])?;
+    let equality = lane.equality(&summaries, 2)?;
     let (evidence, _) = gate::read::<gate::EqualityEvidence>(&equality)?;
     assert!(evidence.passed, "{evidence:?}");
-    assert_eq!((evidence.compared, evidence.equal), (2, 2));
-
-    let summaries = lane.summaries("base", &[&base])?;
+    assert_eq!(
+        (
+            evidence.compared,
+            evidence.gold_iceberg_snapshot_id.as_str()
+        ),
+        (2, SNAPSHOT)
+    );
+    // Stated with one more Gold row than was baked, the same summaries do not pass.
+    let short = lane.equality(&summaries, 3)?;
+    assert!(!gate::read::<gate::EqualityEvidence>(&short)?.0.passed);
+    let equality = lane.equality(&summaries, 2)?;
     // No evidence, simulated latency, a slow pack route, a gateway that does not read the block:
     // each refuses, and the manifest stays as it was.
     let before = lane.store.read_manifest().await?.0;
@@ -381,7 +399,7 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
         .publish(summaries.clone(), SNAPSHOT, None, None)
         .await
         .is_err());
-    let simulated = lane.latency("local-simulation", 0.0)?;
+    let simulated = lane.latency(&equality, "local-simulation", 0.0)?;
     assert!(lane
         .publish(
             summaries.clone(),
@@ -391,7 +409,7 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
         )
         .await
         .is_err());
-    let slow = lane.latency(gate::PRODUCTION_ENVIRONMENT, 80.0)?;
+    let slow = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 80.0)?;
     assert!(lane
         .publish(
             summaries.clone(),
@@ -401,7 +419,7 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
         )
         .await
         .is_err());
-    let fast = lane.latency(gate::PRODUCTION_ENVIRONMENT, 10.0)?;
+    let fast = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 10.0)?;
     serve_capabilities(&lane.gateway, &[1, 2]).await;
     assert!(lane
         .publish(
@@ -516,44 +534,157 @@ fn write_worker_golden(
     assert_golden("documents.json", &body)
 }
 
-/// Gate (가) refuses: a document that differs, an object the packs lack, a pack the objects lack.
+/// Gate (가) refuses: packs whose bytes do not read back as the documents they were cut from stop
+/// the bake before any write; summaries that do not add up to the Gold row count, that mix
+/// snapshots, or that are of a patch do not make passing evidence; and evidence of another
+/// snapshot or row count does not open the publish.
 #[tokio::test]
-async fn the_equality_gate_finds_every_kind_of_difference() -> anyhow::Result<()> {
-    let served = vec![spark_row()?, empty_row(PNU_B), empty_row(PNU_C)];
-    let lane = Lane::serving_objects("equality", &served).await?;
-    // The packs: A changed, B as served, C missing, and a PNU the objects never had.
-    let extra = "9999900002100000000";
-    lane.bake(
-        &[changed_row()?, empty_row(PNU_B), empty_row(extra)],
-        SNAPSHOT,
-        None,
-    )
-    .await?;
-    let (evidence, _) = gate::read::<gate::EqualityEvidence>(&lane.equality().await?)?;
-    assert!(!evidence.passed);
-    assert_eq!(
-        (
-            evidence.equal,
-            evidence.different,
-            evidence.only_served,
-            evidence.only_packs
-        ),
-        (1, 1, 1, 1)
+async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<()> {
+    let rows = vec![spark_row()?, empty_row(PNU_B)];
+    let lane = Lane::serving_objects("equality", &rows).await?;
+    let config = BakeConfig {
+        output: lane.output(),
+        generation: 1,
+        sections: LANE.section_packs()?.sections.clone(),
+        patch: None,
+        upserts: None,
+        pnu_prefix: None,
+        expected_gold_snapshot: None,
+        max_concurrency: 1,
+        summary_path: lane.work.join("unused.json"),
+    };
+    let approvals = ApprovedBuildingLinks::default();
+    let documents = rows
+        .iter()
+        .map(|row| {
+            building_document::document_with_approvals(&provenance(SNAPSHOT), row, &approvals)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let changed = vec![
+        building_document::document_with_approvals(
+            &provenance(SNAPSHOT),
+            &changed_row()?,
+            &approvals,
+        )?,
+        documents[1].clone(),
+    ];
+    let laid_out = |from: &[super::super::building_document::BuildingByPnuDocument]| {
+        config
+            .sections
+            .iter()
+            .map(|section| {
+                Ok((
+                    section.clone(),
+                    bake::lay_out_pack(&config, &provenance(SNAPSHOT), section, UNIT, from, &[])?,
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()
+    };
+    let checked = bake::check_round_trip(&config, &laid_out(&documents)?, &documents, &[], None)?;
+    assert_eq!(checked.compared, 2);
+    assert!(
+        bake::check_round_trip(&config, &laid_out(&changed)?, &documents, &[], None).is_err(),
+        "packs of another document were accepted"
     );
-    assert_eq!(evidence.examples.different, vec![PNU_A.to_owned()]);
-    assert_eq!(evidence.examples.only_served, vec![PNU_C.to_owned()]);
-    assert_eq!(evidence.examples.only_packs, vec![extra.to_owned()]);
 
-    // Evidence of another served state does not open the gate either.
-    let mut stale = evidence.clone();
-    stale.different = 0;
-    stale.only_served = 0;
-    stale.only_packs = 0;
-    stale.equal = stale.compared;
-    stale.passed = true;
-    stale.served.object_count = stale.compared;
-    stale.served.newest_patch = 7;
-    assert!(gate::require_equality(&stale, 1, &lane.live().await?).is_err());
+    let base = lane.bake(&rows, SNAPSHOT, None).await?;
+    let one = lane.summaries("one", &[&base])?;
+    let (evidence, _) = gate::read::<gate::EqualityEvidence>(&lane.equality(&one, 2)?)?;
+    assert!(evidence.passed);
+    assert!(gate::require_equality(&evidence, 1, SNAPSHOT, 2).is_ok());
+    assert!(
+        gate::require_equality(&evidence, 1, NEXT_SNAPSHOT, 2).is_err(),
+        "another snapshot"
+    );
+    assert!(
+        gate::require_equality(&evidence, 1, SNAPSHOT, 3).is_err(),
+        "another row count"
+    );
+    assert!(
+        gate::require_equality(&evidence, 2, SNAPSHOT, 2).is_err(),
+        "another generation"
+    );
+    let (missing, _) = gate::read::<gate::EqualityEvidence>(&lane.equality(&one, 5)?)?;
+    assert!(!missing.passed, "a missing shard passed");
+
+    let mut other = base.clone();
+    other.gold_iceberg_snapshot_id = NEXT_SNAPSHOT.to_owned();
+    let mixed = lane.summaries("mixed", &[&base, &other])?;
+    assert!(
+        lane.equality(&mixed, 4).is_err(),
+        "two snapshots were added up"
+    );
+    let mut uncompared = base.clone();
+    uncompared.equality.compared = 1;
+    let partial = lane.summaries("partial", &[&uncompared])?;
+    assert!(
+        lane.equality(&partial, 2).is_err(),
+        "a shard that compared fewer rows was added up"
+    );
+    let mut patched = base;
+    patched.patch = Some(1);
+    let patch_dir = lane.summaries("patch-summary", &[&patched])?;
+    assert!(
+        lane.equality(&patch_dir, 2).is_err(),
+        "a patch was taken as a base"
+    );
+    Ok(())
+}
+
+/// The sample is a seeded draw: the same PNU always ranks the same, about the contract's rate of
+/// PNUs are candidates, and the live check refuses a sample that is not the equality evidence's.
+#[tokio::test]
+async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<()> {
+    let per_million = section_pack_policy()?
+        .cutover_gate
+        .sample_candidates_per_million;
+    let mut candidates = 0_u64;
+    for n in 0..200_000_u64 {
+        let pnu = format!("99999{:010}1{:08}", n % 9_999_999_999, n);
+        assert_eq!(gate::sample_rank(&pnu)?, gate::sample_rank(&pnu)?);
+        candidates += u64::from(gate::is_sample_candidate(&pnu)?);
+    }
+    let expected = 200_000 * per_million / 1_000_000;
+    assert!(
+        candidates > expected / 2 && candidates < expected * 2,
+        "{candidates} candidates where about {expected} were expected"
+    );
+
+    let rows = vec![spark_row()?, empty_row(PNU_B)];
+    let lane = Lane::serving_objects("sample", &rows).await?;
+    let base = lane.bake(&rows, SNAPSHOT, None).await?;
+    let equality = lane.equality(&lane.summaries("base", &[&base])?, 2)?;
+    let config = |path: &Path, generation: u64| LatencyConfig {
+        generation,
+        live_base_url: "https://live.example.test".to_owned(),
+        preview_base_url: "https://preview.example.test".to_owned(),
+        equality_evidence: path.to_path_buf(),
+        evidence_path: lane.work.join("latency.json"),
+    };
+    let (drawn, _) = gate::read::<gate::EqualityEvidence>(&equality)?;
+    assert_eq!(latency::sample(&config(&equality, 1))?, drawn.sample);
+    assert!(
+        latency::sample(&config(&equality, 2)).is_err(),
+        "another generation's sample"
+    );
+    let mut tampered: serde_json::Value = serde_json::from_slice(&std::fs::read(&equality)?)?;
+    tampered["sample"] = json!([PNU_B]);
+    let tampered_path = lane.work.join("tampered.json");
+    std::fs::write(&tampered_path, serde_json::to_vec(&tampered)?)?;
+    assert!(
+        latency::sample(&config(&tampered_path, 1)).is_err(),
+        "a sample off its digest"
+    );
+
+    // Live evidence of another sample does not open the publish.
+    let other = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
+    let (mut live, _) = gate::read::<gate::LatencyEvidence>(&other)?;
+    assert!(gate::require_latency(&live, 1, &drawn).is_ok());
+    live.sample_sha256 = gate::sample_digest(&[PNU_B.to_owned()]);
+    assert!(
+        gate::require_latency(&live, 1, &drawn).is_err(),
+        "another sample opened the gate"
+    );
     Ok(())
 }
 
@@ -564,15 +695,11 @@ async fn a_patch_must_hold_exactly_its_change_set() -> anyhow::Result<()> {
     let rows = vec![spark_row()?, empty_row(PNU_B)];
     let lane = Lane::serving_objects("patch-gate", &rows).await?;
     let base = lane.bake(&rows, SNAPSHOT, None).await?;
-    let equality = lane.equality().await?;
-    let latency = lane.latency(gate::PRODUCTION_ENVIRONMENT, 0.0)?;
-    lane.publish(
-        lane.summaries("base", &[&base])?,
-        SNAPSHOT,
-        Some((equality, latency)),
-        None,
-    )
-    .await?;
+    let summaries = lane.summaries("base", &[&base])?;
+    let equality = lane.equality(&summaries, 2)?;
+    let latency = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
+    lane.publish(summaries, SNAPSHOT, Some((equality, latency)), None)
+        .await?;
     // The patch holds A, but the change set also deletes B: B's tombstone is missing.
     let patch = lane
         .bake(&[changed_row()?], NEXT_SNAPSHOT, Some((1, &[PNU_A], &[])))
@@ -622,8 +749,7 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         generation: 1,
         live_base_url: live.uri(),
         preview_base_url: pack.uri(),
-        sample: Sample::File(work.join("unused")),
-        sample_size: 20,
+        equality_evidence: work.join("unused.json"),
         evidence_path: work.join("latency.json"),
     };
     let live = route(5, body.clone()).await;
@@ -632,8 +758,27 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
     assert_eq!((evidence.answered, evidence.mismatched), (20, 0));
     assert_eq!(evidence.environment, "local-simulation");
     assert!(evidence.increase_p50_ms >= 5.0, "{evidence:?}");
+    let mut drawn_as_probed = gate::EqualityEvidence {
+        schema_version: String::new(),
+        kind: gate::EQUALITY_KIND.to_owned(),
+        lane: LANE.unit().to_owned(),
+        pack_generation: 1,
+        gold_iceberg_snapshot_id: SNAPSHOT.to_owned(),
+        sections: Vec::new(),
+        shards: 1,
+        expected_documents: 1,
+        compared: 1,
+        equal: 1,
+        sample_seed: String::new(),
+        sample: pnus.clone(),
+        sample_sha256: String::new(),
+        passed: true,
+        written_at_utc: String::new(),
+    };
+    drawn_as_probed.sample_sha256 = gate::sample_digest(&pnus);
+    assert_eq!(evidence.sample_sha256, drawn_as_probed.sample_sha256);
     assert!(
-        gate::require_latency(&evidence, 1).is_err(),
+        gate::require_latency(&evidence, 1, &drawn_as_probed).is_err(),
         "a simulation opened the gate"
     );
 
@@ -648,35 +793,6 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
     assert!(!evidence.verdict()?, "a different answer passed");
     assert!(prefix.starts_with('/'));
     let _ = std::fs::remove_dir_all(work);
-    Ok(())
-}
-
-/// The probe's sample comes from the anchor packs of the generation, every PNU at most once, and
-/// a generation too small for the asked size is refused rather than measured on fewer.
-#[tokio::test]
-async fn the_latency_sample_spreads_over_the_anchor_packs() -> anyhow::Result<()> {
-    let rows = vec![spark_row()?, empty_row(PNU_B), empty_row(PNU_C)];
-    let lane = Lane::serving_objects("sample", &rows).await?;
-    lane.bake(&rows, SNAPSHOT, None).await?;
-    let config = |size: usize| LatencyConfig {
-        generation: 1,
-        live_base_url: "https://live.example.test".to_owned(),
-        preview_base_url: "https://preview.example.test".to_owned(),
-        sample: Sample::Packs(lane.output()),
-        sample_size: size,
-        evidence_path: lane.work.join("latency.json"),
-    };
-    let mut drawn = latency::sample(&config(3)).await?;
-    drawn.sort_unstable();
-    assert_eq!(
-        drawn,
-        vec![PNU_A.to_owned(), PNU_B.to_owned(), PNU_C.to_owned()]
-    );
-    assert_eq!(latency::sample(&config(1)).await?.len(), 1);
-    assert!(
-        latency::sample(&config(4)).await.is_err(),
-        "a short sample was measured"
-    );
     Ok(())
 }
 

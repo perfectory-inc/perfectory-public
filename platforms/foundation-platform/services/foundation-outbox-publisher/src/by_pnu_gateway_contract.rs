@@ -134,6 +134,10 @@ pub(crate) struct CutoverGatePolicy {
     pub(crate) evidence_schema_version: String,
     pub(crate) latency_max_increase_ms: LatencyBound,
     pub(crate) latency_sample_size: usize,
+    /// Seeds the sample the live check and the latency probe share, so it is the same every run.
+    pub(crate) sample_seed: String,
+    /// How many PNUs per million a bake records as sample candidates; above the sample size.
+    pub(crate) sample_candidates_per_million: u64,
 }
 
 /// The most the cold first read may slow down, per percentile.
@@ -229,6 +233,8 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
         || packs.max_index_entries == 0
         || packs.head_read_bytes < PACK_PREFIX_BYTES
         || gate.latency_sample_size == 0
+        || gate.sample_seed.is_empty()
+        || !(1..=1_000_000).contains(&gate.sample_candidates_per_million)
         || !(gate.latency_max_increase_ms.p50 >= 0.0 && gate.latency_max_increase_ms.p95 >= 0.0)
     {
         return Err("by_pnu_section_packs holds values the pack format cannot honour".to_owned());

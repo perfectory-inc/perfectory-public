@@ -157,7 +157,9 @@
         "p50": 50,
         "p95": 50
       },
-      "latency_sample_size": 500
+      "latency_sample_size": 10000,
+      "sample_seed": "foundation-platform.section-pack-cutover.v1",
+      "sample_candidates_per_million": 2000
     }
   },
   "building_by_pnu_gateway": {

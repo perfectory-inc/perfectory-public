@@ -1,12 +1,15 @@
-//! `probe-building-by-pnu-section-pack-latency`: gate (나) of the cut-over (root ADR-0147 §6).
+//! `probe-building-by-pnu-section-pack-latency`: gate (나) of the cut-over (root ADR-0147 §6), the
+//! live check after upload.
 //!
-//! For a sample of PNUs, reads each once from the live route (objects) and once from a preview
-//! Worker version serving the unpublished pack generation (`?{preview_query_parameter}=g{N}`),
-//! alternating which goes first, and times each until its whole body is in. A PNU is read once per
-//! route, so each read is that URL's first: cold at the edge cache for the packs, and at worst
-//! warm for the live route — which only makes the comparison stricter. Both answers must be 200
-//! and equal in content (`source` aside, numbers compared as numbers: the Worker's join prints
-//! `50` where the object holds `50.0`).
+//! The sample is the one the equality evidence drew (a seeded hash of the PNU over the whole bake,
+//! `equality.rs`): about 10,000 PNUs, so the check costs about 10,000 live object reads and 10,000
+//! preview requests, not a read of every pack. Each PNU is read once from the live route (objects)
+//! and once from a preview Worker version serving the unpublished pack generation
+//! (`?{preview_query_parameter}=g{N}`), alternating which goes first, timed until the whole body is
+//! in. Each read is that URL's first: cold at the edge cache for the packs, and at worst warm for
+//! the live route — which only makes the comparison stricter. Both answers must be 200 and equal in
+//! content (`source` aside, numbers compared as numbers: the Worker's join prints `50` where the
+//! object holds `50.0`).
 //!
 //! Verdict: the pack p50 and p95 may exceed the live ones by at most the contract's
 //! `latency_max_increase_ms`. Evidence of two stand-in routes (loopback or private addresses) is
@@ -21,11 +24,8 @@ use sha2::{Digest, Sha256};
 
 use super::super::{optional_env, LANE};
 use super::equality::write_evidence;
-use super::gate::{self, LatencyEvidence, Timings};
+use super::gate::{self, EqualityEvidence, LatencyEvidence, Timings};
 use crate::by_pnu_gateway_contract::section_pack_policy;
-use crate::by_pnu_pack;
-use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
-use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::r2_layout::by_pnu_packs;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -35,18 +35,9 @@ pub(crate) struct LatencyConfig {
     pub(crate) generation: u64,
     pub(crate) live_base_url: String,
     pub(crate) preview_base_url: String,
-    pub(crate) sample: Sample,
-    pub(crate) sample_size: usize,
+    /// The equality evidence whose sample the probe reads.
+    pub(crate) equality_evidence: PathBuf,
     pub(crate) evidence_path: PathBuf,
-}
-
-/// Where the sampled PNUs come from.
-#[derive(Clone, Debug)]
-pub(crate) enum Sample {
-    /// One PNU per line.
-    File(PathBuf),
-    /// Evenly spread over the anchor packs of the generation in this store.
-    Packs(ProfileStoreConfig),
 }
 
 impl LatencyConfig {
@@ -54,15 +45,6 @@ impl LatencyConfig {
         let env = |name: &str| optional_env(&LANE.env(name));
         let required = |name: &str| -> anyhow::Result<String> {
             env(name)?.with_context(|| format!("{} is required", LANE.env(name)))
-        };
-        let sample = match env("PACK_LATENCY_SAMPLE_PATH")? {
-            Some(path) => Sample::File(PathBuf::from(path)),
-            None => Sample::Packs(ProfileStoreConfig::parse(
-                env("OUTPUT_STORAGE_DRIVER")?
-                    .unwrap_or_else(|| "local".to_owned())
-                    .as_str(),
-                local_root(env("OUTPUT_ROOT")?),
-            )?),
         };
         Ok(Self {
             generation: required("PACK_GENERATION")?
@@ -73,12 +55,7 @@ impl LatencyConfig {
                 Ok::<_, anyhow::Error>,
             )?,
             preview_base_url: required("PACK_PREVIEW_BASE_URL")?,
-            sample,
-            sample_size: env("PACK_LATENCY_SAMPLE_SIZE")?
-                .map(|raw| raw.parse::<usize>())
-                .transpose()
-                .context("the sample size must be a number")?
-                .unwrap_or(section_pack_policy()?.cutover_gate.latency_sample_size),
+            equality_evidence: PathBuf::from(required("PACK_EQUALITY_EVIDENCE_PATH")?),
             evidence_path: PathBuf::from(required("PACK_LATENCY_EVIDENCE_PATH")?),
         })
     }
@@ -87,10 +64,10 @@ impl LatencyConfig {
 /// Runs the probe and writes the evidence; fails when the evidence does not pass.
 ///
 /// # Errors
-/// Returns an error when the sample cannot be drawn or the evidence does not pass.
+/// Returns an error when the sample cannot be read or the evidence does not pass.
 pub(crate) async fn run() -> anyhow::Result<()> {
     let config = LatencyConfig::from_env()?;
-    let pnus = sample(&config).await?;
+    let pnus = sample(&config)?;
     let evidence = probe(&config, &pnus).await?;
     write_evidence(&config.evidence_path, &evidence)?;
     tracing::info!(
@@ -101,79 +78,37 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         pack_p50 = evidence.pack_ms.p50,
         pack_p95 = evidence.pack_ms.p95,
         passed = evidence.passed,
-        "building section pack latency probed"
+        "building section pack live sample probed"
     );
     ensure!(
         evidence.passed,
-        "the pack route is slower than the gate allows, or answered differently; see {}",
+        "the pack route answered differently or slower than the gate allows; see {}",
         config.evidence_path.display()
     );
     Ok(())
 }
 
-/// The sampled PNUs.
+/// The equality evidence's sample, for the same generation.
 ///
 /// # Errors
-/// Returns an error when the sample source cannot be read or holds too few PNUs.
-pub(crate) async fn sample(config: &LatencyConfig) -> anyhow::Result<Vec<String>> {
-    let pnus = match &config.sample {
-        Sample::File(path) => std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read the sample {}", path.display()))?
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .take(config.sample_size)
-            .map(ToOwned::to_owned)
-            .collect::<Vec<_>>(),
-        Sample::Packs(output) => {
-            let store = ByPnuServingStore::open(LANE, output)?;
-            let anchor = &LANE.section_packs()?.anchor_section;
-            let keys = store
-                .list_pack_keys(anchor, config.generation, None)
-                .await?
-                .into_iter()
-                .collect::<Vec<_>>();
-            ensure!(
-                !keys.is_empty(),
-                "generation {} holds no {anchor} packs",
-                config.generation
-            );
-            // Rounded down, so at least `sample_size` packs are visited when there are that many;
-            // within a pack the picks are spread and start mid-way, not at its lowest PNU.
-            let step = (keys.len() / config.sample_size).max(1);
-            let per_pack = config
-                .sample_size
-                .div_ceil(keys.len().div_ceil(step))
-                .max(1);
-            let mut pnus = Vec::new();
-            for key in keys.iter().step_by(step) {
-                let (_, entries) = by_pnu_pack::read_head(&store.read_bytes(key).await?)?;
-                let spread = entries.len().div_ceil(per_pack).max(1);
-                pnus.extend(
-                    entries
-                        .iter()
-                        .skip(spread / 2)
-                        .step_by(spread)
-                        .map(|entry| entry.pnu.clone()),
-                );
-                if pnus.len() >= config.sample_size {
-                    break;
-                }
-            }
-            pnus.truncate(config.sample_size);
-            pnus
-        }
-    };
-    for pnu in &pnus {
+/// Returns an error when the evidence cannot be read, is of another generation, or its sample
+/// does not match its own digest.
+pub(crate) fn sample(config: &LatencyConfig) -> anyhow::Result<Vec<String>> {
+    let (equality, _) = gate::read::<EqualityEvidence>(&config.equality_evidence)?;
+    ensure!(
+        equality.pack_generation == config.generation,
+        "the equality evidence is of generation {}, the probe of {}",
+        equality.pack_generation,
+        config.generation
+    );
+    ensure!(
+        gate::sample_digest(&equality.sample) == equality.sample_sha256,
+        "the equality evidence's sample does not match its digest"
+    );
+    for pnu in &equality.sample {
         by_pnu_packs::unit_of(pnu)?;
     }
-    ensure!(
-        pnus.len() == config.sample_size,
-        "the sample holds {} PNUs, {} were asked for",
-        pnus.len(),
-        config.sample_size
-    );
-    Ok(pnus)
+    Ok(equality.sample)
 }
 
 /// Whether a base URL is a stand-in: not https, or a loopback or private host.
@@ -269,6 +204,7 @@ pub(crate) async fn probe(
             gate::PRODUCTION_ENVIRONMENT.to_owned()
         },
         sample_size: u64::try_from(pnus.len())?,
+        sample_sha256: gate::sample_digest(pnus),
         answered,
         mismatched,
         failed,

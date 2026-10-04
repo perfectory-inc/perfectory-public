@@ -416,7 +416,7 @@ async fn base(
                 policy.manifest_section_packs_schema_version,
             )
             .await?;
-            let cutover = cutover_gate(config, generation, live)?;
+            let cutover = cutover_gate(config, generation, snapshot, expected)?;
             Ok(SectionPacksState {
                 schema_version: policy.manifest_section_packs_schema_version,
                 format_version: policy.format_version,
@@ -487,7 +487,8 @@ async fn base(
 fn cutover_gate(
     config: &PublishConfig,
     generation: u64,
-    live: &ServedManifest,
+    snapshot: &str,
+    expected_documents: u64,
 ) -> anyhow::Result<CutoverRecord> {
     let (Some(equality), Some(latency)) = (&config.equality_evidence, &config.latency_evidence)
     else {
@@ -499,9 +500,9 @@ fn cutover_gate(
         );
     };
     let (equality, equality_sha256) = gate::read::<gate::EqualityEvidence>(equality)?;
-    gate::require_equality(&equality, generation, live)?;
+    gate::require_equality(&equality, generation, snapshot, expected_documents)?;
     let (latency, latency_sha256) = gate::read::<gate::LatencyEvidence>(latency)?;
-    gate::require_latency(&latency, generation)?;
+    gate::require_latency(&latency, generation, &equality)?;
     Ok(CutoverRecord {
         equality_evidence_sha256: equality_sha256,
         latency_evidence_sha256: latency_sha256,
