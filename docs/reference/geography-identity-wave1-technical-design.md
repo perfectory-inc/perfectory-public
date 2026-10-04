@@ -98,6 +98,8 @@ WHERE valid_to IS NULL AND retracted_at IS NULL;
 - Wave 1의 `reference.sigungu_canonical_crosswalk`(계획 Task 2)는 이 일반 표에서
   `code_system='kr_legal_dong_sigungu'` 를 물질화한 투영이다. 시드 27쌍의 provenance 는
   `derived:pnu-tail-join:2026-09`, 권위 수집(Task 1) 후 `mois:*` 행으로 대체된다.
+  (2026-10-04 루트 ADR-0145: 이 저장된 표는 만들어지지 않은 채 폐기됐다. 시군구 대응표는
+  `reference.legal_dong_code_change` 의 view 이고, 27쌍은 시험 자료다.)
 
 ## §3 해석기 API (기둥 ③)
 

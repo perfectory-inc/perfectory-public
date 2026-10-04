@@ -8,8 +8,12 @@ dong it came from. Only a dong with no predecessor gets a new id, derived from i
 
     administrative_unit_id = uuid5(NAMESPACE_URL, "scope:legal-dong:<first 10-digit code of the chain>")
 
-Which new code came from which old code is the parcel lineage's dong pairing
-(`parcel_lineage.pair_legal_dongs`), handed in as `--predecessor-map`.
+Which new code came from which old code is read from the code change table, the one record of
+region code changes (root ADR-0145): `--legal-dong-change-table` names it and
+`legal_dong_code_change_views.dong_predecessors` turns its 읍면동·리 pairs into {new: old}. When dongs
+merged, the id stays with the one that held the most parcels in `--predecessor-parcel-snapshot-id`
+(a `silver.parcel_boundaries` snapshot from before the change); without it every paired code
+weighs the same.
 
 The input is what `scripts/tiles/admin-boundary/convert.sh` + `merge.py` produce: EPSG:4326,
 `-makevalid`, properties EMD_CD (8 digits), EMD_NM, SIGUNGU_CD (5 digits), SIGUNGU_NM. Each run
@@ -28,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import legal_dong_code_change_views as views
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from platform_contracts import (
     column_names,
@@ -184,7 +189,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input", required=True, help="Merged GeoJSON from merge.py (EPSG:4326).")
     parser.add_argument("--source-snapshot-id", required=True, help="e.g. vworldkr__boundary_emd-30603-202606")
     parser.add_argument("--source-record-id", required=True, help="The Bronze object key(s) this snapshot came from.")
-    parser.add_argument("--predecessor-map", help="JSON {new 10-digit code: old 10-digit code} from the dong pairing")
+    parser.add_argument("--legal-dong-change-table", help="namespace.table of the code change table; off for a first snapshot")
+    parser.add_argument("--predecessor-parcel-snapshot-id", help="silver.parcel_boundaries snapshot that weighs merged dongs")
     parser.add_argument("--summary-output")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-namespace", default="silver")
@@ -203,6 +209,14 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--source-snapshot-id has characters a snapshot id does not use")
     if not args.source_record_id.strip():
         raise ValueError("--source-record-id is required")
+    if args.legal_dong_change_table is not None and not all(
+        IDENTIFIER_PATTERN.fullmatch(part) for part in args.legal_dong_change_table.split(".")
+    ):
+        raise ValueError("--legal-dong-change-table must be namespace.table")
+    if args.predecessor_parcel_snapshot_id is not None and (
+        args.legal_dong_change_table is None or not SNAPSHOT_PATTERN.fullmatch(args.predecessor_parcel_snapshot_id)
+    ):
+        raise ValueError("--predecessor-parcel-snapshot-id is a snapshot id and needs --legal-dong-change-table")
     if args.validate_only:
         return
     if not args.iceberg_table.endswith("_smoke") and not args.allow_non_smoke_write:
@@ -216,12 +230,47 @@ def load_pyspark() -> Any:
     return SparkSession
 
 
+def read_predecessors(spark: Any, args: argparse.Namespace) -> tuple[dict[str, str], dict[str, Any]]:
+    """{new 읍면동 code: old one} from the code change table, and where it was read (ADR-0145)."""
+
+    catalog = f"`{args.iceberg_catalog_name}`"
+    table = ".".join([catalog, *(f"`{part}`" for part in args.legal_dong_change_table.split("."))])
+    levels = ", ".join(f"'{level}'" for level in views.LEAF_LEVELS)
+    rows = [
+        row.asDict()
+        for row in spark.sql(
+            f"SELECT kind, old_code, new_code, level, effective_date, source FROM {table} "
+            f"WHERE kind = 'pair' AND level IN ({levels})"
+        ).collect()
+    ]
+    lots_before = None
+    if args.predecessor_parcel_snapshot_id:
+        olds = sorted(views.leaf_pairs(rows))
+        lots_before = {}
+        if olds:
+            spark.createDataFrame([(code,) for code in olds], "code STRING").createOrReplaceTempView("predecessor_olds")
+            for row in spark.sql(
+                f"SELECT p.pnu FROM {catalog}.`silver`.`parcel_boundaries` p JOIN predecessor_olds o "
+                f"ON substr(p.pnu, 1, 10) = o.code WHERE p.source_snapshot_id = '{args.predecessor_parcel_snapshot_id}'"
+            ).collect():
+                lots_before.setdefault(row["pnu"][:10], set()).add(row["pnu"][10:])
+    snapshot = spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").collect()
+    predecessors = views.dong_predecessors(rows, lots_before)
+    return predecessors, {
+        "change_table": args.legal_dong_change_table,
+        "change_table_snapshot_id": str(snapshot[0]["snapshot_id"]) if snapshot else "",
+        "pairs_read": len(rows),
+        "renumbered": len(predecessors),
+        "weighed_by": args.predecessor_parcel_snapshot_id or "paired codes",
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_args(args)
     document = json.loads(Path(args.input).read_text(encoding="utf-8"))
     ingested_at = datetime.now(timezone.utc).replace(microsecond=0)
-    predecessor_of = json.loads(Path(args.predecessor_map).read_text(encoding="utf-8")) if args.predecessor_map else {}
+    predecessor_of: dict[str, str] = {}
     features = document.get("features") or []
     codes = [f"{str((f.get('properties') or {}).get('EMD_CD') or '').strip()}00" for f in features]
     # Before Spark the previous snapshot is unknown; the ids computed here are what a first
@@ -281,6 +330,8 @@ def main(argv: list[str] | None = None) -> int:
                     ).collect()
                 }
                 summary["previous_snapshot_id"] = previous[0]["source_snapshot_id"]
+            if args.legal_dong_change_table:
+                predecessor_of, summary["predecessors"] = read_predecessors(spark, args)
             unit_ids, id_counts = resolve_unit_ids(codes, predecessor_of, previous_ids)
             rows = silver_rows(features, args.source_snapshot_id, args.source_record_id, ingested_at, unit_ids)
             summary["row_count"] = len(rows)

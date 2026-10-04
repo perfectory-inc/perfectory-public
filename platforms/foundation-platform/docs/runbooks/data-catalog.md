@@ -49,7 +49,7 @@ Foundation 과 같은 장비에서 돈다.
 
 | 차이 | 표 |
 |---|---|
-| 계획에 "implemented" 인데 레이크하우스에 없음 | `silver.parcel_registry`, `silver.parcel_lineage`, `gold.lineage_review_queue`, `reference.legal_dong_code`, `reference.sigungu_canonical_crosswalk` |
+| 계획에 "implemented" 인데 레이크하우스에 없음 | `silver.parcel_registry`, `silver.parcel_lineage`, `gold.lineage_review_queue`; 법정동코드 등록부와 저장된 시군구 대응표는 루트 ADR-0145 로 폐기(계획에서도 뺐다) |
 | 계획에 계약만 있음(정상) | `gold.complex_spatial_locator`, `silver.complex_parcel_memberships` |
 | 레이크하우스에 있는데 계획에 없음 | 시험 흔적 8개(`*_smoke`, `*_probe`, `dist_probe.*`, `sail_probe.*`), `gold.building_resources`, `gongzzang_silver.court_auction_property` |
 

@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+import legal_dong_code_change_views as views
+
 RULES_VERSION = "parcel-lineage.v1"
 
 # Grades, strongest first (ADR-0113 §4). The effective link of an old parcel is its highest grade.
@@ -40,11 +42,6 @@ SPLIT_SIGNAL_OVERLAP = float(
     )["pairing"]["jibun_overlap_min_share"]
 )
 EXISTS, ABOLISHED = "존재", "폐지"
-# `evidence_kind` of a link read from the 필지고유번호변동연혁 (ADR-0113 §4; graded `evidence_strong`,
-# ADR-0144 §3.3). Nothing writes it yet: the source is not collected. The 법정동 change pairing reads
-# only these links, because the history-text links are written through this module's own dong
-# pairing and would only echo it.
-PARCEL_NUMBER_HISTORY = "parcel_number_history"
 PNU_PATTERN = re.compile(r"[0-9]{19}")
 LOT_PATTERN = re.compile(r"(산\s*)?([0-9]{1,4})(?:-([0-9]{1,4}))?")
 
@@ -62,7 +59,7 @@ class Link:
 
 @dataclass
 class DongPairing:
-    """Old legal dong -> new legal dong for one snapshot pair, with how each pair was decided."""
+    """Old legal dong -> new legal dong for one snapshot pair, with the change table's evidence for each."""
 
     pairs: dict[str, str] = field(default_factory=dict)
     how: dict[str, str] = field(default_factory=dict)
@@ -114,57 +111,32 @@ def parse_code_list(text: str) -> dict[str, tuple[str, str]]:
     return rows
 
 
-def _leaf(full_name: str) -> tuple[str, ...]:
-    """The name below the sido: a merger renames the sido, never the sigungu and dong under it."""
-
-    return tuple(full_name.split()[1:])
-
-
-def pair_legal_dongs(
-    codes: Mapping[str, tuple[str, str]],
-    old_dongs: Iterable[str],
+def dong_pairing_from_changes(
+    changes: Iterable[Mapping[str, object]],
     lots_before: Mapping[str, set[str]],
     lots_after: Mapping[str, set[str]],
 ) -> DongPairing:
-    """Pair each old legal dong with the dong that carries it now (ADR-0113 §5).
+    """Old 동·리 -> new 동·리, read from the code change table (root ADR-0145 §2).
 
-    `codes` is the code list at the later snapshot. A dong that still exists maps to itself. An
-    abolished one is matched only among the dongs that newly hold parcels in the later snapshot and
-    exist in the code list — dong names repeat across the country, so a nationwide search pairs
-    Incheon's 중앙동1가 with Busan's. Among those: same sigungu and dong name under the new sido,
-    else the one new dong of that name, else the candidate that holds more of its lot numbers. Lot
-    overlap is recorded for every pair so a split shows up as a low share.
+    The lineage does not pair codes itself: `changes` are rows of `reference.legal_dong_code_change`
+    (`legal_dong_code_change_views.leaf_pairs`). A code the table does not move keeps its number,
+    so it is not listed. An old code the table sends to two new codes was split and is `unpaired`:
+    its lots go on to the evidence rules one by one. So is a code that held lots before and none
+    after while the table records no pair for it. Lot overlap is recorded for every pair so a split
+    the table missed shows up as a low share.
     """
 
     pairing = DongPairing()
-    old = sorted(set(old_dongs))
-    alive = {c for c, (_, s) in codes.items() if s == EXISTS}
-    newly_held = (set(lots_after) - set(lots_before)) & alive
-    by_leaf: dict[tuple[str, ...], list[str]] = collections.defaultdict(list)
-    by_name: dict[str, list[str]] = collections.defaultdict(list)
-    for c in newly_held:
-        name = codes[c][0]
-        by_leaf[_leaf(name)].append(c)
-        by_name[name.split()[-1]].append(c)
-    for c in old:
-        if c in alive:
-            pairing.pairs[c], pairing.how[c] = c, "unchanged"
+    for old, news in sorted(views.leaf_pairs(changes).items()):
+        if len(news) != 1:
+            pairing.unpaired.append(old)
             continue
-        name = codes.get(c, ("", ""))[0]
-        candidates = by_leaf.get(_leaf(name), []) if name else []
-        how = "sigungu+dong name"
-        if len(candidates) != 1:
-            candidates = by_name.get(name.split()[-1], []) if name else []
-            how = "dong name"
-        if len(candidates) > 1:
-            before = lots_before.get(c, set())
-            scored = sorted(((len(before & lots_after.get(n, set())), n) for n in candidates), reverse=True)
-            if scored and scored[0][0] > 0 and (len(scored) == 1 or scored[0][0] > scored[1][0]):
-                candidates, how = [scored[0][1]], "lot overlap"
-        if len(candidates) != 1:
-            pairing.unpaired.append(c)
-            continue
-        pairing.pairs[c], pairing.how[c] = candidates[0], how
+        (new, source), = news.items()
+        pairing.pairs[old], pairing.how[old] = new, source
+    pairing.unpaired.extend(
+        sorted(code for code in lots_before if code not in lots_after and code not in pairing.pairs and code not in pairing.unpaired)
+    )
+    pairing.unpaired.sort()
     for c, n in pairing.pairs.items():
         before = lots_before.get(c, set())
         if before:

@@ -89,7 +89,7 @@
     },
     {
       "id": "lineage_stewardship",
-      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads and pairs any pending legal-dong code handoff (root ADR-0143): the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change and reference.sigungu_canonical_crosswalk, and the crosswalk projection the hub exports read; a failure there fails the run before lineage starts.",
+      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads and pairs any pending legal-dong code handoff (root ADR-0143): the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts.",
       "systemd_service": "foundation-lineage-stewardship.service",
       "systemd_timer": "foundation-lineage-stewardship.timer",
       "schedule": "50 6 * * *",
@@ -101,8 +101,6 @@
         "source-code-go-kr-to-reference-legal-dong-code-snapshot",
         "reference-legal-dong-code-snapshot-to-reference-legal-dong-code-change",
         "silver-parcel-boundaries-to-reference-legal-dong-code-change",
-        "silver-parcel-lineage-to-reference-legal-dong-code-change",
-        "reference-legal-dong-code-change-to-reference-sigungu-canonical-crosswalk",
         "serving-lineage-stewardship-to-silver-parcel-lineage",
         "silver-parcel-lineage-to-gold-lineage-review-queue",
         "gold-lineage-review-queue-to-serving-lineage-stewardship"
@@ -121,7 +119,7 @@
         "source-code-go-kr-to-reference-legal-dong-code-snapshot"
       ],
       "enabled": false,
-      "disabled_reason": "New. Off until one supervised run on the data host has collected and staged a handoff and the next lineage_stewardship run has loaded and paired it, with a projection that reproduced the seed's 27 pairs; switching it on is a separate deploy step (runbook docs/runbooks/legal-dong-code-changes.md, 'Turning it on')."
+      "disabled_reason": "New. Off until one supervised run on the data host has collected and staged a handoff and the next lineage_stewardship run has loaded and paired it, with a projection that reproduced the baseline fixture's 27 pairs; switching it on is a separate deploy step (runbook docs/runbooks/legal-dong-code-changes.md, 'Turning it on')."
     },
     {
       "id": "data_quality",

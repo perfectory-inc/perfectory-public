@@ -10,8 +10,13 @@ last_reviewed: 2026-10-04
 [루트 ADR-0143](../../../../docs/adr/0143-legal-dong-code-changes-come-from-code-go-kr.md) 과 [ADR-0144](../../../../docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md) 의
 운영 절차다. 법정동 코드 변경은 내려받은 데이터로만 정한다. 날짜와 상위 코드는 code.go.kr 전체 표에서, 이름이 바뀐
 동·나뉜 동은 개편 전후 필지 스냅숏의 지번에서, 지번까지 새로 매겨진 동은 필지 번호 공식 이력에서 온다. code.go.kr 의
-코드변경안내 게시판은 원천이 아니다. 허브 대장 내보내기(표제부·전유부·면적·허브 공통)는 이 절차가 만든 시군구 대응표
-투영을 읽는다. 손으로 만든 27쌍(`sigungu-canonical-crosswalk.contract.json`)은 비교 기준으로만 남는다.
+코드변경안내 게시판은 원천이 아니다.
+
+지역 코드 변경의 정본은 `reference.legal_dong_code_change` 하나다(루트 ADR-0145). 허브 대장 내보내기(표제부·전유부·
+면적·허브 공통)가 읽는 시군구 대응표 투영, 행정경계 id 의 선행 코드, 필지 계보의 동 짝은 모두 그 표의 view 다
+(`infra/lakehouse/spark/jobs/legal_dong_code_change_views.py`). 손으로 만든 27쌍
+(`infra/lakehouse/contracts/sigungu-crosswalk-baseline.fixture.json`)은 시험 자료이고, 첫 실운영이 재현할 때까지만
+비교 기준이다(6 절). 허브 임시값 코드와 부재 시도 상한은 `hub-register-feed.contract.json` 에 있다.
 
 | 무엇 | 정본 |
 | --- | --- |
@@ -21,8 +26,9 @@ last_reviewed: 2026-10-04
 | 적재·짝 맞추기 | `lineage_stewardship` 단위의 첫 단계, `scripts/ops/legal-dong-code-load.sh` |
 | 응답 원본 | Bronze `codegokr__legal_dong_code_table` |
 | 파서·짝 규칙 | `infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py` (지번 집합은 `parcel_lineage.py` 의 것을 쓴다) |
-| 표 | `reference.legal_dong_code_snapshot`, `reference.legal_dong_code_change`, `reference.sigungu_canonical_crosswalk` |
-| 지번 근거 | `silver.parcel_boundaries` 의 스냅숏 둘(개편 전·후), 필지 번호 공식 이력은 `silver.parcel_lineage` 의 `official` 행 |
+| 표 | `reference.legal_dong_code_snapshot`(원본), `reference.legal_dong_code_change`(정본, 유일하게 쓰는 표) |
+| 지번 근거 | `silver.parcel_boundaries` 의 스냅숏 둘(개편 전·후). 필지 번호 공식 이력은 아직 수집되지 않는다. 필지 계보는 근거가 아니다(계보가 이 표를 읽는다) |
+| 저장하면 안 되는 곳 | `infra/lakehouse/contracts/region-code-holders.json` (폐기된 보관처, 짝 모양; `scripts/guard/region-code-pairs-have-one-home.sh` 가 지킨다) |
 | 내보내기가 읽는 투영 | `/var/lib/foundation-platform/legal-dong-code/sigungu-crosswalk.projection.json` (+ 같은 폴더의 `latest-legal-dong-snapshot.json`, 수집 상태 `accepted.json`) |
 | 스튜어드 목록 | `/var/lib/foundation-platform/legal-dong-code/steward-review.json` |
 
@@ -39,9 +45,9 @@ lineage_stewardship (06:50, spark 3자리)
                                                → loaded/ 로 옮김. 실패하면 단위 전체가 실패(계보로 넘어가지 않음)
   0.. 계보 스튜어드 순환                          (ADR-0115)
 허브 내보내기 (수동)
-  FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=…projection.json  → 투영을 읽고 씨앗 27쌍과 비교, 다르면 거부
-                                               수집 확인이 max_age_days 보다 오래됐거나, 수집이 넘긴 표가 투영의 표가
-                                               아니거나, 카탈로그의 대응표 스냅숏이 투영의 것과 다르면 거부
+  FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=…projection.json  → 투영을 읽고 (비교가 켜져 있으면) 기준 27쌍과 비교,
+                                               다르면 거부. 수집 확인이 max_age_days 보다 오래됐거나, 수집이 넘긴 표가
+                                               투영의 표가 아니거나, 카탈로그의 변경표 스냅숏이 투영의 것과 다르면 거부
 ```
 
 짝은 이 순서로 정한다(`code_go_kr_legal_dong.pair_changes`). 앞 단계가 정하지 못한 코드만 다음 단계로 간다.
@@ -51,7 +57,7 @@ lineage_stewardship (06:50, spark 3자리)
 | 0 | 변경 표에 이미 기록된 짝, 스튜어드 짝(`steward:<id>`) | 그대로 둔다. 원장은 덮어쓰지 않는다 |
 | 1 | 날짜·이름 (`derived:code-go-kr:date+name:<날>`) | 같은 날(또는 폐지일 = 생성일 − 1) 생성된 같은 단계 코드 중, 상위 단위가 이어지고 시도를 뺀 이름이 같은 것이 하나 |
 | 2 | 지번 겹침 (`derived:parcel-jibun:<스냅숏 쌍>`) | 개편 뒤 스냅숏에서 새로 필지를 가진 동 중 옛 동 지번을 가장 많이 가진 하나가 계약의 `jibun_overlap_min_share` 이상(ADR-0113 §5) |
-| 3 | 필지 번호 공식 이력 (`official:parcel-history`) | 필지 계보의 필지고유번호변동연혁 짝이 옛 동의 필지를 모두 한 새 동으로 잇는다 |
+| 3 | 필지 번호 공식 이력 (`official:parcel-history`) | 필지고유번호변동연혁 짝이 옛 동의 필지를 모두 한 새 동으로 잇는다. 원천이 아직 수집되지 않아 꺼져 있다 |
 | 4 | 상위 단위 묶기 (`derived:children`) | 2·3 으로 짝지어진 동들의 지번이 하한 이상 한 시군구(시도)로 갔다 |
 
 1–4 는 아무것도 바뀌지 않을 때까지 되풀이한다. 남은 코드는 목록에 상태(판단 대기·분할·스튜어드)와 함께
@@ -67,8 +73,9 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 ```
 
 내보내기는 Iceberg 카탈로그(`FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI`, `…_WAREHOUSE`, `…_CATALOG_TOKEN`,
-`lakehouse-control` 의 `.env.lakehouse`)에 `reference.sigungu_canonical_crosswalk` 의 현재 스냅숏을 묻는다. 투영이
-적은 스냅숏과 같아야 한다.
+`lakehouse-control` 의 `.env.lakehouse`)에 `reference.legal_dong_code_change` 의 현재 스냅숏을 묻는다. 투영이
+적은 스냅숏(`change_table_snapshot_id`)과 같아야 한다. 투영 형식은 `sigungu_crosswalk_projection.v2` 이고, 표처럼
+옛 코드 → 새 코드(`old_code`, `new_code`) 방향이다.
 
 내보내기가 거부하는 경우와 고치는 법:
 
@@ -79,13 +86,15 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 | `… is stale` | 더 새 전체 표가 적재(또는 수집이 넘김)됐는데 짝 맞추기가 아직 그 표로 돌지 않았거나 실패했다 | `lineage_stewardship` 이 넘김을 적재하게 둔다. 실패했으면 원인을 고치고 다시 돌린다 |
 | `collector's state … is missing` | 수집이 한 번도 검사를 통과하지 못했다 | 3 절의 감독 첫 실행 |
 | `no collection has confirmed … for N days` | 수집 작업이 `projection.max_age_days` 넘게 성공하지 못했다 | `legal_dong_code_changes` 의 실패 알림·journal 을 본다(4 절) |
-| `catalog's current snapshot is …` | 투영을 쓴 뒤 대응표 표가 바뀌었다(다른 쓰기, 롤백) | 계보 단위를 다시 돌려 투영을 새로 쓴다 |
+| `catalog's current snapshot is …` | 투영을 쓴 뒤 변경표가 바뀌었다(다른 쓰기, 롤백) | 계보 단위를 다시 돌려 투영을 새로 쓴다 |
+| `is a view of …, not of reference.legal_dong_code_change` / schema `…v1` | 옛 짝 맞추기가 쓴 투영이다 | 새 릴리스로 계보 단위를 다시 돌린다 |
 | `Iceberg catalog is not configured` | 내보내기 환경에 카탈로그 변수가 없다 | `.env.lakehouse` 가 있는 `lakehouse-control` 에서 돌린다 |
-| `disagrees with the hand pairs` | 투영이 씨앗 27쌍과 다르다 | 6 절 |
+| `disagrees with the hand pairs` | 비교가 켜져 있고 투영이 기준 27쌍과 다르다 | 6 절 |
+| `baseline_comparison is off without retired_by` | 비교를 증거 없이 껐다 | 6 절의 '기준 비교 끄기' |
 | `UnmappedGovernedSigungu` | 통합 시도의 코드에 짝이 없다 | 스튜어드 목록을 본다(5 절) |
 
 내보내기 요약(`sigungu_sido.crosswalk`, 허브 공통은 `sigungu_crosswalk`)에는 투영 경로, sha256, 전체 표 스냅숏,
-대응표 표의 Iceberg 스냅숏 id 가 남는다.
+변경표의 Iceberg 스냅숏 id, 기준 비교가 켜졌는지(`baseline_comparison`)가 남는다.
 
 ## 3. Turning it on
 
@@ -103,14 +112,14 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 
    첫 실행은 넘김 하나를 쓴다.
 3. 계보 단위를 한 번 돌린다(Airflow 에서 `lineage_stewardship` 을 수동 실행, 또는 다음 06:50).
-4. 투영이 씨앗 27쌍을 재현했는지 본다. 같으면 아래가 아무 줄도 내지 않는다.
+4. 투영이 기준 27쌍을 재현했는지 본다. 같으면 아래가 아무 줄도 내지 않는다.
 
    ```bash
    python3 - <<'PY'
    import json
    p = json.load(open("/var/lib/foundation-platform/legal-dong-code/sigungu-crosswalk.projection.json"))
-   s = json.load(open("/opt/foundation-platform/current/infra/lakehouse/contracts/sigungu-canonical-crosswalk.contract.json"))
-   a = {(e["current_code"], e["superseded_code"]) for e in p["sigungu"]}
+   s = json.load(open("/opt/foundation-platform/current/infra/lakehouse/contracts/sigungu-crosswalk-baseline.fixture.json"))
+   a = {(e["new_code"], e["old_code"]) for e in p["sigungu"]}
    b = {(e["current_code"], e["superseded_code"]) for e in s["sigungu"]}
    print(sorted(a ^ b))
    PY
@@ -127,10 +136,9 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 - **2 단계**는 `silver.parcel_boundaries` 에 개편 전 스냅숏과 개편 뒤(새 코드) 스냅숏이 둘 다 있어야 한다. 둘을
   정했으면 계보 단위 환경에 `LEGAL_DONG_PARCELS_BEFORE=<source_snapshot_id>` 와 `LEGAL_DONG_PARCELS_AFTER=<…>` 를
   둔다(`legal-dong-code-load.sh`). 짝 맞추기는 두 스냅숏에서 폐지된 동과 새로 생긴 동의 PNU 만 읽는다.
-- **3 단계**는 `LEGAL_DONG_PARCEL_LINEAGE_TABLE=silver.parcel_lineage` 로 켠다. 그 표의 `official` 행 중
-  `evidence_kind = parcel_number_history`(필지고유번호변동연혁) 인 짝만 읽는다. 토지이동이력 문구에서 온 `official`
-  행은 계보가 자기 동 대응으로 번호를 옮겨 적은 것이라 독립 근거가 아니다. 필지고유번호변동연혁은 아직 수집되지
-  않으므로, 지금 켜도 이 단계는 짝을 만들지 않는다.
+- **3 단계**는 필지고유번호변동연혁 원천이 수집되고 그 표가 생겨야 켤 수 있다. 그 전까지 지번이 모두 떠난 동은
+  판단 대기다. 필지 계보(`silver.parcel_lineage`)를 대신 읽지 않는다: 계보가 이 표의 동 짝을 읽으므로, 계보를 근거로
+  읽으면 서로가 서로를 읽는다(루트 ADR-0145 §2). 짝 맞추기 작업에는 그 옵션이 없고, 시험이 되돌아오는 것을 막는다.
 
 ## 4. 알림이 뜻하는 것
 
@@ -144,7 +152,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 | 수집 | `TableShrunk` | 전체 표가 직전보다 계약의 한계(1%) 넘게 줄었다 | 깨진 응답이다. 아무것도 넘기지 않았다. 다음 날 다시 받는다 |
 | 계보 단위 0a | `TableShrunk`, `SourceFormatError` | 표 스냅숏과 비교해 거부 | 넘김은 `pending/` 에 남는다. 원인을 고친 뒤 단위를 다시 돌린다 |
 | 계보 단위 0a | `would be dropped without a word` | 적재 대장이 새 행의 적재 단위를 이미 안다고 했다 | 실행 id 가 겹쳤다는 뜻이다. 행은 쓰지 않았다. 같은 초에 두 실행이 돌았는지 본다 |
-| 계보 단위 0a | `does not hold the projected entries` | 대응표 표 쓰기가 투영과 어긋났다 | 투영은 바뀌지 않았다. 카탈로그를 확인한다 |
+| 계보 단위 0a | `read back a crosswalk other than the one this run planned` | 쓰고 다시 읽은 변경표의 view 가 계획과 다르다(그 사이 다른 쓰기) | 투영은 바뀌지 않았다. 다른 쓰기를 찾고 단위를 다시 돌린다 |
 
 넘김이 없는 날은 `legal-dong-code no pending handoff` 가 journal 에 남는다. "아무 일 없음"과 "확인 안 함"을
 구별한다.
@@ -180,24 +188,37 @@ sudo -u foundation-platform /opt/foundation-platform/current/scripts/ops/legal-d
 스냅숏으로 짝 맞추기만 돈다. 그 실행은 자기 실행 id 로 적재하므로, 승인으로 새로 정해진 아래 단위의 짝도 같은
 날 기록된다. 화면은 더니어 계보 검토 창구(ADR-0114)로 옮겨 갈 자리다. 그 전까지는 이 명령이다.
 
-## 6. When the crosswalk disagrees with the seed
+## 6. When the crosswalk disagrees with the baseline
 
-투영이 씨앗이 다스리는 시도(지금은 12)에서 27쌍과 다르면 내보내기가 거부한다. 차이는 거부 문구에 짝 단위로 나온다.
+`code-go-kr-legal-dong.contract.json` 의 `projection.baseline_comparison.required` 가 `true` 인 동안, 투영이 기준
+(`sigungu-crosswalk-baseline.fixture.json`)이 다스리는 시도(지금은 12)에서 27쌍과 다르면 내보내기가 거부한다. 차이는
+거부 문구에 짝 단위로 나온다.
 
 1. `reference.legal_dong_code_change` 에서 그 시군구 짝의 `source` 와 `rule_verdict` 를 본다. 데이터가 바꾼 것이면
-   씨앗이 낡은 것이다. 씨앗을 고치는 PR 을 낸다. 씨앗의 짝은 원래 파생값이다(ADR-0142 Consequences).
+   기준이 낡은 것이다. 기준의 짝은 원래 파생값이다(ADR-0142 Consequences).
 2. 규칙이 만든 짝이 틀렸으면 스튜어드가 그 옛 코드에 짝을 승인한다(5 절). 다음 실행의 투영이 바뀐다.
 3. 둘 중 어느 쪽인지 정해지기 전에는 내보내기를 돌리지 않는다.
 
-씨앗이 모르는 새 통합 시도는 차이가 아니다. 지적도에는 없고 짝이 지적도의 옛 시도를 가리키는 시도는 투영이
+기준이 모르는 새 통합 시도는 차이가 아니다. 지적도에는 없고 짝이 지적도의 옛 시도를 가리키는 시도는 투영이
 스스로 다스린다. 짝을 빠뜨리면 내보내기가 그 코드를 대며 멈춘다(ADR-0142).
+
+### Retiring the baseline comparison
+
+ADR-0145 §3: 27쌍은 첫 실운영에서 변경표가 그것을 재현하면 운영 대조에서 빠진다. 끄는 것은 계약 값 하나지만,
+증거 없이는 끌 수 없다(내보내기가 거부한다).
+
+1. 3 절 4 번 확인이 아무 줄도 내지 않은 실행을 고른다.
+2. 그 실행의 투영 파일에서 `change_table_snapshot_id`, `legal_dong_snapshot_record` 를, 파일 자체의 sha256 을
+   `sha256sum sigungu-crosswalk.projection.json` 으로 얻는다.
+3. PR 에서 `projection.baseline_comparison` 을 `{"required": false, "retired_by": {"change_table_snapshot_id": …,
+   "legal_dong_snapshot_record": …, "projection_sha256": …}}` 로 바꾼다. 그 뒤로 기준 파일은 시험 자료로만 남는다.
 
 ## 7. 측정 (2026-10-04)
 
 | 무엇 | 값 |
 | --- | --- |
 | 전체 표 | 53,403 행, 약 58MB, 요청 약 5초, 파싱 약 7초 |
-| 대응표 | 시도 12 가 29·46 을 대체, 시군구 27쌍 = 씨앗 27쌍. 날짜·이름 규칙만으로 같은 27쌍 |
+| 대응표 | 시도 12 가 29·46 을 대체, 시군구 27쌍 = 기준 27쌍. 날짜·이름 규칙만으로 같은 27쌍(시험 시 `--validate-only`; 운영 표에 쓴 실행은 아직 없다) |
 
 ## 8. 남은 일
 

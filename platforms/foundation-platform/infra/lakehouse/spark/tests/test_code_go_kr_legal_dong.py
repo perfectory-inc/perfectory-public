@@ -4,7 +4,7 @@ on synthetic data.
 Every gate here is proven by planting what it must refuse: a reordered table, a shrunken table, a
 split, a 지번 share below the contract's line, a tie, a load unit the registry already holds. Codes
 use the synthetic 시도 97–99 and names are made up; the one test that reproduces the real 27 seed
-pairs reads their codes from the seed contract and invents the names.
+pairs reads their codes from the baseline fixture and invents the names.
 """
 
 from __future__ import annotations
@@ -24,10 +24,11 @@ sys.path.insert(0, str(SPARK_DIR / "jobs"))
 import code_go_kr_legal_dong as cg  # noqa: E402
 import lakehouse_ingest  # noqa: E402
 import legal_dong_code_change_pairs as pairs_job  # noqa: E402
+import legal_dong_code_change_views as views  # noqa: E402
 import legal_dong_code_snapshot_to_reference as loader  # noqa: E402
 
 CONTRACT = cg.load_source_contract()
-SEED = json.loads((SPARK_DIR.parent / "contracts" / "sigungu-canonical-crosswalk.contract.json").read_text(encoding="utf-8"))
+SEED = json.loads((SPARK_DIR.parent / "contracts" / "sigungu-crosswalk-baseline.fixture.json").read_text(encoding="utf-8"))
 CADASTRAL = pairs_job.cadastral_sido(json.loads(pairs_job.PARCEL_SOURCE_PATH.read_text(encoding="utf-8")))
 NOW = datetime(2099, 1, 2, tzinfo=timezone.utc)
 FLOOR = CONTRACT["pairing"]["floor_date"]
@@ -187,6 +188,9 @@ def renamed_table():
 # 갑동's 지번 all left (renumbered), and the parcel-number history is loaded but has no link yet:
 # every step had its data and none decided, so a person does (ADR-0144 §3.4).
 RENUMBERED = cg.JibunEvidence({"9811010100": lots(1, 2)}, {"9911010100": lots(901, 902)}, "b->a")
+# 갑동 held no parcel in the earlier snapshot: the 지번 step had its data and found nothing to weigh,
+# and no other step can see it, so a person decides (ADR-0144 §3.4).
+NO_PARCELS_BEFORE = cg.JibunEvidence({}, {"9911010100": lots(901)}, "b->a")
 
 
 class PairingTest(unittest.TestCase):
@@ -235,13 +239,17 @@ class PairingTest(unittest.TestCase):
         self.assertEqual(item["status"], "steward")
         plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW)
         self.assertEqual(plan["counts"]["review_by_status"], {"awaiting_data": 1})
+        # The job has no parcel-number history to give (not collected, and the parcel lineage is not
+        # evidence: ADR-0145 §2), so a renumbered 동 waits for that data even with both snapshots.
+        renumbered = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW, RENUMBERED)
+        self.assertEqual(renumbered["counts"]["review_by_status"], {"awaiting_data": 1})
         with self.assertRaisesRegex(ValueError, "awaiting_data"):
             pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", "추정",
                                    {r["region_cd"] for r in parsed}, "s", NOW)
 
     def test_steward_approvals_are_accepted_only_for_listed_items(self):
         parsed = renamed_table()
-        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW, RENUMBERED, [])
+        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW, NO_PARCELS_BEFORE)
         codes = {r["region_cd"] for r in parsed}
         approved = pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", "현장 확인", codes, "s", NOW)
         self.assertEqual((approved[0]["source"], approved[0]["kind"]), ("steward:steward-a", "pair"))
@@ -252,7 +260,7 @@ class PairingTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reason"):
             pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", " ", codes, "s", NOW)
         # 승인 행을 기록한 다음 날의 도출은 그 짝을 쓰고 목록에서 뺀다.
-        next_day = pairs_job.plan_derivation(parsed, approved, CONTRACT, CADASTRAL, "run2", NOW, RENUMBERED, [])
+        next_day = pairs_job.plan_derivation(parsed, approved, CONTRACT, CADASTRAL, "run2", NOW, NO_PARCELS_BEFORE)
         self.assertEqual(next_day["review"], [])
         self.assertIn("steward", next_day["counts"]["pairs_by_evidence"])
 
@@ -447,9 +455,9 @@ class StewardOnlyRerunTest(unittest.TestCase):
         table = as_rows(table_html(rows))
         codes = {r["region_cd"] for r in table}
         registry, held = set(), []
-        # Both data steps ran and found nothing (no parcels under these codes, no history links), so
-        # what is left is a steward's (ADR-0144 §3.4).
-        data = (cg.JibunEvidence({}, {}, "b->a"), [])
+        # The 지번 step ran and found nothing (no parcels under these codes), so what is left is a
+        # steward's (ADR-0144 §3.4).
+        data = (cg.JibunEvidence({}, {}, "b->a"),)
 
         def append(batch):
             units = sorted({r["derivation_run_id"] for r in batch})
@@ -489,7 +497,7 @@ class StewardOnlyRerunTest(unittest.TestCase):
 class StewardDecisionTest(unittest.TestCase):
     def test_a_staged_decision_is_checked_now_and_again_when_folded(self):
         parsed = renamed_table()
-        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW, RENUMBERED, [])
+        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW, NO_PARCELS_BEFORE)
         with tempfile.TemporaryDirectory() as tmp:
             review = Path(tmp) / "steward-review.json"
             review.write_text(json.dumps({"review": plan["review"]}), encoding="utf-8")
@@ -527,11 +535,16 @@ class SeedReproductionTest(unittest.TestCase):
         self.assertEqual(crosswalk["sido"], [{"current_code": merged["current_code"], "supersedes": sorted(merged["supersedes"]),
                                               "effective_from": DAY}])
         self.assertEqual(review, [])
+        # The projection is the crosswalk view of the change table once this run's rows are in it,
+        # old → new (ADR-0145): the 27 pairs come back from the table's rows alone.
         plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW)
         projection = pairs_job.projection_document(plan, "2099-07-02", "bronze/k", "1", NOW)
-        self.assertEqual(projection["schema_version"], "foundation-platform.sigungu_crosswalk_projection.v1")
-        self.assertEqual(len(plan["crosswalk_rows"]), len(expected))
-        self.assertTrue(all("," not in r["provenance"] for r in plan["crosswalk_rows"]))
+        self.assertEqual(projection["schema_version"], "foundation-platform.sigungu_crosswalk_projection.v2")
+        self.assertEqual((projection["change_table"], projection["change_table_snapshot_id"]), ("reference.legal_dong_code_change", "1"))
+        self.assertEqual({(e["new_code"], e["old_code"]) for e in projection["sigungu"]}, expected)
+        self.assertEqual(projection["sido"], [{"new_code": merged["current_code"], "old_codes": sorted(merged["supersedes"]),
+                                               "effective_date": DAY}])
+        self.assertEqual(views.sigungu_crosswalk_view(plan["fresh_changes"], CADASTRAL)[0], plan["crosswalk"])
 
 
 class TheNoticeBoardIsNotASourceTest(unittest.TestCase):
@@ -545,3 +558,25 @@ class TheNoticeBoardIsNotASourceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheChangeTableDoesNotReadTheLineageTest(unittest.TestCase):
+    def test_the_pairing_job_reads_no_parcel_lineage(self):
+        # ADR-0145 §2: the lineage reads its 동 pairs from the change table, so the change table may not
+        # take the lineage as evidence, or each would read the other. 심은 위반: the option or a read of
+        # the lineage table coming back into the job.
+        import ast
+
+        source = (SPARK_DIR / "jobs" / "legal_dong_code_change_pairs.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        strings = [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+        self.assertFalse([value for value in strings if "parcel_lineage" in value or "parcel-lineage" in value])
+        with self.assertRaises(SystemExit):
+            pairs_job.parse_args(["--snapshot-date", "2099-07-02", "--table-source-record-id", "k", "--validate-only",
+                                  "--table-html", "t.html", "--parcel-lineage-table", "silver.parcel_lineage"])
+        planted = source.replace('parser.add_argument("--steward-decisions"',
+                                 'parser.add_argument("--parcel-lineage-table")\n    parser.add_argument("--steward-decisions"')
+        self.assertNotEqual(planted, source, "the planted option must land in the source")
+        planted_strings = [node.value for node in ast.walk(ast.parse(planted))
+                           if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+        self.assertTrue([value for value in planted_strings if "parcel-lineage" in value], "the check must see a planted read")

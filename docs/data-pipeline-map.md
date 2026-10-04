@@ -73,12 +73,10 @@ Silver·Gold **33표**,
 | ↳ Silver 표를 거치지 않는 행정경계 직접 서빙 레인이다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 시군구 경계<br>VWorld 산업단지 개요 | 2 endpoint | 산업단지 기본 정보 (`silver.industrial_complexes`)<br>산업단지 경계 (`silver.industrial_complex_boundaries`)<br>산업단지 제공용 프로필 (`gold.complex_catalog`)<br>산업단지 경계 서빙본 (`gold.industrial_complex_boundary_served`) | 산업단지<br>산업단지 프로필 포인터<br>산업단지 경계 서빙 | 산업단지 지도 타일<br>카탈로그 조회 API<br>산업단지 프로필 게이트웨이<br>공짱 지도·상세 패널 |
 | ↳ 산업단지 프로필 원본을 변환하며 시군구 경계의 DBF를 주소 행정구역 판정에 사용한다. | | | | |
-| 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | — | — | — |
-| ↳ 권위 전체자료 추출을 계약 행으로 변환한다. 말소일이 비면 현행으로 유도하며 위조된 코드·날짜는 거부한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 읍면동 경계 | 1 endpoint | 행정경계(읍면동) (`silver.administrative_boundaries`)<br>행정경계 서빙본 (`gold.administrative_boundary_served`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`) | — | 행정경계 지도 타일<br>공짱 지도·상세 패널 |
-| 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | 필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | — |
+| 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | 필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>행정경계(읍면동) (`silver.administrative_boundaries`)<br>행정경계 서빙본 (`gold.administrative_boundary_served`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | 행정경계 지도 타일<br>공짱 지도·상세 패널 |
 | ↳ 같은 권위(행정표준코드)의 전체자료 내려받기본(폐지 코드 포함)을 스냅숏 행으로 싣는다. 내려받기 수집 엔드포인트 등록은 수집 레인 몫이다. | | | | |
-| 행정표준코드관리시스템 법정동: 행정표준코드 법정동 전체 표 | 1 endpoint | 필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | — |
+| 행정표준코드관리시스템 법정동: 행정표준코드 법정동 전체 표 | 1 endpoint | 필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>행정경계(읍면동) (`silver.administrative_boundaries`)<br>행정경계 서빙본 (`gold.administrative_boundary_served`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | 행정경계 지도 타일<br>공짱 지도·상세 패널 |
 | ↳ 전체 표 응답을 Bronze 에 남기고, 형식이 계약과 같고 표가 줄지 않았을 때만 스냅숏으로 쌓는다. | | | | |
 
 ## 수집 이후 아직 연결되지 않은 데이터
@@ -368,8 +366,6 @@ Silver·Gold **33표**,
 | 브이월드 공간·토지 파일 → 산업단지 기본 정보 | `build-industrial-complex-address-resolution`<br>`export-industrial-complex-bronze-raw-jsonl`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py` |
 | 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 서빙 문서 | `export-building-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export.rs` |
 | 필지 by-PNU 제공용 패널 → 필지 by-PNU 서빙 문서 | `export-parcel-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_by_pnu_serving_export.rs` |
-| 행정표준코드 법정동 → 법정동코드 등록부 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_registry.py` |
-| 법정동코드 등록부 → 시군구 canonical 크로스워크 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_registry.py`<br>`platforms/foundation-platform/infra/lakehouse/contracts/sigungu-canonical-crosswalk.contract.json` |
 | 지도 편집 저장소 → 지도 편집 원장 | `export-map-edit-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 지도 편집 원장 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 산업단지 경계 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
@@ -384,10 +380,9 @@ Silver·Gold **33표**,
 | 행정표준코드 법정동 → 법정동코드 스냅숏 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 행정표준코드관리시스템 법정동 → 법정동코드 스냅숏 | `collect-code-go-kr-legal-dong`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 필지 경계 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage.py` |
-| 필지 계보 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py` |
 | 법정동코드 스냅숏 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py` |
-| 법정동 코드 변경 원장 → 시군구 canonical 크로스워크 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py` |
-| 법정동코드 스냅숏 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |
+| 법정동 코드 변경 원장 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py` |
+| 법정동 코드 변경 원장 → 행정경계(읍면동) | `platforms/foundation-platform/infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py` |
 | 필지 경계 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |
 | 필지별 토지이동이력 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |
 | 건물 표제부 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |
@@ -417,7 +412,7 @@ Silver·Gold **33표**,
 - silver.complex_parcel_memberships 및 gold.complex_spatial_locator는 생산자 없이 계약만 있어 연결선을 만들지 않는다.
 - vworldkr__sandan_profile·sandan_boundary 및 ILIS 주소 근거는 실제 생산 코드에서 확인한 연결이다. 다른 sandan 원천까지 연결되었다고 추정하지 않는다.
 - gold.building_panel·gold.parcel_panel의 by-PNU 서빙 내보내기(ADR-0096·0100)를 서빙 접점 노드로 추가했다. 이제 가드가 연결성(비-contract_only 표는 생산자·소비자 각 1개 이상)을 강제한다.
-- reference.legal_dong_code·reference.sigungu_canonical_crosswalk(ADR-0103 Wave 1)는 reference 노드 종류다. 등록부는 행정표준코드 추출 변환 레인이 생산하고 크로스워크는 체크인 seed와 등록부에서 유도한다. reference 표는 ingest 해석기가 횡단 소비하므로 소비자 엣지 규칙에서 종류로 면제된다.
+- 지역 코드 변경의 정본은 reference.legal_dong_code_change 하나다(루트 ADR-0145). ADR-0103 Wave 1 의 법정동코드 등록부와 저장된 시군구 대응표는 폐기했다: 읽는 곳이 없었고 운영 카탈로그에 표가 없었다. 시군구 대응표는 변경표의 view 이며 투영 파일이 그 파일 형태다. 폐기 대상 목록은 infra/lakehouse/contracts/region-code-holders.json 에 있다.
 
 ## 갱신 방법
 

@@ -1,0 +1,103 @@
+{
+  "$comment": "Root ADR-0145: a region code change (old code -> new code) is stored in one place, and a parcel pair (old PNU -> new PNU) in one other; everything else derives from them or is retired. scripts/guard/region-code-pairs-have-one-home.sh reads this file and refuses (1) a lakehouse table, other than the home and the derived tables named here with a reason, whose columns have a pair shape below, (2) code that names a retired holder outside the paths listed for it, (3) a retired path that exists again. The guard reads the names from here and nowhere else, so prose elsewhere cannot trip it and a new holder is added in this file, not in the guard.",
+  "homes": {
+    "code_pairs": "reference.legal_dong_code_change",
+    "parcel_pairs": "silver.parcel_lineage"
+  },
+  "pair_shapes": {
+    "code_pairs": [
+      [
+        "old_code",
+        "new_code"
+      ],
+      [
+        "source_code",
+        "canonical_code"
+      ],
+      [
+        "current_code",
+        "superseded_code"
+      ],
+      [
+        "predecessor_code",
+        "successor_code"
+      ],
+      [
+        "from_code",
+        "to_code"
+      ]
+    ],
+    "parcel_pairs": [
+      [
+        "predecessor_pnu",
+        "successor_pnu"
+      ],
+      [
+        "old_pnu",
+        "new_pnu"
+      ],
+      [
+        "from_pnu",
+        "to_pnu"
+      ]
+    ]
+  },
+  "derived_tables": {
+    "gold.place_id_changelog": "ADR-0113 §8 release changelog: which place id changed code between two ID releases. Rebuilt from the ID registry every release, never read back as a source of pairs; ADR-0145 leaves the place-id tables as they are."
+  },
+  "lakehouse_contracts": [
+    "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+  ],
+  "retired": [
+    {
+      "name": "reference.legal_dong_code",
+      "why": "ADR-0103 time dictionary. No reader, never created in production; the change table and its snapshot source replace it.",
+      "allowed_paths": []
+    },
+    {
+      "name": "reference.sigungu_canonical_crosswalk",
+      "why": "Stored 시군구 crosswalk with two writers and the opposite direction. The crosswalk is a view of the change table; its file form is the projection.",
+      "allowed_paths": []
+    },
+    {
+      "name": "catalog.administrative_unit_transition",
+      "why": "ADR-0105 transition table, never produced. Not produced until a consumer exists, then as a view of the change table. Its migration, grant, the publication ledger's reference and the schema tests may name it; nothing may write it.",
+      "allowed_paths": [
+        "platforms/foundation-platform/migrations/20260727000001_administrative_boundary_identity.sql",
+        "platforms/foundation-platform/migrations/20260731000002_publication_revision_ledger.sql",
+        "platforms/foundation-platform/infra/compose/grant-foundation-runtime.sql",
+        "platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/administrative_boundary_identity.rs",
+        "platforms/foundation-platform/services/foundation-api/tests/administrative_boundary_contract.rs"
+      ]
+    }
+  ],
+  "retired_paths": [
+    "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_registry.py",
+    "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_predecessor_map.py",
+    "platforms/foundation-platform/infra/lakehouse/contracts/sigungu-canonical-crosswalk.contract.json"
+  ],
+  "code_suffixes": [
+    ".py",
+    ".rs",
+    ".sh",
+    ".sql",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ts",
+    ".tsx"
+  ],
+  "skipped_directories": [
+    ".git",
+    "target",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+    "docs"
+  ]
+}
