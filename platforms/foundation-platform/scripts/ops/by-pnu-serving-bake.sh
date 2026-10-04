@@ -31,7 +31,8 @@
 #      in for the change set when the reflected snapshot cannot be compared:
 #      `verify-parcel-by-pnu-serving-rebase` reads every served object and compares it with the
 #      current Gold render. Its change set then decides exactly as above, and the manifest and the
-#      run summary record its run id and counts. A rerun resumes runs/<snapshot>-rebase.
+#      run summary record its run id and counts. A rerun over the same served state resumes
+#      runs/<snapshot>-rebase; one left over another served state is kept under superseded/.
 # 3. bakes PNU-prefix shards into the chosen directory, create-only:
 #    - full: a new generation above the published base and every generation holding objects; a
 #      patch: a new patch above the newest served patch and every patch directory holding objects.
@@ -122,6 +123,14 @@ if [[ "${UNIT}" == building && -z "${DATABASE_URL:-}" ]]; then
 fi
 
 mkdir -p "${STATE_ROOT}"
+# One run of a lane at a time, publish included: two publishes racing over the manifest and its
+# pins is what the lock rules out (root ADR-0146 §2). Like the release build lock, it is taken
+# without waiting; the scheduler retries later. A hand-run publish takes the same lock (runbook).
+exec 9>>"${STATE_ROOT}/lane.lock"
+if ! flock -n 9; then
+  log "refused: another run of the ${UNIT} lane holds ${STATE_ROOT}/lane.lock; this run starts after it finishes"
+  exit 75
+fi
 
 # 1. What is there to do?
 state="${STATE_ROOT}/state.json"
@@ -238,11 +247,34 @@ refuse_change_set() {
 REBASE_OFFER="A verified re-base (FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE with a reason; parcel lane) or a full bake (FOUNDATION_BY_PNU_BAKE_FORCE_FULL with a reason) re-bases the lane"
 
 # The verified re-base (root ADR-0146 §1). One run id per re-base: a rerun of the same snapshot
-# resumes it, and the publisher refuses a work directory of another run.
+# over the same served state resumes it, and the publisher refuses a work directory of another
+# run. A work directory left by a re-base over another served state (the manifest moved since,
+# e.g. a rollback) can never be resumed: it is moved aside, kept, and a new re-base starts.
+rotate_stale_rebase() {
+  local work="$1" found
+  [[ -s "${work}/verify/state.json" ]] || return 0
+  found="$(python3 -I - "${work}/verify/state.json" "${reflected}" "${base}" "${patch_count}" "${newest_patch}" <<'PY'
+import json, sys
+state = json.load(open(sys.argv[1]))
+reflected, base, count, newest = sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
+patches = state["patches"]
+if (state["reflected_gold_iceberg_snapshot_id"], state["base_generation"], len(patches), max(patches, default=0)) != (reflected, base, count, newest):
+    print(f"reflected {state['reflected_gold_iceberg_snapshot_id']}, generation {state['base_generation']}, patches {patches}")
+PY
+)" || { log "refused: cannot read the re-base state ${work}/verify/state.json"; exit 65; }
+  [[ -n "${found}" ]] || return 0
+  local kept
+  kept="${STATE_ROOT}/superseded/${work##*/}-$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "${STATE_ROOT}/superseded"
+  mv "${work}" "${kept}"
+  log "the re-base work directory ${work} compared another served state (${found}); the lane now serves reflected ${reflected}, generation ${base}, ${patch_count} patches. It is kept as ${kept} and a new re-base starts"
+}
 run_rebase() {
   local work="$1" rc=0
   mkdir -p "${work}"
-  [[ -s "${work}/run-id" ]] || printf 'rebase-%s-%s\n' "${gold}" "$(date -u +%Y%m%dT%H%M%SZ)" >"${work}/run-id"
+  # The random part keeps a re-base started in the same second as a moved-aside one its own id.
+  [[ -s "${work}/run-id" ]] || printf 'rebase-%s-%s-%s\n' "${gold}" "$(date -u +%Y%m%dT%H%M%SZ)" \
+    "$(python3 -I -c 'import secrets; print(secrets.token_hex(4))')" >"${work}/run-id"
   summary[verified_rebase_run_id]="$(<"${work}/run-id")"
   env "${ENV_PREFIX}_REBASE_REASON=${REBASE_REASON}" \
     "${ENV_PREFIX}_REBASE_RUN_ID=${summary[verified_rebase_run_id]}" \
@@ -256,6 +288,7 @@ run_rebase() {
 if [[ -z "${mode}" && "${REBASE}" == true ]]; then
   delta="${STATE_ROOT}/runs/${gold}-rebase"
   log "verified re-base of Gold snapshot ${gold} against what the lane serves (reflected ${reflected}): ${REBASE_REASON}"
+  rotate_stale_rebase "${delta}"
   if ! run_rebase "${delta}"; then
     tail -n 5 "${delta}/verify.log" >&2
     if grep -q 'not a delta' "${delta}/verify.log"; then

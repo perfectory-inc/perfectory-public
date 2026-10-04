@@ -1186,3 +1186,163 @@ async fn a_publish_moves_the_pin_to_the_snapshot_it_reflects() -> anyhow::Result
     }
     Ok(())
 }
+
+/// A manifest write whose answer is lost after the store accepted it: the manifest it wrote is
+/// live, so its pin stays, and the publish reports what is served (root ADR-0146 §2).
+#[tokio::test]
+async fn a_manifest_write_that_failed_but_landed_keeps_its_pin() -> anyhow::Result<()> {
+    for lane in LANES {
+        let fx = fixture(lane, "landed").await?;
+        fx.base(&[PNU_A]).await?;
+        let reflect = fx.change_set("r", BASE_SNAPSHOT, NEXT_SNAPSHOT, &[], 0, &[])?;
+        let store = fx.store.clone().with_failure_after_manifest_write();
+        let manifest = publish(
+            &fx.config(fx.patch_input(None, NEXT_SNAPSHOT, reflect), false),
+            &store,
+            &fx.gateway.uri(),
+        )
+        .await?;
+        let live = fx.live().await?;
+        assert_eq!(live.reflected_gold_iceberg_snapshot_id, NEXT_SNAPSHOT);
+        assert!(live.reflected_gold_snapshot_tag.is_some());
+        assert_eq!(
+            live.reflected_gold_snapshot_tag,
+            manifest.reflected_gold_snapshot_tag
+        );
+        assert_eq!(
+            fx.pinned()?,
+            vec![NEXT_SNAPSHOT],
+            "the live manifest lost its pin, or the older pin stayed"
+        );
+    }
+    Ok(())
+}
+
+/// A publish that pins after this one and has not written its manifest yet keeps its pin: the
+/// release takes only pins older than the one the live manifest names (root ADR-0146 §2).
+#[tokio::test]
+async fn a_release_keeps_the_pin_of_a_publish_still_running() -> anyhow::Result<()> {
+    for lane in LANES {
+        let fx = fixture(lane, "running").await?;
+        fx.base(&[PNU_A]).await?;
+        let tags = fx.root.join(crate::by_pnu_serving_pins::LOCAL_TAGS_FILE);
+        let table = gold_table(lane).to_owned();
+        let store = fx.store.clone().with_race_before_manifest_write(move || {
+            // Another publish pins LATER_SNAPSHOT between this one's pin and its write.
+            let mut all: std::collections::BTreeMap<
+                String,
+                std::collections::BTreeMap<String, i64>,
+            > = std::fs::read(&tags)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .unwrap_or_default();
+            let snapshot = LATER_SNAPSHOT.parse::<i64>().unwrap_or_default();
+            if let Ok(name) = crate::by_pnu_serving_pins::tag_name(
+                lane,
+                "2026-01-01T00:00:00Z",
+                snapshot,
+                uuid::Uuid::now_v7(),
+            ) {
+                all.entry(table.clone()).or_default().insert(name, snapshot);
+            }
+            if let Ok(body) = serde_json::to_vec(&all) {
+                let _ = std::fs::write(&tags, body);
+            }
+        });
+        let reflect = fx.change_set("r", BASE_SNAPSHOT, NEXT_SNAPSHOT, &[], 0, &[])?;
+        publish(
+            &fx.config(fx.patch_input(None, NEXT_SNAPSHOT, reflect), false),
+            &store,
+            &fx.gateway.uri(),
+        )
+        .await?;
+        assert_eq!(
+            fx.pinned()?,
+            vec![NEXT_SNAPSHOT, LATER_SNAPSHOT],
+            "the running publish's pin was released, or the base's pin stayed"
+        );
+    }
+    Ok(())
+}
+
+impl Fixture {
+    /// A verified re-base's change set over `base_generation` with `patches` that finds every
+    /// served object equal; `None` leaves the field out.
+    fn rebase_change_set(
+        &self,
+        label: &str,
+        served_objects: u64,
+        base_generation: Option<u64>,
+        patches: Option<&[u64]>,
+    ) -> anyhow::Result<(PathBuf, PathBuf, PathBuf)> {
+        let summary = self.root.join(format!("{label}-rebase.json"));
+        let upsert_path = self.root.join(format!("{label}-rebase-upserts.txt"));
+        let delete_path = self.root.join(format!("{label}-rebase-deletes.txt"));
+        write_lines(&upsert_path, &[])?;
+        write_lines(&delete_path, &[])?;
+        let mut input = serde_json::json!({
+            "baseline_snapshot_id": BASE_SNAPSHOT, "current_snapshot_id": NEXT_SNAPSHOT,
+        });
+        if let Some(base) = base_generation {
+            input["base_generation"] = serde_json::json!(base);
+        }
+        if let Some(patches) = patches {
+            input["patches"] = serde_json::json!(patches);
+        }
+        std::fs::write(
+            &summary,
+            serde_json::to_vec(&serde_json::json!({
+                "job_name": crate::by_pnu_serving_rebase::JOB_NAME,
+                "contract": gold_table(self.lane),
+                "quality_metrics": {"new_count": 0, "upsert_count": 0, "delete_count": 0},
+                "input": input,
+                "verification": {
+                    "run_id": format!("rebase-{label}"), "reason": "planted", "method": "full",
+                    "served_objects_read": served_objects, "equal": served_objects,
+                    "changed": 0, "only_served": 0, "only_gold": 0,
+                },
+            }))?,
+        )?;
+        Ok((summary, upsert_path, delete_path))
+    }
+}
+
+/// A verified re-base compared one served state: a change set over another base or another patch
+/// list than the manifest serves is refused, even when its snapshots match.
+#[tokio::test]
+async fn a_rebase_over_another_served_base_or_patch_list_is_refused() -> anyhow::Result<()> {
+    let fx = fixture(ByPnuLane::Parcel, "rebase-state").await?;
+    let base = fx.base(&[PNU_A]).await?;
+    let before = fx.live().await?;
+    for (label, generation, patches, said) in [
+        (
+            "other-base",
+            Some(2),
+            Some(&[][..]),
+            "compared against generation",
+        ),
+        (
+            "other-patches",
+            Some(3),
+            Some(&[1][..]),
+            "compared against generation",
+        ),
+        ("no-base", None, Some(&[][..]), "names no served base"),
+        ("no-patches", Some(3), None, "names no served base"),
+    ] {
+        let files = fx.rebase_change_set(label, base.object_count, generation, patches)?;
+        let error = fx
+            .publish(fx.patch_input(None, NEXT_SNAPSHOT, files), false)
+            .await
+            .err()
+            .with_context(|| format!("{label}: a re-base of another served state was published"))?;
+        assert!(format!("{error:#}").contains(said), "{label}: {error:#}");
+        assert_eq!(fx.live().await?, before, "{label}: the manifest moved");
+    }
+    let files = fx.rebase_change_set("same", base.object_count, Some(3), Some(&[]))?;
+    let manifest = fx
+        .publish(fx.patch_input(None, NEXT_SNAPSHOT, files), false)
+        .await?;
+    assert_eq!(manifest.reflected_gold_iceberg_snapshot_id, NEXT_SNAPSHOT);
+    Ok(())
+}

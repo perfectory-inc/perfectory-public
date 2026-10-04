@@ -523,3 +523,35 @@ async fn a_conflicting_tag_commit_is_an_error() -> Result<(), Box<dyn Error>> {
     assert!(error.to_string().contains("conflicted"), "{error}");
     Ok(())
 }
+
+/// A token that may only read the catalog cannot pin: the refusal names the missing permission
+/// instead of a bare status (root ADR-0146 §2).
+#[tokio::test]
+async fn a_read_only_token_is_refused_naming_catalog_write() -> Result<(), Box<dyn Error>> {
+    for status in [401, 403] {
+        let server = MockServer::start().await;
+        mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+        mount_gold(
+            &server,
+            serde_json::json!({"main": {"snapshot-id": OTHER, "type": "branch"}}),
+        )
+        .await;
+        Mock::given(method("POST"))
+            .and(path(GOLD_PATH))
+            .respond_with(ResponseTemplate::new(status))
+            .mount(&server)
+            .await;
+
+        let catalog = IcebergRestCatalog::new(config(&server))?;
+        let error = catalog
+            .create_tag("gold.parcel_panel", "served-parcel-by-pnu-1", TAGGED)
+            .await
+            .err()
+            .ok_or_else(|| std::io::Error::other("a refused commit was reported as a tag"))?;
+        assert!(
+            error.to_string().contains("catalog write permission"),
+            "{status}: {error}"
+        );
+    }
+    Ok(())
+}

@@ -110,6 +110,18 @@ elif command.startswith("verify-"):
     # The verified re-base (root ADR-0146 §1): reads every served object, writes a change set.
     work = os.environ[prefix_env + "REBASE_WORK_DIR"]
     os.makedirs(work, exist_ok=True)
+    # Like the real one, a work directory belongs to one run over one served state.
+    newest, count = int(os.environ.get("FAKE_NEWEST_PATCH", "0")), int(os.environ.get("FAKE_PATCH_COUNT", "0"))
+    state = {"run_id": os.environ[prefix_env + "REBASE_RUN_ID"],
+             "reflected_gold_iceberg_snapshot_id": os.environ.get("FAKE_REFLECTED", os.environ["FAKE_PUBLISHED_SNAPSHOT"]),
+             "base_generation": int(os.environ["FAKE_PUBLISHED_GENERATION"]),
+             "patches": [newest - n for n in range(count)]}
+    state_path = os.path.join(work, "state.json")
+    if os.path.exists(state_path):
+        if json.load(open(state_path)) != state:
+            sys.exit(f"Error: {work} holds another run's work; a re-base resumes only its own run")
+    else:
+        json.dump(state, open(state_path, "w"))
     if os.environ.get("FAKE_REBASE_FAIL"):
         sys.exit("Error: " + os.environ["FAKE_REBASE_FAIL"])
     upserts = json.loads(os.environ.get("FAKE_REBASE_UPSERTS", "[]"))
@@ -665,6 +677,42 @@ class ByPnuServingBake(unittest.TestCase):
         [verify] = [call for call in calls if call["command"].startswith("verify-")]
         self.assertEqual(verify["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_REBASE_RUN_ID"], first_id,
                          "the rerun started another re-base instead of resuming its own")
+
+    def test_a_rebase_left_over_another_served_state_is_kept_aside_and_a_new_one_starts(self):
+        result, _ = self.patch_bake(FAKE_REBASE_FAIL="served object v1/x.json could not be read in 3 attempts",
+                                    **self.REBASE)
+        self.assertNotEqual(result.returncode, 0)
+        work = self.state_root / "parcel/runs/202-rebase"
+        first_id = (work / "run-id").read_text().strip()
+        # The manifest moved since (a patch published, or a rollback): the old work can never resume.
+        self.log.unlink()
+        moved = dict(FAKE_NEWEST_PATCH="1", FAKE_PATCH_COUNT="1", FAKE_PATCHES_LISTED="[1]")
+        result, calls = self.patch_bake(**moved, **self.REBASE)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("compared another served state", result.stdout)
+        [verify] = [call for call in calls if call["command"].startswith("verify-")]
+        self.assertNotEqual(verify["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_REBASE_RUN_ID"], first_id)
+        [kept] = (self.state_root / "parcel/superseded").iterdir()
+        self.assertEqual((kept / "run-id").read_text().strip(), first_id, "the old work was not kept")
+        # The same served state again resumes the new run, and moves nothing aside.
+        self.log.unlink()
+        result, _ = self.patch_bake(**moved, **self.REBASE)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("compared another served state", result.stdout)
+        self.assertEqual(len(list((self.state_root / "parcel/superseded").iterdir())), 1)
+
+    def test_one_run_of_a_lane_at_a_time(self):
+        import fcntl
+        lock = self.state_root / "parcel/lane.lock"
+        lock.parent.mkdir(parents=True)
+        with open(lock, "a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result, calls = self.patch_bake()
+        self.assertEqual(result.returncode, 75, result.stdout)
+        self.assertIn("another run of the parcel lane", result.stdout)
+        self.assertEqual(calls, [], "a second run of the lane went ahead")
+        result, calls = self.patch_bake()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
 
     def test_a_verified_rebase_over_half_the_table_is_not_a_delta(self):
         result, calls = self.patch_bake(FAKE_REBASE_FAIL="900 of 1000 PNUs differ: not a delta", **self.REBASE)

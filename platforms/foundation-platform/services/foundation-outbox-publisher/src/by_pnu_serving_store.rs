@@ -39,7 +39,33 @@ pub(crate) struct ByPnuServingStore {
     /// write (tests only).
     #[cfg(test)]
     race_before_manifest_write: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    /// Stands in for a manifest write whose answer was lost after the store accepted it: the
+    /// write lands, and the call still fails (tests only).
+    #[cfg(test)]
+    fail_after_manifest_write: bool,
 }
+
+/// The manifest write lost its compare-and-swap: another publish moved the manifest after this
+/// one read it, and nothing was written. Every other write failure leaves it unknown whether the
+/// write landed.
+#[derive(Debug)]
+pub(crate) struct ManifestMoved {
+    key: String,
+    found: &'static str,
+}
+
+impl std::fmt::Display for ManifestMoved {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the serving manifest {} changed while this publish ran ({}); another publish moved \
+             it. Nothing was written — rerun against the manifest now served",
+            self.key, self.found
+        )
+    }
+}
+
+impl std::error::Error for ManifestMoved {}
 
 #[derive(Clone)]
 enum Backend {
@@ -76,7 +102,16 @@ impl ByPnuServingStore {
             backend,
             #[cfg(test)]
             race_before_manifest_write: None,
+            #[cfg(test)]
+            fail_after_manifest_write: false,
         })
+    }
+
+    /// Makes every manifest write land and then fail, as a lost answer would (tests only).
+    #[cfg(test)]
+    pub(crate) fn with_failure_after_manifest_write(mut self) -> Self {
+        self.fail_after_manifest_write = true;
+        self
     }
 
     /// Runs `race` right before every manifest write, as another writer would (tests only).
@@ -407,12 +442,22 @@ impl ByPnuServingStore {
             },
             sha256: Some(sha256.to_owned()),
         };
-        let lost = |found: &str| {
-            anyhow::anyhow!(
-                "the serving manifest {key} changed while this publish ran ({found}); another \
-                 publish moved it. Nothing was written — rerun against the manifest now served"
-            )
+        let lost = |found: &'static str| {
+            anyhow::Error::new(ManifestMoved {
+                key: key.to_owned(),
+                found,
+            })
         };
+        #[cfg(test)]
+        if self.fail_after_manifest_write {
+            let written = match &self.backend {
+                Backend::Local(storage, _) => storage.put_object(request).await,
+                Backend::R2(..) => Ok(()),
+            };
+            return written
+                .map_err(anyhow::Error::from)
+                .and_then(|()| Err(anyhow::anyhow!("connection reset after the write was sent")));
+        }
         let Some(expected) = expected else {
             return match self.put(request).await {
                 Ok(()) => Ok(()),

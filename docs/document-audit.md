@@ -185,7 +185,7 @@
 | `docs/reference/README.md` | Monorepo | README | current | korean | ok | 1 |
 | `docs/roadmap/foundation-baseline.md` | Monorepo | roadmap | current | korean | ok | 2 |
 | `docs/roadmap/foundation-goals.md` | Monorepo | roadmap | current | korean | ok | 6 |
-| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 22 |
+| `docs/roadmap/production-readiness.md` | Monorepo | roadmap | current | korean | ok | 23 |
 | `docs/roadmap/README.md` | Monorepo | README | current | korean | ok | 0 |
 | `docs/technology-stack.md` | Monorepo | documentation | current | mixed | ok | 8 |
 | `platforms/foundation-platform/AGENTS.md` | Foundation Platform | agent rules | current | mixed | not applicable: agent router | 2 |

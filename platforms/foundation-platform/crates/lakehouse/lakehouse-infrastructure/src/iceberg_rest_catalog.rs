@@ -520,15 +520,17 @@ impl IcebergRestCatalog {
         if status.is_success() {
             return Ok(());
         }
-        Err(LakehouseError::Upstream(
-            if status == StatusCode::CONFLICT {
-                format!(
-                    "Iceberg REST commit to {table_name} conflicted: a requirement no longer holds"
-                )
-            } else {
-                format!("Iceberg REST commit to {table_name} failed with status {status}")
-            },
-        ))
+        Err(LakehouseError::Upstream(match status {
+            StatusCode::CONFLICT => format!(
+                "Iceberg REST commit to {table_name} conflicted: a requirement no longer holds"
+            ),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => format!(
+                "Iceberg REST commit to {table_name} was refused with status {status}: the catalog \
+                 token may read the catalog but not commit to it. Pinning a snapshot with a tag \
+                 is a table commit and needs a token with catalog write permission"
+            ),
+            _ => format!("Iceberg REST commit to {table_name} failed with status {status}"),
+        }))
     }
 
     async fn load_table_response(

@@ -617,7 +617,8 @@ where
     }
     ensure!(
         verdicts.totals.served_objects_read == u64::try_from(objects.len())?,
-        "shard {prefix} read {} served objects but its served view holds {}; the comparison is          incomplete",
+        "shard {prefix} read {} served objects but its served view holds {}; the comparison is \
+         incomplete",
         verdicts.totals.served_objects_read,
         objects.len()
     );
@@ -786,7 +787,8 @@ where
     }
     Err(last_error.unwrap_or_else(|| anyhow::anyhow!("no read was attempted"))).with_context(|| {
         format!(
-            "served object {} could not be read in {READ_ATTEMPTS} attempts; the comparison is              incomplete and nothing is published",
+            "served object {} could not be read in {READ_ATTEMPTS} attempts; the comparison is \
+             incomplete and nothing is published",
             object.key()
         )
     })

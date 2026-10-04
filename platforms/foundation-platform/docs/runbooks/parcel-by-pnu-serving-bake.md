@@ -304,14 +304,37 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
      (문서 스키마 변경, 패치 한도) 재기준은 거부된다.
    - 작업 디렉터리는 `runs/<Gold 스냅숏>-rebase/` 다. `run-id` 가 첫 실행에 생기고, 다시 실행하면 같은 run id 로
      끝난 샤드·묶음을 건너뛴다. 다른 run id 의 작업 디렉터리는 거부된다.
+   - 작업 디렉터리가 지금과 다른 서빙 상태(반영 스냅숏·기본 세대·패치 목록)를 비교한 것이면(그 사이 패치가 발행됐거나
+     되돌리기가 있었다) 이어 할 수 없다. 굽기가 그 디렉터리를 `superseded/<이름>-<시각>/` 로 옮겨 두고(지우지 않는다)
+     로그에 `compared another served state` 를 남긴 뒤 새 run id 로 시작한다.
    - 읽기 실패 하나, 목록 개수 ≠ manifest, 응답 PNU 수 ≠ `object_count`, 판정 합 ≠ Gold 행 수 가운데 하나라도 있으면
      변경 집합을 쓰지 않고 `refused: verified_rebase_incomplete` 로 끝난다.
 3. 발행된 manifest 의 `verified_rebase` 에 run id·이유·읽은 수·판정 수가 남는다. 다음 발행이 그 manifest 를
    `manifest-history/` 로 옮긴다.
 
-모든 발행은 manifest 가 반영하는 Gold 스냅숏에 Iceberg 태그 `served-<unit>-<발행시각>-<스냅숏>` 을 달고, 새 manifest
-가 살아난 뒤에 같은 레인의 이전 태그를 푼다. 태그를 달 수 없으면 발행은 거부된다(되돌리기만 경고 후 진행). 태그
-확인(읽기 전용): 카탈로그 `loadTable` 응답의 `metadata.refs` 에 `served-parcel-by-pnu-…` 가 하나 있어야 한다.
+모든 발행은 manifest 가 반영하는 Gold 스냅숏에 Iceberg 태그 `served-<unit>-<발행시각>-<스냅숏>-<발행 id>` 를 단다.
+발행 id 는 발행마다 새로 만드는 UUID v7 이라, 같은 스냅숏을 같은 초에 두 번 발행해도 이름이 겹치지 않는다. manifest
+는 자기 태그를 `reflected_gold_snapshot_tag` 에 적는다.
+
+- 새 manifest 가 살아난 뒤, **지금 살아 있는 manifest 가 적은 태그보다 오래된** 같은 레인의 태그만 푼다. 더 새 태그는
+  아직 manifest 를 쓰지 않은 다른 발행의 것이라 남긴다.
+- manifest 쓰기가 실패하면 manifest 를 다시 읽는다. 실제로는 써졌으면(응답만 잃음) 태그를 남기고 발행을 성공으로
+  끝낸다. 비교 교환에서 졌다고 확인됐고 살아 있는 manifest 가 이 스냅숏을 반영하지 않을 때만 새 태그를 푼다. 그 밖의
+  애매한 경우는 태그를 남긴다(스냅숏을 다음 발행까지 더 살려 둘 뿐이다).
+- 태그를 달 수 없으면 발행은 거부된다(되돌리기만 경고 후 진행).
+- 레인 실행은 한 번에 하나다. 굽기는 `/data/foundation-platform/by-pnu-bake/<레인>/lane.lock` 을 기다리지 않고
+  잡으며(`flock -n`), 이미 잡혀 있으면 75 로 끝난다. 손으로 발행하거나 되돌릴 때도 같은 잠금 아래에서 돌린다:
+  `flock -n /data/foundation-platform/by-pnu-bake/parcel/lane.lock <발행 명령>`.
+
+태그 확인(읽기 전용): 카탈로그 `loadTable` 응답의 `metadata.refs` 에 `served-parcel-by-pnu-…` 가 살아 있는 manifest 의
+`reflected_gold_snapshot_tag` 와 같은 이름으로 있어야 한다.
+
+**토큰.** 태그를 다는 것은 Iceberg 표 커밋이라 `FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN` 에 카탈로그 **쓰기** 권한이
+있어야 한다. 굽기 단위는 이 값을 `map-edit-fold.env`(카탈로그와 R2 lakehouse writer)에서 받는다. 2026-10-04 기준 선언된
+범위는 어드민 범위(읽기·쓰기) 카탈로그 토큰이다([운영 준비 문서](../../../../docs/roadmap/production-readiness.md)의
+"운영 레이크하우스 자격증명" 절; 같은 변수로 Gold 재생성이 스냅숏을 커밋한다). 쓰기와 읽기 토큰을 나누게 되면 이 발행에는
+쓰기 토큰을 준다. 읽기 전용 토큰이면 발행은 manifest 를 움직이기 전에 `needs a token with catalog write permission` 으로
+거부된다.
 
 - 2026-10-04 기준 Gold 에는 스냅숏 만료가 걸려 있지 않다. 이 저장소의 만료(`lakehouse_maintenance.py`)는 Silver 적재
   뒤에만 돈다. Gold 로 넓히거나 R2 관리형 만료를 켜기 전에, 관리형 만료가 태그를 존중하는지 먼저 확인한다(문서에
@@ -328,6 +351,9 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 전국(39,861,511 객체) 추정, 동시성 256(`FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY=256` 을 같은 환경 파일에):
 
 - Gold 스캔: 첫 자리 샤드 10개 × 약 6분 ≈ 1시간(굽기가 없을 때의 측정 155초면 약 26분).
+  **알려진 비용(고치지 않았다):** 샤드마다 Gold 표 전체를 읽어 디코드한 뒤 그 샤드의 PNU 만 남긴다. 그래서 전국
+  재기준은 Gold 를 10번(첫 자리 샤드 수만큼) 통째로 디코드한다. 줄이려면 파일 단위 PNU 범위로 데이터 파일을 거르는
+  스캔이 필요하다.
 - 목록: 키 약 3,986만 개 = List 요청(Class A) 약 4만 회. 하위 접두사 4개씩 나란히 나열해 약 1.5시간, 직렬 속도로 잡으면
   약 5.5시간.
 - 읽기: GET(Class B) 39,861,511 회. 약 965개/초로 약 11.5시간(동시성 128 이면 약 25시간).

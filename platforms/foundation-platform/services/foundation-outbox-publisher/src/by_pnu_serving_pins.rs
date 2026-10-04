@@ -6,12 +6,18 @@
 //! publish tags the snapshot its manifest reflects, and Iceberg's expiry keeps every snapshot a
 //! live tag names.
 //!
-//! - The tag is named after the manifest it pins: `served-{unit}-{published_at}-{snapshot}`. A
-//!   name always means one snapshot and a tag is never moved, so a failed publish cannot unpin
-//!   the live manifest.
-//! - The tag is created before the manifest is written. When the write fails, the new tag is
-//!   released again; when it succeeds, every other `served-{unit}-` tag is released. A failed
-//!   release leaves an extra pin, which is the safe direction; the next publish releases it.
+//! - The tag is named after the publish that made it:
+//!   `served-{unit}-{published_at}-{snapshot}-{publish_id}`. The publish id is a fresh UUID v7, so
+//!   two publishes never share a name, even of one snapshot in one second, and a tag is never
+//!   moved. The manifest records its tag (`reflected_gold_snapshot_tag`).
+//! - The tag is created before the manifest is written. Once the manifest is live, the lane's
+//!   tags older than the one the live manifest names are released; a newer tag belongs to a
+//!   publish still running and stays. When the write fails, the manifest is read again: a write
+//!   that landed keeps its pin, and only a confirmed lost compare-and-swap, with a live manifest
+//!   that does not reflect this snapshot, releases the new tag. Anything unclear leaves an extra
+//!   pin, which is the safe direction; the next publish releases it.
+//! - Creating a tag is an Iceberg table commit, so the catalog token must be allowed to write
+//!   the catalog; a token that may only read is refused naming that permission.
 //! - The production pins are tags in the Iceberg catalog. A local rehearsal store keeps the same
 //!   tags in a file beside its objects, so a rehearsal never touches the catalog.
 
@@ -21,6 +27,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{ensure, Context};
 use chrono::{DateTime, Utc};
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
+use uuid::Uuid;
 
 use crate::by_pnu_gateway_contract::ByPnuLane;
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
@@ -41,21 +48,37 @@ pub(crate) fn tag_prefix(lane: ByPnuLane) -> String {
     format!("served-{}-", lane.unit())
 }
 
-/// The pin of the manifest published at `published_at_utc` (RFC 3339) reflecting `snapshot`.
-/// Two manifests published in the same second share a name only when they pin the same snapshot.
+/// The pin a publish at `published_at_utc` (RFC 3339) makes of `snapshot`, under `publish_id`.
 ///
 /// # Errors
-/// Refuses a timestamp that is not RFC 3339.
+/// Refuses a timestamp that is not RFC 3339 and a publish id that is not a UUID v7.
 pub(crate) fn tag_name(
     lane: ByPnuLane,
     published_at_utc: &str,
     snapshot: i64,
+    publish_id: Uuid,
 ) -> anyhow::Result<String> {
+    ensure!(
+        publish_id.get_version_num() == 7,
+        "a pin's publish id must be a UUID v7 (time-ordered), got {publish_id}"
+    );
     let published = DateTime::parse_from_rfc3339(published_at_utc)
         .with_context(|| format!("published_at_utc {published_at_utc:?} is not RFC 3339"))?
         .with_timezone(&Utc)
         .format("%Y%m%dT%H%M%SZ");
-    Ok(format!("{}{published}-{snapshot}", tag_prefix(lane)))
+    Ok(format!(
+        "{}{published}-{snapshot}-{}",
+        tag_prefix(lane),
+        publish_id.simple()
+    ))
+}
+
+/// Where a pin of `lane` stands in publish order: its publish id, a UUID v7, which orders by the
+/// time the pin was made. `None` for a name this lane's publish did not make.
+pub(crate) fn tag_order(lane: ByPnuLane, name: &str) -> Option<Uuid> {
+    let rest = name.strip_prefix(&tag_prefix(lane))?;
+    let id = Uuid::try_parse(rest.rsplit('-').next()?).ok()?;
+    (id.get_version_num() == 7).then_some(id)
 }
 
 impl SnapshotPins {
@@ -163,7 +186,8 @@ impl SnapshotPins {
     }
 }
 
-/// Pins `snapshot` of `table` for the manifest published at `published_at_utc`; returns the tag.
+/// Pins `snapshot` of `table` for the manifest published at `published_at_utc`, under a new
+/// publish id; returns the tag.
 ///
 /// # Errors
 /// Refuses a snapshot id that is not a number and any refusal of [`SnapshotPins::create`]; the
@@ -176,7 +200,7 @@ pub(crate) async fn pin(
     published_at_utc: &str,
 ) -> anyhow::Result<String> {
     let snapshot = parse_snapshot(snapshot)?;
-    let tag = tag_name(lane, published_at_utc, snapshot)?;
+    let tag = tag_name(lane, published_at_utc, snapshot, Uuid::now_v7())?;
     pins.create(table, &tag, snapshot).await.with_context(|| {
         format!("could not pin Gold snapshot {snapshot} of {table} as {tag}; the manifest stays")
     })?;
@@ -184,15 +208,24 @@ pub(crate) async fn pin(
     Ok(tag)
 }
 
-/// Releases every pin of `lane` on `table` except `keep`, once the manifest `keep` pins is live.
-/// Returns the released tags. A tag that cannot be released stays; it only keeps a snapshot alive
-/// longer, and the next publish releases it.
-pub(crate) async fn release_others(
+/// Releases every pin of `lane` on `table` older than `live`, the tag the live manifest names.
+/// Returns the released tags. A newer tag is a publish still running and stays, and so does a
+/// tag whose order cannot be read. A tag that cannot be released stays too; it only keeps a
+/// snapshot alive longer, and the next publish releases it.
+pub(crate) async fn release_older(
     pins: &SnapshotPins,
     lane: ByPnuLane,
     table: &str,
-    keep: &str,
+    live: &str,
 ) -> Vec<String> {
+    let Some(live_order) = tag_order(lane, live) else {
+        tracing::warn!(
+            table,
+            live,
+            "the live manifest's pin is not one this lane made; nothing is released"
+        );
+        return Vec::new();
+    };
     let tags = match pins.tags(table, &tag_prefix(lane)).await {
         Ok(tags) => tags,
         Err(error) => {
@@ -201,7 +234,10 @@ pub(crate) async fn release_others(
         }
     };
     let mut released = Vec::new();
-    for (name, snapshot) in tags.into_iter().filter(|(name, _)| name != keep) {
+    for (name, snapshot) in tags {
+        if tag_order(lane, &name).is_none_or(|order| order >= live_order) {
+            continue;
+        }
         match pins.remove(table, &name, snapshot).await {
             Ok(()) => released.push(name),
             Err(error) => tracing::warn!(
@@ -243,10 +279,12 @@ fn write_local(path: &Path, tags: &LocalTags) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{pin, release_others, tag_name, SnapshotPins};
+    use super::{pin, release_older, tag_name, tag_order, SnapshotPins};
     use crate::by_pnu_gateway_contract::ByPnuLane;
+    use uuid::Uuid;
 
     const TABLE: &str = "gold.parcel_panel";
+    const SNAPSHOT: &str = "999990000000000001";
 
     fn pins(label: &str) -> (SnapshotPins, std::path::PathBuf) {
         let root = std::env::temp_dir().join(format!(
@@ -258,65 +296,75 @@ mod tests {
     }
 
     #[test]
-    fn a_tag_names_its_lane_and_the_manifest_it_pins() -> anyhow::Result<()> {
+    fn a_tag_names_its_lane_its_manifest_and_its_publish() -> anyhow::Result<()> {
+        let id = Uuid::now_v7();
+        let name = tag_name(ByPnuLane::Parcel, "2026-01-02T03:04:05Z", 7, id)?;
         assert_eq!(
-            tag_name(ByPnuLane::Parcel, "2026-01-02T03:04:05Z", 7)?,
-            "served-parcel-by-pnu-20260102T030405Z-7"
+            name,
+            format!("served-parcel-by-pnu-20260102T030405Z-7-{}", id.simple())
         );
-        assert!(tag_name(ByPnuLane::Parcel, "yesterday", 7).is_err());
+        assert_eq!(tag_order(ByPnuLane::Parcel, &name), Some(id));
+        assert_eq!(tag_order(ByPnuLane::Building, &name), None);
+        assert!(tag_name(ByPnuLane::Parcel, "yesterday", 7, id).is_err());
+        assert!(
+            tag_name(ByPnuLane::Parcel, "2026-01-02T03:04:05Z", 7, Uuid::new_v4()).is_err(),
+            "a publish id that is not time-ordered was accepted"
+        );
         Ok(())
     }
 
+    /// Two publishes of one snapshot in one second get two pins: the one that loses can never
+    /// release the winner's by name.
     #[tokio::test]
-    async fn a_local_pin_is_never_moved_and_release_keeps_the_live_one() -> anyhow::Result<()> {
-        let (pins, root) = pins("local");
-        let first = pin(
-            &pins,
-            ByPnuLane::Parcel,
-            TABLE,
-            "999990000000000001",
-            "2026-01-01T00:00:00Z",
-        )
-        .await?;
+    async fn two_publishes_of_one_snapshot_in_one_second_get_two_pins() -> anyhow::Result<()> {
+        let (pins, root) = pins("same-second");
+        let at = "2026-01-01T00:00:00Z";
+        let first = pin(&pins, ByPnuLane::Parcel, TABLE, SNAPSHOT, at).await?;
+        let second = pin(&pins, ByPnuLane::Parcel, TABLE, SNAPSHOT, at).await?;
+        let left = pins.tags(TABLE, "").await?;
+        std::fs::remove_dir_all(&root)?;
+        assert_ne!(first, second);
+        assert_eq!(left.len(), 2);
+        Ok(())
+    }
+
+    /// The live manifest's pin and every newer one stay: a newer pin is a publish that has not
+    /// written its manifest yet, and releasing it would leave that manifest unpinned.
+    #[tokio::test]
+    async fn release_keeps_the_live_pin_and_every_newer_one() -> anyhow::Result<()> {
+        let (pins, root) = pins("ordered");
+        let at = "2026-01-01T00:00:00Z";
+        let older = pin(&pins, ByPnuLane::Parcel, TABLE, "999990000000000001", at).await?;
+        let live = pin(&pins, ByPnuLane::Parcel, TABLE, "999990000000000002", at).await?;
+        let running = pin(&pins, ByPnuLane::Parcel, TABLE, "999990000000000003", at).await?;
         // A re-run is the same pin; another snapshot under a taken name is refused.
-        pin(
-            &pins,
-            ByPnuLane::Parcel,
-            TABLE,
-            "999990000000000001",
-            "2026-01-01T00:00:00Z",
-        )
-        .await?;
+        pins.create(TABLE, &live, 999_990_000_000_000_002).await?;
         assert!(pins
-            .create(TABLE, &first, 999_990_000_000_000_002)
+            .create(TABLE, &live, 999_990_000_000_000_009)
             .await
             .is_err());
-        let second = pin(
-            &pins,
-            ByPnuLane::Parcel,
-            TABLE,
-            "999990000000000002",
-            "2026-01-02T00:00:00Z",
-        )
-        .await?;
-        // Another lane's pin and a hand-made tag are not this lane's to release.
-        pins.create(TABLE, "served-building-by-pnu-20260101T000000Z", 7)
+        // Another lane's pin, a hand-made tag and a lane-prefixed name without a publish id are
+        // not this publish's to release.
+        pins.create(TABLE, "served-building-by-pnu-20260101T000000Z-7", 7)
             .await?;
         pins.create(TABLE, "audit-2026", 7).await?;
+        pins.create(TABLE, "served-parcel-by-pnu-by-hand", 7)
+            .await?;
 
-        let released = release_others(&pins, ByPnuLane::Parcel, TABLE, &second).await;
+        let released = release_older(&pins, ByPnuLane::Parcel, TABLE, &live).await;
         let left = pins.tags(TABLE, "").await?;
         std::fs::remove_dir_all(&root)?;
 
-        assert_eq!(released, vec![first]);
-        assert_eq!(
-            left.keys().cloned().collect::<Vec<_>>(),
-            vec![
-                "audit-2026".to_owned(),
-                "served-building-by-pnu-20260101T000000Z".to_owned(),
-                second,
-            ]
-        );
+        assert_eq!(released, vec![older]);
+        let mut expected = vec![
+            "audit-2026".to_owned(),
+            "served-building-by-pnu-20260101T000000Z-7".to_owned(),
+            "served-parcel-by-pnu-by-hand".to_owned(),
+            live,
+            running,
+        ];
+        expected.sort();
+        assert_eq!(left.keys().cloned().collect::<Vec<_>>(), expected);
         Ok(())
     }
 }
