@@ -12,23 +12,23 @@ pub(crate) fn golden_dir() -> anyhow::Result<std::path::PathBuf> {
         .join("../foundation-building-gateway/test/fixtures/section-packs"))
 }
 
-/// Compares `bytes` with the golden file `name`, or writes it when
-/// `FOUNDATION_PLATFORM_UPDATE_GOLDEN=1` (then review the diff and commit it).
+/// Compares `bytes` with the golden file `name`. On a difference the test fails and leaves what
+/// the writer writes now beside the system temp directory's `section-pack-golden/`, to review and
+/// copy over the golden file deliberately.
 pub(crate) fn assert_golden(name: &str, bytes: &[u8]) -> anyhow::Result<()> {
     let path = golden_dir()?.join(name);
-    if std::env::var("FOUNDATION_PLATFORM_UPDATE_GOLDEN").as_deref() == Ok("1") {
-        std::fs::create_dir_all(golden_dir()?)?;
-        std::fs::write(&path, bytes)?;
-        return Ok(());
+    let golden = std::fs::read(&path).unwrap_or_default();
+    if golden != bytes {
+        let actual = std::env::temp_dir().join("section-pack-golden");
+        std::fs::create_dir_all(&actual)?;
+        std::fs::write(actual.join(name), bytes)?;
+        anyhow::bail!(
+            "{} drifted from what the writer writes now (written to {}): the pack format or the \
+             gzip output changed; a format change is a new format_version (root ADR-0147 §2)",
+            path.display(),
+            actual.join(name).display()
+        );
     }
-    let golden =
-        std::fs::read(&path).with_context(|| format!("golden {} is missing", path.display()))?;
-    ensure!(
-        golden == bytes,
-        "{} drifted from what the writer writes now: the pack format or the gzip output changed; \
-         a format change is a new format_version (root ADR-0147 §2)",
-        path.display()
-    );
     Ok(())
 }
 
