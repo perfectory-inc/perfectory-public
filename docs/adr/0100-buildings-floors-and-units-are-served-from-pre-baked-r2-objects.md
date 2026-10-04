@@ -65,3 +65,7 @@ Gold 칼럼·문서 DTO·지문·파이프라인 그래프를 같은 변경에�
   `get`의 부재·조건부 응답과 `httpEtag`를 재사용한다.
 - [Workers Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/):
   객체·manifest 캐시는 HTTP 캐시 정책과 플랫폼 Cache API로 구현한다.
+
+## 개정 기록
+
+- 2026-10-04: PNU 하나당 R2 객체 하나로 서빙하는 결정은 [ADR-0147](./0147-by-pnu-documents-are-served-from-section-packs.md) 이 대체했다. 문서는 항목별·법정동별 묶음 파일(머리+색인+본문)로 서빙하고, 응답 JSON 은 같다. 위 결정 본문은 고치지 않았다.
