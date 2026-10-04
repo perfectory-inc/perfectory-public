@@ -196,7 +196,7 @@ impl BaselineComparison {
             )?
             .projection
             .baseline_comparison;
-        match (&comparison.required, &comparison.retired_by) {
+        match (comparison.required, comparison.retired_by.as_ref()) {
             (true, None) => {}
             (true, Some(_)) => bail!(
                 "code-go-kr-legal-dong.contract.json: projection.baseline_comparison names the run \
