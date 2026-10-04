@@ -214,6 +214,7 @@ async fn lane(label: &str, served: &[JsonMap<String, JsonValue>]) -> anyhow::Res
         published_at_utc: "2026-01-01T00:00:00Z".to_owned(),
         verified_rebase: None,
         reflected_gold_snapshot_tag: None,
+        section_packs: None,
     };
     let body = manifest.to_bytes()?;
     store

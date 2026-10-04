@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane, PNU_PREFIX_LENGTHS};
+use crate::by_pnu_section_pack_manifest::SectionPacksState;
 
 /// The manifest every publish writes.
 ///
@@ -57,6 +58,10 @@ pub(crate) struct ServingManifest {
     /// already expired.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) reflected_gold_snapshot_tag: Option<String>,
+    /// The section packs the lane serves from (root ADR-0147); absent while it serves objects.
+    /// The v2 fields above keep describing the object lane, so a v2-only reader still serves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) section_packs: Option<SectionPacksState>,
 }
 
 /// What a verified re-base compared and found (`verify-parcel-by-pnu-serving-rebase`).
@@ -113,6 +118,8 @@ pub(crate) struct ServedManifest {
     pub(crate) published_at_utc: String,
     /// The tag pinning the reflected snapshot; `None` for a v1 manifest or an unpinned one.
     pub(crate) reflected_gold_snapshot_tag: Option<String>,
+    /// The section packs block, when the lane serves from packs.
+    pub(crate) section_packs: Option<SectionPacksState>,
 }
 
 #[derive(Deserialize)]
@@ -157,6 +164,7 @@ impl ServedManifest {
                     object_count: v1.object_count,
                     published_at_utc: v1.published_at_utc,
                     reflected_gold_snapshot_tag: None,
+                    section_packs: None,
                 }
             }
             2 => {
@@ -177,6 +185,7 @@ impl ServedManifest {
                     object_count: v2.object_count,
                     published_at_utc: v2.published_at_utc,
                     reflected_gold_snapshot_tag: v2.reflected_gold_snapshot_tag,
+                    section_packs: v2.section_packs,
                 }
             }
             other => {
@@ -241,6 +250,9 @@ impl ServingManifest {
                 "patches must be listed newest first with distinct generations"
             );
         }
+        if let Some(packs) = &self.section_packs {
+            packs.check_readable()?;
+        }
         for patch in &self.patches {
             ensure!(patch.generation >= 1, "patch generation 0 does not exist");
             ensure!(
@@ -284,6 +296,11 @@ impl ServingManifest {
             self.pnu_prefix_length,
             policy.pnu_prefix_length
         );
+        if let Some(packs) = &self.section_packs {
+            let lane = ByPnuLane::from_unit(&self.unit)
+                .with_context(|| format!("{} is not a by-PNU lane", self.unit))?;
+            packs.check_writable(lane)?;
+        }
         Ok(())
     }
 
@@ -403,6 +420,7 @@ mod tests {
             published_at_utc: "2026-01-01T00:00:00Z".to_owned(),
             verified_rebase: None,
             reflected_gold_snapshot_tag: None,
+            section_packs: None,
         }
     }
 
@@ -533,6 +551,43 @@ mod tests {
         assert!(
             impossible.check_readable().is_err(),
             "a 20-digit prefix was read"
+        );
+        Ok(())
+    }
+
+    /// The section packs block rides in the v2 envelope (root ADR-0147): a reader that knows it
+    /// reads it, the v2 fields stay as they were, and a block a reader cannot trust refuses the
+    /// whole manifest instead of being dropped.
+    #[test]
+    fn a_v2_manifest_carrying_section_packs_is_read_with_its_block() -> anyhow::Result<()> {
+        let mut manifest = v2(vec![patch(1, &["99999"])]);
+        manifest.unit = "building-by-pnu".to_owned();
+        manifest.section_packs = Some(crate::by_pnu_section_pack_manifest::tests::state(4)?);
+        let bytes = manifest.to_bytes()?;
+        let read = ServedManifest::parse(ByPnuLane::Building, &bytes)?;
+        assert_eq!(read.wire_schema_version, 2);
+        assert_eq!(read.base_generation, 3);
+        assert_eq!(read.section_packs, manifest.section_packs);
+
+        // What a reader that predates the block sees: the same v2 manifest, block ignored.
+        let raw: JsonValue = serde_json::from_slice(&bytes)?;
+        assert_eq!(raw["schema_version"], 2);
+        let mut without = raw.clone();
+        without
+            .as_object_mut()
+            .context("manifest is an object")?
+            .remove("section_packs");
+        let old = ServedManifest::parse(ByPnuLane::Building, &serde_json::to_vec(&without)?)?;
+        assert_eq!(
+            (old.base_generation, old.patches),
+            (read.base_generation, read.patches)
+        );
+
+        let mut broken = raw;
+        broken["section_packs"]["schema_version"] = serde_json::json!(99);
+        assert!(
+            ServedManifest::parse(ByPnuLane::Building, &serde_json::to_vec(&broken)?).is_err(),
+            "an unreadable section_packs block was ignored"
         );
         Ok(())
     }

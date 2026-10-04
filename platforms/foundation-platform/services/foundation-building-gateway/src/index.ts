@@ -1,11 +1,15 @@
 import connectionContract from "../../../config/r2-connections.contract.json";
+import { parseSectionPacks, previewPlan, resolvePacks, type PackPlan } from "./packs";
 
 const policy = connectionContract.building_by_pnu_gateway;
 const patchPolicy = connectionContract.by_pnu_serving_patches;
+const packPolicy = connectionContract.by_pnu_section_packs;
+const lanePacks = policy.section_packs;
 const UNIT = "building-by-pnu";
-/// The manifest schemas this Worker resolves (root ADR-0141 §4). The publisher asks for this list
-/// at `request_path.capabilities` before it writes the first manifest of a newer schema.
-const MANIFEST_SCHEMA_VERSIONS = [1, 2] as const;
+/// The manifest schemas this Worker resolves (root ADR-0141 §4): the v1 and v2 envelopes, and 3,
+/// the `section_packs` block a v2 envelope can carry (root ADR-0147). The publisher asks for this
+/// list at `request_path.capabilities` before it writes the first manifest of a newer schema.
+const MANIFEST_SCHEMA_VERSIONS = [1, 2, packPolicy.manifest_section_packs_schema_version] as const;
 const pnuPattern = new RegExp(`^(?:${policy.object_key.pnu_pattern})$`);
 /// The prefix lengths a 19-digit PNU can have. A manifest declares its own; the contract's
 /// `pnu_prefix_length` and `max_patches` bind only the publisher writing the next manifest, so
@@ -34,16 +38,33 @@ interface ServingPlan {
   /// Names the served state in the per-PNU edge cache key, so a new patch or base never answers
   /// from a response cached under the previous one.
   fingerprint: string;
+  /// The section packs the lane serves from; absent while it serves objects (root ADR-0147).
+  packs?: PackPlan;
 }
 
-function canonicalPnu(url: URL): string | null {
-  // The exact schema query separates v2 browser/edge caches from year-only documents.
-  if (url.search !== "" && url.search !== "?schema=2") return null;
+/// A canonical request: the PNU, and the unpublished pack generation a preview asks for.
+interface CanonicalRequest {
+  pnu: string;
+  previewGeneration: number | null;
+}
+
+const previewPattern = new RegExp(`^\\?${packPolicy.preview_query_parameter}=g([1-9][0-9]{0,15})$`);
+
+function canonicalRequest(url: URL): CanonicalRequest | null {
+  // The exact schema query separates v2 browser/edge caches from year-only documents; the preview
+  // query names one unpublished pack generation (the cut-over gate's latency probe).
+  const preview = url.search.match(previewPattern);
+  if (url.search !== "" && url.search !== "?schema=2" && preview === null) return null;
   const prefix = policy.request_path.prefix;
   if (!url.pathname.startsWith(prefix)) return null;
   const candidate = url.pathname.slice(prefix.length);
   if (!pnuPattern.test(candidate)) return null;
-  return url.pathname === `${prefix}${candidate}` ? candidate : null;
+  if (url.pathname !== `${prefix}${candidate}`) return null;
+  return { pnu: candidate, previewGeneration: preview === null ? null : Number(preview[1]) };
+}
+
+function canonicalPnu(url: URL): string | null {
+  return canonicalRequest(url)?.pnu ?? null;
 }
 
 function parseAllowedOrigins(raw: string): ReadonlySet<string> | null {
@@ -150,12 +171,17 @@ function parseManifest(raw: unknown): ServingPlan | null {
     patches.push({ generation, prefixes: new Set(prefixes as string[]) });
   }
   const newest = patches[0];
-  return {
+  const plan: ServingPlan = {
     base: manifest.base_generation,
     prefixLength,
     patches,
     fingerprint: newest === undefined ? `v${manifest.base_generation}` : `v${manifest.base_generation}p${newest.generation}`,
   };
+  if (manifest.section_packs === undefined) return plan;
+  // A block this Worker cannot trust is an outage, never a silent fall back to objects.
+  const packs = parseSectionPacks(manifest.section_packs, patchPolicy.manifest_patch_ceiling);
+  if (packs === null) return null;
+  return { ...plan, packs, fingerprint: `${plan.fingerprint}-${packs.fingerprint}` };
 }
 
 async function resolvePlan(
@@ -188,7 +214,7 @@ async function resolvePlan(
 }
 
 /// The edge cache identity of one PNU's answer under one served state.
-function servingCacheUrl(requestUrl: string, plan: ServingPlan): string {
+function servingCacheUrl(requestUrl: string, plan: Pick<ServingPlan, "fingerprint">): string {
   const url = new URL(requestUrl);
   url.searchParams.set("serving", plan.fingerprint);
   return url.toString();
@@ -239,6 +265,76 @@ async function findObject(
   return object === null ? { kind: "absent" } : { kind: "object", object };
 }
 
+function digestHex(bytes: Uint8Array): Promise<string> {
+  return crypto.subtle.digest("SHA-256", bytes).then((digest) =>
+    [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+  );
+}
+
+function matchesEtag(request: Request, etag: string): boolean {
+  return (request.headers.get("If-None-Match") ?? "").split(",").some((entry) => {
+    const candidate = entry.trim();
+    return candidate === "*" || candidate.replace(/^W\//, "") === etag;
+  });
+}
+
+/// The joined document of a PNU from section packs (root ADR-0147 §3): the same JSON the object
+/// held, with the same headers, 404 semantics and edge caching under the served-state fingerprint.
+async function packResponse(
+  request: Request,
+  bucket: Pick<R2Bucket, "get">,
+  ctx: ExecutionContext,
+  plan: PackPlan,
+  pnu: string,
+  cacheUrl: string,
+  origin: string | null,
+  allowed: ReadonlySet<string>,
+): Promise<Response> {
+  let resolved;
+  try {
+    resolved = await resolvePacks(bucket, ctx, plan, pnu);
+  } catch {
+    return withCors(
+      new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }),
+      origin,
+      allowed,
+    );
+  }
+  if (resolved.kind === "absent") {
+    return withCors(
+      new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }),
+      origin,
+      allowed,
+    );
+  }
+  if (resolved.kind === "tombstone") {
+    return withCors(
+      new Response(`${JSON.stringify({ error: "deleted", pnu })}\n`, {
+        status: 404,
+        headers: { "Cache-Control": "no-store", "Content-Type": policy.content_type },
+      }),
+      origin,
+      allowed,
+    );
+  }
+  const bytes = new TextEncoder().encode(`${JSON.stringify(resolved.document, null, 2)}\n`);
+  const etag = `"${(await digestHex(bytes)).slice(0, 32)}"`;
+  const headers = new Headers({
+    "Cache-Control": policy.cache_control,
+    "Content-Length": bytes.byteLength.toString(),
+    "Content-Type": policy.content_type,
+    ETag: etag,
+    "X-Content-Type-Options": "nosniff",
+  });
+  if (request.method === "GET") {
+    ctx.waitUntil(caches.default.put(new Request(cacheUrl), new Response(bytes, { headers })));
+  }
+  if (matchesEtag(request, etag)) {
+    return withCors(new Response(null, { status: 304, headers }), origin, allowed);
+  }
+  return withCors(new Response(bytes, { status: 200, headers }), origin, allowed);
+}
+
 function capabilities(): Response {
   return new Response(
     `${JSON.stringify({ unit: UNIT, manifest_schema_versions: MANIFEST_SCHEMA_VERSIONS })}\n`,
@@ -265,8 +361,9 @@ async function fetchBuilding(
   ) {
     return capabilities();
   }
-  const pnu = canonicalPnu(url);
-  if (pnu === null) return new Response(null, { status: 404 });
+  const canonical = canonicalRequest(url);
+  if (canonical === null) return new Response(null, { status: 404 });
+  const { pnu, previewGeneration } = canonical;
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     return new Response(null, {
       status: 405,
@@ -315,7 +412,19 @@ async function fetchBuilding(
     );
   }
 
-  const cacheUrl = servingCacheUrl(request.url, plan);
+  // A preview names an unpublished pack generation: only a preview version (its binding set)
+  // serves one, and the live route serves a generation only when the manifest already names it.
+  let packs = plan.packs;
+  let fingerprint = plan.fingerprint;
+  if (previewGeneration !== null) {
+    if (env[lanePacks.preview_binding] === "true") {
+      packs = previewPlan(previewGeneration);
+      fingerprint = packs.fingerprint;
+    } else if (packs === undefined || !packs.sections.every((section) => section.generation === previewGeneration)) {
+      return withCors(new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }), origin, allowed);
+    }
+  }
+  const cacheUrl = servingCacheUrl(request.url, { fingerprint });
   if (request.method === "GET") {
     const ifNoneMatch = request.headers.get("If-None-Match");
     const cacheRequest =
@@ -324,6 +433,10 @@ async function fetchBuilding(
         : new Request(cacheUrl, { headers: { "If-None-Match": ifNoneMatch } });
     const cached = await caches.default.match(cacheRequest);
     if (cached !== undefined) return withCors(cached, origin, allowed);
+  }
+
+  if (packs !== undefined) {
+    return packResponse(request, bucket, ctx, packs, pnu, cacheUrl, origin, allowed);
   }
 
   let found: Found;
@@ -373,6 +486,7 @@ export default {
 
 export {
   canonicalPnu,
+  canonicalRequest,
   corsHeaders,
   fetchBuilding,
   MANIFEST_SCHEMA_VERSIONS,

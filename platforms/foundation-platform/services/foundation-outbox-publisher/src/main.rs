@@ -124,6 +124,8 @@ mod building_catalog_projection_load;
 mod building_unit_building_link_load;
 mod building_unit_catalog_projection_load;
 mod by_pnu_gateway_contract;
+mod by_pnu_pack;
+mod by_pnu_section_pack_manifest;
 mod by_pnu_serving_generations;
 mod by_pnu_serving_manifest;
 mod by_pnu_serving_manifest_publish;
@@ -258,6 +260,7 @@ enum Command {
     ExportIndustrialComplexSilverHandoff,
     ExportParcelByPnuServing,
     ExportBuildingByPnuServing,
+    BuildingSectionPacks(building_by_pnu_serving_export::section_packs::PackCommand),
     ExportParcelMarkerAnchorArtifacts,
     ExportVWorldCadastralSilverHandoff,
     ExportVWorldCadastralShapefileSilverHandoff,
@@ -495,6 +498,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(industrial_complex_silver_export::run())
         }
         Command::ExportBuildingByPnuServing => Box::pin(building_by_pnu_serving_export::run()),
+        Command::BuildingSectionPacks(command) => Box::pin(command.run()),
         Command::ExportParcelByPnuServing => Box::pin(parcel_by_pnu_serving_export::run()),
         Command::ShowParcelByPnuServingState => Box::pin(by_pnu_serving_state::run_parcel()),
         Command::ShowBuildingByPnuServingState => Box::pin(by_pnu_serving_state::run_building()),
@@ -1468,7 +1472,9 @@ where
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
         Some("wait-trino-ready") => Ok(Command::WaitTrinoReady),
-        Some(other) => bail!("unknown outbox-publisher command '{other}'"),
+        Some(other) => building_by_pnu_serving_export::section_packs::PackCommand::parse(other)
+            .map(Command::BuildingSectionPacks)
+            .with_context(|| format!("unknown outbox-publisher command '{other}'")),
     }
 }
 

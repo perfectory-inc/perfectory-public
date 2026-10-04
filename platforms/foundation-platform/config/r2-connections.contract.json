@@ -136,6 +136,30 @@
     "tombstone_schema_version": "foundation-platform.by_pnu_serving_tombstone.v1",
     "tombstone_max_bytes": 512
   },
+  "by_pnu_section_packs": {
+    "decision": "docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md",
+    "magic": "FPNUPACK",
+    "format_version": 1,
+    "manifest_section_packs_schema_version": 3,
+    "unit_prefix_length": 10,
+    "compression": "gzip",
+    "suffix": ".pack",
+    "generation_dir_pattern": "g[1-9][0-9]{0,17}",
+    "patch_dir_pattern": "p[1-9][0-9]{0,17}",
+    "content_type": "application/octet-stream",
+    "cache_control": "public, max-age=31536000, immutable",
+    "head_read_bytes": 65536,
+    "max_index_entries": 1000000,
+    "preview_query_parameter": "packs",
+    "cutover_gate": {
+      "evidence_schema_version": "foundation-platform.by_pnu_section_pack_gate_evidence.v1",
+      "latency_max_increase_ms": {
+        "p50": 50,
+        "p95": 50
+      },
+      "latency_sample_size": 500
+    }
+  },
   "building_by_pnu_gateway": {
     "worker_name": "foundation-building-gateway",
     "public_hostname": "buildings.perfectory.io",
@@ -176,7 +200,18 @@
     "content_type": "application/json; charset=utf-8",
     "cache_control": "public, max-age=3600",
     "manifest_cache_control": "no-cache, max-age=0",
-    "manifest_edge_cache_seconds": 60
+    "manifest_edge_cache_seconds": 60,
+    "section_packs": {
+      "root": "serving/buildings/packs",
+      "sections": [
+        "buildings",
+        "floors",
+        "units",
+        "unit_prices"
+      ],
+      "anchor_section": "buildings",
+      "preview_binding": "FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW"
+    }
   },
   "vector_tile_gateway": {
     "worker_name": "foundation-tile-gateway",
