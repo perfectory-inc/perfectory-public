@@ -140,6 +140,9 @@ Overture Maps 의 GeoParquet, Cloud Optimized GeoTIFF 도 같은 원리다.
      와 이력 포함)로 줄어든다.
    - 머리+색인은 중앙값 5.2KB, 95분위 28.6KB, 최대 472KB 다. 270개(1.4%)는 첫 범위 읽기(64KiB)를 넘어 차가운
      읽기에서 한 번 더 읽는다.
+   - 본문은 공개 경로 표본 1,959건에서 객체 바이트의 16.2%였다(문서당 항목 조각 gzip 합 약 1.0KB:
+     `buildings` 371B, `floors` 309B, `units` 224B, `unit_prices` 123B). 전량으로 옮기면 약 7.0GB 이고, 객체는
+     43.0GB 다.
    - 굽기 시간과 메모리는 운영 환경 파일을 읽어야 해서 아직 재지 않았다. 운영자가 `measure-building-section-packs.sh`
      로 전환 관문 전에 잰다.
 

@@ -105,7 +105,7 @@ fn the_writer_refuses_what_the_format_cannot_hold() -> anyhow::Result<()> {
     assert!(writer.push_document(PNU_A, b"{}").is_err(), "out of order");
     assert!(writer.push_document(PNU_B, b"{}").is_err(), "repeated");
     assert!(
-        writer.push_document("9999800000100000000", b"{}").is_err(),
+        writer.push_document("9999900001100000000", b"{}").is_err(),
         "another dong"
     );
     assert!(

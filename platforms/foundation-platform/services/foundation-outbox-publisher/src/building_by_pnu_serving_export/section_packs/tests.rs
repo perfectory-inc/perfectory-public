@@ -501,7 +501,10 @@ fn write_worker_golden(
             assert_golden(&name, &std::fs::read(lane.root.join(key))?)?;
         }
     }
+    // The served documents are kept as strings, exactly as the object lane served them; the
+    // marker names the fixture's namespace for scripts/guard/public-fixture-safety.py.
     let documents = json!({
+        "namespace": "synthetic: reserved 99999 PNUs, written by the section pack tests",
         "base": {
             PNU_A: String::from_utf8(object(&rows[0], SNAPSHOT)?)?,
             PNU_B: String::from_utf8(object(&rows[1], SNAPSHOT)?)?,
@@ -645,6 +648,35 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
     assert!(!evidence.verdict()?, "a different answer passed");
     assert!(prefix.starts_with('/'));
     let _ = std::fs::remove_dir_all(work);
+    Ok(())
+}
+
+/// The probe's sample comes from the anchor packs of the generation, every PNU at most once, and
+/// a generation too small for the asked size is refused rather than measured on fewer.
+#[tokio::test]
+async fn the_latency_sample_spreads_over_the_anchor_packs() -> anyhow::Result<()> {
+    let rows = vec![spark_row()?, empty_row(PNU_B), empty_row(PNU_C)];
+    let lane = Lane::serving_objects("sample", &rows).await?;
+    lane.bake(&rows, SNAPSHOT, None).await?;
+    let config = |size: usize| LatencyConfig {
+        generation: 1,
+        live_base_url: "https://live.example.test".to_owned(),
+        preview_base_url: "https://preview.example.test".to_owned(),
+        sample: Sample::Packs(lane.output()),
+        sample_size: size,
+        evidence_path: lane.work.join("latency.json"),
+    };
+    let mut drawn = latency::sample(&config(3)).await?;
+    drawn.sort_unstable();
+    assert_eq!(
+        drawn,
+        vec![PNU_A.to_owned(), PNU_B.to_owned(), PNU_C.to_owned()]
+    );
+    assert_eq!(latency::sample(&config(1)).await?.len(), 1);
+    assert!(
+        latency::sample(&config(4)).await.is_err(),
+        "a short sample was measured"
+    );
     Ok(())
 }
 

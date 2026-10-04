@@ -138,8 +138,13 @@ pub(crate) async fn sample(config: &LatencyConfig) -> anyhow::Result<Vec<String>
                 "generation {} holds no {anchor} packs",
                 config.generation
             );
-            let per_pack = config.sample_size.div_ceil(keys.len()).max(1);
-            let step = keys.len().div_ceil(config.sample_size).max(1);
+            // Rounded down, so at least `sample_size` packs are visited when there are that many;
+            // within a pack the picks are spread and start mid-way, not at its lowest PNU.
+            let step = (keys.len() / config.sample_size).max(1);
+            let per_pack = config
+                .sample_size
+                .div_ceil(keys.len().div_ceil(step))
+                .max(1);
             let mut pnus = Vec::new();
             for key in keys.iter().step_by(step) {
                 let (_, entries) = by_pnu_pack::read_head(&store.read_bytes(key).await?)?;
@@ -147,9 +152,13 @@ pub(crate) async fn sample(config: &LatencyConfig) -> anyhow::Result<Vec<String>
                 pnus.extend(
                     entries
                         .iter()
+                        .skip(spread / 2)
                         .step_by(spread)
                         .map(|entry| entry.pnu.clone()),
                 );
+                if pnus.len() >= config.sample_size {
+                    break;
+                }
             }
             pnus.truncate(config.sample_size);
             pnus
