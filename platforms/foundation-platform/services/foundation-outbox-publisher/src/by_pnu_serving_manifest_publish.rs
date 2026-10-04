@@ -32,6 +32,7 @@ use sha2::{Digest, Sha256};
 
 use crate::building_by_pnu_serving_export::building_document::BUILDING_DOCUMENT_SCHEMA_VERSION;
 use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane};
+use crate::by_pnu_section_pack_manifest::SectionPacksState;
 use crate::by_pnu_serving_manifest::{
     pnu_prefixes, read_tombstone, PatchEntry, ServedManifest, ServingManifest, StoredManifest,
     VerifiedRebase,
@@ -243,6 +244,14 @@ pub(crate) async fn publish(
             rollback(store, history_key, &existing.manifest).await?
         }
     };
+    keep_section_packs(
+        lane,
+        &config.input,
+        existing
+            .as_ref()
+            .and_then(|stored| stored.manifest.section_packs.as_ref()),
+        manifest.section_packs.as_ref(),
+    )?;
     if existing
         .as_ref()
         .is_none_or(|stored| stored.manifest.wire_schema_version < manifest.schema_version)
@@ -283,6 +292,26 @@ pub(crate) async fn publish(
         release_behind_live(store, &snapshot_pins).await;
     }
     Ok(manifest)
+}
+
+/// The section packs are the pack lane's to move (root ADR-0147): an object publish carries the
+/// block exactly as it is, and only a rollback may step it back or drop it.
+///
+/// # Errors
+/// Refuses an object publish whose manifest would change or drop the served block.
+pub(crate) fn keep_section_packs(
+    lane: ByPnuLane,
+    input: &PublishInput,
+    served: Option<&SectionPacksState>,
+    next: Option<&SectionPacksState>,
+) -> anyhow::Result<()> {
+    ensure!(
+        matches!(input, PublishInput::Rollback(_)) || next == served,
+        "this object publish would change or drop the manifest's section_packs block; the packs \
+         move only by publish-{}-by-pnu-section-packs or a rollback",
+        lane.noun()
+    );
+    Ok(())
 }
 
 /// After a failed manifest write: whether the manifest it wrote is live after all (its answer was

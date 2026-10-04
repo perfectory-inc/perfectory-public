@@ -1346,3 +1346,73 @@ async fn a_rebase_over_another_served_base_or_patch_list_is_refused() -> anyhow:
     assert_eq!(manifest.reflected_gold_iceberg_snapshot_id, NEXT_SNAPSHOT);
     Ok(())
 }
+
+/// An object publish carries the section packs block exactly as it is (root ADR-0147): a full
+/// bake, a patch and a reflect of the object lane all leave it, and a manifest that would drop
+/// or change it is refused unless it is a rollback.
+#[tokio::test]
+async fn an_object_publish_never_drops_the_section_packs_block() -> anyhow::Result<()> {
+    let fx = fixture(ByPnuLane::Building, "keeps-packs").await?;
+    fx.base(&[PNU_A, PNU_B]).await?;
+    let packs = crate::by_pnu_section_pack_manifest::tests::state(1)?;
+    let (bytes, version) = fx.store.read_manifest().await?;
+    let mut raw: serde_json::Value = serde_json::from_slice(&bytes)?;
+    raw["section_packs"] = serde_json::to_value(&packs)?;
+    let body = serde_json::to_vec(&raw)?;
+    fx.store
+        .write_manifest(
+            by_pnu::manifest_key(fx.lane)?,
+            &body,
+            &format!("{:x}", Sha256::digest(&body)),
+            Some(&version),
+        )
+        .await?;
+
+    fx.bake_patch(1, NEXT_SNAPSHOT, &[PNU_A], &[]).await?;
+    let files = fx.change_set("p1", BASE_SNAPSHOT, NEXT_SNAPSHOT, &[PNU_A], 0, &[])?;
+    let patched = fx
+        .publish(fx.patch_input(Some(1), NEXT_SNAPSHOT, files), false)
+        .await?;
+    assert_eq!(patched.section_packs.as_ref(), Some(&packs), "a patch");
+    let files = fx.change_set("r", NEXT_SNAPSHOT, LATER_SNAPSHOT, &[], 0, &[])?;
+    let reflected = fx
+        .publish(fx.patch_input(None, LATER_SNAPSHOT, files), false)
+        .await?;
+    assert_eq!(reflected.section_packs.as_ref(), Some(&packs), "a reflect");
+    fx.put(
+        &by_pnu::object_key(fx.lane, 4, PNU_A)?,
+        &fx.document(PNU_A, LATER_SNAPSHOT),
+    )
+    .await?;
+    let full = fx
+        .publish(
+            PublishInput::Listing(ListingExpectation {
+                target_generation: 4,
+                expected_gold_iceberg_snapshot_id: LATER_SNAPSHOT.to_owned(),
+                expected_object_count: 1,
+            }),
+            false,
+        )
+        .await?;
+    assert_eq!(full.section_packs.as_ref(), Some(&packs), "a full bake");
+    assert_eq!(fx.live().await?.section_packs.as_ref(), Some(&packs));
+
+    // The guard itself: dropping or changing the block is refused, a rollback may.
+    let listing = PublishInput::Listing(ListingExpectation {
+        target_generation: 5,
+        expected_gold_iceberg_snapshot_id: LATER_SNAPSHOT.to_owned(),
+        expected_object_count: 1,
+    });
+    assert!(super::keep_section_packs(fx.lane, &listing, Some(&packs), None).is_err());
+    let mut moved = packs.clone();
+    moved.reflected_gold_iceberg_snapshot_id = LATER_SNAPSHOT.to_owned();
+    assert!(super::keep_section_packs(fx.lane, &listing, Some(&packs), Some(&moved)).is_err());
+    super::keep_section_packs(fx.lane, &listing, Some(&packs), Some(&packs))?;
+    super::keep_section_packs(
+        fx.lane,
+        &PublishInput::Rollback("history".to_owned()),
+        Some(&packs),
+        None,
+    )?;
+    Ok(())
+}

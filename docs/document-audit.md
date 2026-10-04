@@ -269,7 +269,7 @@
 | `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json` | Foundation Platform | contract | current | english | not applicable: machine contract | 2 |
 | `platforms/foundation-platform/docs/README.md` | Foundation Platform | README | current | korean | ok | 9 |
 | `platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 0 |
-| `platforms/foundation-platform/docs/runbooks/building-section-pack-cutover.md` | Foundation Platform | runbook | current | korean | ok | 0 |
+| `platforms/foundation-platform/docs/runbooks/building-section-pack-cutover.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/canonical-release-proof.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/data-catalog.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |

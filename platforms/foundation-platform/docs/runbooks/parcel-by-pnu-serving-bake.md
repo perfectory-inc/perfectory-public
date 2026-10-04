@@ -193,6 +193,7 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 | 한 번의 실행 | `scripts/ops/by-pnu-serving-bake.sh all` (필지 다음 건물; 레인 하나만은 `parcel`·`building`) |
 | 할 일이 있는지 | `foundation-outbox-publisher show-<레인>-by-pnu-serving-state` (읽기 전용) |
 | 굽는 Gold 를 누가 만드는지 | 예약 작업 `gold_panel_rebuild` — Silver 입력이 바뀌면 굽기 전에 Gold 를 다시 만든다([gold-panel-rebuild.md](./gold-panel-rebuild.md), 루트 ADR-0139) |
+| 건물 레인이 묶음으로 서빙할 때 | 같은 실행이 객체 대신 항목별 묶음을 굽고 발행한다([building-section-pack-cutover.md](./building-section-pack-cutover.md) 7절, 루트 ADR-0147) |
 
 한 번의 실행은 이렇다.
 

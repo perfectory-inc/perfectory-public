@@ -1,6 +1,6 @@
 //! The building section pack lane end to end on a local store: bake, gate (가) and (나), the
-//! first publish, a patch with a changed document and a tombstone (gate 다), and a planted
-//! failure for every gate. PNUs and snapshot ids sit in the repository-reserved synthetic
+//! first publish, a patch with a changed document and a tombstone (gate 다), a section re-baked
+//! alone and the patches after it, and a planted failure for every gate. PNUs and snapshot ids sit in the repository-reserved synthetic
 //! namespaces (`scripts/guard/public-fixture-safety.py`).
 //!
 //! The same run writes the golden packs and documents the gateway Worker's tests read
@@ -45,12 +45,15 @@ const PNU_C: &str = "9999900001100000000";
 const UNIT: &str = "9999900000";
 const SNAPSHOT: &str = "999990000000000001";
 const NEXT_SNAPSHOT: &str = "999990000000000002";
+const LATER_SNAPSHOT: &str = "999990000000000003";
 
 struct Lane {
     root: PathBuf,
     store: ByPnuServingStore,
     gateway: MockServer,
     work: PathBuf,
+    /// The installed release's job list the first pack publish reads.
+    jobs: PathBuf,
 }
 
 impl Drop for Lane {
@@ -84,6 +87,42 @@ fn changed_row() -> anyhow::Result<JsonMap<String, JsonValue>> {
         .replace("35000000", "37000000");
     row.insert("buildings_json".to_owned(), json!(buildings));
     Ok(row)
+}
+
+/// `row` with a second, empty building: a valid row whose building ids no longer line up with
+/// sections cut from `row` itself.
+fn drifted(row: &JsonMap<String, JsonValue>) -> anyhow::Result<JsonMap<String, JsonValue>> {
+    let mut buildings: Vec<JsonValue> =
+        serde_json::from_str(row["buildings_json"].as_str().context("buildings_json")?)?;
+    let mut extra = buildings.first().context("a building")?.clone();
+    extra["register_pk"] = json!("BLDG-2");
+    extra["id"] = json!(catalog_domain::building_id_for_register_pk("BLDG-2"));
+    extra["floors"] = json!([]);
+    extra["units"] = json!([]);
+    buildings.push(extra);
+    let mut row = row.clone();
+    row.insert(
+        "buildings_json".to_owned(),
+        json!(serde_json::to_string(&buildings)?),
+    );
+    Ok(row)
+}
+
+/// A job list whose scheduled bake declares (or not) that it bakes pack patches.
+fn write_jobs(path: &Path, declares: bool) -> anyhow::Result<()> {
+    let wanted = &LANE.section_packs()?.scheduled_bake;
+    let capabilities: Vec<&str> = if declares {
+        vec![wanted.capability.as_str()]
+    } else {
+        Vec::new()
+    };
+    std::fs::write(
+        path,
+        serde_json::to_vec(&json!({
+            "jobs": [{"id": wanted.job, "capabilities": capabilities}],
+        }))?,
+    )?;
+    Ok(())
 }
 
 fn provenance(snapshot: &str) -> GoldSnapshotProvenance {
@@ -153,11 +192,14 @@ impl Lane {
             .await?;
         let gateway = MockServer::start().await;
         serve_capabilities(&gateway, &[1, 2, 3]).await;
+        let jobs = work.join("jobs.v1.json");
+        write_jobs(&jobs, true)?;
         Ok(Self {
             root,
             store,
             gateway,
             work,
+            jobs,
         })
     }
 
@@ -173,10 +215,23 @@ impl Lane {
         snapshot: &str,
         patch: Option<(u64, &[&str], &[&str])>,
     ) -> anyhow::Result<PackExportSummary> {
+        self.bake_sections(rows, snapshot, patch, &LANE.section_packs()?.sections, 1)
+            .await
+    }
+
+    /// Bakes `sections`: a base of `generation`, or a patch (which names no generation).
+    async fn bake_sections(
+        &self,
+        rows: &[JsonMap<String, JsonValue>],
+        snapshot: &str,
+        patch: Option<(u64, &[&str], &[&str])>,
+        sections: &[String],
+        generation: u64,
+    ) -> anyhow::Result<PackExportSummary> {
         let config = BakeConfig {
             output: self.output(),
-            generation: 1,
-            sections: LANE.section_packs()?.sections.clone(),
+            generation: patch.is_none().then_some(generation),
+            sections: sections.to_vec(),
             patch: patch.map(|(number, _, deletes)| PatchTarget {
                 patch: number,
                 deleted: deletes.iter().map(|pnu| (*pnu).to_owned()).collect(),
@@ -282,16 +337,49 @@ impl Lane {
         evidence: Option<(PathBuf, PathBuf)>,
         change_set: Option<ChangeSetPaths>,
     ) -> anyhow::Result<crate::by_pnu_section_pack_manifest::SectionPacksState> {
+        self.publish_with(Some(summaries), snapshot, 2, evidence, change_set)
+            .await
+    }
+
+    /// A publish of a Gold snapshot whose catalog records `gold_rows` rows.
+    async fn publish_with(
+        &self,
+        summaries: Option<PathBuf>,
+        snapshot: &str,
+        gold_rows: u64,
+        evidence: Option<(PathBuf, PathBuf)>,
+        change_set: Option<ChangeSetPaths>,
+    ) -> anyhow::Result<crate::by_pnu_section_pack_manifest::SectionPacksState> {
         let config = PublishConfig {
             output: self.output(),
             summary_dir: summaries,
             expected_gold_snapshot: snapshot.to_owned(),
-            expected_document_count: Some(2),
+            gold_record_count: Some(gold_rows),
+            installed_jobs: self.jobs.clone(),
             equality_evidence: evidence.as_ref().map(|(equality, _)| equality.clone()),
             latency_evidence: evidence.map(|(_, latency)| latency),
             change_set,
         };
         publish::publish(&config, &self.store, &self.gateway.uri()).await
+    }
+
+    /// Bakes generation 1 of `rows` and publishes it through both gates: the cut-over.
+    async fn cut_over(&self, rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<()> {
+        let base = self.bake(rows, SNAPSHOT, None).await?;
+        let summaries = self.summaries("cut-over", &[&base])?;
+        let equality = self.equality(&summaries, 2)?;
+        let latency = self.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
+        self.publish(summaries, SNAPSHOT, Some((equality, latency)), None)
+            .await?;
+        Ok(())
+    }
+
+    fn pack_keys(&self, section: &str, generation: u64, patch: Option<u64>) -> Vec<PathBuf> {
+        by_pnu_packs::pack_key(LANE, section, generation, patch, UNIT)
+            .map(|key| self.root.join(key))
+            .into_iter()
+            .filter(|path| path.exists())
+            .collect()
     }
 
     async fn live(&self) -> anyhow::Result<ServedManifest> {
@@ -420,6 +508,23 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
         .await
         .is_err());
     let fast = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 10.0)?;
+    // The installed scheduled bake still bakes objects only (runbook 7절).
+    write_jobs(&lane.jobs, false)?;
+    let refused = lane
+        .publish(
+            summaries.clone(),
+            SNAPSHOT,
+            Some((equality.clone(), fast.clone())),
+            None,
+        )
+        .await
+        .err()
+        .context("a first pack publish over an object-only scheduled bake was accepted")?;
+    assert!(
+        format!("{refused:#}").contains("does not declare"),
+        "{refused:#}"
+    );
+    write_jobs(&lane.jobs, true)?;
     serve_capabilities(&lane.gateway, &[1, 2]).await;
     assert!(lane
         .publish(
@@ -462,7 +567,13 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
             Some((1, &[PNU_A], &[PNU_B])),
         )
         .await?;
-    let change_set = write_change_set(&lane.work, (0, 1, 1), &[PNU_A], &[PNU_B])?;
+    let change_set = write_change_set(
+        &lane.work,
+        (SNAPSHOT, NEXT_SNAPSHOT),
+        (0, 1, 1),
+        &[PNU_A],
+        &[PNU_B],
+    )?;
     let patch_dir = lane.summaries("patch", &[&patch])?;
     let state = lane
         .publish(patch_dir, NEXT_SNAPSHOT, None, Some(change_set))
@@ -481,6 +592,7 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
 
 fn write_change_set(
     work: &Path,
+    (baseline, current): (&str, &str),
     (new, upserts, deletes): (u64, u64, u64),
     upsert_pnus: &[&str],
     delete_pnus: &[&str],
@@ -490,7 +602,7 @@ fn write_change_set(
         &summary,
         serde_json::to_vec(&json!({
             "quality_metrics": {"new_count": new, "upsert_count": upserts, "delete_count": deletes},
-            "input": {"baseline_snapshot_id": SNAPSHOT, "current_snapshot_id": NEXT_SNAPSHOT},
+            "input": {"baseline_snapshot_id": baseline, "current_snapshot_id": current},
         }))?,
     )?;
     let upsert_path = work.join("upserts.txt");
@@ -544,7 +656,7 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
     let lane = Lane::serving_objects("equality", &rows).await?;
     let config = BakeConfig {
         output: lane.output(),
-        generation: 1,
+        generation: Some(1),
         sections: LANE.section_packs()?.sections.clone(),
         patch: None,
         upserts: None,
@@ -575,16 +687,59 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
             .map(|section| {
                 Ok((
                     section.clone(),
-                    bake::lay_out_pack(&config, &provenance(SNAPSHOT), section, UNIT, from, &[])?,
+                    bake::lay_out_pack(
+                        &config,
+                        1,
+                        &provenance(SNAPSHOT),
+                        section,
+                        UNIT,
+                        from,
+                        &[],
+                    )?,
                 ))
             })
             .collect::<anyhow::Result<Vec<_>>>()
     };
-    let checked = bake::check_round_trip(&config, &laid_out(&documents)?, &documents, &[], None)?;
-    assert_eq!(checked.compared, 2);
+    let checked = bake::check_round_trip(&laid_out(&documents)?, &[], &documents, &[], None)?;
+    assert_eq!((checked.compared, checked.equal), (2, 2));
+    checked.require_equal(UNIT)?;
     assert!(
-        bake::check_round_trip(&config, &laid_out(&changed)?, &documents, &[], None).is_err(),
+        bake::check_round_trip(&laid_out(&changed)?, &[], &documents, &[], None).is_err(),
         "packs of another document were accepted"
+    );
+    // `equal` is counted, not copied from `compared`: the anchor baked from the documents,
+    // joined with the other sections cut from a document whose buildings drifted, answers one
+    // PNU wrongly, and the dong is refused before anything is written.
+    let drift = vec![
+        building_document::document_with_approvals(
+            &provenance(SNAPSHOT),
+            &drifted(&rows[0])?,
+            &approvals,
+        )?,
+        documents[1].clone(),
+    ];
+    let anchor = &LANE.section_packs()?.anchor_section;
+    let (baked, served): (Vec<_>, Vec<_>) = laid_out(&documents)?
+        .into_iter()
+        .zip(laid_out(&drift)?)
+        .partition(|((section, _), _)| section == anchor);
+    let served = served
+        .into_iter()
+        .map(|(_, (section, bytes))| {
+            Ok(read::SectionPacksOfUnit {
+                name: section,
+                patches: Vec::new(),
+                base: Some(crate::by_pnu_pack::Pack::read(&bytes)?),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let baked = baked.into_iter().map(|(own, _)| own).collect::<Vec<_>>();
+    let unequal = bake::check_round_trip(&baked, &served, &documents, &[], None)?;
+    assert_eq!((unequal.compared, unequal.equal), (2, 1), "{unequal:?}");
+    assert_eq!(unequal.differing, vec![PNU_A.to_owned()]);
+    assert!(
+        unequal.require_equal(UNIT).is_err(),
+        "an unequal dong passed"
     );
 
     let base = lane.bake(&rows, SNAPSHOT, None).await?;
@@ -613,6 +768,16 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
     assert!(
         lane.equality(&mixed, 4).is_err(),
         "two snapshots were added up"
+    );
+    let mut unequal = base.clone();
+    unequal.equality.equal = 1;
+    let (evidence, _) = gate::read::<gate::EqualityEvidence>(
+        &lane.equality(&lane.summaries("unequal", &[&unequal])?, 2)?,
+    )?;
+    assert_eq!((evidence.compared, evidence.equal), (2, 1));
+    assert!(
+        !evidence.passed,
+        "a summary with an unequal document passed"
     );
     let mut uncompared = base.clone();
     uncompared.equality.compared = 1;
@@ -704,7 +869,13 @@ async fn a_patch_must_hold_exactly_its_change_set() -> anyhow::Result<()> {
     let patch = lane
         .bake(&[changed_row()?], NEXT_SNAPSHOT, Some((1, &[PNU_A], &[])))
         .await?;
-    let change_set = write_change_set(&lane.work, (0, 1, 1), &[PNU_A], &[PNU_B])?;
+    let change_set = write_change_set(
+        &lane.work,
+        (SNAPSHOT, NEXT_SNAPSHOT),
+        (0, 1, 1),
+        &[PNU_A],
+        &[PNU_B],
+    )?;
     let before = lane.store.read_manifest().await?.0;
     assert!(lane
         .publish(
@@ -716,6 +887,154 @@ async fn a_patch_must_hold_exactly_its_change_set() -> anyhow::Result<()> {
         .await
         .is_err());
     assert_eq!(lane.store.read_manifest().await?.0, before);
+    Ok(())
+}
+
+/// A section re-baked alone (root ADR-0147 §5) is joined with the sections the lane serves before
+/// it is written, and a re-bake whose building ids drifted from them writes nothing. After it, a
+/// daily patch goes under each section's own generation, and an empty change set only moves the
+/// reflected snapshot.
+#[tokio::test]
+async fn a_section_re_baked_alone_joins_the_served_sections_and_patches_follow_it(
+) -> anyhow::Result<()> {
+    let rows = vec![spark_row()?, empty_row(PNU_B)];
+    let lane = Lane::serving_objects("rebake", &rows).await?;
+    lane.cut_over(&rows).await?;
+    let floors = vec!["floors".to_owned()];
+
+    // Only of the reflected snapshot, and only forward.
+    assert!(lane
+        .bake_sections(&rows, NEXT_SNAPSHOT, None, &floors, 2)
+        .await
+        .is_err());
+    assert!(lane
+        .bake_sections(&rows, SNAPSHOT, None, &floors, 1)
+        .await
+        .is_err());
+    let rebaked = lane
+        .bake_sections(&rows, SNAPSHOT, None, &floors, 2)
+        .await?;
+    assert!(rebaked.equality.joined_with_served);
+    assert_eq!((rebaked.equality.compared, rebaked.equality.equal), (2, 2));
+    assert_eq!(lane.pack_keys("floors", 2, None).len(), 1);
+    let state = lane
+        .publish(lane.summaries("rebake", &[&rebaked])?, SNAPSHOT, None, None)
+        .await?;
+    let generations = state
+        .sections
+        .iter()
+        .map(|section| (section.name.as_str(), section.generation))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        generations,
+        vec![
+            ("buildings", 1),
+            ("floors", 2),
+            ("units", 1),
+            ("unit_prices", 1)
+        ]
+    );
+    assert_eq!(
+        joined(lane.answer(PNU_A).await?)?,
+        object(&rows[0], SNAPSHOT)?
+    );
+
+    // The daily patch: every section under the generation it is served from.
+    let changed = changed_row()?;
+    let patch = lane
+        .bake(
+            std::slice::from_ref(&changed),
+            NEXT_SNAPSHOT,
+            Some((1, &[PNU_A], &[PNU_B])),
+        )
+        .await?;
+    assert_eq!(patch.generation_of("floors"), 2);
+    assert_eq!(patch.generation_of("buildings"), 1);
+    assert_eq!(lane.pack_keys("floors", 2, Some(1)).len(), 1);
+    assert!(lane.pack_keys("floors", 1, Some(1)).is_empty());
+    assert_eq!(lane.pack_keys("buildings", 1, Some(1)).len(), 1);
+    let change_set = write_change_set(
+        &lane.work,
+        (SNAPSHOT, NEXT_SNAPSHOT),
+        (0, 1, 1),
+        &[PNU_A],
+        &[PNU_B],
+    )?;
+    lane.publish(
+        lane.summaries("patch", &[&patch])?,
+        NEXT_SNAPSHOT,
+        None,
+        Some(change_set),
+    )
+    .await?;
+    assert_eq!(
+        joined(lane.answer(PNU_A).await?)?,
+        object(&changed, NEXT_SNAPSHOT)?
+    );
+    assert!(matches!(lane.answer(PNU_B).await?, Resolved::Tombstone));
+
+    // A re-bake whose ids drifted from the served sections is refused, and writes nothing.
+    let refused = lane
+        .bake_sections(&[drifted(&changed)?], NEXT_SNAPSHOT, None, &floors, 3)
+        .await
+        .err()
+        .context("a re-baked section that does not join was written")?;
+    assert!(
+        format!("{refused:#}").contains("Nothing of this dong is written"),
+        "{refused:#}"
+    );
+    assert!(lane.pack_keys("floors", 3, None).is_empty());
+    // The same re-bake of the true rows joins the base and the patch the others serve.
+    let again = lane
+        .bake_sections(
+            std::slice::from_ref(&changed),
+            NEXT_SNAPSHOT,
+            None,
+            &floors,
+            3,
+        )
+        .await?;
+    assert_eq!((again.equality.compared, again.equality.equal), (1, 1));
+
+    // An empty change set: no summaries, only the reflected snapshot moves.
+    let before = lane.live().await?.section_packs.context("packs")?;
+    let empty = write_change_set(
+        &lane.work,
+        (NEXT_SNAPSHOT, LATER_SNAPSHOT),
+        (0, 0, 0),
+        &[],
+        &[],
+    )?;
+    let reflected = lane
+        .publish_with(None, LATER_SNAPSHOT, 1, None, Some(empty))
+        .await?;
+    assert_eq!(reflected.reflected_gold_iceberg_snapshot_id, LATER_SNAPSHOT);
+    assert_eq!(
+        (reflected.sections.clone(), reflected.patches.clone()),
+        (before.sections, before.patches)
+    );
+    let busy = write_change_set(
+        &lane.work,
+        (LATER_SNAPSHOT, "999990000000000004"),
+        (0, 1, 0),
+        &[PNU_A],
+        &[],
+    )?;
+    assert!(
+        lane.publish_with(None, "999990000000000004", 1, None, Some(busy))
+            .await
+            .is_err(),
+        "a change set with changes was reflected without a patch"
+    );
+    Ok(())
+}
+
+/// The first publish holds the Gold row count to the catalog: a stated count must agree.
+#[test]
+fn a_stated_gold_row_count_must_match_the_catalog() -> anyhow::Result<()> {
+    assert_eq!(gate::cross_check(5, None, SNAPSHOT)?, 5);
+    assert_eq!(gate::cross_check(5, Some(5), SNAPSHOT)?, 5);
+    assert!(gate::cross_check(5, Some(6), SNAPSHOT).is_err());
     Ok(())
 }
 

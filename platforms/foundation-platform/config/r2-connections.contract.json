@@ -148,7 +148,6 @@
     "patch_dir_pattern": "p[1-9][0-9]{0,17}",
     "content_type": "application/octet-stream",
     "cache_control": "public, max-age=31536000, immutable",
-    "head_read_bytes": 65536,
     "max_index_entries": 1000000,
     "preview_query_parameter": "packs",
     "cutover_gate": {
@@ -212,7 +211,11 @@
         "unit_prices"
       ],
       "anchor_section": "buildings",
-      "preview_binding": "FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW"
+      "preview_binding": "FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW",
+      "scheduled_bake": {
+        "job": "by_pnu_serving_bake",
+        "capability": "building_section_pack_patches"
+      }
     }
   },
   "vector_tile_gateway": {

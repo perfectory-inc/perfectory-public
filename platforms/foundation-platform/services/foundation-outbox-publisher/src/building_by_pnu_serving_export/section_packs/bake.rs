@@ -3,24 +3,33 @@
 //! One run reads one Gold snapshot (sharded by PNU prefix, as the object export is) and writes,
 //! per legal dong of the shard and per section asked for, one pack, create-only:
 //!
-//! - **base** — every row of the shard into generation `PACK_GENERATION`;
+//! - **base** — every row of the shard into generation `PACK_GENERATION` of every section, or of
+//!   the sections `PACK_SECTIONS` names (a section re-baked alone, of the reflected snapshot only);
 //! - **patch** — with `TARGET_PATCH`, the change set's rows (`PNU_ALLOWLIST_PATH`) as documents and
-//!   its deletes (`DELETE_LIST_PATH`) as tombstones, into `g{generation}/p{patch}/` of each
-//!   section, only for the dongs the change set touches.
+//!   its deletes (`DELETE_LIST_PATH`) as tombstones, into `g{n}/p{patch}/` of each section, where
+//!   `n` is the generation the lane serves that section from (the manifest's `section_packs`), only
+//!   for the dongs the change set touches.
 //!
 //! The documents go through the object export's own builder (`building_document`), so a pack
-//! holds exactly what an object would have held. The summary names every pack with its counts;
-//! `publish-building-by-pnu-section-packs` checks the listing against it.
+//! holds exactly what an object would have held. Before a dong's packs are written, the gateway's
+//! answer for every PNU of the dong is joined from them and compared with that builder's object
+//! document (gate 가). A section re-baked alone is joined with the other sections exactly as the
+//! lane serves them (their base and patches, read from the bucket), so a re-bake whose ids no
+//! longer line up with the served sections is refused before anything of the dong is written.
+//! The summary names every pack with its counts; `publish-building-by-pnu-section-packs` checks
+//! the listing against it.
 //!
 //! A shard prefix is at most a legal dong long, so no dong is split across runs. A generation that
 //! already holds packs of another Gold snapshot is refused before the first write: create-only
 //! makes a re-run of the same snapshot idempotent, and nothing else may mix into a generation.
+//! Dongs are written as they pass, so a run that fails on a later dong leaves the passing dongs'
+//! packs behind: unpublished, never served, and reused byte for byte by a re-run.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::{bail, ensure, Context};
+use anyhow::{ensure, Context};
 use futures_util::{stream, StreamExt as _, TryStreamExt as _};
 use lakehouse_domain::GOLD_BUILDING_PANEL;
 use lakehouse_infrastructure::{
@@ -38,6 +47,8 @@ use super::super::{
 use super::{gate, read, sections};
 use crate::building_link_evidence::ApprovedBuildingLinks;
 use crate::by_pnu_pack::{self, Pack, PackIdentity, PackWriter};
+use crate::by_pnu_section_pack_manifest::SectionPacksState;
+use crate::by_pnu_serving_manifest::ServedManifest;
 use crate::by_pnu_serving_patch_export::{self as patch_export, PatchTarget};
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
@@ -47,11 +58,15 @@ use crate::r2_layout::by_pnu_packs;
 pub(crate) const SUMMARY_SCHEMA_VERSION: &str =
     "foundation-platform.building_by_pnu_section_pack_export_summary.v1";
 const DEFAULT_MAX_CONCURRENCY: usize = 16;
+/// How many differing PNUs a refusal names.
+const MAX_DIFFERING: usize = 20;
 
 #[derive(Clone, Debug)]
 pub(crate) struct BakeConfig {
     pub(crate) output: ProfileStoreConfig,
-    pub(crate) generation: u64,
+    /// The generation a base bake writes. A patch names none: each section's patch goes under the
+    /// generation the lane serves that section from.
+    pub(crate) generation: Option<u64>,
     pub(crate) sections: Vec<String>,
     pub(crate) patch: Option<PatchTarget>,
     pub(crate) upserts: Option<BTreeSet<String>>,
@@ -70,11 +85,15 @@ impl BakeConfig {
             LANE.env("CONFIRM_PACK_EXPORT")
         );
         let generation = env("PACK_GENERATION")?
-            .with_context(|| format!("{} is required", LANE.env("PACK_GENERATION")))?
-            .parse::<u64>()
-            .with_context(|| {
-                format!("{} must be a positive integer", LANE.env("PACK_GENERATION"))
-            })?;
+            .map(|raw| {
+                raw.parse::<u64>()
+                    .ok()
+                    .filter(|generation| *generation >= 1)
+                    .with_context(|| {
+                        format!("{} must be a positive integer", LANE.env("PACK_GENERATION"))
+                    })
+            })
+            .transpose()?;
         let contract = &LANE.section_packs()?.sections;
         let sections = match env("PACK_SECTIONS")? {
             None => contract.clone(),
@@ -91,6 +110,12 @@ impl BakeConfig {
             LANE.env("PACK_SECTIONS")
         );
         let patch = patch_export::from_env(LANE, optional_env)?;
+        ensure!(
+            patch.is_some() != generation.is_some(),
+            "a base names its generation as {}; a patch names none, each section's patch goes \
+             under the generation the lane serves it from",
+            LANE.env("PACK_GENERATION")
+        );
         let upserts = env("PNU_ALLOWLIST_PATH")?
             .map(|raw| {
                 let path = std::path::Path::new(raw.as_str());
@@ -102,7 +127,7 @@ impl BakeConfig {
             })
             .transpose()?;
         ensure!(
-            patch.is_none() || (upserts.is_some() && sections.len() == contract.len()),
+            patch.is_none() || (upserts.is_some() && sections == *contract),
             "a patch names its upserts as {} and writes every section",
             LANE.env("PNU_ALLOWLIST_PATH")
         );
@@ -148,10 +173,17 @@ pub(crate) struct PackExportSummary {
     pub(crate) document_schema_version: String,
     pub(crate) gold_table: String,
     pub(crate) gold_iceberg_snapshot_id: String,
+    /// The generation of every section, unless `section_generations` names another for it.
     pub(crate) generation: u64,
+    /// A patch's sections, each under the generation the lane served it from when it was baked.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) section_generations: BTreeMap<String, u64>,
     pub(crate) patch: Option<u64>,
     pub(crate) sections: Vec<String>,
     pub(crate) pnu_prefix: Option<String>,
+    /// Every live row of the Gold snapshot, by its manifests' record counts; not only the shard's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) gold_record_count: Option<u64>,
     pub(crate) exported_row_count: u64,
     pub(crate) tombstone_count: u64,
     pub(crate) totals: BTreeMap<String, SectionTotals>,
@@ -161,13 +193,29 @@ pub(crate) struct PackExportSummary {
     pub(crate) elapsed_seconds: f64,
 }
 
+impl PackExportSummary {
+    /// The generation `section` was written under.
+    pub(crate) fn generation_of(&self, section: &str) -> u64 {
+        self.section_generations
+            .get(section)
+            .copied()
+            .unwrap_or(self.generation)
+    }
+}
+
 /// What a run compared before writing, and the sample candidates it drew (base runs only).
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct Equality {
-    /// Documents whose joined pack answer was compared with their object document; zero when the
-    /// run bakes only some sections (each fragment is still checked).
+    /// PNUs whose answer was joined and compared with what it must be: every kept row against its
+    /// object document, and, when a section was re-baked alone, every other PNU the lane serves
+    /// in the run's dongs against "no document".
     pub(crate) compared: u64,
+    /// Of those, the ones that matched; counted on its own, so `equal == compared` is a finding.
     pub(crate) equal: u64,
+    /// Whether the run's sections were joined with the sections the lane serves (a section
+    /// re-baked alone) rather than only with each other.
+    #[serde(default)]
+    pub(crate) joined_with_served: bool,
     pub(crate) sample_candidates: Vec<String>,
 }
 
@@ -218,8 +266,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let lakehouse = LakehouseObjectReader::from_env()?;
     let store = ByPnuServingStore::open(LANE, &config.output)?;
     let approvals = ApprovedBuildingLinks::load_current().await?;
-    let rows = scan(&config, &lakehouse, &snapshot).await?;
-    let summary = bake(
+    let (rows, gold_record_count) = scan(&config, &lakehouse, &snapshot).await?;
+    let mut summary = bake(
         &config,
         &store,
         &snapshot_provenance(&snapshot),
@@ -227,6 +275,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         &approvals,
     )
     .await?;
+    summary.gold_record_count = Some(gold_record_count);
     write_summary(&config.summary_path, &summary)?;
     tracing::info!(
         generation = summary.generation,
@@ -249,11 +298,12 @@ fn snapshot_provenance(snapshot: &IcebergSnapshotManifestList) -> GoldSnapshotPr
     }
 }
 
+/// The kept rows, and the snapshot's whole row count by its manifests.
 async fn scan(
     config: &BakeConfig,
     lakehouse: &LakehouseObjectReader,
     snapshot: &IcebergSnapshotManifestList,
-) -> anyhow::Result<Vec<JsonMap<String, JsonValue>>> {
+) -> anyhow::Result<(Vec<JsonMap<String, JsonValue>>, u64)> {
     refuse_a_moved_table(
         config.expected_gold_snapshot.as_deref(),
         &snapshot.table_name,
@@ -275,9 +325,11 @@ async fn scan(
         Some(MAX_ROWS_PER_RUN),
     )
     .await?;
+    // The scheduled bake splits a shard on these words, as it does for the object export.
     ensure!(
         !rows.keep_limit_exceeded,
-        "this shard keeps more than {MAX_ROWS_PER_RUN} rows; shard by {}",
+        "this shard keeps more than {MAX_ROWS_PER_RUN} rows; shard the run with {}, not a bigger \
+         heap",
         LANE.env("PNU_PREFIX")
     );
     ensure!(
@@ -292,14 +344,149 @@ async fn scan(
             .iter()
             .filter_map(|row| row.get("pnu").and_then(JsonValue::as_str)),
     )?;
-    Ok(rows.rows)
+    Ok((rows.rows, rows.manifest_record_count))
+}
+
+/// Where each baked section goes, and what a section re-baked alone is joined with.
+struct Plan {
+    generations: BTreeMap<String, u64>,
+    served: Option<ServedSections>,
+}
+
+/// The sections a run does not bake, as the lane serves them: the view of them and, per section,
+/// the dongs its base generation holds a pack for.
+struct ServedSections {
+    view: read::PackView,
+    bases: BTreeMap<String, BTreeSet<String>>,
+}
+
+impl Plan {
+    fn generation(&self, section: &str) -> anyhow::Result<u64> {
+        self.generations
+            .get(section)
+            .copied()
+            .with_context(|| format!("the run does not bake section {section}"))
+    }
+}
+
+/// The `section_packs` block of the live manifest.
+async fn served_state(store: &ByPnuServingStore) -> anyhow::Result<Option<SectionPacksState>> {
+    let (bytes, _) = store
+        .read_manifest()
+        .await
+        .context("the building lane has no readable manifest")?;
+    Ok(ServedManifest::parse(LANE, &bytes)
+        .context("the live manifest cannot be read")?
+        .section_packs)
+}
+
+/// Each section's generation: a whole base bake writes `PACK_GENERATION`; a patch writes each
+/// section under the generation the lane serves it from; a section re-baked alone writes a new
+/// generation of the reflected snapshot and is joined with the served sections beside it.
+async fn plan(
+    config: &BakeConfig,
+    store: &ByPnuServingStore,
+    provenance: &GoldSnapshotProvenance,
+) -> anyhow::Result<Plan> {
+    let contract = &LANE.section_packs()?.sections;
+    if let (None, Some(generation)) = (&config.patch, config.generation) {
+        if config.sections == *contract {
+            return Ok(Plan {
+                generations: config
+                    .sections
+                    .iter()
+                    .map(|name| (name.clone(), generation))
+                    .collect(),
+                served: None,
+            });
+        }
+    }
+    let state = served_state(store).await?.with_context(|| {
+        if config.patch.is_some() {
+            "a pack patch goes over the packs the lane serves, and the manifest names none"
+        } else {
+            "a section re-baked alone is joined with the sections the lane serves, and the \
+             manifest names none; a first bake bakes every section"
+        }
+    })?;
+    let served_generation = |name: &str| -> anyhow::Result<u64> {
+        state
+            .sections
+            .iter()
+            .find(|section| section.name == name)
+            .map(|section| section.generation)
+            .with_context(|| format!("the served packs have no section {name}"))
+    };
+    if let Some(patch) = &config.patch {
+        ensure!(
+            patch.patch > state.newest_patch(),
+            "patch {} is not above the newest patch {} the packs serve",
+            patch.patch,
+            state.newest_patch()
+        );
+        return Ok(Plan {
+            generations: config
+                .sections
+                .iter()
+                .map(|name| Ok((name.clone(), served_generation(name)?)))
+                .collect::<anyhow::Result<_>>()?,
+            served: None,
+        });
+    }
+    let generation = config
+        .generation
+        .context("a base bake names its generation")?;
+    ensure!(
+        provenance.iceberg_snapshot_id == state.reflected_gold_iceberg_snapshot_id,
+        "a section re-baked alone must be of the reflected snapshot {}, not {}; a new snapshot \
+         re-bakes every section",
+        state.reflected_gold_iceberg_snapshot_id,
+        provenance.iceberg_snapshot_id
+    );
+    for name in &config.sections {
+        let served = served_generation(name)?;
+        ensure!(
+            generation > served,
+            "section {name} generation may only move forward from {served}, not to {generation}"
+        );
+    }
+    let mut view = read::PackView::served(&state);
+    view.sections
+        .retain(|section| !config.sections.contains(&section.name));
+    let mut bases = BTreeMap::new();
+    for section in &view.sections {
+        let units = store
+            .list_pack_keys(&section.name, section.generation, None)
+            .await?
+            .iter()
+            .filter_map(|key| by_pnu_packs::parse_pack_key(LANE, key).map(|parsed| parsed.unit))
+            .collect::<BTreeSet<_>>();
+        bases.insert(section.name.clone(), units);
+    }
+    Ok(Plan {
+        generations: config
+            .sections
+            .iter()
+            .map(|name| (name.clone(), generation))
+            .collect(),
+        served: Some(ServedSections { view, bases }),
+    })
+}
+
+/// One bake's shared inputs.
+struct Run<'a> {
+    config: &'a BakeConfig,
+    store: &'a ByPnuServingStore,
+    provenance: &'a GoldSnapshotProvenance,
+    approvals: &'a ApprovedBuildingLinks,
+    plan: &'a Plan,
 }
 
 /// Builds and writes the packs of the kept rows.
 ///
 /// # Errors
 /// Refuses a row the object export would refuse, a generation holding another snapshot's packs,
-/// and counts that do not add up.
+/// a dong whose joined answers differ from the object documents, and counts that do not add up.
 pub(crate) async fn bake(
     config: &BakeConfig,
     store: &ByPnuServingStore,
@@ -322,49 +509,74 @@ pub(crate) async fn bake(
             .or_default()
             .push(row);
     }
+    let in_shard = |pnu_or_unit: &str| {
+        config
+            .pnu_prefix
+            .as_deref()
+            .is_none_or(|prefix| pnu_or_unit.starts_with(prefix))
+    };
     let mut tombstones: BTreeMap<String, Vec<String>> = BTreeMap::new();
     if let Some(patch) = &config.patch {
-        for pnu in &patch.deleted {
-            if config
-                .pnu_prefix
-                .as_deref()
-                .is_none_or(|prefix| pnu.starts_with(prefix))
-            {
-                tombstones
-                    .entry(by_pnu_packs::unit_of(pnu)?.to_owned())
-                    .or_default()
-                    .push(pnu.clone());
-            }
+        for pnu in patch.deleted.iter().filter(|pnu| in_shard(pnu)) {
+            tombstones
+                .entry(by_pnu_packs::unit_of(pnu)?.to_owned())
+                .or_default()
+                .push(pnu.clone());
         }
     }
-    refuse_a_foreign_generation(config, store, provenance).await?;
+    let plan = plan(config, store, provenance).await?;
+    refuse_a_foreign_generation(config, store, provenance, &plan).await?;
 
-    let all_units = units
+    let mut all_units = units
         .keys()
         .chain(tombstones.keys())
         .cloned()
         .collect::<BTreeSet<_>>();
+    // A section re-baked alone is checked in every dong of the shard the lane serves, also those
+    // where Gold has no row left.
+    if let Some(served) = &plan.served {
+        for section in &served.view.sections {
+            all_units.extend(
+                served
+                    .bases
+                    .get(&section.name)
+                    .into_iter()
+                    .flatten()
+                    .chain(section.patches.iter().flat_map(|(_, units)| units))
+                    .filter(|unit| in_shard(unit))
+                    .cloned(),
+            );
+        }
+    }
     let (no_rows, no_deletes) = (Vec::new(), Vec::new());
+    let run = Run {
+        config,
+        store,
+        provenance,
+        approvals,
+        plan: &plan,
+    };
     // Futures are built in a loop, not in a `map` closure: a closure over borrowed rows makes
     // the command's future fail the higher-ranked `Send` check of the command table.
     let mut jobs = Vec::with_capacity(all_units.len());
     for unit in &all_units {
         let rows = units.get(unit).unwrap_or(&no_rows);
         let deleted = tombstones.get(unit).unwrap_or(&no_deletes);
-        jobs.push(write_unit(
-            config, store, provenance, approvals, unit, rows, deleted,
-        ));
+        jobs.push(write_unit(&run, unit, rows, deleted));
     }
     let written = stream::iter(jobs)
         .buffer_unordered(config.max_concurrency)
         .try_collect::<Vec<_>>()
         .await?;
     let mut packs = Vec::new();
-    let mut equality = Equality::default();
+    let mut equality = Equality {
+        joined_with_served: plan.served.is_some(),
+        ..Equality::default()
+    };
     for (unit_packs, check) in written {
         packs.extend(unit_packs);
         equality.compared += check.compared;
-        equality.equal += check.compared;
+        equality.equal += check.equal;
         equality.sample_candidates.extend(check.candidates);
     }
     packs.sort_by(|a, b| (&a.section, &a.unit).cmp(&(&b.section, &b.unit)));
@@ -395,15 +607,28 @@ pub(crate) async fn bake(
             total.tombstones
         );
     }
+    let anchor = &LANE.section_packs()?.anchor_section;
+    let generation = plan
+        .generations
+        .get(anchor)
+        .or_else(|| plan.generations.values().next())
+        .copied()
+        .context("the run bakes no section")?;
     Ok(PackExportSummary {
         schema_version: SUMMARY_SCHEMA_VERSION.to_owned(),
         document_schema_version: building_document::BUILDING_DOCUMENT_SCHEMA_VERSION.to_owned(),
         gold_table: provenance.table.clone(),
         gold_iceberg_snapshot_id: provenance.iceberg_snapshot_id.clone(),
-        generation: config.generation,
+        generation,
+        section_generations: if config.patch.is_some() {
+            plan.generations.clone()
+        } else {
+            BTreeMap::new()
+        },
         patch: config.patch.as_ref().map(|patch| patch.patch),
         sections: config.sections.clone(),
         pnu_prefix: config.pnu_prefix.clone(),
+        gold_record_count: None,
         exported_row_count: exported,
         tombstone_count: deleted,
         totals,
@@ -418,11 +643,12 @@ async fn refuse_a_foreign_generation(
     config: &BakeConfig,
     store: &ByPnuServingStore,
     provenance: &GoldSnapshotProvenance,
+    plan: &Plan,
 ) -> anyhow::Result<()> {
     let patch = config.patch.as_ref().map(|patch| patch.patch);
     for section in &config.sections {
         let keys = store
-            .list_pack_keys(section, config.generation, patch)
+            .list_pack_keys(section, plan.generation(section)?, patch)
             .await?;
         if let Some(key) = keys.iter().next() {
             let bytes = store.read_bytes(key).await?;
@@ -440,45 +666,98 @@ async fn refuse_a_foreign_generation(
 }
 
 /// What one dong's packs were checked against before they were written.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct UnitCheck {
     pub(super) compared: u64,
+    pub(super) equal: u64,
+    /// The first PNUs that did not answer as they must.
+    pub(super) differing: Vec<String>,
     pub(super) candidates: Vec<String>,
 }
 
-/// One dong: its documents, every section's pack laid out and read back in memory, the read-back
-/// compared with the object documents (gate 가, no R2 read), then the packs written.
+impl UnitCheck {
+    fn tally(&mut self, pnu: &str, equal: bool) {
+        self.compared += 1;
+        if equal {
+            self.equal += 1;
+        } else if self.differing.len() < MAX_DIFFERING {
+            self.differing.push(pnu.to_owned());
+        }
+    }
+
+    /// Refuses a dong any of whose PNUs did not answer as it must.
+    ///
+    /// # Errors
+    /// Names the dong and the first differing PNUs.
+    pub(super) fn require_equal(&self, unit: &str) -> anyhow::Result<()> {
+        ensure!(
+            self.equal == self.compared,
+            "legal dong {unit}: {} of {} PNUs answer from the packs as they must; differing: {:?}. \
+             Nothing of this dong is written",
+            self.equal,
+            self.compared,
+            self.differing
+        );
+        Ok(())
+    }
+}
+
+/// One dong: its documents, every baked section's pack laid out and read back in memory, the
+/// gateway's answer joined from them (and from the served sections beside a section re-baked
+/// alone) and compared with the object documents (gate 가), then the packs written.
 async fn write_unit(
-    config: &BakeConfig,
-    store: &ByPnuServingStore,
-    provenance: &GoldSnapshotProvenance,
-    approvals: &ApprovedBuildingLinks,
+    run: &Run<'_>,
     unit: &str,
     rows: &[&JsonMap<String, JsonValue>],
     deleted: &[String],
 ) -> anyhow::Result<(Vec<PackEntry>, UnitCheck)> {
     let documents = rows
         .iter()
-        .map(|row| building_document::document_with_approvals(provenance, row, approvals))
+        .map(|row| building_document::document_with_approvals(run.provenance, row, run.approvals))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let patch = config.patch.as_ref().map(|patch| patch.patch);
-    let mut laid_out = Vec::with_capacity(config.sections.len());
-    for section in &config.sections {
-        laid_out.push((
-            section.clone(),
-            lay_out_pack(config, provenance, section, unit, &documents, deleted)?,
-        ));
+    let patch = run.config.patch.as_ref().map(|patch| patch.patch);
+    let mut laid_out = Vec::with_capacity(run.config.sections.len());
+    if !documents.is_empty() || !deleted.is_empty() {
+        for section in &run.config.sections {
+            laid_out.push((
+                section.clone(),
+                lay_out_pack(
+                    run.config,
+                    run.plan.generation(section)?,
+                    run.provenance,
+                    section,
+                    unit,
+                    &documents,
+                    deleted,
+                )?,
+            ));
+        }
     }
-    let check = check_round_trip(config, &laid_out, &documents, deleted, patch)?;
+    let served = match &run.plan.served {
+        Some(served) => {
+            read::load_unit(run.store, &served.view, unit, &|section, unit| {
+                served
+                    .bases
+                    .get(section)
+                    .is_some_and(|units| units.contains(unit))
+            })
+            .await?
+            .sections
+        }
+        None => Vec::new(),
+    };
+    let check = check_round_trip(&laid_out, &served, &documents, deleted, patch)?;
+    check.require_equal(unit)?;
     let mut packs = Vec::with_capacity(laid_out.len());
     for (section, bytes) in laid_out {
-        packs.push(write_pack(config, store, section, unit, bytes, &documents, deleted).await?);
+        packs.push(write_pack(run, section, unit, bytes, &documents, deleted).await?);
     }
     Ok((packs, check))
 }
 
 pub(super) fn lay_out_pack(
     config: &BakeConfig,
+    generation: u64,
     provenance: &GoldSnapshotProvenance,
     section: &str,
     unit: &str,
@@ -488,7 +767,7 @@ pub(super) fn lay_out_pack(
     let mut writer = PackWriter::new(PackIdentity {
         lane: LANE.unit().to_owned(),
         section: section.to_owned(),
-        generation: config.generation,
+        generation,
         patch: config.patch.as_ref().map(|patch| patch.patch),
         unit: unit.to_owned(),
         gold_table: provenance.table.clone(),
@@ -516,18 +795,23 @@ fn entries<'a>(
     entries
 }
 
-/// Gate (가) on one dong, before anything is written: every section's pack, read back from its
-/// bytes, holds exactly the fragment the document cuts; when the run bakes every section, the
-/// gateway's answer joined from them is byte for byte the object document the same row renders,
-/// and every delete answers as a tombstone. A difference is a defect, so the run stops.
+/// Gate (가) on one dong, before anything is written.
+///
+/// - Every baked section's pack, read back from its bytes, holds exactly the fragment the
+///   document cuts; anything else is a format defect and stops the run.
+/// - The gateway's answer for every document, joined from the baked packs and the `served`
+///   sections beside them (a section re-baked alone), is compared byte for byte with the object
+///   document the same row renders; every other PNU the served sections answer must not answer
+///   as a document. Both are tallied in [`UnitCheck`], so `equal` is counted, not assumed.
+/// - Every delete answers as a tombstone.
 pub(super) fn check_round_trip(
-    config: &BakeConfig,
     laid_out: &[(String, Vec<u8>)],
+    served: &[read::SectionPacksOfUnit],
     documents: &[BuildingByPnuDocument],
     deleted: &[String],
     patch: Option<u64>,
 ) -> anyhow::Result<UnitCheck> {
-    let mut of_unit = Vec::with_capacity(laid_out.len());
+    let mut baked = Vec::with_capacity(laid_out.len());
     for (section, bytes) in laid_out {
         let pack = Pack::read(bytes)?;
         for document in documents {
@@ -541,7 +825,7 @@ pub(super) fn check_round_trip(
                 document.pnu
             );
         }
-        of_unit.push(read::SectionPacksOfUnit {
+        baked.push(read::SectionPacksOfUnit {
             name: section.clone(),
             patches: patch
                 .map(|number| (number, pack.clone()))
@@ -550,43 +834,87 @@ pub(super) fn check_round_trip(
             base: patch.is_none().then_some(pack),
         });
     }
+    // Contract order; a section neither baked here nor served beside them has no pack in this
+    // dong, and a document then cannot answer.
+    let mut joined = Vec::new();
+    for name in &LANE.section_packs()?.sections {
+        joined.push(
+            baked
+                .iter()
+                .chain(served)
+                .find(|section| &section.name == name)
+                .cloned()
+                .unwrap_or_else(|| read::SectionPacksOfUnit {
+                    name: name.clone(),
+                    patches: Vec::new(),
+                    base: None,
+                }),
+        );
+    }
+    let packs = read::UnitPacks { sections: joined };
     let mut check = UnitCheck::default();
-    if config.sections == LANE.section_packs()?.sections {
-        let packs = read::UnitPacks { sections: of_unit };
-        for document in documents {
-            let read::Resolved::Document(fragments) = read::resolve(&packs, &document.pnu)? else {
-                bail!("{} does not answer from its packs", document.pnu);
-            };
-            ensure!(
-                read::joined_bytes(&fragments)? == document.to_bytes()?,
-                "the packs of {} do not join into its object document",
-                document.pnu
-            );
-            check.compared += 1;
-            if patch.is_none() && gate::is_sample_candidate(&document.pnu)? {
-                check.candidates.push(document.pnu.clone());
-            }
+    for document in documents {
+        let answer = match read::resolve(&packs, &document.pnu) {
+            Ok(read::Resolved::Document(fragments)) => read::joined_bytes(&fragments).ok(),
+            _ => None,
+        };
+        check.tally(
+            &document.pnu,
+            answer.as_deref() == Some(document.to_bytes()?.as_slice()),
+        );
+        if patch.is_none() && gate::is_sample_candidate(&document.pnu)? {
+            check.candidates.push(document.pnu.clone());
         }
-        for pnu in deleted {
-            ensure!(
-                matches!(read::resolve(&packs, pnu)?, read::Resolved::Tombstone),
-                "the packs do not answer {pnu} as deleted"
+    }
+    let rendered = documents
+        .iter()
+        .map(|document| document.pnu.as_str())
+        .chain(deleted.iter().map(String::as_str))
+        .collect::<BTreeSet<_>>();
+    let mut beside = BTreeSet::new();
+    for section in served {
+        for pack in section
+            .patches
+            .iter()
+            .map(|(_, pack)| pack)
+            .chain(section.base.iter())
+        {
+            beside.extend(
+                pack.entries
+                    .iter()
+                    .map(|entry| entry.pnu.as_str())
+                    .filter(|pnu| !rendered.contains(pnu)),
             );
         }
+    }
+    for pnu in beside {
+        let answers = !matches!(
+            read::resolve(&packs, pnu),
+            Ok(read::Resolved::Tombstone | read::Resolved::Absent)
+        );
+        if answers {
+            check.tally(pnu, false);
+        }
+    }
+    for pnu in deleted {
+        ensure!(
+            matches!(read::resolve(&packs, pnu)?, read::Resolved::Tombstone),
+            "the packs do not answer {pnu} as deleted"
+        );
     }
     Ok(check)
 }
 
 async fn write_pack(
-    config: &BakeConfig,
-    store: &ByPnuServingStore,
+    run: &Run<'_>,
     section: String,
     unit: &str,
     bytes: Vec<u8>,
     documents: &[BuildingByPnuDocument],
     deleted: &[String],
 ) -> anyhow::Result<PackEntry> {
-    let patch = config.patch.as_ref().map(|patch| patch.patch);
+    let patch = run.config.patch.as_ref().map(|patch| patch.patch);
+    let generation = run.plan.generation(&section)?;
     let pnus = if patch.is_some() {
         entries(documents, deleted)
             .iter()
@@ -596,9 +924,12 @@ async fn write_pack(
         Vec::new()
     };
     let head = by_pnu_pack::read_prefix(&bytes)?.head_length();
-    let key = by_pnu_packs::pack_key(LANE, &section, config.generation, patch, unit)?;
+    let key = by_pnu_packs::pack_key(LANE, &section, generation, patch, unit)?;
     let sha256 = format!("{:x}", Sha256::digest(&bytes));
-    let created = store.write_pack_create_only(&key, &bytes, &sha256).await?;
+    let created = run
+        .store
+        .write_pack_create_only(&key, &bytes, &sha256)
+        .await?;
     Ok(PackEntry {
         section,
         unit: unit.to_owned(),

@@ -104,6 +104,16 @@ pub(crate) struct LaneSectionPacks {
     pub(crate) sections: Vec<String>,
     /// The section whose entry decides whether a PNU answers at all (document, tombstone, absent).
     pub(crate) anchor_section: String,
+    /// The scheduled job that keeps the packs current, and the capability its job entry must
+    /// declare before the first pack publish (root ADR-0147, runbook 7절).
+    pub(crate) scheduled_bake: ScheduledPackBake,
+}
+
+/// The job (`orchestration/jobs.v1.json`) that bakes a lane's daily changes as pack patches.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ScheduledPackBake {
+    pub(crate) job: String,
+    pub(crate) capability: String,
 }
 
 /// The pack format and the cut-over gate shared by every lane (root ADR-0147 §2, §6).
@@ -121,8 +131,6 @@ pub(crate) struct SectionPackPolicy {
     pub(crate) patch_dir_pattern: String,
     pub(crate) content_type: String,
     pub(crate) cache_control: String,
-    /// The first range read of a pack: enough to cover the head of almost every pack.
-    pub(crate) head_read_bytes: usize,
     pub(crate) max_index_entries: usize,
     pub(crate) preview_query_parameter: String,
     pub(crate) cutover_gate: CutoverGatePolicy,
@@ -231,7 +239,6 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
         || packs.compression != "gzip"
         || !(1..=19).contains(&packs.unit_prefix_length)
         || packs.max_index_entries == 0
-        || packs.head_read_bytes < PACK_PREFIX_BYTES
         || gate.latency_sample_size == 0
         || gate.sample_seed.is_empty()
         || !(1..=1_000_000).contains(&gate.sample_candidates_per_million)
@@ -254,7 +261,12 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
                     .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
                 && seen.insert(section.as_str())
         });
-        if !named || !seen.contains(lane.anchor_section.as_str()) || lane.root.ends_with('/') {
+        if !named
+            || !seen.contains(lane.anchor_section.as_str())
+            || lane.root.ends_with('/')
+            || lane.scheduled_bake.job.is_empty()
+            || lane.scheduled_bake.capability.is_empty()
+        {
             return Err(format!(
                 "section_packs under {} must name distinct lowercase sections including its anchor",
                 lane.root

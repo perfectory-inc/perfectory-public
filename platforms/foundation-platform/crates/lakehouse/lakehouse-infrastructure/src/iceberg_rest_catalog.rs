@@ -347,6 +347,45 @@ impl IcebergRestCatalog {
         }))
     }
 
+    /// The number of live rows of `snapshot_id`, as the table metadata records it (the snapshot
+    /// summary's `total-records`).
+    ///
+    /// Returns `Ok(None)` when the table does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached, the metadata no longer holds
+    /// the snapshot (expired), or its summary records no row count.
+    pub async fn load_snapshot_record_count(
+        &self,
+        table_name: &str,
+        snapshot_id: i64,
+    ) -> Result<Option<u64>, LakehouseError> {
+        let Some(payload) = self.load_table_response(table_name).await? else {
+            return Ok(None);
+        };
+        let snapshot = payload
+            .metadata
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.snapshot_id == snapshot_id)
+            .ok_or_else(|| {
+                LakehouseError::Upstream(format!(
+                    "{table_name} metadata no longer holds snapshot {snapshot_id}"
+                ))
+            })?;
+        let count = match snapshot.summary.get("total-records") {
+            Some(serde_json::Value::String(value)) => value.parse::<u64>().ok(),
+            Some(serde_json::Value::Number(value)) => value.as_u64(),
+            _ => None,
+        };
+        count.map(Some).ok_or_else(|| {
+            LakehouseError::Upstream(format!(
+                "{table_name} snapshot {snapshot_id} records no total-records in its summary"
+            ))
+        })
+    }
+
     /// The table's named references (`main` and every branch and tag) and the snapshots its
     /// metadata still holds.
     ///
@@ -696,6 +735,9 @@ struct IcebergSnapshotMetadata {
     timestamp_ms: Option<i64>,
     #[serde(rename = "manifest-list", default)]
     manifest_list: Option<String>,
+    /// The writer's snapshot summary; Iceberg writers record `total-records` in it.
+    #[serde(default)]
+    summary: BTreeMap<String, serde_json::Value>,
 }
 
 fn parse_table_name(table_name: &str) -> Result<(Vec<&str>, &str), LakehouseError> {

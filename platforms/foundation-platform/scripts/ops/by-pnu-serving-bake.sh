@@ -47,6 +47,17 @@
 #    patch's shards exported exactly the change set's upserts and tombstones. The publisher then
 #    checks the patch against its change set again (ADR-0141 §7) before it moves the manifest.
 #
+# Once the building lane serves from section packs (its manifest names a `section_packs` block, root
+# ADR-0147), the same run bakes packs instead of objects, every choice made against the packs'
+# state: the change set goes from the packs' reflected snapshot, a patch is
+# `export-building-by-pnu-section-packs` with TARGET_PATCH (each section's packs under the
+# generation the lane serves that section from, deletes as tombstones), a full bake is a new
+# generation of every section, and each is published with `publish-building-by-pnu-section-packs`
+# (a reflect publishes the empty change set alone). The object fields of the manifest then stay as
+# they were at the cut-over. Until then the lane bakes objects exactly as above. The job entry in
+# orchestration/jobs.v1.json declares this (`capabilities`), and the first pack publish refuses a
+# release whose job does not.
+#
 # The run summary (runs/<snapshot>-<mode>/run-summary.json) records the choice, its reason and the
 # counts. Never overwrites an object and never repoints a published generation. Work files live
 # under the state root on /data.
@@ -105,7 +116,11 @@ unset "${ENV_PREFIX}_ALLOW_OVERWRITE" "${ENV_PREFIX}_ALLOW_REPOINT" "${ENV_PREFI
   "${ENV_PREFIX}_PNU_ALLOWLIST_PATH" "${ENV_PREFIX}_DELETE_LIST_PATH" "${ENV_PREFIX}_TARGET_PATCH" \
   "${ENV_PREFIX}_EXPORT_SUMMARY_PATH" "${ENV_PREFIX}_OUTPUT_ROOT" "${ENV_PREFIX}_ROLLBACK_TO_MANIFEST_KEY" \
   "${ENV_PREFIX}_PUBLISH_PATCH" "${ENV_PREFIX}_PUBLISH_FROM_LISTING" "${ENV_PREFIX}_CHANGE_SET_SUMMARY_PATH" \
-  "${ENV_PREFIX}_UPSERT_LIST_PATH" "${ENV_PREFIX}_REBASE_SAMPLE_PREFIXES" "${ENV_PREFIX}_REBASE_WORK_DIR"
+  "${ENV_PREFIX}_UPSERT_LIST_PATH" "${ENV_PREFIX}_REBASE_SAMPLE_PREFIXES" "${ENV_PREFIX}_REBASE_WORK_DIR" \
+  "${ENV_PREFIX}_PACK_GENERATION" "${ENV_PREFIX}_PACK_SECTIONS" "${ENV_PREFIX}_PACK_SUMMARY_PATH" \
+  "${ENV_PREFIX}_PACK_SUMMARY_DIR" "${ENV_PREFIX}_PACK_EXPECTED_DOCUMENT_COUNT" \
+  "${ENV_PREFIX}_PACK_EQUALITY_EVIDENCE_PATH" "${ENV_PREFIX}_PACK_LATENCY_EVIDENCE_PATH" \
+  "${ENV_PREFIX}_INSTALLED_JOBS_PATH"
 export "${ENV_PREFIX}_OUTPUT_STORAGE_DRIVER=${FOUNDATION_BY_PNU_BAKE_STORAGE_DRIVER:-r2}"
 export "${ENV_PREFIX}_RESUME_FROM_LISTING=true"
 
@@ -160,12 +175,47 @@ print(state["gold_iceberg_snapshot_id"] or "-", published["base_generation"],
 PY
 )
 [[ -n "${prefix_length:-}" ]] || { log "refused: cannot read the lane state ${state}"; exit 65; }
+# Does the lane serve from section packs (root ADR-0147)? Then every choice below is made against
+# the packs: their reflected snapshot, document schema and count, the patches some section still
+# reads, the highest section generation, and every generation and patch number holding a pack.
+read -r packs packs_reflected packs_schema packs_count packs_newest packs_live packs_cumulative \
+  packs_generation packs_listed packs_patch_listed < <(python3 -I - "${state}" <<'PY'
+import json, sys
+packs = json.load(open(sys.argv[1])).get("section_packs")
+if packs is None:
+    print("no", *["-"] * 9)
+else:
+    for name in ("generations_with_packs", "patches_with_packs"):
+        listed = packs[name]
+        if not (isinstance(listed, list) and all(type(g) is int and g >= 1 for g in listed)):
+            sys.exit(f"{name} is not a list of numbers: {listed!r}")
+    print("yes", packs["reflected_gold_iceberg_snapshot_id"], packs["document_schema_version"],
+          packs["document_count"], packs["newest_patch"], packs["max_live_patches"],
+          packs["cumulative_changes"], max(s["generation"] for s in packs["sections"]),
+          max(packs["generations_with_packs"], default=0), max(packs["patches_with_packs"], default=0))
+PY
+)
+[[ -n "${packs_patch_listed:-}" ]] || { log "refused: cannot read the section packs of the lane state ${state}"; exit 65; }
+LANE_SERVES=objects
+if [[ "${packs}" == yes ]]; then
+  [[ "${UNIT}" == building ]] || { log "refused: the ${UNIT} lane names section packs; only the building lane bakes them"; exit 65; }
+  LANE_SERVES=packs
+  base="${packs_generation}" base_objects="${packs_count}" reflected="${packs_reflected}"
+  patch_count="${packs_live}" newest_patch="${packs_newest}" cumulative="${packs_cumulative}"
+  served_schema="${packs_schema}" highest_listed="${packs_listed}" highest_patch_listed="${packs_patch_listed}"
+  # Pack patches name legal dongs, not the object lane's prefixes: the prefix rule does not apply.
+  served_prefix_length="${prefix_length}"
+fi
 if [[ "${gold}" == - ]]; then
   log "nothing to do: the Gold table has no snapshot"
   exit 0
 fi
 if [[ "${gold}" == "${reflected}" ]]; then
-  log "nothing to do: the served state (generation ${base}, ${patch_count} patches) already reflects Gold snapshot ${gold}"
+  if [[ "${LANE_SERVES}" == packs ]]; then
+    log "nothing to do: the served section packs (highest generation ${base}, ${patch_count} patches) already reflect Gold snapshot ${gold}"
+  else
+    log "nothing to do: the served state (generation ${base}, ${patch_count} patches) already reflects Gold snapshot ${gold}"
+  fi
   exit 0
 fi
 
@@ -175,7 +225,7 @@ declare -A summary=([unit]="${UNIT}" [gold_iceberg_snapshot_id]="${gold}"
   [base_object_count]="${base_objects}" [patches_before]="${patch_count}"
   [cumulative_changes_before]="${cumulative}" [max_patches]="${max_patches}"
   [max_cumulative_change_ratio]="${max_ratio}" [forced_full_reason]="${FORCE_FULL_REASON}"
-  [verified_rebase_reason]="${REBASE_REASON}")
+  [verified_rebase_reason]="${REBASE_REASON}" [lane_serves]="${LANE_SERVES}")
 write_summary() {
   local args=()
   for key in "${!summary[@]}"; do args+=("${key}=${summary[${key}]}"); done
@@ -354,23 +404,36 @@ open_run() {
   write_summary
 }
 
+# Pack runs keep their own work directories and target record beside the object lane's.
+RUN_TAG="" PROGRESS_NAME=in-progress.json
+[[ "${LANE_SERVES}" == packs ]] && RUN_TAG=packs- PROGRESS_NAME=in-progress-packs.json
+
 if [[ "${mode}" == reflect ]]; then
-  open_run "${gold}-reflect"
-  env "${ENV_PREFIX}_CONFIRM_PUBLISH=true" "${ENV_PREFIX}_PUBLISH_PATCH=true" \
-    "${ENV_PREFIX}_TARGET_GENERATION=${base}" \
-    "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}" \
-    "${ENV_PREFIX}_CHANGE_SET_SUMMARY_PATH=${run}/change-set.json" \
-    "${ENV_PREFIX}_UPSERT_LIST_PATH=${run}/upserts.txt" \
-    "${ENV_PREFIX}_DELETE_LIST_PATH=${run}/deletes.txt" \
-    "${PUBLISHER_BIN}" "publish-${UNIT}-by-pnu-serving-manifest"
+  open_run "${gold}-${RUN_TAG}reflect"
+  if [[ "${LANE_SERVES}" == packs ]]; then
+    env "${ENV_PREFIX}_CONFIRM_PACK_PUBLISH=true" \
+      "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}" \
+      "${ENV_PREFIX}_CHANGE_SET_SUMMARY_PATH=${run}/change-set.json" \
+      "${ENV_PREFIX}_UPSERT_LIST_PATH=${run}/upserts.txt" \
+      "${ENV_PREFIX}_DELETE_LIST_PATH=${run}/deletes.txt" \
+      "${PUBLISHER_BIN}" "publish-${UNIT}-by-pnu-section-packs"
+  else
+    env "${ENV_PREFIX}_CONFIRM_PUBLISH=true" "${ENV_PREFIX}_PUBLISH_PATCH=true" \
+      "${ENV_PREFIX}_TARGET_GENERATION=${base}" \
+      "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}" \
+      "${ENV_PREFIX}_CHANGE_SET_SUMMARY_PATH=${run}/change-set.json" \
+      "${ENV_PREFIX}_UPSERT_LIST_PATH=${run}/upserts.txt" \
+      "${ENV_PREFIX}_DELETE_LIST_PATH=${run}/deletes.txt" \
+      "${PUBLISHER_BIN}" "publish-${UNIT}-by-pnu-serving-manifest"
+  fi
   summary[published]=reflect
   write_summary
-  log "published: generation ${base} now reflects Gold snapshot ${gold}; no object changed"
+  log "published: the served ${LANE_SERVES} now reflect Gold snapshot ${gold}; nothing was baked"
   exit 0
 fi
 
 # 3. Which generation, or which patch?
-progress="${STATE_ROOT}/in-progress.json"
+progress="${STATE_ROOT}/${PROGRESS_NAME}"
 read -r target fresh < <(python3 -I - "${progress}" "${gold}" "${mode}" "${base}" "${highest_listed}" \
   "${newest_patch}" "${highest_patch_listed}" <<'PY'
 import json, pathlib, sys
@@ -399,15 +462,18 @@ record_target() {
     "${gold}" "${mode}" "${base}" "${target}" >"${progress}.next"
   mv "${progress}.next" "${progress}"
 }
-[[ "${fresh}" == true ]] || record_target
+# Packs need no empty-range check: a pack directory holding another snapshot's packs is refused
+# by the export before its first write, and a re-run writes the same bytes. So a pack target is
+# this lane's own from the start.
+[[ "${fresh}" == true && "${LANE_SERVES}" == objects ]] || record_target
 if [[ "${mode}" == full ]]; then
-  open_run "${gold}-g${target}"
+  open_run "${gold}-${RUN_TAG}g${target}"
   generation="${target}" patch_env=() where="generation ${target}"
   plan="${STATE_ROOT}/shard-plan.txt"
   if [[ -s "${plan}" ]]; then mapfile -t queue <"${plan}"; else queue=(1 2 3 4 5 6 7 8 9); fi
   summary[target_generation]="${target}"
 else
-  open_run "${gold}-g${base}p${target}"
+  open_run "${gold}-${RUN_TAG}g${base}p${target}"
   generation="${base}" where="generation ${base} patch ${target}"
   patch_env=("${ENV_PREFIX}_TARGET_PATCH=${target}" "${ENV_PREFIX}_PNU_ALLOWLIST_PATH=${run}/upserts.txt"
     "${ENV_PREFIX}_DELETE_LIST_PATH=${run}/deletes.txt")
@@ -415,14 +481,32 @@ else
   queue=(all) # the scan keeps only the change set's rows
   summary[target_generation]="${base}" summary[target_patch]="${target}"
 fi
+if [[ "${LANE_SERVES}" == packs ]]; then
+  # A pack patch goes under each section's own served generation; the publisher reads them from
+  # the manifest, so the patch names none. Pack summaries get a directory of their own: the
+  # publisher reads every *.json in it.
+  [[ "${mode}" == full ]] || where="patch ${target} of every section's served generation"
+  where="section packs ${where}"
+  mkdir -p "${run}/summaries"
+fi
 write_summary
-log "baking Gold snapshot ${gold} into ${where} (highest generation holding objects: ${highest_listed}; new ${mode/full/generation}: ${fresh})"
+log "baking Gold snapshot ${gold} into ${where} (highest generation holding ${LANE_SERVES}: ${highest_listed}; new ${mode/full/generation}: ${fresh})"
 
+# What each shard runs: the object export, or the pack export (a base names its generation; a
+# patch names none, its sections go under the generations the manifest serves them from).
+if [[ "${LANE_SERVES}" == packs ]]; then
+  export_command="export-${UNIT}-by-pnu-section-packs" summary_dir="${run}/summaries"
+  export_env=("${ENV_PREFIX}_CONFIRM_PACK_EXPORT=true")
+  [[ "${mode}" != full ]] || export_env+=("${ENV_PREFIX}_PACK_GENERATION=${generation}")
+else
+  export_command="export-${UNIT}-by-pnu-serving" summary_dir="${run}"
+  export_env=("${ENV_PREFIX}_CONFIRM_EXPORT=true" "${ENV_PREFIX}_TARGET_GENERATION=${generation}")
+fi
 done_shards=()
 while ((${#queue[@]})); do
   prefix="${queue[0]}"; queue=("${queue[@]:1}")
   [[ "${prefix}" =~ ^[0-9]{1,10}$ || "${prefix}" == all ]] || { log "refused: shard plan holds '${prefix}'"; exit 65; }
-  shard_summary="${run}/shard-${prefix}.json"
+  shard_summary="${summary_dir}/shard-${prefix}.json"
   if [[ -s "${shard_summary}" ]]; then done_shards+=("${prefix}"); continue; fi
   prefix_env=()
   [[ "${prefix}" == all ]] || prefix_env=("${ENV_PREFIX}_PNU_PREFIX=${prefix}")
@@ -435,13 +519,14 @@ while ((${#queue[@]})); do
     checked="${run}/shard-${prefix}.fresh-checked"
     shard_fresh=false
     [[ "${fresh}" == true && ! -s "${checked}" ]] && shard_fresh=true
-    if env "${ENV_PREFIX}_CONFIRM_EXPORT=true" "${ENV_PREFIX}_TARGET_GENERATION=${generation}" \
+    attempt_env=("${ENV_PREFIX}_FRESH_GENERATION=${shard_fresh}"
+      "${ENV_PREFIX}_FRESH_CHECK_MARKER_PATH=${checked}" "${ENV_PREFIX}_SUMMARY_PATH=${shard_summary}.partial")
+    [[ "${LANE_SERVES}" == objects ]] || attempt_env=("${ENV_PREFIX}_PACK_SUMMARY_PATH=${shard_summary}.partial")
+    if env "${export_env[@]}" \
         "${patch_env[@]}" "${prefix_env[@]}" "${ENV_PREFIX}_MAX_CONCURRENCY=${MAX_CONCURRENCY}" \
         "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}" \
-        "${ENV_PREFIX}_FRESH_GENERATION=${shard_fresh}" \
-        "${ENV_PREFIX}_FRESH_CHECK_MARKER_PATH=${checked}" \
-        "${ENV_PREFIX}_SUMMARY_PATH=${shard_summary}.partial" \
-        "${PUBLISHER_BIN}" "export-${UNIT}-by-pnu-serving" >"${attempt_log}" 2>&1; then
+        "${attempt_env[@]}" \
+        "${PUBLISHER_BIN}" "${export_command}" >"${attempt_log}" 2>&1; then
       mv "${shard_summary}.partial" "${shard_summary}"
       [[ "${fresh}" == true && -s "${checked}" ]] && record_target
       baked=yes
@@ -454,6 +539,13 @@ while ((${#queue[@]})); do
       tail -n 5 "${attempt_log}" >&2
       log "FAILED: the Gold table moved off snapshot ${gold} during the bake; nothing was published, the next run starts over"
       log "abandoned: ${where} holds the objects this bake wrote for Gold snapshot ${gold}; it is never served or resumed, and removing it is a manual step (runbook 8절)"
+      exit 1
+    fi
+    if grep -q 'holds packs of Gold snapshot' "${attempt_log}"; then
+      tail -n 5 "${attempt_log}" >&2
+      # Another snapshot's packs sit in the target: never let a later run resume it.
+      rm -f "${progress}"
+      log "FAILED: ${where} already holds packs of another Gold snapshot; nothing was published, the next run starts above it"
       exit 1
     fi
     if grep -q 'this run did not start' "${attempt_log}"; then
@@ -488,12 +580,12 @@ done
 [[ -z "${plan}" ]] || { printf '%s\n' "${done_shards[@]}" >"${plan}.next" && mv "${plan}.next" "${plan}"; }
 
 # 4. Complete? Then publish.
-counts="$(python3 -I - "${run}" "${gold}" "${mode}" "${generation}" "${target}" \
+counts="$(python3 -I - "${summary_dir}" "${gold}" "${mode}" "${LANE_SERVES}" "${generation}" "${target}" \
   "${upserts:-0}" "${deletes:-0}" "${done_shards[@]}" <<'PY'
 import json, pathlib, sys
-run, gold, mode = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-generation, target, upserts, deletes = map(int, sys.argv[4:8])
-shards = sys.argv[8:]
+run, gold, mode, serves = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
+generation, target, upserts, deletes = map(int, sys.argv[5:9])
+shards = sys.argv[9:]
 def refuse(reason):
     sys.exit("by-pnu-serving-bake: refused to publish: " + reason)
 named = [shard for shard in shards if shard != "all"]
@@ -507,11 +599,19 @@ for prefix in shards:
         refuse(f"shard {prefix} baked Gold snapshot {summary['gold_iceberg_snapshot_id']}, not {gold}; "
                "the table moved during the bake, the next run starts over")
     want_patch = None if mode == "full" else target
-    if (summary["target_generation"] != generation or summary.get("target_patch") != want_patch
-            or summary.get("pnu_prefix") != (None if prefix == "all" else prefix)):
-        refuse(f"shard {prefix}'s summary is for generation {summary['target_generation']} patch "
-               f"{summary.get('target_patch')} prefix {summary.get('pnu_prefix')}")
-    gold_rows.add(summary["scanned_row_count"])
+    if serves == "packs":
+        # A pack patch's sections each carry their served generation; the publisher holds them
+        # to the manifest. A base is one generation of every section.
+        said = (summary["generation"] if mode == "full" and not summary.get("section_generations")
+                else None, summary["patch"], summary["pnu_prefix"])
+        rows = summary.get("gold_record_count")
+    else:
+        said = (summary["target_generation"], summary.get("target_patch"), summary.get("pnu_prefix"))
+        rows = summary["scanned_row_count"]
+    want_generation = generation if serves == "objects" or mode == "full" else None
+    if said != (want_generation, want_patch, None if prefix == "all" else prefix):
+        refuse(f"shard {prefix}'s summary is for generation {said[0]} patch {said[1]} prefix {said[2]}")
+    gold_rows.add(rows)
     exported += summary["exported_row_count"]
     tombstones += summary.get("tombstone_count", 0)
 if len(gold_rows) != 1:
@@ -530,7 +630,16 @@ else:
 PY
 )"
 read -r expected tombstones <<<"${counts}"
-if [[ "${mode}" == full ]]; then
+if [[ "${LANE_SERVES}" == packs ]]; then
+  # The publisher holds a base to the Gold row count the catalog records, and a patch to its
+  # change set, before it writes the manifest's section_packs block.
+  publish_env=("${ENV_PREFIX}_CONFIRM_PACK_PUBLISH=true" "${ENV_PREFIX}_PACK_SUMMARY_DIR=${summary_dir}"
+    "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}")
+  [[ "${mode}" == full ]] || publish_env+=("${ENV_PREFIX}_CHANGE_SET_SUMMARY_PATH=${run}/change-set.json"
+    "${ENV_PREFIX}_UPSERT_LIST_PATH=${run}/upserts.txt" "${ENV_PREFIX}_DELETE_LIST_PATH=${run}/deletes.txt")
+  log "complete: ${where} holds ${expected} documents and ${tombstones} tombstones; publishing it"
+  env "${publish_env[@]}" "${PUBLISHER_BIN}" "publish-${UNIT}-by-pnu-section-packs"
+elif [[ "${mode}" == full ]]; then
   log "complete: ${#done_shards[@]} shards exported all ${expected} rows; publishing generation ${target}"
   env "${ENV_PREFIX}_CONFIRM_PUBLISH=true" "${ENV_PREFIX}_PUBLISH_FROM_LISTING=true" \
     "${ENV_PREFIX}_TARGET_GENERATION=${target}" \
@@ -550,12 +659,14 @@ fi
 rm -f "${progress}"
 summary[published]="${mode}" summary[documents]="${expected}" summary[tombstones]="${tombstones}"
 write_summary
-# The shard summaries list every object (hundreds of MB for a national run). Keep their counts.
-python3 -I - "${run}" <<'PY'
+# The shard summaries list every object or pack (hundreds of MB for a national object run). Keep
+# their counts.
+python3 -I - "${summary_dir}" <<'PY'
 import json, pathlib, sys
 for path in pathlib.Path(sys.argv[1]).glob("shard-*.json"):
     summary = json.loads(path.read_text())
     summary.pop("artifacts", None)
+    summary.pop("packs", None)
     path.write_text(json.dumps(summary, sort_keys=True) + "\n")
 PY
 log "published ${where}: ${expected} documents, ${tombstones} tombstones from Gold snapshot ${gold}"
