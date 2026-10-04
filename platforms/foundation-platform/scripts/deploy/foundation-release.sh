@@ -1175,6 +1175,10 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # made 0777 by hand from its runbook.
     install -d -o foundation-platform -g foundation-platform \
       /var/lib/foundation-platform/map-edit-fold /var/lib/foundation-platform/lineage-stewardship
+    # The legal-dong code collection writes its handoffs here, and the stewardship cycle, which loads
+    # them, names it in ReadWritePaths: systemd refuses to start a unit whose path is missing
+    # (root ADR-0143).
+    install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/legal-dong-code
     install -d -o foundation-platform -g foundation-platform -m 0777 \
       /var/lib/foundation-platform/map-edit-fold/lakehouse \
       /var/lib/foundation-platform/lineage-stewardship/lakehouse

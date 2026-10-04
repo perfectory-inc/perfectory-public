@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **491개**
-- 언어 분류: **{'english': 37, 'korean': 298, 'mixed': 156}**
+- 감사 문서: **492개**
+- 언어 분류: **{'english': 37, 'korean': 299, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **228개 정상 / 0개 누락 / 263개 해당 없음**
+- 메타데이터: **229개 정상 / 0개 누락 / 263개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -163,7 +163,7 @@
 | `docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0143-legal-dong-code-changes-come-from-code-go-kr.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0143-legal-dong-code-changes-come-from-code-go-kr.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
@@ -278,6 +278,7 @@
 | `platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md` | Foundation Platform | runbook | current | korean | ok | 4 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-registry.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/legal-dong-code-changes.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/map-edit-fold.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md` | Foundation Platform | runbook | current | korean | ok | 3 |

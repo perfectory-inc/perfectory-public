@@ -22,16 +22,17 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **134개**
-- 고유 dataset slug: **115개**
-- 고유 Bronze source slug: **134개**
-- 국가 수집 허용 endpoint: **84개**
+- 엔드포인트 정의: **135개**
+- 고유 dataset slug: **116개**
+- 고유 Bronze source slug: **135개**
+- 국가 수집 허용 endpoint: **85개**
 - 기본 실행 레인에 포함되는 endpoint: **81개**
 
 ## 제공기관별 정리
 
 | 제공기관 | endpoint 수 | 국가 수집 허용 | 기본 실행 | 주요 상태 |
 |---|---:|---:|---:|---|
+| code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | data.go.kr | 23 | 0 | 0 | API 예정 1, 중복 API 비활성 22 |
 | factoryon.go.kr | 1 | 0 | 0 | 수동 승인 1 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
@@ -56,6 +57,7 @@ last_reviewed: 2026-07-30
 |---|---:|---|
 | `building_hub_bulk` | 59 | hub.go.kr 건축물·허가·에너지·점검 벌크 파일 |
 | `building_register_open_api` | 10 | data.go.kr 건축물대장 API 중복 경로 |
+| `code_go_kr` | 1 | code.go.kr 법정동 전체 표 (법정동 코드 변경 출처, root ADR-0143) |
 | `ilis` | 3 | industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처) |
 | `juso_electronic_map_bulk` | 11 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
@@ -90,6 +92,7 @@ last_reviewed: 2026-07-30
 
 | 제공기관 | 데이터 종류 | 수집 데이터(한글명) | 수집 방식 | 국가 수집 허용 | 현재 상태 |
 |---|---|---|---|---:|---|
+| code.go.kr | 법정동 코드 변경 출처 | 행정표준코드 법정동 전체 표 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 건축물대장 API | 건축물대장 부속지번 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 건축물대장 API | 건축물대장 기본개요 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 건축물대장 API | 건축물대장 전유부 | 중복 API | false | 중복 API 비활성 |

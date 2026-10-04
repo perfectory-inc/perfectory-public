@@ -1069,6 +1069,19 @@ fn industrial_complex_address_source_commands_are_explicit() -> anyhow::Result<(
     Ok(())
 }
 
+/// The 법정동 code change source collector (root ADR-0143): one subcommand, two stages by env.
+#[test]
+fn code_go_kr_legal_dong_collect_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "collect-code-go-kr-legal-dong"
+        ])?,
+        Command::CollectCodeGoKrLegalDong
+    );
+    Ok(())
+}
+
 #[test]
 fn artifact_batch_commands_run_with_expanded_stack() {
     assert!(command_requires_expanded_stack(

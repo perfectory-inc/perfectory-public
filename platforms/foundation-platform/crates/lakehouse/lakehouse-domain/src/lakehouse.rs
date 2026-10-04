@@ -2698,10 +2698,44 @@ const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "timestamp",
         required: true,
     },
+    // code.go.kr 전체 표가 더 주는 칸 (root ADR-0143 §2). 옛 전체자료 파일 적재분에는 없으므로 비어 있다.
+    LakehouseColumn {
+        name: "parent_cd",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "created_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "abolished_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "lowest_name",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "jumin_cd",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "jijuk_cd",
+        logical_type: "string",
+        required: false,
+    },
 ];
 
-/// Every snapshot of the official 법정동코드 전체자료 (code, full name, 존재/폐지). The file carries no
-/// dates and no successors, so change is read by comparing two snapshots (root ADR-0113 §5).
+/// Every snapshot of the official 법정동 code list.
+///
+/// The 전체자료 file (root ADR-0113 §5) carries code, full name and 존재/폐지 only; the code.go.kr full table (root ADR-0143 §2) adds the parent code,
+/// 생성일, 폐지일, the lowest name and the 주민/지적 codes. Dates are `YYYYMMDD` text, blank when the
+/// source leaves them blank.
 pub const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT: LakehouseTableContract = LakehouseTableContract {
     table_name: "reference.legal_dong_code_snapshot",
     layer: LakehouseLayer::Reference,
@@ -2720,6 +2754,96 @@ pub const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT: LakehouseTableContract = Lakehouse
     // 스냅숏 파일 하나가 한 번의 적재다. 같은 파일을 두 번 넣지 않는다.
     load: LakehouseLoadUnit::Object {
         column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
+const REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "change_key",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "kind",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "old_code",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "new_code",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "level",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "effective_date",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "source",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "rule_verdict",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "detail",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "derivation_run_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "recorded_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// Every 법정동 code change the data implies, old code → new code.
+///
+/// Root ADR-0143 §3–4, ADR-0144 (pending): from downloaded data only. `source` names the evidence:
+/// `derived:code-go-kr:date+name:<day>` (the date + name rule over the full table),
+/// `derived:parcel-jibun:<snapshots>` (the 지번 sets of two parcel snapshots, ADR-0113 §5),
+/// `official:parcel-history` (the parcel lineage's official links), `derived:children` (a 시군구 or
+/// 시도 rolled up from its 동) or `steward:<who>`. Append-only: a change is recorded once, keyed by
+/// `change_key`; a load is one derivation run or one steward decision.
+pub const REFERENCE_LEGAL_DONG_CODE_CHANGE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "reference.legal_dong_code_change",
+    layer: LakehouseLayer::Reference,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    columns: REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["effective_date", "old_code"],
+    quality_gates: &[
+        "append_only",
+        "change_key unique",
+        "kind is pair",
+        "a pair names old_code and new_code",
+    ],
+    // 도출 실행 한 번(표 키 + 실행 시각), 또는 스튜어드 결정 파일 하나가 한 번의 적재다. 이미 있는
+    // change_key 는 적재 전에 걸러 내므로 같은 변경을 다시 도출해도 다시 넣지 않는다.
+    load: LakehouseLoadUnit::Object {
+        column: "derivation_run_id",
         object_prefix: None,
         object_suffix_separator: None,
     },
@@ -3188,6 +3312,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_ADMINISTRATIVE_BOUNDARY_SERVED,
     GOLD_PARCEL_BOUNDARY_SERVED,
     REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
+    REFERENCE_LEGAL_DONG_CODE_CHANGE,
     SILVER_PARCEL_LINEAGE,
     SILVER_PARCEL_REGISTRY,
     GOLD_PLACE_ID_REGISTRY,

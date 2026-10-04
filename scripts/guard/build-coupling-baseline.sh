@@ -218,7 +218,11 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # 110 -> 111: root ADR-0142's 시도 tally embeds vworld-parcel-source-objects.json beside the
 # 시군구 crosswalk seed: the cadastral 시도 set a hub export was judged against is part of the
 # binary that judged it, and the parcel source contract is that set's only record.
-COMPILE_TIME_READ_BASELINE="${3:-111}"
+# 111 -> 113: root ADR-0143's code.go.kr collector embeds code-go-kr-legal-dong.contract.json, the
+# one record of the endpoints, form fields and request spacing that the Python parsers read too;
+# and its test reads the endpoint catalog from CARGO_MANIFEST_DIR to prove every dataset it lands
+# is registered there, as the ILIS collector's test does.
+COMPILE_TIME_READ_BASELINE="${3:-113}"
 
 cd "$repo_root"
 

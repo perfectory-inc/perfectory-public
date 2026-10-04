@@ -68,6 +68,7 @@ mod building_register_unit_silver_export;
 mod bulk_streaming_bronze;
 mod canonical_release_proof;
 mod canonical_silver_gold_cutover_evidence;
+mod code_go_kr_legal_dong_collect;
 mod collection_job_requeue;
 mod dbase_table;
 mod github_actions_secret_configurator;
@@ -88,6 +89,8 @@ mod industrial_complex_gold_profile_export;
 mod industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
 mod ingestion_run_recovery;
+#[cfg(test)]
+mod test_crosswalk;
 use foundation_outbox_publisher::lakehouse_engine_contract;
 mod lakehouse_inventory;
 mod lakehouse_quality_rules_evaluate;
@@ -233,6 +236,7 @@ enum Command {
     BuildParcelMarkerAnchorPbfArtifacts,
     BuildIndustrialComplexAddressResolution,
     BuildingRegisterSmoke,
+    CollectCodeGoKrLegalDong,
     CollectIndustrialComplexAddressSource,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
@@ -452,6 +456,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildIndustrialComplexAddressResolution => {
             Box::pin(async { industrial_complex_address_resolution_build::run() })
         }
+        Command::CollectCodeGoKrLegalDong => Box::pin(code_go_kr_legal_dong_collect::run()),
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
         }
@@ -466,7 +471,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(building_register_floor_silver_export::select_inputs_cli())
         }
         Command::ExportBuildingRegisterUnitAreaSilverHandoff => {
-            Box::pin(async { building_register_unit_area_silver_export::run() })
+            Box::pin(building_register_unit_area_silver_export::run())
         }
         Command::ExportBuildingRegisterTitleSilverHandoff => {
             Box::pin(building_register_title_silver_export::run())
@@ -1317,6 +1322,7 @@ where
         Some("build-industrial-complex-address-resolution") => {
             Ok(Command::BuildIndustrialComplexAddressResolution)
         }
+        Some("collect-code-go-kr-legal-dong") => Ok(Command::CollectCodeGoKrLegalDong),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)
         }

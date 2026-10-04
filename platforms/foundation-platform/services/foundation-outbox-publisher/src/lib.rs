@@ -6,6 +6,9 @@ pub mod silver_handoff_io;
 /// 시군구 canonical crosswalk seed loader (ADR-0103 geography identity Wave 1).
 pub mod sigungu_crosswalk;
 
+/// The code.go.kr 법정동 source contract (root ADR-0143), embedded once.
+pub mod code_go_kr_legal_dong_contract;
+
 /// Headerless HUB apartment-price ZIP to partitioned Silver handoff.
 pub mod building_register_apartment_price_silver_export;
 

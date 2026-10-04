@@ -84,7 +84,7 @@ enum OutputFormat {
 pub async fn run() -> anyhow::Result<()> {
     let mut config = UnitExportConfig::from_env()?;
     config.active_overrides = load_active_unit_overrides_from_env().await?;
-    let report = export_handoff(&config)?;
+    let report = export_handoff_via(&config, &hub_sigungu_crosswalk().await?)?;
     tracing::info!(
         row_count = report.row_count,
         accepted_count = report.accepted_count,
@@ -132,10 +132,6 @@ async fn load_active_unit_overrides(
         })
         .collect::<Result<Vec<_>, _>>()
         .context("failed to parse active building-register unit normalization applications")
-}
-
-fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport> {
-    export_handoff_via(config, &hub_sigungu_crosswalk()?)
 }
 
 fn export_handoff_via(
@@ -727,6 +723,11 @@ mod tests {
     use arrow_array::{Array, RecordBatch};
     use uuid::Uuid;
     use zip::{write::SimpleFileOptions, ZipWriter};
+
+    /// The export under the seed's own pairs; the real `export_handoff` needs a projection file.
+    fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport> {
+        super::export_handoff_via(config, &crate::test_crosswalk::seed()?)
+    }
 
     pub(super) fn temp_root(name: &str) -> PathBuf {
         env::temp_dir().join(format!("{name}-{}", Uuid::new_v4()))

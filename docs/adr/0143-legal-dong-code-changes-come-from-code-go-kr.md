@@ -83,3 +83,22 @@ ADR-0113(2026-09-29)은 code.go.kr "법정동코드 전체자료"를 원천으�
 
 - 2026-10-04: §3(코드변경안내 첨부를 짝의 1순위로 둔 결정)은 [ADR-0144](./0144-region-code-changes-are-derived-from-downloaded-data-only.md)가
   대체했다. 게시판은 원천이 아니며, 짝은 전체 코드 표와 VWorld 연속지적·필지고유번호변동연혁 데이터로만 판단한다. 위 결정 본문은 고치지 않았다.
+
+## Revision (2026-10-04): 작업 자리 — 수집은 default_pool, 적재·짝 맞추기는 계보 단위 안
+
+결정 2 의 "수집은 등록된 작업으로 한다"를 구현할 때 실측한 제약이다. 결정 본문은 그대로다.
+
+- Spark 를 쓰는 예약 작업은 풀 `spark` 를 쓴다(ADR-0122 §5, ADR-0138). 그런데 그 풀의 굶김 상한
+  (`orchestration/dags/job_specs.py` `STARVATION_CYCLES`)은 2026-10-04 main 에서 이미 꽉 차 있었다. 매시 접기 둘이
+  1,200 분 중 1,200 분을 기다릴 수 있다. 자리 1 개·시간 상한 30 분·재시도 0 인 작업을 하나 더해도 1,230 분이 되어
+  시험이 거부한다.
+- 그래서 둘로 나눈다(소유자 승인).
+  - **수집**은 등록된 작업 `legal_dong_code_changes`(default_pool, Spark 없음)다. 응답을 Bronze 에 남기고, 형식과 표
+    크기를 검사하고, 표의 행이 바뀌었을 때만 적재 대기 넘김을 쓴다(코드변경안내 게시판은 ADR-0144 에 따라
+    원천에서 뺐다)
+    (`scripts/ops/legal-dong-code-collect.sh`).
+  - **적재·짝 맞추기**는 `lineage_stewardship` 단위가 자기 단계 앞에서 그 단위의 `spark` 자리로 한다
+    (`scripts/ops/legal-dong-code-load.sh`). 계보(ADR-0113)가 법정동 코드 변경의 소비자이기 때문이다. 여기서 실패하면
+    단위 전체가 실패한다. 낡은 대응표로 계보에 들어가지 않는다.
+- 굶김 상한과 ADR-0138 의 메모리 예산은 바꾸지 않았다. 절차는
+  `platforms/foundation-platform/docs/runbooks/legal-dong-code-changes.md` 에 있다.

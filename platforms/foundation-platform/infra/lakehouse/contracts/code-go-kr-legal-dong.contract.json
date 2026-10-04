@@ -1,0 +1,64 @@
+{
+  "$comment": "Root ADR-0143, ADR-0144 (pending). How the 법정동 전체 표 of 행정표준코드관리시스템 (code.go.kr) is fetched, what its response must look like, the bounds a fetched table must stay within before anything is loaded, and how changes are paired. Only downloaded data is a source: the site's 코드변경안내 notice board is not read (ADR-0144 (pending)). The collector (`collect-code-go-kr-legal-dong` in services/foundation-outbox-publisher/src/code_go_kr_legal_dong_collect.rs), the parser and pairing (infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py), the parcel lineage (parcel_lineage.py), the hub exports' crosswalk check (services/foundation-outbox-publisher/src/sigungu_crosswalk.rs) and the tests read this file; nothing else restates these values.",
+  "version": 1,
+  "base_url": "https://www.code.go.kr",
+  "request_spacing_seconds": 15,
+  "request_timeout_seconds": 120,
+  "user_agent": "foundation-platform-code-go-kr-collector/1 (+root ADR-0143; one run per day)",
+  "full_table": {
+    "$comment": "법정동 전체 표, 전국 한 번. The form below asks for every code, current and abolished (disuseAt=ALL), with every optional column. chkWantCnt and the chk* values are the ones the site's own form sends for 'every column' (measured, not inferred). Measured 2026-10-04: 53,403 rows, about 58 MB, about 5 seconds.",
+    "warmup_path": "/stdcode/regCodeL.do",
+    "path": "/stdcode/regCodeL.do",
+    "form": {
+      "codeseId": "00002",
+      "pageSize": "60000",
+      "cPage": "1",
+      "searchOk": "0",
+      "disuseAt": "ALL",
+      "sidoCd": "",
+      "sggCd": "",
+      "umdCd": "",
+      "riCd": "",
+      "chkWantCnt": "8",
+      "chkHigh": "0",
+      "chkOrder": "0",
+      "chkCrtDt": "0",
+      "chkClsDt": "0",
+      "chkLocatDt": "0",
+      "chkLow": "0",
+      "chkJumin": "0",
+      "chkJijuk": "0"
+    },
+    "headers": [
+      "법정동코드",
+      "법정동명",
+      "폐지구분",
+      "상위지역코드",
+      "서열",
+      "생성일",
+      "폐지일",
+      "최종작업일",
+      "최하지역명",
+      "법정동코드(주민)",
+      "법정동코드(지적)"
+    ],
+    "status_words": {
+      "현존": "존재",
+      "폐지": "폐지"
+    },
+    "bounds": {
+      "$comment": "The table lists abolished codes too, so it only grows; a smaller table means a broken response, not a real change. min_rows is the floor for the first run (no previous table): 53,403 measured, minus about 6%. max_shrink_share refuses a table smaller than the previous accepted one by more than this share.",
+      "min_rows": 50000,
+      "max_shrink_share": 0.01
+    }
+  },
+  "pairing": {
+    "$comment": "Changes dated on or after floor_date are paired (root ADR-0143 §3–4, ADR-0144 (pending)). Earlier changes are already in every source the loaders read; 2026-01-01 covers the 2026-02-01 and 2026-07-01 reorganizations. jibun_overlap_min_share is ADR-0113 §5's line: an abolished 동 pairs by its 지번 set only with the new 동 that holds at least this share of it, and a lower share is a split signal. The parcel lineage reads the same value.",
+    "floor_date": "20260101",
+    "jibun_overlap_min_share": 0.95
+  },
+  "projection": {
+    "$comment": "Root ADR-0143 §5. The hub exports refuse the crosswalk projection when no collection run has confirmed its table within max_age_days (accepted.json checked_at_utc, written by every collection that passes its checks, changed or not). The collection runs daily; three days allows two missed runs, the point at which the runbook says to look at the site.",
+    "max_age_days": 3
+  }
+}
