@@ -1,6 +1,6 @@
 # ADR 0104: 권위 API가 현행뿐이라 크로스워크는 스냅숏 차이에서 나온다
 
-- Status: Accepted
+- Status: Superseded by ADR-0143
 - Date: 2026-09-13
 
 ## Context
@@ -69,3 +69,9 @@ ADR-0103 은 코드 변경을 시간 사전이 흡수하게 세웠고, 2항에�
 
 ADR-0103 에 이 ADR 을 가리키는 날짜 있는 개정 각주를 더한다(2항의 "말소일·후속코드" 전제는
 `getStanReginCdList` 에는 실측상 성립하지 않으며, 도출은 본 ADR 의 스냅숏 차이로 한다).
+
+## 개정 기록
+
+- 2026-10-04: [ADR-0143](./0143-legal-dong-code-changes-come-from-code-go-kr.md)이 이 결정을 대체했다. 법정동 코드 변경의 정본은
+  code.go.kr(코드변경안내 첨부의 공식 짝 + 생성일·폐지일이 있는 전체 표)이고, 이 ADR 의 API 스냅숏 차이는 보조 검증이다.
+  위 결정 본문은 고치지 않았다.

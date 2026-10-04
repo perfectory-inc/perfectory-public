@@ -146,3 +146,8 @@
   ④ 검문(7항) ⑤ 세 파일 발행(8항) ⑥ 속성 붙이기(6항) ⑦ 스튜어드 목록(10항).
 - 근거 사례: `docs/reference/geography-identity-enterprise-survey.md`(ONS·WOF·LADM·LINZ·Esri·CLIP·EMPI·Kimball),
   Overture GERS registry/bridge files/changelog, Regrid `ll_uuid`·`ll_stable_id`.
+
+## 개정 기록
+
+- 2026-10-04: §5 의 입력은 [ADR-0143](./0143-legal-dong-code-changes-come-from-code-go-kr.md)이 바꿨다. 짝은 code.go.kr
+  코드변경안내 첨부가 1순위이고, 이 절의 이름 규칙은 생성일·폐지일을 더해 2순위로 쓴다. 위 결정 본문은 고치지 않았다.

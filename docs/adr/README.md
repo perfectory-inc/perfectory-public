@@ -115,7 +115,7 @@ last_reviewed: 2026-07-28
 - [0101 — 세대 공시가격은 모든 기준일을 보존한다](./0101-unit-prices-preserve-every-reference-date.md)
 - [0102 — 레이크하우스 잡은 R2 연결 리셋을 견딘다](./0102-lakehouse-jobs-survive-r2-connection-resets.md)
 - [0103 — 장소의 정체성은 행정코드 변경보다 오래 산다](./0103-place-identity-outlives-administrative-code-changes.md)
-- [0104 — 권위 API가 현행뿐이라 크로스워크는 스냅숏 차이에서 나온다](./0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md)
+- [0104 — 권위 API가 현행뿐이라 크로스워크는 스냅숏 차이에서 나온다](./0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md) (ADR-0143 로 대체됨)
 - [0105 — 정본 전이표는 도출된 크로스워크에서 나온다](./0105-the-canonical-transition-table-is-produced-from-the-derived-crosswalk.md)
 - [0106 — 등기 대지권 이름이 호 정규화를 교차확증한다](./0106-land-right-names-corroborate-unit-normalization.md)
 - [0107 — 정규형 호 지정자는 승인이 아니라 파생으로 얻는다](./0107-the-normalized-unit-designation-is-derived-not-approved.md)
@@ -168,3 +168,5 @@ last_reviewed: 2026-07-28
 - [ADR-0141 — by-PNU 서빙은 바뀐 문서만 패치 세대로 쌓는다](./0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md)
 
 - [ADR-0142 — 허브 대장의 PNU 손실은 조립에서 이름으로 거부하고, 적재에서 비율로 거부한다](./0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md)
+
+- [ADR-0143 — 법정동 코드 변경은 code.go.kr 에서 받는다 — 공식 짝은 변경안내 첨부, 날짜는 전체 표](./0143-legal-dong-code-changes-come-from-code-go-kr.md)
