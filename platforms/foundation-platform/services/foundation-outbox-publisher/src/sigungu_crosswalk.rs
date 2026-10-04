@@ -61,22 +61,21 @@ const HUB_FEED_FILE: &str = "hub-register-feed.contract.json";
 
 use crate::code_go_kr_legal_dong_contract::CONTRACT_JSON;
 
-/// The 27 hand pairs (`current → superseded`), the comparison baseline while it is required.
+/// The 27 hand pairs, the comparison baseline while it is required. Old → new in the projection's
+/// shape, so the repository holds code pairs in one direction (root ADR-0145).
 #[derive(Deserialize)]
 struct Baseline {
-    sido: Vec<Governed>,
-    sigungu: Vec<Pair>,
+    sido: Vec<ProjectionSido>,
+    sigungu: Vec<ProjectionPair>,
 }
 
 /// A merged 시도 and the 시도 it supersedes, internal direction (current → superseded).
-#[derive(Deserialize)]
 struct Governed {
     current_code: String,
     supersedes: Vec<String>,
 }
 
 /// One 시군구 pair, internal direction (current → superseded).
-#[derive(Deserialize)]
 struct Pair {
     current_code: String,
     superseded_code: String,
@@ -436,23 +435,7 @@ fn crosswalk_from_projection(
         projection.sigungu.is_empty() || !projection.change_table_snapshot_id.trim().is_empty(),
         "Refusing the export: {origin} names no {CHANGE_TABLE} snapshot for its pairs"
     );
-    // The table and the file run old → new; the kernel composes current → superseded.
-    let governed = projection
-        .sido
-        .iter()
-        .map(|sido| Governed {
-            current_code: sido.new_code.clone(),
-            supersedes: sido.old_codes.clone(),
-        })
-        .collect::<Vec<_>>();
-    let pairs = projection
-        .sigungu
-        .iter()
-        .map(|pair| Pair {
-            current_code: pair.new_code.clone(),
-            superseded_code: pair.old_code.clone(),
-        })
-        .collect::<Vec<_>>();
+    let (governed, pairs) = composing_direction(&projection.sido, &projection.sigungu);
     let derived = crosswalk_pairs(&governed, &pairs, origin)?;
     let comparison = BaselineComparison::from_contract(contract_json)?;
     if comparison.required {
@@ -490,6 +473,29 @@ fn crosswalk_from_projection(
         .and_then(|crosswalk| crosswalk.with_placeholders(hub_feed.placeholder_sigungu.codes))
         .map(|crosswalk| crosswalk.with_provenance(provenance))
         .with_context(|| format!("Refusing the export: {origin} is not a consistent crosswalk"))
+}
+
+/// The table, the projection and the baseline run old → new; the kernel composes current →
+/// superseded. This is the one place the direction turns.
+fn composing_direction(
+    sido: &[ProjectionSido],
+    sigungu: &[ProjectionPair],
+) -> (Vec<Governed>, Vec<Pair>) {
+    let governed = sido
+        .iter()
+        .map(|sido| Governed {
+            current_code: sido.new_code.clone(),
+            supersedes: sido.old_codes.clone(),
+        })
+        .collect();
+    let pairs = sigungu
+        .iter()
+        .map(|pair| Pair {
+            current_code: pair.new_code.clone(),
+            superseded_code: pair.old_code.clone(),
+        })
+        .collect();
+    (governed, pairs)
 }
 
 /// `current → superseded` from one set of 시도 declarations and 시군구 pairs, refusing a non-5-digit
@@ -546,8 +552,9 @@ fn compare_with_baseline(
     baseline: &Baseline,
     origin: &str,
 ) -> anyhow::Result<()> {
+    let (baseline_sido, baseline_sigungu) = composing_direction(&baseline.sido, &baseline.sigungu);
     let mut differences = Vec::new();
-    for sido in &baseline.sido {
+    for sido in &baseline_sido {
         let expected = sido.supersedes.iter().collect::<BTreeSet<_>>();
         match derived_sido
             .iter()
@@ -564,8 +571,7 @@ fn compare_with_baseline(
             )),
         }
     }
-    let baseline_pairs = baseline
-        .sigungu
+    let baseline_pairs = baseline_sigungu
         .iter()
         .map(|entry| (entry.current_code.as_str(), entry.superseded_code.as_str()))
         .collect::<BTreeMap<_, _>>();
@@ -580,8 +586,7 @@ fn compare_with_baseline(
             )),
         }
     }
-    let governed = baseline
-        .sido
+    let governed = baseline_sido
         .iter()
         .map(|sido| sido.current_code.as_str())
         .collect::<BTreeSet<_>>();
@@ -637,14 +642,12 @@ fn parse_crosswalk(baseline: &str, hub_feed: &str) -> anyhow::Result<SigunguCros
         !baseline.sigungu.is_empty(),
         "{BASELINE_FILE} has no sigungu entries"
     );
-    let crosswalk = crosswalk_pairs(&baseline.sido, &baseline.sigungu, BASELINE_FILE)?;
+    let (sido, sigungu) = composing_direction(&baseline.sido, &baseline.sigungu);
+    let crosswalk = crosswalk_pairs(&sido, &sigungu, BASELINE_FILE)?;
     let placeholders = parse_hub_feed(hub_feed)?.placeholder_sigungu.codes;
-    SigunguCrosswalk::new(
-        crosswalk,
-        baseline.sido.into_iter().map(|sido| sido.current_code),
-    )
-    .and_then(|crosswalk| crosswalk.with_placeholders(placeholders))
-    .with_context(|| format!("{BASELINE_FILE} is not a consistent crosswalk"))
+    SigunguCrosswalk::new(crosswalk, sido.into_iter().map(|sido| sido.current_code))
+        .and_then(|crosswalk| crosswalk.with_placeholders(placeholders))
+        .with_context(|| format!("{BASELINE_FILE} is not a consistent crosswalk"))
 }
 
 /// Hub rows counted by the 시도 of their raw 시군구 code, judged against the cadastral parcel set.
@@ -780,8 +783,8 @@ mod tests {
     }
 
     /// Merged 시도 99 superseding 98.
-    const BASELINE: &str = r#"{"sido":[{"current_code":"99","supersedes":["98"]}],
-        "sigungu":[{"current_code":"99110","superseded_code":"98110"}]}"#;
+    const BASELINE: &str = r#"{"sido":[{"new_code":"99","old_codes":["98"]}],
+        "sigungu":[{"old_code":"98110","new_code":"99110"}]}"#;
     /// Placeholders 99999 and the malformed `0`; bound 2 rows.
     const HUB_FEED: &str = r#"{"placeholder_sigungu":{"codes":["99999","0"]},
         "absent_sido_row_bound":{"rows":2}}"#;
@@ -791,27 +794,10 @@ mod tests {
         "bronze/source=codegokr__legal_dong_code_table/regcode_20990101t000000z.html";
 
     /// The projection a pairing run that reproduced the real baseline would write: the change
-    /// table's view, old → new, built from the fixture's 시도 and pairs rather than restated here.
+    /// table's view, old → new like the fixture, whose 시도 and pairs it carries as they are.
     fn projection_from_baseline() -> anyhow::Result<Value> {
         let baseline: Value = serde_json::from_str(BASELINE_JSON)?;
-        let sido = baseline["sido"]
-            .as_array()
-            .map_or(&[][..], Vec::as_slice)
-            .iter()
-            .map(|sido| {
-                json!({"new_code": sido["current_code"], "old_codes": sido["supersedes"],
-                               "effective_date": "20260701"})
-            })
-            .collect::<Vec<_>>();
-        let sigungu = baseline["sigungu"]
-            .as_array()
-            .map_or(&[][..], Vec::as_slice)
-            .iter()
-            .map(|pair| {
-                json!({"old_code": pair["superseded_code"], "new_code": pair["current_code"],
-                               "effective_date": "20260701", "source": "derived:test"})
-            })
-            .collect::<Vec<_>>();
+        let (sido, sigungu) = (baseline["sido"].clone(), baseline["sigungu"].clone());
         Ok(json!({
             "schema_version": "foundation-platform.sigungu_crosswalk_projection.v2",
             "legal_dong_snapshot_date": SNAPSHOT_DATE,
@@ -871,10 +857,10 @@ mod tests {
         assert_eq!(pairs.len(), 27);
         assert_eq!(crosswalk.len(), pairs.len());
         for pair in pairs {
-            let current = pair["current_code"].as_str().unwrap_or_default();
+            let current = pair["new_code"].as_str().unwrap_or_default();
             assert_eq!(
                 crosswalk.superseded_code(current),
-                pair["superseded_code"].as_str(),
+                pair["old_code"].as_str(),
                 "{current}"
             );
         }
@@ -1081,12 +1067,12 @@ mod tests {
     /// projection that reproduces it.
     fn disagreeing_projections() -> anyhow::Result<Vec<(&'static str, Value)>> {
         let baseline: Value = serde_json::from_str(BASELINE_JSON)?;
-        let new_code = baseline["sigungu"][0]["current_code"]
+        let new_code = baseline["sigungu"][0]["new_code"]
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        let other_old = baseline["sigungu"][1]["superseded_code"].clone();
-        let old_sido = baseline["sido"][0]["supersedes"][0]
+        let other_old = baseline["sigungu"][1]["old_code"].clone();
+        let old_sido = baseline["sido"][0]["old_codes"][0]
             .as_str()
             .unwrap_or_default()
             .to_owned();
@@ -1217,11 +1203,11 @@ mod tests {
     fn a_crosswalk_that_maps_outside_its_declared_sido_is_refused() {
         for raw in [
             // 99 를 다스리는 선언이 없는데 99110 을 매핑
-            r#"{"sido":[{"current_code":"97","supersedes":["98"]}],
-                "sigungu":[{"current_code":"99110","superseded_code":"98110"}]}"#,
+            r#"{"sido":[{"new_code":"97","old_codes":["98"]}],
+                "sigungu":[{"old_code":"98110","new_code":"99110"}]}"#,
             // 대상 96110 은 99 가 대체한 시도(98)가 아니다
-            r#"{"sido":[{"current_code":"99","supersedes":["98"]}],
-                "sigungu":[{"current_code":"99110","superseded_code":"96110"}]}"#,
+            r#"{"sido":[{"new_code":"99","old_codes":["98"]}],
+                "sigungu":[{"old_code":"96110","new_code":"99110"}]}"#,
         ] {
             assert!(
                 parse_crosswalk(raw, HUB_FEED).is_err(),

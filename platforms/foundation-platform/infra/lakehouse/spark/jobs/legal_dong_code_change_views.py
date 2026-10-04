@@ -92,18 +92,7 @@ def sigungu_crosswalk_view(
     # Imported here: code_go_kr_legal_dong imports parcel_lineage, which imports this module.
     import code_go_kr_legal_dong as cg  # noqa: PLC0415
 
-    crosswalk, review = cg.sigungu_crosswalk(pair_rows(rows), cadastral_sido)
-    return {
-        "sido": [
-            {"new_code": sido["current_code"], "old_codes": sido["supersedes"], "effective_date": sido["effective_from"]}
-            for sido in crosswalk["sido"]
-        ],
-        "sigungu": [
-            {"old_code": entry["superseded_code"], "new_code": entry["current_code"], "effective_date": entry["valid_from"],
-             "source": entry["provenance"]}
-            for entry in crosswalk["sigungu"]
-        ],
-    }, review
+    return cg.sigungu_crosswalk(pair_rows(rows), cadastral_sido)
 
 
 def dong_predecessors(rows: Iterable[Mapping[str, Any]], lots_before: Mapping[str, Sequence[str] | set[str]]) -> dict[str, str]:

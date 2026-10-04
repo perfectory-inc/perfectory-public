@@ -21,10 +21,13 @@ trap cleanup EXIT
 
 py() { if command -v python3 >/dev/null 2>&1; then python3 "$@"; else python "$@"; fi; }
 field() { py -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print(eval(sys.argv[2]))' "$definition" "$1"; }
-retired_crosswalk="$(field 'd["retired"][1]["name"]')"
-retired_transition="$(field 'd["retired"][2]["name"]')"
-allowed_transition="$(field 'd["retired"][2]["allowed_paths"][0]')"
-retired_path="$(field 'd["retired_paths"][1]')"
+# A holder is picked by what it is, never by its place in the list: reordering the definition must
+# not turn a case into a different one. The first retired holder some path may name, and the first
+# none may.
+retired_crosswalk="$(field 'next(h["name"] for h in d["retired"] if not h["allowed_paths"] and "crosswalk" in h["name"])')"
+retired_transition="$(field 'next(h["name"] for h in d["retired"] if h["allowed_paths"])')"
+allowed_transition="$(field 'next(h["allowed_paths"][0] for h in d["retired"] if h["allowed_paths"])')"
+retired_path="$(field 'next(p for p in d["retired_paths"] if p.endswith(".py"))')"
 home="$(field 'd["homes"]["code_pairs"]')"
 derived="$(field 'next(iter(d["derived_tables"]))')"
 
@@ -94,5 +97,14 @@ make_repo "$revived"
 mkdir -p "$revived/$(dirname "$retired_path")"
 printf '%s\n' 'print(1)' >"$revived/$retired_path"
 expect_rejected "$revived" "폐기된 파일이 돌아옴"
+
+# 6. A machine-read file under a docs directory naming a retired holder: JSON is code wherever it
+#    lives, unlike the Markdown beside it (case 1).
+graph="$test_root/graph"
+make_repo "$graph"
+mkdir -p "$graph/platforms/foundation-platform/docs/catalog"
+printf '{"nodes": [{"table_name": "%s"}]}\n' "$retired_crosswalk" \
+  >"$graph/platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json"
+expect_rejected "$graph" "문서 폴더의 기계 판독 파일이 폐기된 대응표를 부름"
 
 echo "OK region-code-pairs-have-one-home-self-test"

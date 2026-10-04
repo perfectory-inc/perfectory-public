@@ -223,7 +223,7 @@ class PairingTest(unittest.TestCase):
                  {"old_code": "9811000000", "new_code": "9911000000", "level": "sigungu", "effective_date": DAY, "source": "s"},
                  {"old_code": "9811000000", "new_code": "9912000000", "level": "sigungu", "effective_date": DAY, "source": "s"}]
         crosswalk, review = cg.sigungu_crosswalk(split, ["98"])
-        self.assertEqual(crosswalk["sido"][0]["supersedes"], ["98"])
+        self.assertEqual(crosswalk["sido"][0]["old_codes"], ["98"])
         self.assertEqual(crosswalk["sigungu"], [])
         self.assertEqual({item["reason"] for item in review}, {"not_one_to_one"})
 
@@ -521,19 +521,19 @@ class SeedReproductionTest(unittest.TestCase):
         # 씨앗의 시도·시군구 코드로 7월 1일 통합의 전체 표를 만든다(이름은 지어낸 것). 날짜·이름 규칙만으로
         # 씨앗 27쌍과 같은 크로스워크가 나와야 한다.
         merged = SEED["sido"][0]
-        rows = [row(merged["current_code"] + "00000000", "합성통합시", parent="0000000000", created=DAY)]
-        rows += [row(old + "00000000", f"합성옛시도{old}", "폐지", "0000000000", abolished=DAY) for old in merged["supersedes"]]
+        rows = [row(merged["new_code"] + "00000000", "합성통합시", parent="0000000000", created=DAY)]
+        rows += [row(old + "00000000", f"합성옛시도{old}", "폐지", "0000000000", abolished=DAY) for old in merged["old_codes"]]
         for index, pair in enumerate(SEED["sigungu"]):
             name = f"합성구{index:02d}"
-            rows.append(row(pair["current_code"] + "00000", f"합성통합시 {name}", parent=merged["current_code"] + "00000000", created=DAY))
-            rows.append(row(pair["superseded_code"] + "00000", f"합성옛시도 {name}", "폐지", pair["superseded_code"][:2] + "00000000", abolished=DAY))
+            rows.append(row(pair["new_code"] + "00000", f"합성통합시 {name}", parent=merged["new_code"] + "00000000", created=DAY))
+            rows.append(row(pair["old_code"] + "00000", f"합성옛시도 {name}", "폐지", pair["old_code"][:2] + "00000000", abolished=DAY))
         parsed = as_rows(table_html(rows))
-        expected = {(p["current_code"], p["superseded_code"]) for p in SEED["sigungu"]}
+        expected = {(p["old_code"], p["new_code"]) for p in SEED["sigungu"]}
         result = cg.pair_changes(parsed, FLOOR)
         crosswalk, review = cg.sigungu_crosswalk(result.pairs, CADASTRAL)
-        self.assertEqual({(e["current_code"], e["superseded_code"]) for e in crosswalk["sigungu"]}, expected)
-        self.assertEqual(crosswalk["sido"], [{"current_code": merged["current_code"], "supersedes": sorted(merged["supersedes"]),
-                                              "effective_from": DAY}])
+        self.assertEqual({(e["old_code"], e["new_code"]) for e in crosswalk["sigungu"]}, expected)
+        self.assertEqual(crosswalk["sido"], [{"new_code": merged["new_code"], "old_codes": sorted(merged["old_codes"]),
+                                              "effective_date": DAY}])
         self.assertEqual(review, [])
         # The projection is the crosswalk view of the change table once this run's rows are in it,
         # old → new (ADR-0145): the 27 pairs come back from the table's rows alone.
@@ -541,8 +541,8 @@ class SeedReproductionTest(unittest.TestCase):
         projection = pairs_job.projection_document(plan, "2099-07-02", "bronze/k", "1", NOW)
         self.assertEqual(projection["schema_version"], "foundation-platform.sigungu_crosswalk_projection.v2")
         self.assertEqual((projection["change_table"], projection["change_table_snapshot_id"]), ("reference.legal_dong_code_change", "1"))
-        self.assertEqual({(e["new_code"], e["old_code"]) for e in projection["sigungu"]}, expected)
-        self.assertEqual(projection["sido"], [{"new_code": merged["current_code"], "old_codes": sorted(merged["supersedes"]),
+        self.assertEqual({(e["old_code"], e["new_code"]) for e in projection["sigungu"]}, expected)
+        self.assertEqual(projection["sido"], [{"new_code": merged["new_code"], "old_codes": sorted(merged["old_codes"]),
                                                "effective_date": DAY}])
         self.assertEqual(views.sigungu_crosswalk_view(plan["fresh_changes"], CADASTRAL)[0], plan["crosswalk"])
 

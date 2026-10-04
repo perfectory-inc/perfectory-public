@@ -17,7 +17,8 @@ one. It refuses
 2. a code file naming a retired holder outside the paths listed for it;
 3. a retired path that exists again.
 
-Documentation (`docs` directories, Markdown) is not code and is not read.
+Markdown is prose and is not read. A machine-read file under a `docs` directory (the pipeline graph
+JSON a renderer and a guard load) is code like any other and is read.
 """
 
 from __future__ import annotations

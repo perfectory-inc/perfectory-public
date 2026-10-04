@@ -119,8 +119,8 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
    import json
    p = json.load(open("/var/lib/foundation-platform/legal-dong-code/sigungu-crosswalk.projection.json"))
    s = json.load(open("/opt/foundation-platform/current/infra/lakehouse/contracts/sigungu-crosswalk-baseline.json"))
-   a = {(e["new_code"], e["old_code"]) for e in p["sigungu"]}
-   b = {(e["current_code"], e["superseded_code"]) for e in s["sigungu"]}
+   a = {(e["old_code"], e["new_code"]) for e in p["sigungu"]}
+   b = {(e["old_code"], e["new_code"]) for e in s["sigungu"]}
    print(sorted(a ^ b))
    PY
    ```

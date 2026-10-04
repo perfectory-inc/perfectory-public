@@ -42,19 +42,19 @@ class SigunguCrosswalkViewTest(unittest.TestCase):
         """The change table after a run that paired the baseline's merger: 시도, 시군구 and one 동 per 시군구."""
 
         merged = BASELINE["sido"][0]
-        rows = [change(old + "00000000", merged["current_code"] + "00000000", "sido") for old in merged["supersedes"]]
+        rows = [change(old + "00000000", merged["new_code"] + "00000000", "sido") for old in merged["old_codes"]]
         for pair in BASELINE["sigungu"]:
-            rows.append(change(pair["superseded_code"] + "00000", pair["current_code"] + "00000", "sigungu"))
-            rows.append(change(pair["superseded_code"] + "10100", pair["current_code"] + "10100", "eupmyeondong"))
+            rows.append(change(pair["old_code"] + "00000", pair["new_code"] + "00000", "sigungu"))
+            rows.append(change(pair["old_code"] + "10100", pair["new_code"] + "10100", "eupmyeondong"))
         return rows
 
     def test_the_view_of_the_table_reproduces_the_27_baseline_pairs(self):
         crosswalk, review = views.sigungu_crosswalk_view(self.table(), CADASTRAL)
-        expected = {(p["superseded_code"], p["current_code"]) for p in BASELINE["sigungu"]}
+        expected = {(p["old_code"], p["new_code"]) for p in BASELINE["sigungu"]}
         self.assertEqual(len(expected), 27)
         self.assertEqual({(e["old_code"], e["new_code"]) for e in crosswalk["sigungu"]}, expected)
-        self.assertEqual(crosswalk["sido"], [{"new_code": BASELINE["sido"][0]["current_code"],
-                                              "old_codes": sorted(BASELINE["sido"][0]["supersedes"]), "effective_date": "20990701"}])
+        self.assertEqual(crosswalk["sido"], [{"new_code": BASELINE["sido"][0]["new_code"],
+                                              "old_codes": sorted(BASELINE["sido"][0]["old_codes"]), "effective_date": "20990701"}])
         self.assertEqual(review, [])
 
     def test_a_pair_recorded_twice_is_one_entry_and_other_kinds_are_not_pairs(self):

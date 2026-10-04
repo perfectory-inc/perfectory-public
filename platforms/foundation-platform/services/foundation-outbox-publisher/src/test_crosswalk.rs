@@ -11,24 +11,16 @@ use serde_json::{json, Value};
 const RECORD: &str = "bronze/source=codegokr__legal_dong_code_table/regcode-test.html";
 
 pub(crate) fn seed() -> anyhow::Result<SigunguCrosswalk> {
+    // The fixture runs old → new like the projection, so its 시도 and pairs go in as they are.
     let baseline: Value = serde_json::from_str(baseline_fixture_json())?;
-    let entries = |value: &Value| value.as_array().cloned().unwrap_or_default();
-    let sido = entries(&baseline["sido"])
-        .iter()
-        .map(|sido| json!({"new_code": sido["current_code"], "old_codes": sido["supersedes"]}))
-        .collect::<Vec<_>>();
-    let sigungu = entries(&baseline["sigungu"])
-        .iter()
-        .map(|pair| json!({"old_code": pair["superseded_code"], "new_code": pair["current_code"]}))
-        .collect::<Vec<_>>();
     let projection = json!({
         "schema_version": "foundation-platform.sigungu_crosswalk_projection.v2",
         "legal_dong_snapshot_date": "2099-01-01",
         "legal_dong_snapshot_record": RECORD,
         "change_table": "reference.legal_dong_code_change",
         "change_table_snapshot_id": "test",
-        "sido": sido,
-        "sigungu": sigungu,
+        "sido": baseline["sido"],
+        "sigungu": baseline["sigungu"],
     });
     let marker = json!({"snapshot_date": "2099-01-01", "source_record_id": RECORD});
     hub_sigungu_crosswalk_from(

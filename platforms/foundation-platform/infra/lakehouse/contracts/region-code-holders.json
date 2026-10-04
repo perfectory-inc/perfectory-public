@@ -1,5 +1,5 @@
 {
-  "$comment": "Root ADR-0145: a region code change (old code -> new code) is stored in one place, and a parcel pair (old PNU -> new PNU) in one other; everything else derives from them or is retired. scripts/guard/region-code-pairs-have-one-home.sh reads this file and refuses (1) a lakehouse table, other than the home and the derived tables named here with a reason, whose columns have a pair shape below, (2) code that names a retired holder outside the paths listed for it, (3) a retired path that exists again. The guard reads the names from here and nowhere else, so prose elsewhere cannot trip it and a new holder is added in this file, not in the guard.",
+  "$comment": "Root ADR-0145: a region code change (old code -> new code) is stored in one place, and a parcel pair (old PNU -> new PNU) in one other; everything else derives from them or is retired. scripts/guard/region-code-pairs-have-one-home.sh reads this file and refuses (1) a lakehouse table, other than the home and the derived tables named here with a reason, whose columns have a pair shape below, (2) code that names a retired holder outside the paths listed for it, (3) a retired path that exists again. Markdown is prose and is not read; machine-read files under docs directories (the pipeline graph JSON, say) are code and are. The guard reads the names from here and nowhere else, so prose elsewhere cannot trip it and a new holder is added in this file, not in the guard.",
   "homes": {
     "code_pairs": "reference.legal_dong_code_change",
     "parcel_pairs": "silver.parcel_lineage"
@@ -61,13 +61,15 @@
     },
     {
       "name": "catalog.administrative_unit_transition",
-      "why": "ADR-0105 transition table, never produced. Not produced until a consumer exists, then as a view of the change table. Its migration, grant, the publication ledger's reference and the schema tests may name it; nothing may write it.",
+      "why": "ADR-0105 transition table, never produced. Not produced until a consumer exists, then as a view of the change table. Its migration, grant, the publication ledger's reference, the schema tests and the pipeline graph (which must list every table a migration declares, scripts/catalog/pipeline_graph.py) may name it; nothing may write it.",
       "allowed_paths": [
         "platforms/foundation-platform/migrations/20260727000001_administrative_boundary_identity.sql",
         "platforms/foundation-platform/migrations/20260731000002_publication_revision_ledger.sql",
         "platforms/foundation-platform/infra/compose/grant-foundation-runtime.sql",
         "platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/administrative_boundary_identity.rs",
-        "platforms/foundation-platform/services/foundation-api/tests/administrative_boundary_contract.rs"
+        "platforms/foundation-platform/services/foundation-api/tests/administrative_boundary_contract.rs",
+        "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
+        "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"
       ]
     }
   ],
@@ -97,7 +99,6 @@
     "dist",
     "build",
     ".next",
-    ".turbo",
-    "docs"
+    ".turbo"
   ]
 }
