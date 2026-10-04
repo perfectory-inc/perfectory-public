@@ -102,3 +102,5 @@ ADR-0113(2026-09-29)은 code.go.kr "법정동코드 전체자료"를 원천으�
     단위 전체가 실패한다. 낡은 대응표로 계보에 들어가지 않는다.
 - 굶김 상한과 ADR-0138 의 메모리 예산은 바꾸지 않았다. 절차는
   `platforms/foundation-platform/docs/runbooks/legal-dong-code-changes.md` 에 있다.
+
+- 2026-10-04: §5(저장된 시군구 대응표와 seed 대조)는 코드 변경 정본의 파생 투영으로 바뀌었다: [ADR-0145](./0145-one-source-of-truth-for-region-code-changes.md) 위 결정 본문은 고치지 않았다.

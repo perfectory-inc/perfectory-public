@@ -75,3 +75,7 @@ to_unit_id`(안정 ID FK), `transition_kind`, `effective_period`, append-only·�
    건드린다.
 - **선례 준수**: 승계를 삭제 없는 방향 링크로 보존하는 것은 ADR-0103 이 인용한 Overture GERS·
    Who's on First·ONS CHD·행정표준코드가 이미 실물로 하는 방식이다.
+
+## 개정 기록
+
+- 2026-10-04: 전이표는 소비자가 생기기 전까지 생산하지 않고, 필요해지면 코드 변경 정본의 파생으로 만든다: [ADR-0145](./0145-one-source-of-truth-for-region-code-changes.md) 위 결정 본문은 고치지 않았다.
