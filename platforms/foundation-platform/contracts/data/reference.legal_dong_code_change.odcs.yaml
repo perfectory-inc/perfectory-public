@@ -2,13 +2,13 @@
 # pipeline graph (root ADR-0123). Do not edit: change the source and re-render.
 apiVersion: "v3.1.0"
 kind: "DataContract"
-id: "reference.legal_dong_code_snapshot"
-name: "법정동코드 스냅숏"
+id: "reference.legal_dong_code_change"
+name: "법정동 코드 변경 원장"
 version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "행정표준코드 법정동코드 전체자료(코드·이름·존재/폐지)를 받은 날마다 쌓는다. 날짜·후속코드가 없는 원천이라 개편은 두 스냅숏의 비교로만 보인다(루트 ADR-0113)."
+  purpose: "옛 법정동 코드 → 새 코드 짝을 근거(날짜·이름 규칙, 지번 겹침, 필지 번호 공식 이력, 스튜어드)와 함께 쌓는다(루트 ADR-0143, ADR-0144). 어느 근거로도 정해지지 않은 코드는 스튜어드 목록에 남는다."
 team:
   name: "foundation-platform"
 servers:
@@ -16,71 +16,67 @@ servers:
     type: "custom"
     catalog: "lakehouse"
 schema:
-  - name: "reference.legal_dong_code_snapshot"
-    physicalName: "reference.legal_dong_code_snapshot"
+  - name: "reference.legal_dong_code_change"
+    physicalName: "reference.legal_dong_code_change"
     logicalType: "object"
     physicalType: "table"
     properties:
-      - name: "region_cd"
+      - name: "change_key"
         physicalType: "string"
         logicalType: "string"
         required: true
-      - name: "full_name"
+      - name: "kind"
         physicalType: "string"
         logicalType: "string"
         required: true
-      - name: "status"
+      - name: "old_code"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "new_code"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "level"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "effective_date"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "source"
         physicalType: "string"
         logicalType: "string"
         required: true
-      - name: "snapshot_date"
-        physicalType: "date"
-        logicalType: "date"
-        required: true
-      - name: "source_record_id"
+      - name: "rule_verdict"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "detail"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "derivation_run_id"
         physicalType: "string"
         logicalType: "string"
         required: true
-      - name: "ingested_at_utc"
+      - name: "recorded_at_utc"
         physicalType: "timestamp"
         logicalType: "timestamp"
         required: true
-      - name: "parent_cd"
-        physicalType: "string"
-        logicalType: "string"
-        required: false
-      - name: "created_date"
-        physicalType: "string"
-        logicalType: "string"
-        required: false
-      - name: "abolished_date"
-        physicalType: "string"
-        logicalType: "string"
-        required: false
-      - name: "lowest_name"
-        physicalType: "string"
-        logicalType: "string"
-        required: false
-      - name: "jumin_cd"
-        physicalType: "string"
-        logicalType: "string"
-        required: false
-      - name: "jijuk_cd"
-        physicalType: "string"
-        logicalType: "string"
-        required: false
     quality:
       - type: "text"
         description: "append_only"
       - type: "text"
-        description: "(snapshot_date, region_cd) unique"
+        description: "change_key unique"
       - type: "text"
-        description: "region_cd is 10 digits"
+        description: "kind is pair"
       - type: "text"
-        description: "status is 존재 or 폐지"
+        description: "a pair names old_code and new_code"
 customProperties:
   - property: "pipelineGraphNode"
-    value: "reference-legal-dong-code-snapshot"
+    value: "reference-legal-dong-code-change"
   - property: "declaredStatus"
     value: "implemented"
   - property: "servingRole"
@@ -89,9 +85,10 @@ customProperties:
     value: "Parquet"
   - property: "sortOrder"
     value:
-      - "snapshot_date"
-      - "region_cd"
+      - "effective_date"
+      - "old_code"
   - property: "upstreamDatasets"
     value:
-      - "source-code-go-kr"
-      - "source-mois-standard-code"
+      - "reference.legal_dong_code_snapshot"
+      - "silver.parcel_boundaries"
+      - "silver.parcel_lineage"

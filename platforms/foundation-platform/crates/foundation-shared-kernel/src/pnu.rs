@@ -4,7 +4,7 @@
 //! validated value object prevents downstream services from mixing arbitrary location strings
 //! with parcel identifiers.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -153,6 +153,7 @@ pub struct SigunguCrosswalk {
     superseded_by_current: HashMap<String, String>,
     governed_sido: BTreeSet<String>,
     placeholders: BTreeSet<String>,
+    provenance: BTreeMap<String, String>,
 }
 
 /// Errors raised while building or applying a [`SigunguCrosswalk`].
@@ -169,8 +170,9 @@ pub enum SigunguCrosswalkError {
     PlaceholderIsMapped(String),
     /// A hub 시군구 code inside a governed 시도 has no mapping.
     #[error(
-        "hub 시군구 {0} belongs to a merged 시도 but the crosswalk has no mapping for it; \
-         add the pair to sigungu-canonical-crosswalk.contract.json"
+        "hub 시군구 {0} belongs to a merged 시도 but the crosswalk has no mapping for it; the \
+         code.go.kr pairing (root ADR-0143) must derive the pair, and \
+         sigungu-canonical-crosswalk.contract.json must agree with it"
     )]
     UnmappedGovernedSigungu(String),
     /// A hub 시군구 code starts with a governed 시도 but is not 5 digits, so no mapping matches it.
@@ -214,7 +216,30 @@ impl SigunguCrosswalk {
             superseded_by_current,
             governed_sido,
             placeholders: BTreeSet::new(),
+            provenance: BTreeMap::new(),
         })
+    }
+
+    /// Records where this crosswalk came from (file, digest, source snapshot), for export summaries.
+    #[must_use]
+    pub fn with_provenance(self, provenance: BTreeMap<String, String>) -> Self {
+        Self { provenance, ..self }
+    }
+
+    /// Where this crosswalk came from; empty for a crosswalk built in code (tests, identity).
+    #[must_use]
+    pub const fn provenance(&self) -> &BTreeMap<String, String> {
+        &self.provenance
+    }
+
+    /// The merged 시도 this crosswalk governs.
+    pub fn governed_sido(&self) -> impl Iterator<Item = &str> {
+        self.governed_sido.iter().map(String::as_str)
+    }
+
+    /// Every superseded code a current code maps to.
+    pub fn superseded_codes(&self) -> impl Iterator<Item = &str> {
+        self.superseded_by_current.values().map(String::as_str)
     }
 
     /// Declares the hub's placeholder 시군구 codes, which compose no PNU.

@@ -59,9 +59,9 @@ enum OutputFormat {
 /// # Errors
 /// Returns an error when configuration, source decoding, normalization, or
 /// output writing fails.
-pub fn run() -> anyhow::Result<()> {
+pub async fn run() -> anyhow::Result<()> {
     let config = UnitAreaExportConfig::from_env()?;
-    let report = export_handoff(&config)?;
+    let report = export_handoff_via(&config, &hub_sigungu_crosswalk().await?)?;
     tracing::info!(
         row_count = report.row_count,
         accepted_count = report.accepted_count,
@@ -72,17 +72,13 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn export_handoff(config: &UnitAreaExportConfig) -> anyhow::Result<UnitAreaExportReport> {
-    export_handoff_via(config, &hub_sigungu_crosswalk()?)
-}
-
 fn export_handoff_via(
     config: &UnitAreaExportConfig,
     sigungu_crosswalk: &SigunguCrosswalk,
 ) -> anyhow::Result<UnitAreaExportReport> {
     let object_path = locate_source_object(config)?;
     let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
-    let mut sido_tally = hub_sido_tally()?;
+    let mut sido_tally = hub_sido_tally(sigungu_crosswalk)?;
 
     let mut output_writer =
         SilverRowWriter::new(&config.output_path, config.chunk_rows, config.output_format)?;
@@ -588,6 +584,11 @@ mod tests {
     use arrow_array::{Array, RecordBatch};
     use uuid::Uuid;
     use zip::{write::SimpleFileOptions, ZipWriter};
+
+    /// The export under the seed's own pairs; the real `export_handoff` needs a projection file.
+    fn export_handoff(config: &UnitAreaExportConfig) -> anyhow::Result<UnitAreaExportReport> {
+        super::export_handoff_via(config, &crate::test_crosswalk::seed()?)
+    }
 
     fn temp_root(name: &str) -> PathBuf {
         env::temp_dir().join(format!("{name}-{}", Uuid::new_v4()))

@@ -1,5 +1,10 @@
 use super::{tests::*, *};
 
+/// The export under the seed's own pairs; the real `export_handoff` needs a projection file.
+fn export_handoff(config: &UnitExportConfig) -> anyhow::Result<UnitExportReport> {
+    super::export_handoff_via(config, &crate::test_crosswalk::seed()?)
+}
+
 fn basis_line(pk: &str, parent: &str, kind: &str) -> String {
     let mut fields = vec![String::new(); 30];
     fields[0] = pk.to_owned();

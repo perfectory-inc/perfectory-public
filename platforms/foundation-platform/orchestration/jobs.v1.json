@@ -89,7 +89,7 @@
     },
     {
       "id": "lineage_stewardship",
-      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115).",
+      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads and pairs any pending legal-dong code handoff (root ADR-0143): the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change and reference.sigungu_canonical_crosswalk, and the crosswalk projection the hub exports read; a failure there fails the run before lineage starts.",
       "systemd_service": "foundation-lineage-stewardship.service",
       "systemd_timer": "foundation-lineage-stewardship.timer",
       "schedule": "50 6 * * *",
@@ -98,11 +98,30 @@
       "pool_slots": 3,
       "priority_weight": 10,
       "pipeline_graph_edges": [
+        "source-code-go-kr-to-reference-legal-dong-code-snapshot",
+        "reference-legal-dong-code-snapshot-to-reference-legal-dong-code-change",
+        "silver-parcel-boundaries-to-reference-legal-dong-code-change",
+        "silver-parcel-lineage-to-reference-legal-dong-code-change",
+        "reference-legal-dong-code-change-to-reference-sigungu-canonical-crosswalk",
         "serving-lineage-stewardship-to-silver-parcel-lineage",
         "silver-parcel-lineage-to-gold-lineage-review-queue",
         "gold-lineage-review-queue-to-serving-lineage-stewardship"
       ],
       "enabled": true
+    },
+    {
+      "id": "legal_dong_code_changes",
+      "description": "Legal-dong code changes from code.go.kr (root ADR-0143, ADR-0144), the collection half: land the full table (codes, parents, created and abolished dates) in Bronze (requests at least 15 seconds apart; the change-notice board is not a source), refuse a response whose shape changed or a table that shrank past the contract's bounds, record when the table was last confirmed, and, only when the table's rows changed, write a pending-load handoff. No Spark: lineage_stewardship loads and pairs the handoff under its spark slots before its own steps.",
+      "systemd_service": "foundation-legal-dong-code.service",
+      "systemd_timer": null,
+      "schedule": "15 5 * * *",
+      "timeout_minutes": 35,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "source-code-go-kr-to-reference-legal-dong-code-snapshot"
+      ],
+      "enabled": false,
+      "disabled_reason": "New. Off until one supervised run on the data host has collected and staged a handoff and the next lineage_stewardship run has loaded and paired it, with a projection that reproduced the seed's 27 pairs; switching it on is a separate deploy step (runbook docs/runbooks/legal-dong-code-changes.md, 'Turning it on')."
     },
     {
       "id": "data_quality",

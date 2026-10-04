@@ -1,33 +1,48 @@
-//! Loader for the 시군구 canonical crosswalk seed (ADR-0103 geography identity Wave 1).
+//! The 시군구 canonical crosswalk the hub exports compose PNUs through (root ADR-0103, ADR-0142,
+//! ADR-0143).
 //!
-//! The HUB building-register feed carries the authority-current merged 시군구
-//! code (12xxx, 전남광주통합특별시) while the cadastral map still keys parcels by
-//! the superseded codes (29xxx 광주 / 46xxx 전남).
+//! The HUB building-register feed carries the authority-current merged 시군구 code (12xxx,
+//! 전남광주통합특별시) while the cadastral map still keys parcels by the superseded codes (29xxx 광주
+//! / 46xxx 전남).
 //!
-//! This module reads the seed contract — the SSOT at
-//! `infra/lakehouse/contracts/sigungu-canonical-crosswalk.contract.json`, embedded
-//! at compile time like the other lakehouse contracts — into the
-//! [`SigunguCrosswalk`] that the shared-kernel PNU composition consumes. The
-//! kernel stays pure: it never reads infra files; every export layer loads the
-//! crosswalk here and passes it in.
+//! **The crosswalk is derived, not hand-kept (root ADR-0143 §5).** The legal-dong pairing job
+//! (`infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py`) pairs code.go.kr's changes and
+//! writes a projection of `reference.sigungu_canonical_crosswalk`: the pairs, the merged 시도 they
+//! govern, the full-table snapshot it was built from and the crosswalk table snapshot that holds
+//! them. [`hub_sigungu_crosswalk`] reads that file from [`PROJECTION_ENV`] and refuses
 //!
-//! The contract's `sido` entries are part of the crosswalk, not commentary: a
-//! 시도 listed there is *governed*, so every hub 시군구 code under it must have a
-//! mapping and an unmapped one stops the export by name. Codes outside the
-//! governed 시도 pass through composition unchanged (identity), except the
-//! declared `placeholder_sigungu` codes, which compose no PNU.
+//! - no path, an unreadable file, or another schema;
+//! - a stale projection: the latest-snapshot marker the snapshot loader writes beside it
+//!   ([`LATEST_MARKER_FILE`]) names a newer full table than the one the projection was built from,
+//!   or the collector's state beside it ([`COLLECTION_STATE_FILE`]) handed off a table the
+//!   projection was not built from;
+//! - a projection no collection has confirmed lately: the collector's last successful check is
+//!   older than `projection.max_age_days` of `code-go-kr-legal-dong.contract.json`;
+//! - a projection the crosswalk table has moved past: the `reference.sigungu_canonical_crosswalk`
+//!   snapshot it names is not the table's current snapshot in the Iceberg catalog;
+//! - a projection that disagrees with the 27 hand pairs of the seed contract in a 시도 the seed
+//!   governs. The seed (`infra/lakehouse/contracts/sigungu-canonical-crosswalk.contract.json`,
+//!   embedded at compile time) is now that comparison baseline, and the home of the hub's placeholder
+//!   codes and the absent-시도 row bound, which are facts about the HUB feed, not about code.go.kr.
 //!
-//! An ungoverned code whose 시도 the cadastral parcel set does not carry composes
-//! a PNU no parcel has — an orphan, invisible to every NULL-share check. The
-//! [`SidoTally`] counts rows by 시도 against the cadastral set the parcel source
-//! contract (`vworld-parcel-source-objects.json`) records, and refuses an export
-//! whose rows under one such 시도 exceed the seed's `absent_sido_row_bound`
-//! (ADR-0142).
+//! The kernel stays pure: it never reads infra files; every export layer loads the crosswalk here
+//! and passes it in. A 시도 the crosswalk governs is not commentary: every hub 시군구 code under it
+//! must have a mapping and an unmapped one stops the export by name (ADR-0142). Codes outside the
+//! governed 시도 pass through composition unchanged (identity), except the declared placeholder
+//! codes, which compose no PNU.
+//!
+//! An ungoverned code whose 시도 the cadastral parcel set does not carry composes a PNU no parcel
+//! has — an orphan, invisible to every NULL-share check. The [`SidoTally`] counts rows by 시도
+//! against the cadastral set the parcel source contract (`vworld-parcel-source-objects.json`)
+//! records, and refuses an export whose rows under one such 시도 exceed the seed's
+//! `absent_sido_row_bound` (ADR-0142).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::{bail, ensure, Context};
+use chrono::{DateTime, Utc};
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
+use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -35,6 +50,8 @@ const SEED_JSON: &str =
     include_str!("../../../infra/lakehouse/contracts/sigungu-canonical-crosswalk.contract.json");
 const PARCEL_SOURCE_JSON: &str =
     include_str!("../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
+
+use crate::code_go_kr_legal_dong_contract::CONTRACT_JSON;
 
 #[derive(Deserialize)]
 struct Seed {
@@ -77,44 +94,289 @@ struct ParcelSourceObject {
     granularity: String,
 }
 
+/// The environment variable naming the crosswalk projection the pairing job wrote.
+pub const PROJECTION_ENV: &str = "FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION";
+/// The marker the snapshot loader writes beside the projection after each code.go.kr snapshot.
+pub const LATEST_MARKER_FILE: &str = "latest-legal-dong-snapshot.json";
+/// The collector's state beside the projection: the table it last handed off, and when a
+/// collection last confirmed it (`code_go_kr_legal_dong.py stage-handoff`).
+pub const COLLECTION_STATE_FILE: &str = "accepted.json";
+/// The Iceberg table whose snapshot the projection names.
+pub const CROSSWALK_TABLE: &str = "reference.sigungu_canonical_crosswalk";
+const PROJECTION_SCHEMA: &str = "foundation-platform.sigungu_crosswalk_projection.v1";
+const RUNBOOK: &str = "docs/runbooks/legal-dong-code-changes.md";
+
+#[derive(Deserialize)]
+struct Projection {
+    schema_version: String,
+    legal_dong_snapshot_date: String,
+    legal_dong_snapshot_record: String,
+    crosswalk_table_snapshot_id: String,
+    sido: Vec<SeedSido>,
+    sigungu: Vec<SeedEntry>,
+}
+
+#[derive(Deserialize)]
+struct LatestMarker {
+    snapshot_date: String,
+    source_record_id: String,
+}
+
+#[derive(Deserialize)]
+struct CollectionState {
+    table_object_key: String,
+    checked_at_utc: String,
+}
+
+#[derive(Deserialize)]
+struct SourceContract {
+    projection: ProjectionPolicy,
+}
+
+#[derive(Deserialize)]
+struct ProjectionPolicy {
+    max_age_days: i64,
+}
+
 fn five_digits(code: &str) -> bool {
     code.len() == 5 && code.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// Loads the 시군구 crosswalk (`current_code → superseded_code`, governed 시도, placeholders)
-/// from the seed contract.
+/// Loads the 시군구 crosswalk the hub exports compose through (root ADR-0143 §5).
+///
+/// It is the code.go.kr-derived projection named by [`PROJECTION_ENV`], checked against the seed
+/// baseline and shown current against the collector's state and the Iceberg catalog.
 ///
 /// # Errors
-/// Fails when the seed contract is not valid JSON, holds a non-5-digit code,
-/// duplicates a `current_code`, is empty, maps a code outside every governed
-/// 시도, maps onto a code outside that 시도's superseded 시도, or declares a mapped
-/// code a placeholder.
-pub fn hub_sigungu_crosswalk() -> anyhow::Result<SigunguCrosswalk> {
-    parse_crosswalk(SEED_JSON)
+/// Refuses when the variable is unset, the projection, its latest-snapshot marker or the
+/// collector's state is missing or unreadable, the projection is stale or no collection confirmed
+/// it within the contract's age, the catalog cannot be asked or holds another crosswalk snapshot,
+/// it is not a consistent crosswalk, or it disagrees with the seed in a 시도 the seed governs.
+/// Every refusal names the runbook step that fixes it.
+pub async fn hub_sigungu_crosswalk() -> anyhow::Result<SigunguCrosswalk> {
+    let crosswalk = crosswalk_at(std::env::var_os(PROJECTION_ENV), Utc::now())?;
+    let config = LakehouseCatalogConfig::from_env().with_context(|| {
+        format!(
+            "Refusing the export: the Iceberg catalog is not configured, so the crosswalk \
+             projection cannot be shown to name the current {CROSSWALK_TABLE} snapshot \
+             ({RUNBOOK}, 'Before a hub export')"
+        )
+    })?;
+    let catalog =
+        IcebergRestCatalog::new(config).context("failed to build the Iceberg catalog client")?;
+    let current = catalog
+        .load_current_snapshot_manifest_list(CROSSWALK_TABLE)
+        .await
+        .with_context(|| format!("failed to resolve the {CROSSWALK_TABLE} snapshot"))?
+        .map(|snapshot| snapshot.snapshot_id.to_string());
+    confirm_catalog_snapshot(&crosswalk, current.as_deref())?;
+    Ok(crosswalk)
 }
 
-/// The per-export 시도 tally over the seed contract and the cadastral parcel set.
-///
-/// # Errors
-/// Fails when either contract is unreadable, the cadastral set is empty or inconsistent, or a
-/// governed 시도 supersedes a 시도 the cadastral set does not carry.
-pub fn hub_sido_tally() -> anyhow::Result<SidoTally> {
-    SidoTally::from_contracts(SEED_JSON, PARCEL_SOURCE_JSON)
+fn crosswalk_at(
+    path: Option<std::ffi::OsString>,
+    now: DateTime<Utc>,
+) -> anyhow::Result<SigunguCrosswalk> {
+    let path = path
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .with_context(|| {
+            format!(
+                "Refusing the export: {PROJECTION_ENV} is not set. The hub exports compose PNUs \
+                 through the crosswalk the legal-dong pairing job derives from code.go.kr (root \
+                 ADR-0143 §5). Run the collector and the pairing job, then point {PROJECTION_ENV} \
+                 at its projection ({RUNBOOK}, 'Before a hub export')."
+            )
+        })?;
+    let projection = std::fs::read(&path).with_context(|| {
+        format!(
+            "Refusing the export: cannot read the crosswalk projection {} ({RUNBOOK}, 'Before a \
+             hub export')",
+            path.display()
+        )
+    })?;
+    let marker_path = path.with_file_name(LATEST_MARKER_FILE);
+    let marker = std::fs::read(&marker_path).with_context(|| {
+        format!(
+            "Refusing the export: the latest-snapshot marker {} is missing, so the projection \
+             cannot be shown to be current ({RUNBOOK}, 'Before a hub export')",
+            marker_path.display()
+        )
+    })?;
+    let state_path = path.with_file_name(COLLECTION_STATE_FILE);
+    let state = std::fs::read(&state_path).with_context(|| {
+        format!(
+            "Refusing the export: the collector's state {} is missing, so no collection can be \
+             shown to have confirmed the projection's table ({RUNBOOK}, 'Before a hub export')",
+            state_path.display()
+        )
+    })?;
+    let origin = path.display().to_string();
+    let crosswalk = crosswalk_from_projection(&projection, &marker, SEED_JSON, &origin)?;
+    confirm_collection(&crosswalk, &state, now, CONTRACT_JSON, &origin)?;
+    Ok(crosswalk)
 }
 
-fn parse_seed(raw: &str) -> anyhow::Result<Seed> {
-    serde_json::from_str(raw)
-        .context("sigungu-canonical-crosswalk.contract.json is not valid seed JSON")
+fn provenance<'a>(crosswalk: &'a SigunguCrosswalk, key: &str) -> &'a str {
+    crosswalk.provenance().get(key).map_or("", String::as_str)
 }
 
-fn parse_crosswalk(raw: &str) -> anyhow::Result<SigunguCrosswalk> {
-    let seed = parse_seed(raw)?;
+/// Refuses a projection whose table is not the collector's last handoff, or whose table no
+/// collection has confirmed within the contract's `projection.max_age_days`.
+fn confirm_collection(
+    crosswalk: &SigunguCrosswalk,
+    state_bytes: &[u8],
+    now: DateTime<Utc>,
+    contract_json: &str,
+    origin: &str,
+) -> anyhow::Result<()> {
+    let state: CollectionState = serde_json::from_slice(state_bytes).with_context(|| {
+        format!("Refusing the export: the collector's state beside {origin} is unreadable")
+    })?;
+    let max_age_days = serde_json::from_str::<SourceContract>(contract_json)
+        .context("code-go-kr-legal-dong.contract.json has no projection.max_age_days")?
+        .projection
+        .max_age_days;
+    let record = provenance(crosswalk, "legal_dong_snapshot_record");
     ensure!(
-        !seed.sigungu.is_empty(),
-        "sigungu-canonical-crosswalk.contract.json has no sigungu entries"
+        state.table_object_key == record,
+        "Refusing the export: {origin} is stale. It was built from {record}, but the collector \
+         has since handed off {} and the pairing has not run on it. Let lineage_stewardship load \
+         it ({RUNBOOK}, 'Before a hub export').",
+        state.table_object_key
     );
-    let supersedes = seed
-        .sido
+    let checked = DateTime::parse_from_rfc3339(&state.checked_at_utc)
+        .with_context(|| {
+            format!(
+                "Refusing the export: the collector's state beside {origin} has no readable \
+                 checked_at_utc: {:?}",
+                state.checked_at_utc
+            )
+        })?
+        .with_timezone(&Utc);
+    let age = now.signed_duration_since(checked);
+    ensure!(
+        age <= chrono::Duration::days(max_age_days),
+        "Refusing the export: no collection has confirmed the code.go.kr table of {origin} for {} \
+         days (last at {}), more than the {max_age_days} days code-go-kr-legal-dong.contract.json \
+         allows (projection.max_age_days). Find out why legal_dong_code_changes stopped \
+         succeeding ({RUNBOOK}, 'Before a hub export').",
+        age.num_days(),
+        state.checked_at_utc
+    );
+    Ok(())
+}
+
+/// Refuses a projection that names another `reference.sigungu_canonical_crosswalk` snapshot than
+/// the catalog's current one (`None`: the table has none, which the projection writes as "").
+fn confirm_catalog_snapshot(
+    crosswalk: &SigunguCrosswalk,
+    catalog_current: Option<&str>,
+) -> anyhow::Result<()> {
+    let named = provenance(crosswalk, "crosswalk_table_snapshot_id");
+    let current = catalog_current.unwrap_or_default();
+    ensure!(
+        named == current,
+        "Refusing the export: the crosswalk projection names {CROSSWALK_TABLE} snapshot {named:?}, \
+         but the catalog's current snapshot is {current:?}. The table moved after the projection \
+         was written; run the pairing again ({RUNBOOK}, 'Before a hub export')."
+    );
+    Ok(())
+}
+
+/// The seed contract: the comparison baseline, placeholders and absent-시도 bound (embedded).
+#[must_use]
+pub const fn seed_contract_json() -> &'static str {
+    SEED_JSON
+}
+
+/// [`hub_sigungu_crosswalk`] over projection and marker bytes already read, under its checks of
+/// the projection itself; whether it is current (the collector's state, the catalog) is not asked.
+///
+/// # Errors
+/// As [`hub_sigungu_crosswalk`], minus the file reads and the currency checks.
+pub fn hub_sigungu_crosswalk_from(
+    projection_bytes: &[u8],
+    marker_bytes: &[u8],
+    origin: &str,
+) -> anyhow::Result<SigunguCrosswalk> {
+    crosswalk_from_projection(projection_bytes, marker_bytes, SEED_JSON, origin)
+}
+
+fn crosswalk_from_projection(
+    projection_bytes: &[u8],
+    marker_bytes: &[u8],
+    seed_json: &str,
+    origin: &str,
+) -> anyhow::Result<SigunguCrosswalk> {
+    use sha2::{Digest, Sha256};
+
+    let projection: Projection = serde_json::from_slice(projection_bytes).with_context(|| {
+        format!("Refusing the export: {origin} is not a sigungu crosswalk projection")
+    })?;
+    ensure!(
+        projection.schema_version == PROJECTION_SCHEMA,
+        "Refusing the export: {origin} has schema {:?}, expected {PROJECTION_SCHEMA:?}",
+        projection.schema_version
+    );
+    let marker: LatestMarker = serde_json::from_slice(marker_bytes).with_context(|| {
+        format!("Refusing the export: the latest-snapshot marker beside {origin} is unreadable")
+    })?;
+    ensure!(
+        marker.snapshot_date == projection.legal_dong_snapshot_date
+            && marker.source_record_id == projection.legal_dong_snapshot_record,
+        "Refusing the export: {origin} is stale. It was built from the code.go.kr snapshot {} ({}), \
+         but the latest loaded snapshot is {} ({}). Run the pairing job on the latest snapshot \
+         ({RUNBOOK}, 'Before a hub export').",
+        projection.legal_dong_snapshot_date,
+        projection.legal_dong_snapshot_record,
+        marker.snapshot_date,
+        marker.source_record_id
+    );
+    ensure!(
+        projection.sigungu.is_empty() || !projection.crosswalk_table_snapshot_id.trim().is_empty(),
+        "Refusing the export: {origin} names no reference.sigungu_canonical_crosswalk snapshot for \
+         its pairs"
+    );
+    let seed = parse_seed(seed_json)?;
+    let derived = crosswalk_pairs(&projection.sido, &projection.sigungu, origin)?;
+    compare_with_seed(&projection.sido, &derived, &seed, origin)?;
+    let provenance = BTreeMap::from([
+        ("projection".to_owned(), origin.to_owned()),
+        (
+            "projection_sha256".to_owned(),
+            format!("{:x}", Sha256::digest(projection_bytes)),
+        ),
+        (
+            "legal_dong_snapshot_date".to_owned(),
+            projection.legal_dong_snapshot_date.clone(),
+        ),
+        (
+            "legal_dong_snapshot_record".to_owned(),
+            projection.legal_dong_snapshot_record.clone(),
+        ),
+        (
+            "crosswalk_table_snapshot_id".to_owned(),
+            projection.crosswalk_table_snapshot_id.clone(),
+        ),
+    ]);
+    SigunguCrosswalk::new(
+        derived,
+        projection.sido.into_iter().map(|sido| sido.current_code),
+    )
+    .and_then(|crosswalk| crosswalk.with_placeholders(seed.placeholder_sigungu.codes))
+    .map(|crosswalk| crosswalk.with_provenance(provenance))
+    .with_context(|| format!("Refusing the export: {origin} is not a consistent crosswalk"))
+}
+
+/// `current → superseded` from one set of 시도 declarations and 시군구 pairs, refusing a non-5-digit
+/// code, a repeated current code, and a pair no 시도 declaration's `supersedes` allows.
+fn crosswalk_pairs(
+    sido: &[SeedSido],
+    sigungu: &[SeedEntry],
+    origin: &str,
+) -> anyhow::Result<HashMap<String, String>> {
+    let supersedes = sido
         .iter()
         .map(|sido| {
             (
@@ -126,11 +388,11 @@ fn parse_crosswalk(raw: &str) -> anyhow::Result<SigunguCrosswalk> {
             )
         })
         .collect::<HashMap<_, _>>();
-    let mut crosswalk = HashMap::with_capacity(seed.sigungu.len());
-    for entry in seed.sigungu {
+    let mut crosswalk = HashMap::with_capacity(sigungu.len());
+    for entry in sigungu {
         ensure!(
             five_digits(&entry.current_code) && five_digits(&entry.superseded_code),
-            "sigungu crosswalk seed codes must be 5 digits: {} -> {}",
+            "{origin}: sigungu crosswalk codes must be 5 digits: {} -> {}",
             entry.current_code,
             entry.superseded_code
         );
@@ -138,16 +400,122 @@ fn parse_crosswalk(raw: &str) -> anyhow::Result<SigunguCrosswalk> {
             supersedes
                 .get(&entry.current_code[..2])
                 .is_some_and(|targets| targets.contains(&entry.superseded_code[..2])),
-            "sigungu crosswalk maps {} -> {}, which no sido entry's supersedes list allows",
+            "{origin}: sigungu crosswalk maps {} -> {}, which no sido entry's supersedes list allows",
             entry.current_code,
             entry.superseded_code
         );
-        let previous = crosswalk.insert(entry.current_code, entry.superseded_code);
+        let previous = crosswalk.insert(entry.current_code.clone(), entry.superseded_code.clone());
         ensure!(
             previous.is_none(),
-            "sigungu crosswalk seed repeats a current_code"
+            "{origin}: sigungu crosswalk repeats the current code {}",
+            entry.current_code
         );
     }
+    Ok(crosswalk)
+}
+
+/// Refuses a derived crosswalk that differs from the seed's hand pairs in a 시도 the seed governs:
+/// the same governed 시도 with the same superseded 시도, and exactly the seed's pairs under it.
+/// A 시도 the seed does not govern is the derivation's alone (a merger after the seed was written).
+fn compare_with_seed(
+    derived_sido: &[SeedSido],
+    derived: &HashMap<String, String>,
+    seed: &Seed,
+    origin: &str,
+) -> anyhow::Result<()> {
+    let mut differences = Vec::new();
+    for sido in &seed.sido {
+        let expected = sido.supersedes.iter().collect::<BTreeSet<_>>();
+        match derived_sido
+            .iter()
+            .find(|candidate| candidate.current_code == sido.current_code)
+        {
+            Some(found) if found.supersedes.iter().collect::<BTreeSet<_>>() == expected => {}
+            Some(found) => differences.push(format!(
+                "sido {} supersedes {:?} in the projection but {:?} in the seed",
+                sido.current_code, found.supersedes, sido.supersedes
+            )),
+            None => differences.push(format!(
+                "the projection does not govern sido {}",
+                sido.current_code
+            )),
+        }
+    }
+    let seed_pairs = seed
+        .sigungu
+        .iter()
+        .map(|entry| (entry.current_code.as_str(), entry.superseded_code.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    for (current, superseded) in &seed_pairs {
+        match derived.get(*current) {
+            Some(found) if found == superseded => {}
+            Some(found) => differences.push(format!(
+                "{current} -> {found} in the projection but -> {superseded} in the seed"
+            )),
+            None => differences.push(format!(
+                "{current} -> {superseded} is in the seed but not in the projection"
+            )),
+        }
+    }
+    let seed_governed = seed
+        .sido
+        .iter()
+        .map(|sido| sido.current_code.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut extra = derived
+        .iter()
+        .filter(|(current, _)| {
+            seed_governed.contains(&current[..2]) && !seed_pairs.contains_key(current.as_str())
+        })
+        .map(|(current, superseded)| format!("{current} -> {superseded} is not in the seed"))
+        .collect::<Vec<_>>();
+    extra.sort();
+    differences.extend(extra);
+    if differences.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "Refusing the export: the code.go.kr crosswalk {origin} disagrees with the hand pairs of \
+         sigungu-canonical-crosswalk.contract.json in a 시도 the seed governs (root ADR-0143 §5): {}. \
+         A steward decides which is wrong ({RUNBOOK}, 'When the crosswalk disagrees with the seed').",
+        differences.join("; ")
+    )
+}
+
+/// The per-export 시도 tally for `crosswalk` over the seed's placeholders and bound and the
+/// cadastral parcel set.
+///
+/// # Errors
+/// Fails when either contract is unreadable, the cadastral set is empty or inconsistent, or the
+/// crosswalk maps onto a 시도 the cadastral set does not carry.
+pub fn hub_sido_tally(crosswalk: &SigunguCrosswalk) -> anyhow::Result<SidoTally> {
+    SidoTally::from_contracts(crosswalk, SEED_JSON, PARCEL_SOURCE_JSON)
+}
+
+fn parse_seed(raw: &str) -> anyhow::Result<Seed> {
+    serde_json::from_str(raw)
+        .context("sigungu-canonical-crosswalk.contract.json is not valid seed JSON")
+}
+
+/// The seed's own hand pairs as a crosswalk. Only tests read it: the exports read the derived
+/// projection, and the seed is its baseline.
+#[cfg(test)]
+pub(crate) fn seed_crosswalk() -> anyhow::Result<SigunguCrosswalk> {
+    parse_crosswalk(SEED_JSON)
+}
+
+#[cfg(test)]
+fn parse_crosswalk(raw: &str) -> anyhow::Result<SigunguCrosswalk> {
+    let seed = parse_seed(raw)?;
+    ensure!(
+        !seed.sigungu.is_empty(),
+        "sigungu-canonical-crosswalk.contract.json has no sigungu entries"
+    );
+    let crosswalk = crosswalk_pairs(
+        &seed.sido,
+        &seed.sigungu,
+        "sigungu-canonical-crosswalk.contract.json",
+    )?;
     SigunguCrosswalk::new(
         crosswalk,
         seed.sido.into_iter().map(|sido| sido.current_code),
@@ -166,12 +534,17 @@ pub struct SidoTally {
     governed_sido: BTreeSet<String>,
     placeholders: BTreeSet<String>,
     absent_sido_row_bound: u64,
+    crosswalk_provenance: BTreeMap<String, String>,
     rows_by_sido: BTreeMap<String, u64>,
     placeholder_rows: BTreeMap<String, u64>,
 }
 
 impl SidoTally {
-    fn from_contracts(seed: &str, parcel_source: &str) -> anyhow::Result<Self> {
+    fn from_contracts(
+        crosswalk: &SigunguCrosswalk,
+        seed: &str,
+        parcel_source: &str,
+    ) -> anyhow::Result<Self> {
         let seed = parse_seed(seed)?;
         let parcel_source: ParcelSource = serde_json::from_str(parcel_source)
             .context("vworld-parcel-source-objects.json is not valid JSON")?;
@@ -189,23 +562,17 @@ impl SidoTally {
             "vworld-parcel-source-objects.json must list its sido objects and cover the same \
              sido with its sigungu objects"
         );
-        for sido in &seed.sido {
-            for superseded in &sido.supersedes {
-                ensure!(
-                    cadastral_sido.contains(superseded),
-                    "sigungu-canonical-crosswalk.contract.json maps {} onto sido {superseded}, \
-                     which the cadastral parcel set no longer carries",
-                    sido.current_code
-                );
-            }
+        for superseded in crosswalk.superseded_codes() {
+            let sido = superseded.get(..2).unwrap_or(superseded);
+            ensure!(
+                cadastral_sido.contains(sido),
+                "the sigungu crosswalk maps a code onto {superseded}, whose sido {sido} the \
+                 cadastral parcel set no longer carries"
+            );
         }
         Ok(Self {
             cadastral_sido,
-            governed_sido: seed
-                .sido
-                .into_iter()
-                .map(|sido| sido.current_code)
-                .collect(),
+            governed_sido: crosswalk.governed_sido().map(str::to_owned).collect(),
             placeholders: seed
                 .placeholder_sigungu
                 .codes
@@ -213,6 +580,7 @@ impl SidoTally {
                 .map(|code| format!("{:0>5}", code.trim()))
                 .collect(),
             absent_sido_row_bound: seed.absent_sido_row_bound.rows,
+            crosswalk_provenance: crosswalk.provenance().clone(),
             rows_by_sido: BTreeMap::new(),
             placeholder_rows: BTreeMap::new(),
         })
@@ -250,8 +618,9 @@ impl SidoTally {
             bail!(
                 "Refusing the export: {rows} hub rows carry 시도 {sido}, which the cadastral parcel \
                  set does not carry and no merged 시도 governs (bound {}). Their PNUs would be \
-                 orphans. Declare the merged 시도 and its pairs in \
-                 sigungu-canonical-crosswalk.contract.json, or its placeholder codes there.",
+                 orphans. If a merger created it, the code.go.kr pairing (root ADR-0143) must \
+                 derive its pairs; if the hub uses it for no 시군구, declare it a placeholder in \
+                 sigungu-canonical-crosswalk.contract.json.",
                 self.absent_sido_row_bound
             );
         }
@@ -260,14 +629,22 @@ impl SidoTally {
             "placeholder_rows": self.placeholder_rows,
             "absent_from_cadastre_rows": absent,
             "absent_sido_row_bound": self.absent_sido_row_bound,
+            "crosswalk": self.crosswalk_provenance,
         }))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{hub_sido_tally, hub_sigungu_crosswalk, parse_crosswalk, SidoTally, SEED_JSON};
-    use foundation_shared_kernel::pnu::standard_pnu_from_hub_register_codes_via;
+    use super::{
+        confirm_catalog_snapshot, confirm_collection, crosswalk_at, crosswalk_from_projection,
+        parse_crosswalk, SidoTally, COLLECTION_STATE_FILE, CONTRACT_JSON, LATEST_MARKER_FILE,
+        PARCEL_SOURCE_JSON, PROJECTION_ENV, SEED_JSON,
+    };
+    use foundation_shared_kernel::pnu::{
+        standard_pnu_from_hub_register_codes_via, SigunguCrosswalkError,
+    };
+    use serde_json::{json, Value};
 
     /// A synthetic cadastral parcel set over 시도 97 and 98.
     const PARCEL_SOURCE: &str = r#"{"objects":[
@@ -285,14 +662,92 @@ mod tests {
         "placeholder_sigungu":{"codes":["99999","0"]},
         "absent_sido_row_bound":{"rows":2}}"#;
 
+    const SNAPSHOT_DATE: &str = "2099-01-01";
+    const SNAPSHOT_RECORD: &str =
+        "bronze/source=codegokr__legal_dong_code_table/regcode_20990101t000000z.html";
+
+    /// The projection a pairing run that reproduced the real seed would write: the seed's own 시도
+    /// and pairs, read from the contract rather than restated here.
+    fn projection_from_seed() -> anyhow::Result<Value> {
+        let seed: Value = serde_json::from_str(SEED_JSON)?;
+        Ok(json!({
+            "schema_version": "foundation-platform.sigungu_crosswalk_projection.v1",
+            "legal_dong_snapshot_date": SNAPSHOT_DATE,
+            "legal_dong_snapshot_record": SNAPSHOT_RECORD,
+            "crosswalk_table": "reference.sigungu_canonical_crosswalk",
+            "crosswalk_table_snapshot_id": "1",
+            "sido": seed["sido"],
+            "sigungu": seed["sigungu"],
+        }))
+    }
+
+    fn now() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339("2099-01-05T00:00:00Z")
+            .map(|value| value.with_timezone(&chrono::Utc))
+            .unwrap_or_default()
+    }
+
+    /// The collector's state after a check at `checked_at` that handed off `record`.
+    fn state(record: &str, checked_at: &str) -> Vec<u8> {
+        json!({"table_object_key": record, "row_count": 1, "table_digest": "d",
+               "handoff": "h", "checked_at_utc": checked_at})
+        .to_string()
+        .into_bytes()
+    }
+
+    fn marker(date: &str) -> Vec<u8> {
+        json!({"snapshot_date": date, "source_record_id": SNAPSHOT_RECORD})
+            .to_string()
+            .into_bytes()
+    }
+
+    fn load(projection: &Value, marker: &[u8]) -> anyhow::Result<super::SigunguCrosswalk> {
+        crosswalk_from_projection(
+            projection.to_string().as_bytes(),
+            marker,
+            SEED_JSON,
+            "projection.json",
+        )
+    }
+
     #[test]
-    fn loads_the_seed_contract_into_a_governed_crosswalk() -> anyhow::Result<()> {
-        let crosswalk = hub_sigungu_crosswalk()?;
-        assert!(!crosswalk.is_empty());
-        // 다스리는 시도의 모든 짝이 그 시도 안에 있고, 자리표시자는 짝이 아니다.
+    fn a_projection_that_reproduces_the_seed_pairs_is_the_crosswalk() -> anyhow::Result<()> {
+        let projection = projection_from_seed()?;
+        let crosswalk = load(&projection, &marker(SNAPSHOT_DATE))?;
+        let seed: Value = serde_json::from_str(SEED_JSON)?;
+        let pairs = seed["sigungu"].as_array().map_or(&[][..], Vec::as_slice);
+        assert_eq!(crosswalk.len(), pairs.len());
+        for pair in pairs {
+            let current = pair["current_code"].as_str().unwrap_or_default();
+            assert_eq!(
+                crosswalk.superseded_code(current),
+                pair["superseded_code"].as_str(),
+                "{current}"
+            );
+        }
         assert!(crosswalk.governs_sido("12"));
+        assert_eq!(
+            crosswalk
+                .provenance()
+                .get("legal_dong_snapshot_date")
+                .map(String::as_str),
+            Some(SNAPSHOT_DATE)
+        );
+        assert_eq!(
+            crosswalk
+                .provenance()
+                .get("projection_sha256")
+                .map(String::len),
+            Some(64)
+        );
+        // ADR-0142 의 거부는 그대로다: 다스리는 시도의 짝 없는 코드, 자리표시자.
+        assert_eq!(
+            crosswalk.resolve("12999"),
+            Err(SigunguCrosswalkError::UnmappedGovernedSigungu(
+                "12999".to_owned()
+            ))
+        );
         for code in ["99999", "99990", "0"] {
-            assert!(crosswalk.is_placeholder(code), "{code}");
             assert_eq!(
                 standard_pnu_from_hub_register_codes_via(
                     &crosswalk, code, "00101", "0", "0001", "0000"
@@ -301,13 +756,241 @@ mod tests {
                 "a placeholder must compose no PNU: {code}"
             );
         }
-        // 실물 계약 둘을 함께 읽어도 일관된다.
-        hub_sido_tally()?.finish()?;
+        // 실물 계약 둘과 함께 시도 집계도 일관되고, 요약에 크로스워크 출처가 실린다.
+        let mut tally = SidoTally::from_contracts(&crosswalk, SEED_JSON, PARCEL_SOURCE_JSON)?;
+        tally.observe(&key("12210"));
+        let summary = tally.finish()?;
+        assert_eq!(summary["crosswalk"]["crosswalk_table_snapshot_id"], "1");
         Ok(())
     }
 
     #[test]
-    fn a_governed_code_missing_from_the_seed_stops_composition() -> anyhow::Result<()> {
+    fn no_projection_path_is_refused() {
+        let refused = crosswalk_at(None, now());
+        assert!(
+            refused.as_ref().is_err_and(|error| {
+                let message = format!("{error:#}");
+                message.contains(PROJECTION_ENV) && message.contains("Before a hub export")
+            }),
+            "got {refused:?}"
+        );
+        assert!(crosswalk_at(Some(std::ffi::OsString::new()), now()).is_err());
+    }
+
+    #[test]
+    fn a_projection_without_its_latest_marker_is_refused() -> anyhow::Result<()> {
+        let dir = std::env::temp_dir().join(format!("crosswalk-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("sigungu-crosswalk.projection.json");
+        std::fs::write(&path, projection_from_seed()?.to_string())?;
+        let refused = crosswalk_at(Some(path.clone().into_os_string()), now());
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|error| format!("{error:#}").contains(LATEST_MARKER_FILE)),
+            "got {refused:?}"
+        );
+        std::fs::write(dir.join(LATEST_MARKER_FILE), marker(SNAPSHOT_DATE))?;
+        let refused = crosswalk_at(Some(path.clone().into_os_string()), now());
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|error| format!("{error:#}").contains(COLLECTION_STATE_FILE)),
+            "got {refused:?}"
+        );
+        std::fs::write(
+            dir.join(COLLECTION_STATE_FILE),
+            state(SNAPSHOT_RECORD, "2099-01-04T05:15:00+09:00"),
+        )?;
+        assert!(crosswalk_at(Some(path.into_os_string()), now()).is_ok());
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_stale_projection_is_refused() -> anyhow::Result<()> {
+        // 심은 위반: 더 새 전체 표가 적재됐는데 짝 맞추기는 옛 표로 만든 투영이다.
+        let refused = load(&projection_from_seed()?, &marker("2099-01-02"));
+        assert!(
+            refused.as_ref().is_err_and(|error| {
+                let message = format!("{error:#}");
+                message.contains("stale") && message.contains("2099-01-02")
+            }),
+            "got {refused:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_projection_no_collection_confirmed_lately_is_refused() -> anyhow::Result<()> {
+        let crosswalk = load(&projection_from_seed()?, &marker(SNAPSHOT_DATE))?;
+        let max: i64 = serde_json::from_str::<Value>(CONTRACT_JSON)?["projection"]["max_age_days"]
+            .as_i64()
+            .unwrap_or_default();
+        assert!(max > 0, "the contract must bound the age");
+        let at = |days: i64| (now() - chrono::Duration::days(days)).to_rfc3339();
+        confirm_collection(
+            &crosswalk,
+            &state(SNAPSHOT_RECORD, &at(max)),
+            now(),
+            CONTRACT_JSON,
+            "p",
+        )?;
+        // 심은 위반: 마지막으로 확인된 수집이 계약의 한계보다 하루 오래됐다.
+        let refused = confirm_collection(
+            &crosswalk,
+            &state(SNAPSHOT_RECORD, &at(max + 1)),
+            now(),
+            CONTRACT_JSON,
+            "p",
+        );
+        assert!(
+            refused.as_ref().is_err_and(|error| {
+                let message = format!("{error:#}");
+                message.contains("max_age_days") && message.contains(&format!("{} days", max + 1))
+            }),
+            "got {refused:?}"
+        );
+        // 심은 위반: 수집이 새 표를 넘겼는데 짝 맞추기가 아직 그 표로 돌지 않았다.
+        let refused = confirm_collection(
+            &crosswalk,
+            &state(
+                "bronze/source=codegokr__legal_dong_code_table/regcode-newer.html",
+                &at(0),
+            ),
+            now(),
+            CONTRACT_JSON,
+            "p",
+        );
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|error| format!("{error:#}").contains("stale")),
+            "got {refused:?}"
+        );
+        assert!(confirm_collection(&crosswalk, b"{}", now(), CONTRACT_JSON, "p").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn a_projection_the_crosswalk_table_moved_past_is_refused() -> anyhow::Result<()> {
+        // The projection names snapshot "1" (projection_from_seed).
+        let crosswalk = load(&projection_from_seed()?, &marker(SNAPSHOT_DATE))?;
+        confirm_catalog_snapshot(&crosswalk, Some("1"))?;
+        for current in [Some("2"), None] {
+            let refused = confirm_catalog_snapshot(&crosswalk, current);
+            assert!(
+                refused.as_ref().is_err_and(|error| {
+                    let message = format!("{error:#}");
+                    message.contains("reference.sigungu_canonical_crosswalk")
+                        && message.contains("current snapshot")
+                }),
+                "{current:?}: got {refused:?}"
+            );
+        }
+        // A table nothing was written to: the projection says "" and the catalog has none.
+        let mut empty = projection_from_seed()?;
+        empty["crosswalk_table_snapshot_id"] = json!("");
+        empty["sigungu"] = json!([]);
+        empty["sido"] = json!([]);
+        let seedless = r#"{"sido":[],"sigungu":[],"placeholder_sigungu":{"codes":[]},
+            "absent_sido_row_bound":{"rows":1}}"#;
+        let crosswalk = crosswalk_from_projection(
+            empty.to_string().as_bytes(),
+            &marker(SNAPSHOT_DATE),
+            seedless,
+            "p",
+        )?;
+        confirm_catalog_snapshot(&crosswalk, None)?;
+        assert!(confirm_catalog_snapshot(&crosswalk, Some("3")).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn a_projection_that_disagrees_with_the_seed_is_refused() -> anyhow::Result<()> {
+        let seed: Value = serde_json::from_str(SEED_JSON)?;
+        let first = seed["sigungu"][0].clone();
+        let other = seed["sigungu"][1]["superseded_code"].clone();
+        let current = first["current_code"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let cases = [
+            // 짝 하나를 다른 옛 코드로
+            ("changed", {
+                let mut projection = projection_from_seed()?;
+                projection["sigungu"][0]["superseded_code"] = other;
+                projection
+            }),
+            // 짝 하나가 빠짐
+            ("missing", {
+                let mut projection = projection_from_seed()?;
+                if let Some(pairs) = projection["sigungu"].as_array_mut() {
+                    pairs.remove(0);
+                }
+                projection
+            }),
+            // 씨앗이 다스리는 시도에 씨앗에 없는 짝
+            ("extra", {
+                let mut projection = projection_from_seed()?;
+                let sido = current[..2].to_owned();
+                let superseded = seed["sido"][0]["supersedes"][0]
+                    .as_str()
+                    .unwrap_or_default();
+                if let Some(pairs) = projection["sigungu"].as_array_mut() {
+                    pairs.push(json!({"current_code": format!("{sido}999"),
+                                      "superseded_code": format!("{superseded}999")}));
+                }
+                projection
+            }),
+            // 시도 통합 선언이 빠짐
+            ("ungoverned", {
+                let mut projection = projection_from_seed()?;
+                projection["sido"] = json!([]);
+                projection["sigungu"] = json!([]);
+                projection
+            }),
+        ];
+        for (label, projection) in cases {
+            let refused = load(&projection, &marker(SNAPSHOT_DATE));
+            assert!(
+                refused.as_ref().is_err_and(|error| {
+                    let message = format!("{error:#}");
+                    message.contains("sigungu-canonical-crosswalk.contract.json")
+                        && (message.contains("disagrees") || message.contains("supersedes"))
+                }),
+                "{label}: got {refused:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_merger_the_seed_does_not_know_is_the_derivations_to_govern() -> anyhow::Result<()> {
+        let mut projection = projection_from_seed()?;
+        if let Some(sido) = projection["sido"].as_array_mut() {
+            sido.push(json!({"current_code": "98", "supersedes": ["97"]}));
+        }
+        if let Some(pairs) = projection["sigungu"].as_array_mut() {
+            pairs.push(json!({"current_code": "98110", "superseded_code": "97110"}));
+        }
+        let crosswalk = load(&projection, &marker(SNAPSHOT_DATE))?;
+        assert!(crosswalk.governs_sido("98"));
+        assert_eq!(crosswalk.superseded_code("98110"), Some("97110"));
+        Ok(())
+    }
+
+    #[test]
+    fn the_seed_baseline_is_itself_a_consistent_crosswalk() -> anyhow::Result<()> {
+        let crosswalk = parse_crosswalk(SEED_JSON)?;
+        assert!(!crosswalk.is_empty());
+        assert!(crosswalk.governs_sido("12"));
+        SidoTally::from_contracts(&crosswalk, SEED_JSON, PARCEL_SOURCE_JSON)?.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_governed_code_missing_from_the_crosswalk_stops_composition() -> anyhow::Result<()> {
         // 심은 위반: 시도 99 를 통합으로 선언하고 짝은 99110 하나만 둔다.
         let crosswalk = parse_crosswalk(SEED)?;
         let refused = standard_pnu_from_hub_register_codes_via(
@@ -325,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    fn a_seed_that_maps_outside_its_declared_sido_is_refused() {
+    fn a_crosswalk_that_maps_outside_its_declared_sido_is_refused() {
         let tail = r#""placeholder_sigungu":{"codes":[]},"absent_sido_row_bound":{"rows":1}}"#;
         for head in [
             // 99 를 다스리는 선언이 없는데 99110 을 매핑
@@ -346,7 +1029,7 @@ mod tests {
     #[test]
     fn a_sido_absent_from_the_cadastre_over_the_bound_is_refused() -> anyhow::Result<()> {
         // 심은 위반: 지적도에도 통합 선언에도 없는 시도 96 이 한계(2행)를 넘는다.
-        let mut tally = SidoTally::from_contracts(SEED, PARCEL_SOURCE)?;
+        let mut tally = SidoTally::from_contracts(&parse_crosswalk(SEED)?, SEED, PARCEL_SOURCE)?;
         for _ in 0..3 {
             tally.observe(&key("96110"));
         }
@@ -363,7 +1046,7 @@ mod tests {
 
     #[test]
     fn a_small_unknown_sido_passes_and_is_reported() -> anyhow::Result<()> {
-        let mut tally = SidoTally::from_contracts(SEED, PARCEL_SOURCE)?;
+        let mut tally = SidoTally::from_contracts(&parse_crosswalk(SEED)?, SEED, PARCEL_SOURCE)?;
         for code in [
             "96110", // 지적도에 없는 시도 96, 한계 이하
             "96120", "97110", // 지적도의 시도
@@ -383,11 +1066,12 @@ mod tests {
     }
 
     #[test]
-    fn a_crosswalk_onto_a_sido_the_cadastre_dropped_is_refused() {
+    fn a_crosswalk_onto_a_sido_the_cadastre_dropped_is_refused() -> anyhow::Result<()> {
         // 지적도가 시도 98 을 더 이상 싣지 않으면, 99 → 98 짝은 거짓이 된다.
         let parcel_source = r#"{"objects":[{"region_code":"97","granularity":"sido"},
             {"region_code":"97110","granularity":"sigungu"}]}"#;
-        assert!(SidoTally::from_contracts(SEED, parcel_source).is_err());
+        assert!(SidoTally::from_contracts(&parse_crosswalk(SEED)?, SEED, parcel_source).is_err());
         assert!(SEED_JSON.contains("absent_sido_row_bound"));
+        Ok(())
     }
 }

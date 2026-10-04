@@ -11,8 +11,10 @@ Evidence is codes and official records only. Polygon overlap or containment is n
 from __future__ import annotations
 
 import collections
+import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 RULES_VERSION = "parcel-lineage.v1"
@@ -30,9 +32,19 @@ RELATIONS = (
     "other",
 )
 # A dong whose lots survive under its new code below this share has been split, not renamed
-# (ADR-0113 §5); only its vanished lots go on to the evidence rules.
-SPLIT_SIGNAL_OVERLAP = 0.95
+# (ADR-0113 §5); only its vanished lots go on to the evidence rules. The 법정동 change pairing uses the
+# same line to pair a dong by its 지번 set (ADR-0144), so the value lives in its contract.
+SPLIT_SIGNAL_OVERLAP = float(
+    json.loads(
+        (Path(__file__).resolve().parents[2] / "contracts" / "code-go-kr-legal-dong.contract.json").read_text(encoding="utf-8")
+    )["pairing"]["jibun_overlap_min_share"]
+)
 EXISTS, ABOLISHED = "존재", "폐지"
+# `evidence_kind` of a link read from the 필지고유번호변동연혁 (ADR-0113 §4; graded `evidence_strong`,
+# ADR-0144 §3.3). Nothing writes it yet: the source is not collected. The 법정동 change pairing reads
+# only these links, because the history-text links are written through this module's own dong
+# pairing and would only echo it.
+PARCEL_NUMBER_HISTORY = "parcel_number_history"
 PNU_PATTERN = re.compile(r"[0-9]{19}")
 LOT_PATTERN = re.compile(r"(산\s*)?([0-9]{1,4})(?:-([0-9]{1,4}))?")
 

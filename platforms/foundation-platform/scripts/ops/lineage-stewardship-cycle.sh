@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # 필지 계보 스튜어드 순환 (root ADR-0115 §9·§11). systemd 타이머가 하루 한 번 돌린다.
 #
+#   0a. 법정동 — 수집 작업이 넘긴 법정동 코드 변경을 먼저 적재하고 짝을 맞춘다(legal-dong-code-load.sh,
+#               root ADR-0143). 넘김이 없으면 그렇게 남기고 지나간다.
+#
 #   1. 접기   — 서 있는 스튜어드 결정을 silver.parcel_lineage 에 steward 행으로 쌓는다
 #               (export-lineage-steward-fold → Spark → record-lineage-steward-folds).
 #   2. 목록   — 계보에서 검토 목록을 다시 만든다(gold.lineage_review_queue + 넘김 파일).
@@ -73,6 +76,11 @@ spark() {
 }
 
 json_field() { python3 -c "import json,sys; print(json.load(open(sys.argv[1]))$2)" "$1"; }
+
+# 0a. 법정동 코드 변경 (root ADR-0143). 계보가 그 소비자이므로 계보 앞에서, 이 단위의 spark 자리로 적재하고
+# 짝을 맞춘다. 실패하면 여기서 멈춘다 — 낡은 크로스워크로 계보에 들어가지 않는다.
+source "$(dirname "${BASH_SOURCE[0]}")/legal-dong-code-load.sh"
+load_legal_dong_code_handoffs
 
 # 0. 계보 표가 아직 없으면(9월 필지 적재 전) 할 일이 없다 — 조용히 넘기지 않고 그렇다고 남긴다.
 # `|| probe_rc=$?`, not `set +e`: the ERR trap fires even with errexit off, so "no lineage yet"

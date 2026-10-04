@@ -76,7 +76,7 @@ fn env_name(suffix: &str) -> String {
 /// Runs the local 표제부 Bronze-to-Silver normalization export.
 pub async fn run() -> anyhow::Result<()> {
     let config = TitleExportConfig::from_env()?;
-    let report = export_handoff(&config)?;
+    let report = export_handoff_via(&config, &hub_sigungu_crosswalk().await?)?;
     tracing::info!(
         row_count = report.row_count,
         output_path = %config.output_path.display(),
@@ -87,10 +87,6 @@ pub async fn run() -> anyhow::Result<()> {
 
 struct TitleExportReport {
     row_count: usize,
-}
-
-fn export_handoff(config: &TitleExportConfig) -> anyhow::Result<TitleExportReport> {
-    export_handoff_via(config, &hub_sigungu_crosswalk()?)
 }
 
 fn export_handoff_via(
@@ -121,7 +117,7 @@ fn export_handoff_via(
     let mut approval_year_present = 0u64;
     let mut pnu_present = 0u64;
 
-    let mut sido_tally = hub_sido_tally()?;
+    let mut sido_tally = hub_sido_tally(sigungu_crosswalk)?;
     decode_zip_lines(&object_path, config.max_rows, |line, line_number| {
         let record = parse_building_register_title_source_row_from_hub_bulk_text_line_via(
             sigungu_crosswalk,
@@ -274,6 +270,11 @@ fn optional_usize_env(name: &str) -> anyhow::Result<Option<usize>> {
 mod tests {
     use super::*;
     use zip::write::SimpleFileOptions;
+
+    /// The export under the seed's own pairs; the real `export_handoff` needs a projection file.
+    fn export_handoff(config: &TitleExportConfig) -> anyhow::Result<TitleExportReport> {
+        super::export_handoff_via(config, &crate::test_crosswalk::seed()?)
+    }
 
     fn title_line() -> String {
         // The measured 77-field shape, reserved 99999* PNU band, coordinate-safe areas.

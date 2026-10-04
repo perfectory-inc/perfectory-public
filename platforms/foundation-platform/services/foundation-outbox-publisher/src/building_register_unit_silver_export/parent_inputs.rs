@@ -100,7 +100,7 @@ impl ParentInputs {
         })?;
         // Validate the complete source before any writer can create/truncate output.
         // Reuse the export's parser and crosswalk; this pass retains no unit rows in memory.
-        let mut sido_tally = hub_sido_tally()?;
+        let mut sido_tally = hub_sido_tally(crosswalk)?;
         decode_zip_lines(&paths[0], None, |line, line_number| {
             let record = parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
                 crosswalk,

@@ -3295,6 +3295,36 @@
           "name": "ingested_at_utc",
           "logical_type": "timestamp",
           "required": true
+        },
+        {
+          "name": "parent_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "created_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "abolished_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "lowest_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jumin_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijuk_cd",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -3311,6 +3341,86 @@
       "load": {
         "unit": "object",
         "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "reference.legal_dong_code_change": {
+      "table_name": "reference.legal_dong_code_change",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "change_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "old_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "new_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "level",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "effective_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "rule_verdict",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "detail",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "derivation_run_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "recorded_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "effective_date",
+        "old_code"
+      ],
+      "quality_gates": [
+        "append_only",
+        "change_key unique",
+        "kind is pair",
+        "a pair names old_code and new_code"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "derivation_run_id",
         "object_prefix": null,
         "object_suffix_separator": null
       }

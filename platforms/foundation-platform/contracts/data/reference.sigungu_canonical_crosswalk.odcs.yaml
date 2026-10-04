@@ -64,3 +64,4 @@ customProperties:
   - property: "upstreamDatasets"
     value:
       - "reference.legal_dong_code"
+      - "reference.legal_dong_code_change"

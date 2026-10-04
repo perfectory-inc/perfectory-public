@@ -15,7 +15,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 아래의 수집규모는 **카탈로그에 등록된 endpoint 수**입니다. 실제 수집 객체 수·행 수·용량은
 이 카탈로그에 없으므로 추정하지 않습니다. 실행 경로가 있다는 표시는 운영 배포·전국 적재 완료를 뜻하지 않습니다.
 
-현재 범위: 원천 **9그룹 / 134 endpoint**,
+현재 범위: 원천 **10그룹 / 135 endpoint**,
 Silver·Gold **33표**,
 서빙·운영 원장 **75표**.
 
@@ -29,6 +29,7 @@ Silver·Gold **33표**,
 | 건축HUB 파일 | 59 endpoint | 일부 연결 — 표제부·층·호·면적·공동주택가격·전유부에 Silver 레인이 있고 나머지는 수집 단계에 남는다. |
 | 건축물대장 API | 10 endpoint | 수집 비활성 — 파일 수집과 중복되어 비활성화된 API이다. |
 | 산업입지정보 산업단지 | 3 endpoint | 일부 연결 — 목록·고시·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다. |
+| 행정표준코드관리시스템 법정동 | 1 endpoint | 일부 연결 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 매일 받는 법정동 코드 변경의 원천이다(루트 ADR-0143). 코드변경안내 게시판은 원천이 아니다(ADR-0144). 수집 작업은 운영 감독 실행 전까지 꺼져 있다. |
 | 주소정보 전자지도 | 11 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 건물 도형 Silver 계약은 아직 없다. |
 | 기타 공공 일괄 파일 | 13 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 Silver 연결은 없다. |
 | 실거래가 API | 12 endpoint | 수집 비활성 — 카탈로그에서 중복 API로 비활성화되어 있다. |
@@ -77,6 +78,8 @@ Silver·Gold **33표**,
 | 브이월드 공간·토지 파일: VWorld 읍면동 경계 | 1 endpoint | 행정경계(읍면동) (`silver.administrative_boundaries`)<br>행정경계 서빙본 (`gold.administrative_boundary_served`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`) | — | 행정경계 지도 타일<br>공짱 지도·상세 패널 |
 | 행정표준코드 법정동: 행정표준코드 법정동코드 목록 | 1 endpoint | 필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | — |
 | ↳ 같은 권위(행정표준코드)의 전체자료 내려받기본(폐지 코드 포함)을 스냅숏 행으로 싣는다. 내려받기 수집 엔드포인트 등록은 수집 레인 몫이다. | | | | |
+| 행정표준코드관리시스템 법정동: 행정표준코드 법정동 전체 표 | 1 endpoint | 필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | — |
+| ↳ 전체 표 응답을 Bronze 에 남기고, 형식이 계약과 같고 표가 줄지 않았을 때만 스냅숏으로 쌓는다. | | | | |
 
 ## 수집 이후 아직 연결되지 않은 데이터
 
@@ -379,6 +382,11 @@ Silver·Gold **33표**,
 | 지도 편집 원장 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py` |
 | 필지 서빙본 → 필지 지도 타일 | `bake-lakehouse-tiles` |
 | 행정표준코드 법정동 → 법정동코드 스냅숏 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
+| 행정표준코드관리시스템 법정동 → 법정동코드 스냅숏 | `collect-code-go-kr-legal-dong`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
+| 필지 경계 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage.py` |
+| 필지 계보 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py` |
+| 법정동코드 스냅숏 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py` |
+| 법정동 코드 변경 원장 → 시군구 canonical 크로스워크 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py` |
 | 법정동코드 스냅숏 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |
 | 필지 경계 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |
 | 필지별 토지이동이력 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py` |

@@ -18,6 +18,7 @@ last_reviewed: 2026-07-29
 - [예약 작업 운영 (Airflow) — 설치·작업 옮기기·확인](./production-orchestrator-cutover.md)
 - [필지 by-PNU R2 서빙 굽기·발행](./parcel-by-pnu-serving-bake.md)
 - [지도 편집 접기 — 설치·운영·확인](./map-edit-fold.md)
+- [법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드](./legal-dong-code-changes.md)
 - [데이터 카탈로그(DataHub) — 설치·로그인·확인](./data-catalog.md)
 - [ai-server 메모리 예산 — 컨테이너 상한과 실측](./host-memory-budget.md)
 

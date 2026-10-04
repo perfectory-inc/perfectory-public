@@ -10,6 +10,7 @@ mod test_support;
 mod zip_stream;
 
 use std::{
+    collections::BTreeMap,
     io::{BufRead, BufReader, Read, Seek, Write},
     path::PathBuf,
 };
@@ -105,6 +106,9 @@ struct Report {
     pnu_ok: u64,
     pnu_bad: u64,
     parts: Vec<Part>,
+    /// Where the 시군구 crosswalk came from (root ADR-0143 §5); empty for a crosswalk built in code.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    sigungu_crosswalk: BTreeMap<String, String>,
 }
 
 impl Report {
@@ -123,6 +127,7 @@ impl Report {
             pnu_ok: 0,
             pnu_bad: 0,
             parts: Vec::new(),
+            sigungu_crosswalk: BTreeMap::new(),
         }
     }
 
@@ -190,7 +195,7 @@ pub async fn run(env: &str, layout: Layout) -> anyhow::Result<()> {
             "R2 object size differs from measured source contract"
         );
     }
-    let sigungu_crosswalk = crate::sigungu_crosswalk::hub_sigungu_crosswalk()?;
+    let sigungu_crosswalk = crate::sigungu_crosswalk::hub_sigungu_crosswalk().await?;
     let layout_name = layout.inner_file.clone();
     let runtime = tokio::runtime::Handle::current();
     let report = tokio::task::spawn_blocking(move || {
@@ -237,6 +242,7 @@ fn convert<R: Read + Seek>(
     let mut reader = BufReader::with_capacity(64 * 1024, member.decoder);
     let mut crc = Crc::new();
     let mut report = Report::new(config, layout);
+    report.sigungu_crosswalk = sigungu_crosswalk.provenance().clone();
     let attempt = format!("{}/attempt={}", config.object_stem()?, Uuid::new_v4());
     let ingested_at = Utc::now().to_rfc3339();
     let mut line = Vec::new();
