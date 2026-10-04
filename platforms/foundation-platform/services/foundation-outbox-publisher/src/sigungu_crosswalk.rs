@@ -475,7 +475,7 @@ fn crosswalk_from_projection(
         ),
         (
             "change_table_snapshot_id".to_owned(),
-            projection.change_table_snapshot_id.clone(),
+            projection.change_table_snapshot_id,
         ),
         (
             "baseline_comparison".to_owned(),
@@ -1136,7 +1136,7 @@ mod tests {
         // 심은 위반 셋: 증거 없이 끔, 증거를 둔 채 켬, 해시가 아닌 증거.
         for comparison in [
             json!({"required": false, "retired_by": null}),
-            json!({"required": true, "retired_by": evidence.clone()}),
+            json!({"required": true, "retired_by": evidence}),
             json!({"required": false, "retired_by": {"change_table_snapshot_id": "1",
                    "legal_dong_snapshot_record": SNAPSHOT_RECORD, "projection_sha256": "abc"}}),
             json!({"required": false}),
