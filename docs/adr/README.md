@@ -106,12 +106,12 @@ last_reviewed: 2026-07-28
 - [0093 — 대지권의 정체성은 호 단위다](./0093-a-land-right-belongs-to-a-unit.md)
 - [0094 — 전유부는 가격과 세대를 잇는다](./0094-the-exclusive-register-bridges-prices-and-units.md)
 - [0095 — 세대 공시가격은 전유부를 통해 세대 정체성으로 재색인된다](./0095-unit-official-prices-are-reindexed-through-the-exclusive-register.md)
-- [0096 — 필지 속성은 R2 미리구운 객체로 서빙한다](./0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md)
+- [0096 — 필지 속성은 R2 미리구운 객체로 서빙한다](./0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md) (ADR-0147 로 대체됨)
 - [0097 — 의존성은 최신을 추종하고 버전 핀은 계약 한 곳에 산다](./0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md)
 - [0098 — pre-push 훅은 빠른 검사만 남기고 판정은 CI가 한다](./0098-the-pre-push-hook-keeps-only-fast-checks.md)
 - [0099 — 매일의 서빙 갱신은 바뀐 필지만 굽는다](./0099-daily-serving-updates-bake-only-changed-parcels.md)
 
-- [0100 — 건물·층·호는 독립된 by-PNU R2 객체로 서빙한다](./0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md)
+- [0100 — 건물·층·호는 독립된 by-PNU R2 객체로 서빙한다](./0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md) (ADR-0147 로 대체됨)
 - [0101 — 세대 공시가격은 모든 기준일을 보존한다](./0101-unit-prices-preserve-every-reference-date.md)
 - [0102 — 레이크하우스 잡은 R2 연결 리셋을 견딘다](./0102-lakehouse-jobs-survive-r2-connection-resets.md)
 - [0103 — 장소의 정체성은 행정코드 변경보다 오래 산다](./0103-place-identity-outlives-administrative-code-changes.md)
@@ -176,3 +176,5 @@ last_reviewed: 2026-07-28
 - [ADR-0145 — 지역 코드 변경의 정본은 하나다 — 코드 변경표와 필지 계보, 나머지는 거기서 파생한다](./0145-one-source-of-truth-for-region-code-changes.md)
 
 - [ADR-0146 — by-PNU 레인은 서빙 중인 것을 검증해 재기준하고, 반영 스냅숏은 태그로 고정한다](./0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md)
+
+- [ADR-0147 — 필지·건물 문서는 항목별 묶음 파일로 서빙한다](./0147-by-pnu-documents-are-served-from-section-packs.md)
