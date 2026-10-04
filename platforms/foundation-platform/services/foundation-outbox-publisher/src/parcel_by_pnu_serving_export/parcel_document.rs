@@ -28,26 +28,26 @@ pub(crate) const PARCEL_DOCUMENT_SCHEMA_VERSION: &str =
 
 /// One serving artifact, ready to be written under a generation directory.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct ParcelServingArtifact {
+pub(crate) struct ParcelServingArtifact {
     /// Parcel the document describes; the export derives the object key from it.
-    pub(super) pnu: String,
+    pub(crate) pnu: String,
     /// Exact bytes written to object storage.
-    pub(super) body: Vec<u8>,
+    pub(crate) body: Vec<u8>,
     /// SHA-256 of `body`.
-    pub(super) checksum_sha256: String,
+    pub(crate) checksum_sha256: String,
 }
 
 /// Which Gold snapshot a serving artifact was derived from.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub(super) struct GoldSnapshotProvenance {
+pub(crate) struct GoldSnapshotProvenance {
     /// Lakehouse table the rows were read from.
-    pub(super) table: String,
+    pub(crate) table: String,
     /// Iceberg snapshot of that table which this artifact represents.
-    pub(super) iceberg_snapshot_id: String,
+    pub(crate) iceberg_snapshot_id: String,
     /// Table metadata document the snapshot was resolved from.
-    pub(super) metadata_location: String,
+    pub(crate) metadata_location: String,
     /// Manifest list every scanned data file was reached through.
-    pub(super) manifest_list_location: String,
+    pub(crate) manifest_list_location: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,7 +91,7 @@ const CARRIED_SECTIONS: [&str; 6] = [
 /// # Errors
 /// Returns an error when a required column is absent or a section column does not parse as the
 /// contract DTO it must carry; the message names the offending column.
-pub(super) fn build(
+pub(crate) fn build(
     provenance: &GoldSnapshotProvenance,
     row: &JsonMap<String, JsonValue>,
 ) -> anyhow::Result<ParcelServingArtifact> {

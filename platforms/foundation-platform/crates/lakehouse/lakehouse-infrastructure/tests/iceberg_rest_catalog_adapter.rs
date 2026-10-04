@@ -343,3 +343,183 @@ async fn ensure_table_returns_existing_snapshot_without_cloudflare_business_api(
     assert_eq!(snapshot.snapshot_id, "987654321");
     Ok(())
 }
+
+// ---- Tags that pin a served snapshot (root ADR-0146) ------------------------------------------
+//
+// Snapshot ids sit in the repository's synthetic namespace (`scripts/guard/public-fixture-safety.py`).
+
+const TAGGED: i64 = 999_990_000_000_000_001;
+const OTHER: i64 = 999_990_000_000_000_002;
+const GOLD_PATH: &str = "/v1/cloudflare-catalog-prefix/namespaces/gold/tables/parcel_panel";
+
+async fn mount_gold(server: &MockServer, refs: serde_json::Value) {
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00002.json",
+            "metadata": {
+                "current-snapshot-id": OTHER,
+                "snapshots": [{"snapshot-id": TAGGED}, {"snapshot-id": OTHER}],
+                "refs": refs
+            }
+        })))
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn a_tag_is_committed_only_where_no_reference_of_its_name_exists(
+) -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    mount_gold(
+        &server,
+        serde_json::json!({"main": {"snapshot-id": OTHER, "type": "branch"}}),
+    )
+    .await;
+    Mock::given(method("POST"))
+        .and(path(GOLD_PATH))
+        .and(header("authorization", "Bearer secret-token"))
+        .and(wiremock::matchers::body_json(serde_json::json!({
+            "requirements": [
+                {"type": "assert-ref-snapshot-id", "ref": "served-parcel-by-pnu-1", "snapshot-id": null}
+            ],
+            "updates": [{
+                "action": "set-snapshot-ref",
+                "ref-name": "served-parcel-by-pnu-1",
+                "type": "tag",
+                "snapshot-id": TAGGED
+            }]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    catalog
+        .create_tag("gold.parcel_panel", "served-parcel-by-pnu-1", TAGGED)
+        .await?;
+    let refs = catalog
+        .load_snapshot_refs("gold.parcel_panel")
+        .await?
+        .ok_or_else(|| std::io::Error::other("table should exist"))?;
+    assert_eq!(refs.snapshot_ids, vec![TAGGED, OTHER]);
+    assert_eq!(refs.refs["main"].kind, "branch");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_tag_is_never_moved_nor_set_on_an_expired_snapshot() -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    mount_gold(
+        &server,
+        serde_json::json!({
+            "main": {"snapshot-id": OTHER, "type": "branch"},
+            "served-parcel-by-pnu-1": {"snapshot-id": TAGGED, "type": "tag"}
+        }),
+    )
+    .await;
+    Mock::given(method("POST"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    // The same tag on the same snapshot is a re-run, not a second commit.
+    catalog
+        .create_tag("gold.parcel_panel", "served-parcel-by-pnu-1", TAGGED)
+        .await?;
+    for (name, snapshot, refusal) in [
+        ("served-parcel-by-pnu-1", OTHER, "never moved"),
+        ("main", TAGGED, "never moved"),
+        (
+            "served-parcel-by-pnu-2",
+            999_990_000_000_000_009,
+            "no longer holds",
+        ),
+    ] {
+        let error = catalog
+            .create_tag("gold.parcel_panel", name, snapshot)
+            .await
+            .err()
+            .ok_or_else(|| std::io::Error::other(format!("{name} on {snapshot} was tagged")))?;
+        assert!(error.to_string().contains(refusal), "{error}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_tag_is_removed_only_while_it_names_the_expected_snapshot() -> Result<(), Box<dyn Error>>
+{
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    mount_gold(
+        &server,
+        serde_json::json!({
+            "main": {"snapshot-id": OTHER, "type": "branch"},
+            "served-parcel-by-pnu-1": {"snapshot-id": TAGGED, "type": "tag"}
+        }),
+    )
+    .await;
+    Mock::given(method("POST"))
+        .and(path(GOLD_PATH))
+        .and(wiremock::matchers::body_json(serde_json::json!({
+            "requirements": [
+                {"type": "assert-ref-snapshot-id", "ref": "served-parcel-by-pnu-1", "snapshot-id": TAGGED}
+            ],
+            "updates": [{"action": "remove-snapshot-ref", "ref-name": "served-parcel-by-pnu-1"}]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    catalog
+        .remove_tag("gold.parcel_panel", "served-parcel-by-pnu-1", TAGGED)
+        .await?;
+    // Absent is already removed; a branch and another snapshot's tag are never removed.
+    catalog
+        .remove_tag("gold.parcel_panel", "served-parcel-by-pnu-9", TAGGED)
+        .await?;
+    for (name, snapshot) in [("main", OTHER), ("served-parcel-by-pnu-1", OTHER)] {
+        assert!(
+            catalog
+                .remove_tag("gold.parcel_panel", name, snapshot)
+                .await
+                .is_err(),
+            "{name} on {snapshot} was removed"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_conflicting_tag_commit_is_an_error() -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    mount_gold(
+        &server,
+        serde_json::json!({"main": {"snapshot-id": OTHER, "type": "branch"}}),
+    )
+    .await;
+    Mock::given(method("POST"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(409))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let error = catalog
+        .create_tag("gold.parcel_panel", "served-parcel-by-pnu-1", TAGGED)
+        .await
+        .err()
+        .ok_or_else(|| std::io::Error::other("a refused commit was reported as a tag"))?;
+    assert!(error.to_string().contains("conflicted"), "{error}");
+    Ok(())
+}

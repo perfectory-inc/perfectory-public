@@ -106,6 +106,31 @@ elif command.startswith("export-"):
                    "pnu_prefix": prefix or None, "scanned_row_count": len(pnus),
                    "exported_row_count": exported, "tombstone_count": len(tombstones) - lost_tombstone,
                    "artifacts": [{"pnu": pnu} for pnu in kept + tombstones]}, out)
+elif command.startswith("verify-"):
+    # The verified re-base (root ADR-0146 §1): reads every served object, writes a change set.
+    work = os.environ[prefix_env + "REBASE_WORK_DIR"]
+    os.makedirs(work, exist_ok=True)
+    if os.environ.get("FAKE_REBASE_FAIL"):
+        sys.exit("Error: " + os.environ["FAKE_REBASE_FAIL"])
+    upserts = json.loads(os.environ.get("FAKE_REBASE_UPSERTS", "[]"))
+    deletes = json.loads(os.environ.get("FAKE_REBASE_DELETES", "[]"))
+    new = int(os.environ.get("FAKE_REBASE_NEW", "0"))
+    for name, pnus in (("upserts.txt", upserts), ("deletes.txt", deletes)):
+        with open(os.path.join(work, name), "w") as out:
+            out.writelines(pnu + "\n" for pnu in pnus)
+    read = 100
+    with open(os.path.join(work, "change-set.json"), "w") as out:
+        json.dump({"job_name": "by_pnu_serving_rebase_verify",
+                   "quality_metrics": {"upsert_count": len(upserts), "delete_count": len(deletes),
+                                       "new_count": new},
+                   "input": {"baseline_snapshot_id": os.environ.get("FAKE_REFLECTED", "101"),
+                             "current_snapshot_id": os.environ[prefix_env + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"]},
+                   "verification": {"run_id": os.environ[prefix_env + "REBASE_RUN_ID"],
+                                    "reason": os.environ[prefix_env + "REBASE_REASON"],
+                                    "served_objects_read": read,
+                                    "equal": read - (len(upserts) - new) - len(deletes),
+                                    "changed": len(upserts) - new, "only_served": len(deletes),
+                                    "only_gold": new}}, out)
 elif command.startswith("publish-"):
     pass
 else:
@@ -553,11 +578,115 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(self.published(calls), [])
         self.assertEqual(self.exports(calls), [])
 
+    def refusal(self):
+        return json.loads((self.state_root / "parcel/runs/202-delta/run-summary.json").read_text())["refused"]
+
     def test_no_comparison_snapshot_is_a_refusal_not_no_change(self):
         result, calls = self.patch_bake(FAKE_DELTA_EXIT="3")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("no comparison snapshot", result.stdout)
+        self.assertIn("Gold no longer holds the reflected snapshot 101 (expired, or never existed)", result.stdout)
+        self.assertIn("FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE", result.stdout)
+        self.assertEqual(self.refusal(), "no_comparison_snapshot")
         self.assertEqual(self.published(calls), [])
+
+    def test_a_digestless_comparison_snapshot_is_named_as_such(self):
+        # The 2026-10-04 refusal: the snapshot was there, only its row_digest was not.
+        result, calls = self.patch_bake(FAKE_DELTA_EXIT="5")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("the reflected snapshot 101 has rows without row_digest", result.stdout)
+        self.assertNotIn("expired", result.stdout)
+        self.assertEqual(self.refusal(), "comparison_snapshot_has_no_row_digest")
+        self.assertEqual(self.published(calls), [])
+
+    # The verified re-base (root ADR-0146 §1).
+    REBASE = {"FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE": "true",
+              "FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON": "the reflected snapshot has no row_digest"}
+
+    def test_a_verified_rebase_needs_a_reason_one_answer_and_the_parcel_lane(self):
+        for unit, env, said in (
+            ("parcel", {"FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE": "true"},
+             "needs FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON"),
+            ("parcel", {**self.REBASE, "FOUNDATION_BY_PNU_BAKE_FORCE_FULL": "true",
+                        "FOUNDATION_BY_PNU_BAKE_FORCE_FULL_REASON": "x"}, "state one"),
+            ("building", self.REBASE, "the building lane re-bases with a full bake"),
+            ("parcel", {"FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE": "yes"}, "must be true or false"),
+        ):
+            with self.subTest(unit=unit, said=said):
+                result, calls = self.patch_bake(unit, **env)
+                self.assertEqual(result.returncode, 64, result.stdout)
+                self.assertIn(said, result.stdout)
+                self.assertEqual(calls, [])
+
+    def test_a_verified_rebase_that_finds_nothing_changed_only_reflects(self):
+        result, calls = self.patch_bake(**self.REBASE)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("delta", [call["command"] for call in calls], "the change-set job ran beside the re-base")
+        self.assertEqual(self.exports(calls), [])
+        [verify] = [call for call in calls if call["command"] == "verify-parcel-by-pnu-serving-rebase"]
+        prefix = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_"
+        self.assertEqual(verify["env"][prefix + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"], "202")
+        self.assertEqual(verify["env"][prefix + "REBASE_REASON"], "the reflected snapshot has no row_digest")
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"][prefix + "PUBLISH_PATCH"], "true")
+        self.assertNotIn(prefix + "TARGET_PATCH", publish["env"])
+        change = json.loads(open(publish["env"][prefix + "CHANGE_SET_SUMMARY_PATH"]).read())
+        self.assertEqual(change["job_name"], "by_pnu_serving_rebase_verify")
+        summary = self.run_summary("reflect")
+        self.assertEqual(summary["verified_rebase_run_id"], verify["env"][prefix + "REBASE_RUN_ID"])
+        self.assertEqual((summary["rebase_served_objects_read"], summary["rebase_equal"]), (100, 100))
+        self.assertIn("found every one equal", summary["reason"])
+
+    def test_a_verified_rebase_that_finds_a_changed_document_writes_a_patch(self):
+        result, calls = self.patch_bake(FAKE_REBASE_UPSERTS=json.dumps(PNUS[:2]), FAKE_REBASE_NEW="1",
+                                        FAKE_REBASE_DELETES=json.dumps(["9999920000000000001"]), **self.REBASE)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        prefix = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_"
+        [export] = self.exports(calls)
+        self.assertEqual(export["env"][prefix + "TARGET_PATCH"], "1")
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"][prefix + "TARGET_PATCH"], "1")
+        self.assertEqual(open(publish["env"][prefix + "UPSERT_LIST_PATH"]).read().split(), PNUS[:2])
+        summary = self.run_summary("patch")
+        self.assertEqual((summary["upserts"], summary["deletes"], summary["rebase_changed"],
+                          summary["rebase_only_gold"], summary["rebase_only_served"]), (2, 1, 1, 1, 1))
+
+    def test_an_incomplete_verified_rebase_publishes_nothing_and_the_rerun_resumes_it(self):
+        result, calls = self.patch_bake(FAKE_REBASE_FAIL="served object v1/x.json could not be read in 3 attempts",
+                                        **self.REBASE)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("the verified re-base did not complete", result.stdout)
+        self.assertEqual(self.published(calls), [])
+        refused = json.loads((self.state_root / "parcel/runs/202-rebase/run-summary.json").read_text())
+        self.assertEqual(refused["refused"], "verified_rebase_incomplete")
+        first_id = refused["verified_rebase_run_id"]
+        self.log.unlink()
+        result, calls = self.patch_bake(**self.REBASE)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [verify] = [call for call in calls if call["command"].startswith("verify-")]
+        self.assertEqual(verify["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_REBASE_RUN_ID"], first_id,
+                         "the rerun started another re-base instead of resuming its own")
+
+    def test_a_verified_rebase_over_half_the_table_is_not_a_delta(self):
+        result, calls = self.patch_bake(FAKE_REBASE_FAIL="900 of 1000 PNUs differ: not a delta", **self.REBASE)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a delta; nothing was published", result.stdout)
+        self.assertEqual(self.published(calls), [])
+
+    def test_the_registered_job_passes_a_verified_rebase_to_the_parcel_lane_only(self):
+        result, calls = self.patch_bake("all", **self.REBASE)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        commands = [call["command"] for call in calls]
+        self.assertIn("verify-parcel-by-pnu-serving-rebase", commands)
+        self.assertNotIn("verify-building-by-pnu-serving-rebase", commands)
+        self.assertEqual([command for command in commands if command.startswith("publish-")],
+                         ["publish-parcel-by-pnu-serving-manifest", "publish-building-by-pnu-serving-manifest"])
+
+    def test_a_verified_rebase_cannot_stand_in_for_a_needed_full_bake(self):
+        # The base holds another document schema (the default fixture): only a full bake serves it.
+        result, calls = self.bake(**self.REBASE)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("a verified re-base cannot stand in for it", result.stdout)
+        self.assertEqual([call["command"] for call in calls], ["show-parcel-by-pnu-serving-state"])
 
     def test_a_patch_missing_a_tombstone_is_not_published(self):
         result, calls = self.patch_bake(FAKE_DELTA_UPSERTS=json.dumps(PNUS[:1]),

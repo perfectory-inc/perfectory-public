@@ -44,6 +44,26 @@ pub(crate) struct ServingManifest {
     /// PNUs that answer: base + new − deleted over every patch.
     pub(crate) object_count: u64,
     pub(crate) published_at_utc: String,
+    /// The verified re-base whose result this manifest published (root ADR-0146 §1). Only that
+    /// manifest carries it; the next publish moves it into the manifest history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) verified_rebase: Option<VerifiedRebase>,
+}
+
+/// What a verified re-base compared and found (`verify-parcel-by-pnu-serving-rebase`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct VerifiedRebase {
+    pub(crate) run_id: String,
+    pub(crate) reason: String,
+    pub(crate) method: String,
+    /// The reflected snapshot the change set could not be computed against.
+    pub(crate) baseline_gold_iceberg_snapshot_id: String,
+    pub(crate) served_objects_read: u64,
+    pub(crate) equal: u64,
+    pub(crate) changed: u64,
+    pub(crate) only_served: u64,
+    pub(crate) only_gold: u64,
 }
 
 /// One patch generation of the base.
@@ -370,6 +390,7 @@ mod tests {
             patches,
             object_count: 10,
             published_at_utc: "2026-01-01T00:00:00Z".to_owned(),
+            verified_rebase: None,
         }
     }
 

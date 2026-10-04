@@ -11,8 +11,10 @@ The comparison snapshot is the one the serving manifest last reflected
 (`reflected_gold_iceberg_snapshot_id`), never a guess. Designed refusals, each a distinct exit:
 
 * no comparison snapshot (none named, or Iceberg no longer has it) — exit 3. That is not
-  "nothing changed": the change set is unknown, and only a full bake can say what Gold holds.
-* a snapshot whose rows lack `row_digest` — exit 3, for the same reason.
+  "nothing changed": the change set is unknown, and only a re-base can say what Gold holds.
+* a snapshot whose rows lack `row_digest` (written before the fingerprint existed) — exit 5, for
+  the same reason. The bake names the two apart: one is an expiry, the other a pre-ADR-0099
+  snapshot (root ADR-0146).
 * a change set larger than the contract's `max_delta_fraction` of the current table — exit 4.
   That shape means the fingerprint drifted or the baseline is wrong; re-baking everything as a
   "patch" would hide it (ADR-0099 §5).
@@ -33,6 +35,7 @@ RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
 GOLD_TABLES = {"parcel": "gold.parcel_panel", "building": "gold.building_panel"}
 EXIT_NO_COMPARISON = 3
 EXIT_NOT_A_DELTA = 4
+EXIT_NO_DIGEST = 5
 
 
 class Refusal(Exception):
@@ -143,9 +146,9 @@ def snapshot_frame(spark: Any, catalog: str, table: str, snapshot_id: str) -> An
     frame = spark.sql(f"SELECT * FROM `{catalog}`.{table} VERSION AS OF {int(snapshot_id)}")
     if "row_digest" not in frame.columns:
         raise Refusal(
-            EXIT_NO_COMPARISON,
+            EXIT_NO_DIGEST,
             f"snapshot {snapshot_id} of {table} carries no row_digest; a digest-less snapshot "
-            "cannot be compared — full-bake it (ADR-0099)",
+            "cannot be compared — re-base the lane (ADR-0099, ADR-0146)",
         )
     return frame.select("pnu", "row_digest", F.lit(True).alias("present"))
 
@@ -156,7 +159,7 @@ def refuse_missing_digests(frame: Any, label: str) -> None:
     missing = frame.where(F.col("row_digest").isNull()).limit(1).count()
     if missing:
         raise Refusal(
-            EXIT_NO_COMPARISON,
+            EXIT_NO_DIGEST,
             f"the {label} snapshot has rows without row_digest; they cannot be compared",
         )
 

@@ -1109,3 +1109,80 @@ impl Fixture {
         Ok(path)
     }
 }
+
+impl Fixture {
+    /// The snapshots this lane's pins name, sorted (root ADR-0146 §2).
+    fn pinned(&self) -> anyhow::Result<Vec<String>> {
+        let path = self.root.join(crate::by_pnu_serving_pins::LOCAL_TAGS_FILE);
+        let tags: std::collections::BTreeMap<String, std::collections::BTreeMap<String, i64>> =
+            serde_json::from_slice(&std::fs::read(path)?)?;
+        let prefix = crate::by_pnu_serving_pins::tag_prefix(self.lane);
+        let mut snapshots = tags
+            .get(gold_table(self.lane))
+            .into_iter()
+            .flatten()
+            .filter(|(name, _)| name.starts_with(&prefix))
+            .map(|(_, snapshot)| snapshot.to_string())
+            .collect::<Vec<_>>();
+        snapshots.sort();
+        Ok(snapshots)
+    }
+}
+
+/// Every publish pins the snapshot its manifest reflects, and releases the older pin only once
+/// the new manifest is live. A publish whose manifest write loses leaves the live pin alone, and
+/// a pin that cannot be made stops the publish before the manifest moves (root ADR-0146 §2).
+#[tokio::test]
+async fn a_publish_moves_the_pin_to_the_snapshot_it_reflects() -> anyhow::Result<()> {
+    for lane in LANES {
+        let fx = fixture(lane, "pins").await?;
+        let manifest_path = fx.root.join(by_pnu::manifest_key(lane)?);
+        fx.base(&[PNU_A]).await?;
+        assert_eq!(fx.pinned()?, vec![BASE_SNAPSHOT]);
+
+        let reflect = fx.change_set("r", BASE_SNAPSHOT, NEXT_SNAPSHOT, &[], 0, &[])?;
+        fx.publish(fx.patch_input(None, NEXT_SNAPSHOT, reflect), false)
+            .await?;
+        assert_eq!(
+            fx.pinned()?,
+            vec![NEXT_SNAPSHOT],
+            "the older pin was not released"
+        );
+
+        fx.bake_patch(1, LATER_SNAPSHOT, &[PNU_A], &[]).await?;
+        let patch = fx.change_set("p", NEXT_SNAPSHOT, LATER_SNAPSHOT, &[PNU_A], 0, &[])?;
+        fx.assert_race_refused(
+            "pinned patch",
+            fx.patch_input(Some(1), LATER_SNAPSHOT, patch.clone()),
+            &manifest_path,
+        )
+        .await?;
+        assert_eq!(
+            fx.pinned()?,
+            vec![NEXT_SNAPSHOT],
+            "a publish that lost the manifest race kept its pin or released the live one"
+        );
+
+        // Planted: the pins cannot be written. The publish stops and the manifest stays.
+        let tags = fx.root.join(crate::by_pnu_serving_pins::LOCAL_TAGS_FILE);
+        let kept = std::fs::read(&tags)?;
+        std::fs::write(&tags, b"not json")?;
+        let before = std::fs::read(&manifest_path)?;
+        let error = fx
+            .publish(
+                fx.patch_input(Some(1), LATER_SNAPSHOT, patch.clone()),
+                false,
+            )
+            .await
+            .err()
+            .context("a publish whose snapshot could not be pinned moved the manifest")?;
+        assert!(format!("{error:#}").contains("could not pin"), "{error:#}");
+        assert_eq!(std::fs::read(&manifest_path)?, before);
+        std::fs::write(&tags, kept)?;
+
+        fx.publish(fx.patch_input(Some(1), LATER_SNAPSHOT, patch), false)
+            .await?;
+        assert_eq!(fx.pinned()?, vec![LATER_SNAPSHOT]);
+    }
+    Ok(())
+}

@@ -21,9 +21,17 @@
 #      the contract's pnu_prefix_length, or when the change set would take the patches past
 #      max_cumulative_change_ratio of the base. A full bake is also the compaction.
 #    - otherwise the change set decides. `by_pnu_panel_delta.py` compares row_digest between the
-#      reflected snapshot and the new one; it refuses when the comparison snapshot is gone or the
-#      change set is more than max_delta_fraction of the table, and then nothing is published. An
-#      empty change set only advances the reflected snapshot ("reflect"); any other is a patch.
+#      reflected snapshot and the new one; it refuses when the comparison snapshot is gone (exit
+#      3), carries no row_digest (exit 5), or the change set is more than max_delta_fraction of the
+#      table (exit 4); each refusal is named in the log and the run summary, and nothing is
+#      published. An empty change set only advances the reflected snapshot ("reflect"); any other
+#      is a patch.
+#    - a verified re-base (FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE with a
+#      FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON; parcel lane only; root ADR-0146 §1) stands
+#      in for the change set when the reflected snapshot cannot be compared:
+#      `verify-parcel-by-pnu-serving-rebase` reads every served object and compares it with the
+#      current Gold render. Its change set then decides exactly as above, and the manifest and the
+#      run summary record its run id and counts. A rerun resumes runs/<snapshot>-rebase.
 # 3. bakes PNU-prefix shards into the chosen directory, create-only:
 #    - full: a new generation above the published base and every generation holding objects; a
 #      patch: a new patch above the newest served patch and every patch directory holding objects.
@@ -50,7 +58,9 @@ case "${UNIT}" in
   all)
     status=0
     "${BASH_SOURCE[0]}" parcel || status=$?
-    "${BASH_SOURCE[0]}" building || { lane_status=$?; ((status)) || status=${lane_status}; }
+    # The verified re-base is the parcel lane's alone (root ADR-0146 §1).
+    env -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON \
+      "${BASH_SOURCE[0]}" building || { lane_status=$?; ((status)) || status=${lane_status}; }
     exit "${status}"
     ;;
   *) echo "by-pnu-serving-bake: expected parcel, building or all, got '${UNIT}'" >&2; exit 64 ;;
@@ -64,6 +74,18 @@ if [[ "${FORCE_FULL}" == true && -z "${FORCE_FULL_REASON// /}" ]]; then
 fi
 [[ "${FORCE_FULL}" == true || "${FORCE_FULL}" == false ]] ||
   { log "refused: FOUNDATION_BY_PNU_BAKE_FORCE_FULL must be true or false"; exit 64; }
+REBASE="${FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE:-false}"
+REBASE_REASON="${FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON:-}"
+[[ "${REBASE}" == true || "${REBASE}" == false ]] ||
+  { log "refused: FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE must be true or false"; exit 64; }
+if [[ "${REBASE}" == true ]]; then
+  [[ -n "${REBASE_REASON// /}" ]] ||
+    { log "refused: FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE needs FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON (the manifest and the run summary record why)"; exit 64; }
+  [[ "${FORCE_FULL}" == false ]] ||
+    { log "refused: a verified re-base and a forced full bake answer the same question; state one"; exit 64; }
+  [[ "${UNIT}" == parcel ]] ||
+    { log "refused: the verified re-base renders parcel documents; the ${UNIT} lane re-bases with a full bake"; exit 64; }
+fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 ENV_PREFIX="FOUNDATION_PLATFORM_${LANE}_BY_PNU_SERVING"
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/${UNIT}"
@@ -80,7 +102,9 @@ DELTA_DRIVER_MEMORY=1500m
 # are refused by the publisher if they reach it.
 unset "${ENV_PREFIX}_ALLOW_OVERWRITE" "${ENV_PREFIX}_ALLOW_REPOINT" "${ENV_PREFIX}_FIRST_PUBLICATION" \
   "${ENV_PREFIX}_PNU_ALLOWLIST_PATH" "${ENV_PREFIX}_DELETE_LIST_PATH" "${ENV_PREFIX}_TARGET_PATCH" \
-  "${ENV_PREFIX}_EXPORT_SUMMARY_PATH" "${ENV_PREFIX}_OUTPUT_ROOT" "${ENV_PREFIX}_ROLLBACK_TO_MANIFEST_KEY"   "${ENV_PREFIX}_PUBLISH_PATCH" "${ENV_PREFIX}_PUBLISH_FROM_LISTING" "${ENV_PREFIX}_CHANGE_SET_SUMMARY_PATH"   "${ENV_PREFIX}_UPSERT_LIST_PATH"
+  "${ENV_PREFIX}_EXPORT_SUMMARY_PATH" "${ENV_PREFIX}_OUTPUT_ROOT" "${ENV_PREFIX}_ROLLBACK_TO_MANIFEST_KEY" \
+  "${ENV_PREFIX}_PUBLISH_PATCH" "${ENV_PREFIX}_PUBLISH_FROM_LISTING" "${ENV_PREFIX}_CHANGE_SET_SUMMARY_PATH" \
+  "${ENV_PREFIX}_UPSERT_LIST_PATH" "${ENV_PREFIX}_REBASE_SAMPLE_PREFIXES" "${ENV_PREFIX}_REBASE_WORK_DIR"
 export "${ENV_PREFIX}_OUTPUT_STORAGE_DRIVER=${FOUNDATION_BY_PNU_BAKE_STORAGE_DRIVER:-r2}"
 export "${ENV_PREFIX}_RESUME_FROM_LISTING=true"
 
@@ -141,7 +165,8 @@ declare -A summary=([unit]="${UNIT}" [gold_iceberg_snapshot_id]="${gold}"
   [reflected_gold_iceberg_snapshot_id]="${reflected}" [base_generation]="${base}"
   [base_object_count]="${base_objects}" [patches_before]="${patch_count}"
   [cumulative_changes_before]="${cumulative}" [max_patches]="${max_patches}"
-  [max_cumulative_change_ratio]="${max_ratio}" [forced_full_reason]="${FORCE_FULL_REASON}")
+  [max_cumulative_change_ratio]="${max_ratio}" [forced_full_reason]="${FORCE_FULL_REASON}"
+  [verified_rebase_reason]="${REBASE_REASON}")
 write_summary() {
   local args=()
   for key in "${!summary[@]}"; do args+=("${key}=${summary[${key}]}"); done
@@ -151,7 +176,8 @@ path, pairs = sys.argv[1], sys.argv[2:]
 summary = dict(pair.split("=", 1) for pair in pairs)
 counts = {"base_generation", "base_object_count", "patches_before", "cumulative_changes_before",
           "max_patches", "upserts", "deletes", "new", "target_generation", "target_patch",
-          "documents", "tombstones"}
+          "documents", "tombstones", "rebase_served_objects_read", "rebase_equal",
+          "rebase_changed", "rebase_only_served", "rebase_only_gold"}
 for key in counts & summary.keys():
     summary[key] = int(summary[key])
 summary["max_cumulative_change_ratio"] = float(summary["max_cumulative_change_ratio"])
@@ -172,6 +198,10 @@ elif ((patch_count >= max_patches)); then
   mode=full reason="the base carries ${patch_count} patches, the contract's max_patches is ${max_patches}"
 elif ((patch_count > 0)) && [[ "${served_prefix_length}" != "${prefix_length}" ]]; then
   mode=full reason="the patches are listed by ${served_prefix_length}-digit prefixes, the contract's pnu_prefix_length is ${prefix_length}"
+fi
+if [[ "${REBASE}" == true && -n "${mode}" ]]; then
+  log "refused: the lane needs a full bake (${reason}); a verified re-base cannot stand in for it"
+  exit 1
 fi
 
 run_delta() {
@@ -197,7 +227,53 @@ run_delta() {
   return "${rc}"
 }
 
-if [[ -z "${mode}" ]]; then
+# A refused change set: name the refusal in the log and the run summary, publish nothing.
+refuse_change_set() {
+  summary[refused]="$1"
+  run="${delta}"
+  write_summary
+  log "FAILED: $2"
+  exit 1
+}
+REBASE_OFFER="A verified re-base (FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE with a reason; parcel lane) or a full bake (FOUNDATION_BY_PNU_BAKE_FORCE_FULL with a reason) re-bases the lane"
+
+# The verified re-base (root ADR-0146 §1). One run id per re-base: a rerun of the same snapshot
+# resumes it, and the publisher refuses a work directory of another run.
+run_rebase() {
+  local work="$1" rc=0
+  mkdir -p "${work}"
+  [[ -s "${work}/run-id" ]] || printf 'rebase-%s-%s\n' "${gold}" "$(date -u +%Y%m%dT%H%M%SZ)" >"${work}/run-id"
+  summary[verified_rebase_run_id]="$(<"${work}/run-id")"
+  env "${ENV_PREFIX}_REBASE_REASON=${REBASE_REASON}" \
+    "${ENV_PREFIX}_REBASE_RUN_ID=${summary[verified_rebase_run_id]}" \
+    "${ENV_PREFIX}_REBASE_WORK_DIR=${work}/verify" \
+    "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}" \
+    "${ENV_PREFIX}_MAX_CONCURRENCY=${MAX_CONCURRENCY}" \
+    "${PUBLISHER_BIN}" "verify-${UNIT}-by-pnu-serving-rebase" >>"${work}/verify.log" 2>&1 || rc=$?
+  return "${rc}"
+}
+
+if [[ -z "${mode}" && "${REBASE}" == true ]]; then
+  delta="${STATE_ROOT}/runs/${gold}-rebase"
+  log "verified re-base of Gold snapshot ${gold} against what the lane serves (reflected ${reflected}): ${REBASE_REASON}"
+  if ! run_rebase "${delta}"; then
+    tail -n 5 "${delta}/verify.log" >&2
+    if grep -q 'not a delta' "${delta}/verify.log"; then
+      refuse_change_set not_a_delta "the verified re-base found more than max_delta_fraction ${max_delta_fraction} of the table differing from what the lane serves — not a delta; nothing was published (ADR-0141 §3)"
+    fi
+    refuse_change_set verified_rebase_incomplete "the verified re-base did not complete (a read failure, a count that does not add up, or another run's work directory); nothing was published. A rerun resumes ${delta}"
+  fi
+  for name in change-set.json upserts.txt deletes.txt; do cp "${delta}/verify/${name}" "${delta}/${name}"; done
+  read -r rebase_read rebase_equal rebase_changed rebase_only_served rebase_only_gold < <(python3 -I - "${delta}/change-set.json" <<'PY'
+import json, sys
+found = json.load(open(sys.argv[1]))["verification"]
+print(found["served_objects_read"], found["equal"], found["changed"], found["only_served"], found["only_gold"])
+PY
+)
+  summary[rebase_served_objects_read]="${rebase_read}" summary[rebase_equal]="${rebase_equal}"
+  summary[rebase_changed]="${rebase_changed}" summary[rebase_only_served]="${rebase_only_served}"
+  summary[rebase_only_gold]="${rebase_only_gold}"
+elif [[ -z "${mode}" ]]; then
   delta="${STATE_ROOT}/runs/${gold}-delta"
   rm -rf "${delta}"
   delta_rc=0
@@ -205,15 +281,16 @@ if [[ -z "${mode}" ]]; then
   case "${delta_rc}" in
     0) ;;
     3) tail -n 3 "${delta}/delta.log" >&2
-       log "FAILED: no comparison snapshot for the change set (reflected ${reflected}); that is not 'no change'. Nothing was published. A full bake (FOUNDATION_BY_PNU_BAKE_FORCE_FULL with a reason) re-bases the lane"
-       exit 1 ;;
+       refuse_change_set no_comparison_snapshot "Gold no longer holds the reflected snapshot ${reflected} (expired, or never existed), so the change set is unknown — that is not 'no change'. Nothing was published. ${REBASE_OFFER}" ;;
+    5) tail -n 3 "${delta}/delta.log" >&2
+       refuse_change_set comparison_snapshot_has_no_row_digest "the reflected snapshot ${reflected} has rows without row_digest (written before the ADR-0099 fingerprint), so it cannot be compared — that is not 'no change'. Nothing was published. ${REBASE_OFFER}" ;;
     4) tail -n 3 "${delta}/delta.log" >&2
-       log "FAILED: the change set from ${reflected} to ${gold} is more than max_delta_fraction ${max_delta_fraction} of the table — not a delta; nothing was published (ADR-0141 §3)"
-       exit 1 ;;
+       refuse_change_set not_a_delta "the change set from ${reflected} to ${gold} is more than max_delta_fraction ${max_delta_fraction} of the table — not a delta; nothing was published (ADR-0141 §3)" ;;
     *) tail -n 5 "${delta}/delta.log" >&2
-       log "FAILED: the change set job exited ${delta_rc}; nothing was published"
-       exit 1 ;;
+       refuse_change_set change_set_job_failed "the change set job exited ${delta_rc}; nothing was published" ;;
   esac
+fi
+if [[ -z "${mode}" ]]; then
   change="$(python3 -I - "${delta}/change-set.json" <<'PY'
 import json, sys
 metrics = json.load(open(sys.argv[1]))["quality_metrics"]
@@ -224,7 +301,9 @@ PY
   summary[upserts]="${upserts}" summary[deletes]="${deletes}" summary[new]="${new_count}"
   over="$(python3 -I -c 'import sys; c, u, d, b, r = map(float, sys.argv[1:]); print("yes" if (c + u + d) / max(b, 1) > r else "no")' \
     "${cumulative}" "${upserts}" "${deletes}" "${base_objects}" "${max_ratio}")"
-  if ((upserts + deletes == 0)); then
+  if ((upserts + deletes == 0)) && [[ "${REBASE}" == true ]]; then
+    mode=reflect reason="the verified re-base read ${rebase_read} served objects and found every one equal to Gold ${gold}"
+  elif ((upserts + deletes == 0)); then
     mode=reflect reason="no row_digest differs between ${reflected} and ${gold}"
   elif [[ "${over}" == yes ]]; then
     mode=full reason="the patches would carry $((cumulative + upserts + deletes)) changes, over max_cumulative_change_ratio ${max_ratio} of the base's ${base_objects}"

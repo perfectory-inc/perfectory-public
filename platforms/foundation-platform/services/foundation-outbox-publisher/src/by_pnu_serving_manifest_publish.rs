@@ -34,8 +34,11 @@ use crate::building_by_pnu_serving_export::building_document::BUILDING_DOCUMENT_
 use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane};
 use crate::by_pnu_serving_manifest::{
     pnu_prefixes, read_tombstone, PatchEntry, ServedManifest, ServingManifest, StoredManifest,
+    VerifiedRebase,
 };
 use crate::by_pnu_serving_patch_export::read_pnu_list;
+use crate::by_pnu_serving_pins::{self as pins, SnapshotPins};
+use crate::by_pnu_serving_rebase as rebase;
 use crate::by_pnu_serving_store::{local_root, refuse_removed_switches, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::parcel_by_pnu_serving_export::parcel_document::PARCEL_DOCUMENT_SCHEMA_VERSION;
@@ -244,7 +247,44 @@ pub(crate) async fn publish(
     {
         require_gateway_reads(lane, gateway_base_url, manifest.schema_version).await?;
     }
-    commit(store, existing.as_ref(), &manifest).await?;
+    // Pin the snapshot the next change set is computed against before anyone relies on it, and
+    // release the older pins only once this manifest is live (root ADR-0146 §2).
+    let snapshot_pins = SnapshotPins::for_output(&config.output)?;
+    let table = gold_table(lane);
+    let snapshot = &manifest.reflected_gold_iceberg_snapshot_id;
+    let pinned = pins::pin(
+        &snapshot_pins,
+        lane,
+        table,
+        snapshot,
+        &manifest.published_at_utc,
+    )
+    .await;
+    // A rollback is the way back from a bad publish; an unpinnable snapshot (already expired)
+    // must not block it. The older pins then stay, and the next bake re-bases if it must.
+    let tag = match pinned {
+        Ok(tag) => Some(tag),
+        Err(error) if matches!(config.input, PublishInput::Rollback(_)) => {
+            tracing::warn!(error = %format!("{error:#}"), "rolling back without pinning its reflected snapshot");
+            None
+        }
+        Err(error) => return Err(error),
+    };
+    if let Err(error) = commit(store, existing.as_ref(), &manifest).await {
+        if let Some(tag) = &tag {
+            if let Err(release) = snapshot_pins
+                .remove(table, tag, pins::parse_snapshot(snapshot)?)
+                .await
+            {
+                tracing::warn!(tag = %tag, error = %format!("{release:#}"), "the unused pin stays until the next publish");
+            }
+        }
+        return Err(error);
+    }
+    if let Some(tag) = &tag {
+        let released = pins::release_others(&snapshot_pins, lane, table, tag).await;
+        tracing::info!(tag = %tag, released = ?released, "the live manifest's Gold snapshot is pinned");
+    }
     Ok(manifest)
 }
 
@@ -349,6 +389,7 @@ fn new_base(
         patches: Vec::new(),
         object_count,
         published_at_utc: now(),
+        verified_rebase: None,
     })
 }
 
@@ -545,13 +586,76 @@ async fn verify_document(
     Ok(())
 }
 
-/// The change set the delta job summarised (`by_pnu_panel_delta.py`).
+/// The change set the delta job summarised (`by_pnu_panel_delta.py`), or the verified re-base
+/// (`verify-parcel-by-pnu-serving-rebase`, root ADR-0146 §1) found.
 #[derive(Debug, Deserialize)]
 struct ChangeSetSummary {
     job_name: String,
     contract: String,
     quality_metrics: ChangeSetCounts,
     input: ChangeSetInput,
+    /// Present exactly in a verified re-base's change set.
+    #[serde(default)]
+    verification: Option<RebaseVerification>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RebaseVerification {
+    run_id: String,
+    reason: String,
+    method: String,
+    served_objects_read: u64,
+    equal: u64,
+    changed: u64,
+    only_served: u64,
+    only_gold: u64,
+}
+
+/// The record a verified re-base leaves in the manifest it publishes; `None` for a delta.
+fn verified_rebase(
+    change: &ChangeSetSummary,
+    served: &ServedManifest,
+) -> anyhow::Result<Option<VerifiedRebase>> {
+    match (change.job_name.as_str(), &change.verification) {
+        (DELTA_SUMMARY_JOB, None) => Ok(None),
+        (rebase::JOB_NAME, Some(found)) => {
+            ensure!(
+                found.served_objects_read
+                    >= found.equal + found.changed + found.only_served
+                    && found.equal + found.changed + found.only_served == served.object_count,
+                "the re-base read {} objects with {} equal, {} changed and {} only served, which                  does not account for the {} PNUs the lane serves; it is incomplete",
+                found.served_objects_read,
+                found.equal,
+                found.changed,
+                found.only_served,
+                served.object_count
+            );
+            ensure!(
+                found.changed + found.only_gold == change.quality_metrics.upsert_count
+                    && found.only_served == change.quality_metrics.delete_count,
+                "the re-base's verdicts disagree with its own change set"
+            );
+            ensure!(
+                !found.reason.trim().is_empty() && !found.run_id.trim().is_empty(),
+                "a verified re-base names its run and its reason"
+            );
+            Ok(Some(VerifiedRebase {
+                run_id: found.run_id.clone(),
+                reason: found.reason.clone(),
+                method: found.method.clone(),
+                baseline_gold_iceberg_snapshot_id: change.input.baseline_snapshot_id.clone(),
+                served_objects_read: found.served_objects_read,
+                equal: found.equal,
+                changed: found.changed,
+                only_served: found.only_served,
+                only_gold: found.only_gold,
+            }))
+        }
+        (job, _) => bail!(
+            "the change set is a {job} summary {} a verification block; neither the delta nor              the verified re-base",
+            if change.verification.is_some() { "with" } else { "without" }
+        ),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -613,10 +717,12 @@ pub(crate) async fn patch(
     let change: ChangeSetSummary =
         serde_json::from_str(&raw).context("the change set summary does not parse")?;
     ensure!(
-        change.job_name == DELTA_SUMMARY_JOB && change.contract == gold_table(lane),
-        "the change set is a {} summary of {}, not {DELTA_SUMMARY_JOB} of {}",
+        [DELTA_SUMMARY_JOB, rebase::JOB_NAME].contains(&change.job_name.as_str())
+            && change.contract == gold_table(lane),
+        "the change set is a {} summary of {}, not {DELTA_SUMMARY_JOB} or {} of {}",
         change.job_name,
         change.contract,
+        rebase::JOB_NAME,
         gold_table(lane)
     );
     ensure!(
@@ -665,6 +771,7 @@ pub(crate) async fn patch(
         patches: served.patches.clone(),
         object_count,
         published_at_utc: now(),
+        verified_rebase: verified_rebase(&change, served)?,
     };
     if upserts.is_empty() && deletes.is_empty() {
         ensure!(
@@ -871,6 +978,7 @@ pub(crate) async fn rollback(
         patches: target.patches,
         object_count: target.object_count,
         published_at_utc: now(),
+        verified_rebase: None,
     })
 }
 
