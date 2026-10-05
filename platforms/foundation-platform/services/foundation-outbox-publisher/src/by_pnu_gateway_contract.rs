@@ -172,6 +172,9 @@ pub(crate) struct SectionPackPolicy {
 /// and its read-only token.
 #[derive(Debug, Deserialize)]
 pub(crate) struct CloudflareAnalyticsPolicy {
+    /// The root-only file a unit's `EnvironmentFile` reads the variables from.
+    pub(crate) env_file: String,
+    pub(crate) token_scope: String,
     pub(crate) account_id_env: String,
     pub(crate) api_token_env: String,
     /// The zone of the live hostname, whose client responses a canary step counts.
@@ -192,6 +195,9 @@ pub(crate) struct CutoverGatePolicy {
     /// The most CPU the preview Worker may spend on a request at p99, from Workers analytics for
     /// the probe window; the account's plan limit is twice this.
     pub(crate) worker_cpu_p99_max_ms: f64,
+    /// How many sample PNUs the probe also reads from the preview without gzip (the Worker's
+    /// decompressing path); every one must answer 200, uncompressed, with the same content.
+    pub(crate) no_gzip_sample_size: usize,
     /// What the pack path must keep, asserted on the probe and the load phase alike.
     pub(crate) slo: ServingSlo,
     /// The load phase the probe runs against the preview after the paired reads.

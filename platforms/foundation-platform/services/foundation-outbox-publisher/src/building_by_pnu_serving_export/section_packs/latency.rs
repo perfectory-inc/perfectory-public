@@ -17,14 +17,23 @@
 //! preview's own `Server-Timing` (R2 wait, where each section's pack came from) is summarised, and
 //! failures are counted by side and class.
 //!
+//! Every read asks for gzip (`Accept-Encoding: gzip`), as a browser does: the pack path's point is
+//! to hand the stored member out as it is, so a pack answer without `Content-Encoding: gzip` is a
+//! failure (`pack:not-gzip`), and the evidence records which encoding each side answered in and
+//! which path the preview took (its `Server-Timing` outcome). A further `no_gzip_sample_size` of
+//! the sample is then read from the preview with `Accept-Encoding: identity`, the one path where
+//! the Worker decompresses: each must answer 200, uncompressed, with the live route's content.
+//!
 //! The preview Worker's CPU over the probe window is read from Workers analytics: the account's
 //! plan cuts a request off past its CPU limit (error 1102, an HTTP 503), so the gate demands no
 //! `exceededResources` and a p99 within the contract's `worker_cpu_p99_max_ms`. Without the
-//! analytics credentials the evidence records no CPU and never opens the gate. Evidence of two
+//! analytics credentials (the contract's `cloudflare_analytics.env_file`) the probe refuses to
+//! start, naming the file; evidence that records no CPU never opens the gate either. Evidence of two
 //! stand-in routes (loopback or private addresses) is marked `local-simulation` and never opens
 //! the gate either; CI proves the probe with such stand-ins.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::Read as _;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -38,7 +47,7 @@ use super::super::{optional_env, LANE};
 use super::analytics::{self, AnalyticsConfig, Invocations};
 use super::equality::write_evidence;
 use super::gate::{
-    self, EqualityEvidence, Increase, LatencyEvidence, ServerTimingSummary, Timings,
+    self, EqualityEvidence, Increase, LatencyEvidence, NoGzipEvidence, ServerTimingSummary, Timings,
 };
 use super::load::{self, LoadPlan};
 use crate::by_pnu_gateway_contract::section_pack_policy;
@@ -63,6 +72,9 @@ pub(crate) struct LatencyConfig {
     /// The paced load against the preview after the paired reads; `None` runs none (the gate
     /// stays shut).
     pub(crate) load: Option<LoadPlan>,
+    /// How many sample PNUs are read again from the preview without gzip; 0 reads none (the gate
+    /// stays shut).
+    pub(crate) no_gzip_sample_size: usize,
 }
 
 impl LatencyConfig {
@@ -85,13 +97,9 @@ impl LatencyConfig {
                 })?,
             None => gate.probe_concurrency,
         };
-        let analytics = AnalyticsConfig::from_env()?;
-        if analytics.is_none() {
-            tracing::warn!(
-                "{} are not set: the evidence records no Worker CPU and cannot pass",
-                AnalyticsConfig::names()?
-            );
-        }
+        // Evidence without the Worker's CPU can never open the gate, so the probe refuses before
+        // spending half an hour of reads on it.
+        let analytics = Some(AnalyticsConfig::required("gate (나)")?);
         Ok(Self {
             generation: required("PACK_GENERATION")?
                 .parse()
@@ -113,6 +121,7 @@ impl LatencyConfig {
                 .worker_name
                 .clone(),
             load: Some(LoadPlan::from_contract(&gate.load_test)),
+            no_gzip_sample_size: gate.no_gzip_sample_size,
         })
     }
 }
@@ -194,12 +203,57 @@ fn is_stand_in(base_url: &str) -> bool {
     }
 }
 
-/// One timed answer.
+/// What a read asks for in `Accept-Encoding`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Accept {
+    /// What browsers send: the pack path answers with the stored member as it is.
+    Gzip,
+    /// A client without gzip: the Worker decompresses the member.
+    Identity,
+}
+
+impl Accept {
+    fn header(self) -> &'static str {
+        match self {
+            Self::Gzip => "gzip",
+            Self::Identity => "identity",
+        }
+    }
+}
+
+/// One timed answer; `body` is decoded when it came gzip.
 #[derive(Debug)]
 pub(crate) struct Answer {
     pub(crate) ms: f64,
     pub(crate) body: Vec<u8>,
     pub(crate) server_timing: Option<String>,
+    /// The answer's `Content-Encoding`, `None` when it had none.
+    pub(crate) content_encoding: Option<String>,
+}
+
+impl Answer {
+    /// The encoding the answer came in, `identity` when it named none.
+    pub(crate) fn encoding(&self) -> &str {
+        self.content_encoding.as_deref().unwrap_or("identity")
+    }
+}
+
+/// A pack answer that did not come gzip is a failure: the member was not passed through.
+pub(crate) fn require_gzip(answer: Result<Answer, Failure>, url: &str) -> Result<Answer, Failure> {
+    match answer {
+        Ok(answer) if answer.content_encoding.as_deref() != Some("gzip") => Err(Failure {
+            class: "not-gzip".to_owned(),
+            detail: format!(
+                "GET {url} asked for gzip and answered {} ({})",
+                answer.encoding(),
+                answer
+                    .server_timing
+                    .as_deref()
+                    .unwrap_or("no Server-Timing")
+            ),
+        }),
+        other => other,
+    }
 }
 
 /// Why a read failed, in the evidence's words, and what the client said.
@@ -272,12 +326,13 @@ pub(crate) async fn probe(
             let client = client.clone();
             async move {
                 let (live, pack) = if index % 2 == 0 {
-                    let live = timed_get(&client, &live_url).await;
-                    (live, timed_get(&client, &pack_url).await)
+                    let live = timed_get(&client, &live_url, Accept::Gzip).await;
+                    (live, timed_get(&client, &pack_url, Accept::Gzip).await)
                 } else {
-                    let pack = timed_get(&client, &pack_url).await;
-                    (timed_get(&client, &live_url).await, pack)
+                    let pack = timed_get(&client, &pack_url, Accept::Gzip).await;
+                    (timed_get(&client, &live_url, Accept::Gzip).await, pack)
                 };
+                let pack = require_gzip(pack, &pack_url);
                 (index, Probed { cold, live, pack })
             }
         })
@@ -311,6 +366,21 @@ pub(crate) async fn probe(
             .await?,
         ),
         None => None,
+    };
+    let no_gzip = if config.no_gzip_sample_size == 0 {
+        None
+    } else {
+        let take = config.no_gzip_sample_size.min(pnus.len());
+        Some(
+            read_without_gzip(
+                &client,
+                &pnus[..take],
+                |pnu| preview_url(config, &prefix, &policy.preview_query_parameter, pnu),
+                &tally.live_digests,
+                config.concurrency,
+            )
+            .await?,
+        )
     };
     let load = match &config.load {
         Some(plan) => Some(
@@ -380,7 +450,10 @@ pub(crate) async fn probe(
             total_ms: timings(&mut tally.server_total),
             r2_ms: timings(&mut tally.server_r2),
             sources: tally.sources,
+            outcomes: tally.outcomes,
         },
+        encodings: tally.encodings,
+        no_gzip,
         worker_cpu,
         bound_cpu_p99_ms: policy.cutover_gate.worker_cpu_p99_max_ms,
         live_ms,
@@ -408,6 +481,10 @@ struct Tally {
     server_total: Vec<f64>,
     server_r2: Vec<f64>,
     sources: BTreeMap<String, u64>,
+    outcomes: BTreeMap<String, u64>,
+    encodings: BTreeMap<String, u64>,
+    /// The live answer's content per PNU, which the no-gzip reads are held to.
+    live_digests: HashMap<String, [u8; 32]>,
 }
 
 impl Tally {
@@ -424,6 +501,22 @@ impl Tally {
                 for source in parsed.sources {
                     *self.sources.entry(source).or_default() += 1;
                 }
+                if let Some(outcome) = parsed.outcome {
+                    *self.outcomes.entry(outcome).or_default() += 1;
+                }
+            }
+        }
+        for (side, outcome) in [("live", &read.live), ("pack", &read.pack)] {
+            if let Ok(answer) = outcome {
+                *self
+                    .encodings
+                    .entry(format!("{side}:{}", answer.encoding()))
+                    .or_default() += 1;
+            }
+        }
+        if let Ok(live) = &read.live {
+            if let Ok(digest) = normalized_digest(&live.body) {
+                self.live_digests.insert(pnu.to_owned(), digest);
             }
         }
         match (&read.live, &read.pack) {
@@ -474,19 +567,36 @@ impl Tally {
     }
 }
 
-/// One GET, timed until the whole body is in; anything but 200 is a failure of its class.
-pub(crate) async fn timed_get(client: &reqwest::Client, url: &str) -> Result<Answer, Failure> {
+/// One GET asking for `accept`, timed until the whole body is in; anything but 200 is a failure
+/// of its class. A gzip body is decoded after the clock stops (the client's work, not the
+/// route's); an encoding not asked for is a failure.
+pub(crate) async fn timed_get(
+    client: &reqwest::Client,
+    url: &str,
+    accept: Accept,
+) -> Result<Answer, Failure> {
     let started = Instant::now();
-    let response = client.get(url).send().await.map_err(|error| Failure {
-        class: request_class(&error, "request"),
-        detail: format!("GET {url}: {error:#}"),
-    })?;
+    let response = client
+        .get(url)
+        .header(reqwest::header::ACCEPT_ENCODING, accept.header())
+        .send()
+        .await
+        .map_err(|error| Failure {
+            class: request_class(&error, "request"),
+            detail: format!("GET {url}: {error:#}"),
+        })?;
     let status = response.status();
     let server_timing = response
         .headers()
         .get("server-timing")
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
+    let content_encoding = response
+        .headers()
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty() && value != "identity");
     let body = response.bytes().await.map_err(|error| Failure {
         class: request_class(&error, "body"),
         detail: format!("GET {url} body: {error:#}"),
@@ -503,11 +613,95 @@ pub(crate) async fn timed_get(client: &reqwest::Client, url: &str) -> Result<Ans
             ),
         });
     }
+    let body = match content_encoding.as_deref() {
+        None => body.to_vec(),
+        Some("gzip") => {
+            let mut decoded = Vec::new();
+            flate2::read::MultiGzDecoder::new(body.as_ref())
+                .read_to_end(&mut decoded)
+                .map_err(|error| Failure {
+                    class: "gzip-decode".to_owned(),
+                    detail: format!("GET {url} answered gzip that does not decode: {error}"),
+                })?;
+            decoded
+        }
+        Some(other) => {
+            return Err(Failure {
+                class: format!("encoding-{other}"),
+                detail: format!(
+                    "GET {url} asked for {} and answered {other}",
+                    accept.header()
+                ),
+            })
+        }
+    };
     Ok(Answer {
         ms,
-        body: body.to_vec(),
+        body,
         server_timing,
+        content_encoding,
     })
+}
+
+/// The no-gzip sample: `pnus` read from the preview with `Accept-Encoding: identity`, each held to
+/// the live answer's content for the same PNU.
+///
+/// # Errors
+/// Returns an error when a count does not fit.
+pub(crate) async fn read_without_gzip(
+    client: &reqwest::Client,
+    pnus: &[String],
+    url_of: impl Fn(&str) -> String,
+    live_digests: &HashMap<String, [u8; 32]>,
+    concurrency: usize,
+) -> anyhow::Result<NoGzipEvidence> {
+    let jobs = pnus
+        .iter()
+        .map(|pnu| (pnu.clone(), url_of(pnu)))
+        .collect::<Vec<_>>();
+    let answers = stream::iter(jobs)
+        .map(|(pnu, url)| {
+            let client = client.clone();
+            async move { (pnu, timed_get(&client, &url, Accept::Identity).await) }
+        })
+        .buffer_unordered(concurrency.max(1))
+        .collect::<Vec<_>>()
+        .await;
+    let mut evidence = NoGzipEvidence {
+        sent: u64::try_from(pnus.len())?,
+        ..NoGzipEvidence::default()
+    };
+    let mut latency = Vec::new();
+    for (pnu, answer) in answers {
+        let answer = match answer {
+            Ok(answer) => answer,
+            Err(failure) => {
+                *evidence.failures.entry(failure.class).or_default() += 1;
+                continue;
+            }
+        };
+        evidence.answered += 1;
+        latency.push(answer.ms);
+        if answer.content_encoding.is_none() {
+            evidence.identity += 1;
+        }
+        if let Some(outcome) = answer
+            .server_timing
+            .as_deref()
+            .and_then(|timing| parse_server_timing(timing).outcome)
+        {
+            *evidence.outcomes.entry(outcome).or_default() += 1;
+        }
+        match live_digests.get(&pnu) {
+            Some(live) if normalized_digest(&answer.body).ok().as_ref() != Some(live) => {
+                evidence.mismatched += 1;
+            }
+            Some(_) => {}
+            None => evidence.not_compared += 1,
+        }
+    }
+    evidence.latency_ms = timings(&mut latency);
+    Ok(evidence)
 }
 
 fn request_class(error: &reqwest::Error, phase: &str) -> String {
@@ -524,6 +718,8 @@ fn request_class(error: &reqwest::Error, phase: &str) -> String {
 /// description of every `pack-{section}` metric.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct ParsedServerTiming {
+    /// The path the Worker took (`document`, `document-decompressed`, `r2-unavailable`, …).
+    pub(crate) outcome: Option<String>,
     pub(crate) total_ms: Option<f64>,
     pub(crate) r2_ms: Option<f64>,
     pub(crate) sources: Vec<String>,
@@ -543,6 +739,7 @@ pub(crate) fn parse_server_timing(header: &str) -> ParsedServerTiming {
             }
         }
         match name {
+            "outcome" => parsed.outcome = description,
             "total" => parsed.total_ms = duration,
             "r2" => parsed.r2_ms = duration,
             _ if name.starts_with("pack-") => {

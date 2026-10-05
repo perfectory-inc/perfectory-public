@@ -22,7 +22,7 @@ use super::super::{optional_env, LANE};
 use super::equality::write_evidence;
 use super::gate::{self, EqualityEvidence, Timings};
 use super::inspect;
-use super::latency::{normalized_digest, timed_get, timings, REQUEST_TIMEOUT};
+use super::latency::{normalized_digest, timed_get, timings, Accept, REQUEST_TIMEOUT};
 use crate::by_pnu_serving_manifest::ServedManifest;
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
@@ -130,7 +130,7 @@ pub(crate) async fn check(
     let mut latency = Vec::new();
     for pnu in pnus {
         let url = format!("{}{prefix}{pnu}", base_url.trim_end_matches('/'));
-        let answer = match timed_get(&client, &url).await {
+        let answer = match timed_get(&client, &url, Accept::Gzip).await {
             Ok(answer) => answer,
             Err(failure) => {
                 report.failures.push(format!("{pnu}: {}", failure.class));

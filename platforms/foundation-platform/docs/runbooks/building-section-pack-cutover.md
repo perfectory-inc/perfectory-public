@@ -44,7 +44,7 @@ last_reviewed: 2026-10-05
 | `…_PACK_EQUALITY_EVIDENCE_PATH`, `…_PACK_LATENCY_EVIDENCE_PATH` | 관문·첫 발행 | 증거 파일. 관문 (나)는 (가)의 증거에서 표본을 읽는다 |
 | `…_PACK_PREVIEW_BASE_URL`, `…_PACK_LIVE_BASE_URL` | 관문 (나) | 미리보기와 운영 경로 |
 | `…_PACK_PROBE_CONCURRENCY` | 관문 (나) | 선택. 동시에 읽는 PNU 수. 없으면 계약의 `probe_concurrency` |
-| `FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID`, `FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN` | 관문 (나) | 앞머리 없음. 계약 `by_pnu_section_packs.cloudflare_analytics` 가 이름과 파일(`/etc/foundation-platform/cloudflare-analytics.env`, root 0600)을 정한다. Workers 분석(GraphQL)으로 미리보기 Worker 의 CPU 를 읽는다. 토큰 권한은 Account Analytics Read 하나. 없으면 증거에 CPU 가 없고 관문이 열리지 않는다 |
+| `FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID`, `FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN` | 관문 (나) | 앞머리 없음. 계약 `by_pnu_section_packs.cloudflare_analytics` 가 이름과 파일(`/etc/foundation-platform/cloudflare-analytics.env`, root 0600)을 정한다. Workers 분석(GraphQL)으로 미리보기 Worker 의 CPU 를 읽는다. 토큰 권한은 Account Analytics Read 하나. 없으면(파일이 아직 없으면) 탐침과 카나리아 판정이 시작 전에 파일과 변수 이름을 대며 거부한다 |
 | `…_CHANGE_SET_SUMMARY_PATH`, `…_UPSERT_LIST_PATH` | 발행(패치) | 변경 집합 잡의 결과 |
 | `…_INSPECT_PNU` | 확인 | PNU |
 
@@ -158,11 +158,17 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
 - 짝 읽기 뒤 부하 단계(`cutover_gate.load_test`, 초당 25건 10분 = 15,000건, 동시 최대 64)가 미리보기만 읽는다.
   표본에서 시드 해시로 뽑아 법정동이 되풀이되므로 차가운 읽기와 따뜻한 읽기가 섞인다. 동시 한도에 걸려 시작하지
   못한 요청(`shed`)도 가용성에서 뺀다. 그 구간의 Worker CPU·`exceededResources` 도 분석에서 읽어 같은 한도로 본다.
+- 모든 읽기는 브라우저처럼 `Accept-Encoding: gzip` 을 보낸다. 미리보기 답이 `Content-Encoding: gzip` 이 아니면 저장된
+  덩어리를 그대로 낸 것이 아니므로 실패(`pack:not-gzip`)다. 증거의 `encodings` 가 쪽마다 받은 인코딩을,
+  `server_timing.outcomes` 가 미리보기가 간 경로(`document`·`document-decompressed`·…)를 센다.
+- 짝 읽기 뒤 표본 앞 `no_gzip_sample_size`(200)건을 미리보기에서 `Accept-Encoding: identity` 로 다시 읽는다(증거
+  `no_gzip`). Worker 가 푸는 유일한 경로다. 모두 200·`Content-Encoding` 없음·운영 경로와 같은 내용이어야 통과다.
 - 미리보기의 `Server-Timing`(전체, R2 대기, 묶음이 `r2-whole`·`r2-head+range`·`edge-…`·`memory-…` 중 어디서 왔는지)을
   모아 증거의 `server_timing` 에 적는다.
 - 탐침 구간의 미리보기 Worker CPU 를 Workers 분석에서 읽는다(분석은 1–2분 늦게 센다. 탐침은 보낸 요청의 95% 가 셀
   때까지 최대 10분 기다린다). `exceededResources` 가 0 이고 p99 가 `worker_cpu_p99_max_ms`(5ms) 이하여야 통과다.
-  계정이 Workers Free(요청당 10ms)라 넘으면 오류 1102, 곧 503 이 된다(ADR-0151).
+  2026-10-05 에는 계정이 Workers Free(요청당 10ms)라 넘은 요청이 오류 1102, 곧 503 이 되었다. 2026-10-06 부터 Workers
+  Paid 이고 운영 Worker 의 CPU 한도는 계약 `building_by_pnu_gateway.cpu_limit_ms` 다(ADR-0151 Revision 9).
 - 주소가 로컬·사설이면 증거에 `local-simulation` 이 적히고, 그 증거로는 발행이 거부된다.
 
 ### 비용

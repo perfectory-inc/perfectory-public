@@ -105,4 +105,19 @@ CPU 를 줄이려고 잰 것(미리보기, 같은 배치, 600건씩, Workers 분
    채 되돌릴 수 있다. 정리는 그 뒤의 별도 결정이고, 승인 없이 지우지 않는다.
 6. **분석 자격증명은 계약이 이름 짓는 파일 하나**(`by_pnu_section_packs.cloudflare_analytics`,
    `/etc/foundation-platform/cloudflare-analytics.env`, root 0600, Account Analytics Read)에서 유닛의 `EnvironmentFile` 로만
-   읽는다.
+   읽는다. 그 파일이 없으면 관문 (나)의 측정과 카나리아 판정은 시작 전에 파일과 변수 이름을 대며 거부한다. CPU 없는
+   증거는 어차피 관문을 열 수 없으니 30분 측정을 먼저 쓰지 않는다.
+7. **측정은 브라우저처럼 gzip 을 청한다**(`Accept-Encoding: gzip`). 묶음 경로의 요점은 저장된 덩어리를 그대로 내는
+   것이라, gzip 을 청했는데 `Content-Encoding: gzip` 이 아닌 미리보기 답은 실패(`pack:not-gzip`)다. 증거는 쪽마다 받은
+   인코딩과 미리보기가 간 경로(`Server-Timing` 의 `outcome`)를 센다. 그 뒤 표본 앞 `no_gzip_sample_size`(200)건을
+   `Accept-Encoding: identity` 로 다시 읽어, Worker 가 푸는 유일한 경로가 200·무압축·같은 내용인지 본다.
+8. **gzip 답과 푼 답은 다른 표현이라 강한 `ETag` 도 다르다**(RFC 9110 §8.8.3): 푼 답은 `"<etag>-<offset>-identity"`.
+   엣지는 Worker 가 받는 `Accept-Encoding` 을 `br, gzip` 으로 바꾸고 클라이언트 원래 값을 `cf.clientAcceptEncoding` 에
+   남기므로, Worker 는 그 값을 보고 표현을 고른다. 그러지 않으면 엣지가 gzip 답을 대신 풀어 gzip 의 태그가 다른 바이트에
+   붙는다. HEAD 는 같은 표현의 머리글을 몸 없이 낸다.
+9. **계정은 Workers Paid 다**(2026-10-06 확인). 운영 Worker 에 명시 CPU 한도 `limits.cpu_ms` 를 둔다. 값은 계약
+   `building_by_pnu_gateway.cpu_limit_ms`(50 ms, 이유 포함)이고 `wrangler.jsonc` 는 그 투영이며 미리보기도 물려받는다.
+   기본값(30초)이면 폭주 요청 하나가 몇 초의 CPU 를 청구한다. 관문의 CPU p99 한도(5 ms)는 요금제와 무관하게 그대로다.
+   묶음 경로는 객체 경로만큼(CPU p50 1.95 ms) 싸야 한다는 것이 그 한도의 뜻이기 때문이다.
+10. **관문 (가)는 덩어리를 푼 바이트 그대로를 객체 바이트와 견준다.** 다시 파싱해 직렬화한 문서로 견주면, 같은 문서를
+    다른 바이트로 담은 덩어리(키 순서·공백·숫자 표기)가 통과하는데 Worker 는 그 바이트를 그대로 낸다.

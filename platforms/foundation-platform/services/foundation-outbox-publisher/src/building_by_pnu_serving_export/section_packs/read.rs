@@ -224,10 +224,13 @@ pub(crate) fn resolve(packs: &UnitPacks, pnu: &str) -> anyhow::Result<Resolved> 
     }
 }
 
-/// The served bytes of a resolved document.
+/// The served bytes of a resolved document: the decompressed member exactly as the pack holds it,
+/// since the Worker hands the member out as it is (root ADR-0151). Never a re-serialisation: a
+/// member that parses to the same document in other bytes (key order, spacing, a number's form)
+/// is another answer than the object's, and gate (가) must see it as one.
 ///
 /// # Errors
-/// Refuses fragments that do not join.
+/// Refuses fragments that do not join or are not a building document.
 pub(crate) fn joined_bytes(fragments: &[(String, Found)]) -> anyhow::Result<Vec<u8>> {
     let mut parts = Vec::with_capacity(fragments.len());
     for (name, found) in fragments {
@@ -236,5 +239,12 @@ pub(crate) fn joined_bytes(fragments: &[(String, Found)]) -> anyhow::Result<Vec<
         };
         parts.push((name.as_str(), bytes.as_slice()));
     }
-    sections::join(&parts)?.to_bytes()
+    sections::join(&parts)?;
+    let [(_, bytes)] = parts.as_slice() else {
+        bail!(
+            "a served document is one member, got {} fragments",
+            parts.len()
+        );
+    };
+    Ok(bytes.to_vec())
 }

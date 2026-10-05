@@ -18,7 +18,7 @@ use tokio::task::JoinSet;
 
 use super::analytics::{self, AnalyticsConfig, Invocations};
 use super::gate::{LoadEvidence, ServerTimingSummary};
-use super::latency::{parse_server_timing, timed_get, timings};
+use super::latency::{parse_server_timing, require_gzip, timed_get, timings, Accept};
 use crate::by_pnu_gateway_contract::{section_pack_policy, LoadTestPolicy};
 
 /// One load phase.
@@ -85,7 +85,8 @@ pub(crate) async fn run(
         let url = url_of(&pnus[drawn(number, pnus.len())?]);
         let client = client.clone();
         tasks.spawn(async move {
-            let answer = timed_get(&client, &url).await;
+            // The preview answers browsers with the member as stored; anything else is a failure.
+            let answer = require_gzip(timed_get(&client, &url, Accept::Gzip).await, &url);
             drop(permit);
             answer
         });
@@ -93,6 +94,7 @@ pub(crate) async fn run(
     let mut latency = Vec::new();
     let (mut server_total, mut server_r2) = (Vec::new(), Vec::new());
     let mut sources = BTreeMap::<String, u64>::new();
+    let mut outcomes = BTreeMap::<String, u64>::new();
     let mut failures = BTreeMap::<String, u64>::new();
     let mut answered = 0_u64;
     while let Some(joined) = tasks.join_next().await {
@@ -106,6 +108,9 @@ pub(crate) async fn run(
                     server_r2.extend(parsed.r2_ms);
                     for source in parsed.sources {
                         *sources.entry(source).or_default() += 1;
+                    }
+                    if let Some(outcome) = parsed.outcome {
+                        *outcomes.entry(outcome).or_default() += 1;
                     }
                 }
             }
@@ -158,6 +163,7 @@ pub(crate) async fn run(
             total_ms: timings(&mut server_total),
             r2_ms: timings(&mut server_r2),
             sources,
+            outcomes,
         },
         worker_cpu,
     })

@@ -119,6 +119,37 @@ pub(crate) struct ServerTimingSummary {
     pub(crate) total_ms: Timings,
     pub(crate) r2_ms: Timings,
     pub(crate) sources: BTreeMap<String, u64>,
+    /// How the Worker answered, by its `outcome` (`document` passes the member through,
+    /// `document-decompressed` gunzipped it for a client without gzip, `r2-unavailable`, …).
+    #[serde(default)]
+    pub(crate) outcomes: BTreeMap<String, u64>,
+}
+
+/// The preview read without gzip (`Accept-Encoding: identity`): the Worker's one path that
+/// decompresses. Each answer must be 200, carry no `Content-Encoding`, and hold the content the
+/// live route answered for the same PNU.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub(crate) struct NoGzipEvidence {
+    pub(crate) sent: u64,
+    pub(crate) answered: u64,
+    /// Answers that came back uncompressed, as asked.
+    pub(crate) identity: u64,
+    pub(crate) mismatched: u64,
+    /// Answers whose live read had failed, so there was nothing to compare them with.
+    pub(crate) not_compared: u64,
+    pub(crate) failures: BTreeMap<String, u64>,
+    pub(crate) latency_ms: Timings,
+    pub(crate) outcomes: BTreeMap<String, u64>,
+}
+
+impl NoGzipEvidence {
+    fn holds(&self) -> bool {
+        self.sent > 0
+            && self.answered == self.sent
+            && self.identity == self.sent
+            && self.mismatched == 0
+            && self.not_compared < self.sent
+    }
 }
 
 /// The preview Worker's CPU over the probe window, as Workers analytics records it.
@@ -210,6 +241,14 @@ pub(crate) struct LatencyEvidence {
     pub(crate) increase_warm_ms: Increase,
     #[serde(default)]
     pub(crate) load: Option<LoadEvidence>,
+    /// Answers by `{live|pack}:{Content-Encoding}` (`identity` when none). Every read asks for
+    /// gzip as a browser does; a pack answer that is not gzip is counted in `failures` as
+    /// `pack:not-gzip` instead, since it means the member was not passed through.
+    #[serde(default)]
+    pub(crate) encodings: BTreeMap<String, u64>,
+    /// `None` when the no-gzip sample was not read; such a file never opens the gate.
+    #[serde(default)]
+    pub(crate) no_gzip: Option<NoGzipEvidence>,
 }
 
 /// The environment a production probe names.
@@ -245,6 +284,7 @@ impl LatencyEvidence {
                     .increase_warm_ms
                     .within(&slo.latency_max_increase_ms.warm))
             && cpu_within(&self.worker_cpu)
+            && self.no_gzip.as_ref().is_some_and(NoGzipEvidence::holds)
             && self.load.as_ref().is_some_and(|load| {
                 load.sent > 0
                     && load.availability >= slo.availability_min

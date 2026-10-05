@@ -64,6 +64,25 @@ impl AnalyticsConfig {
         }
     }
 
+    /// The analytics config a gate cannot judge without; refused, naming the file and the
+    /// variables, when they are not set.
+    ///
+    /// # Errors
+    /// Refuses unset or half-set variables.
+    pub(crate) fn required(purpose: &str) -> anyhow::Result<Self> {
+        let names = &section_pack_policy()?.cloudflare_analytics;
+        Self::from_env()?.with_context(|| {
+            format!(
+                "refused: {purpose} reads Cloudflare Workers analytics and {} are not set. Run it \
+                 in a unit whose EnvironmentFile is {} (root:root 0600, a token scoped {}); that \
+                 file is missing or does not set them",
+                Self::names().unwrap_or_default(),
+                names.env_file,
+                names.token_scope
+            )
+        })
+    }
+
     /// The variable names, for a message that asks for them.
     ///
     /// # Errors

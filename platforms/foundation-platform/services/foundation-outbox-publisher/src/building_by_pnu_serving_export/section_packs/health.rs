@@ -54,12 +54,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let required = |name: &str| -> anyhow::Result<String> {
         env(name)?.with_context(|| format!("{} is required", LANE.env(name)))
     };
-    let analytics = AnalyticsConfig::from_env()?.with_context(|| {
-        format!(
-            "{} are required",
-            AnalyticsConfig::names().unwrap_or_default()
-        )
-    })?;
+    let analytics = AnalyticsConfig::required("the canary health check")?;
     let canary = LANE
         .section_packs()?
         .canary

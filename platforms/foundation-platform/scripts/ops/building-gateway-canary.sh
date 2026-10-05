@@ -136,8 +136,19 @@ roll_out() {
   log "${new} serves 100%; ${old} is the rollback target"
 }
 
+# A step that cannot be judged must not be taken: the health command is asked first whether it
+# can read analytics at all (`--preflight`), before anything is uploaded.
+preflight() {
+  local command="${HEALTH//@NEW@/--preflight}"
+  command="${command//@OLD@/}"
+  log "+ ${command}"
+  [[ "${EXECUTE}" == yes ]] || return 0
+  bash -c "${command}" || refuse "the health check cannot read Cloudflare analytics; nothing was uploaded" 78
+}
+
 case "${PHASE}" in
   code)
+    preflight
     old="$(current_version)"
     new="$(upload off "pack path held off (ADR-0151)")"
     roll_out "${old}" "${new}"
@@ -145,6 +156,7 @@ case "${PHASE}" in
   packs)
     old="${2:-}"
     [[ -n "${old}" ]] || refuse "usage: building-gateway-canary.sh [--execute] packs <off-version-id>"
+    preflight
     new="$(upload on "pack path on (ADR-0151)")"
     roll_out "${old}" "${new}"
     ;;

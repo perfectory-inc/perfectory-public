@@ -16,6 +16,8 @@ PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts" / "ops" / "building-gateway-canary.sh"
 CONTRACT = json.loads((PLATFORM / "config" / "r2-connections.contract.json").read_text(encoding="utf-8"))
 CANARY = CONTRACT["building_by_pnu_gateway"]["section_packs"]["canary"]
+ENV_FILE = CONTRACT["by_pnu_section_packs"]["cloudflare_analytics"]["env_file"]
+HEALTH = PLATFORM / "scripts" / "ops" / "building-gateway-health.sh"
 OLD = "11111111-1111-4111-8111-111111111111"
 NEW = "22222222-2222-4222-8222-222222222222"
 
@@ -32,6 +34,10 @@ esac
 # Fails the judgement whose step deployed the failing percentage.
 FAKE_HEALTH = r'''#!/usr/bin/env bash
 printf 'health %s %s\n' "$1" "$2" >> "${FAKE_LOG}"
+if [[ "$1" == --preflight ]]; then
+  [[ -z "${FAKE_NO_ANALYTICS:-}" ]] || exit 78
+  exit 0
+fi
 last="$(grep 'versions deploy' "${FAKE_LOG}" | tail -1)"
 [[ -z "${FAIL_AT:-}" || "${last}" != *"canary ${FAIL_AT}%"* ]]
 '''
@@ -95,6 +101,22 @@ class Canary(unittest.TestCase):
         deploys = [call for call in calls if call.startswith("wrangler versions deploy")]
         self.assertIn(f"{OLD}@100%", deploys[-1])
         self.assertEqual(len(deploys), 3, "it went on past the breach")
+
+    def test_without_analytics_nothing_is_uploaded(self):
+        for phase in (["code"], ["packs", OLD]):
+            self.log.unlink(missing_ok=True)
+            result = self.run_script("--execute", *phase, FAKE_NO_ANALYTICS="1")
+            self.assertEqual(result.returncode, 78, result.stderr)
+            self.assertIn("cannot read Cloudflare analytics", result.stderr)
+            self.assertEqual(self.calls(), ["health --preflight "], phase)
+
+    @unittest.skipIf(pathlib.Path(ENV_FILE).exists(), "this host holds the analytics file")
+    def test_the_health_check_names_the_missing_analytics_file(self):
+        result = subprocess.run(
+            ["bash", str(HEALTH), "--preflight"], capture_output=True, text=True, check=False
+        )
+        self.assertEqual(result.returncode, 78, result.stderr)
+        self.assertIn(f"{ENV_FILE} does not exist", result.stderr)
 
     def test_a_dry_run_deploys_nothing(self):
         result = self.run_script("code")

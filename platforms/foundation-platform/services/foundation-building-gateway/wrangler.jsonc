@@ -5,6 +5,9 @@
   "compatibility_date": "2026-04-26",
   "workers_dev": false,
   "keep_vars": true,
+  "limits": {
+    "cpu_ms": 50
+  },
   "routes": [
     {
       "pattern": "buildings.perfectory.io",

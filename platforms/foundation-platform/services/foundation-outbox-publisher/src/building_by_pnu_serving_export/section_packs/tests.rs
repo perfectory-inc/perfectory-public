@@ -337,6 +337,17 @@ impl Lane {
                 }),
                 ..gate::LoadEvidence::default()
             }),
+            encodings: [
+                ("live:gzip".to_owned(), size),
+                ("pack:gzip".to_owned(), size),
+            ]
+            .into(),
+            no_gzip: Some(gate::NoGzipEvidence {
+                sent: 200,
+                answered: 200,
+                identity: 200,
+                ..gate::NoGzipEvidence::default()
+            }),
         };
         let path = self
             .work
@@ -800,6 +811,55 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
     Ok(())
 }
 
+/// Gate (가) holds the member's raw bytes to the object's: a served pack whose member parses to
+/// the same document in other bytes (compact, not the object's pretty form) is unequal, because
+/// the Worker hands that member out as it is.
+#[test]
+fn the_equality_gate_compares_the_member_bytes_not_the_parsed_document() -> anyhow::Result<()> {
+    let approvals = ApprovedBuildingLinks::default();
+    let documents = [spark_row()?, empty_row(PNU_B)]
+        .iter()
+        .map(|row| {
+            building_document::document_with_approvals(&provenance(SNAPSHOT), row, &approvals)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut writer = crate::by_pnu_pack::PackWriter::new(crate::by_pnu_pack::PackIdentity {
+        lane: LANE.unit().to_owned(),
+        section: sections::DOCUMENTS.to_owned(),
+        generation: 1,
+        patch: None,
+        unit: UNIT.to_owned(),
+        gold_table: provenance(SNAPSHOT).table,
+        gold_iceberg_snapshot_id: SNAPSHOT.to_owned(),
+    })?;
+    for document in &documents {
+        let mut compact = serde_json::to_vec(document)?;
+        compact.push(b'\n');
+        assert_ne!(compact, document.to_bytes()?);
+        writer.push_document(&document.pnu, &compact)?;
+    }
+    let served = read::SectionPacksOfUnit {
+        name: sections::DOCUMENTS.to_owned(),
+        patches: Vec::new(),
+        base: Some(crate::by_pnu_pack::Pack::read(&writer.finish()?)?),
+    };
+    let answer = joined(read::resolve(
+        &read::UnitPacks {
+            sections: vec![served.clone()],
+        },
+        PNU_A,
+    )?)?;
+    assert_ne!(
+        answer,
+        documents[0].to_bytes()?,
+        "the member was re-serialised"
+    );
+    let checked = bake::check_round_trip(&[], &[served], &documents, &[], None)?;
+    assert_eq!((checked.compared, checked.equal), (2, 0));
+    assert!(checked.require_equal(UNIT).is_err());
+    Ok(())
+}
+
 /// The sample is a seeded draw: the same PNU always ranks the same, about the contract's rate of
 /// PNUs are candidates, and the live check refuses a sample that is not the equality evidence's.
 #[tokio::test]
@@ -833,8 +893,9 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         analytics: None,
         preview_script: "foundation-building-gateway-preview".to_owned(),
         load: None,
+        no_gzip_sample_size: 0,
     };
-    let (drawn, _) = gate::read::<gate::EqualityEvidence>(&equality)?;
+    let (drawn, _)= gate::read::<gate::EqualityEvidence>(&equality)?;
     assert_eq!(latency::sample(&config(&equality, 1))?, drawn.sample);
     assert!(
         latency::sample(&config(&equality, 2)).is_err(),
@@ -1052,17 +1113,12 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
     let joined = body.replace("50.0", "50");
     assert_ne!(body, joined);
     let prefix = LANE.policy()?.request_path.prefix.clone();
+    // Both stand-ins gzip for a client asking for it, as the edge and the pack Worker do.
     let route = |delay_ms: u64, answer: String| async move {
         let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_string(answer)
-                    .set_delay(std::time::Duration::from_millis(delay_ms)),
-            )
-            .mount(&server)
-            .await;
-        server
+        super::latency_tests::answer_on(&server, 200, delay_ms, answer.as_bytes(), None, true)
+            .await?;
+        anyhow::Ok(server)
     };
     // Twenty legal dongs, so every read is cold and the bound's percentiles have samples.
     let pnus = (0..20)
@@ -1082,9 +1138,10 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         analytics: None,
         preview_script: "foundation-building-gateway-preview".to_owned(),
         load: None,
+        no_gzip_sample_size: 0,
     };
-    let live = route(5, body.clone()).await;
-    let close = route(15, joined.clone()).await;
+    let live = route(5, body.clone()).await?;
+    let close = route(15, joined.clone()).await?;
     let evidence = latency::probe(&config(&live, &close), &pnus).await?;
     assert_eq!((evidence.answered, evidence.mismatched), (20, 0));
     assert_eq!(evidence.environment, "local-simulation");
@@ -1113,12 +1170,12 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         "a simulation opened the gate"
     );
 
-    let slow = route(5 + 200, joined).await;
+    let slow = route(5 + 200, joined).await?;
     let evidence = latency::probe(&config(&live, &slow), &pnus).await?;
     assert!(evidence.increase_p95_ms > evidence.bound_p95_ms);
     assert!(!evidence.verdict()?, "a slow pack route passed");
 
-    let different = route(5, body.replace("101호", "999호")).await;
+    let different = route(5, body.replace("101호", "999호")).await?;
     let evidence = latency::probe(&config(&live, &different), &pnus).await?;
     assert_eq!(evidence.mismatched, 20);
     assert!(!evidence.verdict()?, "a different answer passed");
