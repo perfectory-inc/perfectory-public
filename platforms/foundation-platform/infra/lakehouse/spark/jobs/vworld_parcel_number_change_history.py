@@ -204,6 +204,18 @@ def is_reference_file(item: Mapping[str, Any], contract: Mapping[str, Any]) -> b
     return bool(re.fullmatch(contract["files"]["reference_file_name_pattern"], item.get("provider_file_name", "")))
 
 
+def content_key_checksum(object_key: str, file_key: str, contract: Mapping[str, Any]) -> str:
+    """The SHA-256 a Bronze key of file `file_key` (`<download_ds_id>-<file_no>`) names. A key that
+    names no checksum, or another file, is refused: the provider reuses file numbers, so only the
+    checksum tells which upload a key holds (root ADR-0152). The plain keys of 2026-10-05
+    (`30527-<n>.zip`) are such keys and are never handed off."""
+
+    match = re.fullmatch(contract["bronze_objects"]["key_pattern"], object_key or "")
+    if not match or match.group("file_key") != file_key:
+        raise SourceFormatError(f"{object_key!r} is not a content-addressed key of {file_key}")
+    return match.group("sha256")
+
+
 def changed_files(inventory: Mapping[str, Any], accepted: Mapping[str, Any], contract: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Every file of 30527 (the 시도 zips and the table definition) whose 갱신일 or size differs from
     the one last accepted, or that is new. A file the listing names that is neither is refused: the
@@ -261,11 +273,14 @@ def stage_handoff(
         report = by_id.get(key)
         if not report or report.get("status") not in ("succeeded", "skipped_existing") or not report.get("object_key"):
             raise SourceFormatError(f"{key} ({item['provider_file_name']}) did not land in Bronze")
+        named = content_key_checksum(report["object_key"], key, contract)
         if is_reference_file(item, contract):
             references.append({"file_key": key, "object_key": report["object_key"], "updated_at": item["updated_at"],
                                "size_kib": str(item.get("size_kib"))})
             continue
         raw = (download_dir / f"{key}.zip").read_bytes()
+        if hashlib.sha256(raw).hexdigest() != named:
+            raise SourceFormatError(f"the bytes read back from {report['object_key']} are not the ones its key names")
         member, text = read_member(raw, contract)
         rows = parse_rows(text, contract, now.date())
         check_rows(rows, member, contract)
@@ -318,6 +333,8 @@ def handoff_rows(handoff_dir: Path, contract: Mapping[str, Any], now: datetime) 
         raw = (handoff_dir / obj["local_path"]).read_bytes()
         if hashlib.sha256(raw).hexdigest() != obj["checksum_sha256"]:
             raise SourceFormatError(f"{obj['local_path']} is not the file the handoff checked")
+        if content_key_checksum(obj["object_key"], obj["file_key"], contract) != obj["checksum_sha256"]:
+            raise SourceFormatError(f"{obj['object_key']} does not name the bytes the handoff holds")
         member, text = read_member(raw, contract)
         rows = parse_rows(text, contract, collected_on)
         check_rows(rows, member, contract)
@@ -395,12 +412,15 @@ def landed_objects(evidence: Mapping[str, Any], contract: Mapping[str, Any]) -> 
     """(file key, Bronze object key) of every 시도 file the ingestor landed or already held: the ones
     read back and checked. The table definition stays in Bronze unread."""
 
-    return sorted(
+    landed = sorted(
         (f"{item['download_ds_id']}-{item['file_no']}", item["object_key"])
         for item in evidence.get("files", [])
         if item.get("status") in ("succeeded", "skipped_existing") and item.get("object_key")
         and not is_reference_file(item, contract)
     )
+    for file_key, object_key in landed:
+        content_key_checksum(object_key, file_key, contract)
+    return landed
 
 
 def _landed(argv: Sequence[str]) -> int:

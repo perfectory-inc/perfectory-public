@@ -28,9 +28,10 @@ use uuid::Uuid;
 
 use super::{
     download_request_from_inventory_file, eligible_inventory_file_count, existing_file_report,
-    failed_file_report, parse_dataset_file_max_in_flight, persist_file_stream_with_adapters,
-    plan_streamed_file_location, select_inventory_files, validate_inventory_file_identity,
-    vworld_dataset_file_ingest_status, vworld_dataset_login_config, VWorldDatasetFileIngestConfig,
+    failed_file_report, parse_bronze_key_form, parse_dataset_file_max_in_flight,
+    persist_file_stream_with_adapters, plan_streamed_file_location, select_inventory_files,
+    validate_inventory_file_identity, vworld_dataset_file_ingest_status,
+    vworld_dataset_login_config, BronzeKeyForm, VWorldDatasetFileIngestConfig,
     VWorldDatasetFileJob,
 };
 
@@ -175,6 +176,7 @@ async fn persist_file_stream_records_file_metadata_after_storage_write() -> Test
         run_id,
         started_at,
         downloaded,
+        BronzeKeyForm::ProviderFileId,
         &uow,
         &storage,
     )
@@ -252,6 +254,7 @@ async fn persist_file_stream_recovers_missing_row_on_create_only_collision() -> 
         run_id,
         started_at,
         downloaded,
+        BronzeKeyForm::ProviderFileId,
         &uow,
         &storage,
     )
@@ -297,6 +300,7 @@ async fn persist_file_stream_marks_run_failed_when_storage_write_fails() -> Test
         run_id,
         started_at,
         downloaded,
+        BronzeKeyForm::ProviderFileId,
         &uow,
         &storage,
     )
@@ -331,9 +335,16 @@ async fn existing_file_report_marks_provider_file_as_skipped() -> TestResult {
     )?);
     let uow = RecordingUow::default();
 
-    let report = existing_file_report(&job, &inventory_file, started_at, &repo, &uow)
-        .await?
-        .ok_or("expected existing Bronze object to be detected")?;
+    let report = existing_file_report(
+        &job,
+        &inventory_file,
+        started_at,
+        BronzeKeyForm::ProviderFileId,
+        &repo,
+        &uow,
+    )
+    .await?
+    .ok_or("expected existing Bronze object to be detected")?;
 
     assert_eq!(report.status, "skipped_existing");
     assert_eq!(report.object_key.as_deref(), Some(existing_object_key));
@@ -357,8 +368,15 @@ async fn a_newer_release_under_the_same_file_number_is_downloaded() -> TestResul
     )?);
     let uow = RecordingUow::default();
 
-    let report =
-        existing_file_report(&job, &inventory_file, test_started_at()?, &repo, &uow).await?;
+    let report = existing_file_report(
+        &job,
+        &inventory_file,
+        test_started_at()?,
+        BronzeKeyForm::ProviderFileId,
+        &repo,
+        &uow,
+    )
+    .await?;
 
     assert!(
         report.is_none(),
@@ -379,9 +397,16 @@ async fn without_a_listed_update_date_the_file_number_decides() -> TestResult {
     )?);
     let uow = RecordingUow::default();
 
-    let report = existing_file_report(&job, &inventory_file, test_started_at()?, &repo, &uow)
-        .await?
-        .ok_or("with nothing to tell releases apart, the held id is skipped as before")?;
+    let report = existing_file_report(
+        &job,
+        &inventory_file,
+        test_started_at()?,
+        BronzeKeyForm::ProviderFileId,
+        &repo,
+        &uow,
+    )
+    .await?
+    .ok_or("with nothing to tell releases apart, the held id is skipped as before")?;
 
     assert_eq!(report.status, "skipped_existing");
     Ok(())
@@ -508,6 +533,233 @@ fn failed_file_report_classifies_raon_selection_archive_as_provider_acquisition_
     Ok(())
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+const CONTENT_BASE_KEY: &str = "bronze/source=vworldkr__boundary_census_emd/20991231DS99994-9007";
+
+/// Root ADR-0152: a content-addressed run lands the bytes under `<file id>--sha256-<checksum>`,
+/// so a provider's new upload under a reused file number gets a key of its own.
+#[tokio::test]
+async fn a_content_addressed_file_lands_under_its_checksum() -> TestResult {
+    let raw_payload = b"PK\x03\x04vworld bytes".to_vec();
+    let checksum = sha256_hex(&raw_payload);
+    let uow = RecordingUow::default();
+    let storage = RecordingObjectStorage::default();
+
+    let report = persist_file_stream_with_adapters(
+        &test_job(),
+        &test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+        test_run_id("018f0000-0000-7000-8000-000000000311")?,
+        test_started_at()?,
+        test_file_stream("SYNTHETIC_BOUNDARY_ARCHIVE.zip", raw_payload.clone()),
+        BronzeKeyForm::ContentAddressed,
+        &uow,
+        &storage,
+    )
+    .await?;
+
+    let expected_key = format!("{CONTENT_BASE_KEY}--sha256-{checksum}.zip");
+    let writes = storage.streaming_writes()?;
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].key, expected_key);
+    assert_eq!(writes[0].body, raw_payload);
+    assert_eq!(writes[0].write_mode, ObjectWriteMode::CreateOnly);
+    let objects = uow.objects()?;
+    assert_eq!(objects.len(), 1);
+    assert_eq!(objects[0].object_key.as_str(), expected_key);
+    assert_eq!(objects[0].checksum_sha256, checksum);
+    assert_eq!(report.object_key, expected_key);
+    Ok(())
+}
+
+/// The same bytes again (a rerun, 2026-10-05: every file refused with `409
+/// ObjectLockedByBucketPolicy`) find their own object: nothing is put, the row is reconciled, and
+/// the run succeeds under the same key.
+#[tokio::test]
+async fn a_rerun_of_the_same_bytes_finds_its_object_and_writes_nothing() -> TestResult {
+    let raw_payload = b"PK\x03\x04vworld bytes".to_vec();
+    let checksum = sha256_hex(&raw_payload);
+    let uow = RecordingUow::default();
+    let storage = RecordingObjectStorage {
+        rehash: Some(StreamingObjectRehash {
+            checksum_sha256: checksum.clone(),
+            size_bytes: raw_payload.len() as u64,
+            observed_e_tag: None,
+            observed_last_modified: None,
+        }),
+        ..RecordingObjectStorage::default()
+    };
+
+    let report = persist_file_stream_with_adapters(
+        &test_job(),
+        &test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+        test_run_id("018f0000-0000-7000-8000-000000000312")?,
+        test_started_at()?,
+        test_file_stream("SYNTHETIC_BOUNDARY_ARCHIVE.zip", raw_payload),
+        BronzeKeyForm::ContentAddressed,
+        &uow,
+        &storage,
+    )
+    .await?;
+
+    let expected_key = format!("{CONTENT_BASE_KEY}--sha256-{checksum}.zip");
+    assert_eq!(
+        storage.streaming_writes()?.len(),
+        0,
+        "the held object is not put again"
+    );
+    assert_eq!(report.object_key, expected_key);
+    let objects = uow.objects()?;
+    assert_eq!(objects.len(), 1);
+    assert_eq!(objects[0].object_key.as_str(), expected_key);
+    assert_eq!(objects[0].checksum_sha256, checksum);
+    assert_eq!(uow.completions()?[0].status, IngestionRunStatus::Succeeded);
+    Ok(())
+}
+
+/// A key that names one checksum and holds another is refused before any run or write.
+#[tokio::test]
+async fn a_content_key_holding_other_bytes_is_refused() -> TestResult {
+    let uow = RecordingUow::default();
+    let storage = RecordingObjectStorage {
+        rehash: Some(StreamingObjectRehash {
+            checksum_sha256: "c".repeat(64),
+            size_bytes: 3,
+            observed_e_tag: None,
+            observed_last_modified: None,
+        }),
+        ..RecordingObjectStorage::default()
+    };
+
+    let error = persist_file_stream_with_adapters(
+        &test_job(),
+        &test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+        test_run_id("018f0000-0000-7000-8000-000000000313")?,
+        test_started_at()?,
+        test_file_stream(
+            "SYNTHETIC_BOUNDARY_ARCHIVE.zip",
+            b"PK\x03\x04vworld bytes".to_vec(),
+        ),
+        BronzeKeyForm::ContentAddressed,
+        &uow,
+        &storage,
+    )
+    .await
+    .err()
+    .ok_or("a key holding other bytes must be refused")?;
+
+    assert!(
+        format!("{error:#}").contains("not the"),
+        "unexpected error: {error:#}"
+    );
+    assert_eq!(storage.streaming_writes()?.len(), 0);
+    assert_eq!(uow.objects()?.len(), 0);
+    assert_eq!(uow.completions()?.len(), 0);
+    Ok(())
+}
+
+/// A body that is not the length the provider declared is refused before it can be named.
+#[tokio::test]
+async fn a_content_addressed_body_shorter_than_declared_is_refused() -> TestResult {
+    let uow = RecordingUow::default();
+    let storage = RecordingObjectStorage::default();
+    let short = VWorldDatasetFileStream::from_body_stream(
+        "application/zip".to_owned(),
+        "SYNTHETIC_BOUNDARY_ARCHIVE.zip".to_owned(),
+        Some(64),
+        stream::iter([Ok(Bytes::from_static(b"PK\x03\x04short"))]).boxed(),
+    );
+
+    let error = persist_file_stream_with_adapters(
+        &test_job(),
+        &test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+        test_run_id("018f0000-0000-7000-8000-000000000314")?,
+        test_started_at()?,
+        short,
+        BronzeKeyForm::ContentAddressed,
+        &uow,
+        &storage,
+    )
+    .await
+    .err()
+    .ok_or("a short body must be refused")?;
+
+    assert!(
+        format!("{error:#}").contains("Content-Length declared 64"),
+        "unexpected error: {error:#}"
+    );
+    assert_eq!(storage.streaming_writes()?.len(), 0);
+    assert_eq!(uow.objects()?.len(), 0);
+    Ok(())
+}
+
+/// A content-addressed run does not skip to an object held under a plain provider-file key: that
+/// key does not name its bytes (the 20 objects of 2026-10-05 16:41Z are such keys).
+#[tokio::test]
+async fn a_content_addressed_run_does_not_skip_to_a_plain_key() -> TestResult {
+    let job = test_job();
+    let inventory_file = test_inventory_file("30017", "20991231DS99994", "9007", "2026-05");
+    let plain = existing_bronze_object(
+        "operation=boundary_census_emd/provider_file_id=20991231DS99994-9007",
+        &format!("{CONTENT_BASE_KEY}.zip"),
+        5678,
+    )?;
+    let uow = RecordingUow::default();
+
+    let held = existing_file_report(
+        &job,
+        &inventory_file,
+        test_started_at()?,
+        BronzeKeyForm::ContentAddressed,
+        &RecordingRepo::with_existing(plain.clone()),
+        &uow,
+    )
+    .await?;
+    assert!(
+        held.is_none(),
+        "a plain key is not a content-addressed hold"
+    );
+
+    let mut qualified = plain;
+    qualified.object_key = ObjectKey::parse(&format!(
+        "{CONTENT_BASE_KEY}--sha256-{}.zip",
+        qualified.checksum_sha256
+    ))?;
+    let held = existing_file_report(
+        &job,
+        &inventory_file,
+        test_started_at()?,
+        BronzeKeyForm::ContentAddressed,
+        &RecordingRepo::with_existing(qualified),
+        &uow,
+    )
+    .await?
+    .ok_or("a content key naming its own checksum is held")?;
+    assert_eq!(held.status, "skipped_existing");
+    Ok(())
+}
+
+#[test]
+fn the_bronze_key_form_is_one_of_two_words() -> TestResult {
+    assert_eq!(parse_bronze_key_form(None)?, BronzeKeyForm::ProviderFileId);
+    assert_eq!(
+        parse_bronze_key_form(Some("provider_file_id"))?,
+        BronzeKeyForm::ProviderFileId
+    );
+    assert_eq!(
+        parse_bronze_key_form(Some("content_addressed"))?,
+        BronzeKeyForm::ContentAddressed
+    );
+    assert!(parse_bronze_key_form(Some("content-addressed")).is_err());
+    Ok(())
+}
+
 fn test_job() -> VWorldDatasetFileJob {
     VWorldDatasetFileJob {
         endpoint_slug: "vworld-dataset-boundary_census_emd".to_owned(),
@@ -540,6 +792,7 @@ fn test_config() -> VWorldDatasetFileIngestConfig {
         full_download_confirmed: false,
         exclude_selection_archives: false,
         defer_provider_acquisition_blocked: false,
+        bronze_key: BronzeKeyForm::ProviderFileId,
     }
 }
 

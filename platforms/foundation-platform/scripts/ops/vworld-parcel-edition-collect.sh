@@ -22,6 +22,26 @@
 set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 
+# 0. 부작용 전에 전부 확인한다(루트 ADR-0152): 측정의 읽기 키가 없다는 것을 판 전부를 Bronze 에 받은 뒤에
+#    알면 안 된다. 이 목록이 단위의 환경 파일에 다 있는지는 저장소 검사가 계약으로 본다
+#    (config/runtime-secrets.contract.json, scripts/deploy/runtime_secrets.py check; 루트 ADR-0153).
+required_env=(
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
+)
+missing=()
+for name in "${required_env[@]}"; do
+  [ -n "${!name:-}" ] || missing+=("${name}")
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+  echo "vworld-parcel-edition: refused before any side effect: missing ${missing[*]}" >&2
+  exit 78 # EX_CONFIG
+fi
+
 STATE_ROOT="${FOUNDATION_VWORLD_PARCEL_EDITION_STATE_ROOT:-/var/lib/foundation-platform/vworld-parcel-edition}"
 JOBS="${RELEASE_ROOT}/infra/lakehouse/spark/jobs"
 CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/vworld-parcel-source-objects.json"

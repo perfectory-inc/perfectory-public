@@ -47,6 +47,11 @@ pub(crate) struct BronzeStreamingObjectStorageWriter<'a, Storage: ?Sized> {
     storage: &'a Storage,
     content_type: String,
     body: Mutex<Option<BoxStream<'static, Result<Bytes, CollectionError>>>>,
+    /// The caller already read the object at the key back and found these exact bytes: the write
+    /// reports `AlreadyExists` without a put, and the committer's recovery reconciles the ledger.
+    /// A bucket under object lock answers a put on an existing key with `409
+    /// ObjectLockedByBucketPolicy`, not the `412` the create-only reconcile waits for (2026-10-05).
+    already_present: bool,
 }
 
 impl<'a, Storage> BronzeStreamingObjectStorageWriter<'a, Storage>
@@ -63,6 +68,18 @@ where
             storage,
             content_type,
             body: Mutex::new(Some(body)),
+            already_present: false,
+        }
+    }
+
+    /// A write port for a content-addressed key whose object the caller has already read back and
+    /// proved to hold the same bytes (same SHA-256 and size). It never puts.
+    pub(crate) fn already_present(storage: &'a Storage, content_type: String) -> Self {
+        Self {
+            storage,
+            content_type,
+            body: Mutex::new(None),
+            already_present: true,
         }
     }
 
@@ -91,6 +108,9 @@ where
         &self,
         request: BronzeStreamingWriteRequest,
     ) -> Result<BronzeStreamingWriteOutcome, BronzeStorageError> {
+        if self.already_present {
+            return Ok(BronzeStreamingWriteOutcome::AlreadyExists);
+        }
         let body = self.take_body()?;
         match stream_bronze_object_create_only(self.storage, &request, &self.content_type, body)
             .await
@@ -210,6 +230,65 @@ where
     Ok(BronzeStreamingWriteOutcome::Written {
         checksum_sha256,
         size_bytes: actual_size_bytes,
+    })
+}
+
+/// Largest provider file the content-addressed path holds in memory to learn its SHA-256 before
+/// it writes. The files that use it are small (VWorld 30527: 20 files, about 8 MB in all, measured
+/// 2026-10-05); a file above this is refused before its body is read, not truncated.
+pub(crate) const CONTENT_ADDRESSED_STAGING_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+/// A provider payload read whole, with the checksum that names it.
+pub(crate) struct StagedPayload {
+    pub(crate) bytes: Bytes,
+    pub(crate) checksum_sha256: String,
+}
+
+/// Reads a provider body whole so its SHA-256 is known before the Bronze key is chosen.
+///
+/// The body must be exactly `expected_size_bytes` (the provider's `Content-Length`) long and at most
+/// [`CONTENT_ADDRESSED_STAGING_MAX_BYTES`]; an HTML page in place of the file is refused, as on the
+/// streaming path.
+pub(crate) async fn stage_payload(
+    mut body: BoxStream<'static, Result<Bytes, CollectionError>>,
+    content_type: &str,
+    expected_size_bytes: u64,
+    provider_file_id: &str,
+) -> anyhow::Result<StagedPayload> {
+    if expected_size_bytes > CONTENT_ADDRESSED_STAGING_MAX_BYTES {
+        bail!(
+            "provider file {provider_file_id} declares {expected_size_bytes} bytes, above the {CONTENT_ADDRESSED_STAGING_MAX_BYTES}-byte content-addressed staging limit"
+        );
+    }
+    let capacity = usize::try_from(expected_size_bytes)
+        .context("provider Content-Length does not fit in memory")?;
+    let mut bytes = Vec::with_capacity(capacity);
+    while let Some(chunk) = body.next().await {
+        let chunk =
+            chunk.with_context(|| format!("failed to read provider file {provider_file_id}"))?;
+        if bytes.len() + chunk.len() > capacity {
+            bail!(
+                "provider file {provider_file_id} is longer than its Content-Length {expected_size_bytes}"
+            );
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if bytes.len() != capacity {
+        bail!(
+            "provider file {provider_file_id} sent {} bytes but Content-Length declared {expected_size_bytes}",
+            bytes.len()
+        );
+    }
+    if bytes.is_empty() {
+        bail!("provider file {provider_file_id} response body was empty");
+    }
+    if is_html_payload(content_type, &bytes) {
+        bail!("provider file {provider_file_id} returned HTML instead of a provider file");
+    }
+    let checksum_sha256 = sha256_hex(&Sha256::digest(&bytes));
+    Ok(StagedPayload {
+        bytes: Bytes::from(bytes),
+        checksum_sha256,
     })
 }
 

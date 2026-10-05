@@ -165,6 +165,12 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 
   감독 첫 실행(수집 작업은 그 뒤에 켠다, ADR-0122 §4):
 
+  0. 수집 단위는 Bronze 되읽기용 읽기 키를 전용 파일 `/etc/foundation-platform/lakehouse-reader.env` 에서 받는다
+     (계약 `config/runtime-secrets.contract.json` 의 그룹 `lakehouse-reader`, 루트 ADR-0153). root 가 한 번 만든다:
+     읽기 키 두 이름(`FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID`, `..._READER_SECRET_ACCESS_KEY`)만,
+     `root:root 0600`. 값은 기존 `parcel-publication.env` 의 같은 이름에서 옮긴다(셸에 찍지 않는다).
+     그다음 `sudo python3 /opt/foundation-platform/current/scripts/deploy/runtime_secrets.py host` 가 `OK` 여야
+     한다(이름만 출력). 배포의 `verify`·`timers` 도 같은 확인을 하고, 맞지 않으면 멈춘다.
   1. 릴리스가 `/var/lib/foundation-platform/parcel-number-change` 를 만들었는지 본다. 계보 단위의
      `ReadWritePaths` 가 이 경로를 대므로 없으면 계보 단위가 시작하지 못한다.
   2. 수집을 손으로 한 번 돌린다. 첫 실행은 목록의 시도 zip 전부(2026-10-05 측정 19개, 약 8MB)와 테이블 정의서를 받는다.
@@ -193,7 +199,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 ```bash
 # ai-server
 sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=foundation-platform \
-  -p EnvironmentFile=/etc/foundation-platform/recovery.env -p EnvironmentFile=/etc/foundation-platform/map-edit-fold.env \
+  $(python3 /opt/foundation-platform/current/scripts/deploy/runtime_secrets.py properties legal-dong-code-validate) \
   /opt/foundation-platform/current/scripts/ops/legal-dong-code-validate.sh
 ```
 
@@ -225,6 +231,9 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 | 30527 수집 | `rows have no date, above the contract's share` | 날짜를 읽을 수 없는 행이 계약의 한계를 넘었다(열이 밀렸다) | 위와 같다 |
 | 30527 수집 | `shrunk from` | 같은 파일이 직전 판보다 계약의 한계 넘게 줄었다 | 깨진 파일이다. 다음 날 다시 받는다. 계속되면 제공자 화면을 확인한다 |
 | 30527 수집 | `did not land in Bronze` | 받기가 실패한 파일이 있다 | 다음 실행이 다시 받는다 |
+| 30527 수집 | `refused before any side effect: missing …` (종료 78) | 단위의 환경 파일에 이름이 없다. 아무것도 받거나 쓰지 않았다 | `runtime_secrets.py host` 로 어느 파일에 무엇이 없는지 본다(0 단계) |
+| 30527 수집 | `is not a content-addressed key` / `not the ones its key names` | 수집기가 내용 해시 키로 쓰지 않았거나, 되읽은 바이트가 키의 해시와 다르다 | 넘기지 않는다. 릴리스가 `BRONZE_KEY=content_addressed` 를 넘기는지, 객체가 바뀌지 않았는지 본다(루트 ADR-0152) |
+| 30527 Bronze | `30527-<번호>.zip` 20개(2026-10-05 16:41Z, 내용 해시 없는 키) | 첫 실행이 넘김 전에 멈추며 남긴 대체된 객체다. 아무 넘김·Silver 행도 가리키지 않는다 | 지우지 않는다(덧붙이기만, 버킷 잠금). R2 재고 감사의 삭제 후보에 나와도 그대로 둔다 |
 | 계보 단위 0a | `is not the file the handoff checked` | 넘김의 파일이 검사 뒤 바뀌었다 | 넘김은 `pending/` 에 남는다. 그 넘김을 지우고 `accepted.json` 의 해당 키를 지워 다시 받게 한다 |
 
 넘김이 없는 날은 `legal-dong-code no pending handoff` 가 journal 에 남는다. "아무 일 없음"과 "확인 안 함"을

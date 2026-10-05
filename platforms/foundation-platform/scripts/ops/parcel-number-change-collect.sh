@@ -7,7 +7,10 @@
 #             없으면 그렇게 남기고 0 으로 끝난다. 제공자는 같은 파일 번호에 새 판을 올리므로 번호가 아니라
 #             갱신일로 가린다.
 #   2. 수집 — 바뀐 파일만 Bronze 에 받는다(ingest-vworld-dataset-files). 파일 번호가 같아도 내용이 바뀌었으니
-#             이미 받은 객체로 건너뛰지 않게 다시 받는다(FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1).
+#             이미 받은 객체로 건너뛰지 않게 다시 받는다(FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1). 키는
+#             내용 해시로 짓는다(<파일>--sha256-<해시>.zip, 루트 ADR-0152): 버킷은 같은 키를 덮어쓰지 않으므로
+#             번호만으로 지은 키는 새 판도 재실행도 받지 못한다. 같은 바이트를 다시 받으면 제 객체를 찾고
+#             아무것도 쓰지 않는다.
 #   3. 검사와 넘김 — 받은 객체를 Bronze 에서 읽기 키로 되읽어(내려받은 바이트가 아니라 Bronze 가 가진 바이트)
 #             계약(vworld-parcel-number-change-history.contract.json)의 형식·격리 비율·줄어듦 한계로 검사하고,
 #             통과하면 적재 대기 넘김(pending/<넘김>/)을 쓴다(stage-handoff). 하나라도 실패하면 넘김도 상태도
@@ -19,15 +22,30 @@
 set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 
-STATE_ROOT="${FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT:-/var/lib/foundation-platform/parcel-number-change}"
-JOBS="${RELEASE_ROOT}/infra/lakehouse/spark/jobs"
-CATALOG="${RELEASE_ROOT}/docs/catalog/public-source-endpoint-catalog.v1.json"
-# -E -s, not -I: the job imports its sibling modules; -E and -s still shut out PYTHONPATH and the user site.
-PY=(python3 -E -s)
-journal="${STATE_ROOT}/journal.log"
-mkdir -p "${STATE_ROOT}"
-
-history() { "${PY[@]}" "${JOBS}/vworld_parcel_number_change_history.py" "$@"; }
+# 0. 부작용 전에 전부 확인한다(루트 ADR-0152). 2026-10-05 첫 실행은 읽기 키가 없다는 것을 Bronze 에 20개를 쓴
+#    뒤에야 알았다. 이 목록이 단위의 환경 파일에 다 있는지는 저장소 검사가 계약으로 본다
+#    (config/runtime-secrets.contract.json, scripts/deploy/runtime_secrets.py check; 루트 ADR-0153).
+required_env=(
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
+)
+missing=()
+for name in "${required_env[@]}"; do
+  [ -n "${!name:-}" ] || missing+=("${name}")
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+  echo "parcel-number-change collect: refused before any side effect: missing ${missing[*]}" >&2
+  exit 78 # EX_CONFIG
+fi
+[[ "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT}" == https://* ]] || {
+  echo "parcel-number-change collect: refused: FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT is not an https URL" >&2
+  exit 78
+}
+command -v docker >/dev/null || { echo "parcel-number-change collect: refused: docker is not on PATH" >&2; exit 78; }
 
 # recovery.env 는 DATABASE_URL 을 들고 있지 않다 — 다른 등록 작업과 같은 재료로 조립한다.
 if [ -z "${DATABASE_URL:-}" ]; then
@@ -42,6 +60,16 @@ PY
 )"
   export DATABASE_URL
 fi
+
+STATE_ROOT="${FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT:-/var/lib/foundation-platform/parcel-number-change}"
+JOBS="${RELEASE_ROOT}/infra/lakehouse/spark/jobs"
+CATALOG="${RELEASE_ROOT}/docs/catalog/public-source-endpoint-catalog.v1.json"
+# -E -s, not -I: the job imports its sibling modules; -E and -s still shut out PYTHONPATH and the user site.
+PY=(python3 -E -s)
+journal="${STATE_ROOT}/journal.log"
+mkdir -p "${STATE_ROOT}"
+
+history() { "${PY[@]}" "${JOBS}/vworld_parcel_number_change_history.py" "$@"; }
 
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
@@ -71,13 +99,13 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INGEST_EVIDENCE_PATH="${work}/ing
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE=1
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD=1
 export FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY=content_addressed
 "${PUBLISHER_BIN}" ingest-vworld-dataset-files >> "${run_log}" 2>&1
 
-# 3. 되읽기·검사·넘김. 읽기만 하므로 읽기 키를 쓴다.
+# 3. 되읽기·검사·넘김. 읽기만 하므로 읽기 키를 쓴다(0 에서 확인했다). 내용 해시가 아닌 키는 landed-objects 와
+#    stage-handoff 가 거부한다.
 # The pinned reference tools/technology-versions.contract.json lists.
 AWS_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
-: "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID:?the lakehouse reader key is required}"
-: "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY:?the lakehouse reader key is required}"
 while read -r file_key object_key; do
   AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID}" \
   AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY}" \

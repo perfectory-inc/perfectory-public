@@ -11,6 +11,7 @@ Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/vworld-parcel-edition-collect.sh
 TimeoutStartSec=3h
 NoNewPrivileges=true

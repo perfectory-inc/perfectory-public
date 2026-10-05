@@ -13,8 +13,9 @@ use collection_application::{
     StreamingBronzeRecord,
 };
 use collection_domain::{
-    BronzeObject, CollectionError, IngestionRun, IngestionRunStatus, IngestionTrigger,
-    SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
+    bronze_content_object_key_checksum, build_bronze_content_object_key, BronzeObject,
+    CollectionError, IngestionRun, IngestionRunStatus, IngestionTrigger, SourceAuthKind,
+    SourceCatalogEntry, SourcePayloadFormat,
 };
 use collection_infrastructure::{
     PgBronzeIngestRepository, PgBronzeIngestUnitOfWork, VWorldDatasetFileClient,
@@ -31,7 +32,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::live_write_bronze_streaming_object_storage_from_env;
-use crate::bulk_streaming_bronze::BronzeStreamingObjectStorageWriter;
+use crate::bulk_streaming_bronze::{stage_payload, BronzeStreamingObjectStorageWriter};
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 use crate::vworld_credentials::{
     optional_vworld_password, optional_vworld_username, vworld_password_name, vworld_username_name,
@@ -190,6 +191,31 @@ struct VWorldDatasetFileIngestConfig {
     full_download_confirmed: bool,
     exclude_selection_archives: bool,
     defer_provider_acquisition_blocked: bool,
+    bronze_key: BronzeKeyForm,
+}
+
+/// How a landed file's Bronze key is chosen (`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BronzeKeyForm {
+    /// `<provider file id>.<ext>` (`provider_file_id`, the default): one key per provider file
+    /// number. A new upload under the same number cannot land in a bucket that refuses overwrites.
+    ProviderFileId,
+    /// `<provider file id>--sha256-<checksum>.<ext>` (`content_addressed`, root ADR-0152): one key
+    /// per payload. A new upload lands beside the old one, and the same bytes again find their own
+    /// object, so a rerun succeeds without writing.
+    ContentAddressed,
+}
+
+const BRONZE_KEY_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY";
+
+fn parse_bronze_key_form(raw: Option<&str>) -> anyhow::Result<BronzeKeyForm> {
+    match raw.map(str::trim) {
+        None | Some("" | "provider_file_id") => Ok(BronzeKeyForm::ProviderFileId),
+        Some("content_addressed") => Ok(BronzeKeyForm::ContentAddressed),
+        Some(other) => {
+            bail!("{BRONZE_KEY_ENV} must be provider_file_id or content_addressed, not {other:?}")
+        }
+    }
 }
 
 impl VWorldDatasetFileIngestConfig {
@@ -251,6 +277,7 @@ impl VWorldDatasetFileIngestConfig {
                 )?
                 .as_deref(),
             ),
+            bronze_key: parse_bronze_key_form(optional_env_value(BRONZE_KEY_ENV)?.as_deref())?,
         })
     }
 }
@@ -383,17 +410,22 @@ async fn ingest_file(
         downloaded.provider_file_name.clone(),
     )
     .context("failed to plan VWorld dataset Bronze file location")?;
-    let object_key = location.object_key.as_str().to_owned();
     let expected_size_bytes = downloaded.expected_size_bytes;
 
-    let size_bytes = if live_write_enabled(config.live_write.as_deref()) {
-        Some(
-            persist_file_stream(run_id, started_at, job, file, downloaded)
-                .await?
-                .size_bytes,
-        )
+    // Without a live write the bytes are never read, so a content-addressed key is unknown: the
+    // evidence then names no key rather than one that does not exist.
+    let (object_key, size_bytes) = if live_write_enabled(config.live_write.as_deref()) {
+        let persisted =
+            persist_file_stream(run_id, started_at, job, file, downloaded, config.bronze_key)
+                .await?;
+        (Some(persisted.object_key), Some(persisted.size_bytes))
+    } else if config.bronze_key == BronzeKeyForm::ContentAddressed {
+        (None, expected_size_bytes)
     } else {
-        expected_size_bytes
+        (
+            Some(location.object_key.as_str().to_owned()),
+            expected_size_bytes,
+        )
     };
 
     Ok(VWorldDatasetFileIngestItemEvidence {
@@ -403,7 +435,7 @@ async fn ingest_file(
         file_no: file.file_no.clone(),
         provider_file_name: file.provider_file_name.clone(),
         status: "succeeded".to_owned(),
-        object_key: Some(object_key),
+        object_key,
         size_bytes,
         error_message: None,
         duration_ms: elapsed_millis(started_at),
@@ -436,9 +468,10 @@ where
     // never hits this skip.
     let force_refetch = crate::public_data_control_support::bronze_force_refetch_enabled()?;
     if !force_refetch {
-        if let Some(existing) = existing_file_report(job, file, started_at, repo, uow)
-            .await
-            .context("failed to check existing VWorld dataset Bronze object")?
+        if let Some(existing) =
+            existing_file_report(job, file, started_at, config.bronze_key, repo, uow)
+                .await
+                .context("failed to check existing VWorld dataset Bronze object")?
         {
             return Ok(existing);
         }
@@ -463,19 +496,17 @@ where
             )
         })?;
     let run_id = IngestionRunId::new(Uuid::new_v4());
-    let location = plan_streamed_file_location(
+    let persisted = persist_file_stream_with_adapters(
         job,
         file,
         run_id,
-        started_at.date_naive(),
-        downloaded.provider_file_name.clone(),
+        started_at,
+        downloaded,
+        config.bronze_key,
+        uow,
+        storage,
     )
-    .context("failed to plan VWorld dataset Bronze file location")?;
-    let object_key = location.object_key.as_str().to_owned();
-    let size_bytes =
-        persist_file_stream_with_adapters(job, file, run_id, started_at, downloaded, uow, storage)
-            .await?
-            .size_bytes;
+    .await?;
 
     Ok(VWorldDatasetFileIngestItemEvidence {
         endpoint_slug: job.endpoint_slug.clone(),
@@ -484,8 +515,8 @@ where
         file_no: file.file_no.clone(),
         provider_file_name: file.provider_file_name.clone(),
         status: "succeeded".to_owned(),
-        object_key: Some(object_key),
-        size_bytes: Some(size_bytes),
+        object_key: Some(persisted.object_key),
+        size_bytes: Some(persisted.size_bytes),
         error_message: None,
         duration_ms: elapsed_millis(started_at),
     })
@@ -495,6 +526,7 @@ async fn existing_file_report<Repo, Uow>(
     job: &VWorldDatasetFileJob,
     file: &VWorldDatasetFileInventoryItem,
     started_at: chrono::DateTime<Utc>,
+    bronze_key: BronzeKeyForm,
     repo: &Repo,
     uow: &Uow,
 ) -> anyhow::Result<Option<VWorldDatasetFileIngestItemEvidence>>
@@ -524,6 +556,7 @@ where
 
     Ok(existing
         .filter(|object| holds_listed_release(object, file))
+        .filter(|object| holds_key_form(object, bronze_key))
         .map(|object| VWorldDatasetFileIngestItemEvidence {
             endpoint_slug: job.endpoint_slug.clone(),
             source_slug: job.source_slug.clone(),
@@ -548,6 +581,19 @@ fn holds_listed_release(object: &BronzeObject, file: &VWorldDatasetFileInventory
     match provider_updated_at(file) {
         None => true,
         listed => object.provider_updated_at == listed,
+    }
+}
+
+/// Whether the held object's key has the form this run writes. A content-addressed run does not
+/// skip to an object under a plain provider-file key: that key does not name its bytes, and a
+/// reader that relies on the key form would be handed one that breaks it.
+fn holds_key_form(object: &BronzeObject, bronze_key: BronzeKeyForm) -> bool {
+    match bronze_key {
+        BronzeKeyForm::ProviderFileId => true,
+        BronzeKeyForm::ContentAddressed => {
+            bronze_content_object_key_checksum(object.object_key.as_str())
+                == Some(object.checksum_sha256.as_str())
+        }
     }
 }
 
@@ -720,6 +766,7 @@ async fn persist_file_stream(
     job: &VWorldDatasetFileJob,
     inventory_file: &VWorldDatasetFileInventoryItem,
     file: VWorldDatasetFileStream,
+    bronze_key: BronzeKeyForm,
 ) -> anyhow::Result<VWorldDatasetFilePersistReport> {
     // Single-file live-write path (the non-orchestrated `ingest_file` branch): validate + log the
     // resolved R2 target before the first put. Reached only when live write is enabled.
@@ -739,6 +786,7 @@ async fn persist_file_stream(
         run_id,
         started_at,
         file,
+        bronze_key,
         &uow,
         storage.as_ref(),
     )
@@ -747,15 +795,98 @@ async fn persist_file_stream(
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct VWorldDatasetFilePersistReport {
+    object_key: String,
     size_bytes: u64,
 }
 
+/// The provider bytes and the key they land under, decided before the ingestion run is opened.
+struct PlannedPayload<'a, Storage: ?Sized> {
+    object_key: foundation_shared_kernel::ObjectKey,
+    expected_size_bytes: u64,
+    writer: BronzeStreamingObjectStorageWriter<'a, Storage>,
+}
+
+/// Chooses the key and the write port for one provider file.
+///
+/// `ProviderFileId` streams the body to the provider-file key, as before. `ContentAddressed` reads
+/// the body whole to learn its SHA-256, names the key after it, and reads that key back: absent, the
+/// bytes are written; present with the same checksum and size, nothing is written and the
+/// committer reconciles the ledger row (a rerun of the same upload); present with other bytes, the
+/// file is refused, since a key that names one checksum cannot hold another.
+async fn plan_payload<'a, Storage>(
+    location: &PublicDataBulkFileStorageLocationPlan,
+    provider_file_id: &str,
+    file: VWorldDatasetFileStream,
+    bronze_key: BronzeKeyForm,
+    storage: &'a Storage,
+) -> anyhow::Result<PlannedPayload<'a, Storage>>
+where
+    Storage: ObjectStorageStreamingService + ?Sized,
+{
+    let content_type = file.content_type.clone();
+    let expected_size_bytes = file.expected_size_bytes.with_context(|| {
+        format!(
+            "provider file {provider_file_id} omitted Content-Length; streaming single-pass Bronze upload requires an exact length"
+        )
+    })?;
+    if bronze_key == BronzeKeyForm::ProviderFileId {
+        return Ok(PlannedPayload {
+            object_key: location.object_key.clone(),
+            expected_size_bytes,
+            writer: BronzeStreamingObjectStorageWriter::new(
+                storage,
+                content_type,
+                file.into_body_stream(),
+            ),
+        });
+    }
+    let staged = stage_payload(
+        file.into_body_stream(),
+        &content_type,
+        expected_size_bytes,
+        provider_file_id,
+    )
+    .await?;
+    let object_key = build_bronze_content_object_key(&location.object_key, &staged.checksum_sha256)
+        .context("failed to name the content-addressed Bronze key")?;
+    let held = storage
+        .read_object_sha256_and_size_by_rehash(object_key.as_str())
+        .await
+        .with_context(|| format!("failed to read back {}", object_key.as_str()))?;
+    let writer = match held {
+        None => BronzeStreamingObjectStorageWriter::new(
+            storage,
+            content_type,
+            stream::iter([Ok::<_, CollectionError>(staged.bytes)]).boxed(),
+        ),
+        Some(held)
+            if held.checksum_sha256 == staged.checksum_sha256
+                && held.size_bytes == expected_size_bytes =>
+        {
+            BronzeStreamingObjectStorageWriter::already_present(storage, content_type)
+        }
+        Some(held) => bail!(
+            "{} holds sha256 {} ({} bytes), not the {expected_size_bytes} bytes it names",
+            object_key.as_str(),
+            held.checksum_sha256,
+            held.size_bytes
+        ),
+    };
+    Ok(PlannedPayload {
+        object_key,
+        expected_size_bytes,
+        writer,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn persist_file_stream_with_adapters<Uow, Storage>(
     job: &VWorldDatasetFileJob,
     inventory_file: &VWorldDatasetFileInventoryItem,
     run_id: IngestionRunId,
     started_at: chrono::DateTime<Utc>,
     file: VWorldDatasetFileStream,
+    bronze_key: BronzeKeyForm,
     uow: &Uow,
     storage: &Storage,
 ) -> anyhow::Result<VWorldDatasetFilePersistReport>
@@ -776,6 +907,20 @@ where
         provider_file_name.clone(),
     )
     .context("failed to plan VWorld dataset Bronze object location")?;
+    let identity = streamed_file_identity(job, inventory_file, provider_file_name.clone());
+    let content_type = file.content_type.clone();
+    let PlannedPayload {
+        object_key,
+        expected_size_bytes,
+        writer,
+    } = plan_payload(
+        &location,
+        &identity.provider_file_id,
+        file,
+        bronze_key,
+        storage,
+    )
+    .await?;
     let run = uow
         .create_ingestion_run(&ingestion_run(
             source.id,
@@ -785,7 +930,7 @@ where
                 job,
                 inventory_file,
                 &provider_file_name,
-                location.object_key.as_str(),
+                object_key.as_str(),
             ),
         ))
         .await
@@ -799,24 +944,11 @@ where
     // stream-then-record: same object key, same partition key, same `request_params`, same dedupe
     // key (`<slug>:<source_partition_key>:sha256=<checksum>`), same streamed bytes, same size — only
     // the write mode changes from `OverwriteAllowed` to `CreateOnly` and a 412 now self-heals.
-    let identity = streamed_file_identity(job, inventory_file, provider_file_name);
-    let content_type = file.content_type.clone();
-    let expected_size_bytes = file.expected_size_bytes.with_context(|| {
-        format!(
-            "provider file {} omitted Content-Length; streaming single-pass Bronze upload requires an exact length",
-            identity.provider_file_id
-        )
-    })?;
-    let writer = BronzeStreamingObjectStorageWriter::new(
-        storage,
-        content_type.clone(),
-        file.into_body_stream(),
-    );
     let planned = PlannedStreamingBronzeObject {
         cache_control: BRONZE_CACHE_CONTROL.to_owned(),
         expected_size_bytes,
         record: StreamingBronzeRecord {
-            object_key: location.object_key.clone(),
+            object_key,
             content_type,
             source_catalog_id: source.id,
             ingestion_run_id: run.id,
@@ -861,6 +993,7 @@ where
     .await
     .context("failed to complete VWorld dataset file ingestion run")?;
     Ok(VWorldDatasetFilePersistReport {
+        object_key: outcome.object_key,
         size_bytes: outcome.size_bytes,
     })
 }

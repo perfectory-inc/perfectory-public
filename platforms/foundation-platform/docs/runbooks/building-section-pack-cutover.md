@@ -54,10 +54,9 @@ last_reviewed: 2026-10-05
 디렉터리에만 쓰고, R2 쓰기 키는 환경에서 지운다.
 
 ```bash
+# 환경 파일은 계약이 정한다(config/runtime-secrets.contract.json 의 run measure-building-section-packs, 루트 ADR-0153).
 sudo systemd-run --wait --collect --pipe -p User=foundation-platform -p MemoryMax=14G \
-  -p EnvironmentFile=/etc/foundation-platform/recovery.env \
-  -p EnvironmentFile=/etc/foundation-platform/source-sweep.env \
-  -p EnvironmentFile=/etc/foundation-platform/map-edit-fold.env \
+  $(python3 /opt/foundation-platform/current/scripts/deploy/runtime_secrets.py properties measure-building-section-packs) \
   /opt/foundation-platform/current/scripts/ops/measure-building-section-packs.sh \
   /data/foundation-platform/by-pnu-bake/building-pack-measure
 ```
@@ -139,7 +138,7 @@ done
 # 분석 토큰은 EnvironmentFile 로만 읽는다(셸·저장소에 두지 않는다).
 PUBLISHER_BIN=/opt/foundation-platform/artifacts/$(basename "$(readlink -e /opt/foundation-platform/current)")/foundation-outbox-publisher
 sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
-  -p EnvironmentFile=/etc/foundation-platform/cloudflare-analytics.env \
+  $(python3 /opt/foundation-platform/current/scripts/deploy/runtime_secrets.py properties section-pack-latency-probe) \
   -E FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PACK_GENERATION=1 \
   -E FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PACK_PREVIEW_BASE_URL=https://buildings-preview.perfectory.io \
   -E FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PACK_EQUALITY_EVIDENCE_PATH=$WORK/equality.json \

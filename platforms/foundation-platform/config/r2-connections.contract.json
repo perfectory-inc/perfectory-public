@@ -151,12 +151,11 @@
     "max_index_entries": 1000000,
     "preview_query_parameter": "packs",
     "cloudflare_analytics": {
-      "env_file": "/etc/foundation-platform/cloudflare-analytics.env",
       "account_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID",
       "api_token_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN",
       "zone_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ZONE_ID",
       "token_scope": "Account Analytics: Read",
-      "reason": "the gate reads the preview Worker's CPU and cut-offs from Workers analytics; the token is read only through the unit's EnvironmentFile (root:root 0600), never from the repository or a shell"
+      "reason": "the gate reads the preview Worker's CPU and cut-offs from Workers analytics; the token is read only through the environment file config/runtime-secrets.contract.json names for these two variables (group cloudflare-analytics, root:root 0600), never from the repository or a shell"
     },
     "read_path": {
       "whole_pack_max_bytes": 262144,

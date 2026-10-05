@@ -186,3 +186,7 @@ last_reviewed: 2026-07-28
 - [ADR-0150 — 필지 번호 공식 이력은 동 단위 행부터 읽고, 먼저 기록된 파생 짝도 그것과 맞아야 한다](./0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md)
 
 - [ADR-0151 — 건물 묶음은 PNU 문서를 통째로 담고, Worker 는 그 바이트를 그대로 낸다](./0151-building-packs-serve-each-document-whole.md)
+
+- [ADR-0152 — 제공자가 파일 번호를 다시 쓰는 원천의 Bronze 키는 내용 해시를 담고, 수집은 부작용 전에 요건을 다 확인한다](./0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md)
+
+- [ADR-0153 — 운영 환경 파일과 그것을 읽는 단위·실행은 계약 하나가 정하고, 나머지는 거기서 만들거나 그것으로 검사한다](./0153-runtime-secrets-have-one-contract.md)

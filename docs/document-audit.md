@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **501개**
-- 언어 분류: **{'english': 37, 'korean': 308, 'mixed': 156}**
+- 감사 문서: **503개**
+- 언어 분류: **{'english': 37, 'korean': 310, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **231개 정상 / 0개 누락 / 270개 해당 없음**
+- 메타데이터: **231개 정상 / 0개 누락 / 272개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -93,7 +93,7 @@
 | `docs/adr/0068-the-command-names-the-object-it-read.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 2 |
 | `docs/adr/0069-one-column-holds-five-kinds-of-thing.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 4 |
 | `docs/adr/0070-the-boundary-source-carries-neither-use-nor-area.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0071-a-deploy-that-leaves-the-schema-behind-has-not-finished.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0071-a-deploy-that-leaves-the-schema-behind-has-not-finished.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0072-units-attach-to-parcels-by-pnu-and-orphans-are-counted.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0073-the-title-register-fills-the-building-between-parcel-and-unit.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0074-a-unit-hangs-off-its-building-and-null-is-an-answer.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
@@ -144,7 +144,7 @@
 | `docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
+| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 8 |
 | `docs/adr/0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0125-unit-building-links-require-source-parent-key-evidence.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
@@ -168,10 +168,12 @@
 | `docs/adr/0145-one-source-of-truth-for-region-code-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 10 |
 | `docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
-| `docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0151-building-packs-serve-each-document-whole.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0153-runtime-secrets-have-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
