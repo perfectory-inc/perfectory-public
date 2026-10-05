@@ -1,9 +1,12 @@
 import connectionContract from "../../../config/r2-connections.contract.json";
 
-/// Section packs (root ADR-0147): one R2 object per (section, legal dong), head + index + body.
-/// The byte layout, the resolution order and the join are the publisher's
-/// (`foundation-outbox-publisher/src/by_pnu_pack.rs`, `.../section_packs/{read,sections}.rs`);
-/// the golden packs in `test/fixtures/section-packs/` hold both sides to the same bytes.
+/// Section packs (root ADR-0147, ADR-0151): one R2 object per (section, legal dong), head + index +
+/// body. The building lane has one section, `documents`, whose entry for a PNU is its served
+/// document as one gzip member; the Worker answers with that member as it is
+/// (`Content-Encoding: gzip`), without decompressing or parsing it. The byte layout and the
+/// resolution order are the publisher's (`foundation-outbox-publisher/src/by_pnu_pack.rs`,
+/// `.../section_packs/{read,sections}.rs`); the golden packs in `test/fixtures/section-packs/` hold
+/// both sides to the same bytes.
 
 const packPolicy = connectionContract.by_pnu_section_packs;
 const lanePacks = connectionContract.building_by_pnu_gateway.section_packs;
@@ -12,14 +15,11 @@ const INDEX_ENTRY_BYTES = 28;
 const PNU_BYTES = 19;
 const STATE_DOCUMENT = 1;
 const STATE_TOMBSTONE = 2;
-/// Parsed heads kept per isolate; a head is immutable (packs are create-only), so a cached one is
-/// never stale.
-const HEAD_MEMORY_ENTRIES = 512;
-const headCacheOrigin = "https://foundation-building-gateway.invalid/pack-head/";
+/// The read path's bounds (root ADR-0147 Revision): which packs are read whole, how much an
+/// isolate keeps, and how R2 is retried.
+const readPolicy = packPolicy.read_path;
+const packCacheOrigin = "https://foundation-building-gateway.invalid/pack/";
 const magic = new TextEncoder().encode(packPolicy.magic);
-
-/// The sections the join knows, in the publisher's order. The contract must name exactly these.
-export const JOINED_SECTIONS = ["buildings", "floors", "units", "unit_prices"] as const;
 
 export interface PackSection {
   name: string;
@@ -105,7 +105,7 @@ export function previewPlan(generation: number): PackPlan {
   };
 }
 
-interface PackHead {
+export interface PackHead {
   index: Uint8Array;
   entryCount: number;
   bodyStart: number;
@@ -114,11 +114,98 @@ interface PackHead {
   etag: string;
 }
 
-const headMemory = new Map<string, PackHead>();
+/// What one pack read leaves behind: its head, and the whole pack when it is small enough to read
+/// in the same GET (the contract's `read_path.whole_pack_max_bytes`).
+export interface PackCopy {
+  head: PackHead;
+  /// The whole pack, or `null` when only the head was read (a large pack: documents by range).
+  bytes: Uint8Array | null;
+}
 
-/// Forgets every head this isolate remembers (tests, to reach the edge cache behind it).
-export function forgetHeads(): void {
-  headMemory.clear();
+/// One request's reads: what the read path did, in the words `Server-Timing` and the structured
+/// logs use. Wall time in a Worker advances only across I/O, so the milliseconds here are time
+/// spent waiting on R2.
+export class ReadTrace {
+  r2Gets = 0;
+  retries = 0;
+  /// Per section: `{memory|edge|r2}-{whole|head|absent}`, and `+range` when a document needed a
+  /// second R2 read.
+  readonly sections = new Map<string, string>();
+  /// Per section: milliseconds waiting on R2, every attempt included.
+  readonly sectionR2Ms = new Map<string, number>();
+  readonly failures: string[] = [];
+
+  note(section: string, label: string): void {
+    const previous = this.sections.get(section);
+    this.sections.set(section, previous === undefined ? label : `${previous}+${label}`);
+  }
+
+  waited(section: string, milliseconds: number): void {
+    this.sectionR2Ms.set(section, (this.sectionR2Ms.get(section) ?? 0) + milliseconds);
+  }
+
+  /// The R2 wait on the request's critical path: sections are read at once, so the longest.
+  get r2Ms(): number {
+    return Math.max(0, ...this.sectionR2Ms.values());
+  }
+}
+
+/// The policy a read runs under and what it may wait on. `sleep` and `random` are the clock and
+/// the jitter, injectable so a test can plant transient errors without real delays.
+export interface PackReads {
+  bucket: Pick<R2Bucket, "get">;
+  ctx: ExecutionContext;
+  trace: ReadTrace;
+  /// `Date.now()` past which no further R2 attempt starts.
+  deadline: number;
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
+}
+
+/// Starts the reads of one request under the contract's R2 deadline.
+export function packReads(bucket: Pick<R2Bucket, "get">, ctx: ExecutionContext): PackReads {
+  return { bucket, ctx, trace: new ReadTrace(), deadline: Date.now() + readPolicy.r2_deadline_ms };
+}
+
+/// Packs this isolate holds, least recently used first, within a byte budget: a pack key is
+/// create-only, so a copy is never stale (Haystack: the metadata a read needs stays in memory).
+const packMemory = new Map<string, PackCopy>();
+let packMemoryBytes = 0;
+
+function copyBytes(copy: PackCopy): number {
+  return copy.head.index.byteLength + (copy.bytes?.byteLength ?? 0);
+}
+
+/// Forgets every pack this isolate remembers (tests, to reach the edge cache behind it).
+export function forgetPacks(): void {
+  packMemory.clear();
+  packMemoryBytes = 0;
+}
+
+function remember(key: string, copy: PackCopy): void {
+  const previous = packMemory.get(key);
+  if (previous !== undefined) {
+    packMemory.delete(key);
+    packMemoryBytes -= copyBytes(previous);
+  }
+  const size = copyBytes(copy);
+  if (size > readPolicy.memory_budget_bytes) return;
+  packMemory.set(key, copy);
+  packMemoryBytes += size;
+  for (const [oldest, held] of packMemory) {
+    if (packMemoryBytes <= readPolicy.memory_budget_bytes) break;
+    packMemory.delete(oldest);
+    packMemoryBytes -= copyBytes(held);
+  }
+}
+
+function recall(key: string): PackCopy | undefined {
+  const copy = packMemory.get(key);
+  if (copy !== undefined) {
+    packMemory.delete(key);
+    packMemory.set(key, copy);
+  }
+  return copy;
 }
 
 /// An entity tag as R2 reports it (`etag`, unquoted), whether it is written quoted (`httpEtag`, an
@@ -129,16 +216,12 @@ export function unquotedEtag(raw: string | null): string | null {
   return tag === "" ? null : tag;
 }
 
-function remember(key: string, head: PackHead): void {
-  headMemory.delete(key);
-  headMemory.set(key, head);
-  if (headMemory.size > HEAD_MEMORY_ENTRIES) {
-    const oldest = headMemory.keys().next().value;
-    if (oldest !== undefined) headMemory.delete(oldest);
-  }
-}
+/// The pack is not what its key and the contract say: never retried, always an outage.
+export class PackFormatError extends Error {}
 
-class PackFormatError extends Error {}
+/// R2 did not answer within the read policy (attempts or deadline spent): the only 503 that is
+/// not an inconsistency, and only after the bounded retries.
+export class PackReadUnavailable extends Error {}
 
 /// Parses the head; `null` when `bytes` stop before it ends (then the caller reads further).
 export function parseHead(bytes: Uint8Array, etag: string): PackHead | null {
@@ -163,7 +246,8 @@ export function parseHead(bytes: Uint8Array, etag: string): PackHead | null {
     throw new PackFormatError("pack header disagrees with its index");
   }
   return {
-    index: bytes.slice(PREFIX_BYTES + headerLength, headLength),
+    // A view, not a copy: the caller decides which bytes behind it are kept.
+    index: bytes.subarray(PREFIX_BYTES + headerLength, headLength),
     entryCount,
     bodyStart: headLength,
     bodyLength: header.body_length,
@@ -171,34 +255,63 @@ export function parseHead(bytes: Uint8Array, etag: string): PackHead | null {
   };
 }
 
-/// The edge cache's copy of a head. Its `ETag` header is the quoted form (an HTTP entity tag, what
-/// R2 calls `httpEtag`); `headFromCache` unquotes it back to the R2 `etag` the head carries.
-export function headCacheResponse(head: PackHead): Response {
-  const prefix = new ArrayBuffer(16);
-  const view = new DataView(prefix);
-  view.setUint32(0, head.entryCount, true);
-  view.setUint32(4, head.bodyStart, true);
-  view.setUint32(8, head.bodyLength, true);
-  return new Response(new Blob([prefix, head.index]), {
-    headers: { "Cache-Control": packPolicy.cache_control, ETag: `"${head.etag}"` },
-  });
+/// A whole pack's bytes, checked: the head parses and the body it declares ends at the last byte.
+function wholePack(bytes: Uint8Array, etag: string): PackCopy {
+  const head = parseHead(bytes, etag);
+  if (head === null || head.bodyStart + head.bodyLength !== bytes.byteLength) {
+    throw new PackFormatError("pack length disagrees with its header");
+  }
+  return { head, bytes };
 }
 
-/// A head from the edge cache; `null` (read R2 again) when there is none, or it carries no entity
-/// tag to hold the document reads to.
-export async function headFromCache(key: string): Promise<PackHead | null> {
-  const cached = await caches.default.match(`${headCacheOrigin}${key}`);
+const FORM_HEADER = "X-Pack-Form";
+
+/// The edge cache's copy of a pack: the whole pack when it was read whole, else its head. Its
+/// `ETag` header is the quoted form (an HTTP entity tag, what R2 calls `httpEtag`); `packFromCache`
+/// unquotes it back to the R2 `etag` the copy carries, and a head is only ever combined with a
+/// range read R2 answers under that same entity tag (`onlyIf.etagMatches`).
+export function packCacheResponse(copy: PackCopy): Response {
+  const headers = { "Cache-Control": packPolicy.cache_control, ETag: `"${copy.head.etag}"` };
+  if (copy.bytes !== null) {
+    return new Response(copy.bytes, { headers: { ...headers, [FORM_HEADER]: "whole" } });
+  }
+  const prefix = new ArrayBuffer(16);
+  const view = new DataView(prefix);
+  view.setUint32(0, copy.head.entryCount, true);
+  view.setUint32(4, copy.head.bodyStart, true);
+  view.setUint32(8, copy.head.bodyLength, true);
+  return new Response(new Blob([prefix, copy.head.index]), { headers: { ...headers, [FORM_HEADER]: "head" } });
+}
+
+/// The edge cache identity of a pack: its R2 key under a synthetic origin, so no client URL can
+/// name or shape it. The entity tag cannot be part of the identity, because the lookup comes
+/// before anything that knows it; it travels inside the entry, and nothing read under another tag
+/// is ever combined with it (see `packCacheResponse`).
+export function packCacheUrl(key: string): string {
+  return `${packCacheOrigin}${key}`;
+}
+
+/// A pack from the edge cache; `null` (read R2 again) when there is none, or it carries no entity
+/// tag to hold the document reads to, or it is not a form this Worker writes.
+export async function packFromCache(key: string): Promise<PackCopy | null> {
+  const cached = await caches.default.match(packCacheUrl(key));
   if (cached === undefined) return null;
   const etag = unquotedEtag(cached.headers.get("ETag"));
+  const form = cached.headers.get(FORM_HEADER);
   const bytes = new Uint8Array(await cached.arrayBuffer());
-  if (etag === null || bytes.length < 16) return null;
+  if (etag === null) return null;
+  if (form === "whole") return wholePack(bytes, etag);
+  if (form !== "head" || bytes.length < 16) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return {
-    entryCount: view.getUint32(0, true),
-    bodyStart: view.getUint32(4, true),
-    bodyLength: view.getUint32(8, true),
-    index: bytes.slice(16),
-    etag,
+    head: {
+      entryCount: view.getUint32(0, true),
+      bodyStart: view.getUint32(4, true),
+      bodyLength: view.getUint32(8, true),
+      index: bytes.subarray(16),
+      etag,
+    },
+    bytes: null,
   };
 }
 
@@ -221,25 +334,106 @@ function joined(chunks: readonly Uint8Array[], length: number): Uint8Array {
   return bytes;
 }
 
-/// One pack's head: isolate memory, then the edge cache, then one GET of R2 read only as far as
-/// the head reaches. The GET names no range, so a pack shorter than any fixed first read is never
-/// asked past its end (no reliance on R2 clamping a range), and a head of any length takes one
-/// request; the rest of the body is cancelled unread. `null` when the pack does not exist.
-export async function readHead(
-  bucket: Pick<R2Bucket, "get">,
-  key: string,
-  ctx: ExecutionContext,
-): Promise<PackHead | null> {
-  const remembered = headMemory.get(key);
-  if (remembered !== undefined) return remembered;
-  const cached = await headFromCache(key);
+class AttemptTimeout extends Error {}
+
+/// Why an R2 attempt failed, in the words the logs use: `timeout`, or R2's five-digit error code.
+function failureClass(error: unknown): string {
+  if (error instanceof AttemptTimeout) return "timeout";
+  const message = error instanceof Error ? error.message : String(error);
+  const code = message.match(/\((\d{5})\)/)?.[1];
+  return code === undefined ? `r2:${message.slice(0, 80)}` : `r2:${code}`;
+}
+
+function within<T>(work: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new AttemptTimeout("R2 attempt ran past the read deadline")), milliseconds);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
+/// One R2 read with its body, retried while it fails transiently: at most `r2_attempts` attempts,
+/// each bounded by what is left of the request's deadline, with full-jitter backoff between them
+/// (AWS Architecture Blog, "Exponential Backoff And Jitter"). A pack that is not what it should be
+/// (`PackFormatError`) is never retried: retrying cannot make it right.
+async function withRetry<T>(
+  reads: PackReads,
+  what: { section: string; key: string; phase: "pack" | "range" },
+  attempt: () => Promise<T>,
+): Promise<T> {
+  const sleep = reads.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const random = reads.random ?? Math.random;
+  let lastClass = "deadline";
+  for (let tried = 0; tried < readPolicy.r2_attempts; tried += 1) {
+    const left = reads.deadline - Date.now();
+    if (left <= 0) break;
+    const started = Date.now();
+    reads.trace.r2Gets += 1;
+    try {
+      return await within(attempt(), left);
+    } catch (error) {
+      if (error instanceof PackFormatError) throw error;
+      lastClass = failureClass(error);
+      reads.trace.failures.push(`${what.section}:${what.phase}:${lastClass}`);
+      console.log(
+        JSON.stringify({
+          event: "pack_read_retry",
+          section: what.section,
+          key: what.key,
+          phase: what.phase,
+          attempt: tried + 1,
+          error_class: lastClass,
+          elapsed_ms: Date.now() - started,
+        }),
+      );
+    } finally {
+      reads.trace.waited(what.section, Date.now() - started);
+    }
+    if (tried + 1 < readPolicy.r2_attempts) {
+      const backoff = random() * readPolicy.r2_retry_base_ms * 2 ** tried;
+      if (Date.now() + backoff >= reads.deadline) break;
+      reads.trace.retries += 1;
+      await sleep(backoff);
+    }
+  }
+  throw new PackReadUnavailable(`${what.section} ${what.phase}: R2 unavailable (${lastClass})`);
+}
+
+/// One pack: isolate memory, then the edge cache, then one GET of R2. The GET names no range, so
+/// a pack shorter than any fixed first read is never asked past its end (no reliance on R2
+/// clamping a range). A pack within `whole_pack_max_bytes` is read whole by that GET, so its head
+/// and its documents come from one R2 hop; a larger one is read only as far as its head reaches
+/// and the rest of its body is cancelled unread. `null` when the pack does not exist.
+export async function readPack(reads: PackReads, section: string, key: string): Promise<PackCopy | null> {
+  const remembered = recall(key);
+  if (remembered !== undefined) {
+    reads.trace.note(section, `memory-${remembered.bytes === null ? "head" : "whole"}`);
+    return remembered;
+  }
+  const cached = await packFromCache(key);
   if (cached !== null) {
     remember(key, cached);
+    reads.trace.note(section, `edge-${cached.bytes === null ? "head" : "whole"}`);
     return cached;
   }
+  const copy = await withRetry(reads, { section, key, phase: "pack" }, () => fetchPack(reads.bucket, key));
+  if (copy === null) {
+    reads.trace.note(section, "r2-absent");
+    return null;
+  }
+  remember(key, copy);
+  reads.trace.note(section, `r2-${copy.bytes === null ? "head" : "whole"}`);
+  reads.ctx.waitUntil(caches.default.put(packCacheUrl(key), packCacheResponse(copy)));
+  return copy;
+}
+
+async function fetchPack(bucket: Pick<R2Bucket, "get">, key: string): Promise<PackCopy | null> {
   const object = await bucket.get(key);
   if (object === null) return null;
-  if (!("body" in object)) throw new PackFormatError("pack head read returned no body");
+  if (!("body" in object)) throw new PackFormatError("pack read returned no body");
+  if (object.size <= readPolicy.whole_pack_max_bytes) {
+    return wholePack(new Uint8Array(await object.arrayBuffer()), object.etag);
+  }
   const reader = object.body.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
@@ -255,13 +449,11 @@ export async function readHead(
   } finally {
     await reader.cancel().catch(() => undefined);
   }
-  const bytes = joined(chunks, length);
   if (wanted === null || length < wanted) throw new PackFormatError("pack head is shorter than declared");
-  const head = parseHead(bytes.subarray(0, wanted), object.etag);
+  // A copy of the head alone: the body streamed past it is not kept.
+  const head = parseHead(joined(chunks, length).slice(0, wanted), object.etag);
   if (head === null) throw new PackFormatError("pack head is shorter than declared");
-  remember(key, head);
-  ctx.waitUntil(caches.default.put(`${headCacheOrigin}${key}`, headCacheResponse(head)));
-  return head;
+  return { head, bytes: null };
 }
 
 interface Entry {
@@ -303,150 +495,78 @@ export function findEntry(head: PackHead, pnu: string): Entry | null {
   return null;
 }
 
-/// One document's gzip member, by one range read, decoded.
-async function readDocument(
-  bucket: Pick<R2Bucket, "get">,
-  key: string,
-  head: PackHead,
-  entry: Entry,
-): Promise<unknown> {
-  const object = await bucket.get(key, { range: { offset: head.bodyStart + entry.offset, length: entry.length } });
-  if (object === null || !("body" in object) || object.etag !== head.etag) {
-    // Pack keys are create-only: never combine a cached head with other bytes.
-    throw new PackFormatError("pack changed or vanished under its cached head");
-  }
-  const decoded = new Response(
-    new Blob([await object.arrayBuffer()]).stream().pipeThrough(new DecompressionStream("gzip")),
-  );
-  return JSON.parse(await decoded.text()) as unknown;
+/// A served document: its gzip member as the pack holds it, and a strong entity tag. A pack key is
+/// create-only, so the pack's own tag and the member's place in it name these bytes exactly.
+export interface ServedDocument {
+  member: Uint8Array;
+  etag: string;
 }
 
-export type Fragment =
-  | { kind: "document"; value: unknown }
+/// One document's gzip member: from the whole pack's bytes when they were read, else by one range
+/// read that R2 answers only under the head's entity tag.
+async function readDocument(
+  reads: PackReads,
+  section: string,
+  key: string,
+  copy: PackCopy,
+  entry: Entry,
+): Promise<ServedDocument> {
+  const start = copy.head.bodyStart + entry.offset;
+  const etag = `${copy.head.etag}-${entry.offset}`;
+  if (copy.bytes !== null) return { member: copy.bytes.subarray(start, start + entry.length), etag };
+  reads.trace.note(section, "range");
+  const member = await withRetry(reads, { section, key, phase: "range" }, async () => {
+    const object = await reads.bucket.get(key, {
+      range: { offset: start, length: entry.length },
+      onlyIf: { etagMatches: copy.head.etag },
+    });
+    if (object === null || !("body" in object) || object.etag !== copy.head.etag) {
+      // Pack keys are create-only: never combine a cached head with other bytes.
+      throw new PackFormatError("pack changed or vanished under its cached head");
+    }
+    return new Uint8Array(await object.arrayBuffer());
+  });
+  return { member, etag };
+}
+
+export type Resolved =
+  | ({ kind: "document" } & ServedDocument)
   | { kind: "tombstone" }
   | { kind: "absent" };
 
-function packKey(section: PackSection, patch: number | null, unit: string): string {
+export function packKey(section: Pick<PackSection, "name" | "generation">, patch: number | null, unit: string): string {
   const patchDir = patch === null ? "" : `p${patch}/`;
   return `${lanePacks.root}/${section.name}/g${section.generation}/${patchDir}${unit}${packPolicy.suffix}`;
 }
 
-/// One section's fragment of `pnu`: the newest patch naming its dong and holding it, else the
+/// The document of `pnu` in one section: the newest patch naming its dong and holding it, else the
 /// base. A patch the manifest lists but R2 lacks is an outage, not an absence.
-async function findFragment(
-  bucket: Pick<R2Bucket, "get">,
-  ctx: ExecutionContext,
-  plan: PackPlan,
-  section: PackSection,
-  pnu: string,
-): Promise<Fragment> {
+async function findDocument(reads: PackReads, plan: PackPlan, section: PackSection, pnu: string): Promise<Resolved> {
   const unit = pnu.slice(0, plan.unitLength);
   for (const patch of plan.patches) {
     if (patch.patch <= section.patchFloor || !patch.units.has(unit)) continue;
     const key = packKey(section, patch.patch, unit);
-    const head = await readHead(bucket, key, ctx);
-    if (head === null) throw new PackFormatError(`listed patch pack ${key} is missing`);
-    const entry = findEntry(head, pnu);
+    const copy = await readPack(reads, section.name, key);
+    if (copy === null) throw new PackFormatError(`listed patch pack ${key} is missing`);
+    const entry = findEntry(copy.head, pnu);
     if (entry === null) continue;
     if (entry.state === STATE_TOMBSTONE) return { kind: "tombstone" };
-    return { kind: "document", value: await readDocument(bucket, key, head, entry) };
+    return { kind: "document", ...(await readDocument(reads, section.name, key, copy, entry)) };
   }
   const key = packKey(section, null, unit);
-  const head = await readHead(bucket, key, ctx);
-  if (head === null) return { kind: "absent" };
-  const entry = findEntry(head, pnu);
+  const copy = await readPack(reads, section.name, key);
+  if (copy === null) return { kind: "absent" };
+  const entry = findEntry(copy.head, pnu);
   if (entry === null) return { kind: "absent" };
   if (entry.state === STATE_TOMBSTONE) throw new PackFormatError("tombstone in a base pack");
-  return { kind: "document", value: await readDocument(bucket, key, head, entry) };
+  return { kind: "document", ...(await readDocument(reads, section.name, key, copy, entry)) };
 }
 
-export class InconsistentSections extends Error {}
-
-type Json = Record<string, unknown>;
-
-function asObject(value: unknown): Json {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InconsistentSections("a fragment is not an object");
+/// The PNU's answer, from the lane's one section (the contract's anchor, `documents`).
+export async function resolvePacks(reads: PackReads, plan: PackPlan, pnu: string): Promise<Resolved> {
+  const [section, ...others] = plan.sections;
+  if (section === undefined || others.length > 0 || section.name !== lanePacks.anchor_section) {
+    throw new PackFormatError("a plan serves exactly the contract's one documents section");
   }
-  return value as Json;
-}
-
-function asArray(value: unknown): unknown[] {
-  if (!Array.isArray(value)) throw new InconsistentSections("a fragment is not an array");
-  return value;
-}
-
-/// The publisher's join (`sections.rs`): fills the anchor's empty places, refusing ids that are
-/// not exactly the anchor's sequence.
-export function joinFragments(fragments: readonly unknown[]): Json {
-  const [anchorRaw, floorsRaw, unitsRaw, pricesRaw] = fragments;
-  const anchor = asObject(anchorRaw);
-  const buildings = asArray(anchor.buildings).map(asObject);
-  const floors = asArray(floorsRaw).map(asObject);
-  const units = asObject(unitsRaw);
-  const unitBuildings = asArray(units.buildings).map(asObject);
-  const prices = asArray(pricesRaw).map(asObject);
-  if (
-    floors.length !== buildings.length ||
-    unitBuildings.length !== buildings.length ||
-    asArray(anchor.unlinked_units).length !== 0
-  ) {
-    throw new InconsistentSections("sections name other buildings");
-  }
-  buildings.forEach((building, index) => {
-    const floorsOf = floors[index];
-    const unitsOf = unitBuildings[index];
-    if (
-      floorsOf === undefined ||
-      unitsOf === undefined ||
-      floorsOf.building_id !== building.id ||
-      unitsOf.building_id !== building.id ||
-      asArray(building.floors).length !== 0 ||
-      asArray(building.units).length !== 0
-    ) {
-      throw new InconsistentSections("sections name other buildings");
-    }
-    building.floors = asArray(floorsOf.floors);
-    building.units = asArray(unitsOf.units);
-  });
-  anchor.unlinked_units = asArray(units.unlinked_units);
-  const allUnits = [
-    ...buildings.flatMap((building) => asArray(building.units).map(asObject)),
-    ...asArray(anchor.unlinked_units).map(asObject),
-  ];
-  if (allUnits.length !== prices.length) throw new InconsistentSections("unit prices disagree");
-  allUnits.forEach((unit, index) => {
-    const price = prices[index];
-    if (price === undefined || price.unit_id !== unit.id || asArray(unit.official_price_history).length !== 0) {
-      throw new InconsistentSections("unit prices disagree");
-    }
-    unit.official_price_history = asArray(price.official_price_history);
-  });
-  return anchor;
-}
-
-export type Resolved = { kind: "document"; document: Json } | { kind: "tombstone" } | { kind: "absent" };
-
-/// The PNU's answer: every section read at once, the anchor deciding, the rest agreeing.
-export async function resolvePacks(
-  bucket: Pick<R2Bucket, "get">,
-  ctx: ExecutionContext,
-  plan: PackPlan,
-  pnu: string,
-): Promise<Resolved> {
-  const found = await Promise.all(plan.sections.map((section) => findFragment(bucket, ctx, plan, section, pnu)));
-  const anchorIndex = plan.sections.findIndex((section) => section.name === lanePacks.anchor_section);
-  const anchor = found[anchorIndex];
-  if (anchor === undefined) throw new InconsistentSections("no anchor section");
-  if (anchor.kind !== "document") {
-    if (found.some((fragment) => fragment.kind === "document")) {
-      throw new InconsistentSections("a section answers where the anchor does not");
-    }
-    return anchor;
-  }
-  const values = found.map((fragment) => {
-    if (fragment.kind !== "document") throw new InconsistentSections("a section is missing");
-    return fragment.value;
-  });
-  return { kind: "document", document: joinFragments(values) };
+  return findDocument(reads, plan, section, pnu);
 }

@@ -167,20 +167,20 @@ mod tests {
 
     #[test]
     fn a_pack_key_round_trips_and_names_the_contract_root() -> anyhow::Result<()> {
-        let base = pack_key(ByPnuLane::Building, "floors", 3, None, UNIT)?;
+        let base = pack_key(ByPnuLane::Building, "documents", 3, None, UNIT)?;
         assert_eq!(
             base,
-            format!("serving/buildings/packs/floors/g3/{UNIT}.pack")
+            format!("serving/buildings/packs/documents/g3/{UNIT}.pack")
         );
-        let patch = pack_key(ByPnuLane::Building, "floors", 3, Some(2), UNIT)?;
+        let patch = pack_key(ByPnuLane::Building, "documents", 3, Some(2), UNIT)?;
         assert_eq!(
             patch,
-            format!("serving/buildings/packs/floors/g3/p2/{UNIT}.pack")
+            format!("serving/buildings/packs/documents/g3/p2/{UNIT}.pack")
         );
         assert_eq!(
             parse_pack_key(ByPnuLane::Building, &patch),
             Some(PackKey {
-                section: "floors".to_owned(),
+                section: "documents".to_owned(),
                 generation: 3,
                 patch: Some(2),
                 unit: UNIT.to_owned()
@@ -194,17 +194,17 @@ mod tests {
     fn keys_outside_the_grammar_are_refused() {
         for bad in [
             pack_key(ByPnuLane::Building, "zonings", 1, None, UNIT),
-            pack_key(ByPnuLane::Building, "floors", 0, None, UNIT),
-            pack_key(ByPnuLane::Building, "floors", 1, Some(0), UNIT),
-            pack_key(ByPnuLane::Building, "floors", 1, None, "99999"),
-            pack_key(ByPnuLane::Parcel, "floors", 1, None, UNIT),
+            pack_key(ByPnuLane::Building, "documents", 0, None, UNIT),
+            pack_key(ByPnuLane::Building, "documents", 1, Some(0), UNIT),
+            pack_key(ByPnuLane::Building, "documents", 1, None, "99999"),
+            pack_key(ByPnuLane::Parcel, "documents", 1, None, UNIT),
         ] {
             assert!(bad.is_err(), "{bad:?}");
         }
         for key in [
-            "serving/buildings/packs/floors/g01/9999900000.pack",
-            "serving/buildings/packs/floors/g1/9999900000.json",
-            "serving/buildings/packs/floors/g1/x/9999900000.pack",
+            "serving/buildings/packs/documents/g01/9999900000.pack",
+            "serving/buildings/packs/documents/g1/9999900000.json",
+            "serving/buildings/packs/documents/g1/x/9999900000.pack",
             "serving/buildings/by-pnu/v1/9999900000100000000.json",
         ] {
             assert_eq!(parse_pack_key(ByPnuLane::Building, key), None, "{key}");

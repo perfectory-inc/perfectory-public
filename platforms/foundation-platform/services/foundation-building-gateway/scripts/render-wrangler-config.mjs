@@ -20,6 +20,16 @@ export function render(contract) {
   if (hostnames.some((hostname) => typeof hostname !== "string" || hostname === "")) {
     throw new Error("building_by_pnu_gateway.public_hostname(_aliases) must be non-empty strings");
   }
+  // The cut-over gate's preview (root ADR-0147 §6): its own Worker on its own hostname, so the
+  // edge cache behaves as on the live custom domains, never a live route, and the binding that
+  // lets it serve an unpublished pack generation set on it alone.
+  const packs = gateway.section_packs;
+  const preview = packs?.preview_worker;
+  if (preview !== undefined) {
+    if (preview.worker_name === gateway.worker_name || hostnames.includes(preview.public_hostname)) {
+      throw new Error("the preview Worker must not share the live Worker's name or hostnames");
+    }
+  }
   return `${JSON.stringify(
     {
       $schema: "node_modules/wrangler/config-schema.json",
@@ -30,6 +40,19 @@ export function render(contract) {
       keep_vars: true,
       routes: hostnames.map((hostname) => ({ pattern: hostname, custom_domain: true })),
       r2_buckets: [{ binding: gateway.r2_binding, bucket_name: bucket }],
+      ...(preview === undefined
+        ? {}
+        : {
+            env: {
+              [preview.wrangler_env]: {
+                name: preview.worker_name,
+                workers_dev: false,
+                routes: [{ pattern: preview.public_hostname, custom_domain: true }],
+                r2_buckets: [{ binding: gateway.r2_binding, bucket_name: bucket }],
+                vars: { [packs.preview_binding]: "true" },
+              },
+            },
+          }),
     },
     null,
     2,

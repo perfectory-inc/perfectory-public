@@ -1,5 +1,14 @@
 import connectionContract from "../../../config/r2-connections.contract.json";
-import { parseSectionPacks, previewPlan, resolvePacks, type PackPlan } from "./packs";
+import {
+  PackFormatError,
+  PackReadUnavailable,
+  packReads,
+  parseSectionPacks,
+  previewPlan,
+  resolvePacks,
+  type PackPlan,
+  type ReadTrace,
+} from "./packs";
 
 const policy = connectionContract.building_by_pnu_gateway;
 const patchPolicy = connectionContract.by_pnu_serving_patches;
@@ -265,17 +274,33 @@ async function findObject(
   return object === null ? { kind: "absent" } : { kind: "object", object };
 }
 
-function digestHex(bytes: Uint8Array): Promise<string> {
-  return crypto.subtle.digest("SHA-256", bytes).then((digest) =>
-    [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
-  );
-}
-
 function matchesEtag(request: Request, etag: string): boolean {
   return (request.headers.get("If-None-Match") ?? "").split(",").some((entry) => {
     const candidate = entry.trim();
     return candidate === "*" || candidate.replace(/^W\//, "") === etag;
   });
+}
+
+/// Why a pack read became an outage, in the words the logs and `Server-Timing` use: an
+/// inconsistency the data itself shows, or R2 not answering within the read policy.
+function outageClass(error: unknown): string {
+  if (error instanceof PackReadUnavailable) return "r2-unavailable";
+  if (error instanceof PackFormatError) return "pack-inconsistent";
+  return "unexpected";
+}
+
+/// `Server-Timing` (W3C) for a pack answer: R2 reads and the time spent waiting on them, where
+/// each section's pack came from, and the whole request. Only a preview version says it.
+function serverTiming(trace: ReadTrace | null, started: number, outcome: string): string {
+  const parts = [`outcome;desc="${outcome}"`];
+  if (trace !== null) {
+    parts.push(`r2;dur=${trace.r2Ms};desc="gets=${trace.r2Gets} retries=${trace.retries}"`);
+    for (const [section, source] of trace.sections) {
+      parts.push(`pack-${section};dur=${trace.sectionR2Ms.get(section) ?? 0};desc="${source}"`);
+    }
+  }
+  parts.push(`total;dur=${Date.now() - started}`);
+  return parts.join(", ");
 }
 
 /// The joined document of a PNU from section packs (root ADR-0147 §3): the same JSON the object
@@ -286,53 +311,97 @@ async function packResponse(
   ctx: ExecutionContext,
   plan: PackPlan,
   pnu: string,
-  cacheUrl: string,
   origin: string | null,
   allowed: ReadonlySet<string>,
+  timing: { started: number } | null,
 ): Promise<Response> {
+  const reads = packReads(bucket, ctx);
+  const timed = (response: Response, outcome: string): Response => {
+    if (timing !== null) response.headers.set("Server-Timing", serverTiming(reads.trace, timing.started, outcome));
+    return response;
+  };
   let resolved;
   try {
-    resolved = await resolvePacks(bucket, ctx, plan, pnu);
-  } catch {
+    resolved = await resolvePacks(reads, plan, pnu);
+  } catch (error) {
+    const outage = outageClass(error);
+    console.log(
+      JSON.stringify({
+        event: "pack_outage",
+        error_class: outage,
+        message: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+        sections: Object.fromEntries(reads.trace.sections),
+        failures: reads.trace.failures,
+        r2_gets: reads.trace.r2Gets,
+        r2_ms: reads.trace.r2Ms,
+      }),
+    );
     return withCors(
-      new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }),
+      timed(new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }), outage),
       origin,
       allowed,
     );
   }
   if (resolved.kind === "absent") {
     return withCors(
-      new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }),
+      timed(new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }), "absent"),
       origin,
       allowed,
     );
   }
   if (resolved.kind === "tombstone") {
     return withCors(
-      new Response(`${JSON.stringify({ error: "deleted", pnu })}\n`, {
-        status: 404,
-        headers: { "Cache-Control": "no-store", "Content-Type": policy.content_type },
-      }),
+      timed(
+        new Response(`${JSON.stringify({ error: "deleted", pnu })}\n`, {
+          status: 404,
+          headers: { "Cache-Control": "no-store", "Content-Type": policy.content_type },
+        }),
+        "tombstone",
+      ),
       origin,
       allowed,
     );
   }
-  const bytes = new TextEncoder().encode(`${JSON.stringify(resolved.document, null, 2)}\n`);
-  const etag = `"${(await digestHex(bytes)).slice(0, 32)}"`;
-  const headers = new Headers({
-    "Cache-Control": policy.cache_control,
-    "Content-Length": bytes.byteLength.toString(),
-    "Content-Type": policy.content_type,
-    ETag: etag,
-    "X-Content-Type-Options": "nosniff",
-  });
-  if (request.method === "GET") {
-    ctx.waitUntil(caches.default.put(new Request(cacheUrl), new Response(bytes, { headers })));
-  }
+  // The member is the served document's gzip, exactly as the object lane served it uncompressed:
+  // it goes out as it is, nothing decompressed or parsed (root ADR-0151). A client that does not
+  // accept gzip gets it decompressed here, the one path that spends CPU on the body.
+  const etag = `"${resolved.etag}"`;
+  const headers = corsHeaders(origin, allowed);
+  headers.set("Cache-Control", policy.cache_control);
+  headers.set("Content-Type", policy.content_type);
+  headers.set("ETag", etag);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.append("Vary", "Accept-Encoding");
   if (matchesEtag(request, etag)) {
-    return withCors(new Response(null, { status: 304, headers }), origin, allowed);
+    return timed(new Response(null, { status: 304, headers }), "not-modified");
   }
-  return withCors(new Response(bytes, { status: 200, headers }), origin, allowed);
+  if (acceptsGzip(request)) {
+    headers.set("Content-Encoding", "gzip");
+    headers.set("Content-Length", resolved.member.byteLength.toString());
+    const body = request.method === "HEAD" ? null : resolved.member;
+    return timed(new Response(body, { status: 200, headers, encodeBody: "manual" }), "document");
+  }
+  const plain = new Response(new Blob([resolved.member]).stream().pipeThrough(new DecompressionStream("gzip")));
+  const bytes = new Uint8Array(await plain.arrayBuffer());
+  headers.set("Content-Length", bytes.byteLength.toString());
+  return timed(
+    new Response(request.method === "HEAD" ? null : bytes, { status: 200, headers }),
+    "document-decompressed",
+  );
+}
+
+/// Whether the client takes `Content-Encoding: gzip` (RFC 9110 §12.5.3): named with a nonzero
+/// weight, or covered by `*`.
+function acceptsGzip(request: Request): boolean {
+  const accepted = new Map<string, number>();
+  for (const field of (request.headers.get("Accept-Encoding") ?? "").split(",")) {
+    const [coding, ...parameters] = field.trim().toLowerCase().split(";");
+    if (coding === undefined || coding === "") continue;
+    const weight = parameters.map((parameter) => parameter.trim()).find((parameter) => parameter.startsWith("q="));
+    accepted.set(coding, weight === undefined ? 1 : Number(weight.slice(2)));
+  }
+  const gzip = accepted.get("gzip") ?? accepted.get("x-gzip") ?? accepted.get("*");
+  return gzip !== undefined && gzip > 0;
 }
 
 function capabilities(): Response {
@@ -353,6 +422,7 @@ async function fetchBuilding(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
+  const started = Date.now();
   const url = new URL(request.url);
   if (
     url.pathname === policy.request_path.capabilities &&
@@ -416,13 +486,20 @@ async function fetchBuilding(
   // serves one, and the live route serves a generation only when the manifest already names it.
   let packs = plan.packs;
   let fingerprint = plan.fingerprint;
+  // A preview version says how it answered (`Server-Timing`); the live route does not.
+  const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
   if (previewGeneration !== null) {
-    if (env[lanePacks.preview_binding] === "true") {
+    if (timing !== null) {
       packs = previewPlan(previewGeneration);
       fingerprint = packs.fingerprint;
     } else if (packs === undefined || !packs.sections.every((section) => section.generation === previewGeneration)) {
       return withCors(new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }), origin, allowed);
     }
+  }
+  if (packs !== undefined) {
+    // No per-PNU edge copy: the pack copies already make a warm read free of R2, and the answer
+    // is the member as it is, so a second copy would only spend CPU putting it.
+    return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing);
   }
   const cacheUrl = servingCacheUrl(request.url, { fingerprint });
   if (request.method === "GET") {
@@ -433,10 +510,6 @@ async function fetchBuilding(
         : new Request(cacheUrl, { headers: { "If-None-Match": ifNoneMatch } });
     const cached = await caches.default.match(cacheRequest);
     if (cached !== undefined) return withCors(cached, origin, allowed);
-  }
-
-  if (packs !== undefined) {
-    return packResponse(request, bucket, ctx, packs, pnu, cacheUrl, origin, allowed);
   }
 
   let found: Found;

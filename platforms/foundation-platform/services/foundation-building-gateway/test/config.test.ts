@@ -46,6 +46,26 @@ describe("generated Wrangler configuration", () => {
     }
   });
 
+  it("the cut-over preview is its own Worker on its own custom domain, never a live route", async () => {
+    const text = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+    const config = JSON.parse(text) as {
+      vars?: unknown;
+      env?: Record<string, { name: string; workers_dev: boolean; routes: unknown; vars: Record<string, string> }>;
+    };
+    const gateway = connectionContract.building_by_pnu_gateway;
+    const preview = gateway.section_packs.preview_worker;
+    const env = config.env?.[preview.wrangler_env];
+    expect(env?.name).toBe(preview.worker_name);
+    expect(env?.name).not.toBe(gateway.worker_name);
+    // A custom domain, so the Cache API is the one the live hostnames get.
+    expect(env?.workers_dev).toBe(false);
+    expect(env?.routes).toEqual([{ pattern: preview.public_hostname, custom_domain: true }]);
+    expect([gateway.public_hostname, ...gateway.public_hostname_aliases]).not.toContain(preview.public_hostname);
+    // Only the preview serves an unpublished generation.
+    expect(env?.vars).toEqual({ [gateway.section_packs.preview_binding]: "true" });
+    expect(config.vars).toBeUndefined();
+  });
+
   it("manifest and objects live under one serving root the binding can reach", () => {
     const layout = connectionContract.building_by_pnu_gateway.object_key;
     expect(layout.manifest_object.startsWith(`${layout.root}/`)).toBe(true);

@@ -20,5 +20,26 @@
       "binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
       "bucket_name": "foundation-platform-lakehouse-prod"
     }
-  ]
+  ],
+  "env": {
+    "preview": {
+      "name": "foundation-building-gateway-preview",
+      "workers_dev": false,
+      "routes": [
+        {
+          "pattern": "buildings-preview.perfectory.io",
+          "custom_domain": true
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+          "bucket_name": "foundation-platform-lakehouse-prod"
+        }
+      ],
+      "vars": {
+        "FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW": "true"
+      }
+    }
+  }
 }

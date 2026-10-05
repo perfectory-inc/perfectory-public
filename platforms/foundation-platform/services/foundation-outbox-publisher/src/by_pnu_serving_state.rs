@@ -404,7 +404,7 @@ mod tests {
             .await?;
         // An unpublished patch number above the newest one, as a crashed bake leaves it.
         let key =
-            crate::r2_layout::by_pnu_packs::pack_key(lane, "floors", 2, Some(7), "9999900000")?;
+            crate::r2_layout::by_pnu_packs::pack_key(lane, "documents", 2, Some(7), "9999900000")?;
         std::fs::create_dir_all(root.join(&key).parent().context("a parent")?)?;
         std::fs::write(root.join(&key), b"pack")?;
 
@@ -416,11 +416,10 @@ mod tests {
             "999990000000000001"
         );
         assert_eq!(value["newest_patch"], 5);
-        // The re-baked first section reads only patch 5; the others read 4 and 5.
-        assert_eq!(value["max_live_patches"], 2);
-        assert_eq!(value["cumulative_changes"], 4);
+        // The section re-baked into generation 3 after patch 4 reads only patch 5.
+        assert_eq!(value["max_live_patches"], 1);
+        assert_eq!(value["cumulative_changes"], 2);
         assert_eq!(value["sections"][0]["generation"], 3);
-        assert_eq!(value["sections"][1]["generation"], 2);
         assert_eq!(value["generations_with_packs"], serde_json::json!([2]));
         assert_eq!(value["patches_with_packs"], serde_json::json!([7]));
         Ok(())
