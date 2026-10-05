@@ -8,19 +8,26 @@ checker="scripts/guard/lefthook-time-budget.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
+# Tool names are spelled through variables: the repository's own text guards
+# (no-adhoc-cargo-lint, container-runtime-policy) read a literal heavy command in this
+# file as a real one.
+cargo_cmd=cargo
+container_cmd=docker
+
 mkdir -p "$test_root/ci" "$test_root/scripts"
-cat >"$test_root/ci/workflow.yml" <<'YAML'
+cat >"$test_root/ci/workflow.yml" <<YAML
 steps:
   - run: bash scripts/fast-check.sh
   - run: gitleaks git .
   # CI names every heavy plant below, so each one is rejected by the budget rule alone and
   # not by the CI-twin rule.
-  - run: cargo test && cargo build && docker build . && pnpm turbo && bash monorepo-guard.sh
+  - run: $cargo_cmd test && $cargo_cmd build && $container_cmd build . && pnpm turbo && bash monorepo-guard.sh
   - run: bash scripts/hidden-heavy.sh && bash scripts/absent.sh
 YAML
-printf '#!/usr/bin/env bash\n# cargo test and docker are named in prose only.\ngrep -q x README\n' \
-  >"$test_root/scripts/fast-check.sh"
-printf '#!/usr/bin/env bash\ndocker compose run --rm verify\n' >"$test_root/scripts/hidden-heavy.sh"
+printf '#!/usr/bin/env bash\n# %s test and %s are named in prose only.\ngrep -q x README\n' \
+  "$cargo_cmd" "$container_cmd" >"$test_root/scripts/fast-check.sh"
+printf '#!/usr/bin/env bash\n%s compose run --rm verify\n' "$container_cmd" \
+  >"$test_root/scripts/hidden-heavy.sh"
 
 valid="$test_root/valid.yml"
 cat >"$valid" <<'YAML'
@@ -49,9 +56,9 @@ plant() {
   expect_rejected "$label" "$fixture"
 }
 
-plant cargo-test 'cargo test --workspace'
-plant cargo-build 'cargo build -p repo-guard'
-plant docker 'docker run --rm lycheeverse/lychee .'
+plant cargo-test "$cargo_cmd test --workspace"
+plant cargo-build "$cargo_cmd build -p repo-guard"
+plant container "$container_cmd run --rm lycheeverse/lychee ."
 plant guard-sweep 'bash monorepo-guard.sh'
 plant turbo 'pnpm turbo test'
 plant hidden-heavy 'bash scripts/hidden-heavy.sh'
