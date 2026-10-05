@@ -128,8 +128,8 @@ class EditionContractTest(unittest.TestCase):
             "share the handoff prefix": lambda c: c["editions"]["209906"].update(
                 handoff_prefix=c["editions"]["209902"]["handoff_prefix"]),
             "counts 3 sigungu": lambda c: c["editions"]["209906"]["granularity_counts"].update(sigungu=3),
-            "two coverings": lambda c: (c["editions"]["209906"]["objects"].pop(),
-                                        c["editions"]["209906"]["granularity_counts"].update(sigungu=1)),
+            "every province needs its districts": lambda c: (
+                c["editions"]["209906"]["objects"].pop(), c["editions"]["209906"]["granularity_counts"].update(sigungu=1)),
             "served_edition": lambda c: c.update(served_edition="209910"),
             "schema_version": lambda c: c.update(schema_version=1),
             "is not YYYYMM": lambda c: c["editions"].update({"2099-6": c["editions"].pop("209906")}),
@@ -167,6 +167,77 @@ class EditionContractTest(unittest.TestCase):
                 self.assertEqual(editions.main(["snapshot-id", "--contract", str(path)]), 2)
 
 
+def inventory(*files: tuple[str, str, str]) -> dict:
+    """An inventory report of the parcel dataset: (provider file name, base month, download kind)."""
+
+    return {"jobs": [{"endpoint_slug": editions.PROVIDER_ENDPOINT, "files": [
+        {"file_no": str(n), "provider_file_name": name, "base_ym": base, "updated_at": "2099-10-15",
+         "download_kind": kind} for n, (name, base, kind) in enumerate(files, 1)]}]}
+
+
+def measured(name: str, code: str, day: str = "2099-10-14") -> dict:
+    return {"object_key": f"bronze/source=vworldkr__parcel/{name}-{code}-new.zip", "bytes": 7,
+            "members": [f"LSMD_CONT_LDREG_{code}_{name}.{ext}" for ext in ("dbf", "prj", "shp", "shx")],
+            "member_dates": ["2099-06-01", day]}
+
+
+class ANewProviderEditionTest(unittest.TestCase):
+    """The daily check, collection and proposal of scripts/ops/vworld-parcel-edition-collect.sh."""
+
+    LISTED = inventory(("a.zip", "2099-10", "single_resource_file"), ("b.zip", "2099-10", "single_resource_file"),
+                       ("big-province.zip", "2099-10", "selection_archive"),
+                       ("old-district.zip", "2099-06", "single_resource_file"), ("columns.hwp", "-", "single_resource_file"))
+
+    def test_the_provider_edition_is_its_newest_base_month(self):
+        # 제공자는 폐지된 시군구의 파일을 마지막 판 그대로 남겨 둔다(2026-10 에 셋). 판은 가장 새 기준월이다.
+        self.assertEqual(editions.provider_edition(contract("209902", "209906"), self.LISTED), ("209910", False))
+        self.assertEqual(editions.provider_edition(contract("209906", "209910"), self.LISTED), ("209910", True))
+
+    def test_an_empty_or_older_listing_is_refused_not_read_as_nothing_new(self):
+        with self.assertRaisesRegex(editions.EditionError, "lists no parcel files"):
+            editions.provider_edition(contract("209906"), inventory())
+        with self.assertRaisesRegex(editions.EditionError, "older than the contract's"):
+            editions.provider_edition(contract("209906", "209910"), inventory(("a.zip", "2099-06", "single_resource_file")))
+        with self.assertRaisesRegex(editions.EditionError, "no parcel file lists a base month"):
+            editions.provider_edition(contract("209906"), inventory(("columns.hwp", "-", "single_resource_file")))
+
+    def test_only_the_new_editions_direct_downloads_are_collected(self):
+        cut = editions.select_inventory(self.LISTED, "209910")
+        self.assertEqual([f["provider_file_name"] for f in cut["jobs"][0]["files"]], ["a.zip", "b.zip"])
+        with self.assertRaisesRegex(editions.EditionError, "no file of edition 209912"):
+            editions.select_inventory(self.LISTED, "209912")
+
+    def test_a_proposal_is_the_contract_entry_or_nothing(self):
+        source = contract("209902", "209906")
+        rows = [measured("209910", "97"), measured("209910", "97110", "2099-10-13"), measured("209910", "98110")]
+        entry = editions.propose(source, "209910", rows, "silver-handoff/synthetic/edition=209910")
+        self.assertEqual(entry["granularity_counts"], {"sido": 1, "sigungu": 2})
+        self.assertEqual(entry["extracted_on"], {"earliest": "2099-10-13", "latest": "2099-10-14"})
+        self.assertEqual([o["region_code"] for o in entry["objects"]], ["97", "97110", "98110"])
+        # 심은 위반: 다른 판의 파일, 시군구 없는 시도, 이미 다른 판이 가진 객체.
+        planted = {
+            "not one shapefile of edition 209910": rows + [measured("209906", "99110")],
+            "every province needs its districts": [measured("209910", "97"), measured("209910", "98"), measured("209910", "97110")],
+            "named by editions": rows + [{**measured("209910", "97120"),
+                                          "object_key": source["editions"]["209906"]["objects"][0]["object_key"]}],
+        }
+        for message, bad in planted.items():
+            with self.subTest(message), self.assertRaisesRegex(editions.EditionError, message):
+                editions.propose(source, "209910", bad, "silver-handoff/synthetic/edition=209910")
+
+    def test_the_plan_reads_one_dataset_with_the_latest_editions_counts(self):
+        catalog = {"schema_version": 1, "endpoints": [
+            {"endpoint_slug": editions.PROVIDER_ENDPOINT, "provider_dataset_selector": {"svc_cde": "MK", "ds_id": "99999"}},
+            {"endpoint_slug": "something-else"}]}
+        self.assertEqual([e["endpoint_slug"] for e in editions.endpoint_catalog(catalog)["endpoints"]],
+                         [editions.PROVIDER_ENDPOINT])
+        header, row = editions.inventory_summary_csv(contract("209906"), catalog).splitlines()
+        self.assertEqual(header, "module,svc_cde,ds_id,file_pages,file_count,large_file_count,listed_gib")
+        self.assertEqual(row.split(",")[:6], ["vworld_dataset", "MK", "99999", "1", "4", "0"])
+        with self.assertRaisesRegex(editions.EditionError, "lists 0"):
+            editions.endpoint_catalog({"endpoints": []})
+
+
 class EachChangeReadsItsOwnEditionsTest(unittest.TestCase):
     def test_two_changes_are_paired_across_their_own_pairs(self):
         result, _ = pair_with(contract("209902", "209906", "209910"), "209902", "209906", "209910")
@@ -178,7 +249,7 @@ class EachChangeReadsItsOwnEditionsTest(unittest.TestCase):
         self.assertEqual(result.review, [])
 
     def test_reading_the_later_edition_for_held_jibun_only_changes_nothing(self):
-        # 나중 판은 폐지된 동이 가졌던 지번만 읽는다(전남광주 630만 필지를 드라이버로 모으지 않으려고).
+        # 나중 판은 폐지된 동이 가졌던 지번만 읽는다(새로 생긴 코드 아래의 수백만 필지를 드라이버로 모으지 않으려고).
         # 그 거름이 결과를 바꾸면 안 된다: 거르지 않은 표와 같은 짝, 같은 목록이어야 한다.
         rows = two_changes() + as_rows(table_html([
             row("9811010400", "합성도 나구 딴동", parent="9811000000", created=AUTUMN)]))

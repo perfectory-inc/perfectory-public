@@ -121,6 +121,20 @@
       "enabled": true
     },
     {
+      "id": "vworld_parcel_edition",
+      "description": "VWorld cadastral parcel editions (연속지적도, MK/30563; root ADR-0148): check the provider's newest edition against the source contract (vworld-parcel-source-objects.json); when it is new, collect its directly downloadable files into Bronze, measure each ZIP's members by ranged read, and propose the contract entry. No Spark: the Silver load runs from a release whose contract holds the edition (runbook vworld-parcel-editions.md). Exit 3 means an edition awaits the contract, not a fault.",
+      "systemd_service": "foundation-vworld-parcel-edition.service",
+      "systemd_timer": null,
+      "schedule": "40 4 * * *",
+      "timeout_minutes": 190,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-parcel-boundaries"
+      ],
+      "enabled": false,
+      "disabled_reason": "New. Off until one supervised run on the data host (runbook vworld-parcel-editions.md, 'Turning it on') has answered 'held' for the edition the contract holds; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "data_quality",
       "description": "Run the data contracts' executable checks (allowed values, schema) against the lakehouse and report each result to the data catalog (root ADR-0117 §6, ADR-0123).",
       "systemd_service": "foundation-data-quality.service",

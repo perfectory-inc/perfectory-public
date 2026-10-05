@@ -107,9 +107,13 @@ def validate(contract: Mapping[str, Any]) -> None:
             held = sum(1 for obj in objects if obj["granularity"] == granularity)
             if counts.get(granularity) != held:
                 raise EditionError(f"edition {name} counts {counts.get(granularity)} {granularity} objects and lists {held}")
-        if not covered["sido"] or covered["sido"] != covered["sigungu"]:
+        # Every 시도 a province object covers must have its 시군구 objects: a province without them is
+        # a gap in the covering that loads. The reverse need not hold: the provider serves its
+        # largest province files only through its download agent (RAON), which the scheduled
+        # collection does not drive, and the province covering is never loaded (root ADR-0148).
+        if not covered["sigungu"] or not covered["sido"] <= covered["sigungu"]:
             raise EditionError(f"edition {name}: its sido objects cover {sorted(covered['sido'])} and its sigungu objects "
-                               f"{sorted(covered['sigungu'])}; they must be two coverings of one country")
+                               f"{sorted(covered['sigungu'])}; every province needs its districts")
 
 
 def edition(contract: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -200,6 +204,32 @@ BASE_MONTH = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
 MEMBER = re.compile(r"^LSMD_CONT_LDREG_(\d{2}|\d{5})_(\d{6})\.shp$")
 
 
+def endpoint_catalog(catalog: Mapping[str, Any]) -> dict[str, Any]:
+    """The endpoint catalog cut to the parcel dataset, so the plan and inventory read one dataset's
+    pages a day instead of every VWorld dataset's."""
+
+    kept = [e for e in catalog.get("endpoints", []) if e.get("endpoint_slug") == PROVIDER_ENDPOINT]
+    if len(kept) != 1:
+        raise EditionError(f"the endpoint catalog lists {len(kept)} {PROVIDER_ENDPOINT} endpoints, expected one")
+    return {**catalog, "endpoints": kept}
+
+
+def inventory_summary_csv(contract: Mapping[str, Any], catalog: Mapping[str, Any]) -> str:
+    """The one-dataset summary `plan-vworld-dataset-collection` reads beside the catalog.
+
+    The plan matches the endpoint to it by selector and carries its counts into the inventory as
+    the expected ones; a difference is a warning there, not a refusal, because the provider's page
+    decides. The expected counts are the latest edition's, which is what a new one should resemble.
+    """
+
+    selector = endpoint_catalog(catalog)["endpoints"][0]["provider_dataset_selector"]
+    latest = contract["editions"][names(contract)[-1]]
+    count = len(latest["objects"])
+    gib = sum(obj["bytes"] for obj in latest["objects"]) / 2**30
+    header = "module,svc_cde,ds_id,file_pages,file_count,large_file_count,listed_gib"
+    return f"{header}\nvworld_dataset,{selector['svc_cde']},{selector['ds_id']},{-(-count // 10)},{count},0,{gib:.2f}\n"
+
+
 def _parcel_files(inventory: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     jobs = [job for job in inventory.get("jobs", []) if job.get("endpoint_slug") == PROVIDER_ENDPOINT]
     if len(jobs) != 1:
@@ -232,14 +262,18 @@ def provider_edition(contract: Mapping[str, Any], inventory: Mapping[str, Any]) 
 
 
 def select_inventory(inventory: Mapping[str, Any], name: str) -> dict[str, Any]:
-    """The inventory cut to the files of one edition, for the ingest to collect (every file of it:
-    which covering loads is decided by measuring the ZIPs, not by the provider's file names)."""
+    """The inventory cut to the directly downloadable files of one edition, for the ingest to
+    collect. Which covering loads is decided by measuring the ZIPs, not by the provider's file
+    names. The files served only through the provider's download agent (`selection_archive`: in
+    2026-10 the six largest province files, never a district) are left out; every other file of the
+    edition must then be collected, or nothing is proposed."""
 
     month = f"{name[:4]}-{name[4:]}"
     cut = json.loads(json.dumps(inventory))
     for job in cut["jobs"]:
         if job.get("endpoint_slug") == PROVIDER_ENDPOINT:
-            job["files"] = [f for f in job["files"] if str(f.get("base_ym", "")).strip() == month]
+            job["files"] = [f for f in job["files"] if str(f.get("base_ym", "")).strip() == month
+                            and f.get("download_kind") == "single_resource_file"]
             job["discovered_file_count"] = len(job["files"])
         else:
             job["files"] = []
@@ -292,15 +326,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=("check", "editions", "served", "snapshot-id", "valid-from",
                                             "handoff-prefix", "handoff-suffix", "source-keys", "handoff-keys",
-                                            "provider-edition", "select-inventory", "propose"))
+                                            "endpoint-catalog", "provider-edition", "select-inventory", "propose"))
     parser.add_argument("--edition", help="YYYYMM; required by every command naming one edition")
     parser.add_argument("--contract", help=f"defaults to ${CONTRACT_ENV}, then the contract beside this job")
     parser.add_argument("--inventory", help="provider-edition, select-inventory: the inventory report")
+    parser.add_argument("--catalog", help="endpoint-catalog: public-source-endpoint-catalog.v1.json")
+    parser.add_argument("--summary-output", help="endpoint-catalog: the plan's inventory summary CSV")
     parser.add_argument("--measured", help="propose: JSON lines from vworld_parcel_edition_members.py")
-    parser.add_argument("--output", help="select-inventory, propose: where to write")
+    parser.add_argument("--output", help="endpoint-catalog, select-inventory, propose: where to write")
     args = parser.parse_args(argv)
     try:
         contract = load(Path(args.contract) if args.contract else None)
+        if args.command == "endpoint-catalog":
+            catalog = json.loads(Path(args.catalog).read_text(encoding="utf-8"))
+            Path(args.output).write_text(json.dumps(endpoint_catalog(catalog), ensure_ascii=False) + "\n", encoding="utf-8")
+            if args.summary_output:
+                Path(args.summary_output).write_text(inventory_summary_csv(contract, catalog), encoding="utf-8")
+            return 0
         if args.command == "provider-edition":
             newest, held = provider_edition(contract, json.loads(Path(args.inventory).read_text(encoding="utf-8")))
             print(f"{newest} {'held' if held else 'new'}")
