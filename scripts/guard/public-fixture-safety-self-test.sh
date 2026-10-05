@@ -123,6 +123,22 @@ cat >"$test_root/retired.contract.json" <<'JSON'
 JSON
 git -C "$test_root" add retired.contract.json
 assert_rejected pnu-under-a-snapshot-like-key "repository-reserved 99999 PNU range"
+
+# A 19-digit run inside a SHA-256 digest (a content-addressed Bronze key) is not a parcel, but the
+# same run outside a digest, or in a hex string one character short of a digest, still is.
+cat >"$test_root/retired.contract.json" <<'JSON'
+{"object_key": "bronze/source=x/1--sha256-a5785903238283131790bf0f00a0800000000000000000000000000000000000.zip"}
+JSON
+git -C "$test_root" add retired.contract.json
+bash "$checker" "$test_root" >/dev/null || {
+  echo "FAIL public-fixture-safety-self-test: digits inside a sha256 digest were read as a PNU" >&2
+  exit 1
+}
+cat >"$test_root/retired.contract.json" <<'JSON'
+{"object_key": "bronze/source=x/1--sha256-a5785903238283131790bf0f00a080000000000000000000000000000000000.zip"}
+JSON
+git -C "$test_root" add retired.contract.json
+assert_rejected pnu-in-a-short-hex-string "repository-reserved 99999 PNU range"
 git -C "$test_root" rm -q -f retired.contract.json
 
 cat >"$test_root/coordinate.rs" <<'RS'

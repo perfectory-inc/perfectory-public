@@ -22,6 +22,7 @@ from typing import Any
 
 import parcel_identity as pi
 import parcel_lineage as pl
+import vworld_parcel_editions as editions
 from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import append_batch_once
@@ -44,7 +45,9 @@ NEW_SNAPSHOT_SHARE = 0.001
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--to-snapshot-id", required=True, help="silver.parcel_boundaries source_snapshot_id to register")
+    parser.add_argument("--to-snapshot-id",
+                        help="silver.parcel_boundaries source_snapshot_id to register: the served edition when omitted (ADR-0148 §1)")
+    editions.add_reader_flag(parser)
     parser.add_argument("--to-date", required=True, help="YYYY-MM-DD the snapshot reflects")
     parser.add_argument("--to-sido", required=True, help="Comma-separated sido prefixes of the snapshot's parcels")
     parser.add_argument("--from-snapshot-id", help="The snapshot the lineage runs from (advance / upgrade)")
@@ -57,7 +60,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--lineage-table", default="parcel_lineage")
     parser.add_argument("--allow-non-smoke-write", action="store_true")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    allow = args.allow_non_served_edition
+    args.to_snapshot_id = editions.served_reader_id(args.to_snapshot_id, allow, "--to-snapshot-id")
+    args.from_snapshot_id = editions.edition_reader_id(args.from_snapshot_id, allow, "--from-snapshot-id")
+    return args
 
 
 def validate_args(args: argparse.Namespace) -> None:

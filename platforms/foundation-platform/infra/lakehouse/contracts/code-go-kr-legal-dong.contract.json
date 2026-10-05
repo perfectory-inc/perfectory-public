@@ -55,7 +55,12 @@
   "pairing": {
     "$comment": "Changes dated on or after floor_date are paired (root ADR-0143 §3–4, ADR-0144). Earlier changes are already in every source the loaders read; 2026-01-01 covers the 2026-02-01 and 2026-07-01 reorganizations. jibun_overlap_min_share is ADR-0113 §5's line: an abolished 동 pairs by its 지번 set only with the new 동 that holds at least this share of it, and a lower share is a split signal. The parcel lineage reads the same value.",
     "floor_date": "20260101",
-    "jibun_overlap_min_share": 0.95
+    "jibun_overlap_min_share": 0.95,
+    "land_match": {
+      "$comment": "Owner decision 2026-10-05. The 지번 step counts a lot toward the overlap only when it is the same land in both editions: the same 지목 (the 연속지적도 writes it after the lot number, `123-4대`) and an area (from the boundary) that moved by no more than the larger of area_relative_tolerance of the earlier area and area_absolute_tolerance_m2. A lot number alone is reused by a renumbered 동 for other land.",
+      "area_relative_tolerance": 0.01,
+      "area_absolute_tolerance_m2": 1.0
+    }
   },
   "projection": {
     "$comment": "Root ADR-0143 §5. The hub exports refuse the crosswalk projection when no collection run has confirmed its table within max_age_days (accepted.json checked_at_utc, written by every collection that passes its checks, changed or not). The collection runs daily; three days allows two missed runs, the point at which the runbook says to look at the site.",

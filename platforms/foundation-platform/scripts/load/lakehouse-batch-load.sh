@@ -12,12 +12,18 @@
 # Every batch is therefore offered to the job on every run; an already-loaded batch costs the
 # time to read and validate its input, and appends nothing.
 #
+# **One edition per run** (root ADR-0148). `VWORLD_PARCEL_EDITION` names it; the contract gives its
+# handoff keys and the one `source_snapshot_id` every row must carry, and the job refuses a batch
+# holding any other. September handoffs written by hand on 2026-09-27 carry
+# `vworldkr__parcel:202609`; loading them would have made two spellings of one edition.
+#
 # Measured on ai-server (20 cores, 62 GB) on 2026-08-28: 255 objects, 39,861,511 rows, 16
 # batches, 19 minutes.
 set -uo pipefail
 
 MODE="${1:-validate}"          # validate (안 씀) | load (실제 적재)
 TABLE="${2:-parcel_boundaries}"
+EDITION="${VWORLD_PARCEL_EDITION:-}"   # 원천 계약의 판(YYYYMM)
 
 # 입력이 어디에 있는가. `local` 은 지금까지의 길이고, `r2` 는 변환기가 방금 쓴 객체를 바로
 # 읽는 길이다. 후자는 핸드오프가 서버 디스크에 머무르지 않는다 — 전국 한 번에 45.7 GB 였다.
@@ -53,6 +59,17 @@ export FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="$IVY_CACHE"
 mkdir -p "$STATE" "$WORK_ROOT" "$IVY_CACHE"
 chmod 777 "$WORK_ROOT" "$IVY_CACHE" 2>/dev/null || true
 cd "$RELEASE" || { echo "릴리스 디렉터리 없음: $RELEASE" >&2; exit 1; }
+
+# 판이 정하는 것: 핸드오프 키(r2), 그리고 모든 행이 지녀야 할 source_snapshot_id 하나.
+CONTRACT="${SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-parcel-source-objects.json}"
+editions() { python3 "$RELEASE/infra/lakehouse/spark/jobs/vworld_parcel_editions.py" "$@" --contract "$CONTRACT"; }
+if [ -n "${VWORLD_PARCEL_HANDOFF_PREFIX:-}" ]; then
+  echo "VWORLD_PARCEL_HANDOFF_PREFIX 는 더 이상 받지 않는다 — 판의 핸드오프 자리는 원천 계약이 정한다" >&2
+  exit 1
+fi
+[ -n "$EDITION" ] || { echo "VWORLD_PARCEL_EDITION 이 비어 있다 — 어느 판을 싣는지 지어내지 않는다" >&2; exit 1; }
+EXPECTED_SNAPSHOT_ID="$(editions snapshot-id --edition "$EDITION")" || exit 1
+[ -n "$EXPECTED_SNAPSHOT_ID" ] || { echo "판 $EDITION 의 snapshot id 를 못 얻었다" >&2; exit 1; }
 
 # 판은 계약이 정한다. 여기 적으면 잡과 다른 Iceberg 가 실린다 (root ADR-0065).
 PACKAGES=$(python3 -c "
@@ -95,26 +112,13 @@ case "$SOURCE" in
              FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY; do
       [ -n "${!v:-}" ] || { echo "r2 입력에는 $v 가 필요하다" >&2; exit 1; }
     done
-    CONTRACT="${SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-parcel-source-objects.json}"
-    # The prefix comes from the contract that already names the objects. It was a default
-    # here and in two other callers, so renaming it meant editing three files and any one
-    # missed would read from a prefix nothing was written to.
-    HANDOFF_PREFIX="${VWORLD_PARCEL_HANDOFF_PREFIX:-$(python3 -c "
-import json, sys
-print(json.load(open(sys.argv[1], encoding='utf-8'))['handoff_prefix'])
-" "$CONTRACT")}"
-    [ -f "$CONTRACT" ] || { echo "원천 목록이 없다: $CONTRACT" >&2; exit 1; }
-    mapfile -t all < <(python3 -c "
-import json, sys, os
-c = json.load(open('$CONTRACT'))
-if c['schema_version'] != 1:
-    sys.exit('source object contract schema_version %r is not the 1 this script reads' % c['schema_version'])
-want = c['load_granularity']
-for o in c['objects']:
-    if o['granularity'] == want:
-        base = os.path.basename(o['object_key'])[:-4]
-        print('s3a://' + os.environ['FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET'] + '/$HANDOFF_PREFIX/' + base + c['handoff_suffix'])
-") || { echo "핸드오프 키 목록을 못 만들었다" >&2; exit 1; }
+    # The keys come from the contract that already names the objects, edition by edition: the
+    # prefix was a default here and in two other callers, and renaming it meant editing three
+    # files and any one missed would read from a prefix nothing was written to. The suffix
+    # (the contract's handoff_suffix) is derived there too.
+    mapfile -t all < <(editions handoff-keys --edition "$EDITION" \
+      | sed "s#^#s3a://${FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET}/#")
+    [ "${#all[@]}" -gt 0 ] || { echo "핸드오프 키 목록을 못 만들었다" >&2; exit 1; }
     ;;
   *)
     echo "LAKEHOUSE_HANDOFF_SOURCE 는 local 또는 r2 여야 한다: $SOURCE" >&2
@@ -126,7 +130,7 @@ total_files=${#all[@]}
 if [ "$total_files" -eq 0 ]; then echo "핸드오프가 없다 (source=$SOURCE)" >&2; exit 1; fi
 
 batches=$(( (total_files + FILES_PER_BATCH - 1) / FILES_PER_BATCH ))
-echo "입력 $total_files 개 · 묶음 $batches 개 · 표 $TABLE · 방식 $MODE · 출처 $SOURCE"
+echo "판 $EDITION ($EXPECTED_SNAPSHOT_ID) · 입력 $total_files 개 · 묶음 $batches 개 · 표 $TABLE · 방식 $MODE · 출처 $SOURCE"
 
 wrote=0 skipped=0 fail=0 rows_total=0
 started=$(date +%s)
@@ -168,6 +172,7 @@ for (( i=0; i<batches; i++ )); do
   submit /workspace/infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py \
     --input "$input" \
     --write-mode iceberg --iceberg-table "$TABLE" \
+    --expected-source-snapshot-id "$EXPECTED_SNAPSHOT_ID" \
     $extra > "$log" 2>&1
   rc=$?
   el=$(( $(date +%s) - t0 ))

@@ -672,8 +672,11 @@ impl SidoTally {
         parcel_source: &str,
     ) -> anyhow::Result<Self> {
         let hub_feed = parse_hub_feed(hub_feed)?;
-        let parcel_source: ParcelSource = serde_json::from_str(parcel_source)
-            .context("vworld-parcel-source-objects.json is not valid JSON")?;
+        // The served edition's coverage: the 시도 the map carries (root ADR-0148).
+        let parcel_source: ParcelSource = serde_json::from_value(
+            crate::vworld_parcel_source_contract::served_edition_view(parcel_source)?,
+        )
+        .context("vworld-parcel-source-objects.json does not list its served edition's objects")?;
         let region_prefixes = |granularity: &str| {
             parcel_source
                 .objects
@@ -773,9 +776,11 @@ mod tests {
     use serde_json::{json, Value};
 
     /// A synthetic cadastral parcel set over 시도 97 and 98.
-    const PARCEL_SOURCE: &str = r#"{"objects":[
+    const PARCEL_SOURCE: &str = r#"{"schema_version":2,"load_granularity":"sigungu",
+        "handoff_suffix":".jsonl.gz","served_edition":"209906","editions":{"209906":{
+        "handoff_prefix":"h","granularity_counts":{"sido":2,"sigungu":2},"objects":[
         {"region_code":"97","granularity":"sido"},{"region_code":"98","granularity":"sido"},
-        {"region_code":"97110","granularity":"sigungu"},{"region_code":"98110","granularity":"sigungu"}]}"#;
+        {"region_code":"97110","granularity":"sigungu"},{"region_code":"98110","granularity":"sigungu"}]}}}"#;
 
     /// A register parcel key headed by the raw hub 시군구 `code`, zero-padded like the real one.
     fn key(code: &str) -> String {
@@ -1282,14 +1287,32 @@ mod tests {
     #[test]
     fn a_crosswalk_onto_a_sido_the_cadastre_dropped_is_refused() -> anyhow::Result<()> {
         // 지적도가 시도 98 을 더 이상 싣지 않으면, 99 → 98 짝은 거짓이 된다.
-        let parcel_source = r#"{"objects":[{"region_code":"97","granularity":"sido"},
-            {"region_code":"97110","granularity":"sigungu"}]}"#;
+        // 9월 판에는 98 이 남아 있어도 지도가 싣는 판(served_edition)이 기준이다.
+        let parcel_source = r#"{"schema_version":2,"load_granularity":"sigungu",
+            "handoff_suffix":".jsonl.gz","served_edition":"209909","editions":{
+            "209906":{"handoff_prefix":"a","granularity_counts":{"sido":2,"sigungu":2},"objects":[
+              {"region_code":"97","granularity":"sido"},{"region_code":"98","granularity":"sido"},
+              {"region_code":"97110","granularity":"sigungu"},{"region_code":"98110","granularity":"sigungu"}]},
+            "209909":{"handoff_prefix":"b","granularity_counts":{"sido":1,"sigungu":1},"objects":[
+              {"region_code":"97","granularity":"sido"},{"region_code":"97110","granularity":"sigungu"}]}}}"#;
+        let error = SidoTally::from_contracts(
+            &parse_crosswalk(BASELINE, HUB_FEED)?,
+            HUB_FEED,
+            parcel_source,
+        )
+        .err()
+        .map(|error| format!("{error:#}"))
+        .unwrap_or_default();
+        assert!(error.contains("no longer carries"), "{error}");
         assert!(SidoTally::from_contracts(
             &parse_crosswalk(BASELINE, HUB_FEED)?,
             HUB_FEED,
-            parcel_source
+            &parcel_source.replace(
+                r#""served_edition":"209909""#,
+                r#""served_edition":"209906""#
+            ),
         )
-        .is_err());
+        .is_ok());
         assert!(HUB_FEED_JSON.contains("absent_sido_row_bound"));
         assert!(!BASELINE_JSON.contains("placeholder_sigungu"));
         Ok(())

@@ -26,12 +26,13 @@ report() {
 [ -f "$contract" ] || { report "the source contract is missing: $contract"; exit 1; }
 
 # Fail when it cannot look. A guard that finds no value to search for and reports OK is the
-# defect it exists to catch, one level up.
-prefix="$(
+# defect it exists to catch, one level up. Every edition declares its own prefix (root ADR-0148),
+# so every declared value is searched for, not the first one found.
+mapfile -t prefixes < <(
   grep -oE '"handoff_prefix"[[:space:]]*:[[:space:]]*"[^"]+"' "$contract" \
-    | head -1 | sed -E 's/.*:[[:space:]]*"([^"]+)"/\1/'
-)"
-if [ -z "$prefix" ]; then
+    | sed -E 's/.*:[[:space:]]*"([^"]+)"/\1/' | sort -u
+)
+if [ "${#prefixes[@]}" -eq 0 ]; then
   report "the contract does not declare handoff_prefix, so the loaders have nowhere to read it from"
   exit 1
 fi
@@ -39,33 +40,35 @@ fi
 # Every occurrence outside the contract, with the test modules dropped. `grep -r` walks the tree
 # rather than a list of readers held here: a fourth caller must be caught the day it is written,
 # and a guard naming three files would not see it.
-while IFS= read -r hit; do
-  file="${hit%%:*}"
-  rest="${hit#*:}"
-  line="${rest%%:*}"
+for prefix in "${prefixes[@]}"; do
+  while IFS= read -r hit; do
+    file="${hit%%:*}"
+    rest="${hit#*:}"
+    line="${rest%%:*}"
 
-  case "$file" in
-    "$contract") continue ;;
-    *"/target/"*|*"/node_modules/"*|*"/.git/"*) continue ;;
-  esac
+    case "$file" in
+      "$contract") continue ;;
+      *"/target/"*|*"/node_modules/"*|*"/.git/"*) continue ;;
+    esac
 
-  case "$file" in
-    *.rs)
-      tests_at="$(grep -n '^mod tests\|^[[:space:]]*mod tests' "$file" | head -1 | cut -d: -f1)"
-      if [ -n "$tests_at" ] && [ "$line" -ge "$tests_at" ]; then
-        continue
-      fi
-      ;;
-  esac
+    case "$file" in
+      *.rs)
+        tests_at="$(grep -n '^mod tests\|^[[:space:]]*mod tests' "$file" | head -1 | cut -d: -f1)"
+        if [ -n "$tests_at" ] && [ "$line" -ge "$tests_at" ]; then
+          continue
+        fi
+        ;;
+    esac
 
-  report "$file:$line restates the handoff prefix the contract declares; read it from $contract instead"
-done < <(
-  grep -rnF --binary-files=without-match \
-    --exclude-dir=target --exclude-dir=node_modules --exclude-dir=.git \
-    -- "$prefix" "$root/platforms/foundation-platform" 2>/dev/null
-)
+    report "$file:$line restates the handoff prefix the contract declares; read it from $contract instead"
+  done < <(
+    grep -rnF --binary-files=without-match \
+      --exclude-dir=target --exclude-dir=node_modules --exclude-dir=.git \
+      -- "$prefix" "$root/platforms/foundation-platform" 2>/dev/null
+  )
+done
 
 if [ "$failed" -eq 0 ]; then
-  printf 'OK %s: handoff_prefix declared once and restated nowhere\n' "$name"
+  printf 'OK %s: %s handoff prefix(es) declared once and restated nowhere\n' "$name" "${#prefixes[@]}"
 fi
 exit "$failed"

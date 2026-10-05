@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-05
 ---
 
 # 법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드 런북
@@ -129,16 +129,48 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 
 ### 지번 근거 켜기 (2·3 단계)
 
-2·3 단계는 꺼진 채 출시된다. 그 동안 날짜·이름 규칙이 못 정한 동(이름이 바뀐 동, 나뉜 동, 지번이 새로 매겨진 동)은
-`status = awaiting_data`(판단 대기)로 목록에 남는다. 목록의 `jibun` 칸이 `jibun evidence off` 라고 말한다. ADR-0144 §4
+데이터가 없는 동안 날짜·이름 규칙이 못 정한 동(이름이 바뀐 동, 나뉜 동, 지번이 새로 매겨진 동)은
+`status = awaiting_data`(판단 대기)로 목록에 남는다. 목록의 `jibun` 칸이 무엇이 없는지(필요한 판, 또는 3 단계의
+원천) 말한다. ADR-0144 §4
 대로 이름 규칙으로 추정하지 않고, 스튜어드도 이 항목은 승인할 수 없다. 데이터가 들어오면 다음 실행이 정한다.
 
-- **2 단계**는 `silver.parcel_boundaries` 에 개편 전 스냅숏과 개편 뒤(새 코드) 스냅숏이 둘 다 있어야 한다. 둘을
-  정했으면 계보 단위 환경에 `LEGAL_DONG_PARCELS_BEFORE=<source_snapshot_id>` 와 `LEGAL_DONG_PARCELS_AFTER=<…>` 를
-  둔다(`legal-dong-code-load.sh`). 짝 맞추기는 두 스냅숏에서 폐지된 동과 새로 생긴 동의 PNU 만 읽는다.
+- **2 단계**는 켜져 있다(`legal-dong-code-load.sh` 의 `--jibun-evidence editions`, 루트 ADR-0148). 폐지된 동마다
+  원천 계약(`vworld-parcel-source-objects.json`)의 판 중 폐지일 전에 다 뽑힌 마지막 판과 뒤에 다 뽑힌 첫 판을 고르고,
+  `silver.parcel_boundaries` 에서 그 두 판의 PNU 를 읽는다(뒤 판은 폐지된 동이 가졌던 지번만). 개편마다 제 판 쌍을
+  쓴다. 후보는 같은 단계의 새 코드 중 옛 코드와 같은 시도(또는 시도 짝이 옮겨 간 시도)에 있고 폐지일이나 그 다음 날
+  생긴 것뿐이다: 전국에서 바닥 날짜 뒤에 생긴 아무 코드나 재면, 본번 범위가 넓은 먼 리가 지번을 모두 덮어 진짜
+  후계자를 이긴다. 번호가 같아도 같은 땅일 때만 센다: 지목이 같고 면적이 계약의 `pairing.land_match` 안이어야
+  한다(지목은 `jibun` 끝 글자, 면적은 경계에서 Spark 실행기가 잰다). 공식 필지 번호 이력이 들어오면 그것이 먼저
+  정하고, 지번 단계와 다르면 실행이 `PairingConflict` 로 멈춘다(아무것도 쓰지 않는다; 두 답을 보고 원인을 찾는다).
+  판이 계약에 없거나 표에 적재되지 않았으면 그 동은 `awaiting_data` 이고 `jibun` 칸이 필요한 판을 이름으로
+  말한다. 판의 수집·적재는 [VWorld 연속지적도 판 런북](./vworld-parcel-editions.md)이다. 환경 변수
+  `LEGAL_DONG_PARCELS_BEFORE/AFTER` 는 없어졌다.
 - **3 단계**는 필지고유번호변동연혁 원천이 수집되고 그 표가 생겨야 켤 수 있다. 그 전까지 지번이 모두 떠난 동은
   판단 대기다. 필지 계보(`silver.parcel_lineage`)를 대신 읽지 않는다: 계보가 이 표의 동 짝을 읽으므로, 계보를 근거로
   읽으면 서로가 서로를 읽는다(루트 ADR-0145 §2). 짝 맞추기 작업에는 그 옵션이 없고, 시험이 되돌아오는 것을 막는다.
+
+### 운영 데이터로 미리 보기 (`--validate-only`)
+
+짝 맞추기를 바꾼 릴리스가 `current` 가 된 뒤, 정기 실행이 변경표에 쌓기 전에 같은 판단을 운영 데이터로 한 번 본다.
+최신 스냅숏·기록된 짝·`silver.parcel_boundaries` 의 판 PNU 를 정기 실행과 똑같이 읽고 아무것도 쓰지 않는다.
+`lineage_stewardship` 과 같은 spark 자리를 쓰므로 그 단위가 돌지 않을 때 돌린다(Airflow 화면에서 확인).
+
+```bash
+# ai-server
+sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=foundation-platform \
+  -p EnvironmentFile=/etc/foundation-platform/recovery.env -p EnvironmentFile=/etc/foundation-platform/map-edit-fold.env \
+  /opt/foundation-platform/current/scripts/ops/legal-dong-code-validate.sh
+```
+
+출력 첫 줄이 실행 폴더(`/var/lib/foundation-platform/lineage-stewardship/lakehouse/runs/validate-<시각>/`)다. 그 다음
+요약 한 줄과 `would append <level> <옛 코드> -> <새 코드> <근거> <상세>` 줄이 쌓였을 짝마다 하나씩 나온다. 볼 것:
+
+- `derived:parcel-jibun:` 짝의 옛 코드와 새 코드가 같은 시도이거나, 옛 시도가 시도 짝으로 옮겨 간 시도다(예: 29·46 →
+  전남광주). 다른 시도로 가는 짝이 하나라도 있으면 정기 실행을 멈추고(`legal_dong_code_changes` 를 끈다) 알린다.
+- 나뉜 동은 짝이 아니라 `steward-review.json` 의 `status = split` 이고 `split_into` 가 같은 시도의 새 동들이다.
+- 요약 줄의 `awaiting_by_sido`·`awaiting_by_evidence` 가 판단 대기를 시도별·기다리는 근거(어느 판, 또는 공식 이력)별로
+  센다. 정기 실행의 `pairs-summary.json` 과 `steward-review.json` 에도 같은 칸이 있다.
+- `run.log` 에 Spark 오류가 없다. 실패하면 요약이 없어 마지막 python 이 `No such file` 로 끝난다.
 
 ## 4. 알림이 뜻하는 것
 
@@ -169,7 +201,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
   | `split` | 지번이 여러 새 동으로 나뉘었고 어느 것도 하한에 못 미친다. `split_into` 가 어디로 몇 개 갔는지 적는다 | 짝이 아니다. 지번별 연결은 필지 계보(ADR-0113)가 한다. 승인은 거부된다 |
   | `steward` | 모든 단계가 데이터를 갖고도 정하지 못했다 | 스튜어드 |
 
-  `jibun` 칸은 2 단계가 본 것이다: `jibun evidence off`, `no parcels before`, `no 지번 in any new code`, 또는
+  `jibun` 칸은 2 단계가 본 것이다: `needs … edition …`(판 대기, VWorld 연속지적도 판 런북 5 절), `no parcels before`, `no 지번 in any new code`, 또는
   `best <코드> share <비율>`(`(tied)` 는 같은 수의 지번을 가진 동이 둘 이상). `candidates` 가 비면 후보 없음이다.
   요약(`pairs-summary.json`)의 `review_by_status` 가 상태별 개수다.
 - `crosswalk`: 시군구 하나가 둘로 나뉘거나 둘이 하나로 합쳐져 대응표 한 칸이 될 수 없는 경우.
@@ -223,7 +255,7 @@ ADR-0145 §3: 27쌍은 첫 실운영에서 변경표가 그것을 재현하면 �
 
 ## 8. 남은 일
 
-- 지번 근거(2 단계)를 켜려면 개편 뒤 코드로 된 필지 스냅숏이 `silver.parcel_boundaries` 에 있어야 한다(3 절).
+- 지번 근거(2 단계)는 판이 계약과 `silver.parcel_boundaries` 에 있어야 정한다. 2026-10-05: 202609 적재 대기, 경기·충북은 앞선 판(NA/23), 대구는 202610 이후 판이 필요하다.
 - 필지고유번호변동연혁(3 단계의 원천)은 아직 수집되지 않는다.
 - 시도 단위 통합만 대응표가 다스린다. 인천 구 재편처럼 시도 안의 재번호는 필지 계보(ADR-0113)의 몫이다.
 - data.go.kr `getStanReginCdList` 스냅숏 차이(ADR-0104)를 보조 검증으로 붙이는 일은 이 런북 밖이다.

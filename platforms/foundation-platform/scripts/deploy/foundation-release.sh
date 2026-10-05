@@ -1179,6 +1179,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # them, names it in ReadWritePaths: systemd refuses to start a unit whose path is missing
     # (root ADR-0143).
     install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/legal-dong-code
+    # The cadastral edition check keeps its runs and proposed contract entries here (root ADR-0148).
+    install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/vworld-parcel-edition
     install -d -o foundation-platform -g foundation-platform -m 0777 \
       /var/lib/foundation-platform/map-edit-fold/lakehouse \
       /var/lib/foundation-platform/lineage-stewardship/lakehouse

@@ -89,7 +89,7 @@ class ParcelGateArgsTest(unittest.TestCase):
         from parcel_matching_gate import parse_args, validate_args
 
         for spec in ("land_individual_price", "silver.x; DROP", "silver.land_individual_price:base_year='2026'"):
-            args = parse_args(["--snapshot-id", "s", "--sido", "99", "--attribute", spec])
+            args = parse_args(["--snapshot-id", "s", "--allow-non-served-edition", "--sido", "99", "--attribute", spec])
             with self.subTest(spec=spec), self.assertRaises(ValueError):
                 validate_args(args)
 
