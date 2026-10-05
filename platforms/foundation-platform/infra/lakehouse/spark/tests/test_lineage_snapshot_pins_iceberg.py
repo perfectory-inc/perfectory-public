@@ -72,7 +72,7 @@ class LineageSnapshotIcebergTest(unittest.TestCase):
 
     def argv(self, *extra):
         return [
-            "--from-snapshot-id", "june", "--to-snapshot-id", "september",
+            "--from-snapshot-id", "june", "--to-snapshot-id", "september", "--allow-non-served-edition",
             "--from-date", "2099-06-01", "--to-date", "2099-10-01",
             "--from-sido", "99", "--to-sido", "99",
             "--building-from-snapshot-id", "building-june", "--building-to-snapshot-id", "building-september",

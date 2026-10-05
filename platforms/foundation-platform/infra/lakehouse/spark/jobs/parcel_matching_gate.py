@@ -33,6 +33,7 @@ from typing import Any
 import map_matching_gate as gate
 import parcel_identity as pi
 import parcel_lineage as pl
+import vworld_parcel_editions as editions
 from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from parcel_lineage_to_silver import IDENTIFIER, PREFIX, SNAPSHOT_ID, sql_prefixes
@@ -45,7 +46,9 @@ PNU_SHAPE = "^[0-9]{19}$"
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--snapshot-id", required=True, help="silver.parcel_boundaries source_snapshot_id to check")
+    parser.add_argument("--snapshot-id",
+                        help="silver.parcel_boundaries source_snapshot_id to check: the served edition when omitted (ADR-0148 §1)")
+    editions.add_reader_flag(parser)
     parser.add_argument("--sido", required=True, help="Comma-separated sido prefixes")
     parser.add_argument("--lineage-from-snapshot-id", help="Earlier snapshot of the lineage that reaches this one")
     parser.add_argument("--attribute", action="append", default=[], help="namespace.table:column_for_year=value, e.g. silver.land_individual_price:base_year=2026")
@@ -53,7 +56,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--summary-output")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    allow = args.allow_non_served_edition
+    args.snapshot_id = editions.served_reader_id(args.snapshot_id, allow, "--snapshot-id")
+    args.lineage_from_snapshot_id = editions.edition_reader_id(args.lineage_from_snapshot_id, allow, "--lineage-from-snapshot-id")
+    return args
 
 
 def validate_args(args: argparse.Namespace) -> None:

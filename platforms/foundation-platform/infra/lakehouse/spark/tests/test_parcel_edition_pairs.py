@@ -314,6 +314,47 @@ class EachChangeReadsItsOwnEditionsTest(unittest.TestCase):
         self.assertTrue(review["9812000000"][1].startswith("1 codes below wait: needs a parcel edition extracted after"))
 
 
+class ParcelReadersDefaultToTheServedEditionTest(unittest.TestCase):
+    """ADR-0148 §1: every reader that took a typed snapshot id reads the served edition unless told otherwise."""
+
+    READERS = {  # job: (its served-id flag, the attribute, its other required arguments, its earlier-endpoint flag)
+        "parcel_boundary_served_gold": ("--source-snapshot-id", "source_snapshot_id", ["--output-dir", "p"], None),
+        "parcel_registry_to_silver": ("--to-snapshot-id", "to_snapshot_id", ["--to-date", "2099-09-01", "--to-sido", "97"],
+                                      "--from-snapshot-id"),
+        "parcel_lineage_to_silver": ("--to-snapshot-id", "to_snapshot_id",
+                                     ["--from-snapshot-id", "vworldkr__parcel-209902", "--from-date", "2099-02-01",
+                                      "--to-date", "2099-06-01", "--from-sido", "97", "--to-sido", "97"], "--from-snapshot-id"),
+        "parcel_matching_gate": ("--snapshot-id", "snapshot_id", ["--sido", "97"], "--lineage-from-snapshot-id"),
+    }
+
+    def test_each_reader_reads_the_served_edition_and_refuses_another_without_the_flag(self):
+        import importlib  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "c.json"
+            path.write_text(json.dumps(contract("209902", "209906", served="209906")), encoding="utf-8")
+            with mock.patch.dict(os.environ, {editions.CONTRACT_ENV: str(path)}):
+                for name, (flag, attr, rest, earlier) in self.READERS.items():
+                    job = importlib.import_module(name)
+                    with self.subTest(name):
+                        self.assertEqual(getattr(job.parse_args(rest), attr), "vworldkr__parcel-209906")
+                        self.assertEqual(getattr(job.parse_args(rest + [flag, "vworldkr__parcel-209906"]), attr),
+                                         "vworldkr__parcel-209906")
+                        # 심은 실수: 지난 판, 다른 철자. 깃발 없이는 거부한다.
+                        for typed in ("vworldkr__parcel-209902", "vworldkr__parcel:209906"):
+                            with self.assertRaisesRegex(editions.EditionError, "not the served edition"):
+                                job.parse_args(rest + [flag, typed])
+                        other = job.parse_args(rest + [flag, "vworldkr__parcel-209902", editions.ALLOW_OTHER_EDITION])
+                        self.assertEqual(getattr(other, attr), "vworldkr__parcel-209902")
+                        if earlier and earlier not in rest:
+                            self.assertEqual(getattr(job.parse_args(rest + [earlier, "vworldkr__parcel-209902"]),
+                                                     earlier[2:].replace("-", "_")), "vworldkr__parcel-209902")
+                        if earlier:
+                            argv = [a for a in rest if a != "vworldkr__parcel-209902" and a != earlier]
+                            with self.assertRaisesRegex(editions.EditionError, "not the snapshot id of an edition"):
+                                job.parse_args(argv + [earlier, "vworldkr__parcel:209902"])
+
+
 class TheJobReadsEditionsFromTheContractTest(unittest.TestCase):
     def run_job(self, tmp: Path, source: dict, files: dict[str, str]) -> dict:
         (tmp / "contract.json").write_text(json.dumps(source), encoding="utf-8")

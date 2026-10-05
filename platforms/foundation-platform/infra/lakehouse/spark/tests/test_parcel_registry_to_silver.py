@@ -45,7 +45,7 @@ class PlanTest(unittest.TestCase):
             plan(registry, {pnu(NEW, 1)}, conflicting, "2099-09-01", False)
 
     def test_real_tables_need_the_flag_and_advance_needs_the_lineage_snapshot(self):
-        args = parse_args(["--to-snapshot-id", "b", "--to-date", "2099-09-01", "--to-sido", "99"])
+        args = parse_args(["--to-snapshot-id", "b", "--allow-non-served-edition", "--to-date", "2099-09-01", "--to-sido", "99"])
         with self.assertRaisesRegex(ValueError, "--from-snapshot-id"):
             validate_args(args)
 

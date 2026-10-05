@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import served_gold_common as common
+import vworld_parcel_editions as editions
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from platform_contracts import column_names, declared_geometry_srid, load_lakehouse_contract
 
@@ -50,8 +51,11 @@ DEFAULT_HANDOFF_PARTS = 64
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--source-snapshot-id", required=True, help="The one silver.parcel_boundaries source_snapshot_id to serve."
+        "--source-snapshot-id",
+        help="The one silver.parcel_boundaries source_snapshot_id to serve; the source contract's served edition "
+        "when omitted, and refused when it differs unless --allow-non-served-edition (root ADR-0148 §1).",
     )
+    editions.add_reader_flag(parser)
     parser.add_argument(
         "--output-dir", required=True, help="Directory for the handoff parts. Created here; never reused."
     )
@@ -70,7 +74,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Required to write a served table whose name does not end in _smoke.",
     )
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    args.source_snapshot_id = editions.served_reader_id(
+        args.source_snapshot_id, args.allow_non_served_edition, "--source-snapshot-id"
+    )
+    return args
 
 
 def validate_args(args: argparse.Namespace) -> None:

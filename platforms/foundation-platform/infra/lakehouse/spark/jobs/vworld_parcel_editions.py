@@ -136,6 +136,42 @@ def snapshot_id(contract: Mapping[str, Any], name: str) -> str:
     return f"{contract['snapshot_id_prefix']}{name}"
 
 
+ALLOW_OTHER_EDITION = "--allow-non-served-edition"
+
+
+def add_reader_flag(parser: argparse.ArgumentParser) -> None:
+    """The one override every parcel reader takes (`served_reader_id`, `edition_reader_id`)."""
+
+    parser.add_argument(ALLOW_OTHER_EDITION, dest="allow_non_served_edition", action="store_true",
+                        help="Read a parcel snapshot other than the source contract's served edition (or, for an "
+                             "earlier endpoint, one the contract does not hold). Without it such an id is refused.")
+
+
+def served_reader_id(given: str | None, allow_other: bool, flag: str, contract: Mapping[str, Any] | None = None) -> str:
+    """The `source_snapshot_id` a parcel reader reads (ADR-0148 §1): the served edition's when none is
+    given. A typed id that is not the served edition's is refused unless `allow_other`: a typo, the other
+    spelling or last month's edition would otherwise build the map's tables from parcels the map does
+    not serve."""
+
+    if given is not None and allow_other:
+        return given
+    want = snapshot_id(contract := contract or load(), served(contract))
+    if given is not None and given != want:
+        raise EditionError(f"{flag} {given!r} is not the served edition's {want!r} (served_edition of the source "
+                           f"contract); pass {ALLOW_OTHER_EDITION} to read another")
+    return want
+
+
+def edition_reader_id(given: str | None, allow_other: bool, flag: str, contract: Mapping[str, Any] | None = None) -> str | None:
+    """An earlier endpoint (a lineage's `from`): any edition the contract holds, in its one spelling,
+    unless `allow_other`. None stays None."""
+
+    if given is None or allow_other:
+        return given
+    edition_of_snapshot_id(contract or load(), given)
+    return given
+
+
 def edition_of_snapshot_id(contract: Mapping[str, Any], value: str) -> str:
     """The edition a `source_snapshot_id` names; anything else is refused, including the other spelling."""
 

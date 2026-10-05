@@ -33,6 +33,12 @@
    판마다 핸드오프 자리가 다르다. 지도·카탈로그 투영·PostGIS 거울·필지 패널 Gold·시군구 대응표의 지적 시도는
    `served_edition` 하나만 읽는다(Rust `vworld_parcel_source_contract::served_edition_view`, Python
    `vworld_parcel_editions`). 2026-10-05 현재 `served_edition` 은 202606 이다.
+   운영자가 판 id 를 적던 필지 Spark 잡(`parcel_boundary_served_gold`, `parcel_registry_to_silver`,
+   `parcel_lineage_to_silver`, `parcel_matching_gate`)은 id 를 적지 않으면 served 판을 읽고, 다른 id 는
+   `--allow-non-served-edition` 없이는 거부한다(`vworld_parcel_editions.served_reader_id`). 앞 끝점(계보·대장의
+   `from`)은 계약이 가진 판의 한 철자여야 한다. 마커 앵커와 PostGIS 거울 재구축이 받는 id 는 판이 아니라 Iceberg 물리
+   스냅숏(`iceberg:<n>`)이므로 이 규칙 밖이다: 거울은 served 판의 객체만 싣고 표의 현재 스냅숏이 아니면 거부하며,
+   앵커는 그 거울을 읽는다.
 2. **판에서 파생되는 값은 한 곳에서 만든다.** `source_snapshot_id = snapshot_id_prefix + 판`(`vworldkr__parcel-202609`),
    `valid_from_utc` = 기준월 첫 순간. 변환기·적재기는 `VWORLD_PARCEL_EDITION` 하나만 받고, 예전 세 변수를 받으면
    거부한다. Silver 잡은 `--expected-source-snapshot-id` 가 계약의 판 id 여야 하고(콜론 철자 거부), 그 id 가 아닌 행을

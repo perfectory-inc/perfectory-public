@@ -220,7 +220,7 @@ class ParcelServedGoldIcebergTest(unittest.TestCase):
 
     def run_main(self, out, *extra):
         argv = [
-            "--source-snapshot-id", "synthetic-2", "--output-dir", str(out / "parts"),
+            "--source-snapshot-id", "synthetic-2", "--allow-non-served-edition", "--output-dir", str(out / "parts"),
             "--summary-output", str(out / "summary.json"), "--iceberg-catalog-name", "proof",
             "--handoff-parts", "3", "--allow-non-smoke-write", *extra,
         ]

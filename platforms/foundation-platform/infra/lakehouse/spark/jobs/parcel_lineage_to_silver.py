@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 import parcel_lineage as pl
+import vworld_parcel_editions as editions
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import append_batch_once
 from parcel_lineage_inputs import LineageInputs, bind_input_views, load_lineage_inputs, physical_inputs
@@ -52,8 +53,11 @@ DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--from-snapshot-id", required=True, help="silver.parcel_boundaries source_snapshot_id, earlier")
-    parser.add_argument("--to-snapshot-id", required=True, help="silver.parcel_boundaries source_snapshot_id, later")
+    parser.add_argument("--from-snapshot-id", required=True,
+                        help="silver.parcel_boundaries source_snapshot_id, earlier: an edition of the source contract")
+    parser.add_argument("--to-snapshot-id",
+                        help="silver.parcel_boundaries source_snapshot_id, later: the served edition when omitted (ADR-0148 §1)")
+    editions.add_reader_flag(parser)
     parser.add_argument("--from-date", required=True, help="YYYY-MM-DD the earlier snapshot reflects; history before it is already in it")
     parser.add_argument("--to-date", required=True, help="YYYY-MM-DD the later snapshot reflects")
     parser.add_argument("--from-sido", required=True, help="Comma-separated sido prefixes of the earlier snapshot, e.g. 29,46")
@@ -69,7 +73,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iceberg-table", default="parcel_lineage")
     parser.add_argument("--allow-non-smoke-write", action="store_true")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    allow = args.allow_non_served_edition
+    args.to_snapshot_id = editions.served_reader_id(args.to_snapshot_id, allow, "--to-snapshot-id")
+    args.from_snapshot_id = editions.edition_reader_id(args.from_snapshot_id, allow, "--from-snapshot-id")
+    return args
 
 
 def logical_vintage(value: str) -> str:
