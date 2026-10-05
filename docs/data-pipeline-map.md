@@ -15,8 +15,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 아래의 수집규모는 **카탈로그에 등록된 endpoint 수**입니다. 실제 수집 객체 수·행 수·용량은
 이 카탈로그에 없으므로 추정하지 않습니다. 실행 경로가 있다는 표시는 운영 배포·전국 적재 완료를 뜻하지 않습니다.
 
-현재 범위: 원천 **10그룹 / 135 endpoint**,
-Silver·Gold **33표**,
+현재 범위: 원천 **10그룹 / 136 endpoint**,
+Silver·Gold **34표**,
 서빙·운영 원장 **75표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
@@ -33,7 +33,7 @@ Silver·Gold **33표**,
 | 주소정보 전자지도 | 11 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 건물 도형 Silver 계약은 아직 없다. |
 | 기타 공공 일괄 파일 | 13 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 Silver 연결은 없다. |
 | 실거래가 API | 12 endpoint | 수집 비활성 — 카탈로그에서 중복 API로 비활성화되어 있다. |
-| 브이월드 공간·토지 파일 | 24 endpoint | 일부 연결 — 필지·용도지역·공시지가·행정경계·산업단지 프로필과 경계의 실행 경로가 있다. 나머지는 수집 단계에 남는다. |
+| 브이월드 공간·토지 파일 | 25 endpoint | 일부 연결 — 필지·용도지역·공시지가·행정경계·산업단지 프로필과 경계의 실행 경로가 있다. 나머지는 수집 단계에 남는다. |
 | 브이월드 토지대장 API | 1 endpoint | 예정 — API 수집 예정이며 Silver 계약은 없다. |
 | 행정표준코드 법정동 | 1 endpoint | 실행 경로 있음 — 법정동코드 전체자료(getStanReginCdList)가 등록부 레인의 입력이다. 추출 입력은 수동이며 전용 API 수집기는 아직 없다. |
 
@@ -191,6 +191,7 @@ Silver·Gold **33표**,
 | 브이월드 공간·토지 파일 | VWorld 통계 읍면동 경계 (`vworldkr__boundary_census_emd`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 통계 시도 경계 (`vworldkr__boundary_census_sido`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 통계 시군구 경계 (`vworldkr__boundary_census_sigungu`) | `provider_dataset_file` |
+| 브이월드 공간·토지 파일 | VWorld 필지고유번호변동연혁 (`vworldkr__parcel_number_change_history`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 토지소유 (`vworldkr__land_ownership`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 토지이용구역 (`vworldkr__land_use_zone`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 공인중개사 (`vworldkr__real_estate_broker`) | `provider_dataset_file` |
@@ -208,6 +209,7 @@ Silver·Gold **33표**,
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.parcel_boundary_served` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
+| `silver.parcel_number_change_history` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_registry` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_bridge` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_changelog` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -382,6 +384,8 @@ Silver·Gold **33표**,
 | 행정표준코드 법정동 → 법정동코드 스냅숏 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 행정표준코드관리시스템 법정동 → 법정동코드 스냅숏 | `collect-code-go-kr-legal-dong`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 필지 경계 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage.py` |
+| 브이월드 공간·토지 파일 → 필지고유번호변동연혁 | `ingest-vworld-dataset-files`<br>`platforms/foundation-platform/scripts/ops/parcel-number-change-collect.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_number_change_history.py` |
+| 필지고유번호변동연혁 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py` |
 | 법정동코드 스냅숏 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py` |
 | 법정동 코드 변경 원장 → 필지 계보 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py` |
 | 법정동 코드 변경 원장 → 행정경계(읍면동) | `platforms/foundation-platform/infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py` |

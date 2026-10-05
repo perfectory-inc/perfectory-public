@@ -53,13 +53,14 @@
     }
   },
   "pairing": {
-    "$comment": "Changes dated on or after floor_date are paired (root ADR-0143 §3–4, ADR-0144). Earlier changes are already in every source the loaders read; 2026-01-01 covers the 2026-02-01 and 2026-07-01 reorganizations. jibun_overlap_min_share is ADR-0113 §5's line: an abolished 동 pairs by its 지번 set only with the new 동 that holds at least this share of it, and a lower share is a split signal. The parcel lineage reads the same value.",
+    "$comment": "Changes dated on or after floor_date are paired (root ADR-0143 §3–4, ADR-0144). Earlier changes are already in every source the loaders read; 2026-01-01 covers the 2026-02-01 and 2026-07-01 reorganizations. jibun_overlap_min_share is ADR-0113 §5's line: an abolished 동 pairs by its 지번 set only with the new 동 that holds at least this share of it, and a lower share is a split signal. The parcel lineage reads the same value. The official parcel-number history's parcel rows decide an abolished 동 by the same line: only when they link at least jibun_overlap_min_share of the parcels it held in the earlier edition (root ADR-0150; review of PR #341). Fewer rows are evidence of where those parcels went, and the code waits ('official partial').",
     "floor_date": "20260101",
     "jibun_overlap_min_share": 0.95,
     "land_match": {
-      "$comment": "Owner decision 2026-10-05. The 지번 step counts a lot toward the overlap only when it is the same land in both editions: the same 지목 (the 연속지적도 writes it after the lot number, `123-4대`) and an area (from the boundary) that moved by no more than the larger of area_relative_tolerance of the earlier area and area_absolute_tolerance_m2. A lot number alone is reused by a renumbered 동 for other land.",
+      "$comment": "Owner decision 2026-10-05. The 지번 step counts a lot toward the overlap only when it is the same land in both editions: the same 지목 (the 연속지적도 writes it after the lot number, `123-4대`) and an area (from the boundary) that moved by no more than the larger of area_relative_tolerance of the earlier area and area_absolute_tolerance_m2. A lot number alone is reused by a renumbered 동 for other land. max_non_polygon_share: a boundary that is not a polygon cannot be the same land, so the step skips and counts it (reported per edition in the summary); more than this share of an edition's rows read refuses the run, because then the column is wrong, not a few rows (review of PR #339).",
       "area_relative_tolerance": 0.01,
-      "area_absolute_tolerance_m2": 1.0
+      "area_absolute_tolerance_m2": 1.0,
+      "max_non_polygon_share": 0.001
     }
   },
   "projection": {

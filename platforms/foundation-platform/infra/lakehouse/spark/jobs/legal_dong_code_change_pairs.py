@@ -12,8 +12,10 @@ One run reads one code.go.kr full-table snapshot (`reference.legal_dong_code_sna
    editions`: per abolished 동, the latest edition the source contract holds extracted before its
    abolition and the earliest after, read from `silver.parcel_boundaries`; a code whose editions
    the contract does not hold, or the table does not, waits for them by name), and a roll-up of
-   동 pairs to the 시군구 and 시도 above them. The official parcel-number history (필지고유번호변동연혁) is not collected yet,
-   so that step stays off and what only it could settle is reported `awaiting_data` (ADR-0144 §4).
+   동 pairs to the 시군구 and 시도 above them. The official parcel-number history (필지고유번호변동연혁,
+   VWorld 30527) is read from `silver.parcel_number_change_history` (`--official-history-table`): the
+   links dated on or after the contract's floor, decided before the 지번 step (root ADR-0150). Off
+   without the option, and what only it could settle is reported `awaiting_data` (ADR-0144 §4).
    The parcel lineage is not evidence here: it reads its 동 pairs from this table (ADR-0145 §2);
 2. appends the changes not yet recorded to `reference.legal_dong_code_change`, the only table it
    writes;
@@ -48,6 +50,7 @@ from typing import Any, Callable, Mapping, Sequence
 import code_go_kr_legal_dong as cg
 import legal_dong_code_change_views as views
 import vworld_parcel_editions as editions
+import vworld_parcel_number_change_history as pnch
 
 JOB_NAME = "legal_dong_code_change_pairs"
 CHANGE_CONTRACT = "reference.legal_dong_code_change"
@@ -134,8 +137,8 @@ def plan_derivation(
 
     Returns the change rows not yet recorded, the crosswalk the change table will hold once they
     are appended (its view over the recorded rows and these), the steward list and the counts.
-    Pure, so the planted-failure tests drive it directly. The official parcel-number history is
-    not collected (ADR-0144 §4), so its step is off: `pair_changes` gets no links.
+    Pure, so the planted-failure tests drive it directly. `official_links` are the
+    필지고유번호변동연혁 (old PNU, new PNU) rows of the pairing window; None leaves that step off.
     """
 
     pairing = contract["pairing"]
@@ -392,6 +395,46 @@ def evidence_label(jibun: cg.JibunEvidence | cg.EditionEvidence | None) -> str:
     return f"editions[{', '.join(pairs) or 'none'}] awaiting={len(jibun.awaiting)}"
 
 
+def drop_non_polygons(parcels: Sequence[tuple[str, str, float | None]], edition: str, max_share: float,
+                      skipped: dict[str, int]) -> list[Parcel]:
+    """The parcels with an area; those whose boundary is not a polygon (area None) are skipped and
+    counted in `skipped[edition]`: they cannot count as the same land. More than `max_share` of the
+    edition's rows read refuses the run, since then the column, not a few rows, is wrong."""
+
+    kept = [(pnu, jimok, area) for pnu, jimok, area in parcels if area is not None]
+    dropped = len(parcels) - len(kept)
+    if dropped:
+        skipped[edition] = skipped.get(edition, 0) + dropped
+        if dropped / len(parcels) > max_share:
+            raise ValueError(f"{edition}: {dropped} of {len(parcels)} parcel boundaries read are not polygons, above "
+                             f"the contract's pairing.land_match.max_non_polygon_share {max_share}")
+    return kept
+
+
+def _read_link_file(path: str) -> list[tuple[str, str]]:
+    """`--official-links`: one `OLD_PNU NEW_PNU` pair per line."""
+
+    links = []
+    for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) != 2 or not all(len(part) == 19 and part.isdigit() for part in parts):
+            raise ValueError(f"{path}:{number}: expected 'OLD_PNU NEW_PNU', two 19-digit PNUs")
+        links.append((parts[0], parts[1]))
+    return links
+
+
+def _official_links(spark, F, table: str, floor: str) -> list[tuple[str, str]]:
+    """The window's links, by the loader's one rule (`pnch.official_links`); the filter here only
+    keeps the rest of the country's history out of the driver."""
+
+    floor_date = datetime.strptime(floor, "%Y%m%d").date()
+    frame = (spark.table(table).filter(F.col("changed_on") >= F.lit(floor_date))
+             .select("old_pnu", "new_pnu", "changed_on", "quarantine_reason").distinct())
+    return pnch.official_links([row.asDict() for row in frame.collect()], floor_date)
+
+
 def _read_parcel_file(path: str) -> list[Parcel]:
     """`PNU<TAB>지목<TAB>area m²` per line, the columns `_snapshot_parcels` reads from the table."""
 
@@ -425,6 +468,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="editions: read each change across the parcel editions bracketing it (the source contract).")
     parser.add_argument("--edition-pnus", action="append", default=[], metavar="EDITION=FILE",
                         help="With --validate-only: PNU<TAB>지목<TAB>area m² per line of that edition, standing in for the parcel table.")
+    parser.add_argument("--official-history-table",
+                        help="The 필지고유번호변동연혁 table (namespace.table) whose links dated in the pairing window "
+                             "are the official step (root ADR-0150). Off without it.")
+    parser.add_argument("--official-links", help="With --validate-only and --table-html: 'OLD_PNU NEW_PNU' per line, the window's links.")
     parser.add_argument("--steward-decisions", help="A directory of staged steward decision files to fold in.")
     parser.add_argument("--projection-output")
     parser.add_argument("--review-output")
@@ -440,8 +487,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     for label in ("iceberg_catalog_name", "iceberg_namespace", "snapshot_table", "change_table"):
         if not IDENTIFIER.fullmatch(getattr(args, label)):
             parser.error(f"{label} must be a plain SQL identifier")
-    if not all(IDENTIFIER.fullmatch(part) for part in args.parcel_table.split(".")):
-        parser.error("parcel_table must be namespace.table")
+    for label in ("parcel_table", "official_history_table"):
+        value = getattr(args, label)
+        if value is not None and (value.count(".") != 1 or not all(IDENTIFIER.fullmatch(part) for part in value.split("."))):
+            parser.error(f"{label} must be namespace.table")
+    if args.official_links and not (args.validate_only and args.table_html):
+        parser.error("--official-links stands in for the history table: it needs --validate-only and --table-html")
     args.edition_pnu_files = {}
     for value in args.edition_pnus:
         name, sep, path = value.partition("=")
@@ -522,10 +573,20 @@ def _snapshot_parcels(spark, F, table: str, snapshot_id: str, codes: set[str], l
 
     spark.sparkContext.addPyFile(parcel_land.__file__)
     jimok = F.udf(parcel_land.jimok_of, T.StringType())
-    area = F.udf(parcel_land.wkb_area_m2, T.DoubleType())
+    # None for a boundary that is not a polygon: the caller skips and counts it (`drop_non_polygons`).
+    area = F.udf(parcel_land.polygon_area_m2, T.DoubleType())
     rows = frame.where(F.col("geometry_wkb").isNotNull()).select(
         "pnu", jimok("jibun").alias("jimok"), area("geometry_wkb").alias("area")).collect()
     return [(row["pnu"], row["jimok"], row["area"]) for row in rows]
+
+
+def _edition_parcels(spark, F, table: str, parcel_source: Mapping[str, Any], max_share: float, skipped: dict[str, int],
+                     name: str, codes: set[str], lots: set[str] | None) -> list[Parcel] | None:
+    """One edition's parcels as `edition_evidence` asks for them, with the boundaries that are not
+    polygons skipped and counted (`drop_non_polygons`)."""
+
+    read = _snapshot_parcels(spark, F, table, editions.snapshot_id(parcel_source, name), codes, lots)
+    return None if read is None else drop_non_polygons(read, name, max_share, skipped)
 
 
 def _emit(args: argparse.Namespace, plan: Mapping[str, Any], snapshot_id: str, now: datetime, summary: dict[str, Any]) -> None:
@@ -556,10 +617,11 @@ def main(argv: list[str] | None = None) -> int:
             files = args.edition_pnu_files
             jibun = edition_evidence(rows, floor, parcel_source,
                                      lambda name, codes, lots: _local_parcels(files, name, codes, lots))
-        plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun)
+        official = _read_link_file(args.official_links) if args.official_links else None
+        plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun, official)
         steward, verdicts = fold_steward_decisions(decisions, plan["review"], {row["region_cd"] for row in rows}, now)
         if steward:
-            plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun)
+            plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun, official)
         _emit(args, plan, "validate-only", now, {"job": JOB_NAME, "status": "validated", "steward_decisions": verdicts, **plan["counts"]})
         return 0
 
@@ -588,14 +650,19 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(f"{snapshot_table} holds no rows of {args.table_source_record_id} on {args.snapshot_date}")
         cg.check_table_size(len(rows), None, contract)
         jibun = None
+        skipped: dict[str, int] = {}
         if args.jibun_evidence == "editions":
             parcels = _qualified(args.iceberg_catalog_name, args.parcel_table)
-            jibun = edition_evidence(
-                rows, floor, parcel_source,
-                lambda name, codes, lots: _snapshot_parcels(spark, F, parcels, editions.snapshot_id(parcel_source, name), codes, lots),
-            )
+            max_share = float(contract["pairing"]["land_match"]["max_non_polygon_share"])
+            parcels_of = functools.partial(_edition_parcels, spark, F, parcels, parcel_source, max_share, skipped)
+            jibun = edition_evidence(rows, floor, parcel_source, parcels_of)
+        official = None
+        if args.official_history_table:
+            official = _official_links(spark, F, _qualified(args.iceberg_catalog_name, args.official_history_table), floor)
         recorded = [row.asDict() for row in spark.table(change_table).collect()]
-        plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun)
+        plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun, official)
+        evidence_read = {"official_parcel_links": len(official) if official is not None else "off",
+                         "non_polygon_parcels_skipped": skipped}
         # Steward decisions are judged against the list as it stands before them, then recorded,
         # then the pairing runs again so today's projection already carries them.
         steward, verdicts = fold_steward_decisions(decisions, plan["review"], {row["region_cd"] for row in rows}, now)
@@ -603,9 +670,9 @@ def main(argv: list[str] | None = None) -> int:
         steward = [row for row in steward if row["change_key"] not in known]
         if args.validate_only:  # the lakehouse as it stands, read and judged; nothing written to it
             if steward:
-                plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun)
+                plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun, official)
             _emit(args, plan, "validate-only", now, {"job": JOB_NAME, "status": "validated", "reads": "lakehouse",
-                                                     "steward_decisions": verdicts, **plan["counts"],
+                                                     "steward_decisions": verdicts, **evidence_read, **plan["counts"],
                                                      "would_append": [{k: row[k] for k in ("old_code", "new_code", "level", "source", "detail")}
                                                                       for row in plan["fresh_changes"]]})
             return 0
@@ -614,7 +681,7 @@ def main(argv: list[str] | None = None) -> int:
         for _, rows_of_one in _group_by_run(steward):
             steward_appended |= append_new_rows(append_changes, rows_of_one, "steward")
         if steward:
-            plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun)
+            plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun, official)
 
         changes_appended = append_new_rows(append_changes, plan["fresh_changes"], "change")
         # The projection is the crosswalk view of the table as it now stands, read back, not the
@@ -631,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
             "job": JOB_NAME, "status": "ready", "changes_appended": changes_appended,
             "steward_decisions": verdicts, "steward_rows_appended": steward_appended,
             "change_table_snapshot_id": change_snapshot, "crosswalk_review_items": len(crosswalk_review),
-            "official_parcel_links": "awaiting_data", **plan["counts"],
+            **evidence_read, **plan["counts"],
         })
         return 0
     finally:

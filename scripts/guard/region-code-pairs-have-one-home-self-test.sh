@@ -30,6 +30,7 @@ allowed_transition="$(field 'next(h["allowed_paths"][0] for h in d["retired"] if
 retired_path="$(field 'next(p for p in d["retired_paths"] if p.endswith(".py"))')"
 home="$(field 'd["homes"]["code_pairs"]')"
 derived="$(field 'next(iter(d["derived_tables"]))')"
+source="$(field 'next(n for n in d["source_tables"] if not n.startswith("$"))')"
 
 # A synthetic repository: the real definition, and a contracts file with the home, a derived table
 # and one ordinary table.
@@ -37,14 +38,18 @@ make_repo() {
   local root="$1"
   mkdir -p "$root/$(dirname "$definition")" "$root/platforms/foundation-platform/infra/lakehouse/spark/jobs" "$root/docs/adr"
   cp "$definition" "$root/$definition"
-  py - "$root/$contracts" "$home" "$derived" "${2:-}" <<'PY'
+  py - "$root/$contracts" "$home" "$derived" "$source" "${2:-}" <<'PY'
 import json, sys
-path, home, derived, extra = sys.argv[1:5]
+path, home, derived, source, extra = sys.argv[1:6]
 col = lambda *names: [{"name": n} for n in names]
 contracts = {home: {"columns": col("old_code", "new_code", "source")},
              derived: {"columns": col("place_id", "from_code", "to_code")},
+             source: {"columns": col("old_pnu", "new_pnu", "source_record_id"),
+                      "load": {"unit": "object", "column": "source_record_id"}},
              "silver.ordinary": {"columns": col("pnu", "area")}}
-if extra:
+if extra == "derived-source":
+    contracts[source]["load"] = {"unit": "object", "column": "derivation_run_id"}
+elif extra:
     contracts["silver.second_crosswalk"] = {"columns": col("old_code", "new_code")}
 json.dump({"contracts": contracts}, open(path, "w", encoding="utf-8"))
 PY
@@ -63,7 +68,7 @@ expect_rejected() {
   fi
 }
 
-# 1. The home, a derived table the definition names, prose about a retired holder, and the paths
+# 1. The home, a derived table and a source table the definition names, prose about a retired holder, and the paths
 #    the definition lets name one.
 clean="$test_root/clean"
 make_repo "$clean"
@@ -106,5 +111,10 @@ mkdir -p "$graph/platforms/foundation-platform/docs/catalog"
 printf '{"nodes": [{"table_name": "%s"}]}\n' "$retired_crosswalk" \
   >"$graph/platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json"
 expect_rejected "$graph" "문서 폴더의 기계 판독 파일이 폐기된 대응표를 부름"
+
+# 7. A named source table loaded per derivation run: that is a pair store under a source's name.
+derived_source="$test_root/derived-source"
+make_repo "$derived_source" derived-source
+expect_rejected "$derived_source" "원천 표라면서 도출 실행 단위로 적재"
 
 echo "OK region-code-pairs-have-one-home-self-test"

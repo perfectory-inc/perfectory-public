@@ -22,11 +22,11 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **135개**
-- 고유 dataset slug: **116개**
-- 고유 Bronze source slug: **135개**
-- 국가 수집 허용 endpoint: **85개**
-- 기본 실행 레인에 포함되는 endpoint: **81개**
+- 엔드포인트 정의: **136개**
+- 고유 dataset slug: **117개**
+- 고유 Bronze source slug: **136개**
+- 국가 수집 허용 endpoint: **86개**
+- 기본 실행 레인에 포함되는 endpoint: **82개**
 
 ## 제공기관별 정리
 
@@ -40,7 +40,7 @@ last_reviewed: 2026-07-30
 | juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
 | mixed_public_source | 10 | 0 | 0 | 수동 승인 10 |
 | mois.go.kr | 2 | 0 | 0 | 수동 승인 2 |
-| vworld.kr | 25 | 25 | 24 | API 예정 1, 기본 실행 24 |
+| vworld.kr | 26 | 26 | 25 | API 예정 1, 기본 실행 25 |
 
 ## 수집 레인
 
@@ -63,7 +63,7 @@ last_reviewed: 2026-07-30
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
 | `other_bulk` | 13 | 학교·공장·인구·교통 등 추가 벌크 (수동 승인) |
 | `real_transaction_open_api` | 12 | data.go.kr 실거래 API 보조·검증 경로 |
-| `vworld_dataset` | 24 | vworld.kr 제공기관 데이터 파일 |
+| `vworld_dataset` | 25 | vworld.kr 제공기관 데이터 파일 |
 | `vworld_ned_open_api` | 1 | vworld.kr NED API (현재 기본 실행 제외) |
 
 ## Foundation 건축물 데이터 세부 분류
@@ -218,6 +218,7 @@ last_reviewed: 2026-07-30
 | vworld.kr | 공간·토지·산업단지 | VWorld 토지이용구역 | 제공기관 파일 | true | 기본 실행 |
 | vworld.kr | 공간·토지·산업단지 | VWorld 토지이용구역 코드 | 제공기관 파일 | true | 기본 실행 |
 | vworld.kr | 공간·토지·산업단지 | VWorld 필지 | 제공기관 파일 | true | 기본 실행 |
+| vworld.kr | 공간·토지·산업단지 | VWorld 필지고유번호변동연혁 | 제공기관 파일 | true | 기본 실행 |
 | vworld.kr | 공간·토지·산업단지 | VWorld 공인중개사 | 제공기관 파일 | true | 기본 실행 |
 | vworld.kr | 공간·토지·산업단지 | VWorld 산업단지 경계 | 제공기관 파일 | true | 기본 실행 |
 | vworld.kr | 공간·토지·산업단지 | VWorld 산업단지 시설용지 | 제공기관 파일 | true | 기본 실행 |

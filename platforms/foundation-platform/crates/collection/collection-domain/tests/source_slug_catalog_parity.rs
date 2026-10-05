@@ -84,11 +84,12 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
         checked += 1;
     }
 
-    // Guardrail: the in-scope / out-of-scope split must stay as authored (125 in-scope, 10 mixed).
+    // Guardrail: the in-scope / out-of-scope split must stay as authored (126 in-scope, 10 mixed).
     // The three ILIS entries joined when the industrial-complex address source got a collector;
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
-    // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board).
-    assert_eq!(checked, 125, "expected 125 in-scope catalog entries");
+    // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board); the
+    // 126th is VWorld 필지고유번호변동연혁 (MK/30527), the official step of the pairing (root ADR-0150).
+    assert_eq!(checked, 126, "expected 126 in-scope catalog entries");
     assert_eq!(
         skipped, 10,
         "expected 10 skipped mixed_public_source entries"

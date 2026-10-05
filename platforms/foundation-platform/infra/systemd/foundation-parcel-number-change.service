@@ -1,0 +1,23 @@
+[Unit]
+Description=Foundation Platform VWorld 필지고유번호변동연혁 (MK/30527), the collection half: land the 시도 files whose provider update date changed in Bronze, check them, stage a pending-load handoff (ADR-0144)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/parcel-number-change-collect.sh
+TimeoutStartSec=45m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/parcel-number-change
+
+[Install]
+WantedBy=multi-user.target

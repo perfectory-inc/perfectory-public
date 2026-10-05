@@ -633,6 +633,7 @@ pub use crate::land_characteristic::SILVER_LAND_CHARACTERISTIC;
 pub use crate::land_forest_ledger::SILVER_LAND_FOREST_LEDGER;
 pub use crate::land_right_registration::SILVER_LAND_RIGHT_REGISTRATION;
 pub use crate::land_transfer_history::SILVER_LAND_TRANSFER_HISTORY;
+pub use crate::parcel_number_change_history::SILVER_PARCEL_NUMBER_CHANGE_HISTORY;
 pub use crate::parcel_panel::GOLD_PARCEL_PANEL;
 
 // D151 필지별 개별공시지가 CSV 의 열 순서 그대로 (root ADR-0085). 값은 원천 표기
@@ -2691,7 +2692,7 @@ const REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS: &[LakehouseColumn] = &[
 /// Root ADR-0143 §3–4, ADR-0144: from downloaded data only. `source` names the evidence:
 /// `derived:code-go-kr:date+name:<day>` (the date + name rule over the full table),
 /// `derived:parcel-jibun:<snapshots>` (the 지번 sets of two parcel snapshots, ADR-0113 §5),
-/// `official:parcel-history` (the parcel lineage's official links), `derived:children` (a 시군구 or
+/// `official:parcel-history` (`silver.parcel_number_change_history`, the 필지고유번호변동연혁 links), `derived:children` (a 시군구 or
 /// 시도 rolled up from its 동) or `steward:<who>`. Append-only: a change is recorded once, keyed by
 /// `change_key`; a load is one derivation run or one steward decision.
 pub const REFERENCE_LEGAL_DONG_CODE_CHANGE: LakehouseTableContract = LakehouseTableContract {
@@ -3182,6 +3183,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_PARCEL_BOUNDARY_SERVED,
     REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
     REFERENCE_LEGAL_DONG_CODE_CHANGE,
+    SILVER_PARCEL_NUMBER_CHANGE_HISTORY,
     SILVER_PARCEL_LINEAGE,
     SILVER_PARCEL_REGISTRY,
     GOLD_PLACE_ID_REGISTRY,

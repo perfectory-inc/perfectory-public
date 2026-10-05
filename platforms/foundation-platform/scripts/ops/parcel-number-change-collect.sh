@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# VWorld 필지고유번호변동연혁(MK/30527)을 받는다 — 수집 절반 (root ADR-0144 §4, ADR-0145). 등록된
+# 작업(ADR-0122, default_pool)이 하루 한 번 돌린다. Spark 는 쓰지 않는다.
+#
+#   1. 확인 — 제공자 목록을 받아(plan-vworld-dataset-collection → inventory-vworld-dataset-files, 이 데이터셋
+#             하나만) 시도 파일마다 제공자 갱신일을 마지막으로 넘긴 것과 비교한다(changed-files). 바뀐 파일이
+#             없으면 그렇게 남기고 0 으로 끝난다. 제공자는 같은 파일 번호에 새 판을 올리므로 번호가 아니라
+#             갱신일로 가린다.
+#   2. 수집 — 바뀐 파일만 Bronze 에 받는다(ingest-vworld-dataset-files). 파일 번호가 같아도 내용이 바뀌었으니
+#             이미 받은 객체로 건너뛰지 않게 다시 받는다(FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1).
+#   3. 검사와 넘김 — 받은 객체를 Bronze 에서 읽기 키로 되읽어(내려받은 바이트가 아니라 Bronze 가 가진 바이트)
+#             계약(vworld-parcel-number-change-history.contract.json)의 형식·격리 비율·줄어듦 한계로 검사하고,
+#             통과하면 적재 대기 넘김(pending/<넘김>/)을 쓴다(stage-handoff). 하나라도 실패하면 넘김도 상태도
+#             남기지 않아 다음 실행이 다시 받는다.
+#
+# 적재는 lineage_stewardship 단위가 법정동 짝 맞추기 앞에서 한다(legal-dong-code-load.sh): 넘김을
+# silver.parcel_number_change_history 에 쌓고, 짝 맞추기가 그 기간의 공식 짝을 읽는다. 어느 단계든 실패하면
+# 0 이 아닌 값으로 끝나고, Airflow 실패 알림이 슬랙에 간다(ADR-0122).
+set -Eeuo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+
+STATE_ROOT="${FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT:-/var/lib/foundation-platform/parcel-number-change}"
+JOBS="${RELEASE_ROOT}/infra/lakehouse/spark/jobs"
+CATALOG="${RELEASE_ROOT}/docs/catalog/public-source-endpoint-catalog.v1.json"
+# -E -s, not -I: the job imports its sibling modules; -E and -s still shut out PYTHONPATH and the user site.
+PY=(python3 -E -s)
+journal="${STATE_ROOT}/journal.log"
+mkdir -p "${STATE_ROOT}"
+
+history() { "${PY[@]}" "${JOBS}/vworld_parcel_number_change_history.py" "$@"; }
+
+# recovery.env 는 DATABASE_URL 을 들고 있지 않다 — 다른 등록 작업과 같은 재료로 조립한다.
+if [ -z "${DATABASE_URL:-}" ]; then
+  : "${FOUNDATION_ADMIN_PASSWORD:?recovery.env must provide FOUNDATION_ADMIN_PASSWORD}"
+  DATABASE_URL="$(python3 - <<PY
+import os, urllib.parse
+q = lambda s: urllib.parse.quote(s, safe=str())
+port = os.environ.get("FOUNDATION_DB_PORT", "15434")
+print("postgres://foundation_admin:" + q(os.environ["FOUNDATION_ADMIN_PASSWORD"])
+      + "@127.0.0.1:" + port + "/foundation")
+PY
+)"
+  export DATABASE_URL
+fi
+
+run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+work="${STATE_ROOT}/runs/${run_id}"
+mkdir -p "${work}/downloads"
+run_log="${work}/run.log"
+trap 'printf "%s parcel-number-change collect FAILED at line %s run=%s\n" "$(date -u +%FT%TZ)" "${LINENO}" "${run_id}" >> "${journal}"; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true' ERR
+
+# 1. 확인. 계획은 이 데이터셋 하나만 담은 목록에서 만든다 — 목록 전체를 받으면 다른 데이터셋 수백 파일의
+#    목록까지 매일 긁는다.
+history endpoint-catalog --catalog "${CATALOG}" --output "${work}/catalog.json" --summary-output "${work}/inventory-summary.csv"
+export FOUNDATION_PLATFORM_VWORLD_DATASET_ENDPOINT_CATALOG_PATH="${work}/catalog.json"
+export FOUNDATION_PLATFORM_VWORLD_DATASET_INVENTORY_SUMMARY_PATH="${work}/inventory-summary.csv"
+export FOUNDATION_PLATFORM_VWORLD_DATASET_COLLECTION_PLAN_PATH="${work}/plan.json"
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH="${work}/inventory.json"
+"${PUBLISHER_BIN}" plan-vworld-dataset-collection > "${run_log}" 2>&1
+"${PUBLISHER_BIN}" inventory-vworld-dataset-files >> "${run_log}" 2>&1
+changed="$(history changed-files --inventory "${work}/inventory.json" --state-dir "${STATE_ROOT}" --output "${work}/inventory-changed.json")"
+if [ "${changed}" = 0 ]; then
+  printf '%s parcel-number-change unchanged run=%s\n' "$(date -u +%FT%TZ)" "${run_id}" >> "${journal}"
+  echo '{"status": "unchanged", "files": 0}'
+  exit 0
+fi
+
+# 2. 수집. 바뀐 파일만 담은 목록으로 ingest 를 부른다.
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH="${work}/inventory-changed.json"
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INGEST_EVIDENCE_PATH="${work}/ingest-evidence.json"
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE=1
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD=1
+export FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1
+"${PUBLISHER_BIN}" ingest-vworld-dataset-files >> "${run_log}" 2>&1
+
+# 3. 되읽기·검사·넘김. 읽기만 하므로 읽기 키를 쓴다.
+# The pinned reference tools/technology-versions.contract.json lists.
+AWS_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
+: "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID:?the lakehouse reader key is required}"
+: "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY:?the lakehouse reader key is required}"
+while read -r file_key object_key; do
+  AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID}" \
+  AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY}" \
+  docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION=auto \
+    -v "${work}/downloads:/w" "${AWS_IMAGE}" s3 cp --only-show-errors \
+    --endpoint-url "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT}" \
+    "s3://${FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET}/${object_key}" "/w/${file_key}.zip" >> "${run_log}" 2>&1
+done < <(history landed-objects --evidence "${work}/ingest-evidence.json")
+result="$(history stage-handoff --inventory "${work}/inventory-changed.json" --evidence "${work}/ingest-evidence.json" \
+  --download-dir "${work}/downloads" --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
+rm -rf "${work}/downloads" # the handoff holds its own copy
+printf '%s parcel-number-change collect ok run=%s %s\n' "$(date -u +%FT%TZ)" "${run_id}" "${result}" >> "${journal}"
+echo "${result}"

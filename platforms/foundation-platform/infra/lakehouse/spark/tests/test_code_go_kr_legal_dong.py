@@ -178,6 +178,12 @@ def pnu(code, main):
     return f"{code}1{main:04d}0000"
 
 
+def dong_row(code):
+    """A 필지고유번호변동연혁 동-level PNU: the code, 대장구분 0, 본번·부번 0000."""
+
+    return f"{code}000000000"
+
+
 def renamed_table():
     """시도 98 merges into 99 on DAY, and the 동 갑동 is renamed 새갑동 at the same time."""
 
@@ -463,7 +469,8 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         rows.append(row("9911010300", "합성특별시 가구 다른동", parent="9911000000", created=DAY))
         table = as_rows(table_html(rows))
         jibun = cg.JibunEvidence({"9811010100": lots(1, 2)}, {"9911010100": lots(1, 2)}, "b->a")
-        agree = [(pnu("9811010100", 1), pnu("9911010100", 1))]
+        # The official parcel rows decide only when they link (the contract's share of) the old 동's parcels.
+        agree = [(pnu("9811010100", 1), pnu("9911010100", 1)), (pnu("9811010100", 2), pnu("9911010100", 2))]
         pair = {p["old_code"]: p for p in cg.pair_changes(table, FLOOR, jibun=jibun, official_links=agree,
                                                          min_share=MIN_SHARE).pairs}["9811010100"]
         self.assertEqual((pair["new_code"], pair["source"]), ("9911010100", "official:parcel-history"))
@@ -481,7 +488,146 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         links = [(pnu("9811010100", 1), pnu("9911010100", 901)), (pnu("9811010100", 2), pnu("9911010300", 902))]
         result = cg.pair_changes(as_rows(table_html(rows)), FLOOR, official_links=links, min_share=MIN_SHARE)
         self.assertNotIn("9811010100", {p["old_code"] for p in result.pairs})
+        # Not one pair: the official rows split it, and the review says where they went.
+        [item] = [i for i in result.review if i["old_code"] == "9811010100"]
+        self.assertEqual((item["status"], item["split_into"]), ("split", {"9911010100": 1, "9911010300": 1}))
+        # The same when the provider's 동-level rows name two new 동 (measured: one 화성 동 in 2026-02).
+        dong_links = [(dong_row("9811010100"), dong_row("9911010100")), (dong_row("9811010100"), dong_row("9911010300"))]
+        result = cg.pair_changes(as_rows(table_html(rows)), FLOOR, official_links=dong_links, min_share=MIN_SHARE)
+        [item] = [i for i in result.review if i["old_code"] == "9811010100"]
+        self.assertEqual((item["status"], sorted(item["split_into"])), ("split", ["9911010100", "9911010300"]))
 
+    def test_a_recorded_derived_pair_the_official_history_contradicts_stops_the_run(self):
+        # Review of #339: a pair already in the change table skipped the official check. 심은 사고: a
+        # 지번 pair recorded before the official history arrived says 새갑동; the history says 다른동.
+        rows = merged_table()
+        rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
+        rows.append(row("9911010300", "합성특별시 가구 다른동", parent="9911000000", created=DAY))
+        table = as_rows(table_html(rows))
+        recorded = [pairs_job.change_row("pair", "derived:parcel-jibun:b->a", "9811010100", "9911010100", "run0", NOW,
+                                         level="eupmyeondong", rule_verdict="jibun")]
+        disagree = [(dong_row("9811010100"), dong_row("9911010300"))]
+        with self.assertRaisesRegex(cg.PairingConflict, "9911010300.*derived:parcel-jibun.*9911010100"):
+            pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, disagree)
+        # Agreeing official evidence, or none, leaves the recorded pair standing.
+        agree = [(dong_row("9811010100"), dong_row("9911010100"))]
+        pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, agree)
+        pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW)
+        # A steward's pair is a person's decision with its reason, not re-judged here.
+        steward = [dict(recorded[0], source="steward:steward-a", change_key="pair|steward:steward-a|9811010100|9911010100")]
+        pairs_job.plan_derivation(table, steward, CONTRACT, CADASTRAL, "run1", NOW, None, disagree)
+
+    def test_a_derived_pair_outside_an_official_split_or_chain_stops_the_run(self):
+        # Review of #341: official rows that settle nothing (a split, or a target abolished again) still
+        # say where the 동 went; a recorded derived pair naming none of those codes is refused.
+        rows = merged_table()
+        rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
+        rows.append(row("9911010300", "합성특별시 가구 다른동", parent="9911000000", created=DAY))
+        rows.append(row("9911010400", "합성특별시 가구 셋째동", parent="9911000000", created=DAY))
+        table = as_rows(table_html(rows))
+        recorded = [pairs_job.change_row("pair", "derived:parcel-jibun:b->a", "9811010100", "9911010400", "run0", NOW,
+                                         level="eupmyeondong", rule_verdict="jibun")]
+        split = [(dong_row("9811010100"), dong_row("9911010100")), (dong_row("9811010100"), dong_row("9911010300"))]
+        with self.assertRaisesRegex(cg.PairingConflict, "moves it into 9911010100, 9911010300.*9911010400"):
+            pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, split)
+        # A chain: the official target was abolished again, so it settles nothing, yet the derived pair
+        # names another code.
+        rows.append(row("9911010500", "합성특별시 가구 옛동", "폐지", "9911000000", created=DAY, abolished="20990801"))
+        chain = [(dong_row("9811010100"), dong_row("9911010500"))]
+        with self.assertRaisesRegex(cg.PairingConflict, "moves it into 9911010500"):
+            pairs_job.plan_derivation(as_rows(table_html(rows)), recorded, CONTRACT, CADASTRAL, "run1", NOW, None, chain)
+        # Naming one of the split's codes is not a contradiction.
+        inside = [dict(recorded[0], new_code="9911010300", change_key="pair|derived:parcel-jibun:b->a|9811010100|9911010300")]
+        pairs_job.plan_derivation(table, inside, CONTRACT, CADASTRAL, "run1", NOW, None, split)
+
+    def test_a_few_parcel_rows_are_evidence_not_a_decision_for_the_dong(self):
+        # Review of #341: one boundary-adjustment row (1 of the 동's 40 parcels) must not decide where the
+        # 동 went. It waits, and says why.
+        jibun = cg.JibunEvidence({"9811010100": lots(*range(1, 41))}, {"9911010100": lots(901)}, "b->a")
+        stray = [(pnu("9811010100", 7), pnu("9911010100", 901))]
+        result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=stray, min_share=MIN_SHARE)
+        self.assertNotIn("9811010100", {p["old_code"] for p in result.pairs})
+        [item] = [i for i in result.review if i["old_code"] == "9811010100"]
+        self.assertEqual((item["status"], item["waiting_for"]), ("awaiting_data", "official partial: 1 of 40 parcels linked"))
+        # Linking the contract's share of them decides it.
+        enough = [(pnu("9811010100", n), pnu("9911010100", 900 + n)) for n in range(1, 41)]
+        result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=enough, min_share=MIN_SHARE)
+        pair = {p["old_code"]: p for p in result.pairs}["9811010100"]
+        self.assertEqual((pair["new_code"], pair["detail"]), ("9911010100", "parcel_level"))
+        # Without an edition saying what the 동 held, parcel rows cannot be weighed: it waits too.
+        result = cg.pair_changes(renamed_table(), FLOOR, official_links=enough, min_share=MIN_SHARE)
+        [item] = [i for i in result.review if i["old_code"] == "9811010100"]
+        self.assertIn("official partial", item["waiting_for"])
+
+    def test_a_date_and_name_pair_the_official_history_contradicts_stops_the_run(self):
+        # 갑동 → 합성특별시 가구 갑동 by the name rule; 심은 공식 이력은 을동으로 옮겼다고 한다.
+        disagree = [(dong_row("9811010100"), dong_row("9911010200"))]
+        with self.assertRaisesRegex(cg.PairingConflict, "date\\+name"):
+            cg.pair_changes(as_rows(table_html(merged_table())), FLOOR, official_links=disagree, min_share=MIN_SHARE)
+        agree = [(dong_row("9811010100"), dong_row("9911010100"))]
+        cg.pair_changes(as_rows(table_html(merged_table())), FLOOR, official_links=agree, min_share=MIN_SHARE)
+
+    def test_a_boundary_that_is_not_a_polygon_is_skipped_and_counted_up_to_the_contract_bound(self):
+        # Review of #339: one point geometry failed the whole run.
+        import struct
+
+        import parcel_land
+
+        point = struct.pack("<BIdd", 1, 1, 127.1231, 36.1231)
+        self.assertIsNone(parcel_land.polygon_area_m2(point))
+        bound = CONTRACT["pairing"]["land_match"]["max_non_polygon_share"]
+        read = [(pnu("9999910100", n), "대", 100.0) for n in range(1, 2001)] + [(pnu("9999910100", 3000), "대", None)]
+        skipped: dict[str, int] = {}
+        kept = pairs_job.drop_non_polygons(read, "209906", bound, skipped)
+        self.assertEqual((len(kept), skipped), (2000, {"209906": 1}))
+        planted = [(pnu("9999910100", 1), "대", 100.0), (pnu("9999910100", 2), "대", None)]
+        with self.assertRaisesRegex(ValueError, "not polygons"):
+            pairs_job.drop_non_polygons(planted, "209906", bound, {})
+
+    def test_one_dong_level_row_settles_a_renumbered_dong(self):
+        # The provider writes a renumbered 동 as one row (대장구분 0, 본번·부번 0000), not one per parcel.
+        links = [(dong_row("9811010100"), dong_row("9911010100"))]
+        self.assertTrue(cg.is_dong_level_link(links[0][0]))
+        self.assertFalse(cg.is_dong_level_link(pnu("9811010100", 1)))
+        result = cg.pair_changes(renamed_table(), FLOOR, official_links=links, min_share=MIN_SHARE)
+        pair = {p["old_code"]: p for p in result.pairs}["9811010100"]
+        self.assertEqual((pair["new_code"], pair["source"], pair["detail"]),
+                         ("9911010100", "official:parcel-history", "dong_level"))
+        self.assertEqual(result.review, [])
+
+    def test_the_official_history_settles_what_the_jibun_sets_leave_below_the_line(self):
+        # The 지번 sets split 갑동 below the contract's line (not a pair on their own); the official row
+        # decides it first, and the 지번 step never sees it.
+        jibun = cg.JibunEvidence({"9811010100": lots(*range(1, 21))}, {"9911010100": lots(*range(1, 19))}, "b->a")
+        links = [(dong_row("9811010100"), dong_row("9911010100"))]
+        result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=links, min_share=MIN_SHARE)
+        pair = {p["old_code"]: p for p in result.pairs}["9811010100"]
+        self.assertEqual(pair["rule_verdict"], "official_parcel_history")
+
+    def test_official_and_jibun_agreeing_is_one_official_pair(self):
+        jibun = cg.JibunEvidence({"9811010100": lots(1, 2)}, {"9911010100": lots(1, 2)}, "b->a")
+        links = [(dong_row("9811010100"), dong_row("9911010100"))]
+        result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=links, min_share=MIN_SHARE)
+        self.assertEqual([p["rule_verdict"] for p in result.pairs if p["old_code"] == "9811010100"],
+                         ["official_parcel_history"])
+
+    def test_the_job_reads_the_official_links_file_and_settles_the_renumbered_dong(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "table.html").write_text(table_html([*merged_table()[:5], row(
+                "9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY), *merged_table()[6:]]), encoding="utf-8")
+            (root / "links.txt").write_text(f"{dong_row('9811010100')} {dong_row('9911010100')}\n", encoding="utf-8")
+            base = ["--snapshot-date", "2099-07-02", "--table-source-record-id", "k", "--validate-only",
+                    "--table-html", str(root / "table.html"), "--summary-output", str(root / "summary.json")]
+            pairs_job.main(base)
+            off = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+            pairs_job.main(base + ["--official-links", str(root / "links.txt")])
+            on = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(on["pairs_by_evidence"].get("official_parcel_history"), 1)
+            self.assertEqual(on["review_items"], off["review_items"] - 1)
+            (root / "links.txt").write_text(f"{dong_row('9811010100')[:14]} {dong_row('9911010100')}\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "19-digit"):
+                pairs_job.main(base + ["--official-links", str(root / "links.txt")])
 
 # --- the handoff ------------------------------------------------------------------------------
 

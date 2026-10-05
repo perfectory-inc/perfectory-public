@@ -1,0 +1,72 @@
+{
+  "$comment": "Root ADR-0144 §4, ADR-0145. VWorld 필지고유번호변동연혁 (MK/30527): the official old PNU -> new PNU record, the third step of 법정동 code pairing. How its files are chosen, what each must look like, and how a row is read. The collection script (scripts/ops/parcel-number-change-collect.sh), the parser and loader (infra/lakehouse/spark/jobs/vworld_parcel_number_change_history.py), the pairing (legal_dong_code_change_pairs.py) and the tests read this file; nothing else restates these values. Measured 2026-10-05 on two province files (인천, 경기) and the provider's table definition (ABPD_UNQ_NO_CHG_HIST.xlsx).",
+  "version": 1,
+  "endpoint_slug": "vworld-dataset-parcel_number_change_history",
+  "bronze_source": "bronze/source=vworldkr__parcel_number_change_history",
+  "provider_dataset_selector": {
+    "svc_cde": "MK",
+    "ds_id": "30527"
+  },
+  "expected_listing": {
+    "$comment": "What the provider's page listed on 2026-10-05: 19 province zips and the table definition. The plan carries it into the inventory as the expected count; a different count is a warning there, not a refusal, because the provider's page decides.",
+    "file_count": 20,
+    "listed_gib": 0.01
+  },
+  "files": {
+    "$comment": "One zip per 시도, replaced in place when the provider's 지적 records change (file numbers are reused; the provider's 갱신일 and size tell a new upload apart). Every file the listing names is collected into Bronze, each upload its own object: the 시도 zips (including the old-name files the provider kept beside the renamed 시도, 강원 and 전북 before 특별자치도, and 전남/광주 before their merger) are loaded; the table definition (xlsx) is kept as evidence of the layout and not loaded. A listed file matching neither pattern refuses the run. The pairing reads links by content, so a row an old-name file repeats counts once.",
+    "provider_file_name_pattern": "^ABPD_UNQ_NO_CHG_HIST_.+\\.zip$",
+    "reference_file_name_pattern": "^ABPD_UNQ_NO_CHG_HIST\\.xlsx$",
+    "member_name_pattern": "^ABPD_UNQ_NO_CHG_HIST_[0-9]{2}_[0-9]{6}\\.txt$",
+    "encoding": "utf-8",
+    "delimiter": "|"
+  },
+  "header": [
+    "OLD_ADM_SECT_CD",
+    "OLD_LAND_LOC_CD",
+    "OLD_LEDG_GBN",
+    "OLD_BOBN",
+    "OLD_BUBN",
+    "ADM_SECT_CD",
+    "LAND_LOC_CD",
+    "LEDG_GBN",
+    "BOBN",
+    "BUBN",
+    "LAND_MOV_RSN_CD",
+    "LAND_MOV_YMD",
+    "COL_ADM_SECT_CD"
+  ],
+  "pnu_parts": {
+    "$comment": "A PNU is 시군구(5) + 읍면동리(5) + 대장구분(1) + 본번(4) + 부번(4) = 19 digits. A row whose 대장구분 is 0 and 본번·부번 0000 moves a whole 법정동 (the provider writes a renumbered 동 as one such row, not one per parcel).",
+    "old": [
+      "OLD_ADM_SECT_CD",
+      "OLD_LAND_LOC_CD",
+      "OLD_LEDG_GBN",
+      "OLD_BOBN",
+      "OLD_BUBN"
+    ],
+    "new": [
+      "ADM_SECT_CD",
+      "LAND_LOC_CD",
+      "LEDG_GBN",
+      "BOBN",
+      "BUBN"
+    ],
+    "widths": [
+      5,
+      5,
+      1,
+      4,
+      4
+    ]
+  },
+  "quarantine": {
+    "$comment": "Measured 2026-10-05 over all 19 시도 files: some rows carry a blank or non-date LAND_MOV_YMD (text in the date column, reasons 43/81), and one 서울 row of 41,450 has 3-digit 본번·부번. Per file the share is 0 to 1.46e-3 (경북 42 of 28,733; 충북 14 of 39,972; 경기 14 of 356,046). Such a row is kept with quarantine_reason set (unparseable_land_mov_ymd, malformed_pnu), never dropped and never used as evidence. A file with more than max_share (about three times the measured maximum) and more than max_rows_any_file quarantined rows is refused whole: then the layout moved, not a few rows. The row allowance keeps a few bad rows from refusing a small 시도's file (제주 is about 3 KiB). A date later than the day after the collection is quarantined too (implausible_land_mov_ymd): the provider cannot have recorded a change that has not happened.",
+    "max_share": 0.005,
+    "max_rows_any_file": 5
+  },
+  "bounds": {
+    "$comment": "A province file below min_rows_per_file is refused (제주 is the smallest real file: about 3 KiB). The history only grows; a file with fewer rows than the one it replaces by more than max_shrink_share is refused.",
+    "min_rows_per_file": 1,
+    "max_shrink_share": 0.01
+  }
+}

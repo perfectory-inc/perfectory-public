@@ -12,14 +12,20 @@
 #               지번 겹침은 폐지된 동마다 그 날짜를 감싸는 필지 판 둘(원천 계약 vworld-parcel-source-objects.json
 #               의 판 중 폐지 전에 뽑은 마지막 것과 뒤에 뽑은 첫 것)로 돈다. 계약에 그 판이 없거나 표에 적재되지
 #               않았으면 그 동은 판단 대기로 남고, 필요한 판을 이름으로 말한다(ADR-0148).
-#               필지 번호 공식 이력(필지고유번호변동연혁)은 아직 수집하지 않아 그 단계는 꺼져 있고, 그것만 정할
-#               수 있는 동은 판단 대기(awaiting_data)로 남는다(ADR-0144 §4). 필지 계보는 증거가 아니다: 계보가
-#               이 표의 동 짝을 읽으므로, 거꾸로 읽으면 서로가 서로를 읽는다(ADR-0145 §2).
+#               필지 번호 공식 이력(필지고유번호변동연혁, VWorld 30527)은 silver.parcel_number_change_history 가
+#               행을 가졌을 때(그 넘김을 하나라도 적재했을 때) 읽는다: 짝 맞추기 기간의 공식 짝이 지번 단계보다
+#               먼저 정하고, 둘이 다르게 정하면 아무것도 쓰지 않고 멈춘다(ADR-0150). 표가 비었으면 그 단계는 꺼져
+#               있고, 그것만 정할 수 있는 동은 판단 대기(awaiting_data)로 남는다(ADR-0144 §4). 필지 계보는 증거가
+#               아니다: 계보가 이 표의 동 짝을 읽으므로, 거꾸로 읽으면 서로가 서로를 읽는다(ADR-0145 §2).
 #   3. 넘김을 loaded/ 로 옮긴다.
+# 그 앞에 필지고유번호변동연혁 수집 작업(parcel-number-change-collect.sh)이 쓴 대기 넘김을 먼저
+# silver.parcel_number_change_history 에 쌓는다(파일 하나가 한 번의 적재). 새 공식 이력이 들어왔는데 법정동 표
+# 넘김이 없으면 최신 스냅숏으로 짝 맞추기만 다시 돈다: 판단 대기였던 동을 이력이 정할 수 있다.
 # 대기 넘김이 없어도 대기 중인 스튜어드 결정이 있으면 최신 스냅숏으로 짝 맞추기만 돈다. 둘 다 없으면 그렇게
 # 남기고 지나간다. 어느 단계든 실패하면 함수가 0 이 아닌 값을 돌려주고, 호출한 단위가 계보로 넘어가지 않는다.
 
 LEGAL_DONG_STATE_ROOT="${FOUNDATION_LEGAL_DONG_CODE_STATE_ROOT:-/var/lib/foundation-platform/legal-dong-code}"
+PARCEL_NUMBER_CHANGE_STATE_ROOT="${FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT:-/var/lib/foundation-platform/parcel-number-change}"
 
 legal_dong_install() {
   cp "$1" "$2.tmp"
@@ -35,8 +41,13 @@ legal_dong_pair() {
     cp "${LEGAL_DONG_STATE_ROOT}"/steward/pending/*.json "${out}/steward/"
     decisions=(--steward-decisions "${cout}/steward")
   fi
+  # The official history is read once the table holds rows: one of its handoffs was loaded here.
+  local official=()
+  if compgen -G "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/*" >/dev/null; then
+    official=(--official-history-table silver.parcel_number_change_history)
+  fi
   spark legal_dong_code_change_pairs.py --allow-non-smoke-write --snapshot-date "${snapshot_date}" \
-    --table-source-record-id "${table_key}" --jibun-evidence editions ${decisions[@]+"${decisions[@]}"} \
+    --table-source-record-id "${table_key}" --jibun-evidence editions ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
     --projection-output "${cout}/projection.json" --review-output "${cout}/steward-review.json" \
     --summary-output "${cout}/pairs-summary.json"
   legal_dong_install "${out}/projection.json" "${LEGAL_DONG_STATE_ROOT}/sigungu-crosswalk.projection.json"
@@ -54,8 +65,29 @@ for name, verdict in verdicts.items():
 PY
 }
 
+# Loads every pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history, oldest first,
+# and sets parcel_number_change_loaded to how many it loaded.
+load_parcel_number_change_handoffs() {
+  local pending="${PARCEL_NUMBER_CHANGE_STATE_ROOT}/pending" name handoff
+  parcel_number_change_loaded=0
+  mkdir -p "${work}/parcel-number-change" "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded"
+  chmod 0777 "${work}/parcel-number-change"
+  for handoff in $(find "${pending}" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | sort); do
+    name="$(basename "${handoff}")"
+    cp -R "${handoff}" "${work}/parcel-number-change/${name}"
+    chmod -R a+rwX "${work}/parcel-number-change/${name}" # Spark 컨테이너(uid 185)가 요약을 쓴다.
+    spark vworld_parcel_number_change_history.py load --allow-non-smoke-write \
+      --handoff-dir "${container_work}/parcel-number-change/${name}" \
+      --summary-output "${container_work}/parcel-number-change/${name}/load-summary.json"
+    mv "${handoff}" "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/${name}"
+    parcel_number_change_loaded=$((parcel_number_change_loaded + 1))
+    printf '%s parcel-number-change loaded handoff=%s run=%s\n' "$(date -u +%FT%TZ)" "${name}" "${run_id}" >> "${journal}"
+  done
+}
+
 load_legal_dong_code_handoffs() {
   local pending="${LEGAL_DONG_STATE_ROOT}/pending" loaded=0 name handoff snapshot_date table_key table_file
+  load_parcel_number_change_handoffs
   mkdir -p "${work}/legal-dong" "${LEGAL_DONG_STATE_ROOT}/loaded"
   chmod 0777 "${work}/legal-dong"
   for handoff in $(find "${pending}" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | sort); do
@@ -79,13 +111,13 @@ print(h["snapshot_date"], h["table_object_key"], table["local_path"])' "${handof
     printf '%s legal-dong-code loaded handoff=%s run=%s\n' "$(date -u +%FT%TZ)" "${name}" "${run_id}" >> "${journal}"
   done
   if [ "${loaded}" = 0 ]; then
-    if compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null \
+    if { [ "${parcel_number_change_loaded}" != 0 ] || compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; } \
       && [ -f "${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json" ]; then
       read -r snapshot_date table_key < <(python3 -I -c 'import json, sys
 m = json.load(open(sys.argv[1], encoding="utf-8")); print(m["snapshot_date"], m["source_record_id"])' \
         "${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json")
       legal_dong_pair "${snapshot_date}" "${table_key}"
-      printf '%s legal-dong-code paired steward decisions on %s run=%s\n' "$(date -u +%FT%TZ)" "${snapshot_date}" "${run_id}" >> "${journal}"
+      printf '%s legal-dong-code re-paired (steward decisions or new official history) on %s run=%s\n' "$(date -u +%FT%TZ)" "${snapshot_date}" "${run_id}" >> "${journal}"
     else
       printf '%s legal-dong-code no pending handoff run=%s\n' "$(date -u +%FT%TZ)" "${run_id}" >> "${journal}"
     fi

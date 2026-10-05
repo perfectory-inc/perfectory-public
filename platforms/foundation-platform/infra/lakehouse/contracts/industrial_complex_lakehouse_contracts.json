@@ -3425,6 +3425,106 @@
         "object_suffix_separator": null
       }
     },
+    "silver.parcel_number_change_history": {
+      "table_name": "silver.parcel_number_change_history",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "old_pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "new_pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "is_dong_level",
+          "logical_type": "boolean",
+          "required": true
+        },
+        {
+          "name": "reason_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changed_on",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "changed_on_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "quarantine_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "duplicate_count",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_file_name",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_updated_on",
+          "logical_type": "date",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "changed_on",
+        "old_pnu"
+      ],
+      "quality_gates": [
+        "append_only",
+        "old_pnu and new_pnu are 19 digits unless quarantine_reason is malformed_pnu",
+        "(source_record_id, source_line_number) unique",
+        "changed_on is null only where quarantine_reason is set"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.parcel_lineage": {
       "table_name": "silver.parcel_lineage",
       "physical_format": "Parquet",

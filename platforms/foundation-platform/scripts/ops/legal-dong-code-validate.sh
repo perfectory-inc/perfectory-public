@@ -14,6 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 STATE_ROOT="${FOUNDATION_LINEAGE_STEWARDSHIP_STATE_ROOT:-/var/lib/foundation-platform/lineage-stewardship}"
 LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
 LEGAL_DONG_STATE_ROOT="${FOUNDATION_LEGAL_DONG_CODE_STATE_ROOT:-/var/lib/foundation-platform/legal-dong-code}"
+PARCEL_NUMBER_CHANGE_STATE_ROOT="${FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT:-/var/lib/foundation-platform/parcel-number-change}"
 
 run_id="validate-$(date -u +%Y%m%dT%H%M%SZ)"
 work="${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"
@@ -25,6 +26,12 @@ marker="${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json"
 read -r snapshot_date table_key < <(python3 -I -c 'import json, sys
 m = json.load(open(sys.argv[1], encoding="utf-8"))
 print(m["snapshot_date"], m["source_record_id"])' "${marker}")
+
+# The official history, as the scheduled run reads it: once one of its handoffs was loaded (root ADR-0150).
+official=()
+if compgen -G "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/*" >/dev/null; then
+  official=(--official-history-table silver.parcel_number_change_history)
+fi
 
 decisions=()
 if compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
@@ -44,7 +51,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   spark spark-submit --master 'local[4]' --driver-memory 4g --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py --validate-only \
   --snapshot-date "${snapshot_date}" --table-source-record-id "${table_key}" --jibun-evidence editions \
-  ${decisions[@]+"${decisions[@]}"} \
+  ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
   --projection-output "${container_work}/projection.json" --review-output "${container_work}/steward-review.json" \
   --summary-output "${container_work}/summary.json" > "${work}/run.log" 2>&1
 
@@ -52,7 +59,8 @@ printf 'legal-dong-code validate-only: %s\n' "${work}"
 python3 -I - "${work}/summary.json" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1], encoding="utf-8"))
-print(json.dumps({k: s[k] for k in ("status", "reads", "jibun_evidence", "pairs_by_evidence", "fresh_changes",
+print(json.dumps({k: s[k] for k in ("status", "reads", "jibun_evidence", "official_parcel_links",
+                                     "non_polygon_parcels_skipped", "pairs_by_evidence", "fresh_changes",
                                      "awaiting_by_sido", "awaiting_by_evidence",
                                      "review_by_status", "crosswalk_entries", "governed_sido")}, ensure_ascii=False))
 for row in s["would_append"]:
