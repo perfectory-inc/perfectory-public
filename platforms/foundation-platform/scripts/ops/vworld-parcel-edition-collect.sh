@@ -87,14 +87,15 @@ print("\n".join(sorted(item["object_key"] for item in items)))
 PY
 
 # 3. 측정. 자격증명은 이 작업의 환경에 있고 컨테이너에 이름으로만 넘긴다(값을 찍지 않는다).
-gdal_image="$("${PY[@]}" -c 'import json, sys; print(json.load(open(sys.argv[1]))["images"]["gdal"]["image"])' \
-  "${RELEASE_ROOT}/config/tile-bake-containers.contract.json")"
+# The pinned reference tools/technology-versions.contract.json lists (container-images-match-the-contract
+# keeps it equal to that list; scripts/catalog/sync-container-images.py rewrites it on a digest change).
+GDAL_IMAGE="ghcr.io/osgeo/gdal:ubuntu-small-3.10.2@sha256:a2af3ef63be13b35790ce7a508ff395c409ef7a0b8ddc5ab9685dd4518af9779"
 AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}" \
 AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}" \
 AWS_S3_ENDPOINT="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT#https://}" \
 B="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET}" \
   docker run --rm -i --memory 1g -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_S3_ENDPOINT -e B \
-    -e AWS_VIRTUAL_HOSTING=FALSE -e AWS_REGION=auto -v "${JOBS}:/jobs:ro" "${gdal_image}" \
+    -e AWS_VIRTUAL_HOSTING=FALSE -e AWS_REGION=auto -v "${JOBS}:/jobs:ro" "${GDAL_IMAGE}" \
     python3 /jobs/vworld_parcel_edition_members.py < "${work}/keys.txt" > "${work}/members.jsonl" 2>> "${run_log}"
 editions propose --edition "${edition}" --measured "${work}/members.jsonl" \
   --output "${work}/proposed-${edition}.json" >> "${run_log}"

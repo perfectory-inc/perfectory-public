@@ -18,7 +18,7 @@ VWorld 연속지적도(MK/30563)는 판(provider edition, `YYYYMM`)마다 전국
 | 판과 그 객체·추출일·핸드오프 자리, 지도가 쓰는 판 | `infra/lakehouse/contracts/vworld-parcel-source-objects.json` (`editions`, `served_edition`) |
 | 판에서 파생되는 것(`source_snapshot_id`, `valid_from_utc`, 핸드오프 키, 짝 맞추기의 판 쌍) | `infra/lakehouse/spark/jobs/vworld_parcel_editions.py` (셸은 이 명령으로만 계약을 읽는다) |
 | 매일 확인·수집 작업 | `orchestration/jobs.v1.json` 의 `vworld_parcel_edition` (default_pool, Spark 없음) → `infra/systemd/foundation-vworld-parcel-edition.service` → `scripts/ops/vworld-parcel-edition-collect.sh` |
-| ZIP 측정 | `infra/lakehouse/spark/jobs/vworld_parcel_edition_members.py` (GDAL 이미지, `config/tile-bake-containers.contract.json` 의 `images.gdal`) |
+| ZIP 측정 | `infra/lakehouse/spark/jobs/vworld_parcel_edition_members.py` (`tools/technology-versions.contract.json` 이 고정한 GDAL 이미지) |
 | 작업 기록 | `/var/lib/foundation-platform/vworld-parcel-edition/journal.log`, 실행마다 `runs/<시각>/`, 제안 `proposed/<판>.json` |
 | 변환·적재 | `scripts/load/vworld-parcel-handoff-export.sh`, `scripts/load/lakehouse-batch-load.sh` (둘 다 `VWORLD_PARCEL_EDITION` 하나만 받는다) |
 
@@ -86,7 +86,7 @@ export FOUNDATION_PLATFORM_RELEASE_DIR=/opt/foundation-platform/current
 export FOUNDATION_PLATFORM_PUBLISHER_BIN=/opt/foundation-platform/artifacts/$(basename "$(readlink -f /opt/foundation-platform/current)")/foundation-outbox-publisher
 export VWORLD_PARCEL_EDITION=202609
 
-# 1) 변환: 시군구 256개 ZIP → silver-handoff/vworldkr__parcel/edition=202609/*.jsonl.gz (계획부터 본다)
+# 1) 변환: 시군구 256개 ZIP → 계약이 이 판에 정한 핸드오프 자리 (계획부터 본다; 첫 줄이 그 자리를 말한다)
 /opt/foundation-platform/current/scripts/load/vworld-parcel-handoff-export.sh plan | tail -3
 setsid nohup /opt/foundation-platform/current/scripts/load/vworld-parcel-handoff-export.sh run \
   > ~/parcel-export-202609.log 2>&1 < /dev/null & disown
@@ -118,7 +118,7 @@ FROM r2.silver.parcel_boundaries GROUP BY 1;
 
 ### 하면 안 되는 것
 
-- `silver-handoff/vworldkr__parcel/` 바로 아래의 `30563-*--sha256-*.jsonl.gz` 256개를 싣지 않는다. 2026-09-27 에 손으로
+- 202606 판의 핸드오프 자리 바로 아래에 있는 `30563-*--sha256-*.jsonl.gz` 256개를 싣지 않는다. 2026-09-27 에 손으로
   변환한 9월 판으로, `vworldkr__parcel:202609` 와 수집 시각(`2026-09-27T00:54:42Z`)을 지닌다. 판의 핸드오프 자리가
   다르므로 적재기는 그것을 읽지 않고, 읽게 되더라도 잡이 다른 id 를 가진 행을 거부한다. 지우지 않는다(append-only).
 - `silver.parcel_boundaries_202609_smoke`(12,352 행, 한 시군구, 2026-10-01T18:04Z 수동 실행)는 그대로 둔다. 정본이 아니다.

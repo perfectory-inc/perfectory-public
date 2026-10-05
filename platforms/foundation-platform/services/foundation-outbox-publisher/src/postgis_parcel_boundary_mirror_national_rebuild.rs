@@ -1534,7 +1534,7 @@ mod tests {
                     "209901": {{
                         "granularity_counts": {{"sido": 0, "sigungu": 1}},
                         "handoff_prefix": "silver-handoff/vworldkr__parcel/edition=209901",
-                        "objects": [{{"object_key": "bronze/source=vworldkr__parcel/20990101DS99990-7.zip", "granularity": "sigungu"}}]
+                        "objects": [{{"object_key": "bronze/source=vworldkr__parcel/20991231DS99991-7.zip", "granularity": "sigungu"}}]
                     }}
                 }}
             }}"#
