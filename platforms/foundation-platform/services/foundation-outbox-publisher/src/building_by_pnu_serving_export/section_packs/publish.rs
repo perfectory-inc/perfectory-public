@@ -5,13 +5,18 @@
 //! every v2 field as it is. Inputs: a directory of pack export summaries of one Gold snapshot.
 //!
 //! - **base** — the summaries hold base packs of one generation per section. Every section listed
-//!   must hold exactly the summaries' packs, every row of Gold (`PACK_EXPECTED_DOCUMENT_COUNT`),
+//!   must hold exactly the summaries' packs, every row of the Gold snapshot (the count the
+//!   catalog's table metadata records; `PACK_EXPECTED_DOCUMENT_COUNT`, when stated, must agree),
 //!   and a sample of them must read back as the summaries recorded. The **first** base publish
 //!   (no `section_packs` yet) is the cut-over: it also needs the gateway to say it reads
-//!   `section_packs`, and the equality and latency evidence of that generation (gate 가, 나), both
-//!   passing, the equality evidence of the object state the manifest still serves.
-//! - **patch** — the summaries hold patch `m` of every section: exactly the change set's upserts as
-//!   documents and its deletes as tombstones (root ADR-0141 §7 on packs).
+//!   `section_packs`, the installed scheduled bake to declare that it bakes pack patches (else the
+//!   packs would stop taking daily changes; runbook 7절), and the equality and latency evidence of
+//!   that generation (gate 가, 나), both passing.
+//! - **patch** — the summaries hold patch `m` of every section, each under the generation the lane
+//!   serves that section from: exactly the change set's upserts as documents and its deletes as
+//!   tombstones (root ADR-0141 §7 on packs).
+//! - **reflect** — no summaries and an empty change set: the packs already hold the new snapshot,
+//!   only the reflected snapshot moves.
 //!
 //! Every write goes over the version read at the start (compare-and-swap), after the replaced
 //! manifest is stored in the history, and pins the Gold snapshot the packs reflect.
@@ -25,7 +30,7 @@ use sha2::{Digest, Sha256};
 
 use super::super::{building_document, optional_env, LANE};
 use super::bake::{PackEntry, PackExportSummary, SUMMARY_SCHEMA_VERSION};
-use super::gate;
+use super::{equality, gate};
 use crate::by_pnu_gateway_contract::section_pack_policy;
 use crate::by_pnu_pack::Pack;
 use crate::by_pnu_section_pack_manifest::{
@@ -41,13 +46,20 @@ use crate::r2_layout::by_pnu_packs;
 
 /// Packs re-read per section before a publish.
 const SAMPLES_PER_SECTION: usize = 16;
+/// Where the host keeps the installed release's job list (`orchestration/dags/job_specs.py`
+/// `RELEASE_PREFIX`).
+const INSTALLED_JOBS: &str = "/opt/foundation-platform/current/orchestration/jobs.v1.json";
 
 #[derive(Clone, Debug)]
 pub(crate) struct PublishConfig {
     pub(crate) output: ProfileStoreConfig,
-    pub(crate) summary_dir: PathBuf,
+    /// The export summaries; none for a reflect, which writes no pack.
+    pub(crate) summary_dir: Option<PathBuf>,
     pub(crate) expected_gold_snapshot: String,
-    pub(crate) expected_document_count: Option<u64>,
+    /// The Gold snapshot's row count as the catalog records it (cross-checked against a stated one).
+    pub(crate) gold_record_count: Option<u64>,
+    /// The installed release's `orchestration/jobs.v1.json`, read by the first pack publish.
+    pub(crate) installed_jobs: PathBuf,
     pub(crate) equality_evidence: Option<PathBuf>,
     pub(crate) latency_evidence: Option<PathBuf>,
     pub(crate) change_set: Option<ChangeSetPaths>,
@@ -86,12 +98,12 @@ impl PublishConfig {
                     .as_str(),
                 local_root(env("OUTPUT_ROOT")?),
             )?,
-            summary_dir: PathBuf::from(required("PACK_SUMMARY_DIR")?),
+            summary_dir: env("PACK_SUMMARY_DIR")?.map(PathBuf::from),
             expected_gold_snapshot: required("EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID")?,
-            expected_document_count: env("PACK_EXPECTED_DOCUMENT_COUNT")?
-                .map(|raw| raw.parse::<u64>())
-                .transpose()
-                .context("the expected document count must be a number")?,
+            gold_record_count: None,
+            installed_jobs: PathBuf::from(
+                env("INSTALLED_JOBS_PATH")?.unwrap_or_else(|| INSTALLED_JOBS.to_owned()),
+            ),
             equality_evidence: env("PACK_EQUALITY_EVIDENCE_PATH")?.map(PathBuf::from),
             latency_evidence: env("PACK_LATENCY_EVIDENCE_PATH")?.map(PathBuf::from),
             change_set,
@@ -105,7 +117,13 @@ impl PublishConfig {
 /// Refuses on any failed gate; the manifest is then unchanged.
 pub(crate) async fn run() -> anyhow::Result<()> {
     super::sections::check_contract_sections()?;
-    let config = PublishConfig::from_env()?;
+    let mut config = PublishConfig::from_env()?;
+    let stated = optional_env(&LANE.env("PACK_EXPECTED_DOCUMENT_COUNT"))?
+        .map(|raw| raw.parse::<u64>())
+        .transpose()
+        .context("the expected document count must be a number")?;
+    config.gold_record_count =
+        Some(gate::gold_record_count(&config.expected_gold_snapshot, stated).await?);
     let store = ByPnuServingStore::open(LANE, &config.output)?;
     let gateway = format!("https://{}", LANE.policy()?.public_hostname);
     let state = publish(&config, &store, &gateway).await?;
@@ -137,11 +155,15 @@ pub(crate) async fn publish(
         "the live manifest is v{}; publish a v2 manifest of the objects before packs",
         live.wire_schema_version
     );
-    let summaries = read_summaries(&config.summary_dir, &config.expected_gold_snapshot)?;
-    let patch = summaries[0].patch;
-    let mut state = match patch {
-        None => base(config, store, &live, &summaries, gateway_base_url).await?,
-        Some(patch) => patched(config, store, &live, &summaries, patch).await?,
+    let mut state = match &config.summary_dir {
+        None => reflected(config, &live)?,
+        Some(dir) => {
+            let summaries = read_summaries(dir, &config.expected_gold_snapshot)?;
+            match summaries[0].patch {
+                None => base(config, store, &live, &summaries, gateway_base_url).await?,
+                Some(patch) => patched(config, store, &live, &summaries, patch).await?,
+            }
+        }
     };
     let published_at_utc = manifest_publish::now();
     let snapshot_pins = SnapshotPins::for_output(&config.output)?;
@@ -208,12 +230,7 @@ fn with_packs(
 
 /// Every `*.json` export summary of the directory, all of one snapshot and one patch.
 fn read_summaries(dir: &Path, expected_snapshot: &str) -> anyhow::Result<Vec<PackExportSummary>> {
-    let mut paths = std::fs::read_dir(dir)
-        .with_context(|| format!("failed to read the summary directory {}", dir.display()))?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<Result<Vec<_>, _>>()?;
-    paths.retain(|path| path.extension().is_some_and(|ext| ext == "json"));
-    paths.sort();
+    let paths = equality::summary_paths(dir)?;
     let mut summaries = Vec::with_capacity(paths.len());
     for path in &paths {
         let summary: PackExportSummary = serde_json::from_slice(&std::fs::read(path)?)
@@ -252,7 +269,8 @@ fn read_summaries(dir: &Path, expected_snapshot: &str) -> anyhow::Result<Vec<Pac
     Ok(summaries)
 }
 
-/// Per section: its generation and its packs, from every summary.
+/// Per section: its generation and its packs, from every summary. A patch's sections each carry
+/// their own generation.
 fn packs_by_section(
     summaries: &[PackExportSummary],
 ) -> anyhow::Result<BTreeMap<String, (u64, Vec<PackEntry>)>> {
@@ -266,7 +284,7 @@ fn packs_by_section(
                 parsed.section == pack.section
                     && parsed.unit == pack.unit
                     && parsed.patch == summary.patch
-                    && parsed.generation == summary.generation,
+                    && parsed.generation == summary.generation_of(&pack.section),
                 "summary entry {} disagrees with its own key",
                 pack.key
             );
@@ -275,11 +293,12 @@ fn packs_by_section(
                 "two summaries name {}",
                 pack.key
             );
+            let generation = summary.generation_of(&pack.section);
             let entry = by_section
                 .entry(pack.section.clone())
-                .or_insert((summary.generation, Vec::new()));
+                .or_insert((generation, Vec::new()));
             ensure!(
-                entry.0 == summary.generation,
+                entry.0 == generation,
                 "section {} is in two generations across the summaries",
                 pack.section
             );
@@ -342,13 +361,18 @@ async fn base(
     summaries: &[PackExportSummary],
     gateway_base_url: &str,
 ) -> anyhow::Result<SectionPacksState> {
-    let expected = config.expected_document_count.with_context(|| {
-        format!(
-            "a base publish states the Gold row count as {}",
-            LANE.env("PACK_EXPECTED_DOCUMENT_COUNT")
-        )
-    })?;
+    let expected = config
+        .gold_record_count
+        .context("a base publish holds every section to the Gold row count the catalog records")?;
     let snapshot = config.expected_gold_snapshot.as_str();
+    for summary in summaries {
+        ensure!(
+            summary.gold_record_count.is_none_or(|count| count == expected),
+            "a bake scanned a Gold snapshot of {:?} rows by its manifests, but the catalog records \
+             {expected}",
+            summary.gold_record_count
+        );
+    }
     let by_section = packs_by_section(summaries)?;
     let contract = &LANE.section_packs()?.sections;
     let mut units: Option<BTreeSet<String>> = None;
@@ -416,6 +440,7 @@ async fn base(
                 policy.manifest_section_packs_schema_version,
             )
             .await?;
+            require_scheduled_pack_bake(&config.installed_jobs)?;
             let cutover = cutover_gate(config, generation, snapshot, expected)?;
             Ok(SectionPacksState {
                 schema_version: policy.manifest_section_packs_schema_version,
@@ -483,6 +508,52 @@ async fn base(
     }
 }
 
+/// The first pack publish only over an installed scheduled bake that patches packs (runbook 7절):
+/// the job list of the installed release must declare the contract's capability on the contract's
+/// job. Otherwise the object bake would go on publishing objects and the packs, which the lane
+/// then serves, would stop taking daily changes.
+///
+/// # Errors
+/// Refuses an unreadable job list, a missing job and a job that does not declare the capability.
+pub(crate) fn require_scheduled_pack_bake(jobs_path: &Path) -> anyhow::Result<()> {
+    let wanted = &LANE.section_packs()?.scheduled_bake;
+    let jobs: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(jobs_path).with_context(|| {
+            format!(
+                "failed to read the installed job list {}",
+                jobs_path.display()
+            )
+        })?)
+        .with_context(|| format!("{} is not JSON", jobs_path.display()))?;
+    let job = jobs
+        .get("jobs")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|jobs| {
+            jobs.iter().find(|job| {
+                job.get("id").and_then(serde_json::Value::as_str) == Some(wanted.job.as_str())
+            })
+        })
+        .with_context(|| format!("{} lists no job {}", jobs_path.display(), wanted.job))?;
+    let declares = job
+        .get("capabilities")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|capabilities| {
+            capabilities
+                .iter()
+                .any(|capability| capability.as_str() == Some(wanted.capability.as_str()))
+        });
+    ensure!(
+        declares,
+        "the installed scheduled bake {} ({}) does not declare {}: it still bakes objects, and \
+         packs published now would stop taking daily changes. Install a release whose bake \
+         patches packs before the first pack publish (runbook 7절)",
+        wanted.job,
+        jobs_path.display(),
+        wanted.capability
+    );
+    Ok(())
+}
+
 /// Gate (가)+(나) of the first publish, or the refusal naming what is missing.
 fn cutover_gate(
     config: &PublishConfig,
@@ -528,20 +599,15 @@ struct ChangeSetInput {
     current_snapshot_id: String,
 }
 
-async fn patched(
+/// The change set as the publish checks it: its counts and lists agree, and it goes from the
+/// snapshot the packs reflect to the one being published.
+fn change_set(
     config: &PublishConfig,
-    store: &ByPnuServingStore,
-    live: &ServedManifest,
-    summaries: &[PackExportSummary],
-    patch: u64,
-) -> anyhow::Result<SectionPacksState> {
-    let current = live
-        .section_packs
-        .as_ref()
-        .context("a pack patch needs published section packs")?;
+    current: &SectionPacksState,
+) -> anyhow::Result<(ChangeSetSummary, BTreeSet<String>, BTreeSet<String>)> {
     let paths = config.change_set.as_ref().with_context(|| {
         format!(
-            "a pack patch names its change set ({})",
+            "a pack patch or reflect names its change set ({})",
             LANE.env("CHANGE_SET_SUMMARY_PATH")
         )
     })?;
@@ -553,7 +619,8 @@ async fn patched(
     ensure!(
         change.input.baseline_snapshot_id == current.reflected_gold_iceberg_snapshot_id
             && change.input.current_snapshot_id == snapshot,
-        "the change set goes from {} to {}, but the packs reflect {} and the patch is of {snapshot}",
+        "the change set goes from {} to {}, but the packs reflect {} and the publish is of \
+         {snapshot}",
         change.input.baseline_snapshot_id,
         change.input.current_snapshot_id,
         current.reflected_gold_iceberg_snapshot_id
@@ -561,9 +628,48 @@ async fn patched(
     ensure!(
         change.quality_metrics.upsert_count == u64::try_from(upserts.len())?
             && change.quality_metrics.delete_count == u64::try_from(deletes.len())?
+            && change.quality_metrics.new_count <= change.quality_metrics.upsert_count
             && upserts.is_disjoint(&deletes),
         "the change set summary disagrees with its lists"
     );
+    Ok((change, upserts, deletes))
+}
+
+/// An empty change set: nothing to bake, the packs now reflect the new snapshot.
+fn reflected(config: &PublishConfig, live: &ServedManifest) -> anyhow::Result<SectionPacksState> {
+    let current = live
+        .section_packs
+        .as_ref()
+        .context("a pack reflect needs published section packs")?;
+    let (_, upserts, deletes) = change_set(config, current)?;
+    ensure!(
+        upserts.is_empty() && deletes.is_empty(),
+        "the change set holds {} upserts and {} deletes; without {} a publish only reflects an \
+         empty change set",
+        upserts.len(),
+        deletes.len(),
+        LANE.env("PACK_SUMMARY_DIR")
+    );
+    let mut next = current.clone();
+    next.reflected_gold_iceberg_snapshot_id = config.expected_gold_snapshot.clone();
+    next.reflected_gold_snapshot_tag = None;
+    answers_for_every_gold_row(config, &next)?;
+    Ok(next)
+}
+
+async fn patched(
+    config: &PublishConfig,
+    store: &ByPnuServingStore,
+    live: &ServedManifest,
+    summaries: &[PackExportSummary],
+    patch: u64,
+) -> anyhow::Result<SectionPacksState> {
+    let current = live
+        .section_packs
+        .as_ref()
+        .context("a pack patch needs published section packs")?;
+    let (change, upserts, deletes) = change_set(config, current)?;
+    let snapshot = config.expected_gold_snapshot.as_str();
     ensure!(
         !(upserts.is_empty() && deletes.is_empty()),
         "an empty change set writes no patch"
@@ -640,5 +746,24 @@ async fn patched(
         .checked_sub(u64::try_from(deletes.len())?)
         .context("the change set deletes more PNUs than the packs answer for")?;
     next.reflected_gold_snapshot_tag = None;
+    answers_for_every_gold_row(config, &next)?;
     Ok(next)
+}
+
+/// The packs answer for exactly the rows the catalog records for the snapshot they reflect: a
+/// patch or a reflect that drifted from Gold is refused now, not at the next re-bake.
+fn answers_for_every_gold_row(
+    config: &PublishConfig,
+    next: &SectionPacksState,
+) -> anyhow::Result<()> {
+    let expected = config
+        .gold_record_count
+        .context("a pack publish holds the packs to the Gold row count the catalog records")?;
+    ensure!(
+        next.document_count == expected,
+        "the packs would answer for {} PNUs, but Gold snapshot {} holds {expected} rows",
+        next.document_count,
+        config.expected_gold_snapshot
+    );
+    Ok(())
 }

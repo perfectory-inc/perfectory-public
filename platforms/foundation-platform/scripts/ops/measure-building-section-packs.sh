@@ -14,9 +14,10 @@
 #     /data/foundation-platform/by-pnu-bake/building-pack-measure
 #
 # What it guarantees:
-# - packs go only under <output-dir> on the data disk (the local output driver); the R2 driver is
-#   never set and the R2 writer keys are removed from the environment, so a write cannot reach the
-#   bucket. The Gold scan and the approved-link read are reads.
+# - packs go only under <output-dir> on the data disk: every by-PNU serving variable the
+#   environment files carry is dropped and the output driver is set to local, so the export has no
+#   R2 output to write to. The R2 key pair stays, because the Gold scan reads Gold with it (there is
+#   no read-only pair). The Gold scan and the approved-link read are reads.
 # - the admitted current release's publisher runs it (admitted-writer-runtime.sh), shard by shard
 #   along the building lane's remembered shard plan, each under the time tool for wall time and
 #   peak resident memory.
@@ -41,8 +42,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 ENV_PREFIX=FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/building"
 
-# No write can reach R2: the writer keys go, and the output is local.
-unset FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+# No write can reach R2: the output is local. The R2 key pair stays for the Gold read.
 for name in $(compgen -e | grep "^${ENV_PREFIX}_" || true); do unset "${name}"; done
 export "${ENV_PREFIX}_OUTPUT_STORAGE_DRIVER=local" "${ENV_PREFIX}_OUTPUT_ROOT=${OUT}/packs"
 export "${ENV_PREFIX}_CONFIRM_PACK_EXPORT=true" "${ENV_PREFIX}_PACK_GENERATION=1"

@@ -10,6 +10,8 @@ in artifacts/<sha> with a build.json that seals it. PNUs are synthetic (99999...
 
 Most tests drive the full path: their base was baked with another document schema, which only a
 full bake can serve (root ADR-0141 §5). `PatchPath` drives the patch, reflect and choice paths.
+`SectionPackBake` drives the building lane once its manifest names section packs (root ADR-0147):
+the same choices, made against the packs, with the pack export and publish commands.
 """
 
 import hashlib
@@ -59,8 +61,39 @@ if command.startswith("show-"):
                                  "pnu_prefix_length": int(os.environ.get("FAKE_SERVED_PREFIX_LENGTH", "5"))},
                    "generations_with_objects": json.loads(os.environ.get("FAKE_LISTED", "[]")),
                    "patches_with_objects": json.loads(os.environ.get("FAKE_PATCHES_LISTED", "[]")),
+                   "section_packs": json.loads(os.environ["FAKE_PACKS"]) if os.environ.get("FAKE_PACKS") else None,
                    "policy": {"max_patches": 7, "max_cumulative_change_ratio": 0.05,
                               "max_delta_fraction": 0.5, "pnu_prefix_length": 5}}, out)
+elif command.startswith("export-") and command.endswith("-section-packs"):
+    # The pack export: a base names its generation, a patch its change set and no generation.
+    prefix = os.environ.get(prefix_env + "PNU_PREFIX", "")
+    generation = os.environ.get(prefix_env + "PACK_GENERATION")
+    patch = os.environ.get(prefix_env + "TARGET_PATCH")
+    if (generation is None) == (patch is None) or os.environ.get(prefix_env + "CONFIRM_PACK_EXPORT") != "true":
+        sys.exit("Error: a base names its generation; a patch names none")
+    def listed(name):
+        path = os.environ.get(prefix_env + name)
+        return None if path is None else open(path).read().split()
+    allow, deletes = listed("PNU_ALLOWLIST_PATH"), listed("DELETE_LIST_PATH") or []
+    expected = os.environ.get(prefix_env + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID")
+    if os.environ.get("FAKE_FOREIGN_PACKS"):
+        sys.exit(f"Error: serving/buildings/packs/floors/g2/p{patch}/9999910000.pack holds packs of Gold snapshot 909 but this run is of {expected}; a new snapshot goes into a new generation or patch")
+    pnus = json.loads(os.environ["FAKE_PNUS"])
+    kept = [pnu for pnu in pnus if pnu.startswith(prefix) and (allow is None or pnu in allow)]
+    tombstones = [pnu for pnu in deletes if pnu.startswith(prefix)]
+    if len(kept) > int(os.environ["FAKE_CAP"]):
+        sys.exit(f"Error: this shard keeps more than {os.environ['FAKE_CAP']} rows; shard the run with {prefix_env}PNU_PREFIX, not a bigger heap")
+    short = os.environ.get("FAKE_SHORT_PREFIX") == prefix
+    lost_tombstone = 1 if tombstones and os.environ.get("FAKE_LOSE_TOMBSTONE") else 0
+    with open(os.environ[prefix_env + "PACK_SUMMARY_PATH"], "w") as out:
+        json.dump({"schema_version": "foundation-platform.building_by_pnu_section_pack_export_summary.v1",
+                   "gold_iceberg_snapshot_id": os.environ["FAKE_GOLD"],
+                   "generation": int(generation) if generation else 1,
+                   "section_generations": {"buildings": 1, "floors": 2} if patch else {},
+                   "patch": int(patch) if patch else None, "pnu_prefix": prefix or None,
+                   "gold_record_count": len(pnus), "exported_row_count": len(kept) - (1 if short else 0),
+                   "tombstone_count": len(tombstones) - lost_tombstone,
+                   "packs": [{"unit": pnu[:10]} for pnu in kept + tombstones]}, out)
 elif command.startswith("export-"):
     prefix = os.environ.get(prefix_env + "PNU_PREFIX", "")
     target = int(os.environ[prefix_env + "TARGET_GENERATION"])
@@ -767,6 +800,135 @@ class ByPnuServingBake(unittest.TestCase):
         [export] = self.exports(calls)
         self.assertEqual(export["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_PATCH"], "2")
         self.assertEqual(export["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FRESH_GENERATION"], "false")
+
+
+
+def packs_state(**overrides):
+    """The lane state's section_packs: floors re-baked alone into generation 2 after patch 3."""
+    state = {"reflected_gold_iceberg_snapshot_id": "150", "document_schema_version": "doc.v2",
+             "document_count": 100, "newest_patch": 3, "max_live_patches": 2, "cumulative_changes": 2,
+             "sections": [{"name": "buildings", "generation": 1, "patch_floor": 0},
+                          {"name": "floors", "generation": 2, "patch_floor": 3},
+                          {"name": "units", "generation": 1, "patch_floor": 0},
+                          {"name": "unit_prices", "generation": 1, "patch_floor": 0}],
+             "generations_with_packs": [1, 2], "patches_with_packs": [1, 2, 3, 5]}
+    return json.dumps({**state, **overrides})
+
+
+class SectionPackBake(unittest.TestCase):
+    """The building lane once its manifest names section packs (root ADR-0147)."""
+
+    setUp = ByPnuServingBake.setUp
+    exports = ByPnuServingBake.exports
+    published = ByPnuServingBake.published
+    PREFIX = "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_"
+
+    def bake(self, **env):
+        # The objects reflect 101 and were baked with another schema: had the bake looked at
+        # them, it would have chosen a full object bake against 101.
+        return ByPnuServingBake.bake(self, "building", FAKE_PACKS=env.pop("FAKE_PACKS", packs_state()), **env)
+
+    def test_packs_that_reflect_gold_are_nothing_to_do(self):
+        result, calls = self.bake(FAKE_GOLD="150")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("served section packs (highest generation 2, 2 patches) already reflect Gold snapshot 150",
+                      result.stdout)
+        self.assertEqual([call["command"] for call in calls], ["show-building-by-pnu-serving-state"])
+
+    def test_a_change_set_from_the_packs_is_baked_as_a_pack_patch(self):
+        result, calls = self.bake(FAKE_DELTA_UPSERTS=json.dumps(PNUS[:2]),
+                                  FAKE_DELTA_DELETES=json.dumps(["9999920000000000001"]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [delta] = [call for call in calls if call["command"] == "delta"]
+        self.assertEqual(delta["options"]["--baseline-snapshot-id"], "150")
+        [export] = self.exports(calls)
+        env = export["env"]
+        self.assertEqual(export["command"], "export-building-by-pnu-section-packs")
+        # Above the newest served patch and every patch number holding a pack; no generation:
+        # each section's patch goes under the generation it is served from.
+        self.assertEqual(env[self.PREFIX + "TARGET_PATCH"], "6")
+        for name in ("PACK_GENERATION", "TARGET_GENERATION", "FRESH_GENERATION", "SUMMARY_PATH", "PNU_PREFIX"):
+            self.assertNotIn(self.PREFIX + name, env)
+        self.assertEqual(open(env[self.PREFIX + "PNU_ALLOWLIST_PATH"]).read().split(), PNUS[:2])
+        [publish] = self.published(calls)
+        env = publish["env"]
+        self.assertEqual(publish["command"], "publish-building-by-pnu-section-packs")
+        self.assertEqual(env[self.PREFIX + "CONFIRM_PACK_PUBLISH"], "true")
+        self.assertEqual(env[self.PREFIX + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"], "202")
+        summaries = pathlib.Path(env[self.PREFIX + "PACK_SUMMARY_DIR"])
+        self.assertEqual([path.name for path in summaries.glob("*.json")], ["shard-all.json"])
+        self.assertEqual(json.load(open(env[self.PREFIX + "CHANGE_SET_SUMMARY_PATH"]))["input"]["baseline_snapshot_id"],
+                         "150")
+        self.assertFalse(any(call["command"].endswith("-serving") or call["command"].endswith("-manifest")
+                             for call in calls), "an object command ran on a lane serving packs")
+        summary = json.loads((summaries.parent / "run-summary.json").read_text())
+        self.assertEqual((summary["lane_serves"], summary["mode"], summary["target_patch"]), ("packs", "patch", 6))
+        self.assertFalse((self.state_root / "building/in-progress-packs.json").exists())
+
+    def test_an_empty_change_set_publishes_the_packs_reflect_alone(self):
+        result, calls = self.bake()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(self.exports(calls), [])
+        [publish] = self.published(calls)
+        self.assertEqual(publish["command"], "publish-building-by-pnu-section-packs")
+        self.assertNotIn(self.PREFIX + "PACK_SUMMARY_DIR", publish["env"])
+        self.assertIn(self.PREFIX + "CHANGE_SET_SUMMARY_PATH", publish["env"])
+
+    def test_a_pack_schema_change_bakes_a_new_generation_of_every_section(self):
+        result, calls = self.bake(FAKE_PACKS=packs_state(document_schema_version="doc.v1",
+                                                         generations_with_packs=[1, 2, 4]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        exports = self.exports(calls)
+        self.assertTrue(exports)
+        for call in exports:
+            self.assertEqual(call["command"], "export-building-by-pnu-section-packs")
+            self.assertEqual(call["env"][self.PREFIX + "PACK_GENERATION"], "5")
+            self.assertNotIn(self.PREFIX + "TARGET_PATCH", call["env"])
+        # The shard plan split on the pack export's words, as it does for objects.
+        self.assertTrue(any(call["env"].get(self.PREFIX + "PNU_PREFIX") == "9999910" for call in exports))
+        [publish] = self.published(calls)
+        self.assertEqual(publish["command"], "publish-building-by-pnu-section-packs")
+        self.assertNotIn(self.PREFIX + "CHANGE_SET_SUMMARY_PATH", publish["env"])
+        self.assertNotIn(self.PREFIX + "PACK_EXPECTED_DOCUMENT_COUNT", publish["env"])
+
+    def test_an_incomplete_pack_patch_is_not_published_and_the_rerun_resumes_it(self):
+        change = {"FAKE_DELTA_UPSERTS": json.dumps(PNUS[:2]),
+                  "FAKE_DELTA_DELETES": json.dumps(["9999920000000000001"])}
+        result, calls = self.bake(FAKE_LOSE_TOMBSTONE="1", **change)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomplete patch: shards wrote 2 of 2 upserts and 0 of 1 tombstones", result.stderr)
+        self.assertEqual(self.published(calls), [])
+        self.assertEqual(json.loads((self.state_root / "building/in-progress-packs.json").read_text())["target"], 6)
+        self.log.unlink()
+        for path in (self.state_root / "building/runs").glob("*/summaries/shard-*.json"):
+            path.unlink()
+        # The bucket now lists patch 6; the rerun of the same snapshot resumes it all the same.
+        result, calls = self.bake(FAKE_PACKS=packs_state(patches_with_packs=[1, 2, 3, 5, 6]), **change)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [export] = self.exports(calls)
+        self.assertEqual(export["env"][self.PREFIX + "TARGET_PATCH"], "6")
+
+    def test_a_pack_target_holding_another_snapshot_is_never_resumed(self):
+        change = {"FAKE_DELTA_UPSERTS": json.dumps(PNUS[:2])}
+        result, calls = self.bake(FAKE_FOREIGN_PACKS="1", **change)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already holds packs of another Gold snapshot", result.stdout)
+        self.assertEqual(len(self.exports(calls)), 1, "a refusal a retry cannot change was retried")
+        self.assertEqual(self.published(calls), [])
+        self.assertFalse((self.state_root / "building/in-progress-packs.json").exists())
+
+    def test_the_job_declares_the_capability_the_first_pack_publish_requires(self):
+        contract = json.loads((job_specs.PLATFORM_ROOT / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
+        wanted = contract["building_by_pnu_gateway"]["section_packs"]["scheduled_bake"]
+        jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]
+        [job] = [job for job in jobs if job["id"] == wanted["job"]]
+        self.assertIn(wanted["capability"], job["capabilities"])
+        self.assertIn("gold-building-panel-to-building-by-pnu-section-packs", job["pipeline_graph_edges"])
+        # The claim is the script's: it bakes and publishes packs.
+        script = (OPS / "by-pnu-serving-bake.sh").read_text(encoding="utf-8")
+        for command in ("export-${UNIT}-by-pnu-section-packs", "publish-${UNIT}-by-pnu-section-packs"):
+            self.assertIn(command, script)
 
 
 if __name__ == "__main__":

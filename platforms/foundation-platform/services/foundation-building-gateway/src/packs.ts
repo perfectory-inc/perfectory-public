@@ -110,10 +110,24 @@ interface PackHead {
   entryCount: number;
   bodyStart: number;
   bodyLength: number;
+  /// The pack's R2 `etag`, unquoted: what every later read of the same key must return.
   etag: string;
 }
 
 const headMemory = new Map<string, PackHead>();
+
+/// Forgets every head this isolate remembers (tests, to reach the edge cache behind it).
+export function forgetHeads(): void {
+  headMemory.clear();
+}
+
+/// An entity tag as R2 reports it (`etag`, unquoted), whether it is written quoted (`httpEtag`, an
+/// HTTP `ETag` header) or not; `null` for none or an empty one.
+export function unquotedEtag(raw: string | null): string | null {
+  if (raw === null) return null;
+  const tag = raw.replace(/^W\//, "").replace(/^"(.*)"$/, "$1");
+  return tag === "" ? null : tag;
+}
 
 function remember(key: string, head: PackHead): void {
   headMemory.delete(key);
@@ -157,33 +171,60 @@ export function parseHead(bytes: Uint8Array, etag: string): PackHead | null {
   };
 }
 
-function headCacheResponse(head: PackHead): Response {
+/// The edge cache's copy of a head. Its `ETag` header is the quoted form (an HTTP entity tag, what
+/// R2 calls `httpEtag`); `headFromCache` unquotes it back to the R2 `etag` the head carries.
+export function headCacheResponse(head: PackHead): Response {
   const prefix = new ArrayBuffer(16);
   const view = new DataView(prefix);
   view.setUint32(0, head.entryCount, true);
   view.setUint32(4, head.bodyStart, true);
   view.setUint32(8, head.bodyLength, true);
   return new Response(new Blob([prefix, head.index]), {
-    headers: { "Cache-Control": packPolicy.cache_control, ETag: head.etag },
+    headers: { "Cache-Control": packPolicy.cache_control, ETag: `"${head.etag}"` },
   });
 }
 
-async function headFromCache(key: string): Promise<PackHead | null> {
+/// A head from the edge cache; `null` (read R2 again) when there is none, or it carries no entity
+/// tag to hold the document reads to.
+export async function headFromCache(key: string): Promise<PackHead | null> {
   const cached = await caches.default.match(`${headCacheOrigin}${key}`);
   if (cached === undefined) return null;
+  const etag = unquotedEtag(cached.headers.get("ETag"));
   const bytes = new Uint8Array(await cached.arrayBuffer());
+  if (etag === null || bytes.length < 16) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return {
     entryCount: view.getUint32(0, true),
     bodyStart: view.getUint32(4, true),
     bodyLength: view.getUint32(8, true),
     index: bytes.slice(16),
-    etag: cached.headers.get("ETag") ?? "",
+    etag,
   };
 }
 
-/// One pack's head: isolate memory, then the edge cache, then one range read of R2 (two when the
-/// head is larger than the contract's `head_read_bytes`). `null` when the pack does not exist.
+/// The length of a pack's head (prefix, header JSON and index) from its first 20 bytes.
+function headLength(prefix: Uint8Array): number {
+  for (let i = 0; i < magic.length; i += 1) {
+    if (prefix[i] !== magic[i]) throw new PackFormatError("not a section pack");
+  }
+  const view = new DataView(prefix.buffer, prefix.byteOffset, prefix.byteLength);
+  return PREFIX_BYTES + view.getUint32(12, true) + view.getUint32(16, true);
+}
+
+function joined(chunks: readonly Uint8Array[], length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return bytes;
+}
+
+/// One pack's head: isolate memory, then the edge cache, then one GET of R2 read only as far as
+/// the head reaches. The GET names no range, so a pack shorter than any fixed first read is never
+/// asked past its end (no reliance on R2 clamping a range), and a head of any length takes one
+/// request; the rest of the body is cancelled unread. `null` when the pack does not exist.
 export async function readHead(
   bucket: Pick<R2Bucket, "get">,
   key: string,
@@ -196,24 +237,28 @@ export async function readHead(
     remember(key, cached);
     return cached;
   }
-  const first = await bucket.get(key, { range: { offset: 0, length: packPolicy.head_read_bytes } });
-  if (first === null) return null;
-  if (!("body" in first)) throw new PackFormatError("pack head read returned no body");
-  let bytes = new Uint8Array(await first.arrayBuffer());
-  let head = parseHead(bytes, first.etag);
-  if (head === null) {
-    const headerLength = new DataView(bytes.buffer, bytes.byteOffset).getUint32(12, true);
-    const indexLength = new DataView(bytes.buffer, bytes.byteOffset).getUint32(16, true);
-    const whole = await bucket.get(key, {
-      range: { offset: 0, length: PREFIX_BYTES + headerLength + indexLength },
-    });
-    if (whole === null || !("body" in whole) || whole.etag !== first.etag) {
-      throw new PackFormatError("pack changed between reads");
+  const object = await bucket.get(key);
+  if (object === null) return null;
+  if (!("body" in object)) throw new PackFormatError("pack head read returned no body");
+  const reader = object.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  let wanted: number | null = null;
+  try {
+    while (wanted === null || length < wanted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      length += value.byteLength;
+      if (wanted === null && length >= PREFIX_BYTES) wanted = headLength(joined(chunks, length));
     }
-    bytes = new Uint8Array(await whole.arrayBuffer());
-    head = parseHead(bytes, first.etag);
-    if (head === null) throw new PackFormatError("pack head is shorter than declared");
+  } finally {
+    await reader.cancel().catch(() => undefined);
   }
+  const bytes = joined(chunks, length);
+  if (wanted === null || length < wanted) throw new PackFormatError("pack head is shorter than declared");
+  const head = parseHead(bytes.subarray(0, wanted), object.etag);
+  if (head === null) throw new PackFormatError("pack head is shorter than declared");
   remember(key, head);
   ctx.waitUntil(caches.default.put(`${headCacheOrigin}${key}`, headCacheResponse(head)));
   return head;
@@ -266,7 +311,7 @@ async function readDocument(
   entry: Entry,
 ): Promise<unknown> {
   const object = await bucket.get(key, { range: { offset: head.bodyStart + entry.offset, length: entry.length } });
-  if (object === null || !("body" in object) || (head.etag !== "" && object.etag !== head.etag)) {
+  if (object === null || !("body" in object) || object.etag !== head.etag) {
     // Pack keys are create-only: never combine a cached head with other bytes.
     throw new PackFormatError("pack changed or vanished under its cached head");
   }

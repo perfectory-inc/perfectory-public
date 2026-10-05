@@ -29,10 +29,16 @@ last_reviewed: 2026-09-10
   manifest 를 쓰기 전에 이것을 확인한다 — 게이트웨이를 먼저 배포한다.
 - 항목별 묶음 파일(루트 ADR-0147, `src/packs.ts`): v2 manifest 에 `section_packs` 블록(자체 schema 3)이
   있으면 객체 대신 묶음으로 서빙한다. 항목(`buildings`·`floors`·`units`·`unit_prices`, 계약의
-  `section_packs.sections`)마다 법정동 묶음의 머리를 범위 읽기로 읽어 이분 탐색하고(머리는 isolate 메모리와
-  엣지 캐시에 둔다), 문서 조각 하나를 범위 읽기로 꺼내 gzip 을 풀고, 기준 항목 순서대로 합쳐 객체와 같은
+  `section_packs.sections`)마다 법정동 묶음의 머리를 읽어 이분 탐색하고, 문서 조각 하나를 범위 읽기로 꺼내
+  gzip 을 풀고, 기준 항목 순서대로 합쳐 객체와 같은
   JSON 을 낸다. 패치는 `patch_floor` 위의 것 중 법정동이 목록에 있는 것만 읽는다. 툼스톤은 typed 404,
   기준 항목에 없으면 404, 항목끼리 어긋나거나 목록의 묶음이 없으면 503 이다. `_capabilities` 는 `[1, 2, 3]`.
+  - 머리는 범위를 붙이지 않은 GET 한 번을 머리 끝까지만 읽고 나머지 본문은 읽지 않고 끊는다. 그래서 묶음이
+    아무리 작아도 끝을 넘는 범위를 R2 에 묻지 않고(R2 가 범위를 잘라 주기를 기대하지 않는다), 머리가 아무리
+    길어도 요청은 한 번이다.
+  - 머리는 isolate 메모리와 엣지 캐시에 둔다. 엣지 캐시의 `ETag` 헤더는 따옴표가 붙은 HTTP 형태로 쓰고,
+    읽을 때 R2 의 `etag`(따옴표 없음)로 되돌린다. 문서 범위 읽기는 그 값과 R2 가 돌려준 `etag` 가 같을 때만
+    머리와 합친다. `ETag` 가 없는 캐시 사본은 버리고 R2 를 다시 읽는다.
   `?packs=g{n}` 은 미리보기 버전(바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true`)에서만 미발행 세대를
   서빙하고, 운영 경로에서는 manifest 가 그 세대를 가리킬 때만 답한다(전환 관문, 런북
   `docs/runbooks/building-section-pack-cutover.md`).

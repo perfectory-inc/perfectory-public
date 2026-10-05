@@ -12,6 +12,11 @@
 //! generation and every patch of the base that holds any object, published or not: new ones are
 //! numbered above all of them.
 //!
+//! When the manifest carries a `section_packs` block (root ADR-0147), the lane serves from packs
+//! and the bake bakes pack patches instead of objects: the state then also reports the packs'
+//! reflected snapshot, each section's generation and floor, the patches some section still reads,
+//! and every generation and patch number that holds any pack.
+//!
 //! Read-only: it writes one small JSON file at `FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH`.
 //! A manifest that cannot be read is an error, not "nothing published": the first publication
 //! of a lane stays an explicit operator step.
@@ -24,6 +29,7 @@ use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde::Serialize;
 
 use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane};
+use crate::by_pnu_section_pack_manifest::SectionPacksState;
 use crate::by_pnu_serving_manifest::ServedManifest;
 use crate::by_pnu_serving_manifest_publish::{document_schema_version, gold_table};
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
@@ -49,7 +55,34 @@ pub(crate) struct LaneState {
     generations_with_objects: Vec<u64>,
     /// Every patch of the published base with at least one object, ascending.
     patches_with_objects: Vec<u64>,
+    /// The packs the lane serves from; `None` while it serves objects.
+    section_packs: Option<PackLaneState>,
     policy: PatchBounds,
+}
+
+/// The pack lane, as the manifest's `section_packs` block and the bucket's listing state it.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub(crate) struct PackLaneState {
+    reflected_gold_iceberg_snapshot_id: String,
+    document_schema_version: String,
+    document_count: u64,
+    newest_patch: u64,
+    /// The most patches any one section reads (its live patches).
+    max_live_patches: usize,
+    /// The changes held by the patches some section still reads.
+    cumulative_changes: u64,
+    sections: Vec<PackSectionState>,
+    /// Every generation of any section holding at least one pack, ascending.
+    generations_with_packs: Vec<u64>,
+    /// Every patch number used under any section and generation, published or not, ascending.
+    patches_with_packs: Vec<u64>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct PackSectionState {
+    name: String,
+    generation: u64,
+    patch_floor: u64,
 }
 
 /// The served state, as the manifest states it.
@@ -164,12 +197,63 @@ pub(crate) async fn read_state(
                 .list_patches_with_objects(manifest.base_generation)
                 .await?,
         ),
+        section_packs: match &manifest.section_packs {
+            Some(packs) => Some(pack_lane_state(store, packs).await?),
+            None => None,
+        },
         policy: PatchBounds {
             max_patches: policy.max_patches,
             max_cumulative_change_ratio: policy.max_cumulative_change_ratio,
             max_delta_fraction: policy.max_delta_fraction,
             pnu_prefix_length: policy.pnu_prefix_length,
         },
+    })
+}
+
+async fn pack_lane_state(
+    store: &ByPnuServingStore,
+    packs: &SectionPacksState,
+) -> anyhow::Result<PackLaneState> {
+    let (mut generations, mut patches) = (BTreeSet::new(), BTreeSet::new());
+    for section in &packs.sections {
+        let (listed_generations, listed_patches) = store.list_pack_numbers(&section.name).await?;
+        generations.extend(listed_generations);
+        patches.extend(listed_patches);
+    }
+    let lowest_floor = packs
+        .sections
+        .iter()
+        .map(|section| section.patch_floor)
+        .min()
+        .unwrap_or(0);
+    Ok(PackLaneState {
+        reflected_gold_iceberg_snapshot_id: packs.reflected_gold_iceberg_snapshot_id.clone(),
+        document_schema_version: packs.document_schema_version.clone(),
+        document_count: packs.document_count,
+        newest_patch: packs.newest_patch(),
+        max_live_patches: packs
+            .sections
+            .iter()
+            .map(|section| packs.patches_of(section).count())
+            .max()
+            .unwrap_or(0),
+        cumulative_changes: packs
+            .patches
+            .iter()
+            .filter(|patch| patch.patch > lowest_floor)
+            .map(|patch| patch.upserted + patch.deleted)
+            .sum(),
+        sections: packs
+            .sections
+            .iter()
+            .map(|section| PackSectionState {
+                name: section.name.clone(),
+                generation: section.generation,
+                patch_floor: section.patch_floor,
+            })
+            .collect(),
+        generations_with_packs: ascending(generations),
+        patches_with_packs: ascending(patches),
     })
 }
 
@@ -281,6 +365,64 @@ mod tests {
             value["document_schema_version"],
             document_schema_version(lane)
         );
+        assert!(
+            value["section_packs"].is_null(),
+            "an object lane reports no packs"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_lane_serving_packs_reports_their_state() -> anyhow::Result<()> {
+        let lane = ByPnuLane::Building;
+        let root = temporary_root("packs");
+        let store =
+            ByPnuServingStore::open(lane, &ProfileStoreConfig::Local { root: root.clone() })?;
+        let mut packs = crate::by_pnu_section_pack_manifest::tests::state(2)?;
+        packs.sections[0].generation = 3;
+        packs.sections[0].patch_floor = 4;
+        packs.patches = vec![
+            crate::by_pnu_section_pack_manifest::tests::patch(5, &["9999900000"]),
+            crate::by_pnu_section_pack_manifest::tests::patch(4, &["9999900000"]),
+        ];
+        let manifest = serde_json::json!({
+            "schema_version": 2, "unit": "building-by-pnu", "base_generation": 1,
+            "base_object_count": 2, "document_schema_version": "doc.v2",
+            "gold_table": "gold.building_panel", "gold_iceberg_snapshot_id": "999990000000000001",
+            "reflected_gold_iceberg_snapshot_id": "999990000000000001", "pnu_prefix_length": 5,
+            "patches": [], "object_count": 2, "published_at_utc": "2026-01-01T00:00:00Z",
+            "section_packs": packs,
+        });
+        let checksum = "a".repeat(64);
+        store
+            .write_manifest(
+                by_pnu::manifest_key(lane)?,
+                &serde_json::to_vec(&manifest)?,
+                &checksum,
+                None,
+            )
+            .await?;
+        // An unpublished patch number above the newest one, as a crashed bake leaves it.
+        let key =
+            crate::r2_layout::by_pnu_packs::pack_key(lane, "floors", 2, Some(7), "9999900000")?;
+        std::fs::create_dir_all(root.join(&key).parent().context("a parent")?)?;
+        std::fs::write(root.join(&key), b"pack")?;
+
+        let state = read_state(&store, Some("999990000000000002".to_owned())).await?;
+        std::fs::remove_dir_all(&root)?;
+        let value = serde_json::to_value(&state)?["section_packs"].clone();
+        assert_eq!(
+            value["reflected_gold_iceberg_snapshot_id"],
+            "999990000000000001"
+        );
+        assert_eq!(value["newest_patch"], 5);
+        // The re-baked first section reads only patch 5; the others read 4 and 5.
+        assert_eq!(value["max_live_patches"], 2);
+        assert_eq!(value["cumulative_changes"], 4);
+        assert_eq!(value["sections"][0]["generation"], 3);
+        assert_eq!(value["sections"][1]["generation"], 2);
+        assert_eq!(value["generations_with_packs"], serde_json::json!([2]));
+        assert_eq!(value["patches_with_packs"], serde_json::json!([7]));
         Ok(())
     }
 }

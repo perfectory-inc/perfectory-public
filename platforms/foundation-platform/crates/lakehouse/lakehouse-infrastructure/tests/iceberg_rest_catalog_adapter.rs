@@ -368,6 +368,48 @@ async fn mount_gold(server: &MockServer, refs: serde_json::Value) {
 }
 
 #[tokio::test]
+async fn a_snapshot_record_count_is_its_summary_total_records() -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00002.json",
+            "metadata": {
+                "current-snapshot-id": OTHER,
+                "snapshots": [
+                    {"snapshot-id": TAGGED, "summary": {"operation": "overwrite", "total-records": "5945767"}},
+                    {"snapshot-id": OTHER, "summary": {"operation": "overwrite"}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    assert_eq!(
+        catalog
+            .load_snapshot_record_count("gold.parcel_panel", TAGGED)
+            .await?,
+        Some(5_945_767)
+    );
+    assert!(
+        catalog
+            .load_snapshot_record_count("gold.parcel_panel", OTHER)
+            .await
+            .is_err(),
+        "a summary without total-records was read as a count"
+    );
+    assert!(
+        catalog
+            .load_snapshot_record_count("gold.parcel_panel", 999_990_000_000_000_009)
+            .await
+            .is_err(),
+        "an expired snapshot was read as a count"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_tag_is_committed_only_where_no_reference_of_its_name_exists(
 ) -> Result<(), Box<dyn Error>> {
     let server = MockServer::start().await;

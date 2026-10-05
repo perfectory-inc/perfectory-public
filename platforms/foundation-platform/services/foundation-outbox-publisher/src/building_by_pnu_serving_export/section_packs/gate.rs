@@ -138,6 +138,48 @@ pub(crate) fn is_sample_candidate(pnu: &str) -> anyhow::Result<bool> {
     Ok(sample_rank(pnu)? < u64::MAX / 1_000_000 * per_million)
 }
 
+/// The Gold row count of `snapshot` as the catalog's table metadata records it; a count an
+/// operator `stated` must agree with it. The gate is held to the catalog, never to a typed number.
+///
+/// # Errors
+/// Refuses an unreadable catalog, an expired snapshot or one whose summary records no row count,
+/// and a stated count that differs.
+pub(crate) async fn gold_record_count(snapshot: &str, stated: Option<u64>) -> anyhow::Result<u64> {
+    let catalog = lakehouse_infrastructure::IcebergRestCatalog::new(
+        lakehouse_infrastructure::LakehouseCatalogConfig::from_env()
+            .context("failed to configure the Iceberg catalog")?,
+    )?;
+    let table = lakehouse_domain::GOLD_BUILDING_PANEL.table_name;
+    let recorded = catalog
+        .load_snapshot_record_count(
+            table,
+            snapshot
+                .parse::<i64>()
+                .with_context(|| format!("{snapshot} is not an Iceberg snapshot id"))?,
+        )
+        .await?
+        .with_context(|| format!("{table} does not exist in the catalog"))?;
+    cross_check(recorded, stated, snapshot)
+}
+
+/// The catalog's count, refused when a stated one differs.
+///
+/// # Errors
+/// Names both counts.
+pub(crate) fn cross_check(
+    recorded: u64,
+    stated: Option<u64>,
+    snapshot: &str,
+) -> anyhow::Result<u64> {
+    ensure!(
+        stated.is_none_or(|stated| stated == recorded),
+        "{} states {} Gold rows but the catalog records {recorded} for snapshot {snapshot}",
+        LANE.env("PACK_EXPECTED_DOCUMENT_COUNT"),
+        stated.unwrap_or_default()
+    );
+    Ok(recorded)
+}
+
 /// The digest of a sample, named in both evidence files.
 pub(crate) fn sample_digest(sample: &[String]) -> String {
     format!("{:x}", Sha256::digest(sample.join("\n").as_bytes()))
