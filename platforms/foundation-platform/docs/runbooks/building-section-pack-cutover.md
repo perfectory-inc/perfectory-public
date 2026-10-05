@@ -9,7 +9,8 @@ last_reviewed: 2026-10-05
 
 건물 상세 문서를 PNU 하나당 R2 객체에서 항목별 묶음 파일로 옮기는 절차다.
 결정은 [루트 ADR-0147](../../../../docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md)과
-그 Revision 절이다. 패치·고정 규칙은 [ADR-0141](../../../../docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md),
+그 Revision 절, 그리고 서빙 형태를 문서 통째(`documents` 항목 하나)로 고친
+[루트 ADR-0151](../../../../docs/adr/0151-building-packs-serve-each-document-whole.md)이다. 패치·고정 규칙은 [ADR-0141](../../../../docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md),
 [ADR-0146](../../../../docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md)이다.
 
 전환 관문을 모두 통과하기 전에는 지금의 객체 방식이 그대로 서빙한다. 옛 객체는 지우지 않는다.
@@ -40,6 +41,8 @@ last_reviewed: 2026-10-05
 | `…_INSTALLED_JOBS_PATH` | 첫 발행 | 설치된 릴리스의 `orchestration/jobs.v1.json`. 없으면 `/opt/foundation-platform/current/` 의 것 |
 | `…_PACK_EQUALITY_EVIDENCE_PATH`, `…_PACK_LATENCY_EVIDENCE_PATH` | 관문·첫 발행 | 증거 파일. 관문 (나)는 (가)의 증거에서 표본을 읽는다 |
 | `…_PACK_PREVIEW_BASE_URL`, `…_PACK_LIVE_BASE_URL` | 관문 (나) | 미리보기와 운영 경로 |
+| `…_PACK_PROBE_CONCURRENCY` | 관문 (나) | 선택. 동시에 읽는 PNU 수. 없으면 계약의 `probe_concurrency` |
+| `FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID`, `FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN` | 관문 (나) | 앞머리 없음. 계약 `by_pnu_section_packs.cloudflare_analytics` 가 이름과 파일(`/etc/foundation-platform/cloudflare-analytics.env`, root 0600)을 정한다. Workers 분석(GraphQL)으로 미리보기 Worker 의 CPU 를 읽는다. 토큰 권한은 Account Analytics Read 하나. 없으면 증거에 CPU 가 없고 관문이 열리지 않는다 |
 | `…_CHANGE_SET_SUMMARY_PATH`, `…_UPSERT_LIST_PATH` | 발행(패치) | 변경 집합 잡의 결과 |
 | `…_INSPECT_PNU` | 확인 | PNU |
 
@@ -87,7 +90,7 @@ for prefix in $(cat /data/foundation-platform/by-pnu-bake/building/shard-plan.tx
 done
 ```
 
-묶음은 `serving/buildings/packs/{section}/g1/{법정동}.pack` 에 create-only 로 쓰인다. 같은 스냅숏으로
+묶음은 `serving/buildings/packs/documents/g1/{법정동}.pack` 에 create-only 로 쓰인다(항목은 계약의 `documents` 하나, ADR-0151). 같은 스냅숏으로
 다시 돌리면 같은 바이트라 재사용되고, 다른 스냅숏을 같은 세대에 섞으려 하면 첫 쓰기 전에 거부된다.
 
 ## 3. 관문 (가): 전수 비교 (R2 비용 없음)
@@ -117,19 +120,42 @@ done
 
 ## 4. 관문 (나): 업로드 뒤 실서빙 표본 비교와 첫 조회 시간
 
-1. 이 PR 의 Worker 를 **운영 경로가 아닌** 버전으로 올린다(버전 업로드의 미리보기 주소 또는 별도 경로).
-   그 버전에만 바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true` 를 준다.
+1. 미리보기 Worker 를 올린다. 운영 Worker 와 이름·주소가 다른 별도 Worker(`foundation-building-gateway-preview`,
+   `buildings-preview.perfectory.io`)다. 계약 `building_by_pnu_gateway.section_packs.preview_worker` 가 정본이고
+   `wrangler.jsonc` 의 `env.preview` 는 그 투영이다. 사용자 지정 도메인이라 엣지 캐시가 운영 주소와 같게 동작한다.
+   ```bash
+   cd services/foundation-building-gateway
+   corepack pnpm@9.12.0 install --frozen-lockfile
+   npx wrangler deploy --env preview --var FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:<운영 Worker 와 같은 값>
+   ```
+   바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true` 는 그 env 에만 있다. 이 명령은 운영 Worker 와 운영
+   주소를 건드리지 않는다.
 2. 운영 경로에서 `?packs=g1` 이 404 인지 확인한다(manifest 가 그 세대를 가리키기 전에는 404 여야 한다).
 3. 잰다.
 
 ```bash
-…_PACK_GENERATION=1 …_PACK_PREVIEW_BASE_URL=https://<미리보기 주소> …_PACK_EQUALITY_EVIDENCE_PATH=$WORK/equality.json …_PACK_LATENCY_EVIDENCE_PATH=$WORK/latency.json   "$PUBLISHER_BIN" probe-building-by-pnu-section-pack-latency
+# 분석 토큰은 EnvironmentFile 로만 읽는다(셸·저장소에 두지 않는다).
+PUBLISHER_BIN=/opt/foundation-platform/artifacts/$(basename "$(readlink -e /opt/foundation-platform/current)")/foundation-outbox-publisher
+sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
+  -p EnvironmentFile=/etc/foundation-platform/cloudflare-analytics.env \
+  -E FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PACK_GENERATION=1 \
+  -E FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PACK_PREVIEW_BASE_URL=https://buildings-preview.perfectory.io \
+  -E FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PACK_EQUALITY_EVIDENCE_PATH=$WORK/equality.json \
+  -E FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_PACK_LATENCY_EVIDENCE_PATH=$WORK/latency.json \
+  "$PUBLISHER_BIN" probe-building-by-pnu-section-pack-latency
 ```
 
 - 표본은 관문 (가)의 증거에 든 10,000건이다. 증거에 적힌 sha256 과 맞지 않으면 거부한다.
-- PNU 마다 운영 경로와 미리보기를 한 번씩, 번갈아 먼저 읽는다. 둘 다 200 이어야 하고, 내용은 `source`
-  를 빼고 같아야 한다.
-- 묶음의 p50·p95 가 객체보다 계약의 `latency_max_increase_ms` 이상 늘지 않아야 통과다.
+- 계약의 `probe_concurrency`(8)개 PNU 를 동시에 읽는다. PNU 마다 운영 경로와 미리보기를 한 번씩, 번갈아 먼저
+  읽고, 읽기마다 따로 잰다. 둘 다 200 이어야 하고, 내용은 `source` 를 빼고 같아야 한다.
+- 법정동의 첫 읽기가 차가운 읽기다. 묶음의 차가운 p50·p95 가 같은 PNU 의 운영 경로보다 계약의
+  `latency_max_increase_ms` 이상 늘지 않아야 통과다. 따뜻한 읽기(`*_warm_ms`)도 증거에 적는다.
+- 실패는 쪽·종류별(`pack:http-503`, `live:body-timeout` …)로 센다. 하나라도 있으면 통과가 아니다.
+- 미리보기의 `Server-Timing`(전체, R2 대기, 묶음이 `r2-whole`·`r2-head+range`·`edge-…`·`memory-…` 중 어디서 왔는지)을
+  모아 증거의 `server_timing` 에 적는다.
+- 탐침 구간의 미리보기 Worker CPU 를 Workers 분석에서 읽는다(분석은 1–2분 늦게 센다. 탐침은 보낸 요청의 95% 가 셀
+  때까지 최대 10분 기다린다). `exceededResources` 가 0 이고 p99 가 `worker_cpu_p99_max_ms`(5ms) 이하여야 통과다.
+  계정이 Workers Free(요청당 10ms)라 넘으면 오류 1102, 곧 503 이 된다(ADR-0151).
 - 주소가 로컬·사설이면 증거에 `local-simulation` 이 적히고, 그 증거로는 발행이 거부된다.
 
 ### 비용
@@ -139,7 +165,7 @@ done
 | 2절 굽기 (묶음 쓰기) | Class A 약 76,040 |
 | 3절 관문 (가) | 0 |
 | 4절 관문 (나): 운영 경로 10,000건 | Class B 약 10,000 (객체 하나씩) |
-| 4절 관문 (나): 미리보기 10,000건 | Class B 약 10,000 요청분. 차가운 묶음은 요청 하나에 머리·문서 범위 읽기가 항목마다 붙어, R2 GET 으로는 최대 약 80,000 |
+| 4절 관문 (나): 미리보기 10,000건 | Class B 최대 약 20,000. 256KiB 이하 묶음은 GET 하나, 큰 묶음은 머리 + 범위 둘이고, 같은 법정동의 다음 읽기는 메모리·엣지 사본에서 R2 없이 답한다 |
 | 5절 첫 발행 | Class A 2 (manifest·이력) + 표본 묶음 다시 읽기(항목마다 16) |
 
 ## 5. 첫 발행 (전환)
@@ -202,6 +228,9 @@ manifest 되돌리기로 객체 서빙으로 돌아간다. (#336 보다 오래�
   되돌리기(6절)뿐이다.
 
 ### 한 항목만 다시 굽기
+
+건물 레인은 항목이 `documents` 하나라(ADR-0151) 이 절은 지금 쓰이지 않는다. 패널에 새 칸이 생기면 모든 묶음을 새
+세대로 굽는다(2절, 법정동 약 19,010개). 발행기는 계약이 항목을 여럿 적는 레인을 위해 아래 동작을 그대로 갖고 있다.
 
 `…_PACK_SECTIONS=<항목>` 과 `…_PACK_GENERATION=<그 항목의 새 세대>` 로, 반영 스냅숏에서만 굽는다. 굽기는
 법정동마다 새 항목을 지금 서빙 중인 다른 항목들(기본 세대와 패치, R2 에서 그 법정동의 묶음만 읽는다)과 합쳐

@@ -195,3 +195,4 @@ Overture Maps 의 GeoParquet, Cloud Optimized GeoTIFF 도 같은 원리다.
 - 2026-10-05: 예약 굽기의 묶음 패치, 항목마다의 패치 세대, 한 항목 다시 굽기의 합침 검사, 카탈로그 행 수,
   `equal` 의 독립 집계, Revision 6 문장의 범위, Worker 머리 읽기와 `ETag` 를 위 Revision (2026-10-05) 절에
   적었다. 결정 본문과 앞 Revision 절은 고치지 않았다.
+- 2026-10-05: 건물 레인의 서빙 형태(항목 넷을 Worker 가 합침)는 [ADR-0151](./0151-building-packs-serve-each-document-whole.md) 이 고쳤다(문서 통째 `documents` 항목, Worker 는 gzip 그대로). 이 ADR 의 결정 본문과 Revision 절은 고치지 않았다.

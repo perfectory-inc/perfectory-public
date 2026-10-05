@@ -20,6 +20,8 @@ mod read;
 pub(crate) mod sections;
 
 #[cfg(test)]
+mod latency_tests;
+#[cfg(test)]
 mod tests;
 
 /// One section pack command.

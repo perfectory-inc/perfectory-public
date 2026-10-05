@@ -275,9 +275,9 @@ pub(crate) mod tests {
         let mut missing = state(1)?;
         missing.sections.pop();
         refused("a missing section", missing);
-        let mut reordered = state(1)?;
-        reordered.sections.swap(0, 1);
-        refused("a reordered section list", reordered);
+        let mut renamed = state(1)?;
+        renamed.sections[0].name = "zonings".to_owned();
+        refused("a section the contract does not name", renamed);
         let mut oldest_first = state(1)?;
         oldest_first.patches = vec![patch(1, &["9999900000"]), patch(2, &["9999900000"])];
         refused("patches oldest first", oldest_first);

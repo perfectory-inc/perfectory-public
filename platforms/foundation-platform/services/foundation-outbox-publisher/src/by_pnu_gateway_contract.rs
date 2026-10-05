@@ -104,9 +104,18 @@ pub(crate) struct LaneSectionPacks {
     pub(crate) sections: Vec<String>,
     /// The section whose entry decides whether a PNU answers at all (document, tombstone, absent).
     pub(crate) anchor_section: String,
+    /// The cut-over gate's preview Worker: its own name and hostname, never a live route.
+    pub(crate) preview_worker: Option<PreviewWorker>,
     /// The scheduled job that keeps the packs current, and the capability its job entry must
     /// declare before the first pack publish (root ADR-0147, runbook 7절).
     pub(crate) scheduled_bake: ScheduledPackBake,
+}
+
+/// The Worker the latency probe reads the unpublished generation through (root ADR-0147 §6).
+#[derive(Debug, Deserialize)]
+pub(crate) struct PreviewWorker {
+    /// The Workers script name, which the probe asks Workers analytics about.
+    pub(crate) worker_name: String,
 }
 
 /// The job (`orchestration/jobs.v1.json`) that bakes a lane's daily changes as pack patches.
@@ -133,7 +142,17 @@ pub(crate) struct SectionPackPolicy {
     pub(crate) cache_control: String,
     pub(crate) max_index_entries: usize,
     pub(crate) preview_query_parameter: String,
+    /// Where the gate's Cloudflare analytics credentials come from.
+    pub(crate) cloudflare_analytics: CloudflareAnalyticsPolicy,
     pub(crate) cutover_gate: CutoverGatePolicy,
+}
+
+/// The environment variables (from the contract's `env_file`) that carry the analytics account
+/// and its read-only token.
+#[derive(Debug, Deserialize)]
+pub(crate) struct CloudflareAnalyticsPolicy {
+    pub(crate) account_id_env: String,
+    pub(crate) api_token_env: String,
 }
 
 /// What the first publish of section packs must be shown (root ADR-0147 §6).
@@ -146,6 +165,11 @@ pub(crate) struct CutoverGatePolicy {
     pub(crate) sample_seed: String,
     /// How many PNUs per million a bake records as sample candidates; above the sample size.
     pub(crate) sample_candidates_per_million: u64,
+    /// How many PNUs the latency probe reads at once; each read is still timed on its own.
+    pub(crate) probe_concurrency: usize,
+    /// The most CPU the preview Worker may spend on a request at p99, from Workers analytics for
+    /// the probe window; the account's plan limit is twice this.
+    pub(crate) worker_cpu_p99_max_ms: f64,
 }
 
 /// The most the cold first read may slow down, per percentile.

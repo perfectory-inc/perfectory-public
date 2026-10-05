@@ -150,6 +150,21 @@
     "cache_control": "public, max-age=31536000, immutable",
     "max_index_entries": 1000000,
     "preview_query_parameter": "packs",
+    "cloudflare_analytics": {
+      "env_file": "/etc/foundation-platform/cloudflare-analytics.env",
+      "account_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID",
+      "api_token_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN",
+      "token_scope": "Account Analytics: Read",
+      "reason": "the gate reads the preview Worker's CPU and cut-offs from Workers analytics; the token is read only through the unit's EnvironmentFile (root:root 0600), never from the repository or a shell"
+    },
+    "read_path": {
+      "whole_pack_max_bytes": 262144,
+      "whole_pack_max_bytes_reason": "g1 measurement 2026-10-05 (76,040 packs): 93.1% of packs and 62.3% of document reads fall in packs of at most 256 KiB; such a pack is read whole in the GET that finds its head (one R2 hop), a larger one as head + range",
+      "memory_budget_bytes": 33554432,
+      "r2_attempts": 3,
+      "r2_retry_base_ms": 40,
+      "r2_deadline_ms": 6000
+    },
     "cutover_gate": {
       "evidence_schema_version": "foundation-platform.by_pnu_section_pack_gate_evidence.v1",
       "latency_max_increase_ms": {
@@ -158,7 +173,11 @@
       },
       "latency_sample_size": 10000,
       "sample_seed": "foundation-platform.section-pack-cutover.v1",
-      "sample_candidates_per_million": 2000
+      "sample_candidates_per_million": 2000,
+      "probe_concurrency": 8,
+      "probe_concurrency_reason": "the 2026-10-05 sequential probe took 3h45m for 10,000 PNUs; 8 requests in flight finish the sample within 30 minutes while each read is still timed on its own",
+      "worker_cpu_p99_max_ms": 5,
+      "worker_cpu_reason": "the account runs Workers Free (10 ms CPU per request); on 2026-10-05 the preview's pack path (CPU p50 8.0 ms, p99 19.8 ms) hit 325 exceededResources (error 1102, HTTP 503) in 11 minutes. The gate demands half the limit at p99 and no exceededResources, read from Workers analytics for the probe window"
     }
   },
   "building_by_pnu_gateway": {
@@ -205,13 +224,15 @@
     "section_packs": {
       "root": "serving/buildings/packs",
       "sections": [
-        "buildings",
-        "floors",
-        "units",
-        "unit_prices"
+        "documents"
       ],
-      "anchor_section": "buildings",
+      "anchor_section": "documents",
       "preview_binding": "FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW",
+      "preview_worker": {
+        "wrangler_env": "preview",
+        "worker_name": "foundation-building-gateway-preview",
+        "public_hostname": "buildings-preview.perfectory.io"
+      },
       "scheduled_bake": {
         "job": "by_pnu_serving_bake",
         "capability": "building_section_pack_patches"

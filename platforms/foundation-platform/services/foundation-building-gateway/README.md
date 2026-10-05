@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-09-10
+last_reviewed: 2026-10-05
 ---
 
 # Foundation Building Gateway
@@ -27,21 +27,28 @@ last_reviewed: 2026-09-10
   조정값 `max_patches`·`pnu_prefix_length` 는 발행 명령이 새 manifest 를 쓸 때만 본다.
 - `GET /buildings/by-pnu/_capabilities` 는 이 Worker 가 읽는 manifest 스키마 목록을 낸다. 발행 명령은 첫 v2
   manifest 를 쓰기 전에 이것을 확인한다 — 게이트웨이를 먼저 배포한다.
-- 항목별 묶음 파일(루트 ADR-0147, `src/packs.ts`): v2 manifest 에 `section_packs` 블록(자체 schema 3)이
-  있으면 객체 대신 묶음으로 서빙한다. 항목(`buildings`·`floors`·`units`·`unit_prices`, 계약의
-  `section_packs.sections`)마다 법정동 묶음의 머리를 읽어 이분 탐색하고, 문서 조각 하나를 범위 읽기로 꺼내
-  gzip 을 풀고, 기준 항목 순서대로 합쳐 객체와 같은
-  JSON 을 낸다. 패치는 `patch_floor` 위의 것 중 법정동이 목록에 있는 것만 읽는다. 툼스톤은 typed 404,
-  기준 항목에 없으면 404, 항목끼리 어긋나거나 목록의 묶음이 없으면 503 이다. `_capabilities` 는 `[1, 2, 3]`.
-  - 머리는 범위를 붙이지 않은 GET 한 번을 머리 끝까지만 읽고 나머지 본문은 읽지 않고 끊는다. 그래서 묶음이
-    아무리 작아도 끝을 넘는 범위를 R2 에 묻지 않고(R2 가 범위를 잘라 주기를 기대하지 않는다), 머리가 아무리
-    길어도 요청은 한 번이다.
-  - 머리는 isolate 메모리와 엣지 캐시에 둔다. 엣지 캐시의 `ETag` 헤더는 따옴표가 붙은 HTTP 형태로 쓰고,
-    읽을 때 R2 의 `etag`(따옴표 없음)로 되돌린다. 문서 범위 읽기는 그 값과 R2 가 돌려준 `etag` 가 같을 때만
-    머리와 합친다. `ETag` 가 없는 캐시 사본은 버리고 R2 를 다시 읽는다.
-  `?packs=g{n}` 은 미리보기 버전(바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true`)에서만 미발행 세대를
-  서빙하고, 운영 경로에서는 manifest 가 그 세대를 가리킬 때만 답한다(전환 관문, 런북
-  `docs/runbooks/building-section-pack-cutover.md`).
+- 묶음 파일(루트 ADR-0147, ADR-0151, `src/packs.ts`): v2 manifest 에 `section_packs` 블록(자체 schema 3)이 있으면
+  객체 대신 묶음으로 서빙한다. 건물 레인의 항목은 `documents` 하나이고(계약 `section_packs.sections`), 한 PNU 의
+  항목은 객체 레인이 쓰던 문서 바이트를 gzip 한 덩어리다. Worker 는 법정동 묶음의 머리에서 이분 탐색해 그 덩어리를
+  풀지도 파싱하지도 않고 `Content-Encoding: gzip` 으로 낸다(gzip 을 받지 않는 클라이언트에게만 풀어 준다). 그래서
+  CPU 는 객체 경로와 같은 일이다 — 계정이 Workers Free(요청당 10ms)라 항목을 Worker 가 합치던 방식은 오류
+  1102(503)를 냈다(ADR-0151). `ETag` 는 묶음의 R2 `etag` 와 덩어리 위치다. 패치는 `patch_floor` 위의 것 중
+  법정동이 목록에 있는 것만 읽는다. 툼스톤은 typed 404, 없으면 404, 목록의 묶음이 없거나 형식이 어긋나면 503 이다.
+  `_capabilities` 는 `[1, 2, 3]`.
+  - 읽기(계약 `by_pnu_section_packs.read_path`): 범위 없는 GET 하나가 머리를 찾는다. 묶음이 `whole_pack_max_bytes`
+    이하면 그 GET 으로 통째 읽고 문서도 그 바이트에서 꺼낸다(R2 한 번). 크면 머리까지만 읽고 끊은 뒤 문서를
+    `onlyIf.etagMatches` 범위 읽기로 꺼낸다. R2 가 범위를 잘라 주기를 기대하지 않는다.
+  - 사본: isolate 메모리(바이트 예산 LRU)와 엣지 캐시(`immutable`). 엣지 사본의 `ETag` 는 따옴표 붙은 HTTP
+    형태로 쓰고 읽을 때 R2 `etag` 로 되돌린다. 머리 사본은 그 태그로만 범위 읽기와 합친다. 태그나 형태 표시가 없는
+    사본은 버리고 R2 를 다시 읽는다. 묶음 경로는 PNU 마다의 엣지 응답 캐시를 쓰지 않는다.
+  - R2 일시 오류는 `r2_attempts` 번까지, `r2_deadline_ms` 안에서 전체 지터 백오프로 다시 묻는다. 형식 불일치는
+    다시 묻지 않는다. 다시 물을 때와 503 마다 구조화된 로그(`pack_read_retry`, `pack_outage`: 항목·키·단계·오류
+    종류·경과)를 남긴다.
+  - 미리보기 버전은 `Server-Timing` 을 낸다: `outcome`, `r2;dur=…;desc="gets=… retries=…"`, 항목마다
+    `pack-{항목};dur=…;desc="{memory|edge|r2}-{whole|head}[+range]"`, `total`.
+  `?packs=g{n}` 은 미리보기 Worker(바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true`, 계약
+  `section_packs.preview_worker`, `wrangler.jsonc` 의 `env.preview`)에서만 미발행 세대를 서빙하고, 운영 경로에서는
+  manifest 가 그 세대를 가리킬 때만 답한다(전환 관문, 런북 `docs/runbooks/building-section-pack-cutover.md`).
 - **manifest 를 신뢰할 수 없으면 503** (부재·비파싱·다른 unit/schema/세대 0): 포인터 장애는
   레인 전체의 장애다. R2 읽기 실패도 503이며 `no-store`로 캐시되지 않는다.
 - 객체 부재는 CORS 헤더를 포함한 404 `no-store`다. 웹은 이를 `BuildingNotServedError`로 구분한다.

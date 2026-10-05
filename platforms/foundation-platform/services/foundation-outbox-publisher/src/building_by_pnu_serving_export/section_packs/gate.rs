@@ -12,6 +12,8 @@
 //! The publish does not take `passed` on trust: it re-derives each verdict from the counts and the
 //! timings in the file against the contract as it is now.
 
+use std::collections::BTreeMap;
+
 use anyhow::{ensure, Context};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -66,7 +68,44 @@ pub(crate) struct Timings {
     pub(crate) max: f64,
 }
 
+/// What the preview Worker said about its own answers (`Server-Timing`): its total and R2 wait,
+/// and where each section's pack came from (`r2-whole`, `r2-head+range`, `edge-…`, `memory-…`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub(crate) struct ServerTimingSummary {
+    pub(crate) answers: u64,
+    pub(crate) total_ms: Timings,
+    pub(crate) r2_ms: Timings,
+    pub(crate) sources: BTreeMap<String, u64>,
+}
+
+/// The preview Worker's CPU over the probe window, as Workers analytics records it.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub(crate) struct WorkerCpu {
+    pub(crate) script: String,
+    pub(crate) from_utc: String,
+    pub(crate) to_utc: String,
+    pub(crate) requests: u64,
+    /// The largest p50 and p99 of any invocation status group, in milliseconds.
+    pub(crate) cpu_p50_ms: f64,
+    pub(crate) cpu_p99_ms: f64,
+    /// Invocations per status (`success`, `exceededResources`, …).
+    pub(crate) statuses: BTreeMap<String, u64>,
+}
+
+impl WorkerCpu {
+    /// Invocations the platform cut off for their resources (error 1102, an HTTP 503).
+    pub(crate) fn exceeded_resources(&self) -> u64 {
+        self.statuses.get(EXCEEDED_RESOURCES).copied().unwrap_or(0)
+    }
+}
+
+/// The Workers analytics status of an invocation the platform cut off (CPU or memory).
+pub(crate) const EXCEEDED_RESOURCES: &str = "exceededResources";
+
 /// Gate (나): the sample read once through the live route and once through the preview packs.
+///
+/// `live_ms` and `pack_ms` are the cold reads, the first of the run to touch the PNU's legal dong,
+/// which the bound holds; the warm ones (`*_warm_ms`) are reported beside them.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub(crate) struct LatencyEvidence {
     pub(crate) schema_version: String,
@@ -92,6 +131,27 @@ pub(crate) struct LatencyEvidence {
     pub(crate) examples: Vec<String>,
     pub(crate) passed: bool,
     pub(crate) measured_at_utc: String,
+    /// PNUs in flight at once.
+    #[serde(default)]
+    pub(crate) concurrency: u64,
+    #[serde(default)]
+    pub(crate) cold_answered: u64,
+    #[serde(default)]
+    pub(crate) warm_answered: u64,
+    #[serde(default)]
+    pub(crate) live_warm_ms: Timings,
+    #[serde(default)]
+    pub(crate) pack_warm_ms: Timings,
+    /// Failed reads by `{live|pack}:{class}` (`http-503`, `timeout`, `connect`, `body`, …).
+    #[serde(default)]
+    pub(crate) failures: BTreeMap<String, u64>,
+    #[serde(default)]
+    pub(crate) server_timing: ServerTimingSummary,
+    /// `None` when Workers analytics was not asked; such a file never opens the gate.
+    #[serde(default)]
+    pub(crate) worker_cpu: Option<WorkerCpu>,
+    #[serde(default)]
+    pub(crate) bound_cpu_p99_ms: f64,
 }
 
 /// The environment a production probe names.
@@ -109,7 +169,12 @@ impl LatencyEvidence {
             && self.mismatched == 0
             && self.failed == 0
             && self.pack_ms.p50 - self.live_ms.p50 <= gate.latency_max_increase_ms.p50
-            && self.pack_ms.p95 - self.live_ms.p95 <= gate.latency_max_increase_ms.p95)
+            && self.pack_ms.p95 - self.live_ms.p95 <= gate.latency_max_increase_ms.p95
+            && self.worker_cpu.as_ref().is_some_and(|cpu| {
+                cpu.requests > 0
+                    && cpu.exceeded_resources() == 0
+                    && cpu.cpu_p99_ms <= gate.worker_cpu_p99_max_ms
+            }))
     }
 }
 
@@ -284,7 +349,7 @@ pub(crate) fn require_latency(
     ensure!(
         evidence.verdict()? && evidence.passed,
         "the live evidence does not pass: sample {} (answered {}, mismatched {}, failed {}), \
-         p50 {:.1}→{:.1} ms, p95 {:.1}→{:.1} ms",
+         cold p50 {:.1}→{:.1} ms, cold p95 {:.1}→{:.1} ms, worker CPU {}",
         evidence.sample_size,
         evidence.answered,
         evidence.mismatched,
@@ -292,7 +357,15 @@ pub(crate) fn require_latency(
         evidence.live_ms.p50,
         evidence.pack_ms.p50,
         evidence.live_ms.p95,
-        evidence.pack_ms.p95
+        evidence.pack_ms.p95,
+        evidence.worker_cpu.as_ref().map_or_else(
+            || "not measured".to_owned(),
+            |cpu| format!(
+                "p99 {:.1} ms with {} exceededResources",
+                cpu.cpu_p99_ms,
+                cpu.exceeded_resources()
+            )
+        )
     );
     Ok(())
 }
