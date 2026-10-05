@@ -1019,7 +1019,9 @@ verify_runtime_secrets() {
     printf 'runtime secrets check is missing from the release: %s\n' "${secrets}" >&2
     exit 66
   }
-  python3 -I "${secrets}" --area "${release_root}/current" host || {
+  # FOUNDATION_PLATFORM_SECRETS_ROOT is the filesystem root the group paths are under: `/` on the
+  # host, a fake host in foundation-release-test.sh.
+  python3 -I "${secrets}" --area "${release_root}/current" host --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" || {
     printf 'the host environment files do not match config/runtime-secrets.contract.json; see above (names only)\n' >&2
     exit 65
   }
