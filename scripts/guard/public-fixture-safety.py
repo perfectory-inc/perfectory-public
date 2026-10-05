@@ -39,6 +39,10 @@ PNU_PATTERN = re.compile(r"(?<!\d)(\d{19})(?!\d)")
 # An Iceberg snapshot id is a 64-bit number, often 19 digits. It is not a parcel: a 19-digit value
 # that is exactly the value of a key named `...snapshot_id` (JSON or code) is read as one.
 SNAPSHOT_ID_VALUE_PATTERN = re.compile(r"""["']?\w*snapshot_id["']?\s*[:=]\s*["']?$""")
+# A SHA-256 digest (64 lowercase hex characters) is not a parcel either, though one can hold a run
+# of 19 decimal digits: content-addressed Bronze keys carry them (root ADR-0148, the 202609 parcel
+# edition's `…--sha256-<digest>.zip`). A 19-digit run that lies inside such a digest is skipped.
+SHA256_DIGEST_PATTERN = re.compile(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])")
 KOREA_LONGITUDE_PATTERN = re.compile(r"(?<![\d.])((?:12[4-9]|13[0-2])\.\d+)(?![\d.])")
 UUID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -166,10 +170,13 @@ def scan_code_namespaces(
         except (OSError, UnicodeDecodeError):
             continue
 
+        digests = [(digest.start(), digest.end()) for digest in SHA256_DIGEST_PATTERN.finditer(text)]
         for match in PNU_PATTERN.finditer(text):
             value = match.group(1)
             line_start = text.rfind("\n", 0, match.start()) + 1
             if SNAPSHOT_ID_VALUE_PATTERN.search(text[line_start : match.start()]):
+                continue
+            if any(start <= match.start() and match.end() <= end for start, end in digests):
                 continue
             if not value.startswith(RESERVED_PNU_PREFIX):
                 errors.append(

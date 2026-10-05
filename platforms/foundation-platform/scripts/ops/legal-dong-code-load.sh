@@ -9,7 +9,9 @@
 #   2. 짝     — 기록된 짝·스튜어드 짝 → 날짜·이름 규칙 → (켜졌으면) 지번 겹침 → 상위 단위 묶기로 짝을 맞춰
 #               reference.legal_dong_code_change 하나에만 쌓고(ADR-0145), 그 표의 시군구 view 인 투영 파일과
 #               스튜어드 목록을 바꾼다. 1 이 성공하고 2 가 실패하면 투영이 표지보다 낡아 내보내기가 거부한다.
-#               지번 겹침은 개편 전후 필지 스냅숏 쌍(LEGAL_DONG_PARCELS_BEFORE/AFTER)이 주어질 때만 돈다.
+#               지번 겹침은 폐지된 동마다 그 날짜를 감싸는 필지 판 둘(원천 계약 vworld-parcel-source-objects.json
+#               의 판 중 폐지 전에 뽑은 마지막 것과 뒤에 뽑은 첫 것)로 돈다. 계약에 그 판이 없거나 표에 적재되지
+#               않았으면 그 동은 판단 대기로 남고, 필요한 판을 이름으로 말한다(ADR-0148).
 #               필지 번호 공식 이력(필지고유번호변동연혁)은 아직 수집하지 않아 그 단계는 꺼져 있고, 그것만 정할
 #               수 있는 동은 판단 대기(awaiting_data)로 남는다(ADR-0144 §4). 필지 계보는 증거가 아니다: 계보가
 #               이 표의 동 짝을 읽으므로, 거꾸로 읽으면 서로가 서로를 읽는다(ADR-0145 §2).
@@ -27,17 +29,14 @@ legal_dong_install() {
 # Pairs one snapshot: $1 snapshot date, $2 its Bronze key.
 legal_dong_pair() {
   local snapshot_date="$1" table_key="$2" out="${work}/legal-dong" cout="${container_work}/legal-dong"
-  local decisions=() evidence=()
+  local decisions=()
   if compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
     mkdir -p "${out}/steward"
     cp "${LEGAL_DONG_STATE_ROOT}"/steward/pending/*.json "${out}/steward/"
     decisions=(--steward-decisions "${cout}/steward")
   fi
-  if [ -n "${LEGAL_DONG_PARCELS_BEFORE:-}" ] && [ -n "${LEGAL_DONG_PARCELS_AFTER:-}" ]; then
-    evidence+=(--parcels-before-snapshot-id "${LEGAL_DONG_PARCELS_BEFORE}" --parcels-after-snapshot-id "${LEGAL_DONG_PARCELS_AFTER}")
-  fi
   spark legal_dong_code_change_pairs.py --allow-non-smoke-write --snapshot-date "${snapshot_date}" \
-    --table-source-record-id "${table_key}" ${evidence[@]+"${evidence[@]}"} ${decisions[@]+"${decisions[@]}"} \
+    --table-source-record-id "${table_key}" --jibun-evidence editions ${decisions[@]+"${decisions[@]}"} \
     --projection-output "${cout}/projection.json" --review-output "${cout}/steward-review.json" \
     --summary-output "${cout}/pairs-summary.json"
   legal_dong_install "${out}/projection.json" "${LEGAL_DONG_STATE_ROOT}/sigungu-crosswalk.projection.json"

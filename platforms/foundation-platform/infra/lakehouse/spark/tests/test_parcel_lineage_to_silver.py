@@ -101,7 +101,7 @@ class DeriveTest(unittest.TestCase):
 
     def test_the_real_tables_need_the_explicit_flag(self):
         args = parse_args([
-            "--from-snapshot-id", "a", "--to-snapshot-id", "b", "--from-date", "2099-06-01", "--to-date", "2099-10-01",
+            "--from-snapshot-id", "a", "--to-snapshot-id", "b", "--allow-non-served-edition", "--from-date", "2099-06-01", "--to-date", "2099-10-01",
             "--from-sido", "99", "--to-sido", "99",
         ])
         from parcel_lineage_to_silver import validate_args
@@ -127,7 +127,7 @@ class DerivationIdentityTest(unittest.TestCase):
 
     def args(self):
         return parse_args([
-            "--from-snapshot-id", "a", "--to-snapshot-id", "b",
+            "--from-snapshot-id", "a", "--to-snapshot-id", "b", "--allow-non-served-edition",
             "--from-date", "2099-06-01", "--to-date", "2099-10-01",
             "--from-sido", "99", "--to-sido", "99",
             "--iceberg-table", "lineage_smoke", "--source-snapshots-path", str(self.pins),

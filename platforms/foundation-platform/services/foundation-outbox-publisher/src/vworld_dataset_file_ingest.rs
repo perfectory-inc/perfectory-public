@@ -13,8 +13,8 @@ use collection_application::{
     StreamingBronzeRecord,
 };
 use collection_domain::{
-    CollectionError, IngestionRun, IngestionRunStatus, IngestionTrigger, SourceAuthKind,
-    SourceCatalogEntry, SourcePayloadFormat,
+    BronzeObject, CollectionError, IngestionRun, IngestionRunStatus, IngestionTrigger,
+    SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
 };
 use collection_infrastructure::{
     PgBronzeIngestRepository, PgBronzeIngestUnitOfWork, VWorldDatasetFileClient,
@@ -427,12 +427,13 @@ where
     validate_inventory_file_identity(file)?;
     // Pre-download skip: if a Bronze object already exists for this file's `source_partition_key`
     // (which includes `provider_file_id` = `{download_ds_id}-{file_no}`), skip the download. This is
-    // a request-fingerprint optimization (per docs/catalog/source-change-detection-policy.md) and is
-    // correct ONLY because `provider_file_id` is content-stable for this provider (a new published
-    // file gets a fresh id, so new content ⇒ new id). If a provider ever reused a file id with
-    // changed bytes, this skip would miss the change — set FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1 to
-    // bypass it and force the post-download SHA256 content check (the policy's correctness baseline).
-    // First re-collect on an empty DB never hits this skip.
+    // a request-fingerprint optimization (per docs/catalog/source-change-detection-policy.md). The
+    // provider DOES reuse a file id with changed bytes — 연속지적도 (ds 30563) republishes every
+    // edition under the same file numbers (root ADR-0148) — so the skip also requires the held
+    // object to carry the provider update date the inventory lists (`holds_listed_release`).
+    // FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1 still bypasses it and forces the post-download
+    // SHA256 content check (the policy's correctness baseline). First re-collect on an empty DB
+    // never hits this skip.
     let force_refetch = crate::public_data_control_support::bronze_force_refetch_enabled()?;
     if !force_refetch {
         if let Some(existing) = existing_file_report(job, file, started_at, repo, uow)
@@ -521,18 +522,33 @@ where
             )
         })?;
 
-    Ok(existing.map(|object| VWorldDatasetFileIngestItemEvidence {
-        endpoint_slug: job.endpoint_slug.clone(),
-        source_slug: job.source_slug.clone(),
-        download_ds_id: file.download_ds_id.clone(),
-        file_no: file.file_no.clone(),
-        provider_file_name: file.provider_file_name.clone(),
-        status: "skipped_existing".to_owned(),
-        object_key: Some(object.object_key.as_str().to_owned()),
-        size_bytes: Some(object.size_bytes),
-        error_message: None,
-        duration_ms: elapsed_millis(started_at),
-    }))
+    Ok(existing
+        .filter(|object| holds_listed_release(object, file))
+        .map(|object| VWorldDatasetFileIngestItemEvidence {
+            endpoint_slug: job.endpoint_slug.clone(),
+            source_slug: job.source_slug.clone(),
+            download_ds_id: file.download_ds_id.clone(),
+            file_no: file.file_no.clone(),
+            provider_file_name: file.provider_file_name.clone(),
+            status: "skipped_existing".to_owned(),
+            object_key: Some(object.object_key.as_str().to_owned()),
+            size_bytes: Some(object.size_bytes),
+            error_message: None,
+            duration_ms: elapsed_millis(started_at),
+        }))
+}
+
+/// Whether the Bronze object held under this provider file id is the release the inventory lists.
+///
+/// The id alone does not say so: VWorld reuses a file's number across releases. 연속지적도 (ds
+/// 30563) file 100 held the 2026-06 edition and then the 2026-09 one (root ADR-0148), so a skip on
+/// the id would have kept June forever. The provider's update date tells releases apart; where the
+/// inventory gives none, the id is all there is and it decides, as it did before.
+fn holds_listed_release(object: &BronzeObject, file: &VWorldDatasetFileInventoryItem) -> bool {
+    match provider_updated_at(file) {
+        None => true,
+        listed => object.provider_updated_at == listed,
+    }
 }
 
 fn failed_file_report(

@@ -62,13 +62,13 @@ class ContractTest(unittest.TestCase):
             self.assertIn(name, SERVED_COLUMNS)
 
     def test_a_real_table_needs_an_explicit_flag(self):
-        args = parse_args(["--source-snapshot-id", "synthetic-1", "--output-dir", "parts"])
+        args = parse_args(["--source-snapshot-id", "synthetic-1", "--allow-non-served-edition", "--output-dir", "parts"])
         with self.assertRaisesRegex(ValueError, "allow-non-smoke-write"):
             validate_args(args)
 
     def test_a_snapshot_id_that_could_break_out_of_the_query_is_refused(self):
         args = parse_args(
-            ["--source-snapshot-id", "x' OR '1'='1", "--output-dir", "parts", "--allow-non-smoke-write"]
+            ["--source-snapshot-id", "x' OR '1'='1", "--allow-non-served-edition", "--output-dir", "parts", "--allow-non-smoke-write"]
         )
         with self.assertRaisesRegex(ValueError, "snapshot id"):
             validate_args(args)

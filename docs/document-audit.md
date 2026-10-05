@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **497개**
-- 언어 분류: **{'english': 37, 'korean': 304, 'mixed': 156}**
+- 감사 문서: **499개**
+- 언어 분류: **{'english': 37, 'korean': 306, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **230개 정상 / 0개 누락 / 267개 해당 없음**
+- 메타데이터: **231개 정상 / 0개 누락 / 268개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -89,7 +89,7 @@
 | `docs/adr/0064-the-parcel-table-is-read-without-vectorization.md` | Monorepo | ADR | Superseded by ADR-0065 | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0065-an-engine-version-is-written-once.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0066-a-table-that-fits-in-one-file-is-not-split.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0067-the-parcel-source-covers-the-country-twice.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0067-the-parcel-source-covers-the-country-twice.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0068-the-command-names-the-object-it-read.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 2 |
 | `docs/adr/0069-one-column-holds-five-kinds-of-thing.md` | Monorepo | ADR | Accepted | english | not applicable: ADR fields | 4 |
 | `docs/adr/0070-the-boundary-source-carries-neither-use-nor-area.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
@@ -144,7 +144,7 @@
 | `docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
+| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
 | `docs/adr/0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0125-unit-building-links-require-source-parent-key-evidence.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
@@ -152,22 +152,23 @@
 | `docs/adr/0128-floor-inputs-bind-to-bronze-and-scalar-retries-bind-to-their-append.md` | Monorepo | ADR | accepted | korean | ok | 3 |
 | `docs/adr/0129-compute-memory-counts-one-shot-spark-and-native-contracts.md` | Monorepo | ADR | accepted | korean | ok | 2 |
 | `docs/adr/0130-panel-input-snapshots-are-complete-and-bound-before-spark.md` | Monorepo | ADR | accepted | korean | ok | 5 |
-| `docs/adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md` | Monorepo | ADR | accepted | korean | ok | 2 |
+| `docs/adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md` | Monorepo | ADR | accepted | korean | ok | 3 |
 | `docs/adr/0132-release-activation-preserves-enabled-job-identities.md` | Monorepo | ADR | accepted | korean | ok | 2 |
 | `docs/adr/0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md` | Monorepo | ADR | accepted | korean | ok | 9 |
 | `docs/adr/0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md` | Monorepo | ADR | accepted | korean | ok | 3 |
 | `docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
+| `docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
 | `docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 8 |
 | `docs/adr/0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0143-legal-dong-code-changes-come-from-code-go-kr.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
-| `docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0145-one-source-of-truth-for-region-code-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 8 |
+| `docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0145-one-source-of-truth-for-region-code-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 9 |
 | `docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
@@ -302,6 +303,7 @@
 | `platforms/foundation-platform/docs/runbooks/slo-alert-policy.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 0 |
+| `platforms/foundation-platform/docs/runbooks/vworld-parcel-editions.md` | Foundation Platform | runbook | current | korean | ok | 3 |
 | `platforms/foundation-platform/infra/lakehouse/dbt/README.md` | Foundation Platform | README | current | korean | ok | 0 |
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current | mixed | ok | 2 |
 | `platforms/foundation-platform/scripts/tiles/admin-boundary/README.md` | Foundation Platform | README | current | korean | ok | 0 |

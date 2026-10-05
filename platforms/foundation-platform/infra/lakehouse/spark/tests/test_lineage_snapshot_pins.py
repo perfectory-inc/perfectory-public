@@ -34,7 +34,7 @@ class LineageInputTest(unittest.TestCase):
 
     def argv(self, *extra):
         return [
-            "--from-snapshot-id", "vworldkr__parcel-209906", "--to-snapshot-id", "vworldkr__parcel-209909",
+            "--from-snapshot-id", "vworldkr__parcel-209906", "--to-snapshot-id", "vworldkr__parcel-209909", "--allow-non-served-edition",
             "--from-date", "2099-06-01", "--to-date", "2099-09-01",
             "--from-sido", "99", "--to-sido", "99", "--iceberg-table", "lineage_smoke",
             "--source-snapshots-path", str(self.path), *extra,

@@ -69,6 +69,7 @@ from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_icebe
 from gold_rebuild import assert_minimum_row_count, write_gold_snapshot
 from parcel_attribute_carry import carry_candidates
 from parcel_lineage import Link
+import vworld_parcel_editions as parcel_editions
 from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
@@ -353,6 +354,34 @@ def filtered_by_region(frame: DataFrame, region_prefix: str | None) -> DataFrame
     if region_prefix is None:
         return frame
     return frame.where(F.col("pnu").startswith(region_prefix))
+
+
+def read_served_parcels(
+    spark: SparkSession, args: argparse.Namespace, pins: dict[str, str], source: dict[str, Any] | None = None
+) -> DataFrame:
+    """The parcels the panel is built from: the current rows of the served edition only.
+
+    Root ADR-0148: `silver.parcel_boundaries` holds several editions side by side, every one of
+    them current by the predicate, and the panel is built from the one the map is (`served_edition`
+    of the source contract, `source` here or the file). Without the edition filter the
+    single-snapshot check refuses the table once a second edition is loaded, and every scheduled
+    rebuild fails.
+    """
+
+    predicate = current_row_predicate(load_lakehouse_contract(PARCEL_SOURCE))
+    if predicate is None:
+        raise ValueError(
+            f"{PARCEL_SOURCE} declares no current_row_predicate; this projection cannot "
+            "say which boundary row is the parcel's current one"
+        )
+    source = source or parcel_editions.load()
+    served_id = parcel_editions.snapshot_id(source, parcel_editions.served(source))
+    return filtered_by_region(
+        read_source(spark, args, PARCEL_SOURCE, pins)
+        .where(F.expr(predicate))
+        .where(F.expr(f"source_snapshot_id = '{served_id}'")),
+        args.region_prefix,
+    )
 
 
 def assert_single_snapshot(frame: DataFrame, contract_name: str) -> str:
@@ -1250,16 +1279,7 @@ def main() -> int:
         counters: dict[str, int] = {}
         source_snapshots: dict[str, str] = {}
 
-        parcel_predicate = current_row_predicate(load_lakehouse_contract(PARCEL_SOURCE))
-        if parcel_predicate is None:
-            raise ValueError(
-                f"{PARCEL_SOURCE} declares no current_row_predicate; this projection cannot "
-                "say which boundary row is the parcel's current one"
-            )
-        parcels = filtered_by_region(
-            read_source(spark, args, PARCEL_SOURCE, pins).where(F.expr(parcel_predicate)),
-            args.region_prefix,
-        )
+        parcels = read_served_parcels(spark, args, pins)
         source_snapshots[PARCEL_SOURCE] = assert_single_snapshot(parcels, PARCEL_SOURCE)
 
         candidates = read_carry_candidates(spark, args, counters, pins)

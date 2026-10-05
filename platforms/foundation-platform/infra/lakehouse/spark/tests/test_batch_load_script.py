@@ -137,9 +137,22 @@ class BatchLoadScriptTest(unittest.TestCase):
         """
         code = self._code()
 
-        self.assertIn("load_granularity", code, "실을 알갱이는 목록 파일이 정한다")
+        self.assertIn("vworld_parcel_editions.py", code, "실을 판과 알갱이는 목록 파일이 정한다")
+        self.assertIn("handoff-keys --edition", code)
         self.assertNotIn("list-objects", code)
         self.assertNotIn("inventory-r2", code, "적재기가 버킷을 훑으면 안 된다")
+
+    def test_every_row_is_checked_against_the_edition_named(self) -> None:
+        """한 실행은 한 판이고, 그 판의 id 는 계약에서 온다 (root ADR-0148).
+
+        2026-09-27 에 손으로 만든 9월 핸드오프는 `vworldkr__parcel:202609` 를 지녔다. 그대로 실었으면
+        같은 판이 두 철자로 표에 남는다. 적재기는 판을 받고, 잡은 그 판의 id 가 아닌 행을 거부한다.
+        """
+        code = self._code()
+
+        self.assertIn('[ -n "$EDITION" ]', code, "판 없이 돌면 안 된다")
+        self.assertIn("editions snapshot-id --edition", code)
+        self.assertIn('--expected-source-snapshot-id "$EXPECTED_SNAPSHOT_ID"', code)
 
     def test_r2_credentials_reach_the_container(self) -> None:
         """자격증명이 컨테이너 밖에 있으면 잡은 자기 입력을 못 연다.

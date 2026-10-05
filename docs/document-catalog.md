@@ -8,25 +8,25 @@
 
 ## 문서 규모
 
-- 문서 파일: **497개**
+- 문서 파일: **499개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 123 |
+| Foundation Platform | 124 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 173 |
+| Monorepo | 174 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 231 |
+| ADR | 232 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -38,7 +38,7 @@
 | guide | 2 |
 | reference | 18 |
 | roadmap | 3 |
-| runbook | 38 |
+| runbook | 39 |
 
 ## 책임별 문서 트리
 
@@ -157,6 +157,7 @@ platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md
 platforms/foundation-platform/docs/runbooks/slo-alert-policy.md
 platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md
 platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md
+platforms/foundation-platform/docs/runbooks/vworld-parcel-editions.md
 platforms/foundation-platform/infra/lakehouse/dbt/README.md
 platforms/foundation-platform/README.md
 platforms/foundation-platform/scripts/tiles/admin-boundary/README.md
@@ -536,6 +537,7 @@ docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md
 docs/adr/0145-one-source-of-truth-for-region-code-changes.md
 docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md
 docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md
+docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md
 docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
@@ -721,6 +723,7 @@ tools/github/README.md
 | `docs/adr/0145-one-source-of-truth-for-region-code-changes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
@@ -855,6 +858,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/runbooks/slo-alert-policy.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current |
+| `platforms/foundation-platform/docs/runbooks/vworld-parcel-editions.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/infra/lakehouse/dbt/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/scripts/tiles/admin-boundary/README.md` | Foundation Platform | README | current |

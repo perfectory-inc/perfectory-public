@@ -1,0 +1,23 @@
+[Unit]
+Description=Foundation Platform VWorld cadastral parcel editions: check the provider's edition daily, collect a new one into Bronze and propose its source-contract entry; exit 3 means an edition awaits the contract (ADR-0148)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/vworld-parcel-edition-collect.sh
+TimeoutStartSec=3h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/vworld-parcel-edition
+
+[Install]
+WantedBy=multi-user.target
