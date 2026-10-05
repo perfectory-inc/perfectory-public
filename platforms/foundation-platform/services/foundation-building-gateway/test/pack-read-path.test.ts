@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { fetchBuilding } from "../src/index";
 import {
+  answerCacheUrl,
   PackFormatError,
   PackReadUnavailable,
   ReadTrace,
@@ -350,6 +351,45 @@ describe("R2 retries within a deadline", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("server-timing")).toContain('outcome;desc="r2-unavailable"');
     expect(bucket.get.mock.calls.filter(([wanted]) => wanted === key(PACKS.anchor_section))).toHaveLength(READ.r2_attempts);
+  });
+
+  it("a PNU read before under the same served state answers from its edge copy, with no pack read", async () => {
+    const policy = GATEWAY;
+    const objects = await goldenPacks();
+    const { bucket: packs, asked } = strictBucket(objects);
+    const bucket = {
+      get: async (wanted: string, options?: unknown) =>
+        wanted === policy.object_key.manifest_object
+          ? { body: null, text: async () => JSON.stringify({ schema_version: 1, unit: "building-by-pnu", current_generation: 1 }) }
+          : packs.get(wanted, options as R2GetOptions),
+    };
+    const env = {
+      [policy.r2_binding]: bucket as unknown as Pick<R2Bucket, "get">,
+      [policy.allowed_origins_binding]: "https://app.example.test",
+      [PACKS.preview_binding]: "true",
+    };
+    const url = `https://buildings.example.test${policy.request_path.prefix}${PNU_A}?packs=g1`;
+    const get = () => fetchBuilding(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env, ctx);
+    const cold = await get();
+    const coldBody = new Uint8Array(await cold.arrayBuffer());
+    expect(cold.headers.get("server-timing")).toContain('desc="r2-whole"');
+    await Promise.all(pending);
+    // The copy sits under the plan's fingerprint: another generation names another entry.
+    expect(edge.has(answerCacheUrl(previewPlan(1).fingerprint, PNU_A))).toBe(true);
+    expect(answerCacheUrl(previewPlan(2).fingerprint, PNU_A)).not.toBe(answerCacheUrl(previewPlan(1).fingerprint, PNU_A));
+    // A new isolate, the pack copies gone from it and from the edge: only the answer copy is left.
+    forgetPacks();
+    edge.delete(packCacheUrl(key(PACKS.anchor_section)));
+    const before = asked.length;
+    const warm = await get();
+    expect(warm.status).toBe(200);
+    expect(asked).toHaveLength(before);
+    const timing = warm.headers.get("server-timing") ?? "";
+    expect(timing).toContain('desc="edge-answer"');
+    expect(timing).toContain('desc="gets=0 retries=0"');
+    expect(warm.headers.get("etag")).toBe(cold.headers.get("etag"));
+    expect(warm.headers.get("content-encoding")).toBe("gzip");
+    expect(new Uint8Array(await warm.arrayBuffer())).toEqual(coldBody);
   });
 
   it("a preview answer carries Server-Timing; the live route's answer does not", async () => {

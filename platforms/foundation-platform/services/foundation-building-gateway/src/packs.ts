@@ -529,6 +529,34 @@ async function readDocument(
   return { member, etag };
 }
 
+const answerCacheOrigin = "https://foundation-building-gateway.invalid/answer/";
+const ANSWER_ETAG_HEADER = "X-Member-Etag";
+
+/// The edge cache identity of one PNU's served member under one served state: the plan's
+/// fingerprint names the generations and patches, so a new publish never answers from a copy of
+/// the previous one, and the synthetic origin keeps any client URL from naming or shaping it.
+export function answerCacheUrl(fingerprint: string, pnu: string): string {
+  return `${answerCacheOrigin}${encodeURIComponent(fingerprint)}/${pnu}`;
+}
+
+/// The edge copy of a served member: its bytes as the pack holds them, its entity tag beside them.
+/// Stored without `Content-Encoding`, so the Cache API keeps the bytes as they are.
+export function answerCacheResponse(document: ServedDocument): Response {
+  return new Response(document.member, {
+    headers: { "Cache-Control": packPolicy.cache_control, [ANSWER_ETAG_HEADER]: document.etag },
+  });
+}
+
+/// A PNU's served member from the edge cache, or `null` when there is none (or it carries no tag).
+/// A warm read of the same PNU is then one cache lookup, as on the object path, with no pack read.
+export async function answerFromCache(fingerprint: string, pnu: string): Promise<ServedDocument | null> {
+  const cached = await caches.default.match(answerCacheUrl(fingerprint, pnu));
+  if (cached === undefined) return null;
+  const etag = cached.headers.get(ANSWER_ETAG_HEADER);
+  const member = new Uint8Array(await cached.arrayBuffer());
+  return etag === null || etag === "" || member.byteLength === 0 ? null : { member, etag };
+}
+
 export type Resolved =
   | ({ kind: "document" } & ServedDocument)
   | { kind: "tombstone" }
