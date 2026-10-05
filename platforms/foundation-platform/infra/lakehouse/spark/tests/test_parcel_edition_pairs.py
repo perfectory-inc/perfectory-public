@@ -73,6 +73,12 @@ def two_changes():
 
 
 # Where each edition saw the parcels: 갑동's 지번 (1–20) move in spring, 병동's (101–120) in autumn.
+def land(value: str) -> tuple[str, str, float]:
+    """A parcel as the table read returns it: (PNU, 지목, area m²); every synthetic parcel is the same land."""
+
+    return value, "대", 100.0
+
+
 PARCELS = {
     "209902": [pnu("9711010100", n) for n in range(1, 21)] + [pnu("9811010100", n) for n in range(101, 121)],
     "209906": [pnu("9711010300", n) for n in range(1, 21)] + [pnu("9811010100", n) for n in range(101, 121)],
@@ -86,7 +92,7 @@ def table_holding(*loaded: str):
     def pnus_of(name: str, codes: set[str], lots: set[str] | None = None):
         if name not in loaded:
             return None
-        return [value for value in PARCELS[name] if value[:10] in codes and (lots is None or value[10:] in lots)]
+        return [land(value) for value in PARCELS[name] if value[:10] in codes and (lots is None or value[10:] in lots)]
 
     return pnus_of
 
@@ -356,7 +362,7 @@ class EachChangeReadsItsOwnEditionsTest(unittest.TestCase):
         def table(name, codes, lots=None, honour=True):
             filtered_reads.append(lots)
             pnus = extra.get(name, PARCELS[name])
-            return [p for p in pnus if p[:10] in codes and (not honour or lots is None or p[10:] in lots)]
+            return [land(p) for p in pnus if p[:10] in codes and (not honour or lots is None or p[10:] in lots)]
 
         results = []
         for honour in (True, False):
@@ -371,7 +377,8 @@ class EachChangeReadsItsOwnEditionsTest(unittest.TestCase):
         rows = two_changes()
         floor = CONTRACT["pairing"]["floor_date"]
         before, after = pairs_job.evidence_codes(rows, floor)
-        one = cg.JibunEvidence(cg.jibun_sets(PARCELS["209902"], before), cg.jibun_sets(PARCELS["209906"], after), "one")
+        one = cg.JibunEvidence(cg.land_sets(map(land, PARCELS["209902"]), before),
+                               cg.land_sets(map(land, PARCELS["209906"]), after), "one")
         result = cg.pair_changes(rows, floor, jibun=one, min_share=MIN_SHARE)
         self.assertNotIn("9811010100", {p["old_code"] for p in result.pairs})
 
@@ -467,12 +474,14 @@ class TheJobReadsEditionsFromTheContractTest(unittest.TestCase):
                 "--table-html", str(tmp / "table.html"), "--jibun-evidence", "editions",
                 "--summary-output", str(tmp / "summary.json"), "--review-output", str(tmp / "review.json")]
         for name in files:
-            (tmp / f"{name}.txt").write_text("\n".join(PARCELS[name]) + "\n", encoding="utf-8")
+            (tmp / f"{name}.txt").write_text("".join("\t".join(map(str, land(p))) + "\n" for p in PARCELS[name]),
+                                             encoding="utf-8")
             argv += ["--edition-pnus", f"{name}={tmp / f'{name}.txt'}"]
         with mock.patch.dict(os.environ, {editions.CONTRACT_ENV: str(tmp / "contract.json")}), mock.patch("sys.stdout"):
             self.assertEqual(pairs_job.main(argv), 0)
         return {"summary": json.loads((tmp / "summary.json").read_text(encoding="utf-8")),
-                "review": json.loads((tmp / "review.json").read_text(encoding="utf-8"))["review"]}
+                "review": json.loads((tmp / "review.json").read_text(encoding="utf-8"))["review"],
+                "steward_list": json.loads((tmp / "review.json").read_text(encoding="utf-8"))}
 
     def test_the_job_pairs_both_changes_and_names_what_it_waits_for(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -485,6 +494,31 @@ class TheJobReadsEditionsFromTheContractTest(unittest.TestCase):
             waiting = self.run_job(Path(tmp), contract("209902", "209906", "209910"), {"209902": "", "209906": ""})
             self.assertEqual([(i["old_code"], i["status"]) for i in waiting["review"]], [("9811010100", "awaiting_data")])
             self.assertIn("209910", waiting["review"][0]["jibun"])
+            # 매일 보이게: 판단 대기를 시도별·기다리는 근거별로 센다. 요약과 스튜어드 목록 둘 다.
+            need = "needs parcel edition 209910 (vworldkr__parcel-209910), which is not loaded into the parcel table"
+            for document in (waiting["summary"], waiting["steward_list"]):
+                self.assertEqual(document["awaiting_by_sido"], {"98": 1})
+                self.assertEqual(document["awaiting_by_evidence"], {need: 1})
+
+    def test_awaiting_counts_name_the_official_record_and_roll_codes_below_up(self):
+        review = [
+            {"kind": "pair", "old_code": "9711010100", "status": "awaiting_data", "waiting_for": cg.OFFICIAL_HISTORY_MISSING},
+            {"kind": "pair", "old_code": "9711000000", "status": "awaiting_data", "waiting_for": "needs x"},
+            {"kind": "pair", "old_code": "9811010100", "status": "awaiting_data", "waiting_for": "needs x"},
+            {"kind": "pair", "old_code": "9811010200", "status": "steward", "waiting_for": ""},
+        ]
+        self.assertEqual(pairs_job.awaiting_counts(review), {
+            "awaiting_by_sido": {"97": 2, "98": 1},
+            "awaiting_by_evidence": {cg.OFFICIAL_HISTORY_MISSING: 1, "needs x": 2}})
+        # A 시군구 above waiting 동 is counted under what its 동 wait for, not "N codes below wait".
+        rows = two_changes() + as_rows(table_html([
+            row("9812000000", "합성도 옛구", "폐지", "9800000000", abolished=AUTUMN),
+            row("9812010100", "합성도 옛구 정동", "폐지", "9812000000", abolished=AUTUMN)]))
+        floor = CONTRACT["pairing"]["floor_date"]
+        jibun = pairs_job.edition_evidence(rows, floor, contract("209902", "209906"), table_holding("209902", "209906"))
+        items = {i["old_code"]: i for i in cg.pair_changes(rows, floor, jibun=jibun, min_share=MIN_SHARE).review}
+        self.assertEqual(items["9812000000"]["waiting_for"], items["9812010100"]["waiting_for"])
+        self.assertTrue(items["9812000000"]["jibun"].startswith("1 codes below wait"))
 
     def test_the_one_pair_flags_are_gone(self):
         base = ["--snapshot-date", "2099-11-01", "--table-source-record-id", "k", "--validate-only", "--table-html", "t"]

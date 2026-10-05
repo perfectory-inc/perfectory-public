@@ -8,8 +8,9 @@ every rule:
 
 - the full table, refused whole when its shape changed;
 - pairing, from downloaded data only (ADR-0144; the site's 코드변경안내 notice board is
-  not a source): the date + name rule, then the 지번 sets of two parcel snapshots (ADR-0113 §5),
-  then the official parcel-number history, and everything else to the steward;
+  not a source): the date + name rule, then the official parcel-number history, then the 지번 sets
+  of two parcel snapshots matched as the same land (지목 and area; ADR-0113 §5), and everything else
+  to the steward;
 - the 시군구 crosswalk the hub loaders read, and which merged 시도 it governs.
 
 A response that no longer has the shape the contract names is refused with `SourceFormatError`:
@@ -30,6 +31,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 import parcel_lineage as pl
+from parcel_land import jimok_of, wkb_area_m2  # noqa: F401 - the 지번 step reads both through this module
 from legal_dong_code_change_views import LEAF_LEVELS
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "code-go-kr-legal-dong.contract.json"
@@ -313,14 +315,46 @@ def _parent_at(code: str, level: str) -> str:
     return code[:2] + "00000000" if level == "sido" else code[:5] + "00000"
 
 
+Land = tuple[str, float]
+"""A parcel as the 지번 step compares it across editions: (지목, area in m²)."""
+
+
+
+BELOW_WAIT = re.compile(r"^\d+ codes below wait: ")
+OFFICIAL_HISTORY_MISSING = "the official parcel-number history (필지고유번호변동연혁), not collected"
+
+
+class PairingConflict(ValueError):
+    """Two kinds of evidence settle one code on different new codes. Nothing may be written."""
+
+
 @dataclass
 class JibunEvidence:
-    """The 지번 sets (ledger kind + 본번 + 부번, `parcel_lineage.lot`) each 법정동 held in two parcel
-    snapshots, one taken before the change and one after; `label` names the pair in the source."""
+    """The parcels each 법정동 held in two parcel snapshots, one taken before the change and one
+    after: {code: {lot (ledger kind + 본번 + 부번, `parcel_lineage.lot`): its `Land`}}. `label` names
+    the pair in the source. A lot counts as the same land in both only when its 지목 is the same and
+    its area within the contract's `pairing.land_match` tolerance (`same_land`)."""
 
-    before: Mapping[str, set[str]]
-    after: Mapping[str, set[str]]
+    before: Mapping[str, Mapping[str, Land]]
+    after: Mapping[str, Mapping[str, Land]]
     label: str
+
+
+def land_match_tolerance(contract: Mapping[str, Any]) -> tuple[float, float]:
+    """(relative, absolute m²): the contract's `pairing.land_match`."""
+
+    match = contract["pairing"]["land_match"]
+    return float(match["area_relative_tolerance"]), float(match["area_absolute_tolerance_m2"])
+
+
+def same_land(before: Land, after: Land, tolerance: tuple[float, float]) -> bool:
+    """Whether one lot number names the same land in two editions: the same 지목, and an area that
+    moved by no more than the larger of the relative and the absolute tolerance. A lot number alone
+    is not the land: a renumbered 동 elsewhere can reuse it for a different parcel."""
+
+    (jimok, area), (jimok_after, area_after) = before, after
+    relative, absolute = tolerance
+    return bool(jimok) and jimok == jimok_after and abs(area - area_after) <= max(relative * area, absolute)
 
 
 @dataclass
@@ -346,6 +380,7 @@ def pair_changes(
     jibun: JibunEvidence | EditionEvidence | None = None,
     official_links: Iterable[tuple[str, str]] | None = None,
     min_share: float = pl.SPLIT_SIGNAL_OVERLAP,
+    land_tolerance: tuple[float, float] | None = None,
 ) -> PairingResult:
     """Old code → new code for every code abolished on or after `floor_date`, from data only.
 
@@ -359,17 +394,21 @@ def pair_changes(
        parent (the same parent, or one the pairs already carry to it), whose name below the 시도 is
        the same. Exactly one such code is a pair. It runs top-down, so a 시군구 paired here relates
        the 읍면동 under it.
-    2. **지번 sets** (`derived:parcel-jibun:<snapshots>`), for what 1 cannot settle (a renamed,
-       split or merged 동): of the codes at its level that newly hold parcels in the later snapshot,
-       lie in its 시도 or one a 시도 pair carries it onto, and were created in its change window
-       (its 폐지일 or the day after), the one holding the largest share of the old code's 지번, when that share is at least `min_share`
-       (the contract's `pairing.jibun_overlap_min_share`, ADR-0113 §5) and no other code holds as
-       many. Off when `jibun` is None. With `EditionEvidence` each code is read from the editions
-       that bracket its own change; a code whose editions are not held waits for them.
-    3. **Official parcel-number history** (`official:parcel-history`): where the
+    2. **Official parcel-number history** (`official:parcel-history`): where the
        필지고유번호변동연혁 links (`official_links`, (old PNU, new PNU)) carry every linked parcel of
        the old code into one new code. This is how a code whose 지번 were renumbered is settled.
-       Off when `official_links` is None.
+       Off when `official_links` is None. It decides before the 지번 step; where both settle a
+       code they must agree, and a disagreement raises `PairingConflict` naming both answers.
+    3. **지번 sets** (`derived:parcel-jibun:<snapshots>`), for what 1 and 2 cannot settle (a
+       renamed, split or merged 동): of the codes at its level that newly hold parcels in the later
+       snapshot, lie in its 시도 or one a 시도 pair carries it onto, and were created in its change
+       window (its 폐지일 or the day after), the one holding the largest share of the old code's
+       parcels — a lot counts only where it is the same land in both editions (`same_land`: 지목
+       and area within `land_tolerance`, the contract's `pairing.land_match`) — when that share is
+       at least `min_share` (the contract's `pairing.jibun_overlap_min_share`, ADR-0113 §5) and no
+       other code holds as many. Off when `jibun` is None. With `EditionEvidence` each code is
+       read from the editions that bracket its own change; a code whose editions are not held
+       waits for them.
     4. **Roll-up** (`derived:children`): a 시군구 or 시도 none of the above settles, whose leaf codes
        were paired by 2 or 3, pairs with the parent that received at least `min_share` of them
        (weighted by their 지번 where the snapshots are given).
@@ -385,8 +424,9 @@ def pair_changes(
     - `steward` — every step had its data and none settled it: a person decides.
     """
 
+    tolerance = land_tolerance or land_match_tolerance(load_source_contract())
     by_code = {row["region_cd"]: row for row in rows}
-    alive = {code for code, row in by_code.items() if row["status"] == EXISTS}
+    alive ={code for code, row in by_code.items() if row["status"] == EXISTS}
     created: dict[str, list[Mapping[str, str]]] = {}
     for row in rows:
         if row.get("created_date", "") >= floor_date:
@@ -489,26 +529,58 @@ def pair_changes(
             if code_level(new) == level and new[:2] in scope and by_code[new].get("created_date", "") in window
         )
 
+    def overlap(old: str, new: str, ev: JibunEvidence) -> int:
+        """How many of `old`'s parcels `new` holds as the same land (`same_land`), not merely the
+        same lot number."""
+
+        after = ev.after.get(new, {})
+        return sum(1 for lot, land in ev.before.get(old, {}).items() if lot in after and same_land(land, after[lot], tolerance))
+
     def jibun_best(old: str) -> tuple[str, float, bool]:
-        """(best new code, its share of the old code's 지번, whether it is the only best)."""
+        """(best new code, its share of the old code's parcels, whether it is the only best)."""
 
         ev, _ = evidence(old)
-        before = ev.before.get(old, set()) if ev is not None else set()
+        before = ev.before.get(old, {}) if ev is not None else {}
         if not before:
             return "", 0.0, False
-        scored = sorted(
-            ((len(before & ev.after.get(new, set())), new) for new in jibun_candidates(old, ev)),
-            reverse=True,
-        )
+        scored = sorted(((overlap(old, new, ev), new) for new in jibun_candidates(old, ev)), reverse=True)
         if not scored or scored[0][0] == 0:
             return "", 0.0, False
         unique = len(scored) == 1 or scored[0][0] > scored[1][0]
         return scored[0][1], scored[0][0] / len(before), unique
 
+    def official_answer(old: str) -> str:
+        """The one current code the parcel-number history carries `old`'s parcels into, or ""."""
+
+        news = links_by_old.get(old, set())
+        return next(iter(news)) if len(news) == 1 and news <= alive else ""
+
+    def jibun_answer(old: str) -> tuple[str, float]:
+        """The code the 지번 step settles `old` on and its share, or ("", 0.0). Called after the
+        official evidence, and only judged against it (`settle_leaf`)."""
+
+        best, share, unique = jibun_best(old)
+        return (best, share) if best and unique and share >= min_share else ("", 0.0)
+
+    def settle_leaf(old: str) -> None:
+        """Official parcel-number history first, then the 지번 step; two answers must agree."""
+
+        official = official_answer(old)
+        by_land, share = jibun_answer(old)
+        if official and by_land and official != by_land:
+            raise PairingConflict(
+                f"{old}: the official parcel-number history says {official}, the 지번 step "
+                f"({evidence(old)[0].label}, share {share:.4f}) says {by_land}; nothing is written "
+                "until the evidence is reconciled")
+        if official:  # 2
+            accept(old, official, "official:parcel-history", "official_parcel_history")
+        elif by_land:  # 3
+            accept(old, by_land, f"derived:parcel-jibun:{evidence(old)[0].label}", "jibun", f"jibun_share:{share:.4f}")
+
     def leaf_weight(code: str) -> int:
         if code not in weight:
             ev, _ = evidence(code)
-            weight[code] = max(1, len(ev.before.get(code, set()))) if ev is not None else 1
+            weight[code] = max(1, len(ev.before.get(code, {}))) if ev is not None else 1
         return weight[code]
 
     while True:
@@ -525,13 +597,7 @@ def pair_changes(
         for old in sorted((old for old in olds if old not in successors), key=order, reverse=True):
             level = code_level(old)
             if level in LEAF_LEVELS:
-                best, share, unique = jibun_best(old)
-                if best and unique and share >= min_share:  # 2
-                    accept(old, best, f"derived:parcel-jibun:{evidence(old)[0].label}", "jibun", f"jibun_share:{share:.4f}")
-                    continue
-                news = links_by_old.get(old, set())
-                if len(news) == 1 and news <= alive:  # 3
-                    accept(old, next(iter(news)), "official:parcel-history", "official_parcel_history")
+                settle_leaf(old)
                 continue
             leaves = [code for code in abolished if code_level(code) in LEAF_LEVELS and _under(code, old)]
             total = sum(leaf_weight(code) for code in leaves)
@@ -551,20 +617,22 @@ def pair_changes(
         candidates = rule_candidates(old)
         best, share, unique = jibun_best(old)
         ev, waiting_for = evidence(old)
-        before = ev.before.get(old, set()) if ev is not None else set()
+        before = ev.before.get(old, {}) if ev is not None else {}
         split_into = {
-            new: len(before & ev.after.get(new, set()))
-            for new in jibun_candidates(old, ev)
-            if before & ev.after.get(new, set())
+            new: held for new in jibun_candidates(old, ev) if (held := overlap(old, new, ev))
         } if ev is not None else {}
+        missing = ""
         if ev is None:
             seen, status = waiting_for, "awaiting_data"
+            missing = BELOW_WAIT.sub("", waiting_for)
         elif not before:
             seen, status = "no parcels before", "steward"
         elif not best:
-            # Every 지번 left: renumbered. Only the parcel-number history can say where.
+            # Every 지번 left (renumbered), or none is the same land. Only the parcel-number
+            # history can say where.
             seen = "no 지번 in any new code"
             status = "awaiting_data" if official_links is None else "steward"
+            missing = OFFICIAL_HISTORY_MISSING if official_links is None else ""
         else:
             seen = f"best {best} share {share:.4f}" + ("" if unique else " (tied)")
             status = "split" if len(split_into) > 1 and unique else "steward"
@@ -578,6 +646,9 @@ def pair_changes(
                 "candidates": sorted(set(candidates) | ({best} if best else set())),
                 "jibun": seen,
                 "split_into": split_into,
+                # The evidence an awaiting_data item waits for, one name per kind (which edition,
+                # or the official record), for the daily counts.
+                "waiting_for": missing,
                 "as_of": row.get("abolished_date", "") if row else "",
                 "name": row.get("full_name", "") if row else "",
             }
@@ -585,13 +656,16 @@ def pair_changes(
     return result
 
 
-def jibun_sets(pnus: Iterable[str], codes: Iterable[str] | None = None) -> dict[str, set[str]]:
-    """{법정동 code: its 지번 set} from a parcel snapshot's PNUs (`parcel_lineage.lots_by_dong`),
-    limited to `codes` when given; a malformed PNU is not a 지번."""
+def land_sets(parcels: Iterable[tuple[str, str, float]], codes: Iterable[str] | None = None) -> dict[str, dict[str, Land]]:
+    """{법정동 code: {lot: (지목, area m²)}} from a parcel snapshot's (PNU, 지목, area) rows, limited to
+    `codes` when given; a malformed PNU is not a 지번."""
 
     wanted = set(codes) if codes is not None else None
-    good, _ = pl.partition_valid(pnus)
-    return {code: lots for code, lots in pl.lots_by_dong(good).items() if wanted is None or code in wanted}
+    out: dict[str, dict[str, Land]] = {}
+    for pnu, jimok, area in parcels:
+        if pl.PNU_PATTERN.fullmatch(pnu or "") and (wanted is None or pnu[:10] in wanted):
+            out.setdefault(pnu[:10], {})[pl.lot(pnu)] = (jimok or "", float(area))
+    return out
 
 
 # --- the 시군구 crosswalk the loaders read ------------------------------------------------------

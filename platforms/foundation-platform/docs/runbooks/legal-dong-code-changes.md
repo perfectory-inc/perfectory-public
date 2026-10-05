@@ -139,7 +139,10 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
   `silver.parcel_boundaries` 에서 그 두 판의 PNU 를 읽는다(뒤 판은 폐지된 동이 가졌던 지번만). 개편마다 제 판 쌍을
   쓴다. 후보는 같은 단계의 새 코드 중 옛 코드와 같은 시도(또는 시도 짝이 옮겨 간 시도)에 있고 폐지일이나 그 다음 날
   생긴 것뿐이다: 전국에서 바닥 날짜 뒤에 생긴 아무 코드나 재면, 본번 범위가 넓은 먼 리가 지번을 모두 덮어 진짜
-  후계자를 이긴다. 판이 계약에 없거나 표에 적재되지 않았으면 그 동은 `awaiting_data` 이고 `jibun` 칸이 필요한 판을 이름으로
+  후계자를 이긴다. 번호가 같아도 같은 땅일 때만 센다: 지목이 같고 면적이 계약의 `pairing.land_match` 안이어야
+  한다(지목은 `jibun` 끝 글자, 면적은 경계에서 Spark 실행기가 잰다). 공식 필지 번호 이력이 들어오면 그것이 먼저
+  정하고, 지번 단계와 다르면 실행이 `PairingConflict` 로 멈춘다(아무것도 쓰지 않는다; 두 답을 보고 원인을 찾는다).
+  판이 계약에 없거나 표에 적재되지 않았으면 그 동은 `awaiting_data` 이고 `jibun` 칸이 필요한 판을 이름으로
   말한다. 판의 수집·적재는 [VWorld 연속지적도 판 런북](./vworld-parcel-editions.md)이다. 환경 변수
   `LEGAL_DONG_PARCELS_BEFORE/AFTER` 는 없어졌다.
 - **3 단계**는 필지고유번호변동연혁 원천이 수집되고 그 표가 생겨야 켤 수 있다. 그 전까지 지번이 모두 떠난 동은
@@ -165,6 +168,8 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 - `derived:parcel-jibun:` 짝의 옛 코드와 새 코드가 같은 시도이거나, 옛 시도가 시도 짝으로 옮겨 간 시도다(예: 29·46 →
   전남광주). 다른 시도로 가는 짝이 하나라도 있으면 정기 실행을 멈추고(`legal_dong_code_changes` 를 끈다) 알린다.
 - 나뉜 동은 짝이 아니라 `steward-review.json` 의 `status = split` 이고 `split_into` 가 같은 시도의 새 동들이다.
+- 요약 줄의 `awaiting_by_sido`·`awaiting_by_evidence` 가 판단 대기를 시도별·기다리는 근거(어느 판, 또는 공식 이력)별로
+  센다. 정기 실행의 `pairs-summary.json` 과 `steward-review.json` 에도 같은 칸이 있다.
 - `run.log` 에 Spark 오류가 없다. 실패하면 요약이 없어 마지막 python 이 `No such file` 로 끝난다.
 
 ## 4. 알림이 뜻하는 것

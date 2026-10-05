@@ -166,10 +166,10 @@ class FullTableTest(unittest.TestCase):
 MIN_SHARE = CONTRACT["pairing"]["jibun_overlap_min_share"]
 
 
-def lots(*numbers):
-    """A 지번 set: ledger kind 1, 본번 n, 부번 0 (`parcel_lineage.lot`)."""
+def lots(*numbers, jimok="대", area=100.0):
+    """Lots and their land: ledger kind 1, 본번 n, 부번 0 (`parcel_lineage.lot`), each (지목, m²)."""
 
-    return {f"1{n:04d}0000" for n in numbers}
+    return {f"1{n:04d}0000": (jimok, area) for n in numbers}
 
 
 def pnu(code, main):
@@ -379,10 +379,57 @@ class JibunEvidenceTest(unittest.TestCase):
         result = cg.pair_changes(self.far_away_table(later), FLOOR, jibun=jibun, min_share=MIN_SHARE)
         self.assertEqual([(p["old_code"], p["new_code"]) for p in result.pairs], [("9731025021", "9731025023")])
 
-    def test_the_jibun_sets_come_from_pnus_and_skip_malformed_ones(self):
-        pnus = [pnu("9811010100", 1), pnu("9811010100", 2), pnu("9811010200", 7), "98110101001", "x" * 19]
-        self.assertEqual(cg.jibun_sets(pnus), {"9811010100": lots(1, 2), "9811010200": lots(7)})
-        self.assertEqual(cg.jibun_sets(pnus, {"9811010200"}), {"9811010200": lots(7)})
+    def test_the_land_sets_come_from_parcels_and_skip_malformed_ones(self):
+        parcels = [(pnu("9811010100", 1), "대", 100), (pnu("9811010100", 2), "대", 100), (pnu("9811010200", 7), "대", 100),
+                   ("98110101001", "대", 1), ("x" * 19, "대", 1)]
+        self.assertEqual(cg.land_sets(parcels), {"9811010100": lots(1, 2), "9811010200": lots(7)})
+        self.assertEqual(cg.land_sets(parcels, {"9811010200"}), {"9811010200": lots(7)})
+
+    # --- the same land, not the same number (owner decision 2026-10-05) ---------------------------
+
+    def test_a_lot_number_reused_for_other_land_does_not_count(self):
+        # 심은 함정: 새갑동은 옛 갑동의 지번 1–20 을 모두 갖지만, 같은 번호의 다른 땅이다(지목이 다르거나
+        # 면적이 계약의 허용치 밖). 번호만 보면 1.0 으로 짝이 되던 것이 이제는 짝이 아니다.
+        tolerance = cg.land_match_tolerance(CONTRACT)
+        for what, after in (("another 지목", lots(*range(1, 21), jimok="전")),
+                            ("another area", lots(*range(1, 21), area=100.0 * (1 + 3 * tolerance[0]) + tolerance[1]))):
+            with self.subTest(what):
+                jibun = self.evidence({"9811010100": lots(*range(1, 21))}, {"9911010100": after})
+                result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, min_share=MIN_SHARE)
+                self.assertNotIn("9811010100", {p["old_code"] for p in result.pairs})
+                self.assertEqual(result.review[0]["jibun"], "no 지번 in any new code")
+
+    def test_the_same_land_within_the_tolerance_counts(self):
+        # 실제 이동: 같은 지목, 면적은 재측량으로 허용치 안에서 달라졌다.
+        relative, absolute = cg.land_match_tolerance(CONTRACT)
+        moved = {lot: ("대", 100.0 + max(relative * 100.0, absolute) * 0.9) for lot in lots(*range(1, 21))}
+        jibun = self.evidence({"9811010100": lots(*range(1, 21))}, {"9911010100": moved})
+        result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, min_share=MIN_SHARE)
+        self.assertEqual({p["old_code"]: p["new_code"] for p in result.pairs}["9811010100"], "9911010100")
+        # 작은 필지는 절대 허용치(m²)가, 큰 필지는 비율이 넓다.
+        self.assertTrue(cg.same_land(("대", 10.0), ("대", 10.0 + absolute), (relative, absolute)))
+        self.assertTrue(cg.same_land(("대", 10_000.0), ("대", 10_000.0 * (1 + relative)), (relative, absolute)))
+        self.assertFalse(cg.same_land(("", 10.0), ("", 10.0), (relative, absolute)), "no 지목 is no match")
+
+    def test_the_land_is_read_from_the_boundary_row(self):
+        import math
+        import struct
+
+        self.assertEqual(cg.jimok_of("123-4대"), "대")
+        self.assertEqual(cg.jimok_of("산 12 임"), "임")
+        self.assertEqual(cg.jimok_of("123-4"), "")
+        # A 0.0001° square in the reserved synthetic coordinates: about 11.1 m × 9.0 m.
+        ring = [(127.1231, 36.1231), (127.1232, 36.1231), (127.1232, 36.1232), (127.1231, 36.1232), (127.1231, 36.1231)]
+        polygon = struct.pack("<BII", 1, 3, 1) + struct.pack("<I", len(ring)) + b"".join(struct.pack("<dd", *p) for p in ring)
+        area = cg.wkb_area_m2(polygon)
+        side = math.radians(1e-4) * 6_371_008.8  # 0.0001° of latitude, in metres
+        self.assertAlmostEqual(area, side * side * math.cos(math.radians(36.12315)), delta=area * 0.001)
+        multi = struct.pack("<BI", 1, 6) + struct.pack("<I", 2) + polygon + polygon
+        self.assertAlmostEqual(cg.wkb_area_m2(multi), 2 * area)
+        ewkb = struct.pack("<BII", 1, 3 | 0x20000000, 4326) + polygon[5:]
+        self.assertAlmostEqual(cg.wkb_area_m2(ewkb), area)
+        with self.assertRaisesRegex(ValueError, "not a polygon"):
+            cg.wkb_area_m2(struct.pack("<BIdd", 1, 1, 127.1231, 36.1231))
 
     def test_parcel_lineage_reads_the_same_line_from_the_contract(self):
         self.assertEqual(cg.pl.SPLIT_SIGNAL_OVERLAP, MIN_SHARE)
@@ -409,6 +456,23 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=links, min_share=MIN_SHARE)
         pair = {p["old_code"]: p for p in result.pairs}["9811010100"]
         self.assertEqual((pair["new_code"], pair["source"]), ("9911010100", "official:parcel-history"))
+
+    def test_official_history_decides_before_the_jibun_step_and_a_disagreement_stops_the_run(self):
+        rows = merged_table()
+        rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
+        rows.append(row("9911010300", "합성특별시 가구 다른동", parent="9911000000", created=DAY))
+        table = as_rows(table_html(rows))
+        jibun = cg.JibunEvidence({"9811010100": lots(1, 2)}, {"9911010100": lots(1, 2)}, "b->a")
+        agree = [(pnu("9811010100", 1), pnu("9911010100", 1))]
+        pair = {p["old_code"]: p for p in cg.pair_changes(table, FLOOR, jibun=jibun, official_links=agree,
+                                                         min_share=MIN_SHARE).pairs}["9811010100"]
+        self.assertEqual((pair["new_code"], pair["source"]), ("9911010100", "official:parcel-history"))
+        # 심은 불일치: 공식 이력은 다른동, 지번은 새갑동. 둘 중 하나를 고르지 않고 멈춘다(아무것도 쓰지 않는다).
+        disagree = [(pnu("9811010100", 1), pnu("9911010300", 9))]
+        with self.assertRaisesRegex(cg.PairingConflict, "9911010300.*9911010100"):
+            cg.pair_changes(table, FLOOR, jibun=jibun, official_links=disagree, min_share=MIN_SHARE)
+        with self.assertRaises(cg.PairingConflict):
+            pairs_job.plan_derivation(table, [], CONTRACT, CADASTRAL, "run", NOW, jibun, disagree)
 
     def test_links_into_two_dongs_go_to_the_steward(self):
         rows = merged_table()

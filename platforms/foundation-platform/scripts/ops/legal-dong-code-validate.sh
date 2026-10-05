@@ -53,6 +53,7 @@ python3 -I - "${work}/summary.json" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1], encoding="utf-8"))
 print(json.dumps({k: s[k] for k in ("status", "reads", "jibun_evidence", "pairs_by_evidence", "fresh_changes",
+                                     "awaiting_by_sido", "awaiting_by_evidence",
                                      "review_by_status", "crosswalk_entries", "governed_sido")}, ensure_ascii=False))
 for row in s["would_append"]:
     print(f"would append {row['level']:<12} {row['old_code']} -> {row['new_code']}  {row['source']}  {row['detail'] or ''}")
