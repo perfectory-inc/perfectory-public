@@ -17,7 +17,8 @@ lychee를 뺐다(실측 1,533초 → 1분 미만 목표). 두 결정 모두 문�
 2. **훅에만 있는 검사는 아무도 지키지 않는다.** pre-commit의 SP10 패널 가드 3종과 markdownlint는
    어떤 CI 워크플로에도 없었다. 패널 가드는 `git diff --cached --name-only`가 저장소 루트 기준
    경로(`products/gongzzang/apps/web/...`)를 내는데 `^apps/web/`로 걸러, 모노레포에서는 **한 번도
-   일치할 수 없었다**. 그 사이 `lib/panel/panel-renderer.tsx`가 `components/panels/**`를 import하는
+   일치할 수 없었다**. 훅의 `glob`도 같은 결함이었다 — Lefthook은 `root:`가 있어도 glob을 저장소 루트
+   경로에 맞추므로 `apps/web/...` glob은 해당 파일이 스테이지돼도 명령을 건너뛰었다. 그 사이 `lib/panel/panel-renderer.tsx`가 `components/panels/**`를 import하는
    위반(#96)이 main에 들어와 그대로 있었다.
 
 대형 조직의 관행도 같은 방향이다: Google은 presubmit에 빠르고 결정적인 검사만 두고 실제 테스트는
@@ -36,7 +37,7 @@ lychee를 뺐다(실측 1,533초 → 1분 미만 목표). 두 결정 모두 문�
 4. **이 PR에서 옮긴 것.**
    - Foundation 소유 경계 검사는 pre-push에서 빼고 CI 전용으로 둔다(이미 required/gongzzang-core).
    - 패널 가드 3종에 `--all` 전체 트리 모드를 주고 `--relative`로 경로 결함을 고쳐 `Repo guardrails`
-     에 넣었다. `panel-guards.tests.sh`가 가드마다 위반을 심어 staged·`--all` 두 모드의 거부를
+     에 넣었다. 훅의 죽은 glob은 지웠다(스크립트가 경로를 스스로 거른다, 각 1초 안쪽). `panel-guards.tests.sh`가 가드마다 위반을 심어 staged·`--all` 두 모드의 거부를
      요구한다(고치기 전 스크립트는 6건 모두 통과시켰다).
    - markdownlint는 `frontend` 잡(required/gongzzang-frontend)에서 전체 트리로 돈다.
    - main에 있던 패널 위반은 등록(import)을 `components/panels/panel-renderer.tsx` 조립점으로 옮겨

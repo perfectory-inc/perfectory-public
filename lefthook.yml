@@ -47,15 +47,12 @@ pre-commit:
         - run: "! (cd products/gongzzang && pnpm markdownlint-cli2 --version) >/dev/null 2>&1"
     gz-panel-no-framework-import-kind:
       root: "products/gongzzang/"
-      glob: "apps/web/lib/panel/**/*.{ts,tsx}"
       run: bash scripts/lefthook/panel-no-framework-import-kind.sh
     gz-panel-no-direct-codec:
       root: "products/gongzzang/"
-      glob: "apps/web/**/*.{ts,tsx}"
       run: bash scripts/lefthook/panel-no-direct-codec.sh
     gz-panel-no-state-without-router:
       root: "products/gongzzang/"
-      glob: "apps/web/stores/**/*.{ts,tsx}"
       run: bash scripts/lefthook/panel-no-state-without-router.sh
 
 # Local hooks are a fast pre-filter; the merge gate is CI (root ADR-0005, ADR-0098, ADR-0149).
