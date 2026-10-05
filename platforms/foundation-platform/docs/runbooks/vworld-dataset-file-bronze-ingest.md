@@ -131,3 +131,6 @@ Cookie header가 없으면 ingestor는 실행마다 한 번 로그인하고 반�
 - provider file inventory는 `status=ready`여야 하며 파일 수가 collection plan과 일치해야
   한다.
 - 비어 있거나 HTML인 다운로드 응답은 거부하며 Bronze에 저장하지 않는다.
+- 이미 받은 파일 건너뛰기는 파일 번호(`provider_file_id`)와 제공자 갱신일이 모두 같을 때만이다. VWorld 는 판마다 같은
+  파일 번호를 다시 쓴다(연속지적도 30563, 루트 ADR-0148). 목록에 갱신일이 없으면 파일 번호가 정한다.
+  연속지적도 판의 매일 확인·수집은 [VWorld 연속지적도 판 런북](./vworld-parcel-editions.md)이다.
