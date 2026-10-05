@@ -20,6 +20,7 @@ import argparse
 from typing import Any
 
 import spatial_silver_handoff as shared
+import vworld_parcel_editions as editions
 from lakehouse_object_store import is_object_store_path
 from platform_contracts import (
     column_names,
@@ -90,14 +91,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="jsonl",
         help="Physical format of the Silver handoff input.",
     )
+    parser.add_argument(
+        "--expected-source-snapshot-id",
+        required=True,
+        help="The edition's id from vworld-parcel-source-objects.json; a batch carrying any other is refused.",
+    )
     shared.add_common_arguments(parser, default_iceberg_table="parcel_boundaries")
     return parser.parse_args(argv)
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    """This job reaches the catalog only to write, so that is when it demands one."""
+    """This job reaches the catalog only to write, so that is when it demands one. The snapshot id
+    must be an edition's, in the contract's one spelling (root ADR-0148): the same June data was once
+    written as `vworldkr__parcel-202606` and the September data as `vworldkr__parcel:202609`."""
 
+    editions.edition_of_snapshot_id(editions.load(), args.expected_source_snapshot_id)
     shared.validate_common_args(args, needs_catalog=args.write_mode == "iceberg")
+
+
+def assert_one_edition(summary: dict[str, Any], expected: str) -> None:
+    """Every row of the batch carries the edition's id, before anything is written.
+
+    A handoff converted under another id (by hand, or by an older converter) would otherwise load as
+    a second edition of the same parcels.
+    """
+
+    if summary["source_snapshot_ids"] != [expected]:
+        raise ValueError(
+            f"the handoff carries source_snapshot_id {summary['source_snapshot_ids'][:3]}, not the edition's "
+            f"{expected!r}; convert it again with vworld-parcel-handoff-export.sh for that edition"
+        )
 
 
 def read_handoff(spark: Any, input_path: str, input_format: str) -> Any:
@@ -318,6 +341,7 @@ def main(argv: list[str] | None = None) -> int:
             include_transport=True,
         )
         source_snapshot_summary = shared.collect_source_snapshot_summary(silver)
+        assert_one_edition(source_snapshot_summary, args.expected_source_snapshot_id)
 
         if args.validate_only:
             emit_run_summary(

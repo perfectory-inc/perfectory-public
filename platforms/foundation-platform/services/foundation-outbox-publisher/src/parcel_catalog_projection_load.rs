@@ -39,7 +39,8 @@ use crate::public_data_control_support::{
 const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_CATALOG_PROJECTION_LOAD_CONFIRM";
 const SOURCE_CONTRACT_ENV: &str = "VWORLD_PARCEL_SOURCE_CONTRACT";
 const HANDOFF_PREFIX_ENV: &str = "VWORLD_PARCEL_HANDOFF_PREFIX";
-const SOURCE_CONTRACT_SCHEMA_VERSION: u32 = 1;
+const SOURCE_CONTRACT_SCHEMA_VERSION: u64 =
+    foundation_outbox_publisher::vworld_parcel_source_contract::SCHEMA_VERSION;
 /// How many times one object is attempted before the run steps over it.
 ///
 /// The byte-range reads underneath already retry five times with backoff, so this is the
@@ -59,7 +60,7 @@ struct HandoffRow {
 
 #[derive(Debug, Deserialize)]
 struct SourceContract {
-    schema_version: u32,
+    schema_version: u64,
     load_granularity: String,
     /// Where the converted handoff objects live.
     ///
@@ -282,9 +283,12 @@ pub async fn run() -> anyhow::Result<()> {
     let contract_path = optional_env_value(SOURCE_CONTRACT_ENV)?.unwrap_or_else(|| {
         "infra/lakehouse/contracts/vworld-parcel-source-objects.json".to_owned()
     });
-    let contract: SourceContract = serde_json::from_str(
-        &std::fs::read_to_string(&contract_path)
-            .with_context(|| format!("failed to read the source contract {contract_path}"))?,
+    // The served edition only (root ADR-0148): the catalog holds the map's parcels.
+    let contract: SourceContract = serde_json::from_value(
+        foundation_outbox_publisher::vworld_parcel_source_contract::served_edition_view(
+            &std::fs::read_to_string(&contract_path)
+                .with_context(|| format!("failed to read the source contract {contract_path}"))?,
+        )?,
     )
     .with_context(|| format!("failed to parse the source contract {contract_path}"))?;
 
@@ -383,7 +387,7 @@ mod tests {
 
     fn contract() -> SourceContract {
         SourceContract {
-            schema_version: 1,
+            schema_version: 2,
             load_granularity: "sigungu".to_owned(),
             handoff_prefix: "silver-handoff/vworldkr__parcel".to_owned(),
             handoff_suffix: ".jsonl.gz".to_owned(),
@@ -465,7 +469,7 @@ mod tests {
     #[test]
     fn a_contract_this_command_cannot_read_stops_it() {
         let mut ahead = contract();
-        ahead.schema_version = 2;
+        ahead.schema_version = 3;
 
         let error = handoff_keys(&ahead, "p").expect_err("a newer contract must not be guessed at");
         assert!(error.to_string().contains("schema_version"));

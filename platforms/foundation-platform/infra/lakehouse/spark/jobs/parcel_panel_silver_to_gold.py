@@ -69,6 +69,7 @@ from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_icebe
 from gold_rebuild import assert_minimum_row_count, write_gold_snapshot
 from parcel_attribute_carry import carry_candidates
 from parcel_lineage import Link
+import vworld_parcel_editions as parcel_editions
 from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
@@ -1256,8 +1257,16 @@ def main() -> int:
                 f"{PARCEL_SOURCE} declares no current_row_predicate; this projection cannot "
                 "say which boundary row is the parcel's current one"
             )
+        # The served edition only (root ADR-0148): silver.parcel_boundaries holds several editions,
+        # every one of them current by the predicate, and the panel is built from the one the map
+        # is. Without this the single-snapshot check below refuses the table once a second
+        # edition is loaded, and every scheduled rebuild fails.
+        served_parcels = parcel_editions.load()
         parcels = filtered_by_region(
-            read_source(spark, args, PARCEL_SOURCE, pins).where(F.expr(parcel_predicate)),
+            read_source(spark, args, PARCEL_SOURCE, pins)
+            .where(F.expr(parcel_predicate))
+            .where(F.expr("source_snapshot_id = '{}'".format(
+                parcel_editions.snapshot_id(served_parcels, parcel_editions.served(served_parcels))))),
             args.region_prefix,
         )
         source_snapshots[PARCEL_SOURCE] = assert_single_snapshot(parcels, PARCEL_SOURCE)

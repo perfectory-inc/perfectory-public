@@ -343,6 +343,50 @@ async fn existing_file_report_marks_provider_file_as_skipped() -> TestResult {
     Ok(())
 }
 
+#[tokio::test]
+async fn a_newer_release_under_the_same_file_number_is_downloaded() -> TestResult {
+    // VWorld reuses a file's number across releases (root ADR-0148): the id is held, the release
+    // the inventory lists now is not, so skipping it would keep the older edition forever.
+    let job = test_job();
+    let mut inventory_file = test_inventory_file("30017", "20991231DS99994", "9007", "2026-09");
+    inventory_file.updated_at = "2026-09-15".to_owned();
+    let repo = RecordingRepo::with_existing(existing_bronze_object(
+        "operation=boundary_census_emd/provider_file_id=20991231DS99994-9007",
+        "bronze/source=vworldkr__boundary_census_emd/20991231DS99994-9007.zip",
+        5678,
+    )?);
+    let uow = RecordingUow::default();
+
+    let report =
+        existing_file_report(&job, &inventory_file, test_started_at()?, &repo, &uow).await?;
+
+    assert!(
+        report.is_none(),
+        "a newer release must not be skipped as held"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn without_a_listed_update_date_the_file_number_decides() -> TestResult {
+    let job = test_job();
+    let mut inventory_file = test_inventory_file("30017", "20991231DS99994", "9007", "-");
+    inventory_file.updated_at = "-".to_owned();
+    let repo = RecordingRepo::with_existing(existing_bronze_object(
+        "operation=boundary_census_emd/provider_file_id=20991231DS99994-9007",
+        "bronze/source=vworldkr__boundary_census_emd/20991231DS99994-9007.zip",
+        5678,
+    )?);
+    let uow = RecordingUow::default();
+
+    let report = existing_file_report(&job, &inventory_file, test_started_at()?, &repo, &uow)
+        .await?
+        .ok_or("with nothing to tell releases apart, the held id is skipped as before")?;
+
+    assert_eq!(report.status, "skipped_existing");
+    Ok(())
+}
+
 #[test]
 fn inventory_file_identity_rejects_ambiguous_components() {
     // "20991231DS99994-9" + "007" and "20991231DS99994" + "9-007" would flatten to

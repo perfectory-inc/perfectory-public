@@ -772,8 +772,12 @@ async fn load_handoff_object(
 pub fn handoff_objects_from_source_contract(
     contract_json: &str,
 ) -> anyhow::Result<Vec<HandoffObject>> {
+    // The served edition only (root ADR-0148): the mirror is the map's parcels, and every other
+    // edition the contract holds is evidence, not the national set.
     let contract: JsonValue =
-        serde_json::from_str(contract_json).context("parcel source contract is not valid JSON")?;
+        foundation_outbox_publisher::vworld_parcel_source_contract::served_edition_view(
+            contract_json,
+        )?;
     let handoff_prefix = contract
         .get("handoff_prefix")
         .and_then(JsonValue::as_str)
@@ -1517,12 +1521,22 @@ mod tests {
     fn contract_fixture(sigungu_count: u64, objects: &str) -> String {
         format!(
             r#"{{
-                "schema_version": 1,
+                "schema_version": 2,
                 "load_granularity": "sigungu",
-                "granularity_counts": {{"sido": 1, "sigungu": {sigungu_count}}},
-                "handoff_prefix": "silver-handoff/vworldkr__parcel",
                 "handoff_suffix": ".jsonl.gz",
-                "objects": [{objects}]
+                "served_edition": "209912",
+                "editions": {{
+                    "209912": {{
+                        "granularity_counts": {{"sido": 1, "sigungu": {sigungu_count}}},
+                        "handoff_prefix": "silver-handoff/vworldkr__parcel",
+                        "objects": [{objects}]
+                    }},
+                    "209901": {{
+                        "granularity_counts": {{"sido": 0, "sigungu": 1}},
+                        "handoff_prefix": "silver-handoff/vworldkr__parcel/edition=209901",
+                        "objects": [{{"object_key": "bronze/source=vworldkr__parcel/20990101DS99990-7.zip", "granularity": "sigungu"}}]
+                    }}
+                }}
             }}"#
         )
     }

@@ -192,18 +192,132 @@ def bracketing(contract: Mapping[str, Any], effective: str) -> tuple[str | None,
     return before, after
 
 
+# --- a new provider edition (the monthly collection, scripts/ops/vworld-parcel-edition-collect.sh) -
+
+
+PROVIDER_ENDPOINT = "vworld-dataset-parcel"
+BASE_MONTH = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
+MEMBER = re.compile(r"^LSMD_CONT_LDREG_(\d{2}|\d{5})_(\d{6})\.shp$")
+
+
+def _parcel_files(inventory: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    jobs = [job for job in inventory.get("jobs", []) if job.get("endpoint_slug") == PROVIDER_ENDPOINT]
+    if len(jobs) != 1:
+        raise EditionError(f"the inventory holds {len(jobs)} {PROVIDER_ENDPOINT} jobs, expected one")
+    files = list(jobs[0].get("files") or [])
+    if not files:
+        raise EditionError("the provider lists no parcel files: an empty page is not 'no new edition'")
+    return files
+
+
+def provider_edition(contract: Mapping[str, Any], inventory: Mapping[str, Any]) -> tuple[str, bool]:
+    """(the newest edition the provider lists, whether the contract holds it).
+
+    The provider keeps files of an abolished 시군구 at their last edition beside the current ones
+    (2026-10: three 2026-06 files of Incheon's old 구 among the 2026-09 edition), so its edition is
+    the newest base month it lists, not every file's. A file without a base month (the column
+    definition document) says nothing either way. An edition older than one the contract holds is
+    refused: the provider went back, or the page is not what it was.
+    """
+
+    months = sorted({f"{m.group(1)}{m.group(2)}" for f in _parcel_files(inventory)
+                     if (m := BASE_MONTH.fullmatch(str(f.get("base_ym", "")).strip()))})
+    if not months:
+        raise EditionError("no parcel file lists a base month (YYYY-MM)")
+    newest = months[-1]
+    held = names(contract)
+    if newest < held[-1]:
+        raise EditionError(f"the provider's newest edition {newest} is older than the contract's {held[-1]}")
+    return newest, newest in contract["editions"]
+
+
+def select_inventory(inventory: Mapping[str, Any], name: str) -> dict[str, Any]:
+    """The inventory cut to the files of one edition, for the ingest to collect (every file of it:
+    which covering loads is decided by measuring the ZIPs, not by the provider's file names)."""
+
+    month = f"{name[:4]}-{name[4:]}"
+    cut = json.loads(json.dumps(inventory))
+    for job in cut["jobs"]:
+        if job.get("endpoint_slug") == PROVIDER_ENDPOINT:
+            job["files"] = [f for f in job["files"] if str(f.get("base_ym", "")).strip() == month]
+            job["discovered_file_count"] = len(job["files"])
+        else:
+            job["files"] = []
+    cut["jobs"] = [job for job in cut["jobs"] if job["files"]]
+    if not cut["jobs"]:
+        raise EditionError(f"the inventory lists no file of edition {name}")
+    return cut
+
+
+def propose(contract: Mapping[str, Any], name: str, measured: Sequence[Mapping[str, Any]], prefix: str) -> dict[str, Any]:
+    """The contract entry for edition `name`, from the ZIPs as they were measured.
+
+    `measured` holds one row per collected object: its key, bytes, the members of its central
+    directory and their dates (`vworld_parcel_edition_members.py`). Each object must hold exactly one
+    shapefile of this edition; the entry is checked against the contract as it would stand with it,
+    so a proposal that could not be merged is refused here rather than in review.
+    """
+
+    objects, dates = [], []
+    for row in measured:
+        shapes = [m for m in row["members"] if m.endswith(".shp")]
+        found = MEMBER.fullmatch(shapes[0]) if len(shapes) == 1 else None
+        if found is None or found.group(2) != name:
+            raise EditionError(f"{row['object_key']} holds {shapes}, not one shapefile of edition {name}")
+        code = found.group(1)
+        objects.append({"object_key": row["object_key"], "bytes": row["bytes"],
+                        "dataset_name": shapes[0][: -len(".shp")], "region_code": code,
+                        "granularity": "sido" if len(code) == 2 else "sigungu"})
+        dates.append(max(row["member_dates"]))
+    if not objects:
+        raise EditionError(f"nothing was measured for edition {name}")
+    objects.sort(key=lambda obj: (obj["granularity"] != "sido", obj["region_code"]))
+    entry = {
+        "provider_base_month": f"{name[:4]}-{name[4:]}",
+        "extracted_on": {"earliest": min(dates), "latest": max(dates)},
+        "handoff_prefix": prefix,
+        "granularity_counts": {g: sum(1 for obj in objects if obj["granularity"] == g) for g in GRANULARITIES},
+        "objects": objects,
+    }
+    merged = json.loads(json.dumps(contract))
+    merged["editions"][name] = entry
+    validate(merged)
+    return entry
+
+
 # --- command line (the shell loaders' only way into the contract) -----------------------------
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=("check", "editions", "served", "snapshot-id", "valid-from",
-                                            "handoff-prefix", "handoff-suffix", "source-keys", "handoff-keys"))
+                                            "handoff-prefix", "handoff-suffix", "source-keys", "handoff-keys",
+                                            "provider-edition", "select-inventory", "propose"))
     parser.add_argument("--edition", help="YYYYMM; required by every command naming one edition")
     parser.add_argument("--contract", help=f"defaults to ${CONTRACT_ENV}, then the contract beside this job")
+    parser.add_argument("--inventory", help="provider-edition, select-inventory: the inventory report")
+    parser.add_argument("--measured", help="propose: JSON lines from vworld_parcel_edition_members.py")
+    parser.add_argument("--output", help="select-inventory, propose: where to write")
     args = parser.parse_args(argv)
     try:
         contract = load(Path(args.contract) if args.contract else None)
+        if args.command == "provider-edition":
+            newest, held = provider_edition(contract, json.loads(Path(args.inventory).read_text(encoding="utf-8")))
+            print(f"{newest} {'held' if held else 'new'}")
+            return 0
+        if args.command == "select-inventory":
+            cut = select_inventory(json.loads(Path(args.inventory).read_text(encoding="utf-8")), args.edition)
+            Path(args.output).write_text(json.dumps(cut, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            print(sum(len(job["files"]) for job in cut["jobs"]))
+            return 0
+        if args.command == "propose":
+            rows = [json.loads(line) for line in Path(args.measured).read_text(encoding="utf-8").splitlines() if line.strip()]
+            prefix = f"{edition(contract, served(contract))['handoff_prefix'].split('/edition=')[0]}/edition={args.edition}"
+            entry = propose(contract, args.edition, rows, prefix)
+            Path(args.output).write_text(json.dumps({args.edition: entry}, ensure_ascii=False, indent=2) + "\n",
+                                         encoding="utf-8")
+            print(f"edition={args.edition} {entry['granularity_counts']} extracted={entry['extracted_on']}")
+            return 0
         if args.command == "check":
             print(f"ok editions={','.join(names(contract))} served={served(contract)}")
             return 0

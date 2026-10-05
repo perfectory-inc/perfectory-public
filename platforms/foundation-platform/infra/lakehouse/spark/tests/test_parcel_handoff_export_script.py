@@ -22,39 +22,44 @@ CONTRACT = ROOT / "infra" / "lakehouse" / "contracts" / "vworld-parcel-source-ob
 class SourceObjectContractTest(unittest.TestCase):
     def setUp(self) -> None:
         self.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        self.editions = self.contract["editions"]
+
+    def objects(self):
+        return [obj for edition in self.editions.values() for obj in edition["objects"]]
 
     def test_the_country_is_covered_twice_and_only_one_covering_is_loaded(self) -> None:
-        """원천에 전국이 두 벌 있고, 한 벌만 실어야 한다.
+        """원천에 전국이 판마다 두 벌 있고, 한 벌만 실어야 한다.
 
         둘 다 실으면 모든 필지가 두 번 들어간다. 재실행 안전장치는 **객체** 단위라 이것을
-        막지 못한다 — 두 벌은 서로 다른 객체이고, 같은 땅을 담고 있을 뿐이다.
+        막지 못한다 — 두 벌은 서로 다른 객체이고, 같은 땅을 담고 있을 뿐이다. 2026-06 판은
+        시도 17·시군구 255 였다(2026-07 개편 전).
         """
-        counts = self.contract["granularity_counts"]
-
-        self.assertEqual(counts["sido"], 17)
-        self.assertEqual(counts["sigungu"], 255)
         self.assertEqual(self.contract["load_granularity"], "sigungu")
+        self.assertEqual(self.editions["202606"]["granularity_counts"], {"sido": 17, "sigungu": 255})
+        for name, edition in self.editions.items():
+            with self.subTest(edition=name):
+                held = {g: sum(1 for o in edition["objects"] if o["granularity"] == g) for g in ("sido", "sigungu")}
+                self.assertEqual(edition["granularity_counts"], held)
 
     def test_the_two_coverings_are_of_the_same_country(self) -> None:
-        """시군구 코드의 앞 두 자리 집합이 시도 코드 집합과 같아야 한다.
+        """판마다 시군구 코드의 앞 두 자리 집합이 시도 코드 집합과 같아야 한다.
 
         이것이 "두 벌"의 근거다. 다르면 두 데이터셋이지 두 벌이 아니며, 그때는 하나만
         싣는 선택이 데이터를 버리는 것이 된다.
         """
-        sido = {o["region_code"] for o in self.contract["objects"] if o["granularity"] == "sido"}
-        sigungu = {
-            o["region_code"][:2]
-            for o in self.contract["objects"]
-            if o["granularity"] == "sigungu"
-        }
+        for name, edition in self.editions.items():
+            sido = {o["region_code"] for o in edition["objects"] if o["granularity"] == "sido"}
+            sigungu = {o["region_code"][:2] for o in edition["objects"] if o["granularity"] == "sigungu"}
+            with self.subTest(edition=name):
+                self.assertEqual(sido, sigungu)
 
-        self.assertEqual(sido, sigungu)
-
-    def test_every_object_is_classified(self) -> None:
-        """알갱이를 모르는 객체가 있으면 그것은 조용히 빠진다."""
-        unknown = [o for o in self.contract["objects"] if o["granularity"] not in ("sido", "sigungu")]
-
+    def test_every_object_is_classified_and_of_its_edition(self) -> None:
+        """알갱이를 모르는 객체, 다른 판의 파일을 담은 객체가 있으면 그것은 조용히 빠지거나 섞인다."""
+        unknown = [o for o in self.objects() if o["granularity"] not in ("sido", "sigungu")]
         self.assertEqual(unknown, [], "분류되지 않은 원천 객체가 있다")
+        for name, edition in self.editions.items():
+            stray = [o["object_key"] for o in edition["objects"] if not o["dataset_name"].endswith(f"_{name}")]
+            self.assertEqual(stray, [], f"판 {name} 에 다른 판의 파일이 있다")
 
     def test_the_handoff_suffix_lives_here_and_says_it_is_compressed(self) -> None:
         """변환기와 적재기가 같은 이름을 만들어야 한다.
@@ -70,8 +75,8 @@ class SourceObjectContractTest(unittest.TestCase):
         self.assertTrue(self.contract["handoff_suffix_reason"].strip())
 
     def test_each_object_key_appears_once(self) -> None:
-        """같은 객체가 두 줄이면 한 번은 변환되고 한 번은 건너뛴 것처럼 보인다."""
-        keys = [o["object_key"] for o in self.contract["objects"]]
+        """같은 객체가 두 줄(또는 두 판)이면 한 번은 변환되고 한 번은 건너뛴 것처럼 보인다."""
+        keys = [o["object_key"] for o in self.objects()]
 
         self.assertEqual(len(keys), len(set(keys)))
 
@@ -88,7 +93,7 @@ class ExportScriptTest(unittest.TestCase):
         """어떤 벌을 싣는지를 여기 적으면 목록 파일과 갈라진다."""
         code = self._code()
 
-        self.assertIn("load_granularity", code, "실을 알갱이는 목록 파일이 정한다")
+        self.assertIn("source-keys --edition", code, "실을 판과 알갱이는 목록 파일이 정한다")
         self.assertNotIn(
             'granularity"] == "sigungu"',
             code,
@@ -108,16 +113,18 @@ class ExportScriptTest(unittest.TestCase):
             self.assertNotIn(forbidden, code, f"{forbidden!r} 로 변환 여부를 기억하지 마라")
 
     def test_it_refuses_to_invent_lineage(self) -> None:
-        """계보 값을 지어내면 발행이 세 겹으로 막히고, 그때는 이 실행이 이미 사라진 뒤다."""
+        """계보 값을 지어내면 발행이 세 겹으로 막히고, 그때는 이 실행이 이미 사라진 뒤다.
+
+        손으로 적어도 안 된다 (root ADR-0148): 6월 판은 `vworldkr__parcel-202606`, 9월 판은
+        `vworldkr__parcel:202609` 로 적혔다. 값은 판에서 계약이 정하고, 손으로 넘긴 값은 거부한다.
+        """
         code = self._code()
 
-        self.assertIn("SOURCE_SNAPSHOT_ID", code)
-        self.assertIn("VALID_FROM_UTC", code)
-        self.assertRegex(
-            code,
-            r'-z "\$SOURCE_SNAPSHOT_ID"',
-            "원천 스냅숏 id 가 비면 멈춰야 한다",
-        )
+        self.assertIn('SOURCE_SNAPSHOT_ID="$(editions snapshot-id --edition "$EDITION")"', code)
+        self.assertIn('VALID_FROM_UTC="$(editions valid-from --edition "$EDITION")"', code)
+        self.assertIn("for v in VWORLD_PARCEL_SOURCE_SNAPSHOT_ID VWORLD_PARCEL_VALID_FROM_UTC", code)
+        self.assertRegex(code, r'-z "\$EDITION"', "판이 비면 멈춰야 한다")
+        self.assertRegex(code, r'-z "\$SOURCE_SNAPSHOT_ID"', "원천 스냅숏 id 가 비면 멈춰야 한다")
 
     def test_neither_script_spells_the_handoff_suffix_itself(self) -> None:
         """접미사는 목록 파일이 정본이다.
@@ -133,7 +140,7 @@ class ExportScriptTest(unittest.TestCase):
                 if line.strip() and not line.lstrip().startswith("#")
             )
             with self.subTest(script=name):
-                self.assertIn("handoff_suffix", code, f"{name} 는 접미사를 목록 파일에서 읽어야 한다")
+                self.assertIn("vworld_parcel_editions.py", code, f"{name} 는 접미사를 목록 파일에서 읽어야 한다")
                 self.assertNotIn(
                     "'.jsonl.gz'",
                     code,

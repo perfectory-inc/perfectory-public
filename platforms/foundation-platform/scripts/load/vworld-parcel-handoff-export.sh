@@ -5,11 +5,18 @@
 # existed, nothing invoked it, and the 39,861,511 parcels already in `silver.parcel_boundaries`
 # were produced by hand. A step nobody can re-run is a step nobody can check.
 #
-# **Which objects.** `bronze/source=vworldkr__parcel/` holds the whole country twice — 17 objects
-# at province granularity and 255 at district granularity — and the object names say nothing
-# about which is which. Converting both would double every parcel. The set is not decided here;
-# it is read from `vworld-parcel-source-objects.json`, which records what was measured by
-# reading each ZIP's directory (root ADR-0067).
+# **Which objects.** `bronze/source=vworldkr__parcel/` holds the whole country twice per edition —
+# at province and at district granularity — and several editions, and the object names say
+# nothing about which is which. Converting both coverings would double every parcel; converting
+# objects of two editions under one id would mix them. The set is not decided here; it is read
+# from `vworld-parcel-source-objects.json`, edition by edition, through `vworld_parcel_editions.py`
+# (root ADR-0067, ADR-0148).
+#
+# **Which edition, under which id.** The operator names the edition (`VWORLD_PARCEL_EDITION`,
+# e.g. 202609) and nothing else: its `source_snapshot_id`, its `valid_from_utc` and its handoff
+# prefix come from the contract. They used to be typed per run, and the September data went into
+# a handoff as `vworldkr__parcel:202609` valid from the day it was collected, beside June's
+# `vworldkr__parcel-202606` valid from the first of its month.
 #
 # **What it keeps.** Nothing. Whether an object has already been converted is answered by asking
 # R2 whether its handoff object exists, the same way the loader asks the table rather than a
@@ -28,20 +35,14 @@
 set -uo pipefail
 
 MODE="${1:-plan}"              # plan (무엇을 할지 보여주기만) | run (실제 변환)
+EDITION="${VWORLD_PARCEL_EDITION:-}"   # 원천 계약의 판(YYYYMM). 계보 값은 모두 여기서 파생된다.
 RELEASE="${FOUNDATION_PLATFORM_RELEASE_DIR:-/opt/foundation-platform/current}"
 STATE="${VWORLD_PARCEL_EXPORT_STATE_DIR:-$HOME/parcel-export-state}"
 JOBS="${VWORLD_PARCEL_EXPORT_JOBS:-8}"
 CONTRACT="${VWORLD_PARCEL_SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-parcel-source-objects.json}"
-# The prefix is the contract's, not a default here. It used to be spelled in three callers,
-# so renaming it meant editing all three and any one missed would look where nothing was
-# written. `VWORLD_PARCEL_HANDOFF_PREFIX` still overrides, for a run against another bucket.
-HANDOFF_PREFIX="${VWORLD_PARCEL_HANDOFF_PREFIX:-$(python3 -c "
-import json, sys
-print(json.load(open(sys.argv[1], encoding='utf-8'))['handoff_prefix'])
-" "$CONTRACT")}"
-SOURCE_SNAPSHOT_ID="${VWORLD_PARCEL_SOURCE_SNAPSHOT_ID:-}"
-VALID_FROM_UTC="${VWORLD_PARCEL_VALID_FROM_UTC:-}"
+EDITIONS="$RELEASE/infra/lakehouse/spark/jobs/vworld_parcel_editions.py"
 PUBLISHER="${FOUNDATION_PLATFORM_PUBLISHER_BIN:-$RELEASE/bin/foundation-outbox-publisher}"
+editions() { python3 "$EDITIONS" "$@" --contract "$CONTRACT"; }
 
 # 이 명령은 R2 에 **쓴다**. 처음에 여기 적혀 있던 것은 적재기의 목록, 즉 읽기 자격증명이었다.
 # 읽기만 쥐여 주면 검사는 통과하고 255개가 전부 즉시 실패했다 — 통과했으니 확인했다고 믿게
@@ -62,43 +63,41 @@ if [ -z "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT:-}" ] \
   exit 1
 fi
 
-# The lineage values are not invented here. A handoff whose source ids were made up is refused
-# three layers down, at publication, long after the run that wrote it is gone.
-if [ -z "$SOURCE_SNAPSHOT_ID" ]; then
-  echo "VWORLD_PARCEL_SOURCE_SNAPSHOT_ID 가 비어 있다 — 계보 값은 지어내지 않는다" >&2
-  exit 1
-fi
-if [ -z "$VALID_FROM_UTC" ]; then
-  echo "VWORLD_PARCEL_VALID_FROM_UTC 가 비어 있다 — 원천 추출 시점을 넘겨야 한다" >&2
+# The lineage values are not invented here, and not typed either: a handoff whose source ids were
+# made up is refused three layers down, at publication, long after the run that wrote it is gone;
+# one whose id was typed differently loads as a second edition of the same data.
+for v in VWORLD_PARCEL_SOURCE_SNAPSHOT_ID VWORLD_PARCEL_VALID_FROM_UTC VWORLD_PARCEL_HANDOFF_PREFIX; do
+  if [ -n "${!v:-}" ]; then
+    echo "$v 는 더 이상 받지 않는다 — 판(VWORLD_PARCEL_EDITION)에서 원천 계약이 정한다" >&2
+    exit 1
+  fi
+done
+if [ -z "$EDITION" ]; then
+  echo "VWORLD_PARCEL_EDITION 이 비어 있다 — 어느 판을 변환할지 지어내지 않는다" >&2
   exit 1
 fi
 
 [ -f "$CONTRACT" ] || { echo "원천 목록이 없다: $CONTRACT" >&2; exit 1; }
+[ -f "$EDITIONS" ] || { echo "판 읽기 도구가 없다: $EDITIONS" >&2; exit 1; }
 [ -x "$PUBLISHER" ] || { echo "실행 파일이 없다: $PUBLISHER" >&2; exit 1; }
 mkdir -p "$STATE"
 
-# 어떤 알갱이를 싣는지는 목록 파일이 정한다. 여기 적으면 목록과 갈라진다.
-# 핸드오프 이름의 접미사도 목록 파일이 정한다. 적재기가 같은 파일에서 같은 이름을 만들기
-# 때문에, 여기 적으면 둘이 갈라져 적재기가 없는 객체를 찾게 된다.
-SUFFIX=$(python3 -c "
-import json, sys
-c = json.load(open('$CONTRACT'))
-if c['schema_version'] != 1:
-    sys.exit('source object contract schema_version %r is not the 1 this script reads' % c['schema_version'])
-print(c['handoff_suffix'])") || { echo "핸드오프 접미사를 못 읽었다" >&2; exit 1; }
+# 판의 계보 값·핸드오프 자리·접미사·실을 객체는 모두 원천 계약이 정한다. 여기 적으면 계약과
+# 갈라지고, 적재기가 같은 계약에서 같은 이름을 만들기 때문에 적재기가 없는 객체를 찾게 된다.
+SOURCE_SNAPSHOT_ID="$(editions snapshot-id --edition "$EDITION")" || exit 1
+VALID_FROM_UTC="$(editions valid-from --edition "$EDITION")" || exit 1
+HANDOFF_PREFIX="$(editions handoff-prefix --edition "$EDITION")" || exit 1
+SUFFIX="$(editions handoff-suffix)" || { echo "핸드오프 접미사를 못 읽었다" >&2; exit 1; }
+if [ -z "$SOURCE_SNAPSHOT_ID" ] || [ -z "$VALID_FROM_UTC" ] || [ -z "$HANDOFF_PREFIX" ]; then
+  echo "판 $EDITION 의 계보 값을 원천 계약에서 얻지 못했다" >&2
+  exit 1
+fi
 
-mapfile -t objects < <(python3 -c "
-import json
-c = json.load(open('$CONTRACT'))
-want = c['load_granularity']
-for o in c['objects']:
-    if o['granularity'] == want:
-        print(o['object_key'])
-") || { echo "원천 목록을 못 읽었다" >&2; exit 1; }
+mapfile -t objects < <(editions source-keys --edition "$EDITION") || { echo "원천 목록을 못 읽었다" >&2; exit 1; }
 
 total=${#objects[@]}
 [ "$total" -gt 0 ] || { echo "변환할 객체가 없다" >&2; exit 1; }
-echo "원천 $total 개 · 방식 $MODE · 핸드오프 접두사 $HANDOFF_PREFIX"
+echo "판 $EDITION ($SOURCE_SNAPSHOT_ID, 유효 시작 $VALID_FROM_UTC) · 원천 $total 개 · 방식 $MODE · 핸드오프 접두사 $HANDOFF_PREFIX"
 
 if [ "$MODE" != "run" ]; then
   for key in "${objects[@]}"; do

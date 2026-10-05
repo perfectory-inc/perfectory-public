@@ -9,6 +9,9 @@ pub mod sigungu_crosswalk;
 /// The code.go.kr 법정동 source contract (root ADR-0143), embedded once.
 pub mod code_go_kr_legal_dong_contract;
 
+/// The served edition of the parcel source contract (root ADR-0148).
+pub mod vworld_parcel_source_contract;
+
 /// Headerless HUB apartment-price ZIP to partitioned Silver handoff.
 pub mod building_register_apartment_price_silver_export;
 

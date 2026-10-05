@@ -23,7 +23,6 @@ prefix is how the two spellings arose in the first place.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
@@ -38,6 +37,7 @@ from lakehouse_ingest import (
     unquoted_table_name,
 )
 from platform_contracts import load_unit
+import vworld_parcel_editions as editions
 
 SOURCE_CONTRACT_ENV = "VWORLD_PARCEL_SOURCE_CONTRACT"
 DEFAULT_SOURCE_CONTRACT = (
@@ -65,9 +65,9 @@ def canonical_by_bare_name() -> dict[str, str]:
     not a mapping. Verified 2026-09-01 — across all 272 objects, no two share a file name.
     """
     path = Path(os.environ.get(SOURCE_CONTRACT_ENV, str(DEFAULT_SOURCE_CONTRACT)))
-    contract = json.loads(path.read_text(encoding="utf-8"))
+    contract = editions.load(path)
     mapping: dict[str, list[str]] = {}
-    for entry in contract["objects"]:
+    for entry in editions.all_objects(contract):  # every edition: a bare name of any of them resolves
         key = entry["object_key"]
         mapping.setdefault(key.rsplit("/", 1)[-1], []).append(key)
     ambiguous = {name: keys for name, keys in mapping.items() if len(keys) > 1}

@@ -98,6 +98,23 @@ mod tests {
 RS
 expect a-rust-fixture accept "$root"
 
+# A second edition's prefix restated (root ADR-0148). The guard used to search for the first
+# declared prefix only, so this one would have passed.
+root="$(fixture a-second-edition declares)"
+cat >"$root/platforms/foundation-platform/infra/lakehouse/contracts/vworld-parcel-source-objects.json" <<JSON
+{
+  "schema_version": 2,
+  "editions": {
+    "209906": {"handoff_prefix": "$PREFIX"},
+    "209909": {"handoff_prefix": "silver-handoff/elsewhere/edition=209909"}
+  }
+}
+JSON
+mkdir -p "$root/platforms/foundation-platform/scripts/load"
+printf '#!/usr/bin/env bash\nPREFIX="%s"\n' "silver-handoff/elsewhere/edition=209909" \
+  >"$root/platforms/foundation-platform/scripts/load/some-load.sh"
+expect a-second-edition reject "$root" "some-load.sh"
+
 # The guard must refuse when it cannot look: no declaration means no value to search for, and
 # reporting OK there is the same defect one level up.
 root="$(fixture no-declaration absent)"

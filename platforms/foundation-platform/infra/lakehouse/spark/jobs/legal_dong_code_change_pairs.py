@@ -337,19 +337,11 @@ def edition_evidence(
             awaiting[code] = f"needs a parcel edition extracted {side} {day}; the source contract holds none"
             continue
         by_pair.setdefault((before, after), set()).add(code)
-    read: dict[tuple[str, frozenset[str], frozenset[str] | None], list[str] | None] = {}
-
-    def held(edition: str, codes: set[str], lots: set[str] | None = None) -> list[str] | None:
-        key = (edition, frozenset(codes), None if lots is None else frozenset(lots))
-        if key not in read:
-            read[key] = pnus_of(edition, codes, lots)
-        return read[key]
-
     by_code: dict[str, cg.JibunEvidence] = {}
     for (before, after), codes in sorted(by_pair.items()):
-        before_pnus = held(before, codes)
+        before_pnus = pnus_of(before, codes, None)
         before_sets = cg.jibun_sets(before_pnus or [], codes)
-        after_pnus = held(after, after_codes, set().union(*before_sets.values()))
+        after_pnus = pnus_of(after, after_codes, set().union(*before_sets.values()))
         missing = [name for name, pnus in ((before, before_pnus), (after, after_pnus)) if pnus is None]
         if missing:
             named = ", ".join(f"{name} ({editions.snapshot_id(parcel_source, name)})" for name in missing)
