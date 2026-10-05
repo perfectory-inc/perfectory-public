@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -236,6 +237,50 @@ class ANewProviderEditionTest(unittest.TestCase):
         self.assertEqual(row.split(",")[:6], ["vworld_dataset", "MK", "99999", "1", "4", "0"])
         with self.assertRaisesRegex(editions.EditionError, "lists 0"):
             editions.endpoint_catalog({"endpoints": []})
+
+
+AREA = Path(__file__).resolve().parents[4]
+COLLECT_SCRIPT = AREA / "scripts" / "ops" / "vworld-parcel-edition-collect.sh"
+
+
+def measurement_keys(script: str) -> set[str]:
+    """The variables the measurement container's AWS_* credentials are taken from."""
+
+    block = script[script.index("GDAL_IMAGE="):script.index("vworld_parcel_edition_members.py <")]
+    return set(re.findall(r'AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)="\$\{(FOUNDATION_PLATFORM_[A-Z0-9_]+)', block))
+
+
+def awaiting_contract_notice(script: str) -> str:
+    """What the exit-3 path tells Slack before it exits: the `message=` it hands `notify_slack`."""
+
+    tail = script[script.index("# 4. 끝."):script.index('exit "${AWAITING_CONTRACT}"')]
+    if 'notify_slack "${message}"' not in tail:
+        return ""
+    return re.search(r'^message="([^"\n]*)', tail, re.MULTILINE).group(1)
+
+
+class TheEditionJobTest(unittest.TestCase):
+    """The scheduled job's own promises: an edition awaiting the contract is reported as that and
+    not retried, and the measurement only reads."""
+
+    def test_an_edition_awaiting_the_contract_is_not_retried(self):
+        jobs = json.loads((AREA / "orchestration" / "jobs.v1.json").read_text(encoding="utf-8"))["jobs"]
+        job = next(job for job in jobs if job["id"] == "vworld_parcel_edition")
+        # Airflow retries a failed run `retries` times, 1 when absent (orchestration/dags/job_specs.py).
+        self.assertEqual(job.get("retries", 1), 0, "a retry downloads and proposes the same edition again")
+
+    def test_exit_3_says_a_new_edition_waits_for_its_contract_entry(self):
+        script = COLLECT_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("new edition waiting for contract entry", awaiting_contract_notice(script))
+        # 심은 회귀: 알림을 빼면 남는 것은 Airflow 의 일반 "실패" 뿐이다.
+        self.assertEqual(awaiting_contract_notice(script.replace('notify_slack "${message}"', ":")), "")
+
+    def test_the_measurement_container_gets_the_reader_key_only(self):
+        script = COLLECT_SCRIPT.read_text(encoding="utf-8")
+        self.assertEqual(measurement_keys(script), {"FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
+                                                    "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"})
+        # 심은 회귀: 쓰기 키를 넘기던 이전 모양은 이 검사가 잡는다.
+        self.assertTrue(all("WRITER" in key for key in measurement_keys(script.replace("_READER_", "_WRITER_"))))
 
 
 class EachChangeReadsItsOwnEditionsTest(unittest.TestCase):

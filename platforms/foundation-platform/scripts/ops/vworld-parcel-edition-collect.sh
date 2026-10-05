@@ -15,8 +15,8 @@
 #             이미지) 계약의 판 항목을 만든다(propose). 계약과 합쳐 검사를 통과한 것만 남긴다:
 #             proposed/<판>.json.
 #   4. 끝 — 판을 계약에 넣는 것은 사람이 PR 로 한다(원천 계약은 저장소의 정본이다). 그때까지 이
-#           작업은 3 으로 끝나 Airflow 실패 알림이 슬랙에 간다. 결함이 아니라 "계약에 넣을 판이
-#           있다"는 뜻이다. Silver 적재는 계약이 그 판을 가진 릴리스에서 런북의 명령으로 한다.
+#           작업은 3 으로 끝나고 "new edition waiting for contract entry" 를 슬랙에 직접 보낸다(재시도 없음).
+#           결함이 아니라 "계약에 넣을 판이 있다"는 뜻이다. Silver 적재는 계약이 그 판을 가진 릴리스에서 런북의 명령으로 한다.
 #
 # 어느 단계든 실패하면 0 이 아닌 값(3 이 아닌)으로 끝난다.
 set -Eeuo pipefail
@@ -31,7 +31,22 @@ AWAITING_CONTRACT=3
 journal="${STATE_ROOT}/journal.log"
 mkdir -p "${STATE_ROOT}/proposed"
 
+SLACK_TOKEN_FILE="${FOUNDATION_VWORLD_PARCEL_EDITION_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}"
+SLACK_CHANNEL="${FOUNDATION_VWORLD_PARCEL_EDITION_SLACK_CHANNEL:-#alerts}"
+
 editions() { "${PY[@]}" "${JOBS}/vworld_parcel_editions.py" "$@" --contract "${CONTRACT}"; }
+
+# A notice that cannot be sent is logged, not fatal: the exit code still says what happened.
+notify_slack() {
+  local token payload response
+  token="$(tr -d '\r\n' < "${SLACK_TOKEN_FILE}")" || { echo "no Slack token; notice not sent" >&2; return 0; }
+  payload="$("${PY[@]}" -c 'import json, sys; print(json.dumps({"channel": sys.argv[1], "text": sys.argv[2]}, ensure_ascii=False))' \
+    "${SLACK_CHANNEL}" "$1")"
+  response="$(curl -sS --max-time 30 -H "Authorization: Bearer ${token}" -H "Content-Type: application/json; charset=utf-8" \
+    -d "${payload}" https://slack.com/api/chat.postMessage 2>&1)" || true
+  "${PY[@]}" -c 'import json, sys; sys.exit(0 if json.loads(sys.argv[1]).get("ok") is True else 1)' "${response}" 2>/dev/null ||
+    echo "slack refused the notice" >&2
+}
 
 # recovery.env 는 DATABASE_URL 을 들고 있지 않다 — 다른 등록 작업과 같은 재료로 조립한다.
 if [ -z "${DATABASE_URL:-}" ]; then
@@ -90,8 +105,10 @@ PY
 # The pinned reference tools/technology-versions.contract.json lists (container-images-match-the-contract
 # keeps it equal to that list; scripts/catalog/sync-container-images.py rewrites it on a digest change).
 GDAL_IMAGE="ghcr.io/osgeo/gdal:ubuntu-small-3.10.2@sha256:a2af3ef63be13b35790ce7a508ff395c409ef7a0b8ddc5ab9685dd4518af9779"
-AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}" \
-AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}" \
+# The measurement only reads (ranged GETs), so it gets the reader key: a container given the
+# writer key could overwrite the Bronze objects it measures.
+AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID:?the lakehouse reader key is required}" \
+AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY:?the lakehouse reader key is required}" \
 AWS_S3_ENDPOINT="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT#https://}" \
 B="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET}" \
   docker run --rm -i --memory 1g -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_S3_ENDPOINT -e B \
@@ -102,8 +119,11 @@ editions propose --edition "${edition}" --measured "${work}/members.jsonl" \
 cp "${work}/proposed-${edition}.json" "${STATE_ROOT}/proposed/${edition}.json.tmp"
 mv -f "${STATE_ROOT}/proposed/${edition}.json.tmp" "${STATE_ROOT}/proposed/${edition}.json"
 
-# 4. 끝. 계약에 넣을 판이 있다.
+# 4. 끝. 계약에 넣을 판이 있다. 알림은 이 작업이 직접 그 뜻으로 보낸다: Airflow 의 실패 알림은 "실패"라고만
+#    말한다. 작업은 재시도하지 않는다(jobs.v1.json retries 0) — 다시 돌아도 같은 판을 받고 같은 제안을 낸다.
+message="🟡 new edition waiting for contract entry: 연속지적도 ${edition} 판을 받아 계약 항목을 제안했다(${files} 파일). ${STATE_ROOT}/proposed/${edition}.json 을 vworld-parcel-source-objects.json 에 PR 로 넣는다 — 런북 vworld-parcel-editions.md. 결함이 아니다."
 printf '%s vworld-parcel-edition provider=%s new: collected %s files, proposed %s run=%s\n' \
   "$(date -u +%FT%TZ)" "${edition}" "${files}" "${STATE_ROOT}/proposed/${edition}.json" "${run_id}" >> "${journal}"
-echo "edition ${edition} awaits the source contract: add ${STATE_ROOT}/proposed/${edition}.json to vworld-parcel-source-objects.json (runbook vworld-parcel-editions.md)" >&2
+notify_slack "${message}"
+echo "new edition waiting for contract entry: edition ${edition}; add ${STATE_ROOT}/proposed/${edition}.json to vworld-parcel-source-objects.json (runbook vworld-parcel-editions.md)" >&2
 exit "${AWAITING_CONTRACT}"

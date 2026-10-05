@@ -356,6 +356,34 @@ def filtered_by_region(frame: DataFrame, region_prefix: str | None) -> DataFrame
     return frame.where(F.col("pnu").startswith(region_prefix))
 
 
+def read_served_parcels(
+    spark: SparkSession, args: argparse.Namespace, pins: dict[str, str], source: dict[str, Any] | None = None
+) -> DataFrame:
+    """The parcels the panel is built from: the current rows of the served edition only.
+
+    Root ADR-0148: `silver.parcel_boundaries` holds several editions side by side, every one of
+    them current by the predicate, and the panel is built from the one the map is (`served_edition`
+    of the source contract, `source` here or the file). Without the edition filter the
+    single-snapshot check refuses the table once a second edition is loaded, and every scheduled
+    rebuild fails.
+    """
+
+    predicate = current_row_predicate(load_lakehouse_contract(PARCEL_SOURCE))
+    if predicate is None:
+        raise ValueError(
+            f"{PARCEL_SOURCE} declares no current_row_predicate; this projection cannot "
+            "say which boundary row is the parcel's current one"
+        )
+    source = source or parcel_editions.load()
+    served_id = parcel_editions.snapshot_id(source, parcel_editions.served(source))
+    return filtered_by_region(
+        read_source(spark, args, PARCEL_SOURCE, pins)
+        .where(F.expr(predicate))
+        .where(F.col("source_snapshot_id") == F.lit(served_id)),
+        args.region_prefix,
+    )
+
+
 def assert_single_snapshot(frame: DataFrame, contract_name: str) -> str:
     """Refuse multi-vintage input rather than approximating the loaders' vintage rules."""
 
@@ -1251,24 +1279,7 @@ def main() -> int:
         counters: dict[str, int] = {}
         source_snapshots: dict[str, str] = {}
 
-        parcel_predicate = current_row_predicate(load_lakehouse_contract(PARCEL_SOURCE))
-        if parcel_predicate is None:
-            raise ValueError(
-                f"{PARCEL_SOURCE} declares no current_row_predicate; this projection cannot "
-                "say which boundary row is the parcel's current one"
-            )
-        # The served edition only (root ADR-0148): silver.parcel_boundaries holds several editions,
-        # every one of them current by the predicate, and the panel is built from the one the map
-        # is. Without this the single-snapshot check below refuses the table once a second
-        # edition is loaded, and every scheduled rebuild fails.
-        served_parcels = parcel_editions.load()
-        parcels = filtered_by_region(
-            read_source(spark, args, PARCEL_SOURCE, pins)
-            .where(F.expr(parcel_predicate))
-            .where(F.expr("source_snapshot_id = '{}'".format(
-                parcel_editions.snapshot_id(served_parcels, parcel_editions.served(served_parcels))))),
-            args.region_prefix,
-        )
+        parcels = read_served_parcels(spark, args, pins)
         source_snapshots[PARCEL_SOURCE] = assert_single_snapshot(parcels, PARCEL_SOURCE)
 
         candidates = read_carry_candidates(spark, args, counters, pins)

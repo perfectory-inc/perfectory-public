@@ -31,7 +31,8 @@ vworld_parcel_edition (04:40, default_pool)
   2. 수집   새 판이면 그 판에서 바로 내려받는 파일 전부 → Bronze (ingest-vworld-dataset-files)
             제공자 갱신일이 같은 파일은 다시 받지 않는다(같은 파일 번호를 판마다 다시 쓰므로 번호로 가리지 않는다)
   3. 측정   ZIP 마다 중앙 디렉터리를 범위 요청으로 읽어 계약 항목을 만든다 → proposed/<판>.json
-  4. 끝     3 으로 끝난다 = "계약에 넣을 판이 있다". Airflow 실패 알림이 슬랙에 간다
+  4. 끝     3 으로 끝난다 = "계약에 넣을 판이 있다". 작업이 슬랙에 "new edition waiting for contract
+            entry" 를 직접 보낸다. 재시도하지 않는다(jobs.v1.json retries 0)
 사람
   5. PR     proposed/<판>.json 을 계약의 editions 에 넣는다(아래 3 절). 병합·배포
   6. 적재   그 릴리스에서 변환 → Silver 적재 (아래 4 절)
