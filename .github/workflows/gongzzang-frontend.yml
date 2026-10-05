@@ -95,7 +95,7 @@ jobs:
 
       # Was pre-commit only until ADR-0149; the hook lints staged files, this lints them all.
       - name: Markdown lint
-        run: pnpm markdownlint-cli2 "**/*.md" "#node_modules"
+        run: pnpm markdownlint-cli2 "**/*.md" "#**/node_modules"
 
       - name: Typecheck
         run: pnpm turbo typecheck
