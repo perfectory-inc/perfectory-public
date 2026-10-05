@@ -297,6 +297,20 @@ def provider_edition(contract: Mapping[str, Any], inventory: Mapping[str, Any]) 
     return newest, newest in contract["editions"]
 
 
+def held_reuploads(contract: Mapping[str, Any], inventory: Mapping[str, Any], name: str) -> list[str]:
+    """Files of a held edition the provider updated after the edition was extracted.
+
+    The provider can re-upload a file under the same base month; the contract still describes the
+    earlier upload, and the daily check would otherwise say only "held". Each is
+    `<file name> <갱신일>`, for the job's summary to warn about.
+    """
+
+    month = f"{name[:4]}-{name[4:]}"
+    latest = edition(contract, name)["extracted_on"]["latest"]
+    return sorted(f"{f.get('provider_file_name')} {str(f.get('updated_at'))[:10]}" for f in _parcel_files(inventory)
+                  if str(f.get("base_ym", "")).strip() == month and str(f.get("updated_at") or "")[:10] > latest)
+
+
 def select_inventory(inventory: Mapping[str, Any], name: str) -> dict[str, Any]:
     """The inventory cut to the directly downloadable files of one edition, for the ingest to
     collect. Which covering loads is decided by measuring the ZIPs, not by the provider's file
@@ -319,6 +333,41 @@ def select_inventory(inventory: Mapping[str, Any], name: str) -> dict[str, Any]:
     return cut
 
 
+def check_not_partial(contract: Mapping[str, Any], name: str, objects: Sequence[Mapping[str, Any]]) -> None:
+    """Refuses a proposal that covers less of the country than the edition before it.
+
+    A provider listing caught half-updated (some files already the new month, the rest still the
+    old one) yields an edition of half the 시군구, which the contract checks alone would accept.
+    Against the previous edition (`new_edition_bounds`): the 시도 its 시군구 objects cover may change
+    only by a merger — a 시도 leaves only while another appears, at most `max_sido_set_difference`
+    codes in all — and its 시군구 count by at most `max_sigungu_count_change_share`.
+    """
+
+    earlier = [held for held in names(contract) if held < name]
+    if not earlier:
+        return
+    bounds = contract.get("new_edition_bounds")
+    if not isinstance(bounds, Mapping):
+        raise EditionError("the source contract names no new_edition_bounds; a proposal cannot be checked against its predecessor")
+    previous = earlier[-1]
+
+    def districts(objs: Sequence[Mapping[str, Any]]) -> tuple[set[str], int]:
+        codes = [obj["region_code"] for obj in objs if obj["granularity"] == "sigungu"]
+        return {code[:2] for code in codes}, len(codes)
+
+    was_sido, was_count = districts(contract["editions"][previous]["objects"])
+    now_sido, now_count = districts(objects)
+    left, appeared = was_sido - now_sido, now_sido - was_sido
+    if (left and not appeared) or len(left | appeared) > int(bounds["max_sido_set_difference"]):
+        raise EditionError(
+            f"edition {name} covers the 시도 {sorted(now_sido)} where {previous} covered {sorted(was_sido)} "
+            f"(left {sorted(left)}, appeared {sorted(appeared)}): a partial collection, not a new edition")
+    if abs(now_count - was_count) > was_count * float(bounds["max_sigungu_count_change_share"]):
+        raise EditionError(
+            f"edition {name} holds {now_count} 시군구 objects where {previous} held {was_count} (bound "
+            f"{bounds['max_sigungu_count_change_share']}): a partial collection, not a new edition")
+
+
 def propose(contract: Mapping[str, Any], name: str, measured: Sequence[Mapping[str, Any]], prefix: str) -> dict[str, Any]:
     """The contract entry for edition `name`, from the ZIPs as they were measured.
 
@@ -338,12 +387,15 @@ def propose(contract: Mapping[str, Any], name: str, measured: Sequence[Mapping[s
         objects.append({"object_key": row["object_key"], "bytes": row["bytes"],
                         "dataset_name": shapes[0][: -len(".shp")], "region_code": code,
                         "granularity": "sido" if len(code) == 2 else "sigungu"})
-        dates.append(max(row["member_dates"]))
+        dates.extend(row["member_dates"])
     if not objects:
         raise EditionError(f"nothing was measured for edition {name}")
     objects.sort(key=lambda obj: (obj["granularity"] != "sido", obj["region_code"]))
     entry = {
         "provider_base_month": f"{name[:4]}-{name[4:]}",
+        # Every member's date, not each file's newest: `bracketing` calls an edition wholly after a
+        # change only when its earliest member is, so a file whose members straddle the change
+        # (part written before it) must pull `earliest` back to its oldest member.
         "extracted_on": {"earliest": min(dates), "latest": max(dates)},
         "handoff_prefix": prefix,
         "granularity_counts": {g: sum(1 for obj in objects if obj["granularity"] == g) for g in GRANULARITIES},
@@ -352,6 +404,7 @@ def propose(contract: Mapping[str, Any], name: str, measured: Sequence[Mapping[s
     merged = json.loads(json.dumps(contract))
     merged["editions"][name] = entry
     validate(merged)
+    check_not_partial(contract, name, objects)
     return entry
 
 
@@ -362,7 +415,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=("check", "editions", "served", "snapshot-id", "valid-from",
                                             "handoff-prefix", "handoff-suffix", "source-keys", "handoff-keys",
-                                            "endpoint-catalog", "provider-edition", "select-inventory", "propose"))
+                                            "endpoint-catalog", "provider-edition", "held-reuploads", "select-inventory",
+                                            "propose"))
     parser.add_argument("--edition", help="YYYYMM; required by every command naming one edition")
     parser.add_argument("--contract", help=f"defaults to ${CONTRACT_ENV}, then the contract beside this job")
     parser.add_argument("--inventory", help="provider-edition, select-inventory: the inventory report")
@@ -382,6 +436,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "provider-edition":
             newest, held = provider_edition(contract, json.loads(Path(args.inventory).read_text(encoding="utf-8")))
             print(f"{newest} {'held' if held else 'new'}")
+            return 0
+        if args.command == "held-reuploads":
+            found = held_reuploads(contract, json.loads(Path(args.inventory).read_text(encoding="utf-8")), args.edition)
+            print("\n".join(found))
             return 0
         if args.command == "select-inventory":
             cut = select_inventory(json.loads(Path(args.inventory).read_text(encoding="utf-8")), args.edition)

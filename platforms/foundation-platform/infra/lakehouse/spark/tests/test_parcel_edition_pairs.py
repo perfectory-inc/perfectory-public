@@ -52,7 +52,8 @@ def contract(*names: str, served: str | None = None) -> dict:
     dates = {"209902": "2099-02-10", "209906": "2099-06-10", "209910": "2099-10-10"}
     held = {name: edition_entry(name, dates[name]) for name in names}
     return {"schema_version": 2, "load_granularity": "sigungu", "snapshot_id_prefix": "vworldkr__parcel-",
-            "served_edition": served or names[0], "handoff_suffix": ".jsonl.gz", "editions": held}
+            "served_edition": served or names[0], "handoff_suffix": ".jsonl.gz", "editions": held,
+            "new_edition_bounds": {"max_sido_set_difference": 3, "max_sigungu_count_change_share": 0.05}}
 
 
 def two_changes():
@@ -176,10 +177,10 @@ def inventory(*files: tuple[str, str, str]) -> dict:
          "download_kind": kind} for n, (name, base, kind) in enumerate(files, 1)]}]}
 
 
-def measured(name: str, code: str, day: str = "2099-10-14") -> dict:
+def measured(name: str, code: str, day: str = "2099-10-14", first: str | None = None) -> dict:
     return {"object_key": f"bronze/source=vworldkr__parcel/{name}-{code}-new.zip", "bytes": 7,
             "members": [f"LSMD_CONT_LDREG_{code}_{name}.{ext}" for ext in ("dbf", "prj", "shp", "shx")],
-            "member_dates": ["2099-06-01", day]}
+            "member_dates": sorted({first or day, day})}
 
 
 class ANewProviderEditionTest(unittest.TestCase):
@@ -225,6 +226,55 @@ class ANewProviderEditionTest(unittest.TestCase):
         for message, bad in planted.items():
             with self.subTest(message), self.assertRaisesRegex(editions.EditionError, message):
                 editions.propose(source, "209910", bad, "silver-handoff/synthetic/edition=209910")
+
+    def test_a_half_updated_listing_is_refused_as_a_partial_edition(self):
+        # 심은 결함: 제공자 목록이 반쯤 바뀐 날. 98 의 시군구는 아직 옛 판이라 새 판에는 97 만 있다.
+        # 계약 검사만으로는 통과한다(시도 객체 없는 판은 형식상 옳다). 앞 판과 비교해 거부한다.
+        source = contract("209902", "209906")
+        half = [measured("209910", "97110")]
+        merged = copy.deepcopy(source)
+        merged["editions"]["209910"] = edition_entry("209910", "2099-10-14")
+        merged["editions"]["209910"]["objects"] = [o for o in merged["editions"]["209910"]["objects"] if o["region_code"] == "97110"]
+        merged["editions"]["209910"]["granularity_counts"] = {"sido": 0, "sigungu": 1}
+        editions.validate(merged)  # the contract alone would take it
+        with self.assertRaisesRegex(editions.EditionError, "partial collection"):
+            editions.propose(source, "209910", half, "silver-handoff/synthetic/edition=209910")
+
+    def test_the_bound_counts_districts_and_lets_a_merger_through(self):
+        def districts(*codes):
+            return [{"region_code": code, "granularity": "sigungu"} for code in codes]
+
+        source = contract("209906")
+        source["editions"]["209906"]["objects"] = districts(*(f"97{n:03d}" for n in range(110, 150)), "98110")
+        # 시도 합병: 98 이 떠나고 99 가 나타났다. 시군구 수는 그대로다.
+        editions.check_not_partial(source, "209910", districts(*(f"97{n:03d}" for n in range(110, 150)), "99110"))
+        planted = {
+            "a district count off by half": districts(*(f"97{n:03d}" for n in range(110, 130)), "98110"),
+            "a province gone with nothing new": districts(*(f"97{n:03d}" for n in range(110, 151))),
+            "too many provinces changed": districts(*(f"97{n:03d}" for n in range(110, 147)), "91110", "92110", "93110", "94110"),
+        }
+        for what, objects in planted.items():
+            with self.subTest(what), self.assertRaisesRegex(editions.EditionError, "partial collection"):
+                editions.check_not_partial(source, "209910", objects)
+        with self.assertRaisesRegex(editions.EditionError, "new_edition_bounds"):
+            editions.check_not_partial({k: v for k, v in source.items() if k != "new_edition_bounds"}, "209910", [])
+
+    def test_a_file_whose_members_straddle_a_change_is_not_wholly_after_it(self):
+        # 심은 함정: 한 파일의 멤버가 10-12 와 10-14 에 걸쳐 쓰였다. 10-13 의 변경 뒤에 다 뽑힌 판이 아니다.
+        source = contract("209902", "209906")
+        rows = [measured("209910", "97"), measured("209910", "97110", first="2099-10-12"), measured("209910", "98110")]
+        entry = editions.propose(source, "209910", rows, "silver-handoff/synthetic/edition=209910")
+        self.assertEqual(entry["extracted_on"], {"earliest": "2099-10-12", "latest": "2099-10-14"})
+        source["editions"]["209910"] = entry
+        self.assertEqual(editions.bracketing(source, "20991013"), ("209906", None))
+
+    def test_a_re_upload_inside_a_held_edition_is_reported(self):
+        source = contract("209906", "209910")  # 209910 extracted through 2099-10-10
+        listed = inventory(("a.zip", "2099-10", "single_resource_file"), ("old.zip", "2099-06", "single_resource_file"))
+        listed["jobs"][0]["files"][1]["updated_at"] = "2099-06-10"
+        self.assertEqual(editions.held_reuploads(source, listed, "209910"), ["a.zip 2099-10-15"])
+        listed["jobs"][0]["files"][0]["updated_at"] = "2099-10-10T09:00:00"
+        self.assertEqual(editions.held_reuploads(source, listed, "209910"), [])
 
     def test_the_plan_reads_one_dataset_with_the_latest_editions_counts(self):
         catalog = {"schema_version": 1, "endpoints": [

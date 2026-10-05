@@ -379,7 +379,7 @@ def read_served_parcels(
     return filtered_by_region(
         read_source(spark, args, PARCEL_SOURCE, pins)
         .where(F.expr(predicate))
-        .where(F.col("source_snapshot_id") == F.lit(served_id)),
+        .where(F.expr(f"source_snapshot_id = '{served_id}'")),
         args.region_prefix,
     )
 

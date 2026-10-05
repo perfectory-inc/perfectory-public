@@ -81,6 +81,13 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH="${work}/inventory
 read -r edition held < <(editions provider-edition --inventory "${work}/inventory.json")
 if [ "${held}" = held ]; then
   printf '%s vworld-parcel-edition provider=%s held run=%s\n' "$(date -u +%FT%TZ)" "${edition}" "${run_id}" >> "${journal}"
+  # 제공자가 같은 기준월로 파일을 다시 올렸으면 계약은 앞 업로드를 말한다. 막지 않고 요약에 경고로 남긴다.
+  reuploads="$(editions held-reuploads --edition "${edition}" --inventory "${work}/inventory.json")"
+  if [ -n "${reuploads}" ]; then
+    printf '%s vworld-parcel-edition WARNING provider re-uploaded %s file(s) of held edition %s after its extraction: %s run=%s\n' \
+      "$(date -u +%FT%TZ)" "$(printf '%s\n' "${reuploads}" | wc -l)" "${edition}" "$(printf '%s' "${reuploads}" | tr '\n' ',')" \
+      "${run_id}" | tee -a "${journal}" >&2
+  fi
   exit 0
 fi
 

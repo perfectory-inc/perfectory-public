@@ -6,6 +6,11 @@
   "load_granularity": "sigungu",
   "snapshot_id_prefix": "vworldkr__parcel-",
   "snapshot_id_reason": "An edition loads into silver.parcel_boundaries as source_snapshot_id = snapshot_id_prefix + edition, and valid_from_utc = the first instant of its provider base month (vworld_parcel_editions.py). Both were typed by hand per run, which is how the same June data was written as vworldkr__parcel-202606 and the September data as vworldkr__parcel:202609 (root ADR-0131, ADR-0148).",
+  "new_edition_bounds": {
+    "$comment": "How far a proposed edition may differ from the edition before it before the proposal is refused as a partial collection (vworld_parcel_editions.propose, root ADR-0148 §6). Its 시군구 objects must cover the previous edition's 시도, except where 시도 merge: a 시도 may leave only while another appears, and at most max_sido_set_difference 시도 codes may differ in all (2026-07: 29 and 46 left, 12 appeared, 3). Its 시군구 count may differ by at most max_sigungu_count_change_share of the previous count (202606 → 202609: 255 → 256). A half-updated provider listing fails both.",
+    "max_sido_set_difference": 3,
+    "max_sigungu_count_change_share": 0.05
+  },
   "served_edition": "202606",
   "served_edition_reason": "The edition the map, the parcel catalog projection, the PostGIS mirror, the parcel panel Gold and the 시군구 crosswalk's cadastral 시도 are built from. Other editions are evidence (the legal-dong pairing reads two of them) until a reviewed change moves this value.",
   "handoff_suffix": ".jsonl.gz",
@@ -1935,12 +1940,12 @@
     "202609": {
       "provider_base_month": "2026-09",
       "extracted_on": {
-        "earliest": "2026-09-14",
+        "earliest": "2026-09-13",
         "latest": "2026-09-16"
       },
       "handoff_prefix": "silver-handoff/vworldkr__parcel/edition=202609",
       "measured_at_utc": "2026-10-05",
-      "how_measured": "The 272 objects under the same prefix whose keys end in --sha256-<content hash>.zip, collected 2026-09-27. Each ZIP's central directory was read by ranged request with the reader key (no download) for the .shp member name (LSMD_CONT_LDREG_<code>_<yyyymm>) and member timestamps; the content hash in each key equals the checksum catalog.bronze_object holds for it (272 of 272). The provider page listed the same edition then: 기준일 2026-09, 갱신일 2026-09-15 (2026-09-16 for one file).",
+      "how_measured": "The 272 objects under the same prefix whose keys end in --sha256-<content hash>.zip, collected 2026-09-27. Each ZIP's central directory was read by ranged request with the reader key (no download) for the .shp member name (LSMD_CONT_LDREG_<code>_<yyyymm>) and member timestamps; the content hash in each key equals the checksum catalog.bronze_object holds for it (272 of 272). The provider page listed the same edition then: 기준일 2026-09, 갱신일 2026-09-15 (2026-09-16 for one file). extracted_on spans every member's date, 2026-09-13 to 2026-09-16 (root ADR-0148 context): earliest was first written as the oldest file's newest member (2026-09-14), which would call an edition wholly after a change some of its members predate.",
       "granularity_counts": {
         "sido": 16,
         "sigungu": 256
