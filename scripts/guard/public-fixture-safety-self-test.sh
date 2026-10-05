@@ -103,6 +103,28 @@ git -C "$test_root" add assignable.rs
 assert_rejected assignable-pnu "repository-reserved 99999 PNU range"
 git -C "$test_root" rm -q -f assignable.rs
 
+# A 19-digit Iceberg snapshot id under a `...snapshot_id` key is not a parcel, but a
+# parcel-looking value under any other key on the same kind of line still is.
+cat >"$test_root/retired.contract.json" <<'JSON'
+{"retired_by": {"change_table_snapshot_id": "7063332758209805105"}}
+JSON
+git -C "$test_root" add retired.contract.json
+bash "$checker" "$test_root" >/dev/null || {
+  echo "FAIL public-fixture-safety-self-test: a snapshot id was read as a PNU" >&2
+  exit 1
+}
+cat >"$test_root/retired.contract.json" <<'JSON'
+{"retired_by": {"change_table_snapshot_id": "7063332758209805105", "pnu": "1168010301100010000"}}
+JSON
+git -C "$test_root" add retired.contract.json
+assert_rejected pnu-beside-snapshot-id "repository-reserved 99999 PNU range"
+cat >"$test_root/retired.contract.json" <<'JSON'
+{"parcel_snapshot": "1168010301100010000"}
+JSON
+git -C "$test_root" add retired.contract.json
+assert_rejected pnu-under-a-snapshot-like-key "repository-reserved 99999 PNU range"
+git -C "$test_root" rm -q -f retired.contract.json
+
 cat >"$test_root/coordinate.rs" <<'RS'
 const POINT: (f64, f64) = (126.978, 37.5665);
 RS

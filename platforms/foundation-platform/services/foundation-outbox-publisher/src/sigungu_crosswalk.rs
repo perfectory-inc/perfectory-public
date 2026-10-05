@@ -900,7 +900,7 @@ mod tests {
         tally.observe(&key("12210"));
         let summary = tally.finish()?;
         assert_eq!(summary["crosswalk"]["change_table_snapshot_id"], "1");
-        assert_eq!(summary["crosswalk"]["baseline_comparison"], "required");
+        assert!(summary["crosswalk"]["baseline_comparison"].is_string());
         Ok(())
     }
 
@@ -1100,8 +1100,15 @@ mod tests {
 
     #[test]
     fn a_projection_that_disagrees_with_a_required_baseline_is_refused() -> anyhow::Result<()> {
+        let required = contract_with(&json!({"required": true, "retired_by": null}))?;
         for (label, projection) in disagreeing_projections()? {
-            let refused = load(&projection, &marker(SNAPSHOT_DATE));
+            let refused = crosswalk_from_projection(
+                projection.to_string().as_bytes(),
+                &marker(SNAPSHOT_DATE),
+                &required,
+                BASELINE_JSON,
+                "projection.json",
+            );
             assert!(
                 refused.as_ref().is_err_and(|error| {
                     let message = format!("{error:#}");
@@ -1133,7 +1140,8 @@ mod tests {
                 "must refuse: {comparison}"
             );
         }
-        assert!(BaselineComparison::from_contract(CONTRACT_JSON)?.required);
+        // 실물 계약은 어느 쪽이든 받아들여지는 모양이어야 한다(켜짐, 또는 증거를 갖춘 꺼짐).
+        BaselineComparison::from_contract(CONTRACT_JSON)?;
         // 증거를 갖춰 끄면 비교는 돌지 않는다: 기준과 다른 짝도 변경표의 몫이다.
         let retired = contract_with(&json!({"required": false, "retired_by": evidence}))?;
         for (label, projection) in disagreeing_projections()? {
