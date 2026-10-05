@@ -1,6 +1,6 @@
 // apps/web/components/panels/complex/register.ts
 // Side-effect-only module: importing this file triggers defineKind('complex') once.
-// No exports. `lib/panel/panel-renderer.tsx` imports it for registration, the same place the
+// No exports. `components/panels/panel-renderer.tsx` imports it for registration, the same place the
 // `parcel` and `listing` kinds are registered.
 
 import { type ComplexInfo, fetchComplex } from "@/lib/api/complexes";

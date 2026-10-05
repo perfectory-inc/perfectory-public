@@ -4,7 +4,7 @@ import { FilterBar } from "@/components/listings/filter-bar";
 import { ListingCardList } from "@/components/listings/listing-card-list";
 import { ListingMap } from "@/components/listings/listing-map";
 import { SearchBar } from "@/components/listings/search-bar";
-import { PanelRenderer } from "@/lib/panel/panel-renderer";
+import { PanelRenderer } from "@/components/panels/panel-renderer";
 
 export default async function ListingsPage() {
   const t = await getTranslations("listings.page");

@@ -180,3 +180,5 @@ last_reviewed: 2026-07-28
 - [ADR-0147 — 필지·건물 문서는 항목별 묶음 파일로 서빙한다](./0147-by-pnu-documents-are-served-from-section-packs.md)
 
 - [ADR-0148 — 연속지적도 판은 나란히 쌓고, 지번 근거는 변경마다 제 판 쌍으로 읽는다](./0148-cadastral-parcel-editions-are-held-side-by-side.md)
+
+- [ADR-0149 — 로컬 훅은 빠른 사전 필터이고, 훅의 모든 단계는 CI에서도 돈다](./0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md)

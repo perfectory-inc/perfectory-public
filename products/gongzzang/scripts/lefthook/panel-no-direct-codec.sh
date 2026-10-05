@@ -3,7 +3,15 @@
 # URL grammar 우회 방지. 위반 시 commit 차단.
 set -euo pipefail
 
-staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^apps/web/.*\.(ts|tsx)$' | grep -v '^apps/web/lib/panel/codec\.' || true)
+# Staged files by default (pre-commit); `--all` scans every tracked file (CI). `--relative`
+# matters: lefthook runs this from products/gongzzang/, and without it git prints repository-
+# root paths that the `^apps/web/` filter below can never match.
+if [ "${1:-}" = "--all" ]; then
+  candidates=$(git ls-files)
+else
+  candidates=$(git diff --cached --name-only --relative --diff-filter=ACM)
+fi
+staged=$(echo "$candidates" | grep -E '^apps/web/.*\.(ts|tsx)$' | grep -v '^apps/web/lib/panel/codec\.' || true)
 if [ -z "$staged" ]; then
   exit 0
 fi

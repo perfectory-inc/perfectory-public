@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { ComplexList } from "@/components/complexes/complex-list";
-import { PanelRenderer } from "@/lib/panel/panel-renderer";
+import { PanelRenderer } from "@/components/panels/panel-renderer";
 
 /**
  * `/complexes` — 산업단지 목록·검색.

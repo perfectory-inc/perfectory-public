@@ -41,6 +41,7 @@ for g in hook-isolation-self-test \
          no-adhoc-cargo-lint foundation-parcel-current-selector-self-test \
          foundation-parcel-current-selector xtask-path-coverage \
          lefthook-advisory-policy-self-test lefthook-advisory-policy \
+         lefthook-time-budget-self-test lefthook-time-budget \
          package-publication-policy-self-test public-fixture-safety-self-test \
          public-doc-boundary-self-test \
          tracked-blob-sizes-self-test public-repository-safety \
