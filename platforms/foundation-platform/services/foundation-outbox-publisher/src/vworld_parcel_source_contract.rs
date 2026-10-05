@@ -17,6 +17,11 @@ use serde_json::{json, Value};
 pub const SCHEMA_VERSION: u64 = 2;
 
 /// The served edition of the contract, in the per-edition reader shape.
+///
+/// # Errors
+///
+/// When the contract is not JSON, is not schema version 2, names no served edition or one it does
+/// not hold, or the served edition lacks a field the readers need.
 pub fn served_edition_view(contract_json: &str) -> anyhow::Result<Value> {
     let contract: Value =
         serde_json::from_str(contract_json).context("parcel source contract is not valid JSON")?;
