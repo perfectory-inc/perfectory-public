@@ -895,7 +895,7 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         load: None,
         no_gzip_sample_size: 0,
     };
-    let (drawn, _)= gate::read::<gate::EqualityEvidence>(&equality)?;
+    let (drawn, _) = gate::read::<gate::EqualityEvidence>(&equality)?;
     assert_eq!(latency::sample(&config(&equality, 1))?, drawn.sample);
     assert!(
         latency::sample(&config(&equality, 2)).is_err(),

@@ -26,7 +26,7 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   exit 78
 fi
 [[ "${NEW}" != "--preflight" ]] || exit 0
-source "${PLATFORM_ROOT}/scripts/ops/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 args=(-E "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_CANARY_NEW_VERSION=${NEW}")
 [[ -z "${OLD}" ]] || args+=(-E "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_CANARY_OLD_VERSION=${OLD}")
 exec systemd-run --wait --collect --pipe --quiet -p User=foundation-platform \
