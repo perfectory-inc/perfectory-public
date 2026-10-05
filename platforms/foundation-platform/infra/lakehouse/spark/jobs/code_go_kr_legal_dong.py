@@ -324,6 +324,16 @@ class JibunEvidence:
 
 
 @dataclass
+class EditionEvidence:
+    """Each abolished 동·리's own `JibunEvidence`: the two parcel editions that bracket its change
+    (`vworld_parcel_editions.bracketing`), so each reorganization is read from its own pair. A code
+    whose pair is not held yet is in `awaiting`, with the edition it needs named (ADR-0144 §4)."""
+
+    by_code: Mapping[str, JibunEvidence]
+    awaiting: Mapping[str, str]
+
+
+@dataclass
 class PairingResult:
     pairs: list[dict[str, str]] = field(default_factory=list)
     review: list[dict[str, Any]] = field(default_factory=list)
@@ -333,7 +343,7 @@ def pair_changes(
     rows: Sequence[Mapping[str, str]],
     floor_date: str,
     decided: Sequence[Mapping[str, str]] = (),
-    jibun: JibunEvidence | None = None,
+    jibun: JibunEvidence | EditionEvidence | None = None,
     official_links: Iterable[tuple[str, str]] | None = None,
     min_share: float = pl.SPLIT_SIGNAL_OVERLAP,
 ) -> PairingResult:
@@ -353,7 +363,8 @@ def pair_changes(
        split or merged 동): of the codes that newly hold parcels in the later snapshot, the one
        holding the largest share of the old code's 지번, when that share is at least `min_share`
        (the contract's `pairing.jibun_overlap_min_share`, ADR-0113 §5) and no other code holds as
-       many. Off when `jibun` is None.
+       many. Off when `jibun` is None. With `EditionEvidence` each code is read from the editions
+       that bracket its own change; a code whose editions are not held waits for them.
     3. **Official parcel-number history** (`official:parcel-history`): where the
        필지고유번호변동연혁 links (`official_links`, (old PNU, new PNU)) carry every linked parcel of
        the old code into one new code. This is how a code whose 지번 were renumbered is settled.
@@ -424,18 +435,39 @@ def pair_changes(
             }
         )
 
-    newly_held = (
-        {code for code in set(jibun.after) - set(jibun.before) if code in alive} if jibun is not None else set()
-    )
+    no_parcels = JibunEvidence({}, {}, "")
+    newly: dict[int, set[str]] = {}
+
+    def evidence(code: str) -> tuple[JibunEvidence | None, str]:
+        """The 지번 evidence `code` is judged on, or (None, why it has none)."""
+
+        if jibun is None:
+            return None, "jibun evidence off"
+        if isinstance(jibun, JibunEvidence):
+            return jibun, ""
+        if code in jibun.by_code:
+            return jibun.by_code[code], ""
+        if code in jibun.awaiting:
+            return None, jibun.awaiting[code]
+        waiting = sorted(leaf for leaf in jibun.awaiting if _under(leaf, code))
+        if waiting:  # a 시군구 or 시도 rolls up from 동 still waiting for their editions
+            return None, f"{len(waiting)} codes below wait: {jibun.awaiting[waiting[0]]}"
+        return no_parcels, ""
+
+    def newly_held(ev: JibunEvidence) -> set[str]:
+        if id(ev) not in newly:
+            newly[id(ev)] = {code for code in set(ev.after) - set(ev.before) if code in alive}
+        return newly[id(ev)]
 
     def jibun_best(old: str) -> tuple[str, float, bool]:
         """(best new code, its share of the old code's 지번, whether it is the only best)."""
 
-        before = jibun.before.get(old, set()) if jibun is not None else set()
+        ev, _ = evidence(old)
+        before = ev.before.get(old, set()) if ev is not None else set()
         if not before:
             return "", 0.0, False
         scored = sorted(
-            ((len(before & jibun.after.get(new, set())), new) for new in newly_held if code_level(new) == code_level(old)),
+            ((len(before & ev.after.get(new, set())), new) for new in newly_held(ev) if code_level(new) == code_level(old)),
             reverse=True,
         )
         if not scored or scored[0][0] == 0:
@@ -445,7 +477,8 @@ def pair_changes(
 
     def leaf_weight(code: str) -> int:
         if code not in weight:
-            weight[code] = max(1, len(jibun.before.get(code, set()))) if jibun is not None else 1
+            ev, _ = evidence(code)
+            weight[code] = max(1, len(ev.before.get(code, set()))) if ev is not None else 1
         return weight[code]
 
     while True:
@@ -464,7 +497,7 @@ def pair_changes(
             if level in LEAF_LEVELS:
                 best, share, unique = jibun_best(old)
                 if best and unique and share >= min_share:  # 2
-                    accept(old, best, f"derived:parcel-jibun:{jibun.label}", "jibun", f"jibun_share:{share:.4f}")
+                    accept(old, best, f"derived:parcel-jibun:{evidence(old)[0].label}", "jibun", f"jibun_share:{share:.4f}")
                     continue
                 news = links_by_old.get(old, set())
                 if len(news) == 1 and news <= alive:  # 3
@@ -487,14 +520,15 @@ def pair_changes(
         row = by_code.get(old)
         candidates = rule_candidates(old)
         best, share, unique = jibun_best(old)
-        before = jibun.before.get(old, set()) if jibun is not None else set()
+        ev, waiting_for = evidence(old)
+        before = ev.before.get(old, set()) if ev is not None else set()
         split_into = {
-            new: len(before & jibun.after.get(new, set()))
-            for new in sorted(newly_held)
-            if code_level(new) == code_level(old) and before & jibun.after.get(new, set())
-        }
-        if jibun is None:
-            seen, status = "jibun evidence off", "awaiting_data"
+            new: len(before & ev.after.get(new, set()))
+            for new in sorted(newly_held(ev))
+            if code_level(new) == code_level(old) and before & ev.after.get(new, set())
+        } if ev is not None else {}
+        if ev is None:
+            seen, status = waiting_for, "awaiting_data"
         elif not before:
             seen, status = "no parcels before", "steward"
         elif not best:

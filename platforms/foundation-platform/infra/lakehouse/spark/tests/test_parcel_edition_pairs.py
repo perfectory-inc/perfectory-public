@@ -1,0 +1,295 @@
+"""Parcel editions in the source contract, and the 지번 step reading each change across its own
+pair of them (root ADR-0144 §3.2, §4; ADR-0148), on synthetic data.
+
+The codes are the synthetic 시도 97–98 and the editions are dated 2099, so nothing here is a real
+place or a real release. Every refusal is proven by planting what it refuses: an object named by
+two editions, an edition whose members are another's, two editions sharing a handoff prefix, a
+change whose editions the contract does not hold, one the contract holds but the parcel table
+does not, and the other spelling of a snapshot id.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+SPARK_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SPARK_DIR / "jobs"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import code_go_kr_legal_dong as cg  # noqa: E402
+import legal_dong_code_change_pairs as pairs_job  # noqa: E402
+import vworld_parcel_editions as editions  # noqa: E402
+from test_code_go_kr_legal_dong import CONTRACT, as_rows, pnu, row, table_html  # noqa: E402
+
+MIN_SHARE = CONTRACT["pairing"]["jibun_overlap_min_share"]
+SPRING, AUTUMN = "20990301", "20990901"
+
+
+def edition_entry(name: str, extracted: str, latest: str | None = None) -> dict:
+    """One synthetic edition: 시도 97 and 98, one 시군구 each, extracted on `extracted`."""
+
+    objects = [
+        {"object_key": f"bronze/source=vworldkr__parcel/{name}-{code}.zip", "bytes": 1,
+         "dataset_name": f"LSMD_CONT_LDREG_{code}_{name}", "region_code": code,
+         "granularity": "sido" if len(code) == 2 else "sigungu"}
+        for code in ("97", "98", "97110", "98110")
+    ]
+    return {"provider_base_month": f"{name[:4]}-{name[4:]}",
+            "extracted_on": {"earliest": extracted, "latest": latest or extracted},
+            "handoff_prefix": f"silver-handoff/synthetic/edition={name}",
+            "granularity_counts": {"sido": 2, "sigungu": 2}, "objects": objects}
+
+
+def contract(*names: str, served: str | None = None) -> dict:
+    dates = {"209902": "2099-02-10", "209906": "2099-06-10", "209910": "2099-10-10"}
+    held = {name: edition_entry(name, dates[name]) for name in names}
+    return {"schema_version": 2, "load_granularity": "sigungu", "snapshot_id_prefix": "vworldkr__parcel-",
+            "served_edition": served or names[0], "handoff_suffix": ".jsonl.gz", "editions": held}
+
+
+def two_changes():
+    """Two renames months apart: 갑동 → 새갑동 in 97 in spring, 병동 → 새병동 in 98 in autumn.
+    The names differ, so the date + name rule settles neither; only 지번 can."""
+
+    return as_rows(table_html([
+        row("9700000000", "합성시", parent="0000000000", created="20000101"),
+        row("9711000000", "합성시 가구", parent="9700000000", created="20000101"),
+        row("9711010100", "합성시 가구 갑동", "폐지", "9711000000", abolished=SPRING),
+        row("9711010300", "합성시 가구 새갑동", parent="9711000000", created=SPRING),
+        row("9800000000", "합성도", parent="0000000000", created="20000101"),
+        row("9811000000", "합성도 나구", parent="9800000000", created="20000101"),
+        row("9811010100", "합성도 나구 병동", "폐지", "9811000000", abolished=AUTUMN),
+        row("9811010300", "합성도 나구 새병동", parent="9811000000", created=AUTUMN),
+    ]))
+
+
+# Where each edition saw the parcels: 갑동's 지번 (1–20) move in spring, 병동's (101–120) in autumn.
+PARCELS = {
+    "209902": [pnu("9711010100", n) for n in range(1, 21)] + [pnu("9811010100", n) for n in range(101, 121)],
+    "209906": [pnu("9711010300", n) for n in range(1, 21)] + [pnu("9811010100", n) for n in range(101, 121)],
+    "209910": [pnu("9711010300", n) for n in range(1, 21)] + [pnu("9811010300", n) for n in range(101, 121)],
+}
+
+
+def table_holding(*loaded: str):
+    """A parcel table holding `loaded` editions: PNUs under the asked codes, None for an edition it lacks."""
+
+    def pnus_of(name: str, codes: set[str], lots: set[str] | None = None):
+        if name not in loaded:
+            return None
+        return [value for value in PARCELS[name] if value[:10] in codes and (lots is None or value[10:] in lots)]
+
+    return pnus_of
+
+
+def pair_with(source: dict, *loaded: str):
+    rows = two_changes()
+    jibun = pairs_job.edition_evidence(rows, CONTRACT["pairing"]["floor_date"], source, table_holding(*loaded))
+    return cg.pair_changes(rows, CONTRACT["pairing"]["floor_date"], jibun=jibun, min_share=MIN_SHARE), jibun
+
+
+class EditionContractTest(unittest.TestCase):
+    def test_the_real_contract_holds_its_editions(self):
+        real = editions.load()
+        self.assertIn(editions.served(real), editions.names(real))
+        for name in editions.names(real):
+            self.assertEqual(editions.edition_of_snapshot_id(real, editions.snapshot_id(real, name)), name)
+            self.assertTrue(editions.load_objects(real, name))
+        # The served edition decides the cadastral 시도, not the union of every edition held.
+        served = editions.edition(real, editions.served(real))
+        self.assertEqual(editions.cadastral_sido(real),
+                         sorted({o["region_code"][:2] for o in served["objects"] if o["granularity"] == "sido"}))
+
+    def test_an_edition_loads_under_one_id_and_one_validity(self):
+        source = contract("209906")
+        self.assertEqual(editions.snapshot_id(source, "209906"), "vworldkr__parcel-209906")
+        self.assertEqual(editions.valid_from_utc("209906"), "2099-06-01T00:00:00Z")
+        # 심은 위반: 같은 판의 다른 철자(2026-09 의 수작업 적재가 쓴 것)는 판이 아니다.
+        with self.assertRaisesRegex(editions.EditionError, "not the snapshot id of an edition"):
+            editions.edition_of_snapshot_id(source, "vworldkr__parcel:209906")
+        with self.assertRaisesRegex(editions.EditionError, "no edition '209910'"):
+            editions.snapshot_id(source, "209910")
+
+    def test_a_contract_that_confuses_editions_is_refused(self):
+        good = contract("209902", "209906")
+        editions.validate(good)
+        planted = {
+            "named by editions": lambda c: c["editions"]["209906"]["objects"].append(
+                copy.deepcopy(c["editions"]["209902"]["objects"][0])),
+            "not edition 209906": lambda c: c["editions"]["209906"]["objects"][0].update(
+                dataset_name="LSMD_CONT_LDREG_97_209902"),
+            "share the handoff prefix": lambda c: c["editions"]["209906"].update(
+                handoff_prefix=c["editions"]["209902"]["handoff_prefix"]),
+            "counts 3 sigungu": lambda c: c["editions"]["209906"]["granularity_counts"].update(sigungu=3),
+            "two coverings": lambda c: (c["editions"]["209906"]["objects"].pop(),
+                                        c["editions"]["209906"]["granularity_counts"].update(sigungu=1)),
+            "served_edition": lambda c: c.update(served_edition="209910"),
+            "schema_version": lambda c: c.update(schema_version=1),
+            "is not YYYYMM": lambda c: c["editions"].update({"2099-6": c["editions"].pop("209906")}),
+            "to an earlier": lambda c: c["editions"]["209906"]["extracted_on"].update(latest="2099-06-01"),
+        }
+        for message, plant in planted.items():
+            bad = copy.deepcopy(good)
+            plant(bad)
+            with self.subTest(message), self.assertRaisesRegex(editions.EditionError, message):
+                editions.validate(bad)
+
+    def test_the_bracketing_editions_are_wholly_before_and_wholly_after(self):
+        source = contract("209902", "209906", "209910")
+        self.assertEqual(editions.bracketing(source, SPRING), ("209902", "209906"))
+        self.assertEqual(editions.bracketing(source, "2099-09-01"), ("209906", "209910"))
+        self.assertEqual(editions.bracketing(source, "20990110"), (None, "209902"))
+        self.assertEqual(editions.bracketing(source, "20991201"), ("209910", None))
+        # 심은 함정: 바뀐 날에 뽑은 판, 그날을 걸쳐 뽑은 판은 어느 쪽이 담겼는지 모른다. 어느 쪽도 아니다.
+        self.assertEqual(editions.bracketing(source, "20990610"), ("209902", "209910"))
+        source["editions"]["209906"]["extracted_on"] = {"earliest": "2099-05-30", "latest": "2099-06-02"}
+        self.assertEqual(editions.bracketing(source, "20990601"), ("209902", "209910"))
+
+    def test_the_command_line_answers_from_the_contract_and_refuses_an_unknown_edition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "c.json"
+            path.write_text(json.dumps(contract("209902", "209906")), encoding="utf-8")
+            with mock.patch("sys.stdout") as out:
+                self.assertEqual(editions.main(["handoff-keys", "--edition", "209906", "--contract", str(path)]), 0)
+            printed = "".join(call.args[0] for call in out.write.call_args_list)
+            self.assertEqual(printed.split(), [
+                "silver-handoff/synthetic/edition=209906/209906-97110.jsonl.gz",
+                "silver-handoff/synthetic/edition=209906/209906-98110.jsonl.gz"])
+            with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+                self.assertEqual(editions.main(["snapshot-id", "--edition", "209910", "--contract", str(path)]), 2)
+                self.assertEqual(editions.main(["snapshot-id", "--contract", str(path)]), 2)
+
+
+class EachChangeReadsItsOwnEditionsTest(unittest.TestCase):
+    def test_two_changes_are_paired_across_their_own_pairs(self):
+        result, _ = pair_with(contract("209902", "209906", "209910"), "209902", "209906", "209910")
+        got = {p["old_code"]: (p["new_code"], p["source"]) for p in result.pairs}
+        self.assertEqual(got["9711010100"],
+                         ("9711010300", "derived:parcel-jibun:vworldkr__parcel-209902->vworldkr__parcel-209906"))
+        self.assertEqual(got["9811010100"],
+                         ("9811010300", "derived:parcel-jibun:vworldkr__parcel-209906->vworldkr__parcel-209910"))
+        self.assertEqual(result.review, [])
+
+    def test_reading_the_later_edition_for_held_jibun_only_changes_nothing(self):
+        # 나중 판은 폐지된 동이 가졌던 지번만 읽는다(전남광주 630만 필지를 드라이버로 모으지 않으려고).
+        # 그 거름이 결과를 바꾸면 안 된다: 거르지 않은 표와 같은 짝, 같은 목록이어야 한다.
+        rows = two_changes() + as_rows(table_html([
+            row("9811010400", "합성도 나구 딴동", parent="9811000000", created=AUTUMN)]))
+        floor = CONTRACT["pairing"]["floor_date"]
+        source = contract("209902", "209906", "209910")
+        extra = {"209910": PARCELS["209910"] + [pnu("9811010400", n) for n in (101, 102, 900, 901)]}
+        filtered_reads: list[set[str] | None] = []
+
+        def table(name, codes, lots=None, honour=True):
+            filtered_reads.append(lots)
+            pnus = extra.get(name, PARCELS[name])
+            return [p for p in pnus if p[:10] in codes and (not honour or lots is None or p[10:] in lots)]
+
+        results = []
+        for honour in (True, False):
+            jibun = pairs_job.edition_evidence(rows, floor, source, lambda n, c, lots=None: table(n, c, lots, honour))
+            results.append(cg.pair_changes(rows, floor, jibun=jibun, min_share=MIN_SHARE))
+        self.assertEqual(results[0].pairs, results[1].pairs)
+        self.assertEqual(results[0].review, results[1].review)
+        self.assertTrue([lots for lots in filtered_reads if lots], "the later edition must have been read through the filter")
+
+    def test_one_pair_for_both_changes_would_have_missed_one(self):
+        # 지금까지의 방식: 한 쌍(봄 전 → 봄 뒤)으로 둘 다 판단하면 가을 변경은 볼 것이 없다.
+        rows = two_changes()
+        floor = CONTRACT["pairing"]["floor_date"]
+        before, after = pairs_job.evidence_codes(rows, floor)
+        one = cg.JibunEvidence(cg.jibun_sets(PARCELS["209902"], before), cg.jibun_sets(PARCELS["209906"], after), "one")
+        result = cg.pair_changes(rows, floor, jibun=one, min_share=MIN_SHARE)
+        self.assertNotIn("9811010100", {p["old_code"] for p in result.pairs})
+
+    def test_a_change_whose_edition_the_contract_lacks_waits_and_names_it(self):
+        result, jibun = pair_with(contract("209902", "209906"), "209902", "209906")
+        self.assertIn("9711010100", {p["old_code"] for p in result.pairs})
+        [item] = result.review
+        self.assertEqual((item["old_code"], item["status"]), ("9811010100", "awaiting_data"))
+        self.assertEqual(item["jibun"], "needs a parcel edition extracted after 20990901; the source contract holds none")
+        self.assertIn("awaiting=1", pairs_job.evidence_label(jibun))
+        with self.assertRaisesRegex(ValueError, "the data decides it"):
+            pairs_job.steward_rows(result.review, ["9811010100=9811010300"], "steward-a", "추정", None, "s", pairs_job.datetime.now())
+
+        result, _ = pair_with(contract("209906", "209910"), "209906", "209910")
+        waiting = {i["old_code"]: i["jibun"] for i in result.review}
+        self.assertEqual(waiting, {"9711010100": "needs a parcel edition extracted before 20990301; the source contract holds none"})
+
+    def test_an_edition_in_the_contract_but_not_in_the_table_is_not_no_parcels(self):
+        # 심은 누락: 계약은 가을 판을 알지만 표에는 아직 적재되지 않았다. 빈 집합으로 읽으면 '지번이 모두
+        # 떠났다'가 되어 사람에게 넘어간다. 판단 대기로 남고, 필요한 판을 이름으로 말한다.
+        result, _ = pair_with(contract("209902", "209906", "209910"), "209902", "209906")
+        [item] = result.review
+        self.assertEqual((item["old_code"], item["status"]), ("9811010100", "awaiting_data"))
+        self.assertEqual(item["jibun"], "needs parcel edition 209910 (vworldkr__parcel-209910), which is not loaded into the parcel table")
+
+    def test_a_sigungu_above_waiting_dongs_waits_too(self):
+        rows = two_changes() + as_rows(table_html([
+            row("9812000000", "합성도 옛구", "폐지", "9800000000", abolished=AUTUMN),
+            row("9812010100", "합성도 옛구 정동", "폐지", "9812000000", abolished=AUTUMN),
+        ]))
+        floor = CONTRACT["pairing"]["floor_date"]
+        jibun = pairs_job.edition_evidence(rows, floor, contract("209902", "209906"), table_holding("209902", "209906"))
+        review = {i["old_code"]: (i["status"], i["jibun"]) for i in cg.pair_changes(rows, floor, jibun=jibun, min_share=MIN_SHARE).review}
+        self.assertEqual(review["9812000000"][0], "awaiting_data")
+        self.assertTrue(review["9812000000"][1].startswith("1 codes below wait: needs a parcel edition extracted after"))
+
+
+class TheJobReadsEditionsFromTheContractTest(unittest.TestCase):
+    def run_job(self, tmp: Path, source: dict, files: dict[str, str]) -> dict:
+        (tmp / "contract.json").write_text(json.dumps(source), encoding="utf-8")
+        (tmp / "table.html").write_text(table_html([
+            row("9700000000", "합성시", parent="0000000000", created="20000101"),
+            row("9711000000", "합성시 가구", parent="9700000000", created="20000101"),
+            row("9711010100", "합성시 가구 갑동", "폐지", "9711000000", abolished=SPRING),
+            row("9711010300", "합성시 가구 새갑동", parent="9711000000", created=SPRING),
+            row("9800000000", "합성도", parent="0000000000", created="20000101"),
+            row("9811000000", "합성도 나구", parent="9800000000", created="20000101"),
+            row("9811010100", "합성도 나구 병동", "폐지", "9811000000", abolished=AUTUMN),
+            row("9811010300", "합성도 나구 새병동", parent="9811000000", created=AUTUMN),
+        ]), encoding="utf-8")
+        argv = ["--snapshot-date", "2099-11-01", "--table-source-record-id", "k", "--validate-only",
+                "--table-html", str(tmp / "table.html"), "--jibun-evidence", "editions",
+                "--summary-output", str(tmp / "summary.json"), "--review-output", str(tmp / "review.json")]
+        for name in files:
+            (tmp / f"{name}.txt").write_text("\n".join(PARCELS[name]) + "\n", encoding="utf-8")
+            argv += ["--edition-pnus", f"{name}={tmp / f'{name}.txt'}"]
+        with mock.patch.dict(os.environ, {editions.CONTRACT_ENV: str(tmp / "contract.json")}), mock.patch("sys.stdout"):
+            self.assertEqual(pairs_job.main(argv), 0)
+        return {"summary": json.loads((tmp / "summary.json").read_text(encoding="utf-8")),
+                "review": json.loads((tmp / "review.json").read_text(encoding="utf-8"))["review"]}
+
+    def test_the_job_pairs_both_changes_and_names_what_it_waits_for(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            done = self.run_job(Path(tmp), contract("209902", "209906", "209910"), {n: n for n in PARCELS})
+            self.assertEqual(done["summary"]["pairs_by_evidence"], {"jibun": 2})
+            self.assertEqual(done["summary"]["jibun_evidence"],
+                             "editions[vworldkr__parcel-209902->vworldkr__parcel-209906, "
+                             "vworldkr__parcel-209906->vworldkr__parcel-209910] awaiting=0")
+        with tempfile.TemporaryDirectory() as tmp:
+            waiting = self.run_job(Path(tmp), contract("209902", "209906", "209910"), {"209902": "", "209906": ""})
+            self.assertEqual([(i["old_code"], i["status"]) for i in waiting["review"]], [("9811010100", "awaiting_data")])
+            self.assertIn("209910", waiting["review"][0]["jibun"])
+
+    def test_the_one_pair_flags_are_gone(self):
+        base = ["--snapshot-date", "2099-11-01", "--table-source-record-id", "k", "--validate-only", "--table-html", "t"]
+        for gone in (["--parcels-before-snapshot-id", "a", "--parcels-after-snapshot-id", "b"],
+                     ["--parcels-before-pnus", "a", "--parcels-after-pnus", "b"]):
+            with self.subTest(gone=gone), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                pairs_job.parse_args(base + gone)
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):  # a stand-in table without the step on
+            pairs_job.parse_args(base + ["--edition-pnus", "209902=x"])
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            pairs_job.parse_args(base + ["--jibun-evidence", "editions", "--edition-pnus", "2099-2=x"])
+
+
+if __name__ == "__main__":
+    unittest.main()

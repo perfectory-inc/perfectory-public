@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""The cadastral parcel editions the source contract names (root ADR-0067, ADR-0148).
+
+`vworld-parcel-source-objects.json` lists, per provider edition (`YYYYMM`), the Bronze objects
+that hold it, when the provider extracted it, and where its converted handoffs live. Everything
+else about an edition is derived here, once, for every reader — the converter and the batch
+loader (through the command line below), the legal-dong pairing, the parcel panel and the
+lineage migration (by import):
+
+- its `source_snapshot_id` in `silver.parcel_boundaries` (`snapshot_id_prefix` + edition), and
+  its `valid_from_utc` (the first instant of its base month). Both used to be typed per run, and
+  the same June data was written as `vworldkr__parcel-202606` while the September data was written
+  as `vworldkr__parcel:202609` with the collection time as its validity;
+- which edition the map and the catalog are built from (`served_edition`);
+- which two editions bracket a code change (`bracketing`), for the legal-dong pairing's 지번 step.
+
+The check (`validate`) refuses a contract whose editions could be mistaken for one another: an
+object named in two editions, a member whose edition is not its edition's, a granularity whose
+coverage disagrees with the other, or two editions sharing a handoff prefix.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from datetime import date
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+SCHEMA_VERSION = 2
+CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "vworld-parcel-source-objects.json"
+CONTRACT_ENV = "VWORLD_PARCEL_SOURCE_CONTRACT"
+EDITION = re.compile(r"^(\d{4})(0[1-9]|1[0-2])$")
+GRANULARITIES = ("sido", "sigungu")
+
+
+class EditionError(ValueError):
+    """The contract, or the edition asked of it, cannot be used as asked."""
+
+
+def contract_path() -> Path:
+    return Path(os.environ.get(CONTRACT_ENV) or CONTRACT_PATH)
+
+
+def load(path: Path | None = None) -> dict[str, Any]:
+    contract = json.loads((path or contract_path()).read_text(encoding="utf-8"))
+    validate(contract)
+    return contract
+
+
+def _day(value: str, what: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError) as error:
+        raise EditionError(f"{what} is not a YYYY-MM-DD date: {value!r}") from error
+
+
+def validate(contract: Mapping[str, Any]) -> None:
+    if contract.get("schema_version") != SCHEMA_VERSION:
+        raise EditionError(f"source object contract schema_version {contract.get('schema_version')!r} is not {SCHEMA_VERSION}")
+    editions = contract.get("editions")
+    if not isinstance(editions, Mapping) or not editions:
+        raise EditionError("the source contract names no editions")
+    if contract.get("load_granularity") not in GRANULARITIES:
+        raise EditionError(f"load_granularity must be one of {GRANULARITIES}")
+    if contract.get("served_edition") not in editions:
+        raise EditionError(f"served_edition {contract.get('served_edition')!r} is not one of the editions {sorted(editions)}")
+    if not contract.get("snapshot_id_prefix") or not contract.get("handoff_suffix"):
+        raise EditionError("the source contract must name snapshot_id_prefix and handoff_suffix")
+    seen_keys: dict[str, str] = {}
+    seen_names: dict[str, str] = {}
+    prefixes: dict[str, str] = {}
+    for name, edition in editions.items():
+        if not EDITION.fullmatch(name):
+            raise EditionError(f"edition {name!r} is not YYYYMM")
+        if edition.get("provider_base_month") != f"{name[:4]}-{name[4:]}":
+            raise EditionError(f"edition {name} names provider_base_month {edition.get('provider_base_month')!r}")
+        extracted = edition.get("extracted_on") or {}
+        if _day(extracted.get("earliest"), f"{name} extracted_on.earliest") > _day(extracted.get("latest"), f"{name} extracted_on.latest"):
+            raise EditionError(f"edition {name} was extracted from {extracted['earliest']} to an earlier {extracted['latest']}")
+        prefix = edition.get("handoff_prefix")
+        if not prefix:
+            raise EditionError(f"edition {name} names no handoff_prefix")
+        if prefix in prefixes:
+            raise EditionError(f"editions {prefixes[prefix]} and {name} share the handoff prefix {prefix}; one would read the other's handoffs")
+        prefixes[prefix] = name
+        objects = edition.get("objects") or []
+        covered: dict[str, set[str]] = {granularity: set() for granularity in GRANULARITIES}
+        for obj in objects:
+            key = obj["object_key"]
+            base = key.rsplit("/", 1)[-1]
+            if key in seen_keys or base in seen_names:
+                raise EditionError(f"{key} is named by editions {seen_keys.get(key) or seen_names.get(base)} and {name}")
+            seen_keys[key], seen_names[base] = name, name
+            if not base.endswith(".zip"):
+                raise EditionError(f"{key} is not a .zip")
+            if obj["granularity"] not in GRANULARITIES:
+                raise EditionError(f"{key} has granularity {obj['granularity']!r}")
+            if obj["dataset_name"] != f"LSMD_CONT_LDREG_{obj['region_code']}_{name}":
+                raise EditionError(f"{key} holds {obj['dataset_name']}, not edition {name} of {obj['region_code']}")
+            covered[obj["granularity"]].add(obj["region_code"][:2])
+        counts = edition.get("granularity_counts") or {}
+        for granularity in GRANULARITIES:
+            held = sum(1 for obj in objects if obj["granularity"] == granularity)
+            if counts.get(granularity) != held:
+                raise EditionError(f"edition {name} counts {counts.get(granularity)} {granularity} objects and lists {held}")
+        if not covered["sido"] or covered["sido"] != covered["sigungu"]:
+            raise EditionError(f"edition {name}: its sido objects cover {sorted(covered['sido'])} and its sigungu objects "
+                               f"{sorted(covered['sigungu'])}; they must be two coverings of one country")
+
+
+def edition(contract: Mapping[str, Any], name: str) -> Mapping[str, Any]:
+    found = contract["editions"].get(name)
+    if found is None:
+        raise EditionError(f"the source contract holds no edition {name!r}; it holds {sorted(contract['editions'])}")
+    return found
+
+
+def names(contract: Mapping[str, Any]) -> list[str]:
+    return sorted(contract["editions"])
+
+
+def served(contract: Mapping[str, Any]) -> str:
+    return str(contract["served_edition"])
+
+
+def snapshot_id(contract: Mapping[str, Any], name: str) -> str:
+    edition(contract, name)
+    return f"{contract['snapshot_id_prefix']}{name}"
+
+
+def edition_of_snapshot_id(contract: Mapping[str, Any], value: str) -> str:
+    """The edition a `source_snapshot_id` names; anything else is refused, including the other spelling."""
+
+    prefix = contract["snapshot_id_prefix"]
+    name = value[len(prefix):] if value.startswith(prefix) else ""
+    if name not in contract["editions"]:
+        raise EditionError(f"{value!r} is not the snapshot id of an edition; they are "
+                           f"{[snapshot_id(contract, n) for n in names(contract)]}")
+    return name
+
+
+def valid_from_utc(name: str) -> str:
+    match = EDITION.fullmatch(name)
+    if match is None:
+        raise EditionError(f"edition {name!r} is not YYYYMM")
+    return f"{match.group(1)}-{match.group(2)}-01T00:00:00Z"
+
+
+def load_objects(contract: Mapping[str, Any], name: str) -> list[Mapping[str, Any]]:
+    """The objects of one edition at the load granularity (the other covering would double it)."""
+
+    want = contract["load_granularity"]
+    return [obj for obj in edition(contract, name)["objects"] if obj["granularity"] == want]
+
+
+def handoff_key(contract: Mapping[str, Any], name: str, object_key: str) -> str:
+    base = object_key.rsplit("/", 1)[-1][: -len(".zip")]
+    return f"{edition(contract, name)['handoff_prefix']}/{base}{contract['handoff_suffix']}"
+
+
+def all_objects(contract: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [obj for name in names(contract) for obj in contract["editions"][name]["objects"]]
+
+
+def cadastral_sido(contract: Mapping[str, Any]) -> list[str]:
+    """The 시도 the served parcel set carries: its sido objects."""
+
+    return sorted({obj["region_code"][:2] for obj in edition(contract, served(contract))["objects"]
+                   if obj["granularity"] == "sido"})
+
+
+def bracketing(contract: Mapping[str, Any], effective: str) -> tuple[str | None, str | None]:
+    """(the latest edition wholly extracted before `effective`, the earliest wholly extracted after it).
+
+    `effective` is the change's day (`YYYYMMDD` or `YYYY-MM-DD`; a code abolished that day stops
+    on it). An edition extracted on the day itself, or across it, could hold either side and is
+    neither. None where the contract holds no such edition yet.
+    """
+
+    day = _day(effective if "-" in effective else f"{effective[:4]}-{effective[4:6]}-{effective[6:]}", "change date")
+    before = after = None
+    for name in names(contract):
+        extracted = contract["editions"][name]["extracted_on"]
+        if _day(extracted["latest"], name) < day:
+            before = name
+        elif after is None and _day(extracted["earliest"], name) > day:
+            after = name
+    return before, after
+
+
+# --- command line (the shell loaders' only way into the contract) -----------------------------
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("command", choices=("check", "editions", "served", "snapshot-id", "valid-from",
+                                            "handoff-prefix", "handoff-suffix", "source-keys", "handoff-keys"))
+    parser.add_argument("--edition", help="YYYYMM; required by every command naming one edition")
+    parser.add_argument("--contract", help=f"defaults to ${CONTRACT_ENV}, then the contract beside this job")
+    args = parser.parse_args(argv)
+    try:
+        contract = load(Path(args.contract) if args.contract else None)
+        if args.command == "check":
+            print(f"ok editions={','.join(names(contract))} served={served(contract)}")
+            return 0
+        if args.command == "editions":
+            print("\n".join(names(contract)))
+            return 0
+        if args.command == "served":
+            print(served(contract))
+            return 0
+        if args.command == "handoff-suffix":
+            print(contract["handoff_suffix"])
+            return 0
+        if not args.edition:
+            raise EditionError(f"{args.command} needs --edition (one of {names(contract)})")
+        if args.command == "snapshot-id":
+            print(snapshot_id(contract, args.edition))
+        elif args.command == "valid-from":
+            edition(contract, args.edition)
+            print(valid_from_utc(args.edition))
+        elif args.command == "handoff-prefix":
+            print(edition(contract, args.edition)["handoff_prefix"])
+        elif args.command == "source-keys":
+            print("\n".join(obj["object_key"] for obj in load_objects(contract, args.edition)))
+        else:
+            print("\n".join(handoff_key(contract, args.edition, obj["object_key"]) for obj in load_objects(contract, args.edition)))
+        return 0
+    except EditionError as error:
+        print(f"vworld-parcel-editions: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

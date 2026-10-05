@@ -8,9 +8,11 @@ One run reads one code.go.kr full-table snapshot (`reference.legal_dong_code_sna
 
 1. pairs every change on or after the contract's floor from data only
    (`code_go_kr_legal_dong.pair_changes`): what the change table already records, the date + name
-   rule, the 지번 sets of the two parcel snapshots (`--parcels-before-snapshot-id`,
-   `--parcels-after-snapshot-id`; off without them), and a roll-up of 동 pairs to the 시군구 and
-   시도 above them. The official parcel-number history (필지고유번호변동연혁) is not collected yet,
+   rule, the 지번 sets of the parcel editions that bracket each change (`--jibun-evidence
+   editions`: per abolished 동, the latest edition the source contract holds extracted before its
+   abolition and the earliest after, read from `silver.parcel_boundaries`; a code whose editions
+   the contract does not hold, or the table does not, waits for them by name), and a roll-up of
+   동 pairs to the 시군구 and 시도 above them. The official parcel-number history (필지고유번호변동연혁) is not collected yet,
    so that step stays off and what only it could settle is reported `awaiting_data` (ADR-0144 §4).
    The parcel lineage is not evidence here: it reads its 동 pairs from this table (ADR-0145 §2);
 2. appends the changes not yet recorded to `reference.legal_dong_code_change`, the only table it
@@ -43,21 +45,20 @@ from typing import Any, Callable, Mapping, Sequence
 
 import code_go_kr_legal_dong as cg
 import legal_dong_code_change_views as views
+import vworld_parcel_editions as editions
 
 JOB_NAME = "legal_dong_code_change_pairs"
 CHANGE_CONTRACT = "reference.legal_dong_code_change"
 SNAPSHOT_CONTRACT = "reference.legal_dong_code_snapshot"
 PROJECTION_SCHEMA = "foundation-platform.sigungu_crosswalk_projection.v2"
-PARCEL_SOURCE_PATH = Path(__file__).resolve().parents[2] / "contracts" / "vworld-parcel-source-objects.json"
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-SNAPSHOT_ID = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 STEWARD_ID = re.compile(r"^[A-Za-z0-9._@-]{1,64}$")
 
 
 def cadastral_sido(parcel_source: Mapping[str, Any]) -> list[str]:
-    """The 시도 the cadastral parcel set carries: its `granularity: sido` objects."""
+    """The 시도 the served cadastral parcel set carries (`vworld_parcel_editions.cadastral_sido`)."""
 
-    return sorted({obj["region_code"][:2] for obj in parcel_source["objects"] if obj["granularity"] == "sido"})
+    return editions.cadastral_sido(parcel_source)
 
 
 def change_key(kind: str, source: str, old_code: str, new_code: str) -> str:
@@ -124,7 +125,7 @@ def plan_derivation(
     cadastral: Sequence[str],
     derivation_run_id: str,
     now: datetime,
-    jibun: cg.JibunEvidence | None = None,
+    jibun: cg.JibunEvidence | cg.EditionEvidence | None = None,
 ) -> dict[str, Any]:
     """Everything one run decides, without touching the lakehouse.
 
@@ -160,7 +161,7 @@ def plan_derivation(
             "table_rows": len(rows),
             "pairs": len(result.pairs),
             "pairs_by_evidence": by_source,
-            "jibun_evidence": jibun.label if jibun is not None else "off",
+            "jibun_evidence": evidence_label(jibun),
             "fresh_changes": len(fresh),
             "crosswalk_entries": len(crosswalk["sigungu"]),
             "governed_sido": [sido["new_code"] for sido in crosswalk["sido"]],
@@ -306,8 +307,84 @@ def evidence_codes(rows: Sequence[Mapping[str, str]], floor: str) -> tuple[set[s
     return before, after
 
 
+def edition_evidence(
+    rows: Sequence[Mapping[str, str]],
+    floor: str,
+    parcel_source: Mapping[str, Any],
+    pnus_of: Callable[[str, set[str], set[str] | None], list[str] | None],
+) -> cg.EditionEvidence:
+    """Each abolished 동·리's 지번 evidence from the two editions that bracket its own abolition.
+
+    The editions are the source contract's (`vworld_parcel_editions.bracketing`): the latest one
+    extracted wholly before the abolition and the earliest wholly after it, so a 2026-01 merger and
+    a 2026-07 one are each read across their own change, not across one pair chosen for all.
+    `pnus_of(edition, codes, lots)` returns that edition's PNUs under `codes` (and, when `lots` is
+    given, only those whose 지번 is in it), or None when the edition is not in the parcel table. The
+    later edition is read for the 지번 the abolished 동 held only: a 지번 none of them held cannot
+    count toward any overlap, and the codes created since the floor hold whole provinces (2026-07's
+    전남광주 is 6.3 million parcels) where the abolished 동 hold thousands. Either way a missing edition is not read as "no parcels": the code waits,
+    and its reason names the edition it needs (ADR-0144 §4).
+    """
+
+    before_codes, after_codes = evidence_codes(rows, floor)
+    abolished_on = {row["region_cd"]: row["abolished_date"] for row in rows if row["region_cd"] in before_codes}
+    by_pair: dict[tuple[str, str], set[str]] = {}
+    awaiting: dict[str, str] = {}
+    for code, day in sorted(abolished_on.items()):
+        before, after = editions.bracketing(parcel_source, day)
+        if before is None or after is None:
+            side = "before" if before is None else "after"
+            awaiting[code] = f"needs a parcel edition extracted {side} {day}; the source contract holds none"
+            continue
+        by_pair.setdefault((before, after), set()).add(code)
+    read: dict[tuple[str, frozenset[str], frozenset[str] | None], list[str] | None] = {}
+
+    def held(edition: str, codes: set[str], lots: set[str] | None = None) -> list[str] | None:
+        key = (edition, frozenset(codes), None if lots is None else frozenset(lots))
+        if key not in read:
+            read[key] = pnus_of(edition, codes, lots)
+        return read[key]
+
+    by_code: dict[str, cg.JibunEvidence] = {}
+    for (before, after), codes in sorted(by_pair.items()):
+        before_pnus = held(before, codes)
+        before_sets = cg.jibun_sets(before_pnus or [], codes)
+        after_pnus = held(after, after_codes, set().union(*before_sets.values()))
+        missing = [name for name, pnus in ((before, before_pnus), (after, after_pnus)) if pnus is None]
+        if missing:
+            named = ", ".join(f"{name} ({editions.snapshot_id(parcel_source, name)})" for name in missing)
+            for code in codes:
+                awaiting[code] = f"needs parcel edition {named}, which is not loaded into the parcel table"
+            continue
+        label = f"{editions.snapshot_id(parcel_source, before)}->{editions.snapshot_id(parcel_source, after)}"
+        evidence = cg.JibunEvidence(before_sets, cg.jibun_sets(after_pnus, after_codes), label)
+        for code in codes:
+            by_code[code] = evidence
+    return cg.EditionEvidence(by_code, awaiting)
+
+
+def evidence_label(jibun: cg.JibunEvidence | cg.EditionEvidence | None) -> str:
+    """What the 지번 step read, for the summary: off, one pair, or the edition pairs and how many wait."""
+
+    if jibun is None:
+        return "off"
+    if isinstance(jibun, cg.JibunEvidence):
+        return jibun.label
+    pairs = sorted({evidence.label for evidence in jibun.by_code.values()})
+    return f"editions[{', '.join(pairs) or 'none'}] awaiting={len(jibun.awaiting)}"
+
+
 def _read_pnu_file(path: str) -> list[str]:
     return [line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _local_pnus(files: Mapping[str, str], edition: str, codes: set[str], lots: set[str] | None) -> list[str] | None:
+    """`--edition-pnus` standing in for the parcel table, with the same filters the table read applies."""
+
+    if edition not in files:
+        return None
+    return [p for p in _read_pnu_file(files[edition])
+            if p[:10] in codes and (lots is None or (cg.pl.PNU_PATTERN.fullmatch(p) and cg.pl.lot(p) in lots))]
 
 
 # --- Spark ------------------------------------------------------------------------------------
@@ -319,10 +396,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--table-source-record-id", required=True, help="The Bronze key of that full table.")
     parser.add_argument("--table-html", help="With --validate-only: the local full table instead of the snapshot table.")
     parser.add_argument("--recorded-changes", help="With --validate-only: a JSON list of recorded change rows.")
-    parser.add_argument("--parcels-before-snapshot-id", help="silver.parcel_boundaries source_snapshot_id taken before the change.")
-    parser.add_argument("--parcels-after-snapshot-id", help="silver.parcel_boundaries source_snapshot_id taken after it.")
-    parser.add_argument("--parcels-before-pnus", help="With --validate-only: one PNU per line, before the change.")
-    parser.add_argument("--parcels-after-pnus", help="With --validate-only: one PNU per line, after it.")
+    parser.add_argument("--jibun-evidence", choices=("off", "editions"), default="off",
+                        help="editions: read each change across the parcel editions bracketing it (the source contract).")
+    parser.add_argument("--edition-pnus", action="append", default=[], metavar="EDITION=FILE",
+                        help="With --validate-only: one PNU per line of that edition, standing in for the parcel table.")
     parser.add_argument("--steward-decisions", help="A directory of staged steward decision files to fold in.")
     parser.add_argument("--projection-output")
     parser.add_argument("--review-output")
@@ -340,14 +417,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             parser.error(f"{label} must be a plain SQL identifier")
     if not all(IDENTIFIER.fullmatch(part) for part in args.parcel_table.split(".")):
         parser.error("parcel_table must be namespace.table")
-    for label in ("parcels_before_snapshot_id", "parcels_after_snapshot_id"):
-        value = getattr(args, label)
-        if value is not None and not SNAPSHOT_ID.fullmatch(value):
-            parser.error(f"{label} is not a snapshot id")
-    if (args.parcels_before_snapshot_id is None) != (args.parcels_after_snapshot_id is None):
-        parser.error("the 지번 evidence needs both --parcels-before-snapshot-id and --parcels-after-snapshot-id")
-    if (args.parcels_before_pnus is None) != (args.parcels_after_pnus is None):
-        parser.error("the 지번 evidence needs both --parcels-before-pnus and --parcels-after-pnus")
+    args.edition_pnu_files = {}
+    for value in args.edition_pnus:
+        name, sep, path = value.partition("=")
+        if not sep or not editions.EDITION.fullmatch(name) or not path or name in args.edition_pnu_files:
+            parser.error(f"--edition-pnus takes EDITION=FILE once per edition: {value!r}")
+        args.edition_pnu_files[name] = path
+    if args.edition_pnu_files and not (args.validate_only and args.jibun_evidence == "editions"):
+        parser.error("--edition-pnus stands in for the parcel table: it needs --validate-only and --jibun-evidence editions")
     date.fromisoformat(args.snapshot_date)
     if args.validate_only and not args.table_html:
         parser.error("--validate-only reads --table-html")
@@ -395,13 +472,20 @@ def _qualified(catalog: str, name: str) -> str:
     return ".".join(f"`{part}`" for part in [catalog, *name.split(".")])
 
 
-def _snapshot_pnus(spark, F, table: str, snapshot_id: str, codes: set[str]) -> list[str]:
-    """The PNUs of one parcel snapshot under `codes` only (a handful of 동, not the country)."""
+def _snapshot_pnus(spark, F, table: str, snapshot_id: str, codes: set[str], lots: set[str] | None = None) -> list[str] | None:
+    """The PNUs of one parcel edition under `codes`, and with a 지번 in `lots` when it is given, or None
+    when the table holds no row of that edition at all: an edition not loaded is not "no parcels"."""
 
-    if not codes:
+    edition = spark.table(table).filter(F.col("source_snapshot_id") == F.lit(snapshot_id))
+    if not edition.limit(1).collect():
+        return None
+    if not codes or (lots is not None and not lots):
         return []
-    frame = spark.table(table).filter(F.col("source_snapshot_id") == F.lit(snapshot_id))
-    frame = frame.filter(F.substring(F.col("pnu"), 1, 10).isin(sorted(codes)))
+    frame = edition.filter(F.substring(F.col("pnu"), 1, 10).isin(sorted(codes)))
+    if lots is not None:
+        wanted = spark.createDataFrame([(lot,) for lot in sorted(lots)], "lot string")
+        frame = frame.filter(F.col("pnu").rlike(r"^[0-9]{19}$")).join(
+            F.broadcast(wanted), F.substring(F.col("pnu"), 11, 9) == wanted["lot"], "left_semi")
     return [row["pnu"] for row in frame.select("pnu").collect()]
 
 
@@ -420,7 +504,8 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc).replace(microsecond=0)
     contract = cg.load_source_contract()
     floor = contract["pairing"]["floor_date"]
-    cadastral = cadastral_sido(json.loads(PARCEL_SOURCE_PATH.read_text(encoding="utf-8")))
+    parcel_source = editions.load()
+    cadastral = cadastral_sido(parcel_source)
     run_id = pairing_run_id(args.table_source_record_id, now)
     decisions = _read_decisions(args.steward_decisions)
 
@@ -428,10 +513,10 @@ def main(argv: list[str] | None = None) -> int:
         rows = cg.parse_full_table_html(Path(args.table_html).read_text(encoding="utf-8"), contract)
         recorded = json.loads(Path(args.recorded_changes).read_text(encoding="utf-8")) if args.recorded_changes else []
         jibun = None
-        if args.parcels_before_pnus:
-            before_codes, after_codes = evidence_codes(rows, floor)
-            jibun = cg.JibunEvidence(cg.jibun_sets(_read_pnu_file(args.parcels_before_pnus), before_codes),
-                                     cg.jibun_sets(_read_pnu_file(args.parcels_after_pnus), after_codes), "local-files")
+        if args.jibun_evidence == "editions":
+            files = args.edition_pnu_files
+            jibun = edition_evidence(rows, floor, parcel_source,
+                                     lambda name, codes, lots: _local_pnus(files, name, codes, lots))
         plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun)
         steward, verdicts = fold_steward_decisions(decisions, plan["review"], {row["region_cd"] for row in rows}, now)
         if steward:
@@ -462,14 +547,12 @@ def main(argv: list[str] | None = None) -> int:
         if not rows:
             raise ValueError(f"{snapshot_table} holds no rows of {args.table_source_record_id} on {args.snapshot_date}")
         cg.check_table_size(len(rows), None, contract)
-        before_codes, after_codes = evidence_codes(rows, floor)
         jibun = None
-        if args.parcels_before_snapshot_id:
+        if args.jibun_evidence == "editions":
             parcels = _qualified(args.iceberg_catalog_name, args.parcel_table)
-            jibun = cg.JibunEvidence(
-                cg.jibun_sets(_snapshot_pnus(spark, F, parcels, args.parcels_before_snapshot_id, before_codes)),
-                cg.jibun_sets(_snapshot_pnus(spark, F, parcels, args.parcels_after_snapshot_id, after_codes)),
-                f"{args.parcels_before_snapshot_id}->{args.parcels_after_snapshot_id}",
+            jibun = edition_evidence(
+                rows, floor, parcel_source,
+                lambda name, codes, lots: _snapshot_pnus(spark, F, parcels, editions.snapshot_id(parcel_source, name), codes, lots),
             )
         recorded = [row.asDict() for row in spark.table(change_table).collect()]
         plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun)

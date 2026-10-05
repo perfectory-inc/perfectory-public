@@ -26,10 +26,11 @@ import lakehouse_ingest  # noqa: E402
 import legal_dong_code_change_pairs as pairs_job  # noqa: E402
 import legal_dong_code_change_views as views  # noqa: E402
 import legal_dong_code_snapshot_to_reference as loader  # noqa: E402
+import vworld_parcel_editions as editions  # noqa: E402
 
 CONTRACT = cg.load_source_contract()
 SEED = json.loads((SPARK_DIR.parent / "contracts" / "sigungu-crosswalk-baseline.json").read_text(encoding="utf-8"))
-CADASTRAL = pairs_job.cadastral_sido(json.loads(pairs_job.PARCEL_SOURCE_PATH.read_text(encoding="utf-8")))
+CADASTRAL = pairs_job.cadastral_sido(editions.load())
 NOW = datetime(2099, 1, 2, tzinfo=timezone.utc)
 FLOOR = CONTRACT["pairing"]["floor_date"]
 DAY = "20990701"
