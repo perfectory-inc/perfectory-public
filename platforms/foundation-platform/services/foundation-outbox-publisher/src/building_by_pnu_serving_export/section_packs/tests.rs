@@ -271,16 +271,19 @@ impl Lane {
         let live = Timings {
             p50: 40.0,
             p95: 90.0,
+            p99: 110.0,
             mean: 45.0,
             max: 120.0,
         };
         let pack = Timings {
             p50: live.p50 + increase_ms,
             p95: live.p95 + increase_ms,
+            p99: live.p99 + increase_ms,
             mean: live.mean + increase_ms,
             max: live.max + increase_ms,
         };
         let size = u64::try_from(policy.cutover_gate.latency_sample_size)?;
+        let increase = gate::Increase::between(&live, &pack);
         let evidence = LatencyEvidence {
             schema_version: policy.cutover_gate.evidence_schema_version.clone(),
             kind: gate::LATENCY_KIND.to_owned(),
@@ -298,8 +301,8 @@ impl Lane {
             increase_p95_ms: increase_ms,
             live_ms: live,
             pack_ms: pack,
-            bound_p50_ms: policy.cutover_gate.latency_max_increase_ms.p50,
-            bound_p95_ms: policy.cutover_gate.latency_max_increase_ms.p95,
+            bound_p50_ms: policy.cutover_gate.slo.latency_max_increase_ms.cold.p50,
+            bound_p95_ms: policy.cutover_gate.slo.latency_max_increase_ms.cold.p95,
             examples: Vec::new(),
             passed: true,
             measured_at_utc: "2026-01-01T00:00:00Z".to_owned(),
@@ -319,6 +322,21 @@ impl Lane {
                 ..gate::WorkerCpu::default()
             }),
             bound_cpu_p99_ms: policy.cutover_gate.worker_cpu_p99_max_ms,
+            availability: 1.0,
+            increase_cold_ms: increase,
+            increase_warm_ms: gate::Increase::default(),
+            load: Some(gate::LoadEvidence {
+                sent: size,
+                answered: size,
+                availability: 1.0,
+                worker_cpu: Some(gate::WorkerCpu {
+                    requests: size,
+                    cpu_p99_ms: policy.cutover_gate.worker_cpu_p99_max_ms,
+                    statuses: [("success".to_owned(), size)].into(),
+                    ..gate::WorkerCpu::default()
+                }),
+                ..gate::LoadEvidence::default()
+            }),
         };
         let path = self
             .work
@@ -813,6 +831,8 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         evidence_path: lane.work.join("latency.json"),
         concurrency: 1,
         analytics: None,
+        preview_script: "foundation-building-gateway-preview".to_owned(),
+        load: None,
     };
     let (drawn, _) = gate::read::<gate::EqualityEvidence>(&equality)?;
     assert_eq!(latency::sample(&config(&equality, 1))?, drawn.sample);
@@ -859,6 +879,27 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         cpu.cpu_p99_ms += 0.1;
     }
     assert!(!costly.verdict()?, "CPU over the bound passed");
+    let (passing, _) = gate::read::<gate::LatencyEvidence>(&other)?;
+    let mut no_load = passing.clone();
+    no_load.load = None;
+    assert!(!no_load.verdict()?, "a probe without its load phase passed");
+    let mut unavailable = passing.clone();
+    if let Some(load) = unavailable.load.as_mut() {
+        load.availability = section_pack_policy()?.cutover_gate.slo.availability_min - 0.0001;
+    }
+    assert!(
+        !unavailable.verdict()?,
+        "a load phase below the availability SLO passed"
+    );
+    let mut slow_tail = passing;
+    slow_tail.increase_cold_ms.p99 = section_pack_policy()?
+        .cutover_gate
+        .slo
+        .latency_max_increase_ms
+        .cold
+        .p99
+        + 1.0;
+    assert!(!slow_tail.verdict()?, "a cold p99 above the bound passed");
     Ok(())
 }
 
@@ -1039,6 +1080,8 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         evidence_path: work.join("latency.json"),
         concurrency: 4,
         analytics: None,
+        preview_script: "foundation-building-gateway-preview".to_owned(),
+        load: None,
     };
     let live = route(5, body.clone()).await;
     let close = route(15, joined.clone()).await;

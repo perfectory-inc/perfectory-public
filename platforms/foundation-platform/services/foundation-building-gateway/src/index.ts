@@ -222,6 +222,12 @@ async function resolvePlan(
   return plan;
 }
 
+/// The served state's fingerprint without its packs: what an object-only version caches under.
+function objectFingerprint(plan: ServingPlan): string {
+  const newest = plan.patches[0];
+  return newest === undefined ? `v${plan.base}` : `v${plan.base}p${newest.generation}`;
+}
+
 /// The edge cache identity of one PNU's answer under one served state.
 function servingCacheUrl(requestUrl: string, plan: Pick<ServingPlan, "fingerprint">): string {
   const url = new URL(requestUrl);
@@ -484,8 +490,11 @@ async function fetchBuilding(
 
   // A preview names an unpublished pack generation: only a preview version (its binding set)
   // serves one, and the live route serves a generation only when the manifest already names it.
-  let packs = plan.packs;
-  let fingerprint = plan.fingerprint;
+  // A version whose serving binding is off answers from objects while the manifest already names
+  // packs: the pack path is rolled out and back by version percentage (root ADR-0151 §7).
+  const servesPacks = env[lanePacks.serving_binding] !== "off";
+  let packs = servesPacks ? plan.packs : undefined;
+  let fingerprint = servesPacks ? plan.fingerprint : objectFingerprint(plan);
   // A preview version says how it answered (`Server-Timing`); the live route does not.
   const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
   if (previewGeneration !== null) {

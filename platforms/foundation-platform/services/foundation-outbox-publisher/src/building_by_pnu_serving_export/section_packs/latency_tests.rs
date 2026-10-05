@@ -9,8 +9,10 @@ use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+use super::analytics::AnalyticsConfig;
 use super::gate;
-use super::latency::{self, AnalyticsConfig, LatencyConfig, ParsedServerTiming};
+use super::latency::{self, LatencyConfig, ParsedServerTiming};
+use super::load::{self, LoadPlan};
 use crate::by_pnu_gateway_contract::section_pack_policy;
 
 /// Three PNUs of one legal dong, then two of another.
@@ -52,6 +54,8 @@ fn config(live: &MockServer, pack: &MockServer, concurrency: usize) -> LatencyCo
         evidence_path: work.join("unused-latency.json"),
         concurrency,
         analytics: None,
+        preview_script: "foundation-building-gateway-preview".to_owned(),
+        load: None,
     }
 }
 
@@ -149,7 +153,6 @@ fn analytics_config(server: &MockServer) -> AnalyticsConfig {
         endpoint: format!("{}/graphql", server.uri()),
         account_id: "account".to_owned(),
         api_token: "token".to_owned(),
-        script: "foundation-building-gateway-preview".to_owned(),
         wait: Duration::ZERO,
         poll: Duration::ZERO,
     }
@@ -164,7 +167,7 @@ async fn worker_cpu_is_read_from_analytics_and_gates() -> anyhow::Result<()> {
     let pack = route(200, 0, Some(TIMING)).await;
     let within = analytics(json!([
         {"sum": {"requests": 5}, "dimensions": {"status": "success"},
-         "quantiles": {"cpuTimeP50": 1500.0, "cpuTimeP99": bound * 1000.0}},
+         "quantiles": {"cpuTimeP50": 1500.0, "cpuTimeP99": bound * 1000.0, "wallTimeP50": 90000.0, "wallTimeP99": 400000.0}},
     ]))
     .await;
     let mut probed = config(&live, &pack, 2);
@@ -181,13 +184,20 @@ async fn worker_cpu_is_read_from_analytics_and_gates() -> anyhow::Result<()> {
     let mut full = evidence.clone();
     full.sample_size = u64::try_from(section_pack_policy()?.cutover_gate.latency_sample_size)?;
     full.answered = full.sample_size;
+    full.load = Some(gate::LoadEvidence {
+        sent: 5,
+        answered: 5,
+        availability: 1.0,
+        worker_cpu: full.worker_cpu.clone(),
+        ..gate::LoadEvidence::default()
+    });
     assert!(full.verdict()?, "{full:?}");
 
     let cut_off = analytics(json!([
         {"sum": {"requests": 4}, "dimensions": {"status": "success"},
-         "quantiles": {"cpuTimeP50": 1500.0, "cpuTimeP99": 3000.0}},
+         "quantiles": {"cpuTimeP50": 1500.0, "cpuTimeP99": 3000.0, "wallTimeP50": 90000.0, "wallTimeP99": 400000.0}},
         {"sum": {"requests": 1}, "dimensions": {"status": gate::EXCEEDED_RESOURCES},
-         "quantiles": {"cpuTimeP50": 10000.0, "cpuTimeP99": 10000.0}},
+         "quantiles": {"cpuTimeP50": 10000.0, "cpuTimeP99": 10000.0, "wallTimeP50": 90000.0, "wallTimeP99": 400000.0}},
     ]))
     .await;
     probed.analytics = Some(analytics_config(&cut_off));
@@ -198,6 +208,13 @@ async fn worker_cpu_is_read_from_analytics_and_gates() -> anyhow::Result<()> {
     let mut full = evidence;
     full.sample_size = u64::try_from(section_pack_policy()?.cutover_gate.latency_sample_size)?;
     full.answered = full.sample_size;
+    full.load = Some(gate::LoadEvidence {
+        sent: 5,
+        answered: 5,
+        availability: 1.0,
+        worker_cpu: full.worker_cpu.clone(),
+        ..gate::LoadEvidence::default()
+    });
     assert!(!full.verdict()?, "a cut-off invocation passed");
     Ok(())
 }
@@ -218,5 +235,110 @@ async fn analytics_errors_are_refused_not_read_as_no_cpu() -> anyhow::Result<()>
     probed.analytics = Some(analytics_config(&server));
     let refused = latency::probe(&probed, &pnus()[..1]).await;
     assert!(refused.is_err());
+    Ok(())
+}
+
+/// The load phase paces its requests and sheds what it cannot start: a route slower than the
+/// in-flight bound allows loses requests, and they count against availability.
+#[tokio::test]
+async fn the_load_phase_paces_and_counts_what_it_sheds() -> anyhow::Result<()> {
+    let fast = route(200, 0, Some(TIMING)).await;
+    let plan = LoadPlan {
+        requests_per_second: 40,
+        duration: Duration::from_secs(1),
+        max_in_flight: 8,
+    };
+    let client = reqwest::Client::new();
+    let url = |pnu: &str| format!("{}/buildings/by-pnu/{pnu}", fast.uri());
+    let held = load::run(&client, &plan, &pnus(), url, None).await?;
+    assert_eq!((held.sent, held.shed, held.answered), (40, 0, 40));
+    assert_eq!(held.availability, 1.0);
+    assert_eq!(held.server_timing.answers, 40);
+    assert!(held.worker_cpu.is_none());
+
+    let slow = route(200, 400, None).await;
+    let url = |pnu: &str| format!("{}/buildings/by-pnu/{pnu}", slow.uri());
+    let narrow = LoadPlan {
+        max_in_flight: 2,
+        ..plan
+    };
+    let shed = load::run(&client, &narrow, &pnus(), url, None).await?;
+    assert!(shed.shed > 0, "{shed:?}");
+    assert_eq!(shed.sent + shed.shed, 40);
+    assert!(shed.availability < 1.0);
+
+    let failing = route(503, 0, None).await;
+    let url = |pnu: &str| format!("{}/buildings/by-pnu/{pnu}", failing.uri());
+    let failed = load::run(&client, &plan, &pnus(), url, None).await?;
+    assert_eq!(failed.failures.get("http-503"), Some(&40));
+    assert_eq!(failed.availability, 0.0);
+    Ok(())
+}
+
+/// The draw is seeded: the same request number reads the same PNU every run, and the draw
+/// repeats legal dongs (cold and warm reads mixed).
+#[test]
+fn the_load_draw_is_seeded_and_repeats() -> anyhow::Result<()> {
+    let first = (0..200)
+        .map(|n| load::drawn(n, 5))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let again = (0..200)
+        .map(|n| load::drawn(n, 5))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    assert_eq!(first, again);
+    assert!((0..5).all(|index| first.contains(&index)));
+    Ok(())
+}
+
+/// A canary step's verdict: each bound breached alone is named, a healthy step names none.
+#[test]
+fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
+    let gate = &section_pack_policy()?.cutover_gate;
+    let healthy = gate::WorkerCpu {
+        requests: 1000,
+        cpu_p50_ms: 1.0,
+        cpu_p99_ms: gate.worker_cpu_p99_max_ms,
+        wall_p50_ms: 200.0,
+        wall_p99_ms: 600.0,
+        statuses: [("success".to_owned(), 1000)].into(),
+        ..gate::WorkerCpu::default()
+    };
+    let old = healthy.clone();
+    let ok_hosts: std::collections::BTreeMap<u16, u64> = [(200, 10_000), (503, 1)].into();
+    assert!(super::health::breaches(&healthy, Some(&old), Some(&ok_hosts), 200, gate).is_empty());
+
+    let mut few = healthy.clone();
+    few.requests = 10;
+    let mut cut_off = healthy.clone();
+    cut_off
+        .statuses
+        .insert(gate::EXCEEDED_RESOURCES.to_owned(), 1);
+    let mut throwing = healthy.clone();
+    throwing
+        .statuses
+        .insert("scriptThrewException".to_owned(), 5);
+    let mut costly = healthy.clone();
+    costly.cpu_p99_ms += 0.1;
+    let mut slower = healthy.clone();
+    slower.wall_p99_ms += gate.slo.latency_max_increase_ms.warm.p99 + 1.0;
+    for (label, new) in [
+        ("too little traffic", few),
+        ("a cut-off", cut_off),
+        ("exceptions", throwing),
+        ("CPU", costly),
+        ("wall time", slower),
+    ] {
+        assert_eq!(
+            super::health::breaches(&new, Some(&old), Some(&ok_hosts), 200, gate).len(),
+            1,
+            "{label}"
+        );
+    }
+    let bad_hosts: std::collections::BTreeMap<u16, u64> = [(200, 1000), (503, 10)].into();
+    assert_eq!(
+        super::health::breaches(&healthy, Some(&old), Some(&bad_hosts), 200, gate).len(),
+        1,
+        "5xx"
+    );
     Ok(())
 }

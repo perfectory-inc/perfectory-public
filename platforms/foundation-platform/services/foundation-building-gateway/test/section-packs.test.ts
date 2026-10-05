@@ -244,6 +244,23 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     expect((await get(PNU_A, "?packs=g1")).status).toBe(200);
   });
 
+  it("a version whose serving binding is off answers from objects under a pack manifest", async () => {
+    const object = `{"pnu":"${PNU_A}","served_by":"objects"}\n`;
+    const objectKey = `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`;
+    for (const [binding, expected] of [
+      ["off", object],
+      ["on", documents.base[PNU_A]],
+    ] as const) {
+      await runtime?.dispose();
+      runtime = await start({ [PACKS.serving_binding]: binding });
+      await (await runtime.getR2Bucket(R2_BINDING)).put(objectKey, object);
+      await serve(sectionPacks([]));
+      const response = await get(PNU_A);
+      expect(response.status, binding).toBe(200);
+      expect(await response.text(), binding).toBe(expected);
+    }
+  });
+
   it("the gateway says it reads the section_packs block", async () => {
     await serve(sectionPacks([]));
     if (runtime === undefined) throw new Error("Miniflare did not start");

@@ -85,6 +85,8 @@ struct R2ConnectionContract {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ByPnuGatewayPolicy {
+    /// The live Worker's script name, which a canary step asks Workers analytics about.
+    pub(crate) worker_name: String,
     pub(crate) public_hostname: String,
     pub(crate) object_key: ByPnuObjectKeyPolicy,
     pub(crate) request_path: ByPnuRequestPath,
@@ -106,9 +108,28 @@ pub(crate) struct LaneSectionPacks {
     pub(crate) anchor_section: String,
     /// The cut-over gate's preview Worker: its own name and hostname, never a live route.
     pub(crate) preview_worker: Option<PreviewWorker>,
+    /// The live Worker's gradual rollout of the pack path.
+    pub(crate) canary: Option<CanaryPolicy>,
+    /// The scheduled check of the live hostname after the cut-over.
+    pub(crate) monitor: Option<MonitorPolicy>,
     /// The scheduled job that keeps the packs current, and the capability its job entry must
     /// declare before the first pack publish (root ADR-0147, runbook 7절).
     pub(crate) scheduled_bake: ScheduledPackBake,
+}
+
+/// One gradual deployment step's hold before its health is judged, and the traffic it needs. The
+/// step percentages are read by `scripts/ops/building-gateway-canary.sh`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct CanaryPolicy {
+    pub(crate) hold_seconds: u64,
+    pub(crate) min_requests_per_step: u64,
+}
+
+/// The hourly synthetic read of the live hostname.
+#[derive(Debug, Deserialize)]
+pub(crate) struct MonitorPolicy {
+    pub(crate) pnus: usize,
+    pub(crate) latency_p95_max_ms: f64,
 }
 
 /// The Worker the latency probe reads the unpublished generation through (root ADR-0147 §6).
@@ -153,13 +174,14 @@ pub(crate) struct SectionPackPolicy {
 pub(crate) struct CloudflareAnalyticsPolicy {
     pub(crate) account_id_env: String,
     pub(crate) api_token_env: String,
+    /// The zone of the live hostname, whose client responses a canary step counts.
+    pub(crate) zone_id_env: String,
 }
 
 /// What the first publish of section packs must be shown (root ADR-0147 §6).
 #[derive(Debug, Deserialize)]
 pub(crate) struct CutoverGatePolicy {
     pub(crate) evidence_schema_version: String,
-    pub(crate) latency_max_increase_ms: LatencyBound,
     pub(crate) latency_sample_size: usize,
     /// Seeds the sample the live check and the latency probe share, so it is the same every run.
     pub(crate) sample_seed: String,
@@ -170,13 +192,42 @@ pub(crate) struct CutoverGatePolicy {
     /// The most CPU the preview Worker may spend on a request at p99, from Workers analytics for
     /// the probe window; the account's plan limit is twice this.
     pub(crate) worker_cpu_p99_max_ms: f64,
+    /// What the pack path must keep, asserted on the probe and the load phase alike.
+    pub(crate) slo: ServingSlo,
+    /// The load phase the probe runs against the preview after the paired reads.
+    pub(crate) load_test: LoadTestPolicy,
 }
 
-/// The most the cold first read may slow down, per percentile.
+/// The pack path's service level objectives against the object path it replaces.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ServingSlo {
+    /// The least share of reads that answer 200.
+    pub(crate) availability_min: f64,
+    pub(crate) latency_max_increase_ms: ColdAndWarm,
+}
+
+/// A bound for the cold reads (first of their legal dong) and one for the warm reads.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ColdAndWarm {
+    pub(crate) cold: LatencyBound,
+    pub(crate) warm: LatencyBound,
+}
+
+/// The most the pack path may add to the object path, per percentile.
 #[derive(Debug, Deserialize)]
 pub(crate) struct LatencyBound {
     pub(crate) p50: f64,
     pub(crate) p95: f64,
+    pub(crate) p99: f64,
+}
+
+/// A paced load against the preview: this many requests a second, this long, at most this many
+/// in flight.
+#[derive(Debug, Deserialize)]
+pub(crate) struct LoadTestPolicy {
+    pub(crate) requests_per_second: u32,
+    pub(crate) duration_seconds: u64,
+    pub(crate) max_in_flight: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -266,7 +317,19 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
         || gate.latency_sample_size == 0
         || gate.sample_seed.is_empty()
         || !(1..=1_000_000).contains(&gate.sample_candidates_per_million)
-        || !(gate.latency_max_increase_ms.p50 >= 0.0 && gate.latency_max_increase_ms.p95 >= 0.0)
+        || gate.probe_concurrency == 0
+        || gate.worker_cpu_p99_max_ms.is_nan()
+        || gate.worker_cpu_p99_max_ms <= 0.0
+        || !(gate.slo.availability_min > 0.0 && gate.slo.availability_min <= 1.0)
+        || [
+            &gate.slo.latency_max_increase_ms.cold,
+            &gate.slo.latency_max_increase_ms.warm,
+        ]
+        .iter()
+        .any(|bound| !(bound.p50 >= 0.0 && bound.p95 >= 0.0 && bound.p99 >= 0.0))
+        || gate.load_test.requests_per_second == 0
+        || gate.load_test.duration_seconds == 0
+        || gate.load_test.max_in_flight == 0
     {
         return Err("by_pnu_section_packs holds values the pack format cannot honour".to_owned());
     }
