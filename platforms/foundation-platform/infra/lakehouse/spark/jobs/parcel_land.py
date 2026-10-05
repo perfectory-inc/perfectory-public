@@ -71,3 +71,14 @@ def wkb_area_m2(wkb: bytes) -> float:
     return geometry()
 
 
+def polygon_area_m2(wkb: bytes) -> float | None:
+    """`wkb_area_m2`, or None for a geometry that is not a polygon (a point or line in the boundary
+    column): such a row cannot be the same land as anything, so the 지번 step skips and counts it
+    instead of failing the run (`legal_dong_code_change_pairs.drop_non_polygons`)."""
+
+    try:
+        return wkb_area_m2(wkb)
+    except ValueError as error:
+        if "is not a polygon" in str(error):
+            return None
+        raise

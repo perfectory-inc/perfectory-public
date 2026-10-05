@@ -12,8 +12,9 @@ Everything it knows comes from the definition file
 column pairs that make a table a pair store, the retired holders and the paths that may still name
 one. It refuses
 
-1. a lakehouse table, other than the home and the derived tables the file names with a reason, whose
-   columns hold both halves of a pair shape;
+1. a lakehouse table, other than the home and the derived and source tables the file names with a
+   reason, whose columns hold both halves of a pair shape, and a named source table that is not
+   loaded one Bronze object at a time (a provider's record as it ships, not a derivation);
 2. a code file naming a retired holder outside the paths listed for it;
 3. a retired path that exists again.
 
@@ -34,6 +35,7 @@ DEFINITION = "platforms/foundation-platform/infra/lakehouse/contracts/region-cod
 def table_problems(root: Path, definition: dict) -> list[str]:
     homes = definition["homes"]
     derived = definition["derived_tables"]
+    sources = {name for name in definition.get("source_tables", {}) if not name.startswith("$")}
     problems = []
     for relative in definition["lakehouse_contracts"]:
         contracts = json.loads((root / relative).read_text(encoding="utf-8"))["contracts"]
@@ -41,10 +43,16 @@ def table_problems(root: Path, definition: dict) -> list[str]:
             columns = {column["name"] for column in contract.get("columns", [])}
             for kind, shapes in definition["pair_shapes"].items():
                 for shape in shapes:
-                    if set(shape) <= columns and name != homes[kind] and name not in derived:
+                    if set(shape) <= columns and name != homes[kind] and name not in derived and name not in sources:
                         problems.append(
                             f"{relative}: {name} stores {kind} ({' -> '.join(shape)}); their home is {homes[kind]}"
                         )
+            load = contract.get("load") or {}
+            if name in sources and (load.get("unit"), load.get("column")) != ("object", "source_record_id"):
+                problems.append(
+                    f"{relative}: {name} is named a source table but is not loaded one Bronze object at a time "
+                    f"(load {load.get('unit')}/{load.get('column')}); a derivation's pairs go to the homes"
+                )
     return problems
 
 

@@ -17,4 +17,4 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/foundation-platform/lineage-stewardship /var/lib/foundation-platform/lakehouse-ivy /var/lib/foundation-platform/legal-dong-code
+ReadWritePaths=/var/lib/foundation-platform/lineage-stewardship /var/lib/foundation-platform/lakehouse-ivy /var/lib/foundation-platform/legal-dong-code /var/lib/foundation-platform/parcel-number-change

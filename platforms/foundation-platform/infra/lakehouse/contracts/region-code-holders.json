@@ -1,5 +1,5 @@
 {
-  "$comment": "Root ADR-0145: a region code change (old code -> new code) is stored in one place, and a parcel pair (old PNU -> new PNU) in one other; everything else derives from them or is retired. scripts/guard/region-code-pairs-have-one-home.sh reads this file and refuses (1) a lakehouse table, other than the home and the derived tables named here with a reason, whose columns have a pair shape below, (2) code that names a retired holder outside the paths listed for it, (3) a retired path that exists again. Markdown is prose and is not read; machine-read files under docs directories (the pipeline graph JSON, say) are code and are. The guard reads the names from here and nowhere else, so prose elsewhere cannot trip it and a new holder is added in this file, not in the guard.",
+  "$comment": "Root ADR-0145: a region code change (old code -> new code) is stored in one place, and a parcel pair (old PNU -> new PNU) in one other; everything else derives from them or is retired. scripts/guard/region-code-pairs-have-one-home.sh reads this file and refuses (1) a lakehouse table, other than the home and the derived and source tables named here with a reason, whose columns have a pair shape below, (2) code that names a retired holder outside the paths listed for it, (3) a retired path that exists again. Markdown is prose and is not read; machine-read files under docs directories (the pipeline graph JSON, say) are code and are. The guard reads the names from here and nowhere else, so prose elsewhere cannot trip it and a new holder is added in this file, not in the guard.",
   "homes": {
     "code_pairs": "reference.legal_dong_code_change",
     "parcel_pairs": "silver.parcel_lineage"
@@ -44,6 +44,10 @@
   },
   "derived_tables": {
     "gold.place_id_changelog": "ADR-0113 §8 release changelog: which place id changed code between two ID releases. Rebuilt from the ID registry every release, never read back as a source of pairs; ADR-0145 leaves the place-id tables as they are."
+  },
+  "source_tables": {
+    "$comment": "The home of official PNU pairs (root ADR-0150 §3): a provider's own record, loaded as it ships, one Bronze object per load (load.column source_record_id), never a derivation run. The code pairing and the parcel lineage read it in place as official evidence and do not copy it; what they decide goes to their own homes. The guard refuses a source table loaded any other way.",
+    "silver.parcel_number_change_history": "VWorld 필지고유번호변동연혁 (MK/30527), the official old PNU -> new PNU record the 법정동 code pairing reads as its official step (root ADR-0144 §4). It is the provider's file, not a pairing: the decided code pairs go to reference.legal_dong_code_change, the parcel links the lineage derives to silver.parcel_lineage."
   },
   "lakehouse_contracts": [
     "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"

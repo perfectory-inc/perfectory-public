@@ -21,13 +21,14 @@ last_reviewed: 2026-10-05
 | 무엇 | 정본 |
 | --- | --- |
 | 요청 주소·양식·간격(15초 이상)·표 크기 한계·짝 맞추기 시작일·지번 겹침 하한·투영 나이 한계 | `infra/lakehouse/contracts/code-go-kr-legal-dong.contract.json` |
-| 수집 작업 일정·풀·켜짐 | `orchestration/jobs.v1.json` 의 `legal_dong_code_changes` (default_pool, Spark 없음) |
+| 수집 작업 일정·풀·켜짐 | `orchestration/jobs.v1.json` 의 `legal_dong_code_changes`, `parcel_number_change_history` (둘 다 default_pool, Spark 없음) |
 | 수집 실행 계정·환경·시간 상한 | `infra/systemd/foundation-legal-dong-code.service` → `scripts/ops/legal-dong-code-collect.sh` |
 | 적재·짝 맞추기 | `lineage_stewardship` 단위의 첫 단계, `scripts/ops/legal-dong-code-load.sh` |
 | 응답 원본 | Bronze `codegokr__legal_dong_code_table` |
 | 파서·짝 규칙 | `infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py` (지번 집합은 `parcel_lineage.py` 의 것을 쓴다) |
 | 표 | `reference.legal_dong_code_snapshot`(원본), `reference.legal_dong_code_change`(정본, 유일하게 쓰는 표) |
-| 지번 근거 | `silver.parcel_boundaries` 의 스냅숏 둘(개편 전·후). 필지 번호 공식 이력은 아직 수집되지 않는다. 필지 계보는 근거가 아니다(계보가 이 표를 읽는다) |
+| 지번 근거 | `silver.parcel_boundaries` 의 스냅숏 둘(개편 전·후). 필지 계보는 근거가 아니다(계보가 이 표를 읽는다) |
+| 필지 번호 공식 이력 | `silver.parcel_number_change_history` (VWorld 필지고유번호변동연혁 MK/30527). 형식·격리·줄어듦 한계는 `infra/lakehouse/contracts/vworld-parcel-number-change-history.contract.json`, 수집은 `parcel_number_change_history` 작업(`scripts/ops/parcel-number-change-collect.sh`), 상태는 `/var/lib/foundation-platform/parcel-number-change/` |
 | 저장하면 안 되는 곳 | `infra/lakehouse/contracts/region-code-holders.json` (폐기된 보관처, 짝 모양; `scripts/guard/region-code-pairs-have-one-home.sh` 가 지킨다) |
 | 내보내기가 읽는 투영 | `/var/lib/foundation-platform/legal-dong-code/sigungu-crosswalk.projection.json` (+ 같은 폴더의 `latest-legal-dong-snapshot.json`, 수집 상태 `accepted.json`) |
 | 스튜어드 목록 | `/var/lib/foundation-platform/legal-dong-code/steward-review.json` |
@@ -40,8 +41,14 @@ legal_dong_code_changes (05:15, default_pool)
   2. stage-handoff                             형식·표 크기 검사; 행이 바뀌었으면 → pending/<표 객체>/
                                                바뀐 것이 없으면 넘기지 않는다(journal 에 unchanged)
                                                통과하면 어느 쪽이든 accepted.json 의 checked_at_utc 를 남긴다
+parcel_number_change_history (05:25, default_pool; 감독 실행 전까지 꺼짐)
+  1. plan/inventory-vworld-dataset-files       30527 목록만. 시도 파일마다 제공자 갱신일을 accepted.json 과 비교
+  2. ingest-vworld-dataset-files               갱신일이 바뀐 파일만 Bronze 로(같은 파일 번호라도 다시 받는다)
+  3. stage-handoff                             Bronze 에서 읽기 키로 되읽어 형식·격리·줄어듦 검사 → pending/<넘김>/
+                                               바뀐 파일이 없으면 넘기지 않는다(journal 에 unchanged)
 lineage_stewardship (06:50, spark 3자리)
-  0a. legal-dong-code-load.sh                  대기 넘김마다: 스냅숏 적재 → 최신 표지 → 짝 맞추기 → 투영·목록 교체
+  0a. legal-dong-code-load.sh                  먼저 30527 대기 넘김을 silver.parcel_number_change_history 에 쌓는다.
+                                               그다음 대기 넘김마다: 스냅숏 적재 → 최신 표지 → 짝 맞추기 → 투영·목록 교체
                                                → loaded/ 로 옮김. 실패하면 단위 전체가 실패(계보로 넘어가지 않음)
   0.. 계보 스튜어드 순환                          (ADR-0115)
 허브 내보내기 (수동)
@@ -56,9 +63,14 @@ lineage_stewardship (06:50, spark 3자리)
 | --- | --- | --- |
 | 0 | 변경 표에 이미 기록된 짝, 스튜어드 짝(`steward:<id>`) | 그대로 둔다. 원장은 덮어쓰지 않는다 |
 | 1 | 날짜·이름 (`derived:code-go-kr:date+name:<날>`) | 같은 날(또는 폐지일 = 생성일 − 1) 생성된 같은 단계 코드 중, 상위 단위가 이어지고 시도를 뺀 이름이 같은 것이 하나 |
-| 2 | 지번 겹침 (`derived:parcel-jibun:<스냅숏 쌍>`) | 개편 뒤 스냅숏에서 새로 필지를 가진 동 중 옛 동 지번을 가장 많이 가진 하나가 계약의 `jibun_overlap_min_share` 이상(ADR-0113 §5) |
-| 3 | 필지 번호 공식 이력 (`official:parcel-history`) | 필지고유번호변동연혁 짝이 옛 동의 필지를 모두 한 새 동으로 잇는다. 원천이 아직 수집되지 않아 꺼져 있다 |
+| 2 | 필지 번호 공식 이력 (`official:parcel-history`) | 짝 맞추기 기간(계약의 `floor_date` 이후, 날짜를 읽을 수 없는 행 제외) 안의 필지고유번호변동연혁 짝이 정한다: 동 단위 행(대장구분 0, 본번·부번 0000; `detail` = `dong_level`)이 새 코드 하나를 가리키거나, 필지 행이 모두 한 새 동으로 가면서 앞 판의 옛 동 필지를 `jibun_overlap_min_share` 이상 잇는다(`parcel_level`). 그보다 적으면 `awaiting_data`(`official partial`). 표가 비었으면 꺼져 있다 |
+| 3 | 지번 겹침 (`derived:parcel-jibun:<판 쌍>`) | 폐지를 감싸는 두 판에서, 같은 시도·변경일에 새로 생겨 필지를 가진 동 중 옛 동의 같은 땅(지목·면적 일치)을 가장 많이 가진 하나가 계약의 `jibun_overlap_min_share` 이상(ADR-0113 §5, ADR-0148) |
 | 4 | 상위 단위 묶기 (`derived:children`) | 2·3 으로 짝지어진 동들의 지번이 하한 이상 한 시군구(시도)로 갔다 |
+
+2 와 3 이 같은 동을 서로 다른 새 코드로 정하면, 또는 지번 짝(이미 기록된 것 포함)이나 날짜·이름 짝이 공식 행이 옮기는
+코드(하나·분할·사슬) 어느 것도 아니면
+(루트 [ADR-0150](../../../../docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md)) 짝 맞추기는 `PairingConflict` 로 멈춘다: 두 답을 다 적고
+아무것도 쓰지 않는다(4 절). 어느 쪽도 조용히 이기지 않는다. 공식 필지 행이 옛 동을 여러 새 동으로 나누면 짝이 아니라 `split` 이다.
 
 1–4 는 아무것도 바뀌지 않을 때까지 되풀이한다. 남은 코드는 목록에 상태(판단 대기·분할·스튜어드)와 함께
 남는다(5 절). 폴리곤은 어느 단계의 근거도 아니다(ADR-0113 §4).
@@ -145,9 +157,32 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
   판이 계약에 없거나 표에 적재되지 않았으면 그 동은 `awaiting_data` 이고 `jibun` 칸이 필요한 판을 이름으로
   말한다. 판의 수집·적재는 [VWorld 연속지적도 판 런북](./vworld-parcel-editions.md)이다. 환경 변수
   `LEGAL_DONG_PARCELS_BEFORE/AFTER` 는 없어졌다.
-- **3 단계**는 필지고유번호변동연혁 원천이 수집되고 그 표가 생겨야 켤 수 있다. 그 전까지 지번이 모두 떠난 동은
-  판단 대기다. 필지 계보(`silver.parcel_lineage`)를 대신 읽지 않는다: 계보가 이 표의 동 짝을 읽으므로, 계보를 근거로
-  읽으면 서로가 서로를 읽는다(루트 ADR-0145 §2). 짝 맞추기 작업에는 그 옵션이 없고, 시험이 되돌아오는 것을 막는다.
+- **공식 이력**은 `silver.parcel_number_change_history` 가 행을 가지면 켜진다: `legal-dong-code-load.sh` 가 그 넘김을
+  하나라도 적재했으면(`/var/lib/foundation-platform/parcel-number-change/loaded/`) `--official-history-table` 을 넘긴다
+  (루트 ADR-0150). 그 전까지 지번이 모두 떠난 동은 판단 대기다. 필지 계보(`silver.parcel_lineage`)를 대신 읽지 않는다:
+  계보가 이 표의 동 짝을 읽으므로, 계보를 근거로 읽으면 서로가 서로를 읽는다(루트 ADR-0145 §2). 짝 맞추기 작업에는 그
+  옵션이 없고, 시험이 되돌아오는 것을 막는다.
+
+  감독 첫 실행(수집 작업은 그 뒤에 켠다, ADR-0122 §4):
+
+  1. 릴리스가 `/var/lib/foundation-platform/parcel-number-change` 를 만들었는지 본다. 계보 단위의
+     `ReadWritePaths` 가 이 경로를 대므로 없으면 계보 단위가 시작하지 못한다.
+  2. 수집을 손으로 한 번 돌린다. 첫 실행은 목록의 시도 zip 전부(2026-10-05 측정 19개, 약 8MB)와 테이블 정의서를 받는다.
+
+     ```bash
+     sudo systemctl start foundation-parcel-number-change.service
+     tail -3 /var/lib/foundation-platform/parcel-number-change/journal.log
+     ls /var/lib/foundation-platform/parcel-number-change/pending/
+     ```
+
+  3. 계보 단위를 한 번 돌린다. journal 에 `parcel-number-change loaded` 가 남고, 짝 맞추기 요약
+     (`pairs-summary.json`)의 `official_parcel_links` 가 기간 안 짝 수, `pairs_by_evidence.official_parcel_history` 가
+     공식 이력이 정한 짝 수다. 법정동 표 넘김이 없는 날이면 최신 스냅숏으로 짝 맞추기만 다시 돈다.
+  4. 공식 이력이 이미 기록된 지번·날짜·이름 짝이나 이번 지번 단계와 다르게 정하면 실행이 `PairingConflict` 로 멈춘다(4 절).
+  5. 별도 PR 에서 `parcel_number_change_history` 의 `enabled` 를 `true` 로 바꾸고 `disabled_reason` 을 지운다.
+
+  수집이 넘긴 것을 다시 받고 싶으면 `accepted.json` 에서 그 파일 키(`<download_ds_id>-<파일 번호>`)를 지운다. 다음
+  실행이 그 파일을 다시 받는다. 적재 대장이 Bronze 객체 단위로 막으므로 같은 객체가 두 번 쌓이지는 않는다.
 
 ### 운영 데이터로 미리 보기 (`--validate-only`)
 
@@ -185,6 +220,12 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 | 계보 단위 0a | `TableShrunk`, `SourceFormatError` | 표 스냅숏과 비교해 거부 | 넘김은 `pending/` 에 남는다. 원인을 고친 뒤 단위를 다시 돌린다 |
 | 계보 단위 0a | `would be dropped without a word` | 적재 대장이 새 행의 적재 단위를 이미 안다고 했다 | 실행 id 가 겹쳤다는 뜻이다. 행은 쓰지 않았다. 같은 초에 두 실행이 돌았는지 본다 |
 | 계보 단위 0a | `read back a crosswalk other than the one this run planned` | 쓰고 다시 읽은 변경표의 view 가 계획과 다르다(그 사이 다른 쓰기) | 투영은 바뀌지 않았다. 다른 쓰기를 찾고 단위를 다시 돌린다 |
+| 계보 단위 0a | `PairingConflict` (`the official parcel-number history (…) says …, the 지번 step … says …` 또는 `… the pair from derived:… says …`) | 공식 이력과 지번 겹침(또는 이미 기록된 파생 짝)이 같은 동을 서로 다른 새 코드로 정했다 | 아무것도 쓰지 않았다. 두 원천을 확인한다: 판이 잘못 적재됐으면 판을 바로잡고, 공식 이력이 틀렸으면 스튜어드 짝으로 기록한다(5 절) |
+| 30527 수집 | `the header is not …`, `fields, the header`, `PNU parts are not` | 제공자 파일 형식이 바뀌었다 | 아무것도 넘기지 않았고 상태도 그대로다. 원본은 Bronze 에 있다. 계약의 `header`·`pnu_parts` 를 맞추는 PR 을 낸다 |
+| 30527 수집 | `rows have no date, above the contract's share` | 날짜를 읽을 수 없는 행이 계약의 한계를 넘었다(열이 밀렸다) | 위와 같다 |
+| 30527 수집 | `shrunk from` | 같은 파일이 직전 판보다 계약의 한계 넘게 줄었다 | 깨진 파일이다. 다음 날 다시 받는다. 계속되면 제공자 화면을 확인한다 |
+| 30527 수집 | `did not land in Bronze` | 받기가 실패한 파일이 있다 | 다음 실행이 다시 받는다 |
+| 계보 단위 0a | `is not the file the handoff checked` | 넘김의 파일이 검사 뒤 바뀌었다 | 넘김은 `pending/` 에 남는다. 그 넘김을 지우고 `accepted.json` 의 해당 키를 지워 다시 받게 한다 |
 
 넘김이 없는 날은 `legal-dong-code no pending handoff` 가 journal 에 남는다. "아무 일 없음"과 "확인 안 함"을
 구별한다.
@@ -252,11 +293,20 @@ ADR-0145 §3: 27쌍은 첫 실운영에서 변경표가 그것을 재현하면 �
 | 전체 표 | 53,403 행, 약 58MB, 요청 약 5초, 파싱 약 7초 |
 | 대응표 | 시도 12 가 29·46 을 대체, 시군구 27쌍 = 기준 27쌍. 날짜·이름 규칙만으로 같은 27쌍(시험 시 `--validate-only`) |
 | 첫 운영 실행 (2026-10-04, 감독) | 수집 53,403 행 → 계보 단위가 적재·짝 맞추기, 투영 27쌍 = 기준 27쌍(차이 0). 목록 331건 모두 `awaiting_data`(지번 근거 꺼짐). 이 실행이 기준 비교를 끈 증거다(계약의 `retired_by`) |
+| 30527 목록 (2026-10-05) | 파일 20개: 시도 zip 19개(2026-09-15판 15, 전남·광주 2026-06-14판, 특별자치도 이전 이름의 강원·전북 옛 판 둘) + 테이블 정의서 xlsx 1. 모두 단일 파일 내려받기(500MB 미만). 전남광주 통합 파일은 아직 없다 |
+| 30527 형식 (인천·경기 실측) | zip 하나에 UTF-8 세로 막대(파이프) 구분 텍스트 하나, 머리글 포함 13칸. 옛 PNU = 앞 5칸, 새 PNU = 다음 5칸(19자리, 전 행). 인천 18,471 행(1995-01-01 ~ 2026-07-01), 경기 356,046 행. 날짜를 읽을 수 없는 행 인천 1·경기 13 |
+| 30527 동 단위 행 | 한꺼번에 다시 매긴 동은 필지마다가 아니라 동마다 한 행(대장구분 0)으로 온다. 인천 2026-07-01 은 44행 모두 동 단위(중구 28110 → 28125); 동구·서구·영종·검단 부분은 2026-09-15판에 아직 없다. 화성 2026-02-01 은 195행 모두 동 단위(41590 → 41591 120, 41593 52, 41597 14, 41595 9) |
+| 30527 전체 (2026-10-05, 19개 시도 파일) | 741,347 행, 동 단위 18,988. 격리 비율 파일당 0 ~ 1.46e-3(경북 42/28,733), 형식이 어긋난 PNU 1행(서울). 파일 안 완전 중복 0 |
+| 30527 코드별 대조 (code.go.kr 폐지 코드) | 인천 2026-07(동 80): 44 동 단위(중구 원도심 → 제물포구), 영종 8·동구 7·서구 21 은 2026 기록 없음. 화성 2026-02(207): 리·동 194 동 단위, 읍·면 코드 13 은 행이 없다(그 아래 리만 온다), 능동은 두 구로 나뉘고 오산동은 다시 폐지된 코드로 간다. 충북 음성 대소면 2026-03-25: 리 12/12, 면 코드는 없음. 대구 달성 구지면 2026-09-30: 0/16(파일이 변경 전 판) |
+| 공식 이력 미리 보기 (지번 근거 없이, 기록된 짝 없이) | 판단 대기 331 → 72. 공식 이력이 259 짝을 정했고 모두 동 단위. 날짜·이름 규칙과 충돌 0 |
 
 ## 8. 남은 일
 
 - 지번 근거(2 단계)는 판이 계약과 `silver.parcel_boundaries` 에 있어야 정한다. 2026-10-05: 202609 적재 대기, 경기·충북은 앞선 판(NA/23), 대구는 202610 이후 판이 필요하다.
-- 필지고유번호변동연혁(3 단계의 원천)은 아직 수집되지 않는다.
+- 필지고유번호변동연혁 수집 작업은 감독 첫 실행 전까지 꺼져 있다(3 절). 제공자 반영이 몇 달 늦으므로 code.go.kr 를
+  대신하지 않고 보탠다.
+- 필지 계보(ADR-0113)는 아직 이 표의 필지 행을 `official` 등급 근거로 읽지 않는다. 읽게 할 때는 이 표를 직접 읽고
+  옮겨 담지 않는다(ADR-0145: 공식 짝의 집은 이 표 하나).
 - 시도 단위 통합만 대응표가 다스린다. 인천 구 재편처럼 시도 안의 재번호는 필지 계보(ADR-0113)의 몫이다.
 - data.go.kr `getStanReginCdList` 스냅숏 차이(ADR-0104)를 보조 검증으로 붙이는 일은 이 런북 밖이다.
 - 스튜어드 화면은 더니어로 옮겨야 한다.

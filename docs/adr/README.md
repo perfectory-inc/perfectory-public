@@ -183,4 +183,6 @@ last_reviewed: 2026-07-28
 
 - [ADR-0149 — 로컬 훅은 빠른 사전 필터이고, 훅의 모든 단계는 CI에서도 돈다](./0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md)
 
+- [ADR-0150 — 필지 번호 공식 이력은 동 단위 행부터 읽고, 먼저 기록된 파생 짝도 그것과 맞아야 한다](./0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md)
+
 - [ADR-0151 — 건물 묶음은 PNU 문서를 통째로 담고, Worker 는 그 바이트를 그대로 낸다](./0151-building-packs-serve-each-document-whole.md)

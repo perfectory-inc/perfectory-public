@@ -320,12 +320,24 @@ Land = tuple[str, float]
 
 
 
+# A pair from these sources is derived, so official evidence may contradict it (`hold_against_official`);
+# a steward's or the official history's own pair is not re-judged.
+DERIVED_SOURCES = ("derived:parcel-jibun:", "derived:code-go-kr:date+name:")
+
 BELOW_WAIT = re.compile(r"^\d+ codes below wait: ")
 OFFICIAL_HISTORY_MISSING = "the official parcel-number history (필지고유번호변동연혁), not collected"
 
 
 class PairingConflict(ValueError):
     """Two kinds of evidence settle one code on different new codes. Nothing may be written."""
+
+
+def is_dong_level_link(pnu: str) -> bool:
+    """A 필지고유번호변동연혁 row that moves a whole 법정동 (대장구분 0, 본번·부번 0000): its 19 digits are
+    the 10-digit code and nine zeros. The provider writes a renumbered 동 as one such row, not one per
+    parcel (measured 2026-10-05: 인천 2026-07-01 44 rows, 화성 2026-02-01 195 rows, all of this kind)."""
+
+    return len(pnu) == 19 and pnu[10:] == "000000000"
 
 
 @dataclass
@@ -394,11 +406,16 @@ def pair_changes(
        parent (the same parent, or one the pairs already carry to it), whose name below the 시도 is
        the same. Exactly one such code is a pair. It runs top-down, so a 시군구 paired here relates
        the 읍면동 under it.
-    2. **Official parcel-number history** (`official:parcel-history`): where the
-       필지고유번호변동연혁 links (`official_links`, (old PNU, new PNU)) carry every linked parcel of
-       the old code into one new code. This is how a code whose 지번 were renumbered is settled.
-       Off when `official_links` is None. It decides before the 지번 step; where both settle a
-       code they must agree, and a disagreement raises `PairingConflict` naming both answers.
+    2. **Official parcel-number history** (`official:parcel-history`, root ADR-0150): the
+       필지고유번호변동연혁 links (`official_links`, (old PNU, new PNU)). A 동-level row
+       (`is_dong_level_link`) naming exactly one current code settles it (`detail` `dong_level`);
+       otherwise the parcel rows do, when they carry every linked parcel of the old code into one
+       new code (`parcel_level`), and a code they carry into several is a split. This is how a code
+       whose 지번 were renumbered is settled. Off when `official_links` is None. It decides before the
+       지번 step; where both settle a code they must agree, and a disagreement raises
+       `PairingConflict` naming both answers. A pair the change table already records, or the date +
+       name rule settles, from a derived source is held against it too: official evidence that
+       arrives after a derived pair was recorded and says otherwise stops the run.
     3. **지번 sets** (`derived:parcel-jibun:<snapshots>`), for what 1 and 2 cannot settle (a
        renamed, split or merged 동): of the codes at its level that newly hold parcels in the later
        snapshot, lie in its 시도 or one a 시도 pair carries it onto, and were created in its change
@@ -434,10 +451,18 @@ def pair_changes(
     decided_by_old: dict[str, list[Mapping[str, str]]] = {}
     for pair in decided:
         decided_by_old.setdefault(pair["old_code"], []).append(pair)
-    links_by_old: dict[str, set[str]] = {}
+    links_by_old: dict[str, dict[str, int]] = {}
+    linked_lots: dict[str, set[str]] = {}
+    dong_links_by_old: dict[str, set[str]] = {}
     for old_pnu, new_pnu in official_links or ():
-        if old_pnu[:10] != new_pnu[:10]:
-            links_by_old.setdefault(old_pnu[:10], set()).add(new_pnu[:10])
+        if old_pnu[:10] == new_pnu[:10]:
+            continue
+        if is_dong_level_link(old_pnu) and is_dong_level_link(new_pnu):
+            dong_links_by_old.setdefault(old_pnu[:10], set()).add(new_pnu[:10])
+        else:
+            news = links_by_old.setdefault(old_pnu[:10], {})
+            news[new_pnu[:10]] = news.get(new_pnu[:10], 0) + 1
+            linked_lots.setdefault(old_pnu[:10], set()).add(old_pnu[10:])
 
     abolished = {
         row["region_cd"] for row in rows if row["status"] == ABOLISHED and row.get("abolished_date", "") >= floor_date
@@ -549,11 +574,50 @@ def pair_changes(
         unique = len(scored) == 1 or scored[0][0] > scored[1][0]
         return scored[0][1], scored[0][0] / len(before), unique
 
-    def official_answer(old: str) -> str:
-        """The one current code the parcel-number history carries `old`'s parcels into, or ""."""
+    def official_targets(old: str) -> set[str]:
+        """Every code the official rows move `old` (or any of its parcels) into, settled or not: one
+        code, several (a split), or one abolished again (a chain)."""
 
-        news = links_by_old.get(old, set())
-        return next(iter(news)) if len(news) == 1 and news <= alive else ""
+        return dong_links_by_old.get(old, set()) | set(links_by_old.get(old, {}))
+
+    def parcel_coverage(old: str) -> tuple[int, int] | None:
+        """(how many of `old`'s parcels in the earlier edition the official parcel rows link, how many
+        it held), or None when no edition says what it held."""
+
+        ev, _ = evidence(old)
+        before = set(ev.before.get(old, {})) if ev is not None else set()
+        return (len(linked_lots.get(old, set()) & before), len(before)) if before else None
+
+    def official_answer(old: str) -> tuple[str, str]:
+        """(the one current code the parcel-number history moves `old` into, which rows said so), or
+        ("", ""). A 동-level row decides first. The parcel rows decide only where no 동-level row names
+        it, all of them go to one current code, and they link at least `min_share` of the parcels the
+        old code held in the earlier edition: a few boundary-adjustment rows are evidence of where
+        those parcels went, not of where the 동 went."""
+
+        dong = dong_links_by_old.get(old, set())
+        if dong:
+            return (next(iter(dong)), "dong_level") if len(dong) == 1 and dong <= alive else ("", "")
+        news = set(links_by_old.get(old, {}))
+        covered = parcel_coverage(old)
+        if len(news) == 1 and news <= alive and covered is not None and covered[0] / covered[1] >= min_share:
+            return next(iter(news)), "parcel_level"
+        return "", ""
+
+    def hold_against_official(old: str, new: str, source: str) -> None:
+        """A derived pair (recorded, the date + name rule's, or the 지번 step's) must name a code the
+        official history moves `old` into, whenever it names any: a single answer, one of a split, or
+        the next hop of a chain."""
+
+        if code_level(old) not in LEAF_LEVELS or not source.startswith(DERIVED_SOURCES):
+            return
+        targets = official_targets(old)
+        if targets and new not in targets:
+            official, how = official_answer(old)
+            said = f"({how}) says {official}" if official else f"moves it into {', '.join(sorted(targets))}"
+            raise PairingConflict(
+                f"{old}: the official parcel-number history {said}, the pair from {source} says "
+                f"{new}; nothing is written until the evidence is reconciled")
 
     def jibun_answer(old: str) -> tuple[str, float]:
         """The code the 지번 step settles `old` on and its share, or ("", 0.0). Called after the
@@ -565,15 +629,17 @@ def pair_changes(
     def settle_leaf(old: str) -> None:
         """Official parcel-number history first, then the 지번 step; two answers must agree."""
 
-        official = official_answer(old)
+        official, how = official_answer(old)
         by_land, share = jibun_answer(old)
         if official and by_land and official != by_land:
             raise PairingConflict(
-                f"{old}: the official parcel-number history says {official}, the 지번 step "
+                f"{old}: the official parcel-number history ({how}) says {official}, the 지번 step "
                 f"({evidence(old)[0].label}, share {share:.4f}) says {by_land}; nothing is written "
                 "until the evidence is reconciled")
+        if by_land and not official:
+            hold_against_official(old, by_land, f"derived:parcel-jibun:{evidence(old)[0].label}")
         if official:  # 2
-            accept(old, official, "official:parcel-history", "official_parcel_history")
+            accept(old, official, "official:parcel-history", "official_parcel_history", how)
         elif by_land:  # 3
             accept(old, by_land, f"derived:parcel-jibun:{evidence(old)[0].label}", "jibun", f"jibun_share:{share:.4f}")
 
@@ -589,11 +655,14 @@ def pair_changes(
         for old in unsettled:  # 0 and 1, top-down
             if old in decided_by_old:
                 for pair in decided_by_old[old]:
+                    hold_against_official(old, pair["new_code"], pair["source"])
                     accept(old, pair["new_code"], pair["source"], pair.get("rule_verdict") or "steward", pair.get("detail") or "")
                 continue
             candidates = rule_candidates(old)
             if len(candidates) == 1:
-                accept(old, candidates[0], f"derived:code-go-kr:date+name:{by_code[old]['abolished_date']}", "rule")
+                source = f"derived:code-go-kr:date+name:{by_code[old]['abolished_date']}"
+                hold_against_official(old, candidates[0], source)
+                accept(old, candidates[0], source, "rule")
         for old in sorted((old for old in olds if old not in successors), key=order, reverse=True):
             level = code_level(old)
             if level in LEAF_LEVELS:
@@ -636,6 +705,19 @@ def pair_changes(
         else:
             seen = f"best {best} share {share:.4f}" + ("" if unique else " (tied)")
             status = "split" if len(split_into) > 1 and unique else "steward"
+        dong_split = dong_links_by_old.get(old, set())
+        official_split = {new: 1 for new in dong_split} if dong_split else dict(links_by_old.get(old, {}))
+        if len(official_split) > 1 and status != "split":
+            # The official rows carry the old code into several 동 (its 동-level rows name several, or
+            # its parcel rows go several ways): not one pair.
+            seen, status, split_into, missing = f"{seen}; official history splits it", "split", official_split, ""
+        elif official_split and status != "split" and not dong_split:
+            # Parcel rows to one code that do not cover the old code's parcels: evidence of where those
+            # parcels went, not a decision for the 동. It waits for the rest (or for a 동-level row).
+            covered = parcel_coverage(old)
+            partial = (f"official partial: {covered[0]} of {covered[1]} parcels linked" if covered
+                       else "official partial: no edition says how many parcels it held")
+            seen, status, missing = f"{seen}; {partial}", "awaiting_data", partial
         result.review.append(
             {
                 "kind": "pair",

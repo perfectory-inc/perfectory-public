@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "지역 코드(시도·시군구·읍면동·리) 변경의 유일한 정본이다(루트 ADR-0145). 옛 코드 → 새 코드 짝을 근거(날짜·이름 규칙, 지번 겹침, 스튜어드)와 함께 쌓는다(ADR-0143, ADR-0144). 허브 내보내기의 시군구 대응표·행정경계 id 의 선행 코드·필지 계보의 동 짝은 모두 이 표의 view 다. 어느 근거로도 정해지지 않은 코드는 스튜어드 목록이나 판단 대기로 남는다."
+  purpose: "지역 코드(시도·시군구·읍면동·리) 변경의 유일한 정본이다(루트 ADR-0145). 옛 코드 → 새 코드 짝을 근거(날짜·이름 규칙, 필지 번호 공식 이력, 지번 겹침, 스튜어드)와 함께 쌓는다(ADR-0143, ADR-0144). 허브 내보내기의 시군구 대응표·행정경계 id 의 선행 코드·필지 계보의 동 짝은 모두 이 표의 view 다. 어느 근거로도 정해지지 않은 코드는 스튜어드 목록이나 판단 대기로 남는다."
 team:
   name: "foundation-platform"
 servers:
@@ -91,3 +91,4 @@ customProperties:
     value:
       - "reference.legal_dong_code_snapshot"
       - "silver.parcel_boundaries"
+      - "silver.parcel_number_change_history"

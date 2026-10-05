@@ -1181,6 +1181,9 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/legal-dong-code
     # The cadastral edition check keeps its runs and proposed contract entries here (root ADR-0148).
     install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/vworld-parcel-edition
+    # Like legal-dong-code above, for the 필지고유번호변동연혁 collection's handoffs (root ADR-0150): the stewardship
+    # cycle loads them and names the path, so it must exist before that unit next starts.
+    install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/parcel-number-change
     install -d -o foundation-platform -g foundation-platform -m 0777 \
       /var/lib/foundation-platform/map-edit-fold/lakehouse \
       /var/lib/foundation-platform/lineage-stewardship/lakehouse

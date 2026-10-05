@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **500개**
+- 문서 파일: **501개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 175 |
+| Monorepo | 176 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 233 |
+| ADR | 234 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -539,6 +539,7 @@ docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-refl
 docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md
 docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md
 docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md
+docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md
 docs/adr/0151-building-packs-serve-each-document-whole.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
@@ -726,6 +727,7 @@ tools/github/README.md
 | `docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0151-building-packs-serve-each-document-whole.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
