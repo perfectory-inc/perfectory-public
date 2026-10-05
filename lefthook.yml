@@ -58,13 +58,15 @@ pre-commit:
       glob: "apps/web/stores/**/*.{ts,tsx}"
       run: bash scripts/lefthook/panel-no-state-without-router.sh
 
-# pre-push keeps only checks that finish in seconds (root ADR-0098). The full
-# monorepo-guard suite and the lychee link check took 20-25 minutes per push on a
-# development workstation while CI re-ran both anyway; ADR-0005 already names CI
-# as the single authoritative gate, and both remain in CI unchanged. The fast
-# ratchets below are the ones that turned PRs red three times on 2026-09-09 —
-# catching them locally saves a push-CI round trip, but a green here is a
-# convenience, never a verification claim.
+# Local hooks are a fast pre-filter; the merge gate is CI (root ADR-0005, ADR-0098, ADR-0149).
+# Budget: each step finishes in seconds and the whole hook in under two minutes on a 16 GB
+# laptop — no Rust build, no Docker, no full guard sweep, no JS build/test runner. Every step
+# here also runs in a required CI job; a green hook is a convenience, never a verification
+# claim. To add a check: put it in CI first, then optionally mirror it here.
+# `scripts/guard/lefthook-time-budget.sh` enforces both rules (budget class and CI twin).
+#
+# Moved to CI only by ADR-0149: the Foundation ownership boundary scan (65 s locally; one perl
+# process per Rust file) — gongzzang-ci.yml `Repo guardrails`, required/gongzzang-core.
 pre-push:
   parallel: true
   commands:
@@ -84,8 +86,4 @@ pre-push:
     gz-forbidden-markers:
       root: "products/gongzzang/"
       run: bash scripts/lefthook/check-forbidden-implementation-markers.sh
-      skip: [merge, rebase]
-    gz-foundation-ownership-boundary:
-      root: "products/gongzzang/"
-      run: bash scripts/lefthook/foundation-ownership-boundary.sh
       skip: [merge, rebase]

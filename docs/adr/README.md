@@ -178,3 +178,5 @@ last_reviewed: 2026-07-28
 - [ADR-0146 — by-PNU 레인은 서빙 중인 것을 검증해 재기준하고, 반영 스냅숏은 태그로 고정한다](./0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md)
 
 - [ADR-0147 — 필지·건물 문서는 항목별 묶음 파일로 서빙한다](./0147-by-pnu-documents-are-served-from-section-packs.md)
+
+- [ADR-0149 — 로컬 훅은 빠른 사전 필터이고, 훅의 모든 단계는 CI에서도 돈다](./0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md)

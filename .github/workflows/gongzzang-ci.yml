@@ -100,6 +100,17 @@ jobs:
         run: bash scripts/lefthook/foundation-ownership-boundary.sh
       - name: File size limit
         run: bash scripts/lefthook/file-line-limit.sh
+      # The SP10 panel guards ran only in pre-commit until ADR-0149, and there they could not
+      # match a path, so a framework->kind import sat on main. `--all` scans the whole tree; the
+      # tests plant one violation per guard and require both modes to reject it.
+      - name: Panel framework does not import kinds
+        run: bash scripts/lefthook/panel-no-framework-import-kind.sh --all
+      - name: Panel URL grammar stays in the codec
+        run: bash scripts/lefthook/panel-no-direct-codec.sh --all
+      - name: Panel stack is not held in a store
+        run: bash scripts/lefthook/panel-no-state-without-router.sh --all
+      - name: Panel guard planted-violation tests
+        run: bash scripts/lefthook/panel-guards.tests.sh
       - name: Migration version prefixes (repo-guard)
         run: cargo run -p repo-guard -- migration-version-prefixes
       - name: Capability-first crate layout (repo-guard)
