@@ -23,8 +23,10 @@ One run reads one code.go.kr full-table snapshot (`reference.legal_dong_code_sna
 
 The 코드변경안내 notice board is not a source (ADR-0144).
 
-`--validate-only` does all of it from a local full-table file (`--table-html`) and writes nothing to
-the lakehouse: the real-data check runs this way.
+`--validate-only` does all of it and writes nothing to the lakehouse, only the output files. With
+`--table-html` it reads a local full-table file (and `--edition-pnus` files for the parcel table);
+without it, it reads the lakehouse as a scheduled run does (the snapshot, the recorded changes and the
+parcel editions) — the real-data check (`scripts/ops/legal-dong-code-validate.sh`).
 
 A steward approval is staged as a file (`stage-steward-decision`, no Spark), checked against the
 steward list the last run wrote; the next run (`--steward-decisions`) checks it again against the
@@ -415,11 +417,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         if not sep or not editions.EDITION.fullmatch(name) or not path or name in args.edition_pnu_files:
             parser.error(f"--edition-pnus takes EDITION=FILE once per edition: {value!r}")
         args.edition_pnu_files[name] = path
-    if args.edition_pnu_files and not (args.validate_only and args.jibun_evidence == "editions"):
-        parser.error("--edition-pnus stands in for the parcel table: it needs --validate-only and --jibun-evidence editions")
+    if args.edition_pnu_files and not (args.validate_only and args.table_html and args.jibun_evidence == "editions"):
+        parser.error("--edition-pnus stands in for the parcel table: it needs --validate-only, --table-html and "
+                     "--jibun-evidence editions")
     date.fromisoformat(args.snapshot_date)
-    if args.validate_only and not args.table_html:
-        parser.error("--validate-only reads --table-html")
+    if (args.table_html or args.recorded_changes) and not args.validate_only:
+        parser.error("--table-html and --recorded-changes stand in for the lakehouse: they need --validate-only")
     if not args.validate_only and not args.change_table.endswith("_smoke") and not args.allow_non_smoke_write:
         parser.error(f"writing {args.change_table} needs --allow-non-smoke-write")
     return args
@@ -501,7 +504,7 @@ def main(argv: list[str] | None = None) -> int:
     run_id = pairing_run_id(args.table_source_record_id, now)
     decisions = _read_decisions(args.steward_decisions)
 
-    if args.validate_only:
+    if args.validate_only and args.table_html:
         rows = cg.parse_full_table_html(Path(args.table_html).read_text(encoding="utf-8"), contract)
         recorded = json.loads(Path(args.recorded_changes).read_text(encoding="utf-8")) if args.recorded_changes else []
         jibun = None
@@ -527,7 +530,8 @@ def main(argv: list[str] | None = None) -> int:
         prefix = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`"
         snapshot_table = f"{prefix}.`{args.snapshot_table}`"
         change_table = f"{prefix}.`{args.change_table}`"
-        _ensure_table(spark, change_table, load_lakehouse_contract(CHANGE_CONTRACT))
+        if not args.validate_only:
+            _ensure_table(spark, change_table, load_lakehouse_contract(CHANGE_CONTRACT))
         snapshot = spark.table(snapshot_table).filter(
             (F.col("snapshot_date") == F.lit(date.fromisoformat(args.snapshot_date)))
             & (F.col("source_record_id") == F.lit(args.table_source_record_id))
@@ -553,6 +557,14 @@ def main(argv: list[str] | None = None) -> int:
         steward, verdicts = fold_steward_decisions(decisions, plan["review"], {row["region_cd"] for row in rows}, now)
         known = {row["change_key"] for row in recorded}
         steward = [row for row in steward if row["change_key"] not in known]
+        if args.validate_only:  # the lakehouse as it stands, read and judged; nothing written to it
+            if steward:
+                plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun)
+            _emit(args, plan, "validate-only", now, {"job": JOB_NAME, "status": "validated", "reads": "lakehouse",
+                                                     "steward_decisions": verdicts, **plan["counts"],
+                                                     "would_append": [{k: row[k] for k in ("old_code", "new_code", "level", "source", "detail")}
+                                                                      for row in plan["fresh_changes"]]})
+            return 0
         append_changes = functools.partial(_append, spark, T, change_table, CHANGE_CONTRACT)
         steward_appended = False
         for _, rows_of_one in _group_by_run(steward):

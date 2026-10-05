@@ -360,8 +360,9 @@ def pair_changes(
        the same. Exactly one such code is a pair. It runs top-down, so a 시군구 paired here relates
        the 읍면동 under it.
     2. **지번 sets** (`derived:parcel-jibun:<snapshots>`), for what 1 cannot settle (a renamed,
-       split or merged 동): of the codes that newly hold parcels in the later snapshot, the one
-       holding the largest share of the old code's 지번, when that share is at least `min_share`
+       split or merged 동): of the codes at its level that newly hold parcels in the later snapshot,
+       lie in its 시도 or one a 시도 pair carries it onto, and were created in its change window
+       (its 폐지일 or the day after), the one holding the largest share of the old code's 지번, when that share is at least `min_share`
        (the contract's `pairing.jibun_overlap_min_share`, ADR-0113 §5) and no other code holds as
        many. Off when `jibun` is None. With `EditionEvidence` each code is read from the editions
        that bracket its own change; a code whose editions are not held waits for them.
@@ -459,6 +460,35 @@ def pair_changes(
             newly[id(ev)] = {code for code in set(ev.after) - set(ev.before) if code in alive}
         return newly[id(ev)]
 
+    def sido_scope(old: str) -> set[str]:
+        """The 시도 a successor of `old` may lie in: its own, and every 시도 the pairs carry its 시도
+        onto (a merger's governed successor, read from the sido pairs, never from a list here)."""
+
+        scope: set[str] = set()
+        todo = [old[:2]]
+        while todo:
+            sido = todo.pop()
+            if sido not in scope:
+                scope.add(sido)
+                todo.extend(new[:2] for new in successors.get(sido + "00000000", ()))
+        return scope
+
+    def jibun_candidates(old: str, ev: JibunEvidence) -> list[str]:
+        """The codes the 지번 step may weigh for `old`: at its level, newly holding parcels, in its
+        own or its successor 시도, and created in its change window (its 폐지일 or the day after,
+        as the name rule reads it). Without the last two, any code created since the floor whose lot
+        range covers `old`'s, a 리 across the country with 본번 1–2000, outscores its real successor."""
+
+        row = by_code.get(old)
+        day = row.get("abolished_date", "") if row else ""
+        if not day:
+            return []
+        window, scope, level = {day, _next_day(day)}, sido_scope(old), code_level(old)
+        return sorted(
+            new for new in newly_held(ev)
+            if code_level(new) == level and new[:2] in scope and by_code[new].get("created_date", "") in window
+        )
+
     def jibun_best(old: str) -> tuple[str, float, bool]:
         """(best new code, its share of the old code's 지번, whether it is the only best)."""
 
@@ -467,7 +497,7 @@ def pair_changes(
         if not before:
             return "", 0.0, False
         scored = sorted(
-            ((len(before & ev.after.get(new, set())), new) for new in newly_held(ev) if code_level(new) == code_level(old)),
+            ((len(before & ev.after.get(new, set())), new) for new in jibun_candidates(old, ev)),
             reverse=True,
         )
         if not scored or scored[0][0] == 0:
@@ -524,8 +554,8 @@ def pair_changes(
         before = ev.before.get(old, set()) if ev is not None else set()
         split_into = {
             new: len(before & ev.after.get(new, set()))
-            for new in sorted(newly_held(ev))
-            if code_level(new) == code_level(old) and before & ev.after.get(new, set())
+            for new in jibun_candidates(old, ev)
+            if before & ev.after.get(new, set())
         } if ev is not None else {}
         if ev is None:
             seen, status = waiting_for, "awaiting_data"

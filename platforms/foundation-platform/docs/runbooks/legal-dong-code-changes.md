@@ -137,12 +137,35 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 - **2 단계**는 켜져 있다(`legal-dong-code-load.sh` 의 `--jibun-evidence editions`, 루트 ADR-0148). 폐지된 동마다
   원천 계약(`vworld-parcel-source-objects.json`)의 판 중 폐지일 전에 다 뽑힌 마지막 판과 뒤에 다 뽑힌 첫 판을 고르고,
   `silver.parcel_boundaries` 에서 그 두 판의 PNU 를 읽는다(뒤 판은 폐지된 동이 가졌던 지번만). 개편마다 제 판 쌍을
-  쓴다. 판이 계약에 없거나 표에 적재되지 않았으면 그 동은 `awaiting_data` 이고 `jibun` 칸이 필요한 판을 이름으로
+  쓴다. 후보는 같은 단계의 새 코드 중 옛 코드와 같은 시도(또는 시도 짝이 옮겨 간 시도)에 있고 폐지일이나 그 다음 날
+  생긴 것뿐이다: 전국에서 바닥 날짜 뒤에 생긴 아무 코드나 재면, 본번 범위가 넓은 먼 리가 지번을 모두 덮어 진짜
+  후계자를 이긴다. 판이 계약에 없거나 표에 적재되지 않았으면 그 동은 `awaiting_data` 이고 `jibun` 칸이 필요한 판을 이름으로
   말한다. 판의 수집·적재는 [VWorld 연속지적도 판 런북](./vworld-parcel-editions.md)이다. 환경 변수
   `LEGAL_DONG_PARCELS_BEFORE/AFTER` 는 없어졌다.
 - **3 단계**는 필지고유번호변동연혁 원천이 수집되고 그 표가 생겨야 켤 수 있다. 그 전까지 지번이 모두 떠난 동은
   판단 대기다. 필지 계보(`silver.parcel_lineage`)를 대신 읽지 않는다: 계보가 이 표의 동 짝을 읽으므로, 계보를 근거로
   읽으면 서로가 서로를 읽는다(루트 ADR-0145 §2). 짝 맞추기 작업에는 그 옵션이 없고, 시험이 되돌아오는 것을 막는다.
+
+### 운영 데이터로 미리 보기 (`--validate-only`)
+
+짝 맞추기를 바꾼 릴리스가 `current` 가 된 뒤, 정기 실행이 변경표에 쌓기 전에 같은 판단을 운영 데이터로 한 번 본다.
+최신 스냅숏·기록된 짝·`silver.parcel_boundaries` 의 판 PNU 를 정기 실행과 똑같이 읽고 아무것도 쓰지 않는다.
+`lineage_stewardship` 과 같은 spark 자리를 쓰므로 그 단위가 돌지 않을 때 돌린다(Airflow 화면에서 확인).
+
+```bash
+# ai-server
+sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=foundation-platform \
+  -p EnvironmentFile=/etc/foundation-platform/recovery.env -p EnvironmentFile=/etc/foundation-platform/map-edit-fold.env \
+  /opt/foundation-platform/current/scripts/ops/legal-dong-code-validate.sh
+```
+
+출력 첫 줄이 실행 폴더(`/var/lib/foundation-platform/lineage-stewardship/lakehouse/runs/validate-<시각>/`)다. 그 다음
+요약 한 줄과 `would append <level> <옛 코드> -> <새 코드> <근거> <상세>` 줄이 쌓였을 짝마다 하나씩 나온다. 볼 것:
+
+- `derived:parcel-jibun:` 짝의 옛 코드와 새 코드가 같은 시도이거나, 옛 시도가 시도 짝으로 옮겨 간 시도다(예: 29·46 →
+  전남광주). 다른 시도로 가는 짝이 하나라도 있으면 정기 실행을 멈추고(`legal_dong_code_changes` 를 끈다) 알린다.
+- 나뉜 동은 짝이 아니라 `steward-review.json` 의 `status = split` 이고 `split_into` 가 같은 시도의 새 동들이다.
+- `run.log` 에 Spark 오류가 없다. 실패하면 요약이 없어 마지막 python 이 `No such file` 로 끝난다.
 
 ## 4. 알림이 뜻하는 것
 

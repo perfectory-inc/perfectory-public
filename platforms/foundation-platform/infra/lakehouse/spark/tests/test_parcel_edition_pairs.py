@@ -361,6 +361,18 @@ class TheJobReadsEditionsFromTheContractTest(unittest.TestCase):
         with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
             pairs_job.parse_args(base + ["--jibun-evidence", "editions", "--edition-pnus", "2099-2=x"])
 
+    def test_validate_only_reads_the_lakehouse_when_given_no_local_table(self):
+        # 운영 미리 보기(legal-dong-code-validate.sh): 표 파일 없이 --validate-only 는 레이크하우스를 읽고 쓰지 않는다.
+        lake = pairs_job.parse_args(["--snapshot-date", "2099-11-01", "--table-source-record-id", "k", "--validate-only",
+                                     "--jibun-evidence", "editions"])
+        self.assertTrue(lake.validate_only and lake.table_html is None)
+        self.assertEqual(lake.change_table, "legal_dong_code_change", "no smoke-suffix check: nothing is written")
+        for local_only in (["--table-html", "t"], ["--recorded-changes", "r"],
+                           ["--validate-only", "--jibun-evidence", "editions", "--edition-pnus", "209902=x"]):
+            with self.subTest(local_only), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                pairs_job.parse_args(["--snapshot-date", "2099-11-01", "--table-source-record-id", "k",
+                                      "--allow-non-smoke-write", *local_only])
+
 
 if __name__ == "__main__":
     unittest.main()

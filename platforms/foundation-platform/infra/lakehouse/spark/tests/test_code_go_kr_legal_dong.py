@@ -332,6 +332,53 @@ class JibunEvidenceTest(unittest.TestCase):
         self.assertEqual(got["9811010100"], ("9911010100", "jibun"))
         self.assertEqual(result.review, [])
 
+    def far_away_table(self, *extra):
+        """시도 97 (not merged): 갑리 abolished on DAY, 새갑리 and 다른리 created that day in the same
+        시도. 시도 98 stands apart and is not paired onto anything."""
+
+        return as_rows(table_html([
+            row("9700000000", "합성시", parent="0000000000", created="20000101"),
+            row("9731000000", "합성시 가군", parent="9700000000", created="20000101"),
+            row("9731025000", "합성시 가군 가면", parent="9731000000", created="20000101"),
+            row("9731025021", "합성시 가군 가면 갑리", "폐지", "9731025000", abolished=DAY),
+            row("9731025023", "합성시 가군 가면 새갑리", parent="9731025000", created=DAY),
+            row("9731025024", "합성시 가군 가면 다른리", parent="9731025000", created=DAY),
+            row("9800000000", "합성도", parent="0000000000", created="20000101"),
+            row("9831000000", "합성도 나군", parent="9800000000", created="20000101"),
+            row("9831025000", "합성도 나군 나면", parent="9831000000", created="20000101"),
+            *extra,
+        ]))
+
+    # 심은 함정: 다른 시도에서 같은 날 생긴 큰 리. 본번 1–2000 을 모두 가져 옛 갑리의 지번을 전부 덮는다.
+    FAR_RI = row("9831025021", "합성도 나군 나면 큰리", parent="9831025000", created=DAY)
+
+    def test_a_far_away_code_whose_lots_cover_the_old_one_does_not_win(self):
+        jibun = self.evidence({"9731025021": lots(*range(1, 11))},
+                              {"9731025023": lots(*range(1, 7)), "9731025024": lots(*range(7, 11)),
+                               "9831025021": lots(*range(1, 2001))})
+        result = cg.pair_changes(self.far_away_table(self.FAR_RI), FLOOR, jibun=jibun, min_share=MIN_SHARE)
+        self.assertNotIn("9831025021", {p["new_code"] for p in result.pairs})
+        # 분할은 분할로 남는다: 먼 리는 후보도, 나뉜 곳도 아니다.
+        [item] = result.review
+        self.assertEqual((item["status"], item["split_into"]), ("split", {"9731025023": 6, "9731025024": 4}))
+        self.assertNotIn("9831025021", item["candidates"])
+
+    def test_the_same_sido_successor_wins_over_a_far_away_superset(self):
+        jibun = self.evidence({"9731025021": lots(*range(1, 11))},
+                              {"9731025023": lots(*range(1, 11)), "9831025021": lots(*range(1, 2001))})
+        result = cg.pair_changes(self.far_away_table(self.FAR_RI), FLOOR, jibun=jibun, min_share=MIN_SHARE)
+        self.assertEqual([(p["old_code"], p["new_code"], p["rule_verdict"]) for p in result.pairs],
+                         [("9731025021", "9731025023", "jibun")])
+        self.assertEqual(result.review, [])
+
+    def test_a_code_created_outside_the_change_window_does_not_win(self):
+        # 심은 함정: 같은 시도지만 폐지일과 다른 날(바닥 날짜 뒤) 생긴 리가 지번을 모두 덮는다.
+        later = row("9731025029", "합성시 가군 가면 늦은리", parent="9731025000", created="20991001")
+        jibun = self.evidence({"9731025021": lots(*range(1, 11))},
+                              {"9731025023": lots(*range(1, 11)), "9731025029": lots(*range(1, 2001))})
+        result = cg.pair_changes(self.far_away_table(later), FLOOR, jibun=jibun, min_share=MIN_SHARE)
+        self.assertEqual([(p["old_code"], p["new_code"]) for p in result.pairs], [("9731025021", "9731025023")])
+
     def test_the_jibun_sets_come_from_pnus_and_skip_malformed_ones(self):
         pnus = [pnu("9811010100", 1), pnu("9811010100", 2), pnu("9811010200", 7), "98110101001", "x" * 19]
         self.assertEqual(cg.jibun_sets(pnus), {"9811010100": lots(1, 2), "9811010200": lots(7)})
