@@ -191,11 +191,20 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
 | 2. manifest | 아래 `publish-building-by-pnu-section-packs` (꺼진 버전이 `_capabilities` 에 `[1, 2, 3]` 으로 답한다) | 객체 (꺼진 버전은 블록을 읽지 않는다) | 6절 manifest 되돌리기 |
 | 3. 묶음 | `building-gateway-canary.sh --execute packs <1단계의 버전>`: 같은 코드를 켜서 올리고 꺼진 버전에서 단계마다 옮긴다 | 묶음 | `building-gateway-canary.sh --execute rollback <1단계의 버전>` |
 
+- 시작 전 준비: 분석 파일(계약 `cloudflare_analytics.env_file`)에 계정 id·**존 id**·토큰을 둔다. 토큰 권한은 계약
+  `token_scope` 그대로 둘이다(Account Analytics: Read, 운영 주소 존의 Analytics: Read). 존 id 가 없거나 토큰이 둘 중
+  하나를 못 읽으면 `--preflight` 가 두 GraphQL 질의를 실제로 돌려 보고 아무것도 올리기 전에 거부한다. 표본은 감시가
+  쓰는 파일(`/etc/foundation-platform/building-serving-monitor.env` 의 `…_MONITOR_SAMPLE_PATH`)에서 읽는다.
 - 각 단계는 `canary.hold_seconds` 동안 머문 뒤 `scripts/ops/building-gateway-health.sh <새> <옛>`(분석 토큰이 있는
-  호스트에서 root 로)이 Cloudflare 분석으로 판정한다: 새 버전 요청 수 ≥ `canary.min_requests_per_step`,
-  `exceededResources` 0, 예외·내부 오류 비율과 운영 주소의 5xx 비율(클라이언트 요청만, `requestSource: eyeball`)
-  ≤ 1 − `slo.availability_min`, CPU p99 ≤ `worker_cpu_p99_max_ms`, wall p50·p99 증가 ≤ `slo.latency_max_increase_ms.warm`.
-  어긋나면 스크립트가 모든 요청을 옛 버전으로 즉시 되돌리고 멈춘다.
+  호스트에서 root 로)이 판정한다. 먼저 운영 주소에서 표본 PNU 를 `canary.synthetic_load` 만큼 두 버전 각각에
+  `Cloudflare-Workers-Version-Overrides` 로 고정해 읽는다(출시 전 실트래픽 1% 로는 요청 수를 못 채운다). 그리고:
+  고정 읽기의 200·gzip 비율 ≥ `slo.availability_min`(버전마다), 새 버전 요청 수 ≥ `canary.min_requests_per_step`,
+  `exceededResources` 0, 예외·내부 오류 비율과 운영 주소의 5xx 비율(클라이언트 요청만, `requestSource: eyeball`;
+  하나도 안 세어지면 위반) ≤ 1 − `slo.availability_min`, CPU p99 ≤ `worker_cpu_p99_max_ms`, wall p50·p99 증가 ≤
+  `slo.latency_max_increase_ms.warm`. 어긋나면 스크립트가 모든 요청을 옛 버전으로 즉시 되돌리고 멈춘다(exit 1).
+- 배포 명령 자체가 실패하면(단계 배포 도중) 스크립트는 지금의 배포 상태를 찍고 옛 버전 100% 로 되돌린 뒤 exit 2 로
+  멈춘다. 되돌리기마저 실패하면 갈라진 상태와 손으로 마칠 명령(`--execute rollback <옛>`)을 찍고 exit 3 이다.
+  `packs <버전>` 은 그 버전이 지금 100% 가 아니면 거부하고, 올리기가 버전 id 를 내지 않으면 아무것도 배포하지 않는다.
 - 스크립트는 기본이 dry-run 이다(명령만 찍는다). 노트북에서 돌릴 때는 판정을 분석 호스트에서 하게 한다:
   `CANARY_HEALTH_COMMAND='ssh <host> sudo /opt/foundation-platform/current/scripts/ops/building-gateway-health.sh @NEW@ @OLD@'`.
 - 3단계가 100% 가 되면 감시를 켠다(6절).

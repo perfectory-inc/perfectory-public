@@ -1192,3 +1192,77 @@ fn percentiles_are_nearest_rank() {
     let numbers = latency::normalized_digest(br#"{"a":50.0,"source":{"x":1}}"#).ok();
     assert_eq!(numbers, latency::normalized_digest(br#"{"a":50}"#).ok());
 }
+
+/// Mounts each row's object document on a stand-in live hostname, `drift` applied to its body.
+async fn live_answering(
+    rows: &[JsonMap<String, JsonValue>],
+    status: u16,
+    delay_ms: u64,
+    drift: impl Fn(String) -> String,
+) -> anyhow::Result<MockServer> {
+    let prefix = &LANE.policy()?.request_path.prefix;
+    let server = MockServer::start().await;
+    for row in rows {
+        let pnu = row["pnu"].as_str().context("pnu")?;
+        let body = drift(String::from_utf8(object(row, SNAPSHOT)?)?);
+        Mock::given(method("GET"))
+            .and(path(format!("{prefix}{pnu}")))
+            .respond_with(
+                ResponseTemplate::new(status)
+                    .set_body_bytes(body.into_bytes())
+                    .set_delay(std::time::Duration::from_millis(delay_ms)),
+            )
+            .mount(&server)
+            .await;
+    }
+    Ok(server)
+}
+
+/// The hourly monitor holds the live hostname to what the lane serves, before and after the
+/// cut-over: a faithful hostname passes; a drifted document, a 5xx or a slow p95 each fail it.
+#[tokio::test]
+async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()> {
+    let rows = vec![spark_row()?, empty_row(PNU_B)];
+    let pnus = vec![PNU_A.to_owned(), PNU_B.to_owned()];
+    assert_eq!(rows[0]["pnu"].as_str(), Some(PNU_A));
+    let lane = Lane::serving_objects("monitor", &rows).await?;
+    let faithful = live_answering(&rows, 200, 0, |body| body).await?;
+    let drifted = live_answering(&rows, 200, 0, |body| body.replace("101호", "999호")).await?;
+    let failing = live_answering(&rows, 503, 0, |body| body).await?;
+    let slow = live_answering(&rows, 200, 300, |body| body).await?;
+    for phase in ["objects", "packs"] {
+        if phase == "packs" {
+            lane.cut_over(&rows).await?;
+            assert!(lane.live().await?.section_packs.is_some());
+        }
+        let held = super::monitor::check(&lane.store, &faithful.uri(), &pnus, 3_000.0).await?;
+        assert!(held.passed, "{phase}: {held:?}");
+        assert_eq!(
+            (held.answered, held.objects_not_compared),
+            (2, 0),
+            "{phase}"
+        );
+
+        let report = super::monitor::check(&lane.store, &drifted.uri(), &pnus, 3_000.0).await?;
+        assert!(!report.passed, "{phase}: a drifted document passed");
+        assert_eq!(
+            report.drifted_from_served,
+            vec![PNU_A.to_owned()],
+            "{phase}"
+        );
+        assert_eq!(
+            report.drifted_from_objects,
+            vec![PNU_A.to_owned()],
+            "{phase}"
+        );
+
+        let report = super::monitor::check(&lane.store, &failing.uri(), &pnus, 3_000.0).await?;
+        assert!(!report.passed, "{phase}: a 503 passed");
+        assert_eq!(report.failures.len(), 2, "{phase}: {report:?}");
+
+        let report = super::monitor::check(&lane.store, &slow.uri(), &pnus, 100.0).await?;
+        assert!(!report.passed, "{phase}: a p95 above the bound passed");
+        assert!(report.latency_ms.p95 > 100.0, "{phase}: {report:?}");
+    }
+    Ok(())
+}
