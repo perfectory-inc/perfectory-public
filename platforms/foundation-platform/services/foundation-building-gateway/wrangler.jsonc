@@ -27,6 +27,9 @@
       "bucket_name": "foundation-platform-lakehouse-prod"
     }
   ],
+  "version_metadata": {
+    "binding": "FOUNDATION_PLATFORM_WORKER_VERSION"
+  },
   "env": {
     "preview": {
       "name": "foundation-building-gateway-preview",
@@ -46,6 +49,9 @@
           "bucket_name": "foundation-platform-lakehouse-prod"
         }
       ],
+      "version_metadata": {
+        "binding": "FOUNDATION_PLATFORM_WORKER_VERSION"
+      },
       "vars": {
         "FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW": "true"
       }

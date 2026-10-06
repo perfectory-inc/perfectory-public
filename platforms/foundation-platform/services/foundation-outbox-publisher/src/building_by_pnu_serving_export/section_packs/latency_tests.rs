@@ -7,7 +7,7 @@ use std::io::Write as _;
 use std::time::Duration;
 
 use serde_json::json;
-use wiremock::matchers::{header, method, path};
+use wiremock::matchers::{body_string_contains, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::analytics::AnalyticsConfig;
@@ -460,24 +460,39 @@ fn the_load_draw_is_seeded_and_repeats() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Pinned reads every one of which answered.
+/// The versions a canary step compares, as Cloudflare names them.
+const NEW_VERSION: &str = "22222222-2222-4222-8222-222222222222";
+const OLD_VERSION: &str = "11111111-1111-4111-8111-111111111111";
+
+/// Pinned reads every one of which answered, each naming the version it was pinned to.
 fn pinned_held() -> super::health::Pinned {
-    let held = gate::LoadEvidence {
+    let held = |version: &str| gate::LoadEvidence {
         sent: 300,
         answered: 300,
         availability: 1.0,
+        versions: [(version.to_owned(), 300)].into(),
         ..gate::LoadEvidence::default()
     };
     super::health::Pinned {
-        old: Some(held.clone()),
-        new: held,
+        old: Some(held(OLD_VERSION)),
+        new: held(NEW_VERSION),
     }
+}
+
+fn canary() -> anyhow::Result<&'static crate::by_pnu_gateway_contract::CanaryPolicy> {
+    use anyhow::Context as _;
+    super::super::LANE
+        .section_packs()?
+        .canary
+        .as_ref()
+        .context("the building lane names a canary")
 }
 
 /// A canary step's verdict: each bound breached alone is named, a healthy step names none.
 #[test]
 fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
     let gate = &section_pack_policy()?.cutover_gate;
+    let canary = canary()?;
     let healthy = gate::WorkerCpu {
         requests: 1000,
         cpu_p50_ms: 1.0,
@@ -490,15 +505,18 @@ fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
     let old = healthy.clone();
     let ok_hosts: std::collections::BTreeMap<u16, u64> = [(200, 10_000), (503, 1)].into();
     let pinned = pinned_held();
-    let judge = |new: &gate::WorkerCpu,
-                 hosts: &std::collections::BTreeMap<u16, u64>,
-                 pinned: &super::health::Pinned| {
-        super::health::breaches(new, Some(&old), hosts, pinned, 200, gate)
+    let judge_against = |new: &gate::WorkerCpu,
+                         old: &gate::WorkerCpu,
+                         hosts: &std::collections::BTreeMap<u16, u64>,
+                         pinned: &super::health::Pinned| {
+        super::health::breaches(new, Some(old), hosts, pinned, NEW_VERSION, canary, gate)
     };
+    let judge =
+        |new: &gate::WorkerCpu,
+         hosts: &std::collections::BTreeMap<u16, u64>,
+         pinned: &super::health::Pinned| judge_against(new, &old, hosts, pinned);
     assert!(judge(&healthy, &ok_hosts, &pinned).is_empty());
 
-    let mut few = healthy.clone();
-    few.requests = 10;
     let mut cut_off = healthy.clone();
     cut_off
         .statuses
@@ -512,7 +530,6 @@ fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
     let mut slower = healthy.clone();
     slower.wall_p99_ms += gate.slo.latency_max_increase_ms.warm.p99 + 1.0;
     for (label, new) in [
-        ("too little traffic", few),
         ("a cut-off", cut_off),
         ("exceptions", throwing),
         ("CPU", costly),
@@ -541,6 +558,151 @@ fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
         assert_eq!(breached.len(), 1, "{failing}: {breached:?}");
         assert!(breached[0].contains(failing), "{breached:?}");
     }
+
+    // Reach is counted from the answers: every one answered 200, but by the old version (a pin
+    // the platform did not honour), or naming no version at all, is a step that did not reach.
+    for versions in [
+        [(OLD_VERSION.to_owned(), 300)].into(),
+        std::collections::BTreeMap::new(),
+    ] {
+        let mut misdirected = pinned_held();
+        misdirected.new.versions = versions;
+        let breached = judge(&healthy, &ok_hosts, &misdirected);
+        assert_eq!(breached.len(), 1, "{breached:?}");
+        assert!(
+            breached[0].contains("answered by the new version"),
+            "{breached:?}"
+        );
+    }
+
+    // The 2026-10-06 code phase: 300 pinned answers from the new version, analytics (sampled
+    // and late) had counted 137 of them. The reads reached it; the rest is judged on the 137.
+    let lagging = gate::WorkerCpu {
+        requests: 137,
+        statuses: [("success".to_owned(), 137)].into(),
+        ..healthy.clone()
+    };
+    assert!(judge(&lagging, &ok_hosts, &pinned).is_empty());
+    // An analytics answer that counted almost none of them judges nothing: refused.
+    let blind = gate::WorkerCpu {
+        requests: 30,
+        statuses: [("success".to_owned(), 30)].into(),
+        ..healthy.clone()
+    };
+    assert!(30.0 / 300.0 < canary.analytics_min_coverage);
+    let breached = judge(&blind, &ok_hosts, &pinned);
+    assert_eq!(breached.len(), 1, "{breached:?}");
+    assert!(
+        breached[0].contains("Workers analytics counted"),
+        "{breached:?}"
+    );
+
+    // CPU: the measured code phase (new p99 5.67 ms against old 3.70 ms) holds both bounds; a
+    // new version within the absolute bound that adds more than the allowed increase does not.
+    let measured_old = gate::WorkerCpu {
+        cpu_p99_ms: 3.70,
+        ..healthy.clone()
+    };
+    let measured_new = gate::WorkerCpu {
+        cpu_p99_ms: 5.67,
+        ..healthy.clone()
+    };
+    assert!(judge_against(&measured_new, &measured_old, &ok_hosts, &pinned).is_empty());
+    let cheap_old = gate::WorkerCpu {
+        cpu_p99_ms: 1.0,
+        ..healthy.clone()
+    };
+    let doubled = gate::WorkerCpu {
+        cpu_p99_ms: 1.0 + gate.worker_cpu_p99_max_increase_ms + 0.1,
+        ..healthy.clone()
+    };
+    assert!(doubled.cpu_p99_ms <= gate.worker_cpu_p99_max_ms);
+    let breached = judge_against(&doubled, &cheap_old, &ok_hosts, &pinned);
+    assert_eq!(breached.len(), 1, "{breached:?}");
+    assert!(
+        breached[0].contains("above the old version's"),
+        "{breached:?}"
+    );
+    Ok(())
+}
+
+/// The contract's CPU bound holds the paths measured healthy on 2026-10-06 at the placement the
+/// Worker runs at (object path p99 5.67 ms, pack path p99 6.4 ms); the first bound, 5 ms, did not.
+#[test]
+fn the_cpu_bound_admits_the_measured_healthy_paths() -> anyhow::Result<()> {
+    let gate = &section_pack_policy()?.cutover_gate;
+    for (path, p99) in [("object path", 5.67), ("pack path", 6.4)] {
+        assert!(p99 <= gate.worker_cpu_p99_max_ms, "{path} {p99} ms");
+    }
+    // The measured increase of the same code moved to Tokyo placement.
+    assert!(5.67 - 3.70 <= gate.worker_cpu_p99_max_increase_ms);
+    Ok(())
+}
+
+/// A planted Workers analytics answer as the 2026-10-06 step saw it: sampled (average interval
+/// 1.2) and late (137 of 300 counted). The step reads reach from the pinned answers and passes;
+/// the same answer for a step whose answers named another version is refused.
+#[tokio::test]
+async fn a_sampled_late_analytics_answer_does_not_fail_a_step_that_reached() -> anyhow::Result<()> {
+    let server = MockServer::start().await;
+    let invocations = |requests: u64, cpu_p99_us: f64, wall_p50_us: f64| {
+        json!({
+            "data": {"viewer": {"accounts": [{"workersInvocationsAdaptive": [
+                {"sum": {"requests": requests}, "avg": {"sampleInterval": 1.2},
+                 "dimensions": {"status": "success"},
+                 "quantiles": {"cpuTimeP50": 2930.0, "cpuTimeP99": cpu_p99_us,
+                               "wallTimeP50": wall_p50_us, "wallTimeP99": 300_000.0}},
+            ]}]}},
+            "errors": null,
+        })
+    };
+    for (version, answer) in [
+        (NEW_VERSION, invocations(137, 5670.0, 93_000.0)),
+        (OLD_VERSION, invocations(296, 3700.0, 192_000.0)),
+    ] {
+        Mock::given(method("POST"))
+            .and(path("/graphql"))
+            .and(body_string_contains(version))
+            .respond_with(ResponseTemplate::new(200).set_body_json(answer))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_string_contains("httpRequestsAdaptiveGroups"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {"viewer": {"zones": [{"httpRequestsAdaptiveGroups": [
+                {"count": 601, "dimensions": {"edgeResponseStatus": 200}},
+            ]}]}},
+            "errors": null,
+        })))
+        .mount(&server)
+        .await;
+    let client = reqwest::Client::new();
+    let config = analytics_config(&server);
+    let judge = |pinned| {
+        super::health::check(
+            &client,
+            &config,
+            NEW_VERSION,
+            Some(OLD_VERSION),
+            "zone",
+            900,
+            pinned,
+        )
+    };
+    let report = judge(pinned_held()).await?;
+    assert_eq!(report.new.requests, 137);
+    assert!((report.new.sample_interval_max - 1.2).abs() < 1e-9);
+    assert_eq!(report.reached_new_version, 300);
+    assert!(report.passed, "{:?}", report.breaches);
+
+    // The same analytics, but the pinned answers all named the old version: not reached.
+    let mut misdirected = pinned_held();
+    misdirected.new.versions = [(OLD_VERSION.to_owned(), 300)].into();
+    let report = judge(misdirected).await?;
+    assert_eq!(report.reached_new_version, 0);
+    assert!(!report.passed);
     Ok(())
 }
 
@@ -548,8 +710,13 @@ fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
 /// answers 503 shows in its own evidence, not the other's.
 #[tokio::test]
 async fn a_canary_step_pins_its_reads_to_each_version() -> anyhow::Result<()> {
-    const NEW: &str = "22222222-2222-4222-8222-222222222222";
-    const OLD: &str = "11111111-1111-4111-8111-111111111111";
+    const NEW: &str = NEW_VERSION;
+    const OLD: &str = OLD_VERSION;
+    let version_header = super::super::LANE
+        .policy()?
+        .version_header
+        .clone()
+        .unwrap_or_default();
     let worker = &super::super::LANE.policy()?.worker_name;
     let server = MockServer::start().await;
     let pin = |version: &str| format!("{worker}=\"{version}\"");
@@ -569,7 +736,8 @@ async fn a_canary_step_pins_its_reads_to_each_version() -> anyhow::Result<()> {
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_bytes(gzip(BODY.as_bytes())?)
-                .insert_header("Content-Encoding", "gzip"),
+                .insert_header("Content-Encoding", "gzip")
+                .insert_header(version_header.as_str(), OLD),
         )
         .mount(&server)
         .await;
@@ -585,6 +753,10 @@ async fn a_canary_step_pins_its_reads_to_each_version() -> anyhow::Result<()> {
         .as_ref()
         .map(|old| (old.answered, old.availability));
     assert_eq!(old, Some((20, 1.0)));
+    // Each answer is counted by the version it named.
+    let named = pinned.old.as_ref().map(|old| old.versions.clone());
+    assert_eq!(named, Some([(OLD.to_owned(), 20)].into()));
+    assert!(pinned.new.versions.is_empty());
     // Nothing reached the server unpinned.
     let requests = server.received_requests().await.unwrap_or_default();
     assert_eq!(requests.len(), 40);

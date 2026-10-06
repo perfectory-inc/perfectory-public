@@ -62,6 +62,8 @@ last_reviewed: 2026-10-05
   manifest 가 그 세대를 가리킬 때만 답한다(전환 관문, 런북 `docs/runbooks/building-section-pack-cutover.md`).
 - **manifest 를 신뢰할 수 없으면 503** (부재·비파싱·다른 unit/schema/세대 0): 포인터 장애는
   레인 전체의 장애다. R2 읽기 실패도 503이며 `no-store`로 캐시되지 않는다.
+- 모든 답은 자기를 만든 버전 id 를 계약 `version_header`(`Foundation-Worker-Version`)에 적는다. 값은 버전
+  메타데이터 바인딩(`version_metadata_binding`)에서 오고, 카나리아 단계가 고정 읽기의 도달을 이것으로 센다(ADR-0157).
 - 객체 부재는 CORS 헤더를 포함한 404 `no-store`다. 웹은 이를 `BuildingNotServedError`로 구분한다.
 - 거부: query, 원시 객체 키, 다른 prefix, traversal, 비정규 PNU는 404; 다른 method는 405;
   미허용 Origin은 403

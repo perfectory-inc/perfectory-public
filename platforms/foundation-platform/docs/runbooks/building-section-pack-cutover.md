@@ -165,7 +165,7 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
 - 미리보기의 `Server-Timing`(전체, R2 대기, 묶음이 `r2-whole`·`r2-head+range`·`edge-…`·`memory-…` 중 어디서 왔는지)을
   모아 증거의 `server_timing` 에 적는다.
 - 탐침 구간의 미리보기 Worker CPU 를 Workers 분석에서 읽는다(분석은 1–2분 늦게 센다. 탐침은 보낸 요청의 95% 가 셀
-  때까지 최대 10분 기다린다). `exceededResources` 가 0 이고 p99 가 `worker_cpu_p99_max_ms`(5ms) 이하여야 통과다.
+  때까지 최대 10분 기다린다). `exceededResources` 가 0 이고 p99 가 `worker_cpu_p99_max_ms`(10ms, ADR-0157) 이하여야 통과다.
   2026-10-05 에는 계정이 Workers Free(요청당 10ms)라 넘은 요청이 오류 1102, 곧 503 이 되었다. 2026-10-06 부터 Workers
   Paid 이고 운영 Worker 의 CPU 한도는 계약 `building_by_pnu_gateway.cpu_limit_ms` 다(ADR-0151 Revision 9).
 - 주소가 로컬·사설이면 증거에 `local-simulation` 이 적히고, 그 증거로는 발행이 거부된다.
@@ -198,9 +198,11 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
 - 각 단계는 `canary.hold_seconds` 동안 머문 뒤 `scripts/ops/building-gateway-health.sh <새> <옛>`(분석 토큰이 있는
   호스트에서 root 로)이 판정한다. 먼저 운영 주소에서 표본 PNU 를 `canary.synthetic_load` 만큼 두 버전 각각에
   `Cloudflare-Workers-Version-Overrides` 로 고정해 읽는다(출시 전 실트래픽 1% 로는 요청 수를 못 채운다). 그리고:
-  고정 읽기의 200·gzip 비율 ≥ `slo.availability_min`(버전마다), 새 버전 요청 수 ≥ `canary.min_requests_per_step`,
+  고정 읽기의 200·gzip 비율 ≥ `slo.availability_min`(버전마다), 새 버전이 **직접 답한** 고정 읽기 수(답마다 Worker 가
+  계약 `version_header` 에 자기 버전 id 를 적는다) ≥ `canary.min_requests_per_step`, Workers 분석이 그 답을 센 비율 ≥
+  `canary.analytics_min_coverage`(분석은 표본추출되고 몇 분 늦다. 도달 판정에는 쓰지 않는다, ADR-0157),
   `exceededResources` 0, 예외·내부 오류 비율과 운영 주소의 5xx 비율(클라이언트 요청만, `requestSource: eyeball`;
-  하나도 안 세어지면 위반) ≤ 1 − `slo.availability_min`, CPU p99 ≤ `worker_cpu_p99_max_ms`, wall p50·p99 증가 ≤
+  하나도 안 세어지면 위반) ≤ 1 − `slo.availability_min`, CPU p99 ≤ `worker_cpu_p99_max_ms` 이고 옛 버전 p99 대비 증가 ≤ `worker_cpu_p99_max_increase_ms`, wall p50·p99 증가 ≤
   `slo.latency_max_increase_ms.warm`. 어긋나면 스크립트가 모든 요청을 옛 버전으로 즉시 되돌리고 멈춘다(exit 1).
 - 배포 명령 자체가 실패하면(단계 배포 도중) 스크립트는 지금의 배포 상태를 찍고 옛 버전 100% 로 되돌린 뒤 exit 2 로
   멈춘다. 되돌리기마저 실패하면 갈라진 상태와 손으로 마칠 명령(`--execute rollback <옛>`)을 찍고 exit 3 이다.

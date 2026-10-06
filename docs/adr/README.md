@@ -196,3 +196,5 @@ last_reviewed: 2026-07-28
 - [ADR-0155 — CI 와 릴리스 빌드는 의존성 빌드를 내용 주소로 재사용하고, 병합은 머지 큐가 판정한다](./0155-ci-and-release-builds-reuse-content-addressed-dependency-builds.md)
 
 - [ADR-0156 — 파생 짝을 반박하는 것은 같은 변경의 결정적인 공식 근거뿐이다](./0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md)
+
+- [ADR-0157 — 카나리아 단계는 도달을 자기 답으로 세고, CPU 한도는 측정에서 정한다](./0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md)

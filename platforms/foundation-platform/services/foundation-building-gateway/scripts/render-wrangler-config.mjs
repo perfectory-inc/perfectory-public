@@ -36,6 +36,13 @@ export function render(contract) {
   if (typeof region !== "string" || !/^(aws|gcp|azure):[a-z0-9-]+$/.test(region) || typeof gateway.placement_reason !== "string") {
     throw new Error("building_by_pnu_gateway.placement must name a cloud region hint, with a reason");
   }
+  // Every answer names the version that produced it (ADR-0157), from Cloudflare's version metadata
+  // binding; bindings are not inherited, so the preview gets its own.
+  const versionBinding = gateway.version_metadata_binding;
+  if (typeof versionBinding !== "string" || !/^FOUNDATION_PLATFORM_[A-Z0-9_]+$/.test(versionBinding)) {
+    throw new Error("building_by_pnu_gateway.version_metadata_binding must name a FOUNDATION_PLATFORM_ binding");
+  }
+  const versionMetadata = { binding: versionBinding };
   const packs = gateway.section_packs;
   const preview = packs?.preview_worker;
   if (preview !== undefined) {
@@ -55,6 +62,7 @@ export function render(contract) {
       placement: { region },
       routes: hostnames.map((hostname) => ({ pattern: hostname, custom_domain: true })),
       r2_buckets: [{ binding: gateway.r2_binding, bucket_name: bucket }],
+      version_metadata: versionMetadata,
       ...(preview === undefined
         ? {}
         : {
@@ -65,6 +73,7 @@ export function render(contract) {
                 placement: { region },
                 routes: [{ pattern: preview.public_hostname, custom_domain: true }],
                 r2_buckets: [{ binding: gateway.r2_binding, bucket_name: bucket }],
+                version_metadata: versionMetadata,
                 vars: { [packs.preview_binding]: "true" },
               },
             },

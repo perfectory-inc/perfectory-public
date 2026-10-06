@@ -83,7 +83,7 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
   let runtime: Miniflare | undefined;
   let documents: Documents;
 
-  async function start(bindings: Record<string, string> = {}): Promise<Miniflare> {
+  async function start(bindings: Record<string, string | { id: string; tag: string }> = {}): Promise<Miniflare> {
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
       bundle: true,
@@ -229,6 +229,54 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     floored.sections = floored.sections.map((section) => ({ ...section, patch_floor: 1 }));
     await serve(floored);
     expect(await (await get(PNU_A)).text()).toBe(documents.base[PNU_A]);
+  });
+
+  it("every answer names the Worker version that produced it, on each path, and none without the binding (ADR-0157)", async () => {
+    const VERSION = "22222222-2222-4222-8222-222222222222";
+    const named = (response: { headers: { get(name: string): string | null } }) =>
+      response.headers.get(GATEWAY.version_header);
+    await serve(sectionPacks([]));
+    // The default runtime has no version metadata binding: nothing is named, nothing guessed.
+    expect(named(await get(PNU_A, "", { "Accept-Encoding": "gzip" }))).toBeNull();
+
+    await runtime?.dispose();
+    runtime = await start({ [GATEWAY.version_metadata_binding]: { id: VERSION, tag: "" } });
+    await serve(sectionPacks([]));
+    const gzip = await get(PNU_A, "", { "Accept-Encoding": "gzip" });
+    expect([gzip.status, named(gzip)]).toEqual([200, VERSION]);
+    // The member still goes out as stored: the header is set on the answer, not by re-encoding it.
+    expect(await gzip.text()).toBe(documents.base[PNU_A]);
+    // A repeat answers from the PNU's edge copy, which every version shares: it names this one.
+    const again = await get(PNU_A, "", { "Accept-Encoding": "gzip" });
+    expect([again.status, named(again)]).toEqual([200, VERSION]);
+    const identity = await get(PNU_B, "", { "Accept-Encoding": "identity" });
+    expect([identity.status, named(identity)]).toEqual([200, VERSION]);
+    const absent = await get(UNKNOWN_IN_DONG);
+    expect([absent.status, named(absent)]).toEqual([404, VERSION]);
+    // The manifest is edge-cached: a fresh runtime serves the patch whose pack is missing.
+    await runtime?.dispose();
+    runtime = await start({ [GATEWAY.version_metadata_binding]: { id: VERSION, tag: "" } });
+    await serve(sectionPacks([{ patch: 1, units: [UNIT] }]));
+    await (await runtime.getR2Bucket(R2_BINDING)).delete(packKey(PACKS.anchor_section, 1));
+    const outage = await get(PNU_A);
+    expect([outage.status, named(outage)]).toEqual([503, VERSION]);
+
+    // The object path (serving binding off) names its version too, cold and from its edge copy.
+    await runtime.dispose();
+    runtime = await start({
+      [GATEWAY.version_metadata_binding]: { id: VERSION, tag: "" },
+      [PACKS.serving_binding]: "off",
+    });
+    await (await runtime.getR2Bucket(R2_BINDING)).put(
+      `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`,
+      `{"pnu":"${PNU_A}"}
+`,
+    );
+    await serve(sectionPacks([]));
+    for (const attempt of ["cold", "edge"]) {
+      const object = await get(PNU_A);
+      expect([attempt, object.status, named(object)]).toEqual([attempt, 200, VERSION]);
+    }
   });
 
   it("a listed pack that is missing, or sections that disagree, are an outage, not a document", async () => {

@@ -229,6 +229,9 @@ pub(crate) struct Answer {
     pub(crate) server_timing: Option<String>,
     /// The answer's `Content-Encoding`, `None` when it had none.
     pub(crate) content_encoding: Option<String>,
+    /// The Worker version that produced the answer, as it names it in the lane's
+    /// `version_header` (root ADR-0157); `None` when it named none.
+    pub(crate) version: Option<String>,
 }
 
 impl Answer {
@@ -591,6 +594,15 @@ pub(crate) async fn timed_get(
         .get("server-timing")
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
+    // A contract that cannot be read names no header: the answer then names no version, which a
+    // canary step counts against the new version, never for it.
+    let version = LANE
+        .policy()
+        .ok()
+        .and_then(|policy| policy.version_header.as_deref())
+        .and_then(|name| response.headers().get(name))
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let content_encoding = response
         .headers()
         .get(reqwest::header::CONTENT_ENCODING)
@@ -640,6 +652,7 @@ pub(crate) async fn timed_get(
         body,
         server_timing,
         content_encoding,
+        version,
     })
 }
 

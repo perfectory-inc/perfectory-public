@@ -96,12 +96,16 @@ pub(crate) async fn run(
     let mut sources = BTreeMap::<String, u64>::new();
     let mut outcomes = BTreeMap::<String, u64>::new();
     let mut failures = BTreeMap::<String, u64>::new();
+    let mut versions = BTreeMap::<String, u64>::new();
     let mut answered = 0_u64;
     while let Some(joined) = tasks.join_next().await {
         match joined? {
             Ok(answer) => {
                 answered += 1;
                 latency.push(answer.ms);
+                if let Some(version) = answer.version {
+                    *versions.entry(version).or_default() += 1;
+                }
                 if let Some(timing) = &answer.server_timing {
                     let parsed = parse_server_timing(timing);
                     server_total.extend(parsed.total_ms);
@@ -166,5 +170,6 @@ pub(crate) async fn run(
             outcomes,
         },
         worker_cpu,
+        versions,
     })
 }

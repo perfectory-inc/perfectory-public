@@ -9,18 +9,22 @@
 //! | check | source | bound |
 //! |---|---|---|
 //! | every pinned read answered 200, gzip | the synthetic reads of each version | share ≥ `slo.availability_min` |
-//! | enough traffic to judge | Workers invocations of the new version | `canary.min_requests_per_step` |
+//! | the reads reached the new version | pinned answers naming the new version in `version_header` | `canary.min_requests_per_step` |
+//! | analytics counted enough of them | Workers invocations of the new version / its pinned answers | ≥ `canary.analytics_min_coverage` |
 //! | no platform cut-off | `exceededResources` of the new version | 0 |
 //! | errors | invocations that are neither `success` nor `clientDisconnected` | share ≤ 1 − `slo.availability_min` |
-//! | CPU | p99 of the new version | `worker_cpu_p99_max_ms` |
+//! | CPU | p99 of the new version, and its increase over the old | `worker_cpu_p99_max_ms`, `worker_cpu_p99_max_increase_ms` |
 //! | wall time | p50 and p99 of the new version vs the old | `slo.latency_max_increase_ms.warm` |
 //! | 5xx | the live hostname's client responses (every version) | counted at all, share ≤ 1 − `slo.availability_min` |
 //!
 //! Workers analytics records no HTTP status per version (a Worker's own 503 is a `success`
 //! invocation), which is why the pinned reads count each version's answers themselves and the zone
-//! is read too. The zone is required: a step whose 5xx cannot be counted is not judged. A pin the
-//! platform did not honour (a version outside the current deployment) shows as too few requests on
-//! the new version. Read-only towards R2 and the Worker; exits non-zero on any breach, which the
+//! is read too. The zone is required: a step whose 5xx cannot be counted is not judged. Whether the
+//! reads reached the new version is counted from the answers themselves, each naming the version
+//! that produced it (root ADR-0157): Workers analytics is sampled and minutes late (2026-10-06: 137
+//! of 300 pinned answers counted when the wait ran out), so it judges CPU, cut-offs and errors only,
+//! and must have counted a share of the answers first. A pin the platform did not honour (a version
+//! outside the current deployment) shows as too few answers naming the new version. Read-only towards R2 and the Worker; exits non-zero on any breach, which the
 //! canary script answers with a rollback.
 //!
 //! `--preflight` (`CANARY_PREFLIGHT=true`) runs both analytics queries once, so a missing zone id or
@@ -56,6 +60,8 @@ pub(crate) struct HealthReport {
     pub(crate) new: WorkerCpu,
     pub(crate) old: Option<WorkerCpu>,
     pub(crate) host_statuses: BTreeMap<u16, u64>,
+    /// The pinned reads answered by the new version, as each answer named it.
+    pub(crate) reached_new_version: u64,
     pub(crate) pinned: Pinned,
     pub(crate) breaches: Vec<String>,
     pub(crate) passed: bool,
@@ -276,8 +282,10 @@ pub(crate) async fn check(
         from,
         to,
     };
-    // Waits until analytics counts the reads pinned to the new version.
-    let new = analytics::worker_cpu(client, analytics, &of(new_version), pinned.new.sent).await?;
+    // Waits until analytics counts the reads the new version answered (it lags them).
+    let reached_new_version = reached(&pinned, new_version);
+    let new =
+        analytics::worker_cpu(client, analytics, &of(new_version), reached_new_version).await?;
     let old = match old_version {
         Some(version) => Some(analytics::query_invocations(client, analytics, &of(version)).await?),
         None => None,
@@ -296,7 +304,8 @@ pub(crate) async fn check(
         old.as_ref(),
         &host_statuses,
         &pinned,
-        canary.min_requests_per_step,
+        new_version,
+        canary,
         gate,
     );
     Ok(HealthReport {
@@ -308,9 +317,15 @@ pub(crate) async fn check(
         new,
         old,
         host_statuses,
+        reached_new_version,
         pinned,
         breaches,
     })
+}
+
+/// The pinned reads of the new version that `new_version` itself answered.
+fn reached(pinned: &Pinned, new_version: &str) -> u64 {
+    pinned.new.versions.get(new_version).copied().unwrap_or(0)
 }
 
 /// What the new version breached; empty when it holds every bound.
@@ -319,7 +334,8 @@ pub(crate) fn breaches(
     old: Option<&WorkerCpu>,
     host_statuses: &BTreeMap<u16, u64>,
     pinned: &Pinned,
-    min_requests: u64,
+    new_version: &str,
+    canary: &CanaryPolicy,
     gate: &crate::by_pnu_gateway_contract::CutoverGatePolicy,
 ) -> Vec<String> {
     let mut breaches = Vec::new();
@@ -333,11 +349,25 @@ pub(crate) fn breaches(
             ));
         }
     }
-    if new.requests < min_requests {
+    let reached = reached(pinned, new_version);
+    if reached < canary.min_requests_per_step {
         breaches.push(format!(
-            "{} requests reached the new version, fewer than the {min_requests} a step needs (a \
-             version pin is honoured only for a version in the current deployment)",
-            new.requests
+            "{reached} pinned reads were answered by the new version {new_version}, fewer than the \
+             {} a step needs (answers by version: {:?}; a version pin is honoured only for a \
+             version in the current deployment)",
+            canary.min_requests_per_step, pinned.new.versions
+        ));
+    }
+    // Analytics never decides the reach; it must have counted enough of it to judge the rest.
+    #[allow(clippy::cast_precision_loss)]
+    let coverage = new.requests as f64 / reached.max(1) as f64;
+    if reached > 0 && coverage < canary.analytics_min_coverage {
+        breaches.push(format!(
+            "Workers analytics counted {} invocations of the new version for its {reached} pinned \
+             answers ({:.0}%), below the {:.0}% its CPU, cut-offs and errors are judged on",
+            new.requests,
+            coverage * 100.0,
+            canary.analytics_min_coverage * 100.0
         ));
     }
     let cut_off = new.statuses.get(EXCEEDED_RESOURCES).copied().unwrap_or(0);
@@ -369,6 +399,12 @@ pub(crate) fn breaches(
         ));
     }
     if let Some(old) = old.filter(|old| old.requests > 0) {
+        if new.cpu_p99_ms - old.cpu_p99_ms > gate.worker_cpu_p99_max_increase_ms {
+            breaches.push(format!(
+                "CPU p99 {:.1}→{:.1} ms is more than {:.1} ms above the old version's",
+                old.cpu_p99_ms, new.cpu_p99_ms, gate.worker_cpu_p99_max_increase_ms
+            ));
+        }
         let bound = &gate.slo.latency_max_increase_ms.warm;
         if new.wall_p50_ms - old.wall_p50_ms > bound.p50
             || new.wall_p99_ms - old.wall_p99_ms > bound.p99
