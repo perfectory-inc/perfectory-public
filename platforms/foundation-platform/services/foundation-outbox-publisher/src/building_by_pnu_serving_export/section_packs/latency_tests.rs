@@ -377,7 +377,7 @@ fn missing_analytics_credentials_are_refused_naming_the_file() -> anyhow::Result
         .err()
         .map(|error| format!("{error:#}"))
         .unwrap_or_default();
-    assert!(refused.contains(&names.env_file), "{refused}");
+    assert!(refused.contains(names.env_file()?), "{refused}");
     assert!(refused.contains(&names.api_token_env), "{refused}");
     Ok(())
 }

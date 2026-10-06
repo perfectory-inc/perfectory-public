@@ -8,6 +8,7 @@ file, a file that did not land in Bronze, a handoff file whose bytes changed.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import sys
@@ -152,6 +153,7 @@ class ParserTest(unittest.TestCase):
 
 # The provider's download id in the public repository's synthetic range (scripts/guard/public-repository-safety.sh).
 DOWNLOAD_ID = "20991231DS99991"
+BRONZE = CONTRACT["bronze_source"]
 
 
 def key(file_no):
@@ -177,11 +179,22 @@ class HandoffTest(unittest.TestCase):
         self.state = self.root / "state"
         self.state.mkdir()
 
-    def evidence(self, *keys, status="succeeded", names=None):
+    def evidence(self, *keys, status="succeeded", names=None, plain=False):
+        """The ingest's evidence: each file under the content key of the bytes in `downloads` (root
+        ADR-0152), or under its plain provider-file key with `plain`."""
         names = names or {}
+
+        def object_key(k):
+            extension = names.get(k, "ABPD_UNQ_NO_CHG_HIST_합성.zip").rsplit(".", 1)[1]
+            if plain:
+                return f"{BRONZE}/{k}.{extension}"
+            path = self.downloads / f"{k}.zip"
+            checksum = hashlib.sha256(path.read_bytes()).hexdigest() if extension == "zip" and path.exists() else "0" * 64
+            return f"{BRONZE}/{k}--sha256-{checksum}.{extension}"
+
         return {"files": [{"download_ds_id": k.split("-")[0], "file_no": k.split("-")[1], "status": status,
                            "provider_file_name": names.get(k, "ABPD_UNQ_NO_CHG_HIST_합성.zip"),
-                           "object_key": f"bronze/source=vworldkr__parcel_number_change_history/run/{k}.zip"} for k in keys]}
+                           "object_key": object_key(k)} for k in keys]}
 
     def test_every_file_is_collected_again_only_when_its_date_or_size_moved(self):
         inv = inventory(item("5", "ABPD_UNQ_NO_CHG_HIST_합성.zip"), item("1", "ABPD_UNQ_NO_CHG_HIST.xlsx"),
@@ -226,7 +239,8 @@ class HandoffTest(unittest.TestCase):
         accepted = json.loads((self.state / "accepted.json").read_text(encoding="utf-8"))
         self.assertEqual(accepted["files"][key("5")]["rows"], 1004)
         [(obj, rows)] = job.handoff_rows(self.state / "pending" / result["handoff"], CONTRACT, NOW)
-        self.assertEqual(obj["object_key"], f"bronze/source=vworldkr__parcel_number_change_history/run/{key('5')}.zip")
+        checksum = hashlib.sha256(zipped(SAMPLE)).hexdigest()
+        self.assertEqual(obj["object_key"], f"{BRONZE}/{key('5')}--sha256-{checksum}.zip")
         self.assertEqual({row["source_snapshot_id"] for row in rows}, {f"{key('5')}@2099-09-15"})
         self.assertEqual({row["source_record_id"] for row in rows}, {obj["object_key"]})
         self.assertEqual(rows[0]["provider_updated_on"], date(2099, 9, 15))
@@ -255,6 +269,36 @@ class HandoffTest(unittest.TestCase):
         (handoff / "objects" / f"{key('5')}.zip").write_bytes(other)
         with self.assertRaisesRegex(job.SourceFormatError, "not the file"):
             job.handoff_rows(handoff, CONTRACT, NOW)
+
+    def test_a_plain_provider_file_key_is_never_handed_off(self):
+        # 2026-10-05: the first production run wrote every file under its plain key, then stopped.
+        # Those keys do not name their bytes; nothing downstream may read them (root ADR-0152).
+        (self.downloads / f"{key('5')}.zip").write_bytes(zipped(SAMPLE))
+        files = [item("5", "ABPD_UNQ_NO_CHG_HIST_합성.zip")]
+        with self.assertRaisesRegex(job.SourceFormatError, "not a content-addressed key"):
+            job.landed_objects(self.evidence(key("5"), plain=True), CONTRACT)
+        with self.assertRaisesRegex(job.SourceFormatError, "not a content-addressed key"):
+            job.stage_handoff(files, self.evidence(key("5"), plain=True), self.downloads, self.state, CONTRACT, NOW)
+        self.assertFalse((self.state / "accepted.json").exists())
+        self.assertFalse((self.state / "pending").exists())
+
+    def test_bytes_that_are_not_the_ones_the_key_names_are_not_handed_off(self):
+        (self.downloads / f"{key('5')}.zip").write_bytes(zipped(SAMPLE))
+        evidence = self.evidence(key("5"))
+        other = zipped(text(line(dong("9999910100"), dong("9999810100"))))
+        (self.downloads / f"{key('5')}.zip").write_bytes(other)
+        with self.assertRaisesRegex(job.SourceFormatError, "not the ones its key names"):
+            job.stage_handoff([item("5", "ABPD_UNQ_NO_CHG_HIST_합성.zip")], evidence, self.downloads, self.state,
+                              CONTRACT, NOW)
+        self.assertFalse((self.state / "pending").exists())
+
+    def test_a_key_of_another_file_is_not_handed_off(self):
+        (self.downloads / f"{key('5')}.zip").write_bytes(zipped(SAMPLE))
+        evidence = self.evidence(key("5"))
+        evidence["files"][0]["object_key"] = evidence["files"][0]["object_key"].replace(f"{key('5')}--", f"{key('7')}--")
+        with self.assertRaisesRegex(job.SourceFormatError, "not a content-addressed key"):
+            job.stage_handoff([item("5", "ABPD_UNQ_NO_CHG_HIST_합성.zip")], evidence, self.downloads, self.state,
+                              CONTRACT, NOW)
 
     def test_nothing_changed_stages_nothing(self):
         self.assertEqual(job.stage_handoff([], {"files": []}, self.downloads, self.state, CONTRACT, NOW)["status"], "unchanged")

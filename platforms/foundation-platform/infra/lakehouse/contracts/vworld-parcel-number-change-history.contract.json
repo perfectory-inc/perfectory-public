@@ -7,6 +7,15 @@
     "svc_cde": "MK",
     "ds_id": "30527"
   },
+  "bronze_objects": {
+    "$comment": "Root ADR-0152. The provider uploads a changed file under the same file number, and the Bronze bucket refuses to overwrite a key, so every object is named by its file and its bytes: <download_ds_id>-<file_no>--sha256-<checksum>.<ext>, the form the 연속지적도 objects of 2026-09 carry. The collection script asks the ingest for it (FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY=content_addressed); a rerun of the same bytes finds its own object and writes nothing. stage-handoff and load refuse any other key and any bytes whose SHA-256 is not the one the key names. superseded_plain_keys: the first production run (2026-10-05) wrote all 20 files under plain keys and then stopped before staging, so no handoff, accepted state or Silver row names them. They stay (append-only; the bucket's object lock keeps them) and nothing reads them; their ledger rows are repointed to the content keys when the same bytes are collected again, which leaves a displaced-key event that the R2 inventory audit lists as a delete candidate. Do not delete them.",
+    "key_pattern": "^bronze/source=vworldkr__parcel_number_change_history/(?P<file_key>[0-9A-Za-z]+-[0-9]+)--sha256-(?P<sha256>[0-9a-f]{64})\\.(?:zip|xlsx)$",
+    "superseded_plain_keys": {
+      "pattern": "^bronze/source=vworldkr__parcel_number_change_history/[0-9A-Za-z]+-[0-9]+\\.(?:zip|xlsx)$",
+      "count": 20,
+      "written_utc": "2026-10-05T16:41:59Z/2026-10-05T16:42:01Z"
+    }
+  },
   "expected_listing": {
     "$comment": "What the provider's page listed on 2026-10-05: 19 province zips and the table definition. The plan carries it into the inventory as the expected count; a different count is a warning there, not a refusal, because the provider's page decides.",
     "file_count": 20,

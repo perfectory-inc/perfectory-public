@@ -10,6 +10,10 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 
 const R2_CONNECTION_CONTRACT: &str = include_str!("../../../config/r2-connections.contract.json");
+const RUNTIME_SECRETS_CONTRACT: &str =
+    include_str!("../../../config/runtime-secrets.contract.json");
+/// The runtime-secrets group that holds the Cloudflare analytics variables.
+const CLOUDFLARE_ANALYTICS_GROUP: &str = "cloudflare-analytics";
 
 /// The two by-PNU serving lanes. Everything a lane differs by is named here once.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -168,12 +172,11 @@ pub(crate) struct SectionPackPolicy {
     pub(crate) cutover_gate: CutoverGatePolicy,
 }
 
-/// The environment variables (from the contract's `env_file`) that carry the analytics account
-/// and its read-only token.
+/// The environment variables that carry the analytics account and its read-only token. The file
+/// that holds them is not named here: `config/runtime-secrets.contract.json` owns every host
+/// environment file (root ADR-0153), see [`CloudflareAnalyticsPolicy::env_file`].
 #[derive(Debug, Deserialize)]
 pub(crate) struct CloudflareAnalyticsPolicy {
-    /// The root-only file a unit's `EnvironmentFile` reads the variables from.
-    pub(crate) env_file: String,
     pub(crate) token_scope: String,
     pub(crate) account_id_env: String,
     pub(crate) api_token_env: String,
@@ -367,6 +370,47 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+impl CloudflareAnalyticsPolicy {
+    /// The root-only file a unit's `EnvironmentFile` reads the variables from, as the
+    /// runtime-secrets contract names it (its `cloudflare-analytics` group).
+    ///
+    /// # Errors
+    /// Returns an error when that contract cannot be read or has no such group.
+    pub(crate) fn env_file(&self) -> anyhow::Result<&'static str> {
+        runtime_secret_group_path(CLOUDFLARE_ANALYTICS_GROUP)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RuntimeSecretsContract {
+    groups: Vec<RuntimeSecretGroup>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RuntimeSecretGroup {
+    name: String,
+    path: String,
+}
+
+/// The host path of one runtime-secrets group (root ADR-0153: that contract is the one source of
+/// host environment files).
+fn runtime_secret_group_path(group: &str) -> anyhow::Result<&'static str> {
+    static CONTRACT: OnceLock<Result<RuntimeSecretsContract, String>> = OnceLock::new();
+    let contract = CONTRACT
+        .get_or_init(|| {
+            serde_json::from_str(RUNTIME_SECRETS_CONTRACT)
+                .map_err(|error| format!("invalid runtime-secrets contract: {error}"))
+        })
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    contract
+        .groups
+        .iter()
+        .find(|entry| entry.name == group)
+        .map(|entry| entry.path.as_str())
+        .ok_or_else(|| anyhow::anyhow!("the runtime-secrets contract has no group {group:?}"))
 }
 
 /// The pack format and cut-over gate.

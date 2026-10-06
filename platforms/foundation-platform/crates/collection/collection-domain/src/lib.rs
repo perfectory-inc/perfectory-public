@@ -19,12 +19,13 @@ pub mod source_slug;
 pub mod vworld_cadastral;
 
 pub use bronze::{
-    build_bronze_object_key, validate_bronze_object_key_contract, BronzeObject,
-    BronzeObjectKeyError, BronzeObjectKeyParts, BronzeSnapshotMetadataError, IngestionRun,
-    IngestionRunStatus, IngestionTrigger, ParseIngestionRunStatusError, ParseIngestionTriggerError,
-    ParseSchemaObservedTypeError, ParseSourceAuthKindError, ParseSourcePayloadFormatError,
-    SchemaObservedType, SchemaProfile, SnapshotBasis, SnapshotGranularity, SourceAuthKind,
-    SourceCatalogEntry, SourcePayloadFormat,
+    bronze_content_object_key_checksum, build_bronze_content_object_key, build_bronze_object_key,
+    validate_bronze_object_key_contract, BronzeObject, BronzeObjectKeyError, BronzeObjectKeyParts,
+    BronzeSnapshotMetadataError, IngestionRun, IngestionRunStatus, IngestionTrigger,
+    ParseIngestionRunStatusError, ParseIngestionTriggerError, ParseSchemaObservedTypeError,
+    ParseSourceAuthKindError, ParseSourcePayloadFormatError, SchemaObservedType, SchemaProfile,
+    SnapshotBasis, SnapshotGranularity, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
+    BRONZE_CONTENT_KEY_SEPARATOR,
 };
 pub use errors::CollectionError;
 pub use operation_dataset_slug::{

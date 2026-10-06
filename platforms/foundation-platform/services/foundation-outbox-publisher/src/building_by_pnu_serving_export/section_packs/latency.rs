@@ -27,7 +27,7 @@
 //! The preview Worker's CPU over the probe window is read from Workers analytics: the account's
 //! plan cuts a request off past its CPU limit (error 1102, an HTTP 503), so the gate demands no
 //! `exceededResources` and a p99 within the contract's `worker_cpu_p99_max_ms`. Without the
-//! analytics credentials (the contract's `cloudflare_analytics.env_file`) the probe refuses to
+//! analytics credentials (the runtime-secrets contract's `cloudflare-analytics` group) the probe refuses to
 //! start, naming the file; evidence that records no CPU never opens the gate either. Evidence of two
 //! stand-in routes (loopback or private addresses) is marked `local-simulation` and never opens
 //! the gate either; CI proves the probe with such stand-ins.

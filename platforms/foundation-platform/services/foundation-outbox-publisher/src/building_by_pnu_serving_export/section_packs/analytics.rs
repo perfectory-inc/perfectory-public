@@ -77,7 +77,9 @@ impl AnalyticsConfig {
                  in a unit whose EnvironmentFile is {} (root:root 0600, a token scoped {}); that \
                  file is missing or does not set them",
                 Self::names().unwrap_or_default(),
-                names.env_file,
+                names
+                    .env_file()
+                    .unwrap_or("the runtime-secrets contract's cloudflare-analytics file"),
                 names.token_scope
             )
         })

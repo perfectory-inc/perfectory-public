@@ -3,13 +3,11 @@
 #
 #   measure-building-section-packs.sh <output-dir>
 #
-# An operator runs it once, before the cut-over gate, with the environment the by-PNU bake unit
-# reads (its EnvironmentFile lines, infra/systemd/foundation-by-pnu-serving-bake.service), e.g.
+# An operator runs it once, before the cut-over gate, with the environment files the contract gives
+# this run (config/runtime-secrets.contract.json, run measure-building-section-packs; root ADR-0153):
 #
 #   sudo systemd-run --wait --collect --pipe -p User=foundation-platform -p MemoryMax=14G \
-#     -p EnvironmentFile=/etc/foundation-platform/recovery.env \
-#     -p EnvironmentFile=/etc/foundation-platform/source-sweep.env \
-#     -p EnvironmentFile=/etc/foundation-platform/map-edit-fold.env \
+#     $(python3 /opt/foundation-platform/current/scripts/deploy/runtime_secrets.py properties measure-building-section-packs) \
 #     /opt/foundation-platform/current/scripts/ops/measure-building-section-packs.sh \
 #     /data/foundation-platform/by-pnu-bake/building-pack-measure
 #
@@ -39,6 +37,15 @@ TIME_BIN="${FOUNDATION_PACK_MEASURE_TIME_BIN:-/usr/bin/time}"
 [[ -x "${TIME_BIN}" ]] || refuse "${TIME_BIN} is not there; install GNU time" 69
 
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+# The Gold read's key pair, before any shard starts (root ADR-0153): the first released script ran
+# without it and learned so at shard 1. The contract's run measure-building-section-packs supplies it.
+required_env=(
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+)
+for name in "${required_env[@]}"; do
+  [[ -n "${!name:-}" ]] || refuse "${name} is not set; run with: runtime_secrets.py properties measure-building-section-packs" 78
+done
 ENV_PREFIX=FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/building"
 

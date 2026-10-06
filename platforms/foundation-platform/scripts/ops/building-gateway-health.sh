@@ -15,8 +15,9 @@ set -euo pipefail
 NEW="${1:?usage: building-gateway-health.sh <new-version-id> [<old-version-id>] | --preflight}"
 OLD="${2:-}"
 PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-ENV_FILE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["by_pnu_section_packs"]["cloudflare_analytics"]["env_file"])' \
-  "${PLATFORM_ROOT}/config/r2-connections.contract.json")"
+# The file is named once, by the runtime-secrets contract (root ADR-0153), group cloudflare-analytics.
+ENV_FILE="$(python3 -c 'import json,sys; print(next(g["path"] for g in json.load(open(sys.argv[1]))["groups"] if g["name"] == "cloudflare-analytics"))' \
+  "${PLATFORM_ROOT}/config/runtime-secrets.contract.json")"
 # systemd-run with a missing EnvironmentFile fails with a bare "Failed to load environment files";
 # say what is missing instead.
 if [[ ! -f "${ENV_FILE}" ]]; then

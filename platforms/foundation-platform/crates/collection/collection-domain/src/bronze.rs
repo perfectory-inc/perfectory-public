@@ -632,6 +632,56 @@ pub fn validate_bronze_object_key_contract(key: &str) -> Result<(), BronzeObject
     Ok(())
 }
 
+/// Separator between a Bronze key's provider file identity and the payload's SHA-256.
+pub const BRONZE_CONTENT_KEY_SEPARATOR: &str = "--sha256-";
+
+/// Qualifies a canonical Bronze key with its payload's SHA-256: `<stem>--sha256-<hex>.<ext>`.
+///
+/// For providers that reuse a file number for new bytes (`VWorld` publishes every upload of a file
+/// under the same number), the provider identity alone names more than one payload, and a bucket
+/// that refuses to overwrite a key turns the second upload into a failure. The checksum makes the
+/// key name exactly one payload: a new upload gets a new key, and the same bytes again get the same
+/// key, so a rerun finds its own object (root ADR-0152). This is the key shape the `연속지적도`
+/// objects of 2026-09 already carry (`30563-<n>--sha256-<hex>.zip`).
+///
+/// # Errors
+///
+/// Returns [`BronzeObjectKeyError`] when `base_key` is not canonical, already carries a checksum,
+/// or `checksum_sha256` is not 64 lowercase hex characters.
+pub fn build_bronze_content_object_key(
+    base_key: &ObjectKey,
+    checksum_sha256: &str,
+) -> Result<ObjectKey, BronzeObjectKeyError> {
+    validate_bronze_object_key_contract(base_key.as_str())?;
+    if !(checksum_sha256.len() == 64 && is_lowercase_hex_run(checksum_sha256, 64)) {
+        return Err(invalid_bronze_key_part(
+            "checksum_sha256",
+            "must be 64 lowercase hex characters",
+        ));
+    }
+    let (stem, extension) = base_key
+        .as_str()
+        .rsplit_once('.')
+        .ok_or_else(|| invalid_bronze_key_part("object_key", "requires a file extension"))?;
+    if stem.contains(BRONZE_CONTENT_KEY_SEPARATOR) {
+        return Err(invalid_bronze_key_part(
+            "object_key",
+            "already carries a content checksum",
+        ));
+    }
+    let key = format!("{stem}{BRONZE_CONTENT_KEY_SEPARATOR}{checksum_sha256}.{extension}");
+    validate_bronze_object_key_contract(&key)?;
+    Ok(ObjectKey::parse(&key)?)
+}
+
+/// The SHA-256 a content-qualified Bronze key names, or `None` for a key without one.
+#[must_use]
+pub fn bronze_content_object_key_checksum(key: &str) -> Option<&str> {
+    let (stem, _extension) = key.rsplit_once('.')?;
+    let (_, checksum) = stem.rsplit_once(BRONZE_CONTENT_KEY_SEPARATOR)?;
+    (checksum.len() == 64 && is_lowercase_hex_run(checksum, 64)).then_some(checksum)
+}
+
 fn validate_source_slug(source_slug: &str) -> Result<(), BronzeObjectKeyError> {
     if source_slug.is_empty() {
         return Err(invalid_bronze_key_part("source_slug", "must not be empty"));
@@ -872,6 +922,7 @@ fn invalid_bronze_key_part(field: &'static str, reason: &str) -> BronzeObjectKey
 #[cfg(test)]
 mod tests {
     use super::{
+        bronze_content_object_key_checksum, build_bronze_content_object_key,
         build_bronze_object_key, is_opaque_hash_or_uuid, BronzeObjectKeyParts, SnapshotBasis,
         SnapshotGranularity,
     };
@@ -1356,5 +1407,40 @@ mod tests {
         assert!(!is_opaque_hash_or_uuid(
             "550E8400-E29B-41D4-A716-446655440000"
         ));
+    }
+
+    #[test]
+    fn a_content_key_names_its_payload_and_reads_back() -> Result<(), Box<dyn std::error::Error>> {
+        let base = foundation_shared_kernel::ObjectKey::parse(
+            "bronze/source=vworldkr__parcel_number_change_history/20991231DS99994-9007.zip",
+        )?;
+        let checksum = "0123456789abcdef".repeat(4);
+        let key = build_bronze_content_object_key(&base, &checksum)?;
+        assert_eq!(
+            key.as_str(),
+            format!(
+                "bronze/source=vworldkr__parcel_number_change_history/20991231DS99994-9007--sha256-{checksum}.zip"
+            )
+        );
+        assert_eq!(
+            bronze_content_object_key_checksum(key.as_str()),
+            Some(checksum.as_str())
+        );
+        assert_eq!(bronze_content_object_key_checksum(base.as_str()), None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_content_key_refuses_a_bad_checksum_or_a_second_qualifier(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let base = foundation_shared_kernel::ObjectKey::parse(
+            "bronze/source=vworldkr__parcel_number_change_history/20991231DS99994-9007.zip",
+        )?;
+        for checksum in ["A".repeat(64), "a".repeat(63), "g".repeat(64)] {
+            assert!(build_bronze_content_object_key(&base, &checksum).is_err());
+        }
+        let qualified = build_bronze_content_object_key(&base, &"a".repeat(64))?;
+        assert!(build_bronze_content_object_key(&qualified, &"b".repeat(64)).is_err());
+        Ok(())
     }
 }

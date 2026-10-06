@@ -1005,7 +1005,26 @@ verify_runtime_schema() {
   # while repairing the schema gap: six variables were missing, and compose named one per
   # attempt, so the hole looked two deep until the whole file was compared (root ADR-0071).
   "${environment}" "${release_root}/current"
+  verify_runtime_secrets
   "${checker}" "${release_root}/current"
+}
+
+# Every environment file the release's units load exists, is owned and no more open than the
+# runtime-secrets contract says, and holds every name it declares (root ADR-0153). Names only: the
+# checker prints a missing name, never a value. On 2026-10-05 a unit's script required the lakehouse
+# reader key that none of its files held, and the first run found out after writing to Bronze.
+verify_runtime_secrets() {
+  local secrets="${release_root}/current/scripts/deploy/runtime_secrets.py"
+  [[ -f "${secrets}" ]] || {
+    printf 'runtime secrets check is missing from the release: %s\n' "${secrets}" >&2
+    exit 66
+  }
+  # FOUNDATION_PLATFORM_SECRETS_ROOT is the filesystem root the group paths are under: `/` on the
+  # host, a fake host in foundation-release-test.sh.
+  python3 -I "${secrets}" --area "${release_root}/current" host --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" || {
+    printf 'the host environment files do not match config/runtime-secrets.contract.json; see above (names only)\n' >&2
+    exit 65
+  }
 }
 
 migrate_runtime() {
@@ -1118,6 +1137,8 @@ case "${command}" in
     # Idempotent: reinstalling the same files and re-enabling an enabled timer are no-ops.
     [[ "$#" == 1 || "$#" == 2 ]] || usage
     assert_current_release
+    # No unit is installed whose environment files the host does not have (root ADR-0153).
+    verify_runtime_secrets
     # FLOOR's unit is installed only with a valid FLOOR config and state, and nothing else waits on
     # them: an invalid FLOOR config used to stop this step before it installed any unit, retired
     # any timer, regenerated the scheduler's sudoers or enabled the backup timer.

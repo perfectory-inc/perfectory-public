@@ -123,6 +123,21 @@ build_source() {
   cp "${repo_root}/infra/systemd/building-register-floor.env.example" "${dir}/infra/systemd/"
   chmod +x "${dir}/scripts/deploy/assert-runtime-migrations.sh"
   chmod +x "${dir}/scripts/deploy/assert-runtime-environment.sh"
+  # `verify` and `timers` check the host's environment files against the runtime-secrets contract
+  # (root ADR-0153). The rehearsal ships the real contract with its owners set to whoever runs
+  # it, and the fake host below (`secrets_root`) is built from it.
+  mkdir -p "${dir}/config"
+  cp "${repo_root}/scripts/deploy/runtime_secrets.py" "${dir}/scripts/deploy/"
+  cp "${repo_root}/config/r2-connections.contract.json" "${dir}/config/"
+  python3 - "${repo_root}/config/runtime-secrets.contract.json" "${dir}/config/runtime-secrets.contract.json" <<'PY'
+import grp, json, os, pwd, sys
+contract = json.load(open(sys.argv[1], encoding="utf-8"))
+for group in contract["groups"]:
+    if "owner" in group:
+        group["owner"] = pwd.getpwuid(os.getuid()).pw_name
+        group["group"] = grp.getgrgid(os.getgid()).gr_name
+json.dump(contract, open(sys.argv[2], "w", encoding="utf-8"), indent=2)
+PY
   # `verify` asks the environment file too, so the rehearsal carries the compose files that
   # check reads and an environment holding every variable they declare required. Neither list is
   # typed here — not the variables, and not the files. Which files the runtime loads is the
@@ -210,6 +225,25 @@ prepared="$(register_release "${test_root}/source-prepared")"
 for name in a b ahead prepared; do
   tar -C "${test_root}/source-${name}" -czf "${test_root}/release-${name}.tar.gz" .
 done
+
+# The fake host's environment files: every group a unit loads, holding every name the contract
+# declares, at the contract's mode. Written from the contract, not listed here.
+export FOUNDATION_PLATFORM_SECRETS_ROOT="${test_root}/host"
+python3 - "${test_root}/source-a" "${FOUNDATION_PLATFORM_SECRETS_ROOT}" <<'PY'
+import pathlib, sys
+area, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+sys.path.insert(0, str(area / "scripts/deploy"))
+import runtime_secrets
+contract = runtime_secrets.load(area)
+used = {g.name for c in contract.consumers if c.kind == "unit" for g in contract.loaded(c)}
+for group in contract.groups.values():
+    if group.release or group.optional or group.name not in used:
+        continue
+    path = root / group.path.lstrip("/")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(f"{name}=rehearsal\n" for name in sorted(group.holds)), encoding="utf-8")
+    path.chmod(group.mode)
+PY
 
 run_release() {
   FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" \
@@ -1147,6 +1181,16 @@ cp "${test_root}/applied.txt" "${test_root}/applied.saved"
 printf '20260719000001\n20260719000002\n' >"${test_root}/applied.txt"
 install_prune_rehearsal "${release_script}" || { cat "${test_root}/install-prune.log" >&2; exit 1; }
 printf 'install-prunes-and-rollback-after-prune=pass\n'
+# A host without an environment file a unit loads is refused by `verify`, by name (root ADR-0153).
+reader_file="${FOUNDATION_PLATFORM_SECRETS_ROOT}/etc/foundation-platform/lakehouse-reader.env"
+mv "${reader_file}" "${reader_file}.away"
+if run_install_root "${release_script}" verify >"${test_root}/secrets.log" 2>&1; then
+  printf 'verify passed on a host without lakehouse-reader.env\n' >&2
+  exit 1
+fi
+grep -q 'lakehouse-reader.env: missing' "${test_root}/secrets.log"
+mv "${reader_file}.away" "${reader_file}"
+printf 'verify-refuses-a-missing-environment-file=pass\n'
 mutate install-without-prune 's/then activate_and_prune "${release_id}"; fi/then activate_release "${release_id}"; fi/'
 if install_prune_rehearsal "${test_root}/install-without-prune.sh" 2>/dev/null; then
   printf 'install prune rehearsal passed with install not pruning\n' >&2
