@@ -68,6 +68,7 @@ jobs:
         with:
           workspaces: |
             products/gongzzang
+            tools/xtask
           shared-key: sqlx-cli
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
 
