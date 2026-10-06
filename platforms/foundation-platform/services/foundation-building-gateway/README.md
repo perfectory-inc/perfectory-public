@@ -34,16 +34,22 @@ last_reviewed: 2026-10-05
   CPU 는 객체 경로와 같은 일이다 — 계정이 Workers Free(요청당 10ms)라 항목을 Worker 가 합치던 방식은 오류
   1102(503)를 냈다(ADR-0151). gzip 여부는 엣지가 바꿔 쓴 `Accept-Encoding` 이 아니라 클라이언트 원래 값
   (`cf.clientAcceptEncoding`)으로 정한다. `ETag` 는 묶음의 R2 `etag` 와 덩어리 위치이고, 푼 답은 다른 표현이라
-  `-identity` 를 붙인 다른 태그다. CPU 한도는 계약 `cpu_limit_ms` 를 `limits.cpu_ms` 로 투영한다(Workers Paid). 패치는 `patch_floor` 위의 것 중
+  `-identity` 를 붙인 다른 태그다. CPU 한도는 계약 `cpu_limit_ms` 를 `limits.cpu_ms` 로 투영한다(Workers Paid). 배치는 계약 `placement`(버킷 옆 Tokyo, ADR-0154)를
+  운영과 미리보기 둘 다에 투영한다. 패치는 `patch_floor` 위의 것 중
   법정동이 목록에 있는 것만 읽는다. 툼스톤은 typed 404, 없으면 404, 목록의 묶음이 없거나 형식이 어긋나면 503 이다.
   `_capabilities` 는 `[1, 2, 3]`.
   - 읽기(계약 `by_pnu_section_packs.read_path`): 범위 없는 GET 하나가 머리를 찾는다. 묶음이 `whole_pack_max_bytes`
     이하면 그 GET 으로 통째 읽고 문서도 그 바이트에서 꺼낸다(R2 한 번). 크면 머리까지만 읽고 끊은 뒤 문서를
-    `onlyIf.etagMatches` 범위 읽기로 꺼낸다. R2 가 범위를 잘라 주기를 기대하지 않는다.
-  - 사본: isolate 메모리(바이트 예산 LRU)와 엣지 캐시(`immutable`). 엣지 사본의 `ETag` 는 따옴표 붙은 HTTP
-    형태로 쓰고 읽을 때 R2 `etag` 로 되돌린다. 머리 사본은 그 태그로만 범위 읽기와 합친다. 태그나 형태 표시가 없는
-    사본은 버리고 R2 를 다시 읽는다. 묶음 경로는 PNU 마다의 엣지 응답 캐시를 쓰지 않는다.
-  - R2 일시 오류는 `r2_attempts` 번까지, `r2_deadline_ms` 안에서 전체 지터 백오프로 다시 묻는다. 형식 불일치는
+    범위 읽기로 꺼내고, 답의 `etag` 가 머리의 것과 다르면 합치지 않는다(조건 `onlyIf` 는 보내지 않는다: 키가
+    create-only 라 아무것도 가르지 않으면서 CPU 를 썼다, ADR-0154). R2 가 범위를 잘라 주기를 기대하지 않는다.
+  - 묶음 사본은 isolate 메모리(바이트 예산 LRU)에만 둔다. 엣지 캐시에는 두지 않는다(ADR-0154): Worker 를 버킷
+    옆에 두면(계약 `placement`) 한 번 읽힌 묶음의 R2 읽기가 엣지 조회만큼 싸고, 사본 쓰기가 나머지 읽기보다 CPU 를
+    더 썼다.
+  - PNU 마다의 엣지 응답 사본(ADR-0154): 한 번 답한 문서의 덩어리를 묶음 계획의 지문(`plan.fingerprint`) 아래
+    합성 주소에 둔다. 같은 서빙 상태에서 그 PNU 를 다시 읽으면 캐시 조회 하나로 답한다(객체 경로의 PNU 캐시와
+    같은 일). 툼스톤과 부재는 두지 않는다. 새 세대나 패치가 발행되면 지문이 바뀌어 옛 사본을 쓰지 않는다.
+  - R2 일시 오류는 `r2_attempts` 번까지, `r2_deadline_ms` 안에서 전체 지터 백오프로 다시 묻는다. 시도 하나는
+    `r2_attempt_timeout_ms` 를 넘기면 버리고 다시 묻는다(멈춘 읽기 하나가 기한을 다 쓰지 않게). 형식 불일치는
     다시 묻지 않는다. 다시 물을 때와 503 마다 구조화된 로그(`pack_read_retry`, `pack_outage`: 항목·키·단계·오류
     종류·경과)를 남긴다.
   - 미리보기 버전은 `Server-Timing` 을 낸다: `outcome`, `r2;dur=…;desc="gets=… retries=…"`, 항목마다

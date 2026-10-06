@@ -8,6 +8,9 @@
   "limits": {
     "cpu_ms": 50
   },
+  "placement": {
+    "region": "aws:ap-northeast-1"
+  },
   "routes": [
     {
       "pattern": "buildings.perfectory.io",
@@ -28,6 +31,9 @@
     "preview": {
       "name": "foundation-building-gateway-preview",
       "workers_dev": false,
+      "placement": {
+        "region": "aws:ap-northeast-1"
+      },
       "routes": [
         {
           "pattern": "buildings-preview.perfectory.io",

@@ -29,6 +29,13 @@ export function render(contract) {
   if (!Number.isSafeInteger(cpuMs) || cpuMs < 1 || typeof gateway.cpu_limit_reason !== "string") {
     throw new Error("building_by_pnu_gateway.cpu_limit_ms must be a positive integer with a reason");
   }
+  // Where the Worker runs (ADR-0154): beside the bucket, for the live Worker and the preview alike,
+  // so the cut-over gate compares the two paths under one placement.
+  const placement = gateway.placement;
+  const region = placement?.region;
+  if (typeof region !== "string" || !/^(aws|gcp|azure):[a-z0-9-]+$/.test(region) || typeof gateway.placement_reason !== "string") {
+    throw new Error("building_by_pnu_gateway.placement must name a cloud region hint, with a reason");
+  }
   const packs = gateway.section_packs;
   const preview = packs?.preview_worker;
   if (preview !== undefined) {
@@ -45,6 +52,7 @@ export function render(contract) {
       workers_dev: false,
       keep_vars: true,
       limits: { cpu_ms: cpuMs },
+      placement: { region },
       routes: hostnames.map((hostname) => ({ pattern: hostname, custom_domain: true })),
       r2_buckets: [{ binding: gateway.r2_binding, bucket_name: bucket }],
       ...(preview === undefined
@@ -54,6 +62,7 @@ export function render(contract) {
               [preview.wrangler_env]: {
                 name: preview.worker_name,
                 workers_dev: false,
+                placement: { region },
                 routes: [{ pattern: preview.public_hostname, custom_domain: true }],
                 r2_buckets: [{ binding: gateway.r2_binding, bucket_name: bucket }],
                 vars: { [packs.preview_binding]: "true" },

@@ -206,6 +206,8 @@
     "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
     "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
     "compatibility_date": "2026-04-26",
+    "placement": { "region": "aws:ap-northeast-1" },
+    "placement_reason": "the bucket's location is APAC and the Worker reads it on every cold answer, while this zone's Korean traffic enters at LAX. Measured 2026-10-06 from ai-server, 1,000 PNUs per run, live copy and preview at the same placement: an R2 read of an object read before takes ~190 ms run at LAX, ~40 ms at Tokyo (aws:ap-northeast-1), ~70 ms at Seoul (aws:ap-northeast-2) and ~120 ms at Singapore (aws:ap-southeast-1). At Tokyo a cold pack answer is within the cut-over bounds of the object path (ADR-0154); the object path's own edge-cache hits pay the LAX-Tokyo hop (warm p50 444 -> 553 ms), which is what makes the pack path's edge copies affordable to drop. Placement travels with the uploaded version (2026-10-06, a throwaway Worker split 50/50 between an unplaced version and one uploaded with this hint answered both unplaced and remote-NRT), so the canary's code phase rolls it out and back like any other change",
     "cpu_limit_ms": 50,
     "cpu_limit_reason": "the account is on Workers Paid (2026-10-06), whose default CPU limit is 30 s per request; an explicit limit keeps a runaway request from billing seconds of CPU. 50 ms is ten times the cut-over gate's CPU p99 bound (worker_cpu_p99_max_ms) and above every measured path: the object path runs at CPU p50 1.95 ms, the pack path passes the gzip member through, and the decompressing path for a client without gzip does one gunzip and no parse, a subset of the old four-section join that measured CPU p99 37.5 ms",
     "object_key": {
