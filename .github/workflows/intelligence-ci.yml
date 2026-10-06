@@ -56,7 +56,7 @@ jobs:
           workspaces: |
             platforms/intelligence-platform
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the one
       # flag policy and the native deps (cmake+libsasl2 for rdkafka). Runs from the
       # repo root (this job defaults to the area). The default suite is backend-free;
@@ -90,7 +90,7 @@ jobs:
         with:
           workspaces: |
             platforms/intelligence-platform
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/install-cargo-deny.sh
