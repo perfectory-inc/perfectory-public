@@ -962,6 +962,13 @@ const AREAS: &[Area] = &[
 ];
 
 fn main() {
+    let github_actions = std::env::var("GITHUB_ACTIONS").ok();
+    let rust_setup = std::env::var("PERFECTORY_RUST_SETUP").ok();
+    if ci_rust_setup_missing(github_actions.as_deref(), rust_setup.as_deref()) {
+        fail_usage(
+            "this GitHub Actions job did not run `bash scripts/ci/rust-setup.sh` first; every CI              job that runs cargo goes through that one setup (root ADR-0152)",
+        );
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("verify") => {
@@ -1679,6 +1686,13 @@ fn remove_parent_crate_metadata(command: &mut Command) {
     }
 }
 
+/// A workflow that reaches cargo through a script is invisible to the static workflow guard
+/// (scripts/guard/rust-ci-setup.sh), so xtask -- the entry point of every CI cargo lane -- checks
+/// the marker the shared setup exports. Outside GitHub Actions nothing changes.
+fn ci_rust_setup_missing(github_actions: Option<&str>, rust_setup: Option<&str>) -> bool {
+    github_actions == Some("true") && rust_setup.is_none_or(str::is_empty)
+}
+
 fn fail_usage(message: &str) -> ! {
     eprintln!("xtask: {message}");
     exit(2);
@@ -1687,6 +1701,15 @@ fn fail_usage(message: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ci_job_without_the_shared_rust_setup_is_refused() {
+        assert!(ci_rust_setup_missing(Some("true"), None));
+        assert!(ci_rust_setup_missing(Some("true"), Some("")));
+        assert!(!ci_rust_setup_missing(Some("true"), Some("1.96.0")));
+        assert!(!ci_rust_setup_missing(None, None));
+        assert!(!ci_rust_setup_missing(Some("false"), None));
+    }
 
     #[test]
     fn nested_cargo_removes_only_parent_crate_metadata() {

@@ -47,6 +47,7 @@ name: synthetic
 on:
   pull_request:
     branches: [main]
+  merge_group:
   push:
     branches: [main]
 permissions:
@@ -273,6 +274,39 @@ mkdir "$test_root/pull-path-filter"
 sed '/^    branches: \[main\]$/a\    paths: ["src/**"]' \
   "$test_root/valid/example.yml" >"$test_root/pull-path-filter/example.yml"
 expect_rejected pull-request-path-filter "$test_root/pull-path-filter"
+
+# A required context that does not report on merge_group leaves a merge queue
+# waiting forever, and a filtered one does the same for the groups it skips.
+mkdir "$test_root/no-merge-group"
+sed '/^  merge_group:$/d' "$test_root/valid/example.yml" \
+  >"$test_root/no-merge-group/example.yml"
+expect_rejected missing-merge-group "$test_root/no-merge-group"
+
+mkdir "$test_root/merge-group-filter"
+sed '/^  merge_group:$/a\    types: [checks_requested]' \
+  "$test_root/valid/example.yml" >"$test_root/merge-group-filter/example.yml"
+expect_rejected merge-group-filter "$test_root/merge-group-filter"
+
+# The Foundation scope-gate condition is admitted only on the shared Rust setup
+# and its cache; on any other step it would be a silent skip.
+gate_if="        if: \${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}"
+gate_step() {
+  awk -v name="$1" -v gate="$gate_if" \
+    '$0 == "      - name: Tool" { print "      - name: " name; print gate; next } { print }' \
+    "$test_root/valid/example.yml"
+}
+mkdir "$test_root/gated-rust-setup"
+gate_step "Set up Rust" >"$test_root/gated-rust-setup/example.yml"
+grep -q 'FOUNDATION_CI_GATE_SELECTED' "$test_root/gated-rust-setup/example.yml"
+if ! "$checker" "$test_root/gated-rust-setup" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected the gated shared Rust setup" >&2
+  exit 1
+fi
+mkdir "$test_root/gated-other-step"
+gate_step "Tool" >"$test_root/gated-other-step/example.yml"
+grep -q 'FOUNDATION_CI_GATE_SELECTED' "$test_root/gated-other-step/example.yml"
+expect_rejected gate-condition-on-a-gate-step "$test_root/gated-other-step"
 
 mkdir "$test_root/pull-types-filter"
 sed '/^    branches: \[main\]$/a\    types: [opened]' \

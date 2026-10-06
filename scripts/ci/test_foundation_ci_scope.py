@@ -216,6 +216,18 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self._assert_all_post_selector_steps_are_guarded(gate, mutated)
 
+    def test_step_condition_is_admitted_only_on_the_shared_rust_setup(self) -> None:
+        gate = "kafka-integration"
+        section = self._job_section(gate)
+        gate_if = "        if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}\n"
+        for mutated in (
+            section.replace("      - name: Rust cache\n", "      - name: Restore anything\n", 1),
+            section.replace(f"      - name: Set up Rust\n{gate_if}", "      - name: Set up Rust\n        if: always()\n", 1),
+        ):
+            self.assertNotEqual(section, mutated)
+            with self.assertRaises(AssertionError):
+                self._assert_all_post_selector_steps_are_guarded(gate, mutated)
+
     def _job_section(self, gate: str) -> str:
         start = self.workflow.index(f"  {gate}:\n")
         following = re.search(r"(?m)^  [a-z0-9-]+:\s*$", self.workflow[start + 3 :])
@@ -233,6 +245,17 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
         )
         for step in steps[selector + 1 :]:
             if not step.strip():
+                continue
+            # The shared Rust setup and its cache (root ADR-0152) carry the gate as a
+            # step condition instead: the cache is an action, so it cannot open with a
+            # shell guard, and an unselected run must neither restore nor save it.
+            if "FOUNDATION_CI_GATE_SELECTED == 'true'" in step:
+                self.assertRegex(
+                    step,
+                    r"(?m)^      - name: (Set up Rust|Rust cache)\n"
+                    r"        if: \$\{\{ env\.FOUNDATION_CI_GATE_SELECTED == 'true' \}\}\n",
+                    "only the shared Rust setup and cache may skip by step condition",
+                )
                 continue
             self.assertNotRegex(
                 step,

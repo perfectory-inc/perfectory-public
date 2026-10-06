@@ -17,6 +17,7 @@ on:
       - "rust-toolchain.toml"
   pull_request:
     branches: [main]
+  merge_group:
     # Intentionally unfiltered so required/dawneer always reports.
 defaults:
   run:
@@ -37,19 +38,17 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      # SSOT: read the pinned channel from the single root rust-toolchain.toml
-      # (ADR-0001 §3, ADR-0003) rather than hardcoding it. The pinned action requires
-      # an explicit `toolchain` input (it does NOT auto-read the file).
-      - id: toolchain
+      - name: Set up Rust
         working-directory: ${{ github.workspace }}
-        run: echo "channel=$(grep -oP 'channel\s*=\s*"\K[^"]+' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17 # stable
+        shell: bash
+        run: bash scripts/ci/rust-setup.sh
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          workspaces: consoles/dawneer
+          workspaces: |
+            consoles/dawneer
+            tools/xtask
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the one
       # flag policy. The sign-in suite brings its own fake issuer and Foundation.
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093  # v6.0.8 (SHA pin, ADR 0028)
@@ -75,17 +74,19 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Set up Rust
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: bash scripts/ci/rust-setup.sh
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          workspaces: |
+            consoles/dawneer
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-deny
-        run: |
-          archive=/tmp/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz
-          tool_bin="$RUNNER_TEMP/cargo-deny/bin"
-          mkdir -p "$tool_bin"
-          curl -sSfL --output "$archive" \
-            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.8/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz
-          echo "70e769ae3872e34d45132b17040859175e11401dc12dddb0303e0b8c7d088f3f  $archive" \
-            | sha256sum --check --strict -
-          tar xzf "$archive" --strip-components=1 -C "$tool_bin" --wildcards '*/cargo-deny'
-          printf '%s\n' "$tool_bin" >> "$GITHUB_PATH"
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/ci/install-cargo-deny.sh
       - name: cargo-deny
         run: cargo-deny --locked check
 
