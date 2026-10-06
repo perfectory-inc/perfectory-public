@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "purpose": "The one list of pnpm overrides in the repository (root ADR-0158). tools/npm/security-overrides.mjs renders it into pnpm.overrides of every package.json that sits beside a tracked pnpm-lock.yaml (the trees are asked of git, never listed) and `check` refuses a manifest, a lockfile overrides block or a resolved version that disagrees. kind=security is a floor: every dependency declaring a range inside [from, end of version's release line) is rewritten to ^version, so a tree already above the floor keeps its release; `from` defaults to the start of version's line (major, or minor under 0.x) and is written only to reach older lines. An entry reaches a tree only when that tree resolves the package inside the range, or when `trees` names it. kind=technology-pin takes its exact version from tools/technology-versions.contract.json (version_from). Do not edit pnpm.overrides by hand; edit this file, then `node tools/npm/security-overrides.mjs render` and `bash tools/npm/refresh-locks.sh`.",
+  "overrides": [
+    {
+      "kind": "security",
+      "package": "@grpc/grpc-js",
+      "version": "1.14.5",
+      "advisories": [
+        "GHSA-f596-whhp-79r4",
+        "GHSA-m9gg-hp2v-232j"
+      ],
+      "reason": "Transitive through the OpenTelemetry gRPC exporter; 1.14.5 is the first fixed 1.14 release.",
+      "date": "2026-10-01"
+    },
+    {
+      "kind": "security",
+      "package": "brace-expansion",
+      "version": "5.0.12",
+      "advisories": [
+        "GHSA-6j4f-fj2g-mc7p",
+        "GHSA-q2hr-2g5m-vwhr",
+        "GHSA-qhr7-859c-m2p7"
+      ],
+      "reason": "Three ReDoS/expansion advisories on the 5.x line pulled by minimatch 10.",
+      "date": "2026-09-30"
+    },
+    {
+      "kind": "security",
+      "package": "esbuild",
+      "version": "0.28.1",
+      "from": "0.0.0",
+      "advisories": [
+        "GHSA-67mh-4wv8-2f99",
+        "GHSA-g7r4-m6w7-qqqr"
+      ],
+      "reason": "Development-server file read (0.27.3 up to 0.28.1) and request forgery (below 0.25.0). Every 0.x line is lifted because tools such as wrangler pin an exact older esbuild.",
+      "date": "2026-09-09"
+    },
+    {
+      "kind": "security",
+      "package": "ip-address",
+      "version": "10.7.2",
+      "advisories": [
+        "GHSA-h3mg-xc3c-68pw",
+        "GHSA-j6r3-76f7-8jcv"
+      ],
+      "reason": "Address parsing advisories on the 10.x line pulled by socks.",
+      "date": "2026-09-30"
+    },
+    {
+      "kind": "security",
+      "package": "js-yaml",
+      "version": "4.3.2",
+      "advisories": [
+        "GHSA-2883-xcg3-v3hh",
+        "GHSA-5p4m-2wfm-xmqj"
+      ],
+      "reason": "Parser advisories on the 4.x line; @redocly pinned 4.3.1, one release short of the fix.",
+      "date": "2026-09-09"
+    },
+    {
+      "kind": "security",
+      "package": "js-yaml",
+      "version": "5.4.2",
+      "advisories": [
+        "GHSA-r3ph-w7gj-g6xm"
+      ],
+      "reason": "Parser advisory on the 5.x line.",
+      "date": "2026-09-30"
+    },
+    {
+      "kind": "security",
+      "package": "katex",
+      "version": "0.19.0",
+      "from": "0.11.0",
+      "advisories": [
+        "GHSA-238p-pmpm-9mq7"
+      ],
+      "reason": "Prototype pollution bypassing trust restrictions, 0.11.0 up to 0.18.2; markdownlint's micromark-extension-math declares the 0.16 line, so the floor reaches down to the first affected line.",
+      "date": "2026-10-06"
+    },
+    {
+      "kind": "security",
+      "package": "markdown-it",
+      "version": "14.3.2",
+      "advisories": [
+        "GHSA-253c-mchw-3w2r"
+      ],
+      "reason": "Rendering advisory on the 14.x line pulled by markdownlint.",
+      "date": "2026-09-30"
+    },
+    {
+      "kind": "security",
+      "package": "nanoid",
+      "version": "5.1.11",
+      "advisories": [
+        "GHSA-xwg4-73v4-xw9w"
+      ],
+      "reason": "Integer overflow in nanoid(size) on the 5.x line (size-limit -> estimo); the 3.x line postcss uses is unaffected and stays on its own line.",
+      "date": "2026-09-02"
+    },
+    {
+      "kind": "security",
+      "package": "pacote",
+      "version": "21.5.1",
+      "advisories": [
+        "GHSA-w4pp-8pjf-rmxw"
+      ],
+      "reason": "Package fetch advisory on the 21.x line.",
+      "date": "2026-08-30"
+    },
+    {
+      "kind": "security",
+      "package": "postcss",
+      "version": "8.5.15",
+      "advisories": [
+        "GHSA-6g55-p6wh-862q",
+        "GHSA-qx2v-qp2m-jg93"
+      ],
+      "reason": "Parser advisories on the 8.x line; next pins postcss 8.4.31 exactly. Two later advisories on 8.5.15 are accepted in tools/osv-vulnerability-baseline.tsv until the CSS toolchain moves.",
+      "date": "2026-07-23"
+    },
+    {
+      "kind": "security",
+      "package": "sharp",
+      "version": "0.35.5",
+      "from": "0.0.0",
+      "advisories": [
+        "GHSA-f88m-g3jw-g9cj",
+        "GHSA-rgj7-g3m4-5g8c",
+        "GHSA-wq5f-xc86-pv6w"
+      ],
+      "reason": "Bundled libvips, libheif and librsvg advisories; every release below the floor is affected.",
+      "date": "2026-10-07"
+    },
+    {
+      "kind": "security",
+      "package": "smol-toml",
+      "version": "1.9.0",
+      "advisories": [
+        "GHSA-7w5x-hrqm-74c2",
+        "GHSA-r4xh-jqrq-34v2"
+      ],
+      "reason": "Denial of service on malformed TOML, pulled by markdownlint-cli2.",
+      "date": "2026-10-06"
+    },
+    {
+      "kind": "security",
+      "package": "source-map-js",
+      "version": "1.2.2",
+      "advisories": [
+        "GHSA-68fv-2mgg-jv7q"
+      ],
+      "reason": "Source map parsing advisory on the 1.x line pulled by postcss.",
+      "date": "2026-10-06"
+    },
+    {
+      "kind": "security",
+      "package": "undici",
+      "version": "7.29.1",
+      "advisories": [
+        "GHSA-2gqq-gqf2-x968",
+        "GHSA-2jfj-6hjv-fm6j",
+        "GHSA-3wwx-pv8p-q78v",
+        "GHSA-3xpg-4rpp-hhhm",
+        "GHSA-8436-99hf-9mmv",
+        "GHSA-pmjh-fq2x-6v4x",
+        "GHSA-r53p-7pc4-xj5r"
+      ],
+      "reason": "HTTP client advisories fixed in 7.29.1 on the 7.x line (wrangler and miniflare).",
+      "date": "2026-09-29"
+    },
+    {
+      "kind": "technology-pin",
+      "package": "vite",
+      "version_from": "vite",
+      "reason": "Every tree builds with the one vite the technology contract pins, whoever pulls it in.",
+      "date": "2026-09-09"
+    },
+    {
+      "kind": "security",
+      "package": "ws",
+      "version": "8.21.0",
+      "advisories": [
+        "GHSA-58qx-3vcg-4xpx",
+        "GHSA-96hv-2xvq-fx4p"
+      ],
+      "reason": "WebSocket advisories on the 8.x line (miniflare).",
+      "date": "2026-08-25"
+    }
+  ]
+}

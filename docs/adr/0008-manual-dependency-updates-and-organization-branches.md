@@ -33,3 +33,7 @@ last_reviewed: 2026-07-28
 - 월 1회 의존성 업데이트 창에서 Cargo, npm, Python, GitHub Actions 버전을 한 번에 검토한다.
 - critical 보안 공지는 수동으로 즉시 PR을 만든다.
 - 다시 자동화를 도입할 때는 별도 ADR로 도구, 권한, PR 생성 규칙을 먼저 결정한다.
+
+---
+
+개정 2026-10-07: "critical 보안 공지는 수동으로 즉시 PR 을 만든다"의 npm 처리 방식은 [ADR-0158](./0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md) 이 정한다(워크플로우가 변경을 준비하고, PR 은 여전히 유지보수자가 연다).
