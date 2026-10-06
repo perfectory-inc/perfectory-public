@@ -203,7 +203,7 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
   `canary.analytics_min_coverage`(분석은 표본추출되고 몇 분 늦다. 도달 판정에는 쓰지 않는다, ADR-0157),
   `exceededResources` 0, 예외·내부 오류 비율과 운영 주소의 5xx 비율(클라이언트 요청만, `requestSource: eyeball`;
   하나도 안 세어지면 위반) ≤ 1 − `slo.availability_min`, CPU p99 ≤ `worker_cpu_p99_max_ms` 이고 옛 버전 p99 대비 증가 ≤ `worker_cpu_p99_max_increase_ms`, wall p50·p99 증가 ≤
-  `slo.latency_max_increase_ms.warm`. 어긋나면 스크립트가 모든 요청을 옛 버전으로 즉시 되돌리고 멈춘다(exit 1).
+  `slo.latency_max_increase_ms.warm`. 옛 버전과의 비교(CPU·wall 증가)는 두 버전이 함께 배포된 단계에서만 한다. 100% 단계에서는 옛 버전이 배포에 없어 고정 읽기가 닿지 않으므로 새 버전의 절대 한계만 본다(2026-10-06 실측: 100% 에서 옛 버전 비교를 요구해 건강한 전환이 되돌려졌다). 어긋나면 스크립트가 모든 요청을 옛 버전으로 즉시 되돌리고 멈춘다(exit 1).
 - 배포 명령 자체가 실패하면(단계 배포 도중) 스크립트는 지금의 배포 상태를 찍고 옛 버전 100% 로 되돌린 뒤 exit 2 로
   멈춘다. 되돌리기마저 실패하면 갈라진 상태와 손으로 마칠 명령(`--execute rollback <옛>`)을 찍고 exit 3 이다.
   `packs <버전>` 은 그 버전이 지금 100% 가 아니면 거부하고, 올리기가 버전 id 를 내지 않으면 아무것도 배포하지 않는다.
