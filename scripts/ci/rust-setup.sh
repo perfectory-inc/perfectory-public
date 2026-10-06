@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The one Rust setup every CI job that runs cargo goes through (root ADR-0152).
+# The one Rust setup every CI job that runs cargo goes through (root ADR-0155).
 #
 # It installs the toolchain the root rust-toolchain.toml pins and exports, for
 # every later step of the job, the registry settings that make a cold crates.io

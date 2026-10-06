@@ -42,6 +42,12 @@ BUILD_LOCK = Path("/run/foundation-platform-release-build.lock")
 # A oneshot job is "activating" for its whole run and never "active"; any state but these is running.
 STOPPED_STATES = {"inactive", "failed"}
 BUILDKIT_IMAGE = "moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3"
+# The publisher's dependency layer (`cargo chef cook`, keyed by Cargo.lock and the manifests) is kept
+# between releases in BuildKit's local cache: an OCI layout whose blobs are named by their sha256.
+# Every blob is re-hashed before a build may import it, and only the administrator writes it
+# (ADR-0155). Tippecanoe builds in two minutes and stays uncached.
+BUILD_CACHE_ROOT = Path("/var/lib/perfectory/foundation-release-build-cache")
+CACHED_IMAGES = {"publisher"}
 SUBTREE = "platforms/foundation-platform"
 ID_FILE = ".foundation-release-id"
 ARCHIVE_FILE = ".foundation-release-archive-sha256"
@@ -178,8 +184,13 @@ def artifact_files(target: Path) -> dict[str, str]:
     return result
 
 
-def seal_artifacts(release_id: str, target: Path, images: dict[str, str]) -> None:
-    """Only the trusted builder calls this, in an administrator-owned staging directory."""
+def seal_artifacts(release_id: str, target: Path, images: dict[str, str],
+                   caches: dict[str, str | None] | None = None) -> None:
+    """Only the trusted builder calls this, in an administrator-owned staging directory.
+
+    `caches` names, per cached image, the sha256 of the build-cache index the build imported
+    (None for a clean build), so a release records which kept layers it was built from (ADR-0155).
+    """
     files = artifact_files(target)
     jars = [name for name in files if re.fullmatch(r"jars/[A-Za-z0-9_.-]+\.jar", name)]
     if not jars or set(files) != {"foundation-outbox-publisher", *jars}:
@@ -191,6 +202,10 @@ def seal_artifacts(release_id: str, target: Path, images: dict[str, str]) -> Non
     for name, tag_of, _, _ in RELEASE_IMAGES:
         manifest[f"{name}_image"] = images[name]
         manifest[f"{name}_tag"] = tag_of(release_id)
+    for name, index in (caches or {}).items():
+        if index is not None and not re.fullmatch(r"[0-9a-f]{64}", index):
+            raise ValueError(f"{name} build cache must be named by the sha256 of its index")
+        manifest[f"{name}_build_cache_index"] = index
     (target / "build.json").write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
     for path in target.rglob("*"):
         if path.is_file():
@@ -382,6 +397,68 @@ def require_no_release_build() -> None:
             raise ValueError("a release build is running; this job starts after it finishes (ADR-0137)") from error
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verified_build_cache(name: str) -> tuple[Path, str] | None:
+    """The kept cache for an image and the sha256 of its index, if every byte still matches its name.
+
+    A cache that fails any check is deleted and the build starts clean: a cache can only save time,
+    so a damaged one costs a cold build, never a release built from bytes nobody can name.
+    """
+    cache = BUILD_CACHE_ROOT / name
+    if not cache.exists():
+        return None
+    try:
+        protected_path(cache)
+        blobs = cache / "blobs" / "sha256"
+        present = set()
+        owner = os.geteuid()  # root in production; the test runner's own account in fixtures
+        for entry in [cache, *cache.rglob("*")]:
+            info = entry.lstat()
+            if stat.S_ISLNK(info.st_mode) or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+                raise ValueError(f"cache contains a link or special file: {entry}")
+            if info.st_uid != owner or info.st_mode & 0o022:
+                raise ValueError(f"cache entry is owned or writable by another principal: {entry}")
+            if stat.S_ISREG(info.st_mode) and entry.parent == blobs:
+                if not re.fullmatch(r"[0-9a-f]{64}", entry.name) or file_sha256(entry) != entry.name:
+                    raise ValueError(f"cache blob does not hash to its name: {entry.name}")
+                present.add(entry.name)
+        index = json.loads((cache / "index.json").read_text(encoding="utf-8"))
+        referenced = {manifest["digest"].removeprefix("sha256:") for manifest in index["manifests"]}
+        if not referenced or not referenced <= present:
+            raise ValueError("cache index names a blob the cache does not hold")
+        return cache, file_sha256(cache / "index.json")
+    except (OSError, KeyError, TypeError, AttributeError, ValueError, json.JSONDecodeError) as error:
+        print(f"release build cache for {name} discarded, building clean: {error}", file=sys.stderr)
+        shutil.rmtree(cache, ignore_errors=True)
+        return None
+
+
+def keep_build_cache(name: str, written: Path) -> None:
+    """Replace the kept cache with the one this build exported; the old one is removed after the swap."""
+    cache = BUILD_CACHE_ROOT / name
+    retired = BUILD_CACHE_ROOT / (".retired" + written.name.removeprefix(".written"))
+    had_cache = cache.exists()
+    if had_cache:
+        os.rename(cache, retired)
+    os.rename(written, cache)
+    if had_cache:
+        shutil.rmtree(retired)
+
+
+def clear_abandoned_build_caches() -> None:
+    """An interrupted build can leave an exported or retired cache; only the kept one survives a build."""
+    for entry in BUILD_CACHE_ROOT.iterdir():
+        if entry.name.startswith((".written-", ".retired-")):
+            shutil.rmtree(entry)
+
+
 def build_artifacts(target: Path) -> None:
     """Build admitted source without runtime env/credentials; never accept caller binaries."""
     # Older merged releases ran an external publisher and honored source/cache overrides.
@@ -417,9 +494,23 @@ def build_locked(target: Path, release_id: str, destination: Path, limits) -> No
         output = work / "output"
         output.mkdir()
         images = {}
+        caches_used = {}
+        BUILD_CACHE_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+        protected_path(BUILD_CACHE_ROOT)
+        clear_abandoned_build_caches()
         # One temporary builder per image, each held to its own contract entry: a builder caps
         # every build it runs, so sharing one would give tippecanoe the publisher's 22g (ADR-0137).
         for name, tag_of, dockerfile, context in RELEASE_IMAGES:
+            cache_arguments: tuple[str, ...] = ("--no-cache",)
+            written = None
+            if name in CACHED_IMAGES:
+                kept = verified_build_cache(name)
+                caches_used[name] = kept[1] if kept else None
+                written = BUILD_CACHE_ROOT / f".written-{name}-{work.name.removeprefix('.')}"
+                cache_arguments = (
+                    *(("--cache-from", f"type=local,src={kept[0]}") if kept else ()),
+                    "--cache-to", f"type=local,dest={written},mode=max",
+                )
             limit = limits[name]
             builder = f"foundation-release-{name}-" + work.name.removeprefix(".")
             configuration = work / f"buildkitd-{name}.toml"
@@ -431,13 +522,17 @@ def build_locked(target: Path, release_id: str, destination: Path, limits) -> No
             try:
                 iid = work / f"{name}-image"
                 run("/usr/bin/docker", "buildx", "build", "--builder", builder, "--load", "--pull",
-                    "--no-cache", "--iidfile", str(iid), "--tag", tag_of(release_id),
+                    *cache_arguments, "--iidfile", str(iid), "--tag", tag_of(release_id),
                     *(arg for key, value in limit["build_args"].items() for arg in ("--build-arg", f"{key}={value}")),
                     "-f", dockerfile, context)
                 images[name] = iid.read_text().strip()
                 if not re.fullmatch(r"sha256:[0-9a-f]{64}", images[name]):
                     raise ValueError(f"{name} build did not return an immutable image ID")
+                if written is not None:
+                    keep_build_cache(name, written)
             finally:
+                if written is not None and written.exists():
+                    shutil.rmtree(written, ignore_errors=True)
                 try:
                     run("/usr/bin/docker", "buildx", "rm", builder)
                 except subprocess.CalledProcessError as error:
@@ -474,7 +569,7 @@ def build_locked(target: Path, release_id: str, destination: Path, limits) -> No
             if jar.is_symlink() or not jar.is_file():
                 raise ValueError("dependency resolver produced a non-regular jar")
             shutil.copyfile(jar, output / "jars" / jar.name)
-        seal_artifacts(release_id, output, images)
+        seal_artifacts(release_id, output, images, caches_used)
         output.rename(destination)
     verify_artifacts(release_id, destination)
 

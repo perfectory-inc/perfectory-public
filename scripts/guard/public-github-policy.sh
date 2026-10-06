@@ -223,7 +223,7 @@ require(set(rules) == {
     "pull_request", "required_status_checks", "merge_queue",
 }, "main ruleset has missing or unexpected rule types")
 # Every merge goes through the queue, which runs the required contexts on the
-# exact squash result of main plus the queued pull requests (root ADR-0152).
+# exact squash result of main plus the queued pull requests (root ADR-0155).
 # That replaces "branch must be up to date", which re-ran all checks of every
 # open pull request after each merge; the two must change together.
 require(rules["merge_queue"].get("parameters") == {

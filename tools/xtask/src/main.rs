@@ -966,7 +966,7 @@ fn main() {
     let rust_setup = std::env::var("PERFECTORY_RUST_SETUP").ok();
     if ci_rust_setup_missing(github_actions.as_deref(), rust_setup.as_deref()) {
         fail_usage(
-            "this GitHub Actions job did not run `bash scripts/ci/rust-setup.sh` first; every CI              job that runs cargo goes through that one setup (root ADR-0152)",
+            "this GitHub Actions job did not run `bash scripts/ci/rust-setup.sh` first; every CI              job that runs cargo goes through that one setup (root ADR-0155)",
         );
     }
     let args: Vec<String> = std::env::args().skip(1).collect();

@@ -1,5 +1,6 @@
 """Exercise release admission against real Git objects, without production access."""
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -16,6 +17,19 @@ from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[4] / "scripts/deploy/foundation-release-admission.py"
+
+
+def write_build_cache(destination, payload):
+    """A BuildKit local cache in miniature: an OCI index naming one blob by its sha256."""
+    blobs = destination / "blobs" / "sha256"
+    blobs.mkdir(parents=True)
+    digest = hashlib.sha256(payload).hexdigest()
+    (blobs / digest).write_bytes(payload)
+    (destination / "index.json").write_text(json.dumps({
+        "schemaVersion": 2,
+        "manifests": [{"mediaType": "application/vnd.oci.image.index.v1+json", "digest": "sha256:" + digest}],
+    }))
+    return digest
 
 
 class ReleaseAdmissionTests(unittest.TestCase):
@@ -272,7 +286,6 @@ class ReleaseAdmissionTests(unittest.TestCase):
                 self.assertIn(f"image={self.module.BUILDKIT_IMAGE},memory={memory},memory-swap={memory},"
                               f"cpu-period=100000,cpu-quota={limits['cpus'] * 100000},restart-policy=no", args)
             elif args[1:3] == ["buildx", "build"]:
-                self.assertIn("--no-cache", args)
                 # A tag keeps each image through `docker image prune`; tippecanoe is built from
                 # the repository Dockerfile, with only its own directory as context.
                 dockerfile, tag = args[args.index("-f") + 1], args[args.index("--tag") + 1]
@@ -289,6 +302,23 @@ class ReleaseAdmissionTests(unittest.TestCase):
                 [(argument, jobs)] = limits["build_args"].items()
                 self.assertEqual(jobs, limits["cargo_build_jobs" if built[3] == "publisher" else "make_jobs"])
                 self.assertIn(f"{argument}={jobs}", args)
+                # Only the publisher's dependency layer is kept between releases, in a
+                # content-addressed cache under the administrator's directory (ADR-0155).
+                if built[3] == "publisher":
+                    self.assertNotIn("--no-cache", args)
+                    spec = args[args.index("--cache-to") + 1]
+                    self.assertTrue(spec.startswith(f"type=local,dest={self.build_cache}/") and spec.endswith(",mode=max"))
+                    kept = self.build_cache / "publisher"
+                    if getattr(self, "expect_cache_from", False):
+                        self.assertIn(f"type=local,src={kept}", args)
+                    else:
+                        self.assertNotIn("--cache-from", args)
+                    if not getattr(self, "fail_build", False):
+                        write_build_cache(Path(spec.removeprefix("type=local,dest=").removesuffix(",mode=max")),
+                                          b"cooked dependencies of " + self.merged.encode())
+                else:
+                    self.assertIn("--no-cache", args)
+                    self.assertNotIn("--cache-to", args)
                 if getattr(self, "fail_build", False):
                     raise subprocess.CalledProcessError(97, args)
                 Path(args[args.index("--iidfile") + 1]).write_text("sha256:" + built[2] * 64)
@@ -316,6 +346,7 @@ class ReleaseAdmissionTests(unittest.TestCase):
                 self.assertNotIn("-e", args)
             return b""
         artifact_root = self.root / "artifacts"
+        self.build_cache = self.root / "build-cache"
         real_verify = self.module.verify_artifacts
         real_rename = Path.rename
         def privileged_rename(path, destination):
@@ -326,6 +357,7 @@ class ReleaseAdmissionTests(unittest.TestCase):
             result.chmod(0o555)
             return result
         with mock.patch.object(self.module, "ARTIFACT_ROOT", artifact_root), \
+                mock.patch.object(self.module, "BUILD_CACHE_ROOT", self.build_cache), \
                 mock.patch.object(self.module, "require_buildx"), \
                 mock.patch.object(self.module, "require_no_registered_job_running"), \
                 mock.patch.object(self.module, "BUILD_LOCK", self.root / "release-build.lock"), \
@@ -346,6 +378,63 @@ class ReleaseAdmissionTests(unittest.TestCase):
 
     def test_builder_uses_admitted_context_and_clean_process_environment(self):
         self.exercise_builder()
+        manifest = json.loads((self.root / "artifacts" / self.merged / "build.json").read_text())
+        # A first build imports nothing and leaves the cache it exported for the next release.
+        self.assertIsNone(manifest["publisher_build_cache_index"])
+        self.assertEqual([path.name for path in self.build_cache.iterdir()], ["publisher"])
+
+    def test_a_kept_cache_is_imported_and_named_in_the_build_record(self):
+        self.build_cache = self.root / "build-cache"
+        self.build_cache.mkdir(mode=0o700)
+        kept = self.build_cache / "publisher"
+        write_build_cache(kept, b"dependencies cooked by the previous release")
+        index = hashlib.sha256((kept / "index.json").read_bytes()).hexdigest()
+        self.expect_cache_from = True
+        self.exercise_builder()
+        manifest = json.loads((self.root / "artifacts" / self.merged / "build.json").read_text())
+        self.assertEqual(manifest["publisher_build_cache_index"], index)
+        # The cache this build exported replaced the one it imported; nothing else is left behind.
+        self.assertEqual([path.name for path in self.build_cache.iterdir()], ["publisher"])
+        self.assertNotEqual(hashlib.sha256((kept / "index.json").read_bytes()).hexdigest(), index)
+
+    def test_a_cache_whose_bytes_do_not_match_their_names_is_discarded(self):
+        self.build_cache = self.root / "build-cache"
+        self.build_cache.mkdir(mode=0o700)
+        with mock.patch.object(self.module, "BUILD_CACHE_ROOT", self.build_cache), \
+                mock.patch.object(self.module, "protected_path"):
+            for damage in ("blob", "index", "link", "writable"):
+                with self.subTest(damage=damage):
+                    kept = self.build_cache / "publisher"
+                    shutil.rmtree(kept, ignore_errors=True)
+                    digest = write_build_cache(kept, b"cooked dependencies")
+                    blob = kept / "blobs" / "sha256" / digest
+                    if damage == "blob":
+                        blob.write_bytes(b"swapped after it was written")
+                    elif damage == "index":
+                        blob.unlink()
+                    elif damage == "link":
+                        (kept / "blobs" / "sha256" / ("0" * 64)).symlink_to(blob)
+                    else:
+                        blob.chmod(0o666)
+                    with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                        self.assertIsNone(self.module.verified_build_cache("publisher"))
+                    self.assertIn("discarded, building clean", stderr.getvalue())
+                    self.assertFalse(kept.exists())
+            write_build_cache(self.build_cache / "publisher", b"cooked dependencies")
+            self.assertIsNotNone(self.module.verified_build_cache("publisher"))
+
+    def test_a_failed_build_keeps_the_previous_cache_and_leaves_no_partial_one(self):
+        self.build_cache = self.root / "build-cache"
+        self.build_cache.mkdir(mode=0o700)
+        kept = self.build_cache / "publisher"
+        write_build_cache(kept, b"dependencies cooked by the previous release")
+        before = (kept / "index.json").read_bytes()
+        self.expect_cache_from = True
+        self.fail_build = True
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.exercise_builder()
+        self.assertEqual((kept / "index.json").read_bytes(), before)
+        self.assertEqual([path.name for path in self.build_cache.iterdir()], ["publisher"])
 
     def test_build_limits_come_from_the_control_contract_and_cover_the_measured_build(self):
         contract = json.loads(self.module.BUILD_CONTRACT.read_text(encoding="utf-8"))

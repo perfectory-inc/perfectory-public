@@ -218,7 +218,7 @@ for workflow in "${workflows[@]}"; do
   # Every required workflow uses the same PR trigger shape. Push-only path
   # filters remain allowed for cost, but PR filters/types cannot suppress checks.
   # The same contexts must also report on merge_group, or a merge queue would
-  # wait forever for a check that never starts (root ADR-0152); the default
+  # wait forever for a check that never starts (root ADR-0155); the default
   # checks_requested type is the only one GitHub sends, so no child is admitted.
   awk -v file="$workflow" '
     function fail(message) {

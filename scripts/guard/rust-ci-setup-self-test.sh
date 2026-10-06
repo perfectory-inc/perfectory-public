@@ -2,7 +2,7 @@
 # Plants every way a Rust CI job can bypass the shared setup and requires
 # scripts/guard/rust-ci-setup.sh to reject each one; then runs the setup script
 # against a fake rustup to prove it exports the registry settings and installs
-# the pinned channel (root ADR-0152).
+# the pinned channel (root ADR-0155).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -95,7 +95,7 @@ expect_rejected no-setup 'has 0 "Set up Rust" steps'
 plant private-rustup sed 's#^        run: cargo xtask verify area#        run: rustup toolchain install stable \&\& cargo xtask verify area#'
 expect_rejected private-rustup 'installs a toolchain outside scripts/ci/rust-setup.sh'
 
-# The pre-ADR-0152 action that only some jobs used.
+# The pre-ADR-0155 action that only some jobs used.
 plant toolchain-action sed 's#^      - name: Verify$#      - uses: dtolnay/rust-toolchain@3333333333333333333333333333333333333333\n      - name: Verify#'
 expect_rejected toolchain-action 'installs a toolchain outside scripts/ci/rust-setup.sh'
 

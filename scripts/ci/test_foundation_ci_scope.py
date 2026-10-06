@@ -246,7 +246,7 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
         for step in steps[selector + 1 :]:
             if not step.strip():
                 continue
-            # The shared Rust setup and its cache (root ADR-0152) carry the gate as a
+            # The shared Rust setup and its cache (root ADR-0155) carry the gate as a
             # step condition instead: the cache is an action, so it cannot open with a
             # shell guard, and an unselected run must neither restore nor save it.
             if "FOUNDATION_CI_GATE_SELECTED == 'true'" in step:

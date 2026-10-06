@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prevents: a CI job that runs cargo without the one shared Rust setup (root ADR-0152).
+# Prevents: a CI job that runs cargo without the one shared Rust setup (root ADR-0155).
 #
 # On 2026-10-06 two pull requests failed on "curl failed [16] Error in the HTTP2
 # framing layer" while crates.io was fine: the jobs that installed Rust through

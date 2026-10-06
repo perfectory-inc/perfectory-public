@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs the cargo-deny release pinned in tools/cargo-deny.env onto the job's
-# PATH (root ADR-0152). The archive is checked against the pinned SHA-256 before
+# PATH (root ADR-0155). The archive is checked against the pinned SHA-256 before
 # anything is extracted from it.
 set -euo pipefail
 
