@@ -180,12 +180,14 @@ def table_rows(
     ]
 
 
-def official_links(rows: Iterable[Mapping[str, Any]], floor: date) -> list[tuple[str, str]]:
-    """(old PNU, new PNU) of the rows the pairing may read: dated on or after `floor`, not quarantined,
-    one link per distinct pair. The same link arrives from an old-name file and its renamed 시도's."""
+def official_links(rows: Iterable[Mapping[str, Any]], floor: date) -> list[tuple[str, str, str]]:
+    """(old PNU, new PNU, 토지이동일자 YYYYMMDD) of the rows the pairing may read: dated on or after
+    `floor`, not quarantined, one link per distinct dated pair. The same link arrives from an old-name
+    file and its renamed 시도's. The date says which change a link belongs to: the pairing holds a
+    derived pair only against official rows of the same change (root ADR-0156)."""
 
     return sorted({
-        (row["old_pnu"], row["new_pnu"])
+        (row["old_pnu"], row["new_pnu"], row["changed_on"].strftime("%Y%m%d"))
         for row in rows
         if row.get("changed_on") is not None and row["changed_on"] >= floor and not row.get("quarantine_reason")
     })

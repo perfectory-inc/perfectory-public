@@ -65,3 +65,7 @@ ADR-0148 §4 는 필지고유번호변동연혁(VWorld MK/30527)의 공식 짝�
   파생 짝을 바로잡는 길은 새 결정 행이다.
 - 수집은 `parcel_number_change_history` 작업이 한다(default_pool, Spark 없음). 제공자 갱신일이 바뀐 파일만 받는다.
   적재는 계보 단위가 짝 맞추기 앞에서 한다. 감독 실행 전까지 수집은 꺼져 있다.
+
+---
+
+2026-10-06: §2 의 범위는 [ADR-0156](./0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md) 이 고쳤다. 파생 짝을 반박하는 것은 같은 변경 기간에 날짜가 붙은 결정적 공식 근거(동 단위 행, 또는 계약 비율 이상의 필지 행)뿐이다.
