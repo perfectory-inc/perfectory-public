@@ -50,6 +50,7 @@ lineage_stewardship (06:50, spark 3자리)
   0a. legal-dong-code-load.sh                  먼저 30527 대기 넘김을 silver.parcel_number_change_history 에 쌓는다.
                                                그다음 대기 넘김마다: 스냅숏 적재 → 최신 표지 → 짝 맞추기 → 투영·목록 교체
                                                → loaded/ 로 옮김. 실패하면 단위 전체가 실패(계보로 넘어가지 않음)
+                                               어느 넘김이든 적재 전에 pairing-owed.json 을 쓰고, 짝 맞추기가 성공해야 지운다(4 절)
   0.. 계보 스튜어드 순환                          (ADR-0115)
 허브 내보내기 (수동)
   FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=…projection.json  → 투영을 읽고 (비교가 켜져 있으면) 기준 27쌍과 비교,
@@ -241,6 +242,16 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 
 넘김이 없는 날은 `legal-dong-code no pending handoff` 가 journal 에 남는다. "아무 일 없음"과 "확인 안 함"을
 구별한다.
+
+짝 맞추기를 빚진 동안에는 `legal-dong-code pairing owed since <실행>` 이 실행마다 journal 에 남는다. 빚의 정본은
+`/var/lib/foundation-platform/legal-dong-code/pairing-owed.json` 하나다: 0a 가 어느 넘김이든 적재하기 전에 쓰고(빚진
+넘김 이름, 짝을 맞출 스냅숏 날짜, 처음 빚진 실행), 짝 맞추기의 쌓기와 설치가 끝난 뒤에만 지운다. 그 파일이 있으면
+대기 넘김도 스튜어드 결정도 없는 날에도 최신 스냅숏으로 다시 짝을 맞춘다(`re-paired (pairing owed)`). 짝 맞추기가
+실패하면 단위는 여전히 실패하고 파일은 남는다. 그래서 30527 넘김이 `loaded/` 로 옮겨진 뒤 `PairingConflict` 로 멈춘
+날(2026-10-06)처럼 대기 넘김이 사라져도, 원인을 고친 다음 실행이 다시 맞춘다. 손으로 파일을 만들거나 지우지 않는다.
+성공한 짝 맞추기는 `last-pairing.json` 에 남는다(실행, 스냅숏 날짜, 갚은 빚). 그 기록도 빚도 없는데 `loaded/` 에
+넘김이 있으면(이 기록이 생기기 전에 적재한 호스트) 0a 가 그 넘김들로 한 번 빚을 만들고 갚는다: 첫 실행에 짝 맞추기가
+한 번 더 돈다.
 
 ## 5. 스튜어드 승인
 

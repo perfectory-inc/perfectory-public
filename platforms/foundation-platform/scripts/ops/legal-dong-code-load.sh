@@ -23,6 +23,12 @@
 # 넘김이 없으면 최신 스냅숏으로 짝 맞추기만 다시 돈다: 판단 대기였던 동을 이력이 정할 수 있다.
 # 대기 넘김이 없어도 대기 중인 스튜어드 결정이 있으면 최신 스냅숏으로 짝 맞추기만 돈다. 둘 다 없으면 그렇게
 # 남기고 지나간다. 어느 단계든 실패하면 함수가 0 이 아닌 값을 돌려주고, 호출한 단위가 계보로 넘어가지 않는다.
+#
+# "짝 맞추기를 빚졌다"의 정본은 pairing-owed.json 하나다. 어느 넘김이든 적재하기 전에(loaded/ 로 옮기기 전에)
+# 쓰고, 짝 맞추기의 쌓기와 설치가 끝난 뒤에만 지운다. 그 파일이 있으면 넘김도 결정도 없는 날에도 다시 짝을
+# 맞춘다: 2026-10-06 에 30527 넘김을 loaded/ 로 옮긴 뒤 짝 맞추기가 실패했고, 다음 실행은 볼 대기 넘김이 없어
+# 다시 맞추지 않았다. 짝 맞추기가 성공하면 last-pairing.json 이 남는다. 그 기록도 빚도 없는데 loaded/ 에 넘김이
+# 있으면(이 파일들이 생기기 전에 적재한 호스트) 그 넘김들로 한 번 빚을 만든다.
 
 LEGAL_DONG_STATE_ROOT="${FOUNDATION_LEGAL_DONG_CODE_STATE_ROOT:-/var/lib/foundation-platform/legal-dong-code}"
 PARCEL_NUMBER_CHANGE_STATE_ROOT="${FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT:-/var/lib/foundation-platform/parcel-number-change}"
@@ -85,8 +91,73 @@ load_parcel_number_change_handoffs() {
   done
 }
 
+# Records that a pairing is owed, before any handoff is loaded: the pending handoffs of both roots, the
+# snapshot the pairing will run on, and the run that first owed it (kept while the marker stays). Once, when
+# no pairing has been recorded as done but handoffs sit in loaded/, owes one for those. Journals the debt.
+legal_dong_owe_pairing() {
+  local since
+  since="$(python3 -I - "${LEGAL_DONG_STATE_ROOT}" "${PARCEL_NUMBER_CHANGE_STATE_ROOT}" "${run_id}" <<'PY'
+import datetime, json, pathlib, sys
+legal, parcel, run = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+marker, done = legal / "pairing-owed.json", legal / "last-pairing.json"
+latest = legal / "latest-legal-dong-snapshot.json"
+
+def handoffs(root, state):
+    d = root / state
+    return sorted(p.name for p in d.iterdir() if p.is_dir() and not p.name.startswith(".")) if d.is_dir() else []
+
+owed = {"legal_dong_code": handoffs(legal, "pending"), "parcel_number_change": handoffs(parcel, "pending")}
+reason = "pending handoffs"
+if not any(owed.values()) and not marker.exists() and not done.exists() and latest.exists():
+    owed = {"legal_dong_code": handoffs(legal, "loaded"), "parcel_number_change": handoffs(parcel, "loaded")}
+    reason = "loaded handoffs with no pairing recorded after them"
+if not any(owed.values()) and not marker.exists():
+    sys.exit(0)
+dates = [json.load(open(legal / "pending" / n / "handoff.json", encoding="utf-8"))["snapshot_date"]
+         for n in owed["legal_dong_code"] if (legal / "pending" / n / "handoff.json").exists()]
+if latest.exists():
+    dates.append(json.load(open(latest, encoding="utf-8"))["snapshot_date"])
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+state = json.load(open(marker, encoding="utf-8")) if marker.exists() else {
+    "owed_since_run": run, "created_at": now, "reason": reason, "handoffs": {}}
+for kind, names in owed.items():
+    state["handoffs"][kind] = sorted(set(state["handoffs"].get(kind, [])) | set(names))
+if state.get("snapshot_date"):
+    dates.append(state["snapshot_date"])
+if dates:
+    state["snapshot_date"] = max(dates)
+tmp = marker.with_name(marker.name + ".tmp")
+tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+tmp.replace(marker)
+print(state["owed_since_run"])
+PY
+)"
+  if [ -n "${since}" ]; then
+    printf '%s legal-dong-code pairing owed since %s run=%s\n' "$(date -u +%FT%TZ)" "${since}" "${run_id}" >> "${journal}"
+  fi
+}
+
+# The owed pairing is paid — its append and installs succeeded on snapshot $1: records that, then drops the marker.
+legal_dong_pairing_paid() {
+  python3 -I - "${LEGAL_DONG_STATE_ROOT}" "${run_id}" "$1" <<'PY'
+import datetime, json, pathlib, sys
+legal = pathlib.Path(sys.argv[1])
+marker = legal / "pairing-owed.json"
+done = {"run": sys.argv[2], "snapshot_date": sys.argv[3],
+        "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+if marker.exists():
+    done["paid"] = json.load(open(marker, encoding="utf-8"))
+tmp = legal / "last-pairing.json.tmp"
+tmp.write_text(json.dumps(done, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+tmp.replace(legal / "last-pairing.json")
+marker.unlink(missing_ok=True)
+PY
+}
+
 load_legal_dong_code_handoffs() {
-  local pending="${LEGAL_DONG_STATE_ROOT}/pending" loaded=0 name handoff snapshot_date table_key table_file
+  local pending="${LEGAL_DONG_STATE_ROOT}/pending" loaded=0 name handoff snapshot_date table_key table_file reason
+  mkdir -p "${LEGAL_DONG_STATE_ROOT}"
+  legal_dong_owe_pairing
   load_parcel_number_change_handoffs
   mkdir -p "${work}/legal-dong" "${LEGAL_DONG_STATE_ROOT}/loaded"
   chmod 0777 "${work}/legal-dong"
@@ -110,16 +181,29 @@ print(h["snapshot_date"], h["table_object_key"], table["local_path"])' "${handof
     loaded=$((loaded + 1))
     printf '%s legal-dong-code loaded handoff=%s run=%s\n' "$(date -u +%FT%TZ)" "${name}" "${run_id}" >> "${journal}"
   done
-  if [ "${loaded}" = 0 ]; then
-    if { [ "${parcel_number_change_loaded}" != 0 ] || compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; } \
-      && [ -f "${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json" ]; then
-      read -r snapshot_date table_key < <(python3 -I -c 'import json, sys
-m = json.load(open(sys.argv[1], encoding="utf-8")); print(m["snapshot_date"], m["source_record_id"])' \
-        "${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json")
-      legal_dong_pair "${snapshot_date}" "${table_key}"
-      printf '%s legal-dong-code re-paired (steward decisions or new official history) on %s run=%s\n' "$(date -u +%FT%TZ)" "${snapshot_date}" "${run_id}" >> "${journal}"
-    else
-      printf '%s legal-dong-code no pending handoff run=%s\n' "$(date -u +%FT%TZ)" "${run_id}" >> "${journal}"
-    fi
+  if [ "${loaded}" != 0 ]; then
+    legal_dong_pairing_paid "${snapshot_date}"
+    return 0
   fi
+  if [ "${parcel_number_change_loaded}" != 0 ]; then
+    reason="new official history"
+  elif compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
+    reason="steward decisions"
+  elif [ -f "${LEGAL_DONG_STATE_ROOT}/pairing-owed.json" ]; then
+    reason="pairing owed"
+  else
+    printf '%s legal-dong-code no pending handoff run=%s\n' "$(date -u +%FT%TZ)" "${run_id}" >> "${journal}"
+    return 0
+  fi
+  if [ ! -f "${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json" ]; then
+    # No legal-dong table loaded yet, so nothing to pair on; the marker stays until one is.
+    printf '%s legal-dong-code %s but no legal-dong snapshot loaded yet run=%s\n' "$(date -u +%FT%TZ)" "${reason}" "${run_id}" >> "${journal}"
+    return 0
+  fi
+  read -r snapshot_date table_key < <(python3 -I -c 'import json, sys
+m = json.load(open(sys.argv[1], encoding="utf-8")); print(m["snapshot_date"], m["source_record_id"])' \
+    "${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json")
+  legal_dong_pair "${snapshot_date}" "${table_key}"
+  legal_dong_pairing_paid "${snapshot_date}"
+  printf '%s legal-dong-code re-paired (%s) on %s run=%s\n' "$(date -u +%FT%TZ)" "${reason}" "${snapshot_date}" "${run_id}" >> "${journal}"
 }
