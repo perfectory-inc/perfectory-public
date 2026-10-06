@@ -286,14 +286,17 @@ require(branch == {
         "actor_type": "User",
         "bypass_mode": "always",
     }],
+    # The merge queue (root ADR-0155) builds each group on a ref it creates under
+    # gh-readonly-queue/main/; the firewall must let GitHub create those and nothing else.
     "conditions": {
-        "ref_name": {"include": ["~ALL"], "exclude": ["~DEFAULT_BRANCH"]}
+        "ref_name": {"include": ["~ALL"],
+                     "exclude": ["~DEFAULT_BRANCH", "refs/heads/gh-readonly-queue/main/**"]}
     },
     "rules": [
         {"type": "creation"},
         {"type": "update"},
     ],
-}, "non-main firewall must allow only the designated organization maintainer")
+}, "non-main firewall must allow only the designated organization maintainer and the merge queue's own refs")
 
 bootstrap_branch = load("bootstrap-non-main-branch-firewall.json")
 expected_bootstrap_branch = dict(branch)

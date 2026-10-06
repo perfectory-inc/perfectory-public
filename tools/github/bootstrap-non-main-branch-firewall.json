@@ -9,7 +9,8 @@
         "~ALL"
       ],
       "exclude": [
-        "~DEFAULT_BRANCH"
+        "~DEFAULT_BRANCH",
+        "refs/heads/gh-readonly-queue/main/**"
       ]
     }
   },
