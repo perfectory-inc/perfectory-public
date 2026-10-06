@@ -13,7 +13,7 @@ WorkingDirectory=/opt/foundation-platform/current
 # monitor's own file: FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_MONITOR_SAMPLE_PATH.
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
-EnvironmentFile=/etc/foundation-platform/building-serving-monitor.env
+EnvironmentFile=-/etc/foundation-platform/building-serving-monitor.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/building-serving-monitor.sh
 TimeoutStartSec=10m
 # Twenty sequential reads and twenty documents: far below this.
