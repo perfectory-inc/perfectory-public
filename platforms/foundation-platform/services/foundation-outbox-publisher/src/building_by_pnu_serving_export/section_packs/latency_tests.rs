@@ -460,6 +460,20 @@ fn the_load_draw_is_seeded_and_repeats() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Pinned reads every one of which answered.
+fn pinned_held() -> super::health::Pinned {
+    let held = gate::LoadEvidence {
+        sent: 300,
+        answered: 300,
+        availability: 1.0,
+        ..gate::LoadEvidence::default()
+    };
+    super::health::Pinned {
+        old: Some(held.clone()),
+        new: held,
+    }
+}
+
 /// A canary step's verdict: each bound breached alone is named, a healthy step names none.
 #[test]
 fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
@@ -475,7 +489,13 @@ fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
     };
     let old = healthy.clone();
     let ok_hosts: std::collections::BTreeMap<u16, u64> = [(200, 10_000), (503, 1)].into();
-    assert!(super::health::breaches(&healthy, Some(&old), Some(&ok_hosts), 200, gate).is_empty());
+    let pinned = pinned_held();
+    let judge = |new: &gate::WorkerCpu,
+                 hosts: &std::collections::BTreeMap<u16, u64>,
+                 pinned: &super::health::Pinned| {
+        super::health::breaches(new, Some(&old), hosts, pinned, 200, gate)
+    };
+    assert!(judge(&healthy, &ok_hosts, &pinned).is_empty());
 
     let mut few = healthy.clone();
     few.requests = 10;
@@ -498,17 +518,93 @@ fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
         ("CPU", costly),
         ("wall time", slower),
     ] {
-        assert_eq!(
-            super::health::breaches(&new, Some(&old), Some(&ok_hosts), 200, gate).len(),
-            1,
-            "{label}"
-        );
+        assert_eq!(judge(&new, &ok_hosts, &pinned).len(), 1, "{label}");
     }
     let bad_hosts: std::collections::BTreeMap<u16, u64> = [(200, 1000), (503, 10)].into();
-    assert_eq!(
-        super::health::breaches(&healthy, Some(&old), Some(&bad_hosts), 200, gate).len(),
-        1,
-        "5xx"
-    );
+    assert_eq!(judge(&healthy, &bad_hosts, &pinned).len(), 1, "5xx");
+    // A zone that counted nothing is not a clean zone: the 5xx check was not made.
+    let silent = judge(&healthy, &std::collections::BTreeMap::new(), &pinned);
+    assert_eq!(silent.len(), 1, "{silent:?}");
+    assert!(silent[0].contains("no client responses"), "{silent:?}");
+    // A Worker's own 503 is a success invocation: only the pinned reads see it, per version.
+    for failing in ["new", "old"] {
+        let mut pinned = pinned_held();
+        let evidence = if failing == "new" {
+            &mut pinned.new
+        } else {
+            pinned.old.as_mut().unwrap_or_else(|| unreachable!())
+        };
+        evidence.answered = 299;
+        evidence.availability = 299.0 / 300.0;
+        evidence.failures = [("http-503".to_owned(), 1)].into();
+        let breached = judge(&healthy, &ok_hosts, &pinned);
+        assert_eq!(breached.len(), 1, "{failing}: {breached:?}");
+        assert!(breached[0].contains(failing), "{breached:?}");
+    }
+    Ok(())
+}
+
+/// Every synthetic read of a step carries the version pin for its own version, and a version that
+/// answers 503 shows in its own evidence, not the other's.
+#[tokio::test]
+async fn a_canary_step_pins_its_reads_to_each_version() -> anyhow::Result<()> {
+    const NEW: &str = "22222222-2222-4222-8222-222222222222";
+    const OLD: &str = "11111111-1111-4111-8111-111111111111";
+    let worker = &super::super::LANE.policy()?.worker_name;
+    let server = MockServer::start().await;
+    let pin = |version: &str| format!("{worker}=\"{version}\"");
+    Mock::given(method("GET"))
+        .and(header(
+            super::health::VERSION_OVERRIDE_HEADER,
+            pin(NEW).as_str(),
+        ))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(header(
+            super::health::VERSION_OVERRIDE_HEADER,
+            pin(OLD).as_str(),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(gzip(BODY.as_bytes())?)
+                .insert_header("Content-Encoding", "gzip"),
+        )
+        .mount(&server)
+        .await;
+    let plan = LoadPlan {
+        requests_per_second: 20,
+        duration: Duration::from_secs(1),
+        max_in_flight: 8,
+    };
+    let pinned = super::health::drive(&plan, &server.uri(), &pnus(), NEW, Some(OLD)).await?;
+    assert_eq!(pinned.new.failures.get("http-503"), Some(&20));
+    let old = pinned
+        .old
+        .as_ref()
+        .map(|old| (old.answered, old.availability));
+    assert_eq!(old, Some((20, 1.0)));
+    // Nothing reached the server unpinned.
+    let requests = server.received_requests().await.unwrap_or_default();
+    assert_eq!(requests.len(), 40);
+    assert!(requests.iter().all(|request| request
+        .headers
+        .contains_key(super::health::VERSION_OVERRIDE_HEADER)));
+    Ok(())
+}
+
+/// A canary step without the zone id refuses, naming the variable and the file: its 5xx could not
+/// be counted.
+#[test]
+fn a_canary_step_without_the_zone_refuses() -> anyhow::Result<()> {
+    let names = &section_pack_policy()?.cloudflare_analytics;
+    assert!(std::env::var_os(&names.zone_id_env).is_none());
+    let refused = super::health::required_zone()
+        .err()
+        .map(|error| format!("{error:#}"))
+        .unwrap_or_default();
+    assert!(refused.contains(&names.zone_id_env), "{refused}");
+    assert!(refused.contains(&names.env_file), "{refused}");
     Ok(())
 }

@@ -26,9 +26,15 @@ FAKE_NPX = r'''#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FAKE_LOG}"
 case "$*" in
   "wrangler deployments status"*"--json"*)
-    printf '{"versions":[{"version_id":"%s","percentage":100}]}\n' "${FAKE_OLD}" ;;
+    printf '{"versions":[{"version_id":"%s","percentage":100}]}\n' "${FAKE_SERVING:-${FAKE_OLD}}" ;;
+  "wrangler deployments status"*)
+    printf 'split: %s\n' "${FAKE_OLD}" ;;
   "wrangler versions upload"*)
-    printf 'Uploaded\nWorker Version ID: %s\n' "${FAKE_NEW}" ;;
+    if [[ -n "${FAKE_NO_ID:-}" ]]; then printf 'Uploaded\n'; else printf 'Uploaded\nWorker Version ID: %s\n' "${FAKE_NEW}"; fi ;;
+  "wrangler versions deploy"*"canary rollback"*)
+    [[ -z "${FAKE_FAIL_ROLLBACK:-}" ]] || exit 1 ;;
+  "wrangler versions deploy"*)
+    [[ -z "${FAKE_FAIL_DEPLOY_AT:-}" || "$*" != *"canary ${FAKE_FAIL_DEPLOY_AT}%"* ]] || exit 1 ;;
 esac
 '''
 
@@ -118,6 +124,41 @@ class Canary(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 78, result.stderr)
         self.assertIn(f"{ENV_FILE} does not exist", result.stderr)
+
+    def test_an_upload_without_a_version_id_deploys_nothing(self):
+        result = self.run_script("--execute", "code", FAKE_NO_ID="1")
+        self.assertEqual(result.returncode, 70, result.stderr)
+        self.assertIn("printed no version id", result.stderr)
+        self.assertFalse([call for call in self.calls() if "versions deploy" in call])
+
+    def test_the_packs_phase_starts_only_from_the_version_at_100_percent(self):
+        result = self.run_script("--execute", "packs", OLD, FAKE_SERVING=NEW)
+        self.assertEqual(result.returncode, 65, result.stderr)
+        self.assertIn(f"{OLD} is not the version at 100%", result.stderr)
+        self.assertFalse([call for call in self.calls() if call.startswith("wrangler versions")])
+
+    def test_a_failed_step_deployment_shows_the_split_and_rolls_back(self):
+        result = self.run_script("--execute", "code", FAKE_FAIL_DEPLOY_AT=str(CANARY["steps_percent"][1]))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("traffic may be split", result.stderr)
+        calls = self.calls()
+        deploys = [call for call in calls if call.startswith("wrangler versions deploy")]
+        self.assertIn(f"{OLD}@100%", deploys[-1])
+        self.assertIn("canary rollback", deploys[-1])
+        self.assertIn("wrangler deployments status --name foundation-building-gateway", calls)
+        # No step after the failed one was judged.
+        self.assertEqual(calls.count(f"health {NEW} {OLD}"), 1)
+
+    def test_a_failed_rollback_is_shouted_with_the_command_to_finish_it(self):
+        result = self.run_script(
+            "--execute", "code", FAKE_FAIL_DEPLOY_AT=str(CANARY["steps_percent"][0]), FAKE_FAIL_ROLLBACK="1"
+        )
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("THE ROLLBACK FAILED TOO", result.stderr)
+        self.assertIn(f"--execute rollback {OLD}", result.stderr)
+        rolled = self.run_script("--execute", "rollback", OLD, FAKE_FAIL_ROLLBACK="1")
+        self.assertEqual(rolled.returncode, 3, rolled.stderr)
+        self.assertIn("deployment is shown above", rolled.stderr)
 
     def test_a_dry_run_deploys_nothing(self):
         result = self.run_script("code")

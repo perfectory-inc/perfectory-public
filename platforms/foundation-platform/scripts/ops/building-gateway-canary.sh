@@ -19,9 +19,15 @@
 #   packs  uploads the same code with the binding on and moves traffic from the off version to
 #          it, step by step. A user reads packs only from here on.
 # Every step holds canary.hold_seconds, then the health command judges the new version against
-# the old one from Cloudflare analytics (check-building-gateway-version-health). A breach rolls
-# all traffic back to the old version at once and stops with exit 1. `rollback` does the same by
-# hand; the manifest revert (runbook §6) is the second line, never needed for a version problem.
+# the old one (check-building-gateway-version-health: reads pinned to each version, then Cloudflare
+# analytics). A breach rolls all traffic back to the old version at once and stops with exit 1.
+# `rollback` does the same by hand; the manifest revert (runbook §6) is the second line, never
+# needed for a version problem.
+#
+# A deployment that fails leaves traffic where Cloudflare left it, possibly split: the script then
+# prints the deployment as it stands, tries to put every request back on the old version, and
+# stops with exit 2 (rolled back) or 3 (the rollback failed too: the split is printed and the
+# command that finishes it by hand is named).
 #
 # Environment:
 #   CORS_ALLOWED_ORIGINS   the live Worker's FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS value
@@ -94,13 +100,17 @@ upload() {
     return
   fi
   [[ -n "${CORS_ALLOWED_ORIGINS:-}" ]] || refuse "CORS_ALLOWED_ORIGINS is required (the live Worker's value)"
-  local out
+  local out id
   out="$(cd "${GATEWAY_DIR}" && npx wrangler versions upload \
     --var "${BINDING}:${serving}" \
     --var "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:${CORS_ALLOWED_ORIGINS}" \
     --message "${message}" 2>&1)" || { printf '%s\n' "${out}" >&2; refuse "the upload failed" 70; }
   printf '%s\n' "${out}" >&2
-  grep -oE 'Version ID: [0-9a-f-]{36}' <<<"${out}" | tail -1 | cut -d' ' -f3
+  id="$(grep -oE 'Version ID: [0-9a-f-]{36}' <<<"${out}" | tail -1 | cut -d' ' -f3 || true)"
+  # Without an id there is nothing to roll out to; going on would deploy a step of nothing.
+  [[ "${id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+    || refuse "the upload printed no version id (wrangler's output is above); nothing was deployed" 70
+  echo "${id}"
 }
 
 judge() {
@@ -116,20 +126,43 @@ roll_back() {
   wrangler versions deploy "$1@100%" --name "${WORKER}" --yes --message "canary rollback"
 }
 
+# The deployment as Cloudflare holds it now, shouted: what a person must see when a step failed.
+show_split() {
+  log "!!! the live Worker's deployment is now:"
+  (cd "${GATEWAY_DIR}" && npx wrangler deployments status --name "${WORKER}") >&2 \
+    || log "!!! and it cannot be read; check it in the dashboard before anything else"
+}
+
+# A deployment that did not complete: show the split, try to put every request back on <old>.
+deploy_failed() {
+  local old="$1" what="$2"
+  log "!!! ${what} failed; traffic may be split between versions"
+  show_split
+  if roll_back "${old}"; then
+    show_split
+    refuse "${what} failed; every request is back on ${old}" 2
+  fi
+  log "!!! THE ROLLBACK FAILED TOO: traffic is split as shown above. Finish it by hand:"
+  log "!!!   building-gateway-canary.sh --execute rollback ${old}"
+  exit 3
+}
+
 # Moves traffic from <old> to <new> along the contract's steps, judging each.
 roll_out() {
   local old="$1" new="$2" percent
   for percent in ${STEPS}; do
     if (( percent >= 100 )); then
-      wrangler versions deploy "${new}@100%" --name "${WORKER}" --yes --message "canary 100%"
+      wrangler versions deploy "${new}@100%" --name "${WORKER}" --yes --message "canary 100%" \
+        || deploy_failed "${old}" "the deployment to 100%"
     else
       wrangler versions deploy "${old}@$((100 - percent))%" "${new}@${percent}%" \
-        --name "${WORKER}" --yes --message "canary ${percent}%"
+        --name "${WORKER}" --yes --message "canary ${percent}%" \
+        || deploy_failed "${old}" "the deployment of the ${percent}% step"
     fi
     log "holding ${HOLD}s at ${percent}%"
     [[ "${EXECUTE}" != yes ]] || sleep "${HOLD}"
     if ! judge "${new}" "${old}"; then
-      roll_back "${old}"
+      roll_back "${old}" || deploy_failed "${old}" "the rollback after a breach at ${percent}%"
       refuse "the new version breached at ${percent}%; all traffic is back on ${old}" 1
     fi
   done
@@ -157,12 +190,17 @@ case "${PHASE}" in
     old="${2:-}"
     [[ -n "${old}" ]] || refuse "usage: building-gateway-canary.sh [--execute] packs <off-version-id>"
     preflight
+    # The packs phase starts where the code phase ended, the off version alone at 100%: any other
+    # id would roll packs out against a version that is not serving, and roll back onto it.
+    serving="$(current_version)"
+    [[ "${EXECUTE}" != yes || "${serving}" == "${old}" ]] \
+      || refuse "${old} is not the version at 100% (${serving} is); name the version the code phase left serving" 65
     new="$(upload on "pack path on (ADR-0151)")"
     roll_out "${old}" "${new}"
     ;;
   rollback)
     [[ -n "${2:-}" ]] || refuse "usage: building-gateway-canary.sh [--execute] rollback <version-id>"
-    roll_back "$2"
+    roll_back "$2" || { show_split; refuse "the rollback to $2 failed; the deployment is shown above" 3; }
     ;;
   status)
     EXECUTE=yes wrangler deployments status --name "${WORKER}"

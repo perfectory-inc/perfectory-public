@@ -127,6 +127,9 @@ pub(crate) struct LaneSectionPacks {
 pub(crate) struct CanaryPolicy {
     pub(crate) hold_seconds: u64,
     pub(crate) min_requests_per_step: u64,
+    /// The reads a step sends to each of its two versions (pinned by version override), so a step
+    /// is judged on enough requests whatever the live traffic is.
+    pub(crate) synthetic_load: LoadTestPolicy,
 }
 
 /// The hourly synthetic read of the live hostname.
@@ -357,7 +360,18 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
                     .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
                 && seen.insert(section.as_str())
         });
+        let synthetic_starved = lane.canary.as_ref().is_some_and(|canary| {
+            let load = &canary.synthetic_load;
+            load.requests_per_second == 0
+                || load.duration_seconds == 0
+                || load.max_in_flight == 0
+                // The pinned reads alone must reach the step's minimum on the new version.
+                || u64::from(load.requests_per_second) * load.duration_seconds
+                    < canary.min_requests_per_step
+                || canary.hold_seconds < load.duration_seconds
+        });
         if !named
+            || synthetic_starved
             || !seen.contains(lane.anchor_section.as_str())
             || lane.root.ends_with('/')
             || lane.scheduled_bake.job.is_empty()
