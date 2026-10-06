@@ -26,6 +26,8 @@ describe("generated Wrangler configuration", () => {
     expect(config.vars).toBeUndefined();
     // Workers Paid: an explicit CPU limit from the contract, never the plan's default.
     expect(config.limits).toEqual({ cpu_ms: gateway.cpu_limit_ms });
+    // Placed beside the bucket (ADR-0154), by the contract's region hint.
+    expect(config.placement).toEqual({ region: gateway.placement.region });
     expect(gateway.cpu_limit_ms).toBeGreaterThan(connectionContract.by_pnu_section_packs.cutover_gate.worker_cpu_p99_max_ms);
     expect(text).not.toMatch(/remote|account_id|access_key|secret/i);
     expect(text).not.toContain('"*"');
@@ -68,6 +70,8 @@ describe("generated Wrangler configuration", () => {
     expect(env?.vars).toEqual({ [gateway.section_packs.preview_binding]: "true" });
     // The preview inherits the live CPU limit: the gate measures the Worker as it will run.
     expect((env as Record<string, unknown> | undefined)?.limits).toBeUndefined();
+    // And runs where the live Worker runs, so the gate compares the two paths under one placement.
+    expect((env as Record<string, unknown> | undefined)?.placement).toEqual({ region: gateway.placement.region });
     expect(config.vars).toBeUndefined();
   });
 

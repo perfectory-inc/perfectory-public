@@ -1,5 +1,8 @@
 import connectionContract from "../../../config/r2-connections.contract.json";
 import {
+  answerCacheResponse,
+  answerCacheUrl,
+  answerFromCache,
   PackFormatError,
   PackReadUnavailable,
   packReads,
@@ -8,6 +11,7 @@ import {
   resolvePacks,
   type PackPlan,
   type ReadTrace,
+  type Resolved,
 } from "./packs";
 
 const policy = connectionContract.building_by_pnu_gateway;
@@ -326,9 +330,20 @@ async function packResponse(
     if (timing !== null) response.headers.set("Server-Timing", serverTiming(reads.trace, timing.started, outcome));
     return response;
   };
-  let resolved;
+  let resolved: Resolved;
   try {
-    resolved = await resolvePacks(reads, plan, pnu);
+    // A PNU read before under this served state is one edge lookup, as on the object path; a
+    // tombstone or an absence is never copied, so only documents answer from here.
+    const cached = await answerFromCache(plan.fingerprint, pnu);
+    if (cached !== null) {
+      reads.trace.note(lanePacks.anchor_section, "edge-answer");
+      resolved = { kind: "document", ...cached };
+    } else {
+      resolved = await resolvePacks(reads, plan, pnu);
+      if (resolved.kind === "document") {
+        ctx.waitUntil(caches.default.put(answerCacheUrl(plan.fingerprint, pnu), answerCacheResponse(resolved)));
+      }
+    }
   } catch (error) {
     const outage = outageClass(error);
     console.log(
@@ -513,8 +528,7 @@ async function fetchBuilding(
     }
   }
   if (packs !== undefined) {
-    // No per-PNU edge copy: the pack copies already make a warm read free of R2, and the answer
-    // is the member as it is, so a second copy would only spend CPU putting it.
+    // The per-PNU edge copy is the member itself under the pack plan's fingerprint (packResponse).
     return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing);
   }
   const cacheUrl = servingCacheUrl(request.url, { fingerprint });

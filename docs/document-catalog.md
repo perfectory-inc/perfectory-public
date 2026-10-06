@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **503개**
+- 문서 파일: **504개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 178 |
+| Monorepo | 179 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 236 |
+| ADR | 237 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -543,6 +543,7 @@ docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.m
 docs/adr/0151-building-packs-serve-each-document-whole.md
 docs/adr/0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md
 docs/adr/0153-runtime-secrets-have-one-contract.md
+docs/adr/0154-building-pack-read-path-is-placed-beside-the-bucket.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -733,6 +734,7 @@ tools/github/README.md
 | `docs/adr/0151-building-packs-serve-each-document-whole.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0153-runtime-secrets-have-one-contract.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0154-building-pack-read-path-is-placed-beside-the-bucket.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

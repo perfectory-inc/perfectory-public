@@ -190,3 +190,5 @@ last_reviewed: 2026-07-28
 - [ADR-0152 — 제공자가 파일 번호를 다시 쓰는 원천의 Bronze 키는 내용 해시를 담고, 수집은 부작용 전에 요건을 다 확인한다](./0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md)
 
 - [ADR-0153 — 운영 환경 파일과 그것을 읽는 단위·실행은 계약 하나가 정하고, 나머지는 거기서 만들거나 그것으로 검사한다](./0153-runtime-secrets-have-one-contract.md)
+
+- [ADR-0154 — 건물 게이트웨이는 버킷 옆에서 돌고, 묶음은 isolate 메모리에만, 답은 PNU 마다 엣지에 둔다](./0154-building-pack-read-path-is-placed-beside-the-bucket.md)

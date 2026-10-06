@@ -18,7 +18,6 @@ const STATE_TOMBSTONE = 2;
 /// The read path's bounds (root ADR-0147 Revision): which packs are read whole, how much an
 /// isolate keeps, and how R2 is retried.
 const readPolicy = packPolicy.read_path;
-const packCacheOrigin = "https://foundation-building-gateway.invalid/pack/";
 const magic = new TextEncoder().encode(packPolicy.magic);
 
 export interface PackSection {
@@ -128,8 +127,8 @@ export interface PackCopy {
 export class ReadTrace {
   r2Gets = 0;
   retries = 0;
-  /// Per section: `{memory|edge|r2}-{whole|head|absent}`, and `+range` when a document needed a
-  /// second R2 read.
+  /// Per section: `{memory|r2}-{whole|head|absent}`, and `+range` when a document needed a second
+  /// R2 read; `edge-answer` when the PNU's answer came from its edge copy.
   readonly sections = new Map<string, string>();
   /// Per section: milliseconds waiting on R2, every attempt included.
   readonly sectionR2Ms = new Map<string, number>();
@@ -176,7 +175,7 @@ function copyBytes(copy: PackCopy): number {
   return copy.head.index.byteLength + (copy.bytes?.byteLength ?? 0);
 }
 
-/// Forgets every pack this isolate remembers (tests, to reach the edge cache behind it).
+/// Forgets every pack this isolate remembers (tests, to stand for a new isolate).
 export function forgetPacks(): void {
   packMemory.clear();
   packMemoryBytes = 0;
@@ -206,14 +205,6 @@ function recall(key: string): PackCopy | undefined {
     packMemory.set(key, copy);
   }
   return copy;
-}
-
-/// An entity tag as R2 reports it (`etag`, unquoted), whether it is written quoted (`httpEtag`, an
-/// HTTP `ETag` header) or not; `null` for none or an empty one.
-export function unquotedEtag(raw: string | null): string | null {
-  if (raw === null) return null;
-  const tag = raw.replace(/^W\//, "").replace(/^"(.*)"$/, "$1");
-  return tag === "" ? null : tag;
 }
 
 /// The pack is not what its key and the contract say: never retried, always an outage.
@@ -264,57 +255,6 @@ function wholePack(bytes: Uint8Array, etag: string): PackCopy {
   return { head, bytes };
 }
 
-const FORM_HEADER = "X-Pack-Form";
-
-/// The edge cache's copy of a pack: the whole pack when it was read whole, else its head. Its
-/// `ETag` header is the quoted form (an HTTP entity tag, what R2 calls `httpEtag`); `packFromCache`
-/// unquotes it back to the R2 `etag` the copy carries, and a head is only ever combined with a
-/// range read R2 answers under that same entity tag (`onlyIf.etagMatches`).
-export function packCacheResponse(copy: PackCopy): Response {
-  const headers = { "Cache-Control": packPolicy.cache_control, ETag: `"${copy.head.etag}"` };
-  if (copy.bytes !== null) {
-    return new Response(copy.bytes, { headers: { ...headers, [FORM_HEADER]: "whole" } });
-  }
-  const prefix = new ArrayBuffer(16);
-  const view = new DataView(prefix);
-  view.setUint32(0, copy.head.entryCount, true);
-  view.setUint32(4, copy.head.bodyStart, true);
-  view.setUint32(8, copy.head.bodyLength, true);
-  return new Response(new Blob([prefix, copy.head.index]), { headers: { ...headers, [FORM_HEADER]: "head" } });
-}
-
-/// The edge cache identity of a pack: its R2 key under a synthetic origin, so no client URL can
-/// name or shape it. The entity tag cannot be part of the identity, because the lookup comes
-/// before anything that knows it; it travels inside the entry, and nothing read under another tag
-/// is ever combined with it (see `packCacheResponse`).
-export function packCacheUrl(key: string): string {
-  return `${packCacheOrigin}${key}`;
-}
-
-/// A pack from the edge cache; `null` (read R2 again) when there is none, or it carries no entity
-/// tag to hold the document reads to, or it is not a form this Worker writes.
-export async function packFromCache(key: string): Promise<PackCopy | null> {
-  const cached = await caches.default.match(packCacheUrl(key));
-  if (cached === undefined) return null;
-  const etag = unquotedEtag(cached.headers.get("ETag"));
-  const form = cached.headers.get(FORM_HEADER);
-  const bytes = new Uint8Array(await cached.arrayBuffer());
-  if (etag === null) return null;
-  if (form === "whole") return wholePack(bytes, etag);
-  if (form !== "head" || bytes.length < 16) return null;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  return {
-    head: {
-      entryCount: view.getUint32(0, true),
-      bodyStart: view.getUint32(4, true),
-      bodyLength: view.getUint32(8, true),
-      index: bytes.subarray(16),
-      etag,
-    },
-    bytes: null,
-  };
-}
-
 /// The length of a pack's head (prefix, header JSON and index) from its first 20 bytes.
 function headLength(prefix: Uint8Array): number {
   for (let i = 0; i < magic.length; i += 1) {
@@ -353,9 +293,12 @@ function within<T>(work: Promise<T>, milliseconds: number): Promise<T> {
 }
 
 /// One R2 read with its body, retried while it fails transiently: at most `r2_attempts` attempts,
-/// each bounded by what is left of the request's deadline, with full-jitter backoff between them
-/// (AWS Architecture Blog, "Exponential Backoff And Jitter"). A pack that is not what it should be
-/// (`PackFormatError`) is never retried: retrying cannot make it right.
+/// each bounded by `r2_attempt_timeout_ms` and by what is left of the request's deadline, with
+/// full-jitter backoff between them (AWS Architecture Blog, "Exponential Backoff And Jitter"). An
+/// attempt that stalls is abandoned at its own bound and asked again, so one stalled read cannot
+/// spend the whole deadline (the Tail at Scale: a retry of a slow request usually lands on a fast
+/// path). A pack that is not what it should be (`PackFormatError`) is never retried: retrying cannot
+/// make it right.
 async function withRetry<T>(
   reads: PackReads,
   what: { section: string; key: string; phase: "pack" | "range" },
@@ -370,7 +313,7 @@ async function withRetry<T>(
     const started = Date.now();
     reads.trace.r2Gets += 1;
     try {
-      return await within(attempt(), left);
+      return await within(attempt(), Math.min(left, readPolicy.r2_attempt_timeout_ms));
     } catch (error) {
       if (error instanceof PackFormatError) throw error;
       lastClass = failureClass(error);
@@ -399,22 +342,21 @@ async function withRetry<T>(
   throw new PackReadUnavailable(`${what.section} ${what.phase}: R2 unavailable (${lastClass})`);
 }
 
-/// One pack: isolate memory, then the edge cache, then one GET of R2. The GET names no range, so
-/// a pack shorter than any fixed first read is never asked past its end (no reliance on R2
-/// clamping a range). A pack within `whole_pack_max_bytes` is read whole by that GET, so its head
-/// and its documents come from one R2 hop; a larger one is read only as far as its head reaches
-/// and the rest of its body is cancelled unread. `null` when the pack does not exist.
+/// One pack: isolate memory, then one GET of R2. The GET names no range, so a pack shorter than
+/// any fixed first read is never asked past its end (no reliance on R2 clamping a range). A pack
+/// within `whole_pack_max_bytes` is read whole by that GET, so its head and its documents come from
+/// one R2 hop; a larger one is read only as far as its head reaches and the rest of its body is
+/// cancelled unread. `null` when the pack does not exist.
+///
+/// No pack goes to the edge cache (ADR-0154): with the Worker placed beside the bucket an R2 read
+/// of a pack read before costs about what an edge lookup does (2026-10-06, Tokyo: 35-45 ms), while
+/// writing the copy cost more CPU than the rest of the read (cold CPU p99 8.2 ms with it, 5.7 ms
+/// without). What a reader reads again is its own PNU, and that is the answer's edge copy.
 export async function readPack(reads: PackReads, section: string, key: string): Promise<PackCopy | null> {
   const remembered = recall(key);
   if (remembered !== undefined) {
     reads.trace.note(section, `memory-${remembered.bytes === null ? "head" : "whole"}`);
     return remembered;
-  }
-  const cached = await packFromCache(key);
-  if (cached !== null) {
-    remember(key, cached);
-    reads.trace.note(section, `edge-${cached.bytes === null ? "head" : "whole"}`);
-    return cached;
   }
   const copy = await withRetry(reads, { section, key, phase: "pack" }, () => fetchPack(reads.bucket, key));
   if (copy === null) {
@@ -423,7 +365,6 @@ export async function readPack(reads: PackReads, section: string, key: string): 
   }
   remember(key, copy);
   reads.trace.note(section, `r2-${copy.bytes === null ? "head" : "whole"}`);
-  reads.ctx.waitUntil(caches.default.put(packCacheUrl(key), packCacheResponse(copy)));
   return copy;
 }
 
@@ -503,7 +444,10 @@ export interface ServedDocument {
 }
 
 /// One document's gzip member: from the whole pack's bytes when they were read, else by one range
-/// read that R2 answers only under the head's entity tag.
+/// read whose entity tag must be the head's. The tag is compared on the answer rather than sent as
+/// `onlyIf.etagMatches`: a pack key is create-only, so the condition never decides anything, and
+/// it cost CPU on every large-pack read (2026-10-06, 590 reads: p99 8.4 ms with it, 6.7 ms
+/// without). A rewritten key would still be refused here, only after its bytes arrived.
 async function readDocument(
   reads: PackReads,
   section: string,
@@ -516,17 +460,42 @@ async function readDocument(
   if (copy.bytes !== null) return { member: copy.bytes.subarray(start, start + entry.length), etag };
   reads.trace.note(section, "range");
   const member = await withRetry(reads, { section, key, phase: "range" }, async () => {
-    const object = await reads.bucket.get(key, {
-      range: { offset: start, length: entry.length },
-      onlyIf: { etagMatches: copy.head.etag },
-    });
+    const object = await reads.bucket.get(key, { range: { offset: start, length: entry.length } });
     if (object === null || !("body" in object) || object.etag !== copy.head.etag) {
-      // Pack keys are create-only: never combine a cached head with other bytes.
-      throw new PackFormatError("pack changed or vanished under its cached head");
+      // Pack keys are create-only: never combine a remembered head with other bytes.
+      throw new PackFormatError("pack changed or vanished under its remembered head");
     }
     return new Uint8Array(await object.arrayBuffer());
   });
   return { member, etag };
+}
+
+const answerCacheOrigin = "https://foundation-building-gateway.invalid/answer/";
+const ANSWER_ETAG_HEADER = "X-Member-Etag";
+
+/// The edge cache identity of one PNU's served member under one served state: the plan's
+/// fingerprint names the generations and patches, so a new publish never answers from a copy of
+/// the previous one, and the synthetic origin keeps any client URL from naming or shaping it.
+export function answerCacheUrl(fingerprint: string, pnu: string): string {
+  return `${answerCacheOrigin}${encodeURIComponent(fingerprint)}/${pnu}`;
+}
+
+/// The edge copy of a served member: its bytes as the pack holds them, its entity tag beside them.
+/// Stored without `Content-Encoding`, so the Cache API keeps the bytes as they are.
+export function answerCacheResponse(document: ServedDocument): Response {
+  return new Response(document.member, {
+    headers: { "Cache-Control": packPolicy.cache_control, [ANSWER_ETAG_HEADER]: document.etag },
+  });
+}
+
+/// A PNU's served member from the edge cache, or `null` when there is none (or it carries no tag).
+/// A warm read of the same PNU is then one cache lookup, as on the object path, with no pack read.
+export async function answerFromCache(fingerprint: string, pnu: string): Promise<ServedDocument | null> {
+  const cached = await caches.default.match(answerCacheUrl(fingerprint, pnu));
+  if (cached === undefined) return null;
+  const etag = cached.headers.get(ANSWER_ETAG_HEADER);
+  const member = new Uint8Array(await cached.arrayBuffer());
+  return etag === null || etag === "" || member.byteLength === 0 ? null : { member, etag };
 }
 
 export type Resolved =
