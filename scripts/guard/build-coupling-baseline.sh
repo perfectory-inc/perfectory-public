@@ -225,7 +225,10 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # 113 -> 114: root ADR-0145 splits the 시군구 crosswalk seed in two: the 27 hand pairs stay as the
 # comparison baseline (sigungu-crosswalk-baseline.json) and the hub feed's placeholder codes and
 # absent-시도 bound move to hub-register-feed.contract.json, each embedded where it is judged.
-COMPILE_TIME_READ_BASELINE="${3:-114}"
+# 114 -> 115: root ADR-0153 makes config/runtime-secrets.contract.json the one source of host
+# environment files; the publisher embeds it to name the Cloudflare analytics file instead of
+# keeping a second copy of that path in r2-connections.contract.json.
+COMPILE_TIME_READ_BASELINE="${3:-115}"
 
 cd "$repo_root"
 

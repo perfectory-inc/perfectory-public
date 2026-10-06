@@ -16,7 +16,8 @@ PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts" / "ops" / "building-gateway-canary.sh"
 CONTRACT = json.loads((PLATFORM / "config" / "r2-connections.contract.json").read_text(encoding="utf-8"))
 CANARY = CONTRACT["building_by_pnu_gateway"]["section_packs"]["canary"]
-ENV_FILE = CONTRACT["by_pnu_section_packs"]["cloudflare_analytics"]["env_file"]
+SECRETS = json.loads((PLATFORM / "config" / "runtime-secrets.contract.json").read_text(encoding="utf-8"))
+ENV_FILE = next(g["path"] for g in SECRETS["groups"] if g["name"] == "cloudflare-analytics")
 HEALTH = PLATFORM / "scripts" / "ops" / "building-gateway-health.sh"
 OLD = "11111111-1111-4111-8111-111111111111"
 NEW = "22222222-2222-4222-8222-222222222222"
