@@ -286,8 +286,17 @@ pub(crate) async fn check(
     let reached_new_version = reached(&pinned, new_version);
     let new =
         analytics::worker_cpu(client, analytics, &of(new_version), reached_new_version).await?;
+    // The old version is held to the same coverage wait: its numbers are the comparison's base,
+    // and an empty or late answer must not let the comparison be skipped.
     let old = match old_version {
-        Some(version) => Some(analytics::query_invocations(client, analytics, &of(version)).await?),
+        Some(version) => {
+            let reached_old = pinned
+                .old
+                .as_ref()
+                .and_then(|old| old.versions.get(version).copied())
+                .unwrap_or(0);
+            Some(analytics::worker_cpu(client, analytics, &of(version), reached_old).await?)
+        }
         None => None,
     };
     let host_statuses = analytics::responses_by_status(
@@ -397,6 +406,13 @@ pub(crate) fn breaches(
             "CPU p99 {:.1} ms is above {:.1} ms",
             new.cpu_p99_ms, gate.worker_cpu_p99_max_ms
         ));
+    }
+    if old.is_some_and(|old| old.requests == 0) {
+        breaches.push(
+            "Workers analytics counted no invocations of the old version, so the CPU and wall-time \
+             increase over it cannot be judged"
+                .to_owned(),
+        );
     }
     if let Some(old) = old.filter(|old| old.requests > 0) {
         if new.cpu_p99_ms - old.cpu_p99_ms > gate.worker_cpu_p99_max_increase_ms {

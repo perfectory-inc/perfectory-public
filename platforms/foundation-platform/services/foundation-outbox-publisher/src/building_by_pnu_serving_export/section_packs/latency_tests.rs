@@ -543,6 +543,12 @@ fn a_canary_step_is_judged_on_every_bound() -> anyhow::Result<()> {
     let silent = judge(&healthy, &std::collections::BTreeMap::new(), &pinned);
     assert_eq!(silent.len(), 1, "{silent:?}");
     assert!(silent[0].contains("no client responses"), "{silent:?}");
+    // An old version analytics counted nothing for is not a clean comparison: the increase
+    // bounds were not judged, even though the new version stays under the absolute CPU bound.
+    let empty_old = gate::WorkerCpu::default();
+    let unjudged = judge_against(&healthy, &empty_old, &ok_hosts, &pinned);
+    assert_eq!(unjudged.len(), 1, "{unjudged:?}");
+    assert!(unjudged[0].contains("old version"), "{unjudged:?}");
     // A Worker's own 503 is a success invocation: only the pinned reads see it, per version.
     for failing in ["new", "old"] {
         let mut pinned = pinned_held();
