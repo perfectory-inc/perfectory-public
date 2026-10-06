@@ -50,6 +50,8 @@ interface BucketOptions {
   failures?: number;
   failure?: () => Error;
   hang?: boolean;
+  /// The first `stalls` calls never answer, then the bucket answers (a stalled R2 read).
+  stalls?: number;
 }
 
 /// R2 as a stricter bucket than the real one: a range past the object's end is an error (so no
@@ -67,6 +69,10 @@ function strictBucket(objects: Record<string, Uint8Array>, options: BucketOption
     ) {
       asked.push({ key: wanted, range: opts?.range, etagMatches: opts?.onlyIf?.etagMatches });
       if (options.hang === true) return new Promise(() => undefined);
+      if (failed < (options.stalls ?? 0)) {
+        failed += 1;
+        return new Promise(() => undefined);
+      }
       if (failed < (options.failures ?? 0)) {
         failed += 1;
         throw (options.failure ?? (() => new Error("get: We encountered an internal error. Please try again. (10001)")))();
@@ -312,6 +318,24 @@ describe("R2 retries within a deadline", () => {
     await expect(resolvePacks(reads(bucket), previewPlan(1), PNU_A)).rejects.toBeInstanceOf(PackReadUnavailable);
     expect(asked.length).toBeLessThanOrEqual(PACKS.sections.length * READ.r2_attempts);
   });
+
+  it("a stalled attempt is abandoned at its own bound and asked again, not left to spend the deadline", async () => {
+    expect(READ.r2_attempt_timeout_ms).toBeGreaterThan(0);
+    // Room for a second attempt after a stalled first one.
+    expect(READ.r2_attempt_timeout_ms * 2).toBeLessThan(READ.r2_deadline_ms);
+    const objects = await goldenPacks();
+    const { bucket, asked } = strictBucket(objects, { stalls: 1 });
+    const trace = new ReadTrace();
+    const started = Date.now();
+    const resolved = await resolvePacks(reads(bucket, { trace }), previewPlan(1), PNU_A);
+    const elapsed = Date.now() - started;
+    expect(resolved.kind).toBe("document");
+    expect(trace.failures).toEqual([`${PACKS.anchor_section}:pack:timeout`]);
+    expect(trace.retries).toBe(1);
+    expect(asked).toHaveLength(2);
+    expect(elapsed).toBeGreaterThanOrEqual(READ.r2_attempt_timeout_ms - 50);
+    expect(elapsed).toBeLessThan(READ.r2_deadline_ms);
+  }, 10_000);
 
   it("a read that never answers ends at the deadline, not after it", async () => {
     const objects = await goldenPacks();

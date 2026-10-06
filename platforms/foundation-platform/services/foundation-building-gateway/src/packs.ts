@@ -353,9 +353,12 @@ function within<T>(work: Promise<T>, milliseconds: number): Promise<T> {
 }
 
 /// One R2 read with its body, retried while it fails transiently: at most `r2_attempts` attempts,
-/// each bounded by what is left of the request's deadline, with full-jitter backoff between them
-/// (AWS Architecture Blog, "Exponential Backoff And Jitter"). A pack that is not what it should be
-/// (`PackFormatError`) is never retried: retrying cannot make it right.
+/// each bounded by `r2_attempt_timeout_ms` and by what is left of the request's deadline, with
+/// full-jitter backoff between them (AWS Architecture Blog, "Exponential Backoff And Jitter"). An
+/// attempt that stalls is abandoned at its own bound and asked again, so one stalled read cannot
+/// spend the whole deadline (the Tail at Scale: a retry of a slow request usually lands on a fast
+/// path). A pack that is not what it should be (`PackFormatError`) is never retried: retrying cannot
+/// make it right.
 async function withRetry<T>(
   reads: PackReads,
   what: { section: string; key: string; phase: "pack" | "range" },
@@ -370,7 +373,7 @@ async function withRetry<T>(
     const started = Date.now();
     reads.trace.r2Gets += 1;
     try {
-      return await within(attempt(), left);
+      return await within(attempt(), Math.min(left, readPolicy.r2_attempt_timeout_ms));
     } catch (error) {
       if (error instanceof PackFormatError) throw error;
       lastClass = failureClass(error);
