@@ -148,8 +148,7 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-parcel-number-change-history"
       ],
-      "enabled": false,
-      "disabled_reason": "New. Off until one supervised run on the data host (runbook docs/runbooks/legal-dong-code-changes.md, '지번 근거 켜기') has collected the whole country, the stewardship cycle has loaded it and a pairing run has read it; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "data_quality",
