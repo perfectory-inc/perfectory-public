@@ -220,8 +220,25 @@ require(main.get("conditions") == {
 rules = {rule["type"]: rule for rule in main.get("rules", [])}
 require(set(rules) == {
     "deletion", "non_fast_forward", "required_linear_history",
-    "pull_request", "required_status_checks",
+    "pull_request", "required_status_checks", "merge_queue",
 }, "main ruleset has missing or unexpected rule types")
+# Every merge goes through the queue, which runs the required contexts on the
+# exact squash result of main plus the queued pull requests (root ADR-0155).
+# That replaces "branch must be up to date", which re-ran all checks of every
+# open pull request after each merge; the two must change together.
+# Properties, not a copy of the ruleset's numbers: the ruleset file is the one source of the
+# values, and the guard refuses only what would weaken the queue.
+queue = rules["merge_queue"].get("parameters") or {}
+require(set(queue) == {
+    "check_response_timeout_minutes", "grouping_strategy", "max_entries_to_build",
+    "max_entries_to_merge", "merge_method", "min_entries_to_merge", "min_entries_to_merge_wait_minutes",
+} and queue["merge_method"] == "SQUASH" and queue["grouping_strategy"] == "ALLGREEN"
+        and isinstance(queue["max_entries_to_build"], int) and 1 <= queue["max_entries_to_build"] <= 5
+        and isinstance(queue["max_entries_to_merge"], int) and 1 <= queue["max_entries_to_merge"] <= queue["max_entries_to_build"]
+        and queue["min_entries_to_merge"] == 1
+        and isinstance(queue["check_response_timeout_minutes"], int) and queue["check_response_timeout_minutes"] >= 60,
+        "merge queue must squash, require every grouped pull request green, bound concurrent builds and "
+        "give the required checks at least an hour")
 pr = rules["pull_request"].get("parameters")
 require(pr == {
     "allowed_merge_methods": ["squash"],
@@ -236,7 +253,7 @@ require(pr == {
 status = rules["required_status_checks"].get("parameters", {})
 checks = status.get("required_status_checks", [])
 contexts = [check.get("context") for check in checks]
-require(status.get("strict_required_status_checks_policy") is True
+require(status.get("strict_required_status_checks_policy") is False
         and status.get("do_not_enforce_on_create") is True
         and contexts
         and len(contexts) == len(set(contexts))

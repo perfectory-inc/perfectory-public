@@ -6,6 +6,7 @@ on:
   # Pull requests are intentionally unfiltered so required/identity reports.
   pull_request:
     branches: [main]
+  merge_group:
   push:
     branches: [main]
     paths:
@@ -31,7 +32,6 @@ defaults:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: 1.96.0
 
 jobs:
   rust-quality:
@@ -42,8 +42,17 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Install Rust
-        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+      - name: Set up Rust
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: bash scripts/ci/rust-setup.sh
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          workspaces: |
+            platforms/identity-platform
+            tools/xtask
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the
       # one flag policy. Runs from the repo root (this workflow defaults to the area).
       - name: Verify (fmt, clippy, test)
@@ -84,20 +93,29 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Install Rust
-        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - name: Set up Rust
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: bash scripts/ci/rust-setup.sh
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          workspaces: |
+            platforms/identity-platform
+            tools/xtask
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # `role_grant_postgres` creates and migrates its own throwaway database, but
       # `live_provisioning` connects to the one it is given and writes straight to
       # `identity.service_principal`. The lane runs both, so the shared database
       # has to carry the schema before either starts.
       - name: Migrate the identity contract database
-        run: cargo +"$RUST_TOOLCHAIN" run --locked -p identity-database-migrator
+        run: cargo run --locked -p identity-database-migrator
       # The lane is the SSOT for which targets run (ADR-0011). Naming a single
       # test here is how the other target stayed unexecuted while CI reported a
       # passing live-contract job.
       - name: Run identity live database contracts
         working-directory: ${{ github.workspace }}
-        run: cargo +"$RUST_TOOLCHAIN" xtask integration identity postgres
+        run: cargo xtask integration identity postgres
 
   compose-smoke:
     name: Identity Compose smoke
@@ -206,10 +224,19 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Install Rust
-        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - name: Set up Rust
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: bash scripts/ci/rust-setup.sh
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          workspaces: |
+            platforms/identity-platform
+            tools/xtask
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Regenerate OpenAPI contract
-        run: cargo +"$RUST_TOOLCHAIN" run --locked --quiet -p identity-api --bin export-openapi -- /tmp/identity.v1.json
+        run: cargo run --locked --quiet -p identity-api --bin export-openapi -- /tmp/identity.v1.json
       - name: Verify deterministic contract
         run: diff -u docs/openapi/identity.v1.json /tmp/identity.v1.json
 
@@ -224,17 +251,19 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Set up Rust
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: bash scripts/ci/rust-setup.sh
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          workspaces: |
+            platforms/identity-platform
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-deny
-        run: |
-          archive=/tmp/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz
-          tool_bin="$RUNNER_TEMP/cargo-deny/bin"
-          mkdir -p "$tool_bin"
-          curl -sSfL --output "$archive" \
-            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.8/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz
-          echo "70e769ae3872e34d45132b17040859175e11401dc12dddb0303e0b8c7d088f3f  $archive" \
-            | sha256sum --check --strict -
-          tar xzf "$archive" --strip-components=1 -C "$tool_bin" --wildcards '*/cargo-deny'
-          printf '%s\n' "$tool_bin" >> "$GITHUB_PATH"
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/ci/install-cargo-deny.sh
       - name: cargo-deny
         run: cargo-deny --locked check
 

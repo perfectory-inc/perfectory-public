@@ -192,13 +192,21 @@ fn all_docker_and_compose_images_are_immutable_and_helpers_are_non_root() -> Tes
         "services/foundation-provider-acquisition-worker/Dockerfile.raon-batch",
     ] {
         let contents = read_area_file(dockerfile)?;
-        assert!(
-            contents
-                .lines()
-                .filter(|line| line.starts_with("FROM "))
-                .all(|line| line.contains("@sha256:")),
-            "{dockerfile} has a mutable FROM"
-        );
+        // A FROM that names an earlier stage of the same file is not an image reference.
+        let mut stages = Vec::new();
+        for line in contents.lines().filter(|line| line.starts_with("FROM ")) {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let image = words.get(1).copied().unwrap_or_default();
+            assert!(
+                image.contains("@sha256:") || stages.contains(&image),
+                "{dockerfile} has a mutable FROM: {line}"
+            );
+            if let [.., keyword, stage] = words.as_slice() {
+                if keyword.eq_ignore_ascii_case("AS") {
+                    stages.push(*stage);
+                }
+            }
+        }
         assert_versioned_apt_installs(dockerfile, &contents);
     }
 

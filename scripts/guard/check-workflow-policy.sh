@@ -217,20 +217,31 @@ for workflow in "${workflows[@]}"; do
 
   # Every required workflow uses the same PR trigger shape. Push-only path
   # filters remain allowed for cost, but PR filters/types cannot suppress checks.
+  # The same contexts must also report on merge_group, or a merge queue would
+  # wait forever for a check that never starts (root ADR-0155); the default
+  # checks_requested type is the only one GitHub sends, so no child is admitted.
   awk -v file="$workflow" '
     function fail(message) {
       print "FAIL workflow-policy: " file ": " message > "/dev/stderr"
       failed=1
     }
     /^on:[[:space:]]*$/ { on_count++; next }
-    /^  pull_request:[[:space:]]*$/ { pull_count++; in_pull=1; next }
+    /^  pull_request:[[:space:]]*$/ { pull_count++; in_pull=1; in_merge=0; next }
+    /^  merge_group:[[:space:]]*$/ { merge_count++; in_merge=1; in_pull=0; next }
+    /^[^[:space:]]/ { in_pull=0; in_merge=0 }
     in_pull && /^  [A-Za-z0-9_-]+:/ { in_pull=0 }
+    in_merge && /^  [A-Za-z0-9_-]+:/ { in_merge=0 }
     in_pull && /^    branches:[[:space:]]*\[main\][[:space:]]*$/ { branch_count++; next }
     in_pull && /^    [A-Za-z0-9_-]+:/ { fail("pull_request allows only branches: [main]") }
+    in_merge && /^    [A-Za-z0-9_-]+:/ { fail("merge_group admits no filter; it must run for every queued group") }
+    /^  merge_group:/ { fail("merge_group must use the canonical bare block form") }
     END {
       if (on_count != 1) fail("must use one canonical block-form on key")
       if (pull_count != 1 || branch_count != 1) {
         fail("must run on every pull request targeting main")
+      }
+      if (merge_count != 1) {
+        fail("must run on merge_group so the merge queue can require its context")
       }
       exit failed ? 1 : 0
     }
@@ -238,10 +249,14 @@ for workflow in "${workflows[@]}"; do
 
   # Conditional steps are restricted to reviewed diagnostic/cleanup steps. A
   # gate step cannot be silently changed to `if: false` and still report green.
+  # The shared Rust setup and its cache are skipped in a Foundation job whose
+  # scope selector left it unselected: those steps verify nothing, and a cache
+  # saved from an unselected run would store an empty target under the real key.
   # The docs generated-artifact checks carry `!cancelled()` so one CI round
   # reports every stale document instead of stopping at the first; that
   # condition only widens execution and the job still fails on any of them.
-  awk -v file="$workflow" '
+  foundation_gate_if="\${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}"
+  awk -v file="$workflow" -v foundation_gate="$foundation_gate_if" '
     function flush_step() {
       if (step_if == "") return
       allowed=(step_name == "Upload supply-chain artifacts" && step_if == "always()") \
@@ -253,7 +268,9 @@ for workflow in "${workflows[@]}"; do
         || (step_name == "Check generated pipeline map and API example" && step_if == "${{ !cancelled() }}") \
         || (step_name == "Check generated document catalog" && step_if == "${{ !cancelled() }}") \
         || (step_name == "Check document audit report" && step_if == "${{ !cancelled() }}") \
-        || (step_name == "Check generated foundation baseline" && step_if == "${{ !cancelled() }}")
+        || (step_name == "Check generated foundation baseline" && step_if == "${{ !cancelled() }}") \
+        || (step_name == "Set up Rust" && step_if == foundation_gate) \
+        || (step_name == "Rust cache" && step_if == foundation_gate)
       if (!allowed) {
         print "FAIL workflow-policy: " file ": conditional step is not allowlisted: " step_name " / " step_if > "/dev/stderr"
         failed=1

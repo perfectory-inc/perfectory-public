@@ -1,4 +1,4 @@
-FROM rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc AS rust-builder
+FROM rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc AS chef
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -10,8 +10,36 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends         cmake=3.25.1-1         pkg-config=1.8.1-1         libssl-dev=3.0.22-1~deb12u1         zlib1g-dev=1:1.2.13.dfsg-1 \
     && rm -rf /var/lib/apt/lists/*
 
+# cargo-chef splits the build into a dependency layer keyed only by Cargo.lock and the
+# manifests, and the workspace's own code (root ADR-0155). The release admission keeps that
+# layer in a content-addressed BuildKit cache, so a release whose lockfile did not change
+# reuses the bundled DuckDB C++ build instead of spending ~40 minutes on it again.
+# BuildKit checks the archive against the pinned digest before the layer exists.
+ADD --checksum=sha256:aca691abfbfbbe00d482e0ed2249eec3091b65e96a0ce92947fb5b254d48b16d \
+    https://github.com/LukeMathWalker/cargo-chef/releases/download/v0.1.78/cargo-chef-x86_64-unknown-linux-musl.tar.xz \
+    /tmp/cargo-chef.tar.xz
+RUN tar -xJf /tmp/cargo-chef.tar.xz -C /usr/local/cargo/bin --strip-components=1 \
+        cargo-chef-x86_64-unknown-linux-musl/cargo-chef \
+    && rm /tmp/cargo-chef.tar.xz
+
 # Toolchain pin is the base image tag (rust:1.96.0, guard-enforced); root
 # rust-toolchain.toml is outside this context, cargo uses image default 1.96.0.
+FROM chef AS planner
+COPY Cargo.toml Cargo.lock /src/
+COPY crates /src/crates
+COPY config /src/config
+COPY services /src/services
+COPY schemas /src/schemas
+COPY infra /src/infra
+RUN cargo chef prepare --recipe-path /src/recipe.json
+
+FROM chef AS rust-builder
+# The release admission passes the job count from tools/release-build.contract.json (ADR-0137).
+ARG CARGO_BUILD_JOBS=2
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
+COPY --from=planner /src/recipe.json /src/recipe.json
+RUN cargo chef cook --locked --release -p foundation-outbox-publisher --recipe-path /src/recipe.json
+
 COPY Cargo.toml Cargo.lock /src/
 COPY crates /src/crates
 COPY config /src/config

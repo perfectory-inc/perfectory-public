@@ -10,6 +10,7 @@ on:
       - ".github/workflows/gongzzang-walking-skeleton.yml"
   pull_request:
     branches: [main]
+  merge_group:
     # Intentionally unfiltered so required/gongzzang-e2e always reports.
 
 defaults:
@@ -58,14 +59,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@21dc36fb71dd22e3317045c0c31a3f4249868b17  # @stable (SHA pin, ADR 0028)
+      - name: Set up Rust
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: bash scripts/ci/rust-setup.sh
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
-          toolchain: "1.96.0"
-
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
-        with:
+          workspaces: |
+            products/gongzzang
+            tools/xtask
           shared-key: walking-skeleton
-          workspaces: products/gongzzang
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install sqlx-cli + postgres client
         run: |

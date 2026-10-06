@@ -23,6 +23,7 @@ on:
       - ".github/workflows/gongzzang-frontend.yml"
   pull_request:
     branches: [main]
+  merge_group:
     # Intentionally unfiltered so required/gongzzang-frontend always reports.
 
 defaults:
