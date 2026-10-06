@@ -357,6 +357,23 @@ def build_limits() -> dict[str, dict[str, object]]:
         raise ValueError(f"release build contract {BUILD_CONTRACT} is unreadable: {error}") from error
 
 
+def build_cache_bounds() -> tuple[int, int]:
+    """Free space the dependency cache must leave and its largest size, from the build contract."""
+    try:
+        entry = json.loads(BUILD_CONTRACT.read_text(encoding="utf-8"))["build_cache"]
+        bounds = (entry["min_free_bytes"], entry["max_bytes"])
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"release build contract {BUILD_CONTRACT} has no readable build_cache: {error}") from error
+    if not all(isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in bounds):
+        raise ValueError("build_cache.min_free_bytes and build_cache.max_bytes must be positive integers")
+    return bounds
+
+
+def tree_bytes(path: Path) -> int:
+    """Bytes of the regular files under a path (links are not followed)."""
+    return sum(entry.lstat().st_size for entry in path.rglob("*") if entry.is_file() and not entry.is_symlink())
+
+
 def require_no_registered_job_running() -> None:
     """The build is sized as the host's one-shot job; it does not start beside another (ADR-0137)."""
     try:
@@ -498,6 +515,7 @@ def build_locked(target: Path, release_id: str, destination: Path, limits) -> No
         BUILD_CACHE_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
         protected_path(BUILD_CACHE_ROOT)
         clear_abandoned_build_caches()
+        cache_min_free, cache_max = build_cache_bounds()
         # One temporary builder per image, each held to its own contract entry: a builder caps
         # every build it runs, so sharing one would give tippecanoe the publisher's 22g (ADR-0137).
         for name, tag_of, dockerfile, context in RELEASE_IMAGES:
@@ -506,11 +524,17 @@ def build_locked(target: Path, release_id: str, destination: Path, limits) -> No
             if name in CACHED_IMAGES:
                 kept = verified_build_cache(name)
                 caches_used[name] = kept[1] if kept else None
-                written = BUILD_CACHE_ROOT / f".written-{name}-{work.name.removeprefix('.')}"
-                cache_arguments = (
-                    *(("--cache-from", f"type=local,src={kept[0]}") if kept else ()),
-                    "--cache-to", f"type=local,dest={written},mode=max",
-                )
+                cache_from = ("--cache-from", f"type=local,src={kept[0]}") if kept else ()
+                free = shutil.disk_usage(BUILD_CACHE_ROOT).free
+                if free - cache_max >= cache_min_free:
+                    written = BUILD_CACHE_ROOT / f".written-{name}-{work.name.removeprefix('.')}"
+                    cache_arguments = (*cache_from, "--cache-to", f"type=local,dest={written},mode=max")
+                else:
+                    # The root disk this cache lives on has run out before; the release still
+                    # builds, it only keeps no new dependency layer (contract build_cache).
+                    print(f"release build cache: not exported, {free} bytes free and a new cache may take "
+                          f"{cache_max}; the contract keeps {cache_min_free} free", file=sys.stderr)
+                    cache_arguments = cache_from or ("--no-cache",)
             limit = limits[name]
             builder = f"foundation-release-{name}-" + work.name.removeprefix(".")
             configuration = work / f"buildkitd-{name}.toml"
@@ -529,7 +553,12 @@ def build_locked(target: Path, release_id: str, destination: Path, limits) -> No
                 if not re.fullmatch(r"sha256:[0-9a-f]{64}", images[name]):
                     raise ValueError(f"{name} build did not return an immutable image ID")
                 if written is not None:
-                    keep_build_cache(name, written)
+                    size = tree_bytes(written)
+                    if size <= cache_max:
+                        keep_build_cache(name, written)
+                    else:
+                        print(f"release build cache: {size} bytes exceed the contract's {cache_max}; "
+                              "discarded, the previous cache is kept", file=sys.stderr)
             finally:
                 if written is not None and written.exists():
                     shutil.rmtree(written, ignore_errors=True)

@@ -304,7 +304,11 @@ class ReleaseAdmissionTests(unittest.TestCase):
                 self.assertIn(f"{argument}={jobs}", args)
                 # Only the publisher's dependency layer is kept between releases, in a
                 # content-addressed cache under the administrator's directory (ADR-0155).
-                if built[3] == "publisher":
+                if built[3] == "publisher" and getattr(self, "expect_no_cache_to", False):
+                    # Too little room on the cache disk: the release builds without exporting one.
+                    self.assertNotIn("--cache-to", args)
+                    self.assertIn("--no-cache", args)
+                elif built[3] == "publisher":
                     self.assertNotIn("--no-cache", args)
                     spec = args[args.index("--cache-to") + 1]
                     self.assertTrue(spec.startswith(f"type=local,dest={self.build_cache}/") and spec.endswith(",mode=max"))
@@ -358,6 +362,8 @@ class ReleaseAdmissionTests(unittest.TestCase):
             return result
         with mock.patch.object(self.module, "ARTIFACT_ROOT", artifact_root), \
                 mock.patch.object(self.module, "BUILD_CACHE_ROOT", self.build_cache), \
+                mock.patch.object(self.module.shutil, "disk_usage", return_value=getattr(
+                    self, "disk_usage", self.module.shutil._ntuple_diskusage(10**13, 0, 10**13))), \
                 mock.patch.object(self.module, "require_buildx"), \
                 mock.patch.object(self.module, "require_no_registered_job_running"), \
                 mock.patch.object(self.module, "BUILD_LOCK", self.root / "release-build.lock"), \
@@ -396,6 +402,26 @@ class ReleaseAdmissionTests(unittest.TestCase):
         # The cache this build exported replaced the one it imported; nothing else is left behind.
         self.assertEqual([path.name for path in self.build_cache.iterdir()], ["publisher"])
         self.assertNotEqual(hashlib.sha256((kept / "index.json").read_bytes()).hexdigest(), index)
+
+    def test_no_cache_is_exported_when_the_cache_disk_lacks_room(self):
+        # The contract keeps min_free_bytes free after a cache of max_bytes; report less than that.
+        min_free, max_bytes = self.module.build_cache_bounds()
+        usage = self.module.shutil._ntuple_diskusage(10**13, 10**13 - min_free, min_free + max_bytes - 1)
+        self.expect_no_cache_to = True
+        self.disk_usage = usage
+        self.exercise_builder()
+        manifest = json.loads((self.root / "artifacts" / self.merged / "build.json").read_text())
+        self.assertIsNone(manifest["publisher_build_cache_index"])
+        self.assertEqual(list(self.build_cache.iterdir()), [])
+
+    def test_an_exported_cache_over_the_size_bound_is_discarded(self):
+        # Room on the disk, but the exported cache is larger than the contract's max_bytes.
+        min_free, _ = self.module.build_cache_bounds()
+        usage = self.module.shutil._ntuple_diskusage(10**13, 0, 10**13)
+        self.disk_usage = usage
+        with mock.patch.object(self.module, "build_cache_bounds", return_value=(min_free, 1)):
+            self.exercise_builder()
+        self.assertEqual(list(self.build_cache.iterdir()), [])
 
     def test_a_cache_whose_bytes_do_not_match_their_names_is_discarded(self):
         self.build_cache = self.root / "build-cache"

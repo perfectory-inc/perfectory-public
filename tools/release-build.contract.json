@@ -20,5 +20,10 @@
       "memory_limit": "4g",
       "memory_reason": "spark-submit only resolves the engine's Ivy packages into an empty cache; no Spark work runs. Unchanged from ADR-0134."
     }
+  },
+  "build_cache": {
+    "min_free_bytes": 21474836480,
+    "max_bytes": 16106127360,
+    "reason": "The publisher's dependency cache lives under /var/lib/perfectory on the host's root disk (the only root-owned path the admission accepts), and that disk ran out twice (2026-10-02). A new cache is exported only when, after it reaches max_bytes beside the kept one, at least min_free_bytes (20 GiB) stay free; an exported cache larger than max_bytes (15 GiB) is discarded instead of kept. Either way the release still builds; it only rebuilds the dependency layer next time (ADR-0155)."
   }
 }

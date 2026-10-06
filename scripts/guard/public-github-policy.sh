@@ -226,15 +226,19 @@ require(set(rules) == {
 # exact squash result of main plus the queued pull requests (root ADR-0155).
 # That replaces "branch must be up to date", which re-ran all checks of every
 # open pull request after each merge; the two must change together.
-require(rules["merge_queue"].get("parameters") == {
-    "check_response_timeout_minutes": 60,
-    "grouping_strategy": "ALLGREEN",
-    "max_entries_to_build": 3,
-    "max_entries_to_merge": 3,
-    "merge_method": "SQUASH",
-    "min_entries_to_merge": 1,
-    "min_entries_to_merge_wait_minutes": 0,
-}, "merge queue must squash, require every grouped pull request green, and bound concurrent builds")
+# Properties, not a copy of the ruleset's numbers: the ruleset file is the one source of the
+# values, and the guard refuses only what would weaken the queue.
+queue = rules["merge_queue"].get("parameters") or {}
+require(set(queue) == {
+    "check_response_timeout_minutes", "grouping_strategy", "max_entries_to_build",
+    "max_entries_to_merge", "merge_method", "min_entries_to_merge", "min_entries_to_merge_wait_minutes",
+} and queue["merge_method"] == "SQUASH" and queue["grouping_strategy"] == "ALLGREEN"
+        and isinstance(queue["max_entries_to_build"], int) and 1 <= queue["max_entries_to_build"] <= 5
+        and isinstance(queue["max_entries_to_merge"], int) and 1 <= queue["max_entries_to_merge"] <= queue["max_entries_to_build"]
+        and queue["min_entries_to_merge"] == 1
+        and isinstance(queue["check_response_timeout_minutes"], int) and queue["check_response_timeout_minutes"] >= 60,
+        "merge queue must squash, require every grouped pull request green, bound concurrent builds and "
+        "give the required checks at least an hour")
 pr = rules["pull_request"].get("parameters")
 require(pr == {
     "allowed_merge_methods": ["squash"],
