@@ -385,6 +385,9 @@ class PairingResult:
     review: list[dict[str, Any]] = field(default_factory=list)
     # {old code: how many of its parcels the official parcel rows move without deciding where the 동 went}
     official_partial_moves: dict[str, int] = field(default_factory=dict)
+    # {old code: [{new, changed_on, kind, share}]}: decisive official evidence dated outside its change
+    # window naming a code its pair does not (`off_window_moves`); each is also on the review list
+    official_off_window_decisive: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 def pair_changes(
@@ -624,18 +627,47 @@ def pair_changes(
         move on another day is another event (a boundary adjustment while the 동 lived on)."""
 
         window = change_window(old)
-        rows = [(lot, new) for lot, new, day in dated_by_old.get(old, ()) if day in window]
+        targets, how, lots = decisive_moves(old, [(lot, new) for lot, new, day in dated_by_old.get(old, ()) if day in window])
+        return set(targets), how, lots
+
+    def decisive_moves(old: str, rows: Sequence[tuple[str, str]]) -> tuple[dict[str, float | None], str, set[str]]:
+        """Of official rows `rows` ((old lot, or "" for a 동-level row; new code)): ({each code they
+        decisively move `old` into: its share of the old parcels, None for a 동-level row}, which rows
+        said so, the parcel lots of that move). Its 동-level rows decide first; else parcel rows
+        moving at least `min_share` of the parcels it held in the earlier edition into one code."""
+
         whole = {new for lot, new in rows if not lot}
         if whole:
-            return whole, "dong_level", set()
+            return {new: None for new in whole}, "dong_level", set()
         ev, _ = evidence(old)
         before = set(ev.before.get(old, {})) if ev is not None else set()
         moved: dict[str, set[str]] = {}
         for lot, new in rows:
             if lot in before:
                 moved.setdefault(new, set()).add(lot)
-        decisive = {new: lots for new, lots in moved.items() if len(lots) / len(before) >= min_share}
-        return set(decisive), "parcel_level", set().union(*decisive.values())
+        decisive = {new: held for new, held in moved.items() if len(held) / len(before) >= min_share}
+        return ({new: len(held) / len(before) for new, held in decisive.items()}, "parcel_level",
+                set().union(*decisive.values()))
+
+    def off_window_moves(old: str) -> list[dict[str, Any]]:
+        """Decisive official evidence dated outside `old`'s change window that moves it somewhere its
+        pair does not name. Not this change's evidence, so it contradicts nothing (`event_moves`), but
+        if the provider dated the same reorganization more than a day off, the pair written may be
+        wrong: a person looks (root ADR-0156)."""
+
+        window, paired = change_window(old), successors.get(old, set())
+        by_day: dict[str, list[tuple[str, str]]] = {}
+        for lot, new, day in dated_by_old.get(old, ()):
+            if day not in window:
+                by_day.setdefault(day, []).append((lot, new))
+        found = []
+        for day in sorted(by_day):
+            targets, how, _ = decisive_moves(old, by_day[day])
+            found.extend(
+                {"new": new, "changed_on": day, "kind": how, "share": None if share is None else round(share, 4)}
+                for new, share in sorted(targets.items()) if new not in paired
+            )
+        return found
 
     def hold_against_official(old: str, new: str, source: str) -> None:
         """A derived pair (recorded, the date + name rule's, or the 지번 step's) must name a code that
@@ -775,6 +807,26 @@ def pair_changes(
             }
         )
     result.official_partial_moves = {old: n for old in sorted(olds, key=order) if (n := partial_moves(old))}
+    for old in sorted(olds, key=order):
+        found = off_window_moves(old) if code_level(old) in LEAF_LEVELS else []
+        if not found:
+            continue
+        result.official_off_window_decisive[old] = found
+        row = by_code.get(old)
+        # Its own kind: the steward list approves only `pair` items, so no rule or approval clears it;
+        # a person reads the two sources (runbook `legal-dong-code-changes.md` 4 절).
+        result.review.append(
+            {
+                "kind": "official_off_window",
+                "old_code": old,
+                "level": code_level(old),
+                "status": "official_disagrees_off_window",
+                "paired_with": sorted(successors.get(old, set())),
+                "official": found,
+                "as_of": row.get("abolished_date", "") if row else "",
+                "name": row.get("full_name", "") if row else "",
+            }
+        )
     return result
 
 

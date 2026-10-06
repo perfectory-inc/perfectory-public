@@ -590,8 +590,29 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         pairs = {row["old_code"]: (row["new_code"], row["source"]) for row in plan["fresh_changes"]}
         self.assertEqual(pairs["9811010100"], ("9911010100", f"derived:code-go-kr:date+name:{DAY}"))
         self.assertEqual(plan["counts"]["official_partial_moves"], {"9811010100": 13})
-        # A whole-동 row on another day is another change too.
-        self.merger_with(dated([(dong_row("9811010100"), dong_row("9911010200"))], self.EARLIER))
+        self.assertEqual(plan["counts"]["official_off_window_decisive"], {})
+
+    def test_decisive_evidence_on_another_day_is_put_before_a_person_not_ignored(self):
+        # Review of #348: a whole-동 row on another day is another change, so it does not stop the run;
+        # but if the provider dated the same reorganization more than a day off, the pair written may be
+        # wrong. It is reported and listed, and no rule or approval clears it.
+        plan = self.merger_with(dated([(dong_row("9811010100"), dong_row("9911010200"))], self.EARLIER))
+        self.assertIn(("9811010100", "9911010100"), {(r["old_code"], r["new_code"]) for r in plan["fresh_changes"]})
+        self.assertEqual(plan["counts"]["official_off_window_decisive"],
+                         {"9811010100": [{"new": "9911010200", "changed_on": self.EARLIER, "kind": "dong_level", "share": None}]})
+        [item] = [i for i in plan["review"] if i["old_code"] == "9811010100"]
+        self.assertEqual((item["kind"], item["status"], item["paired_with"]),
+                         ("official_off_window", "official_disagrees_off_window", ["9911010100"]))
+        self.assertEqual(plan["counts"]["review_by_status"].get("official_disagrees_off_window"), 1)
+        with self.assertRaisesRegex(ValueError, "not on the steward list"):
+            pairs_job.steward_rows(plan["review"], ["9811010100=9911010200"], "steward-a", "checked", None, "run", NOW)
+        # Parcel rows moving the contract's share elsewhere on another day, with their share.
+        parcels = dated([(pnu("9811010100", n), pnu("9911010200", n)) for n in range(1, 201)], "20991001")
+        found = self.merger_with(parcels)["counts"]["official_off_window_decisive"]["9811010100"]
+        self.assertEqual(found, [{"new": "9911010200", "changed_on": "20991001", "kind": "parcel_level", "share": 1.0}])
+        # Off-window evidence naming the pair's own code says nothing new.
+        agree = dated([(dong_row("9811010100"), dong_row("9911010100"))], self.EARLIER)
+        self.assertEqual(self.merger_with(agree)["counts"]["official_off_window_decisive"], {})
 
     def test_a_partial_move_on_the_day_of_the_change_does_not_contradict_it(self):
         partial = dated([(pnu("9811010100", n), pnu("9911010200", 900 + n)) for n in range(1, 14)])

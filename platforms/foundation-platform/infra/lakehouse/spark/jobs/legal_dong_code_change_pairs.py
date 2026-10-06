@@ -183,6 +183,9 @@ def plan_derivation(
             # Parcels the official rows move without deciding a 동's pair (boundary adjustments), by old
             # code: parcel-lineage evidence, never a pair (root ADR-0156).
             "official_partial_moves": result.official_partial_moves,
+            # Decisive official evidence dated outside a code's change window that names another code:
+            # not this change's evidence, so no conflict, but each is on the review list for a person.
+            "official_off_window_decisive": result.official_off_window_decisive,
         },
     }
 
