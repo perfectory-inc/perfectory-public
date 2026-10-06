@@ -605,6 +605,6 @@ fn a_canary_step_without_the_zone_refuses() -> anyhow::Result<()> {
         .map(|error| format!("{error:#}"))
         .unwrap_or_default();
     assert!(refused.contains(&names.zone_id_env), "{refused}");
-    assert!(refused.contains(&names.env_file), "{refused}");
+    assert!(refused.contains(names.env_file()?), "{refused}");
     Ok(())
 }

@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **503개**
-- 언어 분류: **{'english': 37, 'korean': 310, 'mixed': 156}**
+- 감사 문서: **504개**
+- 언어 분류: **{'english': 37, 'korean': 311, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **231개 정상 / 0개 누락 / 272개 해당 없음**
+- 메타데이터: **231개 정상 / 0개 누락 / 273개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -171,9 +171,10 @@
 | `docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0151-building-packs-serve-each-document-whole.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0151-building-packs-serve-each-document-whole.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0153-runtime-secrets-have-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0154-building-pack-read-path-is-placed-beside-the-bucket.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

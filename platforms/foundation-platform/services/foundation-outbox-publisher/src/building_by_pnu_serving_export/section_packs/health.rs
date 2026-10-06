@@ -94,7 +94,11 @@ pub(crate) fn required_zone() -> anyhow::Result<String> {
         format!(
             "refused: a canary step counts the live hostname's 5xx from zone analytics and {} is \
              not set; add it to {} beside the token (scoped {})",
-            names.zone_id_env, names.env_file, names.token_scope
+            names.zone_id_env,
+            names
+                .env_file()
+                .unwrap_or("the runtime-secrets contract's cloudflare-analytics file"),
+            names.token_scope
         )
     })
 }
